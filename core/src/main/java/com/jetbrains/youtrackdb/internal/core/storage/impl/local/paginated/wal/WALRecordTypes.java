@@ -254,4 +254,14 @@ public final class WALRecordTypes {
   public static final int BTREE_SV_BUCKET_V3_SET_NEXT_FREE_LIST_PAGE_OP =
       PAGE_OPERATION_ID_BASE + 30;
   public static final int BTREE_SV_BUCKET_V3_UPDATE_VALUE_OP = PAGE_OPERATION_ID_BASE + 31;
+
+  // CellBTreeSingleValueBucketV3 entry operations (Track 5)
+  public static final int BTREE_SV_BUCKET_V3_ADD_LEAF_ENTRY_OP = PAGE_OPERATION_ID_BASE + 32;
+  public static final int BTREE_SV_BUCKET_V3_ADD_NON_LEAF_ENTRY_OP =
+      PAGE_OPERATION_ID_BASE + 33;
+  public static final int BTREE_SV_BUCKET_V3_REMOVE_LEAF_ENTRY_OP =
+      PAGE_OPERATION_ID_BASE + 34;
+  public static final int BTREE_SV_BUCKET_V3_REMOVE_NON_LEAF_ENTRY_OP =
+      PAGE_OPERATION_ID_BASE + 35;
+  public static final int BTREE_SV_BUCKET_V3_UPDATE_KEY_OP = PAGE_OPERATION_ID_BASE + 36;
 }

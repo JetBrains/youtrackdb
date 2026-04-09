@@ -203,6 +203,14 @@ public final class CellBTreeSingleValueBucketV3<K> extends DurablePage {
 
     setFreePointer(freePointer + entrySize);
 
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeSVBucketV3RemoveLeafEntryOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), entryIndex, key));
+    }
+
     return size;
   }
 
@@ -277,6 +285,16 @@ public final class CellBTreeSingleValueBucketV3<K> extends DurablePage {
         final var nextEntryPosition = getPointer(entryIndex);
         setIntValue(nextEntryPosition, childPointer);
       }
+    }
+
+    // Register in byte[] overload only (not the serializer convenience overload)
+    // to avoid double-registration per T5-5/R1/R15.
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeSVBucketV3RemoveNonLeafEntryOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), entryIndex, key, removeLeftChildPointer));
     }
 
     return size;
@@ -516,6 +534,14 @@ public final class CellBTreeSingleValueBucketV3<K> extends DurablePage {
     setBinaryValue(freePointer, serializedKey);
     setBinaryValue(freePointer + serializedKey.length, serializedValue);
 
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeSVBucketV3AddLeafEntryOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), index, serializedKey, serializedValue));
+    }
+
     return true;
   }
 
@@ -586,6 +612,14 @@ public final class CellBTreeSingleValueBucketV3<K> extends DurablePage {
       }
     }
 
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeSVBucketV3AddNonLeafEntryOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), index, leftChildIndex, newRightChildIndex, key));
+    }
+
     return true;
   }
 
@@ -601,8 +635,37 @@ public final class CellBTreeSingleValueBucketV3<K> extends DurablePage {
     final var keySize =
         getObjectSizeInDirectMemory(keySerializer, serializerFactory,
             entryPosition + 2 * IntegerSerializer.INT_SIZE);
-    assert entryPosition + keySize < MAX_PAGE_SIZE_BYTES;
-    if (key.length == keySize) {
+
+    // Capture oldKeySize before mutation for the PageOperation (T5-4/R3/R11)
+    var cacheEntry = getCacheEntry();
+    var result = updateKeyInternal(entryIndex, key, keySize);
+
+    if (result && cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeSVBucketV3UpdateKeyOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), entryIndex, key, keySize));
+    }
+
+    return result;
+  }
+
+  /**
+   * Replays updateKey during crash recovery using the captured oldKeySize, avoiding the need
+   * for a serializer. Per T5-4/R3/R11.
+   */
+  boolean updateKeyWithOldKeySize(final int entryIndex, final byte[] key, final int oldKeySize) {
+    if (isLeaf()) {
+      throw new IllegalStateException("Update key is applied to non-leaf buckets only");
+    }
+    return updateKeyInternal(entryIndex, key, oldKeySize);
+  }
+
+  private boolean updateKeyInternal(
+      final int entryIndex, final byte[] key, final int oldKeySize) {
+    final var entryPosition = getPointer(entryIndex);
+    assert entryPosition + oldKeySize < MAX_PAGE_SIZE_BYTES;
+    if (key.length == oldKeySize) {
       setBinaryValue(entryPosition + 2 * IntegerSerializer.INT_SIZE, key);
       return true;
     }
@@ -610,11 +673,11 @@ public final class CellBTreeSingleValueBucketV3<K> extends DurablePage {
     var size = getSize();
     var freePointer = getFreePointer();
 
-    if (doesOverflow(key.length - keySize, 0)) {
+    if (doesOverflow(key.length - oldKeySize, 0)) {
       return false;
     }
 
-    final var entrySize = keySize + 2 * IntegerSerializer.INT_SIZE;
+    final var entrySize = oldKeySize + 2 * IntegerSerializer.INT_SIZE;
 
     final var leftChildIndex = getIntValue(entryPosition);
     final var rightChildIndex = getIntValue(entryPosition + IntegerSerializer.INT_SIZE);
@@ -624,7 +687,7 @@ public final class CellBTreeSingleValueBucketV3<K> extends DurablePage {
       updatePointers(size, entryPosition, entrySize, entryIndex);
     }
 
-    freePointer = freePointer - key.length + keySize;
+    freePointer = freePointer - key.length + oldKeySize;
 
     setFreePointer(freePointer);
     setPointer(entryIndex, freePointer);
