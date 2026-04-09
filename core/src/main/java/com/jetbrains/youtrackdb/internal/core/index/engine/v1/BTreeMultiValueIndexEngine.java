@@ -279,6 +279,11 @@ public final class BTreeMultiValueIndexEngine
     nullTree.setApproximateEntriesCount(atomicOperation, 0);
     indexesSnapshot.clear();
     nullIndexesSnapshot.clear();
+    // In-memory counters are set eagerly inside the atomic operation. If the
+    // enclosing transaction rolls back, WAL reverts the persisted pages but these
+    // counters will remain at 0, temporarily diverging from the on-disk state.
+    // This is acceptable because counters are approximate by design and will be
+    // recalibrated on the next buildInitialHistogram() call or on load().
     approximateIndexEntriesCount.set(0);
     approximateNullCount.set(0);
     var mgr = histogramManager;
@@ -564,6 +569,11 @@ public final class BTreeMultiValueIndexEngine
 
     // Recalibrate from exact count — persist first so that if setApproximateEntriesCount
     // throws, the in-memory counters remain at their prior (approximate) values.
+    //
+    // Note: if the enclosing atomic operation rolls back after this point, WAL reverts
+    // the persisted page but the in-memory counters keep the new values. This temporary
+    // divergence is acceptable because counters are approximate by design and the next
+    // buildInitialHistogram() or load() will recalibrate them.
     svTree.setApproximateEntriesCount(atomicOperation, scannedNonNull);
     approximateIndexEntriesCount.set(scannedNonNull + approxNull);
   }
