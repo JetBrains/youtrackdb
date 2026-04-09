@@ -12,12 +12,11 @@ public final class CellBTreeSingleValueEntryPointV3<K> extends DurablePage {
   private static final int KEY_SERIALIZER_OFFSET = NEXT_FREE_POSITION;
   private static final int KEY_SIZE_OFFSET = KEY_SERIALIZER_OFFSET + ByteSerializer.BYTE_SIZE;
   private static final int TREE_SIZE_OFFSET = KEY_SIZE_OFFSET + IntegerSerializer.INT_SIZE;
-  private static final int APPROXIMATE_ENTRIES_COUNT_OFFSET =
-      TREE_SIZE_OFFSET + LongSerializer.LONG_SIZE;
-  private static final int PAGES_SIZE_OFFSET =
-      APPROXIMATE_ENTRIES_COUNT_OFFSET + LongSerializer.LONG_SIZE;
+  private static final int PAGES_SIZE_OFFSET = TREE_SIZE_OFFSET + LongSerializer.LONG_SIZE;
   private static final int FREE_LIST_HEAD_OFFSET =
       PAGES_SIZE_OFFSET + IntegerSerializer.INT_SIZE;
+  private static final int APPROXIMATE_ENTRIES_COUNT_OFFSET =
+      FREE_LIST_HEAD_OFFSET + IntegerSerializer.INT_SIZE;
 
   public CellBTreeSingleValueEntryPointV3(final CacheEntry cacheEntry) {
     super(cacheEntry);
@@ -60,7 +59,13 @@ public final class CellBTreeSingleValueEntryPointV3<K> extends DurablePage {
   }
 
   public int getFreeListHead() {
-    return getIntValue(FREE_LIST_HEAD_OFFSET);
+    final var head = getIntValue(FREE_LIST_HEAD_OFFSET);
+    // fix of binary compatibility.
+    // in previous version free list head is absent so 0 is considered as invalid value
+    if (head == 0) {
+      return -1;
+    }
+    return head;
   }
 
   public void setFreeListHead(int freeListHead) {

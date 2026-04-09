@@ -15,7 +15,7 @@ import org.junit.Test;
 /**
  * Unit tests for {@link CellBTreeSingleValueEntryPointV3} page layout,
  * verifying that the APPROXIMATE_ENTRIES_COUNT field is correctly positioned
- * after TREE_SIZE and that shifted PAGES_SIZE / FREE_LIST_HEAD offsets work.
+ * after FREE_LIST_HEAD and that PAGES_SIZE / FREE_LIST_HEAD offsets are unchanged.
  */
 public class CellBTreeSingleValueEntryPointV3Test {
 
@@ -179,18 +179,19 @@ public class CellBTreeSingleValueEntryPointV3Test {
     }
   }
 
-  // Verifies that getFreeListHead() returns 0 literally when 0 is stored,
-  // confirming the removal of the old binary-compat guard that mapped 0 → -1.
+  // Verifies that getFreeListHead() maps stored 0 to -1 for backward
+  // compatibility — in previous versions free list head was absent, so 0
+  // (zero-initialized bytes) is treated as "no free list".
   @Test
-  public void freeListHeadReturnsZeroLiterally() {
+  public void freeListHeadMapsZeroToMinusOne() {
     CacheEntry page = allocatePage();
     try {
       var ep = new CellBTreeSingleValueEntryPointV3<>(page);
       ep.init();
 
       ep.setFreeListHead(0);
-      assertEquals("freeListHead should return 0, not -1",
-          0, ep.getFreeListHead());
+      assertEquals("freeListHead should map 0 to -1 for backward compat",
+          -1, ep.getFreeListHead());
     } finally {
       releasePage(page);
     }
