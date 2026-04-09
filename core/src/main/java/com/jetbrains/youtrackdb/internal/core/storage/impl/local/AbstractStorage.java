@@ -6281,7 +6281,11 @@ public abstract class AbstractStorage
       evicted += 2;
     }
     if (evicted > 0) {
-      sizeCounter.addAndGet(-evicted);
+      // Clamp to zero: concurrent clear() and eviction may both decrement
+      // for the same entries (ConcurrentSkipListMap.remove is idempotent
+      // but both callers counted entries during their own iteration pass).
+      final long delta = evicted;
+      sizeCounter.updateAndGet(current -> Math.max(0, current - delta));
     }
   }
 

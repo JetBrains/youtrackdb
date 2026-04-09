@@ -259,7 +259,11 @@ public class IndexesSnapshot {
     }
     indexesSnapshot.clear();
     if (entryCount > 0) {
-      snapshotSizeCounter.addAndGet(-entryCount);
+      // Clamp to zero: concurrent clear() and eviction may both decrement
+      // for the same entries (ConcurrentSkipListMap.remove is idempotent
+      // but both callers counted entries during their own iteration pass).
+      final long delta = entryCount;
+      snapshotSizeCounter.updateAndGet(current -> Math.max(0, current - delta));
     }
   }
 }
