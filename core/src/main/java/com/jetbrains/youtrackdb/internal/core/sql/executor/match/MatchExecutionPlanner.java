@@ -1088,6 +1088,10 @@ public class MatchExecutionPlanner {
     }
 
     var result = new ArrayList<HashJoinBranch>();
+    // Track claimed edges to prevent overlapping branches from sharing edges.
+    // If two branches share an edge, the same edge would be skipped once in the
+    // main loop but included in two build plans, leading to duplicated traversal.
+    var claimedEdges = new HashSet<EdgeTraversal>();
 
     for (int i = 0; i < scheduledEdges.size(); i++) {
       var target = targetAlias(scheduledEdges.get(i));
@@ -1100,7 +1104,18 @@ public class MatchExecutionPlanner {
             scheduledEdges, i, visitedBefore, downstreamAliases,
             aliasClasses, aliasFilters, aliasRids, context);
         if (branch != null) {
-          result.add(branch);
+          // Discard branch if any of its edges overlap with an already-claimed branch
+          boolean overlaps = false;
+          for (var edge : branch.branchEdges()) {
+            if (claimedEdges.contains(edge)) {
+              overlaps = true;
+              break;
+            }
+          }
+          if (!overlaps) {
+            claimedEdges.addAll(branch.branchEdges());
+            result.add(branch);
+          }
         }
       }
     }
