@@ -19,6 +19,6 @@ DROP USER <user>
 DROP USER Foo
 ```
 
->For more information, see:
->- [`CREATE USER`](YQL-Create-User.md)
->- [YQL commands](YQL-Commands.md)
+> For more information, see:
+> - [`CREATE USER`](YQL-Create-User.md)
+> - [YQL commands](YQL-Commands.md)
