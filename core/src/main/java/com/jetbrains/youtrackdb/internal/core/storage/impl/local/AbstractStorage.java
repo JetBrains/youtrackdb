@@ -26,6 +26,7 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrackdb.api.exception.HighLevelException;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrackdb.internal.common.comparator.DefaultComparator;
 import com.jetbrains.youtrackdb.internal.common.concur.NeedRetryException;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedException;
@@ -214,13 +215,41 @@ public abstract class AbstractStorage
       Comparator.comparing(
           o -> o.record.getIdentity());
 
-  // Version comparator for index snapshot visibility-index maps: orders by the last key
-  // element (the committing TX's version = newVersion), falling back to natural CompositeKey
-  // ordering for uniqueness. Enables efficient headMap(lwm) eviction matching the
-  // collection/edge pattern where VisibilityKey.recordTs is the committing TX's timestamp.
+  /**
+   * Version comparator for index snapshot visibility-index maps: orders by the
+   * last key element (the committing TX's version = newVersion), falling back
+   * to full element-wise comparison for uniqueness. Enables efficient
+   * headMap(lwm) eviction.
+   *
+   * <p>Hand-written to avoid per-comparison allocations from
+   * Comparator.comparingLong (unboxing) and thenComparing(identity)
+   * (iterator allocation in CompositeKey.compareTo).
+   */
   public static final Comparator<CompositeKey> INDEX_SNAPSHOT_VERSION_COMPARATOR =
-      Comparator.comparingLong((CompositeKey a) -> (Long) a.getKeys().getLast())
-          .thenComparing(Function.identity());
+      (a, b) -> {
+        var aKeys = a.getKeys();
+        var bKeys = b.getKeys();
+        // Primary: compare last element (version) as long
+        int cmp = Long.compare(
+            (Long) aKeys.getLast(),
+            (Long) bKeys.getLast());
+        if (cmp != 0) {
+          return cmp;
+        }
+        // Tiebreaker: element-wise comparison without iterator allocation.
+        // Uses DefaultComparator for null-safe comparison (null keys are valid
+        // in snapshot visibility maps for null-indexed entries).
+        int aSize = aKeys.size();
+        int bSize = bKeys.size();
+        int minSize = Math.min(aSize, bSize);
+        for (int i = 0; i < minSize; i++) {
+          cmp = DefaultComparator.INSTANCE.compare(aKeys.get(i), bKeys.get(i));
+          if (cmp != 0) {
+            return cmp;
+          }
+        }
+        return Integer.compare(aSize, bSize);
+      };
 
   protected volatile LinkCollectionsBTreeManagerShared linkCollectionsBTreeManager;
 
