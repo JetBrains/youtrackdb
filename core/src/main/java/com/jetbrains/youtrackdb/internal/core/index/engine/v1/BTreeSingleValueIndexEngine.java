@@ -433,8 +433,8 @@ public final class BTreeSingleValueIndexEngine
     }
 
     // "from" could be null, then "to" is not (minor)
-    final var toKey = CompositeKey.asCompositeKey(rangeTo);
     if (rangeFrom == null) {
+      final var toKey = CompositeKey.asCompositeKey(rangeTo);
       return indexesSnapshot.visibilityFilterMapped(atomicOperation,
           sbTree.iterateEntriesMinor(toKey, toInclusive, ascSortOrder, atomicOperation),
           BTreeSingleValueIndexEngine::extractKey);
@@ -448,6 +448,7 @@ public final class BTreeSingleValueIndexEngine
           BTreeSingleValueIndexEngine::extractKey);
     }
 
+    final var toKey = CompositeKey.asCompositeKey(rangeTo);
     return indexesSnapshot.visibilityFilterMapped(atomicOperation,
         sbTree.iterateEntriesBetween(
             fromKey, fromInclusive, toKey, toInclusive, ascSortOrder, atomicOperation),
