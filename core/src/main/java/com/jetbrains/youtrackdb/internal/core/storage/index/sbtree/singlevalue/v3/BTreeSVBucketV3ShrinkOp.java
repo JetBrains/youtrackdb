@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.P
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -92,7 +93,7 @@ public final class BTreeSVBucketV3ShrinkOp extends PageOperation {
       return false;
     }
     for (var i = 0; i < retainedEntries.size(); i++) {
-      if (!java.util.Arrays.equals(retainedEntries.get(i), that.retainedEntries.get(i))) {
+      if (!Arrays.equals(retainedEntries.get(i), that.retainedEntries.get(i))) {
         return false;
       }
     }
@@ -104,7 +105,7 @@ public final class BTreeSVBucketV3ShrinkOp extends PageOperation {
     var result = super.hashCode();
     result = 31 * result + retainedEntries.size();
     for (var entry : retainedEntries) {
-      result = 31 * result + java.util.Arrays.hashCode(entry);
+      result = 31 * result + Arrays.hashCode(entry);
     }
     return result;
   }

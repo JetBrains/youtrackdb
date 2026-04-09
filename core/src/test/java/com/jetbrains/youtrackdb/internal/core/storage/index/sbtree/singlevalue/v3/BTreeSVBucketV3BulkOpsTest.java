@@ -5,6 +5,8 @@ import static org.mockito.Mockito.verify;
 
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
+import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
+import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
@@ -104,10 +106,28 @@ public class BTreeSVBucketV3BulkOpsTest {
     var deserialized = new BTreeSVBucketV3ShrinkOp();
     deserialized.fromStream(content, 1);
 
+    Assert.assertEquals(original.getPageIndex(), deserialized.getPageIndex());
+    Assert.assertEquals(original.getFileId(), deserialized.getFileId());
+    Assert.assertEquals(original.getInitialLsn(), deserialized.getInitialLsn());
     Assert.assertEquals(3, deserialized.getRetainedEntries().size());
     for (var i = 0; i < 3; i++) {
       Assert.assertArrayEquals(entries.get(i), deserialized.getRetainedEntries().get(i));
     }
+    Assert.assertEquals(original, deserialized);
+  }
+
+  @Test
+  public void testShrinkOpSerializationRoundtripEmptyList() {
+    var initialLsn = new LogSequenceNumber(3, 100);
+    var original = new BTreeSVBucketV3ShrinkOp(7, 14, 21, initialLsn, new ArrayList<>());
+
+    var content = new byte[original.serializedSize() + 1];
+    original.toStream(content, 1);
+
+    var deserialized = new BTreeSVBucketV3ShrinkOp();
+    deserialized.fromStream(content, 1);
+
+    Assert.assertEquals(0, deserialized.getRetainedEntries().size());
     Assert.assertEquals(original, deserialized);
   }
 
@@ -148,6 +168,8 @@ public class BTreeSVBucketV3BulkOpsTest {
     Assert.assertTrue(deserialized instanceof BTreeSVBucketV3ShrinkOp);
     var result = (BTreeSVBucketV3ShrinkOp) deserialized;
     Assert.assertEquals(2, result.getRetainedEntries().size());
+    Assert.assertArrayEquals(entries.get(0), result.getRetainedEntries().get(0));
+    Assert.assertArrayEquals(entries.get(1), result.getRetainedEntries().get(1));
   }
 
   // ---------- Redo correctness tests ----------
@@ -262,11 +284,14 @@ public class BTreeSVBucketV3BulkOpsTest {
   }
 
   /**
-   * shrink to half: verifies page reset + re-append produces identical state.
+   * shrink to half using actual shrink() method with IntegerSerializer: verifies that the
+   * actual production shrink path produces byte-identical state to the redo path.
    */
   @Test
   public void testShrinkToHalfRedoCorrectness() {
     var bufferPool = ByteBufferPool.instance(null);
+    var serializerFactory = BinarySerializerFactory.create(
+        BinarySerializerFactory.currentBinaryFormatVersion());
 
     var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
     var cachePointer1 = new CachePointer(pointer1, bufferPool, 0, 0);
@@ -282,30 +307,49 @@ public class BTreeSVBucketV3BulkOpsTest {
 
     try {
       var lsn = new LogSequenceNumber(0, 0);
-      var entry0 = new byte[] {1, 0, 0, 0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100};
-      var entry1b = new byte[] {2, 0, 0, 0, 11, 21, 31, 41, 51, 61, 71, 81, 91, 101};
-      var entry2b = new byte[] {3, 0, 0, 0, 12, 22, 32, 42, 52, 62, 72, 82, 92, 102};
-      var entry3 = new byte[] {4, 0, 0, 0, 13, 23, 33, 43, 53, 63, 73, 83, 93, 103};
-      var allEntries = List.of(entry0, entry1b, entry2b, entry3);
-      var retainedEntries = List.of(entry0, entry1b);
+      // 4-byte integer keys (IntegerSerializer) + 10-byte RID = 14 bytes per leaf entry
+      var key1 = new byte[4];
+      var key2 = new byte[4];
+      var key3 = new byte[4];
+      var key4 = new byte[4];
+      IntegerSerializer.INSTANCE.serializeNativeObject(1, serializerFactory, key1, 0);
+      IntegerSerializer.INSTANCE.serializeNativeObject(2, serializerFactory, key2, 0);
+      IntegerSerializer.INSTANCE.serializeNativeObject(3, serializerFactory, key3, 0);
+      IntegerSerializer.INSTANCE.serializeNativeObject(4, serializerFactory, key4, 0);
+      var value = new byte[] {10, 20, 30, 40, 50, 60, 70, 80, 90, 100};
 
-      // Setup both pages with 4 entries
-      var page1 = new CellBTreeSingleValueBucketV3<>(entry1);
+      // Setup both pages with 4 leaf entries using addLeafEntry
+      var page1 = new CellBTreeSingleValueBucketV3<Integer>(entry1);
       page1.init(true);
-      page1.addAll(new ArrayList<>(allEntries), null);
+      page1.addLeafEntry(0, key1, value);
+      page1.addLeafEntry(1, key2, value);
+      page1.addLeafEntry(2, key3, value);
+      page1.addLeafEntry(3, key4, value);
 
-      var page2 = new CellBTreeSingleValueBucketV3<>(entry2);
+      var page2 = new CellBTreeSingleValueBucketV3<Integer>(entry2);
       page2.init(true);
-      page2.addAll(new ArrayList<>(allEntries), null);
+      page2.addLeafEntry(0, key1, value);
+      page2.addLeafEntry(1, key2, value);
+      page2.addLeafEntry(2, key3, value);
+      page2.addLeafEntry(3, key4, value);
 
       Assert.assertEquals(4, page1.size());
 
-      // Direct path: resetAndAddAll (same as what shrink's redo does)
-      page1.resetAndAddAll(new ArrayList<>(retainedEntries));
+      // Capture retained entries before shrink for the redo side
+      var retained = new ArrayList<byte[]>();
+      retained.add(page1.getRawEntry(0, IntegerSerializer.INSTANCE, serializerFactory));
+      retained.add(page1.getRawEntry(1, IntegerSerializer.INSTANCE, serializerFactory));
+
+      // Direct path: actual production shrink()
+      page1.shrink(2, IntegerSerializer.INSTANCE, serializerFactory);
 
       // Redo path
-      new BTreeSVBucketV3ShrinkOp(0, 0, 0, lsn,
-          new ArrayList<>(retainedEntries)).redo(page2);
+      new BTreeSVBucketV3InitOp(0, 0, 0, lsn, true).redo(page2);
+      new BTreeSVBucketV3AddLeafEntryOp(0, 0, 0, lsn, 0, key1, value).redo(page2);
+      new BTreeSVBucketV3AddLeafEntryOp(0, 0, 0, lsn, 1, key2, value).redo(page2);
+      new BTreeSVBucketV3AddLeafEntryOp(0, 0, 0, lsn, 2, key3, value).redo(page2);
+      new BTreeSVBucketV3AddLeafEntryOp(0, 0, 0, lsn, 3, key4, value).redo(page2);
+      new BTreeSVBucketV3ShrinkOp(0, 0, 0, lsn, retained).redo(page2);
 
       Assert.assertEquals(2, page1.size());
       Assert.assertEquals(2, page2.size());
@@ -324,11 +368,13 @@ public class BTreeSVBucketV3BulkOpsTest {
   }
 
   /**
-   * shrink to 0: root bucket split scenario where all entries move to a new bucket.
+   * shrink to 0 using actual shrink() method: root bucket split scenario.
    */
   @Test
   public void testShrinkToZeroRedoCorrectness() {
     var bufferPool = ByteBufferPool.instance(null);
+    var serializerFactory = BinarySerializerFactory.create(
+        BinarySerializerFactory.currentBinaryFormatVersion());
 
     var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
     var cachePointer1 = new CachePointer(pointer1, bufferPool, 0, 0);
@@ -344,23 +390,30 @@ public class BTreeSVBucketV3BulkOpsTest {
 
     try {
       var lsn = new LogSequenceNumber(0, 0);
-      var entry0 = new byte[] {1, 0, 0, 0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100};
-      var entry1b = new byte[] {2, 0, 0, 0, 11, 21, 31, 41, 51, 61, 71, 81, 91, 101};
-      var allEntries = List.of(entry0, entry1b);
+      var key1 = new byte[4];
+      var key2 = new byte[4];
+      IntegerSerializer.INSTANCE.serializeNativeObject(1, serializerFactory, key1, 0);
+      IntegerSerializer.INSTANCE.serializeNativeObject(2, serializerFactory, key2, 0);
+      var value = new byte[] {10, 20, 30, 40, 50, 60, 70, 80, 90, 100};
 
       // Setup both pages with 2 entries
-      var page1 = new CellBTreeSingleValueBucketV3<>(entry1);
+      var page1 = new CellBTreeSingleValueBucketV3<Integer>(entry1);
       page1.init(true);
-      page1.addAll(new ArrayList<>(allEntries), null);
+      page1.addLeafEntry(0, key1, value);
+      page1.addLeafEntry(1, key2, value);
 
-      var page2 = new CellBTreeSingleValueBucketV3<>(entry2);
+      var page2 = new CellBTreeSingleValueBucketV3<Integer>(entry2);
       page2.init(true);
-      page2.addAll(new ArrayList<>(allEntries), null);
+      page2.addLeafEntry(0, key1, value);
+      page2.addLeafEntry(1, key2, value);
 
-      // Direct path: shrink to 0
-      page1.resetAndAddAll(new ArrayList<>());
+      // Direct path: actual shrink to 0
+      page1.shrink(0, IntegerSerializer.INSTANCE, serializerFactory);
 
       // Redo path
+      new BTreeSVBucketV3InitOp(0, 0, 0, lsn, true).redo(page2);
+      new BTreeSVBucketV3AddLeafEntryOp(0, 0, 0, lsn, 0, key1, value).redo(page2);
+      new BTreeSVBucketV3AddLeafEntryOp(0, 0, 0, lsn, 1, key2, value).redo(page2);
       new BTreeSVBucketV3ShrinkOp(0, 0, 0, lsn, new ArrayList<>()).redo(page2);
 
       Assert.assertEquals(0, page1.size());
@@ -466,6 +519,60 @@ public class BTreeSVBucketV3BulkOpsTest {
     }
   }
 
+  /**
+   * addAll on a non-leaf bucket: non-leaf entries have leftChild(4)+rightChild(4)+key(variable)
+   * format. Verifies the format-agnostic raw entry handling.
+   */
+  @Test
+  public void testAddAllNonLeafBucketRedoCorrectness() {
+    var bufferPool = ByteBufferPool.instance(null);
+
+    var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer1 = new CachePointer(pointer1, bufferPool, 0, 0);
+    cachePointer1.incrementReferrer();
+    CacheEntry entry1 = new CacheEntryImpl(0, 0, cachePointer1, false, null);
+    entry1.acquireExclusiveLock();
+
+    var pointer2 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer2 = new CachePointer(pointer2, bufferPool, 0, 0);
+    cachePointer2.incrementReferrer();
+    CacheEntry entry2 = new CacheEntryImpl(0, 0, cachePointer2, false, null);
+    entry2.acquireExclusiveLock();
+
+    try {
+      var lsn = new LogSequenceNumber(0, 0);
+      // Non-leaf entries: leftChild(4) + rightChild(4) + key(4) = 12 bytes each
+      var e0 = new byte[] {0, 0, 0, 1, 0, 0, 0, 2, 10, 0, 0, 0};
+      var e1 = new byte[] {0, 0, 0, 2, 0, 0, 0, 3, 20, 0, 0, 0};
+      var e2 = new byte[] {0, 0, 0, 3, 0, 0, 0, 4, 30, 0, 0, 0};
+      var entries = List.of(e0, e1, e2);
+
+      // Direct path
+      var page1 = new CellBTreeSingleValueBucketV3<>(entry1);
+      page1.init(false);
+      page1.addAll(new ArrayList<>(entries), null);
+
+      // Redo path
+      var page2 = new CellBTreeSingleValueBucketV3<>(entry2);
+      new BTreeSVBucketV3InitOp(0, 0, 0, lsn, false).redo(page2);
+      new BTreeSVBucketV3AddAllOp(0, 0, 0, lsn, new ArrayList<>(entries)).redo(page2);
+
+      Assert.assertEquals(3, page2.size());
+      Assert.assertFalse(page2.isLeaf());
+
+      var buf1 = cachePointer1.getBuffer();
+      var buf2 = cachePointer2.getBuffer();
+      Assert.assertEquals(
+          "Page buffers must be identical after addAll redo on non-leaf bucket",
+          0, buf1.compareTo(buf2));
+    } finally {
+      entry1.releaseExclusiveLock();
+      entry2.releaseExclusiveLock();
+      cachePointer1.decrementReferrer();
+      cachePointer2.decrementReferrer();
+    }
+  }
+
   // ---------- Registration tests ----------
 
   @Test
@@ -501,16 +608,24 @@ public class BTreeSVBucketV3BulkOpsTest {
 
       var registeredOp = (BTreeSVBucketV3AddAllOp) opCaptor.getValue();
       Assert.assertEquals(2, registeredOp.getRawEntries().size());
+      Assert.assertArrayEquals(entries.get(0), registeredOp.getRawEntries().get(0));
+      Assert.assertArrayEquals(entries.get(1), registeredOp.getRawEntries().get(1));
     } finally {
       delegate.releaseExclusiveLock();
       cachePointer.decrementReferrer();
     }
   }
 
+  /**
+   * Verify that actual shrink() method registers a BTreeSVBucketV3ShrinkOp (not AddAllOp)
+   * with the correct retained entries. Uses IntegerSerializer for getRawEntry.
+   */
   @Test
   public void testShrinkRegistersOp() {
     var atomicOp = mock(AtomicOperation.class);
     var changes = new CacheEntryChanges(false, atomicOp);
+    var serializerFactory = BinarySerializerFactory.create(
+        BinarySerializerFactory.currentBinaryFormatVersion());
 
     var bufferPool = ByteBufferPool.instance(null);
     var pointer = bufferPool.acquireDirect(true, Intention.TEST);
@@ -523,33 +638,39 @@ public class BTreeSVBucketV3BulkOpsTest {
       changes.setDelegate(delegate);
       changes.setInitialLSN(new LogSequenceNumber(2, 200));
 
-      var page = new CellBTreeSingleValueBucketV3<>(changes);
+      var page = new CellBTreeSingleValueBucketV3<Integer>(changes);
       page.init(true);
-      var entries = List.of(
-          new byte[] {1, 0, 0, 0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100},
-          new byte[] {2, 0, 0, 0, 11, 21, 31, 41, 51, 61, 71, 81, 91, 101},
-          new byte[] {3, 0, 0, 0, 12, 22, 32, 42, 52, 62, 72, 82, 92, 102},
-          new byte[] {4, 0, 0, 0, 13, 23, 33, 43, 53, 63, 73, 83, 93, 103});
-      page.addAll(new ArrayList<>(entries), null);
+      // Add entries via addLeafEntry so getRawEntry works with IntegerSerializer
+      var key1 = new byte[4];
+      var key2 = new byte[4];
+      var key3 = new byte[4];
+      var key4 = new byte[4];
+      IntegerSerializer.INSTANCE.serializeNativeObject(1, serializerFactory, key1, 0);
+      IntegerSerializer.INSTANCE.serializeNativeObject(2, serializerFactory, key2, 0);
+      IntegerSerializer.INSTANCE.serializeNativeObject(3, serializerFactory, key3, 0);
+      IntegerSerializer.INSTANCE.serializeNativeObject(4, serializerFactory, key4, 0);
+      var value = new byte[] {10, 20, 30, 40, 50, 60, 70, 80, 90, 100};
+      page.addLeafEntry(0, key1, value);
+      page.addLeafEntry(1, key2, value);
+      page.addLeafEntry(2, key3, value);
+      page.addLeafEntry(3, key4, value);
       org.mockito.Mockito.reset(atomicOp);
 
-      // shrink requires serializer for getRawEntry — use resetAndAddAll to simulate
-      // The actual shrink() registration is integration-tested.
-      // Here we verify that resetAndAddAll does NOT register (it's the redo path).
-      page.resetAndAddAll(List.of(entries.get(0), entries.get(1)));
+      // Call actual shrink() with real serializer
+      page.shrink(2, IntegerSerializer.INSTANCE, serializerFactory);
 
-      // resetAndAddAll calls addAll with null serializer on a plain CacheEntryChanges,
-      // but addAll will register an AddAllOp. We verify the ShrinkOp is not registered
-      // (shrink registration only happens in the shrink() method, not resetAndAddAll).
       var opCaptor = ArgumentCaptor.forClass(PageOperation.class);
       verify(atomicOp).registerPageOperation(
           org.mockito.ArgumentMatchers.eq(42L),
           org.mockito.ArgumentMatchers.eq(7L),
           opCaptor.capture());
 
-      // The registered op should be AddAllOp (from the addAll call inside resetAndAddAll),
-      // not ShrinkOp. This verifies resetAndAddAll doesn't create a ShrinkOp.
-      Assert.assertTrue(opCaptor.getValue() instanceof BTreeSVBucketV3AddAllOp);
+      var registeredOp = opCaptor.getValue();
+      Assert.assertTrue(
+          "Expected ShrinkOp but got " + registeredOp.getClass().getSimpleName(),
+          registeredOp instanceof BTreeSVBucketV3ShrinkOp);
+      var shrinkOp = (BTreeSVBucketV3ShrinkOp) registeredOp;
+      Assert.assertEquals(2, shrinkOp.getRetainedEntries().size());
     } finally {
       delegate.releaseExclusiveLock();
       cachePointer.decrementReferrer();

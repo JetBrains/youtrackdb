@@ -492,16 +492,10 @@ public final class CellBTreeSingleValueBucketV3<K> extends DurablePage {
 
   public void shrink(final int newSize, final BinarySerializer<K> keySerializer,
       BinarySerializerFactory serializerFactory) {
-    final var currentSize = size();
     final List<byte[]> rawEntries = new ArrayList<>(newSize);
-    final List<byte[]> removedEntries = new ArrayList<>(currentSize - newSize);
 
     for (var i = 0; i < newSize; i++) {
       rawEntries.add(getRawEntry(i, keySerializer, serializerFactory));
-    }
-
-    for (var i = newSize; i < currentSize; i++) {
-      removedEntries.add(getRawEntry(i, keySerializer, serializerFactory));
     }
 
     setFreePointer(MAX_PAGE_SIZE_BYTES);
