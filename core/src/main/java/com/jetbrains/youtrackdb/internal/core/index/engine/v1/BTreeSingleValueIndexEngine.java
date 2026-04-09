@@ -290,7 +290,8 @@ public final class BTreeSingleValueIndexEngine
   public boolean put(@Nonnull AtomicOperation atomicOperation, Object key, RID value) {
     try {
       var compositeKey = convertToCompositeKeyDefensive(key);
-      boolean wasInserted = doPutSingleValue(atomicOperation, compositeKey, value, key);
+      boolean wasInserted =
+          doPutSingleValue(atomicOperation, compositeKey, value, key, null);
 
       var mgr = histogramManager;
       if (mgr != null) {
@@ -314,15 +315,16 @@ public final class BTreeSingleValueIndexEngine
     try {
       var compositeKey = convertToCompositeKeyDefensive(key);
 
-      // Validate at engine level before mutation
+      // Validate at engine level before mutation, keeping the scan result
+      // to avoid a second B-tree descent inside doPutSingleValue.
+      Optional<RawPair<CompositeKey, RID>> prefetched = null;
       if (validator != null) {
-        Optional<RawPair<CompositeKey, RID>> existing;
         try (var stream = sbTree.iterateEntriesBetween(
             compositeKey, true, compositeKey, true, true, atomicOperation)) {
-          existing = stream.findAny();
+          prefetched = stream.findAny();
         }
-        if (existing.isPresent()) {
-          var removedRID = existing.get().second();
+        if (prefetched.isPresent()) {
+          var removedRID = prefetched.get().second();
           // Tombstone means logically deleted — treat as no occupant
           if (!(removedRID instanceof TombstoneRID)) {
             var result = validator.validate(key, removedRID.getIdentity(), value);
@@ -333,7 +335,8 @@ public final class BTreeSingleValueIndexEngine
         }
       }
 
-      boolean wasInserted = doPutSingleValue(atomicOperation, compositeKey, value, key);
+      boolean wasInserted =
+          doPutSingleValue(atomicOperation, compositeKey, value, key, prefetched);
 
       var mgr = histogramManager;
       if (mgr != null) {
@@ -356,19 +359,26 @@ public final class BTreeSingleValueIndexEngine
    * @param compositeKey defensive copy of the user key (will be mutated by addKey)
    * @param value the RID to insert
    * @param key the original (unmapped) key, used for null-key detection in delta accumulation
+   * @param prefetched if non-null, reuses the result from validatedPut's scan instead of
+   *     performing a second B-tree descent
    * @return true if a new B-tree entry was inserted
    */
   private boolean doPutSingleValue(
       @Nonnull AtomicOperation atomicOperation,
       CompositeKey compositeKey,
       RID value,
-      Object key) throws IOException {
+      Object key,
+      @Nullable Optional<RawPair<CompositeKey, RID>> prefetched) throws IOException {
     boolean wasInserted;
 
     Optional<RawPair<CompositeKey, RID>> existing;
-    try (var stream = sbTree.iterateEntriesBetween(
-        compositeKey, true, compositeKey, true, true, atomicOperation)) {
-      existing = stream.findAny();
+    if (prefetched != null) {
+      existing = prefetched;
+    } else {
+      try (var stream = sbTree.iterateEntriesBetween(
+          compositeKey, true, compositeKey, true, true, atomicOperation)) {
+        existing = stream.findAny();
+      }
     }
     var version = atomicOperation.getCommitTs();
     if (existing.isPresent()) {
