@@ -33,7 +33,7 @@ jobs:
       - type-cpx42
       - image-x86-system-ubuntu-24.04
       - in-nbg1-fsn1-hel1
-    timeout-minutes: 720
+    timeout-minutes: ${{ contains(inputs.failed_workflow_name, 'integration') && 720 || 360 }}
     env:
       FAILED_RUN_URL: ${{ inputs.failed_run_url }}
       FAILED_WORKFLOW_NAME: ${{ inputs.failed_workflow_name }}
@@ -81,10 +81,12 @@ jobs:
             FULL_TEST_CMD="./mvnw clean verify -P ci-integration-tests -Dyoutrackdb.test.env=ci"
             FINAL_TEST_CMD="./mvnw clean verify -P ci-integration-tests,coverage -Dyoutrackdb.test.env=ci"
             TEST_SCOPE="unit + integration"
+            TIME_BUDGET="12 hours"
           else
             FULL_TEST_CMD="./mvnw clean package -Dyoutrackdb.test.env=ci"
             FINAL_TEST_CMD="./mvnw clean package -P coverage -Dyoutrackdb.test.env=ci"
             TEST_SCOPE="unit only"
+            TIME_BUDGET="6 hours"
           fi
 
           cat > /tmp/fix-agent-prompt-$$.md << 'AGENT_PROMPT_EOF'
@@ -101,7 +103,7 @@ jobs:
             push, and create PRs.
           - There is no user to ask questions — make reasonable decisions
             autonomously.
-          - **Time budget: 12 hours total.** Plan accordingly — a full module
+          - **Time budget: __TIME_BUDGET__ total.** Plan accordingly — a full module
             test suite (`./mvnw -pl core clean test`) takes ~20-40 min,
             integration tests take ~60-90 min. Prefer running only the
             specific failing test first, then the full module suite only if
@@ -364,18 +366,7 @@ jobs:
              ```bash
              __FULL_TEST_CMD__
              ```
-          5. **Run only the specific integration tests you changed**
-             (if any). Use failsafe's `-Dit.test=` to target them:
-             ```bash
-             ./mvnw -pl {module} clean verify \
-               -P ci-integration-tests \
-               -Dit.test={ChangedITClass} \
-               -Dyoutrackdb.test.env=ci
-             ```
-             Skip this step when test scope is "unit + integration"
-             (step 4 already runs all integration tests), when test scope
-             is "unit only", or if no integration test files were modified.
-          6. **Do NOT proceed to Step 6 if any test fails.** Fix the
+          5. **Do NOT proceed to Step 6 if any test fails.** Fix the
              failures first and re-run.
 
           ## Step 6: Dimensional review (MANDATORY GATE)
@@ -481,7 +472,7 @@ jobs:
              there are still critical issues, document them in the
              summary and proceed.
 
-          8. **Final full test run after review loop completes.**
+          6.8. **Final full test run after review loop completes.**
              After the review loop exits (all findings addressed or max
              iterations reached), run the full test suite (__TEST_SCOPE__)
              one final time:
@@ -489,10 +480,10 @@ jobs:
              __FINAL_TEST_CMD__
              ```
              If any test fails, fix the failure, re-run `spotless:apply`,
-             and re-run the suite. Do NOT proceed to step 9 with
+             and re-run the suite. Do NOT proceed to step 6.9 with
              failing tests.
 
-          9. **Check code coverage of changed lines.**
+          6.9. **Check code coverage of changed lines.**
              Verify that changed lines meet the project coverage thresholds
              (85% line, 70% branch):
              ```bash
@@ -505,7 +496,7 @@ jobs:
              ```
              If coverage is below the threshold, add or improve tests for
              uncovered lines, re-run `spotless:apply`, and re-run from
-             step 8. Maximum 3 coverage-fix iterations. If coverage still
+             step 6.8. Maximum 3 coverage-fix iterations. If coverage still
              fails after 3 attempts, document the remaining gaps in the
              summary and proceed to Step 7.
 
@@ -632,10 +623,11 @@ jobs:
           - **Test scope**: ${TEST_SCOPE}
           EOF
 
-          # Replace test-scope placeholders with computed values
+          # Replace placeholders with computed values
           sed -i "s|__FULL_TEST_CMD__|${FULL_TEST_CMD}|g" /tmp/fix-agent-prompt-$$.md
           sed -i "s|__FINAL_TEST_CMD__|${FINAL_TEST_CMD}|g" /tmp/fix-agent-prompt-$$.md
           sed -i "s|__TEST_SCOPE__|${TEST_SCOPE}|g" /tmp/fix-agent-prompt-$$.md
+          sed -i "s|__TIME_BUDGET__|${TIME_BUDGET}|g" /tmp/fix-agent-prompt-$$.md
           # Coverage already collected by FINAL_TEST_CMD — remove the placeholder line
           sed -i "/__COVERAGE_TEST_CMD__/d" /tmp/fix-agent-prompt-$$.md
 
