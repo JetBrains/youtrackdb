@@ -10,7 +10,7 @@ DROP CLASS <class> [IF EXISTS] [UNSAFE]
 
 - **`<class>`** — Defines the class you want to remove.
 - **`IF EXISTS`** — Prevents an error if the class does not exist.
-- **`UNSAFE`** — Forces removal even if the class contains vertices or edges. Without this keyword, the command refuses to drop a class that still has records, to avoid broken edges in the database.
+- **`UNSAFE`** — Forces removal even if the class contains vertices or edges. Without this keyword, the command refuses to drop a vertex or edge class that still has records, to avoid broken edges in the database.
 
 >**NOTE**: Bear in mind that the schema must remain coherent. For instance, avoid removing classes that are superclasses to others.
 

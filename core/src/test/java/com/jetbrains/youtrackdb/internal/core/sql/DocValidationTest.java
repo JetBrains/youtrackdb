@@ -3652,6 +3652,47 @@ public class DocValidationTest {
         () -> g.computeInTx(tx -> tx.yql("SELECT FROM Account").toList()));
   }
 
+  // Line 12: IF EXISTS — dropping a non-existent class with IF EXISTS should succeed silently
+  @Test
+  public void testDropClassIfExistsNonExistent() {
+    // Should not throw — IF EXISTS suppresses the error
+    g.command("DROP CLASS NonExistentDropIfExists IF EXISTS");
+  }
+
+  // Line 12: Without IF EXISTS, dropping a non-existent class should throw an error
+  @Test
+  public void testDropClassNonExistentThrowsError() {
+    assertThatThrownBy(() -> g.command("DROP CLASS NonExistentDropNoIfExists"));
+  }
+
+  // Line 13: UNSAFE — verify that edge classes with data also require UNSAFE
+  @Test
+  public void testDropClassEdgeWithDataRequiresUnsafe() {
+    g.command("CREATE CLASS DropEdgeSrc IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DropEdgeTgt IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DropEdgeClass IF NOT EXISTS EXTENDS E");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DropEdgeSrc SET name = 'a'").iterate();
+      tx.yql("CREATE VERTEX DropEdgeTgt SET name = 'b'").iterate();
+      tx.yql(
+          "CREATE EDGE DropEdgeClass FROM (SELECT FROM DropEdgeSrc) TO (SELECT FROM DropEdgeTgt)")
+          .iterate();
+    });
+
+    // Dropping an edge class with data should fail without UNSAFE
+    assertThatThrownBy(() -> g.command("DROP CLASS DropEdgeClass"));
+
+    // With UNSAFE it succeeds
+    g.command("DROP CLASS DropEdgeClass UNSAFE");
+
+    assertThatThrownBy(
+        () -> g.computeInTx(tx -> tx.yql("SELECT FROM DropEdgeClass").toList()));
+
+    // Clean up
+    g.command("DROP CLASS DropEdgeSrc UNSAFE");
+    g.command("DROP CLASS DropEdgeTgt UNSAFE");
+  }
+
   // === YQL-Drop-Index.md ===
 
   // Line 5: DROP INDEX throws an error if the index does not exist (without IF EXISTS)
