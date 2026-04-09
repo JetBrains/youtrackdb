@@ -1131,7 +1131,6 @@ public class MatchExecutionPlanner {
    *
    * @return a {@link HashJoinBranch} if eligible, or {@code null} if not
    */
-  @SuppressWarnings("unchecked")
   @Nullable private static HashJoinBranch traceBackwardBranch(
       List<EdgeTraversal> scheduledEdges,
       int checkIdx,
@@ -1145,32 +1144,129 @@ public class MatchExecutionPlanner {
     var checkTarget = targetAlias(checkEdge);
     var checkSource = sourceAlias(checkEdge);
 
-    // The consistency-check edge connects two already-visited aliases (checkSource
-    // and checkTarget). We identify the "branch" by collecting edges just before
-    // the check edge that introduced NEW aliases not in visitedBeforeCheck.
-    //
-    // Strategy: walk backward from checkIdx, collecting consecutive edges whose
-    // target was not yet in visitedBeforeCheck (i.e., edges that introduced new
-    // intermediate aliases as part of this branch). Stop when we reach an edge
-    // whose source is in visitedBeforeCheck (the branch root).
+    // Phase 1: Walk backward to collect branch edges and intermediate aliases
+    var trace = traceBackwardEdges(
+        scheduledEdges, checkIdx, visitedBefore, checkSource, checkTarget);
+    if (trace == null) {
+      return null;
+    }
+
+    // Phase 2: Eligibility checks (optional nodes, context dependencies,
+    // external $matched dependencies on intermediates)
+    var joinMode = checkBranchEligibility(
+        trace.branchEdges, trace.intermediateAliases, scheduledEdges,
+        downstreamAliases, aliasFilters);
+    if (joinMode == null) {
+      return null;
+    }
+
+    // Also check shared aliases (checkTarget, checkSource, branchRoot) — their
+    // filters are used in the build-side plan's scan or leftFilter, and $matched
+    // is not populated in the isolated context.
+    if (filterDependsOnContext(aliasFilters.get(checkTarget))
+        || filterDependsOnContext(aliasFilters.get(checkSource))
+        || filterDependsOnContext(aliasFilters.get(trace.branchRoot))) {
+      return null;
+    }
+
+    // Phase 3: Cardinality estimation and cost-based guards
+    long cardinality = estimateBranchCardinality(
+        trace.branchRoot, trace.branchEdges, aliasClasses, aliasFilters,
+        aliasRids, context);
+    long threshold = getHashJoinThreshold();
+    if (cardinality > threshold) {
+      return null;
+    }
+
+    // INNER_JOIN materializes full ResultInternal rows (~7× heavier per entry
+    // than SEMI_JOIN's lightweight JoinKey entries). Apply a tighter threshold.
+    if (joinMode == JoinMode.INNER_JOIN
+        && cardinality > threshold / INNER_JOIN_MEMORY_WEIGHT) {
+      return null;
+    }
+
+    // Guards 1 & 2 are only active when upstreamMin > 0. Setting upstreamMin to 0
+    // bypasses both guards — only the build-side threshold applies.
+    long upstreamMin = getHashJoinUpstreamMin();
+    if (upstreamMin > 0) {
+      // Guard 1: Skip hash join when the upstream (probe side) is small.
+      long upstreamCardinality = estimateUpstreamCardinality(
+          scheduledEdges, checkIdx, trace.branchEdges,
+          aliasClasses, aliasFilters, aliasRids, context);
+      if (upstreamCardinality < upstreamMin) {
+        return null;
+      }
+
+      // Guard 2: Cost-based comparison.
+      //   hashJoinCost  = build_cardinality + upstream
+      //   nestedLoopCost = upstream × branchFanOut × numHops
+      double branchFanOut = estimateBranchFanOut(
+          trace.branchEdges, trace.branchRoot, aliasClasses, aliasFilters,
+          context);
+      int numBranchHops = Math.max(1, trace.branchEdges.size() - 1);
+      double nestedLoopCost = upstreamCardinality * branchFanOut * numBranchHops;
+      double hashJoinCost = (double) cardinality + upstreamCardinality;
+      if (hashJoinCost >= nestedLoopCost) {
+        return null;
+      }
+    }
+
+    // Shared aliases: the branch root and the check edge's non-intermediate endpoint
+    var otherShared = trace.intermediateAliases.contains(checkSource)
+        ? checkTarget : checkSource;
+    var sharedAliases = trace.branchRoot.equals(otherShared)
+        ? List.of(trace.branchRoot) : List.of(otherShared, trace.branchRoot);
+
+    // The build plan needs a scan alias with a known class or RID.
+    var scanAlias = findScanAlias(
+        otherShared, trace.branchRoot, trace.intermediateAliases, aliasClasses,
+        aliasRids);
+    if (scanAlias == null) {
+      return null;
+    }
+
+    return new HashJoinBranch(
+        sharedAliases, trace.branchEdges, trace.intermediateAliases, cardinality,
+        joinMode, scanAlias);
+  }
+
+  /** Intermediate result from backward edge tracing in {@link #traceBackwardBranch}. */
+  private record BranchTrace(
+      List<EdgeTraversal> branchEdges,
+      Set<String> intermediateAliases,
+      String branchRoot) {
+  }
+
+  /**
+   * Walks backward from the consistency-check edge at {@code checkIdx}, collecting
+   * consecutive edges whose target was not yet visited when that edge was processed
+   * (i.e., edges that introduced new intermediate aliases). Stops when the branch
+   * root (an already-visited source alias) is found.
+   *
+   * @return the traced branch edges, intermediate aliases, and branch root; or
+   *         {@code null} if no valid branch was found
+   */
+  @SuppressWarnings("unchecked")
+  @Nullable private static BranchTrace traceBackwardEdges(
+      List<EdgeTraversal> scheduledEdges,
+      int checkIdx,
+      Set<String>[] visitedBefore,
+      String checkSource,
+      String checkTarget) {
+    var checkEdge = scheduledEdges.get(checkIdx);
     var branchEdges = new ArrayList<EdgeTraversal>();
     branchEdges.add(checkEdge);
     var intermediateAliases = new HashSet<String>();
 
-    // Walk backward looking for edges that introduced a NEW alias (one that was
-    // not yet visited when that edge was processed). Use visitedBefore[j] to
-    // check whether the edge at index j introduced its target as a new alias.
     String currentAlias = null;
     for (int j = checkIdx - 1; j >= 0; j--) {
       var prevEdge = scheduledEdges.get(j);
       var prevTarget = targetAlias(prevEdge);
       var prevSource = sourceAlias(prevEdge);
-      @SuppressWarnings("unchecked")
       Set<String> visitedBeforeJ = visitedBefore[j];
 
       // This edge introduced prevTarget if prevTarget was NOT in visitedBefore[j]
       if (!visitedBeforeJ.contains(prevTarget)) {
-        // prevTarget was new when this edge was processed → potential branch edge
         if (currentAlias == null) {
           // First branch edge: must connect to checkSource or checkTarget
           if (prevTarget.equals(checkSource) || prevTarget.equals(checkTarget)) {
@@ -1178,7 +1274,7 @@ public class MatchExecutionPlanner {
             branchEdges.add(0, prevEdge);
             currentAlias = prevSource;
             if (visitedBeforeJ.contains(prevSource)) {
-              break; // Found branch root
+              break;
             }
           }
         } else if (prevTarget.equals(currentAlias)) {
@@ -1187,31 +1283,34 @@ public class MatchExecutionPlanner {
           branchEdges.add(0, prevEdge);
           currentAlias = prevSource;
           if (visitedBeforeJ.contains(prevSource)) {
-            break; // Found branch root
+            break;
           }
         }
       }
     }
 
-    // Must have found at least one intermediate alias
-    if (intermediateAliases.isEmpty()) {
+    if (intermediateAliases.isEmpty() || currentAlias == null
+        || branchEdges.size() < 2) {
       return null;
     }
+    return new BranchTrace(branchEdges, intermediateAliases, currentAlias);
+  }
 
-    // The branch root must have been visited before the branch started.
-    // Use visitedBefore[0] as the earliest snapshot — the root alias is always there.
-    var branchRoot = currentAlias;
-    if (branchRoot == null) {
-      return null;
-    }
-
-    // Need at least 2 edges (1 branch traversal + 1 consistency-check)
-    if (branchEdges.size() < 2) {
-      return null;
-    }
-
-    // Check for auto-generated internal aliases (from .inE()/.outE() etc.)
-    // and classify the join mode based on whether intermediates are downstream.
+  /**
+   * Checks whether a traced branch is eligible for hash join optimization.
+   * Rejects branches with optional nodes, auto-generated internal aliases,
+   * context-dependent filters ({@code $matched}/{@code $parent}), or external
+   * edges that depend on branch intermediates via {@code $matched}.
+   *
+   * @return the {@link JoinMode} if eligible, or {@code null} if not
+   */
+  @Nullable private static JoinMode checkBranchEligibility(
+      List<EdgeTraversal> branchEdges,
+      Set<String> intermediateAliases,
+      List<EdgeTraversal> scheduledEdges,
+      Set<String> downstreamAliases,
+      Map<String, SQLWhereClause> aliasFilters) {
+    // Check for auto-generated internal aliases and classify join mode
     boolean hasDownstreamIntermediate = false;
     for (var alias : intermediateAliases) {
       if (alias.startsWith(DEFAULT_ALIAS_PREFIX)) {
@@ -1237,29 +1336,14 @@ public class MatchExecutionPlanner {
         return null;
       }
     }
-    // Also check shared aliases (checkTarget, checkSource, branchRoot) — their
-    // filters are used in the build-side plan's scan or leftFilter, and $matched
-    // is not populated in the isolated context.
-    if (filterDependsOnContext(aliasFilters.get(checkTarget))) {
-      return null;
-    }
-    if (filterDependsOnContext(aliasFilters.get(checkSource))) {
-      return null;
-    }
-    // branchRoot is guaranteed non-null (checked at line ~1160)
-    if (filterDependsOnContext(aliasFilters.get(branchRoot))) {
-      return null;
-    }
 
-    // Check that no NON-BRANCH edge in the schedule references a branch intermediate
-    // alias via $matched. If an edge outside the branch depends on an intermediate,
-    // moving the branch to the end would break execution (the alias wouldn't be bound
-    // when the dependent edge executes).
+    // Check that no NON-BRANCH edge references a branch intermediate via $matched.
+    // If an edge outside the branch depends on an intermediate, moving the branch
+    // to the end would break execution (the alias wouldn't be bound).
     for (var scheduled : scheduledEdges) {
       if (branchEdges.contains(scheduled)) {
-        continue; // Skip branch edges themselves
+        continue;
       }
-      // Hoist toString() outside the inner loop to avoid repeated AST serialization
       var outFilter = aliasFilters.get(scheduled.edge.out.alias);
       var inFilter = aliasFilters.get(scheduled.edge.in.alias);
       var outStr = outFilter != null ? outFilter.toString() : null;
@@ -1274,70 +1358,7 @@ public class MatchExecutionPlanner {
       }
     }
 
-    // Estimate build-side cardinality: start from branch root, multiply by schema
-    // fan-out per edge, apply selectivity for WHERE filters
-    long cardinality = estimateBranchCardinality(
-        branchRoot, branchEdges, aliasClasses, aliasFilters, aliasRids, context);
-    long threshold = getHashJoinThreshold();
-    if (cardinality > threshold) {
-      return null;
-    }
-
-    // Guard 3: INNER_JOIN materializes full ResultInternal rows (~7× heavier per
-    // entry than SEMI_JOIN's lightweight JoinKey entries). Apply a proportionally
-    // tighter threshold to avoid excessive memory usage.
-    if (joinMode == JoinMode.INNER_JOIN
-        && cardinality > threshold / INNER_JOIN_MEMORY_WEIGHT) {
-      return null;
-    }
-
-    // Guards 1 & 2 are only active when upstreamMin > 0. Setting upstreamMin to 0
-    // bypasses both guards — only the build-side threshold applies.
-    long upstreamMin = getHashJoinUpstreamMin();
-    if (upstreamMin > 0) {
-      // Guard 1: Skip hash join when the upstream (probe side) is small. If the
-      // probe side has fewer rows than upstreamMin, nested-loop is already fast —
-      // hash join adds build-side execution and allocation overhead without
-      // meaningful benefit.
-      long upstreamCardinality = estimateUpstreamCardinality(
-          scheduledEdges, checkIdx, branchEdges,
-          aliasClasses, aliasFilters, aliasRids, context);
-      if (upstreamCardinality < upstreamMin) {
-        return null;
-      }
-
-      // Guard 2: Cost-based comparison. Nested-loop evaluates the branch once per
-      // upstream row, incurring per-hop I/O (index seek + record load) at each edge.
-      // Hash join materializes the branch once and probes with O(1) lookups.
-      //   hashJoinCost  = build_cardinality + upstream  (build once, probe each row)
-      //   nestedLoopCost = upstream × branchFanOut × numHops  (per-row multi-hop I/O)
-      // where numHops = branch edges excluding the consistency-check edge.
-      double branchFanOut = estimateBranchFanOut(
-          branchEdges, branchRoot, aliasClasses, aliasFilters, context);
-      int numBranchHops = Math.max(1, branchEdges.size() - 1);
-      double nestedLoopCost = upstreamCardinality * branchFanOut * numBranchHops;
-      double hashJoinCost = (double) cardinality + upstreamCardinality;
-      if (hashJoinCost >= nestedLoopCost) {
-        return null;
-      }
-    }
-
-    // Shared aliases: the branch root and the check edge's non-intermediate endpoint
-    var otherShared = intermediateAliases.contains(checkSource) ? checkTarget : checkSource;
-    var sharedAliases = branchRoot.equals(otherShared)
-        ? List.of(branchRoot) : List.of(otherShared, branchRoot);
-
-    // The build plan needs a scan alias with a known class or RID. Try shared
-    // aliases first (otherShared, branchRoot), then intermediates.
-    var scanAlias = findScanAlias(
-        otherShared, branchRoot, intermediateAliases, aliasClasses, aliasRids);
-    if (scanAlias == null) {
-      return null;
-    }
-
-    return new HashJoinBranch(
-        sharedAliases, branchEdges, intermediateAliases, cardinality, joinMode,
-        scanAlias);
+    return joinMode;
   }
 
   /**
