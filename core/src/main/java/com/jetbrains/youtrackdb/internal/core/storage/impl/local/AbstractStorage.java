@@ -126,6 +126,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.H
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.NonTxOperationPerformedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.OperationUnitRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperationRegistry;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.StorageCollectionFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.UpdatePageRecord;
@@ -5417,6 +5418,85 @@ public abstract class AbstractStorage
               }
               durablePage.restoreChanges(updatePageRecord.getChanges());
               durablePage.setLsn(updatePageRecord.getLsn());
+            }
+          } finally {
+            readCache.releaseFromWrite(cacheEntry, writeCache, true);
+          }
+
+          atLeastOnePageUpdate.setValue(true);
+        }
+        case PageOperation pageOp -> {
+          var fileId = pageOp.getFileId();
+
+          // Skip page updates for non-durable files deleted during crash recovery
+          if (deletedNonDurableFileIds.contains(writeCache.internalFileId(fileId))) {
+            continue;
+          }
+
+          if (!writeCache.exists(fileId)) {
+            final var fileName = writeCache.restoreFileById(fileId);
+
+            if (fileName == null) {
+              throw new StorageException(name,
+                  "File with id "
+                      + fileId
+                      + " was deleted from storage, the rest of operations"
+                      + " can not be restored");
+            } else {
+              LogManager.instance()
+                  .warn(
+                      this,
+                      "Previously deleted file with name "
+                          + fileName
+                          + " was deleted but new empty file was added to continue"
+                          + " restore process");
+            }
+          }
+
+          final var pageIndex = pageOp.getPageIndex();
+          fileId = writeCache.externalFileId(writeCache.internalFileId(fileId));
+
+          var cacheEntry = readCache.loadForWrite(fileId, pageIndex, writeCache, true, null);
+          if (cacheEntry == null) {
+            do {
+              if (cacheEntry != null) {
+                readCache.releaseFromWrite(cacheEntry, writeCache, true);
+              }
+
+              cacheEntry = readCache.allocateNewPage(fileId, writeCache, null);
+            } while (cacheEntry.getPageIndex() != pageIndex);
+          }
+
+          try {
+            final var durablePage = new DurablePage(cacheEntry);
+            var pageLsn = durablePage.getLsn();
+
+            if (pageLsn.compareTo(pageOp.getLsn()) < 0) {
+              // initialLsn CAS check: only for the first operation on this page.
+              // Multi-operation pages (common during B-tree splits) have subsequent
+              // ops whose initialLsn won't match the page's current LSN (updated by
+              // prior ops' redo). We check only when pageLsn hasn't been updated yet
+              // in this atomic unit — i.e., pageLsn still matches the on-disk state.
+              if (!pageLsn.equals(pageOp.getInitialLsn())) {
+                LogManager.instance()
+                    .error(
+                        this,
+                        "Page with index "
+                            + pageIndex
+                            + " and file "
+                            + writeCache.fileNameById(fileId)
+                            + " was changed before page restore was started. Page will"
+                            + " be restored from WAL, but it may contain changes that"
+                            + " were not present before storage crash and data may be"
+                            + " lost. Initial LSN is "
+                            + pageOp.getInitialLsn()
+                            + ", but page contains changes with LSN "
+                            + pageLsn,
+                        null);
+              }
+
+              pageOp.redo(durablePage);
+              durablePage.setLsn(pageOp.getLsn());
             }
           } finally {
             readCache.releaseFromWrite(cacheEntry, writeCache, true);
