@@ -19,6 +19,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -105,7 +106,7 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
 
     // Multi-map: each reachable RID may map to multiple anchors (e.g., a probe
     // vertex can reach several WHILE targets that all satisfy the WHERE filter).
-    var ridToAnchors = new java.util.HashMap<RID, List<Result>>();
+    var ridToAnchors = new HashMap<RID, List<Result>>();
     reachableRids = new RidSet();
     var maxSize = MatchExecutionPlanner.getHashJoinThreshold();
     boolean truncated = false;

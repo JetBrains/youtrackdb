@@ -133,9 +133,8 @@ class HashJoinMatchStep extends AbstractExecutionStep {
    * Deep-copies the build plan with a fresh {@link BasicCommandContext} so that
    * build-side {@link MatchStep}s execute against the isolated context (not the
    * parent) — this prevents {@code $matched} pollution.
-   */
-  /**
-   * Returns null if the build set exceeds the runtime threshold — the caller
+   *
+   * <p>Returns null if the build set exceeds the runtime threshold — the caller
    * must fall back to per-row nested-loop evaluation.
    */
   @Nullable private Set<JoinKey> buildHashSet(CommandContext ctx) {
