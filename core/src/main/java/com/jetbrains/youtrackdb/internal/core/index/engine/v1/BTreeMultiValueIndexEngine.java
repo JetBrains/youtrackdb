@@ -466,13 +466,12 @@ public final class BTreeMultiValueIndexEngine
   }
 
   private static CompositeKey convertToCompositeKey(Object rangeFrom) {
-    CompositeKey firstKey;
     if (rangeFrom instanceof CompositeKey compositeKey) {
-      firstKey = compositeKey;
-    } else {
-      firstKey = new CompositeKey(rangeFrom);
+      // Defensive copy — callers may reuse the key object for multiple
+      // operations, and downstream code may append version elements.
+      return new CompositeKey(compositeKey);
     }
-    return firstKey;
+    return new CompositeKey(rangeFrom);
   }
 
   @Override

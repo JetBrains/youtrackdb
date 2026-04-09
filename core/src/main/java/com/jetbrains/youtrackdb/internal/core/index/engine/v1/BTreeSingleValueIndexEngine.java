@@ -494,7 +494,10 @@ public final class BTreeSingleValueIndexEngine
 
   private static CompositeKey convertToCompositeKey(Object key) {
     if (key instanceof CompositeKey compositeKey) {
-      return compositeKey;
+      // Defensive copy — put()/validatedPut() append a version element via
+      // addKey(), which would mutate the caller's key object in place. The
+      // caller (applyTxChanges) reuses the same key for multiple operations.
+      return new CompositeKey(compositeKey);
     }
     return new CompositeKey(key);
   }
