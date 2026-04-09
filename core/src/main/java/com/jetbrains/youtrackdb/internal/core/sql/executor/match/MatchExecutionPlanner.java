@@ -263,16 +263,16 @@ public class MatchExecutionPlanner {
   protected List<SQLNestedProjection> returnNestedProjections;
 
   /** `true` when the user wrote `RETURN $elements` — unrolls matched nodes. */
-  private boolean returnElements;
+  boolean returnElements;
 
   /** `true` when the user wrote `RETURN $paths` — returns full matched paths. */
-  private boolean returnPaths;
+  boolean returnPaths;
 
   /** `true` when the user wrote `RETURN $patterns` — returns matched patterns. */
-  private boolean returnPatterns;
+  boolean returnPatterns;
 
   /** `true` when the user wrote `RETURN $pathElements` — unrolls *all* path nodes. */
-  private boolean returnPathElements;
+  boolean returnPathElements;
 
   /** `true` when the `RETURN` clause contains the `DISTINCT` keyword. */
   private boolean returnDistinct;
@@ -910,22 +910,14 @@ public class MatchExecutionPlanner {
    * needed and the method returns the full {@code allPatternAliases} set.
    *
    * @param returnItems         expressions in the RETURN clause
-   * @param returnElements      true if RETURN $elements
-   * @param returnPaths         true if RETURN $paths
-   * @param returnPatterns      true if RETURN $patterns
-   * @param returnPathElements  true if RETURN $pathElements
    * @param groupBy             GROUP BY clause (nullable)
    * @param orderBy             ORDER BY clause (nullable)
    * @param unwind              UNWIND clause (nullable)
    * @param allPatternAliases   all aliases defined in the pattern graph
    * @return the subset of aliases that are referenced downstream
    */
-  static Set<String> collectDownstreamAliases(
+  Set<String> collectDownstreamAliases(
       List<SQLExpression> returnItems,
-      boolean returnElements,
-      boolean returnPaths,
-      boolean returnPatterns,
-      boolean returnPathElements,
       @Nullable SQLGroupBy groupBy,
       @Nullable SQLOrderBy orderBy,
       @Nullable SQLUnwind unwind,
@@ -1799,8 +1791,7 @@ public class MatchExecutionPlanner {
       // build-side hash joins (semi-join if intermediates not downstream, inner join
       // if intermediates are referenced downstream).
       var downstreamAliases = collectDownstreamAliases(
-          returnItems, returnElements, returnPaths, returnPatterns, returnPathElements,
-          groupBy, orderBy, unwind, pattern.aliasToNode.keySet());
+          returnItems, groupBy, orderBy, unwind, pattern.aliasToNode.keySet());
       var hashJoinBranches = identifyHashJoinBranches(
           sortedEdges, downstreamAliases, aliasClasses, aliasFilters, aliasRids, context);
 

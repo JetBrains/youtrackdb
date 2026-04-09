@@ -471,6 +471,11 @@ public class MatchPlannerHelpersTest {
 
   // ── collectDownstreamAliases ────────────────────────────────────────────
 
+  /** Creates a minimal planner with all wildcard return flags off. */
+  private static MatchExecutionPlanner plannerWithDefaults() {
+    return new MatchExecutionPlanner(new Pattern(), Map.of());
+  }
+
   /**
    * RETURN with a single dotted expression (friend.name) should detect the
    * "friend" alias as referenced downstream.
@@ -478,9 +483,8 @@ public class MatchPlannerHelpersTest {
   @Test
   public void collectDownstreamAliases_singleDottedReturn_detectsAlias() {
     var allAliases = Set.of("person", "friend", "tag");
-    var result = MatchExecutionPlanner.collectDownstreamAliases(
+    var result = plannerWithDefaults().collectDownstreamAliases(
         List.of(buildExpression("friend.name")),
-        false, false, false, false,
         null, null, null,
         allAliases);
     assertThat(result).containsExactly("friend");
@@ -493,9 +497,8 @@ public class MatchPlannerHelpersTest {
   @Test
   public void collectDownstreamAliases_multipleReturnExpressions_detectsAll() {
     var allAliases = Set.of("person", "friend", "tag");
-    var result = MatchExecutionPlanner.collectDownstreamAliases(
+    var result = plannerWithDefaults().collectDownstreamAliases(
         List.of(buildExpression("person.name"), buildExpression("tag.value")),
-        false, false, false, false,
         null, null, null,
         allAliases);
     assertThat(result).containsExactlyInAnyOrder("person", "tag");
@@ -510,9 +513,8 @@ public class MatchPlannerHelpersTest {
     var allAliases = Set.of("person", "friend", "city");
     var groupBy = new SQLGroupBy(-1);
     groupBy.addItem(buildExpression("city.name"));
-    var result = MatchExecutionPlanner.collectDownstreamAliases(
+    var result = plannerWithDefaults().collectDownstreamAliases(
         List.of(buildExpression("person.name")),
-        false, false, false, false,
         groupBy, null, null,
         allAliases);
     assertThat(result).containsExactlyInAnyOrder("person", "city");
@@ -528,9 +530,8 @@ public class MatchPlannerHelpersTest {
     var orderItem = new SQLOrderByItem();
     orderItem.setAlias("friend");
     orderBy.setItems(new java.util.ArrayList<>(List.of(orderItem)));
-    var result = MatchExecutionPlanner.collectDownstreamAliases(
+    var result = plannerWithDefaults().collectDownstreamAliases(
         List.of(buildExpression("person.name")),
-        false, false, false, false,
         null, orderBy, null,
         allAliases);
     assertThat(result).containsExactlyInAnyOrder("person", "friend");
@@ -545,9 +546,8 @@ public class MatchPlannerHelpersTest {
     var unwind = new SQLUnwind(-1);
     var ident = new SQLIdentifier("tags");
     unwind.addItem(ident);
-    var result = MatchExecutionPlanner.collectDownstreamAliases(
+    var result = plannerWithDefaults().collectDownstreamAliases(
         List.of(buildExpression("person.name")),
-        false, false, false, false,
         null, null, unwind,
         allAliases);
     assertThat(result).containsExactlyInAnyOrder("person", "tags");
@@ -560,9 +560,10 @@ public class MatchPlannerHelpersTest {
   @Test
   public void collectDownstreamAliases_returnElements_returnsAllAliases() {
     var allAliases = Set.of("person", "friend", "tag");
-    var result = MatchExecutionPlanner.collectDownstreamAliases(
+    var planner = plannerWithDefaults();
+    planner.returnElements = true;
+    var result = planner.collectDownstreamAliases(
         List.of(buildExpression("person.name")),
-        true, false, false, false,
         null, null, null,
         allAliases);
     assertThat(result).containsExactlyInAnyOrder("person", "friend", "tag");
@@ -574,9 +575,10 @@ public class MatchPlannerHelpersTest {
   @Test
   public void collectDownstreamAliases_returnPaths_returnsAllAliases() {
     var allAliases = Set.of("person", "friend");
-    var result = MatchExecutionPlanner.collectDownstreamAliases(
+    var planner = plannerWithDefaults();
+    planner.returnPaths = true;
+    var result = planner.collectDownstreamAliases(
         List.of(),
-        false, true, false, false,
         null, null, null,
         allAliases);
     assertThat(result).containsExactlyInAnyOrder("person", "friend");
@@ -588,9 +590,10 @@ public class MatchPlannerHelpersTest {
   @Test
   public void collectDownstreamAliases_returnPatterns_returnsAllAliases() {
     var allAliases = Set.of("a", "b", "c");
-    var result = MatchExecutionPlanner.collectDownstreamAliases(
+    var planner = plannerWithDefaults();
+    planner.returnPatterns = true;
+    var result = planner.collectDownstreamAliases(
         List.of(),
-        false, false, true, false,
         null, null, null,
         allAliases);
     assertThat(result).containsExactlyInAnyOrder("a", "b", "c");
@@ -602,9 +605,10 @@ public class MatchPlannerHelpersTest {
   @Test
   public void collectDownstreamAliases_returnPathElements_returnsAllAliases() {
     var allAliases = Set.of("x", "y");
-    var result = MatchExecutionPlanner.collectDownstreamAliases(
+    var planner = plannerWithDefaults();
+    planner.returnPathElements = true;
+    var result = planner.collectDownstreamAliases(
         List.of(),
-        false, false, false, true,
         null, null, null,
         allAliases);
     assertThat(result).containsExactlyInAnyOrder("x", "y");
@@ -617,9 +621,8 @@ public class MatchPlannerHelpersTest {
   @Test
   public void collectDownstreamAliases_noAliasInExpression_emptySet() {
     var allAliases = Set.of("person", "friend");
-    var result = MatchExecutionPlanner.collectDownstreamAliases(
+    var result = plannerWithDefaults().collectDownstreamAliases(
         List.of(buildExpression("count(*)")),
-        false, false, false, false,
         null, null, null,
         allAliases);
     assertThat(result).isEmpty();
@@ -632,9 +635,8 @@ public class MatchPlannerHelpersTest {
   @Test
   public void collectDownstreamAliases_shortAliasNotFalselyMatched() {
     var allAliases = Set.of("a", "friend");
-    var result = MatchExecutionPlanner.collectDownstreamAliases(
+    var result = plannerWithDefaults().collectDownstreamAliases(
         List.of(buildExpression("abandonment.data")),
-        false, false, false, false,
         null, null, null,
         allAliases);
     assertThat(result).isEmpty();
@@ -647,9 +649,8 @@ public class MatchPlannerHelpersTest {
   @Test
   public void collectDownstreamAliases_shortAliasMatchesStandalone() {
     var allAliases = Set.of("a", "friend");
-    var result = MatchExecutionPlanner.collectDownstreamAliases(
+    var result = plannerWithDefaults().collectDownstreamAliases(
         List.of(buildExpression("a.name")),
-        false, false, false, false,
         null, null, null,
         allAliases);
     assertThat(result).containsExactly("a");
@@ -661,9 +662,8 @@ public class MatchPlannerHelpersTest {
   @Test
   public void collectDownstreamAliases_emptyReturnItems_returnsAllAliases() {
     var allAliases = Set.of("person", "friend");
-    var result = MatchExecutionPlanner.collectDownstreamAliases(
+    var result = plannerWithDefaults().collectDownstreamAliases(
         List.of(),
-        false, false, false, false,
         null, null, null,
         allAliases);
     assertThat(result).containsExactlyInAnyOrder("person", "friend");
@@ -675,9 +675,8 @@ public class MatchPlannerHelpersTest {
   @Test
   public void collectDownstreamAliases_nullReturnItems_returnsAllAliases() {
     var allAliases = Set.of("person", "friend");
-    var result = MatchExecutionPlanner.collectDownstreamAliases(
+    var result = plannerWithDefaults().collectDownstreamAliases(
         null,
-        false, false, false, false,
         null, null, null,
         allAliases);
     assertThat(result).containsExactlyInAnyOrder("person", "friend");
