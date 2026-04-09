@@ -56,16 +56,17 @@ import org.junit.Test;
  * <h3>Primary B-Tree after all operations</h3>
  * Only the latest entry remains: {@code [Foo, #20:0, 135] → -#20:0} (TombstoneRID).
  *
- * <h3>Expected visibility (via snapshotVisibility — only called for version >= visible)</h3>
- * {@code snapshotVisibility} is invoked when the primary entry's version >= visibleVersion
- * and the RID is a TombstoneRID or SnapshotMarkerRID. It looks up the snapshot to determine
- * whether the record was alive at the given visibleVersion.
+ * <h3>Expected visibility (via lookupSnapshotRid — inclusive bound)</h3>
+ * {@code lookupSnapshotRid} is invoked when the primary entry's version > snapshotTs
+ * (phantom) or when the version is in the in-progress set. It uses
+ * {@code lowerEntry(snapshotTs + 1)} to find the latest snapshot entry with
+ * version &lt;= snapshotTs (inclusive upper bound).
  * <pre>
- *   visibleVersion=121 → not visible (before first add, no snapshot entry)
- *   visibleVersion=126 → visible     (snapshot has TombstoneRID@125 = was alive)
- *   visibleVersion=130 → not visible (snapshot has RecordId@128 = was removed)
- *   visibleVersion=133 → visible     (snapshot has TombstoneRID@130 = was alive)
- *   visibleVersion=136 → N/A         (version < visible, handled by caller, not snapshotVisibility)
+ *   snapshotTs=121 → not visible (before first add, no snapshot entry)
+ *   snapshotTs=126 → visible     (lowerEntry(127) finds TombstoneRID@125 = was alive)
+ *   snapshotTs=129 → not visible (lowerEntry(130) finds RecordId@128 = was removed)
+ *   snapshotTs=133 → visible     (lowerEntry(134) finds TombstoneRID@130 = was alive)
+ *   snapshotTs=136 → N/A         (version &lt;= snapshotTs, committed, handled by caller)
  * </pre>
  */
 public class IndexesSnapshotVisibilityFilterTest {
@@ -195,15 +196,19 @@ public class IndexesSnapshotVisibilityFilterTest {
   }
 
   /**
-   * v=130: SnapshotMarkerRID at v130 >= 130.
-   * Snapshot lowerEntry(130) = {128: RecordId}.
+   * snapshotTs=129: reader is between remove@128 and re-add@130.
+   * lookupSnapshotRid builds search key with version=130 (snapshotTs+1).
+   * lowerEntry(130) = {128: RecordId} (was removed at v128).
    * entry = RecordId → NOT TombstoneRID → filtered out → not visible.
    *
    * <b>This is the critical test that validates lowerEntry() over floorEntry().</b>
+   * With snapshotTs=129, the inclusive bound (version <= 129) correctly excludes
+   * the TombstoneRID at v130 (the re-add), so the reader only sees the RecordId
+   * guard at v128 — confirming the record was removed and not yet re-added.
    */
   @Test
   public void afterReAdd_readerBetweenRemoveAndReAdd_notVisible() {
-    var result = callSnapshotLookup(pairAfterPut130().first(), 130L);
+    var result = callSnapshotLookup(pairAfterPut130().first(), 129L);
     assertNull("Between remove@128 and re-add@130, record must not be visible", result);
   }
 
@@ -227,7 +232,10 @@ public class IndexesSnapshotVisibilityFilterTest {
 
   @Test
   public void afterFinalRemove_readerJustBeforeFirstRemove_visible() {
-    var result = callSnapshotLookup(pairAfterRemove135().first(), 128L);
+    // snapshotTs=127: just before remove@128. lowerEntry(128) = {125: Tombstone} → visible.
+    // With the inclusive bound (version <= 127), the RecordId guard at v128 is excluded,
+    // and the TombstoneRID at v125 (was alive) is correctly found.
+    var result = callSnapshotLookup(pairAfterRemove135().first(), 127L);
     assertNotNull(result);
   }
 
@@ -242,14 +250,17 @@ public class IndexesSnapshotVisibilityFilterTest {
   }
 
   /**
-   * v=130: snapshot lowerEntry(130) = {128: RecordId}.
+   * snapshotTs=129: reader is between remove@128 and re-add@130.
+   * lookupSnapshotRid builds search key with version=130 (snapshotTs+1).
+   * lowerEntry(130) = {128: RecordId} (was removed at v128).
    * entry = RecordId → filtered → not visible.
    *
-   * <b>Critical: using floorEntry() would pick 130: Tombstone → WRONGLY visible.</b>
+   * <b>Critical: the inclusive bound (version <= 129) correctly excludes the
+   * TombstoneRID at v130 (the re-add), preventing a false positive.</b>
    */
   @Test
   public void afterFinalRemove_readerBetweenRemoveAndReAdd_notVisible() {
-    var result = callSnapshotLookup(pairAfterRemove135().first(), 130L);
+    var result = callSnapshotLookup(pairAfterRemove135().first(), 129L);
     assertNull("Must not be visible between remove@128 and re-add@130", result);
   }
 
@@ -271,7 +282,10 @@ public class IndexesSnapshotVisibilityFilterTest {
 
   @Test
   public void afterFinalRemove_readerJustBeforeFinalRemove_visible() {
-    var result = callSnapshotLookup(pairAfterRemove135().first(), 135L);
+    // snapshotTs=134: just before final remove@135. lowerEntry(135) = {130: Tombstone} → visible.
+    // With the inclusive bound (version <= 134), the RecordId guard at v135 is excluded,
+    // and the TombstoneRID at v130 (was alive after re-add) is correctly found.
+    var result = callSnapshotLookup(pairAfterRemove135().first(), 134L);
     assertNotNull(result);
   }
 
@@ -333,7 +347,9 @@ public class IndexesSnapshotVisibilityFilterTest {
    * add@100, remove@110, re-add@120.
    * After remove@110, primary has tombstone at v110.
    *
-   * At v=110: lowerEntry(110) = {100: Tombstone} → visible
+   * snapshotTs=109: reader's snapshot is just before remove@110.
+   * lookupSnapshotRid builds search key with version=110 (snapshotTs+1).
+   * lowerEntry(110) = {100: Tombstone} → visible (was alive at v100).
    */
   @Test
   public void threePhase_afterRemove_visibleBeforeRemove() {
@@ -349,8 +365,8 @@ public class IndexesSnapshotVisibilityFilterTest {
     // Primary key after remove@110:
     var key = new CompositeKey("Key", rid, 110L);
 
-    var result = callSnapshotLookup(snap, key, 110L);
-    assertNotNull("Was alive at v=109, should be visible", result);
+    var result = callSnapshotLookup(snap, key, 109L);
+    assertNotNull("Was alive at v=100, reader at snapshotTs=109 should see it", result);
   }
 
   // ========================================================================
@@ -640,16 +656,17 @@ public class IndexesSnapshotVisibilityFilterTest {
         result.getFirst().second() instanceof RecordId);
   }
 
-  // --- version >= visibleVersion: phantom entries ---
+  // --- version > snapshotTs: phantom entries ---
 
   /**
-   * A RecordId entry with version >= visibleVersion is a phantom insert and must
-   * be filtered out.
+   * A RecordId entry with version > snapshotTs is a phantom insert and must
+   * be filtered out. version == snapshotTs is committed (visible per
+   * isEntryVisible).
    */
   @Test
   public void phantom_recordId_filteredOut() {
     var snap = newSnapshot(INDEX_ID);
-    var pair = new RawPair<>(new CompositeKey("Foo", RID_20_0, 200L), RID_20_0);
+    var pair = new RawPair<>(new CompositeKey("Foo", RID_20_0, 201L), RID_20_0);
 
     var result = filterMapped(snap, 200L, List.of(pair));
     assertTrue("Phantom RecordId must not be visible", result.isEmpty());
@@ -1203,32 +1220,31 @@ public class IndexesSnapshotVisibilityFilterTest {
   // --- TC1 fix: exact boundary tests for RecordId and SnapshotMarkerRID ---
 
   /**
-   * version == visibleVersion with RecordId must take the phantom path (null),
-   * not the committed path. Guards the strict {@code <} comparison against
-   * accidental {@code <=} regression.
+   * version == snapshotTs with RecordId is committed and visible (per
+   * isEntryVisible: version <= snapshotTs and not in-progress → visible).
    */
   @Test
-  public void checkVisibility_exactBoundary_recordId_null() {
+  public void checkVisibility_exactBoundary_recordId_visible() {
     var snap = newSnapshot(INDEX_ID);
     var key = new CompositeKey("Foo", RID_20_0, 100L);
 
     var result = snap.checkVisibility(key, RID_20_0, 100L, LongOpenHashSet.of());
-    assertNull("version == visibleVersion must be phantom, not committed", result);
+    assertEquals("version == snapshotTs committed RecordId must be visible",
+        RID_20_0, result);
   }
 
   /**
-   * version == visibleVersion with SnapshotMarkerRID must take the phantom path
-   * (snapshot fallback), not the committed path (which would return identity
-   * directly). With no snapshot entries, must return null.
+   * version == snapshotTs with SnapshotMarkerRID is committed and visible.
+   * Returns the unwrapped identity.
    */
   @Test
-  public void checkVisibility_exactBoundary_snapshotMarkerRid_null() {
+  public void checkVisibility_exactBoundary_snapshotMarkerRid_visible() {
     var snap = newSnapshot(INDEX_ID);
     var key = new CompositeKey("Foo", RID_20_0, 100L);
 
     var result = snap.checkVisibility(key, SNAPSHOT_MARKER_20_0, 100L, LongOpenHashSet.of());
-    assertNull("version == visibleVersion SnapshotMarkerRID with no snapshot must be null",
-        result);
+    assertEquals("version == snapshotTs committed SnapshotMarkerRID must return identity",
+        RID_20_0, result);
   }
 
   // --- TC3: snapshot has RecordId guard (was-removed), not TombstoneRID ---

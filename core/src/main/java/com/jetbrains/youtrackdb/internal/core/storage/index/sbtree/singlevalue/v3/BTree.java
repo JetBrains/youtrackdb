@@ -345,17 +345,17 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
               serializerFactory, preprocessedKey, (Object[]) keyTypes);
 
       final var opsSnapshot = atomicOperation.getAtomicOperationsSnapshot();
-      final var visibleVersion = opsSnapshot.maxActiveOperationTs();
+      final var snapshotTs = opsSnapshot.snapshotTs();
       final var inProgressVersions = opsSnapshot.inProgressTxs();
 
       return executeOptimisticStorageRead(
           atomicOperation,
           () -> getVisibleOptimistic(
               atomicOperation, preprocessedKey, serializedKey, snapshot,
-              visibleVersion, inProgressVersions),
+              snapshotTs, inProgressVersions),
           () -> getVisiblePinned(
               atomicOperation, preprocessedKey, serializedKey, snapshot,
-              visibleVersion, inProgressVersions));
+              snapshotTs, inProgressVersions));
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new CellBTreeSingleValueV3Exception(
@@ -397,7 +397,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
       final K prefixKey,
       final byte[] serializedKey,
       final IndexesSnapshot snapshot,
-      final long visibleVersion,
+      final long snapshotTs,
       final LongOpenHashSet inProgressVersions) {
     final var scope = atomicOperation.getOptimisticReadScope();
     var pageIndex = ROOT_INDEX;
@@ -416,7 +416,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
       if (bucket.isLeaf()) {
         return scanLeafForVisible(
             bucket, index, prefixKey, snapshot,
-            visibleVersion, inProgressVersions, true);
+            snapshotTs, inProgressVersions, true);
       }
 
       if (index >= 0) {
@@ -441,7 +441,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
       final AtomicOperation atomicOperation,
       final K prefixKey, final byte[] serializedKey,
       final IndexesSnapshot snapshot,
-      final long visibleVersion,
+      final long snapshotTs,
       final LongOpenHashSet inProgressVersions) throws IOException {
     final var bucketSearchResult =
         findBucketSerialized(prefixKey, serializedKey, atomicOperation);
@@ -456,7 +456,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
 
         final var result = scanLeafForVisible(
             bucket, foundIndex, prefixKey, snapshot,
-            visibleVersion, inProgressVersions, false);
+            snapshotTs, inProgressVersions, false);
         if (result != null) {
           return result;
         }
@@ -493,7 +493,8 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
    * @param prefixKey the preprocessed search key (user key + Long.MIN_VALUE) for
    *     forward prefix-match checks
    * @param snapshot the indexes snapshot for visibility checks
-   * @param visibleVersion the reader's snapshot version threshold
+   * @param snapshotTs the reader's snapshot timestamp (upper visibility bound,
+   *     matching {@code AtomicOperationsSnapshot.snapshotTs()})
    * @param inProgressVersions set of in-progress transaction versions
    * @param optimistic if true, throw OptimisticReadFailedException when leaf is exhausted
    *     instead of returning null (to fall through to pinned path for cross-page entries)
@@ -504,7 +505,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
       final int foundIndex,
       final K prefixKey,
       final IndexesSnapshot snapshot,
-      final long visibleVersion,
+      final long snapshotTs,
       final LongOpenHashSet inProgressVersions,
       final boolean optimistic) {
     final var bucketSize = bucket.size();
@@ -556,7 +557,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
 
       final var rid = entry.value;
       final var visibleRid = snapshot.checkVisibility(
-          entryComposite, rid, visibleVersion, inProgressVersions);
+          entryComposite, rid, snapshotTs, inProgressVersions);
       if (visibleRid != null) {
         return visibleRid;
       }

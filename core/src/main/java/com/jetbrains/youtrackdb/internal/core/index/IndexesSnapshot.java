@@ -86,7 +86,7 @@ public class IndexesSnapshot {
       Stream<RawPair<CompositeKey, RID>> stream,
       Function<CompositeKey, K> keyMapper) {
     var opsSnapshot = atomicOperation.getAtomicOperationsSnapshot();
-    var visibleVersion = opsSnapshot.maxActiveOperationTs();
+    var snapshotTs = opsSnapshot.snapshotTs();
     var inProgressVersions = opsSnapshot.inProgressTxs();
 
     // mapMulti instead of flatMap to avoid allocating a Stream object
@@ -94,7 +94,7 @@ public class IndexesSnapshot {
     return stream
         .mapMulti((pair, downstream) -> {
           var visibleRid = checkVisibility(
-              pair.first(), pair.second(), visibleVersion, inProgressVersions);
+              pair.first(), pair.second(), snapshotTs, inProgressVersions);
           if (visibleRid != null) {
             downstream.accept(new RawPair<>(keyMapper.apply(pair.first()), visibleRid));
           }
@@ -103,16 +103,25 @@ public class IndexesSnapshot {
 
   /**
    * Checks the visibility of a single B-tree entry, encapsulating the full visibility
-   * decision: in-progress check, committed check, phantom check, and snapshot fallback.
+   * decision: in-progress check, phantom check, and committed-visible check with
+   * snapshot fallback.
+   *
+   * <p>Visibility rules match {@code AtomicOperationsSnapshot.isEntryVisible()}:
+   * <ul>
+   *   <li>{@code version > snapshotTs} → phantom (truly future, not yet registered)
+   *   <li>{@code version} in {@code inProgressVersions} → concurrent uncommitted TX
+   *   <li>Otherwise → committed and visible
+   * </ul>
    *
    * @param key the composite key from the B-tree entry (userKey..., version)
    * @param rid the RID from the B-tree entry (RecordId, TombstoneRID, or SnapshotMarkerRID)
-   * @param visibleVersion the reader's snapshot version threshold
+   * @param snapshotTs the reader's snapshot timestamp (the true upper visibility bound,
+   *     matching {@code AtomicOperationsSnapshot.snapshotTs()})
    * @param inProgressVersions set of in-progress transaction versions
    * @return the visible RID, or null if the entry is not visible
    */
   public @Nullable RID checkVisibility(CompositeKey key, RID rid,
-      long visibleVersion, LongOpenHashSet inProgressVersions) {
+      long snapshotTs, LongOpenHashSet inProgressVersions) {
     long version = (Long) key.getKeys().getLast();
 
     if (!inProgressVersions.isEmpty() && inProgressVersions.contains(version)) {
@@ -121,50 +130,56 @@ public class IndexesSnapshot {
       // For TombstoneRID/SnapshotMarkerRID, check the snapshot for historical
       // state. For plain RecordId (a new insert with no prior history), skip.
       if (!(rid instanceof RecordId)) {
-        return lookupSnapshotRid(key, visibleVersion);
+        return lookupSnapshotRid(key, snapshotTs);
       }
       return null;
     }
 
-    // Committed before snapshot — visible if alive, hidden if tombstoned
-    if (version < visibleVersion) {
-      if (rid instanceof SnapshotMarkerRID) {
-        return rid.getIdentity();
-      } else if (!(rid instanceof TombstoneRID)) {
-        return rid;
+    // Phantom: version registered after our snapshot — truly future
+    if (version > snapshotTs) {
+      if (rid instanceof RecordId) {
+        return null;
       }
-      return null;
+      // TombstoneRID/SnapshotMarkerRID from a future TX replaced an older
+      // committed version — check snapshot for historical state.
+      return lookupSnapshotRid(key, snapshotTs);
     }
 
-    // version >= visibleVersion — phantom: no historical versions for plain RecordId
-    if (rid instanceof RecordId) {
-      return null;
+    // Committed and visible: version <= snapshotTs and not in-progress.
+    // Apply RID-type semantics.
+    if (rid instanceof SnapshotMarkerRID) {
+      return rid.getIdentity();
+    } else if (!(rid instanceof TombstoneRID)) {
+      return rid;
     }
-
-    // version >= visibleVersion — TombstoneRID or SnapshotMarkerRID
-    // → check snapshot for historical state
-    return lookupSnapshotRid(key, visibleVersion);
+    return null;
   }
 
   /**
    * Looks up the snapshot index for a historical version of the entry visible at
-   * {@code visibleVersion}. Returns the visible RID if found, null otherwise.
+   * {@code snapshotTs}. Returns the visible RID if found, null otherwise.
    *
    * @param key the composite key from the B-tree entry (userKey..., version)
-   * @param visibleVersion the reader's snapshot version threshold
+   * @param snapshotTs the reader's snapshot timestamp (upper visibility bound)
    * @return the visible RID (always a plain RecordId), or null if no historical
    *     version is visible
    */
-  @Nullable RID lookupSnapshotRid(CompositeKey key, long visibleVersion) {
+  @Nullable RID lookupSnapshotRid(CompositeKey key, long snapshotTs) {
     var keys = key.getKeys();
-    // Build the search key in one allocation: CompositeKey(indexId, userKey..., visibleVersion)
+    // Build the search key in one allocation: CompositeKey(indexId, userKey..., snapshotTs+1)
     // instead of three intermediate CompositeKeys.
+    // We want entries with version <= snapshotTs (inclusive). Since lowerEntry()
+    // returns entries strictly less than the search key, add 1 to make the
+    // bound inclusive. Guard against Long.MAX_VALUE overflow — in that case
+    // lowerEntry(MAX_VALUE) still finds all entries with version < MAX_VALUE,
+    // which is sufficient since MAX_VALUE is a sentinel, not a real version.
     var searchKey = new CompositeKey(keys.size() + 1);
     searchKey.addKey(indexId);
     for (int i = 0, end = keys.size() - 1; i < end; i++) {
       searchKey.addKey(keys.get(i));
     }
-    searchKey.addKey(visibleVersion);
+    long searchVersion = snapshotTs < Long.MAX_VALUE ? snapshotTs + 1 : Long.MAX_VALUE;
+    searchKey.addKey(searchVersion);
 
     var latestSnapshotEntry = indexesSnapshot.lowerEntry(searchKey);
     if (latestSnapshotEntry != null && latestSnapshotEntry.getValue() instanceof TombstoneRID) {
