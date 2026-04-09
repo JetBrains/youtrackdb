@@ -8,10 +8,9 @@ The EXPLAIN YQL command returns the execution plan of a specific statement, with
 EXPLAIN <command>
 ```
 
-- **`<command>`** Defines the command that you want to explain, e.g., a SELECT or MATCH statement
+- **`<command>`** Defines the command that you want to explain, e.g., a SELECT or MATCH statement.
 
 **Examples**
-
 
 - Explain a query that executes on a class filtering based on an attribute:
 
@@ -19,9 +18,9 @@ EXPLAIN <command>
 explain select from v where name = 'a'
 ```
 
-Result
+Result:
 ```
-   '[{
+[{
   executionPlan:{...},
   executionPlanAsString:
   + FETCH FROM CLASS v
@@ -34,9 +33,9 @@ Result
     + FETCH FROM COLLECTION 15 ASC
     + FETCH FROM COLLECTION 16 ASC
     + FETCH NEW RECORDS FROM CURRENT TRANSACTION SCOPE (if any)
-  + FILTER ITEMS WHERE 
+  + FILTER ITEMS WHERE
     name = 'a'
-  }]'
+}]
 ```
 
 >For more information, see
