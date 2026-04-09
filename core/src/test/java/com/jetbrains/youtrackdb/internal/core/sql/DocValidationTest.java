@@ -5661,6 +5661,54 @@ public class DocValidationTest {
     assertThat(results).hasSize(1);
   }
 
+  /** YQL-Methods.md — Line 13: .toJSON() method referenced in intro but has no doc section */
+  @Test
+  public void testMethodToJSON() {
+    g.command("CREATE CLASS MethJsonEmp IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethJsonEmp SET salary = 50000").iterate();
+        });
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT salary.toJSON() FROM MethJsonEmp").toList());
+    assertThat(results).isNotEmpty();
+  }
+
+  /**
+   * YQL-Methods.md — Line 72: Double FROM bug. The doc shows: SELECT FROM tags[0-9] FROM Posts
+   * which has two FROM keywords. This should be: SELECT tags[0-9] FROM Posts
+   */
+  @Test
+  public void testBracketOperatorDoubleFrom() {
+    g.command("CREATE CLASS MethBracketPost IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethBracketPost SET tags = ['a','b','c','d','e']").iterate();
+        });
+    // The correct form (single FROM) should work
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT tags[0-2] FROM MethBracketPost").toList());
+    assertThat(results).isNotEmpty();
+  }
+
+  /**
+   * YQL-Methods.md — Line 127: .asDate() section example wrongly uses .asDateTime(). Verify
+   * .asDate() itself works on a long value.
+   */
+  @Test
+  public void testMethodAsDateOnLong() {
+    g.command("CREATE CLASS MethDateLog IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethDateLog SET time = 1262304000000").iterate();
+        });
+    // The doc should use .asDate() here, not .asDateTime()
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM MethDateLog WHERE time.asDate() IS NOT NULL").toList());
+    assertThat(results).hasSize(1);
+  }
+
   // ===== YQL-Rebuild-Index.md =====
 
   @Test
