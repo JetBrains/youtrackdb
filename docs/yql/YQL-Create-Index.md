@@ -1,6 +1,6 @@
 # YQL - `CREATE INDEX`
 
-Creates a new index.  Indexes can be:
+Creates a new index. Indexes can be:
 - **Unique**: Does not allow duplicates.
 - **Not Unique**: Allows duplicates.
 
@@ -10,24 +10,24 @@ Creates a new index.  Indexes can be:
 ```sql
 CREATE INDEX <name>
 [ IF NOT EXISTS ]
-[ ON <class> (<property>*) ]
+[ ON <class> (<property>[, <property>]*) ]
 <index-type>
 [ ENGINE <engine> ]
 [ METADATA {<json>} ]
 ```
 - **`<name>`** Defines the logical name for the index.
-- **`IF NOT EXISTS`** Specifying this option, the index creation will be silently ignored if the index already exists (instead of failing with an error).
-- **`<class>`** Defines the class to create an automatic index for.  The class must already exist.
-- **`<property>`** Defines the property you want to automatically index.  The property must already exist.
+- **`IF NOT EXISTS`** If specified, the command is silently ignored when the index already exists (instead of failing with an error).
+- **`<class>`** Defines the class to create an automatic index for. The class must already exist.
+- **`<property>`** Defines the property you want to automatically index. The property must already exist.
 - **`ENGINE`** Defines the index engine to use.
 - **`METADATA`** Defines additional metadata through JSON.
 
 >If the property is one of the Map types, such as `LINKMAP` or `EMBEDDEDMAP`, you can specify the keys or values to use in index generation, using the `BY KEY` or `BY VALUE` clauses.
 
-- **`<index-type>`** Defines the index type you want to use.
+- **`<index-type>`** Defines the index type you want to use: `UNIQUE`, `NOTUNIQUE`, `FULLTEXT`, or `SPATIAL`.
 
 To create an automatic index bound to the schema property, use the `ON` clause.
-In order to create an index, the schema must already exist in your database.
+To create an index, the schema must already exist in your database.
 
 **Examples**
 
@@ -41,7 +41,7 @@ CREATE INDEX User.id UNIQUE
 - Create a series of automatic indexes for the `thumbs` property in the class `Movie`:
 ```sql
 CREATE INDEX thumbsAuthor ON Movie (thumbs) UNIQUE
-CREATE INDEX thumbsAuthor ON Movie (thumbs BY KEY) UNIQUE
+CREATE INDEX thumbsKey ON Movie (thumbs BY KEY) UNIQUE
 CREATE INDEX thumbsValue ON Movie (thumbs BY VALUE) UNIQUE
 ```
 
@@ -64,7 +64,7 @@ CREATE PROPERTY Has.ended DATETIME
 CREATE INDEX Has.started_ended ON Has (started, ended) NOTUNIQUE
 ```
 
->You can create indexes on edge classes only if they contain the begin and end date range of validity.  This use case is very common with historical graphs, such as the example above.
+>Indexes on edge classes are commonly used with historical graphs to store the begin and end date range of validity, as in the example above.
 
 - Using the above index, retrieve all the edges that existed in the year 2014:
 
@@ -87,7 +87,7 @@ MATCH {class: File, as: out}.outE('Has'){where: (started >= '2014-01-01 00:00:00
 
 - Create an index that includes null values.
 
-  By default, indexes ignore null values.  Queries against null values that use an index return no entries.  To index null values, set `{ ignoreNullValues: false }` as metadata.
+  By default, indexes ignore null values. Queries against null values that use an index return no entries. To index null values, set `{ ignoreNullValues: false }` as metadata.
 
 ```sql
 CREATE INDEX addresses ON Employee (address) NOTUNIQUE METADATA { ignoreNullValues : false }
