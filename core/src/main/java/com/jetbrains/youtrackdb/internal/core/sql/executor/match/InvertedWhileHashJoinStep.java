@@ -215,8 +215,8 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
     }
 
     // Level-by-level BFS from anchor via inverse edge direction.
-    // Each frontier node is queried individually to avoid reliance on
-    // List<RID> parameter binding behavior which varies across backends.
+    // The entire frontier is passed as a single List<RID> parameter to avoid
+    // N+1 query overhead (one SQL parse+plan+execute per frontier node).
     var maxSize = MatchExecutionPlanner.getHashJoinThreshold();
     var inverseDir = edgeOut ? "in" : "out";
     var sql = "SELECT expand(" + inverseDir + "('" + edgeLabel + "')) FROM ?";
@@ -224,18 +224,13 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
     frontier.add(anchorRid);
     while (!frontier.isEmpty() && (maxSize <= 0 || rids.size() < maxSize)) {
       var nextFrontier = new ArrayList<RID>();
-      for (var current : frontier) {
-        try (var rs = session.query(sql, current)) {
-          while (rs.hasNext()) {
-            var row = rs.next();
-            var rid = extractRid(row);
-            if (rid != null && rids.add(rid)) {
-              nextFrontier.add(rid);
-            }
+      try (var rs = session.query(sql, (Object) frontier)) {
+        while (rs.hasNext()) {
+          var row = rs.next();
+          var rid = extractRid(row);
+          if (rid != null && rids.add(rid)) {
+            nextFrontier.add(rid);
           }
-        }
-        if (maxSize > 0 && rids.size() >= maxSize) {
-          break;
         }
       }
       frontier = nextFrontier;
@@ -262,25 +257,23 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
     var foundAnchors = new ArrayList<Result>();
     while (!frontier.isEmpty()) {
       var nextFrontier = new ArrayList<RID>();
-      for (var current : frontier) {
-        try (var rs = session.query(sql, current)) {
-          while (rs.hasNext()) {
-            var row = rs.next();
-            var rid = extractRid(row);
-            if (rid != null && visited.add(rid)) {
-              if (builtSet.contains(rid)) {
-                var mapped = ridToAnchors.get(rid);
-                if (mapped != null) {
-                  for (var a : mapped) {
-                    var aRid = extractRid(a);
-                    if (aRid != null && foundAnchorRids.add(aRid)) {
-                      foundAnchors.add(a);
-                    }
+      try (var rs = session.query(sql, (Object) frontier)) {
+        while (rs.hasNext()) {
+          var row = rs.next();
+          var rid = extractRid(row);
+          if (rid != null && visited.add(rid)) {
+            if (builtSet.contains(rid)) {
+              var mapped = ridToAnchors.get(rid);
+              if (mapped != null) {
+                for (var a : mapped) {
+                  var aRid = extractRid(a);
+                  if (aRid != null && foundAnchorRids.add(aRid)) {
+                    foundAnchors.add(a);
                   }
                 }
               }
-              nextFrontier.add(rid);
             }
+            nextFrontier.add(rid);
           }
         }
       }
