@@ -49,6 +49,7 @@ public class CompositeKey
   private Set<IdentityChangeListener> identityChangeListeners;
 
   private final List<Object> keys;
+  private transient List<Object> unmodifiableKeys;
 
   public CompositeKey(final List<?> keys) {
     this.keys = new ArrayList<>(keys.size());
@@ -81,13 +82,19 @@ public class CompositeKey
     if (this.keys != null) {
       this.keys.clear();
     }
+    unmodifiableKeys = null; // invalidate cached view
   }
 
   /**
    * Returns an unmodifiable view of the key values in this composite key.
    */
   public List<Object> getKeys() {
-    return Collections.unmodifiableList(keys);
+    var result = unmodifiableKeys;
+    if (result == null) {
+      result = Collections.unmodifiableList(keys);
+      unmodifiableKeys = result;
+    }
+    return result;
   }
 
   /**
@@ -106,6 +113,8 @@ public class CompositeKey
     } else {
       keys.add(key);
     }
+
+    unmodifiableKeys = null; // invalidate cached view
 
     if (key instanceof ChangeableIdentity changeableIdentity) {
       var canChangeIdentity = changeableIdentity.canChangeIdentity();
@@ -222,6 +231,7 @@ public class CompositeKey
 
     keys.clear();
     keys.addAll(keyMap.values());
+    unmodifiableKeys = null; // invalidate cached view
   }
 
   @Override
