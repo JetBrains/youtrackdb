@@ -76,25 +76,12 @@ public final class SQLBinaryCondition extends SQLBooleanExpression {
       return evaluateAllFunction(currentRecord, ctx);
     }
 
-    // In-place comparison fast path: avoid deserialization for simple
-    // "property <op> constant" patterns.  Collation is checked inside
-    // EntityImpl (both serialized and deserialized paths return FALLBACK
-    // for non-default collation), so no getCollate guard needed here.
-    if (left.isBaseIdentifier()
-        && left.mathExpression instanceof SQLBaseExpression baseExpr
-        && right.isEarlyCalculated(ctx)
-        && currentRecord instanceof ResultInternal ri
-        && ri.asEntityOrNull() instanceof EntityImpl entityImpl) {
-      var propName = baseExpr.getIdentifier().getSuffix()
-          .getIdentifier().getStringValue();
-      var rightVal = right.execute(currentRecord, ctx);
-
-      var inPlaceResult = tryInPlaceComparison(entityImpl, propName, rightVal);
-      if (inPlaceResult != null) {
-        return inPlaceResult;
-      }
-      // FALLBACK: fall through to standard path which handles collation
-    }
+    // In-place comparison is intentionally NOT used for the Result overload.
+    // When the Result wraps a lazy entity, asEntityOrNull() triggers a full
+    // entity load, and the subsequent page-frame comparison re-deserializes
+    // the field — double work that is slower than the standard path.
+    // The Identifiable overload above keeps the in-place optimization because
+    // the entity is already materialized there.
 
     var leftVal = left.execute(currentRecord, ctx);
     var rightVal = right.execute(currentRecord, ctx);
