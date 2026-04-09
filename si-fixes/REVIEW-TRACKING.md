@@ -17,7 +17,7 @@
 
 | ID | Severity | Title | Prompt File | Status | Commit |
 |----|----------|-------|-------------|--------|--------|
-| R-01 | should-fix | Document eager counter update semantics on rollback | `review-fix-01-counter-rollback.md` | [ ] TODO | — |
+| R-01 | should-fix | Document eager counter update semantics on rollback | `review-fix-01-counter-rollback.md` | [x] DONE | cbecb60b95 |
 | R-02 | should-fix | Add getVisibleStream() for multi-value get() optimization | `review-fix-02-multivalue-get-visible.md` | [ ] TODO | — |
 | R-03 | suggestion | Extract shared versioned put/remove into VersionedIndexOps | `review-fix-03-dry-doput.md` | [ ] TODO | — |
 | R-04 | suggestion | Unify duplicated extractKey() into parameterized helper | `review-fix-04-dry-extract-key.md` | [ ] TODO | — |
@@ -25,7 +25,7 @@
 | R-06 | suggestion | Replace @Nullable Optional with two doPutSingleValue overloads | `review-fix-06-nullable-optional.md` | [ ] TODO | — |
 | R-07 | suggestion | Add visibilityFilterValues() to avoid RawPair allocation | `review-fix-07-visibility-filter-values.md` | [ ] TODO | — |
 | R-08 | suggestion | Recalibrate null count in multi-value buildInitialHistogram | `review-fix-08-null-count-recalibrate.md` | [ ] TODO | — |
-| R-09 | minor | Avoid unnecessary CompositeKey allocation when rangeTo is null | `review-fix-09-rangeto-null-alloc.md` | [ ] TODO | — |
+| R-09 | minor | Avoid unnecessary CompositeKey allocation when rangeTo is null | `review-fix-09-rangeto-null-alloc.md` | [x] DONE | 7d9c139162 |
 
 ## Dependencies
 

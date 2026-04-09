@@ -296,7 +296,7 @@ public final class BTreeSingleValueIndexEngine
     try {
       var compositeKey = convertToCompositeKeyDefensive(key);
       boolean wasInserted =
-          doPutSingleValue(atomicOperation, compositeKey, value, key, null);
+          doPutSingleValue(atomicOperation, compositeKey, value, key);
 
       var mgr = histogramManager;
       if (mgr != null) {
@@ -322,8 +322,9 @@ public final class BTreeSingleValueIndexEngine
 
       // Validate at engine level before mutation, keeping the scan result
       // to avoid a second B-tree descent inside doPutSingleValue.
-      Optional<RawPair<CompositeKey, RID>> prefetched = null;
+      boolean wasInserted;
       if (validator != null) {
+        Optional<RawPair<CompositeKey, RID>> prefetched;
         try (var stream = sbTree.iterateEntriesBetween(
             compositeKey, true, compositeKey, true, true, atomicOperation)) {
           prefetched = stream.findAny();
@@ -338,10 +339,12 @@ public final class BTreeSingleValueIndexEngine
             }
           }
         }
+        wasInserted =
+            doPutSingleValue(atomicOperation, compositeKey, value, key, prefetched);
+      } else {
+        wasInserted =
+            doPutSingleValue(atomicOperation, compositeKey, value, key);
       }
-
-      boolean wasInserted =
-          doPutSingleValue(atomicOperation, compositeKey, value, key, prefetched);
 
       var mgr = histogramManager;
       if (mgr != null) {
@@ -357,34 +360,52 @@ public final class BTreeSingleValueIndexEngine
   }
 
   /**
-   * Core put logic shared by put() and validatedPut(). Handles versioning,
-   * snapshot pairs, and count delta accumulation.
-   *
-   * @param atomicOperation current atomic operation
-   * @param compositeKey defensive copy of the user key (will be mutated by addKey)
-   * @param value the RID to insert
-   * @param key the original (unmapped) key, used for null-key detection in delta accumulation
-   * @param prefetched if non-null, reuses the result from validatedPut's scan instead of
-   *     performing a second B-tree descent
-   * @return true if a new B-tree entry was inserted
+   * Called by put() — always performs its own B-tree scan.
+   */
+  private boolean doPutSingleValue(
+      @Nonnull AtomicOperation atomicOperation,
+      CompositeKey compositeKey,
+      RID value,
+      Object key) throws IOException {
+    Optional<RawPair<CompositeKey, RID>> existing;
+    try (var stream = sbTree.iterateEntriesBetween(
+        compositeKey, true, compositeKey, true, true, atomicOperation)) {
+      existing = stream.findAny();
+    }
+    return doPutSingleValueCore(atomicOperation, compositeKey, value, key, existing);
+  }
+
+  /**
+   * Called by validatedPut() — reuses the prefetched scan result.
    */
   private boolean doPutSingleValue(
       @Nonnull AtomicOperation atomicOperation,
       CompositeKey compositeKey,
       RID value,
       Object key,
-      @Nullable Optional<RawPair<CompositeKey, RID>> prefetched) throws IOException {
+      @Nonnull Optional<RawPair<CompositeKey, RID>> prefetched) throws IOException {
+    return doPutSingleValueCore(atomicOperation, compositeKey, value, key, prefetched);
+  }
+
+  /**
+   * Core put logic shared by both doPutSingleValue overloads. Handles versioning,
+   * snapshot pairs, and count delta accumulation.
+   *
+   * @param atomicOperation current atomic operation
+   * @param compositeKey defensive copy of the user key (will be mutated by addKey)
+   * @param value the RID to insert
+   * @param key the original (unmapped) key, used for null-key detection in delta accumulation
+   * @param existing the result of scanning for an existing entry (never null)
+   * @return true if a new B-tree entry was inserted
+   */
+  private boolean doPutSingleValueCore(
+      @Nonnull AtomicOperation atomicOperation,
+      CompositeKey compositeKey,
+      RID value,
+      Object key,
+      @Nonnull Optional<RawPair<CompositeKey, RID>> existing) throws IOException {
     boolean wasInserted;
 
-    Optional<RawPair<CompositeKey, RID>> existing;
-    if (prefetched != null) {
-      existing = prefetched;
-    } else {
-      try (var stream = sbTree.iterateEntriesBetween(
-          compositeKey, true, compositeKey, true, true, atomicOperation)) {
-        existing = stream.findAny();
-      }
-    }
     var version = atomicOperation.getCommitTs();
     if (existing.isPresent()) {
       var pair = existing.get();
