@@ -7471,4 +7471,542 @@ public class DocValidationTest {
     g.executeInTx(tx -> tx.yql("DELETE VERTEX QProfileLim").iterate());
   }
 
+  // === YQL-Syntax.md ===
+
+  // Line 21: "Keywords and class names are case-insensitive"
+  @Test
+  public void testSyntaxKeywordsCaseInsensitive() {
+    g.command("CREATE CLASS SynKw IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynKw SET name = 'a'").iterate();
+    });
+
+    // Keywords in different cases should all work
+    var r1 = g.computeInTx(tx -> tx.yql("SELECT FROM SynKw").toList());
+    var r2 = g.computeInTx(tx -> tx.yql("select from SynKw").toList());
+    var r3 = g.computeInTx(tx -> tx.yql("SeLeCt FrOm SynKw").toList());
+    assertThat(r1).hasSize(1);
+    assertThat(r2).hasSize(1);
+    assertThat(r3).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynKw").iterate());
+  }
+
+  // Line 21: "Keywords and class names are case-insensitive"
+  @Test
+  public void testSyntaxClassNamesCaseInsensitive() {
+    g.command("CREATE CLASS SynClsCase IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynClsCase SET name = 'x'").iterate();
+    });
+
+    // Class names in different cases
+    var r1 = g.computeInTx(tx -> tx.yql("SELECT FROM SynClsCase").toList());
+    var r2 = g.computeInTx(tx -> tx.yql("SELECT FROM SYNCLSCASE").toList());
+    var r3 = g.computeInTx(tx -> tx.yql("SELECT FROM synclscase").toList());
+    assertThat(r1).hasSize(1);
+    assertThat(r2).hasSize(1);
+    assertThat(r3).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynClsCase").iterate());
+  }
+
+  // Line 21: "Property names (fields) and values are case-sensitive"
+  @Test
+  public void testSyntaxPropertyNamesCaseSensitive() {
+    g.command("CREATE CLASS SynPropCase IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynPropCase SET myField = 'hello'").iterate();
+    });
+
+    // Exact case matches
+    var r1 =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM SynPropCase WHERE myField = 'hello'").toList());
+    assertThat(r1).hasSize(1);
+
+    // Wrong case on property name should find nothing
+    var r2 =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM SynPropCase WHERE MYFIELD = 'hello'").toList());
+    assertThat(r2).isEmpty();
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynPropCase").iterate());
+  }
+
+  // Line 93-101: Integer literal parsing (32-bit and 64-bit with L suffix)
+  @Test
+  public void testSyntaxIntegerLiterals() {
+    g.command("CREATE CLASS SynInt IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynInt SET val32 = 12345678, val64 = 12345678L, neg = -45")
+          .iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM SynInt").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat(((Number) v.value("val32")).intValue()).isEqualTo(12345678);
+    assertThat(((Number) v.value("val64")).longValue()).isEqualTo(12345678L);
+    assertThat(((Number) v.value("neg")).intValue()).isEqualTo(-45);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynInt").iterate());
+  }
+
+  // Line 185-187: Octal literal parsing
+  @Test
+  public void testSyntaxOctalLiterals() {
+    g.command("CREATE CLASS SynOctal IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      // 010 octal = 8 decimal, 01 octal = 1 decimal
+      tx.yql("CREATE VERTEX SynOctal SET v1 = 01, v2 = 010").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM SynOctal").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat(((Number) v.value("v1")).intValue()).isEqualTo(1);
+    assertThat(((Number) v.value("v2")).intValue()).isEqualTo(8);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynOctal").iterate());
+  }
+
+  // Line 189-192: Hexadecimal literal parsing
+  @Test
+  public void testSyntaxHexLiterals() {
+    g.command("CREATE CLASS SynHex IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynHex SET v1 = 0x1, v2 = 0x10, v3 = 0xff").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM SynHex").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat(((Number) v.value("v1")).intValue()).isEqualTo(1);
+    assertThat(((Number) v.value("v2")).intValue()).isEqualTo(16);
+    assertThat(((Number) v.value("v3")).intValue()).isEqualTo(255);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynHex").iterate());
+  }
+
+  // Line 109-116: Float and double literal parsing
+  @Test
+  public void testSyntaxFloatDoubleLiterals() {
+    g.command("CREATE CLASS SynFD IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynFD SET f1 = 1.5, f2 = -45.0, d1 = 0.23D").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM SynFD").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat(((Number) v.value("f1")).floatValue()).isEqualTo(1.5f);
+    assertThat(((Number) v.value("f2")).floatValue()).isEqualTo(-45.0f);
+    assertThat(((Number) v.value("d1")).doubleValue()).isEqualTo(0.23D);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynFD").iterate());
+  }
+
+  // Line 126-131: String delimiters — single and double quotes
+  @Test
+  public void testSyntaxStringDelimiters() {
+    g.command("CREATE CLASS SynStr IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynStr SET s1 = 'foo bar', s2 = \"baz qux\"").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM SynStr").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat((String) v.value("s1")).isEqualTo("foo bar");
+    assertThat((String) v.value("s2")).isEqualTo("baz qux");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynStr").iterate());
+  }
+
+  // Line 134-142: Boolean values are case-insensitive
+  @Test
+  public void testSyntaxBooleanCaseInsensitive() {
+    g.command("CREATE CLASS SynBool IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynBool SET b1 = true, b2 = TRUE, b3 = True").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM SynBool").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat((Boolean) v.value("b1")).isTrue();
+    assertThat((Boolean) v.value("b2")).isTrue();
+    assertThat((Boolean) v.value("b3")).isTrue();
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynBool").iterate());
+  }
+
+  // Line 153-161: Null literal is case-insensitive
+  @Test
+  public void testSyntaxNullCaseInsensitive() {
+    g.command("CREATE CLASS SynNull IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynNull SET v1 = NULL, v2 = null, v3 = Null").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM SynNull WHERE v1 IS NULL AND v2 IS NULL AND v3 IS NULL")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynNull").iterate());
+  }
+
+  // Line 244-252: Math type promotion — integer + long = long, int + float = float
+  @Test
+  public void testSyntaxMathTypePromotion() {
+    g.command("CREATE CLASS SynMath IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynMath SET r1 = 15 + 20L, r2 = 15 + 20.3").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM SynMath").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    // 15 + 20L should produce a Long
+    assertThat((Object) v.value("r1")).isInstanceOf(Long.class);
+    assertThat(((Number) v.value("r1")).longValue()).isEqualTo(35L);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynMath").iterate());
+  }
+
+  // Line 354: String concatenation with + operator
+  @Test
+  public void testSyntaxStringConcatenation() {
+    g.command("CREATE CLASS SynConcat IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynConcat SET r1 = 'a' + 1 + 2, r2 = 1 + 2 + 'a'").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM SynConcat").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat((String) v.value("r1")).isEqualTo("a12");
+    assertThat((String) v.value("r2")).isEqualTo("3a");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynConcat").iterate());
+  }
+
+  // Line 354-355: Null handling in plus — null is treated as identity (returns other operand)
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testSyntaxNullInPlus() {
+    g.command("CREATE CLASS SynNullPlus IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynNullPlus SET n = null, v = 1").iterate();
+    });
+
+    // 1 + null should return 1 (null treated as identity for plus)
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT v + n as result FROM SynNullPlus").toList());
+    assertThat(results).hasSize(1);
+    Map<String, Object> row = (Map<String, Object>) results.get(0);
+    assertThat(((Number) row.get("result")).intValue()).isEqualTo(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynNullPlus").iterate());
+  }
+
+  // Line 355: Null handling in minus — right null returns left operand
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testSyntaxNullInMinus() {
+    g.command("CREATE CLASS SynNullMinus IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynNullMinus SET n = null, v = 1").iterate();
+    });
+
+    // 1 - null should return 1 (null on right returns left)
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT v - n as result FROM SynNullMinus").toList());
+    assertThat(results).hasSize(1);
+    Map<String, Object> row = (Map<String, Object>) results.get(0);
+    assertThat(((Number) row.get("result")).intValue()).isEqualTo(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynNullMinus").iterate());
+  }
+
+  // Line 356: Null handling in multiply — null makes result null
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testSyntaxNullInMultiply() {
+    g.command("CREATE CLASS SynNullMul IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynNullMul SET n = null, v = 1").iterate();
+    });
+
+    // 1 * null should return null
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT v * n as result FROM SynNullMul").toList());
+    assertThat(results).hasSize(1);
+    Map<String, Object> row = (Map<String, Object>) results.get(0);
+    assertThat(row.get("result")).isNull();
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynNullMul").iterate());
+  }
+
+  // Line 357: Null handling in divide — null makes result null
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testSyntaxNullInDivide() {
+    g.command("CREATE CLASS SynNullDiv IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynNullDiv SET n = null, v = 1").iterate();
+    });
+
+    // 1 / null should return null
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT v / n as result FROM SynNullDiv").toList());
+    assertThat(results).hasSize(1);
+    Map<String, Object> row = (Map<String, Object>) results.get(0);
+    assertThat(row.get("result")).isNull();
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynNullDiv").iterate());
+  }
+
+  // Line 359: Bitwise right shift: 8 >> 2 = 2
+  @Test
+  public void testSyntaxBitwiseRightShift() {
+    g.command("CREATE CLASS SynShift IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynShift SET r1 = 8 >> 2").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM SynShift").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat(((Number) v.value("r1")).intValue()).isEqualTo(2);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynShift").iterate());
+  }
+
+  // Line 361: Bitwise left shift: 2 << 2 = 8
+  @Test
+  public void testSyntaxBitwiseLeftShift() {
+    g.command("CREATE CLASS SynLShift IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynLShift SET r1 = 2 << 2").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM SynLShift").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat(((Number) v.value("r1")).intValue()).isEqualTo(8);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynLShift").iterate());
+  }
+
+  // Line 393-397: Array concatenation with ||
+  @Test
+  public void testSyntaxArrayConcatenation() {
+    g.command("CREATE CLASS SynArrCat IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynArrCat SET r1 = [1, 2, 3] || [4, 5]").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM SynArrCat").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    @SuppressWarnings("unchecked")
+    List<Integer> list = (List<Integer>) v.value("r1");
+    assertThat(list).containsExactly(1, 2, 3, 4, 5);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynArrCat").iterate());
+  }
+
+  // Line 429-435: Null has no effect in || concatenation
+  @Test
+  public void testSyntaxArrayConcatenationWithNull() {
+    g.command("CREATE CLASS SynArrNull IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynArrNull SET r1 = [1, 2] || null").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM SynArrNull").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    @SuppressWarnings("unchecked")
+    List<Integer> list = (List<Integer>) v.value("r1");
+    assertThat(list).containsExactly(1, 2);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynArrNull").iterate());
+  }
+
+  // Line 450: CONTAINS operator checks if collection contains element
+  @Test
+  public void testSyntaxContainsOperator() {
+    g.command("CREATE CLASS SynContains IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynContains SET tags = ['a', 'b', 'c']").iterate();
+    });
+
+    // Single element — should match
+    var r1 =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM SynContains WHERE tags CONTAINS 'a'").toList());
+    assertThat(r1).hasSize(1);
+
+    // Collection argument — should NOT match (not intersection check)
+    var r2 =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM SynContains WHERE tags CONTAINS ['a', 'b']").toList());
+    assertThat(r2).isEmpty();
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynContains").iterate());
+  }
+
+  // Line 451: IN operator — same as CONTAINS with inverted operands
+  @Test
+  public void testSyntaxInOperator() {
+    g.command("CREATE CLASS SynIn IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynIn SET tags = ['x', 'y', 'z']").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM SynIn WHERE 'x' IN tags").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynIn").iterate());
+  }
+
+  // Line 454: LIKE operator with % wildcard
+  @Test
+  public void testSyntaxLikeOperator() {
+    g.command("CREATE CLASS SynLike IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynLike SET name = 'foobar'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM SynLike WHERE name LIKE '%ooba%'").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynLike").iterate());
+  }
+
+  // Line 457: BETWEEN operator
+  @Test
+  public void testSyntaxBetweenOperator() {
+    g.command("CREATE CLASS SynBetween IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynBetween SET val = 5").iterate();
+      tx.yql("CREATE VERTEX SynBetween SET val = 15").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM SynBetween WHERE val BETWEEN 1 AND 10").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat(((Number) v.value("val")).intValue()).isEqualTo(5);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynBetween").iterate());
+  }
+
+  // Line 458: MATCHES operator — regex matching
+  @Test
+  public void testSyntaxMatchesOperator() {
+    g.command("CREATE CLASS SynMatches IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynMatches SET name = 'hello123'").iterate();
+      tx.yql("CREATE VERTEX SynMatches SET name = 'world'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM SynMatches WHERE name MATCHES '.*\\\\d+.*'").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynMatches").iterate());
+  }
+
+  // Line 459: INSTANCEOF operator
+  @Test
+  public void testSyntaxInstanceofOperator() {
+    g.command("CREATE CLASS SynAnimal IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS SynDog IF NOT EXISTS EXTENDS SynAnimal");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynDog SET name = 'Rex'").iterate();
+    });
+
+    // SynDog is an instance of SynAnimal
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM SynDog WHERE @this INSTANCEOF 'SynAnimal'").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynDog").iterate());
+  }
+
+  // Line 272-275: .asSet() method removes duplicates from a list
+  @Test
+  public void testSyntaxAsSetMethod() {
+    g.command("CREATE CLASS SynAsSet IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynAsSet SET vals = [1, 3, 2, 2, 4].asSet()").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM SynAsSet").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    // asSet() removes the duplicate 2
+    @SuppressWarnings("unchecked")
+    java.util.Collection<Integer> set = (java.util.Collection<Integer>) v.value("vals");
+    assertThat(set).hasSize(4);
+    assertThat(set).containsExactlyInAnyOrder(1, 2, 3, 4);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynAsSet").iterate());
+  }
+
+  // Line 344: = operator as boolean comparison in WHERE
+  @Test
+  public void testSyntaxEqualsOperator() {
+    g.command("CREATE CLASS SynEq IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynEq SET name = 'John'").iterate();
+      tx.yql("CREATE VERTEX SynEq SET name = 'Jane'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM SynEq WHERE name = 'John'").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynEq").iterate());
+  }
+
+  // Line 345-346: != and <> both mean "not equals"
+  @Test
+  public void testSyntaxNotEqualsOperators() {
+    g.command("CREATE CLASS SynNeq IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynNeq SET name = 'John'").iterate();
+      tx.yql("CREATE VERTEX SynNeq SET name = 'Jane'").iterate();
+    });
+
+    var r1 =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM SynNeq WHERE name != 'John'").toList());
+    var r2 =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM SynNeq WHERE name <> 'John'").toList());
+    assertThat(r1).hasSize(1);
+    assertThat(r2).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynNeq").iterate());
+  }
+
 }

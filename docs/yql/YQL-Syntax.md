@@ -5,7 +5,7 @@ YouTrackDB Query Language is an SQL dialect.
 This page lists all the details about its syntax.
 
 ## Identifiers
-An identifier is a name that identifies an entity in YouTrackDB schema. Identifiers can refer to
+An identifier is a name that identifies an entity in the YouTrackDB schema. Identifiers can refer to
 - class names
 - property names
 - aliases
@@ -22,7 +22,7 @@ Keywords and class names are case-insensitive. Property names (fields) and value
 
 ## Reserved words
 
-In YouTrackDB SQL the following are reserved words:
+In YouTrackDB SQL, the following are reserved words:
 
 - AFTER
 - AND
@@ -85,10 +85,10 @@ In YouTrackDB SQL the following are reserved words:
 
 ## Base types
 
-Accepted base types in YouTrackDB QL are:
-- **integer numbers**: 
+Accepted base types in YQL are:
+- **integer numbers**:
 
-Valid integers are
+Valid integers are:
 ```
 (32bit)
 1
@@ -101,9 +101,9 @@ Valid integers are
 -45L
 ```
 
-- **floating point numbers**: single or double precision
+- **floating-point numbers**: single or double precision
 
-Valid floating point numbers are:
+Valid floating-point numbers are:
 ```
 (single precision)
 1.5
@@ -115,9 +115,9 @@ Valid floating point numbers are:
 .23D
 ```
 
-- **absolute precision, decimal numbers**: like BigDecimal in Java
+- **absolute-precision decimal numbers**: like BigDecimal in Java
 
-Use the `decimal(<number>)` function to explicitly instantiate an absolute precision number.
+Use the `decimal(<number>)` function to explicitly instantiate an absolute-precision number.
 
 
 - **strings**: delimited by `'` or by `"`. Single quotes, double quotes, and backslash inside strings can be escaped using a backslash.
@@ -144,15 +144,15 @@ false
 
 - **links**: A link is a pointer to a document in the database
 
-In YQL a link is represented as follows (short and extended notation):
+In YQL, a link is represented as follows:
 
 ```
 #<collection-id>:<collection-position>
 ```
 
-- **null**: case insensitive (for consistency with IS NULL and IS NOT NULL conditions, that are case insensitive)
+- **null**: case-insensitive (for consistency with IS NULL and IS NOT NULL conditions, which are case-insensitive)
 
-Valid null expressions include
+Valid null expressions include:
 ```
 NULL
 null
@@ -163,40 +163,40 @@ nUll
 
 ## Numbers
 
-YouTrackDB can store five different types of numbers
+YouTrackDB can store five different types of numbers:
 - Integer: 32bit signed
 - Long: 64bit signed
 - Float: decimal 32bit signed
 - Double: decimal 64bit signed
 - BigDecimal: absolute precision
 
-**Integers** are represented in YQL as plain numbers, eg. `123`. If the number represented exceeds the Integer maximum size (see Java java.lang.Integer `MAX_VALUE` and `MIN_VALUE`), then it's automatically converted to a Long. 
+**Integers** are represented in YQL as plain numbers, e.g. `123`. If the number represented exceeds the Integer maximum size (see Java `Integer.MAX_VALUE` and `Integer.MIN_VALUE`), then it's automatically converted to a Long. 
 
-When an integer is saved to a schemaful property of another numerical type, it is automatically converted. 
+When an integer is saved to a schema-defined property of another numerical type, it is automatically converted. 
 
-**Longs** are represented in YQL as numbers with `L` suffix, eg. `123L` (L can be uppercase or lowercase). Plain numbers (without L suffix) that exceed the Integer range are also automatically converted to Long. If the number represented exceeds the Long maximum size (see Java java.lang.Long `MAX_VALUE` and `MIN_VALUE`), then the result is `NULL`;
+**Longs** are represented in YQL as numbers with `L` suffix, e.g. `123L` (L can be uppercase or lowercase). Plain numbers (without L suffix) that exceed the Integer range are also automatically converted to Long. If the number represented exceeds the Long maximum size (see Java `Long.MAX_VALUE` and `Long.MIN_VALUE`), then the result is `NULL`.
 
 Integer and Long numbers can be represented in base 10 (decimal), 8 (octal) or 16 (hexadecimal):
-- decimal: `["-"] ("0" | ( ("1"-"9") ("0"-"9")* ) ["l"|"L"]`, eg. 
+- decimal: `["-"] ("0" | ( ("1"-"9") ("0"-"9")* ) ["l"|"L"]`, e.g. 
   - `15`, `15L`  
   - `-164` 
   - `999999999999`
-- octal: `["-"] "0" ("0"-"7")+ ["l"|"L"]`, eg. 
+- octal: `["-"] "0" ("0"-"7")+ ["l"|"L"]`, e.g. 
   - `01`, `01L` (equivalent to decimal 1) 
   - `010`, `010L` (equivalent to decimal 8)
-  - `-065`, `-065L` (equivalent to decimal 53)
-- hexadecimal: `["-"] "0" ("x"|"X") ("0"-"9"," a"-"f", "A"-"F")+ ["l"|"L"]`, eg.
-  - `0x1`, `0X1`, `0x1L` (equivalent to 1 decimal)
+  - `-065`, `-065L` (equivalent to decimal -53)
+- hexadecimal: `["-"] "0" ("x"|"X") ("0"-"9","a"-"f","A"-"F")+ ["l"|"L"]`, e.g.
+  - `0x1`, `0X1`, `0x1L` (equivalent to decimal 1)
   - `0x10` (equivalent to decimal 16)
   - `0xff`, `0xFF` (equivalent to decimal 255)
   - `-0xff`, `-0xFF` (equivalent to decimal -255)
   
-**Float** numbers are represented in YQL as `[-][<number>].<number>`, eg. valid Float values are `1.5`, `-1567.0`, `.556767`. If the number represented exceeds the Float maximum size (see Java java.lang.Float `MAX_VALUE` and `MIN_VALUE`), then it's automatically converted to a Double. 
+**Float** numbers are represented in YQL as `[-][<number>].<number>`, e.g. valid Float values are `1.5`, `-1567.0`, `.556767`. If the number represented exceeds the Float maximum size (see Java `Float.MAX_VALUE` and `Float.MIN_VALUE`), then it's automatically converted to a Double. 
 
-**Double** numbers are represented in YQL as `[-][<number>].<number>D` (D can be uppercase or lowercase), e.g. valid Double values are `1.5d`, `-1567.0D`, `.556767D`. If the number represented exceeds the Double maximum size (see Java java.lang.Double `MAX_VALUE` and `MIN_VALUE`), then the result is `NULL`
+**Double** numbers are represented in YQL as `[-][<number>].<number>D` (D can be uppercase or lowercase), e.g. valid Double values are `1.5d`, `-1567.0D`, `.556767D`. If the number represented exceeds the Double maximum size (see Java `Double.MAX_VALUE` and `Double.MIN_VALUE`), then the result is `NULL`.
 
 
-Float and Double numbers can be represented as decimal, decimal with exponent, hexadecimal and hexadecimal with exponent.
+Float and Double numbers can be represented as decimal, decimal with exponent, hexadecimal, and hexadecimal with exponent.
 Here is the full syntax:
 
 ```
@@ -208,7 +208,6 @@ DECIMAL_FLOATING_POINT_LITERAL:
       | "." (["0"-"9"])+ (<DECIMAL_EXPONENT>)? (["f","F","d","D"])?
       | (["0"-"9"])+ <DECIMAL_EXPONENT> (["f","F","d","D"])?
       | (["0"-"9"])+ (<DECIMAL_EXPONENT>)? ["f","F","d","D"]
-  >
 
 DECIMAL_EXPONENT: ["e","E"] (["+","-"])? (["0"-"9"])+ 
 
@@ -219,11 +218,11 @@ HEXADECIMAL_FLOATING_POINT_LITERAL:
 HEXADECIMAL_EXPONENT: ["p","P"] (["+","-"])? (["0"-"9"])+ 
 ```
 
-Eg. 
+E.g. 
 - base 10 
   - `0.5` 
-  - `0.5f`, `0.5F`, `2f` (ATTENTION, this is NOT hexadecimal)
-  - `0.5d`, `0.5D`, `2D` (ATTENTION, this is NOT hexadecimal)
+  - `0.5f`, `0.5F`, `2f` (Note: this is NOT hexadecimal)
+  - `0.5d`, `0.5D`, `2D` (Note: this is NOT hexadecimal)
   - `3.21e2d` equivalent to `3.21 * 10^2 = 321`
 - base 16
   - `0x3p4d` equivalent to `3 * 2^4 = 48`  
@@ -233,13 +232,13 @@ Eg.
 The instantiation of BigDecimal can be done explicitly, using the `decimal(<number> | <string>)` function, e.g. `decimal(124.4)` or `decimal("124.4")`
 
 
-#### Mathematical operations
+### Mathematical operations
 
-Mathematical Operations with numbers follow these rules:
-- Operations are calculated from left to right, following the operand priority. 
+Mathematical operations with numbers follow these rules:
+- Operations are calculated from left to right, following the operator precedence. 
 - When an operation involves two numbers of different type, both are converted to the higher precision type between the two. 
 
-Eg. 
+E.g. 
 
 ```
 15 + 20L = 15L + 20L     // the 15 is converted to 15L
@@ -251,7 +250,7 @@ Eg.
 15.0 + 20.3D = 15.0D + 20.3D     // the 15.0 is converted to 15.0D
 ```
 
-the overflow follows Java rules.
+The overflow follows Java rules.
 
 The conversion of a number to BigDecimal can be done explicitly, using the `decimal()` function, e.g. `decimal(124.4)` or `decimal("124.4")`
 
@@ -277,7 +276,7 @@ A `List` can be converted to a `Set` using the `.asSet()` method:
 ## Binary data
 YouTrackDB can store binary data (byte arrays) in entity properties. There is no native representation of binary data in YQL syntax. To insert/update a binary field, you have to use the `decode(<base64string>, "base64")` function.
 
-To obtain the base64 string representation of a byte array, you can use the function `encode(<byteArray>, "base64")`
+To obtain the base64 string representation of a byte array, you can use the function `encode(<byteArray>, "base64")`.
 
 ## Expressions
 
@@ -298,24 +297,24 @@ Valid expressions are:
 - `<unary operator> <expression>` 
 - `( <expression> )`: expression between parenthesis, for precedences
 - `( <query> )`: query between parenthesis
-- `[ <expression> (, <expression>)* ]`: a list, an ordered collection that allows duplicates, eg. `["a", "b", "c"]`)
+- `[ <expression> (, <expression>)* ]`: a list, an ordered collection that allows duplicates, e.g. `["a", "b", "c"]`
 - `<expression> <modifier> ( <modifier> )*`: a chain of modifiers (see below)
 - `<expression> IS NULL`: check for null value of an expression
 - `<expression> IS NOT NULL`: check for non null value of an expression
 
 ### Modifiers
 
-A modifier can be
-- a dot-separated field chain, eg. `foo.bar`. Dot notation is used to navigate relationships and entity properties. eg.
+A modifier can be:
+- a dot-separated field chain, e.g. `foo.bar`. Dot notation is used to navigate relationships and entity properties, e.g.
   ```
    john.address.city.name = "London"
   ```
   
-- a method invocation, eg. `foo.size()`.
+- a method invocation, e.g. `foo.size()`.
 
-  Method invocations can be chained, eg. `foo.toLowerCase().substring(2, 4)`
+  Method invocations can be chained, e.g. `foo.toLowerCase().substring(2, 4)`
   
-- a square bracket filter, eg. `foo[1]` or `foo[name = 'John']`
+- a square bracket filter, e.g. `foo[1]` or `foo[name = 'John']`
 
 
 ### Square bracket filters
@@ -329,8 +328,8 @@ Based on what is between brackets, the square bracket filtering has different ef
 - `<expression>`: If the expression returns an Integer or Long value (i), the result of the square bracket filtering
 is the i-th element of the collection/map. If the result of the expression (K) is not a number, the filtering returns the value corresponding to the key K in the map field. If the field is not a collection/map, the square bracket filtering returns `null`.
 The result of this filtering is ALWAYS a single value.
-- `<range>`: A range is something like `M..N`  or `M...N` where M and N are integer/long numbers, eg. `fieldName[2..5]`. The result of range filtering is a collection that is a subset of the original field value, containing all the items from position M (included) to position N (excluded for `..`, included for `...`). Eg. if `fieldName = ['a', 'b', 'c', 'd', 'e']`, `fieldName[1..3] = ['b', 'c']`, `fieldName[1...3] = ['b', 'c', 'd']`. Ranges start from `0`. The result of this filtering is ALWAYS a list (ordered collection, allowing duplicates). If the original collection was ordered, then the result will preserve the order.
-- `<condition>`: A normal SQL condition, that is applied to each element in the `fieldName` collection. The result is a sub-collection that contains only items that match the condition. Eg. `fieldName = [{foo = 1},{foo = 2},{foo = 5},{foo = 8}]`, `fieldName[foo > 4] = [{foo = 5},{foo = 8}]`. The result of this filtering is ALWAYS a list (ordered collection, allowing duplicates). If the original collection was ordered, then the result will preserve the order.
+- `<range>`: A range is something like `M..N` or `M...N` where M and N are integer/long numbers, e.g. `fieldName[2..5]`. The result of range filtering is a collection that is a subset of the original field value, containing all the items from position M (included) to position N (excluded for `..`, included for `...`). E.g. if `fieldName = ['a', 'b', 'c', 'd', 'e']`, `fieldName[1..3] = ['b', 'c']`, `fieldName[1...3] = ['b', 'c', 'd']`. Ranges start from `0`. The result of this filtering is ALWAYS a list (ordered collection, allowing duplicates). If the original collection was ordered, then the result will preserve the order.
+- `<condition>`: A normal SQL condition, that is applied to each element in the `fieldName` collection. The result is a sub-collection that contains only items that match the condition. E.g. `fieldName = [{foo = 1},{foo = 2},{foo = 5},{foo = 8}]`, `fieldName[foo > 4] = [{foo = 5},{foo = 8}]`. The result of this filtering is ALWAYS a list (ordered collection, allowing duplicates). If the original collection was ordered, then the result will preserve the order.
 
 
 ## Conditions
@@ -341,8 +340,8 @@ An expression that returns something different from a boolean value is always ev
 
 ## Comparison Operators
 
-- **`=`  (equals)**: If used in an expression, it is the boolean equals (eg. `select from Foo where name = 'John'`. If used in an SET section of INSERT/UPDATE statements or on a LET statement, it represents a variable assignment (eg. `insert into Foo set name = 'John'`)
-- **`!=` (not equals)**: inequality operator. 
+- **`=`  (equals)**: If used in an expression, it is the boolean equals (e.g. `select from Foo where name = 'John'`). If used in a SET section of INSERT/UPDATE statements or on a LET statement, it represents a variable assignment (e.g. `insert into Foo set name = 'John'`).
+- **`!=` (not equals)**: inequality operator.
 - **`<>` (not equals)**: same as `!=`
 - **`>`  (greater than)**
 - **`>=` (greater or equal)**
@@ -351,20 +350,20 @@ An expression that returns something different from a boolean value is always ev
 
 ## Math Operators
 
-- **`+`  (plus)**: addition if both operands are numbers, string concatenation (with string conversion) if one of the operands is not a number. The order of calculation (and conversion) is from left to right, eg `'a' + 1 + 2 = 'a12'`, `1 + 2 + 'a' = '3a'`. It can also be used as a unary operator (no effect)
-- **`-`  (minus)**: subtraction between numbers. Non-number operands are evaluated to zero. Null values are treated as a zero, e.g. `1 + null = 1`. Minus can also be used as a unary operator, to invert the sign of a number.
+- **`+`  (plus)**: addition if both operands are numbers, string concatenation (with string conversion) if one of the operands is not a number. The order of calculation (and conversion) is from left to right, e.g. `'a' + 1 + 2 = 'a12'`, `1 + 2 + 'a' = '3a'`. It can also be used as a unary operator (no effect).
+- **`-`  (minus)**: subtraction between numbers. Non-number operands are evaluated to zero. If the right operand is null, the left operand is returned unchanged, e.g. `1 - null = 1`. If the left operand is null, the result is null. Minus can also be used as a unary operator, to invert the sign of a number.
 - **`*`  (multiplication)**: multiplication between numbers. If one of the operands is null, the multiplication will evaluate to null. 
-- **`/`  (division)**: division between numbers. If one of the operands is null, the division will evaluate to null. The result of a division by zero is NaN.
+- **`/`  (division)**: division between numbers. If one of the operands is null, the division will evaluate to null. Integer division by zero throws an exception. Floating-point division by zero returns `Infinity` (or `NaN` for `0.0 / 0.0`).
 - **`%`  (modulo)**: modulo between numbers. If one of the operands is null, the modulo will evaluate to null.
-- **`>>`  (bitwise right shift)**: shifts bits on the right operand by a number of positions equal to the right operand. Eg. `8 >> 2 = 2`. Both operands have to be Integer or Long values, otherwise the result will be null.  
-- **`>>>`  (unsigned bitwise right shift)**: shifts bits on the right by a number of positions equal to the right operand, and fills with `0` on the left regardless of sign. This differs from `>>`, which fills with the sign bit. Both operands have to be Integer or Long values, otherwise the result will be null.
-- **`<<`  (bitwise left shift)**: shifts bits on the left, e.g. `2 << 2 = 8`. Both operands have to be Integer or Long values, otherwise the result will be null.
+- **`>>`  (bitwise right shift)**: shifts bits of the left operand to the right by a number of positions equal to the right operand, e.g. `8 >> 2 = 2`. Both operands have to be Integer or Long values, otherwise the result will be null.  
+- **`>>>`  (unsigned bitwise right shift)**: shifts bits of the left operand to the right by a number of positions equal to the right operand, and fills with `0` on the left regardless of sign. This differs from `>>`, which fills with the sign bit. Both operands have to be Integer or Long values, otherwise the result will be null.
+- **`<<`  (bitwise left shift)**: shifts bits of the left operand to the left by a number of positions equal to the right operand, e.g. `2 << 2 = 8`. Both operands have to be Integer or Long values, otherwise the result will be null.
 - **`&`  (bitwise AND)** executes a bitwise AND operation. Both operands have to be Integer or Long values, otherwise the result will be null.
 - **`|`  (bitwise OR)** executes a bitwise OR operation. Both operands have to be Integer or Long values, otherwise the result will be null.
 - **`^`  (bitwise XOR)** executes a bitwise XOR operation. Both operands have to be Integer or Long values, otherwise the result will be null.
 - **`||`**: array concatenation (see below for details)
 
-### Math Operators precedence
+### Math operator precedence
 
 
 | type                  |   Operators     |
@@ -379,8 +378,8 @@ An expression that returns something different from a boolean value is always ev
 
 ## Math + Assign operators
 
-These operators can be used in UPDATE statements to update and set values. The semantics is the same as the operation plus the assignment,
-eg. `a += 2` is just a shortcut for `a = a + 2`.
+These operators can be used in UPDATE statements to update values in-place. The semantics are the same as the operation plus the assignment,
+e.g. `a += 2` is just a shortcut for `a = a + 2`.
 
 - **`+=`  (add and assign)**: adds right operand to left operand and assigns the value to the left operand. Returns the final value of the left operand. If one of the operands is not a number, then this operator acts as a `concatenate string values and assign`
 - **`-=`  (subtract and assign)**: subtracts right operand from left operand and assigns the value to the left operand. Returns the final value of the left operand
@@ -396,7 +395,7 @@ The `||` operator concatenates two arrays.
 [1, 2, 3] || [4, 5] = [1, 2, 3, 4, 5]
 ```
 
-If one of the elements is not an array, then it's converted to an array of one element, before the concatenation operation is executed
+If one of the operands is not an array, then it's converted to an array of one element before the concatenation operation is executed.
 
 ```
 [1, 2, 3] || 4 = [1, 2, 3, 4]
@@ -416,7 +415,7 @@ To add an array, you have to wrap the array element in another array:
 
 The result of an array concatenation is always a List (ordered and with duplicates). The order of the elements in the list is the same as the order in the elements in the source arrays, in the order they appear in the original expression.
 
-To transform the result of an array concatenation in a Set (remove duplicates), just use the `.asSet()` method
+To transform the result of an array concatenation into a Set (remove duplicates), just use the `.asSet()` method.
 
 ```
 [1, 2] || [2, 3] = [1, 2, 2, 3]
@@ -426,7 +425,7 @@ To transform the result of an array concatenation in a Set (remove duplicates), 
 
 **Specific behavior of NULL**
 
-Null value has no effect when applied to a || operation. eg.
+A null value has no effect when applied to a `||` operation, e.g.
 
 ```
 [1, 2] || null = [1, 2]
@@ -434,7 +433,7 @@ Null value has no effect when applied to a || operation. eg.
 null || [1, 2] = [1, 2]
 ```
 
-To add null values to a collection, you have to explicitly wrap them in another collection, eg.
+To add null values to a collection, you have to explicitly wrap them in another collection, e.g.
 
 ```
 [1, 2] || [null] = [1, 2, null]
@@ -451,9 +450,9 @@ To add null values to a collection, you have to explicitly wrap them in another 
 - **`IN`**: the same as CONTAINS, but with inverted operands.
 - **`CONTAINSKEY`**: for maps, the same as for CONTAINS, but checks on the map keys
 - **`CONTAINSVALUE`**: for maps, the same as for CONTAINS, but checks on the map values
-- **`LIKE`**: for strings, checks if a string matches a pattern. `%` is used as a wildcard, e.g. `'foobar' LIKE '%ooba%'`
-- **`IS DEFINED`** (unary): returns TRUE if a field is defined in a document
-- **`IS NOT DEFINED`** (unary): returns TRUE if a field is not defined in a document
-- **`BETWEEN - AND`** (ternary): returns TRUE if a value is between two values, e.g. `5 BETWEEN 1 AND 10`
-- **`MATCHES`**: checks if a string matches a regular expression
-- **`INSTANCEOF`**: checks the type of a value, the right operand has to be a String representing a class name, e.g. `father INSTANCEOF 'Person'`
+- **`LIKE`**: for strings, checks if a string matches a pattern. `%` is used as a wildcard, e.g. `'foobar' LIKE '%ooba%'`.
+- **`IS DEFINED`** (unary): returns TRUE if a field is defined in an entity.
+- **`IS NOT DEFINED`** (unary): returns TRUE if a field is not defined in an entity.
+- **`BETWEEN - AND`** (ternary): returns TRUE if a value is between two values, e.g. `5 BETWEEN 1 AND 10`.
+- **`MATCHES`**: checks if a string matches a regular expression.
+- **`INSTANCEOF`**: checks the type of a value, the right operand has to be a String representing a class name, e.g. `father INSTANCEOF 'Person'`.
