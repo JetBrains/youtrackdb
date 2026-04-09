@@ -76,6 +76,18 @@ public class CompositeKey
   }
 
   /**
+   * Returns the key as a CompositeKey without copying. If the key is already a
+   * CompositeKey, returns it directly; otherwise wraps it in a new single-element
+   * CompositeKey. Used for read-only paths where the key is not mutated.
+   */
+  public static CompositeKey asCompositeKey(Object key) {
+    if (key instanceof CompositeKey compositeKey) {
+      return compositeKey;
+    }
+    return new CompositeKey(key);
+  }
+
+  /**
    * Clears the keys array for reuse of the object
    */
   public void reset() {

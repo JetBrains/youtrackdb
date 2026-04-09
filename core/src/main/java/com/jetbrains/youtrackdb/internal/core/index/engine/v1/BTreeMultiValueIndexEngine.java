@@ -307,7 +307,7 @@ public final class BTreeMultiValueIndexEngine
   @Override
   public Stream<RID> get(Object key, @Nonnull AtomicOperation atomicOperation) {
     if (key != null) {
-      final var compositeKey = toCompositeKey(key);
+      final var compositeKey = CompositeKey.asCompositeKey(key);
 
       var stream = svTree
           .iterateEntriesBetween(compositeKey, true, compositeKey, true, true, atomicOperation);
@@ -443,7 +443,7 @@ public final class BTreeMultiValueIndexEngine
     }
 
     // "from" could be null, then "to" is not (minor)
-    final var toKey = toCompositeKey(rangeTo);
+    final var toKey = CompositeKey.asCompositeKey(rangeTo);
     if (rangeFrom == null) {
       return indexesSnapshot.visibilityFilterMapped(atomicOperation,
           svTree.iterateEntriesMinor(toKey, toInclusive, ascSortOrder, atomicOperation),
@@ -451,7 +451,7 @@ public final class BTreeMultiValueIndexEngine
     }
 
     // "to" could be null, then "from" is not (major)
-    final var fromKey = toCompositeKey(rangeFrom);
+    final var fromKey = CompositeKey.asCompositeKey(rangeFrom);
     if (rangeTo == null) {
       return indexesSnapshot.visibilityFilterMapped(atomicOperation,
           svTree.iterateEntriesMajor(fromKey, fromInclusive, ascSortOrder, atomicOperation),
@@ -464,18 +464,6 @@ public final class BTreeMultiValueIndexEngine
 
     return indexesSnapshot.visibilityFilterMapped(atomicOperation, stream,
         BTreeMultiValueIndexEngine::extractKey);
-  }
-
-  /**
-   * Wraps the key as a CompositeKey without copying. Used for read-only range
-   * scan paths where the key is not mutated — the downstream
-   * enhanceCompositeKey() makes its own copy when padding is needed.
-   */
-  private static CompositeKey toCompositeKey(Object key) {
-    if (key instanceof CompositeKey compositeKey) {
-      return compositeKey;
-    }
-    return new CompositeKey(key);
   }
 
   @Override

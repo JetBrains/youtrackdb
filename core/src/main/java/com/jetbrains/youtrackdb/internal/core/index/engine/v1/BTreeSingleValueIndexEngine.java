@@ -241,7 +241,7 @@ public final class BTreeSingleValueIndexEngine
 
   @Override
   public Stream<RID> get(Object key, @Nonnull AtomicOperation atomicOperation) {
-    var compositeKey = toCompositeKey(key);
+    var compositeKey = CompositeKey.asCompositeKey(key);
     // Direct leaf-page lookup — avoids cursor/spliterator/stream overhead.
     // Null keys are handled uniformly: for single-field indexes,
     // CompositeKey(null) is padded with Long.MIN_VALUE for the version slot
@@ -428,14 +428,14 @@ public final class BTreeSingleValueIndexEngine
     }
 
     // "from" could be null, then "to" is not (minor)
-    final var toKey = toCompositeKey(rangeTo);
+    final var toKey = CompositeKey.asCompositeKey(rangeTo);
     if (rangeFrom == null) {
       return indexesSnapshot.visibilityFilterMapped(atomicOperation,
           sbTree.iterateEntriesMinor(toKey, toInclusive, ascSortOrder, atomicOperation),
           BTreeSingleValueIndexEngine::extractKey);
     }
 
-    final var fromKey = toCompositeKey(rangeFrom);
+    final var fromKey = CompositeKey.asCompositeKey(rangeFrom);
     // "to" could be null, then "from" is not (major)
     if (rangeTo == null) {
       return indexesSnapshot.visibilityFilterMapped(atomicOperation,
@@ -502,18 +502,6 @@ public final class BTreeSingleValueIndexEngine
   private static CompositeKey convertToCompositeKeyDefensive(Object key) {
     if (key instanceof CompositeKey compositeKey) {
       return new CompositeKey(compositeKey);
-    }
-    return new CompositeKey(key);
-  }
-
-  /**
-   * Wraps the key as a CompositeKey without copying. Used for read-only range
-   * scan paths where the key is not mutated — the downstream
-   * enhanceCompositeKey() makes its own copy when padding is needed.
-   */
-  private static CompositeKey toCompositeKey(Object key) {
-    if (key instanceof CompositeKey compositeKey) {
-      return compositeKey;
     }
     return new CompositeKey(key);
   }
