@@ -595,7 +595,11 @@ public final class LockFreeReadCache implements ReadCache {
     try {
       emptyBuffers();
 
-      var entries = new ArrayList<CacheEntry>(cacheSize.get());
+      // Guard against negative cacheSize — a counter drift can occur under heavy
+      // concurrent load/evict/clearFile activity. Using the actual data map size
+      // as the capacity hint ensures we never pass a negative value to ArrayList.
+      var currentCacheSize = cacheSize.get();
+      var entries = new ArrayList<CacheEntry>(Math.max(0, currentCacheSize));
       data.forEachValue(entries::add);
 
       for (final var entry : entries) {
