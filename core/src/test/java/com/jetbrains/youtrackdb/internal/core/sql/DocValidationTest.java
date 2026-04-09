@@ -6920,4 +6920,555 @@ public class DocValidationTest {
     });
   }
 
+  // === YQL-Query.md ===
+
+  // Line 42: SELECT FROM Person WHERE name LIKE 'Luk%'
+  @Test
+  public void testQuerySelectWhereLike() {
+    g.command("CREATE CLASS QPersonLike IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QPersonLike SET name = 'Lukas'").iterate();
+      tx.yql("CREATE VERTEX QPersonLike SET name = 'Luke'").iterate();
+      tx.yql("CREATE VERTEX QPersonLike SET name = 'John'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM QPersonLike WHERE name LIKE 'Luk%'").toList());
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QPersonLike").iterate());
+  }
+
+  // Line 47: SELECT FROM Person WHERE name.left(3) = 'Luk'
+  @Test
+  public void testQuerySelectWhereLeft() {
+    g.command("CREATE CLASS QPersonLeft IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QPersonLeft SET name = 'Lukas'").iterate();
+      tx.yql("CREATE VERTEX QPersonLeft SET name = 'Luke'").iterate();
+      tx.yql("CREATE VERTEX QPersonLeft SET name = 'John'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM QPersonLeft WHERE name.left(3) = 'Luk'").toList());
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QPersonLeft").iterate());
+  }
+
+  // Line 48: SELECT FROM Person WHERE name.substring(0,3) = 'Luk'
+  @Test
+  public void testQuerySelectWhereSubstring() {
+    g.command("CREATE CLASS QPersonSub IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QPersonSub SET name = 'Lukas'").iterate();
+      tx.yql("CREATE VERTEX QPersonSub SET name = 'Luke'").iterate();
+      tx.yql("CREATE VERTEX QPersonSub SET name = 'John'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM QPersonSub WHERE name.substring(0,3) = 'Luk'").toList());
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QPersonSub").iterate());
+  }
+
+  // Line 53: SELECT FROM AnimalType WHERE races CONTAINS(name.toLowerCase().substring(0,1) = 'e')
+  @Test
+  public void testQueryContainsWithMethodChain() {
+    g.command("CREATE CLASS QAnimalType IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE VERTEX QAnimalType SET races = [{'name':'European'},{'name':'african'}]")
+          .iterate();
+      tx.yql(
+          "CREATE VERTEX QAnimalType SET races = [{'name':'Asian'},{'name':'arctic'}]")
+          .iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM QAnimalType WHERE races CONTAINS("
+                    + " name.toLowerCase().substring(0, 1) = 'e')")
+                .toList());
+    // Only the first record has 'European' starting with 'e'
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QAnimalType").iterate());
+  }
+
+  // Line 58: SELECT * FROM AnimalType WHERE races CONTAINS(name in ['European', 'Asiatic'])
+  @Test
+  public void testQueryContainsWithInList() {
+    g.command("CREATE CLASS QAnimalIn IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE VERTEX QAnimalIn SET races = [{'name':'European'},{'name':'African'}]")
+          .iterate();
+      tx.yql(
+          "CREATE VERTEX QAnimalIn SET races = [{'name':'Asiatic'},{'name':'Arctic'}]")
+          .iterate();
+      tx.yql(
+          "CREATE VERTEX QAnimalIn SET races = [{'name':'Antarctic'}]")
+          .iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT * FROM QAnimalIn WHERE races CONTAINS("
+                    + "name in ['European', 'Asiatic'])")
+                .toList());
+    // First two records match
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QAnimalIn").iterate());
+  }
+
+  // Line 63: SELECT FROM Profile WHERE ANY() LIKE '%danger%'
+  @Test
+  public void testQueryAnyLike() {
+    g.command("CREATE CLASS QProfileAny IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QProfileAny SET bio = 'lives in danger zone'").iterate();
+      tx.yql("CREATE VERTEX QProfileAny SET bio = 'safe place'").iterate();
+      tx.yql("CREATE VERTEX QProfileAny SET nick = 'dangerous_dave'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM QProfileAny WHERE ANY() LIKE '%danger%'").toList());
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QProfileAny").iterate());
+  }
+
+  // Line 67: SELECT FROM Profile ORDER BY name DESC
+  @Test
+  public void testQueryOrderByDesc() {
+    g.command("CREATE CLASS QProfileOrd IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QProfileOrd SET name = 'Alice'").iterate();
+      tx.yql("CREATE VERTEX QProfileOrd SET name = 'Charlie'").iterate();
+      tx.yql("CREATE VERTEX QProfileOrd SET name = 'Bob'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM QProfileOrd ORDER BY name DESC").toList());
+    assertThat(results).hasSize(3);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("Charlie");
+    assertThat((String) ((Vertex) results.get(2)).value("name")).isEqualTo("Alice");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QProfileOrd").iterate());
+  }
+
+  // Line 73: SELECT COUNT(*) FROM Account GROUP BY city
+  @Test
+  public void testQueryCountGroupBy() {
+    g.command("CREATE CLASS QAccountGrp IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QAccountGrp SET city = 'Rome'").iterate();
+      tx.yql("CREATE VERTEX QAccountGrp SET city = 'Rome'").iterate();
+      tx.yql("CREATE VERTEX QAccountGrp SET city = 'Paris'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT COUNT(*) FROM QAccountGrp GROUP BY city").toList());
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QAccountGrp").iterate());
+  }
+
+  // Line 85: SELECT nick, followings, followers FROM Profile
+  @Test
+  public void testQuerySelectMultipleFields() {
+    g.command("CREATE CLASS QProfileFld IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE VERTEX QProfileFld SET nick = 'john', followings = 10, followers = 20")
+          .iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT nick, followings, followers FROM QProfileFld").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QProfileFld").iterate());
+  }
+
+  // Line 91: SELECT name.toUpperCase(), address.city.country.name FROM Profile
+  @Test
+  public void testQueryToUpperCaseAndChainedProperty() {
+    g.command("CREATE CLASS QProfileUp IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE VERTEX QProfileUp SET name = 'john',"
+              + " address = {'city':{'country':{'name':'Italy'}}}")
+          .iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT name.toUpperCase(), address.city.country.name FROM"
+                    + " QProfileUp")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QProfileUp").iterate());
+  }
+
+  // Lines 96-101: SELECT without projections returns entire record
+  @Test
+  public void testQuerySelectWithoutProjectionsReturnsFullRecord() {
+    g.command("CREATE CLASS QAccountFull IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QAccountFull SET name = 'test', age = 25").iterate();
+    });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM QAccountFull").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    // Full record has both properties
+    assertThat((String) v.value("name")).isEqualTo("test");
+    assertThat((int) v.value("age")).isEqualTo(25);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QAccountFull").iterate());
+  }
+
+  // Lines 117-125: Duplicate projection keys get numeric suffix (max, max2)
+  @Test
+  public void testQueryDuplicateProjectionKeys() {
+    g.command("CREATE CLASS QBalance IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QBalance SET incoming = 1342, cost = 2478").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT MAX(incoming), MAX(cost) FROM QBalance").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QBalance").iterate());
+  }
+
+  // Lines 130-139: Projection with AS aliases
+  @Test
+  public void testQueryProjectionWithAliases() {
+    g.command("CREATE CLASS QBalanceAs IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QBalanceAs SET incoming = 1342, cost = 2478").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT MAX(incoming) AS max_incoming, MAX(cost) AS max_cost"
+                    + " FROM QBalanceAs")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QBalanceAs").iterate());
+  }
+
+  // Lines 155-158: LET block — nested relationship query without LET
+  @Test
+  public void testQueryNestedRelationshipWithoutLet() {
+    g.command("CREATE CLASS QCountry IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS QCity IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS QAddress IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS QProfileLet IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QCountry SET name = 'Italy'").iterate();
+      tx.yql("CREATE VERTEX QCountry SET name = 'France'").iterate();
+    });
+    var countries =
+        g.computeInTx(tx -> tx.yql("SELECT FROM QCountry").toList());
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE VERTEX QCity SET name = 'Saint-Tropez', country = "
+              + ((Vertex) countries.get(1)).id())
+          .iterate();
+    });
+    var cities =
+        g.computeInTx(tx -> tx.yql("SELECT FROM QCity").toList());
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE VERTEX QAddress SET city = "
+              + ((Vertex) cities.get(0)).id())
+          .iterate();
+    });
+    var addresses =
+        g.computeInTx(tx -> tx.yql("SELECT FROM QAddress").toList());
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE VERTEX QProfileLet SET name = 'Jean', address = "
+              + ((Vertex) addresses.get(0)).id())
+          .iterate();
+    });
+
+    // Query from the doc (adapted class name)
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM QProfileLet WHERE address.city.name LIKE '%Saint%'"
+                    + " AND ( address.city.country.name = 'Italy' OR"
+                    + " address.city.country.name = 'France' )")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX QProfileLet").iterate();
+      tx.yql("DELETE VERTEX QAddress").iterate();
+      tx.yql("DELETE VERTEX QCity").iterate();
+      tx.yql("DELETE VERTEX QCountry").iterate();
+    });
+  }
+
+  // Lines 163-165: LET block — same query with LET variable
+  @Test
+  public void testQueryNestedRelationshipWithLet() {
+    g.command("CREATE CLASS QCountryL IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS QCityL IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS QAddressL IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS QProfileLetL IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QCountryL SET name = 'Italy'").iterate();
+      tx.yql("CREATE VERTEX QCountryL SET name = 'France'").iterate();
+    });
+    var countries =
+        g.computeInTx(tx -> tx.yql("SELECT FROM QCountryL").toList());
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE VERTEX QCityL SET name = 'Saint-Tropez', country = "
+              + ((Vertex) countries.get(1)).id())
+          .iterate();
+    });
+    var cities =
+        g.computeInTx(tx -> tx.yql("SELECT FROM QCityL").toList());
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE VERTEX QAddressL SET city = "
+              + ((Vertex) cities.get(0)).id())
+          .iterate();
+    });
+    var addresses =
+        g.computeInTx(tx -> tx.yql("SELECT FROM QAddressL").toList());
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE VERTEX QProfileLetL SET name = 'Jean', address = "
+              + ((Vertex) addresses.get(0)).id())
+          .iterate();
+    });
+
+    // Query from the doc using LET (adapted class name)
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM QProfileLetL LET $city = address.city"
+                    + " WHERE $city.name LIKE '%Saint%'"
+                    + " AND ($city.country.name = 'Italy'"
+                    + " OR $city.country.name = 'France')")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX QProfileLetL").iterate();
+      tx.yql("DELETE VERTEX QAddressL").iterate();
+      tx.yql("DELETE VERTEX QCityL").iterate();
+      tx.yql("DELETE VERTEX QCountryL").iterate();
+    });
+  }
+
+  // Lines 172-173: LET with sub-query — average salary
+  @Test
+  public void testQueryLetSubQuery() {
+    g.command("CREATE CLASS QEmployeeSq IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QEmployeeSq SET name = 'Alice', salary = 3000").iterate();
+      tx.yql("CREATE VERTEX QEmployeeSq SET name = 'Bob', salary = 5000").iterate();
+      tx.yql("CREATE VERTEX QEmployeeSq SET name = 'Carol', salary = 4000").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT name, $avgSalary[0].avg AS companyAvg FROM QEmployeeSq"
+                    + " LET $avgSalary = ( SELECT AVG(salary) AS avg"
+                    + " FROM QEmployeeSq )")
+                .toList());
+    assertThat(results).hasSize(3);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QEmployeeSq").iterate());
+  }
+
+  // Lines 184-187: LET block in projection — $temp.name in SELECT
+  @Test
+  public void testQueryLetInProjection() {
+    g.command("CREATE CLASS QCountryP IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS QCityP IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS QAddressP IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS QProfileLetP IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QCountryP SET name = 'France'").iterate();
+    });
+    var countries =
+        g.computeInTx(tx -> tx.yql("SELECT FROM QCountryP").toList());
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE VERTEX QCityP SET name = 'Saint-Tropez', country = "
+              + ((Vertex) countries.get(0)).id())
+          .iterate();
+    });
+    var cities =
+        g.computeInTx(tx -> tx.yql("SELECT FROM QCityP").toList());
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE VERTEX QAddressP SET city = "
+              + ((Vertex) cities.get(0)).id())
+          .iterate();
+    });
+    var addresses =
+        g.computeInTx(tx -> tx.yql("SELECT FROM QAddressP").toList());
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE VERTEX QProfileLetP SET name = 'Jean', address = "
+              + ((Vertex) addresses.get(0)).id())
+          .iterate();
+    });
+
+    // Query from the doc: LET variable used in projection
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT $temp.name FROM QProfileLetP LET $temp = address.city"
+                    + " WHERE $temp.name LIKE '%Saint%'"
+                    + " AND ( $temp.country.name = 'Italy'"
+                    + " OR $temp.country.name = 'France' )")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX QProfileLetP").iterate();
+      tx.yql("DELETE VERTEX QAddressP").iterate();
+      tx.yql("DELETE VERTEX QCityP").iterate();
+      tx.yql("DELETE VERTEX QCountryP").iterate();
+    });
+  }
+
+  // Lines 195-204, 209-219: UNWIND on collection field
+  @Test
+  public void testQueryUnwind() {
+    g.command("CREATE CLASS QPersonUw IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS QFriend IF NOT EXISTS EXTENDS E");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QPersonUw SET name = 'John'").iterate();
+      tx.yql("CREATE VERTEX QPersonUw SET name = 'Mark'").iterate();
+      tx.yql("CREATE VERTEX QPersonUw SET name = 'Steve'").iterate();
+    });
+    var persons =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM QPersonUw ORDER BY name ASC").toList());
+    // John, Mark, Steve
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE QFriend FROM " + ((Vertex) persons.get(0)).id()
+              + " TO " + ((Vertex) persons.get(1)).id())
+          .iterate();
+      tx.yql(
+          "CREATE EDGE QFriend FROM " + ((Vertex) persons.get(0)).id()
+              + " TO " + ((Vertex) persons.get(2)).id())
+          .iterate();
+    });
+
+    // Without UNWIND: friendName is a list
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT name, OUT('QFriend').name AS friendName FROM QPersonUw"
+                    + " WHERE name = 'John'")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    // With UNWIND: one record per friend
+    var unwound =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT name, OUT('QFriend').name AS friendName FROM QPersonUw"
+                    + " WHERE name = 'John' UNWIND friendName")
+                .toList());
+    assertThat(unwound).hasSize(2);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE QFriend").iterate();
+      tx.yql("DELETE VERTEX QPersonUw").iterate();
+    });
+  }
+
+  // Line 29: Claim — default ORDER BY direction is ascending
+  @Test
+  public void testQueryDefaultOrderIsAscending() {
+    g.command("CREATE CLASS QProfileAsc IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QProfileAsc SET name = 'Charlie'").iterate();
+      tx.yql("CREATE VERTEX QProfileAsc SET name = 'Alice'").iterate();
+      tx.yql("CREATE VERTEX QProfileAsc SET name = 'Bob'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM QProfileAsc ORDER BY name").toList());
+    assertThat(results).hasSize(3);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("Alice");
+    assertThat((String) ((Vertex) results.get(1)).value("name")).isEqualTo("Bob");
+    assertThat((String) ((Vertex) results.get(2)).value("name")).isEqualTo("Charlie");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QProfileAsc").iterate());
+  }
+
+  // Line 32: SKIP clause
+  @Test
+  public void testQuerySkip() {
+    g.command("CREATE CLASS QProfileSkip IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QProfileSkip SET name = 'A'").iterate();
+      tx.yql("CREATE VERTEX QProfileSkip SET name = 'B'").iterate();
+      tx.yql("CREATE VERTEX QProfileSkip SET name = 'C'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM QProfileSkip ORDER BY name SKIP 1").toList());
+    assertThat(results).hasSize(2);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("B");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QProfileSkip").iterate());
+  }
+
+  // Line 33: LIMIT clause
+  @Test
+  public void testQueryLimit() {
+    g.command("CREATE CLASS QProfileLim IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QProfileLim SET name = 'A'").iterate();
+      tx.yql("CREATE VERTEX QProfileLim SET name = 'B'").iterate();
+      tx.yql("CREATE VERTEX QProfileLim SET name = 'C'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM QProfileLim ORDER BY name LIMIT 2").toList());
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QProfileLim").iterate());
+  }
+
 }

@@ -13,11 +13,11 @@ SELECT [ <Projections> ] [ FROM <Target> [ LET <Assignment>* ] ]
     [ UNWIND <Property>* ]
     [ SKIP <SkipRecords> ]
     [ LIMIT <MaxRecords> ]
-    [ TIMEOUT <Timeout> [ <STRATEGY> ]
+    [ TIMEOUT <Timeout> [ <STRATEGY> ] ]
 ```
 
 - **[`<Projections>`](YQL-Query.md#projections)** Indicates the data you want to extract from the query as the result-set.
-- Note: In YouTrackDB, this clause is optional. In the projections, you can define aliases for single fields using the `AS` keyword. Aliases cannot be used in the WHERE condition, GROUP BY, and ORDER BY (they will be evaluated to null).
+- Note: In YouTrackDB, this clause is optional. In the projections, you can define aliases for single fields using the `AS` keyword. Aliases cannot be used in the WHERE condition, GROUP BY, or ORDER BY (they will be evaluated to null).
 - **`FROM`** Designates the object to query. This can be a class, a single Record ID, or a
 set of Record IDs.
     - When querying a class, for `<target>` use the class name.
@@ -27,7 +27,7 @@ set of Record IDs.
 - **`GROUP BY`** Designates property on which to group the result-set.
 - **`ORDER BY`** Designates the property with which to order the result-set.  Use the optional `ASC` and `DESC` operators to define the direction of the order.  
 The default is ascending.  Additionally, if you are using a [projection](YQL-Query.md#projections), 
-you need to include the `ORDER BY` field in the projection. Note that ORDER BY works only on projection properties (properties that are returned in the result set) not on LET variables.
+you need to include the `ORDER BY` field in the projection. Note that ORDER BY works only on projection properties (properties that are returned in the result set), not on LET variables.
 - **[`UNWIND`](YQL-Query.md#unwinding)** Designates the property on which to unwind the collection. 
 - **`SKIP`** Defines the number of records you want to skip from the start of the result-set.
 - **`LIMIT`** Defines the maximum number of records in the result-set.  
@@ -48,12 +48,12 @@ you need to include the `ORDER BY` field in the projection. Note that ORDER BY w
   SELECT FROM Person WHERE name.substring(0,3) = 'Luk'
 ```
 
-- Return all records of the type `AnimalType` where the collection `races` contains at least one entry where the first character is `e`, ignoring case:
+- Return all records of the class `AnimalType` where the collection `races` contains at least one entry where the first character is `e`, ignoring case:
 ```sql
    SELECT FROM AnimalType WHERE races CONTAINS( name.toLowerCase().substring(0, 1) = 'e')
 ```
  
-- Return all records of type `AnimalType` where the collection `races` contains at least one entry with names `European` or `Asiatic`:
+- Return all records of the class `AnimalType` where the collection `races` contains at least one entry with names `European` or `Asiatic`:
 ```sql
      SELECT * FROM AnimalType WHERE races CONTAINS(name in ['European', 'Asiatic']) 
 ```
@@ -93,24 +93,24 @@ you need to include the `ORDER BY` field in the projection. Note that ORDER BY w
 
 ## Projections
 In the standard implementations of SQL, projections are mandatory. 
-In YouTrackDB, the omission of projections translates to its returning the entire record.
+When projections are omitted, YouTrackDB returns the entire record.
 That is, it reads no projection as the equivalent of the `*` wildcard.
 
 ```sql
   SELECT FROM Account
 ```
 
-For all projections except the wildcard `*`, it creates a new temporary Map
+For all projections except the wildcard `*`, it creates a new temporary Map.
 ```sql
   SELECT name, age FROM Account
 ```
 
-The key convention for the returned Map entries are:
+The key conventions for the returned Map entries are:
 - Property name for plain properties, like `invoice` becoming `invoice`.
 - First property name for chained properties, like `invoice.customer.name` becoming `invoice`.
 - Function name for functions, like `MAX(salary)` becoming `max`.
 
-In the event the key already exists, it uses a numeric progression.  For instance,
+If the key already exists, it uses a numeric progression.  For instance,
 
 ```sql
   SELECT MAX(incoming), MAX(cost) FROM Balance
@@ -124,7 +124,7 @@ In the event the key already exists, it uses a numeric progression.  For instanc
 ------+------
 ```
 
-To override the display for the field names, use the `AS` keyword.
+To override the field names in the output, use the `AS` keyword.
 
 ```sql
  SELECT MAX(incoming) AS max_incoming, MAX(cost) AS max_cost FROM Balance
@@ -143,13 +143,13 @@ To override the display for the field names, use the `AS` keyword.
 ## `LET` Block
 
 The `LET` block contains context variables to assign each time YouTrackDB evaluates a record.
-It destroys these values once the query execution ends.  You can use context variables in projections, conditions, and sub-queries.
+YouTrackDB discards these values once the query execution ends.  You can use context variables in projections, conditions, and sub-queries.
 
 ### Assigning Fields for Reuse
 
-YouTrackDB allows for crossing relationships.  
-In single queries, you need to evaluate the same branch of the nested relationship.  
-This is better than using a context variable that refers to the full relationship.
+YouTrackDB allows crossing relationships in queries.  
+In some cases, you may need to evaluate the same nested relationship branch multiple times.  
+This can be optimized by using a `LET` variable that traverses the relationship only once.
 
 ```sql
 SELECT FROM Profile WHERE address.city.name LIKE '%Saint%' AND 
@@ -171,10 +171,11 @@ In this case, it traverses the path till `address.city` only once.
 The `LET` block allows you to assign a context variable to the result of a sub-query.
 
 ```sql
-SELECT FROM Document LET $temp = ( SELECT @rid, $depth FROM (TRAVERSE 
-          V.OUT, E.IN FROM $parent.current ) WHERE @class = 'Concept' AND 
-          ( id = 'first concept' OR id = 'second concept' )) WHERE $temp.SIZE() > 0
+SELECT name, $avgSalary[0].avg AS companyAvg FROM Employee
+          LET $avgSalary = ( SELECT AVG(salary) AS avg FROM Employee )
 ```
+
+This query returns each employee's name alongside the company-wide average salary, computed once by the sub-query and reused for every row.
 
 ### `LET` Block in Projection
 
