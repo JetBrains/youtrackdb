@@ -750,7 +750,17 @@ public class SnapshotIsolationIndexesSizeTest {
     storage.getContextConfiguration()
         .setValue(GlobalConfiguration.STORAGE_SNAPSHOT_INDEX_CLEANUP_THRESHOLD, 0);
 
-    // A no-op transaction triggers resetTsMin → cleanupSnapshotIndex → eviction
+    // A real write transaction advances idGen past the last snapshot entry's
+    // removedKey version (the committing TX's timestamp). This is necessary because
+    // eviction uses headMap(lwm) which is exclusive — the LWM must be strictly
+    // greater than the removedKey version. A no-op TX would not advance idGen,
+    // leaving LWM == removedVersion and preventing eviction.
+    var advanceTx = db.begin();
+    advanceTx.newVertex("Userr").setProperty("name", "Advance");
+    advanceTx.commit();
+
+    // A no-op transaction triggers resetTsMin → cleanupSnapshotIndex → eviction.
+    // Now LWM = idGen.getLastId() which is past all snapshot entry versions.
     db.begin().commit();
 
     assertThat(storage.getIndexesSnapshotEntriesCount().get())
@@ -796,7 +806,14 @@ public class SnapshotIsolationIndexesSizeTest {
     storage.getContextConfiguration()
         .setValue(GlobalConfiguration.STORAGE_SNAPSHOT_INDEX_CLEANUP_THRESHOLD, 0);
 
-    // A no-op transaction triggers resetTsMin → cleanupSnapshotIndex → eviction
+    // A real write transaction advances idGen past the last snapshot entry's
+    // removedKey version. Without this, LWM == removedVersion and headMap's
+    // exclusive bound prevents eviction.
+    var advanceTx = db.begin();
+    advanceTx.newVertex("Userr").setProperty("name", "Advance");
+    advanceTx.commit();
+
+    // A no-op transaction triggers resetTsMin → cleanupSnapshotIndex → eviction.
     db.begin().commit();
 
     assertThat(storage.getIndexesSnapshotEntriesCount().get())

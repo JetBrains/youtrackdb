@@ -214,8 +214,10 @@ public abstract class AbstractStorage
       Comparator.comparing(
           o -> o.record.getIdentity());
 
-  // Version comparator for index snapshot version-index maps: orders by the last key element
-  // (version timestamp), falling back to natural CompositeKey ordering for uniqueness.
+  // Version comparator for index snapshot visibility-index maps: orders by the last key
+  // element (the committing TX's version = newVersion), falling back to natural CompositeKey
+  // ordering for uniqueness. Enables efficient headMap(lwm) eviction matching the
+  // collection/edge pattern where VisibilityKey.recordTs is the committing TX's timestamp.
   public static final Comparator<CompositeKey> INDEX_SNAPSHOT_VERSION_COMPARATOR =
       Comparator.comparingLong((CompositeKey a) -> (Long) a.getKeys().getLast())
           .thenComparing(Function.identity());
@@ -352,8 +354,9 @@ public abstract class AbstractStorage
   private final ConcurrentSkipListMap<CompositeKey, RID> sharedNullIndexesSnapshot =
       new ConcurrentSkipListMap<>();
 
-  // Indexes snapshot visibility index: maps addedKey → removedKey, ordered by version (last key
-  // element). Enables efficient range-scan eviction via headMap(lowWaterMark)
+  // Indexes snapshot visibility index: maps removedKey (newVersion) → addedKey (oldVersion),
+  // ordered by newVersion (last key element). Enables efficient range-scan eviction via
+  // headMap(lowWaterMark), matching the collection/edge eviction pattern.
   private final ConcurrentSkipListMap<CompositeKey, CompositeKey> indexesSnapshotVisibilityIndex =
       new ConcurrentSkipListMap<>(INDEX_SNAPSHOT_VERSION_COMPARATOR);
   private final ConcurrentSkipListMap<CompositeKey, CompositeKey> nullIndexSnapshotVisibilityIndex =

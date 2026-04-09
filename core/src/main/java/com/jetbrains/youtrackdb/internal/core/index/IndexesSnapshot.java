@@ -64,7 +64,10 @@ public class IndexesSnapshot {
     // lookupSnapshotRid.
     indexesSnapshot.put(enhancedAddedKey, new TombstoneRID(value));
     indexesSnapshot.put(enhancedRemovedKey, value);
-    visibilityIndex.put(enhancedAddedKey, enhancedRemovedKey);
+    // Key by removedKey (newVersion) so the comparator orders by newVersion.
+    // Eviction checks newVersion < LWM — matching the collection/edge eviction
+    // pattern where VisibilityKey.recordTs is the committing TX's timestamp.
+    visibilityIndex.put(enhancedRemovedKey, enhancedAddedKey);
     // 2 entries added to snapshotData per pair (TombstoneRID + RecordId guard).
     // Matches the decrement in evictStaleIndexesSnapshotEntries.
     snapshotSizeCounter.addAndGet(2);
@@ -243,13 +246,14 @@ public class IndexesSnapshot {
   }
 
   public void clear() {
-    // Remove versionIndex entries that correspond to this (sub-)snapshot's data.
-    // versionIndex keys are the addedKey entries — those stored with TombstoneRID values.
+    // Remove visibilityIndex entries that correspond to this (sub-)snapshot's data.
+    // visibilityIndex keys are the removedKey entries (newVersion) — those are the
+    // RecordId guard entries in indexesSnapshot (non-TombstoneRID values).
     // Count entries before clearing so the size counter stays consistent.
     long entryCount = 0;
     for (var entry : indexesSnapshot.entrySet()) {
       entryCount++;
-      if (entry.getValue() instanceof TombstoneRID) {
+      if (!(entry.getValue() instanceof TombstoneRID)) {
         visibilityIndex.remove(entry.getKey());
       }
     }

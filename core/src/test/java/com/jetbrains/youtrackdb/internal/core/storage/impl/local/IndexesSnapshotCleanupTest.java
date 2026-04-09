@@ -98,12 +98,12 @@ public class IndexesSnapshotCleanupTest {
         rid2);
     assertThat(sizeCounter.get()).isEqualTo(4);
 
-    // Evict one pair (version 5 < lwm 7), preserving version 8
-    evict(7L);
+    // Evict one pair (newVersion 15 < lwm 17), preserving newVersion 20
+    evict(17L);
     assertThat(sizeCounter.get()).isEqualTo(2);
 
-    // Evict remaining pair
-    evict(10L);
+    // Evict remaining pair (newVersion 20 < lwm 25)
+    evict(25L);
     assertThat(sizeCounter.get()).isEqualTo(0);
   }
 
@@ -126,8 +126,8 @@ public class IndexesSnapshotCleanupTest {
         rid2);
     assertThat(sizeCounter.get()).isEqualTo(4);
 
-    // Evict all
-    evict(10L);
+    // Evict all (newVersion 15 and 20 are both < 25)
+    evict(25L);
     assertThat(sizeCounter.get()).isEqualTo(0);
   }
 
@@ -180,8 +180,8 @@ public class IndexesSnapshotCleanupTest {
         new CompositeKey("keyB", 20L),
         rid2);
 
-    // lwm = 10: entries with addedKey version < 10 (i.e., version 5 and 8) should be evicted
-    evict(10L);
+    // lwm = 21: entries with removedKey version < 21 (i.e., newVersion 15 and 20) are evicted
+    evict(21L);
 
     // Both pairs should be fully evicted (addedKey and removedKey entries removed)
     assertThat(indexesSnapshot.allEntries()).isEmpty();
@@ -189,15 +189,15 @@ public class IndexesSnapshotCleanupTest {
 
   @Test
   public void testEvictPreservesEntriesAtLwm() {
-    // Entry with addedKey version exactly at lwm should be preserved (headMap is exclusive)
+    // Entry with removedKey version exactly at lwm should be preserved (headMap is exclusive)
     var rid = new RecordId(1, 100L);
     indexesSnapshot.addSnapshotPair(
         new CompositeKey("keyA", 10L),
         new CompositeKey("keyA", 20L),
         rid);
 
-    // lwm = 10: entry with version=10 should be PRESERVED
-    evict(10L);
+    // lwm = 20: entry with newVersion=20 should be PRESERVED (headMap is exclusive)
+    evict(20L);
 
     // 1 pair = 2 entries (addedKey + removedKey)
     assertThat(indexesSnapshot.allEntries()).hasSize(2);
@@ -282,8 +282,8 @@ public class IndexesSnapshotCleanupTest {
         new CompositeKey("keyC", 30L),
         rid3);
 
-    // lwm = 15: evicts pairs with addedKey version 5 and 10, preserves version 20
-    evict(15L);
+    // lwm = 26: evicts pairs with removedKey version 15 and 25, preserves removedKey 30
+    evict(26L);
 
     // Only the third pair should remain (1 pair = 2 entries: addedKey + removedKey)
     assertThat(indexesSnapshot.allEntries()).hasSize(2);
@@ -314,7 +314,8 @@ public class IndexesSnapshotCleanupTest {
         .count();
     assertThat(tombstoneCount).isEqualTo(1);
 
-    evict(10L);
+    // lwm = 16: entry with removedKey version 15 should be evicted (15 < 16)
+    evict(16L);
 
     assertThat(indexesSnapshot.allEntries()).isEmpty();
   }
@@ -338,8 +339,8 @@ public class IndexesSnapshotCleanupTest {
         new CompositeKey("keyA", 15L),
         rid2);
 
-    // lwm = 5: evicts pair with addedKey version 3, preserves pair with version 7
-    evict(5L);
+    // lwm = 11: evicts pair with removedKey version 10, preserves pair with removedKey 15
+    evict(11L);
 
     // Remaining: 1 pair = 2 entries (addedKey version=7 + removedKey version=15)
     assertThat(indexesSnapshot.allEntries()).hasSize(2);
@@ -374,8 +375,8 @@ public class IndexesSnapshotCleanupTest {
         new CompositeKey((Object) null, 15L),
         rid);
 
-    // lwm = 10: entry with addedKey version 5 should be evicted
-    evict(10L);
+    // lwm = 16: entry with removedKey version 15 should be evicted (15 < 16)
+    evict(16L);
 
     assertThat(indexesSnapshot.allEntries()).isEmpty();
   }
@@ -389,7 +390,7 @@ public class IndexesSnapshotCleanupTest {
         new CompositeKey((Object) null, 25L),
         rid);
 
-    // lwm = 10: entry with addedKey version 15 should be preserved
+    // lwm = 10: entry with removedKey version 25 should be preserved (25 >= 10)
     evict(10L);
 
     assertThat(indexesSnapshot.allEntries()).hasSize(2);
@@ -418,8 +419,8 @@ public class IndexesSnapshotCleanupTest {
         new CompositeKey((Object) null, 30L),
         rid3);
 
-    // lwm = 15: evicts null-key v5 and non-null v8, preserves null-key v20
-    evict(15L);
+    // lwm = 19: evicts removedKey versions 12 and 18, preserves removedKey 30
+    evict(19L);
 
     assertThat(indexesSnapshot.allEntries()).hasSize(2);
     var remainingVersions = indexesSnapshot.allEntries().stream()
@@ -440,8 +441,8 @@ public class IndexesSnapshotCleanupTest {
         new CompositeKey(rid, 15L),
         rid);
 
-    // lwm = 10: should be evicted via parent (as AbstractStorage does in production)
-    evict(10L);
+    // lwm = 16: should be evicted via parent (removedKey version 15 < 16)
+    evict(16L);
 
     assertThat(nullIndexesSnapshot.allEntries()).isEmpty();
   }
@@ -468,8 +469,8 @@ public class IndexesSnapshotCleanupTest {
     assertThat(indexesSnapshot.allEntries()).hasSize(2);
     assertThat(nullIndexesSnapshot.allEntries()).hasSize(2);
 
-    // Evict via parents (as AbstractStorage.cleanupSnapshotIndex does)
-    evict(10L);
+    // Evict via parents — lwm=18 evicts removedKey versions 15 and 17
+    evict(18L);
 
     assertThat(indexesSnapshot.allEntries())
         .as("svTree sub-snapshot must be empty after parent eviction")
@@ -504,14 +505,14 @@ public class IndexesSnapshotCleanupTest {
         new CompositeKey(rid3, 12L),
         rid3);
 
-    // Evict via raw maps (as AbstractStorage.cleanupSnapshotIndex does)
-    evict(10L);
+    // Evict via raw maps — lwm=16 evicts removedKey versions 15 and 12, preserves 30
+    evict(16L);
 
     assertThat(indexesSnapshot.allEntries())
-        .as("svTree entry at version 5 must be evicted")
+        .as("svTree entry with removedKey version 15 must be evicted")
         .isEmpty();
     assertThat(nullIndexesSnapshot.allEntries())
-        .as("nullTree entry at version 20 must be preserved, version 3 evicted")
+        .as("nullTree entry with removedKey version 30 must be preserved, version 12 evicted")
         .hasSize(2);
   }
 
@@ -535,16 +536,16 @@ public class IndexesSnapshotCleanupTest {
         new CompositeKey("keyC", 30L),
         rid3);
 
-    // First eviction: lwm=8, evicts version 5 only → 2 pairs remain (4 entries)
-    evict(8L);
+    // First eviction: lwm=16, evicts removedKey version 15 → 2 pairs remain (4 entries)
+    evict(16L);
     assertThat(indexesSnapshot.allEntries()).hasSize(4);
 
-    // Second eviction: lwm=15, evicts version 10 → 1 pair remains (2 entries)
-    evict(15L);
+    // Second eviction: lwm=26, evicts removedKey version 25 → 1 pair remains (2 entries)
+    evict(26L);
     assertThat(indexesSnapshot.allEntries()).hasSize(2);
 
-    // Third eviction: lwm=25, evicts version 20 → all gone
-    evict(25L);
+    // Third eviction: lwm=31, evicts removedKey version 30 → all gone
+    evict(31L);
     assertThat(indexesSnapshot.allEntries()).isEmpty();
   }
 
@@ -606,9 +607,9 @@ public class IndexesSnapshotCleanupTest {
     assertThat(subA.allEntries()).hasSize(2);
     assertThat(subB.allEntries()).hasSize(4);
 
-    // Evict with LWM=10: versions 5, 8, 3 evicted; version 25 preserved
-    AbstractStorage.evictStaleIndexesSnapshotEntries(10L, data, verIdx, counter);
-    AbstractStorage.evictStaleIndexesSnapshotEntries(10L, nullData, nullVerIdx, counter);
+    // Evict with LWM=19: removedKey versions 15, 18, 13 evicted; removedKey 35 preserved
+    AbstractStorage.evictStaleIndexesSnapshotEntries(19L, data, verIdx, counter);
+    AbstractStorage.evictStaleIndexesSnapshotEntries(19L, nullData, nullVerIdx, counter);
 
     assertThat(data)
         .as("only engine B's version-25 pair should survive")
@@ -652,20 +653,20 @@ public class IndexesSnapshotCleanupTest {
     assertThat(data).hasSize(6);
     assertThat(verIdx).hasSize(3);
 
-    // First pass: LWM=10 — evicts version 5 only
-    AbstractStorage.evictStaleIndexesSnapshotEntries(10L, data, verIdx, counter);
+    // First pass: LWM=16 — evicts removedKey version 15 only
+    AbstractStorage.evictStaleIndexesSnapshotEntries(16L, data, verIdx, counter);
     assertThat(data).hasSize(4);
     assertThat(verIdx).as("versionIndex must shrink after eviction").hasSize(2);
 
-    // Second pass: LWM=20 — evicts version 12
-    AbstractStorage.evictStaleIndexesSnapshotEntries(20L, data, verIdx, counter);
+    // Second pass: LWM=23 — evicts removedKey version 22
+    AbstractStorage.evictStaleIndexesSnapshotEntries(23L, data, verIdx, counter);
     assertThat(data).hasSize(2);
     assertThat(verIdx).hasSize(1);
     assertThat(subA.allEntries()).hasSize(2);
     assertThat(subB.allEntries()).isEmpty();
 
-    // Third pass: LWM=35 — evicts everything
-    AbstractStorage.evictStaleIndexesSnapshotEntries(35L, data, verIdx, counter);
+    // Third pass: LWM=41 — evicts everything (removedKey version 40)
+    AbstractStorage.evictStaleIndexesSnapshotEntries(41L, data, verIdx, counter);
     assertThat(data).isEmpty();
     assertThat(verIdx).as("versionIndex must be empty after full eviction").isEmpty();
   }
@@ -692,7 +693,7 @@ public class IndexesSnapshotCleanupTest {
         new CompositeKey("keyA", 5L), new CompositeKey("keyA", 15L), rid1);
     assertThat(data).hasSize(2);
 
-    AbstractStorage.evictStaleIndexesSnapshotEntries(10L, data, verIdx, counter);
+    AbstractStorage.evictStaleIndexesSnapshotEntries(16L, data, verIdx, counter);
     assertThat(data).isEmpty();
 
     // Add second pair after eviction — must still be tracked in versionIndex
@@ -701,8 +702,8 @@ public class IndexesSnapshotCleanupTest {
     assertThat(data).hasSize(2);
     assertThat(verIdx).hasSize(1);
 
-    // Evict second pair
-    AbstractStorage.evictStaleIndexesSnapshotEntries(25L, data, verIdx, counter);
+    // Evict second pair (removedKey version 30 < 31)
+    AbstractStorage.evictStaleIndexesSnapshotEntries(31L, data, verIdx, counter);
     assertThat(data)
         .as("second pair must be evicted after interleaved add/evict")
         .isEmpty();
@@ -752,8 +753,8 @@ public class IndexesSnapshotCleanupTest {
         .as("clearing subA must not remove subB's versionIndex entries")
         .hasSize(1);
 
-    // Eviction must still work for the surviving entries
-    AbstractStorage.evictStaleIndexesSnapshotEntries(10L, data, verIdx, counter);
+    // Eviction must still work for the surviving entries (removedKey version 18 < 19)
+    AbstractStorage.evictStaleIndexesSnapshotEntries(19L, data, verIdx, counter);
     assertThat(data).isEmpty();
     assertThat(verIdx).isEmpty();
   }
