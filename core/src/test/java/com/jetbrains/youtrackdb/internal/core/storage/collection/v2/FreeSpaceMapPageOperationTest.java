@@ -671,4 +671,92 @@ public class FreeSpaceMapPageOperationTest {
     var op4 = new FreeSpaceMapPageUpdateOp(5, 10, 15, lsn, 42, 100);
     Assert.assertNotEquals(op1, op4);
   }
+
+  // --- Redo idempotency tests ---
+
+  /**
+   * Redo idempotency for init: applying init redo twice must produce the same buffer state
+   * as applying it once. This is a critical crash recovery property — WAL replay may
+   * re-apply a record to a page that already has the update.
+   */
+  @Test
+  public void testInitRedoIsIdempotent() {
+    var bufferPool = ByteBufferPool.instance(null);
+
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    cachePointer.incrementReferrer();
+    CacheEntry entry = new CacheEntryImpl(0, 0, cachePointer, false, null);
+    entry.acquireExclusiveLock();
+
+    try {
+      // Dirty the page with some data first
+      var page = new FreeSpaceMapPage(entry);
+      page.init();
+      page.updatePageMaxFreeSpace(5, 120);
+
+      // Redo init once
+      var op = new FreeSpaceMapPageInitOp(0, 0, 0, new LogSequenceNumber(0, 0));
+      op.redo(page);
+
+      // Snapshot buffer after first redo
+      var buf = cachePointer.getBuffer();
+      var snapshot = new byte[buf.capacity()];
+      buf.get(0, snapshot);
+
+      // Redo init again
+      op.redo(page);
+
+      // Buffer must be byte-identical to the snapshot
+      var afterSecond = new byte[buf.capacity()];
+      buf.get(0, afterSecond);
+      Assert.assertArrayEquals(
+          "Init redo must be idempotent", snapshot, afterSecond);
+    } finally {
+      entry.releaseExclusiveLock();
+      cachePointer.decrementReferrer();
+    }
+  }
+
+  /**
+   * Redo idempotency for update: applying updatePageMaxFreeSpace redo twice with the same
+   * parameters must produce the same buffer state as applying it once.
+   */
+  @Test
+  public void testUpdateRedoIsIdempotent() {
+    var bufferPool = ByteBufferPool.instance(null);
+
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    cachePointer.incrementReferrer();
+    CacheEntry entry = new CacheEntryImpl(0, 0, cachePointer, false, null);
+    entry.acquireExclusiveLock();
+
+    try {
+      var page = new FreeSpaceMapPage(entry);
+      page.init();
+
+      // Redo update once
+      var op = new FreeSpaceMapPageUpdateOp(
+          0, 0, 0, new LogSequenceNumber(0, 0), 5, 120);
+      op.redo(page);
+
+      // Snapshot buffer after first redo
+      var buf = cachePointer.getBuffer();
+      var snapshot = new byte[buf.capacity()];
+      buf.get(0, snapshot);
+
+      // Redo update again with same parameters
+      op.redo(page);
+
+      // Buffer must be byte-identical to the snapshot
+      var afterSecond = new byte[buf.capacity()];
+      buf.get(0, afterSecond);
+      Assert.assertArrayEquals(
+          "Update redo must be idempotent", snapshot, afterSecond);
+    } finally {
+      entry.releaseExclusiveLock();
+      cachePointer.decrementReferrer();
+    }
+  }
 }

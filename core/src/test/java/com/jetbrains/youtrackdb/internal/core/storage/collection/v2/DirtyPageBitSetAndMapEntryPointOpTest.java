@@ -582,4 +582,131 @@ public class DirtyPageBitSetAndMapEntryPointOpTest {
     var op3 = new MapEntryPointSetFileSizeOp(5, 10, 15, lsn, 99);
     Assert.assertNotEquals(op1, op3);
   }
+
+  // --- Redo idempotency tests ---
+
+  /**
+   * Redo idempotency for setBit: applying setBit redo twice on the same bit must produce
+   * the same buffer state as applying it once. Critical crash recovery property.
+   */
+  @Test
+  public void testSetBitRedoIsIdempotent() {
+    var bufferPool = ByteBufferPool.instance(null);
+
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    cachePointer.incrementReferrer();
+    CacheEntry entry = new CacheEntryImpl(0, 0, cachePointer, false, null);
+    entry.acquireExclusiveLock();
+
+    try {
+      var page = new DirtyPageBitSetPage(entry);
+      page.init();
+
+      // Redo setBit once
+      var op = new DirtyPageBitSetPageSetBitOp(
+          0, 0, 0, new LogSequenceNumber(0, 0), 42);
+      op.redo(page);
+
+      // Snapshot buffer after first redo
+      var buf = cachePointer.getBuffer();
+      var snapshot = new byte[buf.capacity()];
+      buf.get(0, snapshot);
+
+      // Redo setBit again with same bitIndex
+      op.redo(page);
+
+      // Buffer must be byte-identical
+      var afterSecond = new byte[buf.capacity()];
+      buf.get(0, afterSecond);
+      Assert.assertArrayEquals(
+          "SetBit redo must be idempotent", snapshot, afterSecond);
+    } finally {
+      entry.releaseExclusiveLock();
+      cachePointer.decrementReferrer();
+    }
+  }
+
+  /**
+   * Redo idempotency for clearBit: applying clearBit redo twice must produce the same
+   * buffer state as applying it once.
+   */
+  @Test
+  public void testClearBitRedoIsIdempotent() {
+    var bufferPool = ByteBufferPool.instance(null);
+
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    cachePointer.incrementReferrer();
+    CacheEntry entry = new CacheEntryImpl(0, 0, cachePointer, false, null);
+    entry.acquireExclusiveLock();
+
+    try {
+      var page = new DirtyPageBitSetPage(entry);
+      page.init();
+      page.setBit(42); // Set it first so clearBit has something to clear
+
+      // Redo clearBit once
+      var op = new DirtyPageBitSetPageClearBitOp(
+          0, 0, 0, new LogSequenceNumber(0, 0), 42);
+      op.redo(page);
+
+      // Snapshot buffer after first redo
+      var buf = cachePointer.getBuffer();
+      var snapshot = new byte[buf.capacity()];
+      buf.get(0, snapshot);
+
+      // Redo clearBit again
+      op.redo(page);
+
+      // Buffer must be byte-identical
+      var afterSecond = new byte[buf.capacity()];
+      buf.get(0, afterSecond);
+      Assert.assertArrayEquals(
+          "ClearBit redo must be idempotent", snapshot, afterSecond);
+    } finally {
+      entry.releaseExclusiveLock();
+      cachePointer.decrementReferrer();
+    }
+  }
+
+  /**
+   * Redo idempotency for setFileSize: applying setFileSize redo twice must produce
+   * the same buffer state as applying it once.
+   */
+  @Test
+  public void testSetFileSizeRedoIsIdempotent() {
+    var bufferPool = ByteBufferPool.instance(null);
+
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    cachePointer.incrementReferrer();
+    CacheEntry entry = new CacheEntryImpl(0, 0, cachePointer, false, null);
+    entry.acquireExclusiveLock();
+
+    try {
+      // Redo setFileSize once
+      var op = new MapEntryPointSetFileSizeOp(
+          0, 0, 0, new LogSequenceNumber(0, 0), 42);
+      var page = new MapEntryPoint(entry);
+      op.redo(page);
+
+      // Snapshot buffer after first redo
+      var buf = cachePointer.getBuffer();
+      var snapshot = new byte[buf.capacity()];
+      buf.get(0, snapshot);
+
+      // Redo setFileSize again
+      op.redo(page);
+
+      // Buffer must be byte-identical
+      var afterSecond = new byte[buf.capacity()];
+      buf.get(0, afterSecond);
+      Assert.assertArrayEquals(
+          "SetFileSize redo must be idempotent", snapshot, afterSecond);
+    } finally {
+      entry.releaseExclusiveLock();
+      cachePointer.decrementReferrer();
+    }
+  }
 }

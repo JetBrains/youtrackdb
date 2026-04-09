@@ -26,7 +26,9 @@ public final class FreeSpaceMapPageUpdateOp extends PageOperation {
       long walPageIndex, long fileId, long operationUnitId,
       LogSequenceNumber initialLsn, int fsmPageIndex, int freeSpace) {
     super(walPageIndex, fileId, operationUnitId, initialLsn);
-    assert fsmPageIndex >= 0 : "fsmPageIndex must be non-negative, got: " + fsmPageIndex;
+    assert fsmPageIndex >= 0 && fsmPageIndex < FreeSpaceMapPage.CELLS_PER_PAGE
+        : "fsmPageIndex must be in [0, " + FreeSpaceMapPage.CELLS_PER_PAGE
+            + "), got: " + fsmPageIndex;
     assert freeSpace >= 0 && freeSpace < 256
         : "freeSpace must be in [0, 255], got: " + freeSpace;
     this.fsmPageIndex = fsmPageIndex;
@@ -71,8 +73,9 @@ public final class FreeSpaceMapPageUpdateOp extends PageOperation {
     super.deserializeFromByteBuffer(buffer);
     fsmPageIndex = buffer.getInt();
     freeSpace = buffer.getInt();
-    assert fsmPageIndex >= 0
-        : "Deserialized fsmPageIndex must be non-negative, got: " + fsmPageIndex;
+    assert fsmPageIndex >= 0 && fsmPageIndex < FreeSpaceMapPage.CELLS_PER_PAGE
+        : "Deserialized fsmPageIndex must be in [0, " + FreeSpaceMapPage.CELLS_PER_PAGE
+            + "), got: " + fsmPageIndex;
     assert freeSpace >= 0 && freeSpace < 256
         : "Deserialized freeSpace must be in [0, 255], got: " + freeSpace;
   }

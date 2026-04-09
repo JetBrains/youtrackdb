@@ -24,7 +24,8 @@ public final class DirtyPageBitSetPageSetBitOp extends PageOperation {
       long pageIndex, long fileId, long operationUnitId,
       LogSequenceNumber initialLsn, int bitIndex) {
     super(pageIndex, fileId, operationUnitId, initialLsn);
-    assert bitIndex >= 0 : "bitIndex must be non-negative, got: " + bitIndex;
+    assert bitIndex >= 0 && bitIndex < DirtyPageBitSetPage.BITS_PER_PAGE
+        : "bitIndex must be in [0, " + DirtyPageBitSetPage.BITS_PER_PAGE + "), got: " + bitIndex;
     this.bitIndex = bitIndex;
   }
 
@@ -59,7 +60,9 @@ public final class DirtyPageBitSetPageSetBitOp extends PageOperation {
   protected void deserializeFromByteBuffer(ByteBuffer buffer) {
     super.deserializeFromByteBuffer(buffer);
     bitIndex = buffer.getInt();
-    assert bitIndex >= 0 : "Deserialized bitIndex must be non-negative, got: " + bitIndex;
+    assert bitIndex >= 0 && bitIndex < DirtyPageBitSetPage.BITS_PER_PAGE
+        : "Deserialized bitIndex must be in [0, " + DirtyPageBitSetPage.BITS_PER_PAGE
+            + "), got: " + bitIndex;
   }
 
   @Override
