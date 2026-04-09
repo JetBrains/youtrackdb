@@ -76,6 +76,19 @@ jobs:
       - name: Build agent prompt
         id: prompt
         run: |
+          # Determine test scope from the triggering workflow
+          if echo "$FAILED_WORKFLOW_NAME" | grep -qi "integration"; then
+            FULL_TEST_CMD="./mvnw clean verify -P ci-integration-tests -Dyoutrackdb.test.env=ci"
+            FINAL_TEST_CMD="./mvnw clean verify -P ci-integration-tests -Dyoutrackdb.test.env=ci"
+            COVERAGE_TEST_CMD="./mvnw clean package -P coverage -Dyoutrackdb.test.env=ci"
+            TEST_SCOPE="unit + integration"
+          else
+            FULL_TEST_CMD="./mvnw clean package -Dyoutrackdb.test.env=ci"
+            FINAL_TEST_CMD="./mvnw clean package -P coverage -Dyoutrackdb.test.env=ci"
+            COVERAGE_TEST_CMD=""
+            TEST_SCOPE="unit only"
+          fi
+
           cat > /tmp/fix-agent-prompt-$$.md << 'AGENT_PROMPT_EOF'
           You are an autonomous CI failure fix agent running in GitHub Actions.
           There is NO human operator — you must make all decisions independently.
@@ -348,9 +361,10 @@ jobs:
           2. If the test requires a suite runner (GremlinProcessRunner, graph
              provider), note it cannot run standalone — verify by inspection.
           3. Run `./mvnw -pl {module} spotless:check` for formatting.
-          4. **Run all project unit tests** to ensure no regressions:
+          4. **Run the full test suite** (__TEST_SCOPE__) to ensure no
+             regressions:
              ```bash
-             ./mvnw clean package -Dyoutrackdb.test.env=ci
+             __FULL_TEST_CMD__
              ```
           5. **Run only the specific integration tests you changed**
              (if any). Use failsafe's `-Dit.test=` to target them:
@@ -360,7 +374,8 @@ jobs:
                -Dit.test={ChangedITClass} \
                -Dyoutrackdb.test.env=ci
              ```
-             Skip this step if no integration test files were modified.
+             Skip this step entirely when test scope is "unit only",
+             or if no integration test files were modified.
           6. **Do NOT proceed to Step 6 if any test fails.** Fix the
              failures first and re-run.
 
@@ -469,22 +484,20 @@ jobs:
 
           8. **Final full test run after review loop completes.**
              After the review loop exits (all findings addressed or max
-             iterations reached), run the full build with all tests
-             (unit + integration) one final time:
+             iterations reached), run the full test suite (__TEST_SCOPE__)
+             one final time:
              ```bash
-             ./mvnw clean verify -P ci-integration-tests \
-               -Dyoutrackdb.test.env=ci
+             __FINAL_TEST_CMD__
              ```
              If any test fails, fix the failure, re-run `spotless:apply`,
              and re-run the suite. Do NOT proceed to step 9 with
              failing tests.
 
           9. **Check code coverage of changed lines.**
-             After all tests pass, run the coverage collection build and
-             verify that changed lines meet the project coverage thresholds
+             Verify that changed lines meet the project coverage thresholds
              (85% line, 70% branch):
              ```bash
-             ./mvnw clean package -P coverage -Dyoutrackdb.test.env=ci
+             __COVERAGE_TEST_CMD__
              python3 .github/scripts/coverage-gate.py \
                --line-threshold 85 \
                --branch-threshold 70 \
@@ -492,8 +505,8 @@ jobs:
                --coverage-dir .coverage/reports
              ```
              If coverage is below the threshold, add or improve tests for
-             uncovered lines, re-run `spotless:apply`, and re-run the
-             coverage check. Do NOT proceed to main Step 7 with coverage
+             uncovered lines, re-run `spotless:apply`, and re-run from
+             step 8. Do NOT proceed to main Step 7 with coverage
              failures.
 
           ## Step 7: Commit, push, and update the draft PR
@@ -616,7 +629,19 @@ jobs:
           - **Failed run URL**: ${FAILED_RUN_URL}
           - **Failed workflow name**: ${FAILED_WORKFLOW_NAME}
           - **Commit SHA**: ${TRIGGER_SHA}
+          - **Test scope**: ${TEST_SCOPE}
           EOF
+
+          # Replace test-scope placeholders with computed values
+          sed -i "s|__FULL_TEST_CMD__|${FULL_TEST_CMD}|g" /tmp/fix-agent-prompt-$$.md
+          sed -i "s|__FINAL_TEST_CMD__|${FINAL_TEST_CMD}|g" /tmp/fix-agent-prompt-$$.md
+          sed -i "s|__TEST_SCOPE__|${TEST_SCOPE}|g" /tmp/fix-agent-prompt-$$.md
+          if [ -n "$COVERAGE_TEST_CMD" ]; then
+            sed -i "s|__COVERAGE_TEST_CMD__|${COVERAGE_TEST_CMD}|g" /tmp/fix-agent-prompt-$$.md
+          else
+            # Coverage already collected in step 8 — remove the Maven line
+            sed -i "/__COVERAGE_TEST_CMD__/d" /tmp/fix-agent-prompt-$$.md
+          fi
 
           echo "prompt_file=/tmp/fix-agent-prompt-$$.md" >> "$GITHUB_OUTPUT"
 
