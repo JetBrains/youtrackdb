@@ -1,6 +1,6 @@
 # YQL - `DROP PROPERTY`
 
-Removes a property from the schema. It does not remove the property values in the records, it only changes the schema information. Records continue to have the property values, if any.
+Removes a property from the schema. It does not remove the property values in the records; it only changes the schema information. Records continue to have the property values, if any.
 
 **Syntax**
 
@@ -8,10 +8,10 @@ Removes a property from the schema. It does not remove the property values in th
 DROP PROPERTY <class>.<property> [IF EXISTS] [FORCE]
 ```
 
-- **`<class>`** Defines the class where the property exists.
-- **`<property>`** Defines the property you want to remove.
-- **IF EXISTS** Do not throw an error if the property does not exist.
-- **FORCE** If one or more indexes are defined on the property, the command will throw an exception. Use `FORCE` to drop indexes together with the property.
+- **`<class>`** — Defines the class where the property exists.
+- **`<property>`** — Defines the property you want to remove.
+- **`IF EXISTS`** — Prevents an error if the property does not exist.
+- **`FORCE`** — Forces removal of the property along with any indexes defined on it. Without this keyword, the command throws an exception if indexes exist on the property.
 
 **Examples**
 
