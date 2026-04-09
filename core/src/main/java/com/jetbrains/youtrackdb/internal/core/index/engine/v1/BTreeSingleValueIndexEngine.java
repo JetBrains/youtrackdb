@@ -164,7 +164,7 @@ public final class BTreeSingleValueIndexEngine
   @Override
   public boolean remove(@Nonnull AtomicOperation atomicOperation, Object key) {
     try {
-      var compositeKey = convertToCompositeKey(key);
+      var compositeKey = convertToCompositeKeyDefensive(key);
 
       Optional<RawPair<CompositeKey, RID>> res;
       try (var stream = sbTree.iterateEntriesBetween(
@@ -241,7 +241,7 @@ public final class BTreeSingleValueIndexEngine
 
   @Override
   public Stream<RID> get(Object key, @Nonnull AtomicOperation atomicOperation) {
-    var compositeKey = convertToCompositeKey(key);
+    var compositeKey = toCompositeKey(key);
     // Direct leaf-page lookup — avoids cursor/spliterator/stream overhead.
     // Null keys are handled uniformly: for single-field indexes,
     // CompositeKey(null) is padded with Long.MIN_VALUE for the version slot
@@ -289,7 +289,7 @@ public final class BTreeSingleValueIndexEngine
   @Override
   public boolean put(@Nonnull AtomicOperation atomicOperation, Object key, RID value) {
     try {
-      var compositeKey = convertToCompositeKey(key);
+      var compositeKey = convertToCompositeKeyDefensive(key);
       boolean wasInserted = doPutSingleValue(atomicOperation, compositeKey, value, key);
 
       var mgr = histogramManager;
@@ -312,7 +312,7 @@ public final class BTreeSingleValueIndexEngine
       RID value,
       IndexEngineValidator<Object, RID> validator) {
     try {
-      var compositeKey = convertToCompositeKey(key);
+      var compositeKey = convertToCompositeKeyDefensive(key);
 
       // Validate at engine level before mutation
       if (validator != null) {
@@ -418,14 +418,14 @@ public final class BTreeSingleValueIndexEngine
     }
 
     // "from" could be null, then "to" is not (minor)
-    final var toKey = convertToCompositeKey(rangeTo);
+    final var toKey = toCompositeKey(rangeTo);
     if (rangeFrom == null) {
       return indexesSnapshot.visibilityFilterMapped(atomicOperation,
           sbTree.iterateEntriesMinor(toKey, toInclusive, ascSortOrder, atomicOperation),
           BTreeSingleValueIndexEngine::extractKey);
     }
 
-    final var fromKey = convertToCompositeKey(rangeFrom);
+    final var fromKey = toCompositeKey(rangeFrom);
     // "to" could be null, then "from" is not (major)
     if (rangeTo == null) {
       return indexesSnapshot.visibilityFilterMapped(atomicOperation,
@@ -484,12 +484,26 @@ public final class BTreeSingleValueIndexEngine
     return sbTypes;
   }
 
-  private static CompositeKey convertToCompositeKey(Object key) {
+  /**
+   * Creates a defensive copy of the key as a CompositeKey. Required for mutation
+   * paths (put/remove) where addKey(version) appends to the key, which would
+   * otherwise mutate the caller's object.
+   */
+  private static CompositeKey convertToCompositeKeyDefensive(Object key) {
     if (key instanceof CompositeKey compositeKey) {
-      // Defensive copy — put()/validatedPut() append a version element via
-      // addKey(), which would mutate the caller's key object in place. The
-      // caller (applyTxChanges) reuses the same key for multiple operations.
       return new CompositeKey(compositeKey);
+    }
+    return new CompositeKey(key);
+  }
+
+  /**
+   * Wraps the key as a CompositeKey without copying. Used for read-only range
+   * scan paths where the key is not mutated — the downstream
+   * enhanceCompositeKey() makes its own copy when padding is needed.
+   */
+  private static CompositeKey toCompositeKey(Object key) {
+    if (key instanceof CompositeKey compositeKey) {
+      return compositeKey;
     }
     return new CompositeKey(key);
   }
