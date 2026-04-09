@@ -3879,14 +3879,17 @@ public abstract class AbstractStorage
             new ThreadInterruptedException("Fuzzy check point was interrupted"), e, name);
       }
 
-      if (status != STATUS.OPEN || status != STATUS.MIGRATION) {
+      // Bail out if the storage is no longer in an operational state.
+      // The original condition used || which is always true (tautology) —
+      // it should be && to express "status is neither OPEN nor MIGRATION".
+      if (status != STATUS.OPEN && status != STATUS.MIGRATION) {
         return;
       }
     }
 
     try {
 
-      if (status != STATUS.OPEN || status != STATUS.MIGRATION) {
+      if (status != STATUS.OPEN && status != STATUS.MIGRATION) {
         return;
       }
 
@@ -5941,40 +5944,70 @@ public abstract class AbstractStorage
    * {@code fuzzyCheckpointExecutor}. The method is safe to call concurrently — snapshot
    * cleanup uses {@code tryLock()}, and the per-collection GC is serialized by the
    * collection's component lock inside {@code collectDeadRecords()}.
+   *
+   * <p><b>Deadlock prevention:</b> This method acquires {@code stateLock.readLock()} for
+   * its entire duration. Without it, the delete path ({@code doShutdownOnDelete}) can
+   * acquire {@code stateLock.writeLock()} and proceed to
+   * {@code WOWCache.delete()} → {@code filesLock.writeLock()} while this GC task is
+   * still running. The GC writes pages through the read cache, which acquires a
+   * {@code PageFrame} exclusive lock and then calls {@code WOWCache.store()} →
+   * {@code filesLock.readLock()}. This creates a 3-way deadlock:
+   * <ol>
+   *   <li>main holds {@code filesLock} (write) → waits for DeleteFileTask on flush
+   *       executor</li>
+   *   <li>GC thread holds {@code PageFrame} lock → needs {@code filesLock} (read)</li>
+   *   <li>flush executor needs the same {@code PageFrame} lock</li>
+   * </ol>
+   * Holding {@code stateLock.readLock()} forces the delete path to wait until this
+   * method completes, preventing the deadlock.
    */
   public void periodicRecordsGc() {
     if (status != STATUS.OPEN) {
       return;
     }
 
-    // Step 1: Opportunistically clean snapshot/visibility indexes.
-    try {
-      cleanupSnapshotIndex();
-    } catch (Exception e) {
-      LogManager.instance().error(this, "Error during snapshot index cleanup"
-          + " in periodic records GC for storage '%s'", e, name);
+    // Acquire the state read lock to prevent concurrent storage deletion.
+    // If the write lock is already held (storage is being deleted/closed),
+    // bail out immediately — there is no point in GC'ing a dying storage.
+    if (!stateLock.readLock().tryLock()) {
+      return;
     }
-
-    // Step 2: Reclaim dead records from collections that exceed the threshold.
-    var contextConfig = configuration.getContextConfiguration();
-    int minThreshold = contextConfig
-        .getValueAsInteger(GlobalConfiguration.STORAGE_COLLECTION_GC_MIN_THRESHOLD);
-    float scaleFactor = contextConfig
-        .getValueAsFloat(GlobalConfiguration.STORAGE_COLLECTION_GC_SCALE_FACTOR);
-
-    for (var collection : collections) {
+    try {
       if (status != STATUS.OPEN) {
         return;
       }
-      if (collection instanceof PaginatedCollectionV2 pc
-          && pc.isGcTriggered(minThreshold, scaleFactor)) {
-        try {
-          pc.collectDeadRecords(sharedSnapshotIndex);
-        } catch (Exception e) {
-          LogManager.instance().error(this, "Error during records GC"
-              + " for collection '%s' in storage '%s'", e, pc.getName(), name);
+
+      // Step 1: Opportunistically clean snapshot/visibility indexes.
+      try {
+        cleanupSnapshotIndex();
+      } catch (Exception e) {
+        LogManager.instance().error(this, "Error during snapshot index cleanup"
+            + " in periodic records GC for storage '%s'", e, name);
+      }
+
+      // Step 2: Reclaim dead records from collections that exceed the threshold.
+      var contextConfig = configuration.getContextConfiguration();
+      int minThreshold = contextConfig
+          .getValueAsInteger(GlobalConfiguration.STORAGE_COLLECTION_GC_MIN_THRESHOLD);
+      float scaleFactor = contextConfig
+          .getValueAsFloat(GlobalConfiguration.STORAGE_COLLECTION_GC_SCALE_FACTOR);
+
+      for (var collection : collections) {
+        if (status != STATUS.OPEN) {
+          return;
+        }
+        if (collection instanceof PaginatedCollectionV2 pc
+            && pc.isGcTriggered(minThreshold, scaleFactor)) {
+          try {
+            pc.collectDeadRecords(sharedSnapshotIndex);
+          } catch (Exception e) {
+            LogManager.instance().error(this, "Error during records GC"
+                + " for collection '%s' in storage '%s'", e, pc.getName(), name);
+          }
         }
       }
+    } finally {
+      stateLock.readLock().unlock();
     }
   }
 

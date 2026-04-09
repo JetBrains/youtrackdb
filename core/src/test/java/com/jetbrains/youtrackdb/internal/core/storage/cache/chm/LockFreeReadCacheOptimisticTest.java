@@ -77,20 +77,39 @@ public class LockFreeReadCacheOptimisticTest {
   @Test
   public void testEvictedEntryReturnsNull() {
     // Fill cache beyond capacity to trigger eviction, then check an evicted page.
-    // Cache holds 1024 pages — load 1100 to force eviction.
-    for (int i = 0; i < 1100; i++) {
+    int capacity = 1024; // matches setUp(): maxMemory = 1024L * PAGE_SIZE
+    int totalPages = 1100;
+    int minEvicted = totalPages - capacity;
+
+    for (int i = 0; i < totalPages; i++) {
       var entry = readCache.loadForRead(0, i, writeCache, false);
       readCache.releaseFromRead(entry);
     }
 
-    // At least some early pages should have been evicted
+    // Flush all internal buffers and verify the cache's structural invariants
+    // (cacheSize counter == data map size == LRU list sizes, all <= maxCacheSize).
+    readCache.assertSize();
+
+    // The W-TinyLFU admission filter may evict either old victims or new candidates
+    // depending on the frequency sketch's hash collision pattern (which uses a random
+    // seed). Scan the full range to find evicted pages regardless of which end the
+    // policy chose to evict from.
     int nullCount = 0;
-    for (int i = 0; i < 100; i++) {
+    for (int i = 0; i < totalPages; i++) {
       if (readCache.getPageFrameOptimistic(0, i) == null) {
         nullCount++;
       }
     }
-    assertTrue("Some early pages should have been evicted", nullCount > 0);
+
+    int retainedCount = totalPages - nullCount;
+    assertTrue(
+        "At least " + minEvicted + " pages should have been evicted (" + totalPages
+            + " loaded, " + capacity + " capacity), but found " + nullCount + " evicted",
+        nullCount >= minEvicted);
+    assertTrue(
+        "Cache should retain up to its " + capacity + "-page capacity; retained only "
+            + retainedCount + " pages",
+        retainedCount >= capacity);
   }
 
   @Test
