@@ -117,7 +117,7 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
         reachableRids.add(anchorRid);
       }
       var descendants = collectDescendantRids(anchor, session);
-      if (descendants.size() >= maxSize) {
+      if (maxSize > 0 && descendants.size() >= maxSize) {
         truncated = true;
       }
       for (var descendantRid : descendants) {
@@ -188,7 +188,7 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
     try {
       while (stream.hasNext(subCtx)) {
         results.add(toResultInternal(stream.next(subCtx), session));
-        if (results.size() >= maxSize) {
+        if (maxSize > 0 && results.size() >= maxSize) {
           return null;
         }
       }
@@ -219,7 +219,7 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
     var sql = "SELECT expand(" + inverseDir + "('" + edgeLabel + "')) FROM ?";
     var frontier = new ArrayList<RID>();
     frontier.add(anchorRid);
-    while (!frontier.isEmpty() && rids.size() < maxSize) {
+    while (!frontier.isEmpty() && (maxSize <= 0 || rids.size() < maxSize)) {
       var nextFrontier = new ArrayList<RID>();
       for (var current : frontier) {
         try (var rs = session.query(sql, current)) {
@@ -231,7 +231,7 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
             }
           }
         }
-        if (rids.size() >= maxSize) {
+        if (maxSize > 0 && rids.size() >= maxSize) {
           break;
         }
       }

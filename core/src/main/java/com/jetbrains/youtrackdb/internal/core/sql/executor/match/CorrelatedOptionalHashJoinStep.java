@@ -144,7 +144,7 @@ class CorrelatedOptionalHashJoinStep extends AbstractExecutionStep {
 
     var maxSize = MatchExecutionPlanner.getHashJoinThreshold();
     try (var rs = session.query(sql, correlatedRid)) {
-      while (rs.hasNext() && set.size() < maxSize) {
+      while (rs.hasNext() && (maxSize <= 0 || set.size() < maxSize)) {
         var row = rs.next();
         var rid = InvertedWhileHashJoinStep.extractRid(row);
         if (rid != null) {
@@ -152,7 +152,7 @@ class CorrelatedOptionalHashJoinStep extends AbstractExecutionStep {
         }
       }
     }
-    neighborSetTruncated = set.size() >= maxSize;
+    neighborSetTruncated = maxSize > 0 && set.size() >= maxSize;
     return set;
   }
 
