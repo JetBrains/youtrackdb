@@ -5,6 +5,8 @@ import static org.mockito.Mockito.verify;
 
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
+import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
+import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
@@ -226,7 +228,9 @@ public class BTreeSVBucketV3EntryOpsTest {
 
     var deserialized = WALRecordsFactory.INSTANCE.fromStream(content);
     Assert.assertTrue(deserialized instanceof BTreeSVBucketV3RemoveLeafEntryOp);
-    Assert.assertEquals(0, ((BTreeSVBucketV3RemoveLeafEntryOp) deserialized).getEntryIndex());
+    var result = (BTreeSVBucketV3RemoveLeafEntryOp) deserialized;
+    Assert.assertEquals(0, result.getEntryIndex());
+    Assert.assertArrayEquals(key, result.getKey());
   }
 
   @Test
@@ -244,6 +248,7 @@ public class BTreeSVBucketV3EntryOpsTest {
     Assert.assertTrue(deserialized instanceof BTreeSVBucketV3RemoveNonLeafEntryOp);
     var result = (BTreeSVBucketV3RemoveNonLeafEntryOp) deserialized;
     Assert.assertEquals(2, result.getEntryIndex());
+    Assert.assertArrayEquals(key, result.getKey());
     Assert.assertTrue(result.isRemoveLeftChildPointer());
   }
 
@@ -822,6 +827,342 @@ public class BTreeSVBucketV3EntryOpsTest {
     }
   }
 
+  /**
+   * updateKey slow path with shorter new key: free pointer increases (reclaims space).
+   */
+  @Test
+  public void testUpdateKeyShorterKeyRedoCorrectness() {
+    var bufferPool = ByteBufferPool.instance(null);
+
+    var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer1 = new CachePointer(pointer1, bufferPool, 0, 0);
+    cachePointer1.incrementReferrer();
+    CacheEntry entry1 = new CacheEntryImpl(0, 0, cachePointer1, false, null);
+    entry1.acquireExclusiveLock();
+
+    var pointer2 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer2 = new CachePointer(pointer2, bufferPool, 0, 0);
+    cachePointer2.incrementReferrer();
+    CacheEntry entry2 = new CacheEntryImpl(0, 0, cachePointer2, false, null);
+    entry2.acquireExclusiveLock();
+
+    try {
+      var lsn = new LogSequenceNumber(0, 0);
+      var key1 = new byte[] {10, 0, 0, 0, 0, 0}; // 6 bytes
+      var key2 = new byte[] {20, 0, 0, 0};
+      // New key is shorter — triggers reverse compaction
+      var shorterKey = new byte[] {15, 0, 0};
+
+      // Setup both pages: non-leaf bucket with two entries
+      var page1 = new CellBTreeSingleValueBucketV3<>(entry1);
+      page1.init(false);
+      page1.addNonLeafEntry(0, 1, 2, key1);
+      page1.addNonLeafEntry(1, 2, 3, key2);
+
+      var page2 = new CellBTreeSingleValueBucketV3<>(entry2);
+      page2.init(false);
+      page2.addNonLeafEntry(0, 1, 2, key1);
+      page2.addNonLeafEntry(1, 2, 3, key2);
+
+      // Direct path
+      page1.updateKeyWithOldKeySize(0, shorterKey, key1.length);
+
+      // Redo path
+      new BTreeSVBucketV3UpdateKeyOp(0, 0, 0, lsn, 0, shorterKey, key1.length).redo(page2);
+
+      var buf1 = cachePointer1.getBuffer();
+      var buf2 = cachePointer2.getBuffer();
+      Assert.assertEquals(
+          "Page buffers must be identical after updateKey redo (shorter key)",
+          0, buf1.compareTo(buf2));
+    } finally {
+      entry1.releaseExclusiveLock();
+      entry2.releaseExclusiveLock();
+      cachePointer1.decrementReferrer();
+      cachePointer2.decrementReferrer();
+    }
+  }
+
+  /**
+   * removeNonLeafEntry at first entry (index 0): only the next entry's leftChild is updated,
+   * no previous entry exists.
+   */
+  @Test
+  public void testRemoveNonLeafEntryFirstEntryRedoCorrectness() {
+    var bufferPool = ByteBufferPool.instance(null);
+
+    var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer1 = new CachePointer(pointer1, bufferPool, 0, 0);
+    cachePointer1.incrementReferrer();
+    CacheEntry entry1 = new CacheEntryImpl(0, 0, cachePointer1, false, null);
+    entry1.acquireExclusiveLock();
+
+    var pointer2 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer2 = new CachePointer(pointer2, bufferPool, 0, 0);
+    cachePointer2.incrementReferrer();
+    CacheEntry entry2 = new CacheEntryImpl(0, 0, cachePointer2, false, null);
+    entry2.acquireExclusiveLock();
+
+    try {
+      var lsn = new LogSequenceNumber(0, 0);
+      var key1 = new byte[] {10, 0, 0, 0};
+      var key2 = new byte[] {20, 0, 0, 0};
+      var key3 = new byte[] {30, 0, 0, 0};
+
+      // Direct path
+      var page1 = new CellBTreeSingleValueBucketV3<>(entry1);
+      page1.init(false);
+      page1.addNonLeafEntry(0, 1, 2, key1);
+      page1.addNonLeafEntry(1, 2, 3, key2);
+      page1.addNonLeafEntry(2, 3, 4, key3);
+      page1.removeNonLeafEntry(0, key1, true);
+
+      // Redo path
+      var page2 = new CellBTreeSingleValueBucketV3<>(entry2);
+      new BTreeSVBucketV3InitOp(0, 0, 0, lsn, false).redo(page2);
+      new BTreeSVBucketV3AddNonLeafEntryOp(0, 0, 0, lsn, 0, 1, 2, key1).redo(page2);
+      new BTreeSVBucketV3AddNonLeafEntryOp(0, 0, 0, lsn, 1, 2, 3, key2).redo(page2);
+      new BTreeSVBucketV3AddNonLeafEntryOp(0, 0, 0, lsn, 2, 3, 4, key3).redo(page2);
+      new BTreeSVBucketV3RemoveNonLeafEntryOp(0, 0, 0, lsn, 0, key1, true).redo(page2);
+
+      Assert.assertEquals(2, page2.size());
+
+      var buf1 = cachePointer1.getBuffer();
+      var buf2 = cachePointer2.getBuffer();
+      Assert.assertEquals(0, buf1.compareTo(buf2));
+    } finally {
+      entry1.releaseExclusiveLock();
+      entry2.releaseExclusiveLock();
+      cachePointer1.decrementReferrer();
+      cachePointer2.decrementReferrer();
+    }
+  }
+
+  /**
+   * removeNonLeafEntry at last entry: only the previous entry's rightChild is updated,
+   * no next entry exists.
+   */
+  @Test
+  public void testRemoveNonLeafEntryLastEntryRedoCorrectness() {
+    var bufferPool = ByteBufferPool.instance(null);
+
+    var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer1 = new CachePointer(pointer1, bufferPool, 0, 0);
+    cachePointer1.incrementReferrer();
+    CacheEntry entry1 = new CacheEntryImpl(0, 0, cachePointer1, false, null);
+    entry1.acquireExclusiveLock();
+
+    var pointer2 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer2 = new CachePointer(pointer2, bufferPool, 0, 0);
+    cachePointer2.incrementReferrer();
+    CacheEntry entry2 = new CacheEntryImpl(0, 0, cachePointer2, false, null);
+    entry2.acquireExclusiveLock();
+
+    try {
+      var lsn = new LogSequenceNumber(0, 0);
+      var key1 = new byte[] {10, 0, 0, 0};
+      var key2 = new byte[] {20, 0, 0, 0};
+      var key3 = new byte[] {30, 0, 0, 0};
+
+      // Direct path
+      var page1 = new CellBTreeSingleValueBucketV3<>(entry1);
+      page1.init(false);
+      page1.addNonLeafEntry(0, 1, 2, key1);
+      page1.addNonLeafEntry(1, 2, 3, key2);
+      page1.addNonLeafEntry(2, 3, 4, key3);
+      page1.removeNonLeafEntry(2, key3, true);
+
+      // Redo path
+      var page2 = new CellBTreeSingleValueBucketV3<>(entry2);
+      new BTreeSVBucketV3InitOp(0, 0, 0, lsn, false).redo(page2);
+      new BTreeSVBucketV3AddNonLeafEntryOp(0, 0, 0, lsn, 0, 1, 2, key1).redo(page2);
+      new BTreeSVBucketV3AddNonLeafEntryOp(0, 0, 0, lsn, 1, 2, 3, key2).redo(page2);
+      new BTreeSVBucketV3AddNonLeafEntryOp(0, 0, 0, lsn, 2, 3, 4, key3).redo(page2);
+      new BTreeSVBucketV3RemoveNonLeafEntryOp(0, 0, 0, lsn, 2, key3, true).redo(page2);
+
+      Assert.assertEquals(2, page2.size());
+
+      var buf1 = cachePointer1.getBuffer();
+      var buf2 = cachePointer2.getBuffer();
+      Assert.assertEquals(0, buf1.compareTo(buf2));
+    } finally {
+      entry1.releaseExclusiveLock();
+      entry2.releaseExclusiveLock();
+      cachePointer1.decrementReferrer();
+      cachePointer2.decrementReferrer();
+    }
+  }
+
+  /**
+   * removeLeafEntry removing the only entry (size to 0): verifies size=0 guard skips moveData.
+   */
+  @Test
+  public void testRemoveLeafEntryOnlyEntryRedoCorrectness() {
+    var bufferPool = ByteBufferPool.instance(null);
+
+    var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer1 = new CachePointer(pointer1, bufferPool, 0, 0);
+    cachePointer1.incrementReferrer();
+    CacheEntry entry1 = new CacheEntryImpl(0, 0, cachePointer1, false, null);
+    entry1.acquireExclusiveLock();
+
+    var pointer2 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer2 = new CachePointer(pointer2, bufferPool, 0, 0);
+    cachePointer2.incrementReferrer();
+    CacheEntry entry2 = new CacheEntryImpl(0, 0, cachePointer2, false, null);
+    entry2.acquireExclusiveLock();
+
+    try {
+      var lsn = new LogSequenceNumber(0, 0);
+      var key = new byte[] {1, 2, 3, 4};
+      var value = new byte[] {10, 20, 30, 40, 50, 60, 70, 80, 90, 100};
+
+      // Direct path
+      var page1 = new CellBTreeSingleValueBucketV3<>(entry1);
+      page1.init(true);
+      page1.addLeafEntry(0, key, value);
+      page1.removeLeafEntry(0, key);
+
+      // Redo path
+      var page2 = new CellBTreeSingleValueBucketV3<>(entry2);
+      new BTreeSVBucketV3InitOp(0, 0, 0, lsn, true).redo(page2);
+      new BTreeSVBucketV3AddLeafEntryOp(0, 0, 0, lsn, 0, key, value).redo(page2);
+      new BTreeSVBucketV3RemoveLeafEntryOp(0, 0, 0, lsn, 0, key).redo(page2);
+
+      Assert.assertEquals(0, page2.size());
+
+      var buf1 = cachePointer1.getBuffer();
+      var buf2 = cachePointer2.getBuffer();
+      Assert.assertEquals(0, buf1.compareTo(buf2));
+    } finally {
+      entry1.releaseExclusiveLock();
+      entry2.releaseExclusiveLock();
+      cachePointer1.decrementReferrer();
+      cachePointer2.decrementReferrer();
+    }
+  }
+
+  /**
+   * Multi-operation redo sequence on a leaf bucket: interleaved adds and removes,
+   * exercises pointer compaction and free-space reuse across operations.
+   */
+  @Test
+  public void testMultiOpRedoSequenceLeafBucket() {
+    var bufferPool = ByteBufferPool.instance(null);
+
+    var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer1 = new CachePointer(pointer1, bufferPool, 0, 0);
+    cachePointer1.incrementReferrer();
+    CacheEntry entry1 = new CacheEntryImpl(0, 0, cachePointer1, false, null);
+    entry1.acquireExclusiveLock();
+
+    var pointer2 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer2 = new CachePointer(pointer2, bufferPool, 0, 0);
+    cachePointer2.incrementReferrer();
+    CacheEntry entry2 = new CacheEntryImpl(0, 0, cachePointer2, false, null);
+    entry2.acquireExclusiveLock();
+
+    try {
+      var lsn = new LogSequenceNumber(0, 0);
+      var key1 = new byte[] {1, 0, 0, 0};
+      var key2 = new byte[] {2, 0, 0, 0};
+      var key3 = new byte[] {3, 0, 0, 0};
+      var key4 = new byte[] {2, 5, 0, 0}; // replaces key2 slot
+      var value = new byte[] {10, 20, 30, 40, 50, 60, 70, 80, 90, 100};
+
+      // Direct path: add 3, remove middle, add replacement
+      var page1 = new CellBTreeSingleValueBucketV3<>(entry1);
+      page1.init(true);
+      page1.addLeafEntry(0, key1, value);
+      page1.addLeafEntry(1, key2, value);
+      page1.addLeafEntry(2, key3, value);
+      page1.removeLeafEntry(1, key2);
+      page1.addLeafEntry(1, key4, value);
+
+      // Redo path
+      var page2 = new CellBTreeSingleValueBucketV3<>(entry2);
+      new BTreeSVBucketV3InitOp(0, 0, 0, lsn, true).redo(page2);
+      new BTreeSVBucketV3AddLeafEntryOp(0, 0, 0, lsn, 0, key1, value).redo(page2);
+      new BTreeSVBucketV3AddLeafEntryOp(0, 0, 0, lsn, 1, key2, value).redo(page2);
+      new BTreeSVBucketV3AddLeafEntryOp(0, 0, 0, lsn, 2, key3, value).redo(page2);
+      new BTreeSVBucketV3RemoveLeafEntryOp(0, 0, 0, lsn, 1, key2).redo(page2);
+      new BTreeSVBucketV3AddLeafEntryOp(0, 0, 0, lsn, 1, key4, value).redo(page2);
+
+      Assert.assertEquals(3, page2.size());
+
+      var buf1 = cachePointer1.getBuffer();
+      var buf2 = cachePointer2.getBuffer();
+      Assert.assertEquals(
+          "Page buffers must be identical after multi-op leaf redo sequence",
+          0, buf1.compareTo(buf2));
+    } finally {
+      entry1.releaseExclusiveLock();
+      entry2.releaseExclusiveLock();
+      cachePointer1.decrementReferrer();
+      cachePointer2.decrementReferrer();
+    }
+  }
+
+  /**
+   * Multi-operation redo sequence on a non-leaf bucket: add entries, remove middle,
+   * updateKey on first. Exercises child-pointer adjustment + key replacement in sequence.
+   */
+  @Test
+  public void testMultiOpRedoSequenceNonLeafBucket() {
+    var bufferPool = ByteBufferPool.instance(null);
+
+    var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer1 = new CachePointer(pointer1, bufferPool, 0, 0);
+    cachePointer1.incrementReferrer();
+    CacheEntry entry1 = new CacheEntryImpl(0, 0, cachePointer1, false, null);
+    entry1.acquireExclusiveLock();
+
+    var pointer2 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer2 = new CachePointer(pointer2, bufferPool, 0, 0);
+    cachePointer2.incrementReferrer();
+    CacheEntry entry2 = new CacheEntryImpl(0, 0, cachePointer2, false, null);
+    entry2.acquireExclusiveLock();
+
+    try {
+      var lsn = new LogSequenceNumber(0, 0);
+      var key1 = new byte[] {10, 0, 0, 0};
+      var key2 = new byte[] {20, 0, 0, 0};
+      var key3 = new byte[] {30, 0, 0, 0};
+      var newKey1 = new byte[] {15, 0, 0, 0}; // same size replacement
+
+      // Direct path: add 3 entries, remove middle, update first's key
+      var page1 = new CellBTreeSingleValueBucketV3<>(entry1);
+      page1.init(false);
+      page1.addNonLeafEntry(0, 1, 2, key1);
+      page1.addNonLeafEntry(1, 2, 3, key2);
+      page1.addNonLeafEntry(2, 3, 4, key3);
+      page1.removeNonLeafEntry(1, key2, true);
+      page1.updateKeyWithOldKeySize(0, newKey1, key1.length);
+
+      // Redo path
+      var page2 = new CellBTreeSingleValueBucketV3<>(entry2);
+      new BTreeSVBucketV3InitOp(0, 0, 0, lsn, false).redo(page2);
+      new BTreeSVBucketV3AddNonLeafEntryOp(0, 0, 0, lsn, 0, 1, 2, key1).redo(page2);
+      new BTreeSVBucketV3AddNonLeafEntryOp(0, 0, 0, lsn, 1, 2, 3, key2).redo(page2);
+      new BTreeSVBucketV3AddNonLeafEntryOp(0, 0, 0, lsn, 2, 3, 4, key3).redo(page2);
+      new BTreeSVBucketV3RemoveNonLeafEntryOp(0, 0, 0, lsn, 1, key2, true).redo(page2);
+      new BTreeSVBucketV3UpdateKeyOp(0, 0, 0, lsn, 0, newKey1, key1.length).redo(page2);
+
+      Assert.assertEquals(2, page2.size());
+
+      var buf1 = cachePointer1.getBuffer();
+      var buf2 = cachePointer2.getBuffer();
+      Assert.assertEquals(
+          "Page buffers must be identical after multi-op non-leaf redo sequence",
+          0, buf1.compareTo(buf2));
+    } finally {
+      entry1.releaseExclusiveLock();
+      entry2.releaseExclusiveLock();
+      cachePointer1.decrementReferrer();
+      cachePointer2.decrementReferrer();
+    }
+  }
+
   // ---------- Registration tests ----------
 
   @Test
@@ -986,8 +1327,13 @@ public class BTreeSVBucketV3EntryOpsTest {
     }
   }
 
+  /**
+   * Verify that updateKeyWithOldKeySize (the redo/recovery path) does NOT register a
+   * PageOperation — it bypasses registration because there is no active atomic operation
+   * during recovery.
+   */
   @Test
-  public void testUpdateKeyRegistersOp() {
+  public void testUpdateKeyWithOldKeySizeDoesNotRegister() {
     var atomicOp = mock(AtomicOperation.class);
     var changes = new CacheEntryChanges(false, atomicOp);
 
@@ -1008,20 +1354,63 @@ public class BTreeSVBucketV3EntryOpsTest {
       page.addNonLeafEntry(0, 1, 2, key);
       org.mockito.Mockito.reset(atomicOp);
 
-      // updateKeyWithOldKeySize is used during redo; updateKey uses serializer
-      // so we test updateKey's registration by calling updateKeyWithOldKeySize
-      // which does NOT register (it's for recovery). Instead, verify the updateKey path
-      // by checking what updateKey captures.
-      // Since updateKey requires a serializer (not available in unit test),
-      // we verify the registration pattern via updateKeyWithOldKeySize + manual registration.
-      // The actual updateKey registration is tested in integration tests.
       var newKey = new byte[] {15, 0, 0, 0};
       page.updateKeyWithOldKeySize(0, newKey, key.length);
 
-      // updateKeyWithOldKeySize does NOT register because it's the redo path.
-      // The registration happens in updateKey which needs a serializer.
-      // Verify that the page state was updated correctly.
       org.mockito.Mockito.verifyNoInteractions(atomicOp);
+    } finally {
+      delegate.releaseExclusiveLock();
+      cachePointer.decrementReferrer();
+    }
+  }
+
+  /**
+   * Verify that the serializer-based updateKey method registers a BTreeSVBucketV3UpdateKeyOp
+   * with the correct entryIndex, newKey, and captured oldKeySize.
+   */
+  @Test
+  public void testUpdateKeyRegistersOp() {
+    var atomicOp = mock(AtomicOperation.class);
+    var changes = new CacheEntryChanges(false, atomicOp);
+
+    var bufferPool = ByteBufferPool.instance(null);
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    cachePointer.incrementReferrer();
+    CacheEntry delegate = new CacheEntryImpl(42, 7, cachePointer, false, null);
+    delegate.acquireExclusiveLock();
+
+    try {
+      changes.setDelegate(delegate);
+      changes.setInitialLSN(new LogSequenceNumber(5, 500));
+
+      var serializerFactory = BinarySerializerFactory.create(
+          BinarySerializerFactory.currentBinaryFormatVersion());
+      var keySerializer = IntegerSerializer.INSTANCE;
+
+      var page = new CellBTreeSingleValueBucketV3<Integer>(changes);
+      page.init(false);
+      // Add a non-leaf entry with a serialized integer key
+      var key1Bytes = new byte[IntegerSerializer.INT_SIZE];
+      IntegerSerializer.INSTANCE.serializeNativeObject(10, serializerFactory, key1Bytes, 0);
+      page.addNonLeafEntry(0, 1, 2, key1Bytes);
+      org.mockito.Mockito.reset(atomicOp);
+
+      // Update key via the serializer path (same size — fast path)
+      var newKeyBytes = new byte[IntegerSerializer.INT_SIZE];
+      IntegerSerializer.INSTANCE.serializeNativeObject(15, serializerFactory, newKeyBytes, 0);
+      page.updateKey(0, newKeyBytes, keySerializer, serializerFactory);
+
+      var opCaptor = ArgumentCaptor.forClass(PageOperation.class);
+      verify(atomicOp).registerPageOperation(
+          org.mockito.ArgumentMatchers.eq(42L),
+          org.mockito.ArgumentMatchers.eq(7L),
+          opCaptor.capture());
+
+      var registeredOp = (BTreeSVBucketV3UpdateKeyOp) opCaptor.getValue();
+      Assert.assertEquals(0, registeredOp.getEntryIndex());
+      Assert.assertArrayEquals(newKeyBytes, registeredOp.getNewKey());
+      Assert.assertEquals(IntegerSerializer.INT_SIZE, registeredOp.getOldKeySize());
     } finally {
       delegate.releaseExclusiveLock();
       cachePointer.decrementReferrer();
