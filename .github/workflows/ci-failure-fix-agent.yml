@@ -476,8 +476,25 @@ jobs:
                -Dyoutrackdb.test.env=ci
              ```
              If any test fails, fix the failure, re-run `spotless:apply`,
-             and re-run the suite. Do NOT proceed to main Step 7 with
+             and re-run the suite. Do NOT proceed to step 9 with
              failing tests.
+
+          9. **Check code coverage of changed lines.**
+             After all tests pass, run the coverage collection build and
+             verify that changed lines meet the project coverage thresholds
+             (85% line, 70% branch):
+             ```bash
+             ./mvnw clean package -P coverage -Dyoutrackdb.test.env=ci
+             python3 .github/scripts/coverage-gate.py \
+               --line-threshold 85 \
+               --branch-threshold 70 \
+               --compare-branch origin/develop \
+               --coverage-dir .coverage/reports
+             ```
+             If coverage is below the threshold, add or improve tests for
+             uncovered lines, re-run `spotless:apply`, and re-run the
+             coverage check. Do NOT proceed to main Step 7 with coverage
+             failures.
 
           ## Step 7: Commit, push, and update the draft PR
 
