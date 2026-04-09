@@ -12,8 +12,9 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionStepInternal
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.RidSet;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Objects;
+import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -39,15 +40,30 @@ import javax.annotation.Nullable;
  */
 class CorrelatedOptionalHashJoinStep extends AbstractExecutionStep {
 
+  /** Cached neighbor set with its truncation state. */
+  private record NeighborEntry(Set<RID> rids, boolean truncated) {
+  }
+
+  private static final int NEIGHBOR_CACHE_SIZE = 16;
+
   private final String correlatedAlias;
   private final String probeAlias;
   private final String targetAlias;
   private final String edgeLabel;
   private final boolean edgeOut;
 
-  @Nullable private Set<RID> neighborRids;
-  @Nullable private RID lastCorrelatedRid;
-  private boolean neighborSetTruncated;
+  /**
+   * LRU cache of correlated RID → neighbor set. Handles interleaved upstream
+   * rows (e.g., after a preceding INNER_JOIN that reorders by a different key)
+   * without rebuilding the neighbor set on every alternation.
+   */
+  private final Map<RID, NeighborEntry> neighborCache =
+      new LinkedHashMap<>(NEIGHBOR_CACHE_SIZE, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<RID, NeighborEntry> eldest) {
+          return size() > NEIGHBOR_CACHE_SIZE;
+        }
+      };
 
   CorrelatedOptionalHashJoinStep(
       CommandContext ctx,
@@ -79,28 +95,24 @@ class CorrelatedOptionalHashJoinStep extends AbstractExecutionStep {
     var session = ctx.getDatabaseSession();
     var upstream = prev.start(ctx);
 
-    // Stateful map: build/rebuild the hash set whenever the correlated alias
-    // value changes (handles multi-valued correlated aliases correctly).
+    // LRU-cached probe: look up or build the neighbor set for the current
+    // correlated RID. Handles interleaved upstream rows without rebuilding
+    // on every alternation.
     return upstream.map((row, c) -> {
       var correlatedValue = row.getProperty(correlatedAlias);
       var currentCorrelatedRid = InvertedWhileHashJoinStep.extractRid(correlatedValue);
-      // Rebuild neighbor set if correlated alias changed
-      if (neighborRids == null
-          || !Objects.equals(currentCorrelatedRid, lastCorrelatedRid)) {
-        neighborRids = buildNeighborSet(row, session);
-        lastCorrelatedRid = currentCorrelatedRid;
-      }
-      // Capture locally for null-safety if close() is called mid-stream
-      var localSet = neighborRids;
+      var entry = neighborCache.computeIfAbsent(
+          currentCorrelatedRid, rid -> buildNeighborEntry(row, session));
+      var localSet = entry.rids();
 
       var probeValue = row.getProperty(probeAlias);
       var probeRid = InvertedWhileHashJoinStep.extractRid(probeValue);
-      if (probeRid != null && localSet != null && localSet.contains(probeRid)) {
+      if (probeRid != null && localSet.contains(probeRid)) {
         // Hit: liker KNOWS startPerson → set targetAlias to correlated vertex
         var matchValue = toResultOrNull(correlatedValue, session);
         return new MatchResultRow(session, row, targetAlias, matchValue);
       }
-      if (neighborSetTruncated && probeRid != null
+      if (entry.truncated() && probeRid != null
           && currentCorrelatedRid != null) {
         // Truncated set — probe miss might be false negative.
         // Per-row check: does probeRid have a direct edge to correlated vertex?
@@ -125,12 +137,13 @@ class CorrelatedOptionalHashJoinStep extends AbstractExecutionStep {
    * meaning: does traversing liker.out('KNOWS') reach startPerson? This is
    * equivalent to: is liker in startPerson.in('KNOWS')?
    */
-  private Set<RID> buildNeighborSet(Result firstRow, DatabaseSessionEmbedded session) {
+  private NeighborEntry buildNeighborEntry(
+      Result firstRow, DatabaseSessionEmbedded session) {
     var set = new RidSet();
     var correlatedValue = firstRow.getProperty(correlatedAlias);
     var correlatedRid = InvertedWhileHashJoinStep.extractRid(correlatedValue);
     if (correlatedRid == null) {
-      return set;
+      return new NeighborEntry(set, false);
     }
 
     // The original edge is from probeAlias to targetAlias via edgeLabel.
@@ -152,8 +165,8 @@ class CorrelatedOptionalHashJoinStep extends AbstractExecutionStep {
         }
       }
     }
-    neighborSetTruncated = maxSize > 0 && set.size() >= maxSize;
-    return set;
+    var truncated = maxSize > 0 && set.size() >= maxSize;
+    return new NeighborEntry(set, truncated);
   }
 
   /**
@@ -203,9 +216,7 @@ class CorrelatedOptionalHashJoinStep extends AbstractExecutionStep {
 
   @Override
   public void close() {
-    neighborRids = null;
-    lastCorrelatedRid = null;
-    neighborSetTruncated = false;
+    neighborCache.clear();
     super.close();
   }
 
