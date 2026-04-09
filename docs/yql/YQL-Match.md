@@ -52,7 +52,7 @@ LIMIT <number>
 - **`<whereCondition>`** Defines a filter condition to match a node in the pattern.  It supports the normal YQL [`WHERE`](YQL-Where.md) clause.  
 You can also use the `$currentMatch` and `$matched` [context variables](#context-variables).
 - **`<functionName>`** Defines a graph function to represent the connection between two nodes.  For instance, `out()`, `in()`, `outE()`, `inE()`, etc.
-  For out(), in(), both() also a shortened *arrow* syntax is supported:
+  For `out()`, `in()`, and `both()`, a shortened *arrow* syntax is also supported:
     - `{...}.out(){...}` can be written as `{...}-->{...}`
     - `{...}.out("EdgeClass"){...}` can be written as `{...}-EdgeClass->{...}`
     - `{...}.in(){...}` can be written as `{...}<--{...}`
@@ -60,11 +60,11 @@ You can also use the `$currentMatch` and `$matched` [context variables](#context
     - `{...}.both(){...}` can be written as `{...}--{...}`
     - `{...}.both("EdgeClass"){...}` can be written as `{...}-EdgeClass-{...}`
 - **`<whileCondition>`** Defines a condition that the statement must meet to allow the traversal of this path.
-It supports the normal YQL [`WHERE`](YQL-Where.md) clause.  You can also use the `$currentMatch`, `$matched` and `$depth` [context variables](#context-variables). 
+It supports the normal YQL [`WHERE`](YQL-Where.md) clause.  You can also use the `$currentMatch`, `$matched`, and `$depth` [context variables](#context-variables). 
 For more information, see [Deep Traversal While Condition](#deep-traversal), below.
 - **`<maxDepth>`** Defines the maximum depth for this single path.
 - **`<depthAlias>`** This is valid only if you have a `while` or a `maxDepth`. It defines the alias to be used to store the depth of this traversal. 
-This alias can be used in the `RETURN` block to retrieve the depth of current traversal.
+This alias can be used in the `RETURN` block to retrieve the depth of the current traversal.
 - **`<pathAlias>`** This is valid only if you have a `while` or a `maxDepth`. It defines the alias to be used to store the elements traversed to reach this alias. 
 This alias can be used in the `RETURN` block to retrieve the elements traversed to reach this alias.
 - **`RETURN <expression> [ AS <alias> ]`** Defines elements in the pattern that you want returned.  It can use one of the following:
@@ -73,15 +73,14 @@ This alias can be used in the `RETURN` block to retrieve the elements traversed 
     - `$paths` Indicating the full traversed paths.
     - `$elements` Indicating that all the elements that would be returned by the $matches have to be returned flattened, without duplicates.
     - `$pathElements` Indicating that all the elements that would be returned by the $paths have to be returned flattened, without duplicates.
-- **`optional`** if set to true, allows to evaluate and return a pattern even if that particular node does not match the pattern itself
-(ie. there is no value for that node in the pattern). In current version, optional nodes are allowed only on right terminal nodes, eg. `{} --> {optional:true}` is allowed, `{optional:true} <-- {}` is not.
+- **`optional`** If set to true, allows you to evaluate and return a pattern even if that particular node does not match the pattern itself (i.e., there is no value for that node in the pattern). In the current version, optional nodes are allowed only on right terminal nodes, e.g., `{} --> {optional:true}` is allowed, `{optional:true} <-- {}` is not.
 - **`NOT` patterns** Together with normal patterns, you can also define negative patterns.
-A result will be returned only if it also DOES NOT match any of the negative patterns, ie. if it matches at least one of the negative patterns it won't be returned.
+A result will be returned only if it also DOES NOT match any of the negative patterns, i.e., if it matches at least one of the negative patterns it won't be returned.
 
 
 **Examples**
 
-The following examples are based on this sample data-set from the class `Person`:
+The following examples are based on this sample dataset from the class `Person`:
 
 ```
 +---------+----------+---------+-----------+-------+-------------------+----------------+------------------+
@@ -255,7 +254,7 @@ MATCH {class: Person, as: person, where: (name = 'John' AND
 
   In this case, the statement matches two expressions: the first to friends of friends, the second to direct friends.
   Each expression shares the common aliases (`person` and `friend`). To match the whole statement, 
-  the result must match both expressions, where the alias values for the first expression are the same as that of the second.
+  the result must match both expressions, where the alias values for the first expression are the same as those of the second.
 
 - Find common friends of John and Jenny:
 
@@ -285,15 +284,15 @@ MATCH {class: Person, where: (name = 'John' AND
 
 ## DISTINCT
 
-MATCH statement returns all the occurrences of a pattern, even if they are duplicated. To have unique, distinct records
-as a result, you have to specify the DISTINCT keyword in the RETURN statement.
+The MATCH statement returns all the occurrences of a pattern, even if they are duplicated. To have unique, distinct records
+as a result, you need to specify the DISTINCT keyword in the RETURN statement.
 
 Example: suppose you have a dataset like the following:
 
 ```sql
-  CREATE VERTEX SET name = 'John', surname = 'Smith';
-  CREATE VERTEX SET name = 'John', surname = 'Harris'
-  CREATE VERTEX SET name = 'Jenny', surname = 'Rose'
+  CREATE VERTEX Person SET name = 'John', surname = 'Smith';
+  CREATE VERTEX Person SET name = 'John', surname = 'Harris';
+  CREATE VERTEX Person SET name = 'Jenny', surname = 'Rose';
 ```
 
 This is the result of the query without a DISTINCT clause:
@@ -337,7 +336,7 @@ When running these queries, you can use any of the following context variables:
 
 | Variable | Description |
 |---|---|
-|`$matched`| Gives the current matched record.  You must explicitly define the attributes for this record in order to access them.  You can use this in the `where:` and `while:` conditions to refer to current partial matches or as part of the `RETURN` value.|
+|`$matched`| Gives access to the aliases matched so far in the current pattern.  Use `$matched.<alias>` to refer to a previously matched node (e.g., `$matched.person`).  You can use this in the `where:` and `while:` conditions to refer to current partial matches or as part of the `RETURN` value.|
 |`$currentMatch`| Gives the current complete node during the match.|
 |`$depth`| Gives the traversal depth, following a single path item where a `while:` condition is defined.|
 
@@ -466,7 +465,7 @@ MATCH {class: Person, where: (name = 'a')}.out("FriendOf")
 ```
 
 What this means is that it traverses the path item `out("FriendOf")` exactly once.  It only returns the result of that traversal.
-If you add a ```while``` condition:
+If you add a `while` condition:
 
 ```sql
 MATCH {class: Person, where: (name = 'a')}.out("FriendOf")
@@ -496,12 +495,12 @@ MATCH {class: Person, where: (name = 'a')}.out("FriendOf")
 ```
 
 As a general rule,
-- **`while` Conditions:** Define this if it must execute the next traversal, (it evaluates at level zero, on the origin node).
-- **`where` Condition:** Define this if the current element (the origin node at the zero iteration, or the right node when the iteration is greater than zero) must be returned as a result of the traversal.
+- **`while` Condition:** Defines whether to continue to the next traversal level (evaluated starting at depth zero, on the origin node).
+- **`where` Condition:** Defines whether the current element (the origin node at depth zero, or the target node at greater depths) should be included in the result.
 
 
 For instance, suppose that you have a genealogical tree.  
-In the tree, you want to show a person, grandparent and the grandparent of that grandparent, and so on.
+In the tree, you want to show a person, the grandparent, and the grandparent of that grandparent, and so on.
 The result: saying that the person is at level zero, parents at level one, grandparents at level two, etc., you would see all ancestors on even levels.  That is, `level % 2 == 0`.
 
 To get this, you might use the following query:
@@ -514,17 +513,17 @@ MATCH {class: Person, where: (name = 'a')}.out("Parent")
 ```
 
 
-## Best practices
+## Best Practices
 
 Queries can involve multiple operations, based on the domain model and use case. 
 In some cases, like projection and aggregation, you can easily manage them with a [`SELECT`](YQL-Query.md) query.
 With others, such as pattern matching and deep traversal, [`MATCH`](YQL-Match.md) statements are more appropriate.
 
-Use [`SELECT`](YQL-Query.md) and [`MATCH`](YQL-Match.md) statements together (that is, through sub-queries), to give each statement the correct responsibilities.  Here,
+Use [`SELECT`](YQL-Query.md) and [`MATCH`](YQL-Match.md) statements together (that is, through sub-queries) to give each statement the correct responsibilities.
 
 ### Filtering Record Attributes for a Single Class
 
-Filtering based on record attributes for a single class is a trivial operation through both statements.  That is, finding all people named John can be written as:
+Filtering based on record attributes for a single class is straightforward with both statements.  That is, finding all people named John can be written as:
 
 
 ```sql
@@ -538,7 +537,7 @@ MATCH {class: Person, as: person, where: (name = 'John')}
 ```
 
 The efficiency remains the same.  Both queries use an index.
-With [`SELECT`](YQL-Query.md), you obtain expanded records, while with [`MATCH`](YQL-Match.md), you only obtain the Record ID's.
+With [`SELECT`](YQL-Query.md), you obtain expanded records, while with [`MATCH`](YQL-Match.md), you obtain the Record IDs.
 
 
 ### Filtering on Record Attributes of Connected Elements
@@ -547,7 +546,7 @@ Filtering based on the record attributes of connected elements, such as neighbor
 can grow tricky when using [`SELECT`](YQL-Query.md), while with [`MATCH`](YQL-Match.md) it is simple.
 
 For instance, find all people living in Kyiv that have a friend called John.
-There are three different ways you can write this,  using [`SELECT`](YQL-Query.md):
+There are three different ways you can write this, using [`SELECT`](YQL-Query.md):
 
 ```sql
 SELECT FROM Person WHERE BOTH('Friend').name CONTAINS 'John' AND out('LivesIn').name CONTAINS 'Kyiv'
@@ -559,7 +558,7 @@ SELECT FROM (SELECT BOTH('Friend') FROM Person WHERE name = 'John') WHERE out('L
 SELECT FROM (SELECT in('LivesIn') FROM City WHERE name = 'Kyiv') WHERE BOTH('Friend').name CONTAINS 'John'
 ```
 
-In the first version, the query is more readable, but it does not use indexes, so it is less optimal in terms of execution time.
+In the first version, the query is more readable, but it does not use indexes, so it is less efficient in terms of execution time.
 The second and third use indexes if they exist, (on `Person.name` or `City.name`, both in the sub-query), but they're harder to read.
 Which index they use depends only on the way you write the query. 
 That is, if you only have an index on `City.name` and not `Person.name`, the second version doesn't use an index.
@@ -581,8 +580,8 @@ Moreover, the query becomes more readable, especially in complex cases, such as 
 Projections and grouping operations are better expressed with a [`SELECT`](YQL-Query.md) query.  
 If you need to filter and do projection or aggregation in the same query, you can use [`SELECT`](YQL-Query.md) and [`MATCH`](YQL-Match.md) in the same statement.
 
-This is particularly important when you expect a result that contains attributes from different connected records (cartesian product).
-For instance, to retrieve names, their friends and the date since they became friends:
+This is particularly important when you expect a result that contains attributes from different connected records (Cartesian product).
+For instance, to retrieve names, their friends, and the date since they became friends:
 
 
 ```sql
@@ -607,7 +606,7 @@ MATCH {class: Person, as: person}.bothE('Friend')
 
 In the RETURN section you can use:
 
-**multiple expressions**, with or without an alias (if no alias is defined, YouTrackDB will generate a default alias for you), comma separated
+**multiple expressions**, with or without an alias (if no alias is defined, YouTrackDB will generate a default alias for you), comma-separated
 
 ```sql
 MATCH 
@@ -659,7 +658,7 @@ result:
 | John is a friend of Jenny  |
 ```
 
-**$matches**, to return all the patterns that match current statement. Each row in the result set will be a single pattern, containing only nodes in the statement that have an `as:` defined
+**$matches** — returns all the patterns that match the current statement. Each row in the result set will be a single pattern, containing only nodes in the statement that have an `as:` defined
 
 ```sql
 MATCH 
@@ -679,9 +678,9 @@ result:
 
 ```
 
-**$paths**, to return all the patterns that match current statement. 
+**$paths** — returns all the patterns that match the current statement. 
 Each row in the result set will be a single pattern, containing all the nodes in the statement. 
-For nodes that have an `as:`, the alias will be returned, for the others a default alias is generated (automatically generated aliases start with `$YOUTRACKDB_DEFAULT_ALIAS_`)
+For nodes that have an `as:`, the alias will be returned; for the others, a default alias is generated (automatically generated aliases start with `$YOUTRACKDB_DEFAULT_ALIAS_`)
 
 ```sql
 MATCH 
@@ -699,7 +698,7 @@ result:
 | #12:1  | #12:3  | #13:2                   |
 ```
 
-**$elements**  the same as `$matches`, but for each node present in the pattern, a single row is created in the result set (no duplicates)
+**$elements** — the same as `$matches`, but for each node present in the pattern, a single row is created in the result set (no duplicates)
 
 ```sql
 MATCH 
@@ -719,7 +718,7 @@ result:
 | #12:3  |  Person | Frank  |  .....   |
 ```
 
-**$pathElements**  the same as `$paths`, but for each node present in the pattern, a single row is created in the result set (no duplicates)
+**$pathElements** — the same as `$paths`, but for each node present in the pattern, a single row is created in the result set (no duplicates)
 
 ```sql
 MATCH
@@ -744,11 +743,11 @@ result:
 ```
 
 
-### Arrow notation
+### Arrow Notation
 
-`out()`, `in()` and `both()` operators can be replaced with arrow notation `-->`, `<--` and `--`
+`out()`, `in()`, and `both()` operators can be replaced with arrow notation `-->`, `<--`, and `--`
 
-Eg. the query
+E.g., the query
 
 ```sql
 MATCH {class: V, as: a}.out(){}.out(){}.out(){as:b}
@@ -762,7 +761,7 @@ MATCH {class: V, as: a} --> {} --> {} --> {as:b}
 RETURN a, b
 ```
 
-Eg. the query (things that belong to friends)
+E.g., the query (things that belong to friends)
 
 ```sql
 MATCH {class: Person, as: a}.out('Friend'){as:friend}.in('BelongsTo'){as:b}
@@ -776,19 +775,19 @@ MATCH {class: Person, as: a}  -Friend-> {as:friend} <-BelongsTo- {as:b}
 RETURN a, b
 ```
 
-Using arrow notation the curly braces are mandatory on both sides. eg:
+Using arrow notation, the curly braces are mandatory on both sides, e.g.:
 
 ```sql
-MATCH {class: Person, as: a} --> {} --> {as:b} RETURN a, b  //is allowed
-MATCH {class: Person, as: a} --> --> {as:b} RETURN a, b  //is NOT allowed
-MATCH {class: Person, as: a}.out().out(){as:b} RETURN a, b  //is allowed
-MATCH {class: Person, as: a}.out(){}.out(){as:b} RETURN a, b  //is allowed
+MATCH {class: Person, as: a} --> {} --> {as:b} RETURN a, b            -- allowed
+MATCH {class: Person, as: a} --> --> {as:b} RETURN a, b               -- NOT allowed
+MATCH {class: Person, as: a}.out().out(){as:b} RETURN a, b            -- allowed
+MATCH {class: Person, as: a}.out(){}.out(){as:b} RETURN a, b          -- allowed
 ```
 
 ### Negative (NOT) patterns
 Together with normal patterns, you can also define negative patterns.
 A result will be returned only if it also DOES NOT match any of the negative patterns, 
-ie. if the result matches at least one of the negative patterns it won't be returned.
+i.e., if the result matches at least one of the negative patterns it won't be returned.
 
 As an example, consider the following problem: given a social network, 
 choose a single person and return all the people that are friends of their friends,

@@ -1664,13 +1664,8 @@ public class DocValidationTest {
     }
   }
 
-  // Line 161-165: Friends of friends
-  // DOC BUG: The doc result table (lines 168-178) shows 5 rows with unique
-  // friendOfFriend values, but MATCH returns all occurrences (line 283 confirms
-  // no dedup). The actual result is 7 rows because multiple paths reach the
-  // same node (e.g., John Doe appears 3 times as friend-of-friend via 3 friends).
-  // Also, the doc includes Frank Bean (#12:3) as a friend-of-friend, but no
-  // two-hop path Doe -> X -> Frank exists — Frank is only a direct friend.
+  // Line 161-165: Friends of friends — MATCH returns all occurrences (7 rows).
+  // John Doe appears 3 times as friendOfFriend (via each of his 3 friends).
   @Test
   public void testMatchFriendsOfFriends() {
     setUpMatchSampleData();
@@ -1683,7 +1678,7 @@ public class DocValidationTest {
                       + ".both('MAFriend').both('MAFriend') {as: friendOfFriend} "
                       + "RETURN person, friendOfFriend")
                   .toList());
-      // Actual: 7 rows (Doe×3, Jenny, Smith, Mark×2) — doc incorrectly shows 5
+      // 7 rows: Doe×3 (via each friend), Jenny, Smith, Mark×2
       assertThat(results).hasSize(7);
     } finally {
       tearDownMatchSampleData();
@@ -1712,14 +1707,12 @@ public class DocValidationTest {
     }
   }
 
-  // Line 202-207: Deep traversal with while condition ($depth < 6)
-  // DOC BUG: Line 205 omits comma between where: and while: clauses.
-  // The parser requires: {as: friend, where: (...), while: (...)}
+  // Line 207-212: Deep traversal with while condition ($depth < 6)
   @Test
   public void testMatchDeepTraversalWhile() {
     setUpMatchSampleData();
     try {
-      // Verify the doc's syntax (no comma) fails to parse
+      // Verify that omitting comma between where: and while: fails to parse
       assertThatThrownBy(
           () -> g.computeInTx(
               tx -> tx.yql(
@@ -1731,7 +1724,7 @@ public class DocValidationTest {
                       + "RETURN person, friend")
                   .toList()));
 
-      // Corrected syntax with comma between where: and while:
+      // Correct syntax with comma between where: and while:
       var results =
           g.computeInTx(
               tx -> tx.yql(
@@ -1925,11 +1918,8 @@ public class DocValidationTest {
     });
   }
 
-  // Line 466-478: Deep traversal with while — includes origin node (depth 0)
-  // DOC BUG: The doc result table (lines 471-478) shows only 'a' and 'b',
-  // but while($depth < 2) actually returns 'a' (depth 0), 'b' (depth 1),
-  // and 'c' (depth 2). The while condition controls whether to CONTINUE
-  // traversing, but the reached node is still included in results.
+  // Line 471-484: Deep traversal with while — includes origin node (depth 0).
+  // while($depth < 2) returns 'a' (depth 0), 'b' (depth 1), 'c' (depth 2) = 3 results.
   @Test
   public void testMatchDeepTraversalWithWhile() {
     g.command("CREATE CLASS MADeepPerson2 IF NOT EXISTS EXTENDS V");
@@ -1954,7 +1944,7 @@ public class DocValidationTest {
           .iterate();
     });
 
-    // Actual: returns 'a', 'b', 'c' = 3 (doc incorrectly says 2)
+    // Returns 'a', 'b', 'c' = 3 results
     var results =
         g.computeInTx(
             tx -> tx.yql(
@@ -1972,9 +1962,7 @@ public class DocValidationTest {
     });
   }
 
-  // Line 485-489: Deep traversal with while + where to exclude origin
-  // DOC BUG: Line 487 omits comma between while: and where: clauses.
-  // The parser requires: {as: friend, while: (...), where: (...)}
+  // Line 490-495: Deep traversal with while + where to exclude origin
   @Test
   public void testMatchDeepTraversalWhileExcludeOrigin() {
     g.command("CREATE CLASS MADeepPerson3 IF NOT EXISTS EXTENDS V");
@@ -1999,7 +1987,7 @@ public class DocValidationTest {
           .iterate();
     });
 
-    // Verify the doc's syntax (no comma) fails to parse
+    // Verify that omitting comma between while: and where: fails to parse
     assertThatThrownBy(
         () -> g.computeInTx(
             tx -> tx.yql(
@@ -2009,7 +1997,7 @@ public class DocValidationTest {
                     + "RETURN friend")
                 .toList()));
 
-    // Corrected syntax with comma; where($depth > 0) excludes origin 'a'
+    // Correct syntax with comma; where($depth > 0) excludes origin 'a'
     // Returns 'b' (depth 1) and 'c' (depth 2)
     var results =
         g.computeInTx(
@@ -2300,6 +2288,82 @@ public class DocValidationTest {
     } finally {
       tearDownMatchSampleData();
     }
+  }
+
+  // Line 645-651: RETURN with string concatenation expression
+  @Test
+  public void testMatchReturnStringConcatenation() {
+    setUpMatchSampleData();
+    try {
+      var results =
+          g.computeInTx(
+              tx -> tx.yql(
+                  "MATCH {class: MAPerson, as: person}"
+                      + ".bothE('MAFriend'){as: friendship}"
+                      + ".bothV(){as: friend, "
+                      + "where: ($matched.person != $currentMatch)} "
+                      + "RETURN person.name + ' is a friend of ' "
+                      + "+ friend.name as friends")
+                  .toList());
+      assertThat(results).isNotEmpty();
+      // Each result is a map with 'friends' key containing a concatenated string
+      @SuppressWarnings("unchecked")
+      Map<String, Object> first = (Map<String, Object>) results.get(0);
+      assertThat(first).containsKey("friends");
+      String friendStr = (String) first.get("friends");
+      assertThat(friendStr).contains(" is a friend of ");
+    } finally {
+      tearDownMatchSampleData();
+    }
+  }
+
+  // Lines 629-641: RETURN with edge property access via bothE alias
+  @Test
+  public void testMatchReturnEdgeProperties() {
+    g.command("CREATE CLASS MAEdgePropPerson IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS MAEdgePropFriend IF NOT EXISTS EXTENDS E");
+    g.command("CREATE PROPERTY MAEdgePropFriend.since IF NOT EXISTS INTEGER");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX MAEdgePropPerson SET name = 'John'").iterate();
+      tx.yql("CREATE VERTEX MAEdgePropPerson SET name = 'Frank'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE MAEdgePropFriend "
+              + "FROM (SELECT FROM MAEdgePropPerson WHERE name = 'John') "
+              + "TO (SELECT FROM MAEdgePropPerson WHERE name = 'Frank') "
+              + "SET since = 2015")
+          .iterate();
+    });
+
+    // MATCH with bothE and RETURN edge property via dot notation
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "MATCH {class: MAEdgePropPerson, as: person}"
+                    + ".bothE('MAEdgePropFriend'){as: friendship}"
+                    + ".bothV(){as: friend, "
+                    + "where: ($matched.person != $currentMatch)} "
+                    + "RETURN person.name as name, friendship.since as since, "
+                    + "friend.name as friend")
+                .toList());
+    // Both directions: John→Frank and Frank→John
+    assertThat(results).hasSize(2);
+    @SuppressWarnings("unchecked")
+    Map<String, Object> first = (Map<String, Object>) results.get(0);
+    assertThat(first).containsKey("name");
+    assertThat(first).containsKey("since");
+    assertThat(first).containsKey("friend");
+    assertThat((Integer) first.get("since")).isEqualTo(2015);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE MAEdgePropFriend").iterate();
+    });
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX MAEdgePropPerson").iterate();
+    });
   }
 
   // === YQL-Create-Class.md ===
