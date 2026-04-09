@@ -104,6 +104,12 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   private boolean walUnitStarted;
   @Nullable private LogSequenceNumber startLSN;
 
+  // Fast-path flag: set to true when any page registers a PageOperation,
+  // cleared after flushPendingOperations() completes. Allows the flush hook
+  // in AtomicOperationsManager to short-circuit when no pending ops exist
+  // (read-only operations, unconverted page types).
+  private boolean hasPendingOperations;
+
   private final Map<String, AtomicOperationMetadata<?>> metadata = new LinkedHashMap<>();
 
   private boolean active;
@@ -438,10 +444,15 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
             + " has no CacheEntryChanges — page must be loaded for write first";
 
     pageChanges.addPendingOperation(op);
+    hasPendingOperations = true;
   }
 
   @Override
   public void flushPendingOperations() throws IOException {
+    if (!hasPendingOperations) {
+      return;
+    }
+
     checkIfActive();
     assert writeAheadLog != null
         : "flushPendingOperations called but WriteAheadLog is null";
@@ -481,6 +492,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
         pageChanges.clearPendingOperations();
       }
     }
+
+    hasPendingOperations = false;
   }
 
   @Override

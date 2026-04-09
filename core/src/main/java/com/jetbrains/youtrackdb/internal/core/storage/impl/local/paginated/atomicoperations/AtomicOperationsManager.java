@@ -172,6 +172,10 @@ public class AtomicOperationsManager {
     acquireExclusiveLockTillOperationComplete(atomicOperation, component);
     try {
       consumer.accept(atomicOperation);
+      // Flush pending logical WAL records after successful component operation.
+      // If the consumer throws, pending ops are NOT flushed — they will be
+      // discarded when the atomic operation is rolled back.
+      atomicOperation.flushPendingOperations();
     } catch (Exception e) {
       if (e instanceof CoreException coreException) {
         coreException.setComponentName(component.getLockName());
@@ -196,7 +200,11 @@ public class AtomicOperationsManager {
     Objects.requireNonNull(atomicOperation);
     acquireExclusiveLockTillOperationComplete(atomicOperation, component);
     try {
-      return function.accept(atomicOperation);
+      final T result = function.accept(atomicOperation);
+      // Flush pending logical WAL records after successful component operation.
+      // Capture return value first so flush happens before return.
+      atomicOperation.flushPendingOperations();
+      return result;
     } catch (Exception e) {
       throw BaseException.wrapException(
           new CommonStorageComponentException(
