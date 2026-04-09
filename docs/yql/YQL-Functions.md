@@ -4,25 +4,25 @@
 
 ### Functions by category
 
-| Graph                                            | Math                                        | Collections                                   | Misc                                    |
-|--------------------------------------------------|---------------------------------------------|-----------------------------------------------|-----------------------------------------|
-| [out()](YQL-Functions.md#out)                    | [eval()](YQL-Functions.md#eval)             | [set()](YQL-Functions.md#set)                 | [date()](YQL-Functions.md#date)         |
-| [in()](YQL-Functions.md#in)                      | [min()](YQL-Functions.md#min)               | [map()](YQL-Functions.md#map)                 | [sysdate()](YQL-Functions.md#sysdate)   |
-| [both()](YQL-Functions.md#both)                  | [max()](YQL-Functions.md#max)               | [list()](YQL-Functions.md#list)               | [format()](YQL-Functions.md#format)     |
-| [outE()](YQL-Functions.md#oute)                  | [sum()](YQL-Functions.md#sum)               | [difference()](YQL-Functions.md#difference)   | [distance()](YQL-Functions.md#distance) |
-| [inE()](YQL-Functions.md#ine)                    | [abs()](YQL-Functions.md#abs)               | [first()](YQL-Functions.md#first)             | [ifnull()](YQL-Functions.md#ifnull)     |
-| [bothE()](YQL-Functions.md#bothe)                | [decimal()](YQL-Functions.md#decimal)       | [intersect()](YQL-Functions.md#intersect)     | [coalesce()](YQL-Functions.md#coalesce) |
-| [outV()](YQL-Functions.md#outv)                  | [avg()](YQL-Functions.md#avg)               | [distinct()](YQL-Functions.md#distinct)       | [uuid()](YQL-Functions.md#uuid)         |
-| [inV()](YQL-Functions.md#inv)                    | [count()](YQL-Functions.md#count)           | [expand()](YQL-Functions.md#expand)           | [if()](YQL-Functions.md#if)             |
-| [shortestPath()](YQL-Functions.md#shortestpath)  | [mode()](YQL-Functions.md#mode)             | [unionall()](YQL-Functions.md#unionall)       |                                         |
-| [dijkstra()](YQL-Functions.md#dijkstra)          | [median()](YQL-Functions.md#median)         | [flatten()](YQL-Functions.md#flatten)         |                                         |
-| [astar()](YQL-Functions.md#astar)                | [percentile()](YQL-Functions.md#percentile) | [last()](YQL-Functions.md#last)               |                                         |
-| [bothV()](YQL-Functions.md#bothv)                | [variance()](YQL-Functions.md#variance)     | [symmetricDifference()](#symmetricdifference) | -                                       |
-|                                                  | [stddev()](YQL-Functions.md#stddev)         |                                               |                                         |
+| Graph                                            | Math                                        | Collections                                                          | Misc                                              |
+|--------------------------------------------------|---------------------------------------------|----------------------------------------------------------------------|----------------------------------------------------|
+| [out()](YQL-Functions.md#out)                    | [eval()](YQL-Functions.md#eval)             | [set()](YQL-Functions.md#set)                                        | [date()](YQL-Functions.md#date)                    |
+| [in()](YQL-Functions.md#in)                      | [min()](YQL-Functions.md#min)               | [map()](YQL-Functions.md#map)                                        | [sysdate()](YQL-Functions.md#sysdate)              |
+| [both()](YQL-Functions.md#both)                  | [max()](YQL-Functions.md#max)               | [list()](YQL-Functions.md#list)                                      | [format()](YQL-Functions.md#format)                |
+| [outE()](YQL-Functions.md#oute)                  | [sum()](YQL-Functions.md#sum)               | [difference()](YQL-Functions.md#difference)                          | [distance()](YQL-Functions.md#distance)            |
+| [inE()](YQL-Functions.md#ine)                    | [abs()](YQL-Functions.md#abs)               | [first()](YQL-Functions.md#first)                                    | [ifnull()](YQL-Functions.md#ifnull)                |
+| [bothE()](YQL-Functions.md#bothe)                | [decimal()](YQL-Functions.md#decimal)       | [intersect()](YQL-Functions.md#intersect)                            | [coalesce()](YQL-Functions.md#coalesce)            |
+| [outV()](YQL-Functions.md#outv)                  | [avg()](YQL-Functions.md#avg)               | [distinct()](YQL-Functions.md#distinct)                              | [uuid()](YQL-Functions.md#uuid)                    |
+| [inV()](YQL-Functions.md#inv)                    | [count()](YQL-Functions.md#count)           | [expand()](YQL-Functions.md#expand)                                  | [if()](YQL-Functions.md#if)                        |
+| [shortestPath()](YQL-Functions.md#shortestpath)  | [mode()](YQL-Functions.md#mode)             | [unionall()](YQL-Functions.md#unionall)                              | [strcmpci()](YQL-Functions.md#strcmpci)            |
+| [dijkstra()](YQL-Functions.md#dijkstra)          | [median()](YQL-Functions.md#median)         | [last()](YQL-Functions.md#last)                                      |                                                    |
+| [astar()](YQL-Functions.md#astar)                | [percentile()](YQL-Functions.md#percentile) | [symmetricDifference()](YQL-Functions.md#symmetricdifference)        |                                                    |
+| [bothV()](YQL-Functions.md#bothv)                | [variance()](YQL-Functions.md#variance)     |                                                                      |                                                    |
+|                                                  | [stddev()](YQL-Functions.md#stddev)         |                                                                      |                                                    |
 
 YQL Functions are all the functions bundled with YouTrackDB SQL engine. See also [YQL Methods](YQL-Methods.md).
 
-YQL Functions can work in 2 ways based on the fact that they can receive 1 or more parameters:
+YQL Functions can work in 2 ways depending on whether they receive 1 or more parameters:
 
 ## Aggregated mode
 
@@ -40,13 +40,13 @@ SELECT SUM(salary, extra, benefits) AS total FROM employee
 ```
 This will return the sum of the field "salary", "extra" and "benefits" as "total".
 
-In case you need to use a function inline, when you only have one parameter, then add "null" as the second parameter:
+If you need to use a function inline when you only have one parameter, add "null" as the second parameter:
 
 ```sql
-SELECT first( out('friends').name, null ) as firstFriend FROM Profiles
+SELECT sum(salary, null) AS totalSalary FROM Employee
 ```
-In the above example, the `first()` function doesn't aggregate everything in only one record, but rather returns one record per `Profile`, 
-where the `firstFriend` is the first item of the collection received as the parameter.
+In the above example, the `sum()` function doesn't aggregate everything into a single record, but rather returns one record per `Employee`,
+where `totalSalary` is the value of the `salary` field for that record.
 
 ## Function Reference
 
@@ -293,8 +293,8 @@ SELECT ifnull(salary, 0) FROM Account
 
 This function has two meanings:
 
-- When used on a collection property, it unwinds the collection in the field <property> and use it as result.
-- When used on a link (RID) field, it expands the record pointed by that link.
+- When used on a collection property, it unwinds the collection in the field &lt;property&gt; and uses it as the result.
+- When used on a link (RID) field, it expands the record pointed to by that link.
 
 Syntax: ```expand(<property>)```
 
@@ -323,7 +323,7 @@ Syntax: ```first(<field>)```
 #### Example
 
 ```sql
-select first( addresses ) from Account
+SELECT first(addresses) FROM Account
 ```
 ---
 ### last()
@@ -391,7 +391,7 @@ SELECT max(salary1, salary2, salary3) FROM Account
 ---
 ### abs()
 
-Returns the absolute value. It works with Integer, Long, Short, Double, Float, BigInteger, BigDecimal, null.
+Returns the absolute value. It works with Integer, Long, Short, Double, Float, BigInteger, BigDecimal, and null values.
 
 Syntax: ```abs(<property>)```
 
@@ -435,7 +435,7 @@ Returns a date formatting a string. &lt;date-as-string&gt; is the date in string
 is the date format following these [rules](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/text/SimpleDateFormat.html). 
 If no format is specified, then the default database format is used.
 
-Syntax: ```date( <date-as-string> [<format>] [,<timezone>] )```
+Syntax: ```date( <date-as-string> [, <format>] [, <timezone>] )```
 
 #### Example
 
@@ -471,7 +471,7 @@ SELECT format("%d - Mr. %s %s (%s)", id, name, surname, address) FROM Account
 
 ### decimal()
 
-Converts a number or a String in an absolute precision, decimal number.
+Converts a number or a string to an absolute-precision decimal number.
 
 Syntax: ```decimal( <number> | <string> )```
 
@@ -485,12 +485,12 @@ SELECT decimal('99.999999999999999999') FROM Account
 
 ### astar()
 
-A*'s algorithm describes how to find the cheapest path from one node to another node in a directed weighted graph with heuristic function.
+The A* algorithm describes how to find the cheapest path from one node to another node in a directed weighted graph with a heuristic function.
 
-The first parameter is source record. The second parameter is destination record. The third parameter is a name of property that
-represents 'weight' and fourth represents the map of options.
+The first parameter is the source record. The second parameter is the destination record. The third parameter is the name of the property that
+represents 'weight', and the fourth represents the map of options.
 
-If property is not defined in edge or is null, distance between vertices is 0.
+If the property is not defined in the edge or is null, the distance between vertices is 0.
 
 Syntax: ```astar(<sourceVertex>, <destinationVertex>, <weightEdgeFieldName>, [<options>]) ```
 
@@ -588,7 +588,7 @@ SELECT FROM POI WHERE distance(x, y, 52.20472, 0.14056 ) <= 30
 Syntax: ```distinct(<property>)```
 
 Retrieves only unique data entries depending on the field you have specified as argument.
-The main difference compared to standard SQL DISTINCT is that with YouTrackDB, a function with parenthesis and only one field can be specified.
+The main difference compared to standard SQL DISTINCT is that with YouTrackDB, a function with parentheses and only one field can be specified.
 
 #### Example
 
@@ -662,7 +662,7 @@ SELECT symmetricDifference(inEdges, outEdges) FROM V
 
 ### set()
 
-Adds a value to a set. The first time the set is created. If ```<value>``` is a collection, then is merged with the set, otherwise ```<value>``` is added to the set.
+Adds a value to a set, creating it on first use. If ```<value>``` is a collection, then it is merged with the set, otherwise ```<value>``` is added to the set.
 
 Syntax: ```set(<property>)```
 
@@ -675,7 +675,7 @@ SELECT name, set(roles.name) AS roles FROM User
 ---
 ### list()
 
-Adds a value to a list. The first time the list is created. If ```<value>``` is a collection, then is merged with the list, otherwise ```<value>``` is added to the list.
+Adds a value to a list, creating it on first use. If ```<value>``` is a collection, then it is merged with the list, otherwise ```<value>``` is added to the list.
 
 Syntax: ```list(<property>)```
 
@@ -687,8 +687,8 @@ SELECT name, list(roles.name) AS roles FROM User
 ---
 ### map()
 
-Adds a value to a map. The first time the map is created. If ```<value>``` is a map, then is merged with the map,
-otherwise the pair ```<key>``` and ```<value>``` is added to the map as new entry.
+Adds a value to a map, creating it on first use. If ```<value>``` is a map, then it is merged with the map,
+otherwise the pair ```<key>``` and ```<value>``` is added to the map as a new entry.
 
 Syntax: ```map(<key>, <value>)```
 
@@ -766,7 +766,7 @@ SELECT stddev(salary) FROM Account
 ---
 ### uuid()
 
-Generates a UUID as a 128-bits value using the Leach-Salz variant. 
+Generates a UUID as a 128-bit value using the Leach-Salz variant.
 
 Syntax: ```uuid()```
 

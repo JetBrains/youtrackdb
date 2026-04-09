@@ -4951,6 +4951,159 @@ public class DocValidationTest {
         });
   }
 
+  // Line 195: SELECT bothV() FROM E — both vertices of an edge
+  @Test
+  public void testFuncBothV() {
+    g.command("CREATE CLASS FuncPersonBothV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS FuncEdgeBothV IF NOT EXISTS EXTENDS E");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncPersonBothV SET name = 'A'").iterate();
+          tx.yql("CREATE VERTEX FuncPersonBothV SET name = 'B'").iterate();
+          tx.yql(
+              "CREATE EDGE FuncEdgeBothV FROM "
+                  + "(SELECT FROM FuncPersonBothV WHERE name = 'A') TO "
+                  + "(SELECT FROM FuncPersonBothV WHERE name = 'B')")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT bothV() FROM FuncEdgeBothV").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE EDGE FuncEdgeBothV").iterate();
+          tx.yql("DELETE VERTEX FuncPersonBothV").iterate();
+        });
+  }
+
+  // Line 210: SELECT outV() FROM E — outgoing vertex of an edge
+  @Test
+  public void testFuncOutV() {
+    g.command("CREATE CLASS FuncPersonOutV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS FuncEdgeOutV IF NOT EXISTS EXTENDS E");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncPersonOutV SET name = 'X'").iterate();
+          tx.yql("CREATE VERTEX FuncPersonOutV SET name = 'Y'").iterate();
+          tx.yql(
+              "CREATE EDGE FuncEdgeOutV FROM "
+                  + "(SELECT FROM FuncPersonOutV WHERE name = 'X') TO "
+                  + "(SELECT FROM FuncPersonOutV WHERE name = 'Y')")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT outV() FROM FuncEdgeOutV").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE EDGE FuncEdgeOutV").iterate();
+          tx.yql("DELETE VERTEX FuncPersonOutV").iterate();
+        });
+  }
+
+  // Line 228: SELECT inV() FROM E — incoming vertex of an edge
+  @Test
+  public void testFuncInV() {
+    g.command("CREATE CLASS FuncPersonInV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS FuncEdgeInV IF NOT EXISTS EXTENDS E");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncPersonInV SET name = 'X'").iterate();
+          tx.yql("CREATE VERTEX FuncPersonInV SET name = 'Y'").iterate();
+          tx.yql(
+              "CREATE EDGE FuncEdgeInV FROM "
+                  + "(SELECT FROM FuncPersonInV WHERE name = 'X') TO "
+                  + "(SELECT FROM FuncPersonInV WHERE name = 'Y')")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT inV() FROM FuncEdgeInV").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE EDGE FuncEdgeInV").iterate();
+          tx.yql("DELETE VERTEX FuncPersonInV").iterate();
+        });
+  }
+
+  // Line 547: SELECT shortestPath(src, dst) — shortest path between two vertices
+  @Test
+  public void testFuncShortestPath() {
+    g.command("CREATE CLASS FuncNodeSP IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS FuncLinkSP IF NOT EXISTS EXTENDS E");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncNodeSP SET name = 'start'").iterate();
+          tx.yql("CREATE VERTEX FuncNodeSP SET name = 'mid'").iterate();
+          tx.yql("CREATE VERTEX FuncNodeSP SET name = 'end'").iterate();
+          tx.yql(
+              "CREATE EDGE FuncLinkSP FROM "
+                  + "(SELECT FROM FuncNodeSP WHERE name = 'start') TO "
+                  + "(SELECT FROM FuncNodeSP WHERE name = 'mid')")
+              .iterate();
+          tx.yql(
+              "CREATE EDGE FuncLinkSP FROM "
+                  + "(SELECT FROM FuncNodeSP WHERE name = 'mid') TO "
+                  + "(SELECT FROM FuncNodeSP WHERE name = 'end')")
+              .iterate();
+        });
+
+    // shortestPath using subqueries for dynamic RIDs
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT shortestPath("
+                    + "(SELECT FROM FuncNodeSP WHERE name = 'start'), "
+                    + "(SELECT FROM FuncNodeSP WHERE name = 'end'))")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    // Test with direction parameter (OUT)
+    var resultsOut =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT shortestPath("
+                    + "(SELECT FROM FuncNodeSP WHERE name = 'start'), "
+                    + "(SELECT FROM FuncNodeSP WHERE name = 'end'), 'OUT')")
+                .toList());
+    assertThat(resultsOut).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE EDGE FuncLinkSP").iterate();
+          tx.yql("DELETE VERTEX FuncNodeSP").iterate();
+        });
+  }
+
+  // Line 47: Doc claims first(out('friends').name, null) forces inline mode,
+  // but first() only accepts 1 argument — this is a doc bug.
+  @Test
+  public void testFuncFirstRejectsNullTrick() {
+    g.command("CREATE CLASS FuncProfile IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncProfile SET name = 'Alice'").iterate();
+        });
+
+    // first() only accepts 1 argument; passing null as 2nd param is rejected
+    assertThatThrownBy(
+        () -> g.computeInTx(
+            tx -> tx.yql(
+                "SELECT first(out().name, null) AS firstFriend FROM FuncProfile")
+                .toList()));
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncProfile").iterate();
+        });
+  }
+
   // === YQL-Grant.md ===
 
   /** YQL-Grant.md — Line 22: GRANT POLICY policy1 ON database.class.Person TO backoffice */
