@@ -1,7 +1,7 @@
 # YQL - `UPDATE`
 
-Update one or more records in the current database.  
-Remember: YouTrackDB can work in schema-less mode, so you can create any properties on-the-fly. 
+Update one or more records in the current database.
+Remember: YouTrackDB can work in schema-less mode, so you can create any properties on-the-fly.
 Furthermore, the command also supports extensions to work on collections.
 
 **Syntax**:
@@ -16,12 +16,12 @@ UPDATE <class>|<recordID>
 ```
 
 - **`SET`** Defines the properties to update.
-- **`REMOVE`** Removes an item from collection and map properties.
+- **`REMOVE`** Removes an item from a collection or map property.
 - **`CONTENT`** Replaces the record content with a JSON document.
 - **`MERGE`** Merges the record content with a JSON document.
 - **`UPSERT`** Updates a record if it exists or inserts a new record if it doesn't.  This avoids the need to execute two commands (one for each condition: inserting and updating).
   `UPSERT` requires a [`WHERE`](YQL-Where.md) clause and a class target.  There are further limitations on `UPSERT`, explained below.
-- **`RETURN`** Specifies an expression to return instead of the record and what to do with the result-set returned by the expression.  The available return operators are:
+- **`RETURN`** Specifies what to return instead of the default count.  The available return operators are:
     - `COUNT` Returns the number of updated records.  This is the default return operator.
     - `AFTER` Return the records after the update.
 - [`WHERE`](YQL-Where.md)
@@ -101,9 +101,9 @@ UPDATE Profile SET nick = 'Andrii' UPSERT WHERE nick = 'Andrii'
    UPDATE #7:0 SET gender='male' RETURN AFTER $current.exclude("really_big_field")
 ```
 
-In the event that a single property is returned, YouTrackDB wraps the result-set in a Map storing the value under the key `result`. 
+When a single property is returned (such as `@rid` or `@version`), YouTrackDB wraps the result-set in a Map using the expression name as the key (for example, `{"@rid": #7:0}` or `{"@version": 2}`).
 
-For more information on SQL syntax, see [`SELECT`](YQL-Query.md).
+For more information on YQL syntax, see [`SELECT`](YQL-Query.md).
 
 ## Limitations of the `UPSERT` Clause
 

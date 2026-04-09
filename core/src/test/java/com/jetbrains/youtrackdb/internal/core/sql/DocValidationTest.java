@@ -365,6 +365,70 @@ public class DocValidationTest {
     assertThat((String) v.value("name")).isEqualTo("test");
   }
 
+  // Line 98: UPDATE #7:0 SET gender='male' RETURN AFTER @rid
+  @Test
+  public void testUpdateReturnAfterRid() {
+    g.command("CREATE CLASS ReturnRidTest IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX ReturnRidTest SET gender = 'unknown'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("UPDATE ReturnRidTest SET gender = 'male' RETURN AFTER @rid").toList());
+    assertThat(results).hasSize(1);
+    // Line 104 claims single property is wrapped under key "result", but actual key is "@rid"
+    @SuppressWarnings("unchecked")
+    Map<String, Object> wrapped = (Map<String, Object>) results.get(0);
+    assertThat(wrapped).containsKey("@rid");
+  }
+
+  // Line 99: UPDATE #7:0 SET gender='male' RETURN AFTER @version
+  @Test
+  public void testUpdateReturnAfterVersion() {
+    g.command("CREATE CLASS ReturnVersionTest IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX ReturnVersionTest SET gender = 'unknown'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("UPDATE ReturnVersionTest SET gender = 'male' RETURN AFTER @version")
+                .toList());
+    assertThat(results).hasSize(1);
+    // Actual key is "@version", not "result" as claimed on line 104
+    @SuppressWarnings("unchecked")
+    Map<String, Object> wrapped = (Map<String, Object>) results.get(0);
+    assertThat(wrapped).containsKey("@version");
+    assertThat(((Number) wrapped.get("@version")).longValue()).isGreaterThan(0);
+  }
+
+  // Line 101: UPDATE #7:0 SET gender='male' RETURN AFTER $current.exclude("really_big_field")
+  @Test
+  public void testUpdateReturnAfterExclude() {
+    g.command("CREATE CLASS ReturnExcludeTest IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE VERTEX ReturnExcludeTest SET gender = 'unknown', "
+              + "really_big_field = 'huge data'")
+          .iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "UPDATE ReturnExcludeTest SET gender = 'male' "
+                    + "RETURN AFTER $current.exclude(\"really_big_field\")")
+                .toList());
+    assertThat(results).hasSize(1);
+    @SuppressWarnings("unchecked")
+    Map<String, Object> record = (Map<String, Object>) results.get(0);
+    // The excluded field should not be present in the result
+    assertThat(record).doesNotContainKey("really_big_field");
+    assertThat(record).containsKey("gender");
+    assertThat(record.get("gender")).isEqualTo("male");
+  }
+
   // === YQL-Create-Vertex.md ===
 
   // Line 23: CREATE VERTEX (bare, on base class V)
