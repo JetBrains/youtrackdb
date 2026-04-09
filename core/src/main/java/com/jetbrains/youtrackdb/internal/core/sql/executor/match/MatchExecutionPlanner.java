@@ -3458,7 +3458,7 @@ public class MatchExecutionPlanner {
       if (anchorClass != null) {
         plan.chain(new InvertedWhileHashJoinStep(
             context, anchorClass, targetFilter, edgeLabel, edgeDirection,
-            probeAlias, targetAlias, profilingEnabled));
+            probeAlias, targetAlias, edge, profilingEnabled));
       } else {
         // Cannot determine anchor class — fall back to standard WHILE traversal
         // to avoid catastrophic full V scan

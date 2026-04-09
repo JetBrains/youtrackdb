@@ -50,6 +50,8 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
   private final boolean edgeOut;
   private final String probeAlias;
   private final String targetAlias;
+  /** Original edge traversal for runtime fallback when hash join is not feasible. */
+  private final EdgeTraversal fallbackEdge;
 
   @Nullable private Set<RID> reachableRids;
 
@@ -61,18 +63,21 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
       boolean edgeOut,
       String probeAlias,
       String targetAlias,
+      EdgeTraversal fallbackEdge,
       boolean profilingEnabled) {
     super(ctx, profilingEnabled);
     assert MatchAssertions.checkNotNull(anchorClass, "anchor class");
     assert MatchAssertions.checkNotNull(edgeLabel, "edge label");
     assert MatchAssertions.checkNotNull(probeAlias, "probe alias");
     assert MatchAssertions.checkNotNull(targetAlias, "target alias");
+    assert MatchAssertions.checkNotNull(fallbackEdge, "fallback edge");
     this.anchorClass = anchorClass;
     this.anchorFilter = anchorFilter;
     this.edgeLabel = edgeLabel;
     this.edgeOut = edgeOut;
     this.probeAlias = probeAlias;
     this.targetAlias = targetAlias;
+    this.fallbackEdge = fallbackEdge;
   }
 
   @Override
@@ -82,11 +87,16 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
           "inverted-while hash join step requires a previous step");
     }
 
-    // Build phase: find ALL anchor vertices and collect reachable RIDs.
+    // Build phase: find anchor vertices and collect reachable RIDs.
     // Maps each reachable RID → the anchor vertex it descends from, so the
     // probe phase can set targetAlias to the correct anchor.
+    // If anchor count exceeds the threshold, fall back to per-row WHILE traversal.
     var session = ctx.getDatabaseSession();
     var anchors = findAnchorVertices(ctx, session);
+    if (anchors == null) {
+      // Anchor count exceeded threshold — fall back to per-row WHILE traversal
+      return fallbackToPerRowTraversal(ctx);
+    }
     if (anchors.isEmpty()) {
       // No anchor found → no row can match → consume and discard all upstream
       var upstream = prev.start(ctx);
@@ -156,11 +166,11 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
   }
 
   /**
-   * Finds ALL anchor vertices matching the anchor filter. Multiple anchors are
-   * supported to maintain semantic equivalence with the original WHILE traversal
-   * which would match against any valid anchor.
+   * Finds anchor vertices matching the anchor filter, up to the hash join threshold.
+   * Returns {@code null} if the number of anchors exceeds the threshold, signalling
+   * the caller to fall back to per-row WHILE traversal.
    */
-  private List<Result> findAnchorVertices(CommandContext ctx, DatabaseSessionEmbedded session) {
+  @Nullable private List<Result> findAnchorVertices(CommandContext ctx, DatabaseSessionEmbedded session) {
     var select = new SQLSelectStatement(-1);
     var from = new SQLFromClause(-1);
     var fromItem = new SQLFromItem(-1);
@@ -169,6 +179,7 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
     select.setTarget(from);
     select.setWhereClause(anchorFilter != null ? anchorFilter.copy() : null);
 
+    var maxSize = MatchExecutionPlanner.getHashJoinThreshold();
     var subCtx = new BasicCommandContext();
     subCtx.setParentWithoutOverridingChild(ctx);
     var plan = select.createExecutionPlan(subCtx, false);
@@ -177,6 +188,9 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
     try {
       while (stream.hasNext(subCtx)) {
         results.add(toResultInternal(stream.next(subCtx), session));
+        if (results.size() >= maxSize) {
+          return null;
+        }
       }
     } finally {
       stream.close(subCtx);
@@ -272,6 +286,22 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
     return foundAnchors.isEmpty() ? null : foundAnchors;
   }
 
+  /**
+   * Falls back to per-row WHILE traversal when the hash join build phase is not
+   * feasible (e.g., too many anchors). Delegates to the same traverser selection
+   * that {@link MatchStep} uses, preserving full correctness.
+   */
+  private ExecutionStream fallbackToPerRowTraversal(CommandContext ctx) {
+    var upstream = prev.start(ctx);
+    return upstream.flatMap((row, c) -> {
+      if (fallbackEdge.out) {
+        return new MatchEdgeTraverser(row, fallbackEdge);
+      } else {
+        return new MatchReverseEdgeTraverser(row, fallbackEdge);
+      }
+    });
+  }
+
   /** Extracts RID from a value that may be a RID, Identifiable, or Result. */
   @Nullable static RID extractRid(Object value) {
     if (value instanceof RID rid) {
@@ -325,6 +355,7 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
     return new InvertedWhileHashJoinStep(
         ctx, anchorClass,
         anchorFilter != null ? anchorFilter.copy() : null,
-        edgeLabel, edgeOut, probeAlias, targetAlias, profilingEnabled);
+        edgeLabel, edgeOut, probeAlias, targetAlias, fallbackEdge,
+        profilingEnabled);
   }
 }

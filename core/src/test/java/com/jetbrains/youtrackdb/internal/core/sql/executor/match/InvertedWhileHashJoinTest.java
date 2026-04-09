@@ -5,6 +5,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -252,5 +253,65 @@ public class InvertedWhileHashJoinTest extends DbTestBase {
     assertTrue("tag4 should be found via RootClass2",
         tagNames.contains("tag4"));
     session.rollback();
+  }
+
+  /**
+   * Regression test for unbounded anchor collection in findAnchorVertices.
+   * With threshold=1, the anchor filter {@code name LIKE 'RootClass%'} matches
+   * 2 anchors (RootClass and RootClass2), exceeding the threshold. The step
+   * must fall back to per-row WHILE traversal.
+   *
+   * <p>Without fallback, only one anchor's hierarchy would be traversed,
+   * missing tags from the other hierarchy. The test asserts tags from BOTH
+   * hierarchies are present, so truncation without fallback would fail.
+   */
+  @Test
+  public void whileHierarchy_anchorExceedsThreshold_fallsBackCorrectly() {
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(1L);
+      session.begin();
+      // Create a second hierarchy: LeafClass2 → MiddleClass2 → RootClass2
+      session.execute("CREATE VERTEX TagClass set name = 'RootClass2'").close();
+      session.execute("CREATE VERTEX TagClass set name = 'MiddleClass2'").close();
+      session.execute("CREATE VERTEX TagClass set name = 'LeafClass2'").close();
+
+      session.execute(
+          "CREATE EDGE IS_SUBCLASS_OF"
+              + " from (select from TagClass where name='LeafClass2')"
+              + " to (select from TagClass where name='MiddleClass2')")
+          .close();
+      session.execute(
+          "CREATE EDGE IS_SUBCLASS_OF"
+              + " from (select from TagClass where name='MiddleClass2')"
+              + " to (select from TagClass where name='RootClass2')")
+          .close();
+
+      // tag4 → LeafClass2 (reachable from RootClass2 only)
+      session.execute("CREATE VERTEX Tag set name = 'tag4'").close();
+      session.execute(
+          "CREATE EDGE HAS_TYPE from (select from Tag where name='tag4')"
+              + " to (select from TagClass where name='LeafClass2')")
+          .close();
+
+      // Anchor filter matches RootClass AND RootClass2 — 2 anchors > threshold of 1
+      var result = session.query(
+          "MATCH {class:Tag, as:tag}"
+              + ".out('HAS_TYPE'){as:directClass}"
+              + ".out('IS_SUBCLASS_OF'){while: (true),"
+              + " where: (name LIKE 'RootClass%'), as: matchedClass}"
+              + " RETURN tag.name as tagName, matchedClass.name as className")
+          .toList();
+
+      // Must find tags from BOTH hierarchies — truncation at 1 anchor would
+      // miss one hierarchy, causing at least one of these assertions to fail.
+      var tagNames = result.stream()
+          .map(r -> (String) r.getProperty("tagName"))
+          .collect(Collectors.toSet());
+      assertEquals(Set.of("tag1", "tag2", "tag4"), tagNames);
+      session.rollback();
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);
+    }
   }
 }
