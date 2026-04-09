@@ -1,9 +1,9 @@
-Introduction
+# Introduction
 
 When it comes to query languages, SQL is the most widely recognized standard. The majority of developers have experience and are comfortable with SQL. For this reason, YouTrackDB uses YQL as its query language and adds some extensions to enable graph functionality.
 There are a few differences between the standard SQL syntax and that supported by YouTrackDB, but for the most part, it should feel very natural. The differences are covered in the [YouTrackDB YQL dialect](#youtrackdb-yql-dialect) section of this page.
 
-If you are looking for the most efficient way to traverse a graph, we **strongly** suggest using the [YQL-Match](YQL-Match.md).
+If you are looking for the most efficient way to traverse a graph, we **strongly** suggest using the [MATCH statement](YQL-Match.md).
 
 Many YQL commands share the [WHERE condition](YQL-Where.md). Keywords and class names in YouTrackDB YQL are case-insensitive. Field names and values are case-sensitive. In the following examples, keywords are in uppercase but this is not strictly required.
 
@@ -15,7 +15,7 @@ SELECT FROM MyClass WHERE id = 1
 select from myclass where id = 1
 ```
 
-The following is NOT equivalent.  Notice that the field name 'ID' is not the same as 'id'.
+The following is NOT equivalent. Notice that the field name 'ID' is not the same as 'id'.
 
 ```sql
 SELECT FROM MyClass WHERE ID = 1
@@ -32,7 +32,7 @@ YouTrackDB allows you to execute queries against any field, indexed or not-index
  - [Where clause](YQL-Where.md)
  - [Operators](YQL-Where.md#operators)
  - [Functions](YQL-Where.md#functions)
-- [YQL-Match](YQL-Match.md) for traversing graphs
+- [MATCH statement](YQL-Match.md) for traversing graphs
 
 ## YouTrackDB YQL dialect
 
@@ -42,7 +42,7 @@ To learn more, refer to [YouTrackDB YQL Syntax](YQL-Syntax.md).
 ## No JOINs
 The most important difference between YouTrackDB and a Relational Database is that relationships are represented by `LINKS` and edges instead of JOINs.
 
-For this reason, the classic JOIN syntax is not supported. YouTrackDB uses the "dot (`.`) notation" to navigate `LINKS`. Example 1: In SQL, you might create a join such as:
+For this reason, the classic JOIN syntax is not supported. YouTrackDB uses the "dot (`.`) notation" to navigate `LINKS`. Example 1: in SQL, you might create a join such as:
 ```sql
 SELECT *
 FROM Employee A, City B
@@ -53,7 +53,7 @@ In YouTrackDB, an equivalent operation would be:
 ```sql
 SELECT * FROM Employee WHERE city.name = 'Rome'
 ```
-This is much more straightforward and powerful! If you use multiple JOINs, the YouTrackDB YQL equivalent will be an even larger benefit. Example 2: In SQL, you might create a join such as:
+This is much more straightforward and powerful! If you use multiple JOINs, the YouTrackDB YQL equivalent will be an even larger benefit. Example 2: in SQL, you might create a join such as:
 ```sql
 SELECT *
 FROM Employee A, City B, Country C,
@@ -76,7 +76,7 @@ In YouTrackDB, the `*` is optional:
 SELECT FROM Customer
 ```
 
-See [YQL projections](YQL-Projections.md)
+See [YQL projections](YQL-Projections.md).
 
 ## DISTINCT
 
@@ -88,7 +88,7 @@ SELECT DISTINCT name FROM City
 ## HAVING
 
 YouTrackDB does not support the `HAVING` keyword, but with a nested query it's easy to obtain the same result. Example in SQL:
-```SQL
+```sql
 SELECT city, sum(salary) AS salary
 FROM Employee
 GROUP BY city
@@ -97,7 +97,7 @@ HAVING salary > 1000
 
 This groups all of the salaries by city and extracts the result of aggregates with the total salary greater than 1,000 dollars. In YouTrackDB the `HAVING` conditions go in a select statement in the predicate:
 
-```SQL
+```sql
 SELECT FROM ( SELECT city, SUM(salary) AS salary FROM Employee GROUP BY city ) WHERE salary > 1000
 ```
 

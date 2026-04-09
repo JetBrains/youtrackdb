@@ -6575,4 +6575,237 @@ public class DocValidationTest {
     g.command("GRANT READ ON database.class.* TO admin");
   }
 
+  // === YQL-Introduction.md ===
+
+  // Lines 8, 13-16: Keywords and class names are case-insensitive;
+  // "SELECT FROM MyClass WHERE id = 1" and "select from myclass where id = 1" are equivalent
+  @Test
+  public void testIntroKeywordsAndClassNamesCaseInsensitive() {
+    g.command("CREATE CLASS IntroMyClass IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX IntroMyClass SET id = 1").iterate();
+      tx.yql("CREATE VERTEX IntroMyClass SET id = 2").iterate();
+    });
+
+    var upper =
+        g.computeInTx(tx -> tx.yql("SELECT FROM IntroMyClass WHERE id = 1").toList());
+    var lower =
+        g.computeInTx(tx -> tx.yql("select from intromyclass where id = 1").toList());
+    assertThat(upper).hasSize(1);
+    assertThat(lower).hasSize(1);
+    // Both should return the same record
+    Vertex vUpper = (Vertex) upper.get(0);
+    Vertex vLower = (Vertex) lower.get(0);
+    assertThat(vUpper.id()).isEqualTo(vLower.id());
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX IntroMyClass").iterate();
+    });
+  }
+
+  // Lines 8, 19-22: Field names are case-sensitive;
+  // "WHERE ID = 1" is NOT equivalent to "WHERE id = 1"
+  @Test
+  public void testIntroFieldNamesCaseSensitive() {
+    g.command("CREATE CLASS IntroFieldCase IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX IntroFieldCase SET id = 1").iterate();
+    });
+
+    var lowercase =
+        g.computeInTx(tx -> tx.yql("SELECT FROM IntroFieldCase WHERE id = 1").toList());
+    var uppercase =
+        g.computeInTx(tx -> tx.yql("SELECT FROM IntroFieldCase WHERE ID = 1").toList());
+    assertThat(lowercase).hasSize(1);
+    // "ID" should not match field "id" — case-sensitive
+    assertThat(uppercase).isEmpty();
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX IntroFieldCase").iterate();
+    });
+  }
+
+  // Lines 43-55: No JOINs — dot notation for link traversal
+  // "SELECT * FROM Employee WHERE city.name = 'Rome'"
+  @Test
+  public void testIntroDotNotationLinkTraversal() {
+    g.command("CREATE CLASS IntroCity IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS IntroEmployee IF NOT EXISTS EXTENDS V");
+    g.command(
+        "CREATE PROPERTY IntroEmployee.city IF NOT EXISTS LINK IntroCity");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX IntroCity SET name = 'Rome'").iterate();
+      tx.yql("CREATE VERTEX IntroCity SET name = 'Paris'").iterate();
+      tx.yql(
+          "CREATE VERTEX IntroEmployee SET name = 'Alice',"
+              + " city = (SELECT FROM IntroCity WHERE name = 'Rome')")
+          .iterate();
+      tx.yql(
+          "CREATE VERTEX IntroEmployee SET name = 'Bob',"
+              + " city = (SELECT FROM IntroCity WHERE name = 'Paris')")
+          .iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM IntroEmployee WHERE city.name = 'Rome'")
+                .toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat((String) v.value("name")).isEqualTo("Alice");
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX IntroEmployee").iterate();
+      tx.yql("DELETE VERTEX IntroCity").iterate();
+    });
+  }
+
+  // Lines 56-67: Multi-level dot notation: city.country.name
+  @Test
+  public void testIntroMultiLevelDotNotation() {
+    g.command("CREATE CLASS IntroCountry IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS IntroCityML IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS IntroEmployeeML IF NOT EXISTS EXTENDS V");
+    g.command(
+        "CREATE PROPERTY IntroCityML.country IF NOT EXISTS LINK IntroCountry");
+    g.command(
+        "CREATE PROPERTY IntroEmployeeML.city IF NOT EXISTS LINK IntroCityML");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX IntroCountry SET name = 'Italy'").iterate();
+      tx.yql("CREATE VERTEX IntroCountry SET name = 'France'").iterate();
+      tx.yql(
+          "CREATE VERTEX IntroCityML SET name = 'Rome',"
+              + " country = (SELECT FROM IntroCountry WHERE name = 'Italy')")
+          .iterate();
+      tx.yql(
+          "CREATE VERTEX IntroCityML SET name = 'Paris',"
+              + " country = (SELECT FROM IntroCountry WHERE name = 'France')")
+          .iterate();
+      tx.yql(
+          "CREATE VERTEX IntroEmployeeML SET name = 'Alice',"
+              + " city = (SELECT FROM IntroCityML WHERE name = 'Rome')")
+          .iterate();
+      tx.yql(
+          "CREATE VERTEX IntroEmployeeML SET name = 'Bob',"
+              + " city = (SELECT FROM IntroCityML WHERE name = 'Paris')")
+          .iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM IntroEmployeeML WHERE city.country.name ="
+                    + " 'Italy'")
+                .toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat((String) v.value("name")).isEqualTo("Alice");
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX IntroEmployeeML").iterate();
+      tx.yql("DELETE VERTEX IntroCityML").iterate();
+      tx.yql("DELETE VERTEX IntroCountry").iterate();
+    });
+  }
+
+  // Lines 70-77: Projections — SELECT FROM Customer (without *) is valid
+  @Test
+  public void testIntroProjectionsStarOptional() {
+    g.command("CREATE CLASS IntroCustomer IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX IntroCustomer SET name = 'Acme'").iterate();
+    });
+
+    var withStar =
+        g.computeInTx(
+            tx -> tx.yql("SELECT * FROM IntroCustomer").toList());
+    var withoutStar =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM IntroCustomer").toList());
+    assertThat(withStar).hasSize(1);
+    assertThat(withoutStar).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX IntroCustomer").iterate();
+    });
+  }
+
+  // Lines 83-86: DISTINCT keyword works
+  @Test
+  public void testIntroDistinct() {
+    g.command("CREATE CLASS IntroCityDistinct IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX IntroCityDistinct SET name = 'Rome'").iterate();
+      tx.yql("CREATE VERTEX IntroCityDistinct SET name = 'Rome'").iterate();
+      tx.yql("CREATE VERTEX IntroCityDistinct SET name = 'Paris'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT DISTINCT name FROM IntroCityDistinct").toList());
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX IntroCityDistinct").iterate();
+    });
+  }
+
+  // Lines 88-102: HAVING not supported — nested query workaround
+  @Test
+  public void testIntroHavingWorkaround() {
+    g.command("CREATE CLASS IntroEmpSalary IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX IntroEmpSalary SET city = 'Rome', salary = 800")
+          .iterate();
+      tx.yql("CREATE VERTEX IntroEmpSalary SET city = 'Rome', salary = 400")
+          .iterate();
+      tx.yql("CREATE VERTEX IntroEmpSalary SET city = 'Paris', salary = 500")
+          .iterate();
+      tx.yql("CREATE VERTEX IntroEmpSalary SET city = 'Paris', salary = 600")
+          .iterate();
+    });
+
+    // The documented nested query workaround for HAVING
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM ( SELECT city, SUM(salary) AS salary"
+                    + " FROM IntroEmpSalary GROUP BY city ) WHERE salary"
+                    + " > 1000")
+                .toList());
+    // Rome: 800+400=1200 > 1000 ✓; Paris: 500+600=1100 > 1000 ✓
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX IntroEmpSalary").iterate();
+    });
+  }
+
+  // Lines 106-113: Select from multiple targets using UNIONALL + EXPAND
+  @Test
+  public void testIntroUnionAllExpand() {
+    g.command("CREATE CLASS IntroUnionA IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS IntroUnionB IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX IntroUnionA SET val = 1").iterate();
+      tx.yql("CREATE VERTEX IntroUnionB SET val = 2").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT EXPAND( $c ) LET $a = ( SELECT FROM IntroUnionA"
+                    + " ), $b = ( SELECT FROM IntroUnionB ), $c ="
+                    + " UNIONALL( $a, $b )")
+                .toList());
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX IntroUnionA").iterate();
+      tx.yql("DELETE VERTEX IntroUnionB").iterate();
+    });
+  }
+
 }
