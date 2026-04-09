@@ -15,7 +15,7 @@ REBUILD INDEX <index>
 - Rebuild an index on the `nick` property of the class `Profile`:
 
 ```sql
-REBUILD INDEX ProfileNick
+REBUILD INDEX Profile.nick
 ```
 
 - Rebuild all indexes:
@@ -24,7 +24,7 @@ REBUILD INDEX ProfileNick
 REBUILD INDEX *
 ```
 
->For more information, see
->- [`CREATE INDEX`](YQL-Create-Index.md)
->- [`DROP INDEX`](YQL-Drop-Index.md)
->- [YQL Commands](YQL-Commands.md)
+> For more information, see
+> - [`CREATE INDEX`](YQL-Create-Index.md)
+> - [`DROP INDEX`](YQL-Drop-Index.md)
+> - [YQL Commands](YQL-Commands.md)

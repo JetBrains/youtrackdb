@@ -1559,6 +1559,60 @@ public class DocValidationTest {
     assertThat(unchanged).hasSize(2);
   }
 
+  // YQL-Update-Edge.md Line 26: Doc lists COUNT as a RETURN option for UPDATE EDGE,
+  // but the parser grammar only supports BEFORE and AFTER for UPDATE EDGE
+  // (unlike regular UPDATE which also supports COUNT). RETURN COUNT should be a parse error.
+  @Test
+  public void testUpdateEdgeReturnCountExplicitIsParseError() {
+    g.command("CREATE CLASS UERetCountV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS UERetCountE IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX UERetCountV SET tag = 'rcSrc'").iterate();
+      tx.yql("CREATE VERTEX UERetCountV SET tag = 'rcDst'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE UERetCountE FROM (SELECT FROM UERetCountV WHERE tag = 'rcSrc') "
+              + "TO (SELECT FROM UERetCountV WHERE tag = 'rcDst') SET val = 1")
+          .iterate();
+    });
+
+    // RETURN COUNT is not valid syntax for UPDATE EDGE — only BEFORE and AFTER are supported
+    assertThatThrownBy(
+        () -> g.executeInTx(tx -> {
+          tx.yql("UPDATE EDGE UERetCountE SET val = 2 RETURN COUNT").iterate();
+        }));
+  }
+
+  // YQL-Update-Edge.md: RETURN BEFORE parses but is rejected at runtime
+  @Test
+  public void testUpdateEdgeReturnBeforeNotSupported() {
+    g.command("CREATE CLASS UERetBeforeV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS UERetBeforeE IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX UERetBeforeV SET tag = 'rbSrc'").iterate();
+      tx.yql("CREATE VERTEX UERetBeforeV SET tag = 'rbDst'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE UERetBeforeE FROM (SELECT FROM UERetBeforeV WHERE tag = 'rbSrc') "
+              + "TO (SELECT FROM UERetBeforeV WHERE tag = 'rbDst') SET status = 'old'")
+          .iterate();
+    });
+
+    // RETURN BEFORE parses but is not supported at runtime
+    assertThatThrownBy(
+        () -> g.computeInTx(
+            tx -> tx.yql(
+                "UPDATE EDGE UERetBeforeE SET status = 'new' RETURN BEFORE @this")
+                .toList()))
+        .hasMessageContaining("BEFORE is not supported");
+  }
+
   // Line 25: LIMIT defines the maximum number of edges to delete
   @Test
   public void testDeleteEdgeWithLimit() {
