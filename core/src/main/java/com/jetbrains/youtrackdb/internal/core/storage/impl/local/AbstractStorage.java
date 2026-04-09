@@ -126,10 +126,12 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.H
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.NonTxOperationPerformedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.OperationUnitRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperationRegistry;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.StorageCollectionFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.UpdatePageRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALPageBrokenException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordsFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.EmptyWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.BTreeBasedLinkBag;
@@ -734,6 +736,10 @@ public abstract class AbstractStorage
           readIv();
 
           initWalAndDiskCache(contextConfiguration);
+
+          // Register all PageOperation types so recovery can deserialize logical WAL records.
+          // Must happen after WAL initialization (above) and before recoverIfNeeded() (below).
+          PageOperationRegistry.registerAll(WALRecordsFactory.INSTANCE);
 
           final var startupMetadata = checkIfStorageDirty();
           final var lastTxId = startupMetadata.lastTxId;
