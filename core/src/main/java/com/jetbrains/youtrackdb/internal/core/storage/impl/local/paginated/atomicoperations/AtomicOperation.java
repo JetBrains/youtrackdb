@@ -18,6 +18,7 @@ import it.unimi.dsi.fastutil.ints.IntSet;
 import java.io.IOException;
 import java.util.Map;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public interface AtomicOperation {
 
@@ -151,7 +152,7 @@ public interface AtomicOperation {
    * Returns the index count delta holder for this transaction, or
    * {@code null} if no index count operations have occurred yet.
    */
-  @javax.annotation.Nullable IndexCountDeltaHolder getIndexCountDeltas();
+  @Nullable IndexCountDeltaHolder getIndexCountDeltas();
 
   /**
    * Returns the index count delta holder for this transaction, creating it

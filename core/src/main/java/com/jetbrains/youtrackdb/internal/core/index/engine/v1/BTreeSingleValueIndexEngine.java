@@ -183,7 +183,7 @@ public final class BTreeSingleValueIndexEngine
         return false;
       }
 
-      var value = pair.getSecond().getIdentity();
+      var value = pair.second().getIdentity();
 
       sbTree.remove(atomicOperation, pair.first());
 
@@ -489,7 +489,7 @@ public final class BTreeSingleValueIndexEngine
       // property type for version
       sbTypes[sbTypes.length - 1] = PropertyTypeInternal.LONG;
     } else {
-      throw new IndexException("Types of fields should be provided upon of creation of index");
+      throw new IndexException("Types of fields should be provided upon creation of index");
     }
     return sbTypes;
   }

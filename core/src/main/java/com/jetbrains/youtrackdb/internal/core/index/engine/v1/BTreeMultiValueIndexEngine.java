@@ -510,7 +510,7 @@ public final class BTreeMultiValueIndexEngine
       // property type for version
       sbTypes[sbTypes.length - 1] = PropertyTypeInternal.LONG;
     } else {
-      throw new IndexException("Types of fields should be provided upon of creation of index");
+      throw new IndexException("Types of fields should be provided upon creation of index");
     }
     return sbTypes;
   }
