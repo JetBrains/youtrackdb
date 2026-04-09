@@ -480,6 +480,14 @@ public final class CellBTreeSingleValueBucketV3<K> extends DurablePage {
     }
 
     setSize(rawEntries.size() + currentSize);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeSVBucketV3AddAllOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), rawEntries));
+    }
   }
 
   public void shrink(final int newSize, final BinarySerializer<K> keySerializer,
@@ -503,6 +511,25 @@ public final class CellBTreeSingleValueBucketV3<K> extends DurablePage {
     }
 
     setSize(newSize);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeSVBucketV3ShrinkOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), rawEntries));
+    }
+  }
+
+  /**
+   * Package-private: used by {@link BTreeSVBucketV3ShrinkOp#redo} during crash recovery.
+   * Resets the page (freePointer to MAX_PAGE_SIZE_BYTES, size to 0) and re-appends the
+   * retained entries. Per T5-2/R2/R10.
+   */
+  void resetAndAddAll(List<byte[]> entries) {
+    setFreePointer(MAX_PAGE_SIZE_BYTES);
+    setSize(0);
+    addAll(entries, null);
   }
 
   private void setSize(final int newSize) {

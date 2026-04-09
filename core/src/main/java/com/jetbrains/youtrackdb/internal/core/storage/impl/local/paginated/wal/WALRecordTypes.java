@@ -264,4 +264,8 @@ public final class WALRecordTypes {
   public static final int BTREE_SV_BUCKET_V3_REMOVE_NON_LEAF_ENTRY_OP =
       PAGE_OPERATION_ID_BASE + 35;
   public static final int BTREE_SV_BUCKET_V3_UPDATE_KEY_OP = PAGE_OPERATION_ID_BASE + 36;
+
+  // CellBTreeSingleValueBucketV3 bulk operations (Track 5)
+  public static final int BTREE_SV_BUCKET_V3_ADD_ALL_OP = PAGE_OPERATION_ID_BASE + 37;
+  public static final int BTREE_SV_BUCKET_V3_SHRINK_OP = PAGE_OPERATION_ID_BASE + 38;
 }

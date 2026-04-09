@@ -18,6 +18,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.FreeSpaceMap
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.MapEntryPointSetFileSizeOp;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2SetApproxRecordsCountOp;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2SetFileSizeOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVBucketV3AddAllOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVBucketV3AddLeafEntryOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVBucketV3AddNonLeafEntryOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVBucketV3InitOp;
@@ -26,6 +27,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVBucketV3SetLeftSiblingOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVBucketV3SetNextFreeListPageOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVBucketV3SetRightSiblingOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVBucketV3ShrinkOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVBucketV3SwitchBucketTypeOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVBucketV3UpdateKeyOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVBucketV3UpdateValueOp;
@@ -193,5 +195,13 @@ public final class PageOperationRegistry {
     factory.registerNewRecord(
         WALRecordTypes.BTREE_SV_BUCKET_V3_UPDATE_KEY_OP,
         BTreeSVBucketV3UpdateKeyOp.class);
+
+    // CellBTreeSingleValueBucketV3 bulk operations (Track 5)
+    factory.registerNewRecord(
+        WALRecordTypes.BTREE_SV_BUCKET_V3_ADD_ALL_OP,
+        BTreeSVBucketV3AddAllOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.BTREE_SV_BUCKET_V3_SHRINK_OP,
+        BTreeSVBucketV3ShrinkOp.class);
   }
 }
