@@ -17,6 +17,14 @@ import javax.annotation.Nonnull;
  */
 public record SnapshotMarkerRID(RID identity) implements RID {
 
+  public SnapshotMarkerRID {
+    assert identity.getCollectionId() >= 0
+        : "SnapshotMarkerRID requires non-negative collectionId: " + identity;
+    assert identity.getCollectionPosition() >= 0
+        : "SnapshotMarkerRID requires persistent RID (non-negative collectionPosition): "
+            + identity;
+  }
+
   @Override
   public int getCollectionId() {
     return identity.getCollectionId();

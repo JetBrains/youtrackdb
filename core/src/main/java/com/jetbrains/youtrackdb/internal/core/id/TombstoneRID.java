@@ -15,6 +15,13 @@ import javax.annotation.Nonnull;
  */
 public record TombstoneRID(RID identity) implements RID {
 
+  public TombstoneRID {
+    assert identity.getCollectionId() >= 0
+        : "TombstoneRID requires non-negative collectionId: " + identity;
+    assert identity.getCollectionPosition() >= 0
+        : "TombstoneRID requires persistent RID (non-negative collectionPosition): " + identity;
+  }
+
   @Override
   public int getCollectionId() {
     // Encode: shift+negate so that 0 → -1, 1 → -2, etc.
