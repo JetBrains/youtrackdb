@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
@@ -218,22 +219,28 @@ class HashJoinMatchStep extends AbstractExecutionStep {
       return ExecutionStream.empty();
     }
     var merged = new ArrayList<Result>(matches.size());
-    var upstreamProps = upstream.getPropertyNames();
     for (var buildRow : matches) {
-      var result = new ResultInternal(mergeCtx.getDatabaseSession());
-      // Copy all upstream properties first
-      for (var prop : upstreamProps) {
-        result.setProperty(prop, upstream.getProperty(prop));
-      }
-      // Copy build-side properties, skipping any already present from upstream
-      for (var prop : buildRow.getPropertyNames()) {
-        if (!result.hasProperty(prop)) {
-          result.setProperty(prop, buildRow.getProperty(prop));
-        }
-      }
-      merged.add(result);
+      merged.add(mergeRow(upstream, buildRow, mergeCtx.getDatabaseSession()));
     }
     return ExecutionStream.resultIterator(merged.iterator());
+  }
+
+  /**
+   * Creates a merged row containing all upstream properties plus non-overlapping
+   * build-side properties. Upstream properties take precedence on name collision.
+   */
+  private static ResultInternal mergeRow(
+      Result upstream, Result buildRow, DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
+    for (var prop : upstream.getPropertyNames()) {
+      result.setProperty(prop, upstream.getProperty(prop));
+    }
+    for (var prop : buildRow.getPropertyNames()) {
+      if (!result.hasProperty(prop)) {
+        result.setProperty(prop, buildRow.getProperty(prop));
+      }
+    }
+    return result;
   }
 
   /**
@@ -356,22 +363,12 @@ class HashJoinMatchStep extends AbstractExecutionStep {
     var plan = (SelectExecutionPlan) buildPlan.copy(isolatedCtx);
     var stream = plan.start();
     var merged = new ArrayList<Result>();
-    var upstreamProps = row.getPropertyNames();
     try {
       while (stream.hasNext(isolatedCtx)) {
         var buildRow = stream.next(isolatedCtx);
         var buildKey = extractKey(buildRow);
         if (upstreamKey.equals(buildKey)) {
-          var result = new ResultInternal(ctx.getDatabaseSession());
-          for (var prop : upstreamProps) {
-            result.setProperty(prop, row.getProperty(prop));
-          }
-          for (var prop : buildRow.getPropertyNames()) {
-            if (!result.hasProperty(prop)) {
-              result.setProperty(prop, buildRow.getProperty(prop));
-            }
-          }
-          merged.add(result);
+          merged.add(mergeRow(row, buildRow, ctx.getDatabaseSession()));
         }
       }
     } finally {
