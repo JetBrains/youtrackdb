@@ -49,6 +49,7 @@ Using this command, you can grant permissions on the following resources.
 | `database` | Grants access to the current database.                                                                                                                                                                                                            |
 | `database.class.<class>` | Grants access on records contained in the indicated class.  Use `*` to indicate all classes.                                                                                                                                                      |
 | `database.class.<class>.<property>` | Grants access on a single property in the indicated class (this is intended only for security policies).                                                                                                                                          |
+| `database.command.<command>` | Grants the ability to execute the given command.  Use `CREATE` for [`CREATE VERTEX`](YQL-Create-Vertex.md), `READ` for [`SELECT`](YQL-Query.md), `UPDATE` for [`UPDATE`](YQL-Update.md), and `DELETE VERTEX` for [`DELETE VERTEX`](YQL-Delete-Vertex.md). |
 
 
 Policy assignment is supported for records only, so you can assign security policies to `class` and `property` resources.
