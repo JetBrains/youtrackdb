@@ -3870,6 +3870,19 @@ public class DocValidationTest {
     assertThatThrownBy(() -> g.command("DROP SEQUENCE noSuchSeqDropTest"));
   }
 
+  // Line 8: DROP SEQUENCE <sequence> IF EXISTS — silently succeeds for non-existent sequence
+  @Test
+  public void testDropSequenceIfExists() {
+    // IF EXISTS on a non-existent sequence should not throw
+    g.command("DROP SEQUENCE noSuchSeqIfExistsTest IF EXISTS");
+
+    // IF EXISTS on an existing sequence should still drop it
+    g.command("CREATE SEQUENCE dropSeqIfExistsTest TYPE ORDERED");
+    g.command("DROP SEQUENCE dropSeqIfExistsTest IF EXISTS");
+    // Verify it was actually dropped — dropping again without IF EXISTS should fail
+    assertThatThrownBy(() -> g.command("DROP SEQUENCE dropSeqIfExistsTest"));
+  }
+
   // === YQL-Drop-User.md ===
 
   // Line 8: DROP USER <user> — basic syntax validation
