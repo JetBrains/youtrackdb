@@ -8,9 +8,11 @@ If the index does not exist, this command throws an error unless you use the `IF
 
 ```sql
 DROP INDEX <index> [ IF EXISTS ]
+DROP INDEX *
 ```
 
 - **`<index>`** — the name of the index to drop.
+- **`*`** — drops all indexes defined in the schema.
 
 **Examples**
 
@@ -18,6 +20,12 @@ DROP INDEX <index> [ IF EXISTS ]
 
 ```sql
 DROP INDEX Users.Id
+```
+
+- Remove all indexes:
+
+```sql
+DROP INDEX *
 ```
 
 >For more information, see

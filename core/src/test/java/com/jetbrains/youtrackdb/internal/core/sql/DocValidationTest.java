@@ -3724,6 +3724,29 @@ public class DocValidationTest {
     g.command("DROP CLASS DropIdxUsers");
   }
 
+  // Line 11,20: DROP INDEX * — drops all indexes
+  @Test
+  public void testDropIndexStar() {
+    g.command("CREATE CLASS DropIdxStarA IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY DropIdxStarA.name STRING");
+    g.command("CREATE INDEX DropIdxStarA.name NOTUNIQUE");
+
+    g.command("CREATE CLASS DropIdxStarB IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY DropIdxStarB.code STRING");
+    g.command("CREATE INDEX DropIdxStarB.code UNIQUE");
+
+    // Drop all indexes as shown in the doc
+    g.command("DROP INDEX *");
+
+    // Verify both indexes no longer exist
+    assertThatThrownBy(() -> g.command("DROP INDEX DropIdxStarA.name"));
+    assertThatThrownBy(() -> g.command("DROP INDEX DropIdxStarB.code"));
+
+    // Clean up
+    g.command("DROP CLASS DropIdxStarA");
+    g.command("DROP CLASS DropIdxStarB");
+  }
+
   // ==========================================================================
   // YQL-Drop-Property.md validation
   // ==========================================================================
