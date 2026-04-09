@@ -574,9 +574,10 @@ public final class BTreeMultiValueIndexEngine
           mgr.getKeyFieldCount());
     }
 
-    // Recalibrate from exact count
-    approximateIndexEntriesCount.set(scannedNonNull + approxNull);
+    // Recalibrate from exact count — persist first so that if setApproximateEntriesCount
+    // throws, the in-memory counters remain at their prior (approximate) values.
     svTree.setApproximateEntriesCount(atomicOperation, scannedNonNull);
+    approximateIndexEntriesCount.set(scannedNonNull + approxNull);
   }
 
   @Override
