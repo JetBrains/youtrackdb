@@ -1735,4 +1735,130 @@ public class SnapshotIsolationIndexesNotUniqueTest {
 
     graph.close();
   }
+
+  /**
+   * Regression: same-TX double put for a non-null key must not corrupt the index.
+   *
+   * <p>Scenario: TX-0 creates a vertex with name="Foo". TX-1 calls put("Foo", rid)
+   * twice in the same TX (interpretAsNonUnique collapses them to a single PUT at
+   * commit time). The engine's doPut guard must correctly handle the resulting
+   * SnapshotMarkerRID — with the fix, the guard checks for both RecordId and
+   * SnapshotMarkerRID, matching the single-value engine. After commit, the index
+   * must contain exactly one entry and the snapshot must have entries for the
+   * replaced RecordId.
+   */
+  @Test
+  public void sameTxReput_nonNullKey_skipsWhenSnapshotMarkerRID() throws Exception {
+    SchemaClass userSchema = db.createVertexClass("Userr");
+    userSchema.createProperty("name", PropertyType.STRING);
+    userSchema.createIndex("IndexPropertyName", INDEX_TYPE.NOTUNIQUE, "name");
+
+    // TX-0: create a vertex with name="Foo"
+    var graph = openGraph();
+    graph.tx().begin();
+    var v = graph.addV("Userr").property("name", "Foo").next();
+    graph.tx().commit();
+
+    var rid = (com.jetbrains.youtrackdb.internal.core.db.record.record.RID) v.id();
+
+    // Disable cleanup so snapshot entries are not evicted
+    db.getStorage().getContextConfiguration().setValue(
+        GlobalConfiguration.STORAGE_SNAPSHOT_INDEX_CLEANUP_THRESHOLD, Integer.MAX_VALUE);
+
+    var index = db.getIndex("IndexPropertyName");
+
+    // TX-1: two puts for the same (key, rid) — collapsed to one engine call
+    // at commit. The engine replaces the committed RecordId with
+    // SnapshotMarkerRID and creates snapshot entries.
+    long entriesBefore = db.getStorage().getIndexesSnapshotEntriesCount().get();
+    var tx1 = db.begin();
+    index.put(tx1, "Foo", rid);
+    index.put(tx1, "Foo", rid);
+    tx1.commit();
+
+    long entriesAfterCommit = db.getStorage().getIndexesSnapshotEntriesCount().get();
+    assertTrue("Commit must create snapshot entries (SnapshotMarkerRID replacement)",
+        entriesAfterCommit > entriesBefore);
+
+    // TX-2: second standalone PUT — finds SnapshotMarkerRID from TX-1.
+    // The re-put guard (with the fix) recognises SnapshotMarkerRID at a
+    // different version and proceeds to create snapshot entries.
+    long entriesBeforeTx2 = db.getStorage().getIndexesSnapshotEntriesCount().get();
+    var tx2 = db.begin();
+    index.put(tx2, "Foo", rid);
+    tx2.commit();
+
+    long entriesAfterTx2 = db.getStorage().getIndexesSnapshotEntriesCount().get();
+    assertTrue("TX-2 must create snapshot entries (addSnapshotPair for SnapshotMarkerRID)",
+        entriesAfterTx2 > entriesBeforeTx2);
+
+    // Final state: a fresh TX must see exactly 1 vertex via the index
+    var newGraph = openGraph();
+    newGraph.tx().begin();
+    var foos = newGraph.V().hasLabel("Userr").has("name", "Foo").toList();
+    assertEquals(1, foos.size());
+    newGraph.tx().commit();
+
+    newGraph.close();
+    graph.close();
+  }
+
+  /**
+   * Regression: same-TX double put for a null key must not corrupt the index.
+   * Exercises the nullTree + nullIndexesSnapshot path.
+   *
+   * <p>Mirrors {@link #sameTxReput_nonNullKey_skipsWhenSnapshotMarkerRID()} but
+   * uses a null property value so the entry goes into the null B-tree.
+   */
+  @Test
+  public void sameTxReput_nullKey_skipsWhenSnapshotMarkerRID() throws Exception {
+    SchemaClass userSchema = db.createVertexClass("Userr");
+    userSchema.createProperty("name", PropertyType.STRING);
+    userSchema.createIndex("IndexPropertyName", INDEX_TYPE.NOTUNIQUE, "name");
+
+    // TX-0: create a vertex with name=null
+    var graph = openGraph();
+    graph.tx().begin();
+    var v = graph.addV("Userr").next();
+    graph.tx().commit();
+
+    var rid = (com.jetbrains.youtrackdb.internal.core.db.record.record.RID) v.id();
+
+    // Disable cleanup so snapshot entries are not evicted
+    db.getStorage().getContextConfiguration().setValue(
+        GlobalConfiguration.STORAGE_SNAPSHOT_INDEX_CLEANUP_THRESHOLD, Integer.MAX_VALUE);
+
+    var index = db.getIndex("IndexPropertyName");
+
+    // TX-1: two puts for the same (null, rid) — collapsed to one engine call.
+    long entriesBefore = db.getStorage().getIndexesSnapshotEntriesCount().get();
+    var tx1 = db.begin();
+    index.put(tx1, null, rid);
+    index.put(tx1, null, rid);
+    tx1.commit();
+
+    long entriesAfterCommit = db.getStorage().getIndexesSnapshotEntriesCount().get();
+    assertTrue("Commit must create null-key snapshot entries",
+        entriesAfterCommit > entriesBefore);
+
+    // TX-2: PUT encountering SnapshotMarkerRID from TX-1 in the nullTree.
+    long entriesBeforeTx2 = db.getStorage().getIndexesSnapshotEntriesCount().get();
+    var tx2 = db.begin();
+    index.put(tx2, null, rid);
+    tx2.commit();
+
+    long entriesAfterTx2 = db.getStorage().getIndexesSnapshotEntriesCount().get();
+    assertTrue("TX-2 must create null-key snapshot entries",
+        entriesAfterTx2 > entriesBeforeTx2);
+
+    // Final state: a fresh TX must see the vertex
+    var newGraph = openGraph();
+    newGraph.tx().begin();
+    var all = newGraph.V().hasLabel("Userr").toList();
+    assertEquals(1, all.size());
+    newGraph.tx().commit();
+
+    newGraph.close();
+    graph.close();
+  }
 }

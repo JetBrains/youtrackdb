@@ -401,7 +401,8 @@ public final class BTreeMultiValueIndexEngine
       var oldKey = pair.first();
       long oldVersion = (Long) oldKey.getKeys().getLast();
 
-      if (removedRID instanceof RecordId && oldVersion == version) {
+      if ((removedRID instanceof RecordId || removedRID instanceof SnapshotMarkerRID)
+          && oldVersion == version) {
         // Same TX re-put (e.g., collapsed by interpretAsNonUnique).
         // Entry is already correct — skip remove+re-insert.
         return false;
