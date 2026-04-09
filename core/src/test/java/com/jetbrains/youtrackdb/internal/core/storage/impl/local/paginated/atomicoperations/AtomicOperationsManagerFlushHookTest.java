@@ -120,20 +120,25 @@ public class AtomicOperationsManagerFlushHookTest {
 
   /**
    * Verifies that flush is called after the consumer completes, not before — the consumer's
-   * mutations must be fully applied before they are flushed to WAL.
+   * mutations must be fully applied before they are flushed to WAL. Uses a Mockito Answer
+   * on flushPendingOperations to capture the consumer's state at the moment flush is invoked.
    */
   @Test
   public void testExecuteFlushHappensAfterConsumer() throws IOException {
     var consumerCompleted = new AtomicBoolean(false);
+    var flushedAfterConsumer = new AtomicBoolean(false);
     var operation = mockOperation();
+
+    org.mockito.Mockito.doAnswer(invocation -> {
+      // Capture whether consumer has completed at the time flush is called
+      flushedAfterConsumer.set(consumerCompleted.get());
+      return null;
+    }).when(operation).flushPendingOperations();
 
     manager.executeInsideComponentOperation(
         operation, component, op -> consumerCompleted.set(true));
 
-    // If flushPendingOperations were called before consumer, consumerCompleted would be false
-    // at flush time. We verify it was true by the time we get here.
-    assertTrue("Consumer should have completed before flush", consumerCompleted.get());
-    verify(operation).flushPendingOperations();
+    assertTrue("Flush should be called after consumer completes", flushedAfterConsumer.get());
   }
 
   /**
@@ -149,9 +154,8 @@ public class AtomicOperationsManagerFlushHookTest {
   }
 
   /**
-   * When flushPendingOperations itself throws IOException (wrapped as RuntimeException by the
-   * caller), the exception should propagate as CommonStorageComponentException since it
-   * occurs inside the try block.
+   * When flushPendingOperations throws IOException in executeInsideComponentOperation,
+   * the exception should propagate as CommonStorageComponentException.
    */
   @Test
   public void testExecuteFlushIOExceptionPropagates() throws IOException {
@@ -165,7 +169,27 @@ public class AtomicOperationsManagerFlushHookTest {
             /* success, but flush fails */});
       fail("Expected exception from flush");
     } catch (CommonStorageComponentException e) {
-      // The IOException should be in the cause chain
+      assertTrue("Should wrap the flush IOException",
+          e.getMessage().contains("testComponent"));
+    }
+  }
+
+  /**
+   * When flushPendingOperations throws IOException in calculateInsideComponentOperation,
+   * the exception should propagate as CommonStorageComponentException and the return value
+   * should be discarded.
+   */
+  @Test
+  public void testCalculateFlushIOExceptionPropagates() throws IOException {
+    var operation = mockOperation();
+    org.mockito.Mockito.doThrow(new IOException("WAL write failed"))
+        .when(operation).flushPendingOperations();
+
+    try {
+      manager.calculateInsideComponentOperation(
+          operation, component, op -> "should be discarded");
+      fail("Expected exception from flush");
+    } catch (CommonStorageComponentException e) {
       assertTrue("Should wrap the flush IOException",
           e.getMessage().contains("testComponent"));
     }
