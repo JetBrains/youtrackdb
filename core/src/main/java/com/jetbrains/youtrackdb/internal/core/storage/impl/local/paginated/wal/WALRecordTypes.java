@@ -242,4 +242,16 @@ public final class WALRecordTypes {
   public static final int BTREE_SV_NULL_BUCKET_V3_SET_VALUE_OP = PAGE_OPERATION_ID_BASE + 24;
   public static final int BTREE_SV_NULL_BUCKET_V3_REMOVE_VALUE_OP =
       PAGE_OPERATION_ID_BASE + 25;
+
+  // CellBTreeSingleValueBucketV3 simple operations (Track 5)
+  public static final int BTREE_SV_BUCKET_V3_INIT_OP = PAGE_OPERATION_ID_BASE + 26;
+  public static final int BTREE_SV_BUCKET_V3_SWITCH_BUCKET_TYPE_OP =
+      PAGE_OPERATION_ID_BASE + 27;
+  public static final int BTREE_SV_BUCKET_V3_SET_LEFT_SIBLING_OP =
+      PAGE_OPERATION_ID_BASE + 28;
+  public static final int BTREE_SV_BUCKET_V3_SET_RIGHT_SIBLING_OP =
+      PAGE_OPERATION_ID_BASE + 29;
+  public static final int BTREE_SV_BUCKET_V3_SET_NEXT_FREE_LIST_PAGE_OP =
+      PAGE_OPERATION_ID_BASE + 30;
+  public static final int BTREE_SV_BUCKET_V3_UPDATE_VALUE_OP = PAGE_OPERATION_ID_BASE + 31;
 }
