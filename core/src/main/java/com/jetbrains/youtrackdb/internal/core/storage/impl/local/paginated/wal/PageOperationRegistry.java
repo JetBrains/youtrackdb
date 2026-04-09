@@ -18,6 +18,13 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.FreeSpaceMap
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.MapEntryPointSetFileSizeOp;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2SetApproxRecordsCountOp;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2SetFileSizeOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVEntryPointV3InitOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVEntryPointV3SetFreeListHeadOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVEntryPointV3SetPagesSizeOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVEntryPointV3SetTreeSizeOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVNullBucketV3InitOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVNullBucketV3RemoveValueOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVNullBucketV3SetValueOp;
 
 /**
  * Registers all {@link PageOperation} subclasses with {@link WALRecordsFactory} so that recovery
@@ -35,7 +42,7 @@ public final class PageOperationRegistry {
    * Registers all known {@link PageOperation} subclasses with the given factory. Each type is
    * registered with its unique WAL record type ID (see {@link WALRecordTypes}).
    *
-   * <p>Currently registers Track 2-3 types (IDs 201-218):
+   * <p>Currently registers Track 2-3 types (IDs 201-218) and Track 5 types (IDs 219-225):
    * <ul>
    *   <li>PaginatedCollectionStateV2 (2 ops)</li>
    *   <li>CollectionPage (5 ops)</li>
@@ -43,6 +50,8 @@ public final class PageOperationRegistry {
    *   <li>FreeSpaceMapPage (2 ops)</li>
    *   <li>DirtyPageBitSetPage (3 ops)</li>
    *   <li>MapEntryPoint v2 (1 op)</li>
+   *   <li>CellBTreeSingleValueEntryPointV3 (4 ops)</li>
+   *   <li>CellBTreeSingleValueV3NullBucket (3 ops)</li>
    * </ul>
    */
   public static void registerAll(WALRecordsFactory factory) {
@@ -111,5 +120,30 @@ public final class PageOperationRegistry {
     factory.registerNewRecord(
         WALRecordTypes.MAP_ENTRY_POINT_SET_FILE_SIZE_OP,
         MapEntryPointSetFileSizeOp.class);
+
+    // CellBTreeSingleValueEntryPointV3 operations (Track 5)
+    factory.registerNewRecord(
+        WALRecordTypes.BTREE_SV_ENTRY_POINT_V3_INIT_OP,
+        BTreeSVEntryPointV3InitOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.BTREE_SV_ENTRY_POINT_V3_SET_TREE_SIZE_OP,
+        BTreeSVEntryPointV3SetTreeSizeOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.BTREE_SV_ENTRY_POINT_V3_SET_PAGES_SIZE_OP,
+        BTreeSVEntryPointV3SetPagesSizeOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.BTREE_SV_ENTRY_POINT_V3_SET_FREE_LIST_HEAD_OP,
+        BTreeSVEntryPointV3SetFreeListHeadOp.class);
+
+    // CellBTreeSingleValueV3NullBucket operations (Track 5)
+    factory.registerNewRecord(
+        WALRecordTypes.BTREE_SV_NULL_BUCKET_V3_INIT_OP,
+        BTreeSVNullBucketV3InitOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.BTREE_SV_NULL_BUCKET_V3_SET_VALUE_OP,
+        BTreeSVNullBucketV3SetValueOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.BTREE_SV_NULL_BUCKET_V3_REMOVE_VALUE_OP,
+        BTreeSVNullBucketV3RemoveValueOp.class);
   }
 }

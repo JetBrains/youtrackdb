@@ -347,6 +347,11 @@ public class BTreeSVEntryPointV3AndNullBucketOpTest {
       Assert.assertEquals(1, page2.getPagesSize());
       Assert.assertEquals(-1, page1.getFreeListHead());
       Assert.assertEquals(-1, page2.getFreeListHead());
+
+      // Byte-level comparison
+      var buf1 = cachePointer1.getBuffer();
+      var buf2 = cachePointer2.getBuffer();
+      Assert.assertEquals(0, buf1.compareTo(buf2));
     } finally {
       entry1.releaseExclusiveLock();
       entry2.releaseExclusiveLock();
@@ -531,6 +536,11 @@ public class BTreeSVEntryPointV3AndNullBucketOpTest {
       // Both pages must have no value
       Assert.assertNull(page1.getValue());
       Assert.assertNull(page2.getValue());
+
+      // Byte-level comparison
+      var buf1 = cachePointer1.getBuffer();
+      var buf2 = cachePointer2.getBuffer();
+      Assert.assertEquals(0, buf1.compareTo(buf2));
     } finally {
       entry1.releaseExclusiveLock();
       entry2.releaseExclusiveLock();
@@ -976,5 +986,360 @@ public class BTreeSVEntryPointV3AndNullBucketOpTest {
 
     var op3 = new BTreeSVEntryPointV3SetFreeListHeadOp(5, 10, 15, lsn, 99);
     Assert.assertNotEquals(op1, op3);
+  }
+
+  @Test
+  public void testEntryPointSetPagesSizeOpEqualsAndHashCode() {
+    var lsn = new LogSequenceNumber(1, 10);
+    var op1 = new BTreeSVEntryPointV3SetPagesSizeOp(5, 10, 15, lsn, 42);
+    var op2 = new BTreeSVEntryPointV3SetPagesSizeOp(5, 10, 15, lsn, 42);
+    Assert.assertEquals(op1, op2);
+    Assert.assertEquals(op1.hashCode(), op2.hashCode());
+
+    var op3 = new BTreeSVEntryPointV3SetPagesSizeOp(5, 10, 15, lsn, 99);
+    Assert.assertNotEquals(op1, op3);
+  }
+
+  // ---------- Missing registration tests (review fix SF1) ----------
+
+  @Test
+  public void testEntryPointSetPagesSizeRegistersOp() {
+    var atomicOp = mock(AtomicOperation.class);
+    var changes = new CacheEntryChanges(false, atomicOp);
+
+    var bufferPool = ByteBufferPool.instance(null);
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    cachePointer.incrementReferrer();
+    CacheEntry delegate = new CacheEntryImpl(42, 7, cachePointer, false, null);
+    delegate.acquireExclusiveLock();
+
+    try {
+      changes.setDelegate(delegate);
+      changes.setInitialLSN(new LogSequenceNumber(2, 200));
+
+      var page = new CellBTreeSingleValueEntryPointV3<>(changes);
+      page.init();
+      org.mockito.Mockito.reset(atomicOp);
+
+      page.setPagesSize(1024);
+
+      var opCaptor = ArgumentCaptor.forClass(PageOperation.class);
+      verify(atomicOp).registerPageOperation(
+          org.mockito.ArgumentMatchers.eq(42L),
+          org.mockito.ArgumentMatchers.eq(7L),
+          opCaptor.capture());
+
+      var registeredOp = opCaptor.getValue();
+      Assert.assertTrue(registeredOp instanceof BTreeSVEntryPointV3SetPagesSizeOp);
+      Assert.assertEquals(1024,
+          ((BTreeSVEntryPointV3SetPagesSizeOp) registeredOp).getPages());
+    } finally {
+      delegate.releaseExclusiveLock();
+      cachePointer.decrementReferrer();
+    }
+  }
+
+  @Test
+  public void testEntryPointSetFreeListHeadRegistersOp() {
+    var atomicOp = mock(AtomicOperation.class);
+    var changes = new CacheEntryChanges(false, atomicOp);
+
+    var bufferPool = ByteBufferPool.instance(null);
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    cachePointer.incrementReferrer();
+    CacheEntry delegate = new CacheEntryImpl(42, 7, cachePointer, false, null);
+    delegate.acquireExclusiveLock();
+
+    try {
+      changes.setDelegate(delegate);
+      changes.setInitialLSN(new LogSequenceNumber(2, 200));
+
+      var page = new CellBTreeSingleValueEntryPointV3<>(changes);
+      page.init();
+      org.mockito.Mockito.reset(atomicOp);
+
+      page.setFreeListHead(77);
+
+      var opCaptor = ArgumentCaptor.forClass(PageOperation.class);
+      verify(atomicOp).registerPageOperation(
+          org.mockito.ArgumentMatchers.eq(42L),
+          org.mockito.ArgumentMatchers.eq(7L),
+          opCaptor.capture());
+
+      var registeredOp = opCaptor.getValue();
+      Assert.assertTrue(registeredOp instanceof BTreeSVEntryPointV3SetFreeListHeadOp);
+      Assert.assertEquals(77,
+          ((BTreeSVEntryPointV3SetFreeListHeadOp) registeredOp).getFreeListHead());
+    } finally {
+      delegate.releaseExclusiveLock();
+      cachePointer.decrementReferrer();
+    }
+  }
+
+  @Test
+  public void testNullBucketInitRegistersOp() {
+    var atomicOp = mock(AtomicOperation.class);
+    var changes = new CacheEntryChanges(false, atomicOp);
+
+    var bufferPool = ByteBufferPool.instance(null);
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    cachePointer.incrementReferrer();
+    CacheEntry delegate = new CacheEntryImpl(42, 7, cachePointer, false, null);
+    delegate.acquireExclusiveLock();
+
+    try {
+      changes.setDelegate(delegate);
+      changes.setInitialLSN(new LogSequenceNumber(3, 300));
+
+      var page = new CellBTreeSingleValueV3NullBucket(changes);
+      page.init();
+
+      var opCaptor = ArgumentCaptor.forClass(PageOperation.class);
+      verify(atomicOp).registerPageOperation(
+          org.mockito.ArgumentMatchers.eq(42L),
+          org.mockito.ArgumentMatchers.eq(7L),
+          opCaptor.capture());
+
+      var registeredOp = opCaptor.getValue();
+      Assert.assertTrue(registeredOp instanceof BTreeSVNullBucketV3InitOp);
+      Assert.assertEquals(7, registeredOp.getPageIndex());
+      Assert.assertEquals(42, registeredOp.getFileId());
+    } finally {
+      delegate.releaseExclusiveLock();
+      cachePointer.decrementReferrer();
+    }
+  }
+
+  // ---------- Missing factory roundtrip tests (review fix SF2) ----------
+
+  @Test
+  public void testEntryPointSetPagesSizeOpFactoryRoundtrip() {
+    var initialLsn = new LogSequenceNumber(99, 2048);
+    var original = new BTreeSVEntryPointV3SetPagesSizeOp(11, 22, 33, initialLsn, 512);
+
+    ByteBuffer serialized = WALRecordsFactory.toStream(original);
+    var content = new byte[serialized.limit()];
+    serialized.get(0, content);
+
+    var deserialized = WALRecordsFactory.INSTANCE.fromStream(content);
+
+    Assert.assertTrue(deserialized instanceof BTreeSVEntryPointV3SetPagesSizeOp);
+    var result = (BTreeSVEntryPointV3SetPagesSizeOp) deserialized;
+    Assert.assertEquals(512, result.getPages());
+    Assert.assertEquals(original.getPageIndex(), result.getPageIndex());
+    Assert.assertEquals(original.getFileId(), result.getFileId());
+    Assert.assertEquals(original.getInitialLsn(), result.getInitialLsn());
+  }
+
+  @Test
+  public void testEntryPointSetFreeListHeadOpFactoryRoundtrip() {
+    var initialLsn = new LogSequenceNumber(11, 1100);
+    var original = new BTreeSVEntryPointV3SetFreeListHeadOp(3, 6, 9, initialLsn, -1);
+
+    ByteBuffer serialized = WALRecordsFactory.toStream(original);
+    var content = new byte[serialized.limit()];
+    serialized.get(0, content);
+
+    var deserialized = WALRecordsFactory.INSTANCE.fromStream(content);
+
+    Assert.assertTrue(deserialized instanceof BTreeSVEntryPointV3SetFreeListHeadOp);
+    var result = (BTreeSVEntryPointV3SetFreeListHeadOp) deserialized;
+    Assert.assertEquals(-1, result.getFreeListHead());
+    Assert.assertEquals(original.getPageIndex(), result.getPageIndex());
+    Assert.assertEquals(original.getFileId(), result.getFileId());
+    Assert.assertEquals(original.getInitialLsn(), result.getInitialLsn());
+  }
+
+  @Test
+  public void testNullBucketInitOpFactoryRoundtrip() {
+    var initialLsn = new LogSequenceNumber(55, 550);
+    var original = new BTreeSVNullBucketV3InitOp(4, 8, 12, initialLsn);
+
+    ByteBuffer serialized = WALRecordsFactory.toStream(original);
+    var content = new byte[serialized.limit()];
+    serialized.get(0, content);
+
+    var deserialized = WALRecordsFactory.INSTANCE.fromStream(content);
+
+    Assert.assertTrue(deserialized instanceof BTreeSVNullBucketV3InitOp);
+    var result = (BTreeSVNullBucketV3InitOp) deserialized;
+    Assert.assertEquals(original.getPageIndex(), result.getPageIndex());
+    Assert.assertEquals(original.getFileId(), result.getFileId());
+    Assert.assertEquals(original.getInitialLsn(), result.getInitialLsn());
+  }
+
+  @Test
+  public void testNullBucketRemoveValueOpFactoryRoundtrip() {
+    var initialLsn = new LogSequenceNumber(66, 660);
+    var original = new BTreeSVNullBucketV3RemoveValueOp(7, 14, 21, initialLsn);
+
+    ByteBuffer serialized = WALRecordsFactory.toStream(original);
+    var content = new byte[serialized.limit()];
+    serialized.get(0, content);
+
+    var deserialized = WALRecordsFactory.INSTANCE.fromStream(content);
+
+    Assert.assertTrue(deserialized instanceof BTreeSVNullBucketV3RemoveValueOp);
+    var result = (BTreeSVNullBucketV3RemoveValueOp) deserialized;
+    Assert.assertEquals(original.getPageIndex(), result.getPageIndex());
+    Assert.assertEquals(original.getFileId(), result.getFileId());
+    Assert.assertEquals(original.getInitialLsn(), result.getInitialLsn());
+  }
+
+  // ---------- FreeListHead backward-compat test (review fix SF3) ----------
+
+  /**
+   * When freeListHead=0 is stored and redone, getFreeListHead() must return -1
+   * due to backward-compatibility remapping (value 0 in old format means "no free list").
+   */
+  @Test
+  public void testFreeListHeadZeroBackwardCompatSurvivesRedo() {
+    var bufferPool = ByteBufferPool.instance(null);
+
+    var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer1 = new CachePointer(pointer1, bufferPool, 0, 0);
+    cachePointer1.incrementReferrer();
+    CacheEntry entry1 = new CacheEntryImpl(0, 0, cachePointer1, false, null);
+    entry1.acquireExclusiveLock();
+
+    var pointer2 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer2 = new CachePointer(pointer2, bufferPool, 0, 0);
+    cachePointer2.incrementReferrer();
+    CacheEntry entry2 = new CacheEntryImpl(0, 0, cachePointer2, false, null);
+    entry2.acquireExclusiveLock();
+
+    try {
+      var page1 = new CellBTreeSingleValueEntryPointV3<>(entry1);
+      page1.init();
+      page1.setFreeListHead(0);
+
+      var page2 = new CellBTreeSingleValueEntryPointV3<>(entry2);
+      page2.init();
+      var op = new BTreeSVEntryPointV3SetFreeListHeadOp(
+          0, 0, 0, new LogSequenceNumber(0, 0), 0);
+      op.redo(page2);
+
+      // Backward compat: stored 0 reads back as -1
+      Assert.assertEquals(-1, page1.getFreeListHead());
+      Assert.assertEquals(-1, page2.getFreeListHead());
+
+      var buf1 = cachePointer1.getBuffer();
+      var buf2 = cachePointer2.getBuffer();
+      Assert.assertEquals(0, buf1.compareTo(buf2));
+    } finally {
+      entry1.releaseExclusiveLock();
+      entry2.releaseExclusiveLock();
+      cachePointer1.decrementReferrer();
+      cachePointer2.decrementReferrer();
+    }
+  }
+
+  // ---------- Multi-operation redo sequence tests (review fix SF5) ----------
+
+  /**
+   * Replay a realistic sequence of entry point operations: init, setTreeSize, setPagesSize,
+   * setFreeListHead. Verifies that sequential redo produces the same state as direct mutation.
+   */
+  @Test
+  public void testEntryPointMultiOpRedoSequence() {
+    var bufferPool = ByteBufferPool.instance(null);
+
+    var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer1 = new CachePointer(pointer1, bufferPool, 0, 0);
+    cachePointer1.incrementReferrer();
+    CacheEntry entry1 = new CacheEntryImpl(0, 0, cachePointer1, false, null);
+    entry1.acquireExclusiveLock();
+
+    var pointer2 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer2 = new CachePointer(pointer2, bufferPool, 0, 0);
+    cachePointer2.incrementReferrer();
+    CacheEntry entry2 = new CacheEntryImpl(0, 0, cachePointer2, false, null);
+    entry2.acquireExclusiveLock();
+
+    try {
+      var lsn = new LogSequenceNumber(0, 0);
+
+      // Apply directly on page1
+      var page1 = new CellBTreeSingleValueEntryPointV3<>(entry1);
+      page1.init();
+      page1.setTreeSize(5000);
+      page1.setPagesSize(50);
+      page1.setFreeListHead(7);
+
+      // Replay same sequence via redo on page2
+      var page2 = new CellBTreeSingleValueEntryPointV3<>(entry2);
+      new BTreeSVEntryPointV3InitOp(0, 0, 0, lsn).redo(page2);
+      new BTreeSVEntryPointV3SetTreeSizeOp(0, 0, 0, lsn, 5000).redo(page2);
+      new BTreeSVEntryPointV3SetPagesSizeOp(0, 0, 0, lsn, 50).redo(page2);
+      new BTreeSVEntryPointV3SetFreeListHeadOp(0, 0, 0, lsn, 7).redo(page2);
+
+      Assert.assertEquals(5000, page2.getTreeSize());
+      Assert.assertEquals(50, page2.getPagesSize());
+      Assert.assertEquals(7, page2.getFreeListHead());
+
+      var buf1 = cachePointer1.getBuffer();
+      var buf2 = cachePointer2.getBuffer();
+      Assert.assertEquals(0, buf1.compareTo(buf2));
+    } finally {
+      entry1.releaseExclusiveLock();
+      entry2.releaseExclusiveLock();
+      cachePointer1.decrementReferrer();
+      cachePointer2.decrementReferrer();
+    }
+  }
+
+  /**
+   * Replay a realistic null bucket sequence: init, setValue, removeValue, setValue with
+   * different RID. Verifies sequential redo converges to same state as direct mutation.
+   */
+  @Test
+  public void testNullBucketMultiOpRedoSequence() {
+    var bufferPool = ByteBufferPool.instance(null);
+
+    var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer1 = new CachePointer(pointer1, bufferPool, 0, 0);
+    cachePointer1.incrementReferrer();
+    CacheEntry entry1 = new CacheEntryImpl(0, 0, cachePointer1, false, null);
+    entry1.acquireExclusiveLock();
+
+    var pointer2 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer2 = new CachePointer(pointer2, bufferPool, 0, 0);
+    cachePointer2.incrementReferrer();
+    CacheEntry entry2 = new CacheEntryImpl(0, 0, cachePointer2, false, null);
+    entry2.acquireExclusiveLock();
+
+    try {
+      var lsn = new LogSequenceNumber(0, 0);
+      var rid1 = new RecordId(10, 100);
+      var rid2 = new RecordId(20, 200);
+
+      // Apply directly on page1
+      var page1 = new CellBTreeSingleValueV3NullBucket(entry1);
+      page1.init();
+      page1.setValue(rid1);
+      page1.removeValue();
+      page1.setValue(rid2);
+
+      // Replay same sequence via redo on page2
+      var page2 = new CellBTreeSingleValueV3NullBucket(entry2);
+      new BTreeSVNullBucketV3InitOp(0, 0, 0, lsn).redo(page2);
+      new BTreeSVNullBucketV3SetValueOp(0, 0, 0, lsn, (short) 10, 100).redo(page2);
+      new BTreeSVNullBucketV3RemoveValueOp(0, 0, 0, lsn).redo(page2);
+      new BTreeSVNullBucketV3SetValueOp(0, 0, 0, lsn, (short) 20, 200).redo(page2);
+
+      Assert.assertEquals(rid2, page2.getValue());
+
+      var buf1 = cachePointer1.getBuffer();
+      var buf2 = cachePointer2.getBuffer();
+      Assert.assertEquals(0, buf1.compareTo(buf2));
+    } finally {
+      entry1.releaseExclusiveLock();
+      entry2.releaseExclusiveLock();
+      cachePointer1.decrementReferrer();
+      cachePointer2.decrementReferrer();
+    }
   }
 }
