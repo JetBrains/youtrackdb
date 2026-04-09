@@ -88,6 +88,8 @@ class HashJoinMatchStep extends AbstractExecutionStep {
 
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
+    assert hashSet == null && hashMap == null
+        : "internalStart() called on a step with residual state — was copy() called?";
     if (prev == null) {
       throw new IllegalStateException("hash join step requires a previous step");
     }

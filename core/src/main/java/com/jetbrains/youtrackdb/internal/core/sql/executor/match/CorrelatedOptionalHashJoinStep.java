@@ -87,6 +87,8 @@ class CorrelatedOptionalHashJoinStep extends AbstractExecutionStep {
 
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
+    assert neighborCache.isEmpty()
+        : "internalStart() called on a step with residual state — was copy() called?";
     if (prev == null) {
       throw new IllegalStateException(
           "correlated optional hash join step requires a previous step");

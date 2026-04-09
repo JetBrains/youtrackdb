@@ -83,6 +83,8 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
 
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
+    assert reachableRids == null
+        : "internalStart() called on a step with residual state — was copy() called?";
     if (prev == null) {
       throw new IllegalStateException(
           "inverted-while hash join step requires a previous step");
