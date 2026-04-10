@@ -19,14 +19,36 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.MapEntryPoin
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2SetApproxRecordsCountOp;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2SetFileSizeOp;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.WriteableWALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVBucketV3AddAllOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVBucketV3AddLeafEntryOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVBucketV3AddNonLeafEntryOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVBucketV3InitOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVBucketV3RemoveLeafEntryOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVBucketV3RemoveNonLeafEntryOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVBucketV3SetLeftSiblingOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVBucketV3SetNextFreeListPageOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVBucketV3SetRightSiblingOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVBucketV3ShrinkOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVBucketV3SwitchBucketTypeOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVBucketV3UpdateKeyOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVBucketV3UpdateValueOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVEntryPointV3InitOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVEntryPointV3SetFreeListHeadOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVEntryPointV3SetPagesSizeOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVEntryPointV3SetTreeSizeOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVNullBucketV3InitOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVNullBucketV3RemoveValueOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVNullBucketV3SetValueOp;
 import java.nio.ByteBuffer;
+import java.util.List;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
 /**
  * Tests that {@link PageOperationRegistry#registerAll(WALRecordsFactory)} correctly registers
- * all 18 Track 2-3 PageOperation types so they can be deserialized by the factory during recovery.
+ * all 38 Track 2-3 and Track 5 PageOperation types so they can be deserialized by the factory
+ * during recovery.
  */
 public class PageOperationRegistryTest {
 
@@ -36,7 +58,7 @@ public class PageOperationRegistryTest {
   }
 
   /**
-   * Verifies that all 18 registered record IDs survive a full WALRecordsFactory roundtrip:
+   * Verifies that all 38 registered record IDs survive a full WALRecordsFactory roundtrip:
    * toStream → fromStream. Uses non-zero field values for all parameters (including parent
    * fields) and verifies full field-level equality via equals(), not just class/ID match.
    */
@@ -49,6 +71,7 @@ public class PageOperationRegistryTest {
     long opUnitId = 99;
 
     PageOperation[] ops = {
+        // Track 2-3: Collection types (18 ops)
         new PaginatedCollectionStateV2SetFileSizeOp(pageIndex, fileId, opUnitId, initialLsn, 42),
         new PaginatedCollectionStateV2SetApproxRecordsCountOp(
             pageIndex, fileId, opUnitId, initialLsn, 100),
@@ -71,6 +94,49 @@ public class PageOperationRegistryTest {
         new DirtyPageBitSetPageSetBitOp(pageIndex, fileId, opUnitId, initialLsn, 17),
         new DirtyPageBitSetPageClearBitOp(pageIndex, fileId, opUnitId, initialLsn, 23),
         new MapEntryPointSetFileSizeOp(pageIndex, fileId, opUnitId, initialLsn, 10),
+
+        // Track 5: CellBTreeSingleValueEntryPointV3 (4 ops)
+        new BTreeSVEntryPointV3InitOp(pageIndex, fileId, opUnitId, initialLsn),
+        new BTreeSVEntryPointV3SetTreeSizeOp(
+            pageIndex, fileId, opUnitId, initialLsn, 123456789L),
+        new BTreeSVEntryPointV3SetPagesSizeOp(pageIndex, fileId, opUnitId, initialLsn, 42),
+        new BTreeSVEntryPointV3SetFreeListHeadOp(pageIndex, fileId, opUnitId, initialLsn, 5),
+
+        // Track 5: CellBTreeSingleValueV3NullBucket (3 ops)
+        new BTreeSVNullBucketV3InitOp(pageIndex, fileId, opUnitId, initialLsn),
+        new BTreeSVNullBucketV3SetValueOp(
+            pageIndex, fileId, opUnitId, initialLsn, (short) 23, 456L),
+        new BTreeSVNullBucketV3RemoveValueOp(pageIndex, fileId, opUnitId, initialLsn),
+
+        // Track 5: CellBTreeSingleValueBucketV3 simple (6 ops)
+        new BTreeSVBucketV3InitOp(pageIndex, fileId, opUnitId, initialLsn, true),
+        new BTreeSVBucketV3SwitchBucketTypeOp(pageIndex, fileId, opUnitId, initialLsn),
+        new BTreeSVBucketV3SetLeftSiblingOp(pageIndex, fileId, opUnitId, initialLsn, 100L),
+        new BTreeSVBucketV3SetRightSiblingOp(pageIndex, fileId, opUnitId, initialLsn, 200L),
+        new BTreeSVBucketV3SetNextFreeListPageOp(pageIndex, fileId, opUnitId, initialLsn, 3),
+        new BTreeSVBucketV3UpdateValueOp(
+            pageIndex, fileId, opUnitId, initialLsn, 0, new byte[] {10, 20}, 4),
+
+        // Track 5: CellBTreeSingleValueBucketV3 entry (5 ops)
+        new BTreeSVBucketV3AddLeafEntryOp(
+            pageIndex, fileId, opUnitId, initialLsn, 0,
+            new byte[] {1, 0, 0, 0}, new byte[] {10, 20, 30, 40, 50, 60, 70, 80, 90, 100}),
+        new BTreeSVBucketV3AddNonLeafEntryOp(
+            pageIndex, fileId, opUnitId, initialLsn, 0, 1, 2, new byte[] {1, 0, 0, 0}),
+        new BTreeSVBucketV3RemoveLeafEntryOp(
+            pageIndex, fileId, opUnitId, initialLsn, 0, new byte[] {1, 0, 0, 0}),
+        new BTreeSVBucketV3RemoveNonLeafEntryOp(
+            pageIndex, fileId, opUnitId, initialLsn, 0, new byte[] {1, 0, 0, 0}, true),
+        new BTreeSVBucketV3UpdateKeyOp(
+            pageIndex, fileId, opUnitId, initialLsn, 0, new byte[] {2, 0, 0, 0}, 4),
+
+        // Track 5: CellBTreeSingleValueBucketV3 bulk (2 ops)
+        new BTreeSVBucketV3AddAllOp(
+            pageIndex, fileId, opUnitId, initialLsn,
+            List.of(new byte[] {1, 2, 3}, new byte[] {4, 5, 6})),
+        new BTreeSVBucketV3ShrinkOp(
+            pageIndex, fileId, opUnitId, initialLsn,
+            List.of(new byte[] {7, 8, 9})),
     };
 
     for (PageOperation op : ops) {
@@ -91,16 +157,17 @@ public class PageOperationRegistryTest {
   /** Verifies the expected total count of registered types — catches accidentally omitted types. */
   @Test
   public void testRegisteredTypeCount() {
-    // IDs 201-218 = 18 types. Each ID must have both a createOpForId entry and a factory
-    // registration. createOpForId throws for unknown IDs, so any gap causes immediate failure.
+    // IDs 201-238 = 38 types (18 Track 2-3 + 20 Track 5). Each ID must have both a
+    // createOpForId entry and a factory registration. createOpForId throws for unknown IDs,
+    // so any gap causes immediate failure.
     int registeredCount = 0;
     for (int id = WALRecordTypes.PAGE_OPERATION_ID_BASE + 1;
-        id <= WALRecordTypes.PAGE_OPERATION_ID_BASE + 18; id++) {
+        id <= WALRecordTypes.PAGE_OPERATION_ID_BASE + 38; id++) {
       var testOp = createMinimalRecord(id);
       Assert.assertNotNull("WAL record ID " + id + " failed to roundtrip", testOp);
       registeredCount++;
     }
-    Assert.assertEquals("Expected 18 registered PageOperation types", 18, registeredCount);
+    Assert.assertEquals("Expected 38 registered PageOperation types", 38, registeredCount);
   }
 
   /**
@@ -144,6 +211,7 @@ public class PageOperationRegistryTest {
   private PageOperation createOpForId(int id) {
     var lsn = new LogSequenceNumber(0, 0);
     return switch (id) {
+      // Track 2-3: Collection types (18 ops)
       case WALRecordTypes.PAGINATED_COLLECTION_STATE_V2_SET_FILE_SIZE_OP ->
           new PaginatedCollectionStateV2SetFileSizeOp(0, 0, 0, lsn, 0);
       case WALRecordTypes.PAGINATED_COLLECTION_STATE_V2_SET_APPROX_RECORDS_COUNT_OP ->
@@ -180,6 +248,57 @@ public class PageOperationRegistryTest {
           new DirtyPageBitSetPageClearBitOp(0, 0, 0, lsn, 0);
       case WALRecordTypes.MAP_ENTRY_POINT_SET_FILE_SIZE_OP ->
           new MapEntryPointSetFileSizeOp(0, 0, 0, lsn, 0);
+
+      // Track 5: CellBTreeSingleValueEntryPointV3 (4 ops)
+      case WALRecordTypes.BTREE_SV_ENTRY_POINT_V3_INIT_OP ->
+          new BTreeSVEntryPointV3InitOp(0, 0, 0, lsn);
+      case WALRecordTypes.BTREE_SV_ENTRY_POINT_V3_SET_TREE_SIZE_OP ->
+          new BTreeSVEntryPointV3SetTreeSizeOp(0, 0, 0, lsn, 0L);
+      case WALRecordTypes.BTREE_SV_ENTRY_POINT_V3_SET_PAGES_SIZE_OP ->
+          new BTreeSVEntryPointV3SetPagesSizeOp(0, 0, 0, lsn, 0);
+      case WALRecordTypes.BTREE_SV_ENTRY_POINT_V3_SET_FREE_LIST_HEAD_OP ->
+          new BTreeSVEntryPointV3SetFreeListHeadOp(0, 0, 0, lsn, 0);
+
+      // Track 5: CellBTreeSingleValueV3NullBucket (3 ops)
+      case WALRecordTypes.BTREE_SV_NULL_BUCKET_V3_INIT_OP ->
+          new BTreeSVNullBucketV3InitOp(0, 0, 0, lsn);
+      case WALRecordTypes.BTREE_SV_NULL_BUCKET_V3_SET_VALUE_OP ->
+          new BTreeSVNullBucketV3SetValueOp(0, 0, 0, lsn, (short) 0, 0L);
+      case WALRecordTypes.BTREE_SV_NULL_BUCKET_V3_REMOVE_VALUE_OP ->
+          new BTreeSVNullBucketV3RemoveValueOp(0, 0, 0, lsn);
+
+      // Track 5: CellBTreeSingleValueBucketV3 simple (6 ops)
+      case WALRecordTypes.BTREE_SV_BUCKET_V3_INIT_OP ->
+          new BTreeSVBucketV3InitOp(0, 0, 0, lsn, true);
+      case WALRecordTypes.BTREE_SV_BUCKET_V3_SWITCH_BUCKET_TYPE_OP ->
+          new BTreeSVBucketV3SwitchBucketTypeOp(0, 0, 0, lsn);
+      case WALRecordTypes.BTREE_SV_BUCKET_V3_SET_LEFT_SIBLING_OP ->
+          new BTreeSVBucketV3SetLeftSiblingOp(0, 0, 0, lsn, 0L);
+      case WALRecordTypes.BTREE_SV_BUCKET_V3_SET_RIGHT_SIBLING_OP ->
+          new BTreeSVBucketV3SetRightSiblingOp(0, 0, 0, lsn, 0L);
+      case WALRecordTypes.BTREE_SV_BUCKET_V3_SET_NEXT_FREE_LIST_PAGE_OP ->
+          new BTreeSVBucketV3SetNextFreeListPageOp(0, 0, 0, lsn, 0);
+      case WALRecordTypes.BTREE_SV_BUCKET_V3_UPDATE_VALUE_OP ->
+          new BTreeSVBucketV3UpdateValueOp(0, 0, 0, lsn, 0, new byte[] {}, 0);
+
+      // Track 5: CellBTreeSingleValueBucketV3 entry (5 ops)
+      case WALRecordTypes.BTREE_SV_BUCKET_V3_ADD_LEAF_ENTRY_OP ->
+          new BTreeSVBucketV3AddLeafEntryOp(0, 0, 0, lsn, 0, new byte[] {}, new byte[] {});
+      case WALRecordTypes.BTREE_SV_BUCKET_V3_ADD_NON_LEAF_ENTRY_OP ->
+          new BTreeSVBucketV3AddNonLeafEntryOp(0, 0, 0, lsn, 0, 0, 0, new byte[] {});
+      case WALRecordTypes.BTREE_SV_BUCKET_V3_REMOVE_LEAF_ENTRY_OP ->
+          new BTreeSVBucketV3RemoveLeafEntryOp(0, 0, 0, lsn, 0, new byte[] {});
+      case WALRecordTypes.BTREE_SV_BUCKET_V3_REMOVE_NON_LEAF_ENTRY_OP ->
+          new BTreeSVBucketV3RemoveNonLeafEntryOp(0, 0, 0, lsn, 0, new byte[] {}, false);
+      case WALRecordTypes.BTREE_SV_BUCKET_V3_UPDATE_KEY_OP ->
+          new BTreeSVBucketV3UpdateKeyOp(0, 0, 0, lsn, 0, new byte[] {}, 0);
+
+      // Track 5: CellBTreeSingleValueBucketV3 bulk (2 ops)
+      case WALRecordTypes.BTREE_SV_BUCKET_V3_ADD_ALL_OP ->
+          new BTreeSVBucketV3AddAllOp(0, 0, 0, lsn, List.of());
+      case WALRecordTypes.BTREE_SV_BUCKET_V3_SHRINK_OP ->
+          new BTreeSVBucketV3ShrinkOp(0, 0, 0, lsn, List.of());
+
       default -> throw new IllegalArgumentException("Unknown PageOperation ID: " + id);
     };
   }

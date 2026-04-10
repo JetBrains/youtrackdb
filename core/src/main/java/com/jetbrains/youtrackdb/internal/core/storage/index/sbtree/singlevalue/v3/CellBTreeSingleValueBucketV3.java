@@ -479,7 +479,14 @@ public final class CellBTreeSingleValueBucketV3<K> extends DurablePage {
       appendRawEntry(i + currentSize, rawEntries.get(i));
     }
 
-    setSize(rawEntries.size() + currentSize);
+    var newSize = rawEntries.size() + currentSize;
+    setSize(newSize);
+
+    assert getFreePointer()
+        >= POSITIONS_ARRAY_OFFSET + newSize * IntegerSerializer.INT_SIZE
+        : "addAll: free pointer " + getFreePointer()
+            + " overflows positions array end at "
+            + (POSITIONS_ARRAY_OFFSET + newSize * IntegerSerializer.INT_SIZE);
 
     var cacheEntry = getCacheEntry();
     if (cacheEntry instanceof CacheEntryChanges cec) {
@@ -524,6 +531,8 @@ public final class CellBTreeSingleValueBucketV3<K> extends DurablePage {
     setFreePointer(MAX_PAGE_SIZE_BYTES);
     setSize(0);
     addAll(entries, null);
+    assert size() == entries.size()
+        : "resetAndAddAll: expected size " + entries.size() + " but got " + size();
   }
 
   private void setSize(final int newSize) {
