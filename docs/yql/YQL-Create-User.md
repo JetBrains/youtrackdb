@@ -23,7 +23,7 @@ CREATE USER Foo IDENTIFIED BY bar ROLE admin
 - Create a new user called `Bar` with the password `foo`:
 
 ```sql
-CREATE USER Bar IDENTIFIED BY Foo
+CREATE USER Bar IDENTIFIED BY foo
 ```
   
 >For more information, see

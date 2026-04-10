@@ -503,7 +503,7 @@ options:
   tieBreaker:true,
   maxDepth:99999,
   dFactor:1.0,
-  customHeuristicFormula:'custom_Function_Name_here'  // (MANHATAN, MAXAXIS, DIAGONAL, EUCLIDEAN, EUCLIDEANNOSQR, CUSTOM)
+  customHeuristicFormula:'custom_Function_Name_here'  // (MANHATTAN, MAXAXIS, DIAGONAL, EUCLIDEAN, EUCLIDEANNOSQR, CUSTOM)
 }
 ```
 #### Example

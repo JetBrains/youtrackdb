@@ -114,7 +114,7 @@ public class DocValidationTest {
 }
 ```
 
-**CRITICAL: Only use the public Gremlin API.** Never use internal classes like `DatabaseSessionEmbedded`, `YouTrackDBImpl`, `DbTestBase`, or anything under `com.jetbrains.youtrackdb.internal`. The test class must only import from `com.jetbrains.youtrackdb.api.*` and standard TinkerPop packages (`org.apache.tinkerpop.gremlin.*`).
+**CRITICAL: Only use the public Gremlin API.** The test class lives in `com.jetbrains.youtrackdb.internal.core.sql` for organizational reasons (it is in the `core` module's test tree), but it must only **import** from `com.jetbrains.youtrackdb.api.*` and standard TinkerPop packages (`org.apache.tinkerpop.gremlin.*`). Never import internal classes like `DatabaseSessionEmbedded`, `YouTrackDBImpl`, `DbTestBase`, or anything else under `com.jetbrains.youtrackdb.internal`.
 
 Key patterns for writing tests:
 - **Schema commands** (CREATE CLASS, CREATE PROPERTY, CREATE INDEX) run outside transactions using `g.command()`: `g.command("CREATE CLASS Foo EXTENDS V")` — always use `EXTENDS V` (vertex) or `EXTENDS E` (edge) so results are compatible with the Gremlin result mapper.
@@ -155,7 +155,7 @@ Key patterns for writing tests:
 These limitations affect what can be validated through the public API:
 1. **All classes must extend V or E** — the Gremlin result mapper (`GremlinResultMapper`) only supports vertices and stateful edges. SELECT on a plain class (not extending V/E) will throw `IllegalStateException: Only vertices and stateful edges are supported in Gremlin results`. If a document example uses a plain class, create it with `EXTENDS V` for testing purposes.
 2. **Use `yql().iterate()` for UPDATE/INSERT** — never use `command()` for data mutation commands, as it will fail when the result mapper tries to process the non-vertex result.
-4. **`RETURN AFTER` on UPDATE** — use `tx.yql("UPDATE ... RETURN AFTER @this").toList()` to collect results. The results are vertex objects when the target class extends V.
+3. **`RETURN AFTER` on UPDATE** — use `tx.yql("UPDATE ... RETURN AFTER @this").toList()` to collect results. The results are vertex objects when the target class extends V.
 
 Group tests by document section. Each test method should have a comment referencing the document claim it validates.
 

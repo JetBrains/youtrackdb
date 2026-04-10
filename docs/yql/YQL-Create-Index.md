@@ -75,14 +75,22 @@ SELECT FROM Has WHERE started >= '2014-01-01 00:00:00.000' AND ended < '2015-01-
 - Using the above index, retrieve all edges that existed in 2014 and return the parent file:
 
 ```sql
-MATCH {class: File, as: out}.outE('Has'){where: (started >= '2014-01-01 00:00:00.000' AND ended < '2015-01-01 00:00:00.000')}.inV(){class: File, as: in}
-  RETURN out
+MATCH
+  {class: File, as: out}
+  .outE('Has'){where: (started >= '2014-01-01 00:00:00.000'
+    AND ended < '2015-01-01 00:00:00.000')}
+  .inV(){class: File, as: in}
+RETURN out
 ```
 - Using the above index, retrieve all the 2014 edges and return the children files:
 
 ```sql
-MATCH {class: File, as: out}.outE('Has'){where: (started >= '2014-01-01 00:00:00.000' AND ended < '2015-01-01 00:00:00.000')}.inV(){class: File, as: in}
-  RETURN in
+MATCH
+  {class: File, as: out}
+  .outE('Has'){where: (started >= '2014-01-01 00:00:00.000'
+    AND ended < '2015-01-01 00:00:00.000')}
+  .inV(){class: File, as: in}
+RETURN in
 ```
 
 - Create an index that includes null values.

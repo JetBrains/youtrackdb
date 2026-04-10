@@ -30,4 +30,4 @@ DROP INDEX *
 
 >For more information, see
 >- [`CREATE INDEX`](YQL-Create-Index.md)
->- [SQL Commands](YQL-Commands.md)
+>- [YQL Commands](YQL-Commands.md)

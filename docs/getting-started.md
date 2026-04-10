@@ -112,9 +112,17 @@ g.executeInTx(tx -> {
       + "TO (SELECT FROM Movie WHERE title = 'The Matrix') "
       + "SET role = 'Trinity'").iterate();
   tx.yql("CREATE EDGE ActedIn "
+      + "FROM (SELECT FROM Person WHERE name = 'Alice') "
+      + "TO (SELECT FROM Movie WHERE title = 'Inception') "
+      + "SET role = 'Ariadne'").iterate();
+  tx.yql("CREATE EDGE ActedIn "
       + "FROM (SELECT FROM Person WHERE name = 'Bob') "
       + "TO (SELECT FROM Movie WHERE title = 'The Matrix') "
       + "SET role = 'Neo'").iterate();
+  tx.yql("CREATE EDGE ActedIn "
+      + "FROM (SELECT FROM Person WHERE name = 'Charlie') "
+      + "TO (SELECT FROM Movie WHERE title = 'The Godfather') "
+      + "SET role = 'Michael'").iterate();
   tx.yql("CREATE EDGE Directed "
       + "FROM (SELECT FROM Person WHERE name = 'Charlie') "
       + "TO (SELECT FROM Movie WHERE title = 'Inception')").iterate();
