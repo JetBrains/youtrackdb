@@ -119,12 +119,12 @@ public class IndexMultiValuKeySerializerCompareTest {
   @Test
   public void testLongField() {
     var types = new PropertyTypeInternal[] {PropertyTypeInternal.LONG, PropertyTypeInternal.LONG};
-    compareAndVerify(key(100L, 1L), key(200L, 1L), types);
-    compareAndVerify(key(200L, 1L), key(100L, 1L), types);
-    compareAndVerify(key(100L, 1L), key(100L, 1L), types);
+    assertTrue(compareAndVerify(key(100L, 1L), key(200L, 1L), types) < 0);
+    assertTrue(compareAndVerify(key(200L, 1L), key(100L, 1L), types) > 0);
+    assertEquals(0, compareAndVerify(key(100L, 1L), key(100L, 1L), types));
     // Negative values
-    compareAndVerify(key(-100L, 1L), key(100L, 1L), types);
-    compareAndVerify(key(Long.MIN_VALUE, 1L), key(Long.MAX_VALUE, 1L), types);
+    assertTrue(compareAndVerify(key(-100L, 1L), key(100L, 1L), types) < 0);
+    assertTrue(compareAndVerify(key(Long.MIN_VALUE, 1L), key(Long.MAX_VALUE, 1L), types) < 0);
   }
 
   /** INTEGER field: basic ordering. */
@@ -132,19 +132,19 @@ public class IndexMultiValuKeySerializerCompareTest {
   public void testIntegerField() {
     var types =
         new PropertyTypeInternal[] {PropertyTypeInternal.INTEGER, PropertyTypeInternal.LONG};
-    compareAndVerify(key(42, 1L), key(99, 1L), types);
-    compareAndVerify(key(99, 1L), key(42, 1L), types);
-    compareAndVerify(key(42, 1L), key(42, 1L), types);
-    compareAndVerify(key(-1, 1L), key(1, 1L), types);
+    assertTrue(compareAndVerify(key(42, 1L), key(99, 1L), types) < 0);
+    assertTrue(compareAndVerify(key(99, 1L), key(42, 1L), types) > 0);
+    assertEquals(0, compareAndVerify(key(42, 1L), key(42, 1L), types));
+    assertTrue(compareAndVerify(key(-1, 1L), key(1, 1L), types) < 0);
   }
 
   /** SHORT field: basic ordering. */
   @Test
   public void testShortField() {
     var types = new PropertyTypeInternal[] {PropertyTypeInternal.SHORT, PropertyTypeInternal.LONG};
-    compareAndVerify(key((short) 10, 1L), key((short) 20, 1L), types);
-    compareAndVerify(key((short) 20, 1L), key((short) 10, 1L), types);
-    compareAndVerify(key((short) 10, 1L), key((short) 10, 1L), types);
+    assertTrue(compareAndVerify(key((short) 10, 1L), key((short) 20, 1L), types) < 0);
+    assertTrue(compareAndVerify(key((short) 20, 1L), key((short) 10, 1L), types) > 0);
+    assertEquals(0, compareAndVerify(key((short) 10, 1L), key((short) 10, 1L), types));
   }
 
   /** BOOLEAN field: false < true. */
@@ -152,28 +152,28 @@ public class IndexMultiValuKeySerializerCompareTest {
   public void testBooleanField() {
     var types =
         new PropertyTypeInternal[] {PropertyTypeInternal.BOOLEAN, PropertyTypeInternal.LONG};
-    compareAndVerify(key(false, 1L), key(true, 1L), types);
-    compareAndVerify(key(true, 1L), key(false, 1L), types);
-    compareAndVerify(key(true, 1L), key(true, 1L), types);
+    assertTrue(compareAndVerify(key(false, 1L), key(true, 1L), types) < 0);
+    assertTrue(compareAndVerify(key(true, 1L), key(false, 1L), types) > 0);
+    assertEquals(0, compareAndVerify(key(true, 1L), key(true, 1L), types));
   }
 
   /** BYTE field: basic ordering. */
   @Test
   public void testByteField() {
     var types = new PropertyTypeInternal[] {PropertyTypeInternal.BYTE, PropertyTypeInternal.LONG};
-    compareAndVerify(key((byte) 1, 1L), key((byte) 2, 1L), types);
-    compareAndVerify(key((byte) 2, 1L), key((byte) 1, 1L), types);
-    compareAndVerify(key((byte) 0, 1L), key((byte) 0, 1L), types);
+    assertTrue(compareAndVerify(key((byte) 1, 1L), key((byte) 2, 1L), types) < 0);
+    assertTrue(compareAndVerify(key((byte) 2, 1L), key((byte) 1, 1L), types) > 0);
+    assertEquals(0, compareAndVerify(key((byte) 0, 1L), key((byte) 0, 1L), types));
   }
 
   /** STRING field: lexicographic ordering. */
   @Test
   public void testStringField() {
     var types = new PropertyTypeInternal[] {PropertyTypeInternal.STRING, PropertyTypeInternal.LONG};
-    compareAndVerify(key("abc", 1L), key("xyz", 1L), types);
-    compareAndVerify(key("xyz", 1L), key("abc", 1L), types);
-    compareAndVerify(key("abc", 1L), key("abc", 1L), types);
-    compareAndVerify(key("", 1L), key("a", 1L), types);
+    assertTrue(compareAndVerify(key("abc", 1L), key("xyz", 1L), types) < 0);
+    assertTrue(compareAndVerify(key("xyz", 1L), key("abc", 1L), types) > 0);
+    assertEquals(0, compareAndVerify(key("abc", 1L), key("abc", 1L), types));
+    assertTrue(compareAndVerify(key("", 1L), key("a", 1L), types) < 0);
   }
 
   /**
@@ -183,15 +183,15 @@ public class IndexMultiValuKeySerializerCompareTest {
   @Test
   public void testFloatField() {
     var types = new PropertyTypeInternal[] {PropertyTypeInternal.FLOAT, PropertyTypeInternal.LONG};
-    compareAndVerify(key(1.0f, 1L), key(2.0f, 1L), types);
-    compareAndVerify(key(-1.0f, 1L), key(1.0f, 1L), types);
-    compareAndVerify(key(1.0f, 1L), key(1.0f, 1L), types);
+    assertTrue(compareAndVerify(key(1.0f, 1L), key(2.0f, 1L), types) < 0);
+    assertTrue(compareAndVerify(key(-1.0f, 1L), key(1.0f, 1L), types) < 0);
+    assertEquals(0, compareAndVerify(key(1.0f, 1L), key(1.0f, 1L), types));
     // -0.0 < +0.0 per Float.compare
-    compareAndVerify(key(-0.0f, 1L), key(0.0f, 1L), types);
+    assertTrue(compareAndVerify(key(-0.0f, 1L), key(0.0f, 1L), types) < 0);
     // NaN > everything per Float.compare
-    compareAndVerify(key(Float.NaN, 1L), key(Float.MAX_VALUE, 1L), types);
+    assertTrue(compareAndVerify(key(Float.NaN, 1L), key(Float.MAX_VALUE, 1L), types) > 0);
     // Negative values
-    compareAndVerify(key(-100.5f, 1L), key(-50.5f, 1L), types);
+    assertTrue(compareAndVerify(key(-100.5f, 1L), key(-50.5f, 1L), types) < 0);
   }
 
   /**
@@ -200,15 +200,15 @@ public class IndexMultiValuKeySerializerCompareTest {
   @Test
   public void testDoubleField() {
     var types = new PropertyTypeInternal[] {PropertyTypeInternal.DOUBLE, PropertyTypeInternal.LONG};
-    compareAndVerify(key(1.0, 1L), key(2.0, 1L), types);
-    compareAndVerify(key(-1.0, 1L), key(1.0, 1L), types);
-    compareAndVerify(key(1.0, 1L), key(1.0, 1L), types);
+    assertTrue(compareAndVerify(key(1.0, 1L), key(2.0, 1L), types) < 0);
+    assertTrue(compareAndVerify(key(-1.0, 1L), key(1.0, 1L), types) < 0);
+    assertEquals(0, compareAndVerify(key(1.0, 1L), key(1.0, 1L), types));
     // -0.0 < +0.0 per Double.compare
-    compareAndVerify(key(-0.0, 1L), key(0.0, 1L), types);
+    assertTrue(compareAndVerify(key(-0.0, 1L), key(0.0, 1L), types) < 0);
     // NaN > everything per Double.compare
-    compareAndVerify(key(Double.NaN, 1L), key(Double.MAX_VALUE, 1L), types);
+    assertTrue(compareAndVerify(key(Double.NaN, 1L), key(Double.MAX_VALUE, 1L), types) > 0);
     // Negative values
-    compareAndVerify(key(-100.5, 1L), key(-50.5, 1L), types);
+    assertTrue(compareAndVerify(key(-100.5, 1L), key(-50.5, 1L), types) < 0);
   }
 
   /** DATE field: ordering by time millis. */
@@ -217,9 +217,9 @@ public class IndexMultiValuKeySerializerCompareTest {
     var types = new PropertyTypeInternal[] {PropertyTypeInternal.DATE, PropertyTypeInternal.LONG};
     var d1 = new Date(1000000000L);
     var d2 = new Date(2000000000L);
-    compareAndVerify(key(d1, 1L), key(d2, 1L), types);
-    compareAndVerify(key(d2, 1L), key(d1, 1L), types);
-    compareAndVerify(key(d1, 1L), key(d1, 1L), types);
+    assertTrue(compareAndVerify(key(d1, 1L), key(d2, 1L), types) < 0);
+    assertTrue(compareAndVerify(key(d2, 1L), key(d1, 1L), types) > 0);
+    assertEquals(0, compareAndVerify(key(d1, 1L), key(d1, 1L), types));
   }
 
   /** DATETIME field: ordering by time millis. */
@@ -229,8 +229,8 @@ public class IndexMultiValuKeySerializerCompareTest {
         new PropertyTypeInternal[] {PropertyTypeInternal.DATETIME, PropertyTypeInternal.LONG};
     var d1 = new Date(1000000000L);
     var d2 = new Date(2000000000L);
-    compareAndVerify(key(d1, 1L), key(d2, 1L), types);
-    compareAndVerify(key(d2, 1L), key(d1, 1L), types);
+    assertTrue(compareAndVerify(key(d1, 1L), key(d2, 1L), types) < 0);
+    assertTrue(compareAndVerify(key(d2, 1L), key(d1, 1L), types) > 0);
   }
 
   /** LINK field: compare clusterId then clusterPosition. */
@@ -238,23 +238,29 @@ public class IndexMultiValuKeySerializerCompareTest {
   public void testLinkField() {
     var types = new PropertyTypeInternal[] {PropertyTypeInternal.LINK, PropertyTypeInternal.LONG};
     // Different cluster IDs
-    compareAndVerify(key(new RecordId(1, 100), 1L), key(new RecordId(2, 100), 1L), types);
+    assertTrue(compareAndVerify(
+        key(new RecordId(1, 100), 1L), key(new RecordId(2, 100), 1L), types) < 0);
     // Same cluster ID, different positions
-    compareAndVerify(key(new RecordId(1, 100), 1L), key(new RecordId(1, 200), 1L), types);
+    assertTrue(compareAndVerify(
+        key(new RecordId(1, 100), 1L), key(new RecordId(1, 200), 1L), types) < 0);
     // Equal
-    compareAndVerify(key(new RecordId(1, 100), 1L), key(new RecordId(1, 100), 1L), types);
+    assertEquals(0, compareAndVerify(
+        key(new RecordId(1, 100), 1L), key(new RecordId(1, 100), 1L), types));
     // Large cluster position (exercises variable-length encoding)
-    compareAndVerify(
-        key(new RecordId(1, 1_000_000L), 1L), key(new RecordId(1, 2_000_000L), 1L), types);
+    assertTrue(compareAndVerify(
+        key(new RecordId(1, 1_000_000L), 1L), key(new RecordId(1, 2_000_000L), 1L), types) < 0);
   }
 
   /** BINARY field: unsigned lexicographic comparison. */
   @Test
   public void testBinaryField() {
     var types = new PropertyTypeInternal[] {PropertyTypeInternal.BINARY, PropertyTypeInternal.LONG};
-    compareAndVerify(key(new byte[] {1, 2, 3}, 1L), key(new byte[] {1, 2, 4}, 1L), types);
-    compareAndVerify(key(new byte[] {1, 2, 3}, 1L), key(new byte[] {1, 2, 3}, 1L), types);
-    compareAndVerify(key(new byte[] {1, 2}, 1L), key(new byte[] {1, 2, 3}, 1L), types);
+    assertTrue(compareAndVerify(
+        key(new byte[] {1, 2, 3}, 1L), key(new byte[] {1, 2, 4}, 1L), types) < 0);
+    assertEquals(0, compareAndVerify(
+        key(new byte[] {1, 2, 3}, 1L), key(new byte[] {1, 2, 3}, 1L), types));
+    assertTrue(compareAndVerify(
+        key(new byte[] {1, 2}, 1L), key(new byte[] {1, 2, 3}, 1L), types) < 0);
   }
 
   /** DECIMAL field: BigDecimal ordering. */
@@ -262,9 +268,12 @@ public class IndexMultiValuKeySerializerCompareTest {
   public void testDecimalField() {
     var types =
         new PropertyTypeInternal[] {PropertyTypeInternal.DECIMAL, PropertyTypeInternal.LONG};
-    compareAndVerify(key(new BigDecimal("1.23"), 1L), key(new BigDecimal("4.56"), 1L), types);
-    compareAndVerify(key(new BigDecimal("-1.23"), 1L), key(new BigDecimal("1.23"), 1L), types);
-    compareAndVerify(key(new BigDecimal("1.23"), 1L), key(new BigDecimal("1.23"), 1L), types);
+    assertTrue(compareAndVerify(
+        key(new BigDecimal("1.23"), 1L), key(new BigDecimal("4.56"), 1L), types) < 0);
+    assertTrue(compareAndVerify(
+        key(new BigDecimal("-1.23"), 1L), key(new BigDecimal("1.23"), 1L), types) < 0);
+    assertEquals(0, compareAndVerify(
+        key(new BigDecimal("1.23"), 1L), key(new BigDecimal("1.23"), 1L), types));
   }
 
   // --- Null field handling ---
@@ -302,7 +311,7 @@ public class IndexMultiValuKeySerializerCompareTest {
     nullKey2.addKey(2L);
 
     // Both first fields are null, so comparison falls through to the LONG version field
-    compareAndVerify(nullKey1, nullKey2, types);
+    assertTrue(compareAndVerify(nullKey1, nullKey2, types) < 0);
   }
 
   /** Non-null vs null: non-null should compare greater. */
@@ -364,9 +373,9 @@ public class IndexMultiValuKeySerializerCompareTest {
     var types = new PropertyTypeInternal[] {
         PropertyTypeInternal.STRING, PropertyTypeInternal.INTEGER, PropertyTypeInternal.LONG};
     // First field equal, second field different
-    compareAndVerify(key("abc", 10, 1L), key("abc", 20, 1L), types);
+    assertTrue(compareAndVerify(key("abc", 10, 1L), key("abc", 20, 1L), types) < 0);
     // First field different
-    compareAndVerify(key("abc", 10, 1L), key("def", 10, 1L), types);
+    assertTrue(compareAndVerify(key("abc", 10, 1L), key("def", 10, 1L), types) < 0);
     // All equal
     assertEquals(0, compareAndVerify(key("abc", 10, 1L), key("abc", 10, 1L), types));
   }
@@ -377,9 +386,9 @@ public class IndexMultiValuKeySerializerCompareTest {
   @Test
   public void testWALLongField() {
     var types = new PropertyTypeInternal[] {PropertyTypeInternal.LONG, PropertyTypeInternal.LONG};
-    compareAndVerifyWAL(key(100L, 1L), key(200L, 1L), types);
-    compareAndVerifyWAL(key(200L, 1L), key(100L, 1L), types);
-    compareAndVerifyWAL(key(100L, 1L), key(100L, 1L), types);
+    assertTrue(compareAndVerifyWAL(key(100L, 1L), key(200L, 1L), types) < 0);
+    assertTrue(compareAndVerifyWAL(key(200L, 1L), key(100L, 1L), types) > 0);
+    assertEquals(0, compareAndVerifyWAL(key(100L, 1L), key(100L, 1L), types));
   }
 
   /** WAL: INTEGER field ordering. */
@@ -387,35 +396,35 @@ public class IndexMultiValuKeySerializerCompareTest {
   public void testWALIntegerField() {
     var types =
         new PropertyTypeInternal[] {PropertyTypeInternal.INTEGER, PropertyTypeInternal.LONG};
-    compareAndVerifyWAL(key(42, 1L), key(99, 1L), types);
-    compareAndVerifyWAL(key(99, 1L), key(42, 1L), types);
-    compareAndVerifyWAL(key(42, 1L), key(42, 1L), types);
+    assertTrue(compareAndVerifyWAL(key(42, 1L), key(99, 1L), types) < 0);
+    assertTrue(compareAndVerifyWAL(key(99, 1L), key(42, 1L), types) > 0);
+    assertEquals(0, compareAndVerifyWAL(key(42, 1L), key(42, 1L), types));
   }
 
   /** WAL: SHORT field ordering. */
   @Test
   public void testWALShortField() {
     var types = new PropertyTypeInternal[] {PropertyTypeInternal.SHORT, PropertyTypeInternal.LONG};
-    compareAndVerifyWAL(key((short) 10, 1L), key((short) 20, 1L), types);
-    compareAndVerifyWAL(key((short) 10, 1L), key((short) 10, 1L), types);
+    assertTrue(compareAndVerifyWAL(key((short) 10, 1L), key((short) 20, 1L), types) < 0);
+    assertEquals(0, compareAndVerifyWAL(key((short) 10, 1L), key((short) 10, 1L), types));
   }
 
   /** WAL: FLOAT field with NaN and -0.0. */
   @Test
   public void testWALFloatField() {
     var types = new PropertyTypeInternal[] {PropertyTypeInternal.FLOAT, PropertyTypeInternal.LONG};
-    compareAndVerifyWAL(key(1.0f, 1L), key(2.0f, 1L), types);
-    compareAndVerifyWAL(key(-0.0f, 1L), key(0.0f, 1L), types);
-    compareAndVerifyWAL(key(Float.NaN, 1L), key(Float.MAX_VALUE, 1L), types);
+    assertTrue(compareAndVerifyWAL(key(1.0f, 1L), key(2.0f, 1L), types) < 0);
+    assertTrue(compareAndVerifyWAL(key(-0.0f, 1L), key(0.0f, 1L), types) < 0);
+    assertTrue(compareAndVerifyWAL(key(Float.NaN, 1L), key(Float.MAX_VALUE, 1L), types) > 0);
   }
 
   /** WAL: DOUBLE field with NaN and -0.0. */
   @Test
   public void testWALDoubleField() {
     var types = new PropertyTypeInternal[] {PropertyTypeInternal.DOUBLE, PropertyTypeInternal.LONG};
-    compareAndVerifyWAL(key(1.0, 1L), key(2.0, 1L), types);
-    compareAndVerifyWAL(key(-0.0, 1L), key(0.0, 1L), types);
-    compareAndVerifyWAL(key(Double.NaN, 1L), key(Double.MAX_VALUE, 1L), types);
+    assertTrue(compareAndVerifyWAL(key(1.0, 1L), key(2.0, 1L), types) < 0);
+    assertTrue(compareAndVerifyWAL(key(-0.0, 1L), key(0.0, 1L), types) < 0);
+    assertTrue(compareAndVerifyWAL(key(Double.NaN, 1L), key(Double.MAX_VALUE, 1L), types) > 0);
   }
 
   /** WAL: BOOLEAN field. */
@@ -423,42 +432,44 @@ public class IndexMultiValuKeySerializerCompareTest {
   public void testWALBooleanField() {
     var types =
         new PropertyTypeInternal[] {PropertyTypeInternal.BOOLEAN, PropertyTypeInternal.LONG};
-    compareAndVerifyWAL(key(false, 1L), key(true, 1L), types);
-    compareAndVerifyWAL(key(true, 1L), key(true, 1L), types);
+    assertTrue(compareAndVerifyWAL(key(false, 1L), key(true, 1L), types) < 0);
+    assertEquals(0, compareAndVerifyWAL(key(true, 1L), key(true, 1L), types));
   }
 
   /** WAL: BYTE field. */
   @Test
   public void testWALByteField() {
     var types = new PropertyTypeInternal[] {PropertyTypeInternal.BYTE, PropertyTypeInternal.LONG};
-    compareAndVerifyWAL(key((byte) 1, 1L), key((byte) 2, 1L), types);
-    compareAndVerifyWAL(key((byte) 1, 1L), key((byte) 1, 1L), types);
+    assertTrue(compareAndVerifyWAL(key((byte) 1, 1L), key((byte) 2, 1L), types) < 0);
+    assertEquals(0, compareAndVerifyWAL(key((byte) 1, 1L), key((byte) 1, 1L), types));
   }
 
   /** WAL: STRING field (deserialization fallback in WAL path). */
   @Test
   public void testWALStringField() {
     var types = new PropertyTypeInternal[] {PropertyTypeInternal.STRING, PropertyTypeInternal.LONG};
-    compareAndVerifyWAL(key("abc", 1L), key("xyz", 1L), types);
-    compareAndVerifyWAL(key("abc", 1L), key("abc", 1L), types);
+    assertTrue(compareAndVerifyWAL(key("abc", 1L), key("xyz", 1L), types) < 0);
+    assertEquals(0, compareAndVerifyWAL(key("abc", 1L), key("abc", 1L), types));
   }
 
   /** WAL: LINK field (deserialization fallback in WAL path). */
   @Test
   public void testWALLinkField() {
     var types = new PropertyTypeInternal[] {PropertyTypeInternal.LINK, PropertyTypeInternal.LONG};
-    compareAndVerifyWAL(
-        key(new RecordId(1, 100), 1L), key(new RecordId(2, 100), 1L), types);
-    compareAndVerifyWAL(
-        key(new RecordId(1, 100), 1L), key(new RecordId(1, 100), 1L), types);
+    assertTrue(compareAndVerifyWAL(
+        key(new RecordId(1, 100), 1L), key(new RecordId(2, 100), 1L), types) < 0);
+    assertEquals(0, compareAndVerifyWAL(
+        key(new RecordId(1, 100), 1L), key(new RecordId(1, 100), 1L), types));
   }
 
   /** WAL: BINARY field (deserialization fallback in WAL path). */
   @Test
   public void testWALBinaryField() {
     var types = new PropertyTypeInternal[] {PropertyTypeInternal.BINARY, PropertyTypeInternal.LONG};
-    compareAndVerifyWAL(key(new byte[] {1, 2, 3}, 1L), key(new byte[] {1, 2, 4}, 1L), types);
-    compareAndVerifyWAL(key(new byte[] {1, 2, 3}, 1L), key(new byte[] {1, 2, 3}, 1L), types);
+    assertTrue(compareAndVerifyWAL(
+        key(new byte[] {1, 2, 3}, 1L), key(new byte[] {1, 2, 4}, 1L), types) < 0);
+    assertEquals(0, compareAndVerifyWAL(
+        key(new byte[] {1, 2, 3}, 1L), key(new byte[] {1, 2, 3}, 1L), types));
   }
 
   /** WAL: DECIMAL field (deserialization fallback in WAL path). */
@@ -466,8 +477,10 @@ public class IndexMultiValuKeySerializerCompareTest {
   public void testWALDecimalField() {
     var types =
         new PropertyTypeInternal[] {PropertyTypeInternal.DECIMAL, PropertyTypeInternal.LONG};
-    compareAndVerifyWAL(key(new BigDecimal("1.23"), 1L), key(new BigDecimal("4.56"), 1L), types);
-    compareAndVerifyWAL(key(new BigDecimal("1.23"), 1L), key(new BigDecimal("1.23"), 1L), types);
+    assertTrue(compareAndVerifyWAL(
+        key(new BigDecimal("1.23"), 1L), key(new BigDecimal("4.56"), 1L), types) < 0);
+    assertEquals(0, compareAndVerifyWAL(
+        key(new BigDecimal("1.23"), 1L), key(new BigDecimal("1.23"), 1L), types));
   }
 
   /** WAL: null handling. */
@@ -490,7 +503,7 @@ public class IndexMultiValuKeySerializerCompareTest {
   public void testWALMixedTypeComposite() {
     var types = new PropertyTypeInternal[] {
         PropertyTypeInternal.STRING, PropertyTypeInternal.INTEGER, PropertyTypeInternal.LONG};
-    compareAndVerifyWAL(key("abc", 10, 1L), key("abc", 20, 1L), types);
+    assertTrue(compareAndVerifyWAL(key("abc", 10, 1L), key("abc", 20, 1L), types) < 0);
     assertEquals(0, compareAndVerifyWAL(key("abc", 10, 1L), key("abc", 10, 1L), types));
   }
 
@@ -527,8 +540,8 @@ public class IndexMultiValuKeySerializerCompareTest {
     var types = new PropertyTypeInternal[] {PropertyTypeInternal.DATE, PropertyTypeInternal.LONG};
     var d1 = new Date(1000000000L);
     var d2 = new Date(2000000000L);
-    compareAndVerifyWAL(key(d1, 1L), key(d2, 1L), types);
-    compareAndVerifyWAL(key(d1, 1L), key(d1, 1L), types);
+    assertTrue(compareAndVerifyWAL(key(d1, 1L), key(d2, 1L), types) < 0);
+    assertEquals(0, compareAndVerifyWAL(key(d1, 1L), key(d1, 1L), types));
   }
 
   // --- Review-fix tests: LINK edge cases, non-zero offsets ---
@@ -537,9 +550,12 @@ public class IndexMultiValuKeySerializerCompareTest {
   @Test
   public void testLinkFieldPositionZero() {
     var types = new PropertyTypeInternal[] {PropertyTypeInternal.LINK, PropertyTypeInternal.LONG};
-    compareAndVerify(key(new RecordId(1, 0), 1L), key(new RecordId(1, 1), 1L), types);
-    compareAndVerify(key(new RecordId(1, 0), 1L), key(new RecordId(1, 0), 1L), types);
-    compareAndVerify(key(new RecordId(1, 0), 1L), key(new RecordId(2, 0), 1L), types);
+    assertTrue(compareAndVerify(
+        key(new RecordId(1, 0), 1L), key(new RecordId(1, 1), 1L), types) < 0);
+    assertEquals(0, compareAndVerify(
+        key(new RecordId(1, 0), 1L), key(new RecordId(1, 0), 1L), types));
+    assertTrue(compareAndVerify(
+        key(new RecordId(1, 0), 1L), key(new RecordId(2, 0), 1L), types) < 0);
   }
 
   /** LINK with asymmetric numberSize — 1-byte vs 2-byte position encoding. */
@@ -547,15 +563,18 @@ public class IndexMultiValuKeySerializerCompareTest {
   public void testLinkFieldAsymmetricNumberSize() {
     var types = new PropertyTypeInternal[] {PropertyTypeInternal.LINK, PropertyTypeInternal.LONG};
     // position=1 → numberSize=1, position=256 → numberSize=2
-    compareAndVerify(key(new RecordId(1, 1), 1L), key(new RecordId(1, 256), 1L), types);
+    assertTrue(compareAndVerify(
+        key(new RecordId(1, 1), 1L), key(new RecordId(1, 256), 1L), types) < 0);
     // position=255 → numberSize=1, position=256 → numberSize=2 (boundary)
-    compareAndVerify(key(new RecordId(1, 255), 1L), key(new RecordId(1, 256), 1L), types);
+    assertTrue(compareAndVerify(
+        key(new RecordId(1, 255), 1L), key(new RecordId(1, 256), 1L), types) < 0);
     // position=65535 → numberSize=2, position=65536 → numberSize=3
-    compareAndVerify(key(new RecordId(1, 65535), 1L), key(new RecordId(1, 65536), 1L), types);
+    assertTrue(compareAndVerify(
+        key(new RecordId(1, 65535), 1L), key(new RecordId(1, 65536), 1L), types) < 0);
     // Max position (8 bytes)
-    compareAndVerify(
+    assertTrue(compareAndVerify(
         key(new RecordId(1, Long.MAX_VALUE), 1L),
-        key(new RecordId(1, Long.MAX_VALUE - 1), 1L), types);
+        key(new RecordId(1, Long.MAX_VALUE - 1), 1L), types) > 0);
   }
 
   /** Verifies compareInByteBuffer works correctly with non-zero offsets in both buffers. */
@@ -582,5 +601,44 @@ public class IndexMultiValuKeySerializerCompareTest {
     result = SERIALIZER.compareInByteBuffer(serializerFactory, 0,
         ByteBuffer.wrap(bytes1).order(ByteOrder.nativeOrder()), paddedSearch, padding);
     assertTrue("'hello' < 'world'", result < 0);
+  }
+
+  // --- Additional boundary tests (track-level code review) ---
+
+  /** BINARY field with empty byte array — exercises zero-length field data in offset advancement. */
+  @Test
+  public void testBinaryFieldEmpty() {
+    var types = new PropertyTypeInternal[] {PropertyTypeInternal.BINARY, PropertyTypeInternal.LONG};
+    // Empty vs non-empty
+    assertTrue(compareAndVerify(
+        key(new byte[0], 1L), key(new byte[] {1}, 1L), types) < 0);
+    // Both empty, differ on version
+    assertTrue(compareAndVerify(key(new byte[0], 1L), key(new byte[0], 2L), types) < 0);
+    // Empty vs empty, same version
+    assertEquals(0, compareAndVerify(key(new byte[0], 1L), key(new byte[0], 1L), types));
+  }
+
+  /** STRING field with multi-byte UTF-8 characters (2-byte and 3-byte sequences). */
+  @Test
+  public void testStringFieldMultiByteUtf8() {
+    var types = new PropertyTypeInternal[] {PropertyTypeInternal.STRING, PropertyTypeInternal.LONG};
+    // Two-byte UTF-8: Latin Extended
+    assertTrue(compareAndVerify(key("\u00E9", 1L), key("\u00EA", 1L), types) < 0);
+    // Three-byte UTF-8: CJK characters
+    assertTrue(compareAndVerify(key("\u4E00", 1L), key("\u4E01", 1L), types) < 0);
+    // Mixed ASCII and multi-byte with shared prefix
+    assertTrue(compareAndVerify(key("abc\u00E9", 1L), key("abc\u00EA", 1L), types) < 0);
+  }
+
+  /** INTEGER field boundary values: MIN_VALUE, MAX_VALUE, zero. */
+  @Test
+  public void testIntegerFieldBoundary() {
+    var types =
+        new PropertyTypeInternal[] {PropertyTypeInternal.INTEGER, PropertyTypeInternal.LONG};
+    assertTrue(compareAndVerify(
+        key(Integer.MIN_VALUE, 1L), key(Integer.MAX_VALUE, 1L), types) < 0);
+    assertTrue(compareAndVerify(key(Integer.MIN_VALUE, 1L), key(0, 1L), types) < 0);
+    assertEquals(0, compareAndVerify(
+        key(Integer.MAX_VALUE, 1L), key(Integer.MAX_VALUE, 1L), types));
   }
 }

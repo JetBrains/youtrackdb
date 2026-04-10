@@ -530,6 +530,8 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
     final var pageKeysCount = buffer.getInt(bufferOffset);
     final var searchKeysCount =
         CONVERTER.getInt(serializedKey, keyOffset, ByteOrder.nativeOrder());
+    assert pageKeysCount >= 0 : "Negative pageKeysCount: " + pageKeysCount;
+    assert searchKeysCount >= 0 : "Negative searchKeysCount: " + searchKeysCount;
 
     bufferOffset += Integer.BYTES;
     keyOffset += Integer.BYTES;
@@ -650,6 +652,8 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
 
   /** Reconstructs a compacted cluster position from a page ByteBuffer. */
   private static long readCompactedPosition(ByteBuffer buffer, int offset, int numberSize) {
+    assert numberSize >= 0 && numberSize <= Long.BYTES
+        : "Invalid compacted position numberSize: " + numberSize;
     long position = 0;
     for (var i = 0; i < numberSize; i++) {
       position = position | ((long) (0xFF & buffer.get(offset + i)) << (i * 8));
@@ -659,6 +663,8 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
 
   /** Reconstructs a compacted cluster position from a native byte array. */
   private static long readCompactedPositionNative(byte[] stream, int offset, int numberSize) {
+    assert numberSize >= 0 && numberSize <= Long.BYTES
+        : "Invalid compacted position numberSize: " + numberSize;
     long position = 0;
     for (var i = 0; i < numberSize; i++) {
       position = position | ((long) (0xFF & stream[offset + i]) << (i * 8));
@@ -733,6 +739,8 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
     final var pageKeysCount = walChanges.getIntValue(buffer, pageOffset);
     final var searchKeysCount =
         CONVERTER.getInt(serializedKey, keyOffset, ByteOrder.nativeOrder());
+    assert pageKeysCount >= 0 : "Negative pageKeysCount: " + pageKeysCount;
+    assert searchKeysCount >= 0 : "Negative searchKeysCount: " + searchKeysCount;
 
     pageOffset += Integer.BYTES;
     keyOffset += Integer.BYTES;
