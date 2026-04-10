@@ -12,7 +12,7 @@ import javax.annotation.Nullable;
  * <p>The NOT IN condition is stripped from the target alias's WHERE clause at plan
  * time so that the preceding {@link MatchStep} does not re-evaluate it per row.
  * The stripped condition is stored in {@link #notInCondition} for runtime fallback:
- * if the hash table build fails, {@link BackRefHashJoinStep#handleBuildFailure}
+ * if the hash table build fails, {@link BackRefHashJoinStep#handleAntiJoinBuildFailure}
  * evaluates it per row (the slow but correct path).
  *
  * @param anchorAlias           the alias X whose forward edges provide the exclusion set

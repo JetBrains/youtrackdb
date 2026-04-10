@@ -3114,20 +3114,9 @@ public class MatchExecutionPlanner {
               // When edge class was propagated from the preceding edge, also
               // try chain semi-join which collapses both edges into one step.
               if (collectEdgeRids) {
-                var chainDesc = detectChainSemiJoin(
-                    schedule, j, involvedAliases, ridExpr, targetAliasJ,
-                    boundAliases, ctx);
-                if (chainDesc != null) {
-                  var consumed = schedule.get(j - 1);
-                  edgeJ.setSemiJoinDescriptor(chainDesc);
-                  consumed.setConsumed(true);
-                  edgeJ.setConsumedPredecessor(consumed);
-                  logger.debug(
-                      "MATCH pre-filter: ChainSemiJoin on edge[{},{}] "
-                          + "({}({}) chain semi-join via $matched.{})",
-                      j - 1, j, chainDesc.direction(), chainDesc.edgeClass(),
-                      chainDesc.backRefAlias());
-                }
+                tryAttachChainSemiJoin(
+                    schedule, j, edgeJ, involvedAliases, ridExpr,
+                    targetAliasJ, boundAliases, ctx);
               }
             }
           } else if (j > 0) {
@@ -3135,20 +3124,9 @@ public class MatchExecutionPlanner {
             // edge_j is .inV() (no edge class/direction). Check if the
             // preceding edge is .outE('E') or .inE('E') with a recognized
             // edge class. If so, collapse both into a ChainSemiJoin.
-            var chainDesc = detectChainSemiJoin(
-                schedule, j, involvedAliases, ridExpr, targetAliasJ,
-                boundAliases, ctx);
-            if (chainDesc != null) {
-              var consumed = schedule.get(j - 1);
-              edgeJ.setSemiJoinDescriptor(chainDesc);
-              consumed.setConsumed(true);
-              edgeJ.setConsumedPredecessor(consumed);
-              logger.debug(
-                  "MATCH pre-filter: ChainSemiJoin on edge[{},{}] "
-                      + "({}({}) chain semi-join via $matched.{})",
-                  j - 1, j, chainDesc.direction(), chainDesc.edgeClass(),
-                  chainDesc.backRefAlias());
-            }
+            tryAttachChainSemiJoin(
+                schedule, j, edgeJ, involvedAliases, ridExpr,
+                targetAliasJ, boundAliases, ctx);
           }
         } else {
           // Literal or parameter RID: @rid = #12:0 or @rid = :param
@@ -3252,10 +3230,11 @@ public class MatchExecutionPlanner {
 
   // FQN to avoid collision with com.jetbrains.youtrackdb...sql.parser.Pattern
   // Regex for $matched.X.out('E') or $matched.X.in('E')
-  // Group 1: alias name (X), Group 2: direction (out/in), Group 3: edge class (E)
+  // Group 1: alias name (X), Group 2: direction (out/in),
+  // Group 3: edge class (E) — with matched quotes or unquoted
   private static final java.util.regex.Pattern MATCHED_TRAVERSAL_PATTERN =
       java.util.regex.Pattern.compile(
-          "\\$matched\\.(\\w+)\\.(out|in)\\(['\"]?(\\w+)['\"]?\\)",
+          "\\$matched\\.(\\w+)\\.(out|in)\\((?:(['\"])(\\w+)\\3|(\\w+))\\)",
           java.util.regex.Pattern.CASE_INSENSITIVE);
 
   /**
@@ -3338,15 +3317,12 @@ public class MatchExecutionPlanner {
 
       var anchorAlias = matcher.group(1);
       var direction = matcher.group(2).toLowerCase(Locale.ROOT);
-      var edgeClass = matcher.group(3);
+      // Edge class is in group 4 (quoted) or group 5 (unquoted)
+      var edgeClass = matcher.group(4) != null
+          ? matcher.group(4) : matcher.group(5);
 
       // Anchor alias must be already bound
       if (!boundAliases.contains(anchorAlias)) {
-        continue;
-      }
-
-      // Edge class must be a valid identifier (sanity check on regex group)
-      if (!edgeClass.matches("[A-Za-z_][A-Za-z0-9_]*")) {
         continue;
       }
 
@@ -3467,6 +3443,36 @@ public class MatchExecutionPlanner {
         prevEdgeClass, direction, ridExpr,
         sourceAlias, backRefAlias, intermediateAlias,
         targetAliasJ, indexFilter);
+  }
+
+  /**
+   * Attempts to detect and attach a Pattern B (ChainSemiJoin) descriptor on
+   * {@code edgeJ}. If detection succeeds, the predecessor edge is marked as
+   * consumed so {@code addStepsFor()} skips it.
+   */
+  private void tryAttachChainSemiJoin(
+      List<EdgeTraversal> schedule,
+      int j,
+      EdgeTraversal edgeJ,
+      List<String> involvedAliases,
+      SQLExpression ridExpr,
+      String targetAliasJ,
+      Set<String> boundAliases,
+      CommandContext ctx) {
+    var chainDesc = detectChainSemiJoin(
+        schedule, j, involvedAliases, ridExpr, targetAliasJ,
+        boundAliases, ctx);
+    if (chainDesc != null) {
+      var consumed = schedule.get(j - 1);
+      edgeJ.setSemiJoinDescriptor(chainDesc);
+      consumed.setConsumed(true);
+      edgeJ.setConsumedPredecessor(consumed);
+      logger.debug(
+          "MATCH pre-filter: ChainSemiJoin on edge[{},{}] "
+              + "({}({}) chain semi-join via $matched.{})",
+          j - 1, j, chainDesc.direction(), chainDesc.edgeClass(),
+          chainDesc.backRefAlias());
+    }
   }
 
   /**

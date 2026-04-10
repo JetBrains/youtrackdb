@@ -78,11 +78,11 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
   @Nullable private final EdgeTraversal consumedEdge;
 
   /**
-   * LRU cache of hash tables keyed by back-referenced alias RID. Values are
-   * {@code Map<RID, Integer>} for Pattern A, {@code Map<RID, List<Result>>}
-   * for Pattern B, or {@code Set<RID>} for Pattern D. Access-order
-   * {@link LinkedHashMap} with automatic eviction of the eldest entry when
-   * capacity is exceeded.
+   * LRU cache keyed by back-referenced alias RID. Values are
+   * {@link CachedBuild} wrappers (containing the pattern-specific hash table
+   * and loaded entity) or the {@link #BUILD_FAILED} sentinel when the build
+   * phase failed. Access-order {@link LinkedHashMap} with automatic eviction
+   * of the eldest entry when capacity is exceeded.
    */
   @Nullable private LinkedHashMap<RID, Object> cache;
 
@@ -325,11 +325,9 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
       var results = new ArrayList<Result>();
       while (firstTraverser.hasNext(ctx)) {
         var intermediate = firstTraverser.next(ctx);
-        var secondTraverser = createFallbackTraverser(
-            intermediate, fallbackEdge);
-        while (secondTraverser.hasNext(ctx)) {
-          results.add(secondTraverser.next(ctx));
-        }
+        drainTraverser(
+            createFallbackTraverser(intermediate, fallbackEdge),
+            ctx, results);
       }
       return results.isEmpty()
           ? ExecutionStream.empty()
@@ -337,11 +335,24 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
     }
 
     // Pattern A: single-edge fallback
-    var traverser = createFallbackTraverser(row, fallbackEdge);
-    var results = new ArrayList<Result>();
+    return drainToStream(
+        createFallbackTraverser(row, fallbackEdge), ctx);
+  }
+
+  /** Drains all results from a traverser into the given list. */
+  private static void drainTraverser(
+      MatchEdgeTraverser traverser, CommandContext ctx,
+      List<Result> results) {
     while (traverser.hasNext(ctx)) {
       results.add(traverser.next(ctx));
     }
+  }
+
+  /** Drains a traverser into a stream. */
+  private static ExecutionStream drainToStream(
+      MatchEdgeTraverser traverser, CommandContext ctx) {
+    var results = new ArrayList<Result>();
+    drainTraverser(traverser, ctx, results);
     return results.isEmpty()
         ? ExecutionStream.empty()
         : ExecutionStream.resultIterator(results.iterator());
@@ -476,7 +487,12 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
     }
 
     var session = ctx.getDatabaseSession();
-    var initialCapacity = hashCapacity(linkBag.size(), maxSize);
+    // When an index filter is present, use its size as a tighter estimate
+    // to avoid over-allocating the map for a highly selective filter.
+    var sizeEstimate = indexRidSet != null
+        ? Math.min(linkBag.size(), indexRidSet.size())
+        : linkBag.size();
+    var initialCapacity = hashCapacity(sizeEstimate, maxSize);
     var result = new HashMap<RID, List<Result>>(initialCapacity);
     long count = 0;
     for (var pair : linkBag) {
@@ -545,7 +561,9 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
    */
   private static int hashCapacity(long size, long maxSize) {
     var effective = Math.min(size, maxSize > 0 ? maxSize : size);
-    return (int) Math.min(effective * 4 / 3 + 1, Integer.MAX_VALUE);
+    // Cap before multiplication to prevent long overflow
+    effective = Math.min(effective, Integer.MAX_VALUE);
+    return (int) (effective * 4 / 3 + 1);
   }
 
   @Nullable private static RID toRid(@Nullable Object value) {
