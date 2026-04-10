@@ -87,8 +87,8 @@ import org.junit.Test;
 
 /**
  * Tests that {@link PageOperationRegistry#registerAll(WALRecordsFactory)} correctly registers
- * all 63 Track 2-3, Track 5, and Track 6 PageOperation types so they can be deserialized by the
- * factory during recovery.
+ * all 78 Track 2-3, Track 5, Track 6, and Track 7a PageOperation types so they can be
+ * deserialized by the factory during recovery.
  */
 public class PageOperationRegistryTest {
 
@@ -98,7 +98,7 @@ public class PageOperationRegistryTest {
   }
 
   /**
-   * Verifies that all 63 registered record IDs survive a full WALRecordsFactory roundtrip:
+   * Verifies that all 78 registered record IDs survive a full WALRecordsFactory roundtrip:
    * toStream → fromStream. Uses non-zero field values for all parameters (including parent
    * fields) and verifies full field-level equality via equals(), not just class/ID match.
    */
@@ -218,6 +218,44 @@ public class PageOperationRegistryTest {
             0, new byte[] {4, 5, 6}, 1, 2, true),
         new BTreeMVBucketV2RemoveNonLeafEntryOp(
             pageIndex, fileId, opUnitId, initialLsn, 0, new byte[] {4, 5, 6}, 3),
+
+        // Track 7a: SBTreeNullBucketV2 (3 ops)
+        new SBTreeNullBucketV2InitOp(pageIndex, fileId, opUnitId, initialLsn),
+        new SBTreeNullBucketV2SetValueOp(
+            pageIndex, fileId, opUnitId, initialLsn, new byte[] {1, 2}),
+        new SBTreeNullBucketV2RemoveValueOp(pageIndex, fileId, opUnitId, initialLsn),
+
+        // Track 7a: SBTreeBucketV2 simple (5 ops)
+        new SBTreeBucketV2InitOp(pageIndex, fileId, opUnitId, initialLsn, true),
+        new SBTreeBucketV2SwitchBucketTypeOp(pageIndex, fileId, opUnitId, initialLsn),
+        new SBTreeBucketV2SetTreeSizeOp(pageIndex, fileId, opUnitId, initialLsn, 42L),
+        new SBTreeBucketV2SetLeftSiblingOp(pageIndex, fileId, opUnitId, initialLsn, 100L),
+        new SBTreeBucketV2SetRightSiblingOp(pageIndex, fileId, opUnitId, initialLsn, 200L),
+
+        // Track 7a: SBTreeBucketV2 entry + update (5 ops)
+        new SBTreeBucketV2AddLeafEntryOp(
+            pageIndex, fileId, opUnitId, initialLsn,
+            0, new byte[] {1, 2}, new byte[] {3, 4}),
+        new SBTreeBucketV2AddNonLeafEntryOp(
+            pageIndex, fileId, opUnitId, initialLsn,
+            0, new byte[] {1, 2}, 10L, 20L, true),
+        new SBTreeBucketV2RemoveLeafEntryOp(
+            pageIndex, fileId, opUnitId, initialLsn,
+            0, new byte[] {1, 2}, new byte[] {3, 4}),
+        new SBTreeBucketV2RemoveNonLeafEntryOp(
+            pageIndex, fileId, opUnitId, initialLsn,
+            0, new byte[] {1, 2}, 42),
+        new SBTreeBucketV2UpdateValueOp(
+            pageIndex, fileId, opUnitId, initialLsn,
+            0, new byte[] {10, 20}, 4),
+
+        // Track 7a: SBTreeBucketV2 bulk (2 ops)
+        new SBTreeBucketV2AddAllOp(
+            pageIndex, fileId, opUnitId, initialLsn,
+            List.of(new byte[] {1, 2, 3})),
+        new SBTreeBucketV2ShrinkOp(
+            pageIndex, fileId, opUnitId, initialLsn,
+            List.of(new byte[] {4, 5, 6})),
     };
 
     for (PageOperation op : ops) {

@@ -1,10 +1,16 @@
 package com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2;
 
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.CacheEntryChanges;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperationRegistry;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -648,5 +654,176 @@ public class SBTreeBucketV2EntryOpsTest {
     Assert.assertEquals(op1, op2);
     Assert.assertEquals(op1.hashCode(), op2.hashCode());
     Assert.assertNotEquals(op1, op3);
+  }
+
+  // ---- Conditional registration (T7) ----
+
+  /**
+   * addLeafEntry returns false on a full page and does NOT register an op (T7).
+   * Verifies the space-exhaustion branch exits before the registration call.
+   */
+  @Test
+  public void testAddLeafEntryDoesNotRegisterOnFullPage() {
+    var atomicOp = mock(AtomicOperation.class);
+    var changes = new CacheEntryChanges(false, atomicOp);
+
+    var bufferPool = ByteBufferPool.instance(null);
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var cp = new CachePointer(pointer, bufferPool, 0, 0);
+    cp.incrementReferrer();
+    CacheEntry delegate = new CacheEntryImpl(42, 7, cp, false, null);
+    delegate.acquireExclusiveLock();
+
+    try {
+      changes.setDelegate(delegate);
+      changes.setInitialLSN(new LogSequenceNumber(1, 100));
+
+      var page = new SBTreeBucketV2<>(changes);
+      page.init(true);
+
+      // Fill page until addLeafEntry returns false
+      byte[] key = new byte[64];
+      byte[] value = new byte[64];
+      int idx = 0;
+      while (page.addLeafEntry(idx, key, value)) {
+        idx++;
+      }
+      Assert.assertTrue("Page should have been filled with at least 1 entry", idx > 0);
+
+      org.mockito.Mockito.reset(atomicOp);
+
+      // This call should return false and NOT register an op
+      var result = page.addLeafEntry(idx, key, value);
+      Assert.assertFalse(result);
+
+      verify(atomicOp, never()).registerPageOperation(
+          org.mockito.ArgumentMatchers.anyLong(),
+          org.mockito.ArgumentMatchers.anyLong(),
+          org.mockito.ArgumentMatchers.any());
+    } finally {
+      delegate.releaseExclusiveLock();
+      cp.decrementReferrer();
+    }
+  }
+
+  /**
+   * addNonLeafEntry returns false on a full page and does NOT register an op (T7).
+   * Verifies the space-exhaustion branch exits before the registration call.
+   */
+  @Test
+  public void testAddNonLeafEntryDoesNotRegisterOnFullPage() {
+    var atomicOp = mock(AtomicOperation.class);
+    var changes = new CacheEntryChanges(false, atomicOp);
+
+    var bufferPool = ByteBufferPool.instance(null);
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var cp = new CachePointer(pointer, bufferPool, 0, 0);
+    cp.incrementReferrer();
+    CacheEntry delegate = new CacheEntryImpl(42, 7, cp, false, null);
+    delegate.acquireExclusiveLock();
+
+    try {
+      changes.setDelegate(delegate);
+      changes.setInitialLSN(new LogSequenceNumber(1, 100));
+
+      var page = new SBTreeBucketV2<>(changes);
+      page.init(false);
+
+      // Fill page until addNonLeafEntry returns false
+      byte[] key = new byte[64];
+      int idx = 0;
+      while (page.addNonLeafEntry(idx, key, (long) idx, (long) (idx + 1), false)) {
+        idx++;
+      }
+      Assert.assertTrue("Page should have been filled with at least 1 entry", idx > 0);
+
+      org.mockito.Mockito.reset(atomicOp);
+
+      var result = page.addNonLeafEntry(idx, key, 999L, 1000L, false);
+      Assert.assertFalse(result);
+
+      verify(atomicOp, never()).registerPageOperation(
+          org.mockito.ArgumentMatchers.anyLong(),
+          org.mockito.ArgumentMatchers.anyLong(),
+          org.mockito.ArgumentMatchers.any());
+    } finally {
+      delegate.releaseExclusiveLock();
+      cp.decrementReferrer();
+    }
+  }
+
+  // ---- Boundary tests ----
+
+  /**
+   * removeNonLeafEntry with prevChild=0: boundary of the >= 0 check that triggers the
+   * neighbor pointer update path. Validates both redo correctness and serialization roundtrip
+   * at the exact branch boundary.
+   */
+  @Test
+  public void testRemoveNonLeafEntryWithPrevChildZeroRedoCorrectness() {
+    var bufferPool = ByteBufferPool.instance(null);
+
+    var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cp1 = new CachePointer(pointer1, bufferPool, 0, 0);
+    cp1.incrementReferrer();
+    CacheEntry entry1 = new CacheEntryImpl(0, 0, cp1, false, null);
+    entry1.acquireExclusiveLock();
+
+    var pointer2 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cp2 = new CachePointer(pointer2, bufferPool, 0, 0);
+    cp2.incrementReferrer();
+    CacheEntry entry2 = new CacheEntryImpl(0, 0, cp2, false, null);
+    entry2.acquireExclusiveLock();
+
+    try {
+      var page1 = new SBTreeBucketV2<>(entry1);
+      page1.init(false);
+      var page2 = new SBTreeBucketV2<>(entry2);
+      page2.init(false);
+
+      byte[] key1 = {1, 2, 3, 4};
+      byte[] key2 = {5, 6, 7, 8};
+      byte[] key3 = {9, 10, 11, 12};
+      var lsn = new LogSequenceNumber(0, 0);
+
+      // Add 3 entries to both pages
+      page1.addNonLeafEntry(0, key1, 10L, 20L, false);
+      page1.addNonLeafEntry(1, key2, 20L, 30L, true);
+      page1.addNonLeafEntry(2, key3, 30L, 40L, true);
+
+      page2.addNonLeafEntry(0, key1, 10L, 20L, false);
+      page2.addNonLeafEntry(1, key2, 20L, 30L, true);
+      page2.addNonLeafEntry(2, key3, 30L, 40L, true);
+
+      // Remove middle entry with prevChild=0 — exact boundary of >= 0 check
+      page1.removeNonLeafEntry(1, key2, 0);
+      new SBTreeBucketV2RemoveNonLeafEntryOp(
+          0, 0, 0, lsn, 1, key2, 0).redo(page2);
+
+      Assert.assertEquals(0, cp1.getBuffer().compareTo(cp2.getBuffer()));
+      Assert.assertEquals(2, page2.size());
+    } finally {
+      entry1.releaseExclusiveLock();
+      entry2.releaseExclusiveLock();
+      cp1.decrementReferrer();
+      cp2.decrementReferrer();
+    }
+  }
+
+  @Test
+  public void testRemoveNonLeafEntryOpSerializationRoundtripZeroPrevChild() {
+    // prevChild=0 is the boundary between neighbor-update (>=0) and skip (<0)
+    var lsn = new LogSequenceNumber(2, 50);
+    var original = new SBTreeBucketV2RemoveNonLeafEntryOp(
+        10, 20, 30, lsn, 0, new byte[] {1, 2}, 0);
+
+    var content = new byte[original.serializedSize() + 1];
+    original.toStream(content, 1);
+
+    var deserialized = new SBTreeBucketV2RemoveNonLeafEntryOp();
+    deserialized.fromStream(content, 1);
+
+    Assert.assertEquals(0, deserialized.getPrevChild());
+    Assert.assertEquals(original, deserialized);
   }
 }
