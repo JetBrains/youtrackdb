@@ -489,6 +489,86 @@ public class SBTreeBucketV2BulkOpsTest {
   }
 
   /**
+   * shrink on a non-leaf bucket: non-leaf entries have leftChild(8)+rightChild(8)+key(4)=20 bytes.
+   * Verifies getRawEntry correctly captures the full non-leaf format during shrink.
+   */
+  @Test
+  public void testShrinkNonLeafToHalfRedoCorrectness() {
+    var bufferPool = ByteBufferPool.instance(null);
+    var serializerFactory = BinarySerializerFactory.create(
+        BinarySerializerFactory.currentBinaryFormatVersion());
+
+    var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer1 = new CachePointer(pointer1, bufferPool, 0, 0);
+    cachePointer1.incrementReferrer();
+    CacheEntry entry1 = new CacheEntryImpl(0, 0, cachePointer1, false, null);
+    entry1.acquireExclusiveLock();
+
+    var pointer2 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer2 = new CachePointer(pointer2, bufferPool, 0, 0);
+    cachePointer2.incrementReferrer();
+    CacheEntry entry2 = new CacheEntryImpl(0, 0, cachePointer2, false, null);
+    entry2.acquireExclusiveLock();
+
+    try {
+      var lsn = new LogSequenceNumber(0, 0);
+      // Non-leaf raw entries: leftChild(8) + rightChild(8) + key(4) = 20 bytes each
+      var e0 = new byte[] {
+          0, 0, 0, 0, 0, 0, 0, 1, // leftChild = 1
+          0, 0, 0, 0, 0, 0, 0, 2, // rightChild = 2
+          10, 0, 0, 0}; // key
+      var e1 = new byte[] {
+          0, 0, 0, 0, 0, 0, 0, 2,
+          0, 0, 0, 0, 0, 0, 0, 3,
+          20, 0, 0, 0};
+      var e2 = new byte[] {
+          0, 0, 0, 0, 0, 0, 0, 3,
+          0, 0, 0, 0, 0, 0, 0, 4,
+          30, 0, 0, 0};
+      var e3 = new byte[] {
+          0, 0, 0, 0, 0, 0, 0, 4,
+          0, 0, 0, 0, 0, 0, 0, 5,
+          40, 0, 0, 0};
+
+      // Setup both pages as non-leaf with 4 entries
+      var page1 = new SBTreeBucketV2<Integer, Long>(entry1);
+      page1.init(false);
+      page1.addAll(List.of(e0, e1, e2, e3), null, null);
+
+      var page2 = new SBTreeBucketV2<Integer, Long>(entry2);
+      page2.init(false);
+      page2.addAll(List.of(e0, e1, e2, e3), null, null);
+
+      // Capture retained entries (first 2) before shrink for redo
+      var retained = new ArrayList<byte[]>();
+      retained.add(page1.getRawEntry(
+          0, IntegerSerializer.INSTANCE, LongSerializer.INSTANCE, serializerFactory));
+      retained.add(page1.getRawEntry(
+          1, IntegerSerializer.INSTANCE, LongSerializer.INSTANCE, serializerFactory));
+
+      // Direct path: production shrink() to 2 entries
+      page1.shrink(2, IntegerSerializer.INSTANCE, LongSerializer.INSTANCE, serializerFactory);
+
+      // Redo path
+      new SBTreeBucketV2ShrinkOp(0, 0, 0, lsn, retained).redo(page2);
+
+      Assert.assertEquals(2, page1.size());
+      Assert.assertEquals(2, page2.size());
+      Assert.assertFalse(page1.isLeaf());
+      Assert.assertFalse(page2.isLeaf());
+
+      Assert.assertEquals(
+          "Page buffers must be identical after non-leaf shrink redo",
+          0, cachePointer1.getBuffer().compareTo(cachePointer2.getBuffer()));
+    } finally {
+      entry1.releaseExclusiveLock();
+      entry2.releaseExclusiveLock();
+      cachePointer1.decrementReferrer();
+      cachePointer2.decrementReferrer();
+    }
+  }
+
+  /**
    * Split scenario: init+addAll on new bucket, shrink on old bucket. Verifies both pages.
    */
   @Test
