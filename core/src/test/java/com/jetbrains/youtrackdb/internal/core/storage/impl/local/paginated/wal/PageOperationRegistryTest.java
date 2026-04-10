@@ -19,6 +19,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.MapEntryPoin
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2SetApproxRecordsCountOp;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2SetFileSizeOp;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.WriteableWALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2AddAllLeafEntriesOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2AddAllNonLeafEntriesOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2AddNonLeafEntryOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2AppendNewLeafEntryOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2CreateMainLeafEntryOp;
@@ -30,6 +32,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2RemoveNonLeafEntryOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2SetLeftSiblingOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2SetRightSiblingOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2ShrinkLeafEntriesOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2ShrinkNonLeafEntriesOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2SwitchBucketTypeOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVEntryPointV2InitOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVEntryPointV2SetEntryIdOp;
@@ -68,7 +72,7 @@ import org.junit.Test;
 
 /**
  * Tests that {@link PageOperationRegistry#registerAll(WALRecordsFactory)} correctly registers
- * all 59 Track 2-3, Track 5, and Track 6 PageOperation types so they can be deserialized by the
+ * all 63 Track 2-3, Track 5, and Track 6 PageOperation types so they can be deserialized by the
  * factory during recovery.
  */
 public class PageOperationRegistryTest {
@@ -79,7 +83,7 @@ public class PageOperationRegistryTest {
   }
 
   /**
-   * Verifies that all 59 registered record IDs survive a full WALRecordsFactory roundtrip:
+   * Verifies that all 63 registered record IDs survive a full WALRecordsFactory roundtrip:
    * toStream → fromStream. Uses non-zero field values for all parameters (including parent
    * fields) and verifies full field-level equality via equals(), not just class/ID match.
    */
@@ -219,17 +223,17 @@ public class PageOperationRegistryTest {
   /** Verifies the expected total count of registered types — catches accidentally omitted types. */
   @Test
   public void testRegisteredTypeCount() {
-    // IDs 201-259 = 59 types (18 Track 2-3 + 20 Track 5 + 21 Track 6). Each ID must have both a
+    // IDs 201-263 = 63 types (18 Track 2-3 + 20 Track 5 + 25 Track 6). Each ID must have both a
     // createOpForId entry and a factory registration. createOpForId throws for unknown IDs,
     // so any gap causes immediate failure.
     int registeredCount = 0;
     for (int id = WALRecordTypes.PAGE_OPERATION_ID_BASE + 1;
-        id <= WALRecordTypes.PAGE_OPERATION_ID_BASE + 59; id++) {
+        id <= WALRecordTypes.PAGE_OPERATION_ID_BASE + 63; id++) {
       var testOp = createMinimalRecord(id);
       Assert.assertNotNull("WAL record ID " + id + " failed to roundtrip", testOp);
       registeredCount++;
     }
-    Assert.assertEquals("Expected 59 registered PageOperation types", 59, registeredCount);
+    Assert.assertEquals("Expected 63 registered PageOperation types", 63, registeredCount);
   }
 
   /**
@@ -412,6 +416,16 @@ public class PageOperationRegistryTest {
               0, 0, 0, lsn, 0, new byte[] {}, 0, 0, false);
       case WALRecordTypes.BTREE_MV_BUCKET_V2_REMOVE_NON_LEAF_ENTRY_OP ->
           new BTreeMVBucketV2RemoveNonLeafEntryOp(0, 0, 0, lsn, 0, new byte[] {}, 0);
+
+      // Track 6: CellBTreeMultiValueV2Bucket bulk (4 ops)
+      case WALRecordTypes.BTREE_MV_BUCKET_V2_ADD_ALL_LEAF_ENTRIES_OP ->
+          new BTreeMVBucketV2AddAllLeafEntriesOp(0, 0, 0, lsn, List.of());
+      case WALRecordTypes.BTREE_MV_BUCKET_V2_ADD_ALL_NON_LEAF_ENTRIES_OP ->
+          new BTreeMVBucketV2AddAllNonLeafEntriesOp(0, 0, 0, lsn, List.of());
+      case WALRecordTypes.BTREE_MV_BUCKET_V2_SHRINK_LEAF_ENTRIES_OP ->
+          new BTreeMVBucketV2ShrinkLeafEntriesOp(0, 0, 0, lsn, List.of());
+      case WALRecordTypes.BTREE_MV_BUCKET_V2_SHRINK_NON_LEAF_ENTRIES_OP ->
+          new BTreeMVBucketV2ShrinkNonLeafEntriesOp(0, 0, 0, lsn, List.of());
 
       default -> throw new IllegalArgumentException("Unknown PageOperation ID: " + id);
     };

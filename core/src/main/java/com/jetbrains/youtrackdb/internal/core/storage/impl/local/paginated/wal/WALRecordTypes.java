@@ -314,4 +314,14 @@ public final class WALRecordTypes {
       PAGE_OPERATION_ID_BASE + 58;
   public static final int BTREE_MV_BUCKET_V2_REMOVE_NON_LEAF_ENTRY_OP =
       PAGE_OPERATION_ID_BASE + 59;
+
+  // CellBTreeMultiValueV2Bucket bulk operations (Track 6)
+  public static final int BTREE_MV_BUCKET_V2_ADD_ALL_LEAF_ENTRIES_OP =
+      PAGE_OPERATION_ID_BASE + 60;
+  public static final int BTREE_MV_BUCKET_V2_ADD_ALL_NON_LEAF_ENTRIES_OP =
+      PAGE_OPERATION_ID_BASE + 61;
+  public static final int BTREE_MV_BUCKET_V2_SHRINK_LEAF_ENTRIES_OP =
+      PAGE_OPERATION_ID_BASE + 62;
+  public static final int BTREE_MV_BUCKET_V2_SHRINK_NON_LEAF_ENTRIES_OP =
+      PAGE_OPERATION_ID_BASE + 63;
 }

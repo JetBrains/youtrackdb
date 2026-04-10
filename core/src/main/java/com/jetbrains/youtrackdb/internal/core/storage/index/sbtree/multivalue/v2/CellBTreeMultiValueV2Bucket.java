@@ -786,6 +786,42 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
     }
 
     setIntValue(SIZE_OFFSET, currentSize + entries.size());
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      if (isLeaf) {
+        var leafData =
+            new ArrayList<BTreeMVBucketV2AddAllLeafEntriesOp.LeafEntryData>(entries.size());
+        for (var e : entries) {
+          var le = (LeafEntry) e;
+          var ridData =
+              new ArrayList<BTreeMVBucketV2AddAllLeafEntriesOp.RidData>(le.values.size());
+          for (var rid : le.values) {
+            ridData.add(new BTreeMVBucketV2AddAllLeafEntriesOp.RidData(
+                (short) rid.getCollectionId(), rid.getCollectionPosition()));
+          }
+          leafData.add(new BTreeMVBucketV2AddAllLeafEntriesOp.LeafEntryData(
+              le.key, le.mId, le.entriesCount, ridData));
+        }
+        cec.registerPageOperation(
+            new BTreeMVBucketV2AddAllLeafEntriesOp(
+                cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+                0, cec.getInitialLSN(), leafData));
+      } else {
+        var nonLeafData =
+            new ArrayList<BTreeMVBucketV2AddAllNonLeafEntriesOp.NonLeafEntryData>(
+                entries.size());
+        for (var e : entries) {
+          var nle = (NonLeafEntry) e;
+          nonLeafData.add(new BTreeMVBucketV2AddAllNonLeafEntriesOp.NonLeafEntryData(
+              nle.key, nle.leftChild, nle.rightChild));
+        }
+        cec.registerPageOperation(
+            new BTreeMVBucketV2AddAllNonLeafEntriesOp(
+                cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+                0, cec.getInitialLSN(), nonLeafData));
+      }
+    }
   }
 
   public void shrink(
@@ -826,6 +862,27 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
         index++;
       }
 
+      var cacheEntry = getCacheEntry();
+      if (cacheEntry instanceof CacheEntryChanges cec) {
+        var leafData =
+            new ArrayList<BTreeMVBucketV2AddAllLeafEntriesOp.LeafEntryData>(
+                entriesToAdd.size());
+        for (var le : entriesToAdd) {
+          var ridData =
+              new ArrayList<BTreeMVBucketV2AddAllLeafEntriesOp.RidData>(le.values.size());
+          for (var rid : le.values) {
+            ridData.add(new BTreeMVBucketV2AddAllLeafEntriesOp.RidData(
+                (short) rid.getCollectionId(), rid.getCollectionPosition()));
+          }
+          leafData.add(new BTreeMVBucketV2AddAllLeafEntriesOp.LeafEntryData(
+              le.key, le.mId, le.entriesCount, ridData));
+        }
+        cec.registerPageOperation(
+            new BTreeMVBucketV2ShrinkLeafEntriesOp(
+                cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+                0, cec.getInitialLSN(), leafData));
+      }
+
     } else {
       final List<NonLeafEntry> entries = new ArrayList<>(newSize);
 
@@ -846,7 +903,35 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
         doAddNonLeafEntry(index, entry.key, entry.leftChild, entry.rightChild, false);
         index++;
       }
+
+      var cacheEntry = getCacheEntry();
+      if (cacheEntry instanceof CacheEntryChanges cec) {
+        var nonLeafData =
+            new ArrayList<BTreeMVBucketV2AddAllNonLeafEntriesOp.NonLeafEntryData>(
+                entries.size());
+        for (var nle : entries) {
+          nonLeafData.add(new BTreeMVBucketV2AddAllNonLeafEntriesOp.NonLeafEntryData(
+              nle.key, nle.leftChild, nle.rightChild));
+        }
+        cec.registerPageOperation(
+            new BTreeMVBucketV2ShrinkNonLeafEntriesOp(
+                cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+                0, cec.getInitialLSN(), nonLeafData));
+      }
     }
+  }
+
+  /**
+   * Resets the page (freePointer to MAX_PAGE_SIZE_BYTES, size to 0) and re-adds all entries.
+   * Used by shrink redo during recovery — called with {@code changes=null} so no PageOperation
+   * registration occurs (D4 redo suppression).
+   */
+  void resetAndAddAll(List<? extends Entry> entries) {
+    setIntValue(FREE_POINTER_OFFSET, MAX_PAGE_SIZE_BYTES);
+    setIntValue(SIZE_OFFSET, 0);
+    addAll(entries);
+    assert size() == entries.size()
+        : "resetAndAddAll: expected size " + entries.size() + " but got " + size();
   }
 
   public boolean createMainLeafEntry(
