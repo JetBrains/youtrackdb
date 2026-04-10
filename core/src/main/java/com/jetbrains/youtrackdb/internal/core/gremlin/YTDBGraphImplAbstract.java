@@ -21,8 +21,10 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.DDLStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ParseException;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAlterSequenceStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBeginStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLCommitStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLDropSequenceStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRollbackStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.TokenMgrError;
@@ -270,7 +272,12 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
       return SqlCommandExecutionResult.unit();
     }
 
-    if (statement instanceof DDLStatement) {
+    // Sequence DDL statements (ALTER SEQUENCE, DROP SEQUENCE) read sequence metadata internally,
+    // which requires an active transaction. Route them through the regular tx-aware path (like
+    // non-DDL statements) instead of the no-tx schema session used by other DDL.
+    if (statement instanceof DDLStatement
+        && !(statement instanceof SQLAlterSequenceStatement)
+        && !(statement instanceof SQLDropSequenceStatement)) {
       try (var schemaSession = acquireSession()) {
         schemaSession.command(statement, params);
       }

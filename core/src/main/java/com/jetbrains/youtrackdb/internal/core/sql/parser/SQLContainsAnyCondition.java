@@ -106,18 +106,16 @@ public class SQLContainsAnyCondition extends SQLBooleanExpression {
       while (iter.hasNext()) {
         var item = iter.next();
         if (item instanceof Identifiable) {
-          if (!rightBlock.evaluate((Identifiable) item, ctx)) {
-            return false;
+          if (rightBlock.evaluate((Identifiable) item, ctx)) {
+            return true;
           }
         } else if (item instanceof Result) {
-          if (!rightBlock.evaluate((Result) item, ctx)) {
-            return false;
+          if (rightBlock.evaluate((Result) item, ctx)) {
+            return true;
           }
-        } else {
-          return false;
         }
       }
-      return true;
+      return false;
     }
   }
 
@@ -135,18 +133,16 @@ public class SQLContainsAnyCondition extends SQLBooleanExpression {
       while (iter.hasNext()) {
         var item = iter.next();
         if (item instanceof Identifiable) {
-          if (!rightBlock.evaluate((Identifiable) item, ctx)) {
-            return false;
+          if (rightBlock.evaluate((Identifiable) item, ctx)) {
+            return true;
           }
         } else if (item instanceof Result) {
-          if (!rightBlock.evaluate((Result) item, ctx)) {
-            return false;
+          if (rightBlock.evaluate((Result) item, ctx)) {
+            return true;
           }
-        } else {
-          return false;
         }
       }
-      return true;
+      return false;
     }
   }
 
@@ -279,7 +275,7 @@ public class SQLContainsAnyCondition extends SQLBooleanExpression {
   @Override
   public SQLBooleanExpression rewriteIndexChainsAsSubqueries(CommandContext ctx,
       SchemaClassInternal clazz) {
-    if (right.isEarlyCalculated(ctx) && left.isIndexChain(ctx, clazz)) {
+    if (right != null && right.isEarlyCalculated(ctx) && left.isIndexChain(ctx, clazz)) {
       var result = new SQLContainsAnyCondition(-1);
 
       result.left = new SQLExpression(-1);
@@ -372,7 +368,7 @@ public class SQLContainsAnyCondition extends SQLBooleanExpression {
 
   @Override
   public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
-    if (left.isBaseIdentifier()) {
+    if (right != null && left.isBaseIdentifier()) {
       if (info.fieldName().equals(left.getDefaultAlias().getStringValue())) {
         return right.isEarlyCalculated(info.ctx());
       }
@@ -406,6 +402,9 @@ public class SQLContainsAnyCondition extends SQLBooleanExpression {
   @Override
   @Nullable
   public IndexCandidate findIndex(IndexFinder info, CommandContext ctx) {
+    if (right == null) {
+      return null;
+    }
     var path = left.getIndexMetadataPath(ctx.getDatabaseSession());
     if (path != null) {
       if (right.isEarlyCalculated(ctx)) {

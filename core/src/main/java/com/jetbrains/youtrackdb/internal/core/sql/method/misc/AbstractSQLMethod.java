@@ -86,8 +86,7 @@ public abstract class AbstractSQLMethod implements SQLMethod {
     return maxparams;
   }
 
-  @Nullable
-  protected static Object getParameterValue(DatabaseSessionEmbedded db, final Result iRecord,
+  @Nullable protected static Object getParameterValue(DatabaseSessionEmbedded db, final Result iRecord,
       final String iValue) {
     if (iValue == null) {
       return null;
@@ -102,7 +101,13 @@ public abstract class AbstractSQLMethod implements SQLMethod {
       return null;
     }
 
-    return iRecord.getProperty(iValue);
+    try {
+      return iRecord.getProperty(iValue);
+    } catch (Exception e) {
+      // Value is not a valid property name (e.g. a format string like "%-011d"),
+      // return null so callers fall through to the static value path.
+      return null;
+    }
   }
 
   @Override

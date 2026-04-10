@@ -66,7 +66,7 @@ public class MultiValue {
         || Map.class.isAssignableFrom(iType)
         || MultiCollectionIterator.class.isAssignableFrom(iType)
         || (Iterable.class.isAssignableFrom(iType)
-        && !Identifiable.class.isAssignableFrom(iType))
+            && !Identifiable.class.isAssignableFrom(iType))
         || BasicResultSet.class.isAssignableFrom(iType);
   }
 
@@ -146,8 +146,7 @@ public class MultiValue {
    * @param value Multi-value object (array, collection or map)
    * @return The first item if any
    */
-  @Nullable
-  public static Object getFirstValue(final Object value) {
+  @Nullable public static Object getFirstValue(final Object value) {
     if (value == null) {
       return null;
     }
@@ -190,8 +189,7 @@ public class MultiValue {
    * @param valu Multi-value object (array, collection or map)
    * @return The last item if any
    */
-  @Nullable
-  public static Object getLastValue(final Object valu) {
+  @Nullable public static Object getLastValue(final Object valu) {
     if (valu == null) {
       return null;
     }
@@ -243,8 +241,7 @@ public class MultiValue {
    * @param iIndex  integer as the position requested
    * @return The first item if any
    */
-  @Nullable
-  public static Object getValue(final Object iObject, final int iIndex) {
+  @Nullable public static Object getValue(final Object iObject, final int iIndex) {
     if (iObject == null) {
       return null;
     }
@@ -329,8 +326,7 @@ public class MultiValue {
    *
    * @param iObject Multi-value object (array, collection or map)
    */
-  @Nullable
-  public static Iterable<Object> getMultiValueIterable(final Object iObject) {
+  @Nullable public static Iterable<Object> getMultiValueIterable(final Object iObject) {
     if (iObject == null) {
       return null;
     }
@@ -345,7 +341,7 @@ public class MultiValue {
       return new IterableObjectArray<Object>(iObject);
     } else if (iObject instanceof Iterator<?>) {
       final List<Object> temp = new ArrayList<Object>();
-      for (var it = (Iterator<Object>) iObject; it.hasNext(); ) {
+      for (var it = (Iterator<Object>) iObject; it.hasNext();) {
         temp.add(it.next());
       }
       return temp;
@@ -360,8 +356,7 @@ public class MultiValue {
    *
    * @param iObject Multi-value object (array, collection or map)
    */
-  @Nullable
-  public static Iterator<?> getMultiValueIterator(final Object iObject) {
+  @Nullable public static Iterator<?> getMultiValueIterator(final Object iObject) {
     switch (iObject) {
       case null -> {
         return null;
@@ -398,7 +393,7 @@ public class MultiValue {
       final var coll = (Iterable<Object>) iObject;
 
       sb.append('[');
-      for (final var it = coll.iterator(); it.hasNext(); ) {
+      for (final var it = coll.iterator(); it.hasNext();) {
         try {
           var e = it.next();
           sb.append(e == iObject ? "(this Collection)" : e);
@@ -416,7 +411,7 @@ public class MultiValue {
       Entry<String, Object> e;
 
       sb.append('{');
-      for (final var it = map.entrySet().iterator(); it.hasNext(); ) {
+      for (final var it = map.entrySet().iterator(); it.hasNext();) {
         try {
           e = it.next();
 
@@ -549,7 +544,11 @@ public class MultiValue {
         if (iToRemove instanceof Collection<?>) {
           // COLLECTION - COLLECTION
           for (var o : (Collection<Object>) iToRemove) {
-            if (isMultiValue(o)) {
+            if (o instanceof Map<?, ?>) {
+              // Maps inside a list are single embedded elements — remove them as-is,
+              // not by decomposing into keys (which the MAP branch would do).
+              removeFromOCollection(coll, o, iAllOccurrences);
+            } else if (isMultiValue(o)) {
               remove(coll, o, iAllOccurrences);
             } else {
               removeFromOCollection(coll, o, iAllOccurrences);
@@ -700,8 +699,7 @@ public class MultiValue {
     return array(iValue, iClass, null);
   }
 
-  @Nullable
-  public static <T> T[] array(
+  @Nullable public static <T> T[] array(
       final Object iValue,
       final Class<? extends T> iClass,
       final CallableFunction<Object, Object> iCallback) {
@@ -721,7 +719,7 @@ public class MultiValue {
     } else if (isIterable(iValue)) {
       // SIZE UNKNOWN: USE A LIST AS TEMPORARY OBJECT
       final List<T> temp = new ArrayList<T>();
-      for (var it = (Iterator<T>) getMultiValueIterator(iValue); it.hasNext(); ) {
+      for (var it = (Iterator<T>) getMultiValueIterator(iValue); it.hasNext();) {
         temp.add((T) convert(it.next(), iCallback));
       }
 
@@ -786,7 +784,6 @@ public class MultiValue {
     return false;
   }
 
-
   public static boolean contains(final Object iObject, final Function<Object, Boolean> iPredicate) {
     var iterator = getMultiValueIterator(iObject);
     if (iterator == null) {
@@ -799,7 +796,6 @@ public class MultiValue {
     }
     return false;
   }
-
 
   public static int indexOf(final Object iObject, final Object iItem) {
     if (iObject == null) {

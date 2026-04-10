@@ -7,7 +7,7 @@
 [![Reddit](https://img.shields.io/badge/Reddit-%23FF4500.svg?style=for-the-badge&logo=Reddit&logoColor=white)](https://www.reddit.com/r/youtrackdb/)<br/>
 
 ------
-[Issue tracker](https://youtrack.jetbrains.com/issues/YTDB) | [Knowledge base](https://youtrack.jetbrains.com/articles/YTDB) | [Roadmap](https://youtrack.jetbrains.com/articles/YTDB-A-3/Project-roadmap)
+[Issue tracker](https://youtrack.jetbrains.com/issues/YTDB) | [Getting started](docs/getting-started.md)
 
 ### Join our Zulip community!
 
@@ -23,17 +23,24 @@ YouTrackDB is being supported and developed by JetBrains and is used internally 
 YouTrackDB's key features are:
 1. **Fast data processing**: Links traversal is processed with O(1) complexity. There are no
    expensive run-time JOINs.
-2. **Object-oriented API**: This API implements rich graph and object-oriented data models.
-   Fundamental concepts of inheritance and polymorphism are implemented on the database level.
+2. **[Object-oriented API](docs/object-oriented.md)**: This API implements rich graph and
+   object-oriented data models. Fundamental concepts of
+   [inheritance and polymorphism](docs/yql/YQL-Create-Class.md) are implemented on the database
+   level.
 3. **Implementation of TinkerPop API and [Gremlin query language](https://tinkerpop.apache.org/)**:
    You can use both Gremlin query language for your queries and TinkerPop API out of the box. 
    Support of `GQL` with seamless integration with `Gremlin` is [in progress](https://youtrackdb.zulipchat.com/#narrow/channel/511446-dev/topic/GQL.20.20implementation/with/567918479).
-4. **Scalable development workflow**: YouTrackDB works in schema-less, schema-mixed, and schema-full
+   For maximum query performance, we suggest using [YQL](docs/yql/YQL-Introduction.md) for initial
+   data prefetching.
+4. **[YQL](docs/yql/YQL-Introduction.md) (YouTrackDB Query Language)**: A SQL-based query language
+   with extensions for graph functionality. YQL uses intuitive dot notation for link traversal
+   instead of JOINs, supports the powerful [MATCH statement](docs/yql/YQL-Match.md) for graph
+   pattern matching, and includes automatic index usage for query optimization.
+5. **Scalable development workflow**: YouTrackDB works in schema-less, schema-mixed, and schema-full
    modes.
-5. **Strong security**: A strong security profiling system based on user, role, and predicate
-   security. (Currently implemented using a private API. Implementation of the public API is in
-   progress.)
-6. **Encryption of data at rest**: Optionally encrypts all data stored on disk.
+6. **[Strong security](docs/security.md)**: A strong security profiling system based on user, role,
+   and predicate [security policies](docs/yql/YQL-Create-Security-Policy.md).
+7. **Encryption of data at rest**: Optionally encrypts all data stored on disk.
 
 ### Easy to install and use
 
@@ -113,114 +120,12 @@ docker run -p 8182:8182 \
 
 and provide root password for the database in the `secrets/root_password` file.
 
-YourTrackDB requires at least JDK 21.
+YouTrackDB requires at least JDK 21.
 
-To start to work with YouTrackDB:
+To learn how to use YouTrackDB, see the [Getting Started](docs/getting-started.md) guide.
 
-<!-- embedme examples/src/main/java/io/youtrackdb/examples/ReadmeExample.java -->
-
-```java
-package io.youtrackdb.examples;
-
-import static org.apache.tinkerpop.gremlin.process.traversal.P.gt;
-
-import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.gremlin.YTDBDemoGraphFactory;
-import com.jetbrains.youtrackdb.internal.core.gremlin.io.YTDBIoRegistry;
-import org.apache.tinkerpop.gremlin.structure.io.graphson.GraphSONMapper;
-import org.apache.tinkerpop.gremlin.structure.io.graphson.GraphSONVersion;
-
-/// Minimal example of usage of YouTrackDB as an embedded database.
-/// This file is embedded into README.md by embedme — keep it self-contained.
-public class ReadmeExample {
-
-  public static void main(String[] args) throws Exception {
-    // Create a YouTrackDB database manager instance and provide the root
-    // folder where all databases will be stored.
-    // We work with in-memory databases here, so we use "." as a root folder.
-    try (var ytdb = YourTracks.instance(".")) {
-      // Use YourTracks.instance("localhost", "root-name", "root-password")
-      // if you want to connect to a server instead.
-
-      // Create the database with demo data to play with it.
-      try (var traversalSource = YTDBDemoGraphFactory.createModern(ytdb)) {
-        // Prepare GraphSONMapper to check our results.
-        var jsonMapper = GraphSONMapper.build()
-            .version(GraphSONVersion.V1_0) // use the simplest version for brevity
-            .addRegistry(YTDBIoRegistry.instance()) // add serializer for custom types
-            .create().createMapper();
-
-        // YTDB data manipulation is performed inside a transaction.
-        // YTDBGraphTraversal will start a transaction automatically if one is
-        // not started yet, but then you need to commit it manually and the
-        // transaction borders become diluted.  We suggest using the
-        // lambda-style API to automatically start/commit/rollback transactions.
-        traversalSource.executeInTx(g -> {
-          // Find a vertex with class "person" and property "name" equal to "marko".
-          var v = g.V().has("person", "name", "marko").next();
-          System.out.println("output:" + jsonMapper.writeValueAsString(v));
-          // output:{
-          //   "id":{..},
-          //   "label":"person",
-          //   "type":"vertex",
-          //   "properties":{
-          //     "name":[{"id":{..},"value":"marko"}],
-          //     "age":[{"id":{..},"value":29}]
-          //   }
-          // }
-
-          // Get the names of the people the vertex knows who are over 30.
-          var friendNames = g.V(v.id()).out("knows").has("age",
-              gt(30)).<String>values("name").toList();
-          System.out.println("output:" + String.join(", ", friendNames));
-          // output: josh
-        });
-
-        // Create an empty database with the name "tg", username "superuser",
-        // admin role and password "adminpwd".
-        ytdb.create("tg", DatabaseType.MEMORY, "superuser", "adminpwd", "admin");
-        // Open a YTDBGraphTraversal instance for the new database.
-        try (var newTraversal = ytdb.openTraversal("tg", "superuser", "adminpwd")) {
-          newTraversal.executeInTx(g -> {
-            // Create a vertex with class(label) "person" and properties.
-            var v1 = g.addV("person")
-                .property("name", "marko").property("age", 29).next();
-            System.out.println("output:" + jsonMapper.writeValueAsString(v1));
-            // output:{
-            //   "id":{..},
-            //   "label":"person",
-            //   "type":"vertex",
-            //   "properties":{
-            //     "name":[{"id":{..},"value":"marko"}],
-            //     "age":[{"id":{..},"value":29}]
-            //   }
-            // }
-
-            // Create a vertex with class(label) "software" and properties.
-            var v2 = g.addV("software")
-                .property("name", "lop").property("lang", "java").next();
-            // Connect both vertices by "created" relation.
-            // We need to call iterate() here to execute the traversal flow.
-            g.addE("created").from(v1).to(v2).property("weight", 0.4).iterate();
-          });
-
-          // Check the results of data modification after commit.
-          traversalSource.executeInTx(g -> {
-            var createdSoftware = g.V().has("person", "name", "marko")
-                .out("created").<String>values("name").toList();
-            System.out.println("output:" + String.join(", ", createdSoftware));
-            // output: lop
-          });
-        }
-      }
-    }
-  }
-}
-```
-
-To check the full examples of usage of YouTrackDB both for server and embedded deployments of YTDB,
-please check out our [examples](examples/src/main/java/io/youtrackdb/examples) project.
+For more examples covering both server and embedded deployments, check out the
+[examples](examples/src/main/java/io/youtrackdb/examples) project.
 
 ## Stargazers over time
 

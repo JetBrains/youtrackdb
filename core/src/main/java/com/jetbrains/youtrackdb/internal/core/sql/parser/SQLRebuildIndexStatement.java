@@ -9,7 +9,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 import java.util.Map;
 import java.util.Objects;
 
-public class SQLRebuildIndexStatement extends SQLSimpleExecStatement {
+public class SQLRebuildIndexStatement extends DDLStatement {
 
   protected boolean all = false;
   protected SQLIndexName name;
@@ -23,7 +23,7 @@ public class SQLRebuildIndexStatement extends SQLSimpleExecStatement {
   }
 
   @Override
-  public ExecutionStream executeSimple(CommandContext ctx) {
+  public ExecutionStream executeDDL(CommandContext ctx) {
     final var session = ctx.getDatabaseSession();
     var result = new ResultInternal(session);
     result.setProperty("operation", "rebuild index");

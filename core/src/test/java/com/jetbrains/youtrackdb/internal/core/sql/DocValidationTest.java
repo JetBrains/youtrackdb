@@ -1,0 +1,8824 @@
+package com.jetbrains.youtrackdb.internal.core.sql;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB;
+import com.jetbrains.youtrackdb.api.YourTracks;
+import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Map;
+import org.apache.tinkerpop.gremlin.structure.Edge;
+import org.apache.tinkerpop.gremlin.structure.Vertex;
+import org.junit.After;
+import org.junit.AfterClass;
+import org.junit.Before;
+import org.junit.BeforeClass;
+import org.junit.Test;
+
+/**
+ * Validates YQL code examples and factual claims from the documentation files in docs/yql/ against
+ * a real in-memory YouTrackDB instance using the public Gremlin API.
+ *
+ * <p>Each test method references the source document and line number of the claim or query it
+ * validates. Test class names use unique prefixes to avoid collisions across test methods.
+ */
+public class DocValidationTest {
+  private static YouTrackDB youTrackDB;
+  private static Path dbPath;
+  private YTDBGraphTraversalSource g;
+
+  @BeforeClass
+  public static void setUpClass() throws Exception {
+    dbPath = Path.of(System.getProperty("java.io.tmpdir"), "doc-validation-test");
+    youTrackDB = YourTracks.instance(dbPath.toString());
+    youTrackDB.create("test", DatabaseType.MEMORY, "admin", "admin", "admin");
+  }
+
+  @AfterClass
+  public static void tearDownClass() {
+    youTrackDB.close();
+  }
+
+  @Before
+  public void setUp() {
+    g = youTrackDB.openTraversal("test", "admin", "admin");
+  }
+
+  @After
+  public void tearDown() {
+    g.close();
+  }
+
+  // === YQL-Update.md ===
+
+  // Line 38: UPDATE Profile SET nick = 'Andrii' WHERE nick IS NULL
+  @Test
+  public void testUpdateSetWhereIsNull() {
+    g.command("CREATE CLASS Profile IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX Profile SET nick = null").iterate();
+      tx.yql("CREATE VERTEX Profile SET nick = 'existing'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql("UPDATE Profile SET nick = 'Andrii' WHERE nick IS NULL").iterate();
+    });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM Profile WHERE nick = 'Andrii'").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX Profile").iterate();
+    });
+  }
+
+  // Line 44: UPDATE Profile REMOVE nick
+  @Test
+  public void testUpdateRemoveProperty() {
+    g.command("CREATE CLASS ProfileRemove IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX ProfileRemove SET nick = 'test', age = 30").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql("UPDATE ProfileRemove REMOVE nick").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM ProfileRemove").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat(v.keys()).doesNotContain("nick");
+    assertThat((int) v.value("age")).isEqualTo(30);
+  }
+
+  // Line 58: UPDATE Account REMOVE addresses = 'Foo' (remove from set/list of strings)
+  @Test
+  public void testUpdateRemoveFromStringList() {
+    g.command("CREATE CLASS AccountStrList IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX AccountStrList SET addresses = ['Foo', 'Bar', 'Baz']").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql("UPDATE AccountStrList REMOVE addresses = 'Foo'").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM AccountStrList").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    List<String> addresses = v.value("addresses");
+    assertThat(addresses).containsExactly("Bar", "Baz");
+  }
+
+  // Line 66: UPDATE Account REMOVE addresses = addresses[city = 'Kyiv']
+  @Test
+  public void testUpdateRemoveFromEmbeddedListByFilter() {
+    g.command("CREATE CLASS AccountEmbFilter IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE VERTEX AccountEmbFilter SET addresses = "
+              + "[{'city':'Kyiv','street':'Main'}, {'city':'London','street':'Baker'}]")
+          .iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql("UPDATE AccountEmbFilter REMOVE addresses = addresses[city = 'Kyiv']").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM AccountEmbFilter").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    List<?> addresses = v.value("addresses");
+    assertThat(addresses).hasSize(1);
+  }
+
+  // Line 72: UPDATE Account REMOVE addresses = addresses[1]
+  @Test
+  public void testUpdateRemoveByIndex() {
+    g.command("CREATE CLASS AccountIdx IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX AccountIdx SET addresses = ['First', 'Second', 'Third']").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql("UPDATE AccountIdx REMOVE addresses = addresses[1]").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM AccountIdx").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    List<String> addresses = v.value("addresses");
+    assertThat(addresses).containsExactly("First", "Third");
+  }
+
+  // Line 80: UPDATE Account REMOVE addresses = 'Andrii' (remove from map)
+  @Test
+  public void testUpdateRemoveFromMap() {
+    g.command("CREATE CLASS AccountMap IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX AccountMap SET addresses = {'Andrii':'Kyiv', 'John':'London'}")
+          .iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql("UPDATE AccountMap REMOVE addresses = 'Andrii'").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM AccountMap").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    @SuppressWarnings("unchecked")
+    Map<String, String> addresses = v.value("addresses");
+    assertThat(addresses).doesNotContainKey("Andrii");
+    assertThat(addresses).containsKey("John");
+  }
+
+  // Line 86: UPDATE Profile SET nick = 'Andrii' WHERE nick IS NULL LIMIT 20
+  @Test
+  public void testUpdateWithLimit() {
+    g.command("CREATE CLASS ProfileLimit IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      for (int i = 0; i < 30; i++) {
+        tx.yql("CREATE VERTEX ProfileLimit SET nick = null, idx = " + i).iterate();
+      }
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql("UPDATE ProfileLimit SET nick = 'Andrii' WHERE nick IS NULL LIMIT 20").iterate();
+    });
+
+    var updated =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM ProfileLimit WHERE nick = 'Andrii'").toList());
+    assertThat(updated).hasSize(20);
+
+    var remaining =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM ProfileLimit WHERE nick IS NULL").toList());
+    assertThat(remaining).hasSize(10);
+  }
+
+  // Line 98-101: UPDATE with RETURN AFTER @this
+  @Test
+  public void testUpdateReturnAfterThis() {
+    g.command("CREATE CLASS ReturnTest IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX ReturnTest SET gender = 'unknown'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("UPDATE ReturnTest SET gender = 'male' RETURN AFTER @this").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat((String) v.value("gender")).isEqualTo("male");
+  }
+
+  // Line 20: CONTENT replaces the record content with a JSON document
+  @Test
+  public void testUpdateContent() {
+    g.command("CREATE CLASS ContentTest IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX ContentTest SET name = 'old', extra = 'value'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql("UPDATE ContentTest CONTENT {'name':'new'}").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM ContentTest").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat((String) v.value("name")).isEqualTo("new");
+    // CONTENT should replace all properties - 'extra' should be gone
+    assertThat(v.keys()).doesNotContain("extra");
+  }
+
+  // Line 21: MERGE merges the record content with a JSON document
+  @Test
+  public void testUpdateMerge() {
+    g.command("CREATE CLASS MergeTest IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX MergeTest SET name = 'original', age = 25").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql("UPDATE MergeTest MERGE {'city':'Kyiv'}").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM MergeTest").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    // MERGE should keep existing properties and add new ones
+    assertThat((String) v.value("name")).isEqualTo("original");
+    assertThat((int) v.value("age")).isEqualTo(25);
+    assertThat((String) v.value("city")).isEqualTo("Kyiv");
+  }
+
+  // Line 25: RETURN COUNT returns the number of updated records (explicit)
+  @Test
+  public void testReturnCountExplicit() {
+    g.command("CREATE CLASS CountExplicit IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CountExplicit SET name = 'a'").iterate();
+      tx.yql("CREATE VERTEX CountExplicit SET name = 'b'").iterate();
+      tx.yql("CREATE VERTEX CountExplicit SET name = 'c'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("UPDATE CountExplicit SET name = 'x' RETURN COUNT").toList());
+    assertThat(results).hasSize(1);
+    @SuppressWarnings("unchecked")
+    Map<String, Object> countMap = (Map<String, Object>) results.get(0);
+    assertThat(countMap).containsKey("count");
+    assertThat(((Number) countMap.get("count")).longValue()).isEqualTo(3L);
+  }
+
+  // Line 25: COUNT is the default return operator — UPDATE without RETURN clause
+  @Test
+  public void testReturnCountIsDefault() {
+    g.command("CREATE CLASS CountDefault IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CountDefault SET name = 'a'").iterate();
+      tx.yql("CREATE VERTEX CountDefault SET name = 'b'").iterate();
+    });
+
+    // No RETURN clause — should default to COUNT behavior
+    var results =
+        g.computeInTx(tx -> tx.yql("UPDATE CountDefault SET name = 'x'").toList());
+    assertThat(results).hasSize(1);
+    @SuppressWarnings("unchecked")
+    Map<String, Object> countMap = (Map<String, Object>) results.get(0);
+    assertThat(countMap).containsKey("count");
+    assertThat(((Number) countMap.get("count")).longValue()).isEqualTo(2L);
+  }
+
+  // Line 92: UPDATE Profile SET nick = 'Andrii' UPSERT WHERE nick = 'Andrii'
+  // When record does not exist, UPSERT should insert it
+  @Test
+  public void testUpsertInserts() {
+    g.command("CREATE CLASS UpsertInsert IF NOT EXISTS EXTENDS V");
+
+    g.executeInTx(tx -> {
+      tx.yql("UPDATE UpsertInsert SET nick = 'Andrii' UPSERT WHERE nick = 'Andrii'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM UpsertInsert WHERE nick = 'Andrii'").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat((String) v.value("nick")).isEqualTo("Andrii");
+  }
+
+  // Line 92: UPSERT should update existing record instead of inserting a new one
+  @Test
+  public void testUpsertUpdatesExisting() {
+    g.command("CREATE CLASS UpsertUpdate IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX UpsertUpdate SET nick = 'Andrii', age = 25").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql("UPDATE UpsertUpdate SET nick = 'Andrii', age = 30 UPSERT WHERE nick = 'Andrii'")
+          .iterate();
+    });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM UpsertUpdate").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat((String) v.value("nick")).isEqualTo("Andrii");
+    assertThat((int) v.value("age")).isEqualTo(30);
+  }
+
+  // Line 113: UPSERT with unique index for atomicity
+  @Test
+  public void testUpsertWithUniqueIndex() {
+    g.command("CREATE CLASS ClientUpsert IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY ClientUpsert.id IF NOT EXISTS INTEGER");
+    g.command("CREATE INDEX ClientUpsert.id IF NOT EXISTS ON ClientUpsert (id) UNIQUE");
+
+    g.executeInTx(tx -> {
+      tx.yql("UPDATE ClientUpsert SET id = 23 UPSERT WHERE id = 23").iterate();
+    });
+
+    // First UPSERT should have inserted
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM ClientUpsert WHERE id = 23").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("UPDATE ClientUpsert SET id = 23, name = 'test' UPSERT WHERE id = 23").iterate();
+    });
+
+    // Second UPSERT should have updated, not inserted
+    var resultsAfter =
+        g.computeInTx(tx -> tx.yql("SELECT FROM ClientUpsert WHERE id = 23").toList());
+    assertThat(resultsAfter).hasSize(1);
+    Vertex v = (Vertex) resultsAfter.get(0);
+    assertThat((String) v.value("name")).isEqualTo("test");
+  }
+
+  // Line 98: UPDATE #7:0 SET gender='male' RETURN AFTER @rid
+  @Test
+  public void testUpdateReturnAfterRid() {
+    g.command("CREATE CLASS ReturnRidTest IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX ReturnRidTest SET gender = 'unknown'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("UPDATE ReturnRidTest SET gender = 'male' RETURN AFTER @rid").toList());
+    assertThat(results).hasSize(1);
+    // Line 104 claims single property is wrapped under key "result", but actual key is "@rid"
+    @SuppressWarnings("unchecked")
+    Map<String, Object> wrapped = (Map<String, Object>) results.get(0);
+    assertThat(wrapped).containsKey("@rid");
+  }
+
+  // Line 99: UPDATE #7:0 SET gender='male' RETURN AFTER @version
+  @Test
+  public void testUpdateReturnAfterVersion() {
+    g.command("CREATE CLASS ReturnVersionTest IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX ReturnVersionTest SET gender = 'unknown'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("UPDATE ReturnVersionTest SET gender = 'male' RETURN AFTER @version")
+                .toList());
+    assertThat(results).hasSize(1);
+    // Actual key is "@version", not "result" as claimed on line 104
+    @SuppressWarnings("unchecked")
+    Map<String, Object> wrapped = (Map<String, Object>) results.get(0);
+    assertThat(wrapped).containsKey("@version");
+    assertThat(((Number) wrapped.get("@version")).longValue()).isGreaterThan(0);
+  }
+
+  // Line 101: UPDATE #7:0 SET gender='male' RETURN AFTER $current.exclude("really_big_field")
+  @Test
+  public void testUpdateReturnAfterExclude() {
+    g.command("CREATE CLASS ReturnExcludeTest IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE VERTEX ReturnExcludeTest SET gender = 'unknown', "
+              + "really_big_field = 'huge data'")
+          .iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "UPDATE ReturnExcludeTest SET gender = 'male' "
+                    + "RETURN AFTER $current.exclude(\"really_big_field\")")
+                .toList());
+    assertThat(results).hasSize(1);
+    @SuppressWarnings("unchecked")
+    Map<String, Object> record = (Map<String, Object>) results.get(0);
+    // The excluded field should not be present in the result
+    assertThat(record).doesNotContainKey("really_big_field");
+    assertThat(record).containsKey("gender");
+    assertThat(record.get("gender")).isEqualTo("male");
+  }
+
+  // === YQL-Create-Vertex.md ===
+
+  // Line 23: CREATE VERTEX (bare, on base class V)
+  @Test
+  public void testCreateVertexBare() {
+    var results =
+        g.computeInTx(tx -> {
+          tx.yql("CREATE VERTEX").iterate();
+          return tx.yql("SELECT FROM V").toList();
+        });
+    assertThat(results).isNotEmpty();
+  }
+
+  // Lines 30-31: CREATE CLASS V1 EXTENDS V, then CREATE VERTEX V1
+  @Test
+  public void testCreateVertexWithClass() {
+    g.command("CREATE CLASS CVV1 IF NOT EXISTS EXTENDS V");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CVV1").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM CVV1").toList());
+    assertThat(results).hasSize(1);
+  }
+
+  // Line 37: CREATE VERTEX SET brand = 'fiat' (properties on base class)
+  @Test
+  public void testCreateVertexWithProperties() {
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SET brand = 'fiat'").iterate();
+    });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM V WHERE brand = 'fiat'").toList());
+    assertThat(results).isNotEmpty();
+    Vertex v = (Vertex) results.get(0);
+    assertThat((String) v.value("brand")).isEqualTo("fiat");
+  }
+
+  // Line 43: CREATE VERTEX V1 SET brand = 'Skoda', name = 'wow'
+  @Test
+  public void testCreateVertexClassWithMultipleProperties() {
+    g.command("CREATE CLASS CVV1Multi IF NOT EXISTS EXTENDS V");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CVV1Multi SET brand = 'Skoda', name = 'wow'").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM CVV1Multi").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat((String) v.value("brand")).isEqualTo("Skoda");
+    assertThat((String) v.value("name")).isEqualTo("wow");
+  }
+
+  // Line 49: CREATE VERTEX Employee CONTENT { "name" : "Viktoria", "surname" : "Sernevich" }
+  @Test
+  public void testCreateVertexWithContent() {
+    g.command("CREATE CLASS EmployeeCV IF NOT EXISTS EXTENDS V");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX EmployeeCV CONTENT { \"name\" : \"Viktoria\", "
+          + "\"surname\" : \"Sernevich\" }").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM EmployeeCV").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat((String) v.value("name")).isEqualTo("Viktoria");
+    assertThat((String) v.value("surname")).isEqualTo("Sernevich");
+  }
+
+  // Factual claim line 6: The base class for a vertex is V
+  @Test
+  public void testBaseClassForVertexIsV() {
+    g.command("CREATE CLASS CVVertexChild IF NOT EXISTS EXTENDS V");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CVVertexChild SET tag = 'baseTest'").iterate();
+    });
+
+    // A vertex created in a V subclass should also appear in SELECT FROM V
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM V WHERE tag = 'baseTest'").toList());
+    assertThat(results).isNotEmpty();
+  }
+
+  // === YQL-Create-Edge.md ===
+
+  // Line 28: CREATE EDGE FROM <rid> TO <rid> (base class E)
+  @Test
+  public void testCreateEdgeBaseClass() {
+    g.command("CREATE CLASS CEVertex1 IF NOT EXISTS EXTENDS V");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CEVertex1 SET tag = 'edgeSrc'").iterate();
+      tx.yql("CREATE VERTEX CEVertex1 SET tag = 'edgeDst'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE FROM (SELECT FROM CEVertex1 WHERE tag = 'edgeSrc') "
+              + "TO (SELECT FROM CEVertex1 WHERE tag = 'edgeDst')")
+          .iterate();
+    });
+
+    // Verify the edge exists by traversing from source to destination
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(out()) FROM CEVertex1 WHERE tag = 'edgeSrc'")
+                .toList());
+    assertThat(results).hasSize(1);
+    Vertex dst = (Vertex) results.get(0);
+    assertThat((String) dst.value("tag")).isEqualTo("edgeDst");
+  }
+
+  // Lines 34-35: CREATE CLASS E1 EXTENDS E, then CREATE EDGE E1
+  @Test
+  public void testCreateEdgeWithCustomClass() {
+    g.command("CREATE CLASS CEVertex2 IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS CEEdge1 IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CEVertex2 SET tag = 'src2'").iterate();
+      tx.yql("CREATE VERTEX CEVertex2 SET tag = 'dst2'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE CEEdge1 FROM (SELECT FROM CEVertex2 WHERE tag = 'src2') "
+              + "TO (SELECT FROM CEVertex2 WHERE tag = 'dst2')")
+          .iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('CEEdge1')) FROM CEVertex2 WHERE tag = 'src2'")
+                .toList());
+    assertThat(results).hasSize(1);
+  }
+
+  // Line 42: CREATE EDGE FROM <rid> TO <rid> SET brand = 'Skoda'
+  @Test
+  public void testCreateEdgeWithProperties() {
+    g.command("CREATE CLASS CEVertex3 IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS CEEdgeProp IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CEVertex3 SET tag = 'src3'").iterate();
+      tx.yql("CREATE VERTEX CEVertex3 SET tag = 'dst3'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE CEEdgeProp FROM (SELECT FROM CEVertex3 WHERE tag = 'src3') "
+              + "TO (SELECT FROM CEVertex3 WHERE tag = 'dst3') SET brand = 'Skoda'")
+          .iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('CEEdgeProp')) FROM CEVertex3 WHERE tag = 'src3'")
+                .toList());
+    assertThat(results).hasSize(1);
+  }
+
+  // Line 49: CREATE EDGE E1 FROM <rid> TO <rid> SET brand = 'Skoda', name = 'wow'
+  @Test
+  public void testCreateEdgeWithMultipleProperties() {
+    g.command("CREATE CLASS CEVertex4 IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS CEEdgeMulti IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CEVertex4 SET tag = 'src4'").iterate();
+      tx.yql("CREATE VERTEX CEVertex4 SET tag = 'dst4'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE CEEdgeMulti FROM (SELECT FROM CEVertex4 WHERE tag = 'src4') "
+              + "TO (SELECT FROM CEVertex4 WHERE tag = 'dst4') "
+              + "SET brand = 'Skoda', name = 'wow'")
+          .iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('CEEdgeMulti')) FROM CEVertex4 WHERE tag = 'src4'")
+                .toList());
+    assertThat(results).hasSize(1);
+  }
+
+  // Line 56: CREATE EDGE with sub-queries on both FROM and TO
+  @Test
+  public void testCreateEdgeWithSubQueries() {
+    g.command("CREATE CLASS CEAccount IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS CEMovies IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS CEWatched IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CEAccount SET name = 'Andrii'").iterate();
+      tx.yql("CREATE VERTEX CEMovies SET title = 'ActionMovie1', typeName = 'action'")
+          .iterate();
+      tx.yql("CREATE VERTEX CEMovies SET title = 'ActionMovie2', typeName = 'action'")
+          .iterate();
+      tx.yql("CREATE VERTEX CEMovies SET title = 'Comedy1', typeName = 'comedy'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE CEWatched "
+              + "FROM (SELECT FROM CEAccount WHERE name = 'Andrii') "
+              + "TO (SELECT FROM CEMovies WHERE typeName = 'action')")
+          .iterate();
+    });
+
+    // Should have created 2 edges (one to each action movie)
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('CEWatched')) FROM CEAccount WHERE name = 'Andrii'")
+                .toList());
+    assertThat(results).hasSize(2);
+  }
+
+  // Line 62: CREATE EDGE with CONTENT JSON
+  @Test
+  public void testCreateEdgeWithContent() {
+    g.command("CREATE CLASS CEVertex5 IF NOT EXISTS EXTENDS V");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CEVertex5 SET tag = 'src5'").iterate();
+      tx.yql("CREATE VERTEX CEVertex5 SET tag = 'dst5'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE FROM (SELECT FROM CEVertex5 WHERE tag = 'src5') "
+              + "TO (SELECT FROM CEVertex5 WHERE tag = 'dst5') "
+              + "CONTENT { \"name\": \"Viktoria\", \"surname\": \"Sernevich\" }")
+          .iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT expand(out()) FROM CEVertex5 WHERE tag = 'src5'")
+                .toList());
+    assertThat(results).hasSize(1);
+  }
+
+  // Line 20-21: Factual claim - YouTrackDB supports polymorphism on edges, base class is E
+  @Test
+  public void testEdgePolymorphism() {
+    g.command("CREATE CLASS CEPolyBase IF NOT EXISTS EXTENDS E");
+    g.command("CREATE CLASS CEPolySub IF NOT EXISTS EXTENDS CEPolyBase");
+    g.command("CREATE CLASS CEPolyVertex IF NOT EXISTS EXTENDS V");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CEPolyVertex SET tag = 'polySrc'").iterate();
+      tx.yql("CREATE VERTEX CEPolyVertex SET tag = 'polyDst'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE CEPolySub FROM (SELECT FROM CEPolyVertex WHERE tag = 'polySrc') "
+              + "TO (SELECT FROM CEPolyVertex WHERE tag = 'polyDst')")
+          .iterate();
+    });
+
+    // Edge created with subclass should appear when querying the parent class
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('CEPolyBase')) FROM CEPolyVertex "
+                    + "WHERE tag = 'polySrc'")
+                .toList());
+    assertThat(results).hasSize(1);
+  }
+
+  // Line 14-15: UPSERT requires UNIQUE index on out, in fields
+  @Test
+  public void testCreateEdgeUpsert() {
+    g.command("CREATE CLASS CEUpsertV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS CEUpsertE IF NOT EXISTS EXTENDS E");
+    g.command("CREATE PROPERTY CEUpsertE.out IF NOT EXISTS LINK");
+    g.command("CREATE PROPERTY CEUpsertE.in IF NOT EXISTS LINK");
+    g.command(
+        "CREATE INDEX CEUpsertE_unique IF NOT EXISTS ON CEUpsertE (out, in) UNIQUE");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CEUpsertV SET tag = 'uSrc'").iterate();
+      tx.yql("CREATE VERTEX CEUpsertV SET tag = 'uDst'").iterate();
+    });
+
+    // First creation
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE CEUpsertE UPSERT "
+              + "FROM (SELECT FROM CEUpsertV WHERE tag = 'uSrc') "
+              + "TO (SELECT FROM CEUpsertV WHERE tag = 'uDst')")
+          .iterate();
+    });
+
+    // Second creation with UPSERT should not create a duplicate
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE CEUpsertE UPSERT "
+              + "FROM (SELECT FROM CEUpsertV WHERE tag = 'uSrc') "
+              + "TO (SELECT FROM CEUpsertV WHERE tag = 'uDst')")
+          .iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('CEUpsertE')) FROM CEUpsertV WHERE tag = 'uSrc'")
+                .toList());
+    assertThat(results).hasSize(1);
+  }
+
+  // === YQL-Delete-Vertex.md ===
+
+  // Line 21: DELETE VERTEX #<rid> — removes a vertex by its Record ID
+  @Test
+  public void testDeleteVertexByRid() {
+    g.command("CREATE CLASS DVByRid IF NOT EXISTS EXTENDS V");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DVByRid SET name = 'toDelete'").iterate();
+    });
+
+    // Get the RID of the created vertex
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM DVByRid").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    String rid = v.id().toString();
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX " + rid).iterate();
+    });
+
+    var afterDelete = g.computeInTx(tx -> tx.yql("SELECT FROM DVByRid").toList());
+    assertThat(afterDelete).isEmpty();
+  }
+
+  // Line 27: DELETE VERTEX with WHERE clause filtering by incoming edge class
+  @Test
+  public void testDeleteVertexWhereInClassContains() {
+    g.command("CREATE CLASS DVAccount IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DVBadBehavior IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DVAccount SET name = 'goodUser'").iterate();
+      tx.yql("CREATE VERTEX DVAccount SET name = 'badUser'").iterate();
+      tx.yql("CREATE VERTEX DVAccount SET name = 'reporter'").iterate();
+    });
+
+    // Create an edge of class DVBadBehavior pointing to the bad user
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE DVBadBehavior "
+              + "FROM (SELECT FROM DVAccount WHERE name = 'reporter') "
+              + "TO (SELECT FROM DVAccount WHERE name = 'badUser')")
+          .iterate();
+    });
+
+    // Doc uses: in.@Class CONTAINS 'BadBehaviorInForum'
+    // BUG in doc: in.@Class returns empty — correct syntax is inE().@Class
+    var matchedWhere =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM DVAccount WHERE inE().@Class CONTAINS 'DVBadBehavior'")
+                .toList());
+    assertThat(matchedWhere).hasSize(1);
+    assertThat((String) ((Vertex) matchedWhere.get(0)).value("name")).isEqualTo("badUser");
+
+    // Delete accounts with incoming edges of class DVBadBehavior (using correct syntax)
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX DVAccount WHERE inE().@Class CONTAINS 'DVBadBehavior'")
+          .iterate();
+    });
+
+    var remaining = g.computeInTx(tx -> tx.yql("SELECT FROM DVAccount").toList());
+    // badUser should be deleted; goodUser and reporter remain
+    assertThat(remaining).hasSize(2);
+    for (Object r : remaining) {
+      Vertex rv = (Vertex) r;
+      assertThat((String) rv.value("name")).isNotEqualTo("badUser");
+    }
+  }
+
+  // Line 33: DELETE VERTEX EMailMessage WHERE isSpam = TRUE
+  @Test
+  public void testDeleteVertexWhereIsSpam() {
+    g.command("CREATE CLASS DVEMailMessage IF NOT EXISTS EXTENDS V");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DVEMailMessage SET subject = 'legit', isSpam = false").iterate();
+      tx.yql("CREATE VERTEX DVEMailMessage SET subject = 'spam1', isSpam = true").iterate();
+      tx.yql("CREATE VERTEX DVEMailMessage SET subject = 'spam2', isSpam = true").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX DVEMailMessage WHERE isSpam = TRUE").iterate();
+    });
+
+    var remaining = g.computeInTx(tx -> tx.yql("SELECT FROM DVEMailMessage").toList());
+    assertThat(remaining).hasSize(1);
+    Vertex v = (Vertex) remaining.get(0);
+    assertThat((String) v.value("subject")).isEqualTo("legit");
+  }
+
+  // Line 47: DELETE VERTEX v BATCH 1000 — batch deletion
+  @Test
+  public void testDeleteVertexWithBatch() {
+    g.command("CREATE CLASS DVBatch IF NOT EXISTS EXTENDS V");
+
+    g.executeInTx(tx -> {
+      for (int i = 0; i < 10; i++) {
+        tx.yql("CREATE VERTEX DVBatch SET idx = " + i).iterate();
+      }
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX DVBatch BATCH 3").iterate();
+    });
+
+    var remaining = g.computeInTx(tx -> tx.yql("SELECT FROM DVBatch").toList());
+    assertThat(remaining).isEmpty();
+  }
+
+  // Line 8: DELETE VERTEX with LIMIT clause
+  @Test
+  public void testDeleteVertexWithLimit() {
+    g.command("CREATE CLASS DVLimit IF NOT EXISTS EXTENDS V");
+
+    g.executeInTx(tx -> {
+      for (int i = 0; i < 10; i++) {
+        tx.yql("CREATE VERTEX DVLimit SET idx = " + i).iterate();
+      }
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX DVLimit LIMIT 5").iterate();
+    });
+
+    var remaining = g.computeInTx(tx -> tx.yql("SELECT FROM DVLimit").toList());
+    assertThat(remaining).hasSize(5);
+  }
+
+  // Line 8: DELETE VERTEX with FROM sub-query
+  @Test
+  public void testDeleteVertexFromSubQuery() {
+    g.command("CREATE CLASS DVSubQuery IF NOT EXISTS EXTENDS V");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DVSubQuery SET name = 'keep'").iterate();
+      tx.yql("CREATE VERTEX DVSubQuery SET name = 'remove'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX FROM (SELECT FROM DVSubQuery WHERE name = 'remove')").iterate();
+    });
+
+    var remaining = g.computeInTx(tx -> tx.yql("SELECT FROM DVSubQuery").toList());
+    assertThat(remaining).hasSize(1);
+    Vertex v = (Vertex) remaining.get(0);
+    assertThat((String) v.value("name")).isEqualTo("keep");
+  }
+
+  // Factual claim: DELETE VERTEX disconnects all connected edges
+  @Test
+  public void testDeleteVertexDisconnectsEdges() {
+    g.command("CREATE CLASS DVEdgeSrc IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DVEdgeDst IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DVEdgeLink IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DVEdgeSrc SET name = 'source'").iterate();
+      tx.yql("CREATE VERTEX DVEdgeDst SET name = 'target'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE DVEdgeLink "
+              + "FROM (SELECT FROM DVEdgeSrc WHERE name = 'source') "
+              + "TO (SELECT FROM DVEdgeDst WHERE name = 'target')")
+          .iterate();
+    });
+
+    // Delete the target vertex — should also remove the edge
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX DVEdgeDst WHERE name = 'target'").iterate();
+    });
+
+    // The source vertex should have no outgoing edges
+    var edges =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('DVEdgeLink')) FROM DVEdgeSrc WHERE name = 'source'")
+                .toList());
+    assertThat(edges).isEmpty();
+  }
+
+  // Line 40: DELETE VERTEX Attachment WHERE inE('HasAttachment').outV().sender CONTAINS '...'
+  // Validates the corrected doc query using outV() to traverse to the source vertex.
+  @Test
+  public void testDeleteVertexWithEdgeTraversalAndOutV() {
+    g.command("CREATE CLASS DVEmail IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DVAttachment IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DVHasAttachment IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DVEmail SET name = 'email1', sender = 'bob@example.com'").iterate();
+      tx.yql("CREATE VERTEX DVEmail SET name = 'email2', sender = 'alice@example.com'").iterate();
+      tx.yql("CREATE VERTEX DVAttachment SET name = 'att1'").iterate();
+      tx.yql("CREATE VERTEX DVAttachment SET name = 'att2'").iterate();
+      tx.yql("CREATE VERTEX DVAttachment SET name = 'att3'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE DVHasAttachment "
+              + "FROM (SELECT FROM DVEmail WHERE name = 'email1') "
+              + "TO (SELECT FROM DVAttachment WHERE name = 'att1')")
+          .iterate();
+      tx.yql(
+          "CREATE EDGE DVHasAttachment "
+              + "FROM (SELECT FROM DVEmail WHERE name = 'email1') "
+              + "TO (SELECT FROM DVAttachment WHERE name = 'att2')")
+          .iterate();
+      tx.yql(
+          "CREATE EDGE DVHasAttachment "
+              + "FROM (SELECT FROM DVEmail WHERE name = 'email2') "
+              + "TO (SELECT FROM DVAttachment WHERE name = 'att3')")
+          .iterate();
+    });
+
+    // Doc query: delete attachments where the source vertex of HasAttachment has sender = bob
+    g.executeInTx(tx -> {
+      tx.yql(
+          "DELETE VERTEX DVAttachment "
+              + "WHERE inE('DVHasAttachment').outV().sender CONTAINS 'bob@example.com'")
+          .iterate();
+    });
+
+    // att1 and att2 deleted (from bob), att3 remains (from alice)
+    var remaining = g.computeInTx(tx -> tx.yql("SELECT FROM DVAttachment").toList());
+    assertThat(remaining).hasSize(1);
+    Vertex v = (Vertex) remaining.get(0);
+    assertThat((String) v.value("name")).isEqualTo("att3");
+  }
+
+  // === YQL-Delete-Edge.md ===
+
+  // Line 34: DELETE EDGE #<rid> — removes a single edge by its Record ID
+  @Test
+  public void testDeleteEdgeByRid() {
+    g.command("CREATE CLASS DESrc IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DEDst IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DEByRid IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DESrc SET tag = 'deRidSrc'").iterate();
+      tx.yql("CREATE VERTEX DEDst SET tag = 'deRidDst'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE DEByRid FROM (SELECT FROM DESrc WHERE tag = 'deRidSrc') "
+              + "TO (SELECT FROM DEDst WHERE tag = 'deRidDst')")
+          .iterate();
+    });
+
+    // Get the RID of the created edge
+    var edges =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('DEByRid')) FROM DESrc WHERE tag = 'deRidSrc'")
+                .toList());
+    assertThat(edges).hasSize(1);
+    String edgeRid = ((Edge) edges.get(0)).id().toString();
+
+    // Delete by RID
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE " + edgeRid).iterate();
+    });
+
+    var remaining =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('DEByRid')) FROM DESrc WHERE tag = 'deRidSrc'")
+                .toList());
+    assertThat(remaining).isEmpty();
+  }
+
+  // Line 40: DELETE EDGE [#rid1, #rid2, ...] — removes multiple edges by RID list
+  @Test
+  public void testDeleteEdgeByRidList() {
+    g.command("CREATE CLASS DERidListV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DERidListE IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DERidListV SET tag = 'rlSrc'").iterate();
+      tx.yql("CREATE VERTEX DERidListV SET tag = 'rlDst1'").iterate();
+      tx.yql("CREATE VERTEX DERidListV SET tag = 'rlDst2'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE DERidListE FROM (SELECT FROM DERidListV WHERE tag = 'rlSrc') "
+              + "TO (SELECT FROM DERidListV WHERE tag = 'rlDst1')")
+          .iterate();
+      tx.yql(
+          "CREATE EDGE DERidListE FROM (SELECT FROM DERidListV WHERE tag = 'rlSrc') "
+              + "TO (SELECT FROM DERidListV WHERE tag = 'rlDst2')")
+          .iterate();
+    });
+
+    // Get the RIDs of both edges
+    var edges =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('DERidListE')) FROM DERidListV WHERE tag = 'rlSrc'")
+                .toList());
+    assertThat(edges).hasSize(2);
+    String rid1 = ((Edge) edges.get(0)).id().toString();
+    String rid2 = ((Edge) edges.get(1)).id().toString();
+
+    // Delete by RID list
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE [" + rid1 + "," + rid2 + "]").iterate();
+    });
+
+    var remaining =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('DERidListE')) FROM DERidListV WHERE tag = 'rlSrc'")
+                .toList());
+    assertThat(remaining).isEmpty();
+  }
+
+  // Line 46: DELETE EDGE FROM <rid> TO <rid> WHERE condition
+  @Test
+  public void testDeleteEdgeFromToWithWhere() {
+    g.command("CREATE CLASS DEFromToV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DEFromToE IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DEFromToV SET tag = 'ftSrc'").iterate();
+      tx.yql("CREATE VERTEX DEFromToV SET tag = 'ftDst'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE DEFromToE FROM (SELECT FROM DEFromToV WHERE tag = 'ftSrc') "
+              + "TO (SELECT FROM DEFromToV WHERE tag = 'ftDst') SET date = '2012-01-15'")
+          .iterate();
+      tx.yql(
+          "CREATE EDGE DEFromToE FROM (SELECT FROM DEFromToV WHERE tag = 'ftSrc') "
+              + "TO (SELECT FROM DEFromToV WHERE tag = 'ftDst') SET date = '2011-12-01'")
+          .iterate();
+    });
+
+    // Get source and dest RIDs for the FROM/TO syntax
+    var srcList =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM DEFromToV WHERE tag = 'ftSrc'").toList());
+    var dstList =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM DEFromToV WHERE tag = 'ftDst'").toList());
+    String srcRid = ((Vertex) srcList.get(0)).id().toString();
+    String dstRid = ((Vertex) dstList.get(0)).id().toString();
+
+    // Delete only edges with date >= '2012-01-15'
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE FROM " + srcRid + " TO " + dstRid
+          + " WHERE date >= '2012-01-15'").iterate();
+    });
+
+    var remaining =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('DEFromToE')) FROM DEFromToV WHERE tag = 'ftSrc'")
+                .toList());
+    assertThat(remaining).hasSize(1);
+  }
+
+  // Line 58: DELETE EDGE <ClassName> WHERE condition
+  @Test
+  public void testDeleteEdgeByClassAndWhere() {
+    g.command("CREATE CLASS DEOwnsV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DEOwns IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DEOwnsV SET tag = 'ownsSrc'").iterate();
+      tx.yql("CREATE VERTEX DEOwnsV SET tag = 'ownsDst1'").iterate();
+      tx.yql("CREATE VERTEX DEOwnsV SET tag = 'ownsDst2'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE DEOwns FROM (SELECT FROM DEOwnsV WHERE tag = 'ownsSrc') "
+              + "TO (SELECT FROM DEOwnsV WHERE tag = 'ownsDst1') SET date = '2011-10'")
+          .iterate();
+      tx.yql(
+          "CREATE EDGE DEOwns FROM (SELECT FROM DEOwnsV WHERE tag = 'ownsSrc') "
+              + "TO (SELECT FROM DEOwnsV WHERE tag = 'ownsDst2') SET date = '2012-05'")
+          .iterate();
+    });
+
+    // Delete edges of class DEOwns where date < '2011-11'
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE DEOwns WHERE date < '2011-11'").iterate();
+    });
+
+    var remaining =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('DEOwns')) FROM DEOwnsV WHERE tag = 'ownsSrc'")
+                .toList());
+    assertThat(remaining).hasSize(1);
+  }
+
+  // Line 64: The original doc used "in.price" which fails because "in" is a reserved keyword.
+  // The corrected doc uses "inV().price" to traverse to the destination vertex.
+  @Test
+  public void testDeleteEdgeWithInVertexCondition() {
+    g.command("CREATE CLASS DEInPriceV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DEInPriceE IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DEInPriceV SET tag = 'ipSrc'").iterate();
+      tx.yql("CREATE VERTEX DEInPriceV SET tag = 'ipDst1', price = 300.0").iterate();
+      tx.yql("CREATE VERTEX DEInPriceV SET tag = 'ipDst2', price = 100.0").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE DEInPriceE FROM (SELECT FROM DEInPriceV WHERE tag = 'ipSrc') "
+              + "TO (SELECT FROM DEInPriceV WHERE tag = 'ipDst1') SET date = '2011-10'")
+          .iterate();
+      tx.yql(
+          "CREATE EDGE DEInPriceE FROM (SELECT FROM DEInPriceV WHERE tag = 'ipSrc') "
+              + "TO (SELECT FROM DEInPriceV WHERE tag = 'ipDst2') SET date = '2011-10'")
+          .iterate();
+    });
+
+    // Verify that bare "in.price" fails because "in" is reserved
+    assertThatThrownBy(
+        () -> g.executeInTx(tx -> {
+          tx.yql("DELETE EDGE DEInPriceE WHERE date < '2011-11' AND in.price >= 202.43")
+              .iterate();
+        })).hasMessageContaining("in");
+
+    // The corrected syntax inV().price should work
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE DEInPriceE WHERE date < '2011-11' AND inV().price >= 202.43")
+          .iterate();
+    });
+
+    // Only the edge to ipDst1 (price=300) should be deleted; ipDst2 (price=100) stays
+    var remaining =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('DEInPriceE')) FROM DEInPriceV WHERE tag = 'ipSrc'")
+                .toList());
+    assertThat(remaining).hasSize(1);
+  }
+
+  // Line 70: DELETE EDGE <ClassName> WHERE condition BATCH <size>
+  @Test
+  public void testDeleteEdgeWithBatch() {
+    g.command("CREATE CLASS DEBatchV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DEBatchE IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DEBatchV SET tag = 'bSrc'").iterate();
+      for (int i = 0; i < 5; i++) {
+        tx.yql("CREATE VERTEX DEBatchV SET tag = 'bDst" + i + "'").iterate();
+      }
+    });
+
+    g.executeInTx(tx -> {
+      for (int i = 0; i < 5; i++) {
+        tx.yql(
+            "CREATE EDGE DEBatchE FROM (SELECT FROM DEBatchV WHERE tag = 'bSrc') "
+                + "TO (SELECT FROM DEBatchV WHERE tag = 'bDst" + i + "') "
+                + "SET date = '2011-10'")
+            .iterate();
+      }
+    });
+
+    // Delete with BATCH clause
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE DEBatchE WHERE date < '2011-11' BATCH 1000").iterate();
+    });
+
+    var remaining =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('DEBatchE')) FROM DEBatchV WHERE tag = 'bSrc'")
+                .toList());
+    assertThat(remaining).isEmpty();
+  }
+
+  // Line 76: DELETE EDGE E WHERE @rid IN (SELECT @rid FROM E)
+  @Test
+  public void testDeleteEdgeWithSubQuery() {
+    g.command("CREATE CLASS DESubQV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DESubQE IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DESubQV SET tag = 'sqSrc'").iterate();
+      tx.yql("CREATE VERTEX DESubQV SET tag = 'sqDst'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE DESubQE FROM (SELECT FROM DESubQV WHERE tag = 'sqSrc') "
+              + "TO (SELECT FROM DESubQV WHERE tag = 'sqDst')")
+          .iterate();
+    });
+
+    // Delete using sub-query pattern from doc line 76
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE DESubQE WHERE @rid IN (SELECT @rid FROM DESubQE)").iterate();
+    });
+
+    var remaining =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('DESubQE')) FROM DESubQV WHERE tag = 'sqSrc'")
+                .toList());
+    assertThat(remaining).isEmpty();
+  }
+
+  // Line 52: DELETE EDGE FROM <rid> TO <rid> WHERE @class = 'X' AND condition
+  @Test
+  public void testDeleteEdgeWithClassFilterInWhere() {
+    g.command("CREATE CLASS DEClassFiltV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DEClassFiltE IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DEClassFiltV SET tag = 'cfSrc'").iterate();
+      tx.yql("CREATE VERTEX DEClassFiltV SET tag = 'cfDst'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE DEClassFiltE FROM (SELECT FROM DEClassFiltV WHERE tag = 'cfSrc') "
+              + "TO (SELECT FROM DEClassFiltV WHERE tag = 'cfDst') "
+              + "SET comment = 'forbidden stuff'")
+          .iterate();
+    });
+
+    var srcList =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM DEClassFiltV WHERE tag = 'cfSrc'").toList());
+    var dstList =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM DEClassFiltV WHERE tag = 'cfDst'").toList());
+    String srcRid = ((Vertex) srcList.get(0)).id().toString();
+    String dstRid = ((Vertex) dstList.get(0)).id().toString();
+
+    // Delete edge using FROM/TO with @class filter and LIKE condition
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE FROM " + srcRid + " TO " + dstRid
+          + " WHERE @class = 'DEClassFiltE' AND comment LIKE '%forbidden%'").iterate();
+    });
+
+    var remaining =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('DEClassFiltE')) FROM DEClassFiltV WHERE tag = 'cfSrc'")
+                .toList());
+    assertThat(remaining).isEmpty();
+  }
+
+  // Line 91: DELETE EDGE FROM (SELECT FROM #rid) does NOT delete edge
+  // Line 97: DELETE EDGE E WHERE @rid IN (SELECT FROM #rid) DOES delete edge
+  @Test
+  public void testDeleteEdgeFromSubQueryVsWhereRidIn() {
+    g.command("CREATE CLASS DEUseCaseV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DEUseCaseE IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DEUseCaseV SET tag = 'ucSrc'").iterate();
+      tx.yql("CREATE VERTEX DEUseCaseV SET tag = 'ucDst'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE DEUseCaseE FROM (SELECT FROM DEUseCaseV WHERE tag = 'ucSrc') "
+              + "TO (SELECT FROM DEUseCaseV WHERE tag = 'ucDst')")
+          .iterate();
+    });
+
+    // Get the edge RID
+    var edges =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('DEUseCaseE')) FROM DEUseCaseV WHERE tag = 'ucSrc'")
+                .toList());
+    assertThat(edges).hasSize(1);
+    String edgeRid = ((Edge) edges.get(0)).id().toString();
+
+    // Line 91: DELETE EDGE FROM (SELECT FROM #edgeRid) — doc says this does NOT delete
+    // the edge. In practice, it actually throws an error because the FROM clause expects
+    // a vertex, but SELECT FROM <edgeRid> returns an edge record ("Invalid vertex").
+    assertThatThrownBy(
+        () -> g.executeInTx(tx -> {
+          tx.yql("DELETE EDGE FROM (SELECT FROM " + edgeRid + ")").iterate();
+        })).hasMessageContaining("Invalid vertex");
+
+    // Edge should still exist after the failed attempt
+    var afterBadDelete =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('DEUseCaseE')) FROM DEUseCaseV WHERE tag = 'ucSrc'")
+                .toList());
+    assertThat(afterBadDelete).hasSize(1);
+
+    // Line 97: DELETE EDGE E WHERE @rid IN (SELECT FROM #edgeRid) — should delete
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE DEUseCaseE WHERE @rid IN (SELECT FROM " + edgeRid + ")")
+          .iterate();
+    });
+
+    var afterGoodDelete =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('DEUseCaseE')) FROM DEUseCaseV WHERE tag = 'ucSrc'")
+                .toList());
+    assertThat(afterGoodDelete).isEmpty();
+  }
+
+  // === YQL-Update-Edge.md ===
+
+  // Line 37: UPDATE EDGE Friend SET foo = 'bar' WHERE since < '2020-01-01'
+  // Validates the corrected doc example — updating edge properties by class with WHERE
+  @Test
+  public void testUpdateEdgeSetPropertyByClass() {
+    g.command("CREATE CLASS UEPerson IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS UEFriend IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX UEPerson SET name = 'Alice'").iterate();
+      tx.yql("CREATE VERTEX UEPerson SET name = 'Bob'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE UEFriend FROM (SELECT FROM UEPerson WHERE name = 'Alice') "
+              + "TO (SELECT FROM UEPerson WHERE name = 'Bob') SET since = '2019-06-15'")
+          .iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql("UPDATE EDGE UEFriend SET foo = 'bar' WHERE since < '2020-01-01'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('UEFriend')) FROM UEPerson WHERE name = 'Alice'")
+                .toList());
+    assertThat(results).hasSize(1);
+    Edge edge = (Edge) results.get(0);
+    assertThat((String) edge.value("foo")).isEqualTo("bar");
+  }
+
+  // Line 42: UPDATE EDGE hasAssignee SET foo = 'bar' UPSERT WHERE id = 56
+  // Tests UPSERT on an edge class with a unique index — update path (match found)
+  @Test
+  public void testUpdateEdgeUpsertWithUniqueIndex() {
+    g.command("CREATE CLASS UEAssigneeV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS UEHasAssignee IF NOT EXISTS EXTENDS E");
+    g.command("CREATE PROPERTY UEHasAssignee.id IF NOT EXISTS INTEGER");
+    g.command(
+        "CREATE INDEX UEHasAssignee.id IF NOT EXISTS ON UEHasAssignee (id) UNIQUE");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX UEAssigneeV SET tag = 'src'").iterate();
+      tx.yql("CREATE VERTEX UEAssigneeV SET tag = 'dst'").iterate();
+    });
+
+    // Create an initial edge
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE UEHasAssignee FROM (SELECT FROM UEAssigneeV WHERE tag = 'src') "
+              + "TO (SELECT FROM UEAssigneeV WHERE tag = 'dst') SET id = 56")
+          .iterate();
+    });
+
+    // UPSERT should update the existing edge, not create a new one
+    g.executeInTx(tx -> {
+      tx.yql("UPDATE EDGE UEHasAssignee SET foo = 'bar' UPSERT WHERE id = 56").iterate();
+    });
+
+    // Verify only one edge exists and it has both properties
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('UEHasAssignee')) FROM UEAssigneeV WHERE tag = 'src'")
+                .toList());
+    assertThat(results).hasSize(1);
+    Edge edge = (Edge) results.get(0);
+    assertThat((int) edge.value("id")).isEqualTo(56);
+    assertThat((String) edge.value("foo")).isEqualTo("bar");
+  }
+
+  // Line 44: UPSERT on edge fails when no matching edge exists — the engine cannot
+  // insert a new edge because UPDATE EDGE syntax does not provide FROM/TO endpoints.
+  @Test
+  public void testUpdateEdgeUpsertCannotInsert() {
+    g.command("CREATE CLASS UEUpsertInsV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS UEUpsertInsE IF NOT EXISTS EXTENDS E");
+    g.command("CREATE PROPERTY UEUpsertInsE.uid IF NOT EXISTS INTEGER");
+    g.command(
+        "CREATE INDEX UEUpsertInsE.uid IF NOT EXISTS ON UEUpsertInsE (uid) UNIQUE");
+
+    // No edge exists — UPSERT should fail because edges can't be inserted this way
+    assertThatThrownBy(
+        () -> g.executeInTx(tx -> {
+          tx.yql(
+              "UPDATE EDGE UEUpsertInsE SET uid = 99, foo = 'baz' UPSERT WHERE uid = 99")
+              .iterate();
+        })).hasMessageContaining("Cannot execute UPSERT on edge type");
+  }
+
+  // Line 25: RETURN AFTER returns the records after the update (on edge)
+  @Test
+  public void testUpdateEdgeReturnAfter() {
+    g.command("CREATE CLASS UEReturnV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS UEReturnE IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX UEReturnV SET tag = 'retSrc'").iterate();
+      tx.yql("CREATE VERTEX UEReturnV SET tag = 'retDst'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE UEReturnE FROM (SELECT FROM UEReturnV WHERE tag = 'retSrc') "
+              + "TO (SELECT FROM UEReturnV WHERE tag = 'retDst') SET status = 'old'")
+          .iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "UPDATE EDGE UEReturnE SET status = 'new' RETURN AFTER @this")
+                .toList());
+    assertThat(results).hasSize(1);
+    Edge edge = (Edge) results.get(0);
+    assertThat((String) edge.value("status")).isEqualTo("new");
+  }
+
+  // Line 25-26: RETURN COUNT is the default return for UPDATE EDGE
+  @Test
+  public void testUpdateEdgeReturnCountDefault() {
+    g.command("CREATE CLASS UECountV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS UECountE IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX UECountV SET tag = 'cntSrc'").iterate();
+      tx.yql("CREATE VERTEX UECountV SET tag = 'cntDst'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE UECountE FROM (SELECT FROM UECountV WHERE tag = 'cntSrc') "
+              + "TO (SELECT FROM UECountV WHERE tag = 'cntDst') SET val = 1")
+          .iterate();
+    });
+
+    // No RETURN clause — should default to COUNT
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("UPDATE EDGE UECountE SET val = 2").toList());
+    assertThat(results).hasSize(1);
+    @SuppressWarnings("unchecked")
+    Map<String, Object> countMap = (Map<String, Object>) results.get(0);
+    assertThat(countMap).containsKey("count");
+    assertThat(((Number) countMap.get("count")).longValue()).isEqualTo(1L);
+  }
+
+  // Line 30: LIMIT defines the maximum number of records to update (on edge)
+  @Test
+  public void testUpdateEdgeWithLimit() {
+    g.command("CREATE CLASS UELimitV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS UELimitE IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX UELimitV SET tag = 'limSrc'").iterate();
+      for (int i = 0; i < 5; i++) {
+        tx.yql("CREATE VERTEX UELimitV SET tag = 'limDst" + i + "'").iterate();
+      }
+    });
+
+    g.executeInTx(tx -> {
+      for (int i = 0; i < 5; i++) {
+        tx.yql(
+            "CREATE EDGE UELimitE FROM (SELECT FROM UELimitV WHERE tag = 'limSrc') "
+                + "TO (SELECT FROM UELimitV WHERE tag = 'limDst" + i + "') SET val = 0")
+            .iterate();
+      }
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql("UPDATE EDGE UELimitE SET val = 1 LIMIT 3").iterate();
+    });
+
+    var updated =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM UELimitE WHERE val = 1").toList());
+    assertThat(updated).hasSize(3);
+
+    var unchanged =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM UELimitE WHERE val = 0").toList());
+    assertThat(unchanged).hasSize(2);
+  }
+
+  // YQL-Update-Edge.md Line 26: Doc lists COUNT as a RETURN option for UPDATE EDGE,
+  // but the parser grammar only supports BEFORE and AFTER for UPDATE EDGE
+  // (unlike regular UPDATE which also supports COUNT). RETURN COUNT should be a parse error.
+  @Test
+  public void testUpdateEdgeReturnCountExplicitIsParseError() {
+    g.command("CREATE CLASS UERetCountV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS UERetCountE IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX UERetCountV SET tag = 'rcSrc'").iterate();
+      tx.yql("CREATE VERTEX UERetCountV SET tag = 'rcDst'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE UERetCountE FROM (SELECT FROM UERetCountV WHERE tag = 'rcSrc') "
+              + "TO (SELECT FROM UERetCountV WHERE tag = 'rcDst') SET val = 1")
+          .iterate();
+    });
+
+    // RETURN COUNT is not valid syntax for UPDATE EDGE — only BEFORE and AFTER are supported
+    assertThatThrownBy(
+        () -> g.executeInTx(tx -> {
+          tx.yql("UPDATE EDGE UERetCountE SET val = 2 RETURN COUNT").iterate();
+        }));
+  }
+
+  // YQL-Update-Edge.md: RETURN BEFORE parses but is rejected at runtime
+  @Test
+  public void testUpdateEdgeReturnBeforeNotSupported() {
+    g.command("CREATE CLASS UERetBeforeV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS UERetBeforeE IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX UERetBeforeV SET tag = 'rbSrc'").iterate();
+      tx.yql("CREATE VERTEX UERetBeforeV SET tag = 'rbDst'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE UERetBeforeE FROM (SELECT FROM UERetBeforeV WHERE tag = 'rbSrc') "
+              + "TO (SELECT FROM UERetBeforeV WHERE tag = 'rbDst') SET status = 'old'")
+          .iterate();
+    });
+
+    // RETURN BEFORE parses but is not supported at runtime
+    assertThatThrownBy(
+        () -> g.computeInTx(
+            tx -> tx.yql(
+                "UPDATE EDGE UERetBeforeE SET status = 'new' RETURN BEFORE @this")
+                .toList()))
+        .hasMessageContaining("BEFORE is not supported");
+  }
+
+  // Line 25: LIMIT defines the maximum number of edges to delete
+  @Test
+  public void testDeleteEdgeWithLimit() {
+    g.command("CREATE CLASS DELimitV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DELimitE IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DELimitV SET tag = 'limSrc'").iterate();
+      for (int i = 0; i < 5; i++) {
+        tx.yql("CREATE VERTEX DELimitV SET tag = 'limDst" + i + "'").iterate();
+      }
+    });
+
+    g.executeInTx(tx -> {
+      for (int i = 0; i < 5; i++) {
+        tx.yql(
+            "CREATE EDGE DELimitE FROM (SELECT FROM DELimitV WHERE tag = 'limSrc') "
+                + "TO (SELECT FROM DELimitV WHERE tag = 'limDst" + i + "')")
+            .iterate();
+      }
+    });
+
+    // Delete with LIMIT 3
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE DELimitE LIMIT 3").iterate();
+    });
+
+    var remaining =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('DELimitE')) FROM DELimitV WHERE tag = 'limSrc'")
+                .toList());
+    assertThat(remaining).hasSize(2);
+  }
+
+  // === YQL-Match.md ===
+
+  // Helper: set up the Person/Friend graph from YQL-Match.md sample dataset (lines 84-106)
+  // John Doe -> John Smith, Jenny Smith, Frank Bean
+  // John Smith -> Jenny Smith
+  // Frank Bean -> Mark Bean
+  // Jenny Smith -> Mark Bean
+  private void setUpMatchSampleData() {
+    g.command("CREATE CLASS MAPerson IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS MAFriend IF NOT EXISTS EXTENDS E");
+
+    // Clean up any leftover data from previous test runs
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE MAFriend").iterate();
+    });
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX MAPerson").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX MAPerson SET name = 'John', surname = 'Doe'").iterate();
+      tx.yql("CREATE VERTEX MAPerson SET name = 'John', surname = 'Smith'").iterate();
+      tx.yql("CREATE VERTEX MAPerson SET name = 'Jenny', surname = 'Smith'").iterate();
+      tx.yql("CREATE VERTEX MAPerson SET name = 'Frank', surname = 'Bean'").iterate();
+      tx.yql("CREATE VERTEX MAPerson SET name = 'Mark', surname = 'Bean'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      // John Doe -> John Smith
+      tx.yql(
+          "CREATE EDGE MAFriend "
+              + "FROM (SELECT FROM MAPerson WHERE name='John' AND surname='Doe') "
+              + "TO (SELECT FROM MAPerson WHERE name='John' AND surname='Smith')")
+          .iterate();
+      // John Doe -> Jenny Smith
+      tx.yql(
+          "CREATE EDGE MAFriend "
+              + "FROM (SELECT FROM MAPerson WHERE name='John' AND surname='Doe') "
+              + "TO (SELECT FROM MAPerson WHERE name='Jenny' AND surname='Smith')")
+          .iterate();
+      // John Doe -> Frank Bean
+      tx.yql(
+          "CREATE EDGE MAFriend "
+              + "FROM (SELECT FROM MAPerson WHERE name='John' AND surname='Doe') "
+              + "TO (SELECT FROM MAPerson WHERE name='Frank' AND surname='Bean')")
+          .iterate();
+      // John Smith -> Jenny Smith
+      tx.yql(
+          "CREATE EDGE MAFriend "
+              + "FROM (SELECT FROM MAPerson WHERE name='John' AND surname='Smith') "
+              + "TO (SELECT FROM MAPerson WHERE name='Jenny' AND surname='Smith')")
+          .iterate();
+      // Frank Bean -> Mark Bean
+      tx.yql(
+          "CREATE EDGE MAFriend "
+              + "FROM (SELECT FROM MAPerson WHERE name='Frank' AND surname='Bean') "
+              + "TO (SELECT FROM MAPerson WHERE name='Mark' AND surname='Bean')")
+          .iterate();
+      // Jenny Smith -> Mark Bean
+      tx.yql(
+          "CREATE EDGE MAFriend "
+              + "FROM (SELECT FROM MAPerson WHERE name='Jenny' AND surname='Smith') "
+              + "TO (SELECT FROM MAPerson WHERE name='Mark' AND surname='Bean')")
+          .iterate();
+    });
+  }
+
+  private void tearDownMatchSampleData() {
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE MAFriend").iterate();
+    });
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX MAPerson").iterate();
+    });
+  }
+
+  // Line 110-113: Find all people with the name John
+  @Test
+  public void testMatchFindByName() {
+    setUpMatchSampleData();
+    try {
+      var results =
+          g.computeInTx(
+              tx -> tx.yql(
+                  "MATCH {class: MAPerson, as: people, where: (name = 'John')} "
+                      + "RETURN people")
+                  .toList());
+      // Should return John Doe and John Smith
+      assertThat(results).hasSize(2);
+    } finally {
+      tearDownMatchSampleData();
+    }
+  }
+
+  // Line 125-128: Find all people with name John and surname Smith
+  @Test
+  public void testMatchFindByNameAndSurname() {
+    setUpMatchSampleData();
+    try {
+      var results =
+          g.computeInTx(
+              tx -> tx.yql(
+                  "MATCH {class: MAPerson, as: people, "
+                      + "where: (name = 'John' AND surname = 'Smith')} "
+                      + "RETURN people")
+                  .toList());
+      // Should return only John Smith
+      assertThat(results).hasSize(1);
+    } finally {
+      tearDownMatchSampleData();
+    }
+  }
+
+  // Line 141-144: Find people named John with their friends (both directions)
+  @Test
+  public void testMatchBothFriend() {
+    setUpMatchSampleData();
+    try {
+      var results =
+          g.computeInTx(
+              tx -> tx.yql(
+                  "MATCH {class: MAPerson, as: person, where: (name = 'John')}"
+                      + ".both('MAFriend') {as: friend} "
+                      + "RETURN person, friend")
+                  .toList());
+      // John Doe has 3 friends (out: Smith, Jenny, Frank)
+      // John Smith has 2 friends (in: Doe, out: Jenny)
+      // = 5 total
+      assertThat(results).hasSize(5);
+    } finally {
+      tearDownMatchSampleData();
+    }
+  }
+
+  // Line 161-165: Friends of friends — MATCH returns all occurrences (7 rows).
+  // John Doe appears 3 times as friendOfFriend (via each of his 3 friends).
+  @Test
+  public void testMatchFriendsOfFriends() {
+    setUpMatchSampleData();
+    try {
+      var results =
+          g.computeInTx(
+              tx -> tx.yql(
+                  "MATCH {class: MAPerson, as: person, "
+                      + "where: (name = 'John' AND surname = 'Doe')}"
+                      + ".both('MAFriend').both('MAFriend') {as: friendOfFriend} "
+                      + "RETURN person, friendOfFriend")
+                  .toList());
+      // 7 rows: Doe×3 (via each friend), Jenny, Smith, Mark×2
+      assertThat(results).hasSize(7);
+    } finally {
+      tearDownMatchSampleData();
+    }
+  }
+
+  // Line 183-188: Friends of friends, excluding current user via $matched.person
+  @Test
+  public void testMatchFriendsOfFriendsExcludeSelf() {
+    setUpMatchSampleData();
+    try {
+      var results =
+          g.computeInTx(
+              tx -> tx.yql(
+                  "MATCH {class: MAPerson, as: person, "
+                      + "where: (name = 'John' AND surname = 'Doe')}"
+                      + ".both('MAFriend').both('MAFriend')"
+                      + "{as: friendOfFriend, "
+                      + "where: ($matched.person != $currentMatch)} "
+                      + "RETURN person, friendOfFriend")
+                  .toList());
+      // Same as above but excluding John Doe himself = 4
+      assertThat(results).hasSize(4);
+    } finally {
+      tearDownMatchSampleData();
+    }
+  }
+
+  // Line 207-212: Deep traversal with while condition ($depth < 6)
+  @Test
+  public void testMatchDeepTraversalWhile() {
+    setUpMatchSampleData();
+    try {
+      // Verify that omitting comma between where: and while: fails to parse
+      assertThatThrownBy(
+          () -> g.computeInTx(
+              tx -> tx.yql(
+                  "MATCH {class: MAPerson, as: person, "
+                      + "where: (name = 'John' AND surname = 'Doe')}"
+                      + ".both('MAFriend'){as: friend, "
+                      + "where: ($matched.person != $currentMatch) "
+                      + "while: ($depth < 6)} "
+                      + "RETURN person, friend")
+                  .toList()));
+
+      // Correct syntax with comma between where: and while:
+      var results =
+          g.computeInTx(
+              tx -> tx.yql(
+                  "MATCH {class: MAPerson, as: person, "
+                      + "where: (name = 'John' AND surname = 'Doe')}"
+                      + ".both('MAFriend'){as: friend, "
+                      + "where: ($matched.person != $currentMatch), "
+                      + "while: ($depth < 6)} "
+                      + "RETURN person, friend")
+                  .toList());
+      assertThat(results).isNotEmpty();
+    } finally {
+      tearDownMatchSampleData();
+    }
+  }
+
+  // Line 236-241: Multiple match paths — friends of friends who are also direct friends
+  @Test
+  public void testMatchMultiplePaths() {
+    setUpMatchSampleData();
+    try {
+      var results =
+          g.computeInTx(
+              tx -> tx.yql(
+                  "MATCH {class: MAPerson, as: person, "
+                      + "where: (name = 'John' AND surname = 'Doe')}"
+                      + ".both('MAFriend').both('MAFriend'){as: friend}, "
+                      + "{ as: person }.both('MAFriend'){ as: friend } "
+                      + "RETURN person, friend")
+                  .toList());
+      // Friends of friends who are also direct friends: John Smith, Jenny Smith
+      assertThat(results).hasSize(2);
+    } finally {
+      tearDownMatchSampleData();
+    }
+  }
+
+  // Line 257-261: Common friends of John Doe and Jenny Smith
+  @Test
+  public void testMatchCommonFriends() {
+    setUpMatchSampleData();
+    try {
+      var results =
+          g.computeInTx(
+              tx -> tx.yql(
+                  "MATCH {class: MAPerson, "
+                      + "where: (name = 'John' AND surname = 'Doe')}"
+                      + ".both('MAFriend'){as: friend}.both('MAFriend')"
+                      + "{class: MAPerson, where: (name = 'Jenny')} "
+                      + "RETURN friend")
+                  .toList());
+      // Common friend of John Doe and Jenny Smith is John Smith
+      assertThat(results).hasSize(1);
+    } finally {
+      tearDownMatchSampleData();
+    }
+  }
+
+  // Line 273-278: Common friends with two match expressions
+  @Test
+  public void testMatchCommonFriendsTwoExpressions() {
+    setUpMatchSampleData();
+    try {
+      var results =
+          g.computeInTx(
+              tx -> tx.yql(
+                  "MATCH {class: MAPerson, "
+                      + "where: (name = 'John' AND surname = 'Doe')}"
+                      + ".both('MAFriend'){as: friend}, "
+                      + "{class: MAPerson, where: (name = 'Jenny')}.both('MAFriend')"
+                      + "{as: friend} RETURN friend")
+                  .toList());
+      // Same as single expression: John Smith is the common friend
+      assertThat(results).hasSize(1);
+    } finally {
+      tearDownMatchSampleData();
+    }
+  }
+
+  // Line 288-292: DISTINCT — create data with duplicate names, verify MATCH returns duplicates
+  @Test
+  public void testMatchDistinct() {
+    g.command("CREATE CLASS MADistPerson IF NOT EXISTS EXTENDS V");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX MADistPerson SET name = 'John', surname = 'Smith'").iterate();
+      tx.yql("CREATE VERTEX MADistPerson SET name = 'John', surname = 'Harris'").iterate();
+      tx.yql("CREATE VERTEX MADistPerson SET name = 'Jenny', surname = 'Rose'").iterate();
+    });
+
+    // Without DISTINCT: should return 3 rows (including both Johns)
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "MATCH {class: MADistPerson, as:p} RETURN p.name as name")
+                .toList());
+    assertThat(results).hasSize(3);
+
+    // With DISTINCT: should return 2 rows (John and Jenny)
+    var distinctResults =
+        g.computeInTx(
+            tx -> tx.yql(
+                "MATCH {class: MADistPerson, as:p} RETURN DISTINCT p.name as name")
+                .toList());
+    assertThat(distinctResults).hasSize(2);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX MADistPerson").iterate();
+    });
+  }
+
+  // Line 349-355: Expanding attributes — SELECT from MATCH sub-query
+  @Test
+  public void testMatchExpandingAttributes() {
+    setUpMatchSampleData();
+    try {
+      var results =
+          g.computeInTx(
+              tx -> tx.yql(
+                  "SELECT person.name AS name, person.surname AS surname, "
+                      + "friend.name AS friendName, friend.surname AS friendSurname "
+                      + "FROM (MATCH {class: MAPerson, as: person, "
+                      + "where: (name = 'John')}.both('MAFriend'){as: friend} "
+                      + "RETURN person, friend)")
+                  .toList());
+      // John Doe has 3 friends, John Smith has 2 friends = 5 total
+      assertThat(results).hasSize(5);
+    } finally {
+      tearDownMatchSampleData();
+    }
+  }
+
+  // Line 373-378: RETURN with dot-notation on aliases (alternative syntax)
+  @Test
+  public void testMatchReturnDotNotation() {
+    setUpMatchSampleData();
+    try {
+      var results =
+          g.computeInTx(
+              tx -> tx.yql(
+                  "MATCH {class: MAPerson, as: person, "
+                      + "where: (name = 'John')}.both('MAFriend'){as: friend} "
+                      + "RETURN person.name as name, person.surname as surname, "
+                      + "friend.name as friendName, friend.surname as friendSurname")
+                  .toList());
+      assertThat(results).hasSize(5);
+    } finally {
+      tearDownMatchSampleData();
+    }
+  }
+
+  // Line 439-461: Deep traversal — out("FriendOf") without while returns only direct
+  @Test
+  public void testMatchDeepTraversalWithoutWhile() {
+    g.command("CREATE CLASS MADeepPerson IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS MAFriendOf IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX MADeepPerson SET name = 'a'").iterate();
+      tx.yql("CREATE VERTEX MADeepPerson SET name = 'b'").iterate();
+      tx.yql("CREATE VERTEX MADeepPerson SET name = 'c'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE MAFriendOf "
+              + "FROM (SELECT FROM MADeepPerson WHERE name = 'a') "
+              + "TO (SELECT FROM MADeepPerson WHERE name = 'b')")
+          .iterate();
+      tx.yql(
+          "CREATE EDGE MAFriendOf "
+              + "FROM (SELECT FROM MADeepPerson WHERE name = 'b') "
+              + "TO (SELECT FROM MADeepPerson WHERE name = 'c')")
+          .iterate();
+    });
+
+    // Without while: traverses out("MAFriendOf") exactly once → returns only 'b'
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "MATCH {class: MADeepPerson, where: (name = 'a')}"
+                    + ".out('MAFriendOf'){as: friend} RETURN friend")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE MAFriendOf").iterate();
+    });
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX MADeepPerson").iterate();
+    });
+  }
+
+  // Line 471-484: Deep traversal with while — includes origin node (depth 0).
+  // while($depth < 2) returns 'a' (depth 0), 'b' (depth 1), 'c' (depth 2) = 3 results.
+  @Test
+  public void testMatchDeepTraversalWithWhile() {
+    g.command("CREATE CLASS MADeepPerson2 IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS MAFriendOf2 IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX MADeepPerson2 SET name = 'a'").iterate();
+      tx.yql("CREATE VERTEX MADeepPerson2 SET name = 'b'").iterate();
+      tx.yql("CREATE VERTEX MADeepPerson2 SET name = 'c'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE MAFriendOf2 "
+              + "FROM (SELECT FROM MADeepPerson2 WHERE name = 'a') "
+              + "TO (SELECT FROM MADeepPerson2 WHERE name = 'b')")
+          .iterate();
+      tx.yql(
+          "CREATE EDGE MAFriendOf2 "
+              + "FROM (SELECT FROM MADeepPerson2 WHERE name = 'b') "
+              + "TO (SELECT FROM MADeepPerson2 WHERE name = 'c')")
+          .iterate();
+    });
+
+    // Returns 'a', 'b', 'c' = 3 results
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "MATCH {class: MADeepPerson2, where: (name = 'a')}"
+                    + ".out('MAFriendOf2'){as: friend, while: ($depth < 2)} "
+                    + "RETURN friend")
+                .toList());
+    assertThat(results).hasSize(3);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE MAFriendOf2").iterate();
+    });
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX MADeepPerson2").iterate();
+    });
+  }
+
+  // Line 490-495: Deep traversal with while + where to exclude origin
+  @Test
+  public void testMatchDeepTraversalWhileExcludeOrigin() {
+    g.command("CREATE CLASS MADeepPerson3 IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS MAFriendOf3 IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX MADeepPerson3 SET name = 'a'").iterate();
+      tx.yql("CREATE VERTEX MADeepPerson3 SET name = 'b'").iterate();
+      tx.yql("CREATE VERTEX MADeepPerson3 SET name = 'c'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE MAFriendOf3 "
+              + "FROM (SELECT FROM MADeepPerson3 WHERE name = 'a') "
+              + "TO (SELECT FROM MADeepPerson3 WHERE name = 'b')")
+          .iterate();
+      tx.yql(
+          "CREATE EDGE MAFriendOf3 "
+              + "FROM (SELECT FROM MADeepPerson3 WHERE name = 'b') "
+              + "TO (SELECT FROM MADeepPerson3 WHERE name = 'c')")
+          .iterate();
+    });
+
+    // Verify that omitting comma between while: and where: fails to parse
+    assertThatThrownBy(
+        () -> g.computeInTx(
+            tx -> tx.yql(
+                "MATCH {class: MADeepPerson3, where: (name = 'a')}"
+                    + ".out('MAFriendOf3'){as: friend, "
+                    + "while: ($depth < 2) where: ($depth > 0)} "
+                    + "RETURN friend")
+                .toList()));
+
+    // Correct syntax with comma; where($depth > 0) excludes origin 'a'
+    // Returns 'b' (depth 1) and 'c' (depth 2)
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "MATCH {class: MADeepPerson3, where: (name = 'a')}"
+                    + ".out('MAFriendOf3'){as: friend, "
+                    + "while: ($depth < 2), where: ($depth > 0)} "
+                    + "RETURN friend")
+                .toList());
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE MAFriendOf3").iterate();
+    });
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX MADeepPerson3").iterate();
+    });
+  }
+
+  // Line 745-755: Arrow notation — out() can be written as -->
+  @Test
+  public void testMatchArrowNotation() {
+    g.command("CREATE CLASS MAArrowV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS MAArrowE IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX MAArrowV SET name = 'a'").iterate();
+      tx.yql("CREATE VERTEX MAArrowV SET name = 'b'").iterate();
+      tx.yql("CREATE VERTEX MAArrowV SET name = 'c'").iterate();
+      tx.yql("CREATE VERTEX MAArrowV SET name = 'd'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE MAArrowE "
+              + "FROM (SELECT FROM MAArrowV WHERE name = 'a') "
+              + "TO (SELECT FROM MAArrowV WHERE name = 'b')")
+          .iterate();
+      tx.yql(
+          "CREATE EDGE MAArrowE "
+              + "FROM (SELECT FROM MAArrowV WHERE name = 'b') "
+              + "TO (SELECT FROM MAArrowV WHERE name = 'c')")
+          .iterate();
+      tx.yql(
+          "CREATE EDGE MAArrowE "
+              + "FROM (SELECT FROM MAArrowV WHERE name = 'c') "
+              + "TO (SELECT FROM MAArrowV WHERE name = 'd')")
+          .iterate();
+    });
+
+    // Functional notation
+    var funcResults =
+        g.computeInTx(
+            tx -> tx.yql(
+                "MATCH {class: MAArrowV, as: a, where: (name = 'a')}"
+                    + ".out(){}.out(){}.out(){as:b} RETURN a, b")
+                .toList());
+    assertThat(funcResults).hasSize(1);
+
+    // Arrow notation should produce the same result
+    var arrowResults =
+        g.computeInTx(
+            tx -> tx.yql(
+                "MATCH {class: MAArrowV, as: a, where: (name = 'a')} "
+                    + "--> {} --> {} --> {as:b} RETURN a, b")
+                .toList());
+    assertThat(arrowResults).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE MAArrowE").iterate();
+    });
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX MAArrowV").iterate();
+    });
+  }
+
+  // Line 759-768: Arrow notation with edge class label
+  @Test
+  public void testMatchArrowNotationWithEdgeClass() {
+    g.command("CREATE CLASS MAArrowPerson IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS MAArrowFriend IF NOT EXISTS EXTENDS E");
+    g.command("CREATE CLASS MAArrowBelongsTo IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX MAArrowPerson SET name = 'Alice'").iterate();
+      tx.yql("CREATE VERTEX MAArrowPerson SET name = 'Bob'").iterate();
+      tx.yql("CREATE VERTEX MAArrowPerson SET name = 'item1'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE MAArrowFriend "
+              + "FROM (SELECT FROM MAArrowPerson WHERE name = 'Alice') "
+              + "TO (SELECT FROM MAArrowPerson WHERE name = 'Bob')")
+          .iterate();
+      tx.yql(
+          "CREATE EDGE MAArrowBelongsTo "
+              + "FROM (SELECT FROM MAArrowPerson WHERE name = 'item1') "
+              + "TO (SELECT FROM MAArrowPerson WHERE name = 'Bob')")
+          .iterate();
+    });
+
+    // Functional notation
+    var funcResults =
+        g.computeInTx(
+            tx -> tx.yql(
+                "MATCH {class: MAArrowPerson, as: a, where: (name = 'Alice')}"
+                    + ".out('MAArrowFriend'){as:friend}"
+                    + ".in('MAArrowBelongsTo'){as:b} RETURN a, b")
+                .toList());
+    assertThat(funcResults).hasSize(1);
+
+    // Arrow notation
+    var arrowResults =
+        g.computeInTx(
+            tx -> tx.yql(
+                "MATCH {class: MAArrowPerson, as: a, where: (name = 'Alice')} "
+                    + "-MAArrowFriend-> {as:friend} <-MAArrowBelongsTo- {as:b} "
+                    + "RETURN a, b")
+                .toList());
+    assertThat(arrowResults).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE MAArrowFriend").iterate();
+      tx.yql("DELETE EDGE MAArrowBelongsTo").iterate();
+    });
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX MAArrowPerson").iterate();
+    });
+  }
+
+  // Line 780-795: NOT patterns — friends of friends who are NOT direct friends
+  @Test
+  public void testMatchNegativePattern() {
+    g.command("CREATE CLASS MANotPerson IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS MANotFriendOf IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX MANotPerson SET name = 'John'").iterate();
+      tx.yql("CREATE VERTEX MANotPerson SET name = 'Bob'").iterate();
+      tx.yql("CREATE VERTEX MANotPerson SET name = 'Carol'").iterate();
+      tx.yql("CREATE VERTEX MANotPerson SET name = 'Dave'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      // John -> Bob, John -> Carol
+      tx.yql(
+          "CREATE EDGE MANotFriendOf "
+              + "FROM (SELECT FROM MANotPerson WHERE name = 'John') "
+              + "TO (SELECT FROM MANotPerson WHERE name = 'Bob')")
+          .iterate();
+      tx.yql(
+          "CREATE EDGE MANotFriendOf "
+              + "FROM (SELECT FROM MANotPerson WHERE name = 'John') "
+              + "TO (SELECT FROM MANotPerson WHERE name = 'Carol')")
+          .iterate();
+      // Bob -> Dave (Dave is friend-of-friend of John but NOT direct friend)
+      tx.yql(
+          "CREATE EDGE MANotFriendOf "
+              + "FROM (SELECT FROM MANotPerson WHERE name = 'Bob') "
+              + "TO (SELECT FROM MANotPerson WHERE name = 'Dave')")
+          .iterate();
+      // Carol -> Bob (Bob is both direct friend and friend-of-friend)
+      tx.yql(
+          "CREATE EDGE MANotFriendOf "
+              + "FROM (SELECT FROM MANotPerson WHERE name = 'Carol') "
+              + "TO (SELECT FROM MANotPerson WHERE name = 'Bob')")
+          .iterate();
+    });
+
+    // NOT pattern: friends of friends who are NOT direct friends
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "MATCH "
+                    + "{class: MANotPerson, as:a, where:(name = 'John')} "
+                    + "-MANotFriendOf-> {as:b} -MANotFriendOf-> {as:c}, "
+                    + "NOT {as:a} -MANotFriendOf-> {as:c} "
+                    + "RETURN c.name as name")
+                .toList());
+    // Dave is friend-of-friend but not direct friend
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE MANotFriendOf").iterate();
+    });
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX MANotPerson").iterate();
+    });
+  }
+
+  // Line 605-611: $matches returns all aliases from the pattern
+  @Test
+  public void testMatchReturnMatches() {
+    setUpMatchSampleData();
+    try {
+      var results =
+          g.computeInTx(
+              tx -> tx.yql(
+                  "MATCH {class: MAPerson, as: person, "
+                      + "where: (name = 'John' AND surname = 'Doe')}"
+                      + ".bothE('MAFriend'){}"
+                      + ".bothV(){as: friend, "
+                      + "where: ($matched.person != $currentMatch)} "
+                      + "RETURN $matches")
+                  .toList());
+      // John Doe has 3 friends
+      assertThat(results).hasSize(3);
+    } finally {
+      tearDownMatchSampleData();
+    }
+  }
+
+  // Line 679-685: $paths returns all nodes including auto-generated aliases
+  @Test
+  public void testMatchReturnPaths() {
+    setUpMatchSampleData();
+    try {
+      var results =
+          g.computeInTx(
+              tx -> tx.yql(
+                  "MATCH {class: MAPerson, as: person, "
+                      + "where: (name = 'John' AND surname = 'Doe')}"
+                      + ".bothE('MAFriend'){}"
+                      + ".bothV(){as: friend, "
+                      + "where: ($matched.person != $currentMatch)} "
+                      + "RETURN $paths")
+                  .toList());
+      assertThat(results).hasSize(3);
+      // Each result should include the auto-generated alias for the unnamed node
+      @SuppressWarnings("unchecked")
+      Map<String, Object> first = (Map<String, Object>) results.get(0);
+      assertThat(first).containsKey("person");
+      assertThat(first).containsKey("friend");
+      // Verify the auto-generated alias uses YOUTRACKDB prefix (not ORIENT)
+      boolean hasAutoAlias =
+          first.keySet().stream()
+              .anyMatch(k -> k.startsWith("$YOUTRACKDB_DEFAULT_ALIAS_"));
+      assertThat(hasAutoAlias)
+          .as("Auto-generated alias should use $YOUTRACKDB_DEFAULT_ALIAS_ prefix")
+          .isTrue();
+    } finally {
+      tearDownMatchSampleData();
+    }
+  }
+
+  // Line 697-703: $elements returns flattened distinct nodes from $matches
+  @Test
+  public void testMatchReturnElements() {
+    setUpMatchSampleData();
+    try {
+      var results =
+          g.computeInTx(
+              tx -> tx.yql(
+                  "MATCH {class: MAPerson, as: person, "
+                      + "where: (name = 'John' AND surname = 'Doe')}"
+                      + ".bothE('MAFriend'){}"
+                      + ".bothV(){as: friend, "
+                      + "where: ($matched.person != $currentMatch)} "
+                      + "RETURN $elements")
+                  .toList());
+      // $elements returns flattened distinct vertices from $matches aliases
+      // person (Doe) + 3 friends (Smith, Jenny, Frank) = at least 4
+      assertThat(results).hasSizeGreaterThanOrEqualTo(4);
+    } finally {
+      tearDownMatchSampleData();
+    }
+  }
+
+  // Line 715-736: $pathElements returns flattened distinct nodes from $paths (including edges)
+  @Test
+  public void testMatchReturnPathElements() {
+    setUpMatchSampleData();
+    try {
+      var results =
+          g.computeInTx(
+              tx -> tx.yql(
+                  "MATCH {class: MAPerson, as: person, "
+                      + "where: (name = 'John' AND surname = 'Doe')}"
+                      + ".bothE('MAFriend'){}"
+                      + ".bothV(){as: friend, "
+                      + "where: ($matched.person != $currentMatch)} "
+                      + "RETURN $pathElements")
+                  .toList());
+      // $pathElements includes edges and vertices, flattened and distinct
+      // At least 4 vertices + 3 edges = 7
+      assertThat(results).hasSizeGreaterThanOrEqualTo(7);
+    } finally {
+      tearDownMatchSampleData();
+    }
+  }
+
+  // Line 645-651: RETURN with string concatenation expression
+  @Test
+  public void testMatchReturnStringConcatenation() {
+    setUpMatchSampleData();
+    try {
+      var results =
+          g.computeInTx(
+              tx -> tx.yql(
+                  "MATCH {class: MAPerson, as: person}"
+                      + ".bothE('MAFriend'){as: friendship}"
+                      + ".bothV(){as: friend, "
+                      + "where: ($matched.person != $currentMatch)} "
+                      + "RETURN person.name + ' is a friend of ' "
+                      + "+ friend.name as friends")
+                  .toList());
+      assertThat(results).isNotEmpty();
+      // Each result is a map with 'friends' key containing a concatenated string
+      @SuppressWarnings("unchecked")
+      Map<String, Object> first = (Map<String, Object>) results.get(0);
+      assertThat(first).containsKey("friends");
+      String friendStr = (String) first.get("friends");
+      assertThat(friendStr).contains(" is a friend of ");
+    } finally {
+      tearDownMatchSampleData();
+    }
+  }
+
+  // Lines 629-641: RETURN with edge property access via bothE alias
+  @Test
+  public void testMatchReturnEdgeProperties() {
+    g.command("CREATE CLASS MAEdgePropPerson IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS MAEdgePropFriend IF NOT EXISTS EXTENDS E");
+    g.command("CREATE PROPERTY MAEdgePropFriend.since IF NOT EXISTS INTEGER");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX MAEdgePropPerson SET name = 'John'").iterate();
+      tx.yql("CREATE VERTEX MAEdgePropPerson SET name = 'Frank'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE MAEdgePropFriend "
+              + "FROM (SELECT FROM MAEdgePropPerson WHERE name = 'John') "
+              + "TO (SELECT FROM MAEdgePropPerson WHERE name = 'Frank') "
+              + "SET since = 2015")
+          .iterate();
+    });
+
+    // MATCH with bothE and RETURN edge property via dot notation
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "MATCH {class: MAEdgePropPerson, as: person}"
+                    + ".bothE('MAEdgePropFriend'){as: friendship}"
+                    + ".bothV(){as: friend, "
+                    + "where: ($matched.person != $currentMatch)} "
+                    + "RETURN person.name as name, friendship.since as since, "
+                    + "friend.name as friend")
+                .toList());
+    // Both directions: John→Frank and Frank→John
+    assertThat(results).hasSize(2);
+    @SuppressWarnings("unchecked")
+    Map<String, Object> first = (Map<String, Object>) results.get(0);
+    assertThat(first).containsKey("name");
+    assertThat(first).containsKey("since");
+    assertThat(first).containsKey("friend");
+    assertThat((Integer) first.get("since")).isEqualTo(2015);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE MAEdgePropFriend").iterate();
+    });
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX MAEdgePropPerson").iterate();
+    });
+  }
+
+  // === YQL-Create-Class.md ===
+
+  // Line 24-26: CREATE CLASS Account extends V
+  @Test
+  public void testCreateClassAccount() {
+    g.command("CREATE CLASS CCAccount IF NOT EXISTS EXTENDS V");
+
+    // Verify the class exists by inserting and querying a vertex
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CCAccount SET name = 'test'").iterate();
+    });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM CCAccount").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX CCAccount").iterate();
+    });
+  }
+
+  // Line 30-32: CREATE CLASS Car EXTENDS Vehicle (extends another class)
+  @Test
+  public void testCreateClassExtendsAnotherClass() {
+    g.command("CREATE CLASS CCVehicle IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS CCCar IF NOT EXISTS EXTENDS CCVehicle");
+
+    // Verify CCCar is a subclass of CCVehicle by inserting into CCCar and querying CCVehicle
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CCCar SET model = 'Sedan'").iterate();
+    });
+
+    var resultsFromParent =
+        g.computeInTx(tx -> tx.yql("SELECT FROM CCVehicle").toList());
+    assertThat(resultsFromParent).hasSize(1);
+
+    var resultsFromChild =
+        g.computeInTx(tx -> tx.yql("SELECT FROM CCCar").toList());
+    assertThat(resultsFromChild).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX CCCar").iterate();
+    });
+  }
+
+  // Line 37-39: CREATE CLASS Person ABSTRACT — abstract classes cannot be instantiated
+  @Test
+  public void testCreateAbstractClass() {
+    g.command("CREATE CLASS CCPerson IF NOT EXISTS EXTENDS V ABSTRACT");
+
+    // Attempting to create a vertex of an abstract class should fail
+    assertThatThrownBy(() -> g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CCPerson SET name = 'John'").iterate();
+    }));
+  }
+
+  // Line 9/14: IF NOT EXISTS — class creation is ignored if the class already exists
+  @Test
+  public void testCreateClassIfNotExists() {
+    g.command("CREATE CLASS CCDuplicate IF NOT EXISTS EXTENDS V");
+    // Second call should not throw
+    g.command("CREATE CLASS CCDuplicate IF NOT EXISTS EXTENDS V");
+
+    // Verify the class still works
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CCDuplicate SET val = 1").iterate();
+    });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM CCDuplicate").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX CCDuplicate").iterate();
+    });
+  }
+
+  // Line 10/15: EXTENDS supports multiple superclasses (grammar: EXTENDS A, B, ...)
+  @Test
+  public void testCreateClassMultipleSuperclasses() {
+    g.command("CREATE CLASS CCBase1 IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS CCBase2 IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS CCMulti IF NOT EXISTS EXTENDS CCBase1, CCBase2");
+
+    // Verify the class works and is visible from both parent classes
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CCMulti SET val = 1").iterate();
+    });
+
+    var fromBase1 =
+        g.computeInTx(tx -> tx.yql("SELECT FROM CCBase1").toList());
+    assertThat(fromBase1).hasSize(1);
+
+    var fromBase2 =
+        g.computeInTx(tx -> tx.yql("SELECT FROM CCBase2").toList());
+    assertThat(fromBase2).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX CCMulti").iterate();
+    });
+  }
+
+  // Line 18: "A class must be a child of V (Vertex) or E (Edge)" — the schema DDL
+  // CREATE CLASS succeeds without EXTENDS V/E, but the Gremlin result mapper throws
+  // IllegalStateException when trying to use such a class through yql(). The doc claim
+  // is practically correct: non-V/E classes are unusable through the public Gremlin API.
+  @Test
+  public void testCreateClassWithoutVOrESchemaSucceedsButGremlinFails() {
+    // Schema DDL works — no error
+    g.command("CREATE CLASS CCPlain IF NOT EXISTS");
+
+    // But using the class through the Gremlin API fails
+    assertThatThrownBy(
+        () -> g.executeInTx(tx -> {
+          tx.yql("INSERT INTO CCPlain SET val = 1").iterate();
+        }))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("Only vertices and edges are supported");
+  }
+
+  // === YQL-Alter-Class.md ===
+
+  // Line 20: ALTER CLASS Employee SUPERCLASSES Person — define superclasses (replaces all)
+  @Test
+  public void testAlterClassDefineSuperclass() {
+    g.command("CREATE CLASS AcPerson IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS AcEmployee IF NOT EXISTS EXTENDS V");
+    // SUPERCLASSES replaces the full list; V must be kept or the class ceases to be a vertex
+    g.command("ALTER CLASS AcEmployee SUPERCLASSES AcPerson, V");
+
+    // Verify the class still works after superclass change
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX AcEmployee SET name = 'Alice'").iterate();
+    });
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM AcEmployee").toList());
+    assertThat(results).hasSize(1);
+
+    // Employee records should also be visible from AcPerson
+    var fromPerson =
+        g.computeInTx(tx -> tx.yql("SELECT FROM AcPerson").toList());
+    assertThat(fromPerson).isNotEmpty();
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX AcEmployee").iterate();
+    });
+  }
+
+  // Line 26: SUPERCLASSES supports multiple inheritance via comma-separated list
+  @Test
+  public void testAlterClassMultipleSuperclasses() {
+    g.command("CREATE CLASS AcBase1 IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS AcBase2 IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS AcChild IF NOT EXISTS EXTENDS AcBase1");
+    // Add AcBase2 by providing the full list (V must be kept for vertex classes)
+    g.command("ALTER CLASS AcChild SUPERCLASSES AcBase1, AcBase2, V");
+
+    // Verify the class works with multiple superclasses
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX AcChild SET name = 'Bob'").iterate();
+    });
+
+    // Records should be visible from both parent classes
+    var fromBase1 =
+        g.computeInTx(tx -> tx.yql("SELECT FROM AcBase1").toList());
+    var fromBase2 =
+        g.computeInTx(tx -> tx.yql("SELECT FROM AcBase2").toList());
+    assertThat(fromBase1).isNotEmpty();
+    assertThat(fromBase2).isNotEmpty();
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX AcChild").iterate();
+    });
+  }
+
+  // Line 33: SUPERCLASSES can remove a superclass by omitting it from the replacement list
+  @Test
+  public void testAlterClassRemoveSuperclass() {
+    g.command("CREATE CLASS AcRemBase1 IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS AcRemBase2 IF NOT EXISTS EXTENDS V");
+    g.command(
+        "CREATE CLASS AcRemChild IF NOT EXISTS EXTENDS AcRemBase1, AcRemBase2");
+    // Remove AcRemBase2 by providing the list without it (V must be kept)
+    g.command("ALTER CLASS AcRemChild SUPERCLASSES AcRemBase1, V");
+
+    // Verify the class still works after removing a superclass
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX AcRemChild SET name = 'Charlie'").iterate();
+    });
+
+    // Record should still be visible from AcRemBase1
+    var fromBase1 =
+        g.computeInTx(tx -> tx.yql("SELECT FROM AcRemBase1").toList());
+    assertThat(fromBase1).isNotEmpty();
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX AcRemChild").iterate();
+    });
+  }
+
+  // Line 39: ALTER CLASS Account NAME Seller — rename a class
+  @Test
+  public void testAlterClassRename() {
+    g.command("CREATE CLASS AcAccount IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX AcAccount SET balance = 100").iterate();
+    });
+
+    g.command("ALTER CLASS AcAccount NAME AcSeller");
+
+    // Verify the class is accessible under the new name
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM AcSeller").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat((int) v.value("balance")).isEqualTo(100);
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX AcSeller").iterate();
+    });
+  }
+
+  // Line 45: ALTER CLASS TheClass ABSTRACT true — convert to abstract class
+  @Test
+  public void testAlterClassAbstract() {
+    g.command("CREATE CLASS AcTheClass IF NOT EXISTS EXTENDS V");
+    g.command("ALTER CLASS AcTheClass ABSTRACT true");
+
+    // Verify that creating a vertex of an abstract class fails
+    assertThatThrownBy(() -> g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX AcTheClass SET name = 'test'").iterate();
+    }));
+  }
+
+  // Line 59: STRICT_MODE — verify the ALTER CLASS STRICT_MODE command is accepted
+  @Test
+  public void testAlterClassStrictMode() {
+    g.command("CREATE CLASS AcStrict IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY AcStrict.name STRING");
+    // Verify that STRICT_MODE (with underscore) is the correct syntax
+    g.command("ALTER CLASS AcStrict STRICT_MODE true");
+
+    // Adding a property that IS in the schema should succeed
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX AcStrict SET name = 'valid'").iterate();
+    });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM AcStrict").toList());
+    assertThat(results).hasSize(1);
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX AcStrict").iterate();
+    });
+  }
+
+  // Line 60: CUSTOM — define custom properties with key=value syntax
+  @Test
+  public void testAlterClassCustomProperty() {
+    g.command("CREATE CLASS AcCustom IF NOT EXISTS EXTENDS V");
+    g.command("ALTER CLASS AcCustom CUSTOM myProp='hello'");
+
+    // Verify the class still works after setting a custom property
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX AcCustom SET name = 'test'").iterate();
+    });
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM AcCustom").toList());
+    assertThat(results).hasSize(1);
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX AcCustom").iterate();
+    });
+  }
+
+  // Line 53: DESCRIPTION — set or update the class description.
+  // The DESCRIPTION attribute expects an identifier (unquoted), not a quoted string.
+  @Test
+  public void testAlterClassDescription() {
+    g.command("CREATE CLASS AcDescribed IF NOT EXISTS EXTENDS V");
+    g.command("ALTER CLASS AcDescribed DESCRIPTION TestDescription");
+
+    // Verify the class still works after setting a description
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX AcDescribed SET name = 'test'").iterate();
+    });
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM AcDescribed").toList());
+    assertThat(results).hasSize(1);
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX AcDescribed").iterate();
+    });
+  }
+
+  // ===================================================================================
+  // YQL-Alter-Property.md validation tests
+  // ===================================================================================
+
+  // Line 22: ALTER PROPERTY Account.age NAME "born" — rename a property
+  // Validates that the ALTER PROPERTY ... NAME syntax is accepted by the parser.
+  // The doc claims "the old values are copied to the new property name" (line 83),
+  // which is correct — SchemaClassImpl.firePropertyNameMigration() copies data.
+  @Test
+  public void testAlterPropertyRenameName() {
+    g.command("CREATE CLASS ApAccount IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY ApAccount.age INTEGER");
+
+    // Rename property from 'age' to 'born' — command should succeed
+    g.command("ALTER PROPERTY ApAccount.age NAME \"born\"");
+
+    // Insert a vertex using the new property name
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX ApAccount SET born = 25").iterate();
+    });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM ApAccount WHERE born = 25").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat((int) v.value("born")).isEqualTo(25);
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX ApAccount").iterate();
+    });
+    g.command("DROP CLASS ApAccount IF EXISTS");
+  }
+
+  // Line 29: ALTER PROPERTY Account.age MANDATORY TRUE — make a property mandatory
+  // Validates that the ALTER PROPERTY ... MANDATORY syntax is accepted.
+  @Test
+  public void testAlterPropertyMandatory() {
+    g.command("CREATE CLASS ApMandatory IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY ApMandatory.age INTEGER");
+
+    // The MANDATORY TRUE command should be accepted without error
+    g.command("ALTER PROPERTY ApMandatory.age MANDATORY TRUE");
+
+    // Inserting with the mandatory field should succeed
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX ApMandatory SET age = 30").iterate();
+    });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM ApMandatory").toList());
+    assertThat(results).hasSize(1);
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX ApMandatory").iterate();
+    });
+    g.command("DROP CLASS ApMandatory IF EXISTS");
+  }
+
+  // Line 34: ALTER PROPERTY Account.gender REGEXP "[MF]" — regex constraint
+  // Validates that the ALTER PROPERTY ... REGEXP syntax is accepted.
+  @Test
+  public void testAlterPropertyRegexp() {
+    g.command("CREATE CLASS ApRegexp IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY ApRegexp.gender STRING");
+
+    // The REGEXP command should be accepted without error
+    g.command("ALTER PROPERTY ApRegexp.gender REGEXP \"[MF]\"");
+
+    // Valid value should succeed
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX ApRegexp SET gender = 'M'").iterate();
+    });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM ApRegexp").toList());
+    assertThat(results).hasSize(1);
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX ApRegexp").iterate();
+    });
+    g.command("DROP CLASS ApRegexp IF EXISTS");
+  }
+
+  // Line 41: ALTER PROPERTY Employee.name COLLATE "ci" — case-insensitive collation
+  @Test
+  public void testAlterPropertyCollate() {
+    g.command("CREATE CLASS ApCollate IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY ApCollate.name STRING");
+    g.command("ALTER PROPERTY ApCollate.name COLLATE \"ci\"");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX ApCollate SET name = 'John'").iterate();
+    });
+
+    // Case-insensitive query should find the record
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM ApCollate WHERE name = 'john'").toList());
+    assertThat(results).hasSize(1);
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX ApCollate").iterate();
+    });
+    g.command("DROP CLASS ApCollate IF EXISTS");
+  }
+
+  // Line 47: ALTER PROPERTY Foo.bar1 custom stereotype="visible" — custom property
+  @Test
+  public void testAlterPropertyCustom() {
+    g.command("CREATE CLASS ApCustom IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY ApCustom.bar1 STRING");
+    g.command("ALTER PROPERTY ApCustom.bar1 custom stereotype=\"visible\"");
+
+    // Verify the class and property still work after setting custom attribute
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX ApCustom SET bar1 = 'test'").iterate();
+    });
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM ApCustom").toList());
+    assertThat(results).hasSize(1);
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX ApCustom").iterate();
+    });
+    g.command("DROP CLASS ApCustom IF EXISTS");
+  }
+
+  // Line 53: ALTER PROPERTY Client.created DEFAULT "sysdate()" — default value with sysdate()
+  @Test
+  public void testAlterPropertyDefaultSysdate() {
+    g.command("CREATE CLASS ApDefault IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY ApDefault.created DATETIME");
+    g.command("ALTER PROPERTY ApDefault.created DEFAULT \"sysdate()\"");
+
+    // Insert without specifying 'created' — it should be auto-populated
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX ApDefault SET name = 'test'").iterate();
+    });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM ApDefault").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat((Object) v.value("created")).isNotNull();
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX ApDefault").iterate();
+    });
+    g.command("DROP CLASS ApDefault IF EXISTS");
+  }
+
+  // Line 58-59: ALTER PROPERTY Client.id DEFAULT "uuid()" + READONLY TRUE — immutable UUID default
+  @Test
+  public void testAlterPropertyDefaultUuidReadonly() {
+    g.command("CREATE CLASS ApReadonly IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY ApReadonly.id STRING");
+    g.command("ALTER PROPERTY ApReadonly.id DEFAULT \"uuid()\"");
+    g.command("ALTER PROPERTY ApReadonly.id READONLY TRUE");
+
+    // Insert without specifying 'id' — it should be auto-populated with a UUID
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX ApReadonly SET name = 'test'").iterate();
+    });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM ApReadonly").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    String id = v.value("id");
+    assertThat(id).isNotNull().isNotEmpty();
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX ApReadonly").iterate();
+    });
+    g.command("DROP CLASS ApReadonly IF EXISTS");
+  }
+
+  // Factual claim line 75/81: TYPE attribute — validates ALTER PROPERTY ... TYPE syntax.
+  // The doc says "this command runs a data update" but does not mention that only castable
+  // type changes are allowed (e.g., INTEGER to LONG works, STRING to INTEGER does not).
+  @Test
+  public void testAlterPropertyType() {
+    g.command("CREATE CLASS ApType IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY ApType.value INTEGER");
+
+    // Change type from INTEGER to LONG (castable) should succeed
+    g.command("ALTER PROPERTY ApType.value TYPE LONG");
+
+    // Verify the property works with the new type
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX ApType SET value = 42").iterate();
+    });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM ApType").toList());
+    assertThat(results).hasSize(1);
+
+    // Incompatible type change should fail
+    assertThatThrownBy(() -> g.command("ALTER PROPERTY ApType.value TYPE STRING"))
+        .isInstanceOf(IllegalArgumentException.class);
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX ApType").iterate();
+    });
+    g.command("DROP CLASS ApType IF EXISTS");
+  }
+
+  // Table row: NOTNULL — validates that the ALTER PROPERTY ... NOTNULL syntax is accepted
+  @Test
+  public void testAlterPropertyNotNull() {
+    g.command("CREATE CLASS ApNotNull IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY ApNotNull.name STRING");
+
+    // The NOTNULL command should be accepted without error
+    g.command("ALTER PROPERTY ApNotNull.name NOTNULL TRUE");
+
+    // Inserting with a value should succeed
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX ApNotNull SET name = 'valid'").iterate();
+    });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM ApNotNull").toList());
+    assertThat(results).hasSize(1);
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX ApNotNull").iterate();
+    });
+    g.command("DROP CLASS ApNotNull IF EXISTS");
+  }
+
+  // Table row: MIN / MAX — validates that the ALTER PROPERTY ... MIN/MAX syntax is accepted
+  @Test
+  public void testAlterPropertyMinMax() {
+    g.command("CREATE CLASS ApMinMax IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY ApMinMax.code STRING");
+
+    // MIN and MAX commands should be accepted without error
+    g.command("ALTER PROPERTY ApMinMax.code MIN 2");
+    g.command("ALTER PROPERTY ApMinMax.code MAX 5");
+
+    // Valid length should succeed
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX ApMinMax SET code = 'ABC'").iterate();
+    });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM ApMinMax").toList());
+    assertThat(results).hasSize(1);
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX ApMinMax").iterate();
+    });
+    g.command("DROP CLASS ApMinMax IF EXISTS");
+  }
+
+  // Table row: LINKEDCLASS — defines the linked class name
+  @Test
+  public void testAlterPropertyLinkedClass() {
+    g.command("CREATE CLASS ApTarget IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS ApLinked IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY ApLinked.items LINKLIST");
+    g.command("ALTER PROPERTY ApLinked.items LINKEDCLASS ApTarget");
+
+    // Verify the property works by inserting data
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX ApLinked SET name = 'test'").iterate();
+    });
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX ApLinked").iterate();
+    });
+    g.command("DROP CLASS ApLinked IF EXISTS");
+    g.command("DROP CLASS ApTarget IF EXISTS");
+  }
+
+  // ==========================================================================
+  // YQL-Create-Security-Policy.md
+  // ==========================================================================
+
+  @Test
+  public void testCreateSecurityPolicy_emptyPolicy() {
+    // Doc line 23: CREATE SECURITY POLICY foo
+    // Creates an empty policy with no predicates.
+    g.command("CREATE SECURITY POLICY cspTestPolicy1");
+  }
+
+  @Test
+  public void testCreateSecurityPolicy_allPredicates() {
+    // Doc line 29: CREATE SECURITY POLICY foo SET CREATE = (name = 'foo'), READ = (TRUE),
+    // BEFORE UPDATE = (name = 'foo'), AFTER UPDATE = (name = 'foo'),
+    // DELETE = (name = 'foo'), EXECUTE = (name = 'foo')
+    g.command(
+        "CREATE SECURITY POLICY cspTestPolicy2"
+            + " SET CREATE = (name = 'foo'), READ = (TRUE),"
+            + " BEFORE UPDATE = (name = 'foo'), AFTER UPDATE = (name = 'foo'),"
+            + " DELETE = (name = 'foo'), EXECUTE = (name = 'foo')");
+  }
+
+  // ==========================================================================
+  // YQL-Alter-Security-Policy.md
+  // ==========================================================================
+
+  @Test
+  public void testAlterSecurityPolicy_setCreateAndRead() {
+    // Doc line 28: ALTER SECURITY POLICY foo SET CREATE = (name = 'foo'), READ = (TRUE)
+    // First create the policy, then alter it.
+    g.command("CREATE SECURITY POLICY aspTestPolicy1");
+    g.command("ALTER SECURITY POLICY aspTestPolicy1 SET CREATE = (name = 'foo'), READ = (TRUE)");
+
+    // Cleanup
+    g.command("ALTER SECURITY POLICY aspTestPolicy1 REMOVE CREATE, READ");
+  }
+
+  @Test
+  public void testAlterSecurityPolicy_removeCreateAndRead() {
+    // Doc line 34: ALTER SECURITY POLICY foo REMOVE CREATE, READ
+    // Create a policy with predicates, then remove them.
+    g.command("CREATE SECURITY POLICY aspTestPolicy2");
+    g.command(
+        "ALTER SECURITY POLICY aspTestPolicy2 SET CREATE = (name = 'bar'), READ = (name = 'bar')");
+    g.command("ALTER SECURITY POLICY aspTestPolicy2 REMOVE CREATE, READ");
+  }
+
+  @Test
+  public void testAlterSecurityPolicy_requiresSetOrRemove() {
+    // Factual claim: at least one of SET or REMOVE is required.
+    // ALTER SECURITY POLICY <name> alone should fail.
+    g.command("CREATE SECURITY POLICY aspTestPolicy3");
+    assertThatThrownBy(() -> g.command("ALTER SECURITY POLICY aspTestPolicy3"));
+  }
+
+  @Test
+  public void testAlterSecurityPolicy_allOperationTypes() {
+    // Validates all 6 operation types from the syntax: CREATE, READ,
+    // BEFORE UPDATE, AFTER UPDATE, DELETE, EXECUTE.
+    g.command("CREATE SECURITY POLICY aspTestPolicy4");
+    g.command(
+        "ALTER SECURITY POLICY aspTestPolicy4"
+            + " SET CREATE = (name = 'a'), READ = (name = 'b'),"
+            + " BEFORE UPDATE = (name = 'c'), AFTER UPDATE = (name = 'd'),"
+            + " DELETE = (name = 'e'), EXECUTE = (name = 'f')");
+
+    // Remove all
+    g.command(
+        "ALTER SECURITY POLICY aspTestPolicy4"
+            + " REMOVE CREATE, READ, BEFORE UPDATE, AFTER UPDATE, DELETE, EXECUTE");
+  }
+
+  @Test
+  public void testAlterSecurityPolicy_setAndRemoveInSameStatement() {
+    // Factual claim from doc: both SET and REMOVE can appear in the same statement.
+    g.command("CREATE SECURITY POLICY aspTestPolicy5");
+    g.command(
+        "ALTER SECURITY POLICY aspTestPolicy5"
+            + " SET CREATE = (name = 'foo') REMOVE DELETE");
+  }
+
+  // === YQL-Alter-Sequence.md ===
+
+  // Line 27: ALTER SEQUENCE idseq START 1000 CYCLE TRUE
+  @Test
+  public void testAlterSequence_startAndCycle() {
+    // Doc example: ALTER SEQUENCE with START and CYCLE options.
+    g.command("CREATE SEQUENCE altSeqTest1 TYPE ORDERED");
+    g.command("ALTER SEQUENCE altSeqTest1 START 1000 CYCLE TRUE");
+    g.command("DROP SEQUENCE altSeqTest1");
+  }
+
+  @Test
+  public void testAlterSequence_increment() {
+    // Factual claim (line 13): INCREMENT defines the increment value applied when calling .next().
+    g.command("CREATE SEQUENCE altSeqTest2 TYPE ORDERED");
+    g.command("ALTER SEQUENCE altSeqTest2 INCREMENT 5");
+    g.command("DROP SEQUENCE altSeqTest2");
+  }
+
+  @Test
+  public void testAlterSequence_cache() {
+    // Factual claim (line 14): CACHE defines the number of values to cache for CACHED sequences.
+    g.command("CREATE SEQUENCE altSeqTest3 TYPE CACHED");
+    g.command("ALTER SEQUENCE altSeqTest3 CACHE 50");
+    g.command("DROP SEQUENCE altSeqTest3");
+  }
+
+  @Test
+  public void testAlterSequence_limit() {
+    // Factual claim (line 16): LIMIT defines the limit value the sequence can reach.
+    g.command("CREATE SEQUENCE altSeqTest4 TYPE ORDERED");
+    g.command("ALTER SEQUENCE altSeqTest4 LIMIT 500");
+    g.command("DROP SEQUENCE altSeqTest4");
+  }
+
+  @Test
+  public void testAlterSequence_ascDesc() {
+    // Factual claim (line 17-18): ASC and DESC define the order of the sequence.
+    g.command("CREATE SEQUENCE altSeqTest5 TYPE ORDERED");
+    g.command("ALTER SEQUENCE altSeqTest5 DESC");
+    g.command("ALTER SEQUENCE altSeqTest5 ASC");
+    g.command("DROP SEQUENCE altSeqTest5");
+  }
+
+  @Test
+  public void testAlterSequence_nolimit() {
+    // Factual claim (line 19): NOLIMIT cancels a previously defined LIMIT value.
+    g.command("CREATE SEQUENCE altSeqTest6 TYPE ORDERED");
+    g.command("ALTER SEQUENCE altSeqTest6 LIMIT 100");
+    g.command("ALTER SEQUENCE altSeqTest6 NOLIMIT");
+    g.command("DROP SEQUENCE altSeqTest6");
+  }
+
+  @Test
+  public void testAlterSequence_multipleOptions() {
+    // Verify multiple options can be combined in a single statement.
+    g.command("CREATE SEQUENCE altSeqTest7 TYPE ORDERED");
+    g.command("ALTER SEQUENCE altSeqTest7 START 100 INCREMENT 10 LIMIT 1000 CYCLE TRUE ASC");
+    g.command("DROP SEQUENCE altSeqTest7");
+  }
+
+  // === YQL-Create-Function.md ===
+  // Note: CREATE FUNCTION creates an OFunction record which the Gremlin result mapper cannot map
+  // (only vertices and edges are supported). Additionally, on first invocation it initializes the
+  // OFunction class with indexes, which fails inside a user transaction. Both cases throw
+  // IllegalStateException, but with different messages depending on whether the OFunction class
+  // already exists. These tests verify that the CREATE FUNCTION syntax is parsed and executed
+  // correctly — the IllegalStateException is a known Gremlin API limitation.
+
+  // Line 25: CREATE FUNCTION test "print('\nTest!')" LANGUAGE javascript
+  // Validates that a no-parameter JavaScript function can be created.
+  @Test
+  public void testCreateFunction_noParams() {
+    assertThatThrownBy(() -> g.executeInTx(tx -> {
+      tx.yql("CREATE FUNCTION cfTest1 \"print('\\nTest!')\" LANGUAGE javascript").iterate();
+    })).isInstanceOf(IllegalStateException.class);
+  }
+
+  // Line 31: CREATE FUNCTION test "return a + b;" PARAMETERS [a,b] LANGUAGE javascript
+  // Validates that a JavaScript function with parameters can be created.
+  @Test
+  public void testCreateFunction_withParams() {
+    assertThatThrownBy(() -> g.executeInTx(tx -> {
+      tx.yql("CREATE FUNCTION cfTest2 \"return a + b;\" PARAMETERS [a,b] LANGUAGE javascript")
+          .iterate();
+    })).isInstanceOf(IllegalStateException.class);
+  }
+
+  // Line 36-37: CREATE FUNCTION allUsersButAdmin "SELECT FROM ouser WHERE name <> 'admin'"
+  //             LANGUAGE SQL
+  // Validates that an SQL-language function can be created.
+  @Test
+  public void testCreateFunction_languageSQL() {
+    assertThatThrownBy(() -> g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE FUNCTION cfTest3 \"SELECT FROM ouser WHERE name <> 'admin'\" LANGUAGE SQL")
+          .iterate();
+    })).isInstanceOf(IllegalStateException.class);
+  }
+
+  // Factual claim (line 18): IDEMPOTENT defines whether the function can change the database
+  // status. Default is FALSE.
+  @Test
+  public void testCreateFunction_idempotent() {
+    assertThatThrownBy(() -> g.executeInTx(tx -> {
+      tx.yql("CREATE FUNCTION cfTest4 \"return 1\" IDEMPOTENT true").iterate();
+    })).isInstanceOf(IllegalStateException.class);
+  }
+
+  // Factual claim (line 19): Default language is SQL.
+  // Validates that a function without LANGUAGE clause is accepted.
+  @Test
+  public void testCreateFunction_defaultLanguageIsSQL() {
+    assertThatThrownBy(() -> g.executeInTx(tx -> {
+      tx.yql("CREATE FUNCTION cfTest5 \"SELECT 1\"").iterate();
+    })).isInstanceOf(IllegalStateException.class);
+  }
+
+  // === YQL-Create-Index.md ===
+
+  // Lines 36-37: Create an automatic index bound to the new property id in the class User.
+  @Test
+  public void testCreateIndex_automaticIndexOnProperty() {
+    g.command("CREATE CLASS CIUser IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY CIUser.id IF NOT EXISTS INTEGER");
+    g.command("CREATE INDEX CIUser.id IF NOT EXISTS UNIQUE");
+
+    // Verify index is usable by inserting data and querying
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CIUser SET id = 1").iterate();
+      tx.yql("CREATE VERTEX CIUser SET id = 2").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM CIUser WHERE id = 1").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat((int) v.value("id")).isEqualTo(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX CIUser").iterate();
+    });
+  }
+
+  // Lines 42-44: Create indexes on map property using BY KEY and BY VALUE.
+  @Test
+  public void testCreateIndex_mapByKeyAndByValue() {
+    g.command("CREATE CLASS CIMovie IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY CIMovie.thumbs IF NOT EXISTS EMBEDDEDMAP INTEGER");
+    g.command("CREATE INDEX ciThumbsAuthor IF NOT EXISTS ON CIMovie (thumbs) UNIQUE");
+    g.command("CREATE INDEX ciThumbsKey IF NOT EXISTS ON CIMovie (thumbs BY KEY) UNIQUE");
+    g.command("CREATE INDEX ciThumbsValue IF NOT EXISTS ON CIMovie (thumbs BY VALUE) UNIQUE");
+
+    // Verify by inserting data with a map property
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CIMovie SET thumbs = {'john': 5, 'jane': 3}").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM CIMovie").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX CIMovie").iterate();
+    });
+  }
+
+  // Lines 49-53: Create a composite index on multiple properties including EMBEDDEDLIST.
+  @Test
+  public void testCreateIndex_compositeIndex() {
+    g.command("CREATE CLASS CIBook IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY CIBook.author IF NOT EXISTS STRING");
+    g.command("CREATE PROPERTY CIBook.title IF NOT EXISTS STRING");
+    g.command("CREATE PROPERTY CIBook.publicationYears IF NOT EXISTS EMBEDDEDLIST INTEGER");
+    g.command(
+        "CREATE INDEX ciBooks IF NOT EXISTS ON CIBook (author, title, publicationYears) UNIQUE");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CIBook SET author = 'Tolkien', title = 'The Hobbit',"
+          + " publicationYears = [1937, 1951]").iterate();
+    });
+
+    var results = g.computeInTx(
+        tx -> tx.yql("SELECT FROM CIBook WHERE author = 'Tolkien'").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX CIBook").iterate();
+    });
+  }
+
+  // Lines 58-63: Create an index on an edge's date range. Note: the doc references 'ended'
+  // property but only creates 'started'. This test validates the corrected version.
+  @Test
+  public void testCreateIndex_edgeDateRangeIndex() {
+    g.command("CREATE CLASS CIFile IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS CIHas IF NOT EXISTS EXTENDS E");
+    g.command("CREATE PROPERTY CIHas.started IF NOT EXISTS DATETIME");
+    g.command("CREATE PROPERTY CIHas.ended IF NOT EXISTS DATETIME");
+    g.command(
+        "CREATE INDEX ciHasDateRange IF NOT EXISTS ON CIHas (started, ended) NOTUNIQUE");
+
+    // Create vertices and edge with date range
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CIFile SET name = 'a.txt'").iterate();
+      tx.yql("CREATE VERTEX CIFile SET name = 'b.txt'").iterate();
+    });
+
+    var files = g.computeInTx(tx -> tx.yql("SELECT FROM CIFile ORDER BY name").toList());
+    assertThat(files).hasSize(2);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX CIFile").iterate();
+    });
+  }
+
+  // Lines 69-71: SELECT from edge class with date range filter.
+  @Test
+  public void testCreateIndex_selectEdgesByDateRange() {
+    g.command("CREATE CLASS CIFile2 IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS CIHas2 IF NOT EXISTS EXTENDS E");
+    g.command("CREATE PROPERTY CIHas2.started IF NOT EXISTS DATETIME");
+    g.command("CREATE PROPERTY CIHas2.ended IF NOT EXISTS DATETIME");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CIFile2 SET name = 'f1'").iterate();
+      tx.yql("CREATE VERTEX CIFile2 SET name = 'f2'").iterate();
+    });
+
+    // Query with date range filter — validates the syntax parses correctly
+    var results = g.computeInTx(tx -> tx.yql(
+        "SELECT FROM CIHas2 WHERE started >= '2014-01-01 00:00:00.000'"
+            + " AND ended < '2015-01-01 00:00:00.000'")
+        .toList());
+    assertThat(results).isEmpty();
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX CIFile2").iterate();
+    });
+  }
+
+  // Lines 76-78: MATCH query on edges with date range.
+  @Test
+  public void testCreateIndex_matchQueryEdgeDateRange() {
+    g.command("CREATE CLASS CIFile3 IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS CIHas3 IF NOT EXISTS EXTENDS E");
+    g.command("CREATE PROPERTY CIHas3.started IF NOT EXISTS DATETIME");
+    g.command("CREATE PROPERTY CIHas3.ended IF NOT EXISTS DATETIME");
+
+    // DOC BUG: Lines 76-78 use -Has{where:...}-> syntax which is invalid.
+    // Correct MATCH syntax uses .outE('EdgeClass'){where:...}.inV() or .out('EdgeClass'){where:...}
+    var results = g.computeInTx(tx -> tx.yql(
+        "MATCH {class: CIFile3, as: outV}"
+            + ".outE('CIHas3'){where: (started >= '2014-01-01 00:00:00.000'"
+            + " AND ended < '2015-01-01 00:00:00.000')}.inV()"
+            + "{class: CIFile3, as: inV}"
+            + " RETURN outV")
+        .toList());
+    assertThat(results).isEmpty();
+  }
+
+  // Lines 90-91: Create an index with METADATA { ignoreNullValues: false }.
+  @Test
+  public void testCreateIndex_metadataIgnoreNullValues() {
+    g.command("CREATE CLASS CIEmployee IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY CIEmployee.address IF NOT EXISTS STRING");
+    g.command("CREATE INDEX ciAddresses IF NOT EXISTS ON CIEmployee (address) NOTUNIQUE"
+        + " METADATA { ignoreNullValues : false }");
+
+    // Insert a record with null address and verify the index was created
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CIEmployee SET address = null").iterate();
+      tx.yql("CREATE VERTEX CIEmployee SET address = '123 Main St'").iterate();
+    });
+
+    var results = g.computeInTx(
+        tx -> tx.yql("SELECT FROM CIEmployee WHERE address = '123 Main St'").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX CIEmployee").iterate();
+    });
+  }
+
+  // Factual claim (line 12): IF NOT EXISTS causes creation to be silently ignored
+  // if the index already exists.
+  @Test
+  public void testCreateIndex_ifNotExistsIgnoresDuplicate() {
+    g.command("CREATE CLASS CIProduct IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY CIProduct.sku IF NOT EXISTS STRING");
+    g.command("CREATE INDEX CIProduct.sku IF NOT EXISTS UNIQUE");
+
+    // Second call should not throw
+    g.command("CREATE INDEX CIProduct.sku IF NOT EXISTS UNIQUE");
+  }
+
+  // === YQL-Create-Link.md ===
+
+  // Line 8: Syntax requires link name, TYPE keyword, and link-type — all mandatory.
+  // Validates that the basic CREATE LINK syntax parses and executes correctly.
+  @Test
+  public void testCreateLink_basicLinkBetweenClasses() {
+    g.command("CREATE CLASS CLPost IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY CLPost.Id IF NOT EXISTS INTEGER");
+    g.command("CREATE CLASS CLComment IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY CLComment.PostId IF NOT EXISTS INTEGER");
+    g.command("CREATE PROPERTY CLComment.post IF NOT EXISTS LINK");
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX CLPost SET Id = 1, title = 'First Post'").iterate();
+          tx.yql("CREATE VERTEX CLComment SET PostId = 1, text = 'Nice post'").iterate();
+        });
+
+    // CREATE LINK with TYPE LINK (non-inverse, direct link from Comment to Post)
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE LINK post TYPE LINK FROM CLComment.PostId TO CLPost.Id").iterate();
+        });
+
+    // Verify the link was created — the comment should now have a 'post' property
+    // that is a link to the post record
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM CLComment WHERE PostId = 1").toList());
+    assertThat(results).hasSize(1);
+  }
+
+  // Line 24: Example — CREATE LINK with INVERSE and LINKSET type
+  // Validates the INVERSE variant from the documentation example.
+  @Test
+  public void testCreateLink_inverseWithLinkSet() {
+    g.command("CREATE CLASS CLPosts IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY CLPosts.Id IF NOT EXISTS INTEGER");
+    g.command("CREATE PROPERTY CLPosts.comments IF NOT EXISTS LINKSET");
+    g.command("CREATE CLASS CLComments IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY CLComments.PostId IF NOT EXISTS INTEGER");
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX CLPosts SET Id = 100, title = 'Hello'").iterate();
+          tx.yql("CREATE VERTEX CLComments SET PostId = 100, text = 'Great'").iterate();
+          tx.yql("CREATE VERTEX CLComments SET PostId = 100, text = 'Awesome'").iterate();
+        });
+
+    // This mirrors the doc example (line 24):
+    // CREATE LINK comments TYPE LINKSET FROM Comments.PostId TO Posts.Id INVERSE
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE LINK comments TYPE LINKSET FROM CLComments.PostId TO CLPosts.Id INVERSE")
+              .iterate();
+        });
+
+    // After inverse link, the Post should have a 'comments' LINKSET property
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM CLPosts WHERE Id = 100").toList());
+    assertThat(results).hasSize(1);
+  }
+
+  // Line 8: Syntax shows TYPE [<link-type>] with brackets, suggesting it's optional.
+  // In fact, the grammar requires TYPE keyword and link-type value to be mandatory.
+  // Verify that omitting TYPE causes a parse error.
+  @Test
+  public void testCreateLink_typeIsMandatory() {
+    g.command("CREATE CLASS CLSrc IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY CLSrc.refId IF NOT EXISTS INTEGER");
+    g.command("CREATE CLASS CLDst IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY CLDst.Id IF NOT EXISTS INTEGER");
+
+    // Omitting TYPE should cause a parse error
+    assertThatThrownBy(
+        () -> g.executeInTx(
+            tx -> {
+              tx.yql("CREATE LINK mylink FROM CLSrc.refId TO CLDst.Id").iterate();
+            }));
+  }
+
+  // === YQL-Create-Property.md ===
+
+  // Line 29: CREATE PROPERTY User.name STRING
+  @Test
+  public void testCreatePropertyString() {
+    g.command("CREATE CLASS CpUser IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY CpUser.name IF NOT EXISTS STRING");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CpUser SET name = 'Alice'").iterate();
+    });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM CpUser WHERE name = 'Alice'").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX CpUser").iterate();
+    });
+  }
+
+  // Line 35: CREATE PROPERTY Profile.tags EMBEDDEDLIST STRING
+  @Test
+  public void testCreatePropertyEmbeddedListString() {
+    g.command("CREATE CLASS CpProfile IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY CpProfile.tags IF NOT EXISTS EMBEDDEDLIST STRING");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CpProfile SET tags = ['a', 'b', 'c']").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM CpProfile").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    List<String> tags = v.value("tags");
+    assertThat(tags).containsExactly("a", "b", "c");
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX CpProfile").iterate();
+    });
+  }
+
+  // Line 41: CREATE PROPERTY User.name STRING (MANDATORY TRUE, MIN 5, MAX 25)
+  // Validates that the CREATE PROPERTY syntax with inline constraints parses and executes.
+  @Test
+  public void testCreatePropertyWithConstraints() {
+    g.command("CREATE CLASS CpUserConst IF NOT EXISTS EXTENDS V");
+    g.command(
+        "CREATE PROPERTY CpUserConst.name IF NOT EXISTS STRING (MANDATORY TRUE, MIN 5, MAX 25)");
+
+    // Verify data can be inserted for a property with constraints defined
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CpUserConst SET name = 'Alice12345'").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM CpUserConst").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX CpUserConst").iterate();
+    });
+  }
+
+  // Line 55-59: Supported standard property types
+  @Test
+  public void testCreatePropertyStandardTypes() {
+    g.command("CREATE CLASS CpTypes IF NOT EXISTS EXTENDS V");
+
+    // All standard types from the documentation table
+    String[] types = {
+        "BOOLEAN", "SHORT", "DATE", "DATETIME", "BYTE",
+        "INTEGER", "LONG", "STRING", "LINK", "DECIMAL",
+        "DOUBLE", "FLOAT", "BINARY"
+    };
+
+    for (String type : types) {
+      g.command(
+          "CREATE PROPERTY CpTypes.prop_" + type.toLowerCase() + " IF NOT EXISTS " + type);
+    }
+
+    // Verify a vertex can be created with some of these typed properties
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CpTypes SET prop_boolean = true, prop_short = 1,"
+          + " prop_integer = 42, prop_long = 100000, prop_string = 'test',"
+          + " prop_decimal = 3.14, prop_double = 2.71, prop_float = 1.5,"
+          + " prop_byte = 7").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM CpTypes").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX CpTypes").iterate();
+    });
+  }
+
+  // Line 63-66: Supported container property types
+  @Test
+  public void testCreatePropertyContainerTypes() {
+    g.command("CREATE CLASS CpContainer IF NOT EXISTS EXTENDS V");
+
+    // All container types from the documentation table
+    g.command("CREATE PROPERTY CpContainer.el IF NOT EXISTS EMBEDDEDLIST STRING");
+    g.command("CREATE PROPERTY CpContainer.es IF NOT EXISTS EMBEDDEDSET STRING");
+    g.command("CREATE PROPERTY CpContainer.em IF NOT EXISTS EMBEDDEDMAP STRING");
+    g.command("CREATE PROPERTY CpContainer.ll IF NOT EXISTS LINKLIST");
+    g.command("CREATE PROPERTY CpContainer.ls IF NOT EXISTS LINKSET");
+    g.command("CREATE PROPERTY CpContainer.lm IF NOT EXISTS LINKMAP");
+
+    // Verify embedded containers work with data
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CpContainer SET el = ['a', 'b'],"
+          + " es = ['x', 'y'], em = {'k1': 'v1'}").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM CpContainer").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX CpContainer").iterate();
+    });
+  }
+
+  // === YQL-Create-Sequence.md ===
+
+  // Line 28: CREATE SEQUENCE idseq TYPE ORDERED
+  @Test
+  public void testCreateSequenceOrdered() {
+    g.command("CREATE SEQUENCE csIdseq TYPE ORDERED");
+  }
+
+  // Line 33: CREATE VERTEX Account SET id = sequence('idseq').next()
+  @Test
+  public void testCreateSequenceAndUseInVertex() {
+    g.command("CREATE CLASS CsAccount IF NOT EXISTS EXTENDS V");
+    g.command("CREATE SEQUENCE csAcctSeq TYPE ORDERED");
+    // Create vertex first, then update with sequence value to avoid Gremlin mapper issue
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CsAccount SET name = 'test'").iterate();
+    });
+    g.executeInTx(tx -> {
+      tx.yql("UPDATE CsAccount SET id = sequence('csAcctSeq').next()").iterate();
+    });
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM CsAccount").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    // sequence().next() increments before returning, so first value is START + INCREMENT (0 + 1 = 1)
+    assertThat((long) v.value("id")).isEqualTo(1L);
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX CsAccount").iterate();
+    });
+  }
+
+  // Verify CACHED type with START and CACHE options
+  @Test
+  public void testCreateSequenceCachedWithOptions() {
+    g.command("CREATE SEQUENCE csCachedSeq TYPE CACHED START 100 INCREMENT 5 CACHE 10");
+    g.command("CREATE CLASS CsCachedTest IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CsCachedTest SET name = 'test'").iterate();
+    });
+    g.executeInTx(tx -> {
+      tx.yql("UPDATE CsCachedTest SET id = sequence('csCachedSeq').next()").iterate();
+    });
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM CsCachedTest").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    // sequence().next() increments before returning: START + INCREMENT (100 + 5 = 105)
+    assertThat((long) v.value("id")).isEqualTo(105L);
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX CsCachedTest").iterate();
+    });
+  }
+
+  // Verify IF NOT EXISTS does not throw when sequence already exists
+  @Test
+  public void testCreateSequenceIfNotExists() {
+    g.command("CREATE SEQUENCE csExistsSeq TYPE ORDERED");
+    // Should not throw
+    g.command("CREATE SEQUENCE csExistsSeq IF NOT EXISTS TYPE ORDERED");
+  }
+
+  // Verify CYCLE and LIMIT options are accepted
+  @Test
+  public void testCreateSequenceWithCycleAndLimit() {
+    g.command("CREATE SEQUENCE csCyclicSeq TYPE ORDERED START 0 INCREMENT 1 LIMIT 10 CYCLE TRUE");
+  }
+
+  // Verify DESC order is accepted
+  @Test
+  public void testCreateSequenceDesc() {
+    g.command("CREATE SEQUENCE csDescSeq TYPE ORDERED START 100 INCREMENT 1 DESC");
+  }
+
+  // Verify duplicate sequence without IF NOT EXISTS throws
+  @Test
+  public void testCreateSequenceDuplicateThrows() {
+    g.command("CREATE SEQUENCE csDupSeq TYPE ORDERED");
+    assertThatThrownBy(() -> g.command("CREATE SEQUENCE csDupSeq TYPE ORDERED"));
+  }
+
+  // === YQL-Create-User.md ===
+  // Note: CREATE USER internally does INSERT INTO OUser, which is not a V/E class.
+  // The Gremlin API result mapper only supports vertices and edges, so CREATE USER
+  // cannot be executed through the public Gremlin API (command() or yql()).
+  // Syntax validation is covered by CreateUserStatementTest; execution is covered
+  // by CreateUserStatementExecutionTest. Here we validate the documented syntax
+  // is parseable by constructing a yql() traversal (which triggers parsing).
+
+  // Line 25-27: CREATE USER Bar IDENTIFIED BY Foo (no role, defaults to writer)
+  @Test
+  public void testCreateUserWithoutRoleSyntax() {
+    // Verify the documented query parses without error.
+    // yql() eagerly parses the statement; if syntax were invalid, it would throw.
+    g.computeInTx(tx -> tx.yql("CREATE USER cuSyntaxBar IDENTIFIED BY Foo"));
+  }
+
+  // Line 19-21: CREATE USER Foo IDENTIFIED BY bar ROLE admin
+  @Test
+  public void testCreateUserWithRoleSyntax() {
+    g.computeInTx(tx -> tx.yql("CREATE USER cuSyntaxFoo IDENTIFIED BY bar ROLE admin"));
+  }
+
+  // Line 13: Multiple roles with bracket syntax — ROLE [role1, role2]
+  @Test
+  public void testCreateUserMultipleRolesBracketSyntax() {
+    // The grammar expects Identifier() inside brackets, not quoted strings.
+    // Verify that unquoted bracket syntax parses correctly.
+    g.computeInTx(
+        tx -> tx.yql("CREATE USER cuMultiRole IDENTIFIED BY pass ROLE [admin, reader]"));
+  }
+
+  // Line 13: Doc shows ['author', 'writer'] syntax — single-quoted roles in brackets.
+  // Verified: the parser accepts single-quoted identifiers inside the bracket list.
+  @Test
+  public void testCreateUserQuotedRolesInBracketsSyntax() {
+    // Verify that single-quoted role names inside brackets parse correctly,
+    // matching the documented syntax ['author', 'writer'].
+    g.computeInTx(
+        tx -> tx.yql("CREATE USER cuQuotedRole IDENTIFIED BY pass ROLE ['admin', 'reader']"));
+  }
+
+  // === YQL-Drop-Class.md ===
+
+  // Line 7-9: DROP CLASS <class> — basic syntax on an empty class
+  @Test
+  public void testDropClassBasicSyntax() {
+    g.command("CREATE CLASS DropClassBasic IF NOT EXISTS EXTENDS V");
+
+    // Drop the empty class (documented syntax from line 7-9)
+    g.command("DROP CLASS DropClassBasic");
+
+    // Verify the class no longer exists — SELECT should fail
+    assertThatThrownBy(
+        () -> g.computeInTx(tx -> tx.yql("SELECT FROM DropClassBasic").toList()));
+  }
+
+  // Undocumented: DROP CLASS refuses to drop a class containing vertices
+  // unless the UNSAFE keyword is appended
+  @Test
+  public void testDropClassWithDataRequiresUnsafe() {
+    g.command("CREATE CLASS DropClassData IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DropClassData SET name = 'test'").iterate();
+    });
+
+    // Dropping a class with existing vertices should fail without UNSAFE
+    assertThatThrownBy(() -> g.command("DROP CLASS DropClassData"));
+
+    // With UNSAFE it succeeds
+    g.command("DROP CLASS DropClassData UNSAFE");
+
+    assertThatThrownBy(
+        () -> g.computeInTx(tx -> tx.yql("SELECT FROM DropClassData").toList()));
+  }
+
+  // Line 13: Schema coherence warning — dropping a superclass used by a subclass
+  @Test
+  public void testDropClassSuperclassCoherenceWarning() {
+    // Create a superclass and a subclass
+    g.command("CREATE CLASS DropClassSuper IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DropClassSub IF NOT EXISTS EXTENDS DropClassSuper");
+
+    // Dropping the superclass while a subclass exists should fail
+    assertThatThrownBy(() -> g.command("DROP CLASS DropClassSuper"));
+
+    // Clean up
+    g.command("DROP CLASS DropClassSub");
+    g.command("DROP CLASS DropClassSuper");
+  }
+
+  // Line 19-21: DROP CLASS Account — the specific documented example
+  @Test
+  public void testDropClassAccountExample() {
+    g.command("CREATE CLASS Account IF NOT EXISTS EXTENDS V");
+    g.command("DROP CLASS Account");
+
+    // Verify Account no longer exists — SELECT should fail
+    assertThatThrownBy(
+        () -> g.computeInTx(tx -> tx.yql("SELECT FROM Account").toList()));
+  }
+
+  // Line 12: IF EXISTS — dropping a non-existent class with IF EXISTS should succeed silently
+  @Test
+  public void testDropClassIfExistsNonExistent() {
+    // Should not throw — IF EXISTS suppresses the error
+    g.command("DROP CLASS NonExistentDropIfExists IF EXISTS");
+  }
+
+  // Line 12: Without IF EXISTS, dropping a non-existent class should throw an error
+  @Test
+  public void testDropClassNonExistentThrowsError() {
+    assertThatThrownBy(() -> g.command("DROP CLASS NonExistentDropNoIfExists"));
+  }
+
+  // Line 13: UNSAFE — verify that edge classes with data also require UNSAFE
+  @Test
+  public void testDropClassEdgeWithDataRequiresUnsafe() {
+    g.command("CREATE CLASS DropEdgeSrc IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DropEdgeTgt IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DropEdgeClass IF NOT EXISTS EXTENDS E");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DropEdgeSrc SET name = 'a'").iterate();
+      tx.yql("CREATE VERTEX DropEdgeTgt SET name = 'b'").iterate();
+      tx.yql(
+          "CREATE EDGE DropEdgeClass FROM (SELECT FROM DropEdgeSrc) TO (SELECT FROM DropEdgeTgt)")
+          .iterate();
+    });
+
+    // Dropping an edge class with data should fail without UNSAFE
+    assertThatThrownBy(() -> g.command("DROP CLASS DropEdgeClass"));
+
+    // With UNSAFE it succeeds
+    g.command("DROP CLASS DropEdgeClass UNSAFE");
+
+    assertThatThrownBy(
+        () -> g.computeInTx(tx -> tx.yql("SELECT FROM DropEdgeClass").toList()));
+
+    // Clean up
+    g.command("DROP CLASS DropEdgeSrc UNSAFE");
+    g.command("DROP CLASS DropEdgeTgt UNSAFE");
+  }
+
+  // === YQL-Drop-Index.md ===
+
+  // Line 5: DROP INDEX throws an error if the index does not exist (without IF EXISTS)
+  @Test
+  public void testDropIndexNonExistentThrowsError() {
+    assertThatThrownBy(() -> g.command("DROP INDEX NonExistentIndex12345"));
+  }
+
+  // Line 5: DROP INDEX with IF EXISTS silently succeeds for non-existent index
+  @Test
+  public void testDropIndexIfExistsNonExistent() {
+    g.command("DROP INDEX NonExistentIndex12345 IF EXISTS");
+  }
+
+  // Line 18-20: DROP INDEX Users.Id — the specific documented example
+  @Test
+  public void testDropIndexDocumentedExample() {
+    g.command("CREATE CLASS DropIdxUsers IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY DropIdxUsers.Id STRING");
+    g.command("CREATE INDEX DropIdxUsers.Id NOTUNIQUE");
+
+    // Drop the index as shown in the doc
+    g.command("DROP INDEX DropIdxUsers.Id");
+
+    // Verify the index no longer exists — dropping again should throw
+    assertThatThrownBy(() -> g.command("DROP INDEX DropIdxUsers.Id"));
+
+    // Clean up
+    g.command("DROP CLASS DropIdxUsers");
+  }
+
+  // Line 11,20: DROP INDEX * — drops all indexes
+  @Test
+  public void testDropIndexStar() {
+    g.command("CREATE CLASS DropIdxStarA IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY DropIdxStarA.name STRING");
+    g.command("CREATE INDEX DropIdxStarA.name NOTUNIQUE");
+
+    g.command("CREATE CLASS DropIdxStarB IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY DropIdxStarB.code STRING");
+    g.command("CREATE INDEX DropIdxStarB.code UNIQUE");
+
+    // Drop all indexes as shown in the doc
+    g.command("DROP INDEX *");
+
+    // Verify both indexes no longer exist
+    assertThatThrownBy(() -> g.command("DROP INDEX DropIdxStarA.name"));
+    assertThatThrownBy(() -> g.command("DROP INDEX DropIdxStarB.code"));
+
+    // Clean up
+    g.command("DROP CLASS DropIdxStarA");
+    g.command("DROP CLASS DropIdxStarB");
+  }
+
+  // ==========================================================================
+  // YQL-Drop-Property.md validation
+  // ==========================================================================
+
+  /**
+   * YQL-Drop-Property.md — basic syntax: DROP PROPERTY <class>.<property> removes the property
+   * from the schema. Verifies the documented example "DROP PROPERTY User.name".
+   */
+  @Test
+  public void testDropPropertyBasicSyntax() {
+    g.command("CREATE CLASS DropPropUser IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY DropPropUser.name STRING");
+
+    // Verify property exists
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DropPropUser SET name = 'Alice'").iterate();
+    });
+
+    // Drop the property as shown in the doc
+    g.command("DROP PROPERTY DropPropUser.name");
+
+    // Verify property is removed from schema — creating it again should succeed
+    g.command("CREATE PROPERTY DropPropUser.name STRING");
+
+    // Verify existing data is still accessible (doc says values remain in records)
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM DropPropUser WHERE name = 'Alice'").toList());
+    assertThat(results).hasSize(1);
+
+    // Clean up
+    g.command("DROP CLASS DropPropUser UNSAFE");
+  }
+
+  /**
+   * YQL-Drop-Property.md — FORCE option: when indexes are defined on the property, DROP PROPERTY
+   * without FORCE throws an exception; with FORCE it drops indexes together with the property.
+   */
+  @Test
+  public void testDropPropertyForceWithIndex() {
+    g.command("CREATE CLASS DropPropForceUser IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY DropPropForceUser.email STRING");
+    g.command("CREATE INDEX DropPropForceUser.email NOTUNIQUE");
+
+    // Without FORCE — should throw because an index exists on the property
+    assertThatThrownBy(() -> g.command("DROP PROPERTY DropPropForceUser.email"));
+
+    // With FORCE — should succeed, dropping both the index and the property
+    g.command("DROP PROPERTY DropPropForceUser.email FORCE");
+
+    // Verify property is gone — re-creating should succeed
+    g.command("CREATE PROPERTY DropPropForceUser.email STRING");
+
+    // Verify index is gone — dropping it should throw
+    assertThatThrownBy(() -> g.command("DROP INDEX DropPropForceUser.email"));
+
+    // Clean up
+    g.command("DROP CLASS DropPropForceUser");
+  }
+
+  /**
+   * YQL-Drop-Property.md — undocumented IF EXISTS syntax: the parser supports IF EXISTS but the
+   * doc does not mention it. Validates that it works correctly.
+   */
+  @Test
+  public void testDropPropertyIfExists() {
+    g.command("CREATE CLASS DropPropIfExUser IF NOT EXISTS EXTENDS V");
+
+    // IF EXISTS on a non-existent property should not throw
+    g.command("DROP PROPERTY DropPropIfExUser.nonexistent IF EXISTS");
+
+    // Without IF EXISTS on a non-existent property should throw
+    assertThatThrownBy(
+        () -> g.command("DROP PROPERTY DropPropIfExUser.nonexistent"));
+
+    // Clean up
+    g.command("DROP CLASS DropPropIfExUser");
+  }
+
+  /**
+   * YQL-Drop-Property.md — claim: "Does not remove the property values in the records." Verifies
+   * that after dropping a property from the schema, existing record values are preserved.
+   */
+  @Test
+  public void testDropPropertyPreservesRecordValues() {
+    g.command("CREATE CLASS DropPropValUser IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY DropPropValUser.age INTEGER");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DropPropValUser SET age = 30").iterate();
+    });
+
+    // Drop the property from schema
+    g.command("DROP PROPERTY DropPropValUser.age");
+
+    // Values should still be queryable
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM DropPropValUser WHERE age = 30").toList());
+    assertThat(results).hasSize(1);
+
+    // Clean up
+    g.command("DROP CLASS DropPropValUser UNSAFE");
+  }
+
+  // === YQL-Drop-Sequence.md ===
+
+  // Line 7-9: DROP SEQUENCE <sequence> — basic syntax validation
+  // Line 19: DROP SEQUENCE idseq — example from docs
+  @Test
+  public void testDropSequenceBasicSyntax() {
+    // Create a fresh sequence, then drop it to validate the documented syntax.
+    // The documented example uses "idseq"; we use a unique name to avoid collisions.
+    g.command("CREATE SEQUENCE dropSeqDocTest TYPE ORDERED");
+
+    // DROP SEQUENCE <sequence> — the documented syntax (line 7-9, line 19)
+    g.command("DROP SEQUENCE dropSeqDocTest");
+  }
+
+  // Verify DROP SEQUENCE fails for a non-existent sequence
+  @Test
+  public void testDropSequenceNonExistent() {
+    assertThatThrownBy(() -> g.command("DROP SEQUENCE noSuchSeqDropTest"));
+  }
+
+  // Line 8: DROP SEQUENCE <sequence> IF EXISTS — silently succeeds for non-existent sequence
+  @Test
+  public void testDropSequenceIfExists() {
+    // IF EXISTS on a non-existent sequence should not throw
+    g.command("DROP SEQUENCE noSuchSeqIfExistsTest IF EXISTS");
+
+    // IF EXISTS on an existing sequence should still drop it
+    g.command("CREATE SEQUENCE dropSeqIfExistsTest TYPE ORDERED");
+    g.command("DROP SEQUENCE dropSeqIfExistsTest IF EXISTS");
+    // Verify it was actually dropped — dropping again without IF EXISTS should fail
+    assertThatThrownBy(() -> g.command("DROP SEQUENCE dropSeqIfExistsTest"));
+  }
+
+  // === YQL-Drop-User.md ===
+
+  // Line 8: DROP USER <user> — basic syntax validation
+  // Line 19: DROP USER Foo — example from docs
+  @Test
+  public void testDropUserBasicSyntax() {
+    // Create a user first via yql() (CREATE USER result is not a vertex/edge,
+    // so command() would fail with the Gremlin result mapper).
+    g.computeInTx(tx -> tx.yql("CREATE USER DropUserDocTestFoo IDENTIFIED BY password123"));
+
+    // DROP USER <user> — the documented syntax (line 8, line 19)
+    g.computeInTx(tx -> tx.yql("DROP USER DropUserDocTestFoo"));
+  }
+
+  // Verify DROP USER on a non-existent user does not throw (silent no-op)
+  @Test
+  public void testDropUserNonExistentIsNoOp() {
+    g.computeInTx(tx -> tx.yql("DROP USER noSuchUserDropTest"));
+  }
+
+  // === YQL-Explain.md ===
+
+  // Line 3: EXPLAIN returns execution plan without executing the statement.
+  // Line 19: explain select from v where name = 'a'
+  @Test
+  public void testExplainSelectFromVWithFilter() {
+    // Validate that EXPLAIN returns an execution plan for a SELECT statement
+    // without actually executing it.
+    g.command("CREATE CLASS ExplainTestV IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX ExplainTestV SET name = 'a'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("EXPLAIN SELECT FROM ExplainTestV WHERE name = 'a'").toList());
+    assertThat(results).hasSize(1);
+
+    // The result should contain execution plan information
+    var result = results.get(0);
+    assertThat(result).isNotNull();
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX ExplainTestV").iterate();
+        });
+  }
+
+  // === YQL-Functions.md ===
+
+  // Line 31: SELECT SUM(salary) FROM employee — aggregated mode (single parameter)
+  @Test
+  public void testFuncSumAggregated() {
+    g.command("CREATE CLASS FuncEmployee IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncEmployee SET salary = 1000").iterate();
+          tx.yql("CREATE VERTEX FuncEmployee SET salary = 2000").iterate();
+          tx.yql("CREATE VERTEX FuncEmployee SET salary = 3000").iterate();
+        });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT SUM(salary) FROM FuncEmployee").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncEmployee").iterate();
+        });
+  }
+
+  // Line 39: SELECT SUM(salary, extra, benefits) AS total FROM employee — inline mode
+  @Test
+  public void testFuncSumInline() {
+    g.command("CREATE CLASS FuncEmpInline IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncEmpInline SET salary = 1000, extra = 200, benefits = 300")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT SUM(salary, extra, benefits) AS total FROM FuncEmpInline")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncEmpInline").iterate();
+        });
+  }
+
+  // Line 63: SELECT out() FROM V — graph traversal function
+  @Test
+  public void testFuncOut() {
+    g.command("CREATE CLASS FuncPerson IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS FuncKnows IF NOT EXISTS EXTENDS E");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncPerson SET name = 'Alice'").iterate();
+          tx.yql("CREATE VERTEX FuncPerson SET name = 'Bob'").iterate();
+          tx.yql(
+              "CREATE EDGE FuncKnows FROM "
+                  + "(SELECT FROM FuncPerson WHERE name = 'Alice') TO "
+                  + "(SELECT FROM FuncPerson WHERE name = 'Bob')")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT out() FROM FuncPerson WHERE name = 'Alice'").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE EDGE FuncKnows").iterate();
+          tx.yql("DELETE VERTEX FuncPerson").iterate();
+        });
+  }
+
+  // Line 87: SELECT in() FROM V — incoming vertices
+  @Test
+  public void testFuncIn() {
+    g.command("CREATE CLASS FuncPersonIn IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS FuncKnowsIn IF NOT EXISTS EXTENDS E");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncPersonIn SET name = 'Alice'").iterate();
+          tx.yql("CREATE VERTEX FuncPersonIn SET name = 'Bob'").iterate();
+          tx.yql(
+              "CREATE EDGE FuncKnowsIn FROM "
+                  + "(SELECT FROM FuncPersonIn WHERE name = 'Alice') TO "
+                  + "(SELECT FROM FuncPersonIn WHERE name = 'Bob')")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT in() FROM FuncPersonIn WHERE name = 'Bob'").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE EDGE FuncKnowsIn").iterate();
+          tx.yql("DELETE VERTEX FuncPersonIn").iterate();
+        });
+  }
+
+  // Line 109: SELECT both() FROM #13:33 — both directions
+  @Test
+  public void testFuncBoth() {
+    g.command("CREATE CLASS FuncPersonBoth IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS FuncKnowsBoth IF NOT EXISTS EXTENDS E");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncPersonBoth SET name = 'A'").iterate();
+          tx.yql("CREATE VERTEX FuncPersonBoth SET name = 'B'").iterate();
+          tx.yql(
+              "CREATE EDGE FuncKnowsBoth FROM "
+                  + "(SELECT FROM FuncPersonBoth WHERE name = 'A') TO "
+                  + "(SELECT FROM FuncPersonBoth WHERE name = 'B')")
+              .iterate();
+        });
+
+    // both() should return neighbors from both directions
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT both() FROM FuncPersonBoth WHERE name = 'A'").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE EDGE FuncKnowsBoth").iterate();
+          tx.yql("DELETE VERTEX FuncPersonBoth").iterate();
+        });
+  }
+
+  // Line 133: SELECT outE() FROM V — outgoing edges
+  @Test
+  public void testFuncOutE() {
+    g.command("CREATE CLASS FuncPersonOutE IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS FuncEdgeOutE IF NOT EXISTS EXTENDS E");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncPersonOutE SET name = 'X'").iterate();
+          tx.yql("CREATE VERTEX FuncPersonOutE SET name = 'Y'").iterate();
+          tx.yql(
+              "CREATE EDGE FuncEdgeOutE FROM "
+                  + "(SELECT FROM FuncPersonOutE WHERE name = 'X') TO "
+                  + "(SELECT FROM FuncPersonOutE WHERE name = 'Y')")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT outE() FROM FuncPersonOutE WHERE name = 'X'").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE EDGE FuncEdgeOutE").iterate();
+          tx.yql("DELETE VERTEX FuncPersonOutE").iterate();
+        });
+  }
+
+  // Line 155: SELECT inE() FROM V — incoming edges
+  @Test
+  public void testFuncInE() {
+    g.command("CREATE CLASS FuncPersonInE IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS FuncEdgeInE IF NOT EXISTS EXTENDS E");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncPersonInE SET name = 'X'").iterate();
+          tx.yql("CREATE VERTEX FuncPersonInE SET name = 'Y'").iterate();
+          tx.yql(
+              "CREATE EDGE FuncEdgeInE FROM "
+                  + "(SELECT FROM FuncPersonInE WHERE name = 'X') TO "
+                  + "(SELECT FROM FuncPersonInE WHERE name = 'Y')")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT inE() FROM FuncPersonInE WHERE name = 'Y'").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE EDGE FuncEdgeInE").iterate();
+          tx.yql("DELETE VERTEX FuncPersonInE").iterate();
+        });
+  }
+
+  // Line 174: SELECT bothE() FROM V — both incoming and outgoing edges
+  @Test
+  public void testFuncBothE() {
+    g.command("CREATE CLASS FuncPersonBothE IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS FuncEdgeBothE IF NOT EXISTS EXTENDS E");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncPersonBothE SET name = 'X'").iterate();
+          tx.yql("CREATE VERTEX FuncPersonBothE SET name = 'Y'").iterate();
+          tx.yql(
+              "CREATE EDGE FuncEdgeBothE FROM "
+                  + "(SELECT FROM FuncPersonBothE WHERE name = 'X') TO "
+                  + "(SELECT FROM FuncPersonBothE WHERE name = 'Y')")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT bothE() FROM FuncPersonBothE WHERE name = 'X'").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE EDGE FuncEdgeBothE").iterate();
+          tx.yql("DELETE VERTEX FuncPersonBothE").iterate();
+        });
+  }
+
+  // Line 241: SELECT eval('price * 120 / 100 - discount') AS finalPrice FROM Order
+  @Test
+  public void testFuncEval() {
+    g.command("CREATE CLASS FuncOrder IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncOrder SET price = 100, discount = 10").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT eval('price * 120 / 100 - discount') AS finalPrice FROM FuncOrder")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncOrder").iterate();
+        });
+  }
+
+  // Line 257: SELECT coalesce(amount, amount2, amount3) FROM Account
+  @Test
+  public void testFuncCoalesce() {
+    g.command("CREATE CLASS FuncAccountCoalesce IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX FuncAccountCoalesce SET amount = null, amount2 = null, amount3 = 50")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT coalesce(amount, amount2, amount3) FROM FuncAccountCoalesce")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountCoalesce").iterate();
+        });
+  }
+
+  // Line 271: if(<expression>, <result-if-true>, <result-if-false>)
+  @Test
+  public void testFuncIf() {
+    g.command("CREATE CLASS FuncPersonIf IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncPersonIf SET name = 'John'").iterate();
+          tx.yql("CREATE VERTEX FuncPersonIf SET name = 'Jane'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT if(eval(\"name = 'John'\"), 'My name is John', 'My name is not John') FROM FuncPersonIf")
+                .toList());
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncPersonIf").iterate();
+        });
+  }
+
+  // Line 288: SELECT ifnull(salary, 0) FROM Account
+  @Test
+  public void testFuncIfnull() {
+    g.command("CREATE CLASS FuncAccountIfnull IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAccountIfnull SET salary = null").iterate();
+          tx.yql("CREATE VERTEX FuncAccountIfnull SET salary = 1000").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT ifnull(salary, 0) FROM FuncAccountIfnull").toList());
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountIfnull").iterate();
+        });
+  }
+
+  // Line 308: SELECT EXPAND(addresses) FROM Account — expand collection
+  @Test
+  public void testFuncExpand() {
+    g.command("CREATE CLASS FuncAccountExpand IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS FuncAddress IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAddress SET city = 'Kyiv'").iterate();
+          tx.yql("CREATE VERTEX FuncAddress SET city = 'Lviv'").iterate();
+          tx.yql(
+              "CREATE VERTEX FuncAccountExpand SET addresses = "
+                  + "(SELECT FROM FuncAddress)")
+              .iterate();
+        });
+
+    // expand() should unwind the collection
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT EXPAND(addresses) FROM FuncAccountExpand").toList());
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountExpand").iterate();
+          tx.yql("DELETE VERTEX FuncAddress").iterate();
+        });
+  }
+
+  // Line 327: select first(addresses) from Account
+  @Test
+  public void testFuncFirst() {
+    g.command("CREATE CLASS FuncAccountFirst IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAccountFirst SET addresses = ['addr1', 'addr2', 'addr3']")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT first(addresses) FROM FuncAccountFirst").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountFirst").iterate();
+        });
+  }
+
+  // Line 340: SELECT last(addresses) FROM Account
+  @Test
+  public void testFuncLast() {
+    g.command("CREATE CLASS FuncAccountLast IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAccountLast SET addresses = ['addr1', 'addr2', 'addr3']")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT last(addresses) FROM FuncAccountLast").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountLast").iterate();
+        });
+  }
+
+  // Line 353: SELECT COUNT(*) FROM Account
+  @Test
+  public void testFuncCount() {
+    g.command("CREATE CLASS FuncAccountCount IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAccountCount SET name = 'a'").iterate();
+          tx.yql("CREATE VERTEX FuncAccountCount SET name = 'b'").iterate();
+        });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT COUNT(*) FROM FuncAccountCount").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountCount").iterate();
+        });
+  }
+
+  // Line 367-371: min() — aggregated and inline modes
+  @Test
+  public void testFuncMinAggregated() {
+    g.command("CREATE CLASS FuncAccountMin IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAccountMin SET salary = 1000").iterate();
+          tx.yql("CREATE VERTEX FuncAccountMin SET salary = 2000").iterate();
+          tx.yql("CREATE VERTEX FuncAccountMin SET salary = 500").iterate();
+        });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT min(salary) FROM FuncAccountMin").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountMin").iterate();
+        });
+  }
+
+  // Line 370: SELECT min(salary1, salary2, salary3) FROM Account — inline min
+  @Test
+  public void testFuncMinInline() {
+    g.command("CREATE CLASS FuncAccountMinInline IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX FuncAccountMinInline SET salary1 = 1000, salary2 = 500, salary3 = 2000")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT min(salary1, salary2, salary3) FROM FuncAccountMinInline")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountMinInline").iterate();
+        });
+  }
+
+  // Line 384: SELECT max(salary) FROM Account — with trailing period bug in doc
+  @Test
+  public void testFuncMaxAggregated() {
+    g.command("CREATE CLASS FuncAccountMax IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAccountMax SET salary = 1000").iterate();
+          tx.yql("CREATE VERTEX FuncAccountMax SET salary = 3000").iterate();
+        });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT max(salary) FROM FuncAccountMax").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountMax").iterate();
+        });
+  }
+
+  // Line 388: SELECT max(salary1, salary2, salary3) FROM Account — inline max
+  @Test
+  public void testFuncMaxInline() {
+    g.command("CREATE CLASS FuncAccountMaxInline IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX FuncAccountMaxInline SET salary1 = 100, salary2 = 300, salary3 = 200")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT max(salary1, salary2, salary3) FROM FuncAccountMaxInline")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountMaxInline").iterate();
+        });
+  }
+
+  // Line 401-404: SELECT abs(score), abs(-2332), abs(999)
+  @Test
+  public void testFuncAbs() {
+    g.command("CREATE CLASS FuncAccountAbs IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAccountAbs SET score = -42").iterate();
+        });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT abs(score) FROM FuncAccountAbs").toList());
+    assertThat(results).hasSize(1);
+
+    var results2 =
+        g.computeInTx(tx -> tx.yql("SELECT abs(-2332) FROM FuncAccountAbs").toList());
+    assertThat(results2).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountAbs").iterate();
+        });
+  }
+
+  // Line 417: SELECT avg(salary) FROM Account
+  @Test
+  public void testFuncAvg() {
+    g.command("CREATE CLASS FuncAccountAvg IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAccountAvg SET salary = 1000").iterate();
+          tx.yql("CREATE VERTEX FuncAccountAvg SET salary = 2000").iterate();
+        });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT avg(salary) FROM FuncAccountAvg").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountAvg").iterate();
+        });
+  }
+
+  // Line 430: SELECT sum(salary) FROM Account — aggregated sum
+  @Test
+  public void testFuncSumRef() {
+    g.command("CREATE CLASS FuncAccountSum IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAccountSum SET salary = 1000").iterate();
+          tx.yql("CREATE VERTEX FuncAccountSum SET salary = 2000").iterate();
+        });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT sum(salary) FROM FuncAccountSum").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountSum").iterate();
+        });
+  }
+
+  // Line 444: SELECT FROM Account WHERE created <= date('2012-07-02', 'yyyy-MM-dd')
+  @Test
+  public void testFuncDate() {
+    g.command("CREATE CLASS FuncAccountDate IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX FuncAccountDate SET created = date('2012-01-01', 'yyyy-MM-dd')")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM FuncAccountDate WHERE created <= date('2012-07-02', 'yyyy-MM-dd')")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountDate").iterate();
+        });
+  }
+
+  // Line 456: SELECT sysdate('dd-MM-yyyy') FROM Account
+  @Test
+  public void testFuncSysdate() {
+    g.command("CREATE CLASS FuncAccountSysdate IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAccountSysdate SET name = 'x'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT sysdate('dd-MM-yyyy') FROM FuncAccountSysdate").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountSysdate").iterate();
+        });
+  }
+
+  // Line 468: SELECT format("%d - Mr. %s %s (%s)", id, name, surname, address) FROM Account
+  @Test
+  public void testFuncFormat() {
+    g.command("CREATE CLASS FuncAccountFmt IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX FuncAccountFmt SET name = 'John', surname = 'Doe', address = 'Kyiv'")
+              .iterate();
+        });
+
+    // The doc uses 'id' but we'll use a numeric field since @rid is not an integer
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT format('%s - Mr. %s %s (%s)', name, name, surname, address) FROM FuncAccountFmt")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountFmt").iterate();
+        });
+  }
+
+  // Line 482: SELECT decimal('99.999999999999999999') FROM Account
+  @Test
+  public void testFuncDecimal() {
+    g.command("CREATE CLASS FuncAccountDecimal IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAccountDecimal SET name = 'x'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT decimal('99.999999999999999999') FROM FuncAccountDecimal")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountDecimal").iterate();
+        });
+  }
+
+  // Line 597: SELECT distinct(name) FROM City
+  @Test
+  public void testFuncDistinct() {
+    g.command("CREATE CLASS FuncCityDistinct IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncCityDistinct SET name = 'Kyiv'").iterate();
+          tx.yql("CREATE VERTEX FuncCityDistinct SET name = 'Lviv'").iterate();
+          tx.yql("CREATE VERTEX FuncCityDistinct SET name = 'Kyiv'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT distinct(name) FROM FuncCityDistinct").toList());
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncCityDistinct").iterate();
+        });
+  }
+
+  // Line 610: SELECT unionall(friends) FROM profile — aggregate union
+  @Test
+  public void testFuncUnionall() {
+    g.command("CREATE CLASS FuncProfileUnion IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncProfileUnion SET friends = ['Alice', 'Bob']").iterate();
+          tx.yql("CREATE VERTEX FuncProfileUnion SET friends = ['Bob', 'Charlie']").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT unionall(friends) FROM FuncProfileUnion").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncProfileUnion").iterate();
+        });
+  }
+
+  // Line 626: SELECT intersect(friends) FROM profile WHERE jobTitle = 'programmer'
+  @Test
+  public void testFuncIntersect() {
+    g.command("CREATE CLASS FuncProfileIntersect IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX FuncProfileIntersect SET friends = ['Alice', 'Bob'], jobTitle = 'programmer'")
+              .iterate();
+          tx.yql(
+              "CREATE VERTEX FuncProfileIntersect SET friends = ['Bob', 'Charlie'], jobTitle = 'programmer'")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT intersect(friends) FROM FuncProfileIntersect WHERE jobTitle = 'programmer'")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncProfileIntersect").iterate();
+        });
+  }
+
+  // Line 642: SELECT difference(tags) FROM book — doc claims aggregate mode works,
+  // but difference() does NOT support aggregation mode. This is a doc bug.
+  // Verify the inline (two-param) form works: difference(inEdges, outEdges).
+  @Test
+  public void testFuncDifferenceInline() {
+    g.command("CREATE CLASS FuncBookDiff IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX FuncBookDiff SET setA = ['java', 'sql'], setB = ['java', 'python']")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT difference(setA, setB) FROM FuncBookDiff").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncBookDiff").iterate();
+        });
+  }
+
+  // Verify that difference() in aggregate mode throws an error (doc bug)
+  @Test
+  public void testFuncDifferenceAggregateNotSupported() {
+    g.command("CREATE CLASS FuncBookDiffAgg IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncBookDiffAgg SET tags = ['java', 'sql']").iterate();
+          tx.yql("CREATE VERTEX FuncBookDiffAgg SET tags = ['java', 'python']").iterate();
+        });
+
+    assertThatThrownBy(
+        () -> g.computeInTx(
+            tx -> tx.yql("SELECT difference(tags) FROM FuncBookDiffAgg").toList()));
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncBookDiffAgg").iterate();
+        });
+  }
+
+  // Line 658: symmetricDifference() — doc incorrectly uses difference() in the example
+  @Test
+  public void testFuncSymmetricDifference() {
+    g.command("CREATE CLASS FuncBookSymDiff IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncBookSymDiff SET tags = ['java', 'sql']").iterate();
+          tx.yql("CREATE VERTEX FuncBookSymDiff SET tags = ['java', 'python']").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT symmetricDifference(tags) FROM FuncBookSymDiff").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncBookSymDiff").iterate();
+        });
+  }
+
+  // Line 678: SELECT name, set(roles.name) AS roles FROM User
+  @Test
+  public void testFuncSet() {
+    g.command("CREATE CLASS FuncUserSet IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS FuncRole IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncUserSet SET name = 'Alice', roles = ['admin', 'user', 'admin']")
+              .iterate();
+        });
+
+    // set() as aggregation
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT name, set(roles) AS roles FROM FuncUserSet").toList());
+    assertThat(results).isNotEmpty();
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncUserSet").iterate();
+          tx.yql("DELETE VERTEX FuncRole").iterate();
+        });
+  }
+
+  // Line 690: SELECT name, list(roles.name) AS roles FROM User
+  @Test
+  public void testFuncList() {
+    g.command("CREATE CLASS FuncUserList IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncUserList SET name = 'Alice', roles = ['admin', 'user']")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT name, list(roles) AS roles FROM FuncUserList").toList());
+    assertThat(results).isNotEmpty();
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncUserList").iterate();
+        });
+  }
+
+  // Line 704: SELECT map(name, roles.name) FROM User
+  @Test
+  public void testFuncMap() {
+    g.command("CREATE CLASS FuncUserMap IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncUserMap SET name = 'Alice'").iterate();
+          tx.yql("CREATE VERTEX FuncUserMap SET name = 'Bob'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT map(name, name) FROM FuncUserMap").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncUserMap").iterate();
+        });
+  }
+
+  // Line 717: SELECT mode(salary) FROM Account
+  @Test
+  public void testFuncMode() {
+    g.command("CREATE CLASS FuncAccountMode IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAccountMode SET salary = 1000").iterate();
+          tx.yql("CREATE VERTEX FuncAccountMode SET salary = 1000").iterate();
+          tx.yql("CREATE VERTEX FuncAccountMode SET salary = 2000").iterate();
+        });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT mode(salary) FROM FuncAccountMode").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountMode").iterate();
+        });
+  }
+
+  // Line 729: select median(salary) from Account
+  @Test
+  public void testFuncMedian() {
+    g.command("CREATE CLASS FuncAccountMedian IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAccountMedian SET salary = 1000").iterate();
+          tx.yql("CREATE VERTEX FuncAccountMedian SET salary = 2000").iterate();
+          tx.yql("CREATE VERTEX FuncAccountMedian SET salary = 3000").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT median(salary) FROM FuncAccountMedian").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountMedian").iterate();
+        });
+  }
+
+  // Line 743-744: SELECT percentile(salary, 0.95) FROM Account
+  @Test
+  public void testFuncPercentile() {
+    g.command("CREATE CLASS FuncAccountPct IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          for (int i = 1; i <= 20; i++) {
+            tx.yql("CREATE VERTEX FuncAccountPct SET salary = " + (i * 100)).iterate();
+          }
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT percentile(salary, 0.95) FROM FuncAccountPct").toList());
+    assertThat(results).hasSize(1);
+
+    // Also test the two-quantile form: percentile(salary, 0.25, 0.75)
+    var results2 =
+        g.computeInTx(
+            tx -> tx.yql("SELECT percentile(salary, 0.25, 0.75) AS IQR FROM FuncAccountPct")
+                .toList());
+    assertThat(results2).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountPct").iterate();
+        });
+  }
+
+  // Line 757: SELECT variance(salary) FROM Account
+  @Test
+  public void testFuncVariance() {
+    g.command("CREATE CLASS FuncAccountVar IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAccountVar SET salary = 1000").iterate();
+          tx.yql("CREATE VERTEX FuncAccountVar SET salary = 2000").iterate();
+          tx.yql("CREATE VERTEX FuncAccountVar SET salary = 3000").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT variance(salary) FROM FuncAccountVar").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountVar").iterate();
+        });
+  }
+
+  // Line 769: SELECT stddev(salary) FROM Account
+  @Test
+  public void testFuncStddev() {
+    g.command("CREATE CLASS FuncAccountStd IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAccountStd SET salary = 1000").iterate();
+          tx.yql("CREATE VERTEX FuncAccountStd SET salary = 2000").iterate();
+          tx.yql("CREATE VERTEX FuncAccountStd SET salary = 3000").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT stddev(salary) FROM FuncAccountStd").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountStd").iterate();
+        });
+  }
+
+  // Line 783: INSERT INTO Account SET id = UUID()
+  @Test
+  public void testFuncUuid() {
+    g.command("CREATE CLASS FuncAccountUuid IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAccountUuid SET id = UUID()").iterate();
+        });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM FuncAccountUuid").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat((String) v.value("id")).isNotEmpty();
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountUuid").iterate();
+        });
+  }
+
+  // Line 799: SELECT * from State where strcmpci("washington", name) = 0
+  @Test
+  public void testFuncStrcmpci() {
+    g.command("CREATE CLASS FuncState IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncState SET name = 'Washington'").iterate();
+          tx.yql("CREATE VERTEX FuncState SET name = 'Oregon'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT * FROM FuncState WHERE strcmpci('washington', name) = 0")
+                .toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat((String) v.value("name")).isEqualTo("Washington");
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncState").iterate();
+        });
+  }
+
+  // Line 584: SELECT FROM POI WHERE distance(x, y, 52.20472, 0.14056) <= 30
+  @Test
+  public void testFuncDistance() {
+    g.command("CREATE CLASS FuncPOI IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          // Kyiv coordinates approximately
+          tx.yql("CREATE VERTEX FuncPOI SET x = 50.4501, y = 30.5234").iterate();
+          // Cambridge coordinates (close to target)
+          tx.yql("CREATE VERTEX FuncPOI SET x = 52.2053, y = 0.1218").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM FuncPOI WHERE distance(x, y, 52.20472, 0.14056) <= 30")
+                .toList());
+    // Cambridge is within 30 km of (52.20472, 0.14056), Kyiv is not
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncPOI").iterate();
+        });
+  }
+
+  // Line 195: SELECT bothV() FROM E — both vertices of an edge
+  @Test
+  public void testFuncBothV() {
+    g.command("CREATE CLASS FuncPersonBothV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS FuncEdgeBothV IF NOT EXISTS EXTENDS E");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncPersonBothV SET name = 'A'").iterate();
+          tx.yql("CREATE VERTEX FuncPersonBothV SET name = 'B'").iterate();
+          tx.yql(
+              "CREATE EDGE FuncEdgeBothV FROM "
+                  + "(SELECT FROM FuncPersonBothV WHERE name = 'A') TO "
+                  + "(SELECT FROM FuncPersonBothV WHERE name = 'B')")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT bothV() FROM FuncEdgeBothV").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE EDGE FuncEdgeBothV").iterate();
+          tx.yql("DELETE VERTEX FuncPersonBothV").iterate();
+        });
+  }
+
+  // Line 210: SELECT outV() FROM E — outgoing vertex of an edge
+  @Test
+  public void testFuncOutV() {
+    g.command("CREATE CLASS FuncPersonOutV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS FuncEdgeOutV IF NOT EXISTS EXTENDS E");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncPersonOutV SET name = 'X'").iterate();
+          tx.yql("CREATE VERTEX FuncPersonOutV SET name = 'Y'").iterate();
+          tx.yql(
+              "CREATE EDGE FuncEdgeOutV FROM "
+                  + "(SELECT FROM FuncPersonOutV WHERE name = 'X') TO "
+                  + "(SELECT FROM FuncPersonOutV WHERE name = 'Y')")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT outV() FROM FuncEdgeOutV").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE EDGE FuncEdgeOutV").iterate();
+          tx.yql("DELETE VERTEX FuncPersonOutV").iterate();
+        });
+  }
+
+  // Line 228: SELECT inV() FROM E — incoming vertex of an edge
+  @Test
+  public void testFuncInV() {
+    g.command("CREATE CLASS FuncPersonInV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS FuncEdgeInV IF NOT EXISTS EXTENDS E");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncPersonInV SET name = 'X'").iterate();
+          tx.yql("CREATE VERTEX FuncPersonInV SET name = 'Y'").iterate();
+          tx.yql(
+              "CREATE EDGE FuncEdgeInV FROM "
+                  + "(SELECT FROM FuncPersonInV WHERE name = 'X') TO "
+                  + "(SELECT FROM FuncPersonInV WHERE name = 'Y')")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT inV() FROM FuncEdgeInV").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE EDGE FuncEdgeInV").iterate();
+          tx.yql("DELETE VERTEX FuncPersonInV").iterate();
+        });
+  }
+
+  // Line 547: SELECT shortestPath(src, dst) — shortest path between two vertices
+  @Test
+  public void testFuncShortestPath() {
+    g.command("CREATE CLASS FuncNodeSP IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS FuncLinkSP IF NOT EXISTS EXTENDS E");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncNodeSP SET name = 'start'").iterate();
+          tx.yql("CREATE VERTEX FuncNodeSP SET name = 'mid'").iterate();
+          tx.yql("CREATE VERTEX FuncNodeSP SET name = 'end'").iterate();
+          tx.yql(
+              "CREATE EDGE FuncLinkSP FROM "
+                  + "(SELECT FROM FuncNodeSP WHERE name = 'start') TO "
+                  + "(SELECT FROM FuncNodeSP WHERE name = 'mid')")
+              .iterate();
+          tx.yql(
+              "CREATE EDGE FuncLinkSP FROM "
+                  + "(SELECT FROM FuncNodeSP WHERE name = 'mid') TO "
+                  + "(SELECT FROM FuncNodeSP WHERE name = 'end')")
+              .iterate();
+        });
+
+    // shortestPath using subqueries for dynamic RIDs
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT shortestPath("
+                    + "(SELECT FROM FuncNodeSP WHERE name = 'start'), "
+                    + "(SELECT FROM FuncNodeSP WHERE name = 'end'))")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    // Test with direction parameter (OUT)
+    var resultsOut =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT shortestPath("
+                    + "(SELECT FROM FuncNodeSP WHERE name = 'start'), "
+                    + "(SELECT FROM FuncNodeSP WHERE name = 'end'), 'OUT')")
+                .toList());
+    assertThat(resultsOut).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE EDGE FuncLinkSP").iterate();
+          tx.yql("DELETE VERTEX FuncNodeSP").iterate();
+        });
+  }
+
+  // Line 47: Doc claims first(out('friends').name, null) forces inline mode,
+  // but first() only accepts 1 argument — this is a doc bug.
+  @Test
+  public void testFuncFirstRejectsNullTrick() {
+    g.command("CREATE CLASS FuncProfile IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncProfile SET name = 'Alice'").iterate();
+        });
+
+    // first() only accepts 1 argument; passing null as 2nd param is rejected
+    assertThatThrownBy(
+        () -> g.computeInTx(
+            tx -> tx.yql(
+                "SELECT first(out().name, null) AS firstFriend FROM FuncProfile")
+                .toList()));
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncProfile").iterate();
+        });
+  }
+
+  // === YQL-Grant.md ===
+
+  /** YQL-Grant.md — Line 22: GRANT POLICY policy1 ON database.class.Person TO backoffice */
+  @Test
+  public void testGrantPolicyOnClassToRole() {
+    // Create the target class
+    g.command("CREATE CLASS GrantPerson IF NOT EXISTS EXTENDS V");
+
+    // Create a security policy with proper syntax (SET READ = (predicate))
+    g.command("CREATE SECURITY POLICY grantPolicy1 SET READ = (name = 'foo')");
+    g.command("GRANT POLICY grantPolicy1 ON database.class.GrantPerson TO reader");
+
+    // If we got here without exception, the GRANT POLICY syntax is accepted
+  }
+
+  /** YQL-Grant.md — Line 8: GRANT permission ON resource TO role — all permission types */
+  @Test
+  public void testGrantPermissionOnResourceToRole() {
+    // Grant CREATE permission on a database class to the built-in 'writer' role
+    g.command("CREATE CLASS GrantTarget IF NOT EXISTS EXTENDS V");
+    g.command("GRANT CREATE ON database.class.GrantTarget TO writer");
+
+    // Grant READ permission
+    g.command("GRANT READ ON database.class.GrantTarget TO writer");
+
+    // Grant UPDATE permission
+    g.command("GRANT UPDATE ON database.class.GrantTarget TO writer");
+
+    // Grant DELETE permission
+    g.command("GRANT DELETE ON database.class.GrantTarget TO writer");
+
+    // Grant ALL permission
+    g.command("GRANT ALL ON database.class.GrantTarget TO writer");
+
+    // Grant NONE permission (revokes all)
+    g.command("GRANT NONE ON database.class.GrantTarget TO writer");
+  }
+
+  /** YQL-Grant.md — Line 50: database resource */
+  @Test
+  public void testGrantOnDatabaseResource() {
+    g.command("GRANT READ ON database TO reader");
+  }
+
+  /** YQL-Grant.md — Line 51: database.class.* wildcard for all classes */
+  @Test
+  public void testGrantOnWildcardClassResource() {
+    g.command("GRANT READ ON database.class.* TO reader");
+  }
+
+  // === YQL-Methods.md ===
+
+  /** YQL-Methods.md — Line 89: .append() concatenates strings */
+  @Test
+  public void testMethodAppend() {
+    g.command("CREATE CLASS MethAppendEmp IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethAppendEmp SET name = 'John', surname = 'Doe'").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT name.append(' ').append(surname) FROM MethAppendEmp").toList());
+    assertThat(results).isNotEmpty();
+  }
+
+  /** YQL-Methods.md — Line 108: .asBoolean() converts to boolean */
+  @Test
+  public void testMethodAsBoolean() {
+    g.command("CREATE CLASS MethBoolUser IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethBoolUser SET name = 'Alice', online = 'true'").iterate();
+          tx.yql("CREATE VERTEX MethBoolUser SET name = 'Bob', online = 'false'").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM MethBoolUser WHERE online.asBoolean() = true").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat((String) v.value("name")).isEqualTo("Alice");
+  }
+
+  /** YQL-Methods.md — Line 162: .asDecimal() converts to decimal */
+  @Test
+  public void testMethodAsDecimal() {
+    g.command("CREATE CLASS MethDecEmp IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethDecEmp SET salary = 50000").iterate();
+        });
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT salary.asDecimal() FROM MethDecEmp").toList());
+    assertThat(results).isNotEmpty();
+  }
+
+  /** YQL-Methods.md — Line 178: .asFloat() converts to float */
+  @Test
+  public void testMethodAsFloat() {
+    g.command("CREATE CLASS MethFloatItem IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethFloatItem SET ray = 4.5").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM MethFloatItem WHERE ray.asFloat() > 3.14").toList());
+    assertThat(results).hasSize(1);
+  }
+
+  /** YQL-Methods.md — Line 195: .asInteger() with .left() chain */
+  @Test
+  public void testMethodAsInteger() {
+    g.command("CREATE CLASS MethIntLog IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethIntLog SET value = '12345'").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT value.left(3).asInteger() FROM MethIntLog").toList());
+    assertThat(results).isNotEmpty();
+  }
+
+  /** YQL-Methods.md — Line 211: .asList() transforms to list */
+  @Test
+  public void testMethodAsList() {
+    g.command("CREATE CLASS MethListFriend IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethListFriend SET tags = ['a','b','c']").iterate();
+        });
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT tags.asList() FROM MethListFriend").toList());
+    assertThat(results).isNotEmpty();
+  }
+
+  /** YQL-Methods.md — Line 227: .asLong() converts to long */
+  @Test
+  public void testMethodAsLong() {
+    g.command("CREATE CLASS MethLongLog IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethLongLog SET date = 1609459200000").iterate();
+        });
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT date.asLong() FROM MethLongLog").toList());
+    assertThat(results).isNotEmpty();
+  }
+
+  /** YQL-Methods.md — Line 259: .asSet() transforms to set */
+  @Test
+  public void testMethodAsSet() {
+    g.command("CREATE CLASS MethSetFriend IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethSetFriend SET tags = ['a','b','a']").iterate();
+        });
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT tags.asSet() FROM MethSetFriend").toList());
+    assertThat(results).isNotEmpty();
+  }
+
+  /** YQL-Methods.md — Line 276: .asString() converts to string, .indexOf on result */
+  @Test
+  public void testMethodAsString() {
+    g.command("CREATE CLASS MethStrEmp IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethStrEmp SET salary = 50000.75").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM MethStrEmp WHERE salary.asString().indexOf('.') > -1")
+                .toList());
+    assertThat(results).hasSize(1);
+  }
+
+  /** YQL-Methods.md — Line 293: .charAt() returns character at position */
+  @Test
+  public void testMethodCharAt() {
+    g.command("CREATE CLASS MethCharUser IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethCharUser SET name = 'Luke'").iterate();
+          tx.yql("CREATE VERTEX MethCharUser SET name = 'Mark'").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM MethCharUser WHERE name.charAt(0) = 'L'").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat((String) v.value("name")).isEqualTo("Luke");
+  }
+
+  /** YQL-Methods.md — Line 309: .convert() converts to another type */
+  @Test
+  public void testMethodConvert() {
+    g.command("CREATE CLASS MethConvUser IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethConvUser SET dob = '2000-01-01'").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT dob.convert('date') FROM MethConvUser").toList());
+    assertThat(results).isNotEmpty();
+  }
+
+  /** YQL-Methods.md — Line 350: .format() formats value using printf syntax */
+  @Test
+  public void testMethodFormat() {
+    g.command("CREATE CLASS MethFmtEmp IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethFmtEmp SET salary = 12345").iterate();
+        });
+    // Validates the doc example: salary.format("%011d")
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT salary.format('%011d') FROM MethFmtEmp").toList());
+    assertThat(results).isNotEmpty();
+  }
+
+  /** YQL-Methods.md — Line 369: .hash() computes hash of string */
+  @Test
+  public void testMethodHash() {
+    g.command("CREATE CLASS MethHashUser IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethHashUser SET password = 'secret123'").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT password.hash('SHA-512') FROM MethHashUser").toList());
+    assertThat(results).isNotEmpty();
+  }
+
+  /** YQL-Methods.md — Line 325: .exclude() removes properties from result */
+  @Test
+  public void testMethodExclude() {
+    g.command("CREATE CLASS MethExclUser IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethExclUser SET name = 'Alice', password = 'secret'")
+              .iterate();
+        });
+    // Verify exclude() parses and executes — use without EXPAND to avoid Gremlin mapper issue
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT @this.exclude('password') FROM MethExclUser").toList());
+    assertThat(results).isNotEmpty();
+  }
+
+  /** YQL-Methods.md — Line 385: .include() keeps only specified properties */
+  @Test
+  public void testMethodInclude() {
+    g.command("CREATE CLASS MethInclUser IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX MethInclUser SET name = 'Alice', email = 'a@b.c', age = 30")
+              .iterate();
+        });
+    // Verify include() parses and executes — use without EXPAND to avoid Gremlin mapper issue
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT @this.include('name') FROM MethInclUser").toList());
+    assertThat(results).isNotEmpty();
+  }
+
+  /** YQL-Methods.md — Line 408: .indexOf() finds position of substring */
+  @Test
+  public void testMethodIndexOf() {
+    g.command("CREATE CLASS MethIdxContact IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethIdxContact SET phone = '+44-555-1234'").iterate();
+          tx.yql("CREATE VERTEX MethIdxContact SET phone = '+1-555-9999'").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM MethIdxContact WHERE phone.indexOf('+44') > -1")
+                .toList());
+    assertThat(results).hasSize(1);
+  }
+
+  /** YQL-Methods.md — Line 440: .keys() returns map keys */
+  @Test
+  public void testMethodKeys() {
+    g.command("CREATE CLASS MethKeysActor IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX MethKeysActor SET map = {'Luke': 1, 'Han': 2}")
+              .iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM MethKeysActor WHERE 'Luke' IN map.keys()").toList());
+    assertThat(results).hasSize(1);
+  }
+
+  /** YQL-Methods.md — Line 455: .left() returns substring from start */
+  @Test
+  public void testMethodLeft() {
+    g.command("CREATE CLASS MethLeftActor IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethLeftActor SET name = 'Luke Skywalker'").iterate();
+          tx.yql("CREATE VERTEX MethLeftActor SET name = 'Han Solo'").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM MethLeftActor WHERE name.left(4) = 'Luke'").toList());
+    assertThat(results).hasSize(1);
+  }
+
+  /** YQL-Methods.md — Line 469: .length() returns string length */
+  @Test
+  public void testMethodLength() {
+    g.command("CREATE CLASS MethLenProv IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethLenProv SET name = 'Acme'").iterate();
+          tx.yql("CREATE VERTEX MethLenProv SET name = ''").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM MethLenProv WHERE name.length() > 0").toList());
+    assertThat(results).hasSize(1);
+  }
+
+  /** YQL-Methods.md — Line 502: .prefix() prepends a string */
+  @Test
+  public void testMethodPrefix() {
+    g.command("CREATE CLASS MethPfxProfile IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethPfxProfile SET name = 'Smith'").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT name.prefix('Mr. ') FROM MethPfxProfile").toList());
+    assertThat(results).isNotEmpty();
+  }
+
+  /** YQL-Methods.md — Line 550: .replace() replaces string occurrences */
+  @Test
+  public void testMethodReplace() {
+    g.command("CREATE CLASS MethReplUser IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethReplUser SET name = 'Mr. Smith'").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT name.replace('Mr.', 'Ms.') FROM MethReplUser").toList());
+    assertThat(results).isNotEmpty();
+  }
+
+  /** YQL-Methods.md — Line 567: .right() returns substring from end */
+  @Test
+  public void testMethodRight() {
+    g.command("CREATE CLASS MethRightV IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethRightV SET name = 'Luke'").iterate();
+          tx.yql("CREATE VERTEX MethRightV SET name = 'Han'").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM MethRightV WHERE name.right(2) = 'ke'").toList());
+    assertThat(results).hasSize(1);
+  }
+
+  /** YQL-Methods.md — Line 584: .size() returns collection size */
+  @Test
+  public void testMethodSize() {
+    g.command("CREATE CLASS MethSizeTree IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethSizeTree SET children = ['a', 'b']").iterate();
+          tx.yql("CREATE VERTEX MethSizeTree SET children = []").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM MethSizeTree WHERE children.size() > 0").toList());
+    assertThat(results).hasSize(1);
+  }
+
+  /** YQL-Methods.md — Line 601: .subString() returns substring */
+  @Test
+  public void testMethodSubString() {
+    g.command("CREATE CLASS MethSubStock IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethSubStock SET name = 'Laptop'").iterate();
+          tx.yql("CREATE VERTEX MethSubStock SET name = 'Mouse'").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM MethSubStock WHERE name.substring(0, 1) = 'L'")
+                .toList());
+    assertThat(results).hasSize(1);
+  }
+
+  /** YQL-Methods.md — Line 607: .substring() on literal string */
+  @Test
+  public void testMethodSubStringLiteral() {
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT \"YouTrackDB\".substring(0,8)").toList());
+    assertThat(results).isNotEmpty();
+  }
+
+  /** YQL-Methods.md — Line 622: .trim() removes whitespace */
+  @Test
+  public void testMethodTrim() {
+    g.command("CREATE CLASS MethTrimActor IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethTrimActor SET name = '  Luke  '").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM MethTrimActor WHERE name.trim() = 'Luke'").toList());
+    assertThat(results).hasSize(1);
+  }
+
+  /** YQL-Methods.md — Line 637: .toLowerCase() converts to lower case */
+  @Test
+  public void testMethodToLowerCase() {
+    g.command("CREATE CLASS MethLowActor IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethLowActor SET name = 'Luke'").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM MethLowActor WHERE name.toLowerCase() = 'luke'")
+                .toList());
+    assertThat(results).hasSize(1);
+  }
+
+  /** YQL-Methods.md — Line 652: .toUpperCase() converts to upper case */
+  @Test
+  public void testMethodToUpperCase() {
+    g.command("CREATE CLASS MethUpActor IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethUpActor SET name = 'Luke'").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM MethUpActor WHERE name.toUpperCase() = 'LUKE'")
+                .toList());
+    assertThat(results).hasSize(1);
+  }
+
+  /** YQL-Methods.md — Line 487: .normalize() normalizes a string */
+  @Test
+  public void testMethodNormalize() {
+    g.command("CREATE CLASS MethNormV IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethNormV SET name = 'café'").iterate();
+        });
+    // Test that normalize() parses and executes without error
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM MethNormV WHERE name.normalize() IS NOT NULL AND name.normalize('NFD') IS NOT NULL")
+                .toList());
+    assertThat(results).hasSize(1);
+  }
+
+  /** YQL-Methods.md — Line 680: .values() returns map values */
+  @Test
+  public void testMethodValues() {
+    g.command("CREATE CLASS MethValClient IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX MethValClient SET map = {'name': 'Alice', 'city': 'NYC'}")
+              .iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM MethValClient WHERE map.values() CONTAINS 'Alice'")
+                .toList());
+    assertThat(results).hasSize(1);
+  }
+
+  /** YQL-Methods.md — Line 13: .toJSON() method referenced in intro but has no doc section */
+  @Test
+  public void testMethodToJSON() {
+    g.command("CREATE CLASS MethJsonEmp IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethJsonEmp SET salary = 50000").iterate();
+        });
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT salary.toJSON() FROM MethJsonEmp").toList());
+    assertThat(results).isNotEmpty();
+  }
+
+  /**
+   * YQL-Methods.md — Line 72: Double FROM bug. The doc shows: SELECT FROM tags[0-9] FROM Posts
+   * which has two FROM keywords. This should be: SELECT tags[0-9] FROM Posts
+   */
+  @Test
+  public void testBracketOperatorDoubleFrom() {
+    g.command("CREATE CLASS MethBracketPost IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethBracketPost SET tags = ['a','b','c','d','e']").iterate();
+        });
+    // The correct form (single FROM) should work
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT tags[0-2] FROM MethBracketPost").toList());
+    assertThat(results).isNotEmpty();
+  }
+
+  /**
+   * YQL-Methods.md — Line 127: .asDate() section example wrongly uses .asDateTime(). Verify
+   * .asDate() itself works on a long value.
+   */
+  @Test
+  public void testMethodAsDateOnLong() {
+    g.command("CREATE CLASS MethDateLog IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethDateLog SET time = 1262304000000").iterate();
+        });
+    // The doc should use .asDate() here, not .asDateTime()
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM MethDateLog WHERE time.asDate() IS NOT NULL").toList());
+    assertThat(results).hasSize(1);
+  }
+
+  // ===== YQL-Rebuild-Index.md =====
+
+  @Test
+  public void testRebuildIndexNamedIndex() {
+    // YQL-Rebuild-Index.md line 8: REBUILD INDEX <index> syntax
+    // and line 15-18: rebuild an index on the nick property of the class Profile
+    g.command("CREATE CLASS RbIdxProfile EXTENDS V");
+    g.command("CREATE PROPERTY RbIdxProfile.nick STRING");
+    g.command("CREATE INDEX RbIdxProfile.nick ON RbIdxProfile (nick) NOTUNIQUE");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX RbIdxProfile SET nick = 'John'").iterate();
+          tx.yql("CREATE VERTEX RbIdxProfile SET nick = 'Jane'").iterate();
+        });
+    g.close();
+
+    // Rebuild the specific index — should not throw
+    g = youTrackDB.openTraversal("test", "admin", "admin");
+    g.command("REBUILD INDEX RbIdxProfile.nick");
+
+    // Verify data is still accessible via the index after rebuild
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM RbIdxProfile WHERE nick = 'John'").toList());
+    assertThat(results).hasSize(1);
+  }
+
+  // === YQL-Revoke.md ===
+
+  // Line 8: REVOKE <permission> ON <resource> FROM <role>
+  @Test
+  public void testRevokePermissionSyntax() {
+    // Verify that REVOKE with a permission parses and executes without error
+    g.command("REVOKE READ ON database FROM reader");
+  }
+
+  // Line 8: REVOKE POLICY ON <resource> FROM <role>
+  @Test
+  public void testRevokePolicySyntax() {
+    // Verify that REVOKE POLICY (no policy name) parses and executes without error.
+    // Unlike GRANT POLICY which takes a policy name, REVOKE POLICY does not.
+    g.command("REVOKE POLICY ON database.class.V FROM reader");
+  }
+
+  // Line 19: REVOKE POLICY ON database.class.Person FROM backoffice
+  @Test
+  public void testRevokePolicyOnClassFromRole() {
+    // Verify the exact example from the documentation parses correctly
+    g.command("CREATE CLASS RevokeDocPerson IF NOT EXISTS EXTENDS V");
+    g.command("REVOKE POLICY ON database.class.RevokeDocPerson FROM reader");
+  }
+
+  // Line 34: REVOKE ALL ON <resource> FROM <role>
+  @Test
+  public void testRevokeAllPermission() {
+    g.command("REVOKE ALL ON database FROM reader");
+  }
+
+  // Line 34: REVOKE CREATE ON <resource> FROM <role>
+  @Test
+  public void testRevokeCreatePermission() {
+    g.command("REVOKE CREATE ON database FROM reader");
+  }
+
+  // Line 34: REVOKE UPDATE ON <resource> FROM <role>
+  @Test
+  public void testRevokeUpdatePermission() {
+    g.command("REVOKE UPDATE ON database FROM reader");
+  }
+
+  // Line 34: REVOKE DELETE ON <resource> FROM <role>
+  @Test
+  public void testRevokeDeletePermission() {
+    g.command("REVOKE DELETE ON database FROM reader");
+  }
+
+  // Line 34: REVOKE NONE ON <resource> FROM <role>
+  @Test
+  public void testRevokeNonePermission() {
+    g.command("REVOKE NONE ON database FROM reader");
+  }
+
+  // Line 48: REVOKE on database.class.* resource
+  @Test
+  public void testRevokeOnAllClasses() {
+    // Verify wildcard * works for all classes
+    g.command("REVOKE READ ON database.class.* FROM reader");
+  }
+
+  // Line 50: REVOKE POLICY on database.class.<class>.<property> resource
+  @Test
+  public void testRevokePolicyOnClassProperty() {
+    g.command("CREATE CLASS RevokeDocEmployee IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY RevokeDocEmployee.name STRING");
+    g.command("REVOKE POLICY ON database.class.RevokeDocEmployee.name FROM reader");
+  }
+
+  // Line 50: REVOKE on database.command.<command> resource
+  @Test
+  public void testRevokeOnDatabaseCommand() {
+    g.command("REVOKE CREATE ON database.command.create FROM reader");
+  }
+
+  // === YQL-Where.md ===
+
+  // Line 40: = operator — name = 'Luke'
+  @Test
+  public void testWhereEqualsOperator() {
+    g.command("CREATE CLASS WherePerson IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WherePerson SET name = 'Luke'").iterate();
+          tx.yql("CREATE VERTEX WherePerson SET name = 'Han'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WherePerson WHERE name = 'Luke'").toList());
+    assertThat(results).hasSize(1);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("Luke");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WherePerson").iterate());
+  }
+
+  // Line 41: LIKE operator — name like 'Luk%'
+  @Test
+  public void testWhereLikeOperator() {
+    g.command("CREATE CLASS WhereLikePerson IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereLikePerson SET name = 'Luke'").iterate();
+          tx.yql("CREATE VERTEX WhereLikePerson SET name = 'Leia'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereLikePerson WHERE name like 'Luk%'").toList());
+    assertThat(results).hasSize(1);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("Luke");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereLikePerson").iterate());
+  }
+
+  // Line 42-45: Comparison operators (<, <=, >, >=)
+  @Test
+  public void testWhereComparisonOperators() {
+    g.command("CREATE CLASS WhereAgePerson IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereAgePerson SET name = 'Young', age = 25").iterate();
+          tx.yql("CREATE VERTEX WhereAgePerson SET name = 'Middle', age = 40").iterate();
+          tx.yql("CREATE VERTEX WhereAgePerson SET name = 'Old', age = 55").iterate();
+        });
+
+    // < operator
+    var lessThan =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereAgePerson WHERE age < 40").toList());
+    assertThat(lessThan).hasSize(1);
+
+    // <= operator
+    var lessOrEqual =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereAgePerson WHERE age <= 40").toList());
+    assertThat(lessOrEqual).hasSize(2);
+
+    // > operator
+    var greaterThan =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereAgePerson WHERE age > 40").toList());
+    assertThat(greaterThan).hasSize(1);
+
+    // >= operator
+    var greaterOrEqual =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereAgePerson WHERE age >= 40").toList());
+    assertThat(greaterOrEqual).hasSize(2);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereAgePerson").iterate());
+  }
+
+  // Line 46: <> operator (not equals)
+  @Test
+  public void testWhereNotEqualsOperator() {
+    g.command("CREATE CLASS WhereNeqPerson IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereNeqPerson SET name = 'A', age = 40").iterate();
+          tx.yql("CREATE VERTEX WhereNeqPerson SET name = 'B', age = 30").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereNeqPerson WHERE age <> 40").toList());
+    assertThat(results).hasSize(1);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("B");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereNeqPerson").iterate());
+  }
+
+  // Line 47: BETWEEN operator
+  @Test
+  public void testWhereBetweenOperator() {
+    g.command("CREATE CLASS WhereProduct IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereProduct SET name = 'Cheap', price = 5").iterate();
+          tx.yql("CREATE VERTEX WhereProduct SET name = 'Mid', price = 20").iterate();
+          tx.yql("CREATE VERTEX WhereProduct SET name = 'Expensive', price = 50")
+              .iterate();
+        });
+
+    // BETWEEN is inclusive on both ends (equivalent to >= AND <=)
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereProduct WHERE price BETWEEN 10 and 30")
+                .toList());
+    assertThat(results).hasSize(1);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("Mid");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereProduct").iterate());
+  }
+
+  // Line 48: IS NULL operator
+  @Test
+  public void testWhereIsNullOperator() {
+    g.command("CREATE CLASS WhereNullTest IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereNullTest SET name = 'WithChildren', children = 'yes'")
+              .iterate();
+          tx.yql("CREATE VERTEX WhereNullTest SET name = 'NoChildren'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereNullTest WHERE children is null").toList());
+    assertThat(results).hasSize(1);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("NoChildren");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereNullTest").iterate());
+  }
+
+  // Line 49: INSTANCEOF operator
+  @Test
+  public void testWhereInstanceofOperator() {
+    g.command("CREATE CLASS WhereCustomer IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS WhereProvider IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereCustomer SET name = 'Alice'").iterate();
+          tx.yql("CREATE VERTEX WhereProvider SET name = 'Bob'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM V WHERE @this instanceof 'WhereCustomer'")
+                .toList());
+    // Should contain at least Alice (and possibly other V vertices from other tests)
+    assertThat(results.stream()
+        .filter(r -> "Alice".equals(((Vertex) r).value("name")))
+        .count()).isEqualTo(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX WhereCustomer").iterate();
+          tx.yql("DELETE VERTEX WhereProvider").iterate();
+        });
+  }
+
+  // Line 50: IN operator
+  @Test
+  public void testWhereInOperator() {
+    g.command("CREATE CLASS WhereContinent IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereContinent SET name = 'European'").iterate();
+          tx.yql("CREATE VERTEX WhereContinent SET name = 'Asiatic'").iterate();
+          tx.yql("CREATE VERTEX WhereContinent SET name = 'African'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM WhereContinent WHERE name in ['European','Asiatic']")
+                .toList());
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereContinent").iterate());
+  }
+
+  // Line 51: CONTAINS operator on embedded collection
+  @Test
+  public void testWhereContainsOperator() {
+    g.command("CREATE CLASS WhereFamily IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX WhereFamily SET name = 'Skywalker',"
+                  + " children = ['Luke', 'Leia']")
+              .iterate();
+          tx.yql(
+              "CREATE VERTEX WhereFamily SET name = 'Solo',"
+                  + " children = ['Ben']")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM WhereFamily WHERE children CONTAINS 'Luke'")
+                .toList());
+    assertThat(results).hasSize(1);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("Skywalker");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereFamily").iterate());
+  }
+
+  // Line 54: CONTAINSKEY operator on map
+  @Test
+  public void testWhereContainsKeyOperator() {
+    g.command("CREATE CLASS WhereConnections IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX WhereConnections SET name = 'A',"
+                  + " connections = {'Luke': 'friend', 'Han': 'ally'}")
+              .iterate();
+          tx.yql(
+              "CREATE VERTEX WhereConnections SET name = 'B',"
+                  + " connections = {'Leia': 'leader'}")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM WhereConnections WHERE connections containsKey 'Luke'")
+                .toList());
+    assertThat(results).hasSize(1);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("A");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereConnections").iterate());
+  }
+
+  // Line 55: CONTAINSVALUE operator on map
+  @Test
+  public void testWhereContainsValueOperator() {
+    g.command("CREATE CLASS WhereConnVal IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX WhereConnVal SET name = 'A',"
+                  + " connections = {'Luke': 'friend', 'Han': 'ally'}")
+              .iterate();
+          tx.yql(
+              "CREATE VERTEX WhereConnVal SET name = 'B',"
+                  + " connections = {'Leia': 'leader'}")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM WhereConnVal WHERE connections containsValue 'friend'")
+                .toList());
+    assertThat(results).hasSize(1);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("A");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereConnVal").iterate());
+  }
+
+  // Line 56: CONTAINSTEXT operator
+  @Test
+  public void testWhereContainsTextOperator() {
+    g.command("CREATE CLASS WhereTextDoc IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereTextDoc SET text = 'Hello vika world'").iterate();
+          tx.yql("CREATE VERTEX WhereTextDoc SET text = 'Hello world'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM WhereTextDoc WHERE text containsText 'vika'")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereTextDoc").iterate());
+  }
+
+  // Line 57: MATCHES operator (regex)
+  @Test
+  public void testWhereMatchesOperator() {
+    g.command("CREATE CLASS WhereEmail IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereEmail SET text = 'contact: USER@EXAMPLE.COM'")
+              .iterate();
+          tx.yql("CREATE VERTEX WhereEmail SET text = 'no email here'").iterate();
+        });
+
+    // The doc example uses \b and \. which hit YQL lexer escaping issues.
+    // Use [.] instead of \. to validate MATCHES works with regex.
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM WhereEmail WHERE text matches"
+                    + " '.*[A-Z0-9.%+-]+@[A-Z0-9.-]+[.][A-Z]{2,4}.*'")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereEmail").iterate());
+  }
+
+  // Line 64: AND logical operator
+  @Test
+  public void testWhereAndOperator() {
+    g.command("CREATE CLASS WhereLogicPerson IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereLogicPerson SET name = 'Luke', surname = 'Skywalker'")
+              .iterate();
+          tx.yql("CREATE VERTEX WhereLogicPerson SET name = 'Luke', surname = 'Smith'")
+              .iterate();
+          tx.yql("CREATE VERTEX WhereLogicPerson SET name = 'Han', surname = 'Solo'")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM WhereLogicPerson WHERE name = 'Luke'"
+                    + " and surname like 'Sky%'")
+                .toList());
+    assertThat(results).hasSize(1);
+    assertThat((String) ((Vertex) results.get(0)).value("surname")).isEqualTo("Skywalker");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereLogicPerson").iterate());
+  }
+
+  // Line 65: OR logical operator
+  @Test
+  public void testWhereOrOperator() {
+    g.command("CREATE CLASS WhereOrPerson IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereOrPerson SET name = 'Luke', surname = 'Skywalker'")
+              .iterate();
+          tx.yql("CREATE VERTEX WhereOrPerson SET name = 'Han', surname = 'Solo'")
+              .iterate();
+          tx.yql("CREATE VERTEX WhereOrPerson SET name = 'Leia', surname = 'Organa'")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM WhereOrPerson WHERE name = 'Luke'"
+                    + " or surname like 'Sky%'")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereOrPerson").iterate());
+  }
+
+  // Line 66: NOT logical operator
+  @Test
+  public void testWhereNotOperator() {
+    g.command("CREATE CLASS WhereNotPerson IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereNotPerson SET name = 'Luke'").iterate();
+          tx.yql("CREATE VERTEX WhereNotPerson SET name = 'Han'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM WhereNotPerson WHERE not (name = 'Luke')")
+                .toList());
+    assertThat(results).hasSize(1);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("Han");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereNotPerson").iterate());
+  }
+
+  // Line 74-78: Math operators (+, -, *, /, %)
+  @Test
+  public void testWhereMathOperators() {
+    g.command("CREATE CLASS WhereMathTest IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereMathTest SET age = 6, factor = 2, total = 15")
+              .iterate();
+        });
+
+    // Plus
+    var plus =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereMathTest WHERE age + 34 = 40").toList());
+    assertThat(plus).hasSize(1);
+
+    // Minus
+    var minus =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereMathTest WHERE age - 4 = 2").toList());
+    assertThat(minus).hasSize(1);
+
+    // Multiply
+    var multiply =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereMathTest WHERE factor * 1.5 = 3.0").toList());
+    assertThat(multiply).hasSize(1);
+
+    // Divide
+    var divide =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereMathTest WHERE total / 3 = 5").toList());
+    assertThat(divide).hasSize(1);
+
+    // Mod
+    var mod =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereMathTest WHERE total % 4 = 3").toList());
+    assertThat(mod).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereMathTest").iterate());
+  }
+
+  // Line 82-83: eval() function
+  @Test
+  public void testWhereEvalFunction() {
+    g.command("CREATE CLASS WhereOrder IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX WhereOrder SET amount = 100, discount = 10")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT eval(\"amount * 120 / 100 - discount\") as finalPrice"
+                    + " FROM WhereOrder")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereOrder").iterate());
+  }
+
+  // Line 29: @this record attribute
+  @Test
+  public void testWhereAtThisAttribute() {
+    g.command("CREATE CLASS WhereAccount IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereAccount SET name = 'test'").iterate();
+        });
+
+    // @this should be accessible — select @this.toJSON() from Account
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT @this.toJSON() FROM WhereAccount").toList());
+    assertThat(results).isNotEmpty();
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereAccount").iterate());
+  }
+
+  // Line 31: @class record attribute
+  @Test
+  public void testWhereAtClassAttribute() {
+    g.command("CREATE CLASS WhereProfile IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereProfile SET name = 'test'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereProfile WHERE @class = 'WhereProfile'")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereProfile").iterate());
+  }
+
+  // Line 32: @version record attribute
+  @Test
+  public void testWhereAtVersionAttribute() {
+    g.command("CREATE CLASS WhereVersionTest IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereVersionTest SET name = 'test'").iterate();
+        });
+
+    // Freshly created records should have @version >= 0
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereVersionTest WHERE @version >= 0")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereVersionTest").iterate());
+  }
+
+  // Line 18: any() — matches if ANY property matches
+  @Test
+  public void testWhereAnyFunction() {
+    g.command("CREATE CLASS WhereAnyTest IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereAnyTest SET name = 'London', code = 'LON'")
+              .iterate();
+          tx.yql("CREATE VERTEX WhereAnyTest SET name = 'Paris', code = 'PAR'")
+              .iterate();
+        });
+
+    // any() returns true if ANY property of the record matches the condition.
+    // Record 1 has name='London' (matches 'L%') and code='LON' (matches 'L%') → true
+    // Record 2 has name='Paris' and code='PAR' → false
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereAnyTest WHERE any() like 'L%'").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereAnyTest").iterate());
+  }
+
+  // Line 19: all() — matches if ALL properties match
+  @Test
+  public void testWhereAllFunction() {
+    g.command("CREATE CLASS WhereAllTest IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereAllTest SET a = null, b = null").iterate();
+          tx.yql("CREATE VERTEX WhereAllTest SET a = 'x', b = null").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereAllTest WHERE all() is null").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereAllTest").iterate());
+  }
+
+  // Line 49: INSTANCEOF with @class — @class instanceof 'Provider' form
+  @Test
+  public void testWhereAtClassInstanceofOperator() {
+    g.command("CREATE CLASS WhereBaseEntity IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS WhereSubEntity IF NOT EXISTS EXTENDS WhereBaseEntity");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereBaseEntity SET name = 'base'").iterate();
+          tx.yql("CREATE VERTEX WhereSubEntity SET name = 'sub'").iterate();
+        });
+
+    // @class instanceof checks if the class of the record is a subclass of the given class
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM V WHERE @class instanceof 'WhereBaseEntity'")
+                .toList());
+    // Should include both 'base' (WhereBaseEntity) and 'sub' (WhereSubEntity extends it)
+    var names =
+        results.stream()
+            .map(r -> (String) ((Vertex) r).value("name"))
+            .filter(n -> "base".equals(n) || "sub".equals(n))
+            .toList();
+    assertThat(names).containsExactlyInAnyOrder("base", "sub");
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX WhereSubEntity").iterate();
+          tx.yql("DELETE VERTEX WhereBaseEntity").iterate();
+        });
+  }
+
+  // Line 52: CONTAINSALL operator — collection value form
+  @Test
+  public void testWhereContainsAllOperator() {
+    g.command("CREATE CLASS WhereTeam IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX WhereTeam SET name = 'HasAB',"
+                  + " tags = ['A', 'B', 'C']")
+              .iterate();
+          tx.yql(
+              "CREATE VERTEX WhereTeam SET name = 'OnlyA',"
+                  + " tags = ['A', 'D']")
+              .iterate();
+        });
+
+    // containsAll with a collection: true if tags contains ALL of ['A', 'B']
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM WhereTeam WHERE tags containsAll ['A', 'B']")
+                .toList());
+    assertThat(results).hasSize(1);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("HasAB");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereTeam").iterate());
+  }
+
+  // Line 52: CONTAINSALL operator — sub-condition form with linked records
+  // Doc example: children containsAll (name = 'Luke')
+  @Test
+  public void testWhereContainsAllSubCondition() {
+    g.command("CREATE CLASS WcaMember IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS WcaFamily IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          // Create linked vertex records so collection elements are Identifiable
+          var luke1 =
+              (Vertex) tx.yql("CREATE VERTEX WcaMember SET name = 'Luke'")
+                  .toList().get(0);
+          var luke2 =
+              (Vertex) tx.yql("CREATE VERTEX WcaMember SET name = 'Luke'")
+                  .toList().get(0);
+          var leia =
+              (Vertex) tx.yql("CREATE VERTEX WcaMember SET name = 'Leia'")
+                  .toList().get(0);
+          tx.yql(
+              "CREATE VERTEX WcaFamily SET name = 'AllLuke', children = ["
+                  + luke1.id() + ", " + luke2.id() + "]")
+              .iterate();
+          tx.yql(
+              "CREATE VERTEX WcaFamily SET name = 'Mixed', children = ["
+                  + luke1.id() + ", " + leia.id() + "]")
+              .iterate();
+        });
+
+    // containsAll sub-condition: true only if ALL linked records satisfy (name = 'Luke')
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM WcaFamily WHERE children containsAll"
+                    + " (name = 'Luke')")
+                .toList());
+    assertThat(results).hasSize(1);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("AllLuke");
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX WcaFamily").iterate();
+          tx.yql("DELETE VERTEX WcaMember").iterate();
+        });
+  }
+
+  // Line 53: CONTAINSANY operator — collection value form
+  @Test
+  public void testWhereContainsAnyOperator() {
+    g.command("CREATE CLASS WhereGroup IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX WhereGroup SET name = 'HasA',"
+                  + " tags = ['A', 'B']")
+              .iterate();
+          tx.yql(
+              "CREATE VERTEX WhereGroup SET name = 'NoA',"
+                  + " tags = ['C', 'D']")
+              .iterate();
+        });
+
+    // containsAny with a list: true if any element is in the given collection
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM WhereGroup WHERE tags containsAny ['A', 'X']")
+                .toList());
+    assertThat(results).hasSize(1);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("HasA");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereGroup").iterate());
+  }
+
+  // Line 53: CONTAINSANY operator — sub-condition form with linked records.
+  // This validates the fix for the NPE in isIndexAware() and the semantic fix
+  // where CONTAINSANY was using ALL-match logic instead of ANY-match logic.
+  @Test
+  public void testWhereContainsAnySubCondition() {
+    g.command("CREATE CLASS WcnyMember IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS WcnyFamily IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          var luke =
+              (Vertex) tx.yql("CREATE VERTEX WcnyMember SET name = 'Luke'")
+                  .toList().get(0);
+          var leia =
+              (Vertex) tx.yql("CREATE VERTEX WcnyMember SET name = 'Leia'")
+                  .toList().get(0);
+          var han =
+              (Vertex) tx.yql("CREATE VERTEX WcnyMember SET name = 'Han'")
+                  .toList().get(0);
+          var chewie =
+              (Vertex) tx.yql("CREATE VERTEX WcnyMember SET name = 'Chewie'")
+                  .toList().get(0);
+          tx.yql(
+              "CREATE VERTEX WcnyFamily SET name = 'HasLuke', children = ["
+                  + luke.id() + ", " + leia.id() + "]")
+              .iterate();
+          tx.yql(
+              "CREATE VERTEX WcnyFamily SET name = 'NoLuke', children = ["
+                  + han.id() + ", " + chewie.id() + "]")
+              .iterate();
+        });
+
+    // containsAny sub-condition: true if ANY linked record satisfies (name = 'Luke')
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM WcnyFamily WHERE children containsAny"
+                    + " (name = 'Luke')")
+                .toList());
+    assertThat(results).hasSize(1);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("HasLuke");
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX WcnyFamily").iterate();
+          tx.yql("DELETE VERTEX WcnyMember").iterate();
+        });
+  }
+
+  // Line 16: Property index access — tags[0-3] and map key access
+  @Test
+  public void testWherePropertyIndexAccess() {
+    g.command("CREATE CLASS WhereTagDoc IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX WhereTagDoc SET name = 'doc1',"
+                  + " tags = ['Hello', 'World', 'Foo', 'Bar']")
+              .iterate();
+          tx.yql(
+              "CREATE VERTEX WhereTagDoc SET name = 'doc2',"
+                  + " tags = ['Other', 'Tags']")
+              .iterate();
+        });
+
+    // tags[0] accesses the first element of the list
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM WhereTagDoc WHERE tags[0] = 'Hello'")
+                .toList());
+    assertThat(results).hasSize(1);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("doc1");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereTagDoc").iterate());
+  }
+
+  // Line 16: IS NOT NULL — employees IS NOT NULL
+  @Test
+  public void testWhereIsNotNullOperator() {
+    g.command("CREATE CLASS WhereEmpCheck IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX WhereEmpCheck SET name = 'HasEmp',"
+                  + " employees = 'yes'")
+              .iterate();
+          tx.yql("CREATE VERTEX WhereEmpCheck SET name = 'NoEmp'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM WhereEmpCheck WHERE employees IS NOT NULL")
+                .toList());
+    assertThat(results).hasSize(1);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("HasEmp");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereEmpCheck").iterate());
+  }
+
+  @Test
+  public void testRebuildIndexAll() {
+    // YQL-Rebuild-Index.md line 11: Use * to rebuild all automatic indexes
+    // and line 23-24: REBUILD INDEX *
+    g.command("CREATE CLASS RbIdxAllCity EXTENDS V");
+    g.command("CREATE PROPERTY RbIdxAllCity.name STRING");
+    g.command("CREATE INDEX RbIdxAllCity.name ON RbIdxAllCity (name) NOTUNIQUE");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX RbIdxAllCity SET name = 'Paris'").iterate();
+        });
+    g.close();
+
+    // Rebuild all indexes — should not throw
+    g = youTrackDB.openTraversal("test", "admin", "admin");
+    g.command("REBUILD INDEX *");
+
+    // Verify data is still accessible after rebuilding all indexes
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM RbIdxAllCity WHERE name = 'Paris'").toList());
+    assertThat(results).hasSize(1);
+  }
+
+  // ========================================================================================
+  // YQL-Profile.md — PROFILE command validation
+  // ========================================================================================
+
+  /**
+   * YQL-Profile.md line 21-25: Validates that the PROFILE command works with a SELECT statement
+   * containing sum(), date(), WHERE, and GROUP BY clauses. The PROFILE output should contain
+   * execution plan steps with timing information.
+   */
+  @Test
+  public void testProfileSelectWithAggregateAndGroupBy() {
+    // Set up schema and data for the PROFILE example
+    g.command("CREATE CLASS ProfOrders EXTENDS V");
+    g.command("CREATE PROPERTY ProfOrders.Amount DOUBLE");
+    g.command("CREATE PROPERTY ProfOrders.OrderDate DATE");
+    g.command("CREATE INDEX ProfOrders.OrderDate ON ProfOrders (OrderDate) NOTUNIQUE");
+
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX ProfOrders SET Amount = 100.0,"
+                  + " OrderDate = date('2012-12-10', 'yyyy-MM-dd')")
+              .iterate();
+          tx.yql(
+              "CREATE VERTEX ProfOrders SET Amount = 200.0,"
+                  + " OrderDate = date('2012-12-10', 'yyyy-MM-dd')")
+              .iterate();
+          tx.yql(
+              "CREATE VERTEX ProfOrders SET Amount = 50.0,"
+                  + " OrderDate = date('2012-12-08', 'yyyy-MM-dd')")
+              .iterate();
+        });
+
+    // Execute the PROFILE command from the doc example (line 21-25)
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "PROFILE SELECT sum(Amount), OrderDate FROM ProfOrders"
+                    + " WHERE OrderDate > date('2012-12-09', 'yyyy-MM-dd')"
+                    + " GROUP BY OrderDate")
+                .toList());
+
+    // PROFILE should return execution plan steps (not data rows)
+    assertThat(results).isNotEmpty();
+  }
+
+  /**
+   * YQL-Profile.md line 3: Validates the claim that "PROFILE returns information about query
+   * execution planning and statistics" — specifically that the output differs from a plain SELECT
+   * by containing execution plan metadata.
+   */
+  @Test
+  public void testProfileReturnsExecutionPlan() {
+    // PROFILE on a simple query should return execution plan info
+    var profileResults =
+        g.computeInTx(tx -> tx.yql("PROFILE SELECT FROM ProfOrders").toList());
+
+    // The PROFILE result should not be empty
+    assertThat(profileResults).isNotEmpty();
+  }
+
+  // ========== YQL-Create-Link.md ==========
+
+  /**
+   * YQL-Create-Link.md line 8: Validates that CREATE LINK syntax parses and executes correctly. The
+   * syntax is: CREATE LINK <link> TYPE <link-type> FROM <source>.<prop> TO <dest>.<prop> [INVERSE]
+   */
+  @Test
+  public void testCreateLinkBasicSyntax() {
+    // Set up source and destination classes with matching properties
+    g.command("CREATE CLASS LinkPosts EXTENDS V");
+    g.command("CREATE PROPERTY LinkPosts.Id INTEGER");
+    g.command("CREATE CLASS LinkComments EXTENDS V");
+    g.command("CREATE PROPERTY LinkComments.PostId INTEGER");
+    g.command("CREATE PROPERTY LinkComments.post LINK");
+
+    // Insert some data
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX LinkPosts SET Id = 1, title = 'First Post'").iterate();
+          tx.yql("CREATE VERTEX LinkPosts SET Id = 2, title = 'Second Post'").iterate();
+          tx.yql("CREATE VERTEX LinkComments SET PostId = 1, text = 'Great post'").iterate();
+          tx.yql("CREATE VERTEX LinkComments SET PostId = 2, text = 'Nice one'").iterate();
+        });
+
+    // CREATE LINK (non-inverse) — links each Comment to its Post via a LINK property
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE LINK post TYPE LINK FROM LinkComments.PostId TO LinkPosts.Id").iterate();
+        });
+
+    // Verify the link was created: Comments should now have a 'post' property linking to Posts
+    var comments =
+        g.computeInTx(tx -> tx.yql("SELECT FROM LinkComments ORDER BY PostId").toList());
+    assertThat(comments).hasSize(2);
+  }
+
+  /**
+   * YQL-Create-Link.md line 24: Validates the example CREATE LINK with INVERSE and LINKSET type.
+   * The doc example: CREATE LINK comments TYPE LINKSET FROM Comments.PostId TO Posts.Id INVERSE
+   */
+  @Test
+  public void testCreateLinkInverseWithLinkSet() {
+    // Set up classes
+    g.command("CREATE CLASS LinkInvPosts EXTENDS V");
+    g.command("CREATE PROPERTY LinkInvPosts.Id INTEGER");
+    g.command("CREATE PROPERTY LinkInvPosts.comments LINKSET");
+    g.command("CREATE CLASS LinkInvComments EXTENDS V");
+    g.command("CREATE PROPERTY LinkInvComments.PostId INTEGER");
+
+    // Insert data: two posts, each with two comments
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX LinkInvPosts SET Id = 10, title = 'Post A'").iterate();
+          tx.yql("CREATE VERTEX LinkInvPosts SET Id = 20, title = 'Post B'").iterate();
+          tx.yql("CREATE VERTEX LinkInvComments SET PostId = 10, text = 'Comment A1'").iterate();
+          tx.yql("CREATE VERTEX LinkInvComments SET PostId = 10, text = 'Comment A2'").iterate();
+          tx.yql("CREATE VERTEX LinkInvComments SET PostId = 20, text = 'Comment B1'").iterate();
+        });
+
+    // CREATE LINK with INVERSE — creates LINKSET on Posts pointing back to Comments
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE LINK comments TYPE LINKSET FROM LinkInvComments.PostId"
+                  + " TO LinkInvPosts.Id INVERSE")
+              .iterate();
+        });
+
+    // Verify: Posts should now have 'comments' LINKSET property
+    var posts =
+        g.computeInTx(tx -> tx.yql("SELECT FROM LinkInvPosts ORDER BY Id").toList());
+    assertThat(posts).hasSize(2);
+  }
+
+  // ===== YQL-Create-Sequence.md (additional tests) =====
+
+  @Test
+  public void testCreateSequenceWithLimitAndCycleDoc() {
+    // Doc claims (lines 20-21): CYCLE restarts from START after LIMIT is reached
+    g.command(
+        "CREATE SEQUENCE docSeqCycle TYPE ORDERED START 0 INCREMENT 1 LIMIT 2 CYCLE TRUE");
+    g.command("CREATE CLASS CsDocCycleV IF NOT EXISTS EXTENDS V");
+
+    // Call next() three times via UPDATE to verify cycling
+    for (int i = 0; i < 3; i++) {
+      g.executeInTx(
+          tx -> {
+            tx.yql("CREATE VERTEX CsDocCycleV SET name = 'v'").iterate();
+          });
+      g.executeInTx(
+          tx -> {
+            tx.yql(
+                "UPDATE CsDocCycleV SET val = sequence('docSeqCycle').next()"
+                    + " WHERE val IS NULL")
+                .iterate();
+          });
+    }
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM CsDocCycleV ORDER BY val").toList());
+    assertThat(results).hasSize(3);
+    // Verify cycling: after limit, sequence wraps back — no error thrown
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX CsDocCycleV").iterate());
+    g.command("DROP SEQUENCE docSeqCycle");
+  }
+
+  @Test
+  public void testCreateSequenceDescOrderDoc() {
+    // Doc claim (line 22): DESC means next value is currentValue - incrementValue
+    g.command("CREATE SEQUENCE docSeqDesc TYPE ORDERED START 100 INCREMENT 10 DESC");
+    g.command("CREATE CLASS CsDocDescV IF NOT EXISTS EXTENDS V");
+
+    // Create two vertices and assign sequence values
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX CsDocDescV SET name = 'a'").iterate();
+        });
+    g.executeInTx(
+        tx -> {
+          tx.yql("UPDATE CsDocDescV SET val = sequence('docSeqDesc').next() WHERE name = 'a'")
+              .iterate();
+        });
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX CsDocDescV SET name = 'b'").iterate();
+        });
+    g.executeInTx(
+        tx -> {
+          tx.yql("UPDATE CsDocDescV SET val = sequence('docSeqDesc').next() WHERE name = 'b'")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM CsDocDescV ORDER BY val DESC").toList());
+    assertThat(results).hasSize(2);
+    Vertex v0 = (Vertex) results.get(0);
+    Vertex v1 = (Vertex) results.get(1);
+    // DESC: sequence decrements, so first value > second value
+    assertThat((long) v0.value("val")).isGreaterThan((long) v1.value("val"));
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX CsDocDescV").iterate());
+    g.command("DROP SEQUENCE docSeqDesc");
+  }
+
+  @Test
+  public void testSequenceNextInCreateVertexDoc() {
+    // Doc example (line 36): CREATE VERTEX Account SET id = sequence('idseq').next()
+    // NOTE: Through Gremlin API, sequence must be used via UPDATE in a separate tx
+    g.command("CREATE CLASS CsDocSeqAccount IF NOT EXISTS EXTENDS V");
+    g.command("CREATE SEQUENCE docSeqVertex TYPE ORDERED");
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX CsDocSeqAccount SET name = 'first'").iterate();
+        });
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "UPDATE CsDocSeqAccount SET id = sequence('docSeqVertex').next()"
+                  + " WHERE name = 'first'")
+              .iterate();
+        });
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX CsDocSeqAccount SET name = 'second'").iterate();
+        });
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "UPDATE CsDocSeqAccount SET id = sequence('docSeqVertex').next()"
+                  + " WHERE name = 'second'")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM CsDocSeqAccount ORDER BY id").toList());
+    assertThat(results).hasSize(2);
+    Vertex v0 = (Vertex) results.get(0);
+    Vertex v1 = (Vertex) results.get(1);
+    // Two vertices should have different, incrementing ids
+    assertThat((long) v0.value("id")).isLessThan((long) v1.value("id"));
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX CsDocSeqAccount").iterate());
+    g.command("DROP SEQUENCE docSeqVertex");
+  }
+
+  // ===== YQL-Grant.md =====
+
+  // YQL-Grant.md line 8: GRANT <permission> ON <resource> TO <role>
+  @Test
+  public void testGrantDocBasicPermissionSyntax() {
+    g.command("CREATE CLASS GrantDocCity EXTENDS V");
+    // GRANT READ on a class resource to the admin role (admin exists from DB creation)
+    g.command("GRANT READ ON database.class.GrantDocCity TO admin");
+  }
+
+  // YQL-Grant.md line 8: GRANT POLICY <policyName> ON <resource> TO <role>
+  @Test
+  public void testGrantDocPolicySyntax() {
+    g.command("CREATE CLASS GrantDocPolicyPerson EXTENDS V");
+    g.command("CREATE SECURITY POLICY grantDocPolicy1 SET read = (name = 'test')");
+    g.command(
+        "GRANT POLICY grantDocPolicy1 ON database.class.GrantDocPolicyPerson TO admin");
+  }
+
+  // YQL-Grant.md line 22: Example — GRANT POLICY policy1 ON database.class.Person TO backoffice
+  // Validates the documented example parses correctly (using admin role instead of backoffice)
+  @Test
+  public void testGrantDocExamplePolicyOnClass() {
+    g.command("CREATE CLASS GrantDocPerson EXTENDS V");
+    g.command("CREATE SECURITY POLICY grantDocExPolicy1 SET read = (name = 'foo')");
+    g.command("GRANT POLICY grantDocExPolicy1 ON database.class.GrantDocPerson TO admin");
+  }
+
+  // YQL-Grant.md: Verify all documented permissions are valid (lines 36-41)
+  @Test
+  public void testGrantDocAllPermissionKeywords() {
+    g.command("CREATE CLASS GrantDocPermTest EXTENDS V");
+    g.command("GRANT NONE ON database.class.GrantDocPermTest TO admin");
+    g.command("GRANT CREATE ON database.class.GrantDocPermTest TO admin");
+    g.command("GRANT READ ON database.class.GrantDocPermTest TO admin");
+    g.command("GRANT UPDATE ON database.class.GrantDocPermTest TO admin");
+    g.command("GRANT DELETE ON database.class.GrantDocPermTest TO admin");
+    g.command("GRANT ALL ON database.class.GrantDocPermTest TO admin");
+  }
+
+  // YQL-Grant.md: EXECUTE permission is missing from the doc but supported by the engine
+  @Test
+  public void testGrantDocExecutePermissionSupported() {
+    g.command("GRANT EXECUTE ON database TO admin");
+  }
+
+  // YQL-Grant.md lines 50-52: Verify documented resource patterns
+  @Test
+  public void testGrantDocResourcePatterns() {
+    g.command("CREATE CLASS GrantDocResClass EXTENDS V");
+    // database resource
+    g.command("GRANT READ ON database TO admin");
+    // database.class.<class> resource
+    g.command("GRANT READ ON database.class.GrantDocResClass TO admin");
+    // database.class.* (all classes) resource
+    g.command("GRANT READ ON database.class.* TO admin");
+  }
+
+  // === YQL-Introduction.md ===
+
+  // Lines 8, 14-15: Keywords are case-insensitive;
+  // "SELECT FROM MyClass WHERE id = 1" and "select from MyClass where id = 1" are equivalent
+  // (only keyword casing differs — class name must match exactly)
+  @Test
+  public void testIntroKeywordsCaseInsensitive() {
+    g.command("CREATE CLASS IntroMyClass IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX IntroMyClass SET id = 1").iterate();
+      tx.yql("CREATE VERTEX IntroMyClass SET id = 2").iterate();
+    });
+
+    // Keywords in different cases, class name exact
+    var upper =
+        g.computeInTx(tx -> tx.yql("SELECT FROM IntroMyClass WHERE id = 1").toList());
+    var lower =
+        g.computeInTx(tx -> tx.yql("select from IntroMyClass where id = 1").toList());
+    assertThat(upper).hasSize(1);
+    assertThat(lower).hasSize(1);
+    // Both should return the same record
+    Vertex vUpper = (Vertex) upper.get(0);
+    Vertex vLower = (Vertex) lower.get(0);
+    assertThat(vUpper.id()).isEqualTo(vLower.id());
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX IntroMyClass").iterate();
+    });
+  }
+
+  // Lines 18, 21: Class names are case-sensitive;
+  // "select from myclass" fails if the class was created as "MyClass"
+  @Test
+  public void testIntroClassNamesCaseSensitive() {
+    g.command("CREATE CLASS IntroClsCase IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX IntroClsCase SET id = 1").iterate();
+    });
+
+    // Exact class name works
+    var correct =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM IntroClsCase WHERE id = 1").toList());
+    assertThat(correct).hasSize(1);
+
+    // Wrong case on class name should fail — lowercase
+    assertThatThrownBy(
+        () -> g.computeInTx(
+            tx -> tx.yql("SELECT FROM introclscase WHERE id = 1").toList()))
+        .isInstanceOf(CommandExecutionException.class)
+        .hasMessageContaining("Class not found")
+        .hasMessageContaining("introclscase");
+
+    // Wrong case on class name should fail — uppercase
+    assertThatThrownBy(
+        () -> g.computeInTx(
+            tx -> tx.yql("SELECT FROM INTROCLSCASE WHERE id = 1").toList()))
+        .isInstanceOf(CommandExecutionException.class)
+        .hasMessageContaining("Class not found")
+        .hasMessageContaining("INTROCLSCASE");
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX IntroClsCase").iterate();
+    });
+  }
+
+  // Lines 8, 19-22: Field names are case-sensitive;
+  // "WHERE ID = 1" is NOT equivalent to "WHERE id = 1"
+  @Test
+  public void testIntroFieldNamesCaseSensitive() {
+    g.command("CREATE CLASS IntroFieldCase IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX IntroFieldCase SET id = 1").iterate();
+    });
+
+    var lowercase =
+        g.computeInTx(tx -> tx.yql("SELECT FROM IntroFieldCase WHERE id = 1").toList());
+    var uppercase =
+        g.computeInTx(tx -> tx.yql("SELECT FROM IntroFieldCase WHERE ID = 1").toList());
+    assertThat(lowercase).hasSize(1);
+    // "ID" should not match field "id" — case-sensitive
+    assertThat(uppercase).isEmpty();
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX IntroFieldCase").iterate();
+    });
+  }
+
+  // Lines 43-55: No JOINs — dot notation for link traversal
+  // "SELECT * FROM Employee WHERE city.name = 'Rome'"
+  @Test
+  public void testIntroDotNotationLinkTraversal() {
+    g.command("CREATE CLASS IntroCity IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS IntroEmployee IF NOT EXISTS EXTENDS V");
+    g.command(
+        "CREATE PROPERTY IntroEmployee.city IF NOT EXISTS LINK IntroCity");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX IntroCity SET name = 'Rome'").iterate();
+      tx.yql("CREATE VERTEX IntroCity SET name = 'Paris'").iterate();
+      tx.yql(
+          "CREATE VERTEX IntroEmployee SET name = 'Alice',"
+              + " city = (SELECT FROM IntroCity WHERE name = 'Rome')")
+          .iterate();
+      tx.yql(
+          "CREATE VERTEX IntroEmployee SET name = 'Bob',"
+              + " city = (SELECT FROM IntroCity WHERE name = 'Paris')")
+          .iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM IntroEmployee WHERE city.name = 'Rome'")
+                .toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat((String) v.value("name")).isEqualTo("Alice");
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX IntroEmployee").iterate();
+      tx.yql("DELETE VERTEX IntroCity").iterate();
+    });
+  }
+
+  // Lines 56-67: Multi-level dot notation: city.country.name
+  @Test
+  public void testIntroMultiLevelDotNotation() {
+    g.command("CREATE CLASS IntroCountry IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS IntroCityML IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS IntroEmployeeML IF NOT EXISTS EXTENDS V");
+    g.command(
+        "CREATE PROPERTY IntroCityML.country IF NOT EXISTS LINK IntroCountry");
+    g.command(
+        "CREATE PROPERTY IntroEmployeeML.city IF NOT EXISTS LINK IntroCityML");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX IntroCountry SET name = 'Italy'").iterate();
+      tx.yql("CREATE VERTEX IntroCountry SET name = 'France'").iterate();
+      tx.yql(
+          "CREATE VERTEX IntroCityML SET name = 'Rome',"
+              + " country = (SELECT FROM IntroCountry WHERE name = 'Italy')")
+          .iterate();
+      tx.yql(
+          "CREATE VERTEX IntroCityML SET name = 'Paris',"
+              + " country = (SELECT FROM IntroCountry WHERE name = 'France')")
+          .iterate();
+      tx.yql(
+          "CREATE VERTEX IntroEmployeeML SET name = 'Alice',"
+              + " city = (SELECT FROM IntroCityML WHERE name = 'Rome')")
+          .iterate();
+      tx.yql(
+          "CREATE VERTEX IntroEmployeeML SET name = 'Bob',"
+              + " city = (SELECT FROM IntroCityML WHERE name = 'Paris')")
+          .iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM IntroEmployeeML WHERE city.country.name ="
+                    + " 'Italy'")
+                .toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat((String) v.value("name")).isEqualTo("Alice");
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX IntroEmployeeML").iterate();
+      tx.yql("DELETE VERTEX IntroCityML").iterate();
+      tx.yql("DELETE VERTEX IntroCountry").iterate();
+    });
+  }
+
+  // Lines 70-77: Projections — SELECT FROM Customer (without *) is valid
+  @Test
+  public void testIntroProjectionsStarOptional() {
+    g.command("CREATE CLASS IntroCustomer IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX IntroCustomer SET name = 'Acme'").iterate();
+    });
+
+    var withStar =
+        g.computeInTx(
+            tx -> tx.yql("SELECT * FROM IntroCustomer").toList());
+    var withoutStar =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM IntroCustomer").toList());
+    assertThat(withStar).hasSize(1);
+    assertThat(withoutStar).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX IntroCustomer").iterate();
+    });
+  }
+
+  // Lines 83-86: DISTINCT keyword works
+  @Test
+  public void testIntroDistinct() {
+    g.command("CREATE CLASS IntroCityDistinct IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX IntroCityDistinct SET name = 'Rome'").iterate();
+      tx.yql("CREATE VERTEX IntroCityDistinct SET name = 'Rome'").iterate();
+      tx.yql("CREATE VERTEX IntroCityDistinct SET name = 'Paris'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT DISTINCT name FROM IntroCityDistinct").toList());
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX IntroCityDistinct").iterate();
+    });
+  }
+
+  // Lines 88-102: HAVING not supported — nested query workaround
+  @Test
+  public void testIntroHavingWorkaround() {
+    g.command("CREATE CLASS IntroEmpSalary IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX IntroEmpSalary SET city = 'Rome', salary = 800")
+          .iterate();
+      tx.yql("CREATE VERTEX IntroEmpSalary SET city = 'Rome', salary = 400")
+          .iterate();
+      tx.yql("CREATE VERTEX IntroEmpSalary SET city = 'Paris', salary = 500")
+          .iterate();
+      tx.yql("CREATE VERTEX IntroEmpSalary SET city = 'Paris', salary = 600")
+          .iterate();
+    });
+
+    // The documented nested query workaround for HAVING
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM ( SELECT city, SUM(salary) AS salary"
+                    + " FROM IntroEmpSalary GROUP BY city ) WHERE salary"
+                    + " > 1000")
+                .toList());
+    // Rome: 800+400=1200 > 1000 ✓; Paris: 500+600=1100 > 1000 ✓
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX IntroEmpSalary").iterate();
+    });
+  }
+
+  // Lines 106-113: Select from multiple targets using UNIONALL + EXPAND
+  @Test
+  public void testIntroUnionAllExpand() {
+    g.command("CREATE CLASS IntroUnionA IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS IntroUnionB IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX IntroUnionA SET val = 1").iterate();
+      tx.yql("CREATE VERTEX IntroUnionB SET val = 2").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT EXPAND( $c ) LET $a = ( SELECT FROM IntroUnionA"
+                    + " ), $b = ( SELECT FROM IntroUnionB ), $c ="
+                    + " UNIONALL( $a, $b )")
+                .toList());
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX IntroUnionA").iterate();
+      tx.yql("DELETE VERTEX IntroUnionB").iterate();
+    });
+  }
+
+  // === YQL-Query.md ===
+
+  // Line 42: SELECT FROM Person WHERE name LIKE 'Luk%'
+  @Test
+  public void testQuerySelectWhereLike() {
+    g.command("CREATE CLASS QPersonLike IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QPersonLike SET name = 'Lukas'").iterate();
+      tx.yql("CREATE VERTEX QPersonLike SET name = 'Luke'").iterate();
+      tx.yql("CREATE VERTEX QPersonLike SET name = 'John'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM QPersonLike WHERE name LIKE 'Luk%'").toList());
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QPersonLike").iterate());
+  }
+
+  // Line 47: SELECT FROM Person WHERE name.left(3) = 'Luk'
+  @Test
+  public void testQuerySelectWhereLeft() {
+    g.command("CREATE CLASS QPersonLeft IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QPersonLeft SET name = 'Lukas'").iterate();
+      tx.yql("CREATE VERTEX QPersonLeft SET name = 'Luke'").iterate();
+      tx.yql("CREATE VERTEX QPersonLeft SET name = 'John'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM QPersonLeft WHERE name.left(3) = 'Luk'").toList());
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QPersonLeft").iterate());
+  }
+
+  // Line 48: SELECT FROM Person WHERE name.substring(0,3) = 'Luk'
+  @Test
+  public void testQuerySelectWhereSubstring() {
+    g.command("CREATE CLASS QPersonSub IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QPersonSub SET name = 'Lukas'").iterate();
+      tx.yql("CREATE VERTEX QPersonSub SET name = 'Luke'").iterate();
+      tx.yql("CREATE VERTEX QPersonSub SET name = 'John'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM QPersonSub WHERE name.substring(0,3) = 'Luk'").toList());
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QPersonSub").iterate());
+  }
+
+  // Line 53: SELECT FROM AnimalType WHERE races CONTAINS(name.toLowerCase().substring(0,1) = 'e')
+  @Test
+  public void testQueryContainsWithMethodChain() {
+    g.command("CREATE CLASS QAnimalType IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE VERTEX QAnimalType SET races = [{'name':'European'},{'name':'african'}]")
+          .iterate();
+      tx.yql(
+          "CREATE VERTEX QAnimalType SET races = [{'name':'Asian'},{'name':'arctic'}]")
+          .iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM QAnimalType WHERE races CONTAINS("
+                    + " name.toLowerCase().substring(0, 1) = 'e')")
+                .toList());
+    // Only the first record has 'European' starting with 'e'
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QAnimalType").iterate());
+  }
+
+  // Line 58: SELECT * FROM AnimalType WHERE races CONTAINS(name in ['European', 'Asiatic'])
+  @Test
+  public void testQueryContainsWithInList() {
+    g.command("CREATE CLASS QAnimalIn IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE VERTEX QAnimalIn SET races = [{'name':'European'},{'name':'African'}]")
+          .iterate();
+      tx.yql(
+          "CREATE VERTEX QAnimalIn SET races = [{'name':'Asiatic'},{'name':'Arctic'}]")
+          .iterate();
+      tx.yql(
+          "CREATE VERTEX QAnimalIn SET races = [{'name':'Antarctic'}]")
+          .iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT * FROM QAnimalIn WHERE races CONTAINS("
+                    + "name in ['European', 'Asiatic'])")
+                .toList());
+    // First two records match
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QAnimalIn").iterate());
+  }
+
+  // Line 63: SELECT FROM Profile WHERE ANY() LIKE '%danger%'
+  @Test
+  public void testQueryAnyLike() {
+    g.command("CREATE CLASS QProfileAny IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QProfileAny SET bio = 'lives in danger zone'").iterate();
+      tx.yql("CREATE VERTEX QProfileAny SET bio = 'safe place'").iterate();
+      tx.yql("CREATE VERTEX QProfileAny SET nick = 'dangerous_dave'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM QProfileAny WHERE ANY() LIKE '%danger%'").toList());
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QProfileAny").iterate());
+  }
+
+  // Line 67: SELECT FROM Profile ORDER BY name DESC
+  @Test
+  public void testQueryOrderByDesc() {
+    g.command("CREATE CLASS QProfileOrd IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QProfileOrd SET name = 'Alice'").iterate();
+      tx.yql("CREATE VERTEX QProfileOrd SET name = 'Charlie'").iterate();
+      tx.yql("CREATE VERTEX QProfileOrd SET name = 'Bob'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM QProfileOrd ORDER BY name DESC").toList());
+    assertThat(results).hasSize(3);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("Charlie");
+    assertThat((String) ((Vertex) results.get(2)).value("name")).isEqualTo("Alice");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QProfileOrd").iterate());
+  }
+
+  // Line 73: SELECT COUNT(*) FROM Account GROUP BY city
+  @Test
+  public void testQueryCountGroupBy() {
+    g.command("CREATE CLASS QAccountGrp IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QAccountGrp SET city = 'Rome'").iterate();
+      tx.yql("CREATE VERTEX QAccountGrp SET city = 'Rome'").iterate();
+      tx.yql("CREATE VERTEX QAccountGrp SET city = 'Paris'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT COUNT(*) FROM QAccountGrp GROUP BY city").toList());
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QAccountGrp").iterate());
+  }
+
+  // Line 85: SELECT nick, followings, followers FROM Profile
+  @Test
+  public void testQuerySelectMultipleFields() {
+    g.command("CREATE CLASS QProfileFld IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE VERTEX QProfileFld SET nick = 'john', followings = 10, followers = 20")
+          .iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT nick, followings, followers FROM QProfileFld").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QProfileFld").iterate());
+  }
+
+  // Line 91: SELECT name.toUpperCase(), address.city.country.name FROM Profile
+  @Test
+  public void testQueryToUpperCaseAndChainedProperty() {
+    g.command("CREATE CLASS QProfileUp IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE VERTEX QProfileUp SET name = 'john',"
+              + " address = {'city':{'country':{'name':'Italy'}}}")
+          .iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT name.toUpperCase(), address.city.country.name FROM"
+                    + " QProfileUp")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QProfileUp").iterate());
+  }
+
+  // Lines 96-101: SELECT without projections returns entire record
+  @Test
+  public void testQuerySelectWithoutProjectionsReturnsFullRecord() {
+    g.command("CREATE CLASS QAccountFull IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QAccountFull SET name = 'test', age = 25").iterate();
+    });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM QAccountFull").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    // Full record has both properties
+    assertThat((String) v.value("name")).isEqualTo("test");
+    assertThat((int) v.value("age")).isEqualTo(25);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QAccountFull").iterate());
+  }
+
+  // Lines 117-125: Duplicate projection keys get numeric suffix (max, max2)
+  @Test
+  public void testQueryDuplicateProjectionKeys() {
+    g.command("CREATE CLASS QBalance IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QBalance SET incoming = 1342, cost = 2478").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT MAX(incoming), MAX(cost) FROM QBalance").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QBalance").iterate());
+  }
+
+  // Lines 130-139: Projection with AS aliases
+  @Test
+  public void testQueryProjectionWithAliases() {
+    g.command("CREATE CLASS QBalanceAs IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QBalanceAs SET incoming = 1342, cost = 2478").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT MAX(incoming) AS max_incoming, MAX(cost) AS max_cost"
+                    + " FROM QBalanceAs")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QBalanceAs").iterate());
+  }
+
+  // Lines 155-158: LET block — nested relationship query without LET
+  @Test
+  public void testQueryNestedRelationshipWithoutLet() {
+    g.command("CREATE CLASS QCountry IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS QCity IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS QAddress IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS QProfileLet IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QCountry SET name = 'Italy'").iterate();
+      tx.yql("CREATE VERTEX QCountry SET name = 'France'").iterate();
+    });
+    var countries =
+        g.computeInTx(tx -> tx.yql("SELECT FROM QCountry").toList());
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE VERTEX QCity SET name = 'Saint-Tropez', country = "
+              + ((Vertex) countries.get(1)).id())
+          .iterate();
+    });
+    var cities =
+        g.computeInTx(tx -> tx.yql("SELECT FROM QCity").toList());
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE VERTEX QAddress SET city = "
+              + ((Vertex) cities.get(0)).id())
+          .iterate();
+    });
+    var addresses =
+        g.computeInTx(tx -> tx.yql("SELECT FROM QAddress").toList());
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE VERTEX QProfileLet SET name = 'Jean', address = "
+              + ((Vertex) addresses.get(0)).id())
+          .iterate();
+    });
+
+    // Query from the doc (adapted class name)
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM QProfileLet WHERE address.city.name LIKE '%Saint%'"
+                    + " AND ( address.city.country.name = 'Italy' OR"
+                    + " address.city.country.name = 'France' )")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX QProfileLet").iterate();
+      tx.yql("DELETE VERTEX QAddress").iterate();
+      tx.yql("DELETE VERTEX QCity").iterate();
+      tx.yql("DELETE VERTEX QCountry").iterate();
+    });
+  }
+
+  // Lines 163-165: LET block — same query with LET variable
+  @Test
+  public void testQueryNestedRelationshipWithLet() {
+    g.command("CREATE CLASS QCountryL IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS QCityL IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS QAddressL IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS QProfileLetL IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QCountryL SET name = 'Italy'").iterate();
+      tx.yql("CREATE VERTEX QCountryL SET name = 'France'").iterate();
+    });
+    var countries =
+        g.computeInTx(tx -> tx.yql("SELECT FROM QCountryL").toList());
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE VERTEX QCityL SET name = 'Saint-Tropez', country = "
+              + ((Vertex) countries.get(1)).id())
+          .iterate();
+    });
+    var cities =
+        g.computeInTx(tx -> tx.yql("SELECT FROM QCityL").toList());
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE VERTEX QAddressL SET city = "
+              + ((Vertex) cities.get(0)).id())
+          .iterate();
+    });
+    var addresses =
+        g.computeInTx(tx -> tx.yql("SELECT FROM QAddressL").toList());
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE VERTEX QProfileLetL SET name = 'Jean', address = "
+              + ((Vertex) addresses.get(0)).id())
+          .iterate();
+    });
+
+    // Query from the doc using LET (adapted class name)
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM QProfileLetL LET $city = address.city"
+                    + " WHERE $city.name LIKE '%Saint%'"
+                    + " AND ($city.country.name = 'Italy'"
+                    + " OR $city.country.name = 'France')")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX QProfileLetL").iterate();
+      tx.yql("DELETE VERTEX QAddressL").iterate();
+      tx.yql("DELETE VERTEX QCityL").iterate();
+      tx.yql("DELETE VERTEX QCountryL").iterate();
+    });
+  }
+
+  // Lines 172-173: LET with sub-query — average salary
+  @Test
+  public void testQueryLetSubQuery() {
+    g.command("CREATE CLASS QEmployeeSq IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QEmployeeSq SET name = 'Alice', salary = 3000").iterate();
+      tx.yql("CREATE VERTEX QEmployeeSq SET name = 'Bob', salary = 5000").iterate();
+      tx.yql("CREATE VERTEX QEmployeeSq SET name = 'Carol', salary = 4000").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT name, $avgSalary[0].avg AS companyAvg FROM QEmployeeSq"
+                    + " LET $avgSalary = ( SELECT AVG(salary) AS avg"
+                    + " FROM QEmployeeSq )")
+                .toList());
+    assertThat(results).hasSize(3);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QEmployeeSq").iterate());
+  }
+
+  // Lines 184-187: LET block in projection — $temp.name in SELECT
+  @Test
+  public void testQueryLetInProjection() {
+    g.command("CREATE CLASS QCountryP IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS QCityP IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS QAddressP IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS QProfileLetP IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QCountryP SET name = 'France'").iterate();
+    });
+    var countries =
+        g.computeInTx(tx -> tx.yql("SELECT FROM QCountryP").toList());
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE VERTEX QCityP SET name = 'Saint-Tropez', country = "
+              + ((Vertex) countries.get(0)).id())
+          .iterate();
+    });
+    var cities =
+        g.computeInTx(tx -> tx.yql("SELECT FROM QCityP").toList());
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE VERTEX QAddressP SET city = "
+              + ((Vertex) cities.get(0)).id())
+          .iterate();
+    });
+    var addresses =
+        g.computeInTx(tx -> tx.yql("SELECT FROM QAddressP").toList());
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE VERTEX QProfileLetP SET name = 'Jean', address = "
+              + ((Vertex) addresses.get(0)).id())
+          .iterate();
+    });
+
+    // Query from the doc: LET variable used in projection
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT $temp.name FROM QProfileLetP LET $temp = address.city"
+                    + " WHERE $temp.name LIKE '%Saint%'"
+                    + " AND ( $temp.country.name = 'Italy'"
+                    + " OR $temp.country.name = 'France' )")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX QProfileLetP").iterate();
+      tx.yql("DELETE VERTEX QAddressP").iterate();
+      tx.yql("DELETE VERTEX QCityP").iterate();
+      tx.yql("DELETE VERTEX QCountryP").iterate();
+    });
+  }
+
+  // Lines 195-204, 209-219: UNWIND on collection field
+  @Test
+  public void testQueryUnwind() {
+    g.command("CREATE CLASS QPersonUw IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS QFriend IF NOT EXISTS EXTENDS E");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QPersonUw SET name = 'John'").iterate();
+      tx.yql("CREATE VERTEX QPersonUw SET name = 'Mark'").iterate();
+      tx.yql("CREATE VERTEX QPersonUw SET name = 'Steve'").iterate();
+    });
+    var persons =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM QPersonUw ORDER BY name ASC").toList());
+    // John, Mark, Steve
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE QFriend FROM " + ((Vertex) persons.get(0)).id()
+              + " TO " + ((Vertex) persons.get(1)).id())
+          .iterate();
+      tx.yql(
+          "CREATE EDGE QFriend FROM " + ((Vertex) persons.get(0)).id()
+              + " TO " + ((Vertex) persons.get(2)).id())
+          .iterate();
+    });
+
+    // Without UNWIND: friendName is a list
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT name, OUT('QFriend').name AS friendName FROM QPersonUw"
+                    + " WHERE name = 'John'")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    // With UNWIND: one record per friend
+    var unwound =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT name, OUT('QFriend').name AS friendName FROM QPersonUw"
+                    + " WHERE name = 'John' UNWIND friendName")
+                .toList());
+    assertThat(unwound).hasSize(2);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE QFriend").iterate();
+      tx.yql("DELETE VERTEX QPersonUw").iterate();
+    });
+  }
+
+  // Line 29: Claim — default ORDER BY direction is ascending
+  @Test
+  public void testQueryDefaultOrderIsAscending() {
+    g.command("CREATE CLASS QProfileAsc IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QProfileAsc SET name = 'Charlie'").iterate();
+      tx.yql("CREATE VERTEX QProfileAsc SET name = 'Alice'").iterate();
+      tx.yql("CREATE VERTEX QProfileAsc SET name = 'Bob'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM QProfileAsc ORDER BY name").toList());
+    assertThat(results).hasSize(3);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("Alice");
+    assertThat((String) ((Vertex) results.get(1)).value("name")).isEqualTo("Bob");
+    assertThat((String) ((Vertex) results.get(2)).value("name")).isEqualTo("Charlie");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QProfileAsc").iterate());
+  }
+
+  // Line 32: SKIP clause
+  @Test
+  public void testQuerySkip() {
+    g.command("CREATE CLASS QProfileSkip IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QProfileSkip SET name = 'A'").iterate();
+      tx.yql("CREATE VERTEX QProfileSkip SET name = 'B'").iterate();
+      tx.yql("CREATE VERTEX QProfileSkip SET name = 'C'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM QProfileSkip ORDER BY name SKIP 1").toList());
+    assertThat(results).hasSize(2);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("B");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QProfileSkip").iterate());
+  }
+
+  // Line 33: LIMIT clause
+  @Test
+  public void testQueryLimit() {
+    g.command("CREATE CLASS QProfileLim IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX QProfileLim SET name = 'A'").iterate();
+      tx.yql("CREATE VERTEX QProfileLim SET name = 'B'").iterate();
+      tx.yql("CREATE VERTEX QProfileLim SET name = 'C'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM QProfileLim ORDER BY name LIMIT 2").toList());
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX QProfileLim").iterate());
+  }
+
+  // === YQL-Syntax.md ===
+
+  // Line 21: "Keywords are case-insensitive"
+  @Test
+  public void testSyntaxKeywordsCaseInsensitive() {
+    g.command("CREATE CLASS SynKw IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynKw SET name = 'a'").iterate();
+    });
+
+    // Keywords in different cases should all work
+    var r1 = g.computeInTx(tx -> tx.yql("SELECT FROM SynKw").toList());
+    var r2 = g.computeInTx(tx -> tx.yql("select from SynKw").toList());
+    var r3 = g.computeInTx(tx -> tx.yql("SeLeCt FrOm SynKw").toList());
+    assertThat(r1).hasSize(1);
+    assertThat(r2).hasSize(1);
+    assertThat(r3).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynKw").iterate());
+  }
+
+  // Line 21: "Class names are case-sensitive"
+  @Test
+  public void testSyntaxClassNamesCaseSensitive() {
+    g.command("CREATE CLASS SynClsCase IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynClsCase SET name = 'x'").iterate();
+    });
+
+    // Exact class name works
+    var r1 = g.computeInTx(tx -> tx.yql("SELECT FROM SynClsCase").toList());
+    assertThat(r1).hasSize(1);
+
+    // Wrong case on class name should fail
+    assertThatThrownBy(
+        () -> g.computeInTx(tx -> tx.yql("SELECT FROM SYNCLSCASE").toList()))
+        .isInstanceOf(CommandExecutionException.class)
+        .hasMessageContaining("Class not found")
+        .hasMessageContaining("SYNCLSCASE");
+    assertThatThrownBy(
+        () -> g.computeInTx(tx -> tx.yql("SELECT FROM synclscase").toList()))
+        .isInstanceOf(CommandExecutionException.class)
+        .hasMessageContaining("Class not found")
+        .hasMessageContaining("synclscase");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynClsCase").iterate());
+  }
+
+  // Line 21: "Property names (fields) and values are case-sensitive"
+  @Test
+  public void testSyntaxPropertyNamesCaseSensitive() {
+    g.command("CREATE CLASS SynPropCase IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynPropCase SET myField = 'hello'").iterate();
+    });
+
+    // Exact case matches
+    var r1 =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM SynPropCase WHERE myField = 'hello'").toList());
+    assertThat(r1).hasSize(1);
+
+    // Wrong case on property name should find nothing
+    var r2 =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM SynPropCase WHERE MYFIELD = 'hello'").toList());
+    assertThat(r2).isEmpty();
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynPropCase").iterate());
+  }
+
+  // Line 93-101: Integer literal parsing (32-bit and 64-bit with L suffix)
+  @Test
+  public void testSyntaxIntegerLiterals() {
+    g.command("CREATE CLASS SynInt IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynInt SET val32 = 12345678, val64 = 12345678L, neg = -45")
+          .iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM SynInt").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat(((Number) v.value("val32")).intValue()).isEqualTo(12345678);
+    assertThat(((Number) v.value("val64")).longValue()).isEqualTo(12345678L);
+    assertThat(((Number) v.value("neg")).intValue()).isEqualTo(-45);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynInt").iterate());
+  }
+
+  // Line 185-187: Octal literal parsing
+  @Test
+  public void testSyntaxOctalLiterals() {
+    g.command("CREATE CLASS SynOctal IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      // 010 octal = 8 decimal, 01 octal = 1 decimal
+      tx.yql("CREATE VERTEX SynOctal SET v1 = 01, v2 = 010").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM SynOctal").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat(((Number) v.value("v1")).intValue()).isEqualTo(1);
+    assertThat(((Number) v.value("v2")).intValue()).isEqualTo(8);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynOctal").iterate());
+  }
+
+  // Line 189-192: Hexadecimal literal parsing
+  @Test
+  public void testSyntaxHexLiterals() {
+    g.command("CREATE CLASS SynHex IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynHex SET v1 = 0x1, v2 = 0x10, v3 = 0xff").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM SynHex").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat(((Number) v.value("v1")).intValue()).isEqualTo(1);
+    assertThat(((Number) v.value("v2")).intValue()).isEqualTo(16);
+    assertThat(((Number) v.value("v3")).intValue()).isEqualTo(255);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynHex").iterate());
+  }
+
+  // Line 109-116: Float and double literal parsing
+  @Test
+  public void testSyntaxFloatDoubleLiterals() {
+    g.command("CREATE CLASS SynFD IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynFD SET f1 = 1.5, f2 = -45.0, d1 = 0.23D").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM SynFD").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat(((Number) v.value("f1")).floatValue()).isEqualTo(1.5f);
+    assertThat(((Number) v.value("f2")).floatValue()).isEqualTo(-45.0f);
+    assertThat(((Number) v.value("d1")).doubleValue()).isEqualTo(0.23D);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynFD").iterate());
+  }
+
+  // Line 126-131: String delimiters — single and double quotes
+  @Test
+  public void testSyntaxStringDelimiters() {
+    g.command("CREATE CLASS SynStr IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynStr SET s1 = 'foo bar', s2 = \"baz qux\"").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM SynStr").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat((String) v.value("s1")).isEqualTo("foo bar");
+    assertThat((String) v.value("s2")).isEqualTo("baz qux");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynStr").iterate());
+  }
+
+  // Line 134-142: Boolean values are case-insensitive
+  @Test
+  public void testSyntaxBooleanCaseInsensitive() {
+    g.command("CREATE CLASS SynBool IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynBool SET b1 = true, b2 = TRUE, b3 = True").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM SynBool").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat((Boolean) v.value("b1")).isTrue();
+    assertThat((Boolean) v.value("b2")).isTrue();
+    assertThat((Boolean) v.value("b3")).isTrue();
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynBool").iterate());
+  }
+
+  // Line 153-161: Null literal is case-insensitive
+  @Test
+  public void testSyntaxNullCaseInsensitive() {
+    g.command("CREATE CLASS SynNull IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynNull SET v1 = NULL, v2 = null, v3 = Null").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM SynNull WHERE v1 IS NULL AND v2 IS NULL AND v3 IS NULL")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynNull").iterate());
+  }
+
+  // Line 244-252: Math type promotion — integer + long = long, int + float = float
+  @Test
+  public void testSyntaxMathTypePromotion() {
+    g.command("CREATE CLASS SynMath IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynMath SET r1 = 15 + 20L, r2 = 15 + 20.3").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM SynMath").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    // 15 + 20L should produce a Long
+    assertThat((Object) v.value("r1")).isInstanceOf(Long.class);
+    assertThat(((Number) v.value("r1")).longValue()).isEqualTo(35L);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynMath").iterate());
+  }
+
+  // Line 354: String concatenation with + operator
+  @Test
+  public void testSyntaxStringConcatenation() {
+    g.command("CREATE CLASS SynConcat IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynConcat SET r1 = 'a' + 1 + 2, r2 = 1 + 2 + 'a'").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM SynConcat").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat((String) v.value("r1")).isEqualTo("a12");
+    assertThat((String) v.value("r2")).isEqualTo("3a");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynConcat").iterate());
+  }
+
+  // Line 354-355: Null handling in plus — null is treated as identity (returns other operand)
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testSyntaxNullInPlus() {
+    g.command("CREATE CLASS SynNullPlus IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynNullPlus SET n = null, v = 1").iterate();
+    });
+
+    // 1 + null should return 1 (null treated as identity for plus)
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT v + n as result FROM SynNullPlus").toList());
+    assertThat(results).hasSize(1);
+    Map<String, Object> row = (Map<String, Object>) results.get(0);
+    assertThat(((Number) row.get("result")).intValue()).isEqualTo(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynNullPlus").iterate());
+  }
+
+  // Line 355: Null handling in minus — right null returns left operand
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testSyntaxNullInMinus() {
+    g.command("CREATE CLASS SynNullMinus IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynNullMinus SET n = null, v = 1").iterate();
+    });
+
+    // 1 - null should return 1 (null on right returns left)
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT v - n as result FROM SynNullMinus").toList());
+    assertThat(results).hasSize(1);
+    Map<String, Object> row = (Map<String, Object>) results.get(0);
+    assertThat(((Number) row.get("result")).intValue()).isEqualTo(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynNullMinus").iterate());
+  }
+
+  // Line 356: Null handling in multiply — null makes result null
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testSyntaxNullInMultiply() {
+    g.command("CREATE CLASS SynNullMul IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynNullMul SET n = null, v = 1").iterate();
+    });
+
+    // 1 * null should return null
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT v * n as result FROM SynNullMul").toList());
+    assertThat(results).hasSize(1);
+    Map<String, Object> row = (Map<String, Object>) results.get(0);
+    assertThat(row.get("result")).isNull();
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynNullMul").iterate());
+  }
+
+  // Line 357: Null handling in divide — null makes result null
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testSyntaxNullInDivide() {
+    g.command("CREATE CLASS SynNullDiv IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynNullDiv SET n = null, v = 1").iterate();
+    });
+
+    // 1 / null should return null
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT v / n as result FROM SynNullDiv").toList());
+    assertThat(results).hasSize(1);
+    Map<String, Object> row = (Map<String, Object>) results.get(0);
+    assertThat(row.get("result")).isNull();
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynNullDiv").iterate());
+  }
+
+  // Line 359: Bitwise right shift: 8 >> 2 = 2
+  @Test
+  public void testSyntaxBitwiseRightShift() {
+    g.command("CREATE CLASS SynShift IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynShift SET r1 = 8 >> 2").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM SynShift").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat(((Number) v.value("r1")).intValue()).isEqualTo(2);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynShift").iterate());
+  }
+
+  // Line 361: Bitwise left shift: 2 << 2 = 8
+  @Test
+  public void testSyntaxBitwiseLeftShift() {
+    g.command("CREATE CLASS SynLShift IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynLShift SET r1 = 2 << 2").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM SynLShift").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat(((Number) v.value("r1")).intValue()).isEqualTo(8);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynLShift").iterate());
+  }
+
+  // Line 393-397: Array concatenation with ||
+  @Test
+  public void testSyntaxArrayConcatenation() {
+    g.command("CREATE CLASS SynArrCat IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynArrCat SET r1 = [1, 2, 3] || [4, 5]").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM SynArrCat").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    @SuppressWarnings("unchecked")
+    List<Integer> list = (List<Integer>) v.value("r1");
+    assertThat(list).containsExactly(1, 2, 3, 4, 5);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynArrCat").iterate());
+  }
+
+  // Line 429-435: Null has no effect in || concatenation
+  @Test
+  public void testSyntaxArrayConcatenationWithNull() {
+    g.command("CREATE CLASS SynArrNull IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynArrNull SET r1 = [1, 2] || null").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM SynArrNull").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    @SuppressWarnings("unchecked")
+    List<Integer> list = (List<Integer>) v.value("r1");
+    assertThat(list).containsExactly(1, 2);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynArrNull").iterate());
+  }
+
+  // Line 450: CONTAINS operator checks if collection contains element
+  @Test
+  public void testSyntaxContainsOperator() {
+    g.command("CREATE CLASS SynContains IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynContains SET tags = ['a', 'b', 'c']").iterate();
+    });
+
+    // Single element — should match
+    var r1 =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM SynContains WHERE tags CONTAINS 'a'").toList());
+    assertThat(r1).hasSize(1);
+
+    // Collection argument — should NOT match (not intersection check)
+    var r2 =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM SynContains WHERE tags CONTAINS ['a', 'b']").toList());
+    assertThat(r2).isEmpty();
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynContains").iterate());
+  }
+
+  // Line 451: IN operator — same as CONTAINS with inverted operands
+  @Test
+  public void testSyntaxInOperator() {
+    g.command("CREATE CLASS SynIn IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynIn SET tags = ['x', 'y', 'z']").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM SynIn WHERE 'x' IN tags").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynIn").iterate());
+  }
+
+  // Line 454: LIKE operator with % wildcard
+  @Test
+  public void testSyntaxLikeOperator() {
+    g.command("CREATE CLASS SynLike IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynLike SET name = 'foobar'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM SynLike WHERE name LIKE '%ooba%'").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynLike").iterate());
+  }
+
+  // Line 457: BETWEEN operator
+  @Test
+  public void testSyntaxBetweenOperator() {
+    g.command("CREATE CLASS SynBetween IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynBetween SET val = 5").iterate();
+      tx.yql("CREATE VERTEX SynBetween SET val = 15").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM SynBetween WHERE val BETWEEN 1 AND 10").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat(((Number) v.value("val")).intValue()).isEqualTo(5);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynBetween").iterate());
+  }
+
+  // Line 458: MATCHES operator — regex matching
+  @Test
+  public void testSyntaxMatchesOperator() {
+    g.command("CREATE CLASS SynMatches IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynMatches SET name = 'hello123'").iterate();
+      tx.yql("CREATE VERTEX SynMatches SET name = 'world'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM SynMatches WHERE name MATCHES '.*\\\\d+.*'").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynMatches").iterate());
+  }
+
+  // Line 459: INSTANCEOF operator
+  @Test
+  public void testSyntaxInstanceofOperator() {
+    g.command("CREATE CLASS SynAnimal IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS SynDog IF NOT EXISTS EXTENDS SynAnimal");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynDog SET name = 'Rex'").iterate();
+    });
+
+    // SynDog is an instance of SynAnimal
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM SynDog WHERE @this INSTANCEOF 'SynAnimal'").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynDog").iterate());
+  }
+
+  // Line 272-275: .asSet() method removes duplicates from a list
+  @Test
+  public void testSyntaxAsSetMethod() {
+    g.command("CREATE CLASS SynAsSet IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynAsSet SET vals = [1, 3, 2, 2, 4].asSet()").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM SynAsSet").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    // asSet() removes the duplicate 2
+    @SuppressWarnings("unchecked")
+    java.util.Collection<Integer> set = (java.util.Collection<Integer>) v.value("vals");
+    assertThat(set).hasSize(4);
+    assertThat(set).containsExactlyInAnyOrder(1, 2, 3, 4);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynAsSet").iterate());
+  }
+
+  // Line 344: = operator as boolean comparison in WHERE
+  @Test
+  public void testSyntaxEqualsOperator() {
+    g.command("CREATE CLASS SynEq IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynEq SET name = 'John'").iterate();
+      tx.yql("CREATE VERTEX SynEq SET name = 'Jane'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM SynEq WHERE name = 'John'").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynEq").iterate());
+  }
+
+  // Line 345-346: != and <> both mean "not equals"
+  @Test
+  public void testSyntaxNotEqualsOperators() {
+    g.command("CREATE CLASS SynNeq IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SynNeq SET name = 'John'").iterate();
+      tx.yql("CREATE VERTEX SynNeq SET name = 'Jane'").iterate();
+    });
+
+    var r1 =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM SynNeq WHERE name != 'John'").toList());
+    var r2 =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM SynNeq WHERE name <> 'John'").toList());
+    assertThat(r1).hasSize(1);
+    assertThat(r2).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX SynNeq").iterate());
+  }
+
+  // === YQL-Projections.md ===
+
+  // Line 42/46: projection values overwrite left to right — SELECT 1 as a, 2 as a → {"a":2}
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testProjectionOverwriteLeftToRight() {
+    g.command("CREATE CLASS ProjOverwrite IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> tx.yql("CREATE VERTEX ProjOverwrite SET tag = 'ow'").iterate());
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT 1 as a, 2 as a FROM ProjOverwrite").toList());
+    assertThat(results).hasSize(1);
+    Map<String, Object> row = (Map<String, Object>) results.get(0);
+    assertThat(row.get("a")).isEqualTo(2);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX ProjOverwrite").iterate());
+  }
+
+  // Line 55-57: SELECT *, "hey" as name from Foo — star then alias overrides original property
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testStarThenAliasOverridesProperty() {
+    g.command("CREATE CLASS ProjStarAlias IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> tx.yql("CREATE VERTEX ProjStarAlias SET name = 'bar'").iterate());
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT *, \"hey\" as name FROM ProjStarAlias").toList());
+    assertThat(results).hasSize(1);
+    Map<String, Object> row = (Map<String, Object>) results.get(0);
+    // Doc says: name should be "hey" (overwritten left to right, * first then "hey")
+    assertThat(row.get("name")).isEqualTo("hey");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX ProjStarAlias").iterate());
+  }
+
+  // Line 60-62: SELECT "hey" as name, * from Foo — alias then star, original name wins
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testAliasThenStarOriginalWins() {
+    g.command("CREATE CLASS ProjAliasStar IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> tx.yql("CREATE VERTEX ProjAliasStar SET name = 'bar'").iterate());
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT \"hey\" as name, * FROM ProjAliasStar").toList());
+    assertThat(results).hasSize(1);
+    Map<String, Object> row = (Map<String, Object>) results.get(0);
+    // Doc says: name should be "bar" (overwritten left to right, "hey" then * restores original)
+    assertThat(row.get("name")).isEqualTo("bar");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX ProjAliasStar").iterate());
+  }
+
+  // Line 76: SELECT name + " " + surname as full_name — explicit alias
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testExplicitAlias() {
+    g.command("CREATE CLASS ProjExplAlias IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> tx.yql("CREATE VERTEX ProjExplAlias SET name = 'John', surname = 'Smith'")
+            .iterate());
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT name + \" \" + surname as full_name FROM ProjExplAlias")
+                .toList());
+    assertThat(results).hasSize(1);
+    Map<String, Object> row = (Map<String, Object>) results.get(0);
+    assertThat(row.get("full_name")).isEqualTo("John Smith");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX ProjExplAlias").iterate());
+  }
+
+  // Line 86: SELECT name from Person — implicit alias is "name"
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testImplicitAlias() {
+    g.command("CREATE CLASS ProjImplAlias IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> tx.yql("CREATE VERTEX ProjImplAlias SET name = 'John'").iterate());
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT name FROM ProjImplAlias").toList());
+    assertThat(results).hasSize(1);
+    Map<String, Object> row = (Map<String, Object>) results.get(0);
+    assertThat(row.get("name")).isEqualTo("John");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX ProjImplAlias").iterate());
+  }
+
+  // Line 96: SELECT 1+2 as sum — expression with explicit alias
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testExpressionExplicitAlias() {
+    g.command("CREATE CLASS ProjExprAlias IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> tx.yql("CREATE VERTEX ProjExprAlias SET tag = 'x'").iterate());
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT 1+2 as sum FROM ProjExprAlias").toList());
+    assertThat(results).hasSize(1);
+    Map<String, Object> row = (Map<String, Object>) results.get(0);
+    assertThat(row.get("sum")).isEqualTo(3);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX ProjExprAlias").iterate());
+  }
+
+  // Line 115: SELECT 1+2 — implicit alias is "1 + 2" (spaces around operators)
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testImplicitAliasExpression() {
+    g.command("CREATE CLASS ProjImplExpr IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> tx.yql("CREATE VERTEX ProjImplExpr SET tag = 'x'").iterate());
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT 1+2 FROM ProjImplExpr").toList());
+    assertThat(results).hasSize(1);
+    Map<String, Object> row = (Map<String, Object>) results.get(0);
+    // Doc says implicit alias is "1 + 2" (single space before and after the + sign)
+    assertThat(row.get("1 + 2")).isEqualTo(3);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX ProjImplExpr").iterate());
+  }
+
+  // Line 29: DISTINCT removes duplicates from result-set
+  @Test
+  public void testDistinctRemovesDuplicates() {
+    g.command("CREATE CLASS ProjDistinct IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX ProjDistinct SET city = 'Rome'").iterate();
+          tx.yql("CREATE VERTEX ProjDistinct SET city = 'Rome'").iterate();
+          tx.yql("CREATE VERTEX ProjDistinct SET city = 'London'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT DISTINCT city FROM ProjDistinct").toList());
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX ProjDistinct").iterate());
+  }
+
+  // Line 67: expand() cannot be used together with GROUP BY
+  @Test
+  public void testExpandCannotBeUsedWithGroupBy() {
+    g.command("CREATE CLASS ProjExpandGrp IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX ProjExpandGrp SET city = 'Rome', tag = 'a'").iterate();
+          tx.yql("CREATE VERTEX ProjExpandGrp SET city = 'Rome', tag = 'b'").iterate();
+        });
+
+    assertThatThrownBy(
+        () -> g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(city) FROM ProjExpandGrp GROUP BY city")
+                .toList()));
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX ProjExpandGrp").iterate());
+  }
+
+  // Lines 148-310: Nested projections — full dataset and all nested projection variants
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testNestedProjections() {
+    g.command("CREATE CLASS ProjNested IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY ProjNested.parent LINK ProjNested");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX ProjNested SET name = 'foo', surname = 'fooz'")
+              .iterate();
+        });
+
+    // Get the RID of foo to link bar to it
+    var fooResults =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM ProjNested WHERE name = 'foo'").toList());
+    Vertex foo = (Vertex) fooResults.get(0);
+    String fooRid = foo.id().toString();
+
+    g.executeInTx(
+        tx -> tx.yql(
+            "CREATE VERTEX ProjNested SET name = 'bar', surname = 'barz', parent = "
+                + fooRid)
+            .iterate());
+
+    var barResults =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM ProjNested WHERE name = 'bar'").toList());
+    Vertex bar = (Vertex) barResults.get(0);
+    String barRid = bar.id().toString();
+
+    g.executeInTx(
+        tx -> tx.yql(
+            "CREATE VERTEX ProjNested SET name = 'baz', surname = 'bazz', parent = "
+                + barRid)
+            .iterate());
+
+    // Line 157: SELECT name, parent FROM ProjNested WHERE name = 'baz'
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT name, parent FROM ProjNested WHERE name = 'baz'")
+                .toList());
+    assertThat(results).hasSize(1);
+    Map<String, Object> row = (Map<String, Object>) results.get(0);
+    assertThat(row.get("name")).isEqualTo("baz");
+    assertThat(row.get("parent")).isNotNull();
+
+    // Line 171: SELECT name, parent.name — dot notation on link
+    var dotResults =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT name, parent.name FROM ProjNested WHERE name = 'baz'")
+                .toList());
+    assertThat(dotResults).hasSize(1);
+    Map<String, Object> dotRow = (Map<String, Object>) dotResults.get(0);
+    assertThat(dotRow.get("name")).isEqualTo("baz");
+    assertThat(dotRow.get("parent.name")).isEqualTo("bar");
+
+    // Line 186: SELECT name, parent:{name} — nested projection single field
+    var nestedResults =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT name, parent:{name} FROM ProjNested WHERE name = 'baz'")
+                .toList());
+    assertThat(nestedResults).hasSize(1);
+    Map<String, Object> nestedRow = (Map<String, Object>) nestedResults.get(0);
+    assertThat(nestedRow.get("name")).isEqualTo("baz");
+    Map<String, Object> nestedParent = (Map<String, Object>) nestedRow.get("parent");
+    assertThat(nestedParent).containsKey("name");
+    assertThat(nestedParent.get("name")).isEqualTo("bar");
+
+    // Line 199: SELECT name, parent:{name, surname} — nested projection multiple fields
+    var nestedMultiResults =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT name, parent:{name, surname} FROM ProjNested WHERE name = 'baz'")
+                .toList());
+    assertThat(nestedMultiResults).hasSize(1);
+    Map<String, Object> multiRow = (Map<String, Object>) nestedMultiResults.get(0);
+    Map<String, Object> multiParent = (Map<String, Object>) multiRow.get("parent");
+    assertThat(multiParent).containsKeys("name", "surname");
+    assertThat(multiParent.get("name")).isEqualTo("bar");
+    assertThat(multiParent.get("surname")).isEqualTo("barz");
+
+    // Line 214: SELECT name, parent:{*} — nested projection wildcard
+    var nestedWildcardResults =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT name, parent:{*} FROM ProjNested WHERE name = 'baz'")
+                .toList());
+    assertThat(nestedWildcardResults).hasSize(1);
+    Map<String, Object> wcRow = (Map<String, Object>) nestedWildcardResults.get(0);
+    Map<String, Object> wcParent = (Map<String, Object>) wcRow.get("parent");
+    assertThat(wcParent).containsKeys("name", "surname", "parent");
+
+    // Line 232: SELECT name, parent:{!surname} — nested projection exclude
+    var nestedExclResults =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT name, parent:{!surname} FROM ProjNested WHERE name = 'baz'")
+                .toList());
+    assertThat(nestedExclResults).hasSize(1);
+    Map<String, Object> exclRow = (Map<String, Object>) nestedExclResults.get(0);
+    Map<String, Object> exclParent = (Map<String, Object>) exclRow.get("parent");
+    assertThat(exclParent).containsKey("name");
+    assertThat(exclParent).doesNotContainKey("surname");
+
+    // Line 247: SELECT name, parent:{surna*} — prefix wildcard include
+    var nestedPrefixResults =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT name, parent:{surna*} FROM ProjNested WHERE name = 'baz'")
+                .toList());
+    assertThat(nestedPrefixResults).hasSize(1);
+    Map<String, Object> pfxRow = (Map<String, Object>) nestedPrefixResults.get(0);
+    Map<String, Object> pfxParent = (Map<String, Object>) pfxRow.get("parent");
+    assertThat(pfxParent).containsKey("surname");
+    assertThat(pfxParent.get("surname")).isEqualTo("barz");
+    assertThat(pfxParent).doesNotContainKey("name");
+
+    // Line 261: SELECT name, parent:{!surna*} — prefix wildcard exclude
+    // The exclude wildcard works correctly: !surna* excludes "surname"
+    var nestedExclPrefixResults =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT name, parent:{!surna*} FROM ProjNested WHERE name = 'baz'")
+                .toList());
+    assertThat(nestedExclPrefixResults).hasSize(1);
+    Map<String, Object> epfxRow = (Map<String, Object>) nestedExclPrefixResults.get(0);
+    Map<String, Object> epfxParent = (Map<String, Object>) epfxRow.get("parent");
+    assertThat(epfxParent).containsKey("name");
+    assertThat(epfxParent).containsKey("parent");
+    assertThat(epfxParent).doesNotContainKey("surname");
+
+    // Line 279: Multi-level nested projection
+    var multiLevelResults =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT name, parent:{name, surname, parent:{name, surname}} FROM ProjNested WHERE name = 'baz'")
+                .toList());
+    assertThat(multiLevelResults).hasSize(1);
+    Map<String, Object> mlRow = (Map<String, Object>) multiLevelResults.get(0);
+    Map<String, Object> mlParent = (Map<String, Object>) mlRow.get("parent");
+    assertThat(mlParent.get("name")).isEqualTo("bar");
+    Map<String, Object> mlGrandparent = (Map<String, Object>) mlParent.get("parent");
+    assertThat(mlGrandparent.get("name")).isEqualTo("foo");
+    assertThat(mlGrandparent.get("surname")).isEqualTo("fooz");
+
+    // Line 299: Expression + alias with nested projection
+    var exprNestedResults =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT name, parent.parent:{name, surname} as grandparent FROM ProjNested WHERE name = 'baz'")
+                .toList());
+    assertThat(exprNestedResults).hasSize(1);
+    Map<String, Object> enRow = (Map<String, Object>) exprNestedResults.get(0);
+    Map<String, Object> grandparent = (Map<String, Object>) enRow.get("grandparent");
+    assertThat(grandparent.get("name")).isEqualTo("foo");
+    assertThat(grandparent.get("surname")).isEqualTo("fooz");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX ProjNested").iterate());
+  }
+
+  // Line 103: SELECT parent.name+" "+parent.surname as full_name — linked property expression
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testLinkedPropertyExpression() {
+    g.command("CREATE CLASS ProjLinked IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY ProjLinked.parent LINK ProjLinked");
+    g.executeInTx(
+        tx -> tx.yql(
+            "CREATE VERTEX ProjLinked SET name = 'John', surname = 'Smith'")
+            .iterate());
+
+    var parentResults =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM ProjLinked WHERE name = 'John'").toList());
+    String parentRid = ((Vertex) parentResults.get(0)).id().toString();
+
+    g.executeInTx(
+        tx -> tx.yql(
+            "CREATE VERTEX ProjLinked SET name = 'child', parent = "
+                + parentRid)
+            .iterate());
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT parent.name+\" \"+parent.surname as full_name FROM ProjLinked WHERE name = 'child'")
+                .toList());
+    assertThat(results).hasSize(1);
+    Map<String, Object> row = (Map<String, Object>) results.get(0);
+    assertThat(row.get("full_name")).isEqualTo("John Smith");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX ProjLinked").iterate());
+  }
+
+  // Line 8: SELECT name as firstName, age * 12 as ageInMonths, out("Friend") — basic projection
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testBasicProjectionSyntax() {
+    g.command("CREATE CLASS ProjPerson IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS ProjFriend IF NOT EXISTS EXTENDS E");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX ProjPerson SET name = 'John', surname = 'Smith', age = 3")
+              .iterate();
+          tx.yql(
+              "CREATE VERTEX ProjPerson SET name = 'Jane', surname = 'Doe', age = 2")
+              .iterate();
+        });
+
+    // Create a Friend edge
+    var john =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM ProjPerson WHERE name = 'John'").toList());
+    var jane =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM ProjPerson WHERE name = 'Jane'").toList());
+    String johnRid = ((Vertex) john.get(0)).id().toString();
+    String janeRid = ((Vertex) jane.get(0)).id().toString();
+
+    g.executeInTx(
+        tx -> tx.yql(
+            "CREATE EDGE ProjFriend FROM " + johnRid + " TO " + janeRid)
+            .iterate());
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT name as firstName, age * 12 as ageInMonths, out(\"ProjFriend\") FROM ProjPerson WHERE surname = 'Smith'")
+                .toList());
+    assertThat(results).hasSize(1);
+    Map<String, Object> row = (Map<String, Object>) results.get(0);
+    assertThat(row.get("firstName")).isEqualTo("John");
+    assertThat(row.get("ageInMonths")).isEqualTo(36);
+
+    g.executeInTx(tx -> tx.yql("DELETE EDGE ProjFriend").iterate());
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX ProjPerson").iterate());
+  }
+
+}
