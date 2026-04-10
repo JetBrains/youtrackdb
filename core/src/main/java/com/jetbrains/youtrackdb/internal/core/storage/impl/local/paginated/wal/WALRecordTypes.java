@@ -268,4 +268,13 @@ public final class WALRecordTypes {
   // CellBTreeSingleValueBucketV3 bulk operations (Track 5)
   public static final int BTREE_SV_BUCKET_V3_ADD_ALL_OP = PAGE_OPERATION_ID_BASE + 37;
   public static final int BTREE_SV_BUCKET_V3_SHRINK_OP = PAGE_OPERATION_ID_BASE + 38;
+
+  // CellBTreeMultiValueV2EntryPoint operations (Track 6)
+  public static final int BTREE_MV_ENTRY_POINT_V2_INIT_OP = PAGE_OPERATION_ID_BASE + 39;
+  public static final int BTREE_MV_ENTRY_POINT_V2_SET_TREE_SIZE_OP =
+      PAGE_OPERATION_ID_BASE + 40;
+  public static final int BTREE_MV_ENTRY_POINT_V2_SET_PAGES_SIZE_OP =
+      PAGE_OPERATION_ID_BASE + 41;
+  public static final int BTREE_MV_ENTRY_POINT_V2_SET_ENTRY_ID_OP =
+      PAGE_OPERATION_ID_BASE + 42;
 }

@@ -18,6 +18,10 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.FreeSpaceMap
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.MapEntryPointSetFileSizeOp;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2SetApproxRecordsCountOp;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2SetFileSizeOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVEntryPointV2InitOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVEntryPointV2SetEntryIdOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVEntryPointV2SetPagesSizeOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVEntryPointV2SetTreeSizeOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVBucketV3AddAllOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVBucketV3AddLeafEntryOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVBucketV3AddNonLeafEntryOp;
@@ -55,7 +59,8 @@ public final class PageOperationRegistry {
    * Registers all known {@link PageOperation} subclasses with the given factory. Each type is
    * registered with its unique WAL record type ID (see {@link WALRecordTypes}).
    *
-   * <p>Currently registers Track 2-3 types (IDs 201-218) and Track 5 types (IDs 219-238):
+   * <p>Currently registers Track 2-3 types (IDs 201-218), Track 5 types (IDs 219-238),
+  * and Track 6 types (IDs 239-242):
    * <ul>
    *   <li>PaginatedCollectionStateV2 (2 ops)</li>
    *   <li>CollectionPage (5 ops)</li>
@@ -67,6 +72,7 @@ public final class PageOperationRegistry {
    *   <li>CellBTreeSingleValueV3NullBucket (3 ops)</li>
    *   <li>CellBTreeSingleValueBucketV3 (13 ops: init, switchType, siblings, freeList,
    *       updateValue, add/remove leaf/nonLeaf, updateKey, addAll, shrink)</li>
+   *   <li>CellBTreeMultiValueV2EntryPoint (4 ops)</li>
    * </ul>
    */
   public static void registerAll(WALRecordsFactory factory) {
@@ -205,5 +211,19 @@ public final class PageOperationRegistry {
     factory.registerNewRecord(
         WALRecordTypes.BTREE_SV_BUCKET_V3_SHRINK_OP,
         BTreeSVBucketV3ShrinkOp.class);
+
+    // CellBTreeMultiValueV2EntryPoint operations (Track 6)
+    factory.registerNewRecord(
+        WALRecordTypes.BTREE_MV_ENTRY_POINT_V2_INIT_OP,
+        BTreeMVEntryPointV2InitOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.BTREE_MV_ENTRY_POINT_V2_SET_TREE_SIZE_OP,
+        BTreeMVEntryPointV2SetTreeSizeOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.BTREE_MV_ENTRY_POINT_V2_SET_PAGES_SIZE_OP,
+        BTreeMVEntryPointV2SetPagesSizeOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.BTREE_MV_ENTRY_POINT_V2_SET_ENTRY_ID_OP,
+        BTreeMVEntryPointV2SetEntryIdOp.class);
   }
 }
