@@ -337,6 +337,7 @@ public final class LockFreeReadCache implements ReadCache {
           "Page  " + fileId + ":" + pageIndex + " was allocated in other thread");
     }
 
+    cacheSize.incrementAndGet();
     afterAdd(cacheEntry);
 
     return cacheEntry;
@@ -595,7 +596,10 @@ public final class LockFreeReadCache implements ReadCache {
     try {
       emptyBuffers();
 
-      var entries = new ArrayList<CacheEntry>(cacheSize.get());
+      // Defense-in-depth: clamp cacheSize to zero to avoid IllegalArgumentException
+      // from ArrayList if the counter ever drifts negative due to a future bug.
+      var currentCacheSize = cacheSize.get();
+      var entries = new ArrayList<CacheEntry>(Math.max(0, currentCacheSize));
       data.forEachValue(entries::add);
 
       for (final var entry : entries) {

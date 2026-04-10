@@ -196,10 +196,18 @@ public class EngineLocalPaginated extends EngineAbstract {
   @Override
   public void shutdown() {
     try {
-      readCache.clear();
-      files.clear();
+      var cache = readCache;
+      if (cache != null) {
+        cache.clear();
+      }
+    } catch (Exception e) {
+      LogManager.instance().error(this, "Error clearing read cache during shutdown", e);
     } finally {
-      super.shutdown();
+      try {
+        files.clear();
+      } finally {
+        super.shutdown();
+      }
     }
   }
 }

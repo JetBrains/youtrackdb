@@ -22,6 +22,7 @@ import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Assume;
@@ -421,6 +422,82 @@ public class LockFreeReadCacheBatchingTest {
 
     readCache.assertSize();
     readCache.assertConsistency();
+  }
+
+  // --- allocateNewPage cacheSize tracking tests ---
+
+  /**
+   * allocateNewPage() must increment cacheSize so that getUsedMemory() reflects the newly
+   * allocated page. This is the root-cause fix for cacheSize counter drift — without the
+   * increment in addNewPagePointerToTheCache(), eviction decrements for allocated pages
+   * would drive cacheSize negative, eventually crashing clear() with
+   * IllegalArgumentException from ArrayList(negativeCapacity).
+   */
+  @Test
+  public void testAllocateNewPageIncrementsCacheSize() throws Exception {
+    long initialMemory = readCache.getUsedMemory();
+
+    var entry = readCache.allocateNewPage(0, writeCache, new LogSequenceNumber(-1, -1));
+    readCache.releaseFromWrite(entry, writeCache, false);
+
+    // cacheSize must have been incremented: memory should increase by exactly one page.
+    Assert.assertEquals(
+        "allocateNewPage must increment cacheSize",
+        initialMemory + PAGE_SIZE, readCache.getUsedMemory());
+
+    readCache.assertSize();
+    readCache.assertConsistency();
+  }
+
+  /**
+   * Multiple allocateNewPage() calls across different file IDs must each increment
+   * cacheSize correctly, keeping memory tracking accurate. Uses different fileIds
+   * because MockedWriteCache.allocateNewPage() always returns pageIndex 0.
+   */
+  @Test
+  public void testMultipleAllocateNewPagesTrackMemoryCorrectly() throws Exception {
+    int allocCount = 5;
+    var entries = new ArrayList<CacheEntry>();
+    for (int fileId = 0; fileId < allocCount; fileId++) {
+      var entry = readCache.allocateNewPage(fileId, writeCache,
+          new LogSequenceNumber(-1, -1));
+      entries.add(entry);
+    }
+
+    Assert.assertEquals(
+        "Each allocateNewPage must increment cacheSize",
+        (long) allocCount * PAGE_SIZE, readCache.getUsedMemory());
+
+    for (var entry : entries) {
+      readCache.releaseFromWrite(entry, writeCache, false);
+    }
+
+    readCache.assertSize();
+    readCache.assertConsistency();
+  }
+
+  // --- clear() with negative cacheSize defense-in-depth test ---
+
+  /**
+   * clear() must not throw when cacheSize has drifted to a negative value.
+   * The Math.max(0, cacheSize) guard in clear() prevents IllegalArgumentException
+   * from ArrayList(negativeCapacity). After clear(), cacheSize must be reset to 0.
+   */
+  @Test
+  public void testClearWithNegativeCacheSizeDoesNotThrow() throws Exception {
+    // Force cacheSize to a negative value via reflection, simulating the
+    // counter drift that could occur from a future increment/decrement bug.
+    var cacheSizeField = LockFreeReadCache.class.getDeclaredField("cacheSize");
+    cacheSizeField.setAccessible(true);
+    var cacheSize = (AtomicInteger) cacheSizeField.get(readCache);
+    cacheSize.set(-5);
+
+    // clear() must not throw IllegalArgumentException.
+    readCache.clear();
+
+    // After clear(), cacheSize must be reset to 0 (not left at -5).
+    Assert.assertEquals("cacheSize must be 0 after clear()", 0, cacheSize.get());
+    Assert.assertEquals("Used memory must be 0 after clear()", 0, readCache.getUsedMemory());
   }
 
   // --- resolveCacheHitRatio tests ---
