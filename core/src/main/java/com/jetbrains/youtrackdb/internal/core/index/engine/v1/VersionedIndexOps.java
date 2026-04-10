@@ -57,8 +57,9 @@ final class VersionedIndexOps {
       long oldVersion = (Long) oldKey.getKeys().getLast();
 
       if ((removedRID instanceof RecordId || removedRID instanceof SnapshotMarkerRID)
-          && oldVersion == version) {
-        // Same TX re-put — entry is already correct, skip remove+re-insert.
+          && oldVersion == version
+          && removedRID.getIdentity().equals(value)) {
+        // Same TX re-put with identical value — entry is already correct, skip.
         return false;
       }
 
