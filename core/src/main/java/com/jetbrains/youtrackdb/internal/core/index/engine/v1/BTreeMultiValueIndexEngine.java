@@ -287,8 +287,7 @@ public final class BTreeMultiValueIndexEngine
 
       var stream = svTree
           .iterateEntriesBetween(compositeKey, true, compositeKey, true, true, atomicOperation);
-      return indexesSnapshot.visibilityFilter(atomicOperation, stream)
-          .map(RawPair::second);
+      return indexesSnapshot.visibilityFilterValues(atomicOperation, stream);
     } else {
       var prefixKey = nullTree.firstKey(atomicOperation);
       if (prefixKey == null) {
@@ -296,8 +295,7 @@ public final class BTreeMultiValueIndexEngine
       }
       var stream = nullTree.iterateEntriesMajor(
           prefixKey, true, true, atomicOperation);
-      return nullIndexesSnapshot.visibilityFilter(atomicOperation, stream)
-          .map(RawPair::second);
+      return nullIndexesSnapshot.visibilityFilterValues(atomicOperation, stream);
     }
   }
 

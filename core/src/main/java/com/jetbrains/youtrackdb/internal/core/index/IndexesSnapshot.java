@@ -115,6 +115,29 @@ public class IndexesSnapshot {
   }
 
   /**
+   * Visibility filter that returns only the visible RIDs, skipping key mapping
+   * and RawPair allocation. Use this instead of
+   * {@code visibilityFilter(...).map(RawPair::second)} when only the RID values
+   * are needed.
+   */
+  public Stream<RID> visibilityFilterValues(
+      @Nonnull AtomicOperation atomicOperation,
+      Stream<RawPair<CompositeKey, RID>> stream) {
+    var opsSnapshot = atomicOperation.getAtomicOperationsSnapshot();
+    var snapshotTs = opsSnapshot.snapshotTs();
+    var inProgressVersions = opsSnapshot.inProgressTxs();
+
+    return stream
+        .mapMulti((pair, downstream) -> {
+          var visibleRid = checkVisibility(
+              pair.first(), pair.second(), snapshotTs, inProgressVersions);
+          if (visibleRid != null) {
+            downstream.accept(visibleRid);
+          }
+        });
+  }
+
+  /**
    * Visibility filter that also maps the CompositeKey via {@code keyMapper},
    * fusing filtering and key extraction into a single pass to avoid
    * intermediate RawPair allocations.
