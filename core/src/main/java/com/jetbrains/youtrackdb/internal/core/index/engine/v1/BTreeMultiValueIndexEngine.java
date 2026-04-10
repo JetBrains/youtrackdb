@@ -284,11 +284,11 @@ public final class BTreeMultiValueIndexEngine
   public Stream<RID> get(Object key, @Nonnull AtomicOperation atomicOperation) {
     if (key != null) {
       final var compositeKey = CompositeKey.asCompositeKey(key);
-
-      var stream = svTree
-          .iterateEntriesBetween(compositeKey, true, compositeKey, true, true, atomicOperation);
-      return indexesSnapshot.visibilityFilterValues(atomicOperation, stream);
+      return svTree.getVisibleStream(compositeKey, indexesSnapshot, atomicOperation);
     } else {
+      // Null tree stores entries as [RID, version] with varying RIDs — a prefix
+      // match on firstKey() would restrict to a single RID. Use the full iteration
+      // path instead to collect all visible null-key entries.
       var prefixKey = nullTree.firstKey(atomicOperation);
       if (prefixKey == null) {
         return Stream.empty();

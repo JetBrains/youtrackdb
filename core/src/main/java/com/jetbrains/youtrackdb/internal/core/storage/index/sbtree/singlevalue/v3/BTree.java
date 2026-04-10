@@ -372,6 +372,11 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
    *
    * <p>Creates a defensive copy — the caller's key is not mutated.
    */
+  /**
+   * Builds a search key by padding to {@code keySize} with {@code Long.MIN_VALUE}.
+   * Used by {@link #getVisible} where the caller supplies all user-key elements
+   * and only the version element is missing.
+   */
   @SuppressWarnings("unchecked")
   private K buildSearchKey(K prefixKey) {
     if (prefixKey instanceof CompositeKey compositeKey) {
@@ -470,6 +475,37 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
         // On the next page, scan from the start
         foundIndex = Integer.MIN_VALUE;
       }
+    }
+  }
+
+  @Override
+  public Stream<RID> getVisibleStream(K key, IndexesSnapshot snapshot,
+      @Nonnull AtomicOperation atomicOperation) {
+    assert key instanceof CompositeKey
+        : "getVisibleStream() requires CompositeKey, got "
+            + (key == null ? "null" : key.getClass());
+    // Reuse the existing iterateEntriesBetween infrastructure for correct B-tree
+    // navigation, but collect results eagerly with inline visibility filtering
+    // to avoid the stream pipeline overhead (Spliterator + mapMulti per entry).
+    final var preprocessedKey =
+        keySerializer.preprocess(serializerFactory, key, (Object[]) keyTypes);
+
+    final var opsSnapshot = atomicOperation.getAtomicOperationsSnapshot();
+    final var snapshotTs = opsSnapshot.snapshotTs();
+    final var inProgressVersions = opsSnapshot.inProgressTxs();
+
+    try (var entryStream = iterateEntriesBetween(
+        preprocessedKey, true, preprocessedKey, true, true, atomicOperation)) {
+      final var result = new ArrayList<RID>();
+      entryStream.forEach(pair -> {
+        final var visibleRid = snapshot.checkVisibility(
+            (CompositeKey) pair.first(), pair.second(),
+            snapshotTs, inProgressVersions);
+        if (visibleRid != null) {
+          result.add(visibleRid);
+        }
+      });
+      return result.stream();
     }
   }
 

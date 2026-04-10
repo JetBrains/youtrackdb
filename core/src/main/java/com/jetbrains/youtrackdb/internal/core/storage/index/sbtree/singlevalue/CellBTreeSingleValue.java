@@ -37,6 +37,21 @@ public interface CellBTreeSingleValue<K> {
   @Nullable RID getVisible(K key, IndexesSnapshot snapshot,
       @Nonnull AtomicOperation atomicOperation);
 
+  /**
+   * Returns all visible RIDs for the given key according to snapshot isolation visibility
+   * rules. This is the multi-value variant of {@link #getVisible} — instead of returning
+   * only the first visible entry, it collects ALL visible entries with the same user-key
+   * prefix into a stream. Uses the same optimistic lock-free leaf descent with pinned
+   * fallback.
+   *
+   * @param key the user key (without version component)
+   * @param snapshot the indexes snapshot for visibility checks
+   * @param atomicOperation the current atomic operation (provides snapshot version)
+   * @return a stream of all visible RIDs for this key (may be empty)
+   */
+  Stream<RID> getVisibleStream(K key, IndexesSnapshot snapshot,
+      @Nonnull AtomicOperation atomicOperation);
+
   boolean put(@Nonnull AtomicOperation atomicOperation, K key, RID value) throws IOException;
 
   /**
