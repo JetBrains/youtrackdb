@@ -151,6 +151,9 @@ public class SBTreeBucketV2BulkOpsTest {
     var deserialized = WALRecordsFactory.INSTANCE.fromStream(content);
     Assert.assertTrue(deserialized instanceof SBTreeBucketV2AddAllOp);
     var result = (SBTreeBucketV2AddAllOp) deserialized;
+    Assert.assertEquals(original.getPageIndex(), result.getPageIndex());
+    Assert.assertEquals(original.getFileId(), result.getFileId());
+    Assert.assertEquals(original.getInitialLsn(), result.getInitialLsn());
     Assert.assertEquals(1, result.getRawEntries().size());
     Assert.assertArrayEquals(entries.get(0), result.getRawEntries().get(0));
   }
@@ -170,6 +173,9 @@ public class SBTreeBucketV2BulkOpsTest {
     var deserialized = WALRecordsFactory.INSTANCE.fromStream(content);
     Assert.assertTrue(deserialized instanceof SBTreeBucketV2ShrinkOp);
     var result = (SBTreeBucketV2ShrinkOp) deserialized;
+    Assert.assertEquals(original.getPageIndex(), result.getPageIndex());
+    Assert.assertEquals(original.getFileId(), result.getFileId());
+    Assert.assertEquals(original.getInitialLsn(), result.getInitialLsn());
     Assert.assertEquals(2, result.getRetainedEntries().size());
     Assert.assertArrayEquals(entries.get(0), result.getRetainedEntries().get(0));
     Assert.assertArrayEquals(entries.get(1), result.getRetainedEntries().get(1));
@@ -214,6 +220,7 @@ public class SBTreeBucketV2BulkOpsTest {
       new SBTreeBucketV2InitOp(0, 0, 0, lsn, true).redo(page2);
       new SBTreeBucketV2AddAllOp(0, 0, 0, lsn, new ArrayList<>(entries)).redo(page2);
 
+      Assert.assertEquals(3, page1.size());
       Assert.assertEquals(3, page2.size());
 
       Assert.assertEquals(
@@ -606,7 +613,6 @@ public class SBTreeBucketV2BulkOpsTest {
           .findFirst()
           .orElseThrow(() -> new AssertionError("No SBTreeBucketV2AddAllOp registered"));
 
-      Assert.assertNotNull(addAllOp);
       Assert.assertEquals(7, addAllOp.getPageIndex());
       Assert.assertEquals(42, addAllOp.getFileId());
     } finally {
@@ -658,7 +664,6 @@ public class SBTreeBucketV2BulkOpsTest {
           .findFirst()
           .orElseThrow(() -> new AssertionError("No SBTreeBucketV2ShrinkOp registered"));
 
-      Assert.assertNotNull(shrinkOp);
       Assert.assertEquals(1, ((SBTreeBucketV2ShrinkOp) shrinkOp).getRetainedEntries().size());
     } finally {
       delegate.releaseExclusiveLock();
@@ -715,6 +720,38 @@ public class SBTreeBucketV2BulkOpsTest {
       // Should not throw or attempt registration
       page.shrink(0, IntegerSerializer.INSTANCE, LongSerializer.INSTANCE, serializerFactory);
       Assert.assertEquals(0, page.size());
+    } finally {
+      entry.releaseExclusiveLock();
+      cachePointer.decrementReferrer();
+    }
+  }
+
+  /**
+   * resetAndAddAll on CacheEntryImpl (not CacheEntryChanges): verifies that the actual
+   * method called by ShrinkOp.redo() works without attempting registration (D4 suppression).
+   */
+  @Test
+  public void testResetAndAddAllRedoSuppression() {
+    var bufferPool = ByteBufferPool.instance(null);
+
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    cachePointer.incrementReferrer();
+    CacheEntry entry = new CacheEntryImpl(0, 0, cachePointer, false, null);
+    entry.acquireExclusiveLock();
+
+    try {
+      var page = new SBTreeBucketV2<>(entry);
+      page.init(true);
+      var entries = List.of(
+          new byte[] {1, 0, 0, 0, 0, 10, 20, 30, 40, 50, 60, 70, 80},
+          new byte[] {2, 0, 0, 0, 0, 11, 21, 31, 41, 51, 61, 71, 81});
+      page.addAll(new ArrayList<>(entries), null, null);
+      Assert.assertEquals(2, page.size());
+
+      // resetAndAddAll is the method called by ShrinkOp.redo()
+      page.resetAndAddAll(List.of(entries.get(0)));
+      Assert.assertEquals(1, page.size());
     } finally {
       entry.releaseExclusiveLock();
       cachePointer.decrementReferrer();

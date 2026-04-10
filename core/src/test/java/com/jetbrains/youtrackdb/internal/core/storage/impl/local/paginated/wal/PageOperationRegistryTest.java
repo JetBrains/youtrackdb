@@ -476,9 +476,9 @@ public class PageOperationRegistryTest {
       case WALRecordTypes.SBTREE_BUCKET_V2_UPDATE_VALUE_OP ->
           new SBTreeBucketV2UpdateValueOp(0, 0, 0, lsn, 0, new byte[] {}, 0);
       case WALRecordTypes.SBTREE_BUCKET_V2_ADD_ALL_OP ->
-          new SBTreeBucketV2AddAllOp(0, 0, 0, lsn, new java.util.ArrayList<>());
+          new SBTreeBucketV2AddAllOp(0, 0, 0, lsn, List.of());
       case WALRecordTypes.SBTREE_BUCKET_V2_SHRINK_OP ->
-          new SBTreeBucketV2ShrinkOp(0, 0, 0, lsn, new java.util.ArrayList<>());
+          new SBTreeBucketV2ShrinkOp(0, 0, 0, lsn, List.of());
 
       default -> throw new IllegalArgumentException("Unknown PageOperation ID: " + id);
     };
