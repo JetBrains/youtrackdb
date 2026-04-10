@@ -482,8 +482,6 @@ public final class BTreeMultiValueIndexEngine
     }
 
     // Use approximate count for bucket sizing, scan for exact count + keys.
-    // Null entries live in nullTree; counting visible nulls would require a
-    // full scan, so approximate null count is used.
     long approxTotal = approximateIndexEntriesCount.get();
     long approxNull = approximateNullCount.get();
 
@@ -495,7 +493,22 @@ public final class BTreeMultiValueIndexEngine
           mgr.getKeyFieldCount());
     }
 
-    // Recalibrate from exact count — persist first so that if setApproximateEntriesCount
+    // Count visible null entries for recalibration. The null tree is typically
+    // small (one entry per null-keyed document), so the scan cost is negligible
+    // compared to the svTree scan.
+    long exactNullCount;
+    var nullFirstKey = nullTree.firstKey(atomicOperation);
+    if (nullFirstKey == null) {
+      exactNullCount = 0;
+    } else {
+      try (var nullStream = nullIndexesSnapshot.visibilityFilterValues(
+          atomicOperation,
+          nullTree.iterateEntriesMajor(nullFirstKey, true, true, atomicOperation))) {
+        exactNullCount = nullStream.count();
+      }
+    }
+
+    // Recalibrate from exact counts — persist first so that if setApproximateEntriesCount
     // throws, the in-memory counters remain at their prior (approximate) values.
     //
     // Note: if the enclosing atomic operation rolls back after this point, WAL reverts
@@ -503,7 +516,9 @@ public final class BTreeMultiValueIndexEngine
     // divergence is acceptable because counters are approximate by design and the next
     // buildInitialHistogram() or load() will recalibrate them.
     svTree.setApproximateEntriesCount(atomicOperation, scannedNonNull);
-    approximateIndexEntriesCount.set(scannedNonNull + approxNull);
+    nullTree.setApproximateEntriesCount(atomicOperation, exactNullCount);
+    approximateNullCount.set(exactNullCount);
+    approximateIndexEntriesCount.set(scannedNonNull + exactNullCount);
   }
 
   @Override

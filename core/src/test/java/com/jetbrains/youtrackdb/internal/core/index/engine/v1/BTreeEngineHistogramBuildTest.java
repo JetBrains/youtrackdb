@@ -144,14 +144,14 @@ public class BTreeEngineHistogramBuildTest {
   }
 
   /**
-   * When approximate count diverges for multi-value, the return value from
-   * buildHistogram recalibrates the non-null counter while null count stays
-   * approximate.
+   * When approximate count diverges for multi-value, buildHistogram recalibrates
+   * the non-null counter and the null tree scan recalibrates the null counter.
    */
   @Test
   public void multiValue_buildInitialHistogram_approxDiverged_recalibrates()
       throws IOException {
     // Given: approximate counters say 20 entries (5 null), but actual sv data has 3
+    // and actual null tree has 2 visible entries (drifted from approx 5)
     var f = new MultiValueFixture();
     f.engine.addToApproximateEntriesCount(20);
     f.engine.addToApproximateNullCount(5);
@@ -162,6 +162,13 @@ public class BTreeEngineHistogramBuildTest {
             new RawPair<>(new CompositeKey("a", new RecordId(2, 1), 0L), new RecordId(2, 1)),
             new RawPair<>(new CompositeKey("b", new RecordId(2, 2), 0L), new RecordId(2, 2)),
             new RawPair<>(new CompositeKey("c", new RecordId(2, 3), 0L), new RecordId(2, 3))));
+    // Null tree has 2 visible entries (recalibrated from approx 5)
+    var nullFirstKey = new CompositeKey(new RecordId(3, 1), 0L);
+    when(f.nullTree.firstKey(f.op)).thenReturn(nullFirstKey);
+    when(f.nullTree.iterateEntriesMajor(eq(nullFirstKey), eq(true), eq(true), any()))
+        .thenAnswer(inv -> Stream.of(
+            new RawPair<>(new CompositeKey(new RecordId(3, 1), 0L), new RecordId(3, 1)),
+            new RawPair<>(new CompositeKey(new RecordId(3, 2), 0L), new RecordId(3, 2))));
     when(f.manager.getKeyFieldCount()).thenReturn(1);
     // buildHistogram scans 3 non-null keys and returns the exact count
     when(f.manager.buildHistogram(any(), any(), anyLong(), anyLong(), anyInt()))
@@ -169,11 +176,12 @@ public class BTreeEngineHistogramBuildTest {
 
     f.engine.buildInitialHistogram(f.op);
 
-    // Counters recalibrated: exactTotal = 3 (scanned) + 5 (approxNull) = 8
-    assertEquals(8, f.engine.getTotalCount(f.op));
-    // Null count stays approximate (no null scan for multi-value)
-    assertEquals(5, f.engine.getNullCount(f.op));
+    // Counters recalibrated: exactTotal = 3 (scanned) + 2 (exactNull) = 5
+    assertEquals(5, f.engine.getTotalCount(f.op));
+    // Null count recalibrated from approx 5 to exact 2
+    assertEquals(2, f.engine.getNullCount(f.op));
     verify(f.svTree).setApproximateEntriesCount(f.op, 3L);
+    verify(f.nullTree).setApproximateEntriesCount(f.op, 2L);
   }
 
   /**
@@ -211,12 +219,13 @@ public class BTreeEngineHistogramBuildTest {
 
   /**
    * When buildHistogram returns 0 for multi-value (empty svTree), counters
-   * must be recalibrated to reflect only the approximate null count.
+   * must be recalibrated to reflect only the exact null count.
    */
   @Test
   public void multiValue_buildInitialHistogram_emptyNonNull_recalibratesToNullOnly()
       throws IOException {
     // Given: approximate counters say 10 entries (3 null), but svTree is empty
+    // and null tree has exactly 3 visible entries
     var f = new MultiValueFixture();
     f.engine.addToApproximateEntriesCount(10);
     f.engine.addToApproximateNullCount(3);
@@ -226,6 +235,14 @@ public class BTreeEngineHistogramBuildTest {
     when(f.svTree.firstKey(f.op)).thenReturn(firstKey);
     when(f.svTree.iterateEntriesMajor(eq(firstKey), eq(true), eq(true), any()))
         .thenAnswer(inv -> Stream.empty());
+    // Null tree has 3 visible entries
+    var nullFirstKey = new CompositeKey(new RecordId(4, 1), 0L);
+    when(f.nullTree.firstKey(f.op)).thenReturn(nullFirstKey);
+    when(f.nullTree.iterateEntriesMajor(eq(nullFirstKey), eq(true), eq(true), any()))
+        .thenAnswer(inv -> Stream.of(
+            new RawPair<>(new CompositeKey(new RecordId(4, 1), 0L), new RecordId(4, 1)),
+            new RawPair<>(new CompositeKey(new RecordId(4, 2), 0L), new RecordId(4, 2)),
+            new RawPair<>(new CompositeKey(new RecordId(4, 3), 0L), new RecordId(4, 3))));
     when(f.manager.getKeyFieldCount()).thenReturn(1);
     // buildHistogram returns 0 — no non-null keys found
     when(f.manager.buildHistogram(any(), any(), anyLong(), anyLong(), anyInt()))
@@ -233,10 +250,11 @@ public class BTreeEngineHistogramBuildTest {
 
     f.engine.buildInitialHistogram(f.op);
 
-    // Counters recalibrated: exactTotal = 0 (scanned) + 3 (approxNull) = 3
+    // Counters recalibrated: exactTotal = 0 (scanned) + 3 (exactNull) = 3
     assertEquals(3, f.engine.getTotalCount(f.op));
     assertEquals(3, f.engine.getNullCount(f.op));
     verify(f.svTree).setApproximateEntriesCount(f.op, 0L);
+    verify(f.nullTree).setApproximateEntriesCount(f.op, 3L);
   }
 
   @Test
@@ -345,6 +363,12 @@ public class BTreeEngineHistogramBuildTest {
         .thenAnswer(inv -> Stream.of(
             new RawPair<>(new CompositeKey("a", new RecordId(2, 1), 0L), new RecordId(2, 1)),
             new RawPair<>(new CompositeKey("b", new RecordId(2, 2), 0L), new RecordId(2, 2))));
+    // Null tree has 1 visible entry
+    var nullFirstKey = new CompositeKey(new RecordId(3, 1), 0L);
+    when(f.nullTree.firstKey(f.op)).thenReturn(nullFirstKey);
+    when(f.nullTree.iterateEntriesMajor(eq(nullFirstKey), eq(true), eq(true), any()))
+        .thenAnswer(inv -> Stream.of(
+            new RawPair<>(new CompositeKey(new RecordId(3, 1), 0L), new RecordId(3, 1))));
     when(f.manager.getKeyFieldCount()).thenReturn(1);
     when(f.manager.buildHistogram(any(), any(), anyLong(), anyLong(), anyInt()))
         .thenReturn(2L);
@@ -359,6 +383,8 @@ public class BTreeEngineHistogramBuildTest {
     assertEquals(1, f.engine.getNullCount(f.op));
     // Non-null count persisted to svTree entry point page
     verify(f.svTree).setApproximateEntriesCount(f.op, 2L);
+    // Null count persisted to nullTree entry point page
+    verify(f.nullTree).setApproximateEntriesCount(f.op, 1L);
   }
 
   @Test
@@ -383,6 +409,8 @@ public class BTreeEngineHistogramBuildTest {
     verify(f.manager).buildHistogram(
         eq(f.op), any(), eq(2L), eq(0L), eq(1));
     verify(f.svTree).setApproximateEntriesCount(f.op, 2L);
+    // Null tree is empty (firstKey returns null by default), so exact null count = 0
+    verify(f.nullTree).setApproximateEntriesCount(f.op, 0L);
   }
 
   @Test
@@ -883,6 +911,11 @@ public class BTreeEngineHistogramBuildTest {
     var nullSnapshot = mock(IndexesSnapshot.class);
     when(nullSnapshot.visibilityFilter(any(), any()))
         .thenAnswer(inv -> inv.getArgument(1));
+    when(nullSnapshot.visibilityFilterValues(any(), any()))
+        .thenAnswer(inv -> {
+          Stream<RawPair<CompositeKey, RID>> stream = inv.getArgument(1);
+          return stream.map(RawPair::second);
+        });
     when(nullSnapshot.visibilityFilterMapped(any(), any(), any()))
         .thenAnswer(inv -> {
           Stream<RawPair<CompositeKey, RID>> stream = inv.getArgument(1);
