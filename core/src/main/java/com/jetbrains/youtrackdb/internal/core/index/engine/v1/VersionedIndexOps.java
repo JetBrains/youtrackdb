@@ -13,6 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.C
 import java.io.IOException;
 import java.util.Optional;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Shared versioned put/remove logic used by both {@link BTreeSingleValueIndexEngine}
@@ -126,5 +127,30 @@ final class VersionedIndexOps {
     snapshot.addSnapshotPair(pair.first(), newKey, value);
     IndexCountDelta.accumulate(atomicOperation, engineId, -1, isNullKey);
     return true;
+  }
+
+  /**
+   * Strips internal trailing elements from a composite key to recover the user-visible key.
+   *
+   * @param compositeKey the full internal key (may be null)
+   * @param trailingCount number of trailing internal elements to strip
+   *     (1 for single-value: version; 2 for multi-value: RID + version)
+   * @return the user key — a single element unwrapped, or a trimmed CompositeKey
+   */
+  @Nullable static Object extractUserKey(
+      final CompositeKey compositeKey, int trailingCount) {
+    if (compositeKey == null) {
+      return null;
+    }
+    final var keys = compositeKey.getKeys();
+    int userKeyCount = keys.size() - trailingCount;
+    if (userKeyCount == 1) {
+      return keys.getFirst();
+    }
+    var result = new CompositeKey(userKeyCount);
+    for (int i = 0; i < userKeyCount; i++) {
+      result.addKey(keys.get(i));
+    }
+    return result;
   }
 }

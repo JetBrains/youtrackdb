@@ -470,23 +470,9 @@ public final class BTreeMultiValueIndexEngine
     return compositeKey;
   }
 
+  // Strips RID and version (2 trailing elements) to recover the user-visible key.
   @Nullable private static Object extractKey(final CompositeKey compositeKey) {
-    if (compositeKey == null) {
-      return null;
-    }
-
-    final var keys = compositeKey.getKeys();
-    // Strip RID and version (last 2 elements) — they are internal to this engine
-    // and must not leak to the upper-layer API.
-    int userKeyCount = keys.size() - 2;
-    if (userKeyCount == 1) {
-      return keys.getFirst();
-    }
-    var result = new CompositeKey(userKeyCount);
-    for (int i = 0; i < userKeyCount; i++) {
-      result.addKey(keys.get(i));
-    }
-    return result;
+    return VersionedIndexOps.extractUserKey(compositeKey, 2);
   }
 
   @Override

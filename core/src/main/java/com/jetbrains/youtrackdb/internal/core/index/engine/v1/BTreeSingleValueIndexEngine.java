@@ -467,22 +467,9 @@ public final class BTreeSingleValueIndexEngine
     return new CompositeKey(key);
   }
 
+  // Strips the version timestamp (1 trailing element) to recover the user-visible key.
   @Nullable private static Object extractKey(final CompositeKey compositeKey) {
-    if (compositeKey == null) {
-      return null;
-    }
-    final var keys = compositeKey.getKeys();
-    // Strip the version timestamp (always the last element) — it is an internal
-    // detail of this engine and must not leak to the upper-layer API.
-    int userKeyCount = keys.size() - 1;
-    if (userKeyCount == 1) {
-      return keys.getFirst();
-    }
-    var result = new CompositeKey(userKeyCount);
-    for (int i = 0; i < userKeyCount; i++) {
-      result.addKey(keys.get(i));
-    }
-    return result;
+    return VersionedIndexOps.extractUserKey(compositeKey, 1);
   }
 
   /** Single null lookup — at most 1 entry for a unique index. */
