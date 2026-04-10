@@ -80,10 +80,16 @@ final class IndexOrderedCostModel {
     double costBias =
         GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS.getValueAsDouble();
 
-    // Union RidSet scan: build RidSet + scan (seq) + load matches
+    // Union RidSet scan: build RidSet + scan (seq) + load matches.
+    // B-tree leaf pages hold many entries (~200 per 8KB page); amortize
+    // sequential page read cost across entries instead of charging per entry.
+    int entriesPerPage =
+        GlobalConfiguration.QUERY_INDEX_ORDERED_ENTRIES_PER_PAGE
+            .getValueAsInteger();
     double costUnionScan = linkBagSize * cpu
         + seekCost
-        + expectedScanLength * (seqRead + cpu)
+        + (expectedScanLength / entriesPerPage) * seqRead
+        + expectedScanLength * cpu
         + k * randRead;
     costUnionScan *= costBias;
 
@@ -116,9 +122,14 @@ final class IndexOrderedCostModel {
 
     // Multi-source union: build RidSet + scan index (seq) + load k matches.
     // Extra cpu term per match vs single-source: reverse-edge lookup cost.
+    // Amortize sequential page reads across B-tree entries per page.
+    int entriesPerPage =
+        GlobalConfiguration.QUERY_INDEX_ORDERED_ENTRIES_PER_PAGE
+            .getValueAsInteger();
     double costUnion = totalEdges * costs.cpu
         + costs.seekCost
-        + costs.expectedScanLength * (costs.seqRead + costs.cpu)
+        + (costs.expectedScanLength / entriesPerPage) * costs.seqRead
+        + costs.expectedScanLength * costs.cpu
         + costs.k * (costs.randRead + costs.cpu);
     costUnion *= costBias;
 
