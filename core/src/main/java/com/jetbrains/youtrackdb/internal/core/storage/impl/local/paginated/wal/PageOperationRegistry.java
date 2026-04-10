@@ -18,11 +18,16 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.FreeSpaceMap
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.MapEntryPointSetFileSizeOp;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2SetApproxRecordsCountOp;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2SetFileSizeOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2AddLeafEntryOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2AddNonLeafEntryOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2InitOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2RemoveLeafEntryOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2RemoveNonLeafEntryOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2SetLeftSiblingOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2SetRightSiblingOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2SetTreeSizeOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2SwitchBucketTypeOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2UpdateValueOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeNullBucketV2InitOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeNullBucketV2RemoveValueOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeNullBucketV2SetValueOp;
@@ -362,5 +367,22 @@ public final class PageOperationRegistry {
     factory.registerNewRecord(
         WALRecordTypes.SBTREE_BUCKET_V2_SET_RIGHT_SIBLING_OP,
         SBTreeBucketV2SetRightSiblingOp.class);
+
+    // SBTreeBucketV2 entry + update operations (Track 7a)
+    factory.registerNewRecord(
+        WALRecordTypes.SBTREE_BUCKET_V2_ADD_LEAF_ENTRY_OP,
+        SBTreeBucketV2AddLeafEntryOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.SBTREE_BUCKET_V2_ADD_NON_LEAF_ENTRY_OP,
+        SBTreeBucketV2AddNonLeafEntryOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.SBTREE_BUCKET_V2_REMOVE_LEAF_ENTRY_OP,
+        SBTreeBucketV2RemoveLeafEntryOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.SBTREE_BUCKET_V2_REMOVE_NON_LEAF_ENTRY_OP,
+        SBTreeBucketV2RemoveNonLeafEntryOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.SBTREE_BUCKET_V2_UPDATE_VALUE_OP,
+        SBTreeBucketV2UpdateValueOp.class);
   }
 }

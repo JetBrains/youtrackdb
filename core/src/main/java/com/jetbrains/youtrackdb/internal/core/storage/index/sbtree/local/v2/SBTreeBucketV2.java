@@ -189,6 +189,14 @@ public final class SBTreeBucketV2<K, V> extends DurablePage {
       }
       currentPositionOffset += IntegerSerializer.INT_SIZE;
     }
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new SBTreeBucketV2RemoveLeafEntryOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), entryIndex, oldRawKey, oldRawValue));
+    }
   }
 
   public void removeNonLeafEntry(final int entryIndex, final byte[] key, final int prevChild) {
@@ -240,6 +248,14 @@ public final class SBTreeBucketV2<K, V> extends DurablePage {
             getIntValue(POSITIONS_ARRAY_OFFSET + entryIndex * IntegerSerializer.INT_SIZE);
         setLongValue(nextEntryPosition, prevChild);
       }
+    }
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new SBTreeBucketV2RemoveNonLeafEntryOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), entryIndex, key, prevChild));
     }
   }
 
@@ -487,6 +503,14 @@ public final class SBTreeBucketV2<K, V> extends DurablePage {
     setByteValue(freePointer + serializedKey.length, (byte) 0);
     setBinaryValue(freePointer + serializedKey.length + ByteSerializer.BYTE_SIZE, serializedValue);
 
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new SBTreeBucketV2AddLeafEntryOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), index, serializedKey, serializedValue));
+    }
+
     return true;
   }
 
@@ -550,6 +574,15 @@ public final class SBTreeBucketV2<K, V> extends DurablePage {
       }
     }
 
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new SBTreeBucketV2AddNonLeafEntryOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), index, key, leftChild, rightChild,
+              updateNeighbours));
+    }
+
     return true;
   }
 
@@ -563,6 +596,14 @@ public final class SBTreeBucketV2<K, V> extends DurablePage {
     entryPosition += ByteSerializer.BYTE_SIZE;
 
     setBinaryValue(entryPosition, value);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new SBTreeBucketV2UpdateValueOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), index, value, keySize));
+    }
   }
 
   public void setLeftSibling(long pageIndex) {

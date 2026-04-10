@@ -336,4 +336,12 @@ public final class WALRecordTypes {
   public static final int SBTREE_BUCKET_V2_SET_TREE_SIZE_OP = PAGE_OPERATION_ID_BASE + 69;
   public static final int SBTREE_BUCKET_V2_SET_LEFT_SIBLING_OP = PAGE_OPERATION_ID_BASE + 70;
   public static final int SBTREE_BUCKET_V2_SET_RIGHT_SIBLING_OP = PAGE_OPERATION_ID_BASE + 71;
+
+  // SBTreeBucketV2 entry + update operations (Track 7a)
+  public static final int SBTREE_BUCKET_V2_ADD_LEAF_ENTRY_OP = PAGE_OPERATION_ID_BASE + 72;
+  public static final int SBTREE_BUCKET_V2_ADD_NON_LEAF_ENTRY_OP = PAGE_OPERATION_ID_BASE + 73;
+  public static final int SBTREE_BUCKET_V2_REMOVE_LEAF_ENTRY_OP = PAGE_OPERATION_ID_BASE + 74;
+  public static final int SBTREE_BUCKET_V2_REMOVE_NON_LEAF_ENTRY_OP =
+      PAGE_OPERATION_ID_BASE + 75;
+  public static final int SBTREE_BUCKET_V2_UPDATE_VALUE_OP = PAGE_OPERATION_ID_BASE + 76;
 }

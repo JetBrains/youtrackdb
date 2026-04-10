@@ -19,11 +19,16 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.MapEntryPoin
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2SetApproxRecordsCountOp;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2SetFileSizeOp;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.WriteableWALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2AddLeafEntryOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2AddNonLeafEntryOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2InitOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2RemoveLeafEntryOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2RemoveNonLeafEntryOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2SetLeftSiblingOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2SetRightSiblingOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2SetTreeSizeOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2SwitchBucketTypeOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2UpdateValueOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeNullBucketV2InitOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeNullBucketV2RemoveValueOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeNullBucketV2SetValueOp;
@@ -231,17 +236,17 @@ public class PageOperationRegistryTest {
   /** Verifies the expected total count of registered types — catches accidentally omitted types. */
   @Test
   public void testRegisteredTypeCount() {
-    // IDs 201-271 = 71 types (18 Track 2-3 + 20 Track 5 + 25 Track 6 + 8 Track 7a).
+    // IDs 201-276 = 76 types (18 Track 2-3 + 20 Track 5 + 25 Track 6 + 13 Track 7a).
     // Each ID must have both a createOpForId entry and a factory registration.
     // createOpForId throws for unknown IDs, so any gap causes immediate failure.
     int registeredCount = 0;
     for (int id = WALRecordTypes.PAGE_OPERATION_ID_BASE + 1;
-        id <= WALRecordTypes.PAGE_OPERATION_ID_BASE + 71; id++) {
+        id <= WALRecordTypes.PAGE_OPERATION_ID_BASE + 76; id++) {
       var testOp = createMinimalRecord(id);
       Assert.assertNotNull("WAL record ID " + id + " failed to roundtrip", testOp);
       registeredCount++;
     }
-    Assert.assertEquals("Expected 71 registered PageOperation types", 71, registeredCount);
+    Assert.assertEquals("Expected 76 registered PageOperation types", 76, registeredCount);
   }
 
   /**
@@ -454,6 +459,20 @@ public class PageOperationRegistryTest {
           new SBTreeBucketV2SetLeftSiblingOp(0, 0, 0, lsn, 0L);
       case WALRecordTypes.SBTREE_BUCKET_V2_SET_RIGHT_SIBLING_OP ->
           new SBTreeBucketV2SetRightSiblingOp(0, 0, 0, lsn, 0L);
+
+      // Track 7a: SBTreeBucketV2 entry + update (5 ops)
+      case WALRecordTypes.SBTREE_BUCKET_V2_ADD_LEAF_ENTRY_OP ->
+          new SBTreeBucketV2AddLeafEntryOp(0, 0, 0, lsn, 0, new byte[] {}, new byte[] {});
+      case WALRecordTypes.SBTREE_BUCKET_V2_ADD_NON_LEAF_ENTRY_OP ->
+          new SBTreeBucketV2AddNonLeafEntryOp(
+              0, 0, 0, lsn, 0, new byte[] {}, 0L, 0L, false);
+      case WALRecordTypes.SBTREE_BUCKET_V2_REMOVE_LEAF_ENTRY_OP ->
+          new SBTreeBucketV2RemoveLeafEntryOp(
+              0, 0, 0, lsn, 0, new byte[] {}, new byte[] {});
+      case WALRecordTypes.SBTREE_BUCKET_V2_REMOVE_NON_LEAF_ENTRY_OP ->
+          new SBTreeBucketV2RemoveNonLeafEntryOp(0, 0, 0, lsn, 0, new byte[] {}, 0);
+      case WALRecordTypes.SBTREE_BUCKET_V2_UPDATE_VALUE_OP ->
+          new SBTreeBucketV2UpdateValueOp(0, 0, 0, lsn, 0, new byte[] {}, 0);
 
       default -> throw new IllegalArgumentException("Unknown PageOperation ID: " + id);
     };
