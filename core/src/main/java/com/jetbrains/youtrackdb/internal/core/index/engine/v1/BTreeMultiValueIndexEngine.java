@@ -251,10 +251,18 @@ public final class BTreeMultiValueIndexEngine
     indexesSnapshot.clear();
     nullIndexesSnapshot.clear();
     // In-memory counters are set eagerly inside the atomic operation. If the
-    // enclosing transaction rolls back, WAL reverts the persisted pages but these
-    // counters will remain at 0, temporarily diverging from the on-disk state.
-    // This is acceptable because counters are approximate by design and will be
-    // recalibrated on the next buildInitialHistogram() call or on load().
+    // enclosing transaction rolls back:
+    // 1. WAL reverts the persisted page to pre-clear count (e.g., 1000)
+    // 2. In-memory counters stay at 0
+    // 3. Next commit's persistCountDelta adds delta (e.g., +5) to reverted
+    //    page → 1005
+    // 4. applyIndexCountDeltas adds delta to in-memory 0 → 5
+    // 5. On restart, load() reads 1005, diverging from the 5 the live
+    //    instance has
+    //
+    // Self-healing: buildInitialHistogram() recalibrates both from an exact
+    // scan. This divergence is tolerable because counters are approximate and
+    // rollback of clear() is an extremely rare edge case.
     approximateIndexEntriesCount.set(0);
     approximateNullCount.set(0);
     var mgr = histogramManager;
