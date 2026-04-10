@@ -663,9 +663,16 @@ public class MatchExecutionPlanner {
         }
         // Multi-field + candidate → primary key cutoff hint for early
         // termination in the bounded heap.
+        // Disabled when RETURN DISTINCT: early termination stops reading
+        // when primary key worsens, but the bounded heap may contain
+        // duplicates that DistinctStep will remove — producing fewer
+        // than LIMIT distinct results. Without the hint, the bounded
+        // heap still reads all upstream rows (no early termination),
+        // matching the pre-existing behavior.
         SQLOrderByItem primaryHint = null;
         if (indexOrderedCandidate != null
-            && indexOrderedCandidate.multiFieldOrderBy()) {
+            && indexOrderedCandidate.multiFieldOrderBy()
+            && !this.returnDistinct) {
           primaryHint = orderBy.getItems().getFirst();
         }
         // indexOrderedUpstream: OrderByStep checks runtime context variable
@@ -718,7 +725,8 @@ public class MatchExecutionPlanner {
       if (indexOrderedCandidate != null
           && this.groupBy == null) {
         info.indexOrderedUpstream = true;
-        if (indexOrderedCandidate.multiFieldOrderBy()) {
+        if (indexOrderedCandidate.multiFieldOrderBy()
+            && !this.returnDistinct) {
           info.primaryKeySortedInput = orderBy.getItems().getFirst();
         }
       }
