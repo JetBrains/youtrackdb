@@ -24,6 +24,7 @@ public final class BTreeMVEntryPointV2SetTreeSizeOp extends PageOperation {
       long pageIndex, long fileId, long operationUnitId,
       LogSequenceNumber initialLsn, long size) {
     super(pageIndex, fileId, operationUnitId, initialLsn);
+    assert size >= 0 : "tree size must be non-negative, was: " + size;
     this.size = size;
   }
 

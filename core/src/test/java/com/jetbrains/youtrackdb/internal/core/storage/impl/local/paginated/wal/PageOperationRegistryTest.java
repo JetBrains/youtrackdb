@@ -317,7 +317,7 @@ public class PageOperationRegistryTest {
       case WALRecordTypes.BTREE_MV_ENTRY_POINT_V2_SET_TREE_SIZE_OP ->
           new BTreeMVEntryPointV2SetTreeSizeOp(0, 0, 0, lsn, 0L);
       case WALRecordTypes.BTREE_MV_ENTRY_POINT_V2_SET_PAGES_SIZE_OP ->
-          new BTreeMVEntryPointV2SetPagesSizeOp(0, 0, 0, lsn, 0);
+          new BTreeMVEntryPointV2SetPagesSizeOp(0, 0, 0, lsn, 1);
       case WALRecordTypes.BTREE_MV_ENTRY_POINT_V2_SET_ENTRY_ID_OP ->
           new BTreeMVEntryPointV2SetEntryIdOp(0, 0, 0, lsn, 0L);
 

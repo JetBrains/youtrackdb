@@ -24,6 +24,7 @@ public final class BTreeMVEntryPointV2SetEntryIdOp extends PageOperation {
       long pageIndex, long fileId, long operationUnitId,
       LogSequenceNumber initialLsn, long id) {
     super(pageIndex, fileId, operationUnitId, initialLsn);
+    assert id >= 0 : "entry id must be non-negative, was: " + id;
     this.id = id;
   }
 

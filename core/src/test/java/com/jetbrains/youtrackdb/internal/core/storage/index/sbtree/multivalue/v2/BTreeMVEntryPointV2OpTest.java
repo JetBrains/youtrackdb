@@ -187,7 +187,29 @@ public class BTreeMVEntryPointV2OpTest {
 
     Assert.assertTrue(deserialized instanceof BTreeMVEntryPointV2SetTreeSizeOp);
     var result = (BTreeMVEntryPointV2SetTreeSizeOp) deserialized;
+    Assert.assertEquals(original.getPageIndex(), result.getPageIndex());
+    Assert.assertEquals(original.getFileId(), result.getFileId());
+    Assert.assertEquals(original.getInitialLsn(), result.getInitialLsn());
     Assert.assertEquals(987654321L, result.getSize());
+  }
+
+  @Test
+  public void testSetPagesSizeOpFactoryRoundtrip() {
+    var initialLsn = new LogSequenceNumber(77, 3072);
+    var original = new BTreeMVEntryPointV2SetPagesSizeOp(5, 10, 15, initialLsn, 512);
+
+    ByteBuffer serialized = WALRecordsFactory.toStream(original);
+    var content = new byte[serialized.limit()];
+    serialized.get(0, content);
+
+    var deserialized = WALRecordsFactory.INSTANCE.fromStream(content);
+
+    Assert.assertTrue(deserialized instanceof BTreeMVEntryPointV2SetPagesSizeOp);
+    var result = (BTreeMVEntryPointV2SetPagesSizeOp) deserialized;
+    Assert.assertEquals(original.getPageIndex(), result.getPageIndex());
+    Assert.assertEquals(original.getFileId(), result.getFileId());
+    Assert.assertEquals(original.getInitialLsn(), result.getInitialLsn());
+    Assert.assertEquals(512, result.getPages());
   }
 
   @Test
@@ -203,6 +225,9 @@ public class BTreeMVEntryPointV2OpTest {
 
     Assert.assertTrue(deserialized instanceof BTreeMVEntryPointV2SetEntryIdOp);
     var result = (BTreeMVEntryPointV2SetEntryIdOp) deserialized;
+    Assert.assertEquals(original.getPageIndex(), result.getPageIndex());
+    Assert.assertEquals(original.getFileId(), result.getFileId());
+    Assert.assertEquals(original.getInitialLsn(), result.getInitialLsn());
     Assert.assertEquals(1234567890L, result.getEntryId());
   }
 
@@ -671,6 +696,113 @@ public class BTreeMVEntryPointV2OpTest {
     } finally {
       entry.releaseExclusiveLock();
       cachePointer.decrementReferrer();
+    }
+  }
+
+  @Test
+  public void testSetPagesSizeRedoIdempotency() {
+    var bufferPool = ByteBufferPool.instance(null);
+
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    cachePointer.incrementReferrer();
+    CacheEntry entry = new CacheEntryImpl(0, 0, cachePointer, false, null);
+    entry.acquireExclusiveLock();
+
+    try {
+      var page = new CellBTreeMultiValueV2EntryPoint<>(entry);
+      page.init();
+
+      var op = new BTreeMVEntryPointV2SetPagesSizeOp(
+          0, 0, 0, new LogSequenceNumber(0, 0), 77);
+      op.redo(page);
+      op.redo(page);
+
+      Assert.assertEquals(77, page.getPagesSize());
+    } finally {
+      entry.releaseExclusiveLock();
+      cachePointer.decrementReferrer();
+    }
+  }
+
+  @Test
+  public void testSetEntryIdRedoIdempotency() {
+    var bufferPool = ByteBufferPool.instance(null);
+
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    cachePointer.incrementReferrer();
+    CacheEntry entry = new CacheEntryImpl(0, 0, cachePointer, false, null);
+    entry.acquireExclusiveLock();
+
+    try {
+      var page = new CellBTreeMultiValueV2EntryPoint<>(entry);
+      page.init();
+
+      var op = new BTreeMVEntryPointV2SetEntryIdOp(
+          0, 0, 0, new LogSequenceNumber(0, 0), 9999L);
+      op.redo(page);
+      op.redo(page);
+
+      Assert.assertEquals(9999L, page.getEntryId());
+    } finally {
+      entry.releaseExclusiveLock();
+      cachePointer.decrementReferrer();
+    }
+  }
+
+  // ---------- Multi-operation redo sequence test ----------
+
+  /**
+   * Replays a realistic sequence of operations (init + setTreeSize + setPagesSize + setEntryId)
+   * via redo on one page and via direct mutation on another, then compares byte-for-byte.
+   * Catches offset collision bugs that individual redo tests cannot detect.
+   */
+  @Test
+  public void testEntryPointMultiOpRedoSequence() {
+    var bufferPool = ByteBufferPool.instance(null);
+
+    var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer1 = new CachePointer(pointer1, bufferPool, 0, 0);
+    cachePointer1.incrementReferrer();
+    CacheEntry entry1 = new CacheEntryImpl(0, 0, cachePointer1, false, null);
+    entry1.acquireExclusiveLock();
+
+    var pointer2 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer2 = new CachePointer(pointer2, bufferPool, 0, 0);
+    cachePointer2.incrementReferrer();
+    CacheEntry entry2 = new CacheEntryImpl(0, 0, cachePointer2, false, null);
+    entry2.acquireExclusiveLock();
+
+    try {
+      var lsn = new LogSequenceNumber(0, 0);
+
+      // Apply directly on page1
+      var page1 = new CellBTreeMultiValueV2EntryPoint<>(entry1);
+      page1.init();
+      page1.setTreeSize(5000);
+      page1.setPagesSize(50);
+      page1.setEntryId(7777);
+
+      // Replay same sequence via redo on page2
+      var page2 = new CellBTreeMultiValueV2EntryPoint<>(entry2);
+      new BTreeMVEntryPointV2InitOp(0, 0, 0, lsn).redo(page2);
+      new BTreeMVEntryPointV2SetTreeSizeOp(0, 0, 0, lsn, 5000).redo(page2);
+      new BTreeMVEntryPointV2SetPagesSizeOp(0, 0, 0, lsn, 50).redo(page2);
+      new BTreeMVEntryPointV2SetEntryIdOp(0, 0, 0, lsn, 7777).redo(page2);
+
+      Assert.assertEquals(5000, page2.getTreeSize());
+      Assert.assertEquals(50, page2.getPagesSize());
+      Assert.assertEquals(7777, page2.getEntryId());
+
+      var buf1 = cachePointer1.getBuffer();
+      var buf2 = cachePointer2.getBuffer();
+      Assert.assertEquals(0, buf1.compareTo(buf2));
+    } finally {
+      entry1.releaseExclusiveLock();
+      entry2.releaseExclusiveLock();
+      cachePointer1.decrementReferrer();
+      cachePointer2.decrementReferrer();
     }
   }
 

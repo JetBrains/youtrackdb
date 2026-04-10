@@ -24,6 +24,7 @@ public final class BTreeMVEntryPointV2SetPagesSizeOp extends PageOperation {
       long pageIndex, long fileId, long operationUnitId,
       LogSequenceNumber initialLsn, int pages) {
     super(pageIndex, fileId, operationUnitId, initialLsn);
+    assert pages > 0 : "pages must be positive, was: " + pages;
     this.pages = pages;
   }
 
