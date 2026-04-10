@@ -174,6 +174,10 @@ public class SBTreeBucketV2SimpleOpsTest {
 
     var deserialized = WALRecordsFactory.INSTANCE.fromStream(content);
     Assert.assertTrue(deserialized instanceof SBTreeBucketV2SwitchBucketTypeOp);
+    var result = (SBTreeBucketV2SwitchBucketTypeOp) deserialized;
+    Assert.assertEquals(original.getPageIndex(), result.getPageIndex());
+    Assert.assertEquals(original.getFileId(), result.getFileId());
+    Assert.assertEquals(original.getInitialLsn(), result.getInitialLsn());
   }
 
   @Test
@@ -431,7 +435,14 @@ public class SBTreeBucketV2SimpleOpsTest {
     CacheEntry entry = new CacheEntryImpl(0, 0, cp, false, null);
     entry.acquireExclusiveLock();
     try {
-      new SBTreeBucketV2<>(entry).init(true);
+      var bucket = new SBTreeBucketV2<>(entry);
+      bucket.init(true);
+      // Verify page was actually modified (not a no-op)
+      Assert.assertTrue(bucket.isLeaf());
+      Assert.assertEquals(0, bucket.size());
+      Assert.assertEquals(0L, bucket.getTreeSize());
+      Assert.assertEquals(-1L, bucket.getLeftSibling());
+      Assert.assertEquals(-1L, bucket.getRightSibling());
     } finally {
       entry.releaseExclusiveLock();
       cp.decrementReferrer();
@@ -449,7 +460,10 @@ public class SBTreeBucketV2SimpleOpsTest {
     try {
       var bucket = new SBTreeBucketV2<>(entry);
       bucket.init(true);
+      Assert.assertTrue(bucket.isLeaf());
       bucket.switchBucketType();
+      // Verify the toggle actually happened
+      Assert.assertFalse(bucket.isLeaf());
     } finally {
       entry.releaseExclusiveLock();
       cp.decrementReferrer();
@@ -492,5 +506,64 @@ public class SBTreeBucketV2SimpleOpsTest {
     Assert.assertEquals(op1, op2);
     Assert.assertEquals(op1.hashCode(), op2.hashCode());
     Assert.assertNotEquals(op1, op3);
+  }
+
+  @Test
+  public void testSetRightSiblingOpEqualsAndHashCode() {
+    var lsn = new LogSequenceNumber(1, 1);
+    var op1 = new SBTreeBucketV2SetRightSiblingOp(10, 20, 30, lsn, 5L);
+    var op2 = new SBTreeBucketV2SetRightSiblingOp(10, 20, 30, lsn, 5L);
+    var op3 = new SBTreeBucketV2SetRightSiblingOp(10, 20, 30, lsn, 7L);
+
+    Assert.assertEquals(op1, op2);
+    Assert.assertEquals(op1.hashCode(), op2.hashCode());
+    Assert.assertNotEquals(op1, op3);
+  }
+
+  // ---- Boundary value tests (Long.MAX_VALUE catches truncation to int) ----
+
+  @Test
+  public void testSetTreeSizeOpSerializationRoundtripMaxValue() {
+    var lsn = new LogSequenceNumber(1, 42);
+    var original = new SBTreeBucketV2SetTreeSizeOp(10, 20, 30, lsn, Long.MAX_VALUE);
+
+    var content = new byte[original.serializedSize() + 1];
+    original.toStream(content, 1);
+
+    var deserialized = new SBTreeBucketV2SetTreeSizeOp();
+    deserialized.fromStream(content, 1);
+
+    Assert.assertEquals(Long.MAX_VALUE, deserialized.getSize());
+    Assert.assertEquals(original, deserialized);
+  }
+
+  @Test
+  public void testSetLeftSiblingOpFactoryRoundtripMaxValue() {
+    var original = new SBTreeBucketV2SetLeftSiblingOp(7, 14, 21,
+        new LogSequenceNumber(66, 660), Long.MAX_VALUE);
+
+    ByteBuffer serialized = WALRecordsFactory.toStream(original);
+    var content = new byte[serialized.limit()];
+    serialized.get(0, content);
+
+    var deserialized = WALRecordsFactory.INSTANCE.fromStream(content);
+    Assert.assertTrue(deserialized instanceof SBTreeBucketV2SetLeftSiblingOp);
+    Assert.assertEquals(Long.MAX_VALUE,
+        ((SBTreeBucketV2SetLeftSiblingOp) deserialized).getSiblingPageIndex());
+  }
+
+  @Test
+  public void testSetRightSiblingOpFactoryRoundtripMaxValue() {
+    var original = new SBTreeBucketV2SetRightSiblingOp(5, 10, 15,
+        new LogSequenceNumber(88, 880), Long.MAX_VALUE);
+
+    ByteBuffer serialized = WALRecordsFactory.toStream(original);
+    var content = new byte[serialized.limit()];
+    serialized.get(0, content);
+
+    var deserialized = WALRecordsFactory.INSTANCE.fromStream(content);
+    Assert.assertTrue(deserialized instanceof SBTreeBucketV2SetRightSiblingOp);
+    Assert.assertEquals(Long.MAX_VALUE,
+        ((SBTreeBucketV2SetRightSiblingOp) deserialized).getSiblingPageIndex());
   }
 }

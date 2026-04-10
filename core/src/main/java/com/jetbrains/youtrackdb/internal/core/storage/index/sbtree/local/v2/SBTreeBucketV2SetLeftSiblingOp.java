@@ -14,22 +14,22 @@ public final class SBTreeBucketV2SetLeftSiblingOp extends PageOperation {
 
   public static final int RECORD_ID = WALRecordTypes.SBTREE_BUCKET_V2_SET_LEFT_SIBLING_OP;
 
-  private long pageIndex;
+  private long siblingPageIndex;
 
   public SBTreeBucketV2SetLeftSiblingOp() {
   }
 
   public SBTreeBucketV2SetLeftSiblingOp(
       long targetPageIndex, long fileId, long operationUnitId,
-      LogSequenceNumber initialLsn, long pageIndex) {
+      LogSequenceNumber initialLsn, long siblingPageIndex) {
     super(targetPageIndex, fileId, operationUnitId, initialLsn);
-    this.pageIndex = pageIndex;
+    this.siblingPageIndex = siblingPageIndex;
   }
 
   @Override
   public void redo(DurablePage page) {
     var bucket = new SBTreeBucketV2<>(page.getCacheEntry());
-    bucket.setLeftSibling(pageIndex);
+    bucket.setLeftSibling(siblingPageIndex);
   }
 
   @Override
@@ -38,7 +38,7 @@ public final class SBTreeBucketV2SetLeftSiblingOp extends PageOperation {
   }
 
   public long getSiblingPageIndex() {
-    return pageIndex;
+    return siblingPageIndex;
   }
 
   @Override
@@ -49,13 +49,13 @@ public final class SBTreeBucketV2SetLeftSiblingOp extends PageOperation {
   @Override
   protected void serializeToByteBuffer(ByteBuffer buffer) {
     super.serializeToByteBuffer(buffer);
-    buffer.putLong(pageIndex);
+    buffer.putLong(siblingPageIndex);
   }
 
   @Override
   protected void deserializeFromByteBuffer(ByteBuffer buffer) {
     super.deserializeFromByteBuffer(buffer);
-    pageIndex = buffer.getLong();
+    siblingPageIndex = buffer.getLong();
   }
 
   @Override
@@ -69,18 +69,18 @@ public final class SBTreeBucketV2SetLeftSiblingOp extends PageOperation {
     if (!super.equals(o)) {
       return false;
     }
-    return pageIndex == that.pageIndex;
+    return siblingPageIndex == that.siblingPageIndex;
   }
 
   @Override
   public int hashCode() {
     var result = super.hashCode();
-    result = 31 * result + (int) (pageIndex ^ (pageIndex >>> 32));
+    result = 31 * result + (int) (siblingPageIndex ^ (siblingPageIndex >>> 32));
     return result;
   }
 
   @Override
   public String toString() {
-    return toString("pageIndex=" + pageIndex);
+    return toString("siblingPageIndex=" + siblingPageIndex);
   }
 }

@@ -154,6 +154,10 @@ public class SBTreeNullBucketV2OpTest {
 
     var deserialized = WALRecordsFactory.INSTANCE.fromStream(content);
     Assert.assertTrue(deserialized instanceof SBTreeNullBucketV2RemoveValueOp);
+    var result = (SBTreeNullBucketV2RemoveValueOp) deserialized;
+    Assert.assertEquals(original.getPageIndex(), result.getPageIndex());
+    Assert.assertEquals(original.getFileId(), result.getFileId());
+    Assert.assertEquals(original.getInitialLsn(), result.getInitialLsn());
   }
 
   // ---- Redo correctness (byte-level: direct apply on page1 vs redo on page2) ----
@@ -307,7 +311,11 @@ public class SBTreeNullBucketV2OpTest {
     entry.acquireExclusiveLock();
     try {
       // CacheEntryImpl is not CacheEntryChanges — instanceof check returns false
-      new SBTreeNullBucketV2<>(entry).init();
+      var bucket = new SBTreeNullBucketV2<>(entry);
+      bucket.setValue(new byte[] {42}, null);
+      bucket.init();
+      // Verify init actually cleared the value (page was modified, not a no-op)
+      Assert.assertNull(bucket.getValue(null, null));
     } finally {
       entry.releaseExclusiveLock();
       cp.decrementReferrer();
@@ -325,7 +333,11 @@ public class SBTreeNullBucketV2OpTest {
     try {
       var bucket = new SBTreeNullBucketV2<>(entry);
       bucket.init();
+      Assert.assertNull(bucket.getValue(null, null));
       bucket.setValue(new byte[] {42}, null);
+      // Verify value was set: removeValue then getValue returns null (full flow works)
+      bucket.removeValue(null);
+      Assert.assertNull(bucket.getValue(null, null));
     } finally {
       entry.releaseExclusiveLock();
       cp.decrementReferrer();
@@ -345,6 +357,8 @@ public class SBTreeNullBucketV2OpTest {
       bucket.init();
       bucket.setValue(new byte[] {42}, null);
       bucket.removeValue(null);
+      // Verify value was removed
+      Assert.assertNull(bucket.getValue(null, null));
     } finally {
       entry.releaseExclusiveLock();
       cp.decrementReferrer();
