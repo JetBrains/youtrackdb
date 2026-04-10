@@ -726,8 +726,10 @@ public class IndexHistogramManager extends StorageComponent {
    *                     used only for bucket sizing and early-exit threshold)
    * @param nullCount    number of null entries (may be approximate)
    * @param keyFieldCnt  number of key fields (1 for simple, >1 for composite)
-   * @return exact count of non-null keys consumed from the stream, so callers
-   *         can recalibrate approximate counters without a separate scan
+   * @return for the normal path: exact count of non-null keys consumed from the
+   *     stream (callers can use this to recalibrate approximate counters). For the
+   *     early-exit path (nonNullCount < histogramMinSize): the approximate
+   *     {@code totalCount - nullCount} input — no stream elements are consumed.
    */
   public long buildHistogram(AtomicOperation op, Stream<Object> sortedKeys,
       long totalCount, long nullCount, int keyFieldCnt) throws IOException {
@@ -742,6 +744,8 @@ public class IndexHistogramManager extends StorageComponent {
           stats, null, 0, totalCount, 0, false, null, false);
       cache.put(engineId, snapshot);
       writeSnapshotToPage(op, snapshot);
+      // Early exit: return approximate count (no stream consumed).
+      // Callers' "recalibration" is effectively a no-op for small indexes.
       return nonNullCount;
     }
 
