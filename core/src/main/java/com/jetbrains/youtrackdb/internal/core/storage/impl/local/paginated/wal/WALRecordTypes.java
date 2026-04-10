@@ -344,4 +344,8 @@ public final class WALRecordTypes {
   public static final int SBTREE_BUCKET_V2_REMOVE_NON_LEAF_ENTRY_OP =
       PAGE_OPERATION_ID_BASE + 75;
   public static final int SBTREE_BUCKET_V2_UPDATE_VALUE_OP = PAGE_OPERATION_ID_BASE + 76;
+
+  // SBTreeBucketV2 bulk operations (Track 7a)
+  public static final int SBTREE_BUCKET_V2_ADD_ALL_OP = PAGE_OPERATION_ID_BASE + 77;
+  public static final int SBTREE_BUCKET_V2_SHRINK_OP = PAGE_OPERATION_ID_BASE + 78;
 }

@@ -18,6 +18,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.FreeSpaceMap
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.MapEntryPointSetFileSizeOp;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2SetApproxRecordsCountOp;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2SetFileSizeOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2AddAllOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2AddLeafEntryOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2AddNonLeafEntryOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2InitOp;
@@ -26,6 +27,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTr
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2SetLeftSiblingOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2SetRightSiblingOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2SetTreeSizeOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2ShrinkOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2SwitchBucketTypeOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2UpdateValueOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeNullBucketV2InitOp;
@@ -94,7 +96,7 @@ public final class PageOperationRegistry {
    * registered with its unique WAL record type ID (see {@link WALRecordTypes}).
    *
    * <p>Currently registers Track 2-3 types (IDs 201-218), Track 5 types (IDs 219-238),
-   * Track 6 types (IDs 239-263), and Track 7a types (IDs 264-271):
+   * Track 6 types (IDs 239-263), and Track 7a types (IDs 264-278):
    * <ul>
    *   <li>PaginatedCollectionStateV2 (2 ops)</li>
    *   <li>CollectionPage (5 ops)</li>
@@ -116,6 +118,9 @@ public final class PageOperationRegistry {
    *       shrinkLeaf, shrinkNonLeaf)</li>
    *   <li>SBTreeNullBucketV2 (3 ops: init, setValue, removeValue)</li>
    *   <li>SBTreeBucketV2 simple (5 ops: init, switchType, treeSize, siblings)</li>
+   *   <li>SBTreeBucketV2 entry (5 ops: addLeaf, addNonLeaf, removeLeaf, removeNonLeaf,
+   *       updateValue)</li>
+   *   <li>SBTreeBucketV2 bulk (2 ops: addAll, shrink)</li>
    * </ul>
    */
   public static void registerAll(WALRecordsFactory factory) {
@@ -384,5 +389,13 @@ public final class PageOperationRegistry {
     factory.registerNewRecord(
         WALRecordTypes.SBTREE_BUCKET_V2_UPDATE_VALUE_OP,
         SBTreeBucketV2UpdateValueOp.class);
+
+    // SBTreeBucketV2 bulk operations (Track 7a)
+    factory.registerNewRecord(
+        WALRecordTypes.SBTREE_BUCKET_V2_ADD_ALL_OP,
+        SBTreeBucketV2AddAllOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.SBTREE_BUCKET_V2_SHRINK_OP,
+        SBTreeBucketV2ShrinkOp.class);
   }
 }

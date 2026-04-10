@@ -32,7 +32,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.CacheEntryChanges;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 
@@ -437,7 +436,22 @@ public final class SBTreeBucketV2<K, V> extends DurablePage {
       appendRawEntry(i + currentSize, rawEntries.get(i));
     }
 
-    setIntValue(SIZE_OFFSET, rawEntries.size() + currentSize);
+    var newSize = rawEntries.size() + currentSize;
+    setIntValue(SIZE_OFFSET, newSize);
+
+    assert getIntValue(FREE_POINTER_OFFSET)
+        >= POSITIONS_ARRAY_OFFSET + newSize * IntegerSerializer.INT_SIZE
+        : "addAll: free pointer " + getIntValue(FREE_POINTER_OFFSET)
+            + " overflows positions array end at "
+            + (POSITIONS_ARRAY_OFFSET + newSize * IntegerSerializer.INT_SIZE);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new SBTreeBucketV2AddAllOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), rawEntries));
+    }
   }
 
   public void shrink(
@@ -450,18 +464,6 @@ public final class SBTreeBucketV2<K, V> extends DurablePage {
       rawEntries.add(getRawEntry(i, keySerializer, valueSerializer, serializerFactory));
     }
 
-    final var oldSize = getIntValue(SIZE_OFFSET);
-    final List<byte[]> removedEntries;
-    if (newSize == oldSize) {
-      removedEntries = Collections.emptyList();
-    } else {
-      removedEntries = new ArrayList<>(oldSize - newSize);
-
-      for (var i = newSize; i < oldSize; i++) {
-        removedEntries.add(getRawEntry(i, keySerializer, valueSerializer, serializerFactory));
-      }
-    }
-
     setIntValue(FREE_POINTER_OFFSET, PAGE_SIZE);
 
     var index = 0;
@@ -471,6 +473,26 @@ public final class SBTreeBucketV2<K, V> extends DurablePage {
     }
 
     setIntValue(SIZE_OFFSET, newSize);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new SBTreeBucketV2ShrinkOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), rawEntries));
+    }
+  }
+
+  /**
+   * Package-private: used by {@link SBTreeBucketV2ShrinkOp#redo} during crash recovery. Resets the
+   * page (freePointer to MAX_PAGE_SIZE_BYTES, size to 0) and re-appends the retained entries.
+   */
+  void resetAndAddAll(List<byte[]> entries) {
+    setIntValue(FREE_POINTER_OFFSET, MAX_PAGE_SIZE_BYTES);
+    setIntValue(SIZE_OFFSET, 0);
+    addAll(entries, null, null);
+    assert size() == entries.size()
+        : "resetAndAddAll: expected size " + entries.size() + " but got " + size();
   }
 
   public boolean addLeafEntry(
