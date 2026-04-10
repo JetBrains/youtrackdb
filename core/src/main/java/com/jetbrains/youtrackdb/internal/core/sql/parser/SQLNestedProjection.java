@@ -85,17 +85,28 @@ public class SQLNestedProjection extends SimpleNode {
       }
     }
     if (!includeItems.isEmpty()) {
-      // TODO manage wildcards!
       for (var item : includeItems) {
-        var alias =
-            item.alias != null
-                ? item.alias.getStringValue()
-                : item.expression.getDefaultAlias().getStringValue();
-        var value = item.expression.execute(elem, ctx);
-        if (item.expansion != null) {
-          value = item.expand(expression, alias, value, ctx, recursion - 1);
+        if (item.rightWildcard) {
+          for (var property : elem.getPropertyNames()) {
+            if (item.matches(property)) {
+              var value = elem.getProperty(property);
+              if (item.expansion != null) {
+                value = item.expand(expression, property, value, ctx, recursion - 1);
+              }
+              result.setProperty(property, convert(value));
+            }
+          }
+        } else {
+          var alias =
+              item.alias != null
+                  ? item.alias.getStringValue()
+                  : item.expression.getDefaultAlias().getStringValue();
+          var value = item.expression.execute(elem, ctx);
+          if (item.expansion != null) {
+            value = item.expand(expression, alias, value, ctx, recursion - 1);
+          }
+          result.setProperty(alias, convert(value));
         }
-        result.setProperty(alias, convert(value));
       }
     }
     return result;
@@ -152,17 +163,28 @@ public class SQLNestedProjection extends SimpleNode {
     }
 
     if (!includeItems.isEmpty()) {
-      // TODO manage wildcards!
       for (var item : includeItems) {
-        var alias =
-            item.alias != null
-                ? item.alias.getStringValue()
-                : item.expression.getDefaultAlias().getStringValue();
-        var value = item.expression.execute((Identifiable) elem, ctx);
-        if (item.expansion != null) {
-          value = item.expand(expression, alias, value, ctx, recursion - 1);
+        if (item.rightWildcard) {
+          for (var property : elem.getPropertyNames()) {
+            if (item.matches(property)) {
+              var value = elem.getProperty(property);
+              if (item.expansion != null) {
+                value = item.expand(expression, property, value, ctx, recursion - 1);
+              }
+              result.setProperty(property, convert(value));
+            }
+          }
+        } else {
+          var alias =
+              item.alias != null
+                  ? item.alias.getStringValue()
+                  : item.expression.getDefaultAlias().getStringValue();
+          var value = item.expression.execute((Identifiable) elem, ctx);
+          if (item.expansion != null) {
+            value = item.expand(expression, alias, value, ctx, recursion - 1);
+          }
+          result.setProperty(alias, convert(value));
         }
-        result.setProperty(alias, convert(value));
       }
     }
     return result;
@@ -184,19 +206,30 @@ public class SQLNestedProjection extends SimpleNode {
       }
     }
     if (!includeItems.isEmpty()) {
-      // TODO manage wildcards!
       for (var item : includeItems) {
-        var alias =
-            item.alias != null
-                ? item.alias.getStringValue()
-                : item.expression.getDefaultAlias().getStringValue();
-        var elem = new ResultInternal(ctx.getDatabaseSession());
-        input.forEach(elem::setProperty);
-        var value = item.expression.execute(elem, ctx);
-        if (item.expansion != null) {
-          value = item.expand(expression, alias, value, ctx, recursion - 1);
+        if (item.rightWildcard) {
+          for (var entry : input.entrySet()) {
+            if (item.matches(entry.getKey())) {
+              var value = entry.getValue();
+              if (item.expansion != null) {
+                value = item.expand(expression, entry.getKey(), value, ctx, recursion - 1);
+              }
+              result.setProperty(entry.getKey(), convert(value));
+            }
+          }
+        } else {
+          var alias =
+              item.alias != null
+                  ? item.alias.getStringValue()
+                  : item.expression.getDefaultAlias().getStringValue();
+          var elem = new ResultInternal(ctx.getDatabaseSession());
+          input.forEach(elem::setProperty);
+          var value = item.expression.execute(elem, ctx);
+          if (item.expansion != null) {
+            value = item.expand(expression, alias, value, ctx, recursion - 1);
+          }
+          result.setProperty(alias, convert(value));
         }
-        result.setProperty(alias, convert(value));
       }
     }
     return result;

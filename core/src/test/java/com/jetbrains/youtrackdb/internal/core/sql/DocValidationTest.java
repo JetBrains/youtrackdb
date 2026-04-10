@@ -8360,4 +8360,418 @@ public class DocValidationTest {
     g.executeInTx(tx -> tx.yql("DELETE VERTEX SynNeq").iterate());
   }
 
+  // === YQL-Projections.md ===
+
+  // Line 42/46: projection values overwrite left to right — SELECT 1 as a, 2 as a → {"a":2}
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testProjectionOverwriteLeftToRight() {
+    g.command("CREATE CLASS ProjOverwrite IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> tx.yql("CREATE VERTEX ProjOverwrite SET tag = 'ow'").iterate());
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT 1 as a, 2 as a FROM ProjOverwrite").toList());
+    assertThat(results).hasSize(1);
+    Map<String, Object> row = (Map<String, Object>) results.get(0);
+    assertThat(row.get("a")).isEqualTo(2);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX ProjOverwrite").iterate());
+  }
+
+  // Line 55-57: SELECT *, "hey" as name from Foo — star then alias overrides original property
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testStarThenAliasOverridesProperty() {
+    g.command("CREATE CLASS ProjStarAlias IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> tx.yql("CREATE VERTEX ProjStarAlias SET name = 'bar'").iterate());
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT *, \"hey\" as name FROM ProjStarAlias").toList());
+    assertThat(results).hasSize(1);
+    Map<String, Object> row = (Map<String, Object>) results.get(0);
+    // Doc says: name should be "hey" (overwritten left to right, * first then "hey")
+    assertThat(row.get("name")).isEqualTo("hey");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX ProjStarAlias").iterate());
+  }
+
+  // Line 60-62: SELECT "hey" as name, * from Foo — alias then star, original name wins
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testAliasThenStarOriginalWins() {
+    g.command("CREATE CLASS ProjAliasStar IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> tx.yql("CREATE VERTEX ProjAliasStar SET name = 'bar'").iterate());
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT \"hey\" as name, * FROM ProjAliasStar").toList());
+    assertThat(results).hasSize(1);
+    Map<String, Object> row = (Map<String, Object>) results.get(0);
+    // Doc says: name should be "bar" (overwritten left to right, "hey" then * restores original)
+    assertThat(row.get("name")).isEqualTo("bar");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX ProjAliasStar").iterate());
+  }
+
+  // Line 76: SELECT name + " " + surname as full_name — explicit alias
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testExplicitAlias() {
+    g.command("CREATE CLASS ProjExplAlias IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> tx.yql("CREATE VERTEX ProjExplAlias SET name = 'John', surname = 'Smith'")
+            .iterate());
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT name + \" \" + surname as full_name FROM ProjExplAlias")
+                .toList());
+    assertThat(results).hasSize(1);
+    Map<String, Object> row = (Map<String, Object>) results.get(0);
+    assertThat(row.get("full_name")).isEqualTo("John Smith");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX ProjExplAlias").iterate());
+  }
+
+  // Line 86: SELECT name from Person — implicit alias is "name"
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testImplicitAlias() {
+    g.command("CREATE CLASS ProjImplAlias IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> tx.yql("CREATE VERTEX ProjImplAlias SET name = 'John'").iterate());
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT name FROM ProjImplAlias").toList());
+    assertThat(results).hasSize(1);
+    Map<String, Object> row = (Map<String, Object>) results.get(0);
+    assertThat(row.get("name")).isEqualTo("John");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX ProjImplAlias").iterate());
+  }
+
+  // Line 96: SELECT 1+2 as sum — expression with explicit alias
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testExpressionExplicitAlias() {
+    g.command("CREATE CLASS ProjExprAlias IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> tx.yql("CREATE VERTEX ProjExprAlias SET tag = 'x'").iterate());
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT 1+2 as sum FROM ProjExprAlias").toList());
+    assertThat(results).hasSize(1);
+    Map<String, Object> row = (Map<String, Object>) results.get(0);
+    assertThat(row.get("sum")).isEqualTo(3);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX ProjExprAlias").iterate());
+  }
+
+  // Line 115: SELECT 1+2 — implicit alias is "1 + 2" (spaces around operators)
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testImplicitAliasExpression() {
+    g.command("CREATE CLASS ProjImplExpr IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> tx.yql("CREATE VERTEX ProjImplExpr SET tag = 'x'").iterate());
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT 1+2 FROM ProjImplExpr").toList());
+    assertThat(results).hasSize(1);
+    Map<String, Object> row = (Map<String, Object>) results.get(0);
+    // Doc says implicit alias is "1 + 2" (single space before and after the + sign)
+    assertThat(row.get("1 + 2")).isEqualTo(3);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX ProjImplExpr").iterate());
+  }
+
+  // Line 29: DISTINCT removes duplicates from result-set
+  @Test
+  public void testDistinctRemovesDuplicates() {
+    g.command("CREATE CLASS ProjDistinct IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX ProjDistinct SET city = 'Rome'").iterate();
+          tx.yql("CREATE VERTEX ProjDistinct SET city = 'Rome'").iterate();
+          tx.yql("CREATE VERTEX ProjDistinct SET city = 'London'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT DISTINCT city FROM ProjDistinct").toList());
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX ProjDistinct").iterate());
+  }
+
+  // Line 67: expand() cannot be used together with GROUP BY
+  @Test
+  public void testExpandCannotBeUsedWithGroupBy() {
+    g.command("CREATE CLASS ProjExpandGrp IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX ProjExpandGrp SET city = 'Rome', tag = 'a'").iterate();
+          tx.yql("CREATE VERTEX ProjExpandGrp SET city = 'Rome', tag = 'b'").iterate();
+        });
+
+    assertThatThrownBy(
+        () -> g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(city) FROM ProjExpandGrp GROUP BY city")
+                .toList()));
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX ProjExpandGrp").iterate());
+  }
+
+  // Lines 148-310: Nested projections — full dataset and all nested projection variants
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testNestedProjections() {
+    g.command("CREATE CLASS ProjNested IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY ProjNested.parent LINK ProjNested");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX ProjNested SET name = 'foo', surname = 'fooz'")
+              .iterate();
+        });
+
+    // Get the RID of foo to link bar to it
+    var fooResults =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM ProjNested WHERE name = 'foo'").toList());
+    Vertex foo = (Vertex) fooResults.get(0);
+    String fooRid = foo.id().toString();
+
+    g.executeInTx(
+        tx -> tx.yql(
+            "CREATE VERTEX ProjNested SET name = 'bar', surname = 'barz', parent = "
+                + fooRid)
+            .iterate());
+
+    var barResults =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM ProjNested WHERE name = 'bar'").toList());
+    Vertex bar = (Vertex) barResults.get(0);
+    String barRid = bar.id().toString();
+
+    g.executeInTx(
+        tx -> tx.yql(
+            "CREATE VERTEX ProjNested SET name = 'baz', surname = 'bazz', parent = "
+                + barRid)
+            .iterate());
+
+    // Line 157: SELECT name, parent FROM ProjNested WHERE name = 'baz'
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT name, parent FROM ProjNested WHERE name = 'baz'")
+                .toList());
+    assertThat(results).hasSize(1);
+    Map<String, Object> row = (Map<String, Object>) results.get(0);
+    assertThat(row.get("name")).isEqualTo("baz");
+    assertThat(row.get("parent")).isNotNull();
+
+    // Line 171: SELECT name, parent.name — dot notation on link
+    var dotResults =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT name, parent.name FROM ProjNested WHERE name = 'baz'")
+                .toList());
+    assertThat(dotResults).hasSize(1);
+    Map<String, Object> dotRow = (Map<String, Object>) dotResults.get(0);
+    assertThat(dotRow.get("name")).isEqualTo("baz");
+    assertThat(dotRow.get("parent.name")).isEqualTo("bar");
+
+    // Line 186: SELECT name, parent:{name} — nested projection single field
+    var nestedResults =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT name, parent:{name} FROM ProjNested WHERE name = 'baz'")
+                .toList());
+    assertThat(nestedResults).hasSize(1);
+    Map<String, Object> nestedRow = (Map<String, Object>) nestedResults.get(0);
+    assertThat(nestedRow.get("name")).isEqualTo("baz");
+    Map<String, Object> nestedParent = (Map<String, Object>) nestedRow.get("parent");
+    assertThat(nestedParent).containsKey("name");
+    assertThat(nestedParent.get("name")).isEqualTo("bar");
+
+    // Line 199: SELECT name, parent:{name, surname} — nested projection multiple fields
+    var nestedMultiResults =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT name, parent:{name, surname} FROM ProjNested WHERE name = 'baz'")
+                .toList());
+    assertThat(nestedMultiResults).hasSize(1);
+    Map<String, Object> multiRow = (Map<String, Object>) nestedMultiResults.get(0);
+    Map<String, Object> multiParent = (Map<String, Object>) multiRow.get("parent");
+    assertThat(multiParent).containsKeys("name", "surname");
+    assertThat(multiParent.get("name")).isEqualTo("bar");
+    assertThat(multiParent.get("surname")).isEqualTo("barz");
+
+    // Line 214: SELECT name, parent:{*} — nested projection wildcard
+    var nestedWildcardResults =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT name, parent:{*} FROM ProjNested WHERE name = 'baz'")
+                .toList());
+    assertThat(nestedWildcardResults).hasSize(1);
+    Map<String, Object> wcRow = (Map<String, Object>) nestedWildcardResults.get(0);
+    Map<String, Object> wcParent = (Map<String, Object>) wcRow.get("parent");
+    assertThat(wcParent).containsKeys("name", "surname", "parent");
+
+    // Line 232: SELECT name, parent:{!surname} — nested projection exclude
+    var nestedExclResults =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT name, parent:{!surname} FROM ProjNested WHERE name = 'baz'")
+                .toList());
+    assertThat(nestedExclResults).hasSize(1);
+    Map<String, Object> exclRow = (Map<String, Object>) nestedExclResults.get(0);
+    Map<String, Object> exclParent = (Map<String, Object>) exclRow.get("parent");
+    assertThat(exclParent).containsKey("name");
+    assertThat(exclParent).doesNotContainKey("surname");
+
+    // Line 247: SELECT name, parent:{surna*} — prefix wildcard include
+    var nestedPrefixResults =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT name, parent:{surna*} FROM ProjNested WHERE name = 'baz'")
+                .toList());
+    assertThat(nestedPrefixResults).hasSize(1);
+    Map<String, Object> pfxRow = (Map<String, Object>) nestedPrefixResults.get(0);
+    Map<String, Object> pfxParent = (Map<String, Object>) pfxRow.get("parent");
+    assertThat(pfxParent).containsKey("surname");
+    assertThat(pfxParent.get("surname")).isEqualTo("barz");
+    assertThat(pfxParent).doesNotContainKey("name");
+
+    // Line 261: SELECT name, parent:{!surna*} — prefix wildcard exclude
+    // The exclude wildcard works correctly: !surna* excludes "surname"
+    var nestedExclPrefixResults =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT name, parent:{!surna*} FROM ProjNested WHERE name = 'baz'")
+                .toList());
+    assertThat(nestedExclPrefixResults).hasSize(1);
+    Map<String, Object> epfxRow = (Map<String, Object>) nestedExclPrefixResults.get(0);
+    Map<String, Object> epfxParent = (Map<String, Object>) epfxRow.get("parent");
+    assertThat(epfxParent).containsKey("name");
+    assertThat(epfxParent).containsKey("parent");
+    assertThat(epfxParent).doesNotContainKey("surname");
+
+    // Line 279: Multi-level nested projection
+    var multiLevelResults =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT name, parent:{name, surname, parent:{name, surname}} FROM ProjNested WHERE name = 'baz'")
+                .toList());
+    assertThat(multiLevelResults).hasSize(1);
+    Map<String, Object> mlRow = (Map<String, Object>) multiLevelResults.get(0);
+    Map<String, Object> mlParent = (Map<String, Object>) mlRow.get("parent");
+    assertThat(mlParent.get("name")).isEqualTo("bar");
+    Map<String, Object> mlGrandparent = (Map<String, Object>) mlParent.get("parent");
+    assertThat(mlGrandparent.get("name")).isEqualTo("foo");
+    assertThat(mlGrandparent.get("surname")).isEqualTo("fooz");
+
+    // Line 299: Expression + alias with nested projection
+    var exprNestedResults =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT name, parent.parent:{name, surname} as grandparent FROM ProjNested WHERE name = 'baz'")
+                .toList());
+    assertThat(exprNestedResults).hasSize(1);
+    Map<String, Object> enRow = (Map<String, Object>) exprNestedResults.get(0);
+    Map<String, Object> grandparent = (Map<String, Object>) enRow.get("grandparent");
+    assertThat(grandparent.get("name")).isEqualTo("foo");
+    assertThat(grandparent.get("surname")).isEqualTo("fooz");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX ProjNested").iterate());
+  }
+
+  // Line 103: SELECT parent.name+" "+parent.surname as full_name — linked property expression
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testLinkedPropertyExpression() {
+    g.command("CREATE CLASS ProjLinked IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY ProjLinked.parent LINK ProjLinked");
+    g.executeInTx(
+        tx -> tx.yql(
+            "CREATE VERTEX ProjLinked SET name = 'John', surname = 'Smith'")
+            .iterate());
+
+    var parentResults =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM ProjLinked WHERE name = 'John'").toList());
+    String parentRid = ((Vertex) parentResults.get(0)).id().toString();
+
+    g.executeInTx(
+        tx -> tx.yql(
+            "CREATE VERTEX ProjLinked SET name = 'child', parent = "
+                + parentRid)
+            .iterate());
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT parent.name+\" \"+parent.surname as full_name FROM ProjLinked WHERE name = 'child'")
+                .toList());
+    assertThat(results).hasSize(1);
+    Map<String, Object> row = (Map<String, Object>) results.get(0);
+    assertThat(row.get("full_name")).isEqualTo("John Smith");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX ProjLinked").iterate());
+  }
+
+  // Line 8: SELECT name as firstName, age * 12 as ageInMonths, out("Friend") — basic projection
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testBasicProjectionSyntax() {
+    g.command("CREATE CLASS ProjPerson IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS ProjFriend IF NOT EXISTS EXTENDS E");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX ProjPerson SET name = 'John', surname = 'Smith', age = 3")
+              .iterate();
+          tx.yql(
+              "CREATE VERTEX ProjPerson SET name = 'Jane', surname = 'Doe', age = 2")
+              .iterate();
+        });
+
+    // Create a Friend edge
+    var john =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM ProjPerson WHERE name = 'John'").toList());
+    var jane =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM ProjPerson WHERE name = 'Jane'").toList());
+    String johnRid = ((Vertex) john.get(0)).id().toString();
+    String janeRid = ((Vertex) jane.get(0)).id().toString();
+
+    g.executeInTx(
+        tx -> tx.yql(
+            "CREATE EDGE ProjFriend FROM " + johnRid + " TO " + janeRid)
+            .iterate());
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT name as firstName, age * 12 as ageInMonths, out(\"ProjFriend\") FROM ProjPerson WHERE surname = 'Smith'")
+                .toList());
+    assertThat(results).hasSize(1);
+    Map<String, Object> row = (Map<String, Object>) results.get(0);
+    assertThat(row.get("firstName")).isEqualTo("John");
+    assertThat(row.get("ageInMonths")).isEqualTo(36);
+
+    g.executeInTx(tx -> tx.yql("DELETE EDGE ProjFriend").iterate());
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX ProjPerson").iterate());
+  }
+
 }
