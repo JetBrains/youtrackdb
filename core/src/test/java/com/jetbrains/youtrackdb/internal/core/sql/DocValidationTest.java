@@ -6476,6 +6476,239 @@ public class DocValidationTest {
     g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereAllTest").iterate());
   }
 
+  // Line 49: INSTANCEOF with @class — @class instanceof 'Provider' form
+  @Test
+  public void testWhereAtClassInstanceofOperator() {
+    g.command("CREATE CLASS WhereBaseEntity IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS WhereSubEntity IF NOT EXISTS EXTENDS WhereBaseEntity");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereBaseEntity SET name = 'base'").iterate();
+          tx.yql("CREATE VERTEX WhereSubEntity SET name = 'sub'").iterate();
+        });
+
+    // @class instanceof checks if the class of the record is a subclass of the given class
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM V WHERE @class instanceof 'WhereBaseEntity'")
+                .toList());
+    // Should include both 'base' (WhereBaseEntity) and 'sub' (WhereSubEntity extends it)
+    var names =
+        results.stream()
+            .map(r -> (String) ((Vertex) r).value("name"))
+            .filter(n -> "base".equals(n) || "sub".equals(n))
+            .toList();
+    assertThat(names).containsExactlyInAnyOrder("base", "sub");
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX WhereSubEntity").iterate();
+          tx.yql("DELETE VERTEX WhereBaseEntity").iterate();
+        });
+  }
+
+  // Line 52: CONTAINSALL operator — collection value form
+  @Test
+  public void testWhereContainsAllOperator() {
+    g.command("CREATE CLASS WhereTeam IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX WhereTeam SET name = 'HasAB',"
+                  + " tags = ['A', 'B', 'C']")
+              .iterate();
+          tx.yql(
+              "CREATE VERTEX WhereTeam SET name = 'OnlyA',"
+                  + " tags = ['A', 'D']")
+              .iterate();
+        });
+
+    // containsAll with a collection: true if tags contains ALL of ['A', 'B']
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM WhereTeam WHERE tags containsAll ['A', 'B']")
+                .toList());
+    assertThat(results).hasSize(1);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("HasAB");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereTeam").iterate());
+  }
+
+  // Line 52: CONTAINSALL operator — sub-condition form with linked records
+  // Doc example: children containsAll (name = 'Luke')
+  @Test
+  public void testWhereContainsAllSubCondition() {
+    g.command("CREATE CLASS WcaMember IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS WcaFamily IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          // Create linked vertex records so collection elements are Identifiable
+          var luke1 =
+              (Vertex) tx.yql("CREATE VERTEX WcaMember SET name = 'Luke'")
+                  .toList().get(0);
+          var luke2 =
+              (Vertex) tx.yql("CREATE VERTEX WcaMember SET name = 'Luke'")
+                  .toList().get(0);
+          var leia =
+              (Vertex) tx.yql("CREATE VERTEX WcaMember SET name = 'Leia'")
+                  .toList().get(0);
+          tx.yql(
+              "CREATE VERTEX WcaFamily SET name = 'AllLuke', children = ["
+                  + luke1.id() + ", " + luke2.id() + "]")
+              .iterate();
+          tx.yql(
+              "CREATE VERTEX WcaFamily SET name = 'Mixed', children = ["
+                  + luke1.id() + ", " + leia.id() + "]")
+              .iterate();
+        });
+
+    // containsAll sub-condition: true only if ALL linked records satisfy (name = 'Luke')
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM WcaFamily WHERE children containsAll"
+                    + " (name = 'Luke')")
+                .toList());
+    assertThat(results).hasSize(1);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("AllLuke");
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX WcaFamily").iterate();
+          tx.yql("DELETE VERTEX WcaMember").iterate();
+        });
+  }
+
+  // Line 53: CONTAINSANY operator — collection value form
+  @Test
+  public void testWhereContainsAnyOperator() {
+    g.command("CREATE CLASS WhereGroup IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX WhereGroup SET name = 'HasA',"
+                  + " tags = ['A', 'B']")
+              .iterate();
+          tx.yql(
+              "CREATE VERTEX WhereGroup SET name = 'NoA',"
+                  + " tags = ['C', 'D']")
+              .iterate();
+        });
+
+    // containsAny with a list: true if any element is in the given collection
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM WhereGroup WHERE tags containsAny ['A', 'X']")
+                .toList());
+    assertThat(results).hasSize(1);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("HasA");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereGroup").iterate());
+  }
+
+  // Line 53: CONTAINSANY operator — sub-condition form with linked records.
+  // This validates the fix for the NPE in isIndexAware() and the semantic fix
+  // where CONTAINSANY was using ALL-match logic instead of ANY-match logic.
+  @Test
+  public void testWhereContainsAnySubCondition() {
+    g.command("CREATE CLASS WcnyMember IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS WcnyFamily IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          var luke =
+              (Vertex) tx.yql("CREATE VERTEX WcnyMember SET name = 'Luke'")
+                  .toList().get(0);
+          var leia =
+              (Vertex) tx.yql("CREATE VERTEX WcnyMember SET name = 'Leia'")
+                  .toList().get(0);
+          var han =
+              (Vertex) tx.yql("CREATE VERTEX WcnyMember SET name = 'Han'")
+                  .toList().get(0);
+          var chewie =
+              (Vertex) tx.yql("CREATE VERTEX WcnyMember SET name = 'Chewie'")
+                  .toList().get(0);
+          tx.yql(
+              "CREATE VERTEX WcnyFamily SET name = 'HasLuke', children = ["
+                  + luke.id() + ", " + leia.id() + "]")
+              .iterate();
+          tx.yql(
+              "CREATE VERTEX WcnyFamily SET name = 'NoLuke', children = ["
+                  + han.id() + ", " + chewie.id() + "]")
+              .iterate();
+        });
+
+    // containsAny sub-condition: true if ANY linked record satisfies (name = 'Luke')
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM WcnyFamily WHERE children containsAny"
+                    + " (name = 'Luke')")
+                .toList());
+    assertThat(results).hasSize(1);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("HasLuke");
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX WcnyFamily").iterate();
+          tx.yql("DELETE VERTEX WcnyMember").iterate();
+        });
+  }
+
+  // Line 16: Property index access — tags[0-3] and map key access
+  @Test
+  public void testWherePropertyIndexAccess() {
+    g.command("CREATE CLASS WhereTagDoc IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX WhereTagDoc SET name = 'doc1',"
+                  + " tags = ['Hello', 'World', 'Foo', 'Bar']")
+              .iterate();
+          tx.yql(
+              "CREATE VERTEX WhereTagDoc SET name = 'doc2',"
+                  + " tags = ['Other', 'Tags']")
+              .iterate();
+        });
+
+    // tags[0] accesses the first element of the list
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM WhereTagDoc WHERE tags[0] = 'Hello'")
+                .toList());
+    assertThat(results).hasSize(1);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("doc1");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereTagDoc").iterate());
+  }
+
+  // Line 16: IS NOT NULL — employees IS NOT NULL
+  @Test
+  public void testWhereIsNotNullOperator() {
+    g.command("CREATE CLASS WhereEmpCheck IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX WhereEmpCheck SET name = 'HasEmp',"
+                  + " employees = 'yes'")
+              .iterate();
+          tx.yql("CREATE VERTEX WhereEmpCheck SET name = 'NoEmp'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM WhereEmpCheck WHERE employees IS NOT NULL")
+                .toList());
+    assertThat(results).hasSize(1);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("HasEmp");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereEmpCheck").iterate());
+  }
+
   @Test
   public void testRebuildIndexAll() {
     // YQL-Rebuild-Index.md line 11: Use * to rebuild all automatic indexes
