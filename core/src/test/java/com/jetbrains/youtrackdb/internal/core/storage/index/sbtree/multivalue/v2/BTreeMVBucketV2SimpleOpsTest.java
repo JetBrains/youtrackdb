@@ -13,6 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomi
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.CacheEntryChanges;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordsFactory;
 import java.nio.ByteBuffer;
 import org.junit.Assert;
@@ -53,11 +54,33 @@ public class BTreeMVBucketV2SimpleOpsTest {
 
   @Test
   public void testRecordIds() {
+    Assert.assertEquals(
+        WALRecordTypes.BTREE_MV_BUCKET_V2_INIT_OP, BTreeMVBucketV2InitOp.RECORD_ID);
     Assert.assertEquals(248, BTreeMVBucketV2InitOp.RECORD_ID);
+
+    Assert.assertEquals(
+        WALRecordTypes.BTREE_MV_BUCKET_V2_SWITCH_BUCKET_TYPE_OP,
+        BTreeMVBucketV2SwitchBucketTypeOp.RECORD_ID);
     Assert.assertEquals(249, BTreeMVBucketV2SwitchBucketTypeOp.RECORD_ID);
+
+    Assert.assertEquals(
+        WALRecordTypes.BTREE_MV_BUCKET_V2_SET_LEFT_SIBLING_OP,
+        BTreeMVBucketV2SetLeftSiblingOp.RECORD_ID);
     Assert.assertEquals(250, BTreeMVBucketV2SetLeftSiblingOp.RECORD_ID);
+
+    Assert.assertEquals(
+        WALRecordTypes.BTREE_MV_BUCKET_V2_SET_RIGHT_SIBLING_OP,
+        BTreeMVBucketV2SetRightSiblingOp.RECORD_ID);
     Assert.assertEquals(251, BTreeMVBucketV2SetRightSiblingOp.RECORD_ID);
+
+    Assert.assertEquals(
+        WALRecordTypes.BTREE_MV_BUCKET_V2_INCREMENT_ENTRIES_COUNT_OP,
+        BTreeMVBucketV2IncrementEntriesCountOp.RECORD_ID);
     Assert.assertEquals(252, BTreeMVBucketV2IncrementEntriesCountOp.RECORD_ID);
+
+    Assert.assertEquals(
+        WALRecordTypes.BTREE_MV_BUCKET_V2_DECREMENT_ENTRIES_COUNT_OP,
+        BTreeMVBucketV2DecrementEntriesCountOp.RECORD_ID);
     Assert.assertEquals(253, BTreeMVBucketV2DecrementEntriesCountOp.RECORD_ID);
   }
 
@@ -164,6 +187,26 @@ public class BTreeMVBucketV2SimpleOpsTest {
     Assert.assertEquals(original, deserialized);
   }
 
+  @Test
+  public void testSiblingOpSerializationWithSentinelValue() {
+    var initialLsn = new LogSequenceNumber(10, 1000);
+
+    // -1 is the sentinel for "no sibling" used by init()
+    var leftOp = new BTreeMVBucketV2SetLeftSiblingOp(1, 2, 3, initialLsn, -1);
+    var content = new byte[leftOp.serializedSize() + 1];
+    leftOp.toStream(content, 1);
+    var deserialized = new BTreeMVBucketV2SetLeftSiblingOp();
+    deserialized.fromStream(content, 1);
+    Assert.assertEquals(-1, deserialized.getSiblingPageIndex());
+
+    var rightOp = new BTreeMVBucketV2SetRightSiblingOp(1, 2, 3, initialLsn, -1);
+    var content2 = new byte[rightOp.serializedSize() + 1];
+    rightOp.toStream(content2, 1);
+    var deserialized2 = new BTreeMVBucketV2SetRightSiblingOp();
+    deserialized2.fromStream(content2, 1);
+    Assert.assertEquals(-1, deserialized2.getSiblingPageIndex());
+  }
+
   // ---------- WALRecordsFactory roundtrip tests ----------
 
   @Test
@@ -196,6 +239,10 @@ public class BTreeMVBucketV2SimpleOpsTest {
 
     var deserialized = WALRecordsFactory.INSTANCE.fromStream(content);
     Assert.assertTrue(deserialized instanceof BTreeMVBucketV2SwitchBucketTypeOp);
+    var result = (BTreeMVBucketV2SwitchBucketTypeOp) deserialized;
+    Assert.assertEquals(original.getPageIndex(), result.getPageIndex());
+    Assert.assertEquals(original.getFileId(), result.getFileId());
+    Assert.assertEquals(original.getInitialLsn(), result.getInitialLsn());
   }
 
   @Test
@@ -226,6 +273,36 @@ public class BTreeMVBucketV2SimpleOpsTest {
     Assert.assertTrue(deserialized instanceof BTreeMVBucketV2IncrementEntriesCountOp);
     Assert.assertEquals(5,
         ((BTreeMVBucketV2IncrementEntriesCountOp) deserialized).getEntryIndex());
+  }
+
+  @Test
+  public void testSetRightSiblingOpFactoryRoundtrip() {
+    var initialLsn = new LogSequenceNumber(88, 880);
+    var original = new BTreeMVBucketV2SetRightSiblingOp(2, 4, 6, initialLsn, Long.MAX_VALUE);
+
+    ByteBuffer serialized = WALRecordsFactory.toStream(original);
+    var content = new byte[serialized.limit()];
+    serialized.get(0, content);
+
+    var deserialized = WALRecordsFactory.INSTANCE.fromStream(content);
+    Assert.assertTrue(deserialized instanceof BTreeMVBucketV2SetRightSiblingOp);
+    Assert.assertEquals(Long.MAX_VALUE,
+        ((BTreeMVBucketV2SetRightSiblingOp) deserialized).getSiblingPageIndex());
+  }
+
+  @Test
+  public void testDecrementEntriesCountOpFactoryRoundtrip() {
+    var initialLsn = new LogSequenceNumber(99, 990);
+    var original = new BTreeMVBucketV2DecrementEntriesCountOp(8, 16, 24, initialLsn, 7);
+
+    ByteBuffer serialized = WALRecordsFactory.toStream(original);
+    var content = new byte[serialized.limit()];
+    serialized.get(0, content);
+
+    var deserialized = WALRecordsFactory.INSTANCE.fromStream(content);
+    Assert.assertTrue(deserialized instanceof BTreeMVBucketV2DecrementEntriesCountOp);
+    Assert.assertEquals(7,
+        ((BTreeMVBucketV2DecrementEntriesCountOp) deserialized).getEntryIndex());
   }
 
   // ---------- Redo correctness tests ----------
@@ -345,6 +422,51 @@ public class BTreeMVBucketV2SimpleOpsTest {
 
       Assert.assertFalse(page1.isLeaf());
       Assert.assertFalse(page2.isLeaf());
+
+      var buf1 = cachePointer1.getBuffer();
+      var buf2 = cachePointer2.getBuffer();
+      Assert.assertEquals(0, buf1.compareTo(buf2));
+    } finally {
+      entry1.releaseExclusiveLock();
+      entry2.releaseExclusiveLock();
+      cachePointer1.decrementReferrer();
+      cachePointer2.decrementReferrer();
+    }
+  }
+
+  /**
+   * switchBucketType: init as non-leaf, switch to leaf, compare redo.
+   * Covers the else branch (non-leaf→leaf) of switchBucketType.
+   */
+  @Test
+  public void testSwitchBucketTypeNonLeafToLeafRedoCorrectness() {
+    var bufferPool = ByteBufferPool.instance(null);
+
+    var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer1 = new CachePointer(pointer1, bufferPool, 0, 0);
+    cachePointer1.incrementReferrer();
+    CacheEntry entry1 = new CacheEntryImpl(0, 0, cachePointer1, false, null);
+    entry1.acquireExclusiveLock();
+
+    var pointer2 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer2 = new CachePointer(pointer2, bufferPool, 0, 0);
+    cachePointer2.incrementReferrer();
+    CacheEntry entry2 = new CacheEntryImpl(0, 0, cachePointer2, false, null);
+    entry2.acquireExclusiveLock();
+
+    try {
+      var lsn = new LogSequenceNumber(0, 0);
+
+      var page1 = new CellBTreeMultiValueV2Bucket<>(entry1);
+      page1.init(false);
+      page1.switchBucketType();
+
+      var page2 = new CellBTreeMultiValueV2Bucket<>(entry2);
+      new BTreeMVBucketV2InitOp(0, 0, 0, lsn, false).redo(page2);
+      new BTreeMVBucketV2SwitchBucketTypeOp(0, 0, 0, lsn).redo(page2);
+
+      Assert.assertTrue(page1.isLeaf());
+      Assert.assertTrue(page2.isLeaf());
 
       var buf1 = cachePointer1.getBuffer();
       var buf2 = cachePointer2.getBuffer();

@@ -512,10 +512,16 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
   }
 
   public boolean decrementEntriesCount(final int entryIndex) {
+    assert entryIndex >= 0 && entryIndex < size()
+        : "entryIndex out of bounds: " + entryIndex + ", size=" + size();
+
     final var entryPosition =
         getIntValue(POSITIONS_ARRAY_OFFSET + entryIndex * IntegerSerializer.INT_SIZE);
     final var entriesCount =
         getIntValue(entryPosition + IntegerSerializer.INT_SIZE + ByteSerializer.BYTE_SIZE);
+    assert entriesCount > 0
+        : "entriesCount must be positive before decrement, got " + entriesCount
+            + " at entryIndex=" + entryIndex;
 
     setIntValue(
         entryPosition + IntegerSerializer.INT_SIZE + ByteSerializer.BYTE_SIZE, entriesCount - 1);
@@ -538,6 +544,9 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
   }
 
   public void incrementEntriesCount(final int entryIndex) {
+    assert entryIndex >= 0 && entryIndex < size()
+        : "entryIndex out of bounds: " + entryIndex + ", size=" + size();
+
     final var entryPosition =
         getIntValue(POSITIONS_ARRAY_OFFSET + entryIndex * IntegerSerializer.INT_SIZE);
     final var entriesCount =

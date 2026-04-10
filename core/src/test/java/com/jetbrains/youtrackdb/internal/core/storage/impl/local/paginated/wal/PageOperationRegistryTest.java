@@ -73,7 +73,7 @@ public class PageOperationRegistryTest {
   }
 
   /**
-   * Verifies that all 47 registered record IDs survive a full WALRecordsFactory roundtrip:
+   * Verifies that all 53 registered record IDs survive a full WALRecordsFactory roundtrip:
    * toStream → fromStream. Uses non-zero field values for all parameters (including parent
    * fields) and verifies full field-level equality via equals(), not just class/ID match.
    */
@@ -169,6 +169,14 @@ public class PageOperationRegistryTest {
             pageIndex, fileId, opUnitId, initialLsn, (short) 5, 1000L),
         new BTreeMVNullBucketV2IncrementSizeOp(pageIndex, fileId, opUnitId, initialLsn),
         new BTreeMVNullBucketV2DecrementSizeOp(pageIndex, fileId, opUnitId, initialLsn),
+
+        // Track 6: CellBTreeMultiValueV2Bucket simple (6 ops)
+        new BTreeMVBucketV2InitOp(pageIndex, fileId, opUnitId, initialLsn, true),
+        new BTreeMVBucketV2SwitchBucketTypeOp(pageIndex, fileId, opUnitId, initialLsn),
+        new BTreeMVBucketV2SetLeftSiblingOp(pageIndex, fileId, opUnitId, initialLsn, 100L),
+        new BTreeMVBucketV2SetRightSiblingOp(pageIndex, fileId, opUnitId, initialLsn, 200L),
+        new BTreeMVBucketV2IncrementEntriesCountOp(pageIndex, fileId, opUnitId, initialLsn, 3),
+        new BTreeMVBucketV2DecrementEntriesCountOp(pageIndex, fileId, opUnitId, initialLsn, 5),
     };
 
     for (PageOperation op : ops) {

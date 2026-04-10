@@ -59,6 +59,8 @@ public final class BTreeMVBucketV2DecrementEntriesCountOp extends PageOperation 
   protected void deserializeFromByteBuffer(ByteBuffer buffer) {
     super.deserializeFromByteBuffer(buffer);
     entryIndex = buffer.getInt();
+    assert entryIndex >= 0
+        : "Deserialized entryIndex must be non-negative, got " + entryIndex;
   }
 
   @Override
