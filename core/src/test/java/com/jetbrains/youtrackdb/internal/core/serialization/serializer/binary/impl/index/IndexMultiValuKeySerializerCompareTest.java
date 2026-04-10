@@ -530,4 +530,57 @@ public class IndexMultiValuKeySerializerCompareTest {
     compareAndVerifyWAL(key(d1, 1L), key(d2, 1L), types);
     compareAndVerifyWAL(key(d1, 1L), key(d1, 1L), types);
   }
+
+  // --- Review-fix tests: LINK edge cases, non-zero offsets ---
+
+  /** LINK with cluster position 0 — exercises numberSize=0 encoding boundary. */
+  @Test
+  public void testLinkFieldPositionZero() {
+    var types = new PropertyTypeInternal[] {PropertyTypeInternal.LINK, PropertyTypeInternal.LONG};
+    compareAndVerify(key(new RecordId(1, 0), 1L), key(new RecordId(1, 1), 1L), types);
+    compareAndVerify(key(new RecordId(1, 0), 1L), key(new RecordId(1, 0), 1L), types);
+    compareAndVerify(key(new RecordId(1, 0), 1L), key(new RecordId(2, 0), 1L), types);
+  }
+
+  /** LINK with asymmetric numberSize — 1-byte vs 2-byte position encoding. */
+  @Test
+  public void testLinkFieldAsymmetricNumberSize() {
+    var types = new PropertyTypeInternal[] {PropertyTypeInternal.LINK, PropertyTypeInternal.LONG};
+    // position=1 → numberSize=1, position=256 → numberSize=2
+    compareAndVerify(key(new RecordId(1, 1), 1L), key(new RecordId(1, 256), 1L), types);
+    // position=255 → numberSize=1, position=256 → numberSize=2 (boundary)
+    compareAndVerify(key(new RecordId(1, 255), 1L), key(new RecordId(1, 256), 1L), types);
+    // position=65535 → numberSize=2, position=65536 → numberSize=3
+    compareAndVerify(key(new RecordId(1, 65535), 1L), key(new RecordId(1, 65536), 1L), types);
+    // Max position (8 bytes)
+    compareAndVerify(
+        key(new RecordId(1, Long.MAX_VALUE), 1L),
+        key(new RecordId(1, Long.MAX_VALUE - 1), 1L), types);
+  }
+
+  /** Verifies compareInByteBuffer works correctly with non-zero offsets in both buffers. */
+  @Test
+  public void testNonZeroBufferOffset() {
+    var types = new PropertyTypeInternal[] {PropertyTypeInternal.STRING, PropertyTypeInternal.LONG};
+    var key1 = key("hello", 42L);
+    var key2 = key("world", 42L);
+    var bytes1 = serialize(key1, types);
+    var bytes2 = serialize(key2, types);
+
+    // Embed bytes1 at a non-zero offset in a larger buffer
+    var padding = 37; // odd offset to catch alignment bugs
+    var padded = new byte[padding + bytes1.length];
+    System.arraycopy(bytes1, 0, padded, padding, bytes1.length);
+    var buffer = ByteBuffer.wrap(padded).order(ByteOrder.nativeOrder());
+
+    var result = SERIALIZER.compareInByteBuffer(serializerFactory, padding, buffer, bytes2, 0);
+    assertTrue("'hello' < 'world'", result < 0);
+
+    // Also test non-zero keyOffset
+    var paddedSearch = new byte[padding + bytes2.length];
+    System.arraycopy(bytes2, 0, paddedSearch, padding, bytes2.length);
+    result = SERIALIZER.compareInByteBuffer(serializerFactory, 0,
+        ByteBuffer.wrap(bytes1).order(ByteOrder.nativeOrder()), paddedSearch, padding);
+    assertTrue("'hello' < 'world'", result < 0);
+  }
 }

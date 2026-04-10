@@ -555,6 +555,8 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
         return 1;
       }
 
+      assert pageTypeId == searchTypeId
+          : "Type mismatch at field " + i + ": page=" + pageTypeId + " search=" + searchTypeId;
       final var type = PropertyTypeInternal.getById(pageTypeId);
       assert type != null;
 
@@ -668,7 +670,6 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
    * Fallback comparison for DECIMAL fields — no meaningful byte-level ordering exists
    * for (scale, unscaledValue) pairs, so deserialize both sides.
    */
-  @SuppressWarnings("unchecked")
   private static int compareDecimalFallback(
       BinarySerializerFactory serializerFactory,
       int bufferOffset, ByteBuffer buffer,
@@ -757,6 +758,8 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
         return 1;
       }
 
+      assert pageTypeId == searchTypeId
+          : "Type mismatch at field " + i + ": page=" + pageTypeId + " search=" + searchTypeId;
       final var type = PropertyTypeInternal.getById(pageTypeId);
       assert type != null;
 
