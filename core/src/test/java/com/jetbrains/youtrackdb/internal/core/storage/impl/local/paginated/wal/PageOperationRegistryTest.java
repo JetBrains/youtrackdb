@@ -19,6 +19,14 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.MapEntryPoin
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2SetApproxRecordsCountOp;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2SetFileSizeOp;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.WriteableWALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2InitOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2SetLeftSiblingOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2SetRightSiblingOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2SetTreeSizeOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2SwitchBucketTypeOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeNullBucketV2InitOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeNullBucketV2RemoveValueOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeNullBucketV2SetValueOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2AddAllLeafEntriesOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2AddAllNonLeafEntriesOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2AddNonLeafEntryOp;
@@ -223,17 +231,17 @@ public class PageOperationRegistryTest {
   /** Verifies the expected total count of registered types — catches accidentally omitted types. */
   @Test
   public void testRegisteredTypeCount() {
-    // IDs 201-263 = 63 types (18 Track 2-3 + 20 Track 5 + 25 Track 6). Each ID must have both a
-    // createOpForId entry and a factory registration. createOpForId throws for unknown IDs,
-    // so any gap causes immediate failure.
+    // IDs 201-271 = 71 types (18 Track 2-3 + 20 Track 5 + 25 Track 6 + 8 Track 7a).
+    // Each ID must have both a createOpForId entry and a factory registration.
+    // createOpForId throws for unknown IDs, so any gap causes immediate failure.
     int registeredCount = 0;
     for (int id = WALRecordTypes.PAGE_OPERATION_ID_BASE + 1;
-        id <= WALRecordTypes.PAGE_OPERATION_ID_BASE + 63; id++) {
+        id <= WALRecordTypes.PAGE_OPERATION_ID_BASE + 71; id++) {
       var testOp = createMinimalRecord(id);
       Assert.assertNotNull("WAL record ID " + id + " failed to roundtrip", testOp);
       registeredCount++;
     }
-    Assert.assertEquals("Expected 63 registered PageOperation types", 63, registeredCount);
+    Assert.assertEquals("Expected 71 registered PageOperation types", 71, registeredCount);
   }
 
   /**
@@ -426,6 +434,26 @@ public class PageOperationRegistryTest {
           new BTreeMVBucketV2ShrinkLeafEntriesOp(0, 0, 0, lsn, List.of());
       case WALRecordTypes.BTREE_MV_BUCKET_V2_SHRINK_NON_LEAF_ENTRIES_OP ->
           new BTreeMVBucketV2ShrinkNonLeafEntriesOp(0, 0, 0, lsn, List.of());
+
+      // Track 7a: SBTreeNullBucketV2 (3 ops)
+      case WALRecordTypes.SBTREE_NULL_BUCKET_V2_INIT_OP ->
+          new SBTreeNullBucketV2InitOp(0, 0, 0, lsn);
+      case WALRecordTypes.SBTREE_NULL_BUCKET_V2_SET_VALUE_OP ->
+          new SBTreeNullBucketV2SetValueOp(0, 0, 0, lsn, new byte[] {});
+      case WALRecordTypes.SBTREE_NULL_BUCKET_V2_REMOVE_VALUE_OP ->
+          new SBTreeNullBucketV2RemoveValueOp(0, 0, 0, lsn);
+
+      // Track 7a: SBTreeBucketV2 simple (5 ops)
+      case WALRecordTypes.SBTREE_BUCKET_V2_INIT_OP ->
+          new SBTreeBucketV2InitOp(0, 0, 0, lsn, true);
+      case WALRecordTypes.SBTREE_BUCKET_V2_SWITCH_BUCKET_TYPE_OP ->
+          new SBTreeBucketV2SwitchBucketTypeOp(0, 0, 0, lsn);
+      case WALRecordTypes.SBTREE_BUCKET_V2_SET_TREE_SIZE_OP ->
+          new SBTreeBucketV2SetTreeSizeOp(0, 0, 0, lsn, 0L);
+      case WALRecordTypes.SBTREE_BUCKET_V2_SET_LEFT_SIBLING_OP ->
+          new SBTreeBucketV2SetLeftSiblingOp(0, 0, 0, lsn, 0L);
+      case WALRecordTypes.SBTREE_BUCKET_V2_SET_RIGHT_SIBLING_OP ->
+          new SBTreeBucketV2SetRightSiblingOp(0, 0, 0, lsn, 0L);
 
       default -> throw new IllegalArgumentException("Unknown PageOperation ID: " + id);
     };
