@@ -688,13 +688,6 @@ public class SQLWhereClause extends SimpleNode {
 
   /**
    * Builds a new WHERE clause from the AND block with the term at
-   * {@code skipIdx} removed.
-   *
-   * <p>N.B. the returned clause shares sub-block instances with the
-   * source {@code andBlock} — callers must not mutate the result.
-   */
-  /**
-   * Builds a new WHERE clause from the AND block with the term at
    * {@code skipIdx} removed. Public entry point for cross-package callers
    * (e.g. MATCH planner stripping NOT IN conditions).
    *

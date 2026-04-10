@@ -16,9 +16,9 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.RidSet;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
+import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -70,6 +70,14 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
   @Nullable private final EdgeTraversal fallbackEdge;
 
   /**
+   * For Pattern B (ChainSemiJoin): the consumed predecessor edge (the
+   * {@code .outE('E')} part). When the hash table build fails at runtime,
+   * the fallback must traverse both the consumed edge and the main
+   * {@link #fallbackEdge} sequentially. Null for Patterns A and D.
+   */
+  @Nullable private final EdgeTraversal consumedEdge;
+
+  /**
    * LRU cache of hash tables keyed by back-referenced alias RID. Values are
    * {@code Map<RID, Integer>} for Pattern A, {@code Map<RID, List<Result>>}
    * for Pattern B, or {@code Set<RID>} for Pattern D. Access-order
@@ -82,11 +90,13 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
       CommandContext ctx,
       SemiJoinDescriptor descriptor,
       @Nullable EdgeTraversal fallbackEdge,
+      @Nullable EdgeTraversal consumedEdge,
       boolean profilingEnabled) {
     super(ctx, profilingEnabled);
     assert MatchAssertions.checkNotNull(descriptor, "semi-join descriptor");
     this.descriptor = descriptor;
     this.fallbackEdge = fallbackEdge;
+    this.consumedEdge = consumedEdge;
   }
 
   @Override
@@ -129,7 +139,7 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
 
     // AntiSemiJoin uses filter (0 or 1 output per row)
     return upstream.filter(
-        (row, c) -> probeAntiJoin(row, localCache, localDescriptor, session, c));
+        (row, c) -> probeAntiJoin(row, localCache, localDescriptor, c));
   }
 
   // ---- Cache resolution (shared by probeRow and probeChain) ----
@@ -142,7 +152,6 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
       Result row,
       LinkedHashMap<RID, Object> lruCache,
       SemiJoinDescriptor desc,
-      DatabaseSessionEmbedded session,
       CommandContext ctx) {
     var backRefRid = resolveBackRefRid(row, desc, ctx);
     if (backRefRid == null) {
@@ -151,21 +160,13 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
 
     var cached = lruCache.get(backRefRid);
     if (cached == null) {
-      var ht = buildHashTable(backRefRid, desc, ctx);
-      if (ht == null) {
+      var build = buildHashTable(backRefRid, desc, ctx);
+      if (build == null) {
         lruCache.put(backRefRid, BUILD_FAILED);
         return null;
       }
-      Object entity = null;
-      if (desc.joinMode() == JoinMode.SEMI_JOIN) {
-        try {
-          entity = session.getActiveTransaction().load(backRefRid);
-        } catch (RecordNotFoundException e) {
-          // vertex gone
-        }
-      }
-      cached = new CachedBuild(ht, entity);
-      lruCache.put(backRefRid, cached);
+      lruCache.put(backRefRid, build);
+      return build;
     }
     if (cached == BUILD_FAILED) {
       return null;
@@ -189,11 +190,11 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
       SingleEdgeSemiJoin desc,
       DatabaseSessionEmbedded session,
       CommandContext probeCtx) {
-    var build = resolveBuild(row, lruCache, desc, session, probeCtx);
+    var build = resolveBuild(row, lruCache, desc, probeCtx);
     if (build == null) {
-      var fallback = handleBuildFailure(row, desc, probeCtx);
-      return fallback == null
-          ? ExecutionStream.empty() : ExecutionStream.singleton(fallback);
+      // Fall back to per-row nested-loop traversal, draining all results
+      // (not just the first) to preserve multi-edge fan-out semantics.
+      return nestedLoopFallback(row, probeCtx);
     }
 
     var sourceRid = resolveSourceRid(row, desc);
@@ -201,20 +202,22 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
       return ExecutionStream.empty();
     }
 
-    var map = (Map<RID, Integer>) build.hashTable();
-    var edgeCount = map.getOrDefault(sourceRid, 0);
+    var map = (Object2IntOpenHashMap<RID>) build.hashTable();
+    var edgeCount = map.getInt(sourceRid);
     if (edgeCount == 0) {
       return ExecutionStream.empty();
     }
 
-    var resultRow = new MatchResultRow(
-        session, row, desc.targetAlias(), build.backRefEntity());
     if (edgeCount == 1) {
-      return ExecutionStream.singleton(resultRow);
+      return ExecutionStream.singleton(new MatchResultRow(
+          session, row, desc.targetAlias(), build.backRefEntity()));
     }
+    // Create independent row instances for each edge to avoid mutation
+    // of a shared mutable MatchResultRow propagating across results.
     var results = new ArrayList<Result>(edgeCount);
     for (int i = 0; i < edgeCount; i++) {
-      results.add(resultRow);
+      results.add(new MatchResultRow(
+          session, row, desc.targetAlias(), build.backRefEntity()));
     }
     return ExecutionStream.resultIterator(results.iterator());
   }
@@ -228,11 +231,10 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
       Result row,
       LinkedHashMap<RID, Object> lruCache,
       SemiJoinDescriptor desc,
-      DatabaseSessionEmbedded session,
       CommandContext probeCtx) {
-    var build = resolveBuild(row, lruCache, desc, session, probeCtx);
+    var build = resolveBuild(row, lruCache, desc, probeCtx);
     if (build == null) {
-      return handleBuildFailure(row, desc, probeCtx);
+      return handleAntiJoinBuildFailure(row, (AntiSemiJoin) desc, probeCtx);
     }
 
     var sourceRid = resolveSourceRid(row, desc);
@@ -256,7 +258,7 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
       ChainSemiJoin chain,
       DatabaseSessionEmbedded session,
       CommandContext probeCtx) {
-    var build = resolveBuild(row, lruCache, chain, session, probeCtx);
+    var build = resolveBuild(row, lruCache, chain, probeCtx);
     if (build == null) {
       return nestedLoopFallback(row, probeCtx);
     }
@@ -286,49 +288,55 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
   // ---- Fallback ----
 
   /**
-   * Handles build failure for probeRow (single-row context).
-   * Pattern A: falls back to per-row MatchEdgeTraverser.
-   * Pattern D: evaluates the stored NOT IN condition per row (the NOT IN
-   * was stripped from the MatchStep's WHERE clause at plan time, so the
-   * fallback must evaluate it here).
+   * Handles build failure for Pattern D (anti-join): evaluates the stored
+   * NOT IN condition per row. The NOT IN was stripped from the MatchStep's
+   * WHERE clause at plan time, so BackRefHashJoinStep is the sole evaluator.
    */
-  @Nullable private Result handleBuildFailure(
-      Result row, SemiJoinDescriptor desc, CommandContext ctx) {
-    if (desc.joinMode() == JoinMode.ANTI_JOIN) {
-      // Pattern D fallback: evaluate the stored NOT IN condition per row.
-      // The NOT IN was stripped from the MatchStep's filter at plan time,
-      // so BackRefHashJoinStep is the sole evaluator.
-      var anti = (AntiSemiJoin) desc;
-      if (anti.notInCondition() == null) {
-        return row;
-      }
-      // $currentMatch must be set for the NOT IN expression to resolve
-      var candidate = row.getProperty(anti.targetAlias());
-      ctx.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, candidate);
-      boolean passes = anti.notInCondition().evaluate(row, ctx);
-      return passes ? row : null;
+  @Nullable private Result handleAntiJoinBuildFailure(
+      Result row, AntiSemiJoin anti, CommandContext ctx) {
+    if (anti.notInCondition() == null) {
+      return row;
     }
-    // Pattern A: fall back to per-row nested-loop traversal
-    if (fallbackEdge == null) {
-      return null;
-    }
-    var traverser = createFallbackTraverser(row, fallbackEdge);
-    if (traverser.hasNext(ctx)) {
-      return traverser.next(ctx);
-    }
-    return null;
+    // $currentMatch must be set for the NOT IN expression to resolve
+    var candidate = row.getProperty(anti.targetAlias());
+    ctx.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, candidate);
+    boolean passes = anti.notInCondition().evaluate(row, ctx);
+    return passes ? row : null;
   }
 
   /**
-   * Falls back to nested-loop traversal for Pattern B (ChainSemiJoin) when
-   * the hash table build fails. Creates a {@link MatchEdgeTraverser} that
-   * performs the same per-row link bag traversal as {@link MatchStep}.
+   * Falls back to nested-loop traversal when the hash table build fails.
+   *
+   * <p>For Pattern A (SingleEdgeSemiJoin), traverses the single fallback edge.
+   * For Pattern B (ChainSemiJoin), traverses the consumed predecessor edge
+   * first (outE), then the main fallback edge (inV) for each intermediate
+   * result, reproducing the two-edge chain.
    */
   private ExecutionStream nestedLoopFallback(
       Result row, CommandContext ctx) {
     if (fallbackEdge == null) {
       return ExecutionStream.empty();
     }
+
+    // Pattern B: two-edge chain fallback — traverse consumed outE edge
+    // first, then inV edge for each intermediate result
+    if (consumedEdge != null) {
+      var firstTraverser = createFallbackTraverser(row, consumedEdge);
+      var results = new ArrayList<Result>();
+      while (firstTraverser.hasNext(ctx)) {
+        var intermediate = firstTraverser.next(ctx);
+        var secondTraverser = createFallbackTraverser(
+            intermediate, fallbackEdge);
+        while (secondTraverser.hasNext(ctx)) {
+          results.add(secondTraverser.next(ctx));
+        }
+      }
+      return results.isEmpty()
+          ? ExecutionStream.empty()
+          : ExecutionStream.resultIterator(results.iterator());
+    }
+
+    // Pattern A: single-edge fallback
     var traverser = createFallbackTraverser(row, fallbackEdge);
     var results = new ArrayList<Result>();
     while (traverser.hasNext(ctx)) {
@@ -378,7 +386,7 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
 
   // ---- Build methods ----
 
-  @Nullable private Object buildHashTable(
+  @Nullable private CachedBuild buildHashTable(
       RID backRefRid, SemiJoinDescriptor desc, CommandContext ctx) {
     return switch (desc) {
       case SingleEdgeSemiJoin single -> buildSingleEdgeHashTable(
@@ -389,22 +397,28 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
   }
 
   /**
+   * Loads an entity by RID. Returns {@code null} if the record is missing
+   * or is not an {@link EntityImpl}.
+   */
+  @Nullable private static EntityImpl loadEntity(RID rid, CommandContext ctx) {
+    try {
+      var rec = ctx.getDatabaseSession().getActiveTransaction().load(rid);
+      return rec instanceof EntityImpl entity ? entity : null;
+    } catch (RecordNotFoundException e) {
+      return null;
+    }
+  }
+
+  /**
    * Builds a hash table for Pattern A: source vertex RID → edge count.
    * Unlike a plain RidSet, this preserves the number of edges per source
    * vertex, so that multiple edges of the same class between the same
    * vertex pair produce the correct number of result rows.
    */
-  @Nullable private Map<RID, Integer> buildSingleEdgeHashTable(
+  @Nullable private CachedBuild buildSingleEdgeHashTable(
       RID backRefRid, SingleEdgeSemiJoin single, CommandContext ctx) {
-    var session = ctx.getDatabaseSession();
-    EntityImpl targetEntity;
-    try {
-      var rec = session.getActiveTransaction().load(backRefRid);
-      if (!(rec instanceof EntityImpl entity)) {
-        return null;
-      }
-      targetEntity = entity;
-    } catch (RecordNotFoundException e) {
+    var targetEntity = loadEntity(backRefRid, ctx);
+    if (targetEntity == null) {
       return null;
     }
 
@@ -421,29 +435,22 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
     }
 
     var initialCapacity = hashCapacity(linkBag.size(), maxSize);
-    var result = new HashMap<RID, Integer>(initialCapacity);
+    var result = new Object2IntOpenHashMap<RID>(initialCapacity);
     long count = 0;
     for (var pair : linkBag) {
-      result.merge(pair.secondaryRid(), 1, Integer::sum);
+      result.addTo(pair.secondaryRid(), 1);
       count++;
       if (maxSize > 0 && count > maxSize) {
         return null;
       }
     }
-    return result;
+    return new CachedBuild(result, targetEntity);
   }
 
-  @Nullable private Map<RID, List<Result>> buildChainHashTable(
+  @Nullable private CachedBuild buildChainHashTable(
       RID backRefRid, ChainSemiJoin chain, CommandContext ctx) {
-    var session = ctx.getDatabaseSession();
-    EntityImpl targetEntity;
-    try {
-      var rec = session.getActiveTransaction().load(backRefRid);
-      if (!(rec instanceof EntityImpl entity)) {
-        return null;
-      }
-      targetEntity = entity;
-    } catch (RecordNotFoundException e) {
+    var targetEntity = loadEntity(backRefRid, ctx);
+    if (targetEntity == null) {
       return null;
     }
 
@@ -468,6 +475,7 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
       return null;
     }
 
+    var session = ctx.getDatabaseSession();
     var initialCapacity = hashCapacity(linkBag.size(), maxSize);
     var result = new HashMap<RID, List<Result>>(initialCapacity);
     long count = 0;
@@ -495,20 +503,13 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
         // Edge record missing — skip
       }
     }
-    return result;
+    return new CachedBuild(result, targetEntity);
   }
 
-  @Nullable private Set<RID> buildAntiJoinHashTable(
+  @Nullable private CachedBuild buildAntiJoinHashTable(
       RID anchorRid, AntiSemiJoin anti, CommandContext ctx) {
-    var session = ctx.getDatabaseSession();
-    EntityImpl anchorEntity;
-    try {
-      var rec = session.getActiveTransaction().load(anchorRid);
-      if (!(rec instanceof EntityImpl entity)) {
-        return null;
-      }
-      anchorEntity = entity;
-    } catch (RecordNotFoundException e) {
+    var anchorEntity = loadEntity(anchorRid, ctx);
+    if (anchorEntity == null) {
       return null;
     }
 
@@ -524,15 +525,16 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
       return null;
     }
 
-    var initialCap = hashCapacity(linkBag.size(), maxSize);
-    var result = new HashSet<RID>(initialCap);
+    var result = new RidSet();
+    long count = 0;
     for (var pair : linkBag) {
       result.add(pair.secondaryRid());
-      if (maxSize > 0 && result.size() > maxSize) {
+      count++;
+      if (maxSize > 0 && count > maxSize) {
         return null;
       }
     }
-    return result;
+    return new CachedBuild(result, null);
   }
 
   // ---- Utility ----
@@ -546,7 +548,7 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
     return (int) Math.min(effective * 4 / 3 + 1, Integer.MAX_VALUE);
   }
 
-  @Nullable static RID toRid(@Nullable Object value) {
+  @Nullable private static RID toRid(@Nullable Object value) {
     if (value instanceof RID rid) {
       return rid;
     }
@@ -604,6 +606,6 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
   @Override
   public ExecutionStep copy(CommandContext ctx) {
     return new BackRefHashJoinStep(
-        ctx, descriptor, fallbackEdge, profilingEnabled);
+        ctx, descriptor, fallbackEdge, consumedEdge, profilingEnabled);
   }
 }

@@ -1783,9 +1783,18 @@ public class MatchExecutionPlanner {
 
     var first = true;
     if (!sortedEdges.isEmpty()) {
+      optimizeScheduleWithIntersections(sortedEdges, context);
+
+      // Re-bind filters after optimization: detectNotInAntiJoin() may have
+      // stripped NOT IN conditions from aliasFilters, so we must push the
+      // updated filters to the match expression AST nodes. Without this,
+      // the MatchStep would still evaluate the original un-stripped filter.
+      rebindFilters(aliasFilters);
+
+      // Annotate each edge traversal with the source node's class/RID/filter
+      // constraints (post-optimization, so stripped filters are reflected).
+      // MatchReverseEdgeTraverser uses these when traversing in reverse.
       for (var edge : sortedEdges) {
-        // Annotate each edge traversal with the source node's class/RID/filter constraints
-        // so that MatchReverseEdgeTraverser can apply them when traversing in reverse
         if (edge.edge.out.alias != null) {
           edge.setLeftClass(aliasClasses.get(edge.edge.out.alias));
           edge.setLeftRid(aliasRids.get(edge.edge.out.alias));
@@ -1793,7 +1802,6 @@ public class MatchExecutionPlanner {
         }
       }
 
-      optimizeScheduleWithIntersections(sortedEdges, context);
       attachCollectionIdFilters(sortedEdges, context);
 
       // Hash join optimization: detect secondary branches that can be evaluated as
@@ -3110,8 +3118,10 @@ public class MatchExecutionPlanner {
                     schedule, j, involvedAliases, ridExpr, targetAliasJ,
                     boundAliases, ctx);
                 if (chainDesc != null) {
+                  var consumed = schedule.get(j - 1);
                   edgeJ.setSemiJoinDescriptor(chainDesc);
-                  schedule.get(j - 1).setConsumed(true);
+                  consumed.setConsumed(true);
+                  edgeJ.setConsumedPredecessor(consumed);
                   logger.debug(
                       "MATCH pre-filter: ChainSemiJoin on edge[{},{}] "
                           + "({}({}) chain semi-join via $matched.{})",
@@ -3129,8 +3139,10 @@ public class MatchExecutionPlanner {
                 schedule, j, involvedAliases, ridExpr, targetAliasJ,
                 boundAliases, ctx);
             if (chainDesc != null) {
+              var consumed = schedule.get(j - 1);
               edgeJ.setSemiJoinDescriptor(chainDesc);
-              schedule.get(j - 1).setConsumed(true);
+              consumed.setConsumed(true);
+              edgeJ.setConsumedPredecessor(consumed);
               logger.debug(
                   "MATCH pre-filter: ChainSemiJoin on edge[{},{}] "
                       + "({}({}) chain semi-join via $matched.{})",
@@ -3238,6 +3250,7 @@ public class MatchExecutionPlanner {
     return threshold > 0;
   }
 
+  // FQN to avoid collision with com.jetbrains.youtrackdb...sql.parser.Pattern
   // Regex for $matched.X.out('E') or $matched.X.in('E')
   // Group 1: alias name (X), Group 2: direction (out/in), Group 3: edge class (E)
   private static final java.util.regex.Pattern MATCHED_TRAVERSAL_PATTERN =
@@ -3332,7 +3345,7 @@ public class MatchExecutionPlanner {
         continue;
       }
 
-      // Edge class must be a valid identifier (prevent SQL injection)
+      // Edge class must be a valid identifier (sanity check on regex group)
       if (!edgeClass.matches("[A-Za-z_][A-Za-z0-9_]*")) {
         continue;
       }
@@ -3857,13 +3870,16 @@ public class MatchExecutionPlanner {
       // condition per row as a correctness fallback.
       plan.chain(new MatchStep(context, edge, profilingEnabled));
       plan.chain(new BackRefHashJoinStep(
-          context, edge.getSemiJoinDescriptor(), null, profilingEnabled));
+          context, edge.getSemiJoinDescriptor(), null, null, profilingEnabled));
     } else if (edge.getSemiJoinDescriptor() != null) {
       // Back-reference semi-join (Pattern A/B): replace per-row link bag
       // traversal with a one-time hash table build + O(1) probe. The
       // EdgeTraversal is passed for runtime fallback if the build fails.
+      // For Pattern B (ChainSemiJoin), the consumed predecessor edge is
+      // also passed so the fallback can traverse both edges sequentially.
       plan.chain(new BackRefHashJoinStep(
-          context, edge.getSemiJoinDescriptor(), edge, profilingEnabled));
+          context, edge.getSemiJoinDescriptor(), edge,
+          edge.getConsumedPredecessor(), profilingEnabled));
     } else {
       plan.chain(new MatchStep(context, edge, profilingEnabled));
     }

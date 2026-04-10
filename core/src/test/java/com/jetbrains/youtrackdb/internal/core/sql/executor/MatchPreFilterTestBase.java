@@ -53,10 +53,15 @@ public abstract class MatchPreFilterTestBase extends DbTestBase {
 
   // ---- EXPLAIN assertion shortcuts ----
 
-  /** Asserts the EXPLAIN plan contains {@code "intersection:"}. */
+  /**
+   * Asserts the EXPLAIN plan contains evidence of back-ref optimization:
+   * either {@code "intersection:"} (EdgeRidLookup) or
+   * {@code "BACK-REF HASH JOIN"} (BackRefHashJoinStep).
+   */
   protected void assertPlanHasIntersection(String query, String reason) {
     String plan = explainPlan(query);
-    assertTrue(reason + ":\n" + plan, plan.contains("intersection:"));
+    assertTrue(reason + ":\n" + plan,
+        plan.contains("intersection:") || plan.contains("BACK-REF HASH JOIN"));
   }
 
   /** Asserts the EXPLAIN plan contains {@code "intersection: index"}. */
@@ -67,17 +72,22 @@ public abstract class MatchPreFilterTestBase extends DbTestBase {
         plan.contains("intersection: index"));
   }
 
-  /** Asserts the EXPLAIN plan does NOT contain {@code "intersection:"}. */
+  /**
+   * Asserts the EXPLAIN plan does NOT contain any back-ref optimization:
+   * neither {@code "intersection:"} nor {@code "BACK-REF HASH JOIN"}.
+   */
   protected void assertPlanHasNoIntersection(String query, String reason) {
     String plan = explainPlan(query);
-    assertFalse(reason + ":\n" + plan, plan.contains("intersection:"));
+    assertFalse(reason + ":\n" + plan,
+        plan.contains("intersection:") || plan.contains("BACK-REF HASH JOIN"));
   }
 
   /** Named-parameter variant of {@link #assertPlanHasIntersection}. */
   protected void assertPlanHasIntersection(
       String query, Map<String, Object> params, String reason) {
     String plan = explainPlan(query, params);
-    assertTrue(reason + ":\n" + plan, plan.contains("intersection:"));
+    assertTrue(reason + ":\n" + plan,
+        plan.contains("intersection:") || plan.contains("BACK-REF HASH JOIN"));
   }
 
   /** Named-parameter variant of {@link #assertPlanHasIndexIntersection}. */

@@ -104,6 +104,14 @@ public class EdgeTraversal {
   private boolean consumed;
 
   /**
+   * When this edge has a {@link ChainSemiJoin} descriptor, points to the
+   * consumed predecessor edge (the {@code .outE('E')} part). Used by
+   * {@link BackRefHashJoinStep} to construct the correct two-edge fallback
+   * traversal when the hash table build fails at runtime.
+   */
+  @Nullable private EdgeTraversal consumedPredecessor;
+
+  /**
    * @param edge the pattern edge to traverse
    * @param out  `true` for forward traversal, `false` for reverse
    */
@@ -174,6 +182,14 @@ public class EdgeTraversal {
 
   public void setConsumed(boolean consumed) {
     this.consumed = consumed;
+  }
+
+  @Nullable public EdgeTraversal getConsumedPredecessor() {
+    return consumedPredecessor;
+  }
+
+  public void setConsumedPredecessor(@Nullable EdgeTraversal consumedPredecessor) {
+    this.consumedPredecessor = consumedPredecessor;
   }
 
   @Nullable public IntSet getAcceptedCollectionIds() {
@@ -283,6 +299,7 @@ public class EdgeTraversal {
     copy.semiJoinDescriptor = semiJoinDescriptor;
     copy.acceptedCollectionIds = acceptedCollectionIds;
     copy.consumed = consumed;
+    copy.consumedPredecessor = consumedPredecessor;
     // Cache is intentionally not copied — stale data from a previous
     // execution must not leak into a new plan instance.
     return copy;
