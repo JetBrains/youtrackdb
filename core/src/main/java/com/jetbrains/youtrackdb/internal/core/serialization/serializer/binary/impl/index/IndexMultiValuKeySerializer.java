@@ -1,6 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.index;
 
+import com.jetbrains.youtrackdb.internal.common.comparator.DefaultComparator;
+import com.jetbrains.youtrackdb.internal.common.serialization.BinaryConverter;
+import com.jetbrains.youtrackdb.internal.common.serialization.BinaryConverterFactory;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer;
+import com.jetbrains.youtrackdb.internal.common.serialization.types.BinaryTypeSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.ByteSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
@@ -25,6 +29,8 @@ import java.util.List;
 import javax.annotation.Nullable;
 
 public final class IndexMultiValuKeySerializer implements BinarySerializer<CompositeKey> {
+
+  private static final BinaryConverter CONVERTER = BinaryConverterFactory.getConverter();
 
   @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, CompositeKey compositeKey,
@@ -337,8 +343,8 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
   public int getObjectSizeNative(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
     //noinspection RedundantCast
-    return ((ByteBuffer)
-        ByteBuffer.wrap(stream).order(ByteOrder.nativeOrder()).position(startPosition))
+    return ((ByteBuffer) ByteBuffer.wrap(stream).order(ByteOrder.nativeOrder())
+        .position(startPosition))
         .getInt();
   }
 
@@ -346,7 +352,8 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
   public void serializeNativeObject(
       CompositeKey compositeKey, BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition, Object... hints) {
-    @SuppressWarnings("RedundantCast") final var buffer =
+    @SuppressWarnings("RedundantCast")
+    final var buffer =
         (ByteBuffer) ByteBuffer.wrap(stream).order(ByteOrder.nativeOrder()).position(startPosition);
     serialize(compositeKey, buffer, (PropertyTypeInternal[]) hints, serializerFactory);
   }
@@ -354,7 +361,8 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
   @Override
   public CompositeKey deserializeNativeObject(BinarySerializerFactory serializerFactory,
       byte[] stream, int startPosition) {
-    @SuppressWarnings("RedundantCast") final var buffer =
+    @SuppressWarnings("RedundantCast")
+    final var buffer =
         (ByteBuffer) ByteBuffer.wrap(stream).order(ByteOrder.nativeOrder()).position(startPosition);
     return deserialize(buffer, serializerFactory);
   }
@@ -369,8 +377,7 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
     return 0;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public CompositeKey preprocess(BinarySerializerFactory serializerFactory, CompositeKey value,
       Object... hints) {
     if (value == null) {
@@ -501,5 +508,353 @@ public final class IndexMultiValuKeySerializer implements BinarySerializer<Compo
   @Override
   public int getObjectSizeInByteBuffer(ByteBuffer buffer, WALChanges walChanges, int offset) {
     return walChanges.getIntValue(buffer, offset);
+  }
+
+  /**
+   * Zero-deserialization field-by-field comparison of two serialized CompositeKeys.
+   * Compares directly in the page buffer and search key byte array without creating
+   * CompositeKey objects. Delegates to per-type serializer compareInByteBuffer()
+   * where formats match; uses inline comparison for FLOAT, DOUBLE, BOOLEAN, BYTE,
+   * LINK, and DECIMAL.
+   */
+  @Override
+  public int compareInByteBuffer(
+      BinarySerializerFactory serializerFactory,
+      int bufferOffset, ByteBuffer buffer,
+      byte[] serializedKey, int keyOffset) {
+    // Skip total size int in both
+    bufferOffset += Integer.BYTES;
+    keyOffset += Integer.BYTES;
+
+    // Read number of keys from both
+    final var pageKeysCount = buffer.getInt(bufferOffset);
+    final var searchKeysCount =
+        CONVERTER.getInt(serializedKey, keyOffset, ByteOrder.nativeOrder());
+
+    bufferOffset += Integer.BYTES;
+    keyOffset += Integer.BYTES;
+
+    final var minKeys = Math.min(pageKeysCount, searchKeysCount);
+    for (var i = 0; i < minKeys; i++) {
+      final var pageTypeId = buffer.get(bufferOffset);
+      final var searchTypeId = serializedKey[keyOffset];
+
+      bufferOffset += Byte.BYTES;
+      keyOffset += Byte.BYTES;
+
+      // Both null — equal, continue to next field
+      if (pageTypeId < 0 && searchTypeId < 0) {
+        continue;
+      }
+      // Page null < any non-null
+      if (pageTypeId < 0) {
+        return -1;
+      }
+      // Any non-null > search null
+      if (searchTypeId < 0) {
+        return 1;
+      }
+
+      final var type = PropertyTypeInternal.getById(pageTypeId);
+      assert type != null;
+
+      final var cmp =
+          compareField(type, serializerFactory, bufferOffset, buffer, serializedKey, keyOffset);
+      if (cmp != 0) {
+        return cmp;
+      }
+
+      // Advance both offsets past this field
+      bufferOffset += getKeySizeInByteBuffer(bufferOffset, buffer, type, serializerFactory);
+      keyOffset += getKeySizeNative(type, serializedKey, keyOffset, serializerFactory);
+    }
+
+    return Integer.compare(pageKeysCount, searchKeysCount);
+  }
+
+  /**
+   * Compares a single field from the page buffer against the search key byte array.
+   * Delegates to per-type serializer compareInByteBuffer() for types where the
+   * on-disk format matches (LONG, DATE, DATETIME, INTEGER, SHORT, STRING, BINARY).
+   * Uses inline comparison for FLOAT/DOUBLE (stored as int/long bits), BOOLEAN/BYTE,
+   * LINK (compacted format), and DECIMAL (BigDecimal fallback).
+   */
+  private static int compareField(
+      PropertyTypeInternal type, BinarySerializerFactory serializerFactory,
+      int bufferOffset, ByteBuffer buffer,
+      byte[] serializedKey, int keyOffset) {
+    return switch (type) {
+      case LONG, DATE, DATETIME ->
+          LongSerializer.INSTANCE.compareInByteBuffer(
+              serializerFactory, bufferOffset, buffer, serializedKey, keyOffset);
+      case INTEGER ->
+          IntegerSerializer.INSTANCE.compareInByteBuffer(
+              serializerFactory, bufferOffset, buffer, serializedKey, keyOffset);
+      case SHORT ->
+          ShortSerializer.INSTANCE.compareInByteBuffer(
+              serializerFactory, bufferOffset, buffer, serializedKey, keyOffset);
+      case STRING ->
+          UTF8Serializer.INSTANCE.compareInByteBuffer(
+              serializerFactory, bufferOffset, buffer, serializedKey, keyOffset);
+      case BINARY ->
+          BinaryTypeSerializer.INSTANCE.compareInByteBuffer(
+              serializerFactory, bufferOffset, buffer, serializedKey, keyOffset);
+      case FLOAT -> Float.compare(
+          Float.intBitsToFloat(buffer.getInt(bufferOffset)),
+          Float.intBitsToFloat(
+              CONVERTER.getInt(serializedKey, keyOffset, ByteOrder.nativeOrder())));
+      case DOUBLE -> Double.compare(
+          Double.longBitsToDouble(buffer.getLong(bufferOffset)),
+          Double.longBitsToDouble(
+              CONVERTER.getLong(serializedKey, keyOffset, ByteOrder.nativeOrder())));
+      case BOOLEAN, BYTE -> Byte.compare(buffer.get(bufferOffset), serializedKey[keyOffset]);
+      case LINK ->
+          compareLinkInline(bufferOffset, buffer, serializedKey, keyOffset);
+      case DECIMAL ->
+          compareDecimalFallback(
+              serializerFactory, bufferOffset, buffer, serializedKey, keyOffset);
+      default -> throw new IndexException((String) null, "Unsupported index type " + type);
+    };
+  }
+
+  /**
+   * Inline comparison for LINK fields in compacted format:
+   * [clusterId:2][numberSize:1][clusterPosition:numberSize bytes, little-endian].
+   */
+  private static int compareLinkInline(
+      int bufferOffset, ByteBuffer buffer,
+      byte[] serializedKey, int keyOffset) {
+    // Compare cluster IDs
+    final var pageClusterId = buffer.getShort(bufferOffset);
+    final var searchClusterId =
+        CONVERTER.getShort(serializedKey, keyOffset, ByteOrder.nativeOrder());
+    final var clusterCmp = Short.compare(pageClusterId, searchClusterId);
+    if (clusterCmp != 0) {
+      return clusterCmp;
+    }
+
+    // Compare cluster positions (variable-length little-endian)
+    final var pageNumberSize = buffer.get(bufferOffset + Short.BYTES);
+    final var searchNumberSize = serializedKey[keyOffset + Short.BYTES];
+
+    final var pagePosition =
+        readCompactedPosition(buffer, bufferOffset + Short.BYTES + Byte.BYTES, pageNumberSize);
+    final var searchPosition =
+        readCompactedPositionNative(
+            serializedKey, keyOffset + Short.BYTES + Byte.BYTES, searchNumberSize);
+
+    return Long.compare(pagePosition, searchPosition);
+  }
+
+  /** Reconstructs a compacted cluster position from a page ByteBuffer. */
+  private static long readCompactedPosition(ByteBuffer buffer, int offset, int numberSize) {
+    long position = 0;
+    for (var i = 0; i < numberSize; i++) {
+      position = position | ((long) (0xFF & buffer.get(offset + i)) << (i * 8));
+    }
+    return position;
+  }
+
+  /** Reconstructs a compacted cluster position from a native byte array. */
+  private static long readCompactedPositionNative(byte[] stream, int offset, int numberSize) {
+    long position = 0;
+    for (var i = 0; i < numberSize; i++) {
+      position = position | ((long) (0xFF & stream[offset + i]) << (i * 8));
+    }
+    return position;
+  }
+
+  /**
+   * Fallback comparison for DECIMAL fields — no meaningful byte-level ordering exists
+   * for (scale, unscaledValue) pairs, so deserialize both sides.
+   */
+  @SuppressWarnings("unchecked")
+  private static int compareDecimalFallback(
+      BinarySerializerFactory serializerFactory,
+      int bufferOffset, ByteBuffer buffer,
+      byte[] serializedKey, int keyOffset) {
+    var pageVal = deserializeKeyFromByteBuffer(bufferOffset, buffer,
+        PropertyTypeInternal.DECIMAL, serializerFactory);
+    @SuppressWarnings("RedundantCast")
+    var searchBuffer =
+        (ByteBuffer) ByteBuffer.wrap(serializedKey).order(ByteOrder.nativeOrder());
+    var searchVal = deserializeKeyFromByteBuffer(keyOffset, searchBuffer,
+        PropertyTypeInternal.DECIMAL, serializerFactory);
+    return DefaultComparator.INSTANCE.compare(pageVal, searchVal);
+  }
+
+  /**
+   * Computes the serialized size of a single field in a native byte array.
+   * Mirrors {@link #getKeySizeInByteBuffer} but reads from byte[] via BinaryConverter.
+   */
+  private static int getKeySizeNative(PropertyTypeInternal type, byte[] stream, int offset,
+      BinarySerializerFactory serializerFactory) {
+    return switch (type) {
+      case BINARY -> {
+        final var len =
+            CONVERTER.getInt(stream, offset, ByteOrder.nativeOrder());
+        yield Integer.BYTES + len;
+      }
+      case BOOLEAN, BYTE -> Byte.BYTES;
+      case DATE, DATETIME, DOUBLE, LONG -> Long.BYTES;
+      case DECIMAL -> {
+        final var unscaledValueLen =
+            CONVERTER.getInt(stream, offset + Integer.BYTES, ByteOrder.nativeOrder());
+        yield 2 * Integer.BYTES + unscaledValueLen;
+      }
+      case FLOAT, INTEGER -> Integer.BYTES;
+      case LINK ->
+          CompactedLinkSerializer.INSTANCE.getObjectSizeNative(
+              serializerFactory, stream, offset);
+      case SHORT -> Short.BYTES;
+      case STRING ->
+          UTF8Serializer.INSTANCE.getObjectSizeNative(serializerFactory, stream, offset);
+      default -> throw new IndexException((String) null, "Unsupported index type " + type);
+    };
+  }
+
+  /**
+   * WAL-aware variant of compareInByteBuffer. Reads page data through the WAL overlay.
+   * Inlines primitive reads via walChanges methods for LONG, INTEGER, SHORT, FLOAT,
+   * DOUBLE, BOOLEAN, BYTE, DATE, DATETIME. Falls through to deserialization for
+   * STRING, LINK, BINARY, and DECIMAL.
+   */
+  @Override
+  public int compareInByteBufferWithWALChanges(
+      BinarySerializerFactory serializerFactory,
+      ByteBuffer buffer, WALChanges walChanges, int pageOffset,
+      byte[] serializedKey, int keyOffset) {
+    // Skip total size int in both
+    pageOffset += Integer.BYTES;
+    keyOffset += Integer.BYTES;
+
+    // Read number of keys from both (page via WAL overlay, search from byte[])
+    final var pageKeysCount = walChanges.getIntValue(buffer, pageOffset);
+    final var searchKeysCount =
+        CONVERTER.getInt(serializedKey, keyOffset, ByteOrder.nativeOrder());
+
+    pageOffset += Integer.BYTES;
+    keyOffset += Integer.BYTES;
+
+    final var minKeys = Math.min(pageKeysCount, searchKeysCount);
+    for (var i = 0; i < minKeys; i++) {
+      final var pageTypeId = walChanges.getByteValue(buffer, pageOffset);
+      final var searchTypeId = serializedKey[keyOffset];
+
+      pageOffset += Byte.BYTES;
+      keyOffset += Byte.BYTES;
+
+      // Both null — equal, continue to next field
+      if (pageTypeId < 0 && searchTypeId < 0) {
+        continue;
+      }
+      // Page null < any non-null
+      if (pageTypeId < 0) {
+        return -1;
+      }
+      // Any non-null > search null
+      if (searchTypeId < 0) {
+        return 1;
+      }
+
+      final var type = PropertyTypeInternal.getById(pageTypeId);
+      assert type != null;
+
+      final var cmp = compareFieldWAL(
+          type, serializerFactory, buffer, walChanges, pageOffset, serializedKey, keyOffset);
+      if (cmp != 0) {
+        return cmp;
+      }
+
+      // Advance both offsets past this field
+      pageOffset +=
+          getKeySizeInByteBufferWithWAL(pageOffset, buffer, walChanges, type);
+      keyOffset += getKeySizeNative(type, serializedKey, keyOffset, serializerFactory);
+    }
+
+    return Integer.compare(pageKeysCount, searchKeysCount);
+  }
+
+  /**
+   * Compares a single field from the page buffer (with WAL overlay) against the search
+   * key byte array. Inlines primitive reads via walChanges methods. Falls through to
+   * deserialization for STRING, LINK, BINARY, and DECIMAL.
+   */
+  private static int compareFieldWAL(
+      PropertyTypeInternal type, BinarySerializerFactory serializerFactory,
+      ByteBuffer buffer, WALChanges walChanges, int pageOffset,
+      byte[] serializedKey, int keyOffset) {
+    return switch (type) {
+      case LONG, DATE, DATETIME -> Long.compare(
+          walChanges.getLongValue(buffer, pageOffset),
+          CONVERTER.getLong(serializedKey, keyOffset, ByteOrder.nativeOrder()));
+      case INTEGER -> Integer.compare(
+          walChanges.getIntValue(buffer, pageOffset),
+          CONVERTER.getInt(serializedKey, keyOffset, ByteOrder.nativeOrder()));
+      case SHORT -> Short.compare(
+          walChanges.getShortValue(buffer, pageOffset),
+          CONVERTER.getShort(serializedKey, keyOffset, ByteOrder.nativeOrder()));
+      case FLOAT -> Float.compare(
+          Float.intBitsToFloat(walChanges.getIntValue(buffer, pageOffset)),
+          Float.intBitsToFloat(
+              CONVERTER.getInt(serializedKey, keyOffset, ByteOrder.nativeOrder())));
+      case DOUBLE -> Double.compare(
+          Double.longBitsToDouble(walChanges.getLongValue(buffer, pageOffset)),
+          Double.longBitsToDouble(
+              CONVERTER.getLong(serializedKey, keyOffset, ByteOrder.nativeOrder())));
+      case BOOLEAN, BYTE -> Byte.compare(
+          walChanges.getByteValue(buffer, pageOffset), serializedKey[keyOffset]);
+      case STRING, LINK, BINARY, DECIMAL ->
+          compareFieldWALFallback(
+              type, serializerFactory, buffer, walChanges, pageOffset, serializedKey, keyOffset);
+      default -> throw new IndexException((String) null, "Unsupported index type " + type);
+    };
+  }
+
+  /**
+   * Fallback comparison for complex types in WAL path: deserializes both sides and
+   * compares via DefaultComparator. Used for STRING, LINK, BINARY, and DECIMAL.
+   */
+  private static int compareFieldWALFallback(
+      PropertyTypeInternal type, BinarySerializerFactory serializerFactory,
+      ByteBuffer buffer, WALChanges walChanges, int pageOffset,
+      byte[] serializedKey, int keyOffset) {
+    var pageVal =
+        deserializeKeyFromByteBuffer(pageOffset, buffer, type, walChanges, serializerFactory);
+    @SuppressWarnings("RedundantCast")
+    var searchBuffer =
+        (ByteBuffer) ByteBuffer.wrap(serializedKey).order(ByteOrder.nativeOrder());
+    var searchVal =
+        deserializeKeyFromByteBuffer(keyOffset, searchBuffer, type, serializerFactory);
+    return DefaultComparator.INSTANCE.compare(pageVal, searchVal);
+  }
+
+  /**
+   * WAL-aware variant of getKeySizeInByteBuffer — reads field sizes through the WAL
+   * overlay for variable-length types.
+   */
+  private static int getKeySizeInByteBufferWithWAL(int offset, ByteBuffer buffer,
+      WALChanges walChanges, PropertyTypeInternal type) {
+    return switch (type) {
+      case BINARY -> {
+        final var len = walChanges.getIntValue(buffer, offset);
+        yield Integer.BYTES + len;
+      }
+      case BOOLEAN, BYTE -> Byte.BYTES;
+      case DATE, DATETIME, DOUBLE, LONG -> Long.BYTES;
+      case DECIMAL -> {
+        final var unscaledValueLen =
+            walChanges.getIntValue(buffer, offset + Integer.BYTES);
+        yield 2 * Integer.BYTES + unscaledValueLen;
+      }
+      case FLOAT, INTEGER -> Integer.BYTES;
+      case LINK ->
+          CompactedLinkSerializer.INSTANCE.getObjectSizeInByteBuffer(
+              buffer, walChanges, offset);
+      case SHORT -> Short.BYTES;
+      case STRING ->
+          UTF8Serializer.INSTANCE.getObjectSizeInByteBuffer(buffer, walChanges, offset);
+      default -> throw new IndexException((String) null, "Unsupported index type " + type);
+    };
   }
 }
