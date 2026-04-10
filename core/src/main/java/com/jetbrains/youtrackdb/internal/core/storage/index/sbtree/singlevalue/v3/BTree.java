@@ -365,14 +365,6 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
   }
 
   /**
-   * Builds a search key from the user-facing prefix key by appending {@code Long.MIN_VALUE}
-   * as the version component. This ensures the search key is serializable with the full
-   * {@code keyTypes} array and sorts before any real versioned entry with the same user-key
-   * prefix, so {@code bucket.find()} returns the insertion point at the first matching entry.
-   *
-   * <p>Creates a defensive copy — the caller's key is not mutated.
-   */
-  /**
    * Builds a search key by padding to {@code keySize} with {@code Long.MIN_VALUE}.
    * Used by {@link #getVisible} where the caller supplies all user-key elements
    * and only the version element is missing.
