@@ -18,7 +18,7 @@ An identifier is a sequence of characters starting with a letter and containing 
 
 **Case sensitivity**
 
-Keywords and class names are case-insensitive. Property names (fields) and values are case-sensitive.
+Keywords are case-insensitive. Class names, property names (fields), and values are case-sensitive.
 
 ## Reserved words
 

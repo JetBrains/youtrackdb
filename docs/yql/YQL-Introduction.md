@@ -5,20 +5,21 @@ There are a few differences between the standard SQL syntax and that supported b
 
 If you are looking for the most efficient way to traverse a graph, we **strongly** suggest using the [MATCH statement](YQL-Match.md).
 
-Many YQL commands share the [WHERE condition](YQL-Where.md). Keywords and class names in YouTrackDB YQL are case-insensitive. Field names and values are case-sensitive. In the following examples, keywords are in uppercase but this is not strictly required.
+Many YQL commands share the [WHERE condition](YQL-Where.md). Keywords in YouTrackDB YQL are case-insensitive. Class names, property names (fields), and values are case-sensitive. In the following examples, keywords are in uppercase but this is not strictly required.
 
 
-For example, if you have a class `MyClass` with a field named `id`, then the following YQL statements are equivalent:
+For example, if you have a class `MyClass` with a field named `id`, then the following YQL statements are equivalent (only keyword casing differs):
 
 ```sql
 SELECT FROM MyClass WHERE id = 1
-select from myclass where id = 1
+select from MyClass where id = 1
 ```
 
-The following is NOT equivalent. Notice that the field name 'ID' is not the same as 'id'.
+The following are NOT equivalent. The class name must match the exact casing used when the class was created, and the field name `ID` is not the same as `id`:
 
 ```sql
-SELECT FROM MyClass WHERE ID = 1
+select from myclass where id = 1  -- ERROR: class name 'myclass' does not match 'MyClass'
+SELECT FROM MyClass WHERE ID = 1  -- different field: 'ID' is not 'id'
 ```
 
 ## Automatic usage of indexes

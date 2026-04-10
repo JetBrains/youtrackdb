@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -7040,20 +7041,22 @@ public class DocValidationTest {
 
   // === YQL-Introduction.md ===
 
-  // Lines 8, 13-16: Keywords and class names are case-insensitive;
-  // "SELECT FROM MyClass WHERE id = 1" and "select from myclass where id = 1" are equivalent
+  // Lines 8, 14-15: Keywords are case-insensitive;
+  // "SELECT FROM MyClass WHERE id = 1" and "select from MyClass where id = 1" are equivalent
+  // (only keyword casing differs — class name must match exactly)
   @Test
-  public void testIntroKeywordsAndClassNamesCaseInsensitive() {
+  public void testIntroKeywordsCaseInsensitive() {
     g.command("CREATE CLASS IntroMyClass IF NOT EXISTS EXTENDS V");
     g.executeInTx(tx -> {
       tx.yql("CREATE VERTEX IntroMyClass SET id = 1").iterate();
       tx.yql("CREATE VERTEX IntroMyClass SET id = 2").iterate();
     });
 
+    // Keywords in different cases, class name exact
     var upper =
         g.computeInTx(tx -> tx.yql("SELECT FROM IntroMyClass WHERE id = 1").toList());
     var lower =
-        g.computeInTx(tx -> tx.yql("select from intromyclass where id = 1").toList());
+        g.computeInTx(tx -> tx.yql("select from IntroMyClass where id = 1").toList());
     assertThat(upper).hasSize(1);
     assertThat(lower).hasSize(1);
     // Both should return the same record
@@ -7063,6 +7066,42 @@ public class DocValidationTest {
 
     g.executeInTx(tx -> {
       tx.yql("DELETE VERTEX IntroMyClass").iterate();
+    });
+  }
+
+  // Lines 18, 21: Class names are case-sensitive;
+  // "select from myclass" fails if the class was created as "MyClass"
+  @Test
+  public void testIntroClassNamesCaseSensitive() {
+    g.command("CREATE CLASS IntroClsCase IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX IntroClsCase SET id = 1").iterate();
+    });
+
+    // Exact class name works
+    var correct =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM IntroClsCase WHERE id = 1").toList());
+    assertThat(correct).hasSize(1);
+
+    // Wrong case on class name should fail — lowercase
+    assertThatThrownBy(
+        () -> g.computeInTx(
+            tx -> tx.yql("SELECT FROM introclscase WHERE id = 1").toList()))
+        .isInstanceOf(CommandExecutionException.class)
+        .hasMessageContaining("Class not found")
+        .hasMessageContaining("introclscase");
+
+    // Wrong case on class name should fail — uppercase
+    assertThatThrownBy(
+        () -> g.computeInTx(
+            tx -> tx.yql("SELECT FROM INTROCLSCASE WHERE id = 1").toList()))
+        .isInstanceOf(CommandExecutionException.class)
+        .hasMessageContaining("Class not found")
+        .hasMessageContaining("INTROCLSCASE");
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX IntroClsCase").iterate();
     });
   }
 
@@ -7824,7 +7863,7 @@ public class DocValidationTest {
 
   // === YQL-Syntax.md ===
 
-  // Line 21: "Keywords and class names are case-insensitive"
+  // Line 21: "Keywords are case-insensitive"
   @Test
   public void testSyntaxKeywordsCaseInsensitive() {
     g.command("CREATE CLASS SynKw IF NOT EXISTS EXTENDS V");
@@ -7843,21 +7882,29 @@ public class DocValidationTest {
     g.executeInTx(tx -> tx.yql("DELETE VERTEX SynKw").iterate());
   }
 
-  // Line 21: "Keywords and class names are case-insensitive"
+  // Line 21: "Class names are case-sensitive"
   @Test
-  public void testSyntaxClassNamesCaseInsensitive() {
+  public void testSyntaxClassNamesCaseSensitive() {
     g.command("CREATE CLASS SynClsCase IF NOT EXISTS EXTENDS V");
     g.executeInTx(tx -> {
       tx.yql("CREATE VERTEX SynClsCase SET name = 'x'").iterate();
     });
 
-    // Class names in different cases
+    // Exact class name works
     var r1 = g.computeInTx(tx -> tx.yql("SELECT FROM SynClsCase").toList());
-    var r2 = g.computeInTx(tx -> tx.yql("SELECT FROM SYNCLSCASE").toList());
-    var r3 = g.computeInTx(tx -> tx.yql("SELECT FROM synclscase").toList());
     assertThat(r1).hasSize(1);
-    assertThat(r2).hasSize(1);
-    assertThat(r3).hasSize(1);
+
+    // Wrong case on class name should fail
+    assertThatThrownBy(
+        () -> g.computeInTx(tx -> tx.yql("SELECT FROM SYNCLSCASE").toList()))
+        .isInstanceOf(CommandExecutionException.class)
+        .hasMessageContaining("Class not found")
+        .hasMessageContaining("SYNCLSCASE");
+    assertThatThrownBy(
+        () -> g.computeInTx(tx -> tx.yql("SELECT FROM synclscase").toList()))
+        .isInstanceOf(CommandExecutionException.class)
+        .hasMessageContaining("Class not found")
+        .hasMessageContaining("synclscase");
 
     g.executeInTx(tx -> tx.yql("DELETE VERTEX SynClsCase").iterate());
   }
