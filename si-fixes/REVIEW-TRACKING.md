@@ -22,7 +22,7 @@
 | R-03 | suggestion | Extract shared versioned put/remove into VersionedIndexOps | `review-fix-03-dry-doput.md` | [ ] TODO | — |
 | R-04 | suggestion | Unify duplicated extractKey() into parameterized helper | `review-fix-04-dry-extract-key.md` | [ ] TODO | — |
 | R-05 | suggestion | Initialize approximate count from TREE_SIZE on upgrade | `review-fix-05-upgrade-count-init.md` | [ ] TODO | — |
-| R-06 | suggestion | Replace @Nullable Optional with two doPutSingleValue overloads | `review-fix-06-nullable-optional.md` | [ ] TODO | — |
+| R-06 | suggestion | Replace @Nullable Optional with two doPutSingleValue overloads | `review-fix-06-nullable-optional.md` | [x] DONE | a5387f147e |
 | R-07 | suggestion | Add visibilityFilterValues() to avoid RawPair allocation | `review-fix-07-visibility-filter-values.md` | [ ] TODO | — |
 | R-08 | suggestion | Recalibrate null count in multi-value buildInitialHistogram | `review-fix-08-null-count-recalibrate.md` | [ ] TODO | — |
 | R-09 | minor | Avoid unnecessary CompositeKey allocation when rangeTo is null | `review-fix-09-rangeto-null-alloc.md` | [x] DONE | 7d9c139162 |

@@ -153,6 +153,12 @@ public final class BTreeSingleValueIndexEngine
     // Read persisted visible count from the BTree entry point page — O(1)
     // instead of the previous O(n) visibility-filtered scan.
     long count = sbTree.getApproximateEntriesCount(atomicOperation);
+    if (count == 0) {
+      // Upgrade path: APPROXIMATE_ENTRIES_COUNT was not present in prior format.
+      // Use TREE_SIZE as initial estimate — overcounts (includes tombstones/markers)
+      // but prevents the optimizer from seeing empty indexes until recalibration.
+      count = sbTree.size(atomicOperation);
+    }
     assert count >= 0
         : "Persisted approximate entries count must be non-negative: " + count;
     approximateIndexEntriesCount.set(count);

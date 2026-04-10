@@ -193,7 +193,17 @@ public final class BTreeMultiValueIndexEngine
     // Read persisted visible counts from both trees' entry point pages — O(1)
     // instead of the previous O(n) visibility-filtered scans.
     long svCount = svTree.getApproximateEntriesCount(atomicOperation);
+    if (svCount == 0) {
+      // Upgrade path: APPROXIMATE_ENTRIES_COUNT was not present in prior format.
+      // Use TREE_SIZE as initial estimate — overcounts (includes tombstones/markers)
+      // but prevents the optimizer from seeing empty indexes until recalibration.
+      svCount = svTree.size(atomicOperation);
+    }
     long nullCount = nullTree.getApproximateEntriesCount(atomicOperation);
+    if (nullCount == 0) {
+      // Upgrade path: same fallback for the null tree.
+      nullCount = nullTree.size(atomicOperation);
+    }
     assert svCount >= 0
         : "Persisted svTree approximate entries count must be non-negative: " + svCount;
     assert nullCount >= 0
