@@ -5,6 +5,8 @@ import static org.mockito.Mockito.verify;
 
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
+import com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer;
+import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
@@ -251,137 +253,376 @@ public class BTreeMVBucketV2BulkOpsTest {
     Assert.assertEquals(original, deserialized);
   }
 
-  // ---------- Redo correctness tests ----------
+  // ---------- Redo correctness tests (byte-level comparison) ----------
 
+  /**
+   * addAll leaf redo: apply addAll via direct API on page1, apply via redo on page2,
+   * compare byte-level.
+   */
   @Test
-  public void testAddAllLeafEntriesRedoOnEmptyBucket() {
-    var cacheEntry = createLeafBucketCacheEntry();
-    var bucket = new CellBTreeMultiValueV2Bucket<>(cacheEntry);
-    Assert.assertEquals(0, bucket.size());
+  public void testAddAllLeafEntriesRedoCorrectness() {
+    var bufferPool = ByteBufferPool.instance(null);
 
-    var leafEntries = new ArrayList<CellBTreeMultiValueV2Bucket.LeafEntry>();
-    leafEntries.add(new CellBTreeMultiValueV2Bucket.LeafEntry(
-        new byte[] {0, 0, 0, 4, 1, 2, 3, 4}, 42L,
-        List.of(new RecordId(5, 100L)), 1));
-    leafEntries.add(new CellBTreeMultiValueV2Bucket.LeafEntry(
-        new byte[] {0, 0, 0, 3, 5, 6, 7}, 99L,
-        List.of(new RecordId(6, 200L)), 1));
+    var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer1 = new CachePointer(pointer1, bufferPool, 0, 0);
+    cachePointer1.incrementReferrer();
+    CacheEntry entry1 = new CacheEntryImpl(0, 0, cachePointer1, false, null);
+    entry1.acquireExclusiveLock();
 
-    // Build the op
-    var entries = new ArrayList<BTreeMVBucketV2AddAllLeafEntriesOp.LeafEntryData>();
-    for (var le : leafEntries) {
-      var ridData = new ArrayList<BTreeMVBucketV2AddAllLeafEntriesOp.RidData>();
-      for (var rid : le.values) {
-        ridData.add(new BTreeMVBucketV2AddAllLeafEntriesOp.RidData(
-            (short) rid.getCollectionId(), rid.getCollectionPosition()));
+    var pointer2 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer2 = new CachePointer(pointer2, bufferPool, 0, 0);
+    cachePointer2.incrementReferrer();
+    CacheEntry entry2 = new CacheEntryImpl(0, 0, cachePointer2, false, null);
+    entry2.acquireExclusiveLock();
+
+    try {
+      var leafEntries = List.of(
+          new CellBTreeMultiValueV2Bucket.LeafEntry(
+              new byte[] {0, 0, 0, 4, 1, 2, 3, 4}, 42L,
+              List.of(new RecordId(5, 100L)), 1),
+          new CellBTreeMultiValueV2Bucket.LeafEntry(
+              new byte[] {0, 0, 0, 3, 5, 6, 7}, 99L,
+              List.of(new RecordId(6, 200L)), 1));
+
+      // Page 1: direct API
+      var page1 = new CellBTreeMultiValueV2Bucket<>(entry1);
+      page1.init(true);
+      page1.addAll(leafEntries);
+
+      // Page 2: init + redo
+      var page2 = new CellBTreeMultiValueV2Bucket<>(entry2);
+      page2.init(true);
+
+      var entryData = new ArrayList<BTreeMVBucketV2AddAllLeafEntriesOp.LeafEntryData>();
+      for (var le : leafEntries) {
+        var ridData = new ArrayList<BTreeMVBucketV2AddAllLeafEntriesOp.RidData>();
+        for (var rid : le.values) {
+          ridData.add(new BTreeMVBucketV2AddAllLeafEntriesOp.RidData(
+              (short) rid.getCollectionId(), rid.getCollectionPosition()));
+        }
+        entryData.add(new BTreeMVBucketV2AddAllLeafEntriesOp.LeafEntryData(
+            le.key, le.mId, le.entriesCount, ridData));
       }
-      entries.add(new BTreeMVBucketV2AddAllLeafEntriesOp.LeafEntryData(
-          le.key, le.mId, le.entriesCount, ridData));
+
+      var op = new BTreeMVBucketV2AddAllLeafEntriesOp(
+          0, 0, 0, new LogSequenceNumber(0, 0), entryData);
+      op.redo(
+          new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage(
+              entry2));
+
+      Assert.assertEquals(2, page1.size());
+      Assert.assertEquals(2, page2.size());
+      Assert.assertEquals(0, cachePointer1.getBuffer().compareTo(cachePointer2.getBuffer()));
+    } finally {
+      entry1.releaseExclusiveLock();
+      entry2.releaseExclusiveLock();
+      cachePointer1.decrementReferrer();
+      cachePointer2.decrementReferrer();
     }
-
-    // Create a fresh page for redo (no WAL overlay)
-    var redoCacheEntry = createLeafBucketCacheEntry();
-    var op = new BTreeMVBucketV2AddAllLeafEntriesOp(
-        0, 0, 0, new LogSequenceNumber(0, 0), entries);
-    var redoPage =
-        new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage(
-            redoCacheEntry);
-    op.redo(redoPage);
-
-    var redoBucket = new CellBTreeMultiValueV2Bucket<>(redoCacheEntry);
-    Assert.assertEquals(2, redoBucket.size());
   }
 
+  /**
+   * addAll non-leaf redo: apply addAll via direct API on page1, apply via redo on page2,
+   * compare byte-level.
+   */
   @Test
-  public void testAddAllNonLeafEntriesRedoOnEmptyBucket() {
-    var cacheEntry = createNonLeafBucketCacheEntry();
+  public void testAddAllNonLeafEntriesRedoCorrectness() {
+    var bufferPool = ByteBufferPool.instance(null);
 
-    var entries = List.of(
-        new BTreeMVBucketV2AddAllNonLeafEntriesOp.NonLeafEntryData(
-            new byte[] {0, 0, 0, 3, 1, 2, 3}, 1, 2),
-        new BTreeMVBucketV2AddAllNonLeafEntriesOp.NonLeafEntryData(
-            new byte[] {0, 0, 0, 3, 4, 5, 6}, 3, 4));
+    var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer1 = new CachePointer(pointer1, bufferPool, 0, 0);
+    cachePointer1.incrementReferrer();
+    CacheEntry entry1 = new CacheEntryImpl(0, 0, cachePointer1, false, null);
+    entry1.acquireExclusiveLock();
 
-    var op = new BTreeMVBucketV2AddAllNonLeafEntriesOp(
-        0, 0, 0, new LogSequenceNumber(0, 0), entries);
-    var page =
-        new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage(
-            cacheEntry);
-    op.redo(page);
+    var pointer2 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer2 = new CachePointer(pointer2, bufferPool, 0, 0);
+    cachePointer2.incrementReferrer();
+    CacheEntry entry2 = new CacheEntryImpl(0, 0, cachePointer2, false, null);
+    entry2.acquireExclusiveLock();
 
-    var bucket = new CellBTreeMultiValueV2Bucket<>(cacheEntry);
-    Assert.assertEquals(2, bucket.size());
-    Assert.assertEquals(1, bucket.getLeft(0));
-    Assert.assertEquals(2, bucket.getRight(0));
-    Assert.assertEquals(3, bucket.getLeft(1));
-    Assert.assertEquals(4, bucket.getRight(1));
+    try {
+      var nonLeafEntries = List.of(
+          new CellBTreeMultiValueV2Bucket.NonLeafEntry(
+              new byte[] {0, 0, 0, 3, 1, 2, 3}, 1, 2),
+          new CellBTreeMultiValueV2Bucket.NonLeafEntry(
+              new byte[] {0, 0, 0, 3, 4, 5, 6}, 3, 4));
+
+      // Page 1: direct API
+      var page1 = new CellBTreeMultiValueV2Bucket<>(entry1);
+      page1.init(false);
+      page1.addAll(nonLeafEntries);
+
+      // Page 2: init + redo
+      var page2 = new CellBTreeMultiValueV2Bucket<>(entry2);
+      page2.init(false);
+
+      var entryData = List.of(
+          new BTreeMVBucketV2AddAllNonLeafEntriesOp.NonLeafEntryData(
+              new byte[] {0, 0, 0, 3, 1, 2, 3}, 1, 2),
+          new BTreeMVBucketV2AddAllNonLeafEntriesOp.NonLeafEntryData(
+              new byte[] {0, 0, 0, 3, 4, 5, 6}, 3, 4));
+
+      var op = new BTreeMVBucketV2AddAllNonLeafEntriesOp(
+          0, 0, 0, new LogSequenceNumber(0, 0), entryData);
+      op.redo(
+          new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage(
+              entry2));
+
+      Assert.assertEquals(2, page1.size());
+      Assert.assertEquals(2, page2.size());
+      Assert.assertEquals(0, cachePointer1.getBuffer().compareTo(cachePointer2.getBuffer()));
+    } finally {
+      entry1.releaseExclusiveLock();
+      entry2.releaseExclusiveLock();
+      cachePointer1.decrementReferrer();
+      cachePointer2.decrementReferrer();
+    }
   }
 
+  /**
+   * addAll leaf redo with zero-values entry: verifies the null-RID path in doCreateMainLeafEntry.
+   */
   @Test
-  public void testShrinkLeafEntriesRedoResetsAndAdds() {
-    // First add 3 entries to a leaf bucket
-    var cacheEntry = createLeafBucketCacheEntry();
-    var bucket = new CellBTreeMultiValueV2Bucket<>(cacheEntry);
+  public void testAddAllLeafEntriesRedoWithEmptyValues() {
+    var bufferPool = ByteBufferPool.instance(null);
 
-    // Add 3 leaf entries manually using internal methods
-    bucket.addAll(List.of(
-        new CellBTreeMultiValueV2Bucket.LeafEntry(
-            new byte[] {0, 0, 0, 4, 1, 2, 3, 4}, 10L,
-            List.of(new RecordId(1, 1L)), 1),
-        new CellBTreeMultiValueV2Bucket.LeafEntry(
-            new byte[] {0, 0, 0, 4, 5, 6, 7, 8}, 20L,
-            List.of(new RecordId(2, 2L)), 1),
-        new CellBTreeMultiValueV2Bucket.LeafEntry(
-            new byte[] {0, 0, 0, 4, 9, 10, 11, 12}, 30L,
-            List.of(new RecordId(3, 3L)), 1)));
-    Assert.assertEquals(3, bucket.size());
+    var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer1 = new CachePointer(pointer1, bufferPool, 0, 0);
+    cachePointer1.incrementReferrer();
+    CacheEntry entry1 = new CacheEntryImpl(0, 0, cachePointer1, false, null);
+    entry1.acquireExclusiveLock();
 
-    // Now redo shrink to retain only first entry
-    var retained = List.of(
-        new BTreeMVBucketV2AddAllLeafEntriesOp.LeafEntryData(
-            new byte[] {0, 0, 0, 4, 1, 2, 3, 4}, 10L, 1,
-            List.of(new BTreeMVBucketV2AddAllLeafEntriesOp.RidData((short) 1, 1L))));
+    var pointer2 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer2 = new CachePointer(pointer2, bufferPool, 0, 0);
+    cachePointer2.incrementReferrer();
+    CacheEntry entry2 = new CacheEntryImpl(0, 0, cachePointer2, false, null);
+    entry2.acquireExclusiveLock();
 
-    var op = new BTreeMVBucketV2ShrinkLeafEntriesOp(
-        0, 0, 0, new LogSequenceNumber(0, 0), retained);
-    var page =
-        new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage(
-            cacheEntry);
-    op.redo(page);
+    try {
+      // Entry with empty values list (null RID path)
+      var leafEntries = List.of(
+          new CellBTreeMultiValueV2Bucket.LeafEntry(
+              new byte[] {0, 0, 0, 4, 1, 2, 3, 4}, 42L, List.of(), 0));
 
-    Assert.assertEquals(1, bucket.size());
+      var page1 = new CellBTreeMultiValueV2Bucket<>(entry1);
+      page1.init(true);
+      page1.addAll(leafEntries);
+
+      var page2 = new CellBTreeMultiValueV2Bucket<>(entry2);
+      page2.init(true);
+
+      var entryData = List.of(
+          new BTreeMVBucketV2AddAllLeafEntriesOp.LeafEntryData(
+              new byte[] {0, 0, 0, 4, 1, 2, 3, 4}, 42L, 0, List.of()));
+
+      new BTreeMVBucketV2AddAllLeafEntriesOp(
+          0, 0, 0, new LogSequenceNumber(0, 0), entryData)
+          .redo(
+              new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage(
+                  entry2));
+
+      Assert.assertEquals(1, page1.size());
+      Assert.assertEquals(1, page2.size());
+      Assert.assertEquals(0, cachePointer1.getBuffer().compareTo(cachePointer2.getBuffer()));
+    } finally {
+      entry1.releaseExclusiveLock();
+      entry2.releaseExclusiveLock();
+      cachePointer1.decrementReferrer();
+      cachePointer2.decrementReferrer();
+    }
   }
 
+  /**
+   * addAll leaf redo with multi-value entry (3 RIDs): exercises the appendNewLeafEntries code
+   * path during redo, which allocates linked-list blocks for RIDs beyond the first.
+   */
   @Test
-  public void testShrinkNonLeafEntriesRedoResetsAndAdds() {
-    var cacheEntry = createNonLeafBucketCacheEntry();
-    var bucket = new CellBTreeMultiValueV2Bucket<>(cacheEntry);
+  public void testAddAllLeafEntriesRedoWithMultipleRids() {
+    var bufferPool = ByteBufferPool.instance(null);
 
-    bucket.addAll(List.of(
-        new CellBTreeMultiValueV2Bucket.NonLeafEntry(
-            new byte[] {0, 0, 0, 3, 1, 2, 3}, 1, 2),
-        new CellBTreeMultiValueV2Bucket.NonLeafEntry(
-            new byte[] {0, 0, 0, 3, 4, 5, 6}, 3, 4),
-        new CellBTreeMultiValueV2Bucket.NonLeafEntry(
-            new byte[] {0, 0, 0, 3, 7, 8, 9}, 5, 6)));
-    Assert.assertEquals(3, bucket.size());
+    var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer1 = new CachePointer(pointer1, bufferPool, 0, 0);
+    cachePointer1.incrementReferrer();
+    CacheEntry entry1 = new CacheEntryImpl(0, 0, cachePointer1, false, null);
+    entry1.acquireExclusiveLock();
 
-    var retained = List.of(
-        new BTreeMVBucketV2AddAllNonLeafEntriesOp.NonLeafEntryData(
-            new byte[] {0, 0, 0, 3, 1, 2, 3}, 1, 2),
-        new BTreeMVBucketV2AddAllNonLeafEntriesOp.NonLeafEntryData(
-            new byte[] {0, 0, 0, 3, 4, 5, 6}, 3, 4));
+    var pointer2 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer2 = new CachePointer(pointer2, bufferPool, 0, 0);
+    cachePointer2.incrementReferrer();
+    CacheEntry entry2 = new CacheEntryImpl(0, 0, cachePointer2, false, null);
+    entry2.acquireExclusiveLock();
 
-    var op = new BTreeMVBucketV2ShrinkNonLeafEntriesOp(
-        0, 0, 0, new LogSequenceNumber(0, 0), retained);
-    var page =
-        new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage(
-            cacheEntry);
-    op.redo(page);
+    try {
+      var rids = new ArrayList<com.jetbrains.youtrackdb.internal.core.db.record.record.RID>();
+      rids.add(new RecordId(5, 100L));
+      rids.add(new RecordId(5, 200L));
+      rids.add(new RecordId(5, 300L));
+      var leafEntries = List.of(
+          new CellBTreeMultiValueV2Bucket.LeafEntry(
+              new byte[] {0, 0, 0, 4, 1, 2, 3, 4}, 42L, rids, 3));
 
-    Assert.assertEquals(2, bucket.size());
-    Assert.assertEquals(1, bucket.getLeft(0));
-    Assert.assertEquals(4, bucket.getRight(1));
+      // Page 1: direct API
+      var page1 = new CellBTreeMultiValueV2Bucket<>(entry1);
+      page1.init(true);
+      page1.addAll(leafEntries);
+
+      // Page 2: init + redo
+      var page2 = new CellBTreeMultiValueV2Bucket<>(entry2);
+      page2.init(true);
+
+      var ridData = List.of(
+          new BTreeMVBucketV2AddAllLeafEntriesOp.RidData((short) 5, 100L),
+          new BTreeMVBucketV2AddAllLeafEntriesOp.RidData((short) 5, 200L),
+          new BTreeMVBucketV2AddAllLeafEntriesOp.RidData((short) 5, 300L));
+      var entryData = List.of(
+          new BTreeMVBucketV2AddAllLeafEntriesOp.LeafEntryData(
+              new byte[] {0, 0, 0, 4, 1, 2, 3, 4}, 42L, 3, ridData));
+
+      new BTreeMVBucketV2AddAllLeafEntriesOp(
+          0, 0, 0, new LogSequenceNumber(0, 0), entryData)
+          .redo(
+              new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage(
+                  entry2));
+
+      Assert.assertEquals(1, page1.size());
+      Assert.assertEquals(1, page2.size());
+      Assert.assertEquals(0, cachePointer1.getBuffer().compareTo(cachePointer2.getBuffer()));
+    } finally {
+      entry1.releaseExclusiveLock();
+      entry2.releaseExclusiveLock();
+      cachePointer1.decrementReferrer();
+      cachePointer2.decrementReferrer();
+    }
+  }
+
+  /**
+   * shrink leaf redo: add 3 entries on page1, shrink to 1 entry. Apply same shrink via redo on
+   * page2 (which also starts with 3 entries). Compare byte-level.
+   */
+  @Test
+  public void testShrinkLeafEntriesRedoCorrectness() {
+    var bufferPool = ByteBufferPool.instance(null);
+
+    var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer1 = new CachePointer(pointer1, bufferPool, 0, 0);
+    cachePointer1.incrementReferrer();
+    CacheEntry entry1 = new CacheEntryImpl(0, 0, cachePointer1, false, null);
+    entry1.acquireExclusiveLock();
+
+    var pointer2 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer2 = new CachePointer(pointer2, bufferPool, 0, 0);
+    cachePointer2.incrementReferrer();
+    CacheEntry entry2 = new CacheEntryImpl(0, 0, cachePointer2, false, null);
+    entry2.acquireExclusiveLock();
+
+    try {
+      var threeEntries = List.of(
+          new CellBTreeMultiValueV2Bucket.LeafEntry(
+              new byte[] {0, 0, 0, 4, 1, 2, 3, 4}, 10L,
+              List.of(new RecordId(1, 1L)), 1),
+          new CellBTreeMultiValueV2Bucket.LeafEntry(
+              new byte[] {0, 0, 0, 4, 5, 6, 7, 8}, 20L,
+              List.of(new RecordId(2, 2L)), 1),
+          new CellBTreeMultiValueV2Bucket.LeafEntry(
+              new byte[] {0, 0, 0, 4, 9, 10, 11, 12}, 30L,
+              List.of(new RecordId(3, 3L)), 1));
+
+      // Page 1: addAll 3 entries, then resetAndAddAll with retained first entry
+      var page1 = new CellBTreeMultiValueV2Bucket<>(entry1);
+      page1.init(true);
+      page1.addAll(threeEntries);
+      page1.resetAndAddAll(List.of(threeEntries.get(0)));
+
+      // Page 2: addAll 3 entries, then redo shrink
+      var page2 = new CellBTreeMultiValueV2Bucket<>(entry2);
+      page2.init(true);
+      page2.addAll(threeEntries);
+
+      var retained = List.of(
+          new BTreeMVBucketV2AddAllLeafEntriesOp.LeafEntryData(
+              new byte[] {0, 0, 0, 4, 1, 2, 3, 4}, 10L, 1,
+              List.of(new BTreeMVBucketV2AddAllLeafEntriesOp.RidData((short) 1, 1L))));
+
+      new BTreeMVBucketV2ShrinkLeafEntriesOp(
+          0, 0, 0, new LogSequenceNumber(0, 0), retained)
+          .redo(
+              new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage(
+                  entry2));
+
+      Assert.assertEquals(1, page1.size());
+      Assert.assertEquals(1, page2.size());
+      Assert.assertEquals(0, cachePointer1.getBuffer().compareTo(cachePointer2.getBuffer()));
+    } finally {
+      entry1.releaseExclusiveLock();
+      entry2.releaseExclusiveLock();
+      cachePointer1.decrementReferrer();
+      cachePointer2.decrementReferrer();
+    }
+  }
+
+  /**
+   * shrink non-leaf redo: add 3 entries, shrink to 2. Compare byte-level.
+   */
+  @Test
+  public void testShrinkNonLeafEntriesRedoCorrectness() {
+    var bufferPool = ByteBufferPool.instance(null);
+
+    var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer1 = new CachePointer(pointer1, bufferPool, 0, 0);
+    cachePointer1.incrementReferrer();
+    CacheEntry entry1 = new CacheEntryImpl(0, 0, cachePointer1, false, null);
+    entry1.acquireExclusiveLock();
+
+    var pointer2 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer2 = new CachePointer(pointer2, bufferPool, 0, 0);
+    cachePointer2.incrementReferrer();
+    CacheEntry entry2 = new CacheEntryImpl(0, 0, cachePointer2, false, null);
+    entry2.acquireExclusiveLock();
+
+    try {
+      var threeEntries = List.of(
+          new CellBTreeMultiValueV2Bucket.NonLeafEntry(
+              new byte[] {0, 0, 0, 3, 1, 2, 3}, 1, 2),
+          new CellBTreeMultiValueV2Bucket.NonLeafEntry(
+              new byte[] {0, 0, 0, 3, 4, 5, 6}, 3, 4),
+          new CellBTreeMultiValueV2Bucket.NonLeafEntry(
+              new byte[] {0, 0, 0, 3, 7, 8, 9}, 5, 6));
+
+      var retained = List.of(threeEntries.get(0), threeEntries.get(1));
+
+      // Page 1: addAll 3 entries, then resetAndAddAll with retained 2 entries
+      var page1 = new CellBTreeMultiValueV2Bucket<>(entry1);
+      page1.init(false);
+      page1.addAll(threeEntries);
+      page1.resetAndAddAll(retained);
+
+      // Page 2: addAll 3 entries, then redo shrink
+      var page2 = new CellBTreeMultiValueV2Bucket<>(entry2);
+      page2.init(false);
+      page2.addAll(threeEntries);
+
+      var retainedData = List.of(
+          new BTreeMVBucketV2AddAllNonLeafEntriesOp.NonLeafEntryData(
+              new byte[] {0, 0, 0, 3, 1, 2, 3}, 1, 2),
+          new BTreeMVBucketV2AddAllNonLeafEntriesOp.NonLeafEntryData(
+              new byte[] {0, 0, 0, 3, 4, 5, 6}, 3, 4));
+
+      new BTreeMVBucketV2ShrinkNonLeafEntriesOp(
+          0, 0, 0, new LogSequenceNumber(0, 0), retainedData)
+          .redo(
+              new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage(
+                  entry2));
+
+      Assert.assertEquals(2, page1.size());
+      Assert.assertEquals(2, page2.size());
+      Assert.assertEquals(0, cachePointer1.getBuffer().compareTo(cachePointer2.getBuffer()));
+    } finally {
+      entry1.releaseExclusiveLock();
+      entry2.releaseExclusiveLock();
+      cachePointer1.decrementReferrer();
+      cachePointer2.decrementReferrer();
+    }
   }
 
   // ---------- Registration tests ----------
@@ -417,6 +658,11 @@ public class BTreeMVBucketV2BulkOpsTest {
           org.mockito.ArgumentMatchers.eq(7L),
           captor.capture());
       Assert.assertTrue(captor.getValue() instanceof BTreeMVBucketV2AddAllLeafEntriesOp);
+      var leafOp = (BTreeMVBucketV2AddAllLeafEntriesOp) captor.getValue();
+      Assert.assertEquals(1, leafOp.getEntries().size());
+      Assert.assertEquals(42L, leafOp.getEntries().get(0).mId);
+      Assert.assertEquals(1, leafOp.getEntries().get(0).values.size());
+      Assert.assertEquals((short) 5, leafOp.getEntries().get(0).values.get(0).collectionId());
     } finally {
       delegate.releaseExclusiveLock();
       cachePointer.decrementReferrer();
@@ -453,6 +699,93 @@ public class BTreeMVBucketV2BulkOpsTest {
           org.mockito.ArgumentMatchers.eq(7L),
           captor.capture());
       Assert.assertTrue(captor.getValue() instanceof BTreeMVBucketV2AddAllNonLeafEntriesOp);
+    } finally {
+      delegate.releaseExclusiveLock();
+      cachePointer.decrementReferrer();
+    }
+  }
+
+  @Test
+  public void testShrinkLeafRegistersOp() {
+    var atomicOp = mock(AtomicOperation.class);
+    var changes = new CacheEntryChanges(false, atomicOp);
+
+    var bufferPool = ByteBufferPool.instance(null);
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    cachePointer.incrementReferrer();
+    CacheEntry delegate = new CacheEntryImpl(42, 7, cachePointer, false, null);
+    delegate.acquireExclusiveLock();
+
+    try {
+      changes.setDelegate(delegate);
+      changes.setInitialLSN(new LogSequenceNumber(1, 100));
+
+      var bucket = new CellBTreeMultiValueV2Bucket<>(changes);
+      bucket.init(true);
+      // Add 2 entries with IntegerSerializer-compatible 4-byte keys, then shrink to 1
+      bucket.addAll(List.of(
+          new CellBTreeMultiValueV2Bucket.LeafEntry(
+              new byte[] {0, 0, 0, 1}, 10L,
+              List.of(new RecordId(1, 1L)), 1),
+          new CellBTreeMultiValueV2Bucket.LeafEntry(
+              new byte[] {0, 0, 0, 2}, 20L,
+              List.of(new RecordId(2, 2L)), 1)));
+      org.mockito.Mockito.reset(atomicOp);
+
+      //noinspection unchecked,rawtypes
+      bucket.shrink(1, (BinarySerializer) IntegerSerializer.INSTANCE, null);
+
+      var captor = ArgumentCaptor.forClass(PageOperation.class);
+      verify(atomicOp).registerPageOperation(
+          org.mockito.ArgumentMatchers.eq(42L),
+          org.mockito.ArgumentMatchers.eq(7L),
+          captor.capture());
+      Assert.assertTrue(captor.getValue() instanceof BTreeMVBucketV2ShrinkLeafEntriesOp);
+      var shrinkOp = (BTreeMVBucketV2ShrinkLeafEntriesOp) captor.getValue();
+      Assert.assertEquals(1, shrinkOp.getRetainedEntries().size());
+    } finally {
+      delegate.releaseExclusiveLock();
+      cachePointer.decrementReferrer();
+    }
+  }
+
+  @Test
+  public void testShrinkNonLeafRegistersOp() {
+    var atomicOp = mock(AtomicOperation.class);
+    var changes = new CacheEntryChanges(false, atomicOp);
+
+    var bufferPool = ByteBufferPool.instance(null);
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    cachePointer.incrementReferrer();
+    CacheEntry delegate = new CacheEntryImpl(42, 7, cachePointer, false, null);
+    delegate.acquireExclusiveLock();
+
+    try {
+      changes.setDelegate(delegate);
+      changes.setInitialLSN(new LogSequenceNumber(1, 100));
+
+      var bucket = new CellBTreeMultiValueV2Bucket<>(changes);
+      bucket.init(false);
+      bucket.addAll(List.of(
+          new CellBTreeMultiValueV2Bucket.NonLeafEntry(
+              new byte[] {0, 0, 0, 1}, 1, 2),
+          new CellBTreeMultiValueV2Bucket.NonLeafEntry(
+              new byte[] {0, 0, 0, 2}, 3, 4)));
+      org.mockito.Mockito.reset(atomicOp);
+
+      //noinspection unchecked,rawtypes
+      bucket.shrink(1, (BinarySerializer) IntegerSerializer.INSTANCE, null);
+
+      var captor = ArgumentCaptor.forClass(PageOperation.class);
+      verify(atomicOp).registerPageOperation(
+          org.mockito.ArgumentMatchers.eq(42L),
+          org.mockito.ArgumentMatchers.eq(7L),
+          captor.capture());
+      Assert.assertTrue(captor.getValue() instanceof BTreeMVBucketV2ShrinkNonLeafEntriesOp);
+      var shrinkOp = (BTreeMVBucketV2ShrinkNonLeafEntriesOp) captor.getValue();
+      Assert.assertEquals(1, shrinkOp.getRetainedEntries().size());
     } finally {
       delegate.releaseExclusiveLock();
       cachePointer.decrementReferrer();

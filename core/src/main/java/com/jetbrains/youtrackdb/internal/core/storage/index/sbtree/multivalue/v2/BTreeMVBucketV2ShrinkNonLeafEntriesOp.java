@@ -28,12 +28,14 @@ public final class BTreeMVBucketV2ShrinkNonLeafEntriesOp extends PageOperation {
       long pageIndex, long fileId, long operationUnitId, LogSequenceNumber initialLsn,
       List<NonLeafEntryData> retainedEntries) {
     super(pageIndex, fileId, operationUnitId, initialLsn);
+    assert retainedEntries != null : "retainedEntries must not be null";
     this.retainedEntries = retainedEntries;
   }
 
   @Override
   public void redo(DurablePage page) {
     var bucket = new CellBTreeMultiValueV2Bucket<>(page.getCacheEntry());
+    assert !bucket.isLeaf() : "shrinkNonLeafEntries redo applied to leaf bucket";
     var nonLeafEntries =
         new ArrayList<CellBTreeMultiValueV2Bucket.NonLeafEntry>(retainedEntries.size());
     for (var entry : retainedEntries) {

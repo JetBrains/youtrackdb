@@ -28,12 +28,14 @@ public final class BTreeMVBucketV2AddAllLeafEntriesOp extends PageOperation {
       long pageIndex, long fileId, long operationUnitId, LogSequenceNumber initialLsn,
       List<LeafEntryData> entries) {
     super(pageIndex, fileId, operationUnitId, initialLsn);
+    assert entries != null : "entries list must not be null";
     this.entries = entries;
   }
 
   @Override
   public void redo(DurablePage page) {
     var bucket = new CellBTreeMultiValueV2Bucket<>(page.getCacheEntry());
+    assert bucket.isLeaf() : "addAllLeafEntries redo applied to non-leaf bucket";
     var leafEntries = new ArrayList<CellBTreeMultiValueV2Bucket.LeafEntry>(entries.size());
     for (var entry : entries) {
       var rids = new ArrayList<com.jetbrains.youtrackdb.internal.core.db.record.record.RID>(

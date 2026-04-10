@@ -27,12 +27,14 @@ public final class BTreeMVBucketV2AddAllNonLeafEntriesOp extends PageOperation {
       long pageIndex, long fileId, long operationUnitId, LogSequenceNumber initialLsn,
       List<NonLeafEntryData> entries) {
     super(pageIndex, fileId, operationUnitId, initialLsn);
+    assert entries != null : "entries list must not be null";
     this.entries = entries;
   }
 
   @Override
   public void redo(DurablePage page) {
     var bucket = new CellBTreeMultiValueV2Bucket<>(page.getCacheEntry());
+    assert !bucket.isLeaf() : "addAllNonLeafEntries redo applied to leaf bucket";
     var nonLeafEntries =
         new ArrayList<CellBTreeMultiValueV2Bucket.NonLeafEntry>(entries.size());
     for (var entry : entries) {
