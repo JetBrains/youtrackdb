@@ -665,14 +665,15 @@ public class MatchExecutionPlanner {
         // termination in the bounded heap.
         SQLOrderByItem primaryHint = null;
         if (indexOrderedCandidate != null
-            && indexOrderedCandidate.multiFieldOrderBy()
-            && !this.returnDistinct) {
+            && indexOrderedCandidate.multiFieldOrderBy()) {
           primaryHint = orderBy.getItems().getFirst();
         }
         // indexOrderedUpstream: OrderByStep checks runtime context variable
         // to pass through when IndexOrderedEdgeStep produces sorted output.
-        var indexOrderedUpstream = indexOrderedCandidate != null
-            && !this.returnDistinct;
+        // Safe with RETURN DISTINCT: DistinctExecutionStep is a streaming
+        // filter that preserves input order (RidSet-based dedup), and runs
+        // AFTER OrderByStep in the pipeline.
+        var indexOrderedUpstream = indexOrderedCandidate != null;
         result.chain(new OrderByStep(
             orderBy, maxResults, primaryHint, indexOrderedUpstream,
             context, -1, enableProfiling));
@@ -709,12 +710,13 @@ public class MatchExecutionPlanner {
       info.skip = this.skip;
       info.limit = this.limit;
 
-      // When index-ordered traversal is active AND no GROUP BY or DISTINCT:
+      // When index-ordered traversal is active AND no GROUP BY:
       // pass indexOrderedUpstream flag so OrderByStep can detect pre-sorted
       // input at runtime and pass through without sorting.
+      // Safe with RETURN DISTINCT: DistinctExecutionStep is a streaming
+      // filter that preserves input order and runs after OrderByStep.
       if (indexOrderedCandidate != null
-          && this.groupBy == null
-          && !this.returnDistinct) {
+          && this.groupBy == null) {
         info.indexOrderedUpstream = true;
         if (indexOrderedCandidate.multiFieldOrderBy()) {
           info.primaryKeySortedInput = orderBy.getItems().getFirst();

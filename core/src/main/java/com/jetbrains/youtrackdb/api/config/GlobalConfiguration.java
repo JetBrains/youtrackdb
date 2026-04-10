@@ -1349,6 +1349,14 @@ public enum GlobalConfiguration {
       Integer.class,
       10_000,
       true),
+
+  QUERY_INDEX_ORDERED_ENTRIES_PER_PAGE(
+      "youtrackdb.query.indexOrdered.entriesPerPage",
+      "Estimated B-tree index entries per leaf page for amortizing sequential"
+          + " read costs in the index-ordered MATCH cost model",
+      Integer.class,
+      200,
+      true),
       ;
 
   static {
