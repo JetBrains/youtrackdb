@@ -338,11 +338,13 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
       // prefix. bucket.find() will return a negative insertion point at the first
       // entry with the matching prefix.
       final var searchKey = buildSearchKey(key);
-      final var preprocessedKey =
-          keySerializer.preprocess(serializerFactory, searchKey, (Object[]) keyTypes);
+      // Serialize the search key for zero-allocation binary search in the bucket.
+      // The serialized form is used by bucket.find(byte[], ...) which delegates
+      // to IndexMultiValuKeySerializer.compareInByteBuffer() for field-by-field
+      // in-buffer comparison.
       final var serializedKey =
           keySerializer.serializeNativeAsWhole(
-              serializerFactory, preprocessedKey, (Object[]) keyTypes);
+              serializerFactory, searchKey, (Object[]) keyTypes);
 
       final var opsSnapshot = atomicOperation.getAtomicOperationsSnapshot();
       final var snapshotTs = opsSnapshot.snapshotTs();
@@ -351,10 +353,10 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
       return executeOptimisticStorageRead(
           atomicOperation,
           () -> getVisibleOptimistic(
-              atomicOperation, preprocessedKey, serializedKey, snapshot,
+              atomicOperation, serializedKey, searchKey, snapshot,
               snapshotTs, inProgressVersions),
           () -> getVisiblePinned(
-              atomicOperation, preprocessedKey, serializedKey, snapshot,
+              atomicOperation, serializedKey, searchKey, snapshot,
               snapshotTs, inProgressVersions));
     } catch (final IOException e) {
       throw BaseException.wrapException(
@@ -391,8 +393,8 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
    */
   @Nullable private RID getVisibleOptimistic(
       final AtomicOperation atomicOperation,
-      final K prefixKey,
       final byte[] serializedKey,
+      final K searchKey,
       final IndexesSnapshot snapshot,
       final long snapshotTs,
       final LongOpenHashSet inProgressVersions) {
@@ -412,7 +414,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
 
       if (bucket.isLeaf()) {
         return scanLeafForVisible(
-            bucket, index, prefixKey, snapshot,
+            bucket, index, searchKey, snapshot,
             snapshotTs, inProgressVersions, true);
       }
 
@@ -436,12 +438,13 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
    */
   @Nullable private RID getVisiblePinned(
       final AtomicOperation atomicOperation,
-      final K prefixKey, final byte[] serializedKey,
+      final byte[] serializedKey,
+      final K searchKey,
       final IndexesSnapshot snapshot,
       final long snapshotTs,
       final LongOpenHashSet inProgressVersions) throws IOException {
     final var bucketSearchResult =
-        findBucketSerialized(prefixKey, serializedKey, atomicOperation);
+        findBucketSerialized(searchKey, serializedKey, atomicOperation);
 
     var pageIndex = bucketSearchResult.getPageIndex();
     var foundIndex = bucketSearchResult.getItemIndex();
@@ -452,7 +455,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
         final var bucket = new CellBTreeSingleValueBucketV3<K>(cacheEntry);
 
         final var result = scanLeafForVisible(
-            bucket, foundIndex, prefixKey, snapshot,
+            bucket, foundIndex, searchKey, snapshot,
             snapshotTs, inProgressVersions, false);
         if (result != null) {
           return result;
