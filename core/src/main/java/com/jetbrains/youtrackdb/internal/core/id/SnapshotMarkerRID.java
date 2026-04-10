@@ -67,6 +67,8 @@ public final class SnapshotMarkerRID implements RID {
 
   @Override
   public int compareTo(@Nonnull Identifiable o) {
+    // Comparison uses unwrapped identity (real RID), not the encoded getters
+    // (which negate collectionPosition for on-disk marker detection).
     return getIdentity().compareTo(o);
   }
 

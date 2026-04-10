@@ -66,6 +66,8 @@ public final class TombstoneRID implements RID {
 
   @Override
   public int compareTo(@Nonnull Identifiable o) {
+    // Comparison uses unwrapped identity (real RID), not the encoded getters
+    // (which negate collectionId for on-disk tombstone detection).
     return getIdentity().compareTo(o);
   }
 
