@@ -71,9 +71,10 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
 
   /**
    * LRU cache of hash tables keyed by back-referenced alias RID. Values are
-   * {@code Set<RID>} for Pattern A/D or {@code Map<RID, List<Result>>} for
-   * Pattern B. Access-order {@link LinkedHashMap} with automatic eviction of
-   * the eldest entry when capacity is exceeded.
+   * {@code Map<RID, Integer>} for Pattern A, {@code Map<RID, List<Result>>}
+   * for Pattern B, or {@code Set<RID>} for Pattern D. Access-order
+   * {@link LinkedHashMap} with automatic eviction of the eldest entry when
+   * capacity is exceeded.
    */
   @Nullable private LinkedHashMap<RID, Object> cache;
 
@@ -118,9 +119,17 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
           (row, c) -> probeChain(row, localCache, chainDesc, session, c));
     }
 
-    // SingleEdgeSemiJoin and AntiSemiJoin use filter (0 or 1 output per row)
+    // SingleEdgeSemiJoin uses flatMap to preserve duplicate edges between
+    // the same vertex pair (e.g. 3 "Knows" edges from A→B emit 3 rows)
+    if (localDescriptor instanceof SingleEdgeSemiJoin semiJoin) {
+      return upstream.flatMap(
+          (row, c) -> probeSingleEdge(
+              row, localCache, semiJoin, session, c));
+    }
+
+    // AntiSemiJoin uses filter (0 or 1 output per row)
     return upstream.filter(
-        (row, c) -> probeRow(row, localCache, localDescriptor, session, c));
+        (row, c) -> probeAntiJoin(row, localCache, localDescriptor, session, c));
   }
 
   // ---- Cache resolution (shared by probeRow and probeChain) ----
@@ -167,12 +176,55 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
   // ---- Probe methods ----
 
   /**
-   * Probes the hash table for a single upstream row (Patterns A and D).
-   * On build failure, falls back to nested-loop traversal (Pattern A) or
-   * passes the row through (Pattern D — MatchStep handles the NOT IN).
+   * Probes the hash table for a single upstream row (Pattern A).
+   * Returns 0..N rows: N is the number of edges between the source vertex
+   * and the back-referenced vertex, preserving semantics when multiple
+   * edges of the same class connect the same vertex pair.
+   * On build failure, falls back to nested-loop traversal.
    */
-  @Nullable @SuppressWarnings("unchecked")
-  private Result probeRow(
+  @SuppressWarnings("unchecked")
+  private ExecutionStream probeSingleEdge(
+      Result row,
+      LinkedHashMap<RID, Object> lruCache,
+      SingleEdgeSemiJoin desc,
+      DatabaseSessionEmbedded session,
+      CommandContext probeCtx) {
+    var build = resolveBuild(row, lruCache, desc, session, probeCtx);
+    if (build == null) {
+      var fallback = handleBuildFailure(row, desc, probeCtx);
+      return fallback == null
+          ? ExecutionStream.empty() : ExecutionStream.singleton(fallback);
+    }
+
+    var sourceRid = resolveSourceRid(row, desc);
+    if (sourceRid == null) {
+      return ExecutionStream.empty();
+    }
+
+    var map = (Map<RID, Integer>) build.hashTable();
+    var edgeCount = map.getOrDefault(sourceRid, 0);
+    if (edgeCount == 0) {
+      return ExecutionStream.empty();
+    }
+
+    var resultRow = new MatchResultRow(
+        session, row, desc.targetAlias(), build.backRefEntity());
+    if (edgeCount == 1) {
+      return ExecutionStream.singleton(resultRow);
+    }
+    var results = new ArrayList<Result>(edgeCount);
+    for (int i = 0; i < edgeCount; i++) {
+      results.add(resultRow);
+    }
+    return ExecutionStream.resultIterator(results.iterator());
+  }
+
+  /**
+   * Probes the hash table for a single upstream row (Pattern D — anti-join).
+   * On build failure, evaluates the stored NOT IN condition per row.
+   */
+  @SuppressWarnings("unchecked")
+  @Nullable private Result probeAntiJoin(
       Result row,
       LinkedHashMap<RID, Object> lruCache,
       SemiJoinDescriptor desc,
@@ -185,20 +237,11 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
 
     var sourceRid = resolveSourceRid(row, desc);
     if (sourceRid == null) {
-      return desc.joinMode() == JoinMode.ANTI_JOIN ? row : null;
+      return row; // no source → pass through (anti-join)
     }
 
     var set = (Set<RID>) build.hashTable();
-    var found = set.contains(sourceRid);
-    return switch (desc.joinMode()) {
-      case SEMI_JOIN -> found
-          ? new MatchResultRow(
-              session, row, desc.targetAlias(), build.backRefEntity())
-          : null;
-      case ANTI_JOIN -> found ? null : row;
-      case INNER_JOIN -> throw new IllegalStateException(
-          "INNER_JOIN not supported by BackRefHashJoinStep");
-    };
+    return set.contains(sourceRid) ? null : row;
   }
 
   /**
@@ -345,18 +388,49 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
     };
   }
 
-  @Nullable private Set<RID> buildSingleEdgeHashTable(
+  /**
+   * Builds a hash table for Pattern A: source vertex RID → edge count.
+   * Unlike a plain RidSet, this preserves the number of edges per source
+   * vertex, so that multiple edges of the same class between the same
+   * vertex pair produce the correct number of result rows.
+   */
+  @Nullable private Map<RID, Integer> buildSingleEdgeHashTable(
       RID backRefRid, SingleEdgeSemiJoin single, CommandContext ctx) {
-    var ridSet = TraversalPreFilterHelper.resolveReverseEdgeLookup(
-        backRefRid, single.edgeClass(), single.direction(), ctx);
-    if (ridSet == null) {
+    var session = ctx.getDatabaseSession();
+    EntityImpl targetEntity;
+    try {
+      var rec = session.getActiveTransaction().load(backRefRid);
+      if (!(rec instanceof EntityImpl entity)) {
+        return null;
+      }
+      targetEntity = entity;
+    } catch (RecordNotFoundException e) {
       return null;
     }
+
+    var reversePrefix = "out".equals(single.direction()) ? "in_" : "out_";
+    var fieldName = reversePrefix + single.edgeClass();
+    var fieldValue = targetEntity.getPropertyInternal(fieldName);
+    if (!(fieldValue instanceof LinkBag linkBag)) {
+      return null;
+    }
+
     var maxSize = MatchExecutionPlanner.getHashJoinThreshold();
-    if (maxSize > 0 && ridSet.size() > maxSize) {
+    if (maxSize > 0 && linkBag.size() > maxSize) {
       return null;
     }
-    return ridSet;
+
+    var initialCapacity = hashCapacity(linkBag.size(), maxSize);
+    var result = new HashMap<RID, Integer>(initialCapacity);
+    long count = 0;
+    for (var pair : linkBag) {
+      result.merge(pair.secondaryRid(), 1, Integer::sum);
+      count++;
+      if (maxSize > 0 && count > maxSize) {
+        return null;
+      }
+    }
+    return result;
   }
 
   @Nullable private Map<RID, List<Result>> buildChainHashTable(
@@ -407,7 +481,10 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
 
       try {
         var edgeRec = session.getActiveTransaction().load(edgeRid);
-        var edgeResult = new ResultInternal(session, edgeRec);
+        if (!(edgeRec instanceof EntityImpl edgeEntity)) {
+          continue;
+        }
+        var edgeResult = new ResultInternal(session, edgeEntity);
         result.computeIfAbsent(sourceVertexRid, k -> new ArrayList<>())
             .add(edgeResult);
         count++;

@@ -3002,31 +3002,38 @@ public class MatchExecutionPlanner {
       List<EdgeTraversal> schedule, CommandContext ctx) {
     // Build a map: target alias → edge index, so we can find the producing edge
     Map<String, Integer> targetAliasToEdgeIndex = new HashMap<>();
-    // Track all aliases that are bound (visited) before each edge, including
-    // the root alias which is not the target of any edge.
-    Set<String> boundAliases = new HashSet<>();
     for (var i = 0; i < schedule.size(); i++) {
       var et = schedule.get(i);
-      var sourceAlias = et.out ? et.edge.out.alias : et.edge.in.alias;
       var targetAlias = et.out ? et.edge.in.alias : et.edge.out.alias;
-      if (sourceAlias != null) {
-        boundAliases.add(sourceAlias);
-      }
       if (targetAlias != null) {
         targetAliasToEdgeIndex.put(targetAlias, i);
-        boundAliases.add(targetAlias);
       }
     }
 
+    // Track aliases that are bound (visited) before each edge. Built
+    // incrementally: the source alias is added at the start of each
+    // iteration (it was bound by a preceding edge or is the root), and
+    // the target alias is added at the end (it becomes bound during this
+    // edge's execution). This ensures that semi-join candidacy checks
+    // only see aliases that are actually available at execution time.
+    Set<String> boundAliases = new HashSet<>();
     for (var j = 0; j < schedule.size(); j++) {
       var edgeJ = schedule.get(j);
+      var sourceAliasJ = edgeJ.out ? edgeJ.edge.out.alias : edgeJ.edge.in.alias;
       var targetAliasJ = edgeJ.out ? edgeJ.edge.in.alias : edgeJ.edge.out.alias;
+
+      // Source alias is bound before this edge executes (it is either
+      // the root alias or the target of a preceding edge).
+      if (sourceAliasJ != null) {
+        boundAliases.add(sourceAliasJ);
+      }
       if (targetAliasJ == null) {
         continue;
       }
 
       var targetFilter = aliasFilters.get(targetAliasJ);
       if (targetFilter == null) {
+        boundAliases.add(targetAliasJ);
         continue;
       }
 
@@ -3062,8 +3069,6 @@ public class MatchExecutionPlanner {
           }
 
           if (edgeClass != null && edgeDirection != null) {
-            var sourceAliasJ = edgeJ.out
-                ? edgeJ.edge.out.alias : edgeJ.edge.in.alias;
 
             // --- Semi-join candidacy check (Pattern A) ---
             // Only when the edge class belongs to the current edge (not
@@ -3143,6 +3148,7 @@ public class MatchExecutionPlanner {
           logger.debug(
               "MATCH pre-filter: DirectRid on edge[{}] for alias '{}'",
               j, targetAliasJ);
+          boundAliases.add(targetAliasJ);
           continue;
         }
       }
@@ -3167,6 +3173,7 @@ public class MatchExecutionPlanner {
       // --- Index pre-filter detection ---
       var targetClass = aliasClasses.get(targetAliasJ);
       if (targetClass == null) {
+        boundAliases.add(targetAliasJ);
         continue;
       }
 
@@ -3177,6 +3184,7 @@ public class MatchExecutionPlanner {
         indexableFilter = matchedSplit.nonMatchedReferencing();
       }
       if (indexableFilter == null) {
+        boundAliases.add(targetAliasJ);
         continue;
       }
 
@@ -3190,6 +3198,9 @@ public class MatchExecutionPlanner {
                 + "(class '{}' for alias '{}')",
             j, targetClass, targetAliasJ);
       }
+
+      // Target alias becomes bound after this edge executes
+      boundAliases.add(targetAliasJ);
     }
   }
 
@@ -3286,19 +3297,27 @@ public class MatchExecutionPlanner {
     // RHS matches $matched.X.out('E') or $matched.X.in('E'). The grammar
     // wraps conditions in multiple transparent layers (OrBlock → AndBlock →
     // NotBlock → ConditionBlock). We unwrap single-element wrappers before
-    // checking the inner type to avoid relying on toString() for detection.
+    // checking the inner type, then inspect the LHS/RHS AST nodes directly.
     for (int i = 0; i < andSubBlocks.size(); i++) {
       var sub = andSubBlocks.get(i);
       var inner = unwrapToNotInCondition(sub);
       if (inner == null) {
         continue;
       }
-      var condStr = inner.toString().trim();
-      if (!condStr.startsWith("$currentMatch NOT IN ")) {
+
+      // Check LHS is $currentMatch via the AST node
+      var lhs = inner.getLeft();
+      if (lhs == null || !"$currentMatch".equals(lhs.toString().trim())) {
         continue;
       }
 
-      var rhsStr = condStr.substring("$currentMatch NOT IN ".length()).trim();
+      // Check RHS is $matched.X.out('E') or $matched.X.in('E') via the
+      // AST node, avoiding full-condition toString() parsing
+      var rhs = inner.getRightMathExpression();
+      if (rhs == null) {
+        continue;
+      }
+      var rhsStr = rhs.toString().trim();
       var matcher = MATCHED_TRAVERSAL_PATTERN.matcher(rhsStr);
       if (!matcher.matches()) {
         continue;
