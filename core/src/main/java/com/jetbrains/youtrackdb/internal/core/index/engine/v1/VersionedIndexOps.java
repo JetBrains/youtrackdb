@@ -145,6 +145,9 @@ final class VersionedIndexOps {
     }
     final var keys = compositeKey.getKeys();
     int userKeyCount = keys.size() - trailingCount;
+    assert userKeyCount > 0
+        : "No user key elements in composite key " + compositeKey
+            + " (trailingCount=" + trailingCount + ")";
     if (userKeyCount == 1) {
       return keys.getFirst();
     }
