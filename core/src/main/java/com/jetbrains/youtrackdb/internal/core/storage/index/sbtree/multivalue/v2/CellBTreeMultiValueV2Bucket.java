@@ -30,6 +30,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.CacheEntryChanges;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -78,6 +79,14 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
     setByteValue(IS_LEAF_OFFSET, (byte) (isLeaf ? 1 : 0));
     setLongValue(LEFT_SIBLING_OFFSET, -1);
     setLongValue(RIGHT_SIBLING_OFFSET, -1);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeMVBucketV2InitOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), isLeaf));
+    }
   }
 
   public void switchBucketType() {
@@ -91,6 +100,14 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
       setByteValue(IS_LEAF_OFFSET, (byte) 0);
     } else {
       setByteValue(IS_LEAF_OFFSET, (byte) 1);
+    }
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeMVBucketV2SwitchBucketTypeOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN()));
     }
   }
 
@@ -503,6 +520,14 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
     setIntValue(
         entryPosition + IntegerSerializer.INT_SIZE + ByteSerializer.BYTE_SIZE, entriesCount - 1);
 
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeMVBucketV2DecrementEntriesCountOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), entryIndex));
+    }
+
     return entriesCount == 1;
   }
 
@@ -519,6 +544,14 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
         getIntValue(entryPosition + IntegerSerializer.INT_SIZE + ByteSerializer.BYTE_SIZE);
     setIntValue(
         entryPosition + IntegerSerializer.INT_SIZE + ByteSerializer.BYTE_SIZE, entriesCount + 1);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeMVBucketV2IncrementEntriesCountOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), entryIndex));
+    }
   }
 
   private void updateAllLinkedListReferences(
@@ -1078,6 +1111,14 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
 
   public void setLeftSibling(final long pageIndex) {
     setLongValue(LEFT_SIBLING_OFFSET, pageIndex);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeMVBucketV2SetLeftSiblingOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), pageIndex));
+    }
   }
 
   public long getLeftSibling() {
@@ -1086,6 +1127,14 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
 
   public void setRightSibling(final long pageIndex) {
     setLongValue(RIGHT_SIBLING_OFFSET, pageIndex);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeMVBucketV2SetRightSiblingOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), pageIndex));
+    }
   }
 
   public long getRightSibling() {

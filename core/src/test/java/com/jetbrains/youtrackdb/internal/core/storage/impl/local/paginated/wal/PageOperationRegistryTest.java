@@ -19,6 +19,12 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.MapEntryPoin
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2SetApproxRecordsCountOp;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2SetFileSizeOp;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.WriteableWALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2DecrementEntriesCountOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2IncrementEntriesCountOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2InitOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2SetLeftSiblingOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2SetRightSiblingOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2SwitchBucketTypeOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVEntryPointV2InitOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVEntryPointV2SetEntryIdOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVEntryPointV2SetPagesSizeOp;
@@ -56,7 +62,7 @@ import org.junit.Test;
 
 /**
  * Tests that {@link PageOperationRegistry#registerAll(WALRecordsFactory)} correctly registers
- * all 47 Track 2-3, Track 5, and Track 6 PageOperation types so they can be deserialized by the
+ * all 53 Track 2-3, Track 5, and Track 6 PageOperation types so they can be deserialized by the
  * factory during recovery.
  */
 public class PageOperationRegistryTest {
@@ -183,17 +189,17 @@ public class PageOperationRegistryTest {
   /** Verifies the expected total count of registered types — catches accidentally omitted types. */
   @Test
   public void testRegisteredTypeCount() {
-    // IDs 201-247 = 47 types (18 Track 2-3 + 20 Track 5 + 9 Track 6). Each ID must have both a
+    // IDs 201-253 = 53 types (18 Track 2-3 + 20 Track 5 + 15 Track 6). Each ID must have both a
     // createOpForId entry and a factory registration. createOpForId throws for unknown IDs,
     // so any gap causes immediate failure.
     int registeredCount = 0;
     for (int id = WALRecordTypes.PAGE_OPERATION_ID_BASE + 1;
-        id <= WALRecordTypes.PAGE_OPERATION_ID_BASE + 47; id++) {
+        id <= WALRecordTypes.PAGE_OPERATION_ID_BASE + 53; id++) {
       var testOp = createMinimalRecord(id);
       Assert.assertNotNull("WAL record ID " + id + " failed to roundtrip", testOp);
       registeredCount++;
     }
-    Assert.assertEquals("Expected 47 registered PageOperation types", 47, registeredCount);
+    Assert.assertEquals("Expected 53 registered PageOperation types", 53, registeredCount);
   }
 
   /**
@@ -346,6 +352,20 @@ public class PageOperationRegistryTest {
           new BTreeMVNullBucketV2IncrementSizeOp(0, 0, 0, lsn);
       case WALRecordTypes.BTREE_MV_NULL_BUCKET_V2_DECREMENT_SIZE_OP ->
           new BTreeMVNullBucketV2DecrementSizeOp(0, 0, 0, lsn);
+
+      // Track 6: CellBTreeMultiValueV2Bucket simple (6 ops)
+      case WALRecordTypes.BTREE_MV_BUCKET_V2_INIT_OP ->
+          new BTreeMVBucketV2InitOp(0, 0, 0, lsn, true);
+      case WALRecordTypes.BTREE_MV_BUCKET_V2_SWITCH_BUCKET_TYPE_OP ->
+          new BTreeMVBucketV2SwitchBucketTypeOp(0, 0, 0, lsn);
+      case WALRecordTypes.BTREE_MV_BUCKET_V2_SET_LEFT_SIBLING_OP ->
+          new BTreeMVBucketV2SetLeftSiblingOp(0, 0, 0, lsn, 0L);
+      case WALRecordTypes.BTREE_MV_BUCKET_V2_SET_RIGHT_SIBLING_OP ->
+          new BTreeMVBucketV2SetRightSiblingOp(0, 0, 0, lsn, 0L);
+      case WALRecordTypes.BTREE_MV_BUCKET_V2_INCREMENT_ENTRIES_COUNT_OP ->
+          new BTreeMVBucketV2IncrementEntriesCountOp(0, 0, 0, lsn, 0);
+      case WALRecordTypes.BTREE_MV_BUCKET_V2_DECREMENT_ENTRIES_COUNT_OP ->
+          new BTreeMVBucketV2DecrementEntriesCountOp(0, 0, 0, lsn, 0);
 
       default -> throw new IllegalArgumentException("Unknown PageOperation ID: " + id);
     };

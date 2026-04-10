@@ -287,4 +287,17 @@ public final class WALRecordTypes {
       PAGE_OPERATION_ID_BASE + 46;
   public static final int BTREE_MV_NULL_BUCKET_V2_DECREMENT_SIZE_OP =
       PAGE_OPERATION_ID_BASE + 47;
+
+  // CellBTreeMultiValueV2Bucket simple operations (Track 6)
+  public static final int BTREE_MV_BUCKET_V2_INIT_OP = PAGE_OPERATION_ID_BASE + 48;
+  public static final int BTREE_MV_BUCKET_V2_SWITCH_BUCKET_TYPE_OP =
+      PAGE_OPERATION_ID_BASE + 49;
+  public static final int BTREE_MV_BUCKET_V2_SET_LEFT_SIBLING_OP =
+      PAGE_OPERATION_ID_BASE + 50;
+  public static final int BTREE_MV_BUCKET_V2_SET_RIGHT_SIBLING_OP =
+      PAGE_OPERATION_ID_BASE + 51;
+  public static final int BTREE_MV_BUCKET_V2_INCREMENT_ENTRIES_COUNT_OP =
+      PAGE_OPERATION_ID_BASE + 52;
+  public static final int BTREE_MV_BUCKET_V2_DECREMENT_ENTRIES_COUNT_OP =
+      PAGE_OPERATION_ID_BASE + 53;
 }

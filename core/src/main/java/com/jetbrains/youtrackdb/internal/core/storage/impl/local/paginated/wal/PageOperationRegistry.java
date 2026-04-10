@@ -18,6 +18,12 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.FreeSpaceMap
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.MapEntryPointSetFileSizeOp;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2SetApproxRecordsCountOp;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2SetFileSizeOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2DecrementEntriesCountOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2IncrementEntriesCountOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2InitOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2SetLeftSiblingOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2SetRightSiblingOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2SwitchBucketTypeOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVEntryPointV2InitOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVEntryPointV2SetEntryIdOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVEntryPointV2SetPagesSizeOp;
@@ -65,7 +71,7 @@ public final class PageOperationRegistry {
    * registered with its unique WAL record type ID (see {@link WALRecordTypes}).
    *
    * <p>Currently registers Track 2-3 types (IDs 201-218), Track 5 types (IDs 219-238),
-  * and Track 6 types (IDs 239-247):
+  * and Track 6 types (IDs 239-253):
    * <ul>
    *   <li>PaginatedCollectionStateV2 (2 ops)</li>
    *   <li>CollectionPage (5 ops)</li>
@@ -79,6 +85,8 @@ public final class PageOperationRegistry {
    *       updateValue, add/remove leaf/nonLeaf, updateKey, addAll, shrink)</li>
    *   <li>CellBTreeMultiValueV2EntryPoint (4 ops)</li>
    *   <li>CellBTreeMultiValueV2NullBucket (5 ops)</li>
+   *   <li>CellBTreeMultiValueV2Bucket simple (6 ops: init, switchType, siblings,
+   *       increment/decrement entries count)</li>
    * </ul>
    */
   public static void registerAll(WALRecordsFactory factory) {
@@ -248,5 +256,25 @@ public final class PageOperationRegistry {
     factory.registerNewRecord(
         WALRecordTypes.BTREE_MV_NULL_BUCKET_V2_DECREMENT_SIZE_OP,
         BTreeMVNullBucketV2DecrementSizeOp.class);
+
+    // CellBTreeMultiValueV2Bucket simple operations (Track 6)
+    factory.registerNewRecord(
+        WALRecordTypes.BTREE_MV_BUCKET_V2_INIT_OP,
+        BTreeMVBucketV2InitOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.BTREE_MV_BUCKET_V2_SWITCH_BUCKET_TYPE_OP,
+        BTreeMVBucketV2SwitchBucketTypeOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.BTREE_MV_BUCKET_V2_SET_LEFT_SIBLING_OP,
+        BTreeMVBucketV2SetLeftSiblingOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.BTREE_MV_BUCKET_V2_SET_RIGHT_SIBLING_OP,
+        BTreeMVBucketV2SetRightSiblingOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.BTREE_MV_BUCKET_V2_INCREMENT_ENTRIES_COUNT_OP,
+        BTreeMVBucketV2IncrementEntriesCountOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.BTREE_MV_BUCKET_V2_DECREMENT_ENTRIES_COUNT_OP,
+        BTreeMVBucketV2DecrementEntriesCountOp.class);
   }
 }
