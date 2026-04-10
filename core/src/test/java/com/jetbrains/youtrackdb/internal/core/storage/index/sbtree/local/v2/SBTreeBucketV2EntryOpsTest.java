@@ -109,6 +109,23 @@ public class SBTreeBucketV2EntryOpsTest {
   }
 
   @Test
+  public void testAddNonLeafEntryOpSerializationRoundtripUpdateNeighboursFalse() {
+    var lsn = new LogSequenceNumber(3, 100);
+    byte[] key = {10, 20};
+    var original = new SBTreeBucketV2AddNonLeafEntryOp(
+        10, 20, 30, lsn, 2, key, 100L, 200L, false);
+
+    var content = new byte[original.serializedSize() + 1];
+    original.toStream(content, 1);
+
+    var deserialized = new SBTreeBucketV2AddNonLeafEntryOp();
+    deserialized.fromStream(content, 1);
+
+    Assert.assertFalse(deserialized.isUpdateNeighbours());
+    Assert.assertEquals(original, deserialized);
+  }
+
+  @Test
   public void testRemoveLeafEntryOpSerializationRoundtrip() {
     var lsn = new LogSequenceNumber(7, 300);
     byte[] key = {1, 2};
@@ -238,6 +255,43 @@ public class SBTreeBucketV2EntryOpsTest {
     var result = (SBTreeBucketV2UpdateValueOp) deserialized;
     Assert.assertArrayEquals(value, result.getValue());
     Assert.assertEquals(4, result.getKeySize());
+  }
+
+  @Test
+  public void testRemoveLeafEntryOpFactoryRoundtrip() {
+    byte[] key = {1, 2};
+    byte[] value = {3, 4};
+    var original = new SBTreeBucketV2RemoveLeafEntryOp(
+        10, 20, 30, new LogSequenceNumber(42, 1024), 5, key, value);
+
+    ByteBuffer serialized = WALRecordsFactory.toStream(original);
+    var content = new byte[serialized.limit()];
+    serialized.get(0, content);
+
+    var deserialized = WALRecordsFactory.INSTANCE.fromStream(content);
+    Assert.assertTrue(deserialized instanceof SBTreeBucketV2RemoveLeafEntryOp);
+    var result = (SBTreeBucketV2RemoveLeafEntryOp) deserialized;
+    Assert.assertEquals(5, result.getEntryIndex());
+    Assert.assertArrayEquals(key, result.getOldRawKey());
+    Assert.assertArrayEquals(value, result.getOldRawValue());
+  }
+
+  @Test
+  public void testRemoveNonLeafEntryOpFactoryRoundtrip() {
+    byte[] key = {5, 6, 7};
+    var original = new SBTreeBucketV2RemoveNonLeafEntryOp(
+        10, 20, 30, new LogSequenceNumber(42, 1024), 2, key, 42);
+
+    ByteBuffer serialized = WALRecordsFactory.toStream(original);
+    var content = new byte[serialized.limit()];
+    serialized.get(0, content);
+
+    var deserialized = WALRecordsFactory.INSTANCE.fromStream(content);
+    Assert.assertTrue(deserialized instanceof SBTreeBucketV2RemoveNonLeafEntryOp);
+    var result = (SBTreeBucketV2RemoveNonLeafEntryOp) deserialized;
+    Assert.assertEquals(2, result.getEntryIndex());
+    Assert.assertArrayEquals(key, result.getKey());
+    Assert.assertEquals(42, result.getPrevChild());
   }
 
   // ---- Redo correctness (byte-level) ----
@@ -446,6 +500,61 @@ public class SBTreeBucketV2EntryOpsTest {
     }
   }
 
+  /**
+   * removeNonLeafEntry with prevChild >= 0: exercises the neighbor pointer update path.
+   * Add 3 non-leaf entries, then remove the middle one with a positive prevChild.
+   */
+  @Test
+  public void testRemoveNonLeafEntryWithPositivePrevChildRedoCorrectness() {
+    var bufferPool = ByteBufferPool.instance(null);
+
+    var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cp1 = new CachePointer(pointer1, bufferPool, 0, 0);
+    cp1.incrementReferrer();
+    CacheEntry entry1 = new CacheEntryImpl(0, 0, cp1, false, null);
+    entry1.acquireExclusiveLock();
+
+    var pointer2 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cp2 = new CachePointer(pointer2, bufferPool, 0, 0);
+    cp2.incrementReferrer();
+    CacheEntry entry2 = new CacheEntryImpl(0, 0, cp2, false, null);
+    entry2.acquireExclusiveLock();
+
+    try {
+      var page1 = new SBTreeBucketV2<>(entry1);
+      page1.init(false);
+      var page2 = new SBTreeBucketV2<>(entry2);
+      page2.init(false);
+
+      byte[] key1 = {1, 2, 3, 4};
+      byte[] key2 = {5, 6, 7, 8};
+      byte[] key3 = {9, 10, 11, 12};
+      var lsn = new LogSequenceNumber(0, 0);
+
+      // Add 3 entries to both pages
+      page1.addNonLeafEntry(0, key1, 10L, 20L, false);
+      page1.addNonLeafEntry(1, key2, 20L, 30L, true);
+      page1.addNonLeafEntry(2, key3, 30L, 40L, true);
+
+      page2.addNonLeafEntry(0, key1, 10L, 20L, false);
+      page2.addNonLeafEntry(1, key2, 20L, 30L, true);
+      page2.addNonLeafEntry(2, key3, 30L, 40L, true);
+
+      // Remove middle entry with positive prevChild — triggers neighbor update path
+      page1.removeNonLeafEntry(1, key2, 20);
+      new SBTreeBucketV2RemoveNonLeafEntryOp(
+          0, 0, 0, lsn, 1, key2, 20).redo(page2);
+
+      Assert.assertEquals(0, cp1.getBuffer().compareTo(cp2.getBuffer()));
+      Assert.assertEquals(2, page2.size());
+    } finally {
+      entry1.releaseExclusiveLock();
+      entry2.releaseExclusiveLock();
+      cp1.decrementReferrer();
+      cp2.decrementReferrer();
+    }
+  }
+
   // ---- Redo suppression ----
 
   @Test
@@ -506,6 +615,35 @@ public class SBTreeBucketV2EntryOpsTest {
     var op1 = new SBTreeBucketV2UpdateValueOp(10, 20, 30, lsn, 0, value, 4);
     var op2 = new SBTreeBucketV2UpdateValueOp(10, 20, 30, lsn, 0, value, 4);
     var op3 = new SBTreeBucketV2UpdateValueOp(10, 20, 30, lsn, 0, value, 8);
+
+    Assert.assertEquals(op1, op2);
+    Assert.assertEquals(op1.hashCode(), op2.hashCode());
+    Assert.assertNotEquals(op1, op3);
+  }
+
+  @Test
+  public void testAddNonLeafEntryOpEqualsAndHashCode() {
+    var lsn = new LogSequenceNumber(1, 1);
+    byte[] key = {1, 2};
+
+    var op1 = new SBTreeBucketV2AddNonLeafEntryOp(10, 20, 30, lsn, 0, key, 5L, 6L, true);
+    var op2 = new SBTreeBucketV2AddNonLeafEntryOp(10, 20, 30, lsn, 0, key, 5L, 6L, true);
+    var op3 = new SBTreeBucketV2AddNonLeafEntryOp(10, 20, 30, lsn, 0, key, 5L, 6L, false);
+
+    Assert.assertEquals(op1, op2);
+    Assert.assertEquals(op1.hashCode(), op2.hashCode());
+    Assert.assertNotEquals(op1, op3);
+  }
+
+  @Test
+  public void testRemoveLeafEntryOpEqualsAndHashCode() {
+    var lsn = new LogSequenceNumber(1, 1);
+    byte[] key = {1, 2};
+    byte[] value = {3, 4};
+
+    var op1 = new SBTreeBucketV2RemoveLeafEntryOp(10, 20, 30, lsn, 0, key, value);
+    var op2 = new SBTreeBucketV2RemoveLeafEntryOp(10, 20, 30, lsn, 0, key, value);
+    var op3 = new SBTreeBucketV2RemoveLeafEntryOp(10, 20, 30, lsn, 1, key, value);
 
     Assert.assertEquals(op1, op2);
     Assert.assertEquals(op1.hashCode(), op2.hashCode());
