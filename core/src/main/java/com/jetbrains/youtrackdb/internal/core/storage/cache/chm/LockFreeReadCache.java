@@ -596,9 +596,8 @@ public final class LockFreeReadCache implements ReadCache {
     try {
       emptyBuffers();
 
-      // Guard against negative cacheSize — the counter can drift negative under heavy
-      // concurrent load/evict/clearFile activity because increments and decrements use
-      // different locks. Clamp to zero to avoid IllegalArgumentException from ArrayList.
+      // Defense-in-depth: clamp cacheSize to zero to avoid IllegalArgumentException
+      // from ArrayList if the counter ever drifts negative due to a future bug.
       var currentCacheSize = cacheSize.get();
       var entries = new ArrayList<CacheEntry>(Math.max(0, currentCacheSize));
       data.forEachValue(entries::add);

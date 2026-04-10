@@ -2,12 +2,16 @@ package com.jetbrains.youtrackdb.internal.core;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
+import com.jetbrains.youtrackdb.internal.core.engine.EngineAbstract;
 import com.jetbrains.youtrackdb.internal.core.engine.local.EngineLocalPaginated;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import java.lang.reflect.Field;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
@@ -319,6 +323,65 @@ public class YouTrackDBEnginesManagerStartUpTest {
       }
       manager.shutdownPools();
     }
+  }
+
+  /**
+   * Shutting down an EngineLocalPaginated that was never started (readCache is null)
+   * must complete without NPE. The null guard in shutdown() skips cache.clear()
+   * and proceeds to files.clear() and super.shutdown().
+   */
+  @Test
+  public void shutdownWithNullReadCacheCompletesNormally() throws Exception {
+    var engine = new EngineLocalPaginated();
+    // readCache is null because startup() was never called.
+    assertThat(engine.getReadCache()).isNull();
+
+    // Force running=true so the isRunning() assertion after shutdown() is
+    // falsifiable — it will only pass if super.shutdown() actually executed.
+    Field runningField = EngineAbstract.class.getDeclaredField("running");
+    runningField.setAccessible(true);
+    runningField.set(engine, true);
+    assertThat(engine.isRunning()).isTrue();
+
+    // Must not throw — the null guard should skip cache.clear().
+    engine.shutdown();
+
+    // super.shutdown() must have set running=false.
+    assertThat(engine.isRunning()).isFalse();
+  }
+
+  /**
+   * When readCache.clear() throws during shutdown, the exception must be caught
+   * and logged (not propagated), and files.clear() + super.shutdown() must still
+   * execute. This covers the {@code catch (Exception e)} block in
+   * {@link EngineLocalPaginated#shutdown()}.
+   */
+  @Test
+  public void shutdownCatchesReadCacheClearException() throws Exception {
+    var engine = new EngineLocalPaginated();
+
+    // Inject a mock ReadCache whose clear() throws, simulating a failure
+    // during cache cleanup (e.g., concurrent modification, I/O error).
+    var mockCache = mock(ReadCache.class);
+    doThrow(new RuntimeException("simulated clear failure")).when(mockCache).clear();
+
+    Field readCacheField = EngineLocalPaginated.class.getDeclaredField("readCache");
+    readCacheField.setAccessible(true);
+    readCacheField.set(engine, mockCache);
+
+    // Force running=true so the isRunning() assertion after shutdown() is
+    // falsifiable — it will only pass if super.shutdown() actually executed.
+    Field runningField = EngineAbstract.class.getDeclaredField("running");
+    runningField.setAccessible(true);
+    runningField.set(engine, true);
+
+    // shutdown() must not propagate the exception.
+    engine.shutdown();
+
+    // Verify clear() was actually called (exception was caught, not avoided).
+    verify(mockCache).clear();
+    // super.shutdown() must have transitioned running from true to false.
+    assertThat(engine.isRunning()).isFalse();
   }
 
   /**
