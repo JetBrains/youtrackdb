@@ -476,29 +476,13 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
     assert key instanceof CompositeKey
         : "getVisibleStream() requires CompositeKey, got "
             + (key == null ? "null" : key.getClass());
-    // Reuse the existing iterateEntriesBetween infrastructure for correct B-tree
-    // navigation, but collect results eagerly with inline visibility filtering
-    // to avoid the stream pipeline overhead (Spliterator + mapMulti per entry).
     final var preprocessedKey =
         keySerializer.preprocess(serializerFactory, key, (Object[]) keyTypes);
-
-    final var opsSnapshot = atomicOperation.getAtomicOperationsSnapshot();
-    final var snapshotTs = opsSnapshot.snapshotTs();
-    final var inProgressVersions = opsSnapshot.inProgressTxs();
-
-    try (var entryStream = iterateEntriesBetween(
-        preprocessedKey, true, preprocessedKey, true, true, atomicOperation)) {
-      final var result = new ArrayList<RID>();
-      entryStream.forEach(pair -> {
-        final var visibleRid = snapshot.checkVisibility(
-            (CompositeKey) pair.first(), pair.second(),
-            snapshotTs, inProgressVersions);
-        if (visibleRid != null) {
-          result.add(visibleRid);
-        }
-      });
-      return result.stream();
-    }
+    @SuppressWarnings("unchecked")
+    var entryStream =
+        (Stream<RawPair<CompositeKey, RID>>) (Stream<?>) iterateEntriesBetween(
+            preprocessedKey, true, preprocessedKey, true, true, atomicOperation);
+    return snapshot.visibilityFilterValues(atomicOperation, entryStream);
   }
 
   /**
