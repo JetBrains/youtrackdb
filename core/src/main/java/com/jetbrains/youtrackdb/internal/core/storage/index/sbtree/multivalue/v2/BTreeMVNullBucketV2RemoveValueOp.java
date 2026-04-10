@@ -35,7 +35,8 @@ public final class BTreeMVNullBucketV2RemoveValueOp extends PageOperation {
   @Override
   public void redo(DurablePage page) {
     var nullBucket = new CellBTreeMultiValueV2NullBucket(page.getCacheEntry());
-    nullBucket.removeValue(new RecordId(collectionId, collectionPosition));
+    var result = nullBucket.removeValue(new RecordId(collectionId, collectionPosition));
+    assert result == 1 : "removeValue failed during redo — value not found, got " + result;
   }
 
   @Override

@@ -34,7 +34,8 @@ public final class BTreeMVNullBucketV2AddValueOp extends PageOperation {
   @Override
   public void redo(DurablePage page) {
     var nullBucket = new CellBTreeMultiValueV2NullBucket(page.getCacheEntry());
-    nullBucket.addValue(new RecordId(collectionId, collectionPosition));
+    var result = nullBucket.addValue(new RecordId(collectionId, collectionPosition));
+    assert result == -1 : "addValue failed during redo — embedded list full, got mId=" + result;
   }
 
   @Override

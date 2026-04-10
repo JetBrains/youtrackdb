@@ -162,6 +162,21 @@ public class BTreeMVNullBucketV2OpTest {
     Assert.assertEquals(original, deserialized);
   }
 
+  @Test
+  public void testDecrementSizeOpSerializationRoundtrip() {
+    var initialLsn = new LogSequenceNumber(9, 900);
+    var original = new BTreeMVNullBucketV2DecrementSizeOp(4, 8, 12, initialLsn);
+
+    var content = new byte[original.serializedSize() + 1];
+    var endOffset = original.toStream(content, 1);
+    Assert.assertEquals(content.length, endOffset);
+
+    var deserialized = new BTreeMVNullBucketV2DecrementSizeOp();
+    deserialized.fromStream(content, 1);
+
+    Assert.assertEquals(original, deserialized);
+  }
+
   // ---------- WALRecordsFactory roundtrip tests ----------
 
   @Test
@@ -217,6 +232,34 @@ public class BTreeMVNullBucketV2OpTest {
     var result = (BTreeMVNullBucketV2RemoveValueOp) deserialized;
     Assert.assertEquals((short) 33, result.getCollectionId());
     Assert.assertEquals(9876543L, result.getCollectionPosition());
+  }
+
+  @Test
+  public void testIncrementSizeOpFactoryRoundtrip() {
+    var initialLsn = new LogSequenceNumber(70, 700);
+    var original = new BTreeMVNullBucketV2IncrementSizeOp(1, 2, 3, initialLsn);
+
+    ByteBuffer serialized = WALRecordsFactory.toStream(original);
+    var content = new byte[serialized.limit()];
+    serialized.get(0, content);
+
+    var deserialized = WALRecordsFactory.INSTANCE.fromStream(content);
+    Assert.assertTrue(deserialized instanceof BTreeMVNullBucketV2IncrementSizeOp);
+    Assert.assertEquals(original, deserialized);
+  }
+
+  @Test
+  public void testDecrementSizeOpFactoryRoundtrip() {
+    var initialLsn = new LogSequenceNumber(80, 800);
+    var original = new BTreeMVNullBucketV2DecrementSizeOp(4, 5, 6, initialLsn);
+
+    ByteBuffer serialized = WALRecordsFactory.toStream(original);
+    var content = new byte[serialized.limit()];
+    serialized.get(0, content);
+
+    var deserialized = WALRecordsFactory.INSTANCE.fromStream(content);
+    Assert.assertTrue(deserialized instanceof BTreeMVNullBucketV2DecrementSizeOp);
+    Assert.assertEquals(original, deserialized);
   }
 
   // ---------- Redo correctness tests ----------
