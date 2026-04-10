@@ -267,6 +267,8 @@ public final class BTreeMultiValueIndexEngine
     approximateNullCount.set(0);
     var mgr = histogramManager;
     if (mgr != null) {
+      // Local try-catch needed: unlike BTreeSingleValueIndexEngine.clear(),
+      // this method's outer scope does not catch IOException.
       try {
         mgr.resetOnClear(atomicOperation);
       } catch (IOException e) {
