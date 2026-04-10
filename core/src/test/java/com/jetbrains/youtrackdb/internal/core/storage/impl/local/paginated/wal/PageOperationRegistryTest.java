@@ -19,9 +19,15 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.MapEntryPoin
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2SetApproxRecordsCountOp;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2SetFileSizeOp;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.WriteableWALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2AddNonLeafEntryOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2AppendNewLeafEntryOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2CreateMainLeafEntryOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2DecrementEntriesCountOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2IncrementEntriesCountOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2InitOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2RemoveLeafEntryOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2RemoveMainLeafEntryOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2RemoveNonLeafEntryOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2SetLeftSiblingOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2SetRightSiblingOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2SwitchBucketTypeOp;
@@ -62,7 +68,7 @@ import org.junit.Test;
 
 /**
  * Tests that {@link PageOperationRegistry#registerAll(WALRecordsFactory)} correctly registers
- * all 53 Track 2-3, Track 5, and Track 6 PageOperation types so they can be deserialized by the
+ * all 59 Track 2-3, Track 5, and Track 6 PageOperation types so they can be deserialized by the
  * factory during recovery.
  */
 public class PageOperationRegistryTest {
@@ -73,7 +79,7 @@ public class PageOperationRegistryTest {
   }
 
   /**
-   * Verifies that all 53 registered record IDs survive a full WALRecordsFactory roundtrip:
+   * Verifies that all 59 registered record IDs survive a full WALRecordsFactory roundtrip:
    * toStream → fromStream. Uses non-zero field values for all parameters (including parent
    * fields) and verifies full field-level equality via equals(), not just class/ID match.
    */
@@ -177,6 +183,22 @@ public class PageOperationRegistryTest {
         new BTreeMVBucketV2SetRightSiblingOp(pageIndex, fileId, opUnitId, initialLsn, 200L),
         new BTreeMVBucketV2IncrementEntriesCountOp(pageIndex, fileId, opUnitId, initialLsn, 3),
         new BTreeMVBucketV2DecrementEntriesCountOp(pageIndex, fileId, opUnitId, initialLsn, 5),
+
+        // Track 6: CellBTreeMultiValueV2Bucket entry (6 ops)
+        new BTreeMVBucketV2CreateMainLeafEntryOp(
+            pageIndex, fileId, opUnitId, initialLsn,
+            0, new byte[] {1, 2, 3}, (short) 5, 1000L, 42L),
+        new BTreeMVBucketV2RemoveMainLeafEntryOp(
+            pageIndex, fileId, opUnitId, initialLsn, 0, 3),
+        new BTreeMVBucketV2AppendNewLeafEntryOp(
+            pageIndex, fileId, opUnitId, initialLsn, 0, (short) 7, 2000L),
+        new BTreeMVBucketV2RemoveLeafEntryOp(
+            pageIndex, fileId, opUnitId, initialLsn, 0, (short) 5, 1000L),
+        new BTreeMVBucketV2AddNonLeafEntryOp(
+            pageIndex, fileId, opUnitId, initialLsn,
+            0, new byte[] {4, 5, 6}, 1, 2, true),
+        new BTreeMVBucketV2RemoveNonLeafEntryOp(
+            pageIndex, fileId, opUnitId, initialLsn, 0, new byte[] {4, 5, 6}, 3),
     };
 
     for (PageOperation op : ops) {
@@ -197,17 +219,17 @@ public class PageOperationRegistryTest {
   /** Verifies the expected total count of registered types — catches accidentally omitted types. */
   @Test
   public void testRegisteredTypeCount() {
-    // IDs 201-253 = 53 types (18 Track 2-3 + 20 Track 5 + 15 Track 6). Each ID must have both a
+    // IDs 201-259 = 59 types (18 Track 2-3 + 20 Track 5 + 21 Track 6). Each ID must have both a
     // createOpForId entry and a factory registration. createOpForId throws for unknown IDs,
     // so any gap causes immediate failure.
     int registeredCount = 0;
     for (int id = WALRecordTypes.PAGE_OPERATION_ID_BASE + 1;
-        id <= WALRecordTypes.PAGE_OPERATION_ID_BASE + 53; id++) {
+        id <= WALRecordTypes.PAGE_OPERATION_ID_BASE + 59; id++) {
       var testOp = createMinimalRecord(id);
       Assert.assertNotNull("WAL record ID " + id + " failed to roundtrip", testOp);
       registeredCount++;
     }
-    Assert.assertEquals("Expected 53 registered PageOperation types", 53, registeredCount);
+    Assert.assertEquals("Expected 59 registered PageOperation types", 59, registeredCount);
   }
 
   /**
@@ -374,6 +396,22 @@ public class PageOperationRegistryTest {
           new BTreeMVBucketV2IncrementEntriesCountOp(0, 0, 0, lsn, 0);
       case WALRecordTypes.BTREE_MV_BUCKET_V2_DECREMENT_ENTRIES_COUNT_OP ->
           new BTreeMVBucketV2DecrementEntriesCountOp(0, 0, 0, lsn, 0);
+
+      // Track 6: CellBTreeMultiValueV2Bucket entry (6 ops)
+      case WALRecordTypes.BTREE_MV_BUCKET_V2_CREATE_MAIN_LEAF_ENTRY_OP ->
+          new BTreeMVBucketV2CreateMainLeafEntryOp(
+              0, 0, 0, lsn, 0, new byte[] {}, (short) -1, -1L, 0L);
+      case WALRecordTypes.BTREE_MV_BUCKET_V2_REMOVE_MAIN_LEAF_ENTRY_OP ->
+          new BTreeMVBucketV2RemoveMainLeafEntryOp(0, 0, 0, lsn, 0, 1);
+      case WALRecordTypes.BTREE_MV_BUCKET_V2_APPEND_NEW_LEAF_ENTRY_OP ->
+          new BTreeMVBucketV2AppendNewLeafEntryOp(0, 0, 0, lsn, 0, (short) 0, 0L);
+      case WALRecordTypes.BTREE_MV_BUCKET_V2_REMOVE_LEAF_ENTRY_OP ->
+          new BTreeMVBucketV2RemoveLeafEntryOp(0, 0, 0, lsn, 0, (short) 0, 0L);
+      case WALRecordTypes.BTREE_MV_BUCKET_V2_ADD_NON_LEAF_ENTRY_OP ->
+          new BTreeMVBucketV2AddNonLeafEntryOp(
+              0, 0, 0, lsn, 0, new byte[] {}, 0, 0, false);
+      case WALRecordTypes.BTREE_MV_BUCKET_V2_REMOVE_NON_LEAF_ENTRY_OP ->
+          new BTreeMVBucketV2RemoveNonLeafEntryOp(0, 0, 0, lsn, 0, new byte[] {}, 0);
 
       default -> throw new IllegalArgumentException("Unknown PageOperation ID: " + id);
     };

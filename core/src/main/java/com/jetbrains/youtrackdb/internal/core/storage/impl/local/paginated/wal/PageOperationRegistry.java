@@ -18,9 +18,15 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.FreeSpaceMap
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.MapEntryPointSetFileSizeOp;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2SetApproxRecordsCountOp;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2SetFileSizeOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2AddNonLeafEntryOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2AppendNewLeafEntryOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2CreateMainLeafEntryOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2DecrementEntriesCountOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2IncrementEntriesCountOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2InitOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2RemoveLeafEntryOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2RemoveMainLeafEntryOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2RemoveNonLeafEntryOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2SetLeftSiblingOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2SetRightSiblingOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.BTreeMVBucketV2SwitchBucketTypeOp;
@@ -71,7 +77,7 @@ public final class PageOperationRegistry {
    * registered with its unique WAL record type ID (see {@link WALRecordTypes}).
    *
    * <p>Currently registers Track 2-3 types (IDs 201-218), Track 5 types (IDs 219-238),
-  * and Track 6 types (IDs 239-253):
+  * and Track 6 types (IDs 239-259):
    * <ul>
    *   <li>PaginatedCollectionStateV2 (2 ops)</li>
    *   <li>CollectionPage (5 ops)</li>
@@ -87,6 +93,8 @@ public final class PageOperationRegistry {
    *   <li>CellBTreeMultiValueV2NullBucket (5 ops)</li>
    *   <li>CellBTreeMultiValueV2Bucket simple (6 ops: init, switchType, siblings,
    *       increment/decrement entries count)</li>
+   *   <li>CellBTreeMultiValueV2Bucket entry (6 ops: createMainLeaf, removeMainLeaf,
+   *       appendNewLeaf, removeLeaf, addNonLeaf, removeNonLeaf)</li>
    * </ul>
    */
   public static void registerAll(WALRecordsFactory factory) {
@@ -276,5 +284,25 @@ public final class PageOperationRegistry {
     factory.registerNewRecord(
         WALRecordTypes.BTREE_MV_BUCKET_V2_DECREMENT_ENTRIES_COUNT_OP,
         BTreeMVBucketV2DecrementEntriesCountOp.class);
+
+    // CellBTreeMultiValueV2Bucket entry operations (Track 6)
+    factory.registerNewRecord(
+        WALRecordTypes.BTREE_MV_BUCKET_V2_CREATE_MAIN_LEAF_ENTRY_OP,
+        BTreeMVBucketV2CreateMainLeafEntryOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.BTREE_MV_BUCKET_V2_REMOVE_MAIN_LEAF_ENTRY_OP,
+        BTreeMVBucketV2RemoveMainLeafEntryOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.BTREE_MV_BUCKET_V2_APPEND_NEW_LEAF_ENTRY_OP,
+        BTreeMVBucketV2AppendNewLeafEntryOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.BTREE_MV_BUCKET_V2_REMOVE_LEAF_ENTRY_OP,
+        BTreeMVBucketV2RemoveLeafEntryOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.BTREE_MV_BUCKET_V2_ADD_NON_LEAF_ENTRY_OP,
+        BTreeMVBucketV2AddNonLeafEntryOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.BTREE_MV_BUCKET_V2_REMOVE_NON_LEAF_ENTRY_OP,
+        BTreeMVBucketV2RemoveNonLeafEntryOp.class);
   }
 }

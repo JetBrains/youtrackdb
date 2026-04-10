@@ -300,4 +300,18 @@ public final class WALRecordTypes {
       PAGE_OPERATION_ID_BASE + 52;
   public static final int BTREE_MV_BUCKET_V2_DECREMENT_ENTRIES_COUNT_OP =
       PAGE_OPERATION_ID_BASE + 53;
+
+  // CellBTreeMultiValueV2Bucket entry operations (Track 6)
+  public static final int BTREE_MV_BUCKET_V2_CREATE_MAIN_LEAF_ENTRY_OP =
+      PAGE_OPERATION_ID_BASE + 54;
+  public static final int BTREE_MV_BUCKET_V2_REMOVE_MAIN_LEAF_ENTRY_OP =
+      PAGE_OPERATION_ID_BASE + 55;
+  public static final int BTREE_MV_BUCKET_V2_APPEND_NEW_LEAF_ENTRY_OP =
+      PAGE_OPERATION_ID_BASE + 56;
+  public static final int BTREE_MV_BUCKET_V2_REMOVE_LEAF_ENTRY_OP =
+      PAGE_OPERATION_ID_BASE + 57;
+  public static final int BTREE_MV_BUCKET_V2_ADD_NON_LEAF_ENTRY_OP =
+      PAGE_OPERATION_ID_BASE + 58;
+  public static final int BTREE_MV_BUCKET_V2_REMOVE_NON_LEAF_ENTRY_OP =
+      PAGE_OPERATION_ID_BASE + 59;
 }

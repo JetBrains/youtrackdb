@@ -237,6 +237,23 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
   }
 
   public int removeLeafEntry(final int entryIndex, final RID value) {
+    var result = doRemoveLeafEntry(entryIndex, value);
+
+    if (result >= 0) {
+      var cacheEntry = getCacheEntry();
+      if (cacheEntry instanceof CacheEntryChanges cec) {
+        cec.registerPageOperation(
+            new BTreeMVBucketV2RemoveLeafEntryOp(
+                cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+                0, cec.getInitialLSN(), entryIndex,
+                (short) value.getCollectionId(), value.getCollectionPosition()));
+      }
+    }
+
+    return result;
+  }
+
+  private int doRemoveLeafEntry(final int entryIndex, final RID value) {
     assert isLeaf();
 
     final var entryPosition =
@@ -541,6 +558,14 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
     final var entryPosition =
         getIntValue(POSITIONS_ARRAY_OFFSET + entryIndex * IntegerSerializer.INT_SIZE);
     removeMainLeafEntry(entryIndex, entryPosition, keySize);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeMVBucketV2RemoveMainLeafEntryOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), entryIndex, keySize));
+    }
   }
 
   public void incrementEntriesCount(final int entryIndex) {
@@ -826,7 +851,21 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
 
   public boolean createMainLeafEntry(
       final int index, final byte[] serializedKey, final RID value, final long mId) {
-    return !doCreateMainLeafEntry(index, serializedKey, value, mId);
+    final var result = doCreateMainLeafEntry(index, serializedKey, value, mId);
+    // result == false means success (entry was added)
+    if (!result) {
+      var cacheEntry = getCacheEntry();
+      if (cacheEntry instanceof CacheEntryChanges cec) {
+        cec.registerPageOperation(
+            new BTreeMVBucketV2CreateMainLeafEntryOp(
+                cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+                0, cec.getInitialLSN(), index, serializedKey,
+                value != null ? (short) value.getCollectionId() : (short) -1,
+                value != null ? value.getCollectionPosition() : -1L,
+                mId));
+      }
+    }
+    return !result;
   }
 
   private boolean doCreateMainLeafEntry(int index, byte[] serializedKey, RID value, long mId) {
@@ -935,6 +974,15 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
     setIntValue(
         entryPosition + ByteSerializer.BYTE_SIZE + IntegerSerializer.INT_SIZE, entriesCount + 1);
 
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeMVBucketV2AppendNewLeafEntryOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), index,
+              (short) value.getCollectionId(), value.getCollectionPosition()));
+    }
+
     return -1;
   }
 
@@ -1010,7 +1058,20 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
       final boolean updateNeighbors) {
     final var prevChild =
         doAddNonLeafEntry(index, serializedKey, leftChild, rightChild, updateNeighbors);
-    return prevChild >= -1;
+    final var success = prevChild >= -1;
+
+    if (success) {
+      var cacheEntry = getCacheEntry();
+      if (cacheEntry instanceof CacheEntryChanges cec) {
+        cec.registerPageOperation(
+            new BTreeMVBucketV2AddNonLeafEntryOp(
+                cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+                0, cec.getInitialLSN(), index, serializedKey,
+                leftChild, rightChild, updateNeighbors));
+      }
+    }
+
+    return success;
   }
 
   private int doAddNonLeafEntry(
@@ -1070,6 +1131,20 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
     if (isLeaf()) {
       throw new IllegalStateException("Remove is applied to non-leaf buckets only");
     }
+
+    doRemoveNonLeafEntry(entryIndex, key, prevChild);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeMVBucketV2RemoveNonLeafEntryOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), entryIndex, key, prevChild));
+    }
+  }
+
+  private void doRemoveNonLeafEntry(
+      final int entryIndex, final byte[] key, final int prevChild) {
 
     final var entryPosition =
         getIntValue(POSITIONS_ARRAY_OFFSET + entryIndex * IntegerSerializer.INT_SIZE);
