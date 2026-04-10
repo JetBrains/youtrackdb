@@ -1059,4 +1059,330 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
     session.commit();
   }
 
+  // ── Pattern A — in-direction back-reference ──
+
+  /**
+   * Pattern A with "in" direction — the back-reference uses .in('Friend')
+   * instead of .out('Friend'). The hash table is built from the back-ref
+   * vertex's out_ link bag (reverse of "in" direction).
+   *
+   * Graph: n1→n2 via Friend. Query: find vertices whose incoming Friend
+   * edges include a vertex reachable from n1's friends.
+   * n2.in('Friend') includes n1. Check: @rid = $matched.a.@rid = n1 → match.
+   */
+  @Test
+  public void backRef_singleEdge_inDirection_correctResults() {
+    session.begin();
+    var result = session.query(
+        "MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b}"
+            + ".in('Friend'){as:check, where: (@rid = $matched.a.@rid)}"
+            + " RETURN b.name as bName")
+        .toList();
+
+    // n1→n2: n2.in('Friend') = {n1}. check.@rid must equal n1.@rid → n1 matches
+    // n1→n3: n3.in('Friend') = {n1}. check.@rid must equal n1.@rid → n1 matches
+    // Both b=n2 and b=n3 should produce results
+    var names = result.stream()
+        .map(r -> (String) r.getProperty("bName"))
+        .collect(Collectors.toSet());
+    assertEquals(Set.of("n2", "n3"), names);
+    session.commit();
+  }
+
+  /**
+   * EXPLAIN for Pattern A with "in" direction — verifies the planner
+   * selects BACK-REF HASH JOIN for in-direction traversals.
+   */
+  @Test
+  public void explainBackRef_singleEdge_inDirection_usesBackRefHashJoin() {
+    session.begin();
+    var result = session.query(
+        "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b}"
+            + ".in('Friend'){as:check, where: (@rid = $matched.a.@rid)}"
+            + " RETURN b.name")
+        .toList();
+    assertEquals(1, result.size());
+    String plan = result.get(0).getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertTrue(
+        "in-direction back-ref should use hash join, got:\n" + plan,
+        plan.contains("BACK-REF HASH JOIN"));
+    session.commit();
+  }
+
+  // ── Pattern A — multi-edge fan-out ──
+
+  /**
+   * Pattern A with multiple edges of the same class between the same
+   * vertex pair. Verifies that the hash join correctly emits N rows
+   * when N edges exist between source and target (no deduplication).
+   *
+   * Creates 3 Friend edges from n2→n1, then checks back-ref from n2.
+   */
+  @Test
+  public void backRef_singleEdge_multipleEdges_emitsCorrectCount() {
+    session.begin();
+    // Add 3 Friend edges from n2→n1 (on top of the existing n1→n2)
+    for (int i = 0; i < 3; i++) {
+      session.execute(
+          "CREATE EDGE Friend from (select from Person where name='n2')"
+              + " to (select from Person where name='n1')")
+          .close();
+    }
+
+    var result = session.query(
+        "MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b, where:(name='n2')}"
+            + ".out('Friend'){as:check, where: (@rid = $matched.a.@rid)}"
+            + " RETURN b.name as bName")
+        .toList();
+
+    // n2 has 3 outgoing Friend edges to n1. Each should produce a result row.
+    assertEquals("multi-edge should produce 3 rows", 3, result.size());
+    for (var row : result) {
+      assertEquals("n2", row.getProperty("bName"));
+    }
+    session.commit();
+  }
+
+  // ── Pattern A — threshold=1 fallback ──
+
+  /**
+   * Pattern A threshold=1 fallback correctness. The build side for the
+   * back-ref hash table will have 2 entries (n2 and n3 are friends of n1),
+   * exceeding threshold=1. The step falls back to per-row nested-loop
+   * traversal via MatchEdgeTraverser. Results must still be correct.
+   */
+  @Test
+  public void backRef_singleEdge_thresholdOne_fallbackCorrectResults() {
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(1L);
+
+      session.begin();
+      // Add cycle: n2→n1 so there's a matching result
+      session.execute(
+          "CREATE EDGE Friend from (select from Person where name='n2')"
+              + " to (select from Person where name='n1')")
+          .close();
+
+      var result = session.query(
+          "MATCH {class:Person, as:a, where:(name='n1')}"
+              + ".out('Friend'){as:b}"
+              + ".out('Friend'){as:check, where: (@rid = $matched.a.@rid)}"
+              + " RETURN b.name as bName")
+          .toList();
+
+      // n1→n2→{n1,n4}: n1 matches (check.@rid==a.@rid)
+      // n1→n3→{n5}: no match
+      assertEquals(1, result.size());
+      assertEquals("n2", result.get(0).getProperty("bName"));
+      session.commit();
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);
+    }
+  }
+
+  // ── Pattern B — in-direction chain (inE+outV) ──
+
+  /**
+   * Pattern B with inE().outV() chain — the reverse direction of the
+   * standard outE().inV() chain. Verifies that ChainSemiJoin handles
+   * inE-based chains correctly.
+   */
+  @Test
+  public void backRef_inEOutV_withCycle_correctResults() {
+    session.begin();
+    // Add cycle: n2→n1
+    session.execute(
+        "CREATE EDGE Friend from (select from Person where name='n2')"
+            + " to (select from Person where name='n1')")
+        .close();
+
+    var result = session.query(
+        "MATCH {class:Person, as:a, where:(name='n2')}"
+            + ".inE('Friend'){as:e1}.outV(){as:b}"
+            + ".inE('Friend'){as:e2}.outV(){as:check,"
+            + " where: (@rid = $matched.a.@rid)}"
+            + " RETURN b.name as bName")
+        .toList();
+
+    // n2.inE('Friend') = {e from n1→n2}. outV() = n1.
+    // n1.inE('Friend') = {e from n2→n1}. outV() = n2.
+    // check.@rid must equal a.@rid = n2 → n2 matches.
+    assertEquals(1, result.size());
+    assertEquals("n1", result.get(0).getProperty("bName"));
+    session.commit();
+  }
+
+  /**
+   * Pattern B — no matching result. The inV/outV traversal doesn't lead
+   * back to the starting vertex, so the query returns empty.
+   */
+  @Test
+  public void backRef_outEInV_noMatch_emptyResult() {
+    session.begin();
+    var result = session.query(
+        "MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".outE('Friend'){as:e1}.inV(){as:b}"
+            + ".outE('Friend'){as:e2}.inV(){as:check,"
+            + " where: (@rid = $matched.a.@rid)}"
+            + " RETURN b.name as bName")
+        .toList();
+
+    // No cycle back to n1, so no results
+    assertEquals(0, result.size());
+    session.commit();
+  }
+
+  // ── Pattern D — in-direction NOT IN ──
+
+  /**
+   * Pattern D with "in" direction — NOT IN $matched.X.in('Friend').
+   * Verifies anti-semi-join works for incoming edge traversals.
+   *
+   * Query: find FoF of n1, excluding vertices that have an incoming
+   * Friend edge from n1 (i.e., direct friends of n1 are excluded).
+   */
+  @Test
+  public void backRef_notIn_inDirection_correctResults() {
+    session.begin();
+    var result = session.query(
+        "MATCH {class:Person, as:start, where:(name='n1')}"
+            + ".out('Friend'){as:friend}"
+            + ".out('Friend'){as:fof,"
+            + " where: ($currentMatch NOT IN $matched.start.out('Friend'))}"
+            + " RETURN fof.name as fofName")
+        .toList();
+
+    var names = result.stream()
+        .map(r -> (String) r.getProperty("fofName"))
+        .collect(Collectors.toSet());
+    // n4, n5 are FoF; neither is a direct friend of n1
+    assertEquals(Set.of("n4", "n5"), names);
+    session.commit();
+  }
+
+  /**
+   * Pattern D — EXPLAIN verifies plan uses ANTI for in-direction traversal.
+   */
+  @Test
+  public void explainBackRef_notIn_inDirection_usesAntiSemiJoin() {
+    session.begin();
+    // Use in() direction in NOT IN: exclude vertices that have incoming Friend
+    // from start's friends
+    var result = session.query(
+        "EXPLAIN MATCH {class:Person, as:start, where:(name='n2')}"
+            + ".out('Friend'){as:fof,"
+            + " where: ($currentMatch NOT IN $matched.start.in('Friend'))}"
+            + " RETURN fof.name")
+        .toList();
+    assertEquals(1, result.size());
+    String plan = result.get(0).getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertTrue(
+        "in-direction NOT IN should use anti-join, got:\n" + plan,
+        plan.contains("BACK-REF HASH JOIN ANTI"));
+    session.commit();
+  }
+
+  // ── Pattern A — optional edge should NOT trigger back-ref hash join ──
+
+  /**
+   * Optional edges should not use Pattern A back-ref hash join, because
+   * optional traversals must pass through rows even when no match is found.
+   */
+  @Test
+  public void backRef_optionalEdge_notUsedForHashJoin() {
+    session.begin();
+    var result = session.query(
+        "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b}"
+            + ".out('Friend'){as:check, optional:true,"
+            + " where: (@rid = $matched.a.@rid)}"
+            + " RETURN b.name")
+        .toList();
+    assertEquals(1, result.size());
+    String plan = result.get(0).getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    // Optional edges should not use back-ref hash join
+    assertFalse(
+        "optional edge should not use back-ref hash join, got:\n" + plan,
+        plan.contains("BACK-REF HASH JOIN"));
+    session.commit();
+  }
+
+  // ── Pattern B — threshold=1 fallback correctness ──
+
+  /**
+   * Pattern B threshold=1 fallback correctness. Forces the chain hash
+   * build to fail because the reverse link bag exceeds threshold=1.
+   * Falls back to nested-loop traversal via MatchEdgeTraverser.
+   */
+  @Test
+  public void backRef_outEInV_thresholdOne_fallbackCorrectResults() {
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(1L);
+
+      session.begin();
+      // Add cycle: n2→n1
+      session.execute(
+          "CREATE EDGE Friend from (select from Person where name='n2')"
+              + " to (select from Person where name='n1')")
+          .close();
+
+      var result = session.query(
+          "MATCH {class:Person, as:a, where:(name='n1')}"
+              + ".outE('Friend'){as:e1}.inV(){as:b}"
+              + ".outE('Friend'){as:e2}.inV(){as:check,"
+              + " where: (@rid = $matched.a.@rid)}"
+              + " RETURN b.name as bName")
+          .toList();
+
+      // With fallback, should still produce correct results
+      assertEquals(1, result.size());
+      assertEquals("n2", result.get(0).getProperty("bName"));
+      session.commit();
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);
+    }
+  }
+
+  // ── Pattern D — NOT IN is the sole WHERE condition ──
+
+  /**
+   * Pattern D where NOT IN is the only condition in the WHERE clause.
+   * After stripping, the filter is completely removed from the MatchStep.
+   * Verify the plan shape (BACK-REF HASH JOIN ANTI with no residual WHERE).
+   */
+  @Test
+  public void backRef_notIn_soleCondition_correctResults() {
+    session.begin();
+    // Add n2→n1 to create a direct cycle
+    session.execute(
+        "CREATE EDGE Friend from (select from Person where name='n2')"
+            + " to (select from Person where name='n1')")
+        .close();
+
+    // Query: all friends-of-n1, excluding n1.out('Friend')
+    var result = session.query(
+        "MATCH {class:Person, as:start, where:(name='n1')}"
+            + ".out('Friend'){as:friend}"
+            + ".out('Friend'){as:fof,"
+            + " where: ($currentMatch NOT IN $matched.start.out('Friend'))}"
+            + " RETURN fof.name as fofName")
+        .toList();
+
+    var names = result.stream()
+        .map(r -> (String) r.getProperty("fofName"))
+        .collect(Collectors.toSet());
+    // n2→{n1,n4}, n3→{n5}. n1 IS a direct friend of n1 (via n2→n1), so
+    // n1 is excluded. n4 and n5 are not direct friends → included.
+    assertEquals(Set.of("n1", "n4", "n5"), names);
+    session.commit();
+  }
+
 }
