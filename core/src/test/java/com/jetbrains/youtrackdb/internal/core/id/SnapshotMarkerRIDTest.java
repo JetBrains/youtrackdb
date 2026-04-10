@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.id;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
@@ -15,18 +15,31 @@ import org.junit.Test;
 public class SnapshotMarkerRIDTest {
 
   /**
-   * SnapshotMarkerRID(#5:10) must keep collectionId unchanged,
+   * SnapshotMarkerRID(5, 10) must keep collectionId unchanged,
    * encode collectionPosition as -(10+1) = -11, and recover the original
    * via getIdentity().
    */
   @Test
-  public void encodesCollectionPosition() {
+  public void encodesCollectionPosition_primitiveConstructor() {
+    var marker = new SnapshotMarkerRID(5, 10);
+
+    assertEquals(5, marker.getCollectionId());
+    assertEquals(-11, marker.getCollectionPosition());
+    assertEquals(new RecordId(5, 10), marker.getIdentity());
+  }
+
+  /**
+   * SnapshotMarkerRID(RID) wrapping constructor produces the same encoding as
+   * the primitive constructor.
+   */
+  @Test
+  public void encodesCollectionPosition_wrappingConstructor() {
     var original = new RecordId(5, 10);
     var marker = new SnapshotMarkerRID(original);
 
     assertEquals(5, marker.getCollectionId());
     assertEquals(-11, marker.getCollectionPosition());
-    assertSame(original, marker.getIdentity());
+    assertEquals(original, marker.getIdentity());
   }
 
   /**
@@ -35,48 +48,62 @@ public class SnapshotMarkerRIDTest {
    */
   @Test
   public void positionZero_encodesAsMinusOne() {
-    var original = new RecordId(7, 0);
-    var marker = new SnapshotMarkerRID(original);
+    var marker = new SnapshotMarkerRID(7, 0);
 
     assertEquals(7, marker.getCollectionId());
     assertEquals(-1, marker.getCollectionPosition());
   }
 
   /**
-   * Delegates isPersistent() to the wrapped identity.
+   * Delegates isPersistent() — a SnapshotMarkerRID with valid ids is persistent.
    */
   @Test
   public void delegatesPersistenceChecks() {
-    var persistent = new RecordId(3, 7);
-    assertTrue(new SnapshotMarkerRID(persistent).isPersistent());
+    assertTrue(new SnapshotMarkerRID(3, 7).isPersistent());
   }
 
   /**
    * Boundary: collectionId=0 and collectionPosition=0 are both valid (zero is
-   * non-negative). The compact constructor assertions must accept this.
+   * non-negative). The constructor assertions must accept this.
    */
   @Test
   public void zeroIdsAreAccepted() {
-    var rid = new SnapshotMarkerRID(new RecordId(0, 0));
+    var rid = new SnapshotMarkerRID(0, 0);
     assertEquals(0, rid.getCollectionId());
     assertEquals(-1, rid.getCollectionPosition());
   }
 
   /**
-   * Wrapping a RID with negative collectionId must trigger an AssertionError.
+   * Primitive constructor with negative collectionId must trigger an AssertionError.
    * Requires -ea (enabled assertions) in the test JVM args (configured in
    * core/pom.xml argLine).
    */
   @Test
   public void negativeCollectionId_throwsAssertionError() {
+    assertThrows(AssertionError.class, () -> new SnapshotMarkerRID(-1, 0));
+  }
+
+  /**
+   * Primitive constructor with negative collectionPosition must trigger an AssertionError.
+   */
+  @Test
+  public void negativeCollectionPosition_throwsAssertionError() {
+    assertThrows(AssertionError.class, () -> new SnapshotMarkerRID(0, -1));
+  }
+
+  /**
+   * Wrapping constructor with negative collectionId must trigger an AssertionError.
+   */
+  @Test
+  public void wrappingConstructor_negativeCollectionId_throwsAssertionError() {
     assertThrows(AssertionError.class, () -> new SnapshotMarkerRID(new RecordId(-1, 0)));
   }
 
   /**
-   * Wrapping a RID with negative collectionPosition must trigger an AssertionError.
+   * Wrapping constructor with negative collectionPosition must trigger an AssertionError.
    */
   @Test
-  public void negativeCollectionPosition_throwsAssertionError() {
+  public void wrappingConstructor_negativeCollectionPosition_throwsAssertionError() {
     assertThrows(AssertionError.class, () -> new SnapshotMarkerRID(new RecordId(0, -1)));
   }
 
@@ -85,7 +112,54 @@ public class SnapshotMarkerRIDTest {
    */
   @Test
   public void toStringUsesTildePrefix() {
-    var marker = new SnapshotMarkerRID(new RecordId(5, 10));
+    var marker = new SnapshotMarkerRID(5, 10);
     assertEquals("~#5:10", marker.toString());
+  }
+
+  /**
+   * Two SnapshotMarkerRIDs with the same underlying identity are equal.
+   */
+  @Test
+  public void equalsAndHashCode_sameIdentity() {
+    var a = new SnapshotMarkerRID(5, 10);
+    var b = new SnapshotMarkerRID(new RecordId(5, 10));
+
+    assertEquals(a, b);
+    assertEquals(a.hashCode(), b.hashCode());
+  }
+
+  /**
+   * SnapshotMarkerRIDs with different identities are not equal.
+   */
+  @Test
+  public void equalsAndHashCode_differentIdentity() {
+    var a = new SnapshotMarkerRID(5, 10);
+    var b = new SnapshotMarkerRID(5, 11);
+
+    assertNotEquals(a, b);
+  }
+
+  /**
+   * A SnapshotMarkerRID equals the underlying RecordId (same collection/position),
+   * because equals is based on getIdentity() values.
+   */
+  @Test
+  public void equalsRecordIdWithSameIdentity() {
+    var marker = new SnapshotMarkerRID(5, 10);
+    var recordId = new RecordId(5, 10);
+
+    assertEquals(marker, recordId);
+  }
+
+  /**
+   * getIdentity() returns a RecordId with the original (non-encoded) values.
+   */
+  @Test
+  public void getIdentityReturnsCorrectRecordId() {
+    var marker = new SnapshotMarkerRID(5, 10);
+    var identity = marker.getIdentity();
+
+    assertEquals(5, identity.getCollectionId());
+    assertEquals(10, identity.getCollectionPosition());
   }
 }

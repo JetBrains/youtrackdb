@@ -28,8 +28,8 @@ public class CellBTreeSingleValueBucketV3Test {
 
     assertTrue(decoded instanceof TombstoneRID);
     var tombstone = (TombstoneRID) decoded;
-    assertEquals(0, tombstone.identity().getCollectionId());
-    assertEquals(42, tombstone.identity().getCollectionPosition());
+    assertEquals(0, tombstone.getIdentity().getCollectionId());
+    assertEquals(42, tombstone.getIdentity().getCollectionPosition());
   }
 
   /** TombstoneRID for a non-zero cluster must round-trip correctly. */
@@ -41,8 +41,8 @@ public class CellBTreeSingleValueBucketV3Test {
 
     assertTrue(decoded instanceof TombstoneRID);
     var tombstone = (TombstoneRID) decoded;
-    assertEquals(5, tombstone.identity().getCollectionId());
-    assertEquals(100, tombstone.identity().getCollectionPosition());
+    assertEquals(5, tombstone.getIdentity().getCollectionId());
+    assertEquals(100, tombstone.getIdentity().getCollectionPosition());
   }
 
   /** SnapshotMarkerRID must round-trip correctly, including position 0. */
@@ -54,8 +54,8 @@ public class CellBTreeSingleValueBucketV3Test {
 
     assertTrue(decoded instanceof SnapshotMarkerRID);
     var marker = (SnapshotMarkerRID) decoded;
-    assertEquals(3, marker.identity().getCollectionId());
-    assertEquals(0, marker.identity().getCollectionPosition());
+    assertEquals(3, marker.getIdentity().getCollectionId());
+    assertEquals(0, marker.getIdentity().getCollectionPosition());
   }
 
   /** A plain RecordId with non-negative fields must decode as a plain RecordId. */

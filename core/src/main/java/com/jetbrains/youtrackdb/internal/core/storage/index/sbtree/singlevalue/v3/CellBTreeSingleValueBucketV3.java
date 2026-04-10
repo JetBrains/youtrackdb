@@ -312,13 +312,10 @@ public final class CellBTreeSingleValueBucketV3<K> extends DurablePage {
   static RID decodeRID(int collectionId, long collectionPosition) {
     if (collectionId < 0) {
       // TombstoneRID — decode the shifted collectionId (0 → -1, 1 → -2, etc.)
-      RID value = new RecordId(-(collectionId + 1), collectionPosition);
-      return new TombstoneRID(value);
+      return new TombstoneRID(-(collectionId + 1), collectionPosition);
     } else if (collectionPosition < 0) {
       // SnapshotMarkerRID — decode the shifted position
-      long realPosition = -(collectionPosition + 1);
-      RID value = new RecordId(collectionId, realPosition);
-      return new SnapshotMarkerRID(value);
+      return new SnapshotMarkerRID(collectionId, -(collectionPosition + 1));
     } else {
       // Normal RID
       return new RecordId(collectionId, collectionPosition);
