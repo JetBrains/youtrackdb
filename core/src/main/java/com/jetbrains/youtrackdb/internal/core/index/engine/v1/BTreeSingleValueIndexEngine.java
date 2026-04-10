@@ -5,14 +5,11 @@ import com.jetbrains.youtrackdb.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
-import com.jetbrains.youtrackdb.internal.core.id.SnapshotMarkerRID;
 import com.jetbrains.youtrackdb.internal.core.id.TombstoneRID;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot;
-import com.jetbrains.youtrackdb.internal.core.index.engine.IndexCountDelta;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
@@ -172,39 +169,16 @@ public final class BTreeSingleValueIndexEngine
     try {
       var compositeKey = convertToCompositeKeyDefensive(key);
 
-      Optional<RawPair<CompositeKey, RID>> res;
-      try (var stream = sbTree.iterateEntriesBetween(
-          compositeKey, true, compositeKey, true, true, atomicOperation)) {
-        res = stream.findAny();
+      boolean removed = VersionedIndexOps.doVersionedRemove(
+          sbTree, indexesSnapshot, atomicOperation, compositeKey, id, key == null);
+
+      if (removed) {
+        var mgr = histogramManager;
+        if (mgr != null) {
+          mgr.onRemove(atomicOperation, key, true);
+        }
       }
-
-      if (res.isEmpty()) {
-        return false;
-      }
-
-      var pair = res.get();
-
-      // should not re-delete the deleted entry
-      if (pair.second() instanceof TombstoneRID) {
-        return false;
-      }
-
-      var value = pair.second().getIdentity();
-
-      sbTree.remove(atomicOperation, pair.first());
-
-      var removedVersion = atomicOperation.getCommitTs();
-      var newKey = new CompositeKey(compositeKey, removedVersion);
-      sbTree.put(atomicOperation, newKey, new TombstoneRID(value));
-
-      indexesSnapshot.addSnapshotPair(pair.first(), newKey, value);
-      IndexCountDelta.accumulate(atomicOperation, id, -1, key == null);
-
-      var mgr = histogramManager;
-      if (mgr != null) {
-        mgr.onRemove(atomicOperation, key, true);
-      }
-      return true;
+      return removed;
     } catch (IOException e) {
       throw BaseException.wrapException(
           new IndexException(storage.getName(),
@@ -378,7 +352,9 @@ public final class BTreeSingleValueIndexEngine
         compositeKey, true, compositeKey, true, true, atomicOperation)) {
       existing = stream.findAny();
     }
-    return doPutSingleValueCore(atomicOperation, compositeKey, value, key, existing);
+    return VersionedIndexOps.doVersionedPut(
+        sbTree, indexesSnapshot, atomicOperation, compositeKey, value,
+        id, key == null, existing);
   }
 
   /**
@@ -390,57 +366,9 @@ public final class BTreeSingleValueIndexEngine
       RID value,
       Object key,
       @Nonnull Optional<RawPair<CompositeKey, RID>> prefetched) throws IOException {
-    return doPutSingleValueCore(atomicOperation, compositeKey, value, key, prefetched);
-  }
-
-  /**
-   * Core put logic shared by both doPutSingleValue overloads. Handles versioning,
-   * snapshot pairs, and count delta accumulation.
-   *
-   * @param atomicOperation current atomic operation
-   * @param compositeKey defensive copy of the user key (will be mutated by addKey)
-   * @param value the RID to insert
-   * @param key the original (unmapped) key, used for null-key detection in delta accumulation
-   * @param existing the result of scanning for an existing entry (never null)
-   * @return true if a new B-tree entry was inserted
-   */
-  private boolean doPutSingleValueCore(
-      @Nonnull AtomicOperation atomicOperation,
-      CompositeKey compositeKey,
-      RID value,
-      Object key,
-      @Nonnull Optional<RawPair<CompositeKey, RID>> existing) throws IOException {
-    boolean wasInserted;
-
-    var version = atomicOperation.getCommitTs();
-    if (existing.isPresent()) {
-      var pair = existing.get();
-      var removedRID = pair.second();
-      var oldKey = pair.first();
-      long oldVersion = (Long) oldKey.getKeys().getLast();
-
-      if ((removedRID instanceof RecordId || removedRID instanceof SnapshotMarkerRID)
-          && oldVersion == version) {
-        // Same TX re-put — entry is already correct, skip remove+re-insert.
-        wasInserted = false;
-      } else {
-        sbTree.remove(atomicOperation, oldKey);
-        compositeKey.addKey(version);
-        wasInserted =
-            sbTree.put(atomicOperation, compositeKey, new SnapshotMarkerRID(value));
-        if (removedRID instanceof RecordId || removedRID instanceof SnapshotMarkerRID) {
-          indexesSnapshot.addSnapshotPair(oldKey, compositeKey, removedRID.getIdentity());
-        }
-        if (removedRID instanceof TombstoneRID) {
-          IndexCountDelta.accumulate(atomicOperation, id, +1, key == null);
-        }
-      }
-    } else {
-      compositeKey.addKey(version);
-      wasInserted = sbTree.put(atomicOperation, compositeKey, value);
-      IndexCountDelta.accumulate(atomicOperation, id, +1, key == null);
-    }
-    return wasInserted;
+    return VersionedIndexOps.doVersionedPut(
+        sbTree, indexesSnapshot, atomicOperation, compositeKey, value,
+        id, key == null, prefetched);
   }
 
   @Override

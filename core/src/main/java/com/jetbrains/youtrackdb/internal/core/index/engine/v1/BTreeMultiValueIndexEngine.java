@@ -5,14 +5,10 @@ import com.jetbrains.youtrackdb.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
-import com.jetbrains.youtrackdb.internal.core.id.SnapshotMarkerRID;
-import com.jetbrains.youtrackdb.internal.core.id.TombstoneRID;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot;
-import com.jetbrains.youtrackdb.internal.core.index.engine.IndexCountDelta;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
 import com.jetbrains.youtrackdb.internal.core.index.engine.MultiValueIndexEngine;
@@ -217,11 +213,11 @@ public final class BTreeMultiValueIndexEngine
     try {
       boolean removed;
       if (key != null) {
-        removed = doRemove(svTree, indexesSnapshot, atomicOperation,
-            createCompositeKey(key, value), value, false);
+        removed = VersionedIndexOps.doVersionedRemove(svTree, indexesSnapshot,
+            atomicOperation, createCompositeKey(key, value), id, false);
       } else {
-        removed = doRemove(nullTree, nullIndexesSnapshot, atomicOperation,
-            new CompositeKey(value), value, true);
+        removed = VersionedIndexOps.doVersionedRemove(nullTree, nullIndexesSnapshot,
+            atomicOperation, new CompositeKey(value), id, true);
       }
 
       if (removed) {
@@ -242,41 +238,6 @@ public final class BTreeMultiValueIndexEngine
                   + name),
           e, storage.getName());
     }
-  }
-
-  private boolean doRemove(
-      CellBTreeSingleValue<CompositeKey> tree,
-      IndexesSnapshot snapshot,
-      @Nonnull AtomicOperation atomicOperation,
-      CompositeKey compositeKey,
-      RID value,
-      boolean isNullKey) throws IOException {
-    Optional<RawPair<CompositeKey, RID>> res;
-    try (var stream = tree.iterateEntriesBetween(
-        compositeKey, true, compositeKey, true, true, atomicOperation)) {
-      res = stream.findAny();
-    }
-
-    if (res.isEmpty()) {
-      return false;
-    }
-
-    var pair = res.get();
-
-    // should not re-delete the deleted entry
-    if (pair.second() instanceof TombstoneRID) {
-      return false;
-    }
-
-    tree.remove(atomicOperation, pair.first());
-
-    var removedVersion = atomicOperation.getCommitTs();
-    var newKey = new CompositeKey(compositeKey, removedVersion);
-    tree.put(atomicOperation, newKey, new TombstoneRID(value));
-
-    snapshot.addSnapshotPair(pair.first(), newKey, value);
-    IndexCountDelta.accumulate(atomicOperation, id, -1, isNullKey);
-    return true;
   }
 
   @Override
@@ -404,41 +365,13 @@ public final class BTreeMultiValueIndexEngine
       RID value,
       boolean isNullKey) throws IOException {
     // Find existing entry by (userKey, RID) prefix
-    Optional<RawPair<CompositeKey, RID>> res;
+    Optional<RawPair<CompositeKey, RID>> existing;
     try (var stream = tree.iterateEntriesBetween(
         newKey, true, newKey, true, true, atomicOperation)) {
-      res = stream.findAny();
+      existing = stream.findAny();
     }
-    var version = atomicOperation.getCommitTs();
-    if (res.isPresent()) {
-      var pair = res.get();
-      var removedRID = pair.second();
-      var oldKey = pair.first();
-      long oldVersion = (Long) oldKey.getKeys().getLast();
-
-      if ((removedRID instanceof RecordId || removedRID instanceof SnapshotMarkerRID)
-          && oldVersion == version) {
-        // Same TX re-put (e.g., collapsed by interpretAsNonUnique).
-        // Entry is already correct — skip remove+re-insert.
-        return false;
-      }
-      tree.remove(atomicOperation, oldKey);
-      newKey.addKey(version);
-      tree.put(atomicOperation, newKey, new SnapshotMarkerRID(value));
-      // For a live RecordId from a prior TX, preserve old version for
-      // concurrent snapshot readers.
-      if (removedRID instanceof RecordId || removedRID instanceof SnapshotMarkerRID) {
-        snapshot.addSnapshotPair(oldKey, newKey, removedRID.getIdentity());
-      }
-      if (removedRID instanceof TombstoneRID) {
-        IndexCountDelta.accumulate(atomicOperation, id, +1, isNullKey);
-      }
-      return true;
-    } else {
-      newKey.addKey(version);
-      IndexCountDelta.accumulate(atomicOperation, id, +1, isNullKey);
-      return tree.put(atomicOperation, newKey, value);
-    }
+    return VersionedIndexOps.doVersionedPut(
+        tree, snapshot, atomicOperation, newKey, value, id, isNullKey, existing);
   }
 
   @Override
