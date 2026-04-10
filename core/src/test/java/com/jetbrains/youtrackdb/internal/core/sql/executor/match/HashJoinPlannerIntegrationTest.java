@@ -1379,9 +1379,356 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
     var names = result.stream()
         .map(r -> (String) r.getProperty("fofName"))
         .collect(Collectors.toSet());
-    // n2→{n1,n4}, n3→{n5}. n1 IS a direct friend of n1 (via n2→n1), so
-    // n1 is excluded. n4 and n5 are not direct friends → included.
+    // n2→{n1,n4}, n3→{n5}. start.out('Friend') = {n2,n3}.
+    // n1 not in {n2,n3} → included, n4 not in {n2,n3} → included,
+    // n5 not in {n2,n3} → included.
     assertEquals(Set.of("n1", "n4", "n5"), names);
+    session.commit();
+  }
+
+  // ── isSemiJoinCandidate — direction rejection ──
+
+  /**
+   * The both() traversal direction should NOT qualify for Pattern A
+   * back-ref hash join. isSemiJoinCandidate rejects non-out/in directions.
+   * Verify the plan falls back to standard MatchStep.
+   */
+  @Test
+  public void backRef_bothDirection_notUsedForHashJoin() {
+    session.begin();
+    var result = session.query(
+        "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b}"
+            + ".both('Friend'){as:check, where: (@rid = $matched.a.@rid)}"
+            + " RETURN b.name")
+        .toList();
+    assertEquals(1, result.size());
+    String plan = result.get(0).getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    // both() is not a directed traversal — cannot use semi-join
+    assertFalse(
+        "both() direction should not use back-ref hash join, got:\n" + plan,
+        plan.contains("BACK-REF HASH JOIN"));
+    session.commit();
+  }
+
+  /**
+   * The bothE() traversal should NOT qualify for Pattern B chain semi-join.
+   * detectChainSemiJoin rejects non-outE/inE preceding edge directions.
+   */
+  @Test
+  public void backRef_bothE_notUsedForChainSemiJoin() {
+    session.begin();
+    var result = session.query(
+        "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b}"
+            + ".bothE('Friend'){as:e2}.inV(){as:check,"
+            + " where: (@rid = $matched.a.@rid)}"
+            + " RETURN b.name")
+        .toList();
+    assertEquals(1, result.size());
+    String plan = result.get(0).getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    // bothE() is not oute/ine — cannot use chain semi-join
+    assertFalse(
+        "bothE() should not use chain semi-join, got:\n" + plan,
+        plan.contains("BACK-REF HASH JOIN"));
+    session.commit();
+  }
+
+  // ── Pattern A — in-direction threshold=1 fallback ──
+
+  /**
+   * Pattern A with "in" direction and threshold=1 forces build failure.
+   * Falls back to MatchReverseEdgeTraverser (edge.out=false) for in-direction
+   * traversal. Covers createFallbackTraverser reverse branch.
+   */
+  @Test
+  public void backRef_singleEdge_inDirection_thresholdOne_fallback() {
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(1L);
+
+      session.begin();
+      var result = session.query(
+          "MATCH {class:Person, as:a, where:(name='n1')}"
+              + ".out('Friend'){as:b}"
+              + ".in('Friend'){as:check, where: (@rid = $matched.a.@rid)}"
+              + " RETURN b.name as bName")
+          .toList();
+
+      // Even with threshold=1 fallback, results should be correct
+      var names = result.stream()
+          .map(r -> (String) r.getProperty("bName"))
+          .collect(Collectors.toSet());
+      assertEquals(Set.of("n2", "n3"), names);
+      session.commit();
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);
+    }
+  }
+
+  // ── EXPLAIN text verification — prettyPrint branches ──
+
+  /**
+   * Verify EXPLAIN output for Pattern A (SingleEdgeSemiJoin) contains
+   * the expected semi-join descriptor text with alias and direction info.
+   */
+  @Test
+  public void explainBackRef_singleEdge_prettyPrintFormat() {
+    session.begin();
+    // Add cycle so plan is generated with the back-ref
+    session.execute(
+        "CREATE EDGE Friend from (select from Person where name='n2')"
+            + " to (select from Person where name='n1')")
+        .close();
+
+    var result = session.query(
+        "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b}"
+            + ".out('Friend'){as:check, where: (@rid = $matched.a.@rid)}"
+            + " RETURN b.name")
+        .toList();
+    String plan = result.get(0).getProperty("executionPlanAsString");
+    // prettyPrint for SingleEdgeSemiJoin should contain direction and edge class
+    assertTrue("plan should show direction and edge class, got:\n" + plan,
+        plan.contains("out('Friend')") || plan.contains("in('Friend')"));
+    assertTrue("plan should show ⋈ join symbol, got:\n" + plan,
+        plan.contains("⋈"));
+    session.commit();
+  }
+
+  /**
+   * Verify EXPLAIN output for Pattern B (ChainSemiJoin) contains the
+   * outE...inV chain notation and both alias names.
+   */
+  @Test
+  public void explainBackRef_chain_prettyPrintFormat() {
+    session.begin();
+    session.execute(
+        "CREATE EDGE Friend from (select from Person where name='n2')"
+            + " to (select from Person where name='n1')")
+        .close();
+
+    var result = session.query(
+        "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".outE('Friend'){as:e1}.inV(){as:b}"
+            + ".outE('Friend'){as:e2}.inV(){as:check,"
+            + " where: (@rid = $matched.a.@rid)}"
+            + " RETURN b.name")
+        .toList();
+    String plan = result.get(0).getProperty("executionPlanAsString");
+    // prettyPrint for ChainSemiJoin includes .inV() and aliases keyword
+    assertTrue("plan should show outE chain, got:\n" + plan,
+        plan.contains("outE('Friend')") || plan.contains("inE('Friend')"));
+    assertTrue("plan should show 'aliases:' keyword, got:\n" + plan,
+        plan.contains("aliases:"));
+    session.commit();
+  }
+
+  /**
+   * Verify EXPLAIN output for Pattern D (AntiSemiJoin) contains the
+   * NOT IN descriptor text.
+   */
+  @Test
+  public void explainBackRef_anti_prettyPrintFormat() {
+    session.begin();
+    var result = session.query(
+        "EXPLAIN MATCH {class:Person, as:start, where:(name='n1')}"
+            + ".out('Friend'){as:friend}"
+            + ".out('Friend'){as:fof,"
+            + " where: ($currentMatch NOT IN $matched.start.out('Friend'))}"
+            + " RETURN fof.name")
+        .toList();
+    String plan = result.get(0).getProperty("executionPlanAsString");
+    // prettyPrint for AntiSemiJoin includes NOT IN and traversal direction
+    assertTrue("plan should show NOT IN, got:\n" + plan,
+        plan.contains("NOT IN $matched."));
+    assertTrue("plan should show traversal direction, got:\n" + plan,
+        plan.contains("out('Friend')") || plan.contains("in('Friend')"));
+    session.commit();
+  }
+
+  // ── Anti-join — source vertex not found → pass through ──
+
+  /**
+   * Pattern D correctness when the fof candidate has no Friend edges at all.
+   * The source RID resolves correctly, but the candidate is simply NOT IN
+   * the set — it passes through. This covers the anti-join "not found" branch.
+   */
+  @Test
+  public void backRef_notIn_candidateNotInSet_passesThrough() {
+    session.begin();
+    // n5 has no outgoing Friend edges. When we traverse n3→n5, then check
+    // $currentMatch (n5) NOT IN start.out('Friend')={n2,n3}, n5 is not in
+    // the set so it passes through.
+    var result = session.query(
+        "MATCH {class:Person, as:start, where:(name='n1')}"
+            + ".out('Friend'){as:friend, where:(name='n3')}"
+            + ".out('Friend'){as:fof,"
+            + " where: ($currentMatch NOT IN $matched.start.out('Friend'))}"
+            + " RETURN fof.name as fofName")
+        .toList();
+
+    assertEquals(1, result.size());
+    assertEquals("n5", result.get(0).getProperty("fofName"));
+    session.commit();
+  }
+
+  // ── Anti-join — candidate IS in set → filtered out ──
+
+  /**
+   * Pattern D correctness when the candidate IS in the exclusion set.
+   * This covers the anti-join "found → null" branch (row is dropped).
+   */
+  @Test
+  public void backRef_notIn_candidateInSet_filteredOut() {
+    session.begin();
+    // Make n4 a direct friend of n1
+    session.execute(
+        "CREATE EDGE Friend from (select from Person where name='n1')"
+            + " to (select from Person where name='n4')")
+        .close();
+
+    // n2→n4, and n4 IS in start.out('Friend')={n2,n3,n4}
+    var result = session.query(
+        "MATCH {class:Person, as:start, where:(name='n1')}"
+            + ".out('Friend'){as:friend, where:(name='n2')}"
+            + ".out('Friend'){as:fof,"
+            + " where: ($currentMatch NOT IN $matched.start.out('Friend'))}"
+            + " RETURN fof.name as fofName")
+        .toList();
+
+    // n2→n4, but n4 is now a direct friend of n1 → excluded
+    assertEquals(0, result.size());
+    session.commit();
+  }
+
+  // ── Pattern A — back-ref with non-existent edge class ──
+
+  /**
+   * Pattern A where the edge class in the back-ref hash table build
+   * doesn't exist on the target vertex (no reverse link bag). The hash
+   * table build returns null, triggering the fallback path.
+   */
+  @Test
+  public void backRef_singleEdge_missingEdgeClass_fallsBack() {
+    session.begin();
+    var result = session.query(
+        "MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b}"
+            + ".out('Likes'){as:check, where: (@rid = $matched.a.@rid)}"
+            + " RETURN b.name as bName")
+        .toList();
+
+    // n1 has no incoming Likes edges, so reverse link bag is empty/missing.
+    // Build returns null → fallback to nested-loop → no match
+    assertEquals(0, result.size());
+    session.commit();
+  }
+
+  // ── Pattern D — NOT IN with additional WHERE conditions ──
+
+  /**
+   * Pattern D where NOT IN is combined with a simple property filter
+   * in a single AND block with exactly 2 conditions. Verifies that
+   * the NOT IN is stripped but the residual condition is preserved.
+   */
+  @Test
+  public void backRef_notIn_withResidualFilter_correctResults() {
+    session.begin();
+    var result = session.query(
+        "MATCH {class:Person, as:start, where:(name='n1')}"
+            + ".out('Friend'){as:friend}"
+            + ".out('Friend'){as:fof, where: ("
+            + " $currentMatch NOT IN $matched.start.out('Friend')"
+            + " AND name = 'n5')}"
+            + " RETURN fof.name as fofName")
+        .toList();
+
+    // FoF = {n4, n5}. NOT IN {n2,n3} keeps both. AND name='n5' → only n5.
+    assertEquals(1, result.size());
+    assertEquals("n5", result.get(0).getProperty("fofName"));
+    session.commit();
+  }
+
+  // ── Multiple patterns in single query ──
+
+  /**
+   * Query with both Pattern A (back-ref semi-join) and Pattern D (NOT IN
+   * anti-semi-join) in the same MATCH. Covers multiple semi-join descriptors
+   * in a single schedule and incremental boundAliases building.
+   */
+  @Test
+  public void backRef_combinedPatterns_correctResults() {
+    session.begin();
+    // Add cycle n4→n1 so Pattern A has a match
+    session.execute(
+        "CREATE EDGE Friend from (select from Person where name='n4')"
+            + " to (select from Person where name='n1')")
+        .close();
+
+    var result = session.query(
+        "MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b}"
+            + ".out('Friend'){as:c}"
+            + ".out('Friend'){as:check, where: (@rid = $matched.a.@rid)}"
+            + " RETURN b.name as bName, c.name as cName")
+        .toList();
+
+    // n1→n2→n4→n1 (via new edge). check.@rid = a.@rid = n1 → match.
+    // b=n2, c=n4.
+    assertEquals(1, result.size());
+    assertEquals("n2", result.get(0).getProperty("bName"));
+    assertEquals("n4", result.get(0).getProperty("cName"));
+    session.commit();
+  }
+
+  // ── Edge cases — no edges at all ──
+
+  /**
+   * Pattern A on a vertex with no outgoing edges of the specified class.
+   * Hash table build finds no link bag → returns null → fallback.
+   */
+  @Test
+  public void backRef_singleEdge_targetHasNoEdges_emptyResult() {
+    session.begin();
+    // n5 has no outgoing Friend edges
+    var result = session.query(
+        "MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b}"
+            + ".out('Friend'){as:c}"
+            + ".out('Friend'){as:d}"
+            + ".out('Friend'){as:check, where: (@rid = $matched.a.@rid)}"
+            + " RETURN b.name as bName")
+        .toList();
+    // n1→n2→n4→(no out Friend)→nothing, n1→n3→n5→(no out Friend)→nothing
+    assertEquals(0, result.size());
+    session.commit();
+  }
+
+  /**
+   * Pattern D on a vertex where the anchor has no edges of the specified
+   * class. The anti-join hash table build finds no link bag → build failure
+   * → fallback evaluates NOT IN per row.
+   */
+  @Test
+  public void backRef_notIn_anchorHasNoEdges_passesAll() {
+    session.begin();
+    // n5 has no outgoing Friend edges
+    var result = session.query(
+        "MATCH {class:Person, as:start, where:(name='n5')}"
+            + ".in('Friend'){as:fof,"
+            + " where: ($currentMatch NOT IN $matched.start.out('Friend'))}"
+            + " RETURN fof.name as fofName")
+        .toList();
+
+    // n5.in('Friend') = {n3}. start.out('Friend') has no entries.
+    // Since there are no friends to exclude, n3 passes through.
+    var names = result.stream()
+        .map(r -> (String) r.getProperty("fofName"))
+        .collect(Collectors.toSet());
+    assertEquals(Set.of("n3"), names);
     session.commit();
   }
 
