@@ -4,7 +4,10 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import org.junit.Test;
 
 /**
@@ -166,5 +169,60 @@ public class IndexCountDeltaHolderTest {
 
     assertEquals(2, delta.totalDelta);
     assertEquals(0, delta.nullDelta);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // IndexCountDelta.accumulate() static method tests
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * accumulate with isNullKey=false must increment totalDelta only.
+   */
+  @Test
+  public void accumulate_nonNullKey_incrementsTotalOnly() {
+    var holder = new IndexCountDeltaHolder();
+    var atomicOp = mock(AtomicOperation.class);
+    when(atomicOp.getOrCreateIndexCountDeltas()).thenReturn(holder);
+
+    IndexCountDelta.accumulate(atomicOp, 7, +1, false);
+    IndexCountDelta.accumulate(atomicOp, 7, +1, false);
+
+    var delta = holder.getOrCreate(7);
+    assertEquals(2, delta.getTotalDelta());
+    assertEquals(0, delta.getNullDelta());
+  }
+
+  /**
+   * accumulate with isNullKey=true must increment both totalDelta and nullDelta.
+   */
+  @Test
+  public void accumulate_nullKey_incrementsBothDeltas() {
+    var holder = new IndexCountDeltaHolder();
+    var atomicOp = mock(AtomicOperation.class);
+    when(atomicOp.getOrCreateIndexCountDeltas()).thenReturn(holder);
+
+    IndexCountDelta.accumulate(atomicOp, 7, +1, true);
+
+    var delta = holder.getOrCreate(7);
+    assertEquals(1, delta.getTotalDelta());
+    assertEquals(1, delta.getNullDelta());
+  }
+
+  /**
+   * Mixed null/non-null inserts and removes produce correct net deltas.
+   */
+  @Test
+  public void accumulate_mixedKeys_correctDeltas() {
+    var holder = new IndexCountDeltaHolder();
+    var atomicOp = mock(AtomicOperation.class);
+    when(atomicOp.getOrCreateIndexCountDeltas()).thenReturn(holder);
+
+    IndexCountDelta.accumulate(atomicOp, 7, +1, false); // non-null insert
+    IndexCountDelta.accumulate(atomicOp, 7, +1, true); // null insert
+    IndexCountDelta.accumulate(atomicOp, 7, -1, false); // non-null remove
+
+    var delta = holder.getOrCreate(7);
+    assertEquals(1, delta.getTotalDelta()); // +1+1-1 = 1
+    assertEquals(1, delta.getNullDelta()); // +1 = 1
   }
 }
