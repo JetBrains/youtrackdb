@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine.v1;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -155,6 +156,53 @@ public class VersionedIndexOpsRePutGuardTest {
         ArgumentMatchers.eq(existingKey),
         ArgumentMatchers.eq(expectedNewKey),
         ArgumentMatchers.eq(RID_A));
+  }
+
+  /**
+   * Put over a TombstoneRID from a different TX (resurrection). The prior TX
+   * deleted the entry (version=10), and the current TX (version=42) re-inserts.
+   * Must proceed: remove old tombstone, put new SnapshotMarkerRID, accumulate
+   * +1 count delta (entry comes back to life), and NOT create a snapshot pair
+   * (tombstone has no visible prior state to snapshot).
+   */
+  @Test
+  public void doVersionedPut_overTombstoneFromDifferentTx_proceedsAndAccumulatesDelta()
+      throws IOException {
+    var priorVersion = 10L;
+    var existingKey = new CompositeKey("key1", priorVersion);
+    var tombstone = new TombstoneRID(RID_A);
+    var existing = Optional.of(new RawPair<>(existingKey, (RID) tombstone));
+
+    when(tree.put(ArgumentMatchers.any(), ArgumentMatchers.any(),
+        ArgumentMatchers.any())).thenReturn(true);
+
+    var compositeKey = new CompositeKey("key1");
+    boolean result = VersionedIndexOps.doVersionedPut(
+        tree, snapshot, atomicOp, compositeKey, RID_B,
+        ENGINE_ID, false, existing);
+
+    assertTrue("Put over TombstoneRID from different TX must proceed", result);
+
+    // Old tombstone entry must be removed
+    verify(tree).remove(atomicOp, existingKey);
+
+    // New entry must be a SnapshotMarkerRID wrapping RID_B at current TX version
+    var expectedNewKey = new CompositeKey("key1", TX_VERSION);
+    verify(tree).put(
+        ArgumentMatchers.eq(atomicOp),
+        ArgumentMatchers.eq(expectedNewKey),
+        ArgumentMatchers.any(SnapshotMarkerRID.class));
+
+    // Snapshot pair must NOT be created — tombstone has no visible prior state
+    verify(snapshot, never()).addSnapshotPair(
+        ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
+
+    // Count delta must be +1 (resurrection: entry re-appears)
+    var deltaHolder = atomicOp.getOrCreateIndexCountDeltas();
+    var delta = deltaHolder.getDeltas().get(ENGINE_ID);
+    assertThat(delta).as("Delta must exist for engine " + ENGINE_ID).isNotNull();
+    assertThat(delta.getTotalDelta()).as("Total delta must be +1").isEqualTo(1);
+    assertThat(delta.getNullDelta()).as("Null delta must be 0 (non-null key)").isEqualTo(0);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
