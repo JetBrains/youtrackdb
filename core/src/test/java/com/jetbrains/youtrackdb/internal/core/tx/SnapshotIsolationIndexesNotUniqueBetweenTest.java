@@ -55,7 +55,7 @@ public class SnapshotIsolationIndexesNotUniqueBetweenTest {
     userSchema.createProperty("age", PropertyType.INTEGER);
     userSchema.createIndex("IndexAge", INDEX_TYPE.NOTUNIQUE, "age");
 
-    // Seed data: 10, 20, 30
+    // Seed data: 10, 20, 30, 40
     var graph = openGraph();
     graph.tx().begin();
     graph.addV("Userr").property("age", 10).next();
