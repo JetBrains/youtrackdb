@@ -79,7 +79,10 @@ public class IndexesSnapshot {
   }
 
   public void addSnapshotPair(CompositeKey addedKey, CompositeKey removedKey, RID value) {
-    assert !(value instanceof SnapshotMarkerRID);
+    assert !(value instanceof SnapshotMarkerRID)
+        : "addSnapshotPair value must be a plain RID, not SnapshotMarkerRID: " + value;
+    assert !(value instanceof TombstoneRID)
+        : "addSnapshotPair value must be a plain RID, not TombstoneRID: " + value;
     var enhancedAddedKey = enhanceIndexId(addedKey);
     var enhancedRemovedKey = enhanceIndexId(removedKey);
     // Write order: TombstoneRID (lower version) first, then RecordId guard
