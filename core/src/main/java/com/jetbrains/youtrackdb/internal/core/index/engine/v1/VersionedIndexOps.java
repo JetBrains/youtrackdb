@@ -75,8 +75,8 @@ final class VersionedIndexOps {
       }
       return true;
     } else {
-      assert value instanceof RecordId
-          : "doVersionedPut fresh insert: value must be a plain RecordId, got "
+      assert !(value instanceof TombstoneRID) && !(value instanceof SnapshotMarkerRID)
+          : "doVersionedPut fresh insert: value must not be a marker RID, got "
               + value.getClass().getSimpleName();
       compositeKey.addKey(version);
       IndexCountDelta.accumulate(atomicOperation, engineId, +1, isNullKey);
