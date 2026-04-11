@@ -20,9 +20,7 @@
 
 package com.jetbrains.youtrackdb.internal.core.index.engine;
 
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 
 /**
  * Holds index entry count deltas for all engines affected by a single
@@ -38,7 +36,8 @@ import java.util.Map;
  */
 public final class IndexCountDeltaHolder {
 
-  private final Map<Integer, IndexCountDelta> deltas = new HashMap<>();
+  private final Int2ObjectOpenHashMap<IndexCountDelta> deltas =
+      new Int2ObjectOpenHashMap<>();
 
   /**
    * Returns the delta for the given engine, creating it if absent.
@@ -48,10 +47,9 @@ public final class IndexCountDeltaHolder {
   }
 
   /**
-   * Returns an unmodifiable view of the delta map (for iteration during
-   * commit).
+   * Returns the delta map for iteration during commit.
    */
-  public Map<Integer, IndexCountDelta> getDeltas() {
-    return Collections.unmodifiableMap(deltas);
+  public Int2ObjectOpenHashMap<IndexCountDelta> getDeltas() {
+    return deltas;
   }
 }

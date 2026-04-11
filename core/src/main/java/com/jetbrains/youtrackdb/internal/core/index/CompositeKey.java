@@ -142,6 +142,17 @@ public class CompositeKey
   }
 
   /**
+   * Adds a key element directly without {@link ChangeableIdentity} tracking.
+   * Use only when the element is known to be an immutable value (Long, String,
+   * etc.) that cannot be a ChangeableIdentity. Package-private for use by
+   * {@link IndexesSnapshot} key construction.
+   */
+  void addKeyDirect(Object key) {
+    keys.add(key);
+    unmodifiableKeys = null;
+  }
+
+  /**
    * Performs partial comparison of two composite keys.
    *
    * <p>Two objects will be equal if the common subset of their keys is equal. For example if first

@@ -98,17 +98,6 @@ public class IndexCountDeltaHolderTest {
   }
 
   /**
-   * getDeltas returns an unmodifiable view — callers cannot corrupt the
-   * holder's internal state by modifying the returned map.
-   */
-  @Test(expected = UnsupportedOperationException.class)
-  public void getDeltasReturnsUnmodifiableMap() {
-    var holder = new IndexCountDeltaHolder();
-    holder.getOrCreate(1);
-    holder.getDeltas().put(99, new IndexCountDelta());
-  }
-
-  /**
    * The holder is fully self-contained: accumulated deltas are exposed only
    * via getDeltas() and never pushed anywhere automatically. On rollback
    * the AtomicOperation (and its holder) is discarded — no external counter

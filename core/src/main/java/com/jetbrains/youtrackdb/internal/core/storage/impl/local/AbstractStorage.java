@@ -2298,8 +2298,8 @@ public abstract class AbstractStorage
     if (holder == null) {
       return;
     }
-    for (var entry : holder.getDeltas().entrySet()) {
-      var engineId = entry.getKey();
+    for (var entry : holder.getDeltas().int2ObjectEntrySet()) {
+      int engineId = entry.getIntKey();
       var delta = entry.getValue();
       if (engineId >= 0 && engineId < indexEngines.size()) {
         var engine = indexEngines.get(engineId);
@@ -2323,8 +2323,8 @@ public abstract class AbstractStorage
     if (holder == null) {
       return;
     }
-    for (var entry : holder.getDeltas().entrySet()) {
-      var engineId = entry.getKey();
+    for (var entry : holder.getDeltas().int2ObjectEntrySet()) {
+      int engineId = entry.getIntKey();
       var delta = entry.getValue();
       // Engine may have been dropped concurrently — the commit is already
       // durable, so the delta for a removed engine is stale and safe to skip.

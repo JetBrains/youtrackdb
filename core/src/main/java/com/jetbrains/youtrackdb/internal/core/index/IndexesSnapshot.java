@@ -236,12 +236,12 @@ public class IndexesSnapshot {
     // lowerEntry(MAX_VALUE) still finds all entries with version < MAX_VALUE,
     // which is sufficient since MAX_VALUE is a sentinel, not a real version.
     var searchKey = new CompositeKey(keys.size() + 1);
-    searchKey.addKey(indexId);
+    searchKey.addKeyDirect(indexId);
     for (int i = 0, end = keys.size() - 1; i < end; i++) {
-      searchKey.addKey(keys.get(i));
+      searchKey.addKeyDirect(keys.get(i));
     }
     long searchVersion = snapshotTs < Long.MAX_VALUE ? snapshotTs + 1 : Long.MAX_VALUE;
-    searchKey.addKey(searchVersion);
+    searchKey.addKeyDirect(searchVersion);
 
     var latestSnapshotEntry = indexesSnapshot.lowerEntry(searchKey);
     if (latestSnapshotEntry != null && latestSnapshotEntry.getValue() instanceof TombstoneRID) {
@@ -297,9 +297,9 @@ public class IndexesSnapshot {
   private CompositeKey enhanceIndexId(CompositeKey key) {
     var keys = key.getKeys();
     var result = new CompositeKey(keys.size() + 1);
-    result.addKey(indexId);
+    result.addKeyDirect(indexId);
     for (var o : keys) {
-      result.addKey(o);
+      result.addKeyDirect(o);
     }
     return result;
   }
