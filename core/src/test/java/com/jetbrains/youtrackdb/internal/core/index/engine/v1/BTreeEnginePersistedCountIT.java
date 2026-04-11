@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine.v1;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
@@ -501,6 +502,92 @@ public class BTreeEnginePersistedCountIT extends DbTestBase {
 
     finalSession.close();
     youTrackDB.drop(crashDbName);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // REBUILD INDEX crash recovery: metadata entity survives WAL replay
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Regression test for a bug where REBUILD INDEX deleted the index metadata
+   * entity (the ODocument in CONFIG_INDEXES) but never recreated it. After a
+   * non-graceful shutdown + WAL replay, getIndex() returned null — the index
+   * was invisible to the IndexManager even though the B-tree data was intact.
+   *
+   * <p>The fix ensures rebuild() persists a new metadata entity and registers
+   * it in the IndexManager's CONFIG_INDEXES link set.
+   *
+   * <p>Steps: insert 100 records, REBUILD INDEX, forceDatabaseClose (crash),
+   * reopen (WAL replay), verify index is visible, count is correct, and all
+   * records are accessible via the index.
+   */
+  @Test
+  public void singleValue_rebuildIndex_metadataSurvivesCrashRecovery()
+      throws Exception {
+    var crashDbName = "crash_rebuild_meta";
+    youTrackDB.create(crashDbName, DatabaseType.DISK,
+        adminUser, adminPassword, "admin");
+    var crashSession =
+        (DatabaseSessionEmbedded) youTrackDB.open(crashDbName, adminUser, adminPassword);
+
+    try {
+      crashSession.createClassIfNotExist("RebuildCrash");
+      var cls = crashSession.getClass("RebuildCrash");
+      cls.createProperty("name", PropertyType.STRING);
+      cls.createIndex("RebuildCrash.name", SchemaClass.INDEX_TYPE.UNIQUE, "name");
+
+      // Insert 100 records
+      crashSession.begin();
+      for (int i = 0; i < 100; i++) {
+        crashSession.newEntity("RebuildCrash")
+            .setProperty("name", "entry_" + i);
+      }
+      crashSession.commit();
+
+      // Rebuild the index — this deletes + recreates the storage engine
+      // and, with the fix, persists a new metadata entity
+      crashSession.command("REBUILD INDEX RebuildCrash.name");
+
+      // Simulate non-graceful shutdown — no flush
+      crashSession.activateOnCurrentThread();
+      youTrackDB.internal.forceDatabaseClose(crashDbName);
+
+      // Reopen — WAL replay
+      crashSession =
+          (DatabaseSessionEmbedded) youTrackDB.open(crashDbName, adminUser, adminPassword);
+
+      // The key assertion: index must be visible to the IndexManager after
+      // crash recovery. Before the fix, this returned null.
+      var idx = crashSession.getSharedContext().getIndexManager()
+          .getIndex("RebuildCrash.name");
+      assertNotNull(
+          "Index metadata must survive REBUILD INDEX + crash recovery",
+          idx);
+
+      // Verify count matches actual record count
+      var engine = getBTreeIndexEngine(crashSession, "RebuildCrash.name");
+      crashSession.getStorage().getAtomicOperationsManager()
+          .executeInsideAtomicOperation(atomicOp -> {
+            assertEquals(
+                "Count after rebuild + crash recovery must match record count",
+                100, engine.getTotalCount(atomicOp));
+          });
+
+      // Verify all records are accessible via the index
+      var resultSet = crashSession.query("SELECT FROM RebuildCrash WHERE name >= 'entry_'");
+      int count = 0;
+      while (resultSet.hasNext()) {
+        resultSet.next();
+        count++;
+      }
+      resultSet.close();
+      assertEquals(
+          "All 100 records must be accessible via the index after recovery",
+          100, count);
+    } finally {
+      crashSession.close();
+      youTrackDB.drop(crashDbName);
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════

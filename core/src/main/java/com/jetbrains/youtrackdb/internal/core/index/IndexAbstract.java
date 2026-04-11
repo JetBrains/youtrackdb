@@ -305,6 +305,17 @@ public abstract class IndexAbstract implements Index {
       indexId = storage.addIndexEngine(im, engineProperties);
 
       onIndexEngineChange(session, indexId);
+
+      // The old metadata entity was deleted by doDelete() above. Reset identity
+      // so save() creates a fresh entity instead of trying to update the deleted one.
+      // Then persist the metadata and register it in the IndexManager's CONFIG_INDEXES
+      // link set, so the index survives crash + WAL replay.
+      identity = null;
+      session.executeInTxInternal(tx -> {
+        save(tx);
+        session.getSharedContext().getIndexManager()
+            .addIndexInternal(session, tx, this, true);
+      });
     } catch (Exception e) {
       try {
         if (indexId >= 0) {
