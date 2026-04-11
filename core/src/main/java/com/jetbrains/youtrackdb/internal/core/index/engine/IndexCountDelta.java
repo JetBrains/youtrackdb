@@ -59,6 +59,7 @@ public final class IndexCountDelta {
    */
   public static void accumulate(
       AtomicOperation atomicOperation, int engineId, int sign, boolean isNullKey) {
+    assert sign == 1 || sign == -1 : "sign must be +1 or -1, got " + sign;
     var delta = atomicOperation.getOrCreateIndexCountDeltas().getOrCreate(engineId);
     delta.totalDelta += sign;
     if (isNullKey) {
