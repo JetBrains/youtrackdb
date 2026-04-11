@@ -233,9 +233,12 @@ public class VersionedIndexOpsRePutGuardTest {
   public void doVersionedPut_freshInsert_tombstoneValue_throwsAssertionError()
       throws IOException {
     var tombstone = new TombstoneRID(RID_A);
-    assertThrows(AssertionError.class, () -> VersionedIndexOps.doVersionedPut(
-        tree, snapshot, atomicOp, new CompositeKey("k1"),
-        tombstone, ENGINE_ID, false, Optional.empty()));
+    var error = assertThrows(AssertionError.class,
+        () -> VersionedIndexOps.doVersionedPut(
+            tree, snapshot, atomicOp, new CompositeKey("k1"),
+            tombstone, ENGINE_ID, false, Optional.empty()));
+    assertThat(error.getMessage()).contains("must not be a marker RID");
+    assertThat(error.getMessage()).contains("TombstoneRID");
   }
 
   /**
@@ -247,9 +250,12 @@ public class VersionedIndexOpsRePutGuardTest {
   public void doVersionedPut_freshInsert_snapshotMarkerValue_throwsAssertionError()
       throws IOException {
     var marker = new SnapshotMarkerRID(RID_A);
-    assertThrows(AssertionError.class, () -> VersionedIndexOps.doVersionedPut(
-        tree, snapshot, atomicOp, new CompositeKey("k1"),
-        marker, ENGINE_ID, false, Optional.empty()));
+    var error = assertThrows(AssertionError.class,
+        () -> VersionedIndexOps.doVersionedPut(
+            tree, snapshot, atomicOp, new CompositeKey("k1"),
+            marker, ENGINE_ID, false, Optional.empty()));
+    assertThat(error.getMessage()).contains("must not be a marker RID");
+    assertThat(error.getMessage()).contains("SnapshotMarkerRID");
   }
 
   // ═══════════════════════════════════════════════════════════════════════
