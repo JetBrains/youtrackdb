@@ -2305,7 +2305,7 @@ public abstract class AbstractStorage
         var engine = indexEngines.get(engineId);
         if (engine instanceof BTreeIndexEngine btreeEngine) {
           btreeEngine.persistCountDelta(
-              atomicOperation, delta.totalDelta, delta.nullDelta);
+              atomicOperation, delta.getTotalDelta(), delta.getNullDelta());
         }
       }
     }
@@ -2335,8 +2335,8 @@ public abstract class AbstractStorage
       if (engineId >= 0 && engineId < indexEngines.size()) {
         var engine = indexEngines.get(engineId);
         if (engine instanceof BTreeIndexEngine btreeEngine) {
-          btreeEngine.addToApproximateEntriesCount(delta.totalDelta);
-          btreeEngine.addToApproximateNullCount(delta.nullDelta);
+          btreeEngine.addToApproximateEntriesCount(delta.getTotalDelta());
+          btreeEngine.addToApproximateNullCount(delta.getNullDelta());
         }
       }
     }

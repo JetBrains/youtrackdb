@@ -477,8 +477,8 @@ public class BTreeEngineHistogramBuildTest {
 
     var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(0);
     assertNotNull(delta);
-    assertEquals(1, delta.totalDelta);
-    assertEquals(0, delta.nullDelta);
+    assertEquals(1, delta.getTotalDelta());
+    assertEquals(0, delta.getNullDelta());
   }
 
   @Test
@@ -495,8 +495,8 @@ public class BTreeEngineHistogramBuildTest {
 
     var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(0);
     assertNotNull(delta);
-    assertEquals(1, delta.totalDelta);
-    assertEquals(1, delta.nullDelta);
+    assertEquals(1, delta.getTotalDelta());
+    assertEquals(1, delta.getNullDelta());
   }
 
   @Test
@@ -515,8 +515,8 @@ public class BTreeEngineHistogramBuildTest {
 
     var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(0);
     assertNotNull(delta);
-    assertEquals(-1, delta.totalDelta);
-    assertEquals(0, delta.nullDelta);
+    assertEquals(-1, delta.getTotalDelta());
+    assertEquals(0, delta.getNullDelta());
   }
 
   @Test
@@ -536,7 +536,7 @@ public class BTreeEngineHistogramBuildTest {
 
     var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(0);
     assertNotNull(delta);
-    assertEquals(1, delta.totalDelta);
+    assertEquals(1, delta.getTotalDelta());
   }
 
   @Test
@@ -573,8 +573,8 @@ public class BTreeEngineHistogramBuildTest {
 
     var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(0);
     assertNotNull(delta);
-    assertEquals(-1, delta.totalDelta);
-    assertEquals(-1, delta.nullDelta);
+    assertEquals(-1, delta.getTotalDelta());
+    assertEquals(-1, delta.getNullDelta());
   }
 
   @Test
@@ -591,8 +591,8 @@ public class BTreeEngineHistogramBuildTest {
 
     var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(0);
     assertNotNull(delta);
-    assertEquals(1, delta.totalDelta);
-    assertEquals(0, delta.nullDelta);
+    assertEquals(1, delta.getTotalDelta());
+    assertEquals(0, delta.getNullDelta());
   }
 
   @Test
@@ -612,7 +612,7 @@ public class BTreeEngineHistogramBuildTest {
 
     var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(0);
     assertNotNull(delta);
-    assertEquals(1, delta.totalDelta);
+    assertEquals(1, delta.getTotalDelta());
   }
 
   @Test
@@ -653,8 +653,8 @@ public class BTreeEngineHistogramBuildTest {
 
     var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(0);
     assertNotNull(delta);
-    assertEquals(1, delta.totalDelta);
-    assertEquals(1, delta.nullDelta);
+    assertEquals(1, delta.getTotalDelta());
+    assertEquals(1, delta.getNullDelta());
   }
 
   @Test
@@ -672,8 +672,8 @@ public class BTreeEngineHistogramBuildTest {
 
     var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(0);
     assertNotNull(delta);
-    assertEquals(1, delta.totalDelta);
-    assertEquals(0, delta.nullDelta);
+    assertEquals(1, delta.getTotalDelta());
+    assertEquals(0, delta.getNullDelta());
   }
 
   @Test
@@ -693,8 +693,8 @@ public class BTreeEngineHistogramBuildTest {
 
     var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(0);
     assertNotNull(delta);
-    assertEquals(-1, delta.totalDelta);
-    assertEquals(-1, delta.nullDelta);
+    assertEquals(-1, delta.getTotalDelta());
+    assertEquals(-1, delta.getNullDelta());
   }
 
   @Test
@@ -714,8 +714,8 @@ public class BTreeEngineHistogramBuildTest {
 
     var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(0);
     assertNotNull(delta);
-    assertEquals(-1, delta.totalDelta);
-    assertEquals(0, delta.nullDelta);
+    assertEquals(-1, delta.getTotalDelta());
+    assertEquals(0, delta.getNullDelta());
   }
 
   // ═══════════════════════════════════════════════════════════════════════

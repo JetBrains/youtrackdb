@@ -34,10 +34,18 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomi
 public final class IndexCountDelta {
 
   /** Net change to the total entry count (put = +1, remove = -1). */
-  public long totalDelta;
+  long totalDelta;
 
   /** Net change to the null-key entry count. */
-  public long nullDelta;
+  long nullDelta;
+
+  public long getTotalDelta() {
+    return totalDelta;
+  }
+
+  public long getNullDelta() {
+    return nullDelta;
+  }
 
   /**
    * Accumulates a count delta for the given engine on the transaction's delta
