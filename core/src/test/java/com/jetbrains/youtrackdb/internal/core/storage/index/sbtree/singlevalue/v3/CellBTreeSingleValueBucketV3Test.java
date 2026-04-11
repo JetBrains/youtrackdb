@@ -98,4 +98,16 @@ public class CellBTreeSingleValueBucketV3Test {
     assertEquals(10, decoded.getCollectionId());
     assertEquals(20, decoded.getCollectionPosition());
   }
+
+  @Test
+  public void testDecodeRID_plainRecordId_clusterZero_positionZero() {
+    // collectionId=0, collectionPosition=0: the zero boundary adjacent to
+    // the negative-check for TombstoneRID. Must decode as plain RecordId.
+    RID decoded = CellBTreeSingleValueBucketV3.decodeRID(0, 0);
+
+    assertTrue("Cluster 0, position 0 must be plain RecordId",
+        decoded instanceof RecordId);
+    assertEquals(0, decoded.getCollectionId());
+    assertEquals(0, decoded.getCollectionPosition());
+  }
 }
