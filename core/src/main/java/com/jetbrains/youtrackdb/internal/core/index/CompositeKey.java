@@ -154,12 +154,10 @@ public class CompositeKey
    */
   @Override
   public int compareTo(final CompositeKey otherKey) {
-    final var inIter = keys.iterator();
-    final var outIter = otherKey.keys.iterator();
-
-    while (inIter.hasNext() && outIter.hasNext()) {
-      final var inKey = inIter.next();
-      final var outKey = outIter.next();
+    final int len = Math.min(keys.size(), otherKey.keys.size());
+    for (int i = 0; i < len; i++) {
+      final var inKey = keys.get(i);
+      final var outKey = otherKey.keys.get(i);
 
       if (outKey instanceof AlwaysGreaterKey) {
         return -1;
