@@ -860,4 +860,127 @@ public class IndexesSnapshotCleanupTest {
         .as("versionIndex must be empty after full eviction")
         .isEmpty();
   }
+
+  /**
+   * Concurrent clear() and eviction both iterate and remove entries from the same
+   * ConcurrentSkipListMap, decrementing a shared sizeCounter. Both use
+   * Math.max(0, current - delta) clamping to handle the race where both count
+   * overlapping entries during their respective iteration passes.
+   *
+   * <p>This test verifies:
+   * 1. Counter never goes negative under concurrent clear() + eviction
+   * 2. No exceptions thrown
+   * 3. All entries are cleaned up after completion
+   */
+  @Test(timeout = 30_000)
+  public void concurrent_clear_vs_eviction_counterNeverNegative() throws Exception {
+    var data = new ConcurrentSkipListMap<CompositeKey, RID>();
+    var verIdx =
+        new ConcurrentSkipListMap<CompositeKey, CompositeKey>(
+            AbstractStorage.INDEX_SNAPSHOT_VERSION_COMPARATOR);
+    var counter = new AtomicLong();
+
+    int writerCount = 2;
+    int rounds = 100;
+    int pairsPerRound = 20;
+
+    var barrier = new CyclicBarrier(writerCount + 2); // writers + clearer + evictor
+    var error = new AtomicReference<Throwable>();
+    var done = new java.util.concurrent.atomic.AtomicBoolean(false);
+
+    // Writer threads: continuously add snapshot pairs
+    var writers = new Thread[writerCount];
+    for (int w = 0; w < writerCount; w++) {
+      final int writerId = w;
+      writers[w] = new Thread(() -> {
+        try {
+          var sub = new IndexesSnapshot(data, verIdx, counter, writerId);
+          barrier.await();
+          for (int r = 0; r < rounds && !done.get(); r++) {
+            for (int i = 0; i < pairsPerRound; i++) {
+              long version = (long) r * pairsPerRound + i;
+              long newVersion = version + 10_000;
+              var rid = new RecordId(1, (long) writerId * 1_000_000 + version);
+              sub.addSnapshotPair(
+                  new CompositeKey("w" + writerId + "_k" + i, version),
+                  new CompositeKey("w" + writerId + "_k" + i, newVersion),
+                  rid);
+            }
+          }
+        } catch (Throwable t) {
+          error.compareAndSet(null, t);
+        }
+      }, "writer-" + writerId);
+      writers[w].start();
+    }
+
+    // Clearer thread: repeatedly creates a sub-snapshot and clears it
+    var clearer = new Thread(() -> {
+      try {
+        barrier.await();
+        for (int r = 0; r < rounds && !done.get(); r++) {
+          var sub = new IndexesSnapshot(data, verIdx, counter, 100L + r);
+          sub.clear();
+          // Verify counter never negative after each clear
+          assertThat(counter.get())
+              .as("sizeCounter must be >= 0 after clear() round " + r)
+              .isGreaterThanOrEqualTo(0);
+        }
+      } catch (Throwable t) {
+        error.compareAndSet(null, t);
+      }
+    }, "clearer");
+    clearer.start();
+
+    // Evictor thread: runs eviction with advancing LWM
+    var evictor = new Thread(() -> {
+      try {
+        barrier.await();
+        for (int r = 0; r < rounds && !done.get(); r++) {
+          long lwm = r * 50L;
+          AbstractStorage.evictStaleIndexesSnapshotEntries(
+              lwm, data, verIdx, counter);
+          // Verify counter never negative after each eviction
+          assertThat(counter.get())
+              .as("sizeCounter must be >= 0 after eviction round " + r)
+              .isGreaterThanOrEqualTo(0);
+        }
+      } catch (Throwable t) {
+        error.compareAndSet(null, t);
+      }
+    }, "evictor");
+    evictor.start();
+
+    // Wait for all threads
+    evictor.join();
+    clearer.join();
+    done.set(true);
+    for (var writer : writers) {
+      writer.join();
+    }
+
+    // Verify no exceptions
+    assertThat(error.get())
+        .as("No thread should throw an exception")
+        .isNull();
+
+    // Verify counter is non-negative
+    assertThat(counter.get())
+        .as("sizeCounter must be >= 0 after concurrent clear+evict+add")
+        .isGreaterThanOrEqualTo(0);
+
+    // Final cleanup: evict everything remaining
+    AbstractStorage.evictStaleIndexesSnapshotEntries(
+        Long.MAX_VALUE - 1, data, verIdx, counter);
+
+    assertThat(counter.get())
+        .as("sizeCounter must be >= 0 after final eviction (clamped)")
+        .isGreaterThanOrEqualTo(0);
+    assertThat(data)
+        .as("snapshotData must be empty after full eviction")
+        .isEmpty();
+    assertThat(verIdx)
+        .as("versionIndex must be empty after full eviction")
+        .isEmpty();
+  }
 }
