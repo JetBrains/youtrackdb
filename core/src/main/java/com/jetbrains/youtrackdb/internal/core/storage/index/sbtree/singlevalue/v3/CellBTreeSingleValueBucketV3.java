@@ -318,10 +318,17 @@ public final class CellBTreeSingleValueBucketV3<K> extends DurablePage {
   static RID decodeRID(int collectionId, long collectionPosition) {
     if (collectionId < 0) {
       // TombstoneRID — decode the shifted collectionId (0 → -1, 1 → -2, etc.)
-      return new TombstoneRID(-(collectionId + 1), collectionPosition);
+      int decodedId = -(collectionId + 1);
+      assert decodedId >= 0
+          : "TombstoneRID decoded collectionId overflow: raw=" + collectionId;
+      return new TombstoneRID(decodedId, collectionPosition);
     } else if (collectionPosition < 0) {
       // SnapshotMarkerRID — decode the shifted position
-      return new SnapshotMarkerRID(collectionId, -(collectionPosition + 1));
+      long decodedPos = -(collectionPosition + 1);
+      assert decodedPos >= 0
+          : "SnapshotMarkerRID decoded collectionPosition overflow: raw="
+              + collectionPosition;
+      return new SnapshotMarkerRID(collectionId, decodedPos);
     } else {
       // Normal RID
       return new RecordId(collectionId, collectionPosition);
