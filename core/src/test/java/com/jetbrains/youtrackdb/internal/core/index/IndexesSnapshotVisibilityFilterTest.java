@@ -182,7 +182,8 @@ public class IndexesSnapshotVisibilityFilterTest {
   @Test
   public void afterFirstRemove_readerWhileAlive_visible() {
     var result = callSnapshotLookup(pairAfterRemove128().first(), 126L);
-    assertNotNull("Record was alive at v125, should be visible via snapshot", result);
+    assertEquals("Record was alive at v125, should be visible via snapshot",
+        RID_20_0, result);
   }
 
   @Test
@@ -382,7 +383,7 @@ public class IndexesSnapshotVisibilityFilterTest {
 
     // At v=108: lowerEntry(108) = {100: Tomb} → visible (A was alive)
     var resultA108 = callSnapshotLookup(snap, keyA, 108L);
-    assertNotNull("Record A should be visible at v=108", resultA108);
+    assertEquals("Record A should be visible at v=108", ridA, resultA108);
 
     // At v=113: lowerEntry(113) = {110: RecordId} → not Tombstone → not visible
     var resultA113 = callSnapshotLookup(snap, keyA, 113L);
