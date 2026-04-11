@@ -57,51 +57,55 @@ public class SnapshotIsolationIndexesGetTest {
 
     // Insert 3 records with name = "Foo"
     var graph = openGraph();
-    graph.tx().begin();
-    var u1 = graph.addV("Userr").property("name", "Foo").next();
-    graph.addV("Userr").property("name", "Foo").next();
-    graph.addV("Userr").property("name", "Foo").next();
-    var id1 = u1.id();
-    graph.tx().commit();
+    DatabaseSessionEmbedded session = null;
+    try {
+      graph.tx().begin();
+      var u1 = graph.addV("Userr").property("name", "Foo").next();
+      graph.addV("Userr").property("name", "Foo").next();
+      graph.addV("Userr").property("name", "Foo").next();
+      var id1 = u1.id();
+      graph.tx().commit();
 
-    // Update one Foo -> Bar
-    graph.tx().begin();
-    graph.V(id1).property("name", "Bar").iterate();
-    graph.tx().commit();
+      // Update one Foo -> Bar
+      graph.tx().begin();
+      graph.V(id1).property("name", "Bar").iterate();
+      graph.tx().commit();
 
-    // Query via getRids() path
-    var session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
-    session.begin();
-    Index index = session.getIndex("IndexPropertyName");
+      // Query via getRids() path
+      session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+      session.begin();
+      Index index = session.getIndex("IndexPropertyName");
 
-    List<RID> fooRids;
-    try (var stream = index.getRids(session, "Foo")) {
-      fooRids = stream.collect(Collectors.toList());
+      List<RID> fooRids;
+      try (var stream = index.getRids(session, "Foo")) {
+        fooRids = stream.collect(Collectors.toList());
+      }
+
+      // Must see exactly 2 results, all plain RIDs
+      assertEquals(2, fooRids.size());
+      for (RID rid : fooRids) {
+        assertFalse("getRids() must not return SnapshotMarkerRID",
+            rid instanceof SnapshotMarkerRID);
+        assertFalse("getRids() must not return TombstoneRID",
+            rid instanceof TombstoneRID);
+      }
+
+      List<RID> barRids;
+      try (var stream = index.getRids(session, "Bar")) {
+        barRids = stream.collect(Collectors.toList());
+      }
+
+      assertEquals(1, barRids.size());
+      for (RID rid : barRids) {
+        assertFalse(rid instanceof SnapshotMarkerRID);
+        assertFalse(rid instanceof TombstoneRID);
+      }
+      session.commit();
+    } finally {
+      if (session != null)
+        session.close();
+      graph.close();
     }
-
-    // Must see exactly 2 results, all plain RIDs
-    assertEquals(2, fooRids.size());
-    for (RID rid : fooRids) {
-      assertFalse("getRids() must not return SnapshotMarkerRID",
-          rid instanceof SnapshotMarkerRID);
-      assertFalse("getRids() must not return TombstoneRID",
-          rid instanceof TombstoneRID);
-    }
-
-    List<RID> barRids;
-    try (var stream = index.getRids(session, "Bar")) {
-      barRids = stream.collect(Collectors.toList());
-    }
-
-    assertEquals(1, barRids.size());
-    for (RID rid : barRids) {
-      assertFalse(rid instanceof SnapshotMarkerRID);
-      assertFalse(rid instanceof TombstoneRID);
-    }
-    session.commit();
-    session.close();
-
-    graph.close();
   }
 
   /**
@@ -117,50 +121,56 @@ public class SnapshotIsolationIndexesGetTest {
     userSchema.createIndex("IndexPropertyName", INDEX_TYPE.NOTUNIQUE, "name");
 
     var graph = openGraph();
-    graph.tx().begin();
-    graph.addV("Userr").property("name", "Foo").next();
-    graph.addV("Userr").property("name", "Foo").next();
-    graph.addV("Userr").property("name", "Foo").next();
-    graph.tx().commit();
+    DatabaseSessionEmbedded snapshotSession = null;
+    DatabaseSessionEmbedded freshSession = null;
+    try {
+      graph.tx().begin();
+      graph.addV("Userr").property("name", "Foo").next();
+      graph.addV("Userr").property("name", "Foo").next();
+      graph.addV("Userr").property("name", "Foo").next();
+      graph.tx().commit();
 
-    // Start snapshot TX
-    var snapshotSession = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
-    snapshotSession.begin();
-    Index snapshotIndex = snapshotSession.getIndex("IndexPropertyName");
+      // Start snapshot TX
+      snapshotSession = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+      snapshotSession.begin();
+      Index snapshotIndex = snapshotSession.getIndex("IndexPropertyName");
 
-    List<RID> beforeInsert;
-    try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
-      beforeInsert = stream.collect(Collectors.toList());
+      List<RID> beforeInsert;
+      try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
+        beforeInsert = stream.collect(Collectors.toList());
+      }
+      assertEquals(3, beforeInsert.size());
+
+      // Insert 4th Foo in another TX
+      graph.tx().begin();
+      graph.addV("Userr").property("name", "Foo").next();
+      graph.tx().commit();
+
+      // Snapshot must still see 3
+      List<RID> afterInsert;
+      try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
+        afterInsert = stream.collect(Collectors.toList());
+      }
+      assertEquals(3, afterInsert.size());
+      snapshotSession.commit();
+
+      // Fresh session must see 4
+      freshSession = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+      freshSession.begin();
+      Index freshIndex = freshSession.getIndex("IndexPropertyName");
+      List<RID> freshRids;
+      try (var stream = freshIndex.getRids(freshSession, "Foo")) {
+        freshRids = stream.collect(Collectors.toList());
+      }
+      assertEquals(4, freshRids.size());
+      freshSession.commit();
+    } finally {
+      if (freshSession != null)
+        freshSession.close();
+      if (snapshotSession != null)
+        snapshotSession.close();
+      graph.close();
     }
-    assertEquals(3, beforeInsert.size());
-
-    // Insert 4th Foo in another TX
-    graph.tx().begin();
-    graph.addV("Userr").property("name", "Foo").next();
-    graph.tx().commit();
-
-    // Snapshot must still see 3
-    List<RID> afterInsert;
-    try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
-      afterInsert = stream.collect(Collectors.toList());
-    }
-    assertEquals(3, afterInsert.size());
-    snapshotSession.commit();
-    snapshotSession.close();
-
-    // Fresh session must see 4
-    var freshSession = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
-    freshSession.begin();
-    Index freshIndex = freshSession.getIndex("IndexPropertyName");
-    List<RID> freshRids;
-    try (var stream = freshIndex.getRids(freshSession, "Foo")) {
-      freshRids = stream.collect(Collectors.toList());
-    }
-    assertEquals(4, freshRids.size());
-    freshSession.commit();
-    freshSession.close();
-
-    graph.close();
   }
 
   /**
@@ -176,65 +186,71 @@ public class SnapshotIsolationIndexesGetTest {
     userSchema.createIndex("IndexPropertyName", INDEX_TYPE.NOTUNIQUE, "name");
 
     var graph = openGraph();
-    graph.tx().begin();
-    var u1 = graph.addV("Userr").property("name", "Foo").next();
-    graph.addV("Userr").property("name", "Foo").next();
-    graph.addV("Userr").property("name", "Foo").next();
-    var id1 = u1.id();
-    graph.tx().commit();
+    DatabaseSessionEmbedded snapshotSession = null;
+    DatabaseSessionEmbedded freshSession = null;
+    try {
+      graph.tx().begin();
+      var u1 = graph.addV("Userr").property("name", "Foo").next();
+      graph.addV("Userr").property("name", "Foo").next();
+      graph.addV("Userr").property("name", "Foo").next();
+      var id1 = u1.id();
+      graph.tx().commit();
 
-    // Start snapshot TX
-    var snapshotSession = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
-    snapshotSession.begin();
-    Index snapshotIndex = snapshotSession.getIndex("IndexPropertyName");
+      // Start snapshot TX
+      snapshotSession = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+      snapshotSession.begin();
+      Index snapshotIndex = snapshotSession.getIndex("IndexPropertyName");
 
-    List<RID> beforeUpdate;
-    try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
-      beforeUpdate = stream.collect(Collectors.toList());
+      List<RID> beforeUpdate;
+      try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
+        beforeUpdate = stream.collect(Collectors.toList());
+      }
+      assertEquals(3, beforeUpdate.size());
+
+      // Update one Foo -> Bar in another TX
+      graph.tx().begin();
+      graph.V(id1).property("name", "Bar").iterate();
+      graph.tx().commit();
+
+      // Snapshot must still see 3 Foo, 0 Bar
+      List<RID> fooAfter;
+      try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
+        fooAfter = stream.collect(Collectors.toList());
+      }
+      assertEquals(3, fooAfter.size());
+
+      List<RID> barAfter;
+      try (var stream = snapshotIndex.getRids(snapshotSession, "Bar")) {
+        barAfter = stream.collect(Collectors.toList());
+      }
+      assertEquals(0, barAfter.size());
+
+      snapshotSession.commit();
+
+      // Fresh session sees updated state
+      freshSession = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+      freshSession.begin();
+      Index freshIndex = freshSession.getIndex("IndexPropertyName");
+
+      List<RID> freshFoo;
+      try (var stream = freshIndex.getRids(freshSession, "Foo")) {
+        freshFoo = stream.collect(Collectors.toList());
+      }
+      assertEquals(2, freshFoo.size());
+
+      List<RID> freshBar;
+      try (var stream = freshIndex.getRids(freshSession, "Bar")) {
+        freshBar = stream.collect(Collectors.toList());
+      }
+      assertEquals(1, freshBar.size());
+      freshSession.commit();
+    } finally {
+      if (freshSession != null)
+        freshSession.close();
+      if (snapshotSession != null)
+        snapshotSession.close();
+      graph.close();
     }
-    assertEquals(3, beforeUpdate.size());
-
-    // Update one Foo -> Bar in another TX
-    graph.tx().begin();
-    graph.V(id1).property("name", "Bar").iterate();
-    graph.tx().commit();
-
-    // Snapshot must still see 3 Foo, 0 Bar
-    List<RID> fooAfter;
-    try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
-      fooAfter = stream.collect(Collectors.toList());
-    }
-    assertEquals(3, fooAfter.size());
-
-    List<RID> barAfter;
-    try (var stream = snapshotIndex.getRids(snapshotSession, "Bar")) {
-      barAfter = stream.collect(Collectors.toList());
-    }
-    assertEquals(0, barAfter.size());
-
-    snapshotSession.commit();
-    snapshotSession.close();
-
-    // Fresh session sees updated state
-    var freshSession = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
-    freshSession.begin();
-    Index freshIndex = freshSession.getIndex("IndexPropertyName");
-
-    List<RID> freshFoo;
-    try (var stream = freshIndex.getRids(freshSession, "Foo")) {
-      freshFoo = stream.collect(Collectors.toList());
-    }
-    assertEquals(2, freshFoo.size());
-
-    List<RID> freshBar;
-    try (var stream = freshIndex.getRids(freshSession, "Bar")) {
-      freshBar = stream.collect(Collectors.toList());
-    }
-    assertEquals(1, freshBar.size());
-    freshSession.commit();
-    freshSession.close();
-
-    graph.close();
   }
 
   /**
@@ -250,64 +266,70 @@ public class SnapshotIsolationIndexesGetTest {
     userSchema.createIndex("IndexPropertyName", INDEX_TYPE.NOTUNIQUE, "name");
 
     var graph = openGraph();
-    graph.tx().begin();
-    var u1 = graph.addV("Userr").property("name", "Foo").next();
-    graph.addV("Userr").property("name", "Foo").next();
-    graph.addV("Userr").property("name", "Foo").next();
-    var id1 = u1.id();
-    graph.tx().commit();
+    DatabaseSessionEmbedded snapshotSession = null;
+    DatabaseSessionEmbedded freshSession = null;
+    try {
+      graph.tx().begin();
+      var u1 = graph.addV("Userr").property("name", "Foo").next();
+      graph.addV("Userr").property("name", "Foo").next();
+      graph.addV("Userr").property("name", "Foo").next();
+      var id1 = u1.id();
+      graph.tx().commit();
 
-    // Start snapshot TX
-    var snapshotSession = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
-    snapshotSession.begin();
-    Index snapshotIndex = snapshotSession.getIndex("IndexPropertyName");
+      // Start snapshot TX
+      snapshotSession = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+      snapshotSession.begin();
+      Index snapshotIndex = snapshotSession.getIndex("IndexPropertyName");
 
-    List<RID> beforeUpdate;
-    try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
-      beforeUpdate = stream.collect(Collectors.toList());
+      List<RID> beforeUpdate;
+      try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
+        beforeUpdate = stream.collect(Collectors.toList());
+      }
+      assertEquals(3, beforeUpdate.size());
+
+      // Foo -> Bar
+      graph.tx().begin();
+      graph.V(id1).property("name", "Bar").iterate();
+      graph.tx().commit();
+
+      // Bar -> Foo
+      graph.tx().begin();
+      graph.V(id1).property("name", "Foo").iterate();
+      graph.tx().commit();
+
+      // Snapshot must still see original 3 Foo
+      List<RID> fooAfter;
+      try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
+        fooAfter = stream.collect(Collectors.toList());
+      }
+      assertEquals(3, fooAfter.size());
+
+      snapshotSession.commit();
+
+      // Fresh session sees final state: all 3 still Foo
+      freshSession = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+      freshSession.begin();
+      Index freshIndex = freshSession.getIndex("IndexPropertyName");
+
+      List<RID> freshFoo;
+      try (var stream = freshIndex.getRids(freshSession, "Foo")) {
+        freshFoo = stream.collect(Collectors.toList());
+      }
+      assertEquals(3, freshFoo.size());
+
+      List<RID> freshBar;
+      try (var stream = freshIndex.getRids(freshSession, "Bar")) {
+        freshBar = stream.collect(Collectors.toList());
+      }
+      assertEquals(0, freshBar.size());
+      freshSession.commit();
+    } finally {
+      if (freshSession != null)
+        freshSession.close();
+      if (snapshotSession != null)
+        snapshotSession.close();
+      graph.close();
     }
-    assertEquals(3, beforeUpdate.size());
-
-    // Foo -> Bar
-    graph.tx().begin();
-    graph.V(id1).property("name", "Bar").iterate();
-    graph.tx().commit();
-
-    // Bar -> Foo
-    graph.tx().begin();
-    graph.V(id1).property("name", "Foo").iterate();
-    graph.tx().commit();
-
-    // Snapshot must still see original 3 Foo
-    List<RID> fooAfter;
-    try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
-      fooAfter = stream.collect(Collectors.toList());
-    }
-    assertEquals(3, fooAfter.size());
-
-    snapshotSession.commit();
-    snapshotSession.close();
-
-    // Fresh session sees final state: all 3 still Foo
-    var freshSession = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
-    freshSession.begin();
-    Index freshIndex = freshSession.getIndex("IndexPropertyName");
-
-    List<RID> freshFoo;
-    try (var stream = freshIndex.getRids(freshSession, "Foo")) {
-      freshFoo = stream.collect(Collectors.toList());
-    }
-    assertEquals(3, freshFoo.size());
-
-    List<RID> freshBar;
-    try (var stream = freshIndex.getRids(freshSession, "Bar")) {
-      freshBar = stream.collect(Collectors.toList());
-    }
-    assertEquals(0, freshBar.size());
-    freshSession.commit();
-    freshSession.close();
-
-    graph.close();
   }
 
   /**
@@ -321,42 +343,46 @@ public class SnapshotIsolationIndexesGetTest {
     userSchema.createIndex("IndexPropertyName", INDEX_TYPE.UNIQUE, "name");
 
     var graph = openGraph();
-    graph.tx().begin();
-    var u1 = graph.addV("Userr").property("name", "Foo").next();
-    var id1 = u1.id();
-    graph.tx().commit();
+    DatabaseSessionEmbedded session = null;
+    try {
+      graph.tx().begin();
+      var u1 = graph.addV("Userr").property("name", "Foo").next();
+      var id1 = u1.id();
+      graph.tx().commit();
 
-    // Update Foo -> Bar
-    graph.tx().begin();
-    graph.V(id1).property("name", "Bar").iterate();
-    graph.tx().commit();
+      // Update Foo -> Bar
+      graph.tx().begin();
+      graph.V(id1).property("name", "Bar").iterate();
+      graph.tx().commit();
 
-    // getRids("Foo") must return empty, getRids("Bar") must return 1 plain RID
-    var session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
-    session.begin();
-    Index index = session.getIndex("IndexPropertyName");
+      // getRids("Foo") must return empty, getRids("Bar") must return 1 plain RID
+      session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+      session.begin();
+      Index index = session.getIndex("IndexPropertyName");
 
-    List<RID> fooRids;
-    try (var stream = index.getRids(session, "Foo")) {
-      fooRids = stream.collect(Collectors.toList());
+      List<RID> fooRids;
+      try (var stream = index.getRids(session, "Foo")) {
+        fooRids = stream.collect(Collectors.toList());
+      }
+      assertEquals(0, fooRids.size());
+
+      List<RID> barRids;
+      try (var stream = index.getRids(session, "Bar")) {
+        barRids = stream.collect(Collectors.toList());
+      }
+      assertEquals(1, barRids.size());
+      assertEquals("getRids('Bar') must return the RID of the updated vertex",
+          id1, barRids.get(0));
+      for (RID rid : barRids) {
+        assertFalse(rid instanceof SnapshotMarkerRID);
+        assertFalse(rid instanceof TombstoneRID);
+      }
+      session.commit();
+    } finally {
+      if (session != null)
+        session.close();
+      graph.close();
     }
-    assertEquals(0, fooRids.size());
-
-    List<RID> barRids;
-    try (var stream = index.getRids(session, "Bar")) {
-      barRids = stream.collect(Collectors.toList());
-    }
-    assertEquals(1, barRids.size());
-    assertEquals("getRids('Bar') must return the RID of the updated vertex",
-        id1, barRids.get(0));
-    for (RID rid : barRids) {
-      assertFalse(rid instanceof SnapshotMarkerRID);
-      assertFalse(rid instanceof TombstoneRID);
-    }
-    session.commit();
-    session.close();
-
-    graph.close();
   }
 
   /**
@@ -370,65 +396,71 @@ public class SnapshotIsolationIndexesGetTest {
     userSchema.createIndex("IndexPropertyName", INDEX_TYPE.UNIQUE, "name");
 
     var graph = openGraph();
-    graph.tx().begin();
-    var u1 = graph.addV("Userr").property("name", "Foo").next();
-    var id1 = u1.id();
-    graph.tx().commit();
+    DatabaseSessionEmbedded snapshotSession = null;
+    DatabaseSessionEmbedded freshSession = null;
+    try {
+      graph.tx().begin();
+      var u1 = graph.addV("Userr").property("name", "Foo").next();
+      var id1 = u1.id();
+      graph.tx().commit();
 
-    // Start snapshot TX
-    var snapshotSession = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
-    snapshotSession.begin();
-    Index snapshotIndex = snapshotSession.getIndex("IndexPropertyName");
+      // Start snapshot TX
+      snapshotSession = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+      snapshotSession.begin();
+      Index snapshotIndex = snapshotSession.getIndex("IndexPropertyName");
 
-    List<RID> beforeUpdate;
-    try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
-      beforeUpdate = stream.collect(Collectors.toList());
+      List<RID> beforeUpdate;
+      try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
+        beforeUpdate = stream.collect(Collectors.toList());
+      }
+      assertEquals(1, beforeUpdate.size());
+
+      // Update Foo -> Bar in another TX
+      graph.tx().begin();
+      graph.V(id1).property("name", "Bar").iterate();
+      graph.tx().commit();
+
+      // Snapshot must still see Foo, not Bar
+      List<RID> fooAfter;
+      try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
+        fooAfter = stream.collect(Collectors.toList());
+      }
+      assertEquals(1, fooAfter.size());
+      assertEquals("Snapshot Foo RID must match original vertex", id1, fooAfter.get(0));
+
+      List<RID> barAfter;
+      try (var stream = snapshotIndex.getRids(snapshotSession, "Bar")) {
+        barAfter = stream.collect(Collectors.toList());
+      }
+      assertEquals(0, barAfter.size());
+
+      snapshotSession.commit();
+
+      // Fresh session sees updated state
+      freshSession = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+      freshSession.begin();
+      Index freshIndex = freshSession.getIndex("IndexPropertyName");
+
+      List<RID> freshFoo;
+      try (var stream = freshIndex.getRids(freshSession, "Foo")) {
+        freshFoo = stream.collect(Collectors.toList());
+      }
+      assertEquals(0, freshFoo.size());
+
+      List<RID> freshBar;
+      try (var stream = freshIndex.getRids(freshSession, "Bar")) {
+        freshBar = stream.collect(Collectors.toList());
+      }
+      assertEquals(1, freshBar.size());
+      assertEquals("Fresh Bar RID must match updated vertex", id1, freshBar.get(0));
+      freshSession.commit();
+    } finally {
+      if (freshSession != null)
+        freshSession.close();
+      if (snapshotSession != null)
+        snapshotSession.close();
+      graph.close();
     }
-    assertEquals(1, beforeUpdate.size());
-
-    // Update Foo -> Bar in another TX
-    graph.tx().begin();
-    graph.V(id1).property("name", "Bar").iterate();
-    graph.tx().commit();
-
-    // Snapshot must still see Foo, not Bar
-    List<RID> fooAfter;
-    try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
-      fooAfter = stream.collect(Collectors.toList());
-    }
-    assertEquals(1, fooAfter.size());
-    assertEquals("Snapshot Foo RID must match original vertex", id1, fooAfter.get(0));
-
-    List<RID> barAfter;
-    try (var stream = snapshotIndex.getRids(snapshotSession, "Bar")) {
-      barAfter = stream.collect(Collectors.toList());
-    }
-    assertEquals(0, barAfter.size());
-
-    snapshotSession.commit();
-    snapshotSession.close();
-
-    // Fresh session sees updated state
-    var freshSession = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
-    freshSession.begin();
-    Index freshIndex = freshSession.getIndex("IndexPropertyName");
-
-    List<RID> freshFoo;
-    try (var stream = freshIndex.getRids(freshSession, "Foo")) {
-      freshFoo = stream.collect(Collectors.toList());
-    }
-    assertEquals(0, freshFoo.size());
-
-    List<RID> freshBar;
-    try (var stream = freshIndex.getRids(freshSession, "Bar")) {
-      freshBar = stream.collect(Collectors.toList());
-    }
-    assertEquals(1, freshBar.size());
-    assertEquals("Fresh Bar RID must match updated vertex", id1, freshBar.get(0));
-    freshSession.commit();
-    freshSession.close();
-
-    graph.close();
   }
 
   /**
@@ -443,72 +475,78 @@ public class SnapshotIsolationIndexesGetTest {
 
     // Start snapshot TX before any data exists
     var snapshotSession = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
-    snapshotSession.begin();
-    Index snapshotIndex = snapshotSession.getIndex("IndexPropertyName");
+    YTDBGraphTraversalSource graph = null;
+    DatabaseSessionEmbedded freshSession = null;
+    try {
+      snapshotSession.begin();
+      Index snapshotIndex = snapshotSession.getIndex("IndexPropertyName");
 
-    List<RID> beforeInsert;
-    try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
-      beforeInsert = stream.collect(Collectors.toList());
+      List<RID> beforeInsert;
+      try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
+        beforeInsert = stream.collect(Collectors.toList());
+      }
+      assertEquals(0, beforeInsert.size());
+
+      // Insert records in another session
+      graph = openGraph();
+      graph.tx().begin();
+      var u1 = graph.addV("Userr").property("name", "Foo").next();
+      graph.addV("Userr").property("name", "Foo").next();
+      graph.addV("Userr").property("name", "Foo").next();
+      var id1 = u1.id();
+      graph.tx().commit();
+
+      // Snapshot must still see nothing
+      List<RID> afterInsert;
+      try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
+        afterInsert = stream.collect(Collectors.toList());
+      }
+      assertEquals(0, afterInsert.size());
+
+      // Update one Foo -> Bar
+      graph.tx().begin();
+      graph.V(id1).property("name", "Bar").iterate();
+      graph.tx().commit();
+
+      // Snapshot must still see nothing for either key
+      List<RID> afterUpdate;
+      try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
+        afterUpdate = stream.collect(Collectors.toList());
+      }
+      assertEquals(0, afterUpdate.size());
+
+      List<RID> barAfterUpdate;
+      try (var stream = snapshotIndex.getRids(snapshotSession, "Bar")) {
+        barAfterUpdate = stream.collect(Collectors.toList());
+      }
+      assertEquals(0, barAfterUpdate.size());
+
+      snapshotSession.commit();
+
+      // Fresh session sees current state
+      freshSession = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+      freshSession.begin();
+      Index freshIndex = freshSession.getIndex("IndexPropertyName");
+
+      List<RID> freshFoo;
+      try (var stream = freshIndex.getRids(freshSession, "Foo")) {
+        freshFoo = stream.collect(Collectors.toList());
+      }
+      assertEquals(2, freshFoo.size());
+
+      List<RID> freshBar;
+      try (var stream = freshIndex.getRids(freshSession, "Bar")) {
+        freshBar = stream.collect(Collectors.toList());
+      }
+      assertEquals(1, freshBar.size());
+      freshSession.commit();
+    } finally {
+      if (freshSession != null)
+        freshSession.close();
+      snapshotSession.close();
+      if (graph != null)
+        graph.close();
     }
-    assertEquals(0, beforeInsert.size());
-
-    // Insert records in another session
-    var graph = openGraph();
-    graph.tx().begin();
-    var u1 = graph.addV("Userr").property("name", "Foo").next();
-    graph.addV("Userr").property("name", "Foo").next();
-    graph.addV("Userr").property("name", "Foo").next();
-    var id1 = u1.id();
-    graph.tx().commit();
-
-    // Snapshot must still see nothing
-    List<RID> afterInsert;
-    try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
-      afterInsert = stream.collect(Collectors.toList());
-    }
-    assertEquals(0, afterInsert.size());
-
-    // Update one Foo -> Bar
-    graph.tx().begin();
-    graph.V(id1).property("name", "Bar").iterate();
-    graph.tx().commit();
-
-    // Snapshot must still see nothing for either key
-    List<RID> afterUpdate;
-    try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
-      afterUpdate = stream.collect(Collectors.toList());
-    }
-    assertEquals(0, afterUpdate.size());
-
-    List<RID> barAfterUpdate;
-    try (var stream = snapshotIndex.getRids(snapshotSession, "Bar")) {
-      barAfterUpdate = stream.collect(Collectors.toList());
-    }
-    assertEquals(0, barAfterUpdate.size());
-
-    snapshotSession.commit();
-    snapshotSession.close();
-
-    // Fresh session sees current state
-    var freshSession = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
-    freshSession.begin();
-    Index freshIndex = freshSession.getIndex("IndexPropertyName");
-
-    List<RID> freshFoo;
-    try (var stream = freshIndex.getRids(freshSession, "Foo")) {
-      freshFoo = stream.collect(Collectors.toList());
-    }
-    assertEquals(2, freshFoo.size());
-
-    List<RID> freshBar;
-    try (var stream = freshIndex.getRids(freshSession, "Bar")) {
-      freshBar = stream.collect(Collectors.toList());
-    }
-    assertEquals(1, freshBar.size());
-    freshSession.commit();
-    freshSession.close();
-
-    graph.close();
   }
 
   /**
@@ -523,16 +561,19 @@ public class SnapshotIsolationIndexesGetTest {
     userSchema.createIndex("IndexPropertyName", INDEX_TYPE.UNIQUE, "name");
 
     var session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
-    session.begin();
-    Index index = session.getIndex("IndexPropertyName");
+    try {
+      session.begin();
+      Index index = session.getIndex("IndexPropertyName");
 
-    List<RID> rids;
-    try (var stream = index.getRids(session, "NonExistent")) {
-      rids = stream.collect(Collectors.toList());
+      List<RID> rids;
+      try (var stream = index.getRids(session, "NonExistent")) {
+        rids = stream.collect(Collectors.toList());
+      }
+      assertEquals(0, rids.size());
+      session.commit();
+    } finally {
+      session.close();
     }
-    assertEquals(0, rids.size());
-    session.commit();
-    session.close();
   }
 
   /**
@@ -547,29 +588,34 @@ public class SnapshotIsolationIndexesGetTest {
     userSchema.createIndex("IndexPropertyName", INDEX_TYPE.UNIQUE, "name");
 
     var graph = openGraph();
-    graph.tx().begin();
-    var u1 = graph.addV("Userr").property("name", "Foo").next();
-    var id1 = u1.id();
-    graph.tx().commit();
+    DatabaseSessionEmbedded session = null;
+    try {
+      graph.tx().begin();
+      var u1 = graph.addV("Userr").property("name", "Foo").next();
+      var id1 = u1.id();
+      graph.tx().commit();
 
-    // Delete the record
-    graph.tx().begin();
-    graph.V(id1).drop().iterate();
-    graph.tx().commit();
+      // Delete the record
+      graph.tx().begin();
+      graph.V(id1).drop().iterate();
+      graph.tx().commit();
 
-    // Fresh session: getRids("Foo") must return empty
-    var session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
-    session.begin();
-    Index index = session.getIndex("IndexPropertyName");
+      // Fresh session: getRids("Foo") must return empty
+      session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+      session.begin();
+      Index index = session.getIndex("IndexPropertyName");
 
-    List<RID> rids;
-    try (var stream = index.getRids(session, "Foo")) {
-      rids = stream.collect(Collectors.toList());
+      List<RID> rids;
+      try (var stream = index.getRids(session, "Foo")) {
+        rids = stream.collect(Collectors.toList());
+      }
+      assertEquals(0, rids.size());
+      session.commit();
+    } finally {
+      if (session != null)
+        session.close();
+      graph.close();
     }
-    assertEquals(0, rids.size());
-    session.commit();
-    session.close();
-    graph.close();
   }
 
   /**
@@ -585,43 +631,50 @@ public class SnapshotIsolationIndexesGetTest {
 
     // Start snapshot TX before any data exists
     var snapshotSession = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
-    snapshotSession.begin();
-    Index snapshotIndex = snapshotSession.getIndex("IndexPropertyName");
+    YTDBGraphTraversalSource graph = null;
+    DatabaseSessionEmbedded freshSession = null;
+    try {
+      snapshotSession.begin();
+      Index snapshotIndex = snapshotSession.getIndex("IndexPropertyName");
 
-    List<RID> beforeInsert;
-    try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
-      beforeInsert = stream.collect(Collectors.toList());
+      List<RID> beforeInsert;
+      try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
+        beforeInsert = stream.collect(Collectors.toList());
+      }
+      assertEquals(0, beforeInsert.size());
+
+      // Insert in another session
+      graph = openGraph();
+      graph.tx().begin();
+      graph.addV("Userr").property("name", "Foo").next();
+      graph.tx().commit();
+
+      // Snapshot must still see nothing
+      List<RID> afterInsert;
+      try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
+        afterInsert = stream.collect(Collectors.toList());
+      }
+      assertEquals(0, afterInsert.size());
+
+      snapshotSession.commit();
+
+      // Fresh session sees the record
+      freshSession = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+      freshSession.begin();
+      Index freshIndex = freshSession.getIndex("IndexPropertyName");
+      List<RID> freshRids;
+      try (var stream = freshIndex.getRids(freshSession, "Foo")) {
+        freshRids = stream.collect(Collectors.toList());
+      }
+      assertEquals(1, freshRids.size());
+      freshSession.commit();
+    } finally {
+      if (freshSession != null)
+        freshSession.close();
+      snapshotSession.close();
+      if (graph != null)
+        graph.close();
     }
-    assertEquals(0, beforeInsert.size());
-
-    // Insert in another session
-    var graph = openGraph();
-    graph.tx().begin();
-    graph.addV("Userr").property("name", "Foo").next();
-    graph.tx().commit();
-
-    // Snapshot must still see nothing
-    List<RID> afterInsert;
-    try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
-      afterInsert = stream.collect(Collectors.toList());
-    }
-    assertEquals(0, afterInsert.size());
-
-    snapshotSession.commit();
-    snapshotSession.close();
-
-    // Fresh session sees the record
-    var freshSession = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
-    freshSession.begin();
-    Index freshIndex = freshSession.getIndex("IndexPropertyName");
-    List<RID> freshRids;
-    try (var stream = freshIndex.getRids(freshSession, "Foo")) {
-      freshRids = stream.collect(Collectors.toList());
-    }
-    assertEquals(1, freshRids.size());
-    freshSession.commit();
-    freshSession.close();
-    graph.close();
   }
 
   /**
@@ -637,63 +690,69 @@ public class SnapshotIsolationIndexesGetTest {
     userSchema.createIndex("IndexPropertyName", INDEX_TYPE.UNIQUE, "name");
 
     var graph = openGraph();
-    graph.tx().begin();
-    var u1 = graph.addV("Userr").property("name", "Foo").next();
-    var id1 = u1.id();
-    graph.tx().commit();
+    DatabaseSessionEmbedded snapshotSession = null;
+    DatabaseSessionEmbedded freshSession = null;
+    try {
+      graph.tx().begin();
+      var u1 = graph.addV("Userr").property("name", "Foo").next();
+      var id1 = u1.id();
+      graph.tx().commit();
 
-    // Start snapshot TX
-    var snapshotSession = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
-    snapshotSession.begin();
-    Index snapshotIndex = snapshotSession.getIndex("IndexPropertyName");
+      // Start snapshot TX
+      snapshotSession = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+      snapshotSession.begin();
+      Index snapshotIndex = snapshotSession.getIndex("IndexPropertyName");
 
-    List<RID> beforeUpdate;
-    try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
-      beforeUpdate = stream.collect(Collectors.toList());
+      List<RID> beforeUpdate;
+      try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
+        beforeUpdate = stream.collect(Collectors.toList());
+      }
+      assertEquals(1, beforeUpdate.size());
+
+      // Foo -> Bar
+      graph.tx().begin();
+      graph.V(id1).property("name", "Bar").iterate();
+      graph.tx().commit();
+
+      // Bar -> Foo (ABA)
+      graph.tx().begin();
+      graph.V(id1).property("name", "Foo").iterate();
+      graph.tx().commit();
+
+      // Snapshot must still see 1 Foo (the original version)
+      List<RID> fooAfter;
+      try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
+        fooAfter = stream.collect(Collectors.toList());
+      }
+      assertEquals(1, fooAfter.size());
+      assertEquals("Snapshot Foo RID must match original vertex", id1, fooAfter.get(0));
+
+      snapshotSession.commit();
+
+      // Fresh session sees final state: Foo present, Bar absent
+      freshSession = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+      freshSession.begin();
+      Index freshIndex = freshSession.getIndex("IndexPropertyName");
+
+      List<RID> freshFoo;
+      try (var stream = freshIndex.getRids(freshSession, "Foo")) {
+        freshFoo = stream.collect(Collectors.toList());
+      }
+      assertEquals(1, freshFoo.size());
+
+      List<RID> freshBar;
+      try (var stream = freshIndex.getRids(freshSession, "Bar")) {
+        freshBar = stream.collect(Collectors.toList());
+      }
+      assertEquals(0, freshBar.size());
+      freshSession.commit();
+    } finally {
+      if (freshSession != null)
+        freshSession.close();
+      if (snapshotSession != null)
+        snapshotSession.close();
+      graph.close();
     }
-    assertEquals(1, beforeUpdate.size());
-
-    // Foo -> Bar
-    graph.tx().begin();
-    graph.V(id1).property("name", "Bar").iterate();
-    graph.tx().commit();
-
-    // Bar -> Foo (ABA)
-    graph.tx().begin();
-    graph.V(id1).property("name", "Foo").iterate();
-    graph.tx().commit();
-
-    // Snapshot must still see 1 Foo (the original version)
-    List<RID> fooAfter;
-    try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
-      fooAfter = stream.collect(Collectors.toList());
-    }
-    assertEquals(1, fooAfter.size());
-    assertEquals("Snapshot Foo RID must match original vertex", id1, fooAfter.get(0));
-
-    snapshotSession.commit();
-    snapshotSession.close();
-
-    // Fresh session sees final state: Foo present, Bar absent
-    var freshSession = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
-    freshSession.begin();
-    Index freshIndex = freshSession.getIndex("IndexPropertyName");
-
-    List<RID> freshFoo;
-    try (var stream = freshIndex.getRids(freshSession, "Foo")) {
-      freshFoo = stream.collect(Collectors.toList());
-    }
-    assertEquals(1, freshFoo.size());
-
-    List<RID> freshBar;
-    try (var stream = freshIndex.getRids(freshSession, "Bar")) {
-      freshBar = stream.collect(Collectors.toList());
-    }
-    assertEquals(0, freshBar.size());
-    freshSession.commit();
-    freshSession.close();
-
-    graph.close();
   }
 
   private YTDBGraphTraversalSource openGraph() {

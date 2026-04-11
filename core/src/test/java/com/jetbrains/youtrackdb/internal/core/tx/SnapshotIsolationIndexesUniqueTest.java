@@ -45,64 +45,70 @@ public class SnapshotIsolationIndexesUniqueTest {
 
     // create a record with an indexed property value
     var graph = openGraph();
-    graph.tx().begin();
-    var u1 = graph.addV("Userr").property("name", fooValue).next();
-    var id1 = u1.id();
-    graph.tx().commit();
+    YTDBGraphTraversalSource snapshotGraph = null;
+    YTDBGraphTraversalSource newGraph = null;
+    try {
+      graph.tx().begin();
+      var u1 = graph.addV("Userr").property("name", fooValue).next();
+      var id1 = u1.id();
+      graph.tx().commit();
 
-    // start repeatable-read snapshot TX
-    var snapshotGraph = openGraph();
+      // start repeatable-read snapshot TX
+      snapshotGraph = openGraph();
 
-    snapshotGraph.tx().begin();
-    var beforeInsert = snapshotGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", fooValue)
-        .toList();
+      snapshotGraph.tx().begin();
+      var beforeInsert = snapshotGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", fooValue)
+          .toList();
 
-    assertEquals(1, beforeInsert.size());
+      assertEquals(1, beforeInsert.size());
 
-    // update Foo -> Bar
-    graph.tx().begin();
-    graph
-        .V(id1)
-        .property("name", barValue)
-        .iterate();
-    graph.tx().commit();
+      // update Foo -> Bar
+      graph.tx().begin();
+      graph
+          .V(id1)
+          .property("name", barValue)
+          .iterate();
+      graph.tx().commit();
 
-    var afterInsert = snapshotGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", fooValue)
-        .toList();
+      var afterInsert = snapshotGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", fooValue)
+          .toList();
 
-    assertEquals(1, afterInsert.size());
-    snapshotGraph.tx().commit();
+      assertEquals(1, afterInsert.size());
+      snapshotGraph.tx().commit();
 
-    // New graph must see final result
-    // ==========================================================
-    var newGraph = openGraph();
+      // New graph must see final result
+      // ==========================================================
+      newGraph = openGraph();
 
-    newGraph.tx().begin();
-    var foos = newGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", fooValue)
-        .toList();
+      newGraph.tx().begin();
+      var foos = newGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", fooValue)
+          .toList();
 
-    var bars = newGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", barValue)
-        .toList();
+      var bars = newGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", barValue)
+          .toList();
 
-    assertEquals(0, foos.size());
-    assertEquals(1, bars.size()); // 1 updated
-    newGraph.tx().commit();
-
-    newGraph.close();
-    snapshotGraph.close();
-    graph.close();
+      assertEquals(0, foos.size());
+      assertEquals(1, bars.size()); // 1 updated
+      newGraph.tx().commit();
+    } finally {
+      if (newGraph != null)
+        newGraph.close();
+      if (snapshotGraph != null)
+        snapshotGraph.close();
+      graph.close();
+    }
   }
 
   @Test
@@ -119,66 +125,72 @@ public class SnapshotIsolationIndexesUniqueTest {
 
     // create a record with an indexed property value
     var graph = openGraph();
-    graph.tx().begin();
-    var u1 = graph.addV("Userr").property("name", fooValue).property("surname", fooValue).next();
-    var id1 = u1.id();
-    graph.tx().commit();
+    YTDBGraphTraversalSource snapshotGraph = null;
+    YTDBGraphTraversalSource newGraph = null;
+    try {
+      graph.tx().begin();
+      var u1 = graph.addV("Userr").property("name", fooValue).property("surname", fooValue).next();
+      var id1 = u1.id();
+      graph.tx().commit();
 
-    // start repeatable-read snapshot TX
-    var snapshotGraph = openGraph();
+      // start repeatable-read snapshot TX
+      snapshotGraph = openGraph();
 
-    snapshotGraph.tx().begin();
-    var beforeInsert = snapshotGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", fooValue)
-        .toList();
+      snapshotGraph.tx().begin();
+      var beforeInsert = snapshotGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", fooValue)
+          .toList();
 
-    assertEquals(1, beforeInsert.size());
+      assertEquals(1, beforeInsert.size());
 
-    // update Foo -> Bar
-    graph.tx().begin();
-    graph
-        .V(id1)
-        .property("name", barValue)
-        .property("surname", barValue)
-        .iterate();
-    graph.tx().commit();
+      // update Foo -> Bar
+      graph.tx().begin();
+      graph
+          .V(id1)
+          .property("name", barValue)
+          .property("surname", barValue)
+          .iterate();
+      graph.tx().commit();
 
-    var afterInsert = snapshotGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", fooValue)
-        .has("surname", fooValue)
-        .toList();
+      var afterInsert = snapshotGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", fooValue)
+          .has("surname", fooValue)
+          .toList();
 
-    assertEquals(1, afterInsert.size());
-    snapshotGraph.tx().commit();
+      assertEquals(1, afterInsert.size());
+      snapshotGraph.tx().commit();
 
-    // New graph must see final values
-    // ==========================================================
-    var newGraph = openGraph();
+      // New graph must see final values
+      // ==========================================================
+      newGraph = openGraph();
 
-    newGraph.tx().begin();
-    var foos = newGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", fooValue)
-        .toList();
+      newGraph.tx().begin();
+      var foos = newGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", fooValue)
+          .toList();
 
-    var bars = newGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", barValue)
-        .toList();
+      var bars = newGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", barValue)
+          .toList();
 
-    assertEquals(0, foos.size()); // 2 old untouched
-    assertEquals(1, bars.size()); // 1 updated
-    newGraph.tx().commit();
-
-    newGraph.close();
-    snapshotGraph.close();
-    graph.close();
+      assertEquals(0, foos.size()); // 2 old untouched
+      assertEquals(1, bars.size()); // 1 updated
+      newGraph.tx().commit();
+    } finally {
+      if (newGraph != null)
+        newGraph.close();
+      if (snapshotGraph != null)
+        snapshotGraph.close();
+      graph.close();
+    }
   }
 
   @Test
@@ -193,79 +205,85 @@ public class SnapshotIsolationIndexesUniqueTest {
     userSchema.createIndex("IndexPropertyName", INDEX_TYPE.UNIQUE, "name");
 
     var graphBeforeInsert = openGraph();
-    graphBeforeInsert.tx().begin();
-    var beforeInsertFoo = graphBeforeInsert
-        .V()
-        .hasLabel("Userr")
-        .has("name", fooValue)
-        .toList();
+    YTDBGraphTraversalSource graph = null;
+    YTDBGraphTraversalSource newGraph = null;
+    try {
+      graphBeforeInsert.tx().begin();
+      var beforeInsertFoo = graphBeforeInsert
+          .V()
+          .hasLabel("Userr")
+          .has("name", fooValue)
+          .toList();
 
-    assertEquals(0, beforeInsertFoo.size());
+      assertEquals(0, beforeInsertFoo.size());
 
-    // create record
-    var graph = openGraph();
-    graph.tx().begin();
-    var u1 = graph.addV("Userr").property("name", fooValue).next();
-    var id1 = u1.id();
-    graph.tx().commit();
+      // create record
+      graph = openGraph();
+      graph.tx().begin();
+      var u1 = graph.addV("Userr").property("name", fooValue).next();
+      var id1 = u1.id();
+      graph.tx().commit();
 
-    // No values after insert with TX started before
-    beforeInsertFoo = graphBeforeInsert
-        .V()
-        .hasLabel("Userr")
-        .has("name", fooValue)
-        .toList();
+      // No values after insert with TX started before
+      beforeInsertFoo = graphBeforeInsert
+          .V()
+          .hasLabel("Userr")
+          .has("name", fooValue)
+          .toList();
 
-    assertEquals(0, beforeInsertFoo.size());
+      assertEquals(0, beforeInsertFoo.size());
 
-    // Session 1: concurrent modifications
-    graph.tx().begin();
-    // modify one existing Foo → Bar to populate the index snapshot
-    graph
-        .V(id1)
-        .property("name", barValue)
-        .iterate();
-    graph.tx().commit();
+      // Session 1: concurrent modifications
+      graph.tx().begin();
+      // modify one existing Foo → Bar to populate the index snapshot
+      graph
+          .V(id1)
+          .property("name", barValue)
+          .iterate();
+      graph.tx().commit();
 
-    // Session 3: fresh graph must see changes
-    var newGraph = openGraph();
-    newGraph.tx().begin();
-    var foos = newGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", fooValue)
-        .toList();
+      // Session 3: fresh graph must see changes
+      newGraph = openGraph();
+      newGraph.tx().begin();
+      var foos = newGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", fooValue)
+          .toList();
 
-    var bars = newGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", barValue)
-        .toList();
+      var bars = newGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", barValue)
+          .toList();
 
-    assertEquals(0, foos.size());
-    assertEquals(1, bars.size()); // 1 updated
-    newGraph.tx().commit();
+      assertEquals(0, foos.size());
+      assertEquals(1, bars.size()); // 1 updated
+      newGraph.tx().commit();
 
-    // No values after update with TX started before
-    beforeInsertFoo = graphBeforeInsert
-        .V()
-        .hasLabel("Userr")
-        .has("name", fooValue)
-        .toList();
+      // No values after update with TX started before
+      beforeInsertFoo = graphBeforeInsert
+          .V()
+          .hasLabel("Userr")
+          .has("name", fooValue)
+          .toList();
 
-    var beforeInsertBar = graphBeforeInsert
-        .V()
-        .hasLabel("Userr")
-        .has("name", barValue)
-        .toList();
+      var beforeInsertBar = graphBeforeInsert
+          .V()
+          .hasLabel("Userr")
+          .has("name", barValue)
+          .toList();
 
-    assertEquals(0, beforeInsertFoo.size());
-    assertEquals(0, beforeInsertBar.size());
-    graphBeforeInsert.tx().commit();
-
-    graphBeforeInsert.close();
-    graph.close();
-    newGraph.close();
+      assertEquals(0, beforeInsertFoo.size());
+      assertEquals(0, beforeInsertBar.size());
+      graphBeforeInsert.tx().commit();
+    } finally {
+      if (newGraph != null)
+        newGraph.close();
+      if (graph != null)
+        graph.close();
+      graphBeforeInsert.close();
+    }
   }
 
   @Test
@@ -281,92 +299,100 @@ public class SnapshotIsolationIndexesUniqueTest {
 
     // create a record with an indexed property value
     var graph = openGraph();
-    graph.tx().begin();
-    var u1 = graph.addV("Userr").property("name", fooValue).next();
-    var id1 = u1.id();
-    graph.tx().commit();
+    YTDBGraphTraversalSource snapshotGraph = null;
+    YTDBGraphTraversalSource barGraph = null;
+    YTDBGraphTraversalSource newGraph = null;
+    try {
+      graph.tx().begin();
+      var u1 = graph.addV("Userr").property("name", fooValue).next();
+      var id1 = u1.id();
+      graph.tx().commit();
 
-    // start repeatable-read snapshot TX
-    var snapshotGraph = openGraph();
+      // start repeatable-read snapshot TX
+      snapshotGraph = openGraph();
 
-    snapshotGraph.tx().begin();
-    var beforeInsert = snapshotGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", fooValue)
-        .toList();
+      snapshotGraph.tx().begin();
+      var beforeInsert = snapshotGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", fooValue)
+          .toList();
 
-    assertEquals(1, beforeInsert.size());
+      assertEquals(1, beforeInsert.size());
 
-    // update Foo -> Bar
-    graph.tx().begin();
-    graph
-        .V(id1)
-        .property("name", barValue)
-        .iterate();
-    graph.tx().commit();
+      // update Foo -> Bar
+      graph.tx().begin();
+      graph
+          .V(id1)
+          .property("name", barValue)
+          .iterate();
+      graph.tx().commit();
 
-    // start repeatable-read snapshot TX for Bar
-    var barGraph = openGraph();
-    barGraph.tx().begin();
-    var barInsert = barGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", barValue)
-        .toList();
-    assertEquals(1, barInsert.size());
+      // start repeatable-read snapshot TX for Bar
+      barGraph = openGraph();
+      barGraph.tx().begin();
+      var barInsert = barGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", barValue)
+          .toList();
+      assertEquals(1, barInsert.size());
 
-    // update Bar -> Foo
-    graph.tx().begin();
-    graph
-        .V(id1)
-        .property("name", fooValue)
-        .iterate();
-    graph.tx().commit();
+      // update Bar -> Foo
+      graph.tx().begin();
+      graph
+          .V(id1)
+          .property("name", fooValue)
+          .iterate();
+      graph.tx().commit();
 
-    var afterInsert = snapshotGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", fooValue)
-        .toList();
+      var afterInsert = snapshotGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", fooValue)
+          .toList();
 
-    assertEquals(1, afterInsert.size());
-    snapshotGraph.tx().commit();
+      assertEquals(1, afterInsert.size());
+      snapshotGraph.tx().commit();
 
-    // New graph must see final reality
-    // ==========================================================
-    var newGraph = openGraph();
+      // New graph must see final reality
+      // ==========================================================
+      newGraph = openGraph();
 
-    newGraph.tx().begin();
-    var foos = newGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", fooValue)
-        .toList();
+      newGraph.tx().begin();
+      var foos = newGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", fooValue)
+          .toList();
 
-    var bars = newGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", barValue)
-        .toList();
+      var bars = newGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", barValue)
+          .toList();
 
-    assertEquals(1, foos.size());
-    assertEquals(0, bars.size());
-    newGraph.tx().commit();
+      assertEquals(1, foos.size());
+      assertEquals(0, bars.size());
+      newGraph.tx().commit();
 
-    var barRepeatable = barGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", barValue)
-        .toList();
+      var barRepeatable = barGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", barValue)
+          .toList();
 
-    assertEquals(1, barRepeatable.size());
-    barGraph.tx().commit();
-
-    barGraph.close();
-    newGraph.close();
-    snapshotGraph.close();
-    graph.close();
+      assertEquals(1, barRepeatable.size());
+      barGraph.tx().commit();
+    } finally {
+      if (barGraph != null)
+        barGraph.close();
+      if (newGraph != null)
+        newGraph.close();
+      if (snapshotGraph != null)
+        snapshotGraph.close();
+      graph.close();
+    }
   }
 
   /**
@@ -389,54 +415,60 @@ public class SnapshotIsolationIndexesUniqueTest {
     userSchema.createIndex("IndexPropertyName", INDEX_TYPE.UNIQUE, "name");
 
     var graph = openGraph();
-    graph.tx().begin();
-    graph.addV("Userr").property("name", fooValue).next();
-    graph.tx().commit();
+    YTDBGraphTraversalSource snapshotGraph = null;
+    YTDBGraphTraversalSource newGraph = null;
+    try {
+      graph.tx().begin();
+      graph.addV("Userr").property("name", fooValue).next();
+      graph.tx().commit();
 
-    // start repeatable-read snapshot TX
-    var snapshotGraph = openGraph();
-    snapshotGraph.tx().begin();
-    var beforeInsert = snapshotGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", fooValue)
-        .toList();
+      // start repeatable-read snapshot TX
+      snapshotGraph = openGraph();
+      snapshotGraph.tx().begin();
+      var beforeInsert = snapshotGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", fooValue)
+          .toList();
 
-    assertEquals(1, beforeInsert.size());
+      assertEquals(1, beforeInsert.size());
 
-    // insert NEW record with different unique key (phantom candidate)
-    graph.tx().begin();
-    graph.addV("Userr").property("name", "Foo2").next();
-    graph.tx().commit();
+      // insert NEW record with different unique key (phantom candidate)
+      graph.tx().begin();
+      graph.addV("Userr").property("name", "Foo2").next();
+      graph.tx().commit();
 
-    // snapshot must not see the new record
-    var afterInsert = snapshotGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", "Foo2")
-        .toList();
+      // snapshot must not see the new record
+      var afterInsert = snapshotGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", "Foo2")
+          .toList();
 
-    assertEquals(0, afterInsert.size());
+      assertEquals(0, afterInsert.size());
 
-    // snapshot still sees original
-    var fooAfter = snapshotGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", fooValue)
-        .toList();
-    assertEquals(1, fooAfter.size());
-    snapshotGraph.tx().commit();
+      // snapshot still sees original
+      var fooAfter = snapshotGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", fooValue)
+          .toList();
+      assertEquals(1, fooAfter.size());
+      snapshotGraph.tx().commit();
 
-    // Fresh graph sees both via index
-    var newGraph = openGraph();
-    newGraph.tx().begin();
-    assertEquals(1, newGraph.V().hasLabel("Userr").has("name", fooValue).toList().size());
-    assertEquals(1, newGraph.V().hasLabel("Userr").has("name", "Foo2").toList().size());
-    newGraph.tx().commit();
-
-    newGraph.close();
-    snapshotGraph.close();
-    graph.close();
+      // Fresh graph sees both via index
+      newGraph = openGraph();
+      newGraph.tx().begin();
+      assertEquals(1, newGraph.V().hasLabel("Userr").has("name", fooValue).toList().size());
+      assertEquals(1, newGraph.V().hasLabel("Userr").has("name", "Foo2").toList().size());
+      newGraph.tx().commit();
+    } finally {
+      if (newGraph != null)
+        newGraph.close();
+      if (snapshotGraph != null)
+        snapshotGraph.close();
+      graph.close();
+    }
   }
 
   /**
@@ -455,70 +487,76 @@ public class SnapshotIsolationIndexesUniqueTest {
 
     // create records in separate TXs (different versions in the BTree)
     var graph = openGraph();
-    graph.tx().begin();
-    var u1 = graph.addV("Userr").property("name", fooValue).next();
-    var id1 = u1.id();
-    graph.tx().commit();
-    graph.tx().begin();
-    graph.addV("Userr").property("name", "Foo2").next();
-    graph.tx().commit();
+    YTDBGraphTraversalSource snapshotGraph = null;
+    YTDBGraphTraversalSource newGraph = null;
+    try {
+      graph.tx().begin();
+      var u1 = graph.addV("Userr").property("name", fooValue).next();
+      var id1 = u1.id();
+      graph.tx().commit();
+      graph.tx().begin();
+      graph.addV("Userr").property("name", "Foo2").next();
+      graph.tx().commit();
 
-    // start repeatable-read snapshot TX
-    var snapshotGraph = openGraph();
-    snapshotGraph.tx().begin();
-    var beforeUpdate = snapshotGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", fooValue)
-        .toList();
-    assertEquals(1, beforeUpdate.size());
+      // start repeatable-read snapshot TX
+      snapshotGraph = openGraph();
+      snapshotGraph.tx().begin();
+      var beforeUpdate = snapshotGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", fooValue)
+          .toList();
+      assertEquals(1, beforeUpdate.size());
 
-    // update Foo -> Bar
-    graph.tx().begin();
-    graph
-        .V(id1)
-        .property("name", barValue)
-        .iterate();
-    graph.tx().commit();
+      // update Foo -> Bar
+      graph.tx().begin();
+      graph
+          .V(id1)
+          .property("name", barValue)
+          .iterate();
+      graph.tx().commit();
 
-    // snapshot still sees Foo
-    var afterUpdate = snapshotGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", fooValue)
-        .toList();
-    assertEquals(1, afterUpdate.size());
+      // snapshot still sees Foo
+      var afterUpdate = snapshotGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", fooValue)
+          .toList();
+      assertEquals(1, afterUpdate.size());
 
-    // snapshot does not see Bar
-    var barInSnapshot = snapshotGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", barValue)
-        .toList();
-    assertEquals(0, barInSnapshot.size());
-    snapshotGraph.tx().commit();
+      // snapshot does not see Bar
+      var barInSnapshot = snapshotGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", barValue)
+          .toList();
+      assertEquals(0, barInSnapshot.size());
+      snapshotGraph.tx().commit();
 
-    // Fresh graph sees final state
-    var newGraph = openGraph();
-    newGraph.tx().begin();
-    var foos = newGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", fooValue)
-        .toList();
-    var bars = newGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", barValue)
-        .toList();
+      // Fresh graph sees final state
+      newGraph = openGraph();
+      newGraph.tx().begin();
+      var foos = newGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", fooValue)
+          .toList();
+      var bars = newGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", barValue)
+          .toList();
 
-    assertEquals(0, foos.size());
-    assertEquals(1, bars.size());
-    newGraph.tx().commit();
-
-    newGraph.close();
-    snapshotGraph.close();
-    graph.close();
+      assertEquals(0, foos.size());
+      assertEquals(1, bars.size());
+      newGraph.tx().commit();
+    } finally {
+      if (newGraph != null)
+        newGraph.close();
+      if (snapshotGraph != null)
+        snapshotGraph.close();
+      graph.close();
+    }
   }
 
   /**
@@ -542,71 +580,78 @@ public class SnapshotIsolationIndexesUniqueTest {
     userSchema.createIndex("IndexPropertyName", INDEX_TYPE.UNIQUE, "name");
 
     var graph = openGraph();
-    graph.tx().begin();
-    var u1 = graph.addV("Userr").property("name", fooValue).next();
-    var id1 = u1.id();
-    graph.tx().commit();
+    YTDBGraphTraversalSource snapshotGraph = null;
+    YTDBGraphTraversalSource newGraph = null;
+    try {
+      graph.tx().begin();
+      var u1 = graph.addV("Userr").property("name", fooValue).next();
+      var id1 = u1.id();
+      graph.tx().commit();
 
-    // start repeatable-read snapshot TX
-    var snapshotGraph = openGraph();
-    snapshotGraph.tx().begin();
-    var fooBefore = snapshotGraph
-        .V()
-        .has("name", fooValue)
-        .toList();
-    assertEquals(1, fooBefore.size());
+      // start repeatable-read snapshot TX
+      snapshotGraph = openGraph();
+      snapshotGraph.tx().begin();
+      var fooBefore = snapshotGraph
+          .V()
+          .has("name", fooValue)
+          .toList();
+      assertEquals(1, fooBefore.size());
 
-    // Concurrent TX: update Foo→Bar and insert new Foo2
-    graph.tx().begin();
-    graph
-        .V(id1)
-        .property("name", barValue)
-        .iterate();
-    graph.addV("Userr").property("name", "Foo2").next();
-    graph.tx().commit();
+      // Concurrent TX: update Foo→Bar and insert new Foo2
+      graph.tx().begin();
+      graph
+          .V(id1)
+          .property("name", barValue)
+          .iterate();
+      graph.addV("Userr").property("name", "Foo2").next();
+      graph.tx().commit();
 
-    // snapshot must NOT see changes
-    var fooAfter = snapshotGraph
-        .V()
-        .has("name", fooValue)
-        .toList();
-    var barAfter = snapshotGraph
-        .V()
-        .has("name", barValue)
-        .toList();
-    var foo2After = snapshotGraph
-        .V()
-        .has("name", "Foo2")
-        .toList();
+      // snapshot must NOT see changes
+      var fooAfter = snapshotGraph
+          .V()
+          .has("name", fooValue)
+          .toList();
+      var barAfter = snapshotGraph
+          .V()
+          .has("name", barValue)
+          .toList();
+      var foo2After = snapshotGraph
+          .V()
+          .has("name", "Foo2")
+          .toList();
 
-    assertEquals(1, fooAfter.size());
-    assertEquals(0, barAfter.size());
-    assertEquals(0, foo2After.size());
-    snapshotGraph.tx().commit();
+      assertEquals(1, fooAfter.size());
+      assertEquals(0, barAfter.size());
+      assertEquals(0, foo2After.size());
+      snapshotGraph.tx().commit();
 
-    // Fresh graph sees final reality
-    var newGraph = openGraph();
-    newGraph.tx().begin();
-    var foos = newGraph
-        .V()
-        .has("name", fooValue)
-        .toList();
-    var bars = newGraph
-        .V()
-        .has("name", barValue)
-        .toList();
-    var foo2s = newGraph
-        .V()
-        .has("name", "Foo2")
-        .toList();
+      // Fresh graph sees final reality
+      newGraph = openGraph();
+      newGraph.tx().begin();
+      var foos = newGraph
+          .V()
+          .has("name", fooValue)
+          .toList();
+      var bars = newGraph
+          .V()
+          .has("name", barValue)
+          .toList();
+      var foo2s = newGraph
+          .V()
+          .has("name", "Foo2")
+          .toList();
 
-    assertEquals(0, foos.size());
-    assertEquals(1, bars.size());
-    assertEquals(1, foo2s.size());
-    newGraph.tx().commit();
-
-    graph.close();
-    newGraph.close();
+      assertEquals(0, foos.size());
+      assertEquals(1, bars.size());
+      assertEquals(1, foo2s.size());
+      newGraph.tx().commit();
+    } finally {
+      if (newGraph != null)
+        newGraph.close();
+      if (snapshotGraph != null)
+        snapshotGraph.close();
+      graph.close();
+    }
   }
 
   /**
@@ -634,89 +679,96 @@ public class SnapshotIsolationIndexesUniqueTest {
     userSchema.createIndex("IndexPropertyName", INDEX_TYPE.UNIQUE, "name");
 
     var graph = openGraph();
-    graph.tx().begin();
-    var u1 = graph.addV("Userr").property("name", fooValue).next();
-    var id1 = u1.id();
-    graph.tx().commit();
+    YTDBGraphTraversalSource snapshotGraph = null;
+    YTDBGraphTraversalSource newGraph = null;
+    try {
+      graph.tx().begin();
+      var u1 = graph.addV("Userr").property("name", fooValue).next();
+      var id1 = u1.id();
+      graph.tx().commit();
 
-    // start repeatable-read snapshot
-    var snapshotGraph = openGraph();
-    snapshotGraph.tx().begin();
-    var fooBefore = snapshotGraph
-        .V()
-        .has("name", fooValue)
-        .toList();
-    assertEquals(1, fooBefore.size());
+      // start repeatable-read snapshot
+      snapshotGraph = openGraph();
+      snapshotGraph.tx().begin();
+      var fooBefore = snapshotGraph
+          .V()
+          .has("name", fooValue)
+          .toList();
+      assertEquals(1, fooBefore.size());
 
-    // TX1: Foo → Bar
-    graph.tx().begin();
-    graph.V(id1).property("name", barValue).iterate();
-    graph.tx().commit();
+      // TX1: Foo → Bar
+      graph.tx().begin();
+      graph.V(id1).property("name", barValue).iterate();
+      graph.tx().commit();
 
-    // TX2: Bar → Foo
-    graph.tx().begin();
-    graph.V(id1).property("name", fooValue).iterate();
-    graph.tx().commit();
+      // TX2: Bar → Foo
+      graph.tx().begin();
+      graph.V(id1).property("name", fooValue).iterate();
+      graph.tx().commit();
 
-    // TX3: Foo → Bar
-    graph.tx().begin();
-    graph.V(id1).property("name", barValue).iterate();
-    graph.tx().commit();
+      // TX3: Foo → Bar
+      graph.tx().begin();
+      graph.V(id1).property("name", barValue).iterate();
+      graph.tx().commit();
 
-    // snapshot must NOT see changes
-    var fooAfter = snapshotGraph
-        .V()
-        .has("name", fooValue)
-        .toList();
-    var barAfter = snapshotGraph
-        .V()
-        .has("name", barValue)
-        .toList();
+      // snapshot must NOT see changes
+      var fooAfter = snapshotGraph
+          .V()
+          .has("name", fooValue)
+          .toList();
+      var barAfter = snapshotGraph
+          .V()
+          .has("name", barValue)
+          .toList();
 
-    assertEquals(1, fooAfter.size());
-    assertEquals(0, barAfter.size());
-    snapshotGraph.tx().commit();
+      assertEquals(1, fooAfter.size());
+      assertEquals(0, barAfter.size());
+      snapshotGraph.tx().commit();
 
-    // Fresh graph sees final state: Bar
-    var newGraph = openGraph();
-    newGraph.tx().begin();
-    var foos = newGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", fooValue)
-        .toList();
-    var bars = newGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", barValue)
-        .toList();
+      // Fresh graph sees final state: Bar
+      newGraph = openGraph();
+      newGraph.tx().begin();
+      var foos = newGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", fooValue)
+          .toList();
+      var bars = newGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", barValue)
+          .toList();
 
-    assertEquals(0, foos.size());
-    assertEquals(1, bars.size());
+      assertEquals(0, foos.size());
+      assertEquals(1, bars.size());
 
-    // TX4: Bar → Foo
-    graph.tx().begin();
-    graph.V(id1).property("name", fooValue).iterate();
-    graph.tx().commit();
+      // TX4: Bar → Foo
+      graph.tx().begin();
+      graph.V(id1).property("name", fooValue).iterate();
+      graph.tx().commit();
 
-    // newGraph repeatable read: still sees Bar
-    var foosRep = newGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", fooValue)
-        .toList();
-    var barsRep = newGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", barValue)
-        .toList();
+      // newGraph repeatable read: still sees Bar
+      var foosRep = newGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", fooValue)
+          .toList();
+      var barsRep = newGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", barValue)
+          .toList();
 
-    assertEquals(0, foosRep.size());
-    assertEquals(1, barsRep.size());
-    newGraph.tx().commit();
-
-    graph.close();
-    newGraph.close();
+      assertEquals(0, foosRep.size());
+      assertEquals(1, barsRep.size());
+      newGraph.tx().commit();
+    } finally {
+      if (newGraph != null)
+        newGraph.close();
+      if (snapshotGraph != null)
+        snapshotGraph.close();
+      graph.close();
+    }
   }
 
   /**
@@ -739,48 +791,54 @@ public class SnapshotIsolationIndexesUniqueTest {
     userSchema.createIndex("IndexPropertyName", INDEX_TYPE.UNIQUE, "name");
 
     var graph = openGraph();
-    graph.tx().begin();
-    var u1 = graph.addV("Userr").property("name", fooValue).next();
-    var id1 = u1.id();
-    graph.tx().commit();
+    YTDBGraphTraversalSource snapshotGraph = null;
+    YTDBGraphTraversalSource newGraph = null;
+    try {
+      graph.tx().begin();
+      var u1 = graph.addV("Userr").property("name", fooValue).next();
+      var id1 = u1.id();
+      graph.tx().commit();
 
-    var snapshotGraph = openGraph();
-    snapshotGraph.tx().begin();
-    var before = snapshotGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", fooValue)
-        .toList();
-    assertEquals(1, before.size());
+      snapshotGraph = openGraph();
+      snapshotGraph.tx().begin();
+      var before = snapshotGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", fooValue)
+          .toList();
+      assertEquals(1, before.size());
 
-    // delete in concurrent TX
-    graph.tx().begin();
-    graph.V(id1).drop().iterate();
-    graph.tx().commit();
+      // delete in concurrent TX
+      graph.tx().begin();
+      graph.V(id1).drop().iterate();
+      graph.tx().commit();
 
-    // snapshot still sees it
-    var after = snapshotGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", fooValue)
-        .toList();
-    assertEquals(1, after.size());
-    snapshotGraph.tx().commit();
+      // snapshot still sees it
+      var after = snapshotGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", fooValue)
+          .toList();
+      assertEquals(1, after.size());
+      snapshotGraph.tx().commit();
 
-    // fresh sees 0
-    var newGraph = openGraph();
-    newGraph.tx().begin();
-    var foos = newGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", fooValue)
-        .toList();
-    assertEquals(0, foos.size());
-    newGraph.tx().commit();
-
-    newGraph.close();
-    snapshotGraph.close();
-    graph.close();
+      // fresh sees 0
+      newGraph = openGraph();
+      newGraph.tx().begin();
+      var foos = newGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", fooValue)
+          .toList();
+      assertEquals(0, foos.size());
+      newGraph.tx().commit();
+    } finally {
+      if (newGraph != null)
+        newGraph.close();
+      if (snapshotGraph != null)
+        snapshotGraph.close();
+      graph.close();
+    }
   }
 
   /**
@@ -801,36 +859,42 @@ public class SnapshotIsolationIndexesUniqueTest {
     userSchema.createIndex("IndexPropertyName", INDEX_TYPE.UNIQUE, "name");
 
     var graph = openGraph();
-    graph.tx().begin();
-    graph.addV("Userr").property("name", "Foo").next();
-    graph.addV("Userr").property("name", "Bar").next();
-    graph.tx().commit();
+    YTDBGraphTraversalSource snapshotGraph = null;
+    YTDBGraphTraversalSource newGraph = null;
+    try {
+      graph.tx().begin();
+      graph.addV("Userr").property("name", "Foo").next();
+      graph.addV("Userr").property("name", "Bar").next();
+      graph.tx().commit();
 
-    var snapshotGraph = openGraph();
-    snapshotGraph.tx().begin();
-    assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", "Foo").toList().size());
-    assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", "Bar").toList().size());
+      snapshotGraph = openGraph();
+      snapshotGraph.tx().begin();
+      assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", "Foo").toList().size());
+      assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", "Bar").toList().size());
 
-    // delete all in concurrent TX
-    graph.tx().begin();
-    graph.V().hasLabel("Userr").drop().iterate();
-    graph.tx().commit();
+      // delete all in concurrent TX
+      graph.tx().begin();
+      graph.V().hasLabel("Userr").drop().iterate();
+      graph.tx().commit();
 
-    // snapshot still sees both via index
-    assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", "Foo").toList().size());
-    assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", "Bar").toList().size());
-    snapshotGraph.tx().commit();
+      // snapshot still sees both via index
+      assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", "Foo").toList().size());
+      assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", "Bar").toList().size());
+      snapshotGraph.tx().commit();
 
-    // fresh sees 0
-    var newGraph = openGraph();
-    newGraph.tx().begin();
-    assertEquals(0, newGraph.V().hasLabel("Userr").has("name", "Foo").toList().size());
-    assertEquals(0, newGraph.V().hasLabel("Userr").has("name", "Bar").toList().size());
-    newGraph.tx().commit();
-
-    newGraph.close();
-    snapshotGraph.close();
-    graph.close();
+      // fresh sees 0
+      newGraph = openGraph();
+      newGraph.tx().begin();
+      assertEquals(0, newGraph.V().hasLabel("Userr").has("name", "Foo").toList().size());
+      assertEquals(0, newGraph.V().hasLabel("Userr").has("name", "Bar").toList().size());
+      newGraph.tx().commit();
+    } finally {
+      if (newGraph != null)
+        newGraph.close();
+      if (snapshotGraph != null)
+        snapshotGraph.close();
+      graph.close();
+    }
   }
 
   /**
@@ -851,51 +915,57 @@ public class SnapshotIsolationIndexesUniqueTest {
     userSchema.createIndex("IndexPropertyName", INDEX_TYPE.UNIQUE, "name");
 
     var graph = openGraph();
-    graph.tx().begin();
-    var u1 = graph.addV("Userr").property("name", "Foo").next();
-    var id1 = u1.id();
-    graph.tx().commit();
+    YTDBGraphTraversalSource snapshotGraph = null;
+    YTDBGraphTraversalSource newGraph = null;
+    try {
+      graph.tx().begin();
+      var u1 = graph.addV("Userr").property("name", "Foo").next();
+      var id1 = u1.id();
+      graph.tx().commit();
 
-    var snapshotGraph = openGraph();
-    snapshotGraph.tx().begin();
-    var before = snapshotGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", "Foo")
-        .toList();
-    assertEquals(1, before.size());
+      snapshotGraph = openGraph();
+      snapshotGraph.tx().begin();
+      var before = snapshotGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", "Foo")
+          .toList();
+      assertEquals(1, before.size());
 
-    // delete Foo, insert Bar
-    graph.tx().begin();
-    graph.V(id1).drop().iterate();
-    graph.addV("Userr").property("name", "Bar").next();
-    graph.tx().commit();
+      // delete Foo, insert Bar
+      graph.tx().begin();
+      graph.V(id1).drop().iterate();
+      graph.addV("Userr").property("name", "Bar").next();
+      graph.tx().commit();
 
-    // snapshot sees original Foo, not Bar
-    var fooAfter = snapshotGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", "Foo")
-        .toList();
-    var barAfter = snapshotGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", "Bar")
-        .toList();
-    assertEquals(1, fooAfter.size());
-    assertEquals(0, barAfter.size());
-    snapshotGraph.tx().commit();
+      // snapshot sees original Foo, not Bar
+      var fooAfter = snapshotGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", "Foo")
+          .toList();
+      var barAfter = snapshotGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", "Bar")
+          .toList();
+      assertEquals(1, fooAfter.size());
+      assertEquals(0, barAfter.size());
+      snapshotGraph.tx().commit();
 
-    // fresh sees Bar only
-    var newGraph = openGraph();
-    newGraph.tx().begin();
-    assertEquals(0, newGraph.V().hasLabel("Userr").has("name", "Foo").toList().size());
-    assertEquals(1, newGraph.V().hasLabel("Userr").has("name", "Bar").toList().size());
-    newGraph.tx().commit();
-
-    newGraph.close();
-    snapshotGraph.close();
-    graph.close();
+      // fresh sees Bar only
+      newGraph = openGraph();
+      newGraph.tx().begin();
+      assertEquals(0, newGraph.V().hasLabel("Userr").has("name", "Foo").toList().size());
+      assertEquals(1, newGraph.V().hasLabel("Userr").has("name", "Bar").toList().size());
+      newGraph.tx().commit();
+    } finally {
+      if (newGraph != null)
+        newGraph.close();
+      if (snapshotGraph != null)
+        snapshotGraph.close();
+      graph.close();
+    }
   }
 
   /**
@@ -916,41 +986,47 @@ public class SnapshotIsolationIndexesUniqueTest {
     userSchema.createIndex("IndexPropertyName", INDEX_TYPE.UNIQUE, "name");
 
     var graph = openGraph();
-    graph.tx().begin();
-    var u1 = graph.addV("Userr").property("name", "Foo").next();
-    var u2 = graph.addV("Userr").property("name", "Bar").next();
-    var id1 = u1.id();
-    var id2 = u2.id();
-    graph.tx().commit();
+    YTDBGraphTraversalSource snapshotGraph = null;
+    YTDBGraphTraversalSource newGraph = null;
+    try {
+      graph.tx().begin();
+      var u1 = graph.addV("Userr").property("name", "Foo").next();
+      var u2 = graph.addV("Userr").property("name", "Bar").next();
+      var id1 = u1.id();
+      var id2 = u2.id();
+      graph.tx().commit();
 
-    var snapshotGraph = openGraph();
-    snapshotGraph.tx().begin();
-    assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", "Foo").toList().size());
-    assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", "Bar").toList().size());
+      snapshotGraph = openGraph();
+      snapshotGraph.tx().begin();
+      assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", "Foo").toList().size());
+      assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", "Bar").toList().size());
 
-    // update Foo→Baz, delete Bar
-    graph.tx().begin();
-    graph.V(id1).property("name", "Baz").iterate();
-    graph.V(id2).drop().iterate();
-    graph.tx().commit();
+      // update Foo→Baz, delete Bar
+      graph.tx().begin();
+      graph.V(id1).property("name", "Baz").iterate();
+      graph.V(id2).drop().iterate();
+      graph.tx().commit();
 
-    // snapshot still sees original
-    assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", "Foo").toList().size());
-    assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", "Bar").toList().size());
-    assertEquals(0, snapshotGraph.V().hasLabel("Userr").has("name", "Baz").toList().size());
-    snapshotGraph.tx().commit();
+      // snapshot still sees original
+      assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", "Foo").toList().size());
+      assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", "Bar").toList().size());
+      assertEquals(0, snapshotGraph.V().hasLabel("Userr").has("name", "Baz").toList().size());
+      snapshotGraph.tx().commit();
 
-    // fresh sees final state
-    var newGraph = openGraph();
-    newGraph.tx().begin();
-    assertEquals(0, newGraph.V().hasLabel("Userr").has("name", "Foo").toList().size());
-    assertEquals(0, newGraph.V().hasLabel("Userr").has("name", "Bar").toList().size());
-    assertEquals(1, newGraph.V().hasLabel("Userr").has("name", "Baz").toList().size());
-    newGraph.tx().commit();
-
-    newGraph.close();
-    snapshotGraph.close();
-    graph.close();
+      // fresh sees final state
+      newGraph = openGraph();
+      newGraph.tx().begin();
+      assertEquals(0, newGraph.V().hasLabel("Userr").has("name", "Foo").toList().size());
+      assertEquals(0, newGraph.V().hasLabel("Userr").has("name", "Bar").toList().size());
+      assertEquals(1, newGraph.V().hasLabel("Userr").has("name", "Baz").toList().size());
+      newGraph.tx().commit();
+    } finally {
+      if (newGraph != null)
+        newGraph.close();
+      if (snapshotGraph != null)
+        snapshotGraph.close();
+      graph.close();
+    }
   }
 
   /**
@@ -972,50 +1048,56 @@ public class SnapshotIsolationIndexesUniqueTest {
     userSchema.createIndex("IndexPropertyName", INDEX_TYPE.UNIQUE, "name");
 
     var graph = openGraph();
-    graph.tx().begin();
-    var u1 = graph.addV("Userr").property("name", "Foo").next();
-    var u2 = graph.addV("Userr").property("name", "Bar").next();
-    var id1 = u1.id();
-    var id2 = u2.id();
-    graph.tx().commit();
+    YTDBGraphTraversalSource snapshotGraph = null;
+    YTDBGraphTraversalSource newGraph = null;
+    try {
+      graph.tx().begin();
+      var u1 = graph.addV("Userr").property("name", "Foo").next();
+      var u2 = graph.addV("Userr").property("name", "Bar").next();
+      var id1 = u1.id();
+      var id2 = u2.id();
+      graph.tx().commit();
 
-    var snapshotGraph = openGraph();
-    snapshotGraph.tx().begin();
-    assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", "Foo").toList().size());
-    assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", "Bar").toList().size());
+      snapshotGraph = openGraph();
+      snapshotGraph.tx().begin();
+      assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", "Foo").toList().size());
+      assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", "Bar").toList().size());
 
-    // TX1: Foo→Baz
-    graph.tx().begin();
-    graph.V(id1).property("name", "Baz").iterate();
-    graph.tx().commit();
+      // TX1: Foo→Baz
+      graph.tx().begin();
+      graph.V(id1).property("name", "Baz").iterate();
+      graph.tx().commit();
 
-    // TX2: Bar→Qux, insert New
-    graph.tx().begin();
-    graph.V(id2).property("name", "Qux").iterate();
-    graph.addV("Userr").property("name", "New").next();
-    graph.tx().commit();
+      // TX2: Bar→Qux, insert New
+      graph.tx().begin();
+      graph.V(id2).property("name", "Qux").iterate();
+      graph.addV("Userr").property("name", "New").next();
+      graph.tx().commit();
 
-    // snapshot sees none of the changes
-    assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", "Foo").toList().size());
-    assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", "Bar").toList().size());
-    assertEquals(0, snapshotGraph.V().hasLabel("Userr").has("name", "Baz").toList().size());
-    assertEquals(0, snapshotGraph.V().hasLabel("Userr").has("name", "Qux").toList().size());
-    assertEquals(0, snapshotGraph.V().hasLabel("Userr").has("name", "New").toList().size());
-    snapshotGraph.tx().commit();
+      // snapshot sees none of the changes
+      assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", "Foo").toList().size());
+      assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", "Bar").toList().size());
+      assertEquals(0, snapshotGraph.V().hasLabel("Userr").has("name", "Baz").toList().size());
+      assertEquals(0, snapshotGraph.V().hasLabel("Userr").has("name", "Qux").toList().size());
+      assertEquals(0, snapshotGraph.V().hasLabel("Userr").has("name", "New").toList().size());
+      snapshotGraph.tx().commit();
 
-    // fresh sees final state
-    var newGraph = openGraph();
-    newGraph.tx().begin();
-    assertEquals(0, newGraph.V().hasLabel("Userr").has("name", "Foo").toList().size());
-    assertEquals(0, newGraph.V().hasLabel("Userr").has("name", "Bar").toList().size());
-    assertEquals(1, newGraph.V().hasLabel("Userr").has("name", "Baz").toList().size());
-    assertEquals(1, newGraph.V().hasLabel("Userr").has("name", "Qux").toList().size());
-    assertEquals(1, newGraph.V().hasLabel("Userr").has("name", "New").toList().size());
-    newGraph.tx().commit();
-
-    newGraph.close();
-    snapshotGraph.close();
-    graph.close();
+      // fresh sees final state
+      newGraph = openGraph();
+      newGraph.tx().begin();
+      assertEquals(0, newGraph.V().hasLabel("Userr").has("name", "Foo").toList().size());
+      assertEquals(0, newGraph.V().hasLabel("Userr").has("name", "Bar").toList().size());
+      assertEquals(1, newGraph.V().hasLabel("Userr").has("name", "Baz").toList().size());
+      assertEquals(1, newGraph.V().hasLabel("Userr").has("name", "Qux").toList().size());
+      assertEquals(1, newGraph.V().hasLabel("Userr").has("name", "New").toList().size());
+      newGraph.tx().commit();
+    } finally {
+      if (newGraph != null)
+        newGraph.close();
+      if (snapshotGraph != null)
+        snapshotGraph.close();
+      graph.close();
+    }
   }
 
   /**
@@ -1036,49 +1118,55 @@ public class SnapshotIsolationIndexesUniqueTest {
     userSchema.createIndex("IndexPropertyName", INDEX_TYPE.UNIQUE, "name");
 
     var graph = openGraph();
-    graph.tx().begin();
-    var u1 = graph.addV("Userr").property("name", "Foo").next();
-    var id1 = u1.id();
-    graph.tx().commit();
+    YTDBGraphTraversalSource snapshotGraph = null;
+    YTDBGraphTraversalSource newGraph = null;
+    try {
+      graph.tx().begin();
+      var u1 = graph.addV("Userr").property("name", "Foo").next();
+      var id1 = u1.id();
+      graph.tx().commit();
 
-    var snapshotGraph = openGraph();
-    snapshotGraph.tx().begin();
-    var before = snapshotGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", "Foo")
-        .toList();
-    assertEquals(1, before.size());
+      snapshotGraph = openGraph();
+      snapshotGraph.tx().begin();
+      var before = snapshotGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", "Foo")
+          .toList();
+      assertEquals(1, before.size());
 
-    // delete and reinsert with same key
-    graph.tx().begin();
-    graph.V(id1).drop().iterate();
-    graph.addV("Userr").property("name", "Foo").next();
-    graph.tx().commit();
+      // delete and reinsert with same key
+      graph.tx().begin();
+      graph.V(id1).drop().iterate();
+      graph.addV("Userr").property("name", "Foo").next();
+      graph.tx().commit();
 
-    // snapshot still sees 1
-    var after = snapshotGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", "Foo")
-        .toList();
-    assertEquals(1, after.size());
-    snapshotGraph.tx().commit();
+      // snapshot still sees 1
+      var after = snapshotGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", "Foo")
+          .toList();
+      assertEquals(1, after.size());
+      snapshotGraph.tx().commit();
 
-    // fresh also sees 1 (the new one)
-    var newGraph = openGraph();
-    newGraph.tx().begin();
-    var foos = newGraph
-        .V()
-        .hasLabel("Userr")
-        .has("name", "Foo")
-        .toList();
-    assertEquals(1, foos.size());
-    newGraph.tx().commit();
-
-    newGraph.close();
-    snapshotGraph.close();
-    graph.close();
+      // fresh also sees 1 (the new one)
+      newGraph = openGraph();
+      newGraph.tx().begin();
+      var foos = newGraph
+          .V()
+          .hasLabel("Userr")
+          .has("name", "Foo")
+          .toList();
+      assertEquals(1, foos.size());
+      newGraph.tx().commit();
+    } finally {
+      if (newGraph != null)
+        newGraph.close();
+      if (snapshotGraph != null)
+        snapshotGraph.close();
+      graph.close();
+    }
   }
 
   /**
@@ -1099,39 +1187,45 @@ public class SnapshotIsolationIndexesUniqueTest {
     userSchema.createIndex("IndexPropertyName", INDEX_TYPE.UNIQUE, "name");
 
     var graph = openGraph();
-    graph.tx().begin();
-    graph.addV("Userr").property("name", "Foo").next();
-    graph.tx().commit();
+    YTDBGraphTraversalSource snapshotGraph = null;
+    YTDBGraphTraversalSource newGraph = null;
+    try {
+      graph.tx().begin();
+      graph.addV("Userr").property("name", "Foo").next();
+      graph.tx().commit();
 
-    var snapshotGraph = openGraph();
-    snapshotGraph.tx().begin();
-    assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", "Foo").toList().size());
+      snapshotGraph = openGraph();
+      snapshotGraph.tx().begin();
+      assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", "Foo").toList().size());
 
-    // snapshot inserts its own Bar
-    snapshotGraph.addV("Userr").property("name", "Bar").next();
+      // snapshot inserts its own Bar
+      snapshotGraph.addV("Userr").property("name", "Bar").next();
 
-    // concurrent TX inserts Baz
-    graph.tx().begin();
-    graph.addV("Userr").property("name", "Baz").next();
-    graph.tx().commit();
+      // concurrent TX inserts Baz
+      graph.tx().begin();
+      graph.addV("Userr").property("name", "Baz").next();
+      graph.tx().commit();
 
-    // snapshot sees Foo (1), own Bar (1), not external Baz (0)
-    assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", "Foo").toList().size());
-    assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", "Bar").toList().size());
-    assertEquals(0, snapshotGraph.V().hasLabel("Userr").has("name", "Baz").toList().size());
-    snapshotGraph.tx().commit();
+      // snapshot sees Foo (1), own Bar (1), not external Baz (0)
+      assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", "Foo").toList().size());
+      assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", "Bar").toList().size());
+      assertEquals(0, snapshotGraph.V().hasLabel("Userr").has("name", "Baz").toList().size());
+      snapshotGraph.tx().commit();
 
-    // fresh sees all 3
-    var newGraph = openGraph();
-    newGraph.tx().begin();
-    assertEquals(1, newGraph.V().hasLabel("Userr").has("name", "Foo").toList().size());
-    assertEquals(1, newGraph.V().hasLabel("Userr").has("name", "Bar").toList().size());
-    assertEquals(1, newGraph.V().hasLabel("Userr").has("name", "Baz").toList().size());
-    newGraph.tx().commit();
-
-    newGraph.close();
-    snapshotGraph.close();
-    graph.close();
+      // fresh sees all 3
+      newGraph = openGraph();
+      newGraph.tx().begin();
+      assertEquals(1, newGraph.V().hasLabel("Userr").has("name", "Foo").toList().size());
+      assertEquals(1, newGraph.V().hasLabel("Userr").has("name", "Bar").toList().size());
+      assertEquals(1, newGraph.V().hasLabel("Userr").has("name", "Baz").toList().size());
+      newGraph.tx().commit();
+    } finally {
+      if (newGraph != null)
+        newGraph.close();
+      if (snapshotGraph != null)
+        snapshotGraph.close();
+      graph.close();
+    }
   }
 
   /**
@@ -1152,37 +1246,43 @@ public class SnapshotIsolationIndexesUniqueTest {
     userSchema.createIndex("IndexPropertyName", INDEX_TYPE.UNIQUE, "name");
 
     var graph = openGraph();
-    graph.tx().begin();
-    var u1 = graph.addV("Userr").property("name", "Foo").next();
-    var id1 = u1.id();
-    graph.tx().commit();
+    YTDBGraphTraversalSource snapshot1 = null;
+    YTDBGraphTraversalSource snapshot2 = null;
+    try {
+      graph.tx().begin();
+      var u1 = graph.addV("Userr").property("name", "Foo").next();
+      var id1 = u1.id();
+      graph.tx().commit();
 
-    // Snapshot1
-    var snapshot1 = openGraph();
-    snapshot1.tx().begin();
-    assertEquals(1, snapshot1.V().hasLabel("Userr").has("name", "Foo").toList().size());
+      // Snapshot1
+      snapshot1 = openGraph();
+      snapshot1.tx().begin();
+      assertEquals(1, snapshot1.V().hasLabel("Userr").has("name", "Foo").toList().size());
 
-    // Concurrent: Foo→Bar
-    graph.tx().begin();
-    graph.V(id1).property("name", "Bar").iterate();
-    graph.tx().commit();
+      // Concurrent: Foo→Bar
+      graph.tx().begin();
+      graph.V(id1).property("name", "Bar").iterate();
+      graph.tx().commit();
 
-    // Snapshot2 (started after update)
-    var snapshot2 = openGraph();
-    snapshot2.tx().begin();
-    assertEquals(0, snapshot2.V().hasLabel("Userr").has("name", "Foo").toList().size());
-    assertEquals(1, snapshot2.V().hasLabel("Userr").has("name", "Bar").toList().size());
+      // Snapshot2 (started after update)
+      snapshot2 = openGraph();
+      snapshot2.tx().begin();
+      assertEquals(0, snapshot2.V().hasLabel("Userr").has("name", "Foo").toList().size());
+      assertEquals(1, snapshot2.V().hasLabel("Userr").has("name", "Bar").toList().size());
 
-    // Snapshot1 still sees original
-    assertEquals(1, snapshot1.V().hasLabel("Userr").has("name", "Foo").toList().size());
-    assertEquals(0, snapshot1.V().hasLabel("Userr").has("name", "Bar").toList().size());
+      // Snapshot1 still sees original
+      assertEquals(1, snapshot1.V().hasLabel("Userr").has("name", "Foo").toList().size());
+      assertEquals(0, snapshot1.V().hasLabel("Userr").has("name", "Bar").toList().size());
 
-    snapshot1.tx().commit();
-    snapshot2.tx().commit();
-
-    snapshot1.close();
-    snapshot2.close();
-    graph.close();
+      snapshot1.tx().commit();
+      snapshot2.tx().commit();
+    } finally {
+      if (snapshot2 != null)
+        snapshot2.close();
+      if (snapshot1 != null)
+        snapshot1.close();
+      graph.close();
+    }
   }
 
   /**
@@ -1205,32 +1305,36 @@ public class SnapshotIsolationIndexesUniqueTest {
 
     // TX1: create vertex with name="Foo"
     var graph = openGraph();
-    graph.tx().begin();
-    var u1 = graph.addV("Userr").property("name", "Foo").next();
-    var id1 = u1.id();
-    graph.tx().commit();
+    YTDBGraphTraversalSource newGraph = null;
+    try {
+      graph.tx().begin();
+      var u1 = graph.addV("Userr").property("name", "Foo").next();
+      var id1 = u1.id();
+      graph.tx().commit();
 
-    // TX2: delete the vertex → TombstoneRID in the index for key "Foo"
-    graph.tx().begin();
-    graph.V(id1).drop().iterate();
-    graph.tx().commit();
+      // TX2: delete the vertex → TombstoneRID in the index for key "Foo"
+      graph.tx().begin();
+      graph.V(id1).drop().iterate();
+      graph.tx().commit();
 
-    // TX3: insert a NEW vertex with the same key "Foo"
-    // The index entry is a TombstoneRID → logically deleted → key is free
-    // This should NOT throw RecordDuplicatedException
-    graph.tx().begin();
-    graph.addV("Userr").property("name", "Foo").next();
-    graph.tx().commit();
+      // TX3: insert a NEW vertex with the same key "Foo"
+      // The index entry is a TombstoneRID → logically deleted → key is free
+      // This should NOT throw RecordDuplicatedException
+      graph.tx().begin();
+      graph.addV("Userr").property("name", "Foo").next();
+      graph.tx().commit();
 
-    // Verify: fresh graph sees exactly 1 record with name="Foo"
-    var newGraph = openGraph();
-    newGraph.tx().begin();
-    var foos = newGraph.V().hasLabel("Userr").has("name", "Foo").toList();
-    assertEquals(1, foos.size());
-    newGraph.tx().commit();
-
-    newGraph.close();
-    graph.close();
+      // Verify: fresh graph sees exactly 1 record with name="Foo"
+      newGraph = openGraph();
+      newGraph.tx().begin();
+      var foos = newGraph.V().hasLabel("Userr").has("name", "Foo").toList();
+      assertEquals(1, foos.size());
+      newGraph.tx().commit();
+    } finally {
+      if (newGraph != null)
+        newGraph.close();
+      graph.close();
+    }
   }
 
   /**
@@ -1255,46 +1359,50 @@ public class SnapshotIsolationIndexesUniqueTest {
 
     // TX1: create vertex with name="Foo"
     var graph = openGraph();
-    graph.tx().begin();
-    var u1 = graph.addV("Userr").property("name", "Foo").next();
-    var id1 = u1.id();
-    graph.tx().commit();
-
-    // TX2: update Foo → Bar
-    // Index: remove("Foo") → TombstoneRID, put("Bar") → live
-    graph.tx().begin();
-    graph.V(id1).property("name", "Bar").iterate();
-    graph.tx().commit();
-
-    // TX3: update Bar → Foo
-    // Index: remove("Bar") → TombstoneRID, put("Foo") → SnapshotMarkerRID
-    // because the previous "Foo" entry was a TombstoneRID (re-insert)
-    graph.tx().begin();
-    graph.V(id1).property("name", "Foo").iterate();
-    graph.tx().commit();
-
-    // TX4: insert a NEW vertex with the same key "Foo"
-    // The index entry is a SnapshotMarkerRID → logically alive → key is
-    // occupied. This MUST throw RecordDuplicatedException.
+    YTDBGraphTraversalSource newGraph = null;
     try {
       graph.tx().begin();
-      graph.addV("Userr").property("name", "Foo").next();
+      var u1 = graph.addV("Userr").property("name", "Foo").next();
+      var id1 = u1.id();
       graph.tx().commit();
-      fail("Expected RecordDuplicatedException: key 'Foo' is occupied "
-          + "by a live SnapshotMarkerRID entry");
-    } catch (RecordDuplicatedException e) {
-      // expected — the key is occupied
+
+      // TX2: update Foo → Bar
+      // Index: remove("Foo") → TombstoneRID, put("Bar") → live
+      graph.tx().begin();
+      graph.V(id1).property("name", "Bar").iterate();
+      graph.tx().commit();
+
+      // TX3: update Bar → Foo
+      // Index: remove("Bar") → TombstoneRID, put("Foo") → SnapshotMarkerRID
+      // because the previous "Foo" entry was a TombstoneRID (re-insert)
+      graph.tx().begin();
+      graph.V(id1).property("name", "Foo").iterate();
+      graph.tx().commit();
+
+      // TX4: insert a NEW vertex with the same key "Foo"
+      // The index entry is a SnapshotMarkerRID → logically alive → key is
+      // occupied. This MUST throw RecordDuplicatedException.
+      try {
+        graph.tx().begin();
+        graph.addV("Userr").property("name", "Foo").next();
+        graph.tx().commit();
+        fail("Expected RecordDuplicatedException: key 'Foo' is occupied "
+            + "by a live SnapshotMarkerRID entry");
+      } catch (RecordDuplicatedException e) {
+        // expected — the key is occupied
+      }
+
+      // Verify: fresh graph sees exactly 1 record with name="Foo" (the original)
+      newGraph = openGraph();
+      newGraph.tx().begin();
+      var foos = newGraph.V().hasLabel("Userr").has("name", "Foo").toList();
+      assertEquals(1, foos.size());
+      newGraph.tx().commit();
+    } finally {
+      if (newGraph != null)
+        newGraph.close();
+      graph.close();
     }
-
-    // Verify: fresh graph sees exactly 1 record with name="Foo" (the original)
-    var newGraph = openGraph();
-    newGraph.tx().begin();
-    var foos = newGraph.V().hasLabel("Userr").has("name", "Foo").toList();
-    assertEquals(1, foos.size());
-    newGraph.tx().commit();
-
-    newGraph.close();
-    graph.close();
   }
 
   /**
@@ -1317,55 +1425,61 @@ public class SnapshotIsolationIndexesUniqueTest {
 
     // Session 1: create 1 record with name=Foo
     var graph = openGraph();
-    graph.tx().begin();
-    var u1 = graph.addV("Userr").property("name", fooValue).next();
-    var id1 = u1.id();
-    graph.tx().commit();
+    YTDBGraphTraversalSource snapshotGraph = null;
+    YTDBGraphTraversalSource newGraph = null;
+    try {
+      graph.tx().begin();
+      var u1 = graph.addV("Userr").property("name", fooValue).next();
+      var id1 = u1.id();
+      graph.tx().commit();
 
-    // Session 2: start repeatable-read snapshot — sees 1 Foo
-    var snapshotGraph = openGraph();
-    snapshotGraph.tx().begin();
-    assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", fooValue).toList().size());
+      // Session 2: start repeatable-read snapshot — sees 1 Foo
+      snapshotGraph = openGraph();
+      snapshotGraph.tx().begin();
+      assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", fooValue).toList().size());
 
-    // Session 1: Foo→Bar (TombstoneRID for Foo created)
-    graph.tx().begin();
-    graph.V(id1).property("name", barValue).iterate();
-    graph.tx().commit();
+      // Session 1: Foo→Bar (TombstoneRID for Foo created)
+      graph.tx().begin();
+      graph.V(id1).property("name", barValue).iterate();
+      graph.tx().commit();
 
-    // Session 1: Bar→Foo (SnapshotMarkerRID for Foo created)
-    graph.tx().begin();
-    graph.V(id1).property("name", fooValue).iterate();
-    graph.tx().commit();
+      // Session 1: Bar→Foo (SnapshotMarkerRID for Foo created)
+      graph.tx().begin();
+      graph.V(id1).property("name", fooValue).iterate();
+      graph.tx().commit();
 
-    // Session 1: Foo→Bar (SnapshotMarkerRID replaced with TombstoneRID)
-    graph.tx().begin();
-    graph.V(id1).property("name", barValue).iterate();
-    graph.tx().commit();
+      // Session 1: Foo→Bar (SnapshotMarkerRID replaced with TombstoneRID)
+      graph.tx().begin();
+      graph.V(id1).property("name", barValue).iterate();
+      graph.tx().commit();
 
-    // Session 2: snapshot must NOT see any changes — still 1 Foo, 0 Bar
-    assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", fooValue).toList().size());
-    assertEquals(0, snapshotGraph.V().hasLabel("Userr").has("name", barValue).toList().size());
-    snapshotGraph.tx().commit();
+      // Session 2: snapshot must NOT see any changes — still 1 Foo, 0 Bar
+      assertEquals(1, snapshotGraph.V().hasLabel("Userr").has("name", fooValue).toList().size());
+      assertEquals(0, snapshotGraph.V().hasLabel("Userr").has("name", barValue).toList().size());
+      snapshotGraph.tx().commit();
 
-    // Session 3: fresh TX sees current reality — 0 Foo, 1 Bar
-    var newGraph = openGraph();
-    newGraph.tx().begin();
-    assertEquals(0, newGraph.V().hasLabel("Userr").has("name", fooValue).toList().size());
-    assertEquals(1, newGraph.V().hasLabel("Userr").has("name", barValue).toList().size());
+      // Session 3: fresh TX sees current reality — 0 Foo, 1 Bar
+      newGraph = openGraph();
+      newGraph.tx().begin();
+      assertEquals(0, newGraph.V().hasLabel("Userr").has("name", fooValue).toList().size());
+      assertEquals(1, newGraph.V().hasLabel("Userr").has("name", barValue).toList().size());
 
-    // Session 1: Bar→Foo (TombstoneRID replaced with SnapshotMarkerRID)
-    graph.tx().begin();
-    graph.V(id1).property("name", fooValue).iterate();
-    graph.tx().commit();
+      // Session 1: Bar→Foo (TombstoneRID replaced with SnapshotMarkerRID)
+      graph.tx().begin();
+      graph.V(id1).property("name", fooValue).iterate();
+      graph.tx().commit();
 
-    // Session 3: repeatable-read — still sees 0 Foo, 1 Bar
-    assertEquals(0, newGraph.V().hasLabel("Userr").has("name", fooValue).toList().size());
-    assertEquals(1, newGraph.V().hasLabel("Userr").has("name", barValue).toList().size());
-    newGraph.tx().commit();
-
-    newGraph.close();
-    snapshotGraph.close();
-    graph.close();
+      // Session 3: repeatable-read — still sees 0 Foo, 1 Bar
+      assertEquals(0, newGraph.V().hasLabel("Userr").has("name", fooValue).toList().size());
+      assertEquals(1, newGraph.V().hasLabel("Userr").has("name", barValue).toList().size());
+      newGraph.tx().commit();
+    } finally {
+      if (newGraph != null)
+        newGraph.close();
+      if (snapshotGraph != null)
+        snapshotGraph.close();
+      graph.close();
+    }
   }
 
   /**
@@ -1392,48 +1506,52 @@ public class SnapshotIsolationIndexesUniqueTest {
 
     // TX0: insert two vertices with distinct names
     var graph = openGraph();
-    graph.tx().begin();
-    var v1 = graph.addV("Userr").property("name", "Name1").next();
-    var id1 = v1.id();
-    var v2 = graph.addV("Userr").property("name", "Name2").next();
-    var id2 = v2.id();
-    graph.tx().commit();
+    YTDBGraphTraversalSource snapshotGraph = null;
+    try {
+      graph.tx().begin();
+      var v1 = graph.addV("Userr").property("name", "Name1").next();
+      var id1 = v1.id();
+      var v2 = graph.addV("Userr").property("name", "Name2").next();
+      var id2 = v2.id();
+      graph.tx().commit();
 
-    // Open snapshot TX — must see 1 of each
-    var snapshotGraph = openGraph();
-    snapshotGraph.tx().begin();
-    assertEquals(1,
-        snapshotGraph.V().hasLabel("Userr").has("name", "Name1").toList().size());
-    assertEquals(1,
-        snapshotGraph.V().hasLabel("Userr").has("name", "Name2").toList().size());
+      // Open snapshot TX — must see 1 of each
+      snapshotGraph = openGraph();
+      snapshotGraph.tx().begin();
+      assertEquals(1,
+          snapshotGraph.V().hasLabel("Userr").has("name", "Name1").toList().size());
+      assertEquals(1,
+          snapshotGraph.V().hasLabel("Userr").has("name", "Name2").toList().size());
 
-    // TX1: swap names via null to avoid UNIQUE conflicts within the TX,
-    // then swap back. Net effect: no change. But interpretAsUnique may
-    // collapse the changes into standalone PUTs for keys that already have
-    // committed live entries.
-    graph.tx().begin();
-    graph.V(id1).property("name", null).iterate();
-    graph.V(id2).property("name", null).iterate();
+      // TX1: swap names via null to avoid UNIQUE conflicts within the TX,
+      // then swap back. Net effect: no change. But interpretAsUnique may
+      // collapse the changes into standalone PUTs for keys that already have
+      // committed live entries.
+      graph.tx().begin();
+      graph.V(id1).property("name", null).iterate();
+      graph.V(id2).property("name", null).iterate();
 
-    graph.V(id1).property("name", "Name2").iterate();
-    graph.V(id2).property("name", "Name1").iterate();
+      graph.V(id1).property("name", "Name2").iterate();
+      graph.V(id2).property("name", "Name1").iterate();
 
-    graph.V(id1).property("name", null).iterate();
-    graph.V(id2).property("name", null).iterate();
+      graph.V(id1).property("name", null).iterate();
+      graph.V(id2).property("name", null).iterate();
 
-    graph.V(id1).property("name", "Name1").iterate();
-    graph.V(id2).property("name", "Name2").iterate();
-    graph.tx().commit();
+      graph.V(id1).property("name", "Name1").iterate();
+      graph.V(id2).property("name", "Name2").iterate();
+      graph.tx().commit();
 
-    // Snapshot must still see original state
-    assertEquals(1,
-        snapshotGraph.V().hasLabel("Userr").has("name", "Name1").toList().size());
-    assertEquals(1,
-        snapshotGraph.V().hasLabel("Userr").has("name", "Name2").toList().size());
-    snapshotGraph.tx().commit();
-
-    snapshotGraph.close();
-    graph.close();
+      // Snapshot must still see original state
+      assertEquals(1,
+          snapshotGraph.V().hasLabel("Userr").has("name", "Name1").toList().size());
+      assertEquals(1,
+          snapshotGraph.V().hasLabel("Userr").has("name", "Name2").toList().size());
+      snapshotGraph.tx().commit();
+    } finally {
+      if (snapshotGraph != null)
+        snapshotGraph.close();
+      graph.close();
+    }
   }
 
   /**
@@ -1473,49 +1591,54 @@ public class SnapshotIsolationIndexesUniqueTest {
 
     // TX A: create vertex with name=Foo
     var graph = openGraph();
-    graph.tx().begin();
-    var v1 = graph.addV("Userr").property("name", fooValue).next();
-    var id1 = v1.id();
-    graph.tx().commit();
+    YTDBGraphTraversalSource snapshotGraph = null;
+    try {
+      graph.tx().begin();
+      var v1 = graph.addV("Userr").property("name", fooValue).next();
+      var id1 = v1.id();
+      graph.tx().commit();
 
-    // TX B: delete the vertex → TombstoneRID for "Foo" in index
-    graph.tx().begin();
-    graph.V(id1).drop().iterate();
-    graph.tx().commit();
+      // TX B: delete the vertex → TombstoneRID for "Foo" in index
+      graph.tx().begin();
+      graph.V(id1).drop().iterate();
+      graph.tx().commit();
 
-    // TX C: re-insert a new vertex with name=Foo → SnapshotMarkerRID created
-    // because previous entry was TombstoneRID
-    graph.tx().begin();
-    graph.addV("Userr").property("name", fooValue).next();
-    graph.tx().commit();
+      // TX C: re-insert a new vertex with name=Foo → SnapshotMarkerRID created
+      // because previous entry was TombstoneRID
+      graph.tx().begin();
+      graph.addV("Userr").property("name", fooValue).next();
+      graph.tx().commit();
 
-    // Snapshot TX: start repeatable-read snapshot — sees 1 Foo (from TX C)
-    var snapshotGraph = openGraph();
-    snapshotGraph.tx().begin();
-    assertEquals(1,
-        snapshotGraph.V().hasLabel("Userr").has("name", fooValue).toList().size());
+      // Snapshot TX: start repeatable-read snapshot — sees 1 Foo (from TX C)
+      snapshotGraph = openGraph();
+      snapshotGraph.tx().begin();
+      assertEquals(1,
+          snapshotGraph.V().hasLabel("Userr").has("name", fooValue).toList().size());
 
-    // TX D: insert another vertex with name=Foo.
-    // validatedPut finds SnapshotMarkerRID from TX C.
-    // With mergeKeys=true the validator allows it. The engine removes the
-    // SnapshotMarkerRID from the B-tree but does not call addSnapshotPair(),
-    // so the snapshot reader loses visibility of the TX C entry.
-    graph.tx().begin();
-    graph.addV("Userr").property("name", fooValue).next();
-    graph.tx().commit();
+      // TX D: insert another vertex with name=Foo.
+      // validatedPut finds SnapshotMarkerRID from TX C.
+      // With mergeKeys=true the validator allows it. The engine removes the
+      // SnapshotMarkerRID from the B-tree but does not call addSnapshotPair(),
+      // so the snapshot reader loses visibility of the TX C entry.
+      graph.tx().begin();
+      graph.addV("Userr").property("name", fooValue).next();
+      graph.tx().commit();
 
-    // Snapshot TX: must still see 1 Foo — snapshot isolation requires that
-    // changes from TX D are invisible. But because the SnapshotMarkerRID
-    // was removed without preserving it, the snapshot reader sees 0.
-    assertEquals(
-        "Snapshot isolation violated: snapshot reader should still see 1 Foo "
-            + "after concurrent validatedPut replaced SnapshotMarkerRID",
-        1,
-        snapshotGraph.V().hasLabel("Userr").has("name", fooValue).toList().size());
+      // Snapshot TX: must still see 1 Foo — snapshot isolation requires that
+      // changes from TX D are invisible. But because the SnapshotMarkerRID
+      // was removed without preserving it, the snapshot reader sees 0.
+      assertEquals(
+          "Snapshot isolation violated: snapshot reader should still see 1 Foo "
+              + "after concurrent validatedPut replaced SnapshotMarkerRID",
+          1,
+          snapshotGraph.V().hasLabel("Userr").has("name", fooValue).toList().size());
 
-    snapshotGraph.tx().commit();
-    snapshotGraph.close();
-    graph.close();
+      snapshotGraph.tx().commit();
+    } finally {
+      if (snapshotGraph != null)
+        snapshotGraph.close();
+      graph.close();
+    }
   }
 
   private YTDBGraphTraversalSource openGraph() {
