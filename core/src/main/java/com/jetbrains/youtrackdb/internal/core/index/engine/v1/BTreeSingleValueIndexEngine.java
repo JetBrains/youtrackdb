@@ -533,12 +533,18 @@ public final class BTreeSingleValueIndexEngine
 
   @Override
   public void addToApproximateEntriesCount(long delta) {
-    approximateIndexEntriesCount.addAndGet(delta);
+    long updated = approximateIndexEntriesCount.addAndGet(delta);
+    assert updated >= 0
+        : "In-memory approximateIndexEntriesCount underflow: updated="
+            + updated + " delta=" + delta;
   }
 
   @Override
   public void addToApproximateNullCount(long delta) {
-    approximateNullCount.addAndGet(delta);
+    long updated = approximateNullCount.addAndGet(delta);
+    assert updated >= 0
+        : "In-memory approximateNullCount underflow: updated="
+            + updated + " delta=" + delta;
   }
 
   @Override
