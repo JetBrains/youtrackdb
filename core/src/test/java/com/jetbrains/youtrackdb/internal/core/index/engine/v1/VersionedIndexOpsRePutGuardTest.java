@@ -191,6 +191,49 @@ public class VersionedIndexOpsRePutGuardTest {
   }
 
   /**
+   * When the existing entry is a SnapshotMarkerRID (from a prior TX update),
+   * doVersionedRemove must proceed: remove the old entry, put a tombstone wrapping
+   * the unwrapped identity, and add a snapshot pair with the unwrapped identity.
+   * This is the "delete-after-update" production path.
+   */
+  @Test
+  public void doVersionedRemove_encountersSnapshotMarker_proceedsNormally()
+      throws IOException {
+    var priorVersion = 10L;
+    var existingKey = new CompositeKey("key1", priorVersion);
+    var markerRid = new SnapshotMarkerRID(RID_A);
+
+    when(tree.iterateEntriesBetween(
+        ArgumentMatchers.any(), ArgumentMatchers.eq(true),
+        ArgumentMatchers.any(), ArgumentMatchers.eq(true),
+        ArgumentMatchers.eq(true), ArgumentMatchers.any()))
+        .thenAnswer(inv -> Stream.of(new RawPair<>(existingKey, (RID) markerRid)));
+    when(tree.remove(ArgumentMatchers.any(), ArgumentMatchers.eq(existingKey)))
+        .thenReturn(markerRid);
+    when(tree.put(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+        .thenReturn(true);
+
+    boolean result = VersionedIndexOps.doVersionedRemove(
+        tree, snapshot, atomicOp, new CompositeKey("key1"),
+        ENGINE_ID, false);
+
+    assertTrue("Remove of SnapshotMarkerRID entry must proceed", result);
+    verify(tree).remove(atomicOp, existingKey);
+
+    var expectedNewKey = new CompositeKey("key1", TX_VERSION);
+    verify(tree).put(
+        ArgumentMatchers.eq(atomicOp),
+        ArgumentMatchers.eq(expectedNewKey),
+        ArgumentMatchers.any(TombstoneRID.class));
+
+    // Snapshot pair must receive the unwrapped identity (RID_A), not SnapshotMarkerRID
+    verify(snapshot).addSnapshotPair(
+        ArgumentMatchers.eq(existingKey),
+        ArgumentMatchers.eq(expectedNewKey),
+        ArgumentMatchers.eq(RID_A));
+  }
+
+  /**
    * When the existing entry is a live RecordId, doVersionedRemove must proceed
    * normally: remove the old entry, put a tombstone, and add a snapshot pair.
    */
