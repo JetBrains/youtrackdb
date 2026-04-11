@@ -50,6 +50,7 @@ final class VersionedIndexOps {
       @Nonnull Optional<RawPair<CompositeKey, RID>> existing) throws IOException {
 
     var version = atomicOperation.getCommitTs();
+    assert version > 0 : "doVersionedPut: commitTs must be positive, got " + version;
     if (existing.isPresent()) {
       var pair = existing.get();
       var removedRID = pair.second();
@@ -122,6 +123,8 @@ final class VersionedIndexOps {
     tree.remove(atomicOperation, pair.first());
 
     var removedVersion = atomicOperation.getCommitTs();
+    assert removedVersion > 0
+        : "doVersionedRemove: commitTs must be positive, got " + removedVersion;
     var newKey = new CompositeKey(compositeKey, removedVersion);
     tree.put(atomicOperation, newKey, new TombstoneRID(value));
 
