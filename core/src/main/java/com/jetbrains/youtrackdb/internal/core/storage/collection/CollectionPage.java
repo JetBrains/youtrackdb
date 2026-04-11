@@ -175,14 +175,7 @@ public final class CollectionPage extends DurablePage {
         }
       }
 
-      // During redo (changes == null), the page layout may differ from the
-      // original operation because redo writes at freePosition instead of
-      // reusing holes. Defragmentation during redo is handled by its own
-      // CollectionPageDoDefragmentationOp — calling it here would operate
-      // on a page state that doesn't match the original defrag precondition.
-      if (getCacheEntry() instanceof CacheEntryChanges) {
-        doDefragmentation();
-      }
+      doDefragmentation();
     }
 
     freePosition = getFreePosition();
