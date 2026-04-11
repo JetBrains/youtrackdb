@@ -2,6 +2,7 @@
 package com.jetbrains.youtrackdb.internal.core.index;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -742,6 +743,16 @@ public class IndexesSnapshotVisibilityFilterTest {
     var result = filterMapped(snap, Long.MAX_VALUE, List.of(alive, dead, marker));
 
     assertEquals("Only alive and marker entries should be visible", 2, result.size());
+    // Verify alive entry passed through
+    assertEquals("Foo",
+        ((CompositeKey) result.get(0).first()).getKeys().getFirst());
+    assertEquals(RID_20_0, result.get(0).second());
+    // Verify marker entry was unwrapped to plain RecordId
+    assertEquals("Baz",
+        ((CompositeKey) result.get(1).first()).getKeys().getFirst());
+    assertEquals(RID_20_0, result.get(1).second());
+    assertFalse("Marker must be unwrapped to plain RecordId",
+        result.get(1).second() instanceof SnapshotMarkerRID);
   }
 
   // --- mixed stream ---
