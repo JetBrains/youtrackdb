@@ -71,7 +71,7 @@ public class CollectionPageAppendRecordOpTest {
   public void testSerializationRoundtrip() {
     var record = new byte[] {1, 2, 3, 4, 5};
     var original = new CollectionPageAppendRecordOp(
-        10, 20, 30, new LogSequenceNumber(5, 100), 42L, record, 7, 4096, 0);
+        10, 20, 30, new LogSequenceNumber(5, 100), 42L, record, 7, 4096, 212);
 
     var content = new byte[original.serializedSize() + 1];
     var endOffset = original.toStream(content, 1);
@@ -87,6 +87,7 @@ public class CollectionPageAppendRecordOpTest {
     Assert.assertArrayEquals(original.getRecord(), deserialized.getRecord());
     Assert.assertEquals(original.getAllocatedIndex(), deserialized.getAllocatedIndex());
     Assert.assertEquals(original.getEntryPosition(), deserialized.getEntryPosition());
+    Assert.assertEquals(original.getHoleSize(), deserialized.getHoleSize());
     Assert.assertEquals(original, deserialized);
   }
 
@@ -207,11 +208,14 @@ public class CollectionPageAppendRecordOpTest {
 
       // Append a record of the same size — should reuse the hole
       var holeRecord = new byte[200];
+      int freePosBefore = page1.getFreePosition();
       int holeIdx = page1.appendRecord(2L, holeRecord, -1, IntSets.emptySet());
       Assert.assertNotEquals("append into hole should succeed", -1, holeIdx);
       int holeEntryPos = page1.getPointerValuePosition(holeIdx);
-      // Verify hole was actually reused (position should match deleted record's position)
-      int freePosBefore = page1.getFreePosition();
+      // Verify hole was actually reused — freePosition must not have changed
+      Assert.assertEquals(
+          "freePosition should not move when record goes into a hole",
+          freePosBefore, page1.getFreePosition());
 
       // Redo path
       var page2 = new CollectionPage(entry2);
@@ -236,6 +240,126 @@ public class CollectionPageAppendRecordOpTest {
       Assert.assertArrayEquals(
           page1.getRecordBinaryValue(holeIdx, 0, holeRecord.length),
           page2.getRecordBinaryValue(holeIdx, 0, holeRecord.length));
+    } finally {
+      releaseEntry(entry1);
+      releaseEntry(entry2);
+    }
+  }
+
+  /**
+   * Redo with hole larger than entry: the hole is split, leaving a remainder.
+   * Verifies the remainder hole marker is correctly written during redo.
+   */
+  @Test
+  public void testRedoAppendWithHoleSplitRemainder() {
+    var entry1 = createRawCacheEntry();
+    var entry2 = createRawCacheEntry();
+    try {
+      // Create a large hole by deleting a large record, then insert a smaller one.
+      // Record A: 200 bytes -> entrySize 212. Delete A -> hole of 212.
+      // Record B: 100 bytes -> entrySize 112. Fits in 212-hole with 100-byte remainder.
+      // (100 > Integer.BYTES so findHole accepts this split)
+      var largeRecord = new byte[200];
+      var smallRecord = new byte[50];
+      var insertRecord = new byte[100];
+
+      var page1 = new CollectionPage(entry1);
+      page1.init();
+
+      int idxLarge = page1.appendRecord(1L, largeRecord, -1, IntSets.emptySet());
+      while (page1.appendRecord(1L, smallRecord, -1, IntSets.emptySet()) != -1) {
+        // fill
+      }
+      page1.deleteRecord(idxLarge, true);
+
+      int idxInsert = page1.appendRecord(2L, insertRecord, -1, IntSets.emptySet());
+      Assert.assertNotEquals(-1, idxInsert);
+      int posInsert = page1.getPointerValuePosition(idxInsert);
+
+      // Redo path
+      var page2 = new CollectionPage(entry2);
+      page2.init();
+      page2.appendRecord(1L, largeRecord, -1, IntSets.emptySet());
+      while (page2.appendRecord(1L, smallRecord, -1, IntSets.emptySet()) != -1) {
+        // fill
+      }
+      page2.deleteRecord(idxLarge, true);
+
+      int holeSize = largeRecord.length + 3 * Integer.BYTES; // 212
+      var op = new CollectionPageAppendRecordOp(
+          0, 0, 0, new LogSequenceNumber(0, 0), 2L, insertRecord,
+          idxInsert, posInsert, holeSize);
+      op.redo(page2);
+
+      Assert.assertEquals(page1.getRecordsCount(), page2.getRecordsCount());
+      Assert.assertEquals(page1.getFreeSpace(), page2.getFreeSpace());
+      Assert.assertEquals(page1.getFreePosition(), page2.getFreePosition());
+      Assert.assertArrayEquals(
+          page1.getRecordBinaryValue(idxInsert, 0, insertRecord.length),
+          page2.getRecordBinaryValue(idxInsert, 0, insertRecord.length));
+    } finally {
+      releaseEntry(entry1);
+      releaseEntry(entry2);
+    }
+  }
+
+  /**
+   * Redo with adjacent merged holes: two adjacent records are deleted, creating two
+   * adjacent holes. findHole merges them. The new record is larger than either
+   * individual hole but fits in the combined space. Redo must use the captured
+   * coalesced holeSize, not the individual hole marker.
+   */
+  @Test
+  public void testRedoAppendWithAdjacentMergedHoles() {
+    var entry1 = createRawCacheEntry();
+    var entry2 = createRawCacheEntry();
+    try {
+      var fillRecord = new byte[100]; // entrySize = 112
+
+      var page1 = new CollectionPage(entry1);
+      page1.init();
+
+      // Fill page with same-sized records until full
+      int idx0 = page1.appendRecord(1L, fillRecord, -1, IntSets.emptySet());
+      int idx1 = page1.appendRecord(1L, fillRecord, -1, IntSets.emptySet());
+      while (page1.appendRecord(1L, fillRecord, -1, IntSets.emptySet()) != -1) {
+        // fill
+      }
+
+      // Delete two adjacent records — creates two adjacent holes (2 * 112 = 224)
+      page1.deleteRecord(idx0, true);
+      page1.deleteRecord(idx1, true);
+
+      // Append a record that fits only in the merged hole (entrySize 162 > 112)
+      var bigRecord = new byte[150];
+      int idxBig = page1.appendRecord(2L, bigRecord, -1, IntSets.emptySet());
+      Assert.assertNotEquals("merged hole should fit", -1, idxBig);
+      int posBig = page1.getPointerValuePosition(idxBig);
+
+      // Redo path
+      var page2 = new CollectionPage(entry2);
+      page2.init();
+      page2.appendRecord(1L, fillRecord, -1, IntSets.emptySet());
+      page2.appendRecord(1L, fillRecord, -1, IntSets.emptySet());
+      while (page2.appendRecord(1L, fillRecord, -1, IntSets.emptySet()) != -1) {
+        // fill
+      }
+      page2.deleteRecord(idx0, true);
+      page2.deleteRecord(idx1, true);
+
+      // holeSize is the coalesced size (2 * 112 = 224), NOT a single hole (112)
+      int mergedHoleSize = 2 * (fillRecord.length + 3 * Integer.BYTES);
+      var op = new CollectionPageAppendRecordOp(
+          0, 0, 0, new LogSequenceNumber(0, 0), 2L, bigRecord,
+          idxBig, posBig, mergedHoleSize);
+      op.redo(page2);
+
+      Assert.assertEquals(page1.getRecordsCount(), page2.getRecordsCount());
+      Assert.assertEquals(page1.getFreeSpace(), page2.getFreeSpace());
+      Assert.assertEquals(page1.getFreePosition(), page2.getFreePosition());
+      Assert.assertArrayEquals(
+          page1.getRecordBinaryValue(idxBig, 0, bigRecord.length),
+          page2.getRecordBinaryValue(idxBig, 0, bigRecord.length));
     } finally {
       releaseEntry(entry1);
       releaseEntry(entry2);

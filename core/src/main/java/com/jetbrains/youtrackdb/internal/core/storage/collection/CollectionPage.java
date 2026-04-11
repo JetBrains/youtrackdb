@@ -965,7 +965,12 @@ public final class CollectionPage extends DurablePage {
   void appendRecordAtPosition(
       long recordVersion, byte[] record, int entryPosition, int entryIndex,
       int holeSize) {
+    assert entryIndex >= 0
+        : "entryIndex must be non-negative but was " + entryIndex;
     var entrySize = record.length + 3 * IntegerSerializer.INT_SIZE;
+    assert entryPosition >= 0 && entryPosition + entrySize <= PAGE_SIZE
+        : "entryPosition " + entryPosition + " + entrySize " + entrySize
+            + " out of page bounds (PAGE_SIZE=" + PAGE_SIZE + ")";
     var freePosition = getFreePosition();
     var freeListHeader = getFreeListHeader();
 
