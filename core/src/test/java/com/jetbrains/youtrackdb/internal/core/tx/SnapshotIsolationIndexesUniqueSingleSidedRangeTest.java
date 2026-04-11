@@ -2,17 +2,10 @@ package com.jetbrains.youtrackdb.internal.core.tx;
 
 import static org.junit.Assert.assertEquals;
 
-import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
-import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
-import org.junit.After;
-import org.junit.Before;
 import org.junit.Test;
 
 /**
@@ -23,16 +16,8 @@ import org.junit.Test;
  * {@code INDEX_TYPE.UNIQUE} to exercise {@code BTreeSingleValueIndexEngine.iterateEntriesBetween}
  * with one-sided ranges (null from/to).
  */
-public class SnapshotIsolationIndexesUniqueSingleSidedRangeTest {
-
-  private YouTrackDBImpl youTrackDB;
-  private DatabaseSessionEmbedded db;
-
-  @Before
-  public void before() {
-    youTrackDB = DbTestBase.createYTDBManagerAndDb("test", DatabaseType.MEMORY, getClass());
-    db = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
-  }
+public class SnapshotIsolationIndexesUniqueSingleSidedRangeTest
+    extends SnapshotIsolationIndexesTestBase {
 
   // ==========================================================================
   //  P.gt()  —  major scan (exclusive)
@@ -467,13 +452,4 @@ public class SnapshotIsolationIndexesUniqueSingleSidedRangeTest {
 
   // ==========================================================================
 
-  private YTDBGraphTraversalSource openGraph() {
-    return youTrackDB.openTraversal("test", "admin", DbTestBase.ADMIN_PASSWORD);
-  }
-
-  @After
-  public void after() {
-    db.close();
-    youTrackDB.close();
-  }
 }

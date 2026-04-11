@@ -3,17 +3,13 @@ package com.jetbrains.youtrackdb.internal.core.tx;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
-import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
-import org.junit.After;
-import org.junit.Before;
 import org.junit.Test;
 
 /**
@@ -29,22 +25,7 @@ import org.junit.Test;
  * visibility filter). These tests document the expected behavior and are expected to fail
  * until the null key path is fixed.
  */
-public class SnapshotIsolationIndexesNullKeyTest {
-
-  private YouTrackDBImpl youTrackDB;
-  private DatabaseSessionEmbedded db;
-
-  @Before
-  public void before() {
-    youTrackDB = DbTestBase.createYTDBManagerAndDb("test", DatabaseType.MEMORY, getClass());
-    db = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
-  }
-
-  @After
-  public void after() {
-    db.close();
-    youTrackDB.close();
-  }
+public class SnapshotIsolationIndexesNullKeyTest extends SnapshotIsolationIndexesTestBase {
 
   /**
    * A phantom insert of a null-keyed record should be invisible to a snapshot.

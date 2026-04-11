@@ -3,16 +3,12 @@ package com.jetbrains.youtrackdb.internal.core.tx;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertEquals;
 
-import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
-import org.junit.After;
-import org.junit.Before;
 import org.junit.Test;
 
 /**
@@ -23,16 +19,7 @@ import org.junit.Test;
  * <p>After SI changes, the BTree stores versioned entries including tombstones.
  * {@code size()} must return only the count of visible entries, not raw BTree size.
  */
-public class SnapshotIsolationIndexesSizeTest {
-
-  private YouTrackDBImpl youTrackDB;
-  private DatabaseSessionEmbedded db;
-
-  @Before
-  public void before() {
-    youTrackDB = DbTestBase.createYTDBManagerAndDb("test", DatabaseType.MEMORY, getClass());
-    db = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
-  }
+public class SnapshotIsolationIndexesSizeTest extends SnapshotIsolationIndexesTestBase {
 
   // ==========================================================================
   //  NOTUNIQUE  —  BTreeMultiValueIndexEngine.size()
@@ -854,9 +841,4 @@ public class SnapshotIsolationIndexesSizeTest {
     return index.size(session);
   }
 
-  @After
-  public void after() {
-    db.close();
-    youTrackDB.close();
-  }
 }

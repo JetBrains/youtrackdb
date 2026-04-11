@@ -3,11 +3,9 @@ package com.jetbrains.youtrackdb.internal.core.tx;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
-import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.SnapshotMarkerRID;
 import com.jetbrains.youtrackdb.internal.core.id.TombstoneRID;
@@ -17,8 +15,6 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
 import java.util.List;
 import java.util.stream.Collectors;
-import org.junit.After;
-import org.junit.Before;
 import org.junit.Test;
 
 /**
@@ -30,16 +26,7 @@ import org.junit.Test;
  * filters out TombstoneRIDs, unwraps SnapshotMarkerRIDs, and respects snapshot
  * boundaries — the same guarantees that iterateEntriesBetween already provides.
  */
-public class SnapshotIsolationIndexesGetTest {
-
-  private YouTrackDBImpl youTrackDB;
-  private DatabaseSessionEmbedded db;
-
-  @Before
-  public void before() {
-    youTrackDB = DbTestBase.createYTDBManagerAndDb("test", DatabaseType.MEMORY, getClass());
-    db = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
-  }
+public class SnapshotIsolationIndexesGetTest extends SnapshotIsolationIndexesTestBase {
 
   /**
    * Verifies that getRids() on a NOTUNIQUE index does not return TombstoneRID or
@@ -755,13 +742,4 @@ public class SnapshotIsolationIndexesGetTest {
     }
   }
 
-  private YTDBGraphTraversalSource openGraph() {
-    return youTrackDB.openTraversal("test", "admin", DbTestBase.ADMIN_PASSWORD);
-  }
-
-  @After
-  public void after() {
-    db.close();
-    youTrackDB.close();
-  }
 }

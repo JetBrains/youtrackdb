@@ -2,15 +2,12 @@ package com.jetbrains.youtrackdb.internal.core.tx;
 
 import static org.junit.Assert.assertEquals;
 
-import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
-import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -24,17 +21,15 @@ import org.junit.Test;
  * The standalone {@code iterateEntriesMajor/Minor} methods are a different code path that
  * these tests target.
  */
-public class SnapshotIsolationIndexesUniqueMajorMinorTest {
+public class SnapshotIsolationIndexesUniqueMajorMinorTest
+    extends SnapshotIsolationIndexesTestBase {
 
   private static final String INDEX_NAME = "IndexAge";
 
-  private YouTrackDBImpl youTrackDB;
-  private DatabaseSessionEmbedded db;
-
+  @Override
   @Before
-  public void before() {
-    youTrackDB = DbTestBase.createYTDBManagerAndDb("test", DatabaseType.MEMORY, getClass());
-    db = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+  public void setUp() {
+    super.setUp();
 
     var schema = db.createVertexClass("Userr");
     schema.createProperty("age", PropertyType.INTEGER);
@@ -513,9 +508,4 @@ public class SnapshotIsolationIndexesUniqueMajorMinorTest {
     }
   }
 
-  @After
-  public void after() {
-    db.close();
-    youTrackDB.close();
-  }
 }

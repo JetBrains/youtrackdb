@@ -3,10 +3,8 @@ package com.jetbrains.youtrackdb.internal.core.tx;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
 import java.util.concurrent.CountDownLatch;
@@ -17,7 +15,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.After;
-import org.junit.Before;
 import org.junit.Test;
 
 /**
@@ -34,23 +31,14 @@ import org.junit.Test;
  * pre-populated keys — they must always see exactly 1 result per key, regardless of
  * concurrent writer activity.
  */
-public class SnapshotIsolationIndexesConcurrentReadWriteTest {
+public class SnapshotIsolationIndexesConcurrentReadWriteTest
+    extends SnapshotIsolationIndexesTestBase {
 
-  private YouTrackDBImpl youTrackDB;
-  private DatabaseSessionEmbedded db;
-
-  @Before
-  public void before() {
-    youTrackDB = DbTestBase.createYTDBManagerAndDb(
-        "test", DatabaseType.MEMORY, getClass());
-    db = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
-  }
-
+  @Override
   @After
-  public void after() {
+  public void tearDown() {
     db.activateOnCurrentThread();
-    db.close();
-    youTrackDB.close();
+    super.tearDown();
   }
 
   /**

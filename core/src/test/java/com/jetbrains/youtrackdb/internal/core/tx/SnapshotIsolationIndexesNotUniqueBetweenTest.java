@@ -3,17 +3,10 @@ package com.jetbrains.youtrackdb.internal.core.tx;
 
 import static org.junit.Assert.assertEquals;
 
-import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
-import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
-import org.junit.After;
-import org.junit.Before;
 import org.junit.Test;
 
 /**
@@ -21,16 +14,7 @@ import org.junit.Test;
  * Exercises {@code BTreeMultiValueIndexEngine.iterateEntriesBetween} via Gremlin traversals.
  * Mirrors {@link SnapshotIsolationIndexesUniqueBetweenTest} for the NOTUNIQUE engine path.
  */
-public class SnapshotIsolationIndexesNotUniqueBetweenTest {
-  //
-  private YouTrackDBImpl youTrackDB;
-  private DatabaseSessionEmbedded db;
-
-  @Before
-  public void before() {
-    youTrackDB = DbTestBase.createYTDBManagerAndDb("test", DatabaseType.MEMORY, getClass());
-    db = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
-  }
+public class SnapshotIsolationIndexesNotUniqueBetweenTest extends SnapshotIsolationIndexesTestBase {
 
   // ==========================================================================
   // P.between() range-query snapshot isolation tests with NOTUNIQUE index
@@ -831,13 +815,4 @@ public class SnapshotIsolationIndexesNotUniqueBetweenTest {
     graph.close();
   }
 
-  private YTDBGraphTraversalSource openGraph() {
-    return youTrackDB.openTraversal("test", "admin", DbTestBase.ADMIN_PASSWORD);
-  }
-
-  @After
-  public void after() {
-    db.close();
-    youTrackDB.close();
-  }
 }

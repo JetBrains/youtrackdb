@@ -3,34 +3,19 @@ package com.jetbrains.youtrackdb.internal.core.tx;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
-import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
-import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
 import java.util.Map;
-import org.junit.After;
-import org.junit.Before;
 import org.junit.Test;
 
 /**
  * Snapshot-isolation tests for UNIQUE indexes. Exercises BTreeSingleValueIndexEngine via Gremlin
  * traversals.
  */
-public class SnapshotIsolationIndexesUniqueTest {
-
-  private YouTrackDBImpl youTrackDB;
-  private DatabaseSessionEmbedded db;
-
-  @Before
-  public void before() {
-    youTrackDB = DbTestBase.createYTDBManagerAndDb("test", DatabaseType.MEMORY, getClass());
-    db = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
-  }
+public class SnapshotIsolationIndexesUniqueTest extends SnapshotIsolationIndexesTestBase {
 
   @Test
   public void noVisibilityForUpdates() throws Exception {
@@ -1641,13 +1626,4 @@ public class SnapshotIsolationIndexesUniqueTest {
     }
   }
 
-  private YTDBGraphTraversalSource openGraph() {
-    return youTrackDB.openTraversal("test", "admin", DbTestBase.ADMIN_PASSWORD);
-  }
-
-  @After
-  public void after() {
-    db.close();
-    youTrackDB.close();
-  }
 }

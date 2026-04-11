@@ -4,10 +4,8 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
 import java.util.concurrent.CountDownLatch;
@@ -15,7 +13,6 @@ import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.After;
-import org.junit.Before;
 import org.junit.Test;
 
 /**
@@ -32,16 +29,14 @@ import org.junit.Test;
  * ConcurrentModificationException is thrown. The index operations then
  * proceed and find the tombstone from the first commit.
  */
-public class SnapshotIsolationIndexesConcurrentDeleteTest {
+public class SnapshotIsolationIndexesConcurrentDeleteTest
+    extends SnapshotIsolationIndexesTestBase {
 
-  private YouTrackDBImpl youTrackDB;
-  private DatabaseSessionEmbedded db;
-
-  @Before
-  public void before() {
-    youTrackDB = DbTestBase.createYTDBManagerAndDb(
-        "test", DatabaseType.MEMORY, getClass());
-    db = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+  @Override
+  @After
+  public void tearDown() {
+    db.activateOnCurrentThread();
+    super.tearDown();
   }
 
   /**
@@ -286,10 +281,4 @@ public class SnapshotIsolationIndexesConcurrentDeleteTest {
     }
   }
 
-  @After
-  public void after() {
-    db.activateOnCurrentThread();
-    db.close();
-    youTrackDB.close();
-  }
 }
