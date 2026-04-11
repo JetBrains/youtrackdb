@@ -116,6 +116,47 @@ public class VersionedIndexOpsRePutGuardTest {
     verify(tree).remove(atomicOp, existingKey);
   }
 
+  /**
+   * Put over a SnapshotMarkerRID from a different TX (prior committed TX with
+   * version=10, current TX with version=42). This is the normal
+   * "update-after-prior-update" production path. Must proceed: remove old entry,
+   * put new SnapshotMarkerRID, and add snapshot pair with unwrapped identity.
+   */
+  @Test
+  public void doVersionedPut_overSnapshotMarkerFromDifferentTx_proceedsAndCreatesSnapshotPair()
+      throws IOException {
+    var priorVersion = 10L;
+    var existingKey = new CompositeKey("key1", priorVersion);
+    var existingMarker = new SnapshotMarkerRID(RID_A);
+    var existing = Optional.of(new RawPair<>(existingKey, (RID) existingMarker));
+
+    when(tree.put(ArgumentMatchers.any(), ArgumentMatchers.any(),
+        ArgumentMatchers.any())).thenReturn(true);
+
+    var compositeKey = new CompositeKey("key1");
+    boolean result = VersionedIndexOps.doVersionedPut(
+        tree, snapshot, atomicOp, compositeKey, RID_B,
+        ENGINE_ID, false, existing);
+
+    assertTrue("Put over SnapshotMarkerRID from different TX must proceed", result);
+
+    // Old entry must be removed
+    verify(tree).remove(atomicOp, existingKey);
+
+    // New entry must be a SnapshotMarkerRID wrapping RID_B at current TX version
+    var expectedNewKey = new CompositeKey("key1", TX_VERSION);
+    verify(tree).put(
+        ArgumentMatchers.eq(atomicOp),
+        ArgumentMatchers.eq(expectedNewKey),
+        ArgumentMatchers.any(SnapshotMarkerRID.class));
+
+    // Snapshot pair must use the unwrapped identity (RID_A), not the marker
+    verify(snapshot).addSnapshotPair(
+        ArgumentMatchers.eq(existingKey),
+        ArgumentMatchers.eq(expectedNewKey),
+        ArgumentMatchers.eq(RID_A));
+  }
+
   // ═══════════════════════════════════════════════════════════════════════
   // doVersionedRemove: double-tombstone guard
   // ═══════════════════════════════════════════════════════════════════════
