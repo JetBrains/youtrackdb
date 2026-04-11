@@ -18,7 +18,11 @@ import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.lang.reflect.Proxy;
 import java.util.List;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.stream.Stream;
 import org.junit.Before;
@@ -1290,5 +1294,117 @@ public class IndexesSnapshotVisibilityFilterTest {
     // visibleVersion=50 → searchKey version=50, all snapshot entries are after it
     var result = snap.checkVisibility(key, TOMBSTONE_20_0, 50L, LongOpenHashSet.of());
     assertNull("No snapshot entry before search key — must return null", result);
+  }
+
+  // ========================================================================
+  //  Concurrent stress test: addSnapshotPair partial-write window
+  // ========================================================================
+
+  /**
+   * Stress test for the partial-write window in {@link IndexesSnapshot#addSnapshotPair}.
+   *
+   * <p>{@code addSnapshotPair()} performs two non-atomic {@code put()} calls on the
+   * underlying {@code ConcurrentSkipListMap}. Between these two puts, a concurrent
+   * reader via {@code lookupSnapshotRid()} might see a foreign key's TombstoneRID
+   * without its RecordId guard. The {@code snapshotUserKeyMatches()} prefix check
+   * in {@code lookupSnapshotRid()} prevents this from leaking wrong results.
+   *
+   * <p>This test spawns 4 writer threads and 4 reader threads operating on the same
+   * {@code IndexesSnapshot} to verify that no reader ever observes a cross-key leak
+   * (a RID belonging to a different key).
+   */
+  @Test(timeout = 30_000)
+  public void concurrent_addSnapshotPair_noCrossKeyLeak() throws Throwable {
+    int writerCount = 4;
+    int readerCount = 4;
+    int iterationsPerThread = 10_000;
+
+    var snap = newSnapshot(INDEX_ID);
+    var barrier = new CyclicBarrier(writerCount + readerCount);
+    var latch = new CountDownLatch(writerCount + readerCount);
+    var error = new AtomicReference<Throwable>();
+
+    // Each writer has a distinct key prefix and RID to detect cross-key leaks.
+    // Keys are lexicographically close ("K0"-"K3") so lowerEntry() is likely to
+    // hit an adjacent key's entry during the partial-write window.
+    RID[] rids = new RID[writerCount];
+    String[] keyNames = new String[writerCount];
+    for (int i = 0; i < writerCount; i++) {
+      rids[i] = new RecordId(10, i);
+      keyNames[i] = "K" + i;
+    }
+
+    // Writers: continuously addSnapshotPair for their own key with increasing versions.
+    // Each writer's version range is disjoint: [wi*20000, wi*20000+19999].
+    for (int w = 0; w < writerCount; w++) {
+      final int wi = w;
+      new Thread(
+          () -> {
+            try {
+              barrier.await();
+              for (int i = 0; i < iterationsPerThread && error.get() == null; i++) {
+                long oldVer = (long) wi * iterationsPerThread * 2 + i * 2;
+                long newVer = oldVer + 1;
+                snap.addSnapshotPair(
+                    new CompositeKey(keyNames[wi], rids[wi], oldVer),
+                    new CompositeKey(keyNames[wi], rids[wi], newVer),
+                    rids[wi]);
+              }
+            } catch (Throwable t) {
+              error.compareAndSet(null, t);
+            } finally {
+              latch.countDown();
+            }
+          },
+          "writer-" + w)
+          .start();
+    }
+
+    // Readers: continuously lookupSnapshotRid for random keys. If a non-null result
+    // is returned, verify the RID belongs to the queried key — any mismatch is a
+    // cross-key leak.
+    for (int r = 0; r < readerCount; r++) {
+      new Thread(
+          () -> {
+            try {
+              barrier.await();
+              for (int i = 0; i < iterationsPerThread && error.get() == null; i++) {
+                var rng = ThreadLocalRandom.current();
+                int ki = rng.nextInt(writerCount);
+                long probeVer =
+                    (long) ki * iterationsPerThread * 2
+                        + rng.nextInt(iterationsPerThread * 2)
+                        + 1;
+                long snapshotTs = probeVer - 1;
+
+                var key = new CompositeKey(keyNames[ki], rids[ki], probeVer);
+                var result = snap.lookupSnapshotRid(key, snapshotTs);
+
+                if (result != null && !result.equals(rids[ki])) {
+                  error.compareAndSet(
+                      null,
+                      new AssertionError(
+                          "Cross-key leak! Key '"
+                              + keyNames[ki]
+                              + "' expected "
+                              + rids[ki]
+                              + " but got "
+                              + result));
+                }
+              }
+            } catch (Throwable t) {
+              error.compareAndSet(null, t);
+            } finally {
+              latch.countDown();
+            }
+          },
+          "reader-" + r)
+          .start();
+    }
+
+    latch.await();
+    if (error.get() != null) {
+      throw error.get();
+    }
   }
 }
