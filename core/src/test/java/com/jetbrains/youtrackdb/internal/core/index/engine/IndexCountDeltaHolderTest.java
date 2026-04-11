@@ -4,6 +4,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -224,5 +226,36 @@ public class IndexCountDeltaHolderTest {
     var delta = holder.getOrCreate(7);
     assertEquals(1, delta.getTotalDelta()); // +1+1-1 = 1
     assertEquals(1, delta.getNullDelta()); // +1 = 1
+  }
+
+  /**
+   * sign=0 is invalid — must trigger the assertion guard. Without assertions,
+   * sign=0 silently adds nothing, which masks count drift in new code paths.
+   */
+  @Test
+  public void accumulate_signZero_throwsAssertionError() {
+    var holder = new IndexCountDeltaHolder();
+    var atomicOp = mock(AtomicOperation.class);
+    when(atomicOp.getOrCreateIndexCountDeltas()).thenReturn(holder);
+
+    var error = assertThrows(AssertionError.class,
+        () -> IndexCountDelta.accumulate(atomicOp, 7, 0, false));
+    assertTrue("Must mention sign",
+        error.getMessage().contains("sign"));
+  }
+
+  /**
+   * sign=2 is invalid — only +1 (insert) and -1 (remove) are valid.
+   */
+  @Test
+  public void accumulate_signTwo_throwsAssertionError() {
+    var holder = new IndexCountDeltaHolder();
+    var atomicOp = mock(AtomicOperation.class);
+    when(atomicOp.getOrCreateIndexCountDeltas()).thenReturn(holder);
+
+    var error = assertThrows(AssertionError.class,
+        () -> IndexCountDelta.accumulate(atomicOp, 7, 2, false));
+    assertTrue("Must mention sign",
+        error.getMessage().contains("sign"));
   }
 }
