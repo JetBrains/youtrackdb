@@ -152,6 +152,19 @@ public class SnapshotMarkerRIDTest {
   }
 
   /**
+   * Cross-marker equality: SnapshotMarkerRID and TombstoneRID with the same
+   * underlying identity must be equal (equality is identity-based, not type-based).
+   */
+  @Test
+  public void equalsAcrossMarkerTypes() {
+    var marker = new SnapshotMarkerRID(5, 10);
+    var tombstone = new TombstoneRID(5, 10);
+    assertEquals(marker, tombstone);
+    assertEquals(tombstone, marker);
+    assertEquals(marker.hashCode(), tombstone.hashCode());
+  }
+
+  /**
    * getIdentity() returns a RecordId with the original (non-encoded) values.
    */
   @Test
