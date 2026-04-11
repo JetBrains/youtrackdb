@@ -4,16 +4,17 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
-import it.unimi.dsi.fastutil.ints.IntSets;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 
 /**
  * Logical WAL record for {@link CollectionPage#appendRecord(long, byte[], int,
- * it.unimi.dsi.fastutil.ints.IntSet)}. Captures the record version, record bytes, and the
- * allocated index (the position that was computed during normal operation). During redo,
- * the allocated index is passed as {@code requestedPosition}, which bypasses the
- * non-deterministic free-list scan and ensures deterministic replay.
+ * it.unimi.dsi.fastutil.ints.IntSet)}. Captures the record version, record bytes, the
+ * allocated index, and the actual byte offset ({@code entryPosition}) where the entry
+ * was written on the page. During redo, {@link CollectionPage#appendRecordAtPosition}
+ * writes directly to the captured position, bypassing non-deterministic hole-finding,
+ * defragmentation, and space checking — ensuring the page layout is faithfully
+ * reproduced during recovery.
  */
 public final class CollectionPageAppendRecordOp extends PageOperation {
 
@@ -22,6 +23,7 @@ public final class CollectionPageAppendRecordOp extends PageOperation {
   private long recordVersion;
   private byte[] record;
   private int allocatedIndex;
+  private int entryPosition;
 
   /** No-arg constructor for reflection-based deserialization by WALRecordsFactory. */
   public CollectionPageAppendRecordOp() {
@@ -29,19 +31,20 @@ public final class CollectionPageAppendRecordOp extends PageOperation {
 
   public CollectionPageAppendRecordOp(
       long pageIndex, long fileId, long operationUnitId,
-      LogSequenceNumber initialLsn, long recordVersion, byte[] record, int allocatedIndex) {
+      LogSequenceNumber initialLsn, long recordVersion, byte[] record,
+      int allocatedIndex, int entryPosition) {
     super(pageIndex, fileId, operationUnitId, initialLsn);
     this.recordVersion = recordVersion;
     this.record = record;
     this.allocatedIndex = allocatedIndex;
+    this.entryPosition = entryPosition;
   }
 
   @Override
   public void redo(DurablePage page) {
-    // Pass allocatedIndex as requestedPosition to bypass free-list scan.
-    // bookedRecordPositions is empty — not relevant during recovery.
     var collectionPage = new CollectionPage(page.getCacheEntry());
-    collectionPage.appendRecord(recordVersion, record, allocatedIndex, IntSets.emptySet());
+    collectionPage.appendRecordAtPosition(
+        recordVersion, record, entryPosition, allocatedIndex);
   }
 
   @Override
@@ -61,13 +64,18 @@ public final class CollectionPageAppendRecordOp extends PageOperation {
     return allocatedIndex;
   }
 
+  public int getEntryPosition() {
+    return entryPosition;
+  }
+
   @Override
   public int serializedSize() {
     return super.serializedSize()
         + Long.BYTES // recordVersion
         + Integer.BYTES // record.length
         + record.length // record bytes
-        + Integer.BYTES; // allocatedIndex
+        + Integer.BYTES // allocatedIndex
+        + Integer.BYTES; // entryPosition
   }
 
   @Override
@@ -77,6 +85,7 @@ public final class CollectionPageAppendRecordOp extends PageOperation {
     buffer.putInt(record.length);
     buffer.put(record);
     buffer.putInt(allocatedIndex);
+    buffer.putInt(entryPosition);
   }
 
   @Override
@@ -87,6 +96,7 @@ public final class CollectionPageAppendRecordOp extends PageOperation {
     record = new byte[length];
     buffer.get(record);
     allocatedIndex = buffer.getInt();
+    entryPosition = buffer.getInt();
   }
 
   @Override
@@ -102,6 +112,7 @@ public final class CollectionPageAppendRecordOp extends PageOperation {
     }
     return recordVersion == that.recordVersion
         && allocatedIndex == that.allocatedIndex
+        && entryPosition == that.entryPosition
         && Arrays.equals(record, that.record);
   }
 
@@ -111,6 +122,7 @@ public final class CollectionPageAppendRecordOp extends PageOperation {
     result = 31 * result + (int) (recordVersion ^ (recordVersion >>> 32));
     result = 31 * result + Arrays.hashCode(record);
     result = 31 * result + allocatedIndex;
+    result = 31 * result + entryPosition;
     return result;
   }
 
@@ -118,6 +130,7 @@ public final class CollectionPageAppendRecordOp extends PageOperation {
   public String toString() {
     return toString("recordVersion=" + recordVersion
         + ", recordLen=" + (record != null ? record.length : "null")
-        + ", allocatedIndex=" + allocatedIndex);
+        + ", allocatedIndex=" + allocatedIndex
+        + ", entryPosition=" + entryPosition);
   }
 }

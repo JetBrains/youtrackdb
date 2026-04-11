@@ -167,7 +167,8 @@ public final class CollectionPage extends DurablePage {
               cec.registerPageOperation(
                   new CollectionPageAppendRecordOp(
                       cacheEntry.getPageIndex(), cacheEntry.getFileId(),
-                      0, cec.getInitialLSN(), recordVersion, record, entryIndex));
+                      0, cec.getInitialLSN(), recordVersion, record,
+                      entryIndex, entryPosition));
             }
 
             return entryIndex;
@@ -210,7 +211,8 @@ public final class CollectionPage extends DurablePage {
       cec.registerPageOperation(
           new CollectionPageAppendRecordOp(
               cacheEntry.getPageIndex(), cacheEntry.getFileId(),
-              0, cec.getInitialLSN(), recordVersion, record, entryIndex));
+              0, cec.getInitialLSN(), recordVersion, record,
+              entryIndex, freePosition));
     }
 
     return entryIndex;
@@ -939,6 +941,53 @@ public final class CollectionPage extends DurablePage {
               cacheEntry.getPageIndex(), cacheEntry.getFileId(),
               0, cec.getInitialLSN()));
     }
+  }
+
+  /**
+   * Writes a record at a specified byte position during WAL redo. Bypasses hole-finding,
+   * space checking, and defragmentation logic — reproducing the exact page layout from the
+   * original operation.
+   *
+   * <p>If the entry was originally placed in a hole ({@code entryPosition >= freePosition}),
+   * the hole is split if it was larger than the entry. If the entry was originally placed
+   * at freePosition ({@code entryPosition < freePosition}), freePosition is updated.
+   *
+   * @param recordVersion the record version
+   * @param record the record bytes
+   * @param entryPosition the absolute byte offset where the entry was originally written
+   * @param entryIndex the index slot allocated during the original operation
+   */
+  void appendRecordAtPosition(
+      long recordVersion, byte[] record, int entryPosition, int entryIndex) {
+    var entrySize = record.length + 3 * IntegerSerializer.INT_SIZE;
+    var freePosition = getFreePosition();
+    var freeListHeader = getFreeListHeader();
+
+    if (entryPosition >= freePosition) {
+      // Hole case: the entry was placed into an existing hole in the entry area.
+      // Read the hole marker (negative size) before overwriting, then split if needed.
+      var holeMarker = getIntValue(entryPosition);
+      assert holeMarker < 0
+          : "Expected hole marker at position " + entryPosition + " but found " + holeMarker;
+      var holeSize = -holeMarker;
+      assert holeSize >= entrySize
+          : "Hole size " + holeSize + " < entry size " + entrySize
+              + " at position " + entryPosition;
+      if (holeSize != entrySize) {
+        // Leave a smaller hole after the entry
+        setIntValue(entryPosition + entrySize, -(holeSize - entrySize));
+      }
+    } else {
+      // FreePosition case: the entry expands the entry area downward.
+      assert entryPosition == freePosition - entrySize
+          : "Expected entryPosition " + (freePosition - entrySize)
+              + " but got " + entryPosition;
+      setFreePosition(entryPosition);
+    }
+
+    insertIntoRequestedSlot(
+        recordVersion, entryPosition, entrySize, entryIndex, freeListHeader);
+    writeEntry(record, entryPosition, entrySize, entryIndex);
   }
 
   public int getFreePosition() {
