@@ -71,7 +71,7 @@ public class CollectionPageAppendRecordOpTest {
   public void testSerializationRoundtrip() {
     var record = new byte[] {1, 2, 3, 4, 5};
     var original = new CollectionPageAppendRecordOp(
-        10, 20, 30, new LogSequenceNumber(5, 100), 42L, record, 7, 4096);
+        10, 20, 30, new LogSequenceNumber(5, 100), 42L, record, 7, 4096, 0);
 
     var content = new byte[original.serializedSize() + 1];
     var endOffset = original.toStream(content, 1);
@@ -93,7 +93,7 @@ public class CollectionPageAppendRecordOpTest {
   @Test
   public void testSerializationEmptyRecord() {
     var original = new CollectionPageAppendRecordOp(
-        0, 0, 0, new LogSequenceNumber(0, 0), 0L, new byte[0], 0, 0);
+        0, 0, 0, new LogSequenceNumber(0, 0), 0L, new byte[0], 0, 0, 0);
 
     var content = new byte[original.serializedSize()];
     original.toStream(content, 0);
@@ -110,7 +110,7 @@ public class CollectionPageAppendRecordOpTest {
     Arrays.fill(record, (byte) 0xAB);
     var original = new CollectionPageAppendRecordOp(
         0, 0, 0, new LogSequenceNumber(0, 0), Long.MAX_VALUE, record,
-        Integer.MAX_VALUE, 2048);
+        Integer.MAX_VALUE, 2048, 0);
 
     var content = new byte[original.serializedSize()];
     original.toStream(content, 0);
@@ -129,7 +129,7 @@ public class CollectionPageAppendRecordOpTest {
   @Test
   public void testFactoryRoundtrip() {
     var original = new CollectionPageAppendRecordOp(
-        1, 2, 3, new LogSequenceNumber(10, 20), 99L, new byte[] {10, 20, 30}, 5, 7000);
+        1, 2, 3, new LogSequenceNumber(10, 20), 99L, new byte[] {10, 20, 30}, 5, 7000, 0);
 
     ByteBuffer serialized = WALRecordsFactory.toStream(original);
     var content = new byte[serialized.limit()];
@@ -165,7 +165,7 @@ public class CollectionPageAppendRecordOpTest {
       var page2 = new CollectionPage(entry2);
       page2.init();
       var op = new CollectionPageAppendRecordOp(
-          0, 0, 0, new LogSequenceNumber(0, 0), 1L, record, idx1, entryPos);
+          0, 0, 0, new LogSequenceNumber(0, 0), 1L, record, idx1, entryPos, 0);
       op.redo(page2);
 
       // Compare state
@@ -181,42 +181,61 @@ public class CollectionPageAppendRecordOpTest {
   }
 
   /**
-   * Append with hole reuse: delete a record to create a hole, then append into it.
-   * The redo path must produce logically equivalent state (same record at same index).
+   * Append with hole reuse: fill the page so contiguous free space is insufficient,
+   * delete a record to create a hole, then append a same-sized record into the hole.
+   * The redo path must produce identical page state (same record at same position).
    */
   @Test
   public void testRedoAppendWithHoleReuse() {
     var entry1 = createRawCacheEntry();
     var entry2 = createRawCacheEntry();
     try {
-      var record1 = new byte[] {1, 2, 3, 4};
-      var record2 = new byte[] {5, 6, 7};
-      var record3 = new byte[] {8, 9, 10}; // fits in the hole left by record1
+      // Use same-sized records so the hole is an exact fit (findHole accepts it).
+      var fillRecord = new byte[200];
 
-      // Direct path — create hole then append into it
+      // Direct path — fill page, create hole, then append into the hole
       var page1 = new CollectionPage(entry1);
       page1.init();
-      var idx1 = page1.appendRecord(1L, record1, -1, IntSets.emptySet());
-      page1.appendRecord(2L, record2, -1, IntSets.emptySet());
-      page1.deleteRecord(idx1, true); // create hole
-      var idx3 = page1.appendRecord(3L, record3, -1, IntSets.emptySet());
-      var entryPos3 = page1.getPointerValuePosition(idx3);
 
-      // Redo path — replay same sequence with captured allocatedIndex + entryPosition
+      int firstIdx = page1.appendRecord(1L, fillRecord, -1, IntSets.emptySet());
+      while (page1.appendRecord(1L, fillRecord, -1, IntSets.emptySet()) != -1) {
+        // fill until full
+      }
+
+      // Delete the first record — creates a hole of exactly the entry size
+      page1.deleteRecord(firstIdx, true);
+
+      // Append a record of the same size — should reuse the hole
+      var holeRecord = new byte[200];
+      int holeIdx = page1.appendRecord(2L, holeRecord, -1, IntSets.emptySet());
+      Assert.assertNotEquals("append into hole should succeed", -1, holeIdx);
+      int holeEntryPos = page1.getPointerValuePosition(holeIdx);
+      // Verify hole was actually reused (position should match deleted record's position)
+      int freePosBefore = page1.getFreePosition();
+
+      // Redo path
       var page2 = new CollectionPage(entry2);
       page2.init();
-      page2.appendRecord(1L, record1, -1, IntSets.emptySet());
-      page2.appendRecord(2L, record2, -1, IntSets.emptySet());
-      page2.deleteRecord(idx1, true);
+
+      page2.appendRecord(1L, fillRecord, -1, IntSets.emptySet());
+      while (page2.appendRecord(1L, fillRecord, -1, IntSets.emptySet()) != -1) {
+        // fill until full
+      }
+      page2.deleteRecord(firstIdx, true);
+
+      int entrySize = holeRecord.length + 3 * Integer.BYTES;
       var op = new CollectionPageAppendRecordOp(
-          0, 0, 0, new LogSequenceNumber(0, 0), 3L, record3, idx3, entryPos3);
+          0, 0, 0, new LogSequenceNumber(0, 0), 2L, holeRecord,
+          holeIdx, holeEntryPos, entrySize);
       op.redo(page2);
 
-      // The record at idx3 must be the same on both pages
+      // Page state must match exactly
       Assert.assertEquals(page1.getRecordsCount(), page2.getRecordsCount());
+      Assert.assertEquals(page1.getFreeSpace(), page2.getFreeSpace());
+      Assert.assertEquals(page1.getFreePosition(), page2.getFreePosition());
       Assert.assertArrayEquals(
-          page1.getRecordBinaryValue(idx3, 0, record3.length),
-          page2.getRecordBinaryValue(idx3, 0, record3.length));
+          page1.getRecordBinaryValue(holeIdx, 0, holeRecord.length),
+          page2.getRecordBinaryValue(holeIdx, 0, holeRecord.length));
     } finally {
       releaseEntry(entry1);
       releaseEntry(entry2);
@@ -292,6 +311,8 @@ public class CollectionPageAppendRecordOpTest {
       Assert.assertEquals(idx, appendOp.getAllocatedIndex());
       Assert.assertEquals(1L, appendOp.getRecordVersion());
       Assert.assertArrayEquals(record, appendOp.getRecord());
+      Assert.assertEquals(page.getPointerValuePosition(idx), appendOp.getEntryPosition());
+      Assert.assertEquals(0, appendOp.getHoleSize()); // freePosition path
     } finally {
       releaseEntry(entry);
     }
@@ -303,23 +324,27 @@ public class CollectionPageAppendRecordOpTest {
   public void testEqualsAndHashCode() {
     var lsn = new LogSequenceNumber(1, 10);
     var record = new byte[] {1, 2, 3};
-    var op1 = new CollectionPageAppendRecordOp(5, 10, 15, lsn, 42L, record, 7, 4000);
-    var op2 = new CollectionPageAppendRecordOp(5, 10, 15, lsn, 42L, record, 7, 4000);
+    var op1 = new CollectionPageAppendRecordOp(5, 10, 15, lsn, 42L, record, 7, 4000, 0);
+    var op2 = new CollectionPageAppendRecordOp(5, 10, 15, lsn, 42L, record, 7, 4000, 0);
     Assert.assertEquals(op1, op2);
     Assert.assertEquals(op1.hashCode(), op2.hashCode());
 
     // Different allocatedIndex
-    var op3 = new CollectionPageAppendRecordOp(5, 10, 15, lsn, 42L, record, 99, 4000);
+    var op3 = new CollectionPageAppendRecordOp(5, 10, 15, lsn, 42L, record, 99, 4000, 0);
     Assert.assertNotEquals(op1, op3);
 
     // Different record
     var op4 = new CollectionPageAppendRecordOp(
-        5, 10, 15, lsn, 42L, new byte[] {9, 8, 7}, 7, 4000);
+        5, 10, 15, lsn, 42L, new byte[] {9, 8, 7}, 7, 4000, 0);
     Assert.assertNotEquals(op1, op4);
 
     // Different entryPosition
-    var op5 = new CollectionPageAppendRecordOp(5, 10, 15, lsn, 42L, record, 7, 5000);
+    var op5 = new CollectionPageAppendRecordOp(5, 10, 15, lsn, 42L, record, 7, 5000, 0);
     Assert.assertNotEquals(op1, op5);
+
+    // Different holeSize
+    var op6 = new CollectionPageAppendRecordOp(5, 10, 15, lsn, 42L, record, 7, 4000, 16);
+    Assert.assertNotEquals(op1, op6);
   }
 
   // --- Multiple sequential redos ---
@@ -352,11 +377,11 @@ public class CollectionPageAppendRecordOpTest {
       var page2 = new CollectionPage(entry2);
       page2.init();
       new CollectionPageAppendRecordOp(
-          0, 0, 0, new LogSequenceNumber(0, 0), 1L, r1, idx1, pos1).redo(page2);
+          0, 0, 0, new LogSequenceNumber(0, 0), 1L, r1, idx1, pos1, 0).redo(page2);
       new CollectionPageAppendRecordOp(
-          0, 0, 0, new LogSequenceNumber(0, 0), 2L, r2, idx2, pos2).redo(page2);
+          0, 0, 0, new LogSequenceNumber(0, 0), 2L, r2, idx2, pos2, 0).redo(page2);
       new CollectionPageAppendRecordOp(
-          0, 0, 0, new LogSequenceNumber(0, 0), 3L, r3, idx3, pos3).redo(page2);
+          0, 0, 0, new LogSequenceNumber(0, 0), 3L, r3, idx3, pos3, 0).redo(page2);
 
       // Cumulative state must match
       Assert.assertEquals(page1.getRecordsCount(), page2.getRecordsCount());
@@ -430,7 +455,7 @@ public class CollectionPageAppendRecordOpTest {
           0, 0, 0, new LogSequenceNumber(0, 0)).redo(page2);
       new CollectionPageAppendRecordOp(
           0, 0, 0, new LogSequenceNumber(0, 0), 2L, bigRecord,
-          idxNew, entryPosNew).redo(page2);
+          idxNew, entryPosNew, 0).redo(page2);
 
       // Logical state must match
       Assert.assertEquals(page1.getRecordsCount(), page2.getRecordsCount());
@@ -509,7 +534,7 @@ public class CollectionPageAppendRecordOpTest {
       page.init();
       // Append via redo (plain CacheEntry, no CacheEntryChanges)
       var op = new CollectionPageAppendRecordOp(
-          0, 0, 0, new LogSequenceNumber(0, 0), 1L, record, 0, entryPosition);
+          0, 0, 0, new LogSequenceNumber(0, 0), 1L, record, 0, entryPosition, 0);
       op.redo(page);
 
       Assert.assertEquals(1, page.getRecordsCount());

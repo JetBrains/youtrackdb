@@ -137,7 +137,7 @@ public class PageOperationRegistryTest {
         new CollectionPageSetRecordVersionOp(pageIndex, fileId, opUnitId, initialLsn, 3, 7),
         new CollectionPageDoDefragmentationOp(pageIndex, fileId, opUnitId, initialLsn),
         new CollectionPageAppendRecordOp(
-            pageIndex, fileId, opUnitId, initialLsn, 1, new byte[] {1, 2, 3}, 4, 8000),
+            pageIndex, fileId, opUnitId, initialLsn, 1, new byte[] {1, 2, 3}, 4, 8000, 0),
         new CollectionPositionMapBucketInitOp(pageIndex, fileId, opUnitId, initialLsn),
         new CollectionPositionMapBucketAllocateOp(pageIndex, fileId, opUnitId, initialLsn),
         new CollectionPositionMapBucketSetOp(
@@ -409,7 +409,7 @@ public class PageOperationRegistryTest {
       case WALRecordTypes.COLLECTION_PAGE_DO_DEFRAGMENTATION_OP ->
           new CollectionPageDoDefragmentationOp(0, 0, 0, lsn);
       case WALRecordTypes.COLLECTION_PAGE_APPEND_RECORD_OP ->
-          new CollectionPageAppendRecordOp(0, 0, 0, lsn, 0, new byte[] {}, 0, 0);
+          new CollectionPageAppendRecordOp(0, 0, 0, lsn, 0, new byte[] {}, 0, 0, 0);
       case WALRecordTypes.POSITION_MAP_BUCKET_INIT_OP ->
           new CollectionPositionMapBucketInitOp(0, 0, 0, lsn);
       case WALRecordTypes.POSITION_MAP_BUCKET_ALLOCATE_OP ->

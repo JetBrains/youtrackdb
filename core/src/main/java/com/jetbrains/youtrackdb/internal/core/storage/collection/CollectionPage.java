@@ -168,7 +168,7 @@ public final class CollectionPage extends DurablePage {
                   new CollectionPageAppendRecordOp(
                       cacheEntry.getPageIndex(), cacheEntry.getFileId(),
                       0, cec.getInitialLSN(), recordVersion, record,
-                      entryIndex, entryPosition));
+                      entryIndex, entryPosition, holeSize));
             }
 
             return entryIndex;
@@ -212,7 +212,7 @@ public final class CollectionPage extends DurablePage {
           new CollectionPageAppendRecordOp(
               cacheEntry.getPageIndex(), cacheEntry.getFileId(),
               0, cec.getInitialLSN(), recordVersion, record,
-              entryIndex, freePosition));
+              entryIndex, freePosition, 0));
     }
 
     return entryIndex;
@@ -948,28 +948,32 @@ public final class CollectionPage extends DurablePage {
    * space checking, and defragmentation logic — reproducing the exact page layout from the
    * original operation.
    *
-   * <p>If the entry was originally placed in a hole ({@code entryPosition >= freePosition}),
-   * the hole is split if it was larger than the entry. If the entry was originally placed
-   * at freePosition ({@code entryPosition < freePosition}), freePosition is updated.
+   * <p>If {@code holeSize > 0}, the entry was placed in a hole: the hole is split if it
+   * was larger than the entry. The {@code holeSize} is the coalesced total from
+   * {@link #findHole} (which may merge adjacent holes) — reading the individual hole marker
+   * during redo would be insufficient when adjacent holes were merged.
+   *
+   * <p>If {@code holeSize == 0}, the entry was placed at freePosition: freePosition is
+   * decremented.
    *
    * @param recordVersion the record version
    * @param record the record bytes
    * @param entryPosition the absolute byte offset where the entry was originally written
    * @param entryIndex the index slot allocated during the original operation
+   * @param holeSize the coalesced hole size (>0 for hole, 0 for freePosition)
    */
   void appendRecordAtPosition(
-      long recordVersion, byte[] record, int entryPosition, int entryIndex) {
+      long recordVersion, byte[] record, int entryPosition, int entryIndex,
+      int holeSize) {
     var entrySize = record.length + 3 * IntegerSerializer.INT_SIZE;
     var freePosition = getFreePosition();
     var freeListHeader = getFreeListHeader();
 
-    if (entryPosition >= freePosition) {
+    if (holeSize > 0) {
       // Hole case: the entry was placed into an existing hole in the entry area.
-      // Read the hole marker (negative size) before overwriting, then split if needed.
-      var holeMarker = getIntValue(entryPosition);
-      assert holeMarker < 0
-          : "Expected hole marker at position " + entryPosition + " but found " + holeMarker;
-      var holeSize = -holeMarker;
+      // Use the captured coalesced holeSize (not the page marker which may be smaller).
+      assert entryPosition >= freePosition
+          : "Hole entryPosition " + entryPosition + " < freePosition " + freePosition;
       assert holeSize >= entrySize
           : "Hole size " + holeSize + " < entry size " + entrySize
               + " at position " + entryPosition;

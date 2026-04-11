@@ -24,27 +24,35 @@ public final class CollectionPageAppendRecordOp extends PageOperation {
   private byte[] record;
   private int allocatedIndex;
   private int entryPosition;
+  private int holeSize;
 
   /** No-arg constructor for reflection-based deserialization by WALRecordsFactory. */
   public CollectionPageAppendRecordOp() {
   }
 
+  /**
+   * @param holeSize the coalesced hole size if the entry was placed in a hole (>0),
+   *                 or 0 if the entry was placed at freePosition. Captured from
+   *                 {@code findHole()[1]} which may merge adjacent holes — reading the
+   *                 individual hole marker during redo is insufficient.
+   */
   public CollectionPageAppendRecordOp(
       long pageIndex, long fileId, long operationUnitId,
       LogSequenceNumber initialLsn, long recordVersion, byte[] record,
-      int allocatedIndex, int entryPosition) {
+      int allocatedIndex, int entryPosition, int holeSize) {
     super(pageIndex, fileId, operationUnitId, initialLsn);
     this.recordVersion = recordVersion;
     this.record = record;
     this.allocatedIndex = allocatedIndex;
     this.entryPosition = entryPosition;
+    this.holeSize = holeSize;
   }
 
   @Override
   public void redo(DurablePage page) {
     var collectionPage = new CollectionPage(page.getCacheEntry());
     collectionPage.appendRecordAtPosition(
-        recordVersion, record, entryPosition, allocatedIndex);
+        recordVersion, record, entryPosition, allocatedIndex, holeSize);
   }
 
   @Override
@@ -68,6 +76,10 @@ public final class CollectionPageAppendRecordOp extends PageOperation {
     return entryPosition;
   }
 
+  public int getHoleSize() {
+    return holeSize;
+  }
+
   @Override
   public int serializedSize() {
     return super.serializedSize()
@@ -75,7 +87,8 @@ public final class CollectionPageAppendRecordOp extends PageOperation {
         + Integer.BYTES // record.length
         + record.length // record bytes
         + Integer.BYTES // allocatedIndex
-        + Integer.BYTES; // entryPosition
+        + Integer.BYTES // entryPosition
+        + Integer.BYTES; // holeSize
   }
 
   @Override
@@ -86,6 +99,7 @@ public final class CollectionPageAppendRecordOp extends PageOperation {
     buffer.put(record);
     buffer.putInt(allocatedIndex);
     buffer.putInt(entryPosition);
+    buffer.putInt(holeSize);
   }
 
   @Override
@@ -97,6 +111,7 @@ public final class CollectionPageAppendRecordOp extends PageOperation {
     buffer.get(record);
     allocatedIndex = buffer.getInt();
     entryPosition = buffer.getInt();
+    holeSize = buffer.getInt();
   }
 
   @Override
@@ -113,6 +128,7 @@ public final class CollectionPageAppendRecordOp extends PageOperation {
     return recordVersion == that.recordVersion
         && allocatedIndex == that.allocatedIndex
         && entryPosition == that.entryPosition
+        && holeSize == that.holeSize
         && Arrays.equals(record, that.record);
   }
 
@@ -123,6 +139,7 @@ public final class CollectionPageAppendRecordOp extends PageOperation {
     result = 31 * result + Arrays.hashCode(record);
     result = 31 * result + allocatedIndex;
     result = 31 * result + entryPosition;
+    result = 31 * result + holeSize;
     return result;
   }
 
@@ -131,6 +148,7 @@ public final class CollectionPageAppendRecordOp extends PageOperation {
     return toString("recordVersion=" + recordVersion
         + ", recordLen=" + (record != null ? record.length : "null")
         + ", allocatedIndex=" + allocatedIndex
-        + ", entryPosition=" + entryPosition);
+        + ", entryPosition=" + entryPosition
+        + ", holeSize=" + holeSize);
   }
 }
