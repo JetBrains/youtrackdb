@@ -1,7 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine.v1;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -263,6 +265,111 @@ public class BTreeEnginePersistedCountIT extends DbTestBase {
               "Rolled-back TX must not affect persisted count",
               3, engine.getTotalCount(atomicOp));
         });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Crash recovery: forceDatabaseClose + WAL replay
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Insert 100 records into a DISK database, commit, call forceDatabaseClose()
+   * (simulates non-graceful shutdown — no flush), reopen (triggers WAL replay),
+   * and verify that the approximate entries count is correct.
+   */
+  @Test
+  public void singleValue_countSurvivesCrashRecovery() throws Exception {
+    var crashDbName = "crash_count_insert";
+    youTrackDB.create(crashDbName, DatabaseType.DISK,
+        adminUser, adminPassword, "admin");
+    var crashSession =
+        (DatabaseSessionEmbedded) youTrackDB.open(crashDbName, adminUser, adminPassword);
+
+    crashSession.createClassIfNotExist("CrashSV");
+    var cls = crashSession.getClass("CrashSV");
+    cls.createProperty("name", PropertyType.STRING);
+    cls.createIndex("CrashSV.name", SchemaClass.INDEX_TYPE.UNIQUE, "name");
+
+    crashSession.begin();
+    for (int i = 0; i < 100; i++) {
+      crashSession.newEntity("CrashSV").setProperty("name", "entry_" + i);
+    }
+    crashSession.commit();
+
+    // Simulate non-graceful shutdown — no flush
+    crashSession.activateOnCurrentThread();
+    youTrackDB.internal.forceDatabaseClose(crashDbName);
+
+    // Reopen — WAL replay restores the B-tree
+    crashSession =
+        (DatabaseSessionEmbedded) youTrackDB.open(crashDbName, adminUser, adminPassword);
+
+    var engine = getBTreeIndexEngine(crashSession, "CrashSV.name");
+    var finalSession = crashSession;
+    crashSession.getStorage().getAtomicOperationsManager()
+        .executeInsideAtomicOperation(atomicOp -> {
+          assertEquals(
+              "Approximate count must be 100 after crash recovery",
+              100, engine.getTotalCount(atomicOp));
+        });
+
+    finalSession.close();
+    youTrackDB.drop(crashDbName);
+  }
+
+  /**
+   * Insert 100 records, commit, delete 50, commit, forceDatabaseClose, reopen,
+   * verify approximate count is ~50.
+   */
+  @Test
+  public void singleValue_insertAndDelete_countSurvivesCrashRecovery()
+      throws Exception {
+    var crashDbName = "crash_count_del";
+    youTrackDB.create(crashDbName, DatabaseType.DISK,
+        adminUser, adminPassword, "admin");
+    var crashSession =
+        (DatabaseSessionEmbedded) youTrackDB.open(crashDbName, adminUser, adminPassword);
+
+    crashSession.createClassIfNotExist("CrashDel");
+    var cls = crashSession.getClass("CrashDel");
+    cls.createProperty("val", PropertyType.STRING);
+    cls.createIndex("CrashDel.val", SchemaClass.INDEX_TYPE.UNIQUE, "val");
+
+    // Insert 100
+    crashSession.begin();
+    for (int i = 0; i < 100; i++) {
+      crashSession.newEntity("CrashDel").setProperty("val", "v" + i);
+    }
+    crashSession.commit();
+
+    // Delete 50
+    crashSession.begin();
+    for (int i = 0; i < 50; i++) {
+      crashSession.command("DELETE FROM CrashDel WHERE val = 'v" + i + "'");
+    }
+    crashSession.commit();
+
+    // Simulate non-graceful shutdown
+    crashSession.activateOnCurrentThread();
+    youTrackDB.internal.forceDatabaseClose(crashDbName);
+
+    // Reopen — WAL replay
+    crashSession =
+        (DatabaseSessionEmbedded) youTrackDB.open(crashDbName, adminUser, adminPassword);
+
+    var engine = getBTreeIndexEngine(crashSession, "CrashDel.val");
+    var finalSession = crashSession;
+    crashSession.getStorage().getAtomicOperationsManager()
+        .executeInsideAtomicOperation(atomicOp -> {
+          long count = engine.getTotalCount(atomicOp);
+          // Approximate count should be 50 after crash recovery.
+          // Allow a small tolerance since it's an approximate count.
+          assertTrue(
+              "Approximate count must be ~50 after delete + crash recovery, got " + count,
+              count >= 45 && count <= 55);
+        });
+
+    finalSession.close();
+    youTrackDB.drop(crashDbName);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
