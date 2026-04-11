@@ -13,17 +13,18 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.junit.Test;
 
 /**
- * Snapshot-isolation tests for null keys in NOTUNIQUE indexes (BTreeMultiValueIndexEngine).
+ * Snapshot-isolation tests for null keys in both NOTUNIQUE (BTreeMultiValueIndexEngine)
+ * and UNIQUE (BTreeSingleValueIndexEngine) indexes.
  *
- * <p>Null keys are stored in a separate {@code nullTree} inside BTreeMultiValueIndexEngine.
- * These tests verify that the null key path correctly implements snapshot isolation:
- * a concurrent insert/delete of a null-keyed record should be invisible to a snapshot
- * transaction that started before the change.
+ * <p>NOTUNIQUE: Null keys are stored in a separate {@code nullTree} with its own
+ * {@code nullIndexesSnapshot} for visibility filtering. Versioned put/remove operations
+ * use the same {@link VersionedIndexOps} logic as non-null keys.
  *
- * <p>Note: as of this writing, the null key path in BTreeMultiValueIndexEngine does NOT
- * implement snapshot isolation (no versioning, no TombstoneRID/SnapshotMarkerRID, no
- * visibility filter). These tests document the expected behavior and are expected to fail
- * until the null key path is fixed.
+ * <p>UNIQUE: Null keys are stored in the main {@code sbTree} as {@code CompositeKey(null)}
+ * and handled uniformly via {@code getVisible()} with version padding.
+ *
+ * <p>These tests verify that concurrent insert, delete, and update operations on null-keyed
+ * records are invisible to snapshot transactions that started before the change.
  */
 public class SnapshotIsolationIndexesNullKeyTest extends SnapshotIsolationIndexesTestBase {
 
