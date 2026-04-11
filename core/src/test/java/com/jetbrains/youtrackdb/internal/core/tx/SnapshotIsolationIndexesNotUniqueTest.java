@@ -128,13 +128,13 @@ public class SnapshotIsolationIndexesNotUniqueTest {
       snapshotGraph = openGraph();
 
       snapshotGraph.tx().begin();
-      var beforeInsert = snapshotGraph
+      var beforeUpdate = snapshotGraph
           .V()
           .hasLabel("Userr")
           .has("name", fooValue)
           .toList();
 
-      assertEquals(3, beforeInsert.size());
+      assertEquals(3, beforeUpdate.size());
 
       // update Foo -> Bar
       graph.tx().begin();
@@ -144,13 +144,13 @@ public class SnapshotIsolationIndexesNotUniqueTest {
           .iterate();
       graph.tx().commit();
 
-      var afterInsert = snapshotGraph
+      var afterUpdate = snapshotGraph
           .V()
           .hasLabel("Userr")
           .has("name", fooValue)
           .toList();
 
-      assertEquals(3, afterInsert.size());
+      assertEquals(3, afterUpdate.size());
       snapshotGraph.tx().commit();
 
       // New graph must see final values
@@ -208,14 +208,14 @@ public class SnapshotIsolationIndexesNotUniqueTest {
       snapshotGraph = openGraph();
 
       snapshotGraph.tx().begin();
-      var beforeInsert = snapshotGraph
+      var beforeUpdate = snapshotGraph
           .V()
           .hasLabel("Userr")
           .has("name", fooValue)
           .has("surname", fooValue)
           .toList();
 
-      assertEquals(1, beforeInsert.size());
+      assertEquals(1, beforeUpdate.size());
 
       // update Foo -> Bar
       graph.tx().begin();
@@ -226,14 +226,14 @@ public class SnapshotIsolationIndexesNotUniqueTest {
           .iterate();
       graph.tx().commit();
 
-      var afterInsert = snapshotGraph
+      var afterUpdate = snapshotGraph
           .V()
           .hasLabel("Userr")
           .has("name", fooValue)
           .has("surname", fooValue)
           .toList();
 
-      assertEquals(1, afterInsert.size());
+      assertEquals(1, afterUpdate.size());
       snapshotGraph.tx().commit();
 
       // New graph must see final values
