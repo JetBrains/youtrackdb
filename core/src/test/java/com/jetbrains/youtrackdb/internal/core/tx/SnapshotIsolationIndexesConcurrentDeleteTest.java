@@ -241,6 +241,9 @@ public class SnapshotIsolationIndexesConcurrentDeleteTest
 
     if (error.get() instanceof AssertionError ae) {
       throw ae;
+    } else if (error.get() != null) {
+      throw new AssertionError(
+          "Thread threw unexpected exception", error.get());
     }
 
     // After B commits with the corrupt double-delete: the snapshot TX
