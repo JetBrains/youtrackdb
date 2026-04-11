@@ -82,10 +82,17 @@ import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVNullBucketV3InitOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVNullBucketV3RemoveValueOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVNullBucketV3SetValueOp;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagBucketAddAllOp;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagBucketAddLeafEntryOp;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagBucketAddNonLeafEntryOp;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagBucketInitOp;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagBucketRemoveLeafEntryOp;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagBucketRemoveNonLeafEntryOp;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagBucketSetLeftSiblingOp;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagBucketSetRightSiblingOp;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagBucketShrinkOp;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagBucketSwitchBucketTypeOp;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagBucketUpdateValueOp;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagEntryPointInitOp;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagEntryPointSetPagesSizeOp;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagEntryPointSetTreeSizeOp;
@@ -291,6 +298,28 @@ public class PageOperationRegistryTest {
             pageIndex, fileId, opUnitId, initialLsn, 100L),
         new RidbagBucketSetRightSiblingOp(
             pageIndex, fileId, opUnitId, initialLsn, 200L),
+
+        // Track 7b: Ridbag Bucket entry + bulk + updateValue (7 ops)
+        new RidbagBucketAddLeafEntryOp(
+            pageIndex, fileId, opUnitId, initialLsn,
+            0, new byte[] {1, 2}, new byte[] {3, 4}),
+        new RidbagBucketAddNonLeafEntryOp(
+            pageIndex, fileId, opUnitId, initialLsn,
+            0, 1, 2, new byte[] {5, 6}, true),
+        new RidbagBucketRemoveLeafEntryOp(
+            pageIndex, fileId, opUnitId, initialLsn, 0, 2, 3),
+        new RidbagBucketRemoveNonLeafEntryOp(
+            pageIndex, fileId, opUnitId, initialLsn,
+            0, new byte[] {7, 8}, 42),
+        new RidbagBucketAddAllOp(
+            pageIndex, fileId, opUnitId, initialLsn,
+            List.of(new byte[] {1, 2, 3})),
+        new RidbagBucketShrinkOp(
+            pageIndex, fileId, opUnitId, initialLsn,
+            List.of(new byte[] {4, 5, 6})),
+        new RidbagBucketUpdateValueOp(
+            pageIndex, fileId, opUnitId, initialLsn,
+            0, new byte[] {10, 20}, 2),
     };
 
     for (PageOperation op : ops) {
@@ -312,17 +341,17 @@ public class PageOperationRegistryTest {
   @Test
   public void testRegisteredTypeCount() {
     // IDs 201-281 = 81 types (18 Track 2-3 + 20 Track 5 + 25 Track 6 + 15 Track 7a
-    //   + 3 Track 7b).
+    //   + 17 Track 7b).
     // Each ID must have both a createOpForId entry and a factory registration.
     // createOpForId throws for unknown IDs, so any gap causes immediate failure.
     int registeredCount = 0;
     for (int id = WALRecordTypes.PAGE_OPERATION_ID_BASE + 1;
-        id <= WALRecordTypes.PAGE_OPERATION_ID_BASE + 88; id++) {
+        id <= WALRecordTypes.PAGE_OPERATION_ID_BASE + 95; id++) {
       var testOp = createMinimalRecord(id);
       Assert.assertNotNull("WAL record ID " + id + " failed to roundtrip", testOp);
       registeredCount++;
     }
-    Assert.assertEquals("Expected 88 registered PageOperation types", 88, registeredCount);
+    Assert.assertEquals("Expected 95 registered PageOperation types", 95, registeredCount);
   }
 
   /**
@@ -581,6 +610,22 @@ public class PageOperationRegistryTest {
           new RidbagBucketSetLeftSiblingOp(0, 0, 0, lsn, 0L);
       case WALRecordTypes.RIDBAG_BUCKET_SET_RIGHT_SIBLING_OP ->
           new RidbagBucketSetRightSiblingOp(0, 0, 0, lsn, 0L);
+
+      // Track 7b: Ridbag Bucket entry + bulk + updateValue (7 ops)
+      case WALRecordTypes.RIDBAG_BUCKET_ADD_LEAF_ENTRY_OP ->
+          new RidbagBucketAddLeafEntryOp(0, 0, 0, lsn, 0, new byte[] {}, new byte[] {});
+      case WALRecordTypes.RIDBAG_BUCKET_ADD_NON_LEAF_ENTRY_OP ->
+          new RidbagBucketAddNonLeafEntryOp(0, 0, 0, lsn, 0, 0, 0, new byte[] {}, false);
+      case WALRecordTypes.RIDBAG_BUCKET_REMOVE_LEAF_ENTRY_OP ->
+          new RidbagBucketRemoveLeafEntryOp(0, 0, 0, lsn, 0, 0, 0);
+      case WALRecordTypes.RIDBAG_BUCKET_REMOVE_NON_LEAF_ENTRY_OP ->
+          new RidbagBucketRemoveNonLeafEntryOp(0, 0, 0, lsn, 0, new byte[] {}, 0);
+      case WALRecordTypes.RIDBAG_BUCKET_ADD_ALL_OP ->
+          new RidbagBucketAddAllOp(0, 0, 0, lsn, List.of());
+      case WALRecordTypes.RIDBAG_BUCKET_SHRINK_OP ->
+          new RidbagBucketShrinkOp(0, 0, 0, lsn, List.of());
+      case WALRecordTypes.RIDBAG_BUCKET_UPDATE_VALUE_OP ->
+          new RidbagBucketUpdateValueOp(0, 0, 0, lsn, 0, new byte[] {}, 0);
 
       default -> throw new IllegalArgumentException("Unknown PageOperation ID: " + id);
     };

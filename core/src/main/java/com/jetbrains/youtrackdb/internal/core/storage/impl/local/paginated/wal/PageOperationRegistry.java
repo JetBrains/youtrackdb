@@ -81,10 +81,17 @@ import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVNullBucketV3InitOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVNullBucketV3RemoveValueOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVNullBucketV3SetValueOp;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagBucketAddAllOp;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagBucketAddLeafEntryOp;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagBucketAddNonLeafEntryOp;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagBucketInitOp;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagBucketRemoveLeafEntryOp;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagBucketRemoveNonLeafEntryOp;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagBucketSetLeftSiblingOp;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagBucketSetRightSiblingOp;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagBucketShrinkOp;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagBucketSwitchBucketTypeOp;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagBucketUpdateValueOp;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagEntryPointInitOp;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagEntryPointSetPagesSizeOp;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagEntryPointSetTreeSizeOp;
@@ -444,5 +451,28 @@ public final class PageOperationRegistry {
     factory.registerNewRecord(
         WALRecordTypes.RIDBAG_BUCKET_SET_RIGHT_SIBLING_OP,
         RidbagBucketSetRightSiblingOp.class);
+
+    // Ridbag Bucket entry + bulk + updateValue operations (Track 7b)
+    factory.registerNewRecord(
+        WALRecordTypes.RIDBAG_BUCKET_ADD_LEAF_ENTRY_OP,
+        RidbagBucketAddLeafEntryOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.RIDBAG_BUCKET_ADD_NON_LEAF_ENTRY_OP,
+        RidbagBucketAddNonLeafEntryOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.RIDBAG_BUCKET_REMOVE_LEAF_ENTRY_OP,
+        RidbagBucketRemoveLeafEntryOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.RIDBAG_BUCKET_REMOVE_NON_LEAF_ENTRY_OP,
+        RidbagBucketRemoveNonLeafEntryOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.RIDBAG_BUCKET_ADD_ALL_OP,
+        RidbagBucketAddAllOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.RIDBAG_BUCKET_SHRINK_OP,
+        RidbagBucketShrinkOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.RIDBAG_BUCKET_UPDATE_VALUE_OP,
+        RidbagBucketUpdateValueOp.class);
   }
 }

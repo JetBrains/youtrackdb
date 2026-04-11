@@ -365,4 +365,13 @@ public final class WALRecordTypes {
   public static final int RIDBAG_BUCKET_SWITCH_BUCKET_TYPE_OP = PAGE_OPERATION_ID_BASE + 86;
   public static final int RIDBAG_BUCKET_SET_LEFT_SIBLING_OP = PAGE_OPERATION_ID_BASE + 87;
   public static final int RIDBAG_BUCKET_SET_RIGHT_SIBLING_OP = PAGE_OPERATION_ID_BASE + 88;
+
+  // Ridbag Bucket entry + bulk + updateValue operations (Track 7b)
+  public static final int RIDBAG_BUCKET_ADD_LEAF_ENTRY_OP = PAGE_OPERATION_ID_BASE + 89;
+  public static final int RIDBAG_BUCKET_ADD_NON_LEAF_ENTRY_OP = PAGE_OPERATION_ID_BASE + 90;
+  public static final int RIDBAG_BUCKET_REMOVE_LEAF_ENTRY_OP = PAGE_OPERATION_ID_BASE + 91;
+  public static final int RIDBAG_BUCKET_REMOVE_NON_LEAF_ENTRY_OP = PAGE_OPERATION_ID_BASE + 92;
+  public static final int RIDBAG_BUCKET_ADD_ALL_OP = PAGE_OPERATION_ID_BASE + 93;
+  public static final int RIDBAG_BUCKET_SHRINK_OP = PAGE_OPERATION_ID_BASE + 94;
+  public static final int RIDBAG_BUCKET_UPDATE_VALUE_OP = PAGE_OPERATION_ID_BASE + 95;
 }
