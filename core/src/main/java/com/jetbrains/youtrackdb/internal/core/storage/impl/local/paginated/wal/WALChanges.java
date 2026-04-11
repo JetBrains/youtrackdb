@@ -51,26 +51,7 @@ public interface WALChanges {
    */
   int serializedSize();
 
-  /**
-   * Serialize the changes to a stream. needed for write the changes to the WAL
-   *
-   * @param offset starting writing offset for the provided buffer.
-   * @param stream buffer where write the content, should be of minimal size of offset+ @{link
-   * @return the number of written bytes + the offset, can be used as offset of the next operation.
-   * @serializedSize()}
-   */
-  int toStream(int offset, byte[] stream);
-
   void toStream(ByteBuffer byteBuffer);
-
-  /**
-   * Read changes from a stream. Needed from restore from WAL.
-   *
-   * @param offset the offset in the buffer where start to read.
-   * @param stream the buffer to read.
-   * @return the offset+read bytes.
-   */
-  int fromStream(int offset, byte[] stream);
 
   void fromStream(final ByteBuffer buffer);
 }
