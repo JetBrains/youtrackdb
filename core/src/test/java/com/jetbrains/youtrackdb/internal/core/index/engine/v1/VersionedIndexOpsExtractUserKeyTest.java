@@ -27,6 +27,18 @@ public class VersionedIndexOpsExtractUserKeyTest {
   }
 
   /**
+   * Null user element within CompositeKey: CompositeKey(null, 100L) with
+   * trailingCount=1. This is the production case for single-value indexes
+   * with null keys — the null user key must be returned as null.
+   */
+  @Test
+  public void extractUserKey_nullUserElement_returnsNull() {
+    var composite = new CompositeKey((Object) null, 100L);
+    var result = VersionedIndexOps.extractUserKey(composite, 1);
+    assertNull("Null user key element must be returned as null", result);
+  }
+
+  /**
    * Single-value index: CompositeKey("A", version) with trailingCount=1
    * must return the raw first element "A" (unwrapped from CompositeKey).
    */
