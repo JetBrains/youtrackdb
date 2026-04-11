@@ -373,4 +373,86 @@ public class VersionedIndexOpsRePutGuardTest {
         ArgumentMatchers.eq(new CompositeKey("key1", TX_VERSION)),
         ArgumentMatchers.eq(RID_A));
   }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Null-key delta accumulation
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * doVersionedRemove with isNullKey=true must accumulate both totalDelta=-1
+   * and nullDelta=-1 in the delta holder.
+   */
+  @Test
+  public void doVersionedRemove_nullKey_accumulatesNullDelta() throws IOException {
+    var existingKey = new CompositeKey("key1", 10L);
+
+    when(tree.iterateEntriesBetween(
+        ArgumentMatchers.any(), ArgumentMatchers.eq(true),
+        ArgumentMatchers.any(), ArgumentMatchers.eq(true),
+        ArgumentMatchers.eq(true), ArgumentMatchers.any()))
+        .thenAnswer(inv -> Stream.of(new RawPair<>(existingKey, (RID) RID_A)));
+    when(tree.remove(ArgumentMatchers.any(), ArgumentMatchers.eq(existingKey)))
+        .thenReturn(RID_A);
+    when(tree.put(ArgumentMatchers.any(), ArgumentMatchers.any(),
+        ArgumentMatchers.any())).thenReturn(true);
+
+    boolean result = VersionedIndexOps.doVersionedRemove(
+        tree, snapshot, atomicOp, new CompositeKey("key1"),
+        ENGINE_ID, true); // isNullKey = true
+
+    assertTrue("Remove must proceed", result);
+    var delta = atomicOp.getOrCreateIndexCountDeltas().getDeltas().get(ENGINE_ID);
+    assertThat(delta).as("Delta must exist").isNotNull();
+    assertThat(delta.getTotalDelta()).as("totalDelta must be -1").isEqualTo(-1);
+    assertThat(delta.getNullDelta()).as("nullDelta must be -1 for null-key remove")
+        .isEqualTo(-1);
+  }
+
+  /**
+   * doVersionedPut over TombstoneRID with isNullKey=true (resurrection of a
+   * null-key entry) must accumulate totalDelta=+1 and nullDelta=+1.
+   */
+  @Test
+  public void doVersionedPut_overTombstone_nullKey_accumulatesNullDelta()
+      throws IOException {
+    var existingKey = new CompositeKey("key1", 10L);
+    var tombstone = new TombstoneRID(RID_A);
+    var existing = Optional.of(new RawPair<>(existingKey, (RID) tombstone));
+
+    when(tree.put(ArgumentMatchers.any(), ArgumentMatchers.any(),
+        ArgumentMatchers.any())).thenReturn(true);
+
+    boolean result = VersionedIndexOps.doVersionedPut(
+        tree, snapshot, atomicOp, new CompositeKey("key1"),
+        RID_B, ENGINE_ID, true, existing); // isNullKey = true
+
+    assertTrue("Put over tombstone must proceed", result);
+    var delta = atomicOp.getOrCreateIndexCountDeltas().getDeltas().get(ENGINE_ID);
+    assertThat(delta).as("Delta must exist").isNotNull();
+    assertThat(delta.getTotalDelta()).as("totalDelta must be +1").isEqualTo(1);
+    assertThat(delta.getNullDelta()).as("nullDelta must be +1 for null-key resurrection")
+        .isEqualTo(1);
+  }
+
+  /**
+   * Fresh insert with isNullKey=true must accumulate totalDelta=+1 and
+   * nullDelta=+1.
+   */
+  @Test
+  public void doVersionedPut_freshInsert_nullKey_accumulatesNullDelta()
+      throws IOException {
+    when(tree.put(ArgumentMatchers.any(), ArgumentMatchers.any(),
+        ArgumentMatchers.any())).thenReturn(true);
+
+    boolean result = VersionedIndexOps.doVersionedPut(
+        tree, snapshot, atomicOp, new CompositeKey("key1"),
+        RID_A, ENGINE_ID, true, Optional.empty()); // isNullKey = true
+
+    assertTrue("Fresh insert must proceed", result);
+    var delta = atomicOp.getOrCreateIndexCountDeltas().getDeltas().get(ENGINE_ID);
+    assertThat(delta).as("Delta must exist").isNotNull();
+    assertThat(delta.getTotalDelta()).as("totalDelta must be +1").isEqualTo(1);
+    assertThat(delta.getNullDelta()).as("nullDelta must be +1 for null-key fresh insert")
+        .isEqualTo(1);
+  }
 }
