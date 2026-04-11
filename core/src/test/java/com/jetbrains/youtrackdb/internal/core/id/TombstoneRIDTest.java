@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.id;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
@@ -196,5 +197,15 @@ public class TombstoneRIDTest {
 
     assertEquals(5, identity.getCollectionId());
     assertEquals(10, identity.getCollectionPosition());
+  }
+
+  /**
+   * isNew() must always return false for valid TombstoneRIDs — constructors
+   * assert position >= 0, so collectionPosition < 0 is never true.
+   */
+  @Test
+  public void isNew_alwaysFalseForValidInput() {
+    assertFalse(new TombstoneRID(0, 0).isNew());
+    assertFalse(new TombstoneRID(5, 10).isNew());
   }
 }
