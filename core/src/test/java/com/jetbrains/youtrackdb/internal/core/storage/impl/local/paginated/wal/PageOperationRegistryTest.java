@@ -259,6 +259,16 @@ public class PageOperationRegistryTest {
         new SBTreeBucketV2ShrinkOp(
             pageIndex, fileId, opUnitId, initialLsn,
             List.of(new byte[] {4, 5, 6})),
+
+        // Track 7b: HistogramStatsPage (3 ops)
+        new HistogramStatsPageWriteEmptyOp(
+            pageIndex, fileId, opUnitId, initialLsn, (byte) 5),
+        new HistogramStatsPageWriteSnapshotOp(
+            pageIndex, fileId, opUnitId, initialLsn,
+            (byte) 7, 1000L, 500L, 50L, 10L, 900L,
+            1024, new byte[] {1, 2, 3}, new byte[] {4, 5}),
+        new HistogramStatsPageWriteHllToPage1Op(
+            pageIndex, fileId, opUnitId, initialLsn, new byte[] {10, 20, 30}),
     };
 
     for (PageOperation op : ops) {

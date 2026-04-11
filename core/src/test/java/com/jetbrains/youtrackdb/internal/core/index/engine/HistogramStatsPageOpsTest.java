@@ -463,12 +463,21 @@ public class HistogramStatsPageOpsTest {
     CacheEntry entry = new CacheEntryImpl(0, 0, cp, false, null);
     entry.acquireExclusiveLock();
     try {
-      // CacheEntryImpl is not CacheEntryChanges — instanceof check returns false
+      // First write non-zero data to the page to ensure writeEmpty actually resets it
       var page = new HistogramStatsPage(entry);
+      page.writeSnapshotRaw((byte) 9, 999L, 888L, 77L, 66L, 55L,
+          1024, new byte[] {1, 2, 3}, new byte[0]);
+      Assert.assertEquals(999L, page.getTotalCount());
+      Assert.assertEquals(3, page.getHistogramDataLength());
+
+      // CacheEntryImpl is not CacheEntryChanges — instanceof check returns false
       page.writeEmpty((byte) 5);
-      // Verify writeEmpty actually modified the page
+      // Verify writeEmpty actually reset the page (non-zero → zero)
       Assert.assertEquals(0, page.getTotalCount());
+      Assert.assertEquals(0, page.getDistinctCount());
+      Assert.assertEquals(0, page.getNullCount());
       Assert.assertEquals(0, page.getHistogramDataLength());
+      Assert.assertEquals(0, page.getRawHllRegisterCount());
     } finally {
       entry.releaseExclusiveLock();
       cp.decrementReferrer();
