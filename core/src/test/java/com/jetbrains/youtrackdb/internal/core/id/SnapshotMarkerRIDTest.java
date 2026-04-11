@@ -203,6 +203,20 @@ public class SnapshotMarkerRIDTest {
   }
 
   /**
+   * compareTo must use the unwrapped identity, not the encoded getters.
+   * If compareTo used getCollectionPosition() (which returns -11 for pos=10),
+   * the ordering would be inverted for SnapshotMarkerRIDs.
+   */
+  @Test
+  public void compareTo_usesIdentityNotEncodedGetters() {
+    var a = new SnapshotMarkerRID(5, 10);
+    var b = new SnapshotMarkerRID(5, 20);
+    assertTrue("10 < 20 by identity, not -11 < -21 by encoded", a.compareTo(b) < 0);
+    assertTrue(b.compareTo(a) > 0);
+    assertEquals(0, a.compareTo(new SnapshotMarkerRID(5, 10)));
+  }
+
+  /**
    * isNew() must always return false for valid SnapshotMarkerRIDs — constructors
    * assert position >= 0, so collectionPosition < 0 is never true.
    */

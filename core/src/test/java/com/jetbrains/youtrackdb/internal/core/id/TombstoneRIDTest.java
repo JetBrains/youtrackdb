@@ -200,6 +200,20 @@ public class TombstoneRIDTest {
   }
 
   /**
+   * compareTo must use the unwrapped identity, not the encoded getters.
+   * If compareTo used getCollectionId() (which returns -6 for id=5), the
+   * ordering would be inverted for TombstoneRIDs.
+   */
+  @Test
+  public void compareTo_usesIdentityNotEncodedGetters() {
+    var a = new TombstoneRID(5, 10);
+    var b = new TombstoneRID(5, 20);
+    assertTrue("10 < 20 by identity, not -11 < -21 by encoded", a.compareTo(b) < 0);
+    assertTrue(b.compareTo(a) > 0);
+    assertEquals(0, a.compareTo(new TombstoneRID(5, 10)));
+  }
+
+  /**
    * isNew() must always return false for valid TombstoneRIDs — constructors
    * assert position >= 0, so collectionPosition < 0 is never true.
    */
