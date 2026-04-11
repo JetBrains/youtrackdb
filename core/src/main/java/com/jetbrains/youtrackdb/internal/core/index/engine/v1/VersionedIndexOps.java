@@ -75,6 +75,9 @@ final class VersionedIndexOps {
       }
       return true;
     } else {
+      assert value instanceof RecordId
+          : "doVersionedPut fresh insert: value must be a plain RecordId, got "
+              + value.getClass().getSimpleName();
       compositeKey.addKey(version);
       IndexCountDelta.accumulate(atomicOperation, engineId, +1, isNullKey);
       return tree.put(atomicOperation, compositeKey, value);

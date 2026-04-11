@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.index.engine.v1;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -203,6 +204,38 @@ public class VersionedIndexOpsRePutGuardTest {
     assertThat(delta).as("Delta must exist for engine " + ENGINE_ID).isNotNull();
     assertThat(delta.getTotalDelta()).as("Total delta must be +1").isEqualTo(1);
     assertThat(delta.getNullDelta()).as("Null delta must be 0 (non-null key)").isEqualTo(0);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // doVersionedPut: fresh insert value type assertion
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Fresh insert with TombstoneRID value must trigger assertion. Only plain
+   * RecordId is valid for new entries — TombstoneRID is an internal marker
+   * created by doVersionedRemove.
+   */
+  @Test
+  public void doVersionedPut_freshInsert_tombstoneValue_throwsAssertionError()
+      throws IOException {
+    var tombstone = new TombstoneRID(RID_A);
+    assertThrows(AssertionError.class, () -> VersionedIndexOps.doVersionedPut(
+        tree, snapshot, atomicOp, new CompositeKey("k1"),
+        tombstone, ENGINE_ID, false, Optional.empty()));
+  }
+
+  /**
+   * Fresh insert with SnapshotMarkerRID value must trigger assertion.
+   * SnapshotMarkerRID is an internal marker created by doVersionedPut
+   * for updates — it must never appear as the initial value.
+   */
+  @Test
+  public void doVersionedPut_freshInsert_snapshotMarkerValue_throwsAssertionError()
+      throws IOException {
+    var marker = new SnapshotMarkerRID(RID_A);
+    assertThrows(AssertionError.class, () -> VersionedIndexOps.doVersionedPut(
+        tree, snapshot, atomicOp, new CompositeKey("k1"),
+        marker, ENGINE_ID, false, Optional.empty()));
   }
 
   // ═══════════════════════════════════════════════════════════════════════
