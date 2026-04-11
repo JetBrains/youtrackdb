@@ -310,6 +310,40 @@ public class IndexesSnapshotVisibilityFilterTest {
   //  Edge cases
   // ========================================================================
 
+  /**
+   * {@code lookupSnapshotRid()} with {@code snapshotTs = Long.MAX_VALUE}. The overflow
+   * guard at line 250 prevents {@code snapshotTs + 1} from wrapping to
+   * {@code Long.MIN_VALUE}. Without the guard, {@code lowerEntry(Long.MIN_VALUE)}
+   * would return null, hiding all historical entries.
+   *
+   * <p>Test setup: TombstoneRID at version {@code MAX_VALUE - 1} (was alive),
+   * RecordId guard at version {@code MAX_VALUE} (was removed). With the overflow
+   * guard, {@code lowerEntry(MAX_VALUE)} finds the TombstoneRID at
+   * {@code MAX_VALUE - 1} (strictly less) and returns it as visible.
+   * Without the guard, {@code searchVersion = MAX_VALUE + 1 = Long.MIN_VALUE},
+   * and {@code lowerEntry(MIN_VALUE)} returns null — hiding the entry.
+   */
+  @Test
+  public void lookupSnapshotRid_maxValueSnapshotTs_overflowGuard() {
+    IndexesSnapshot snap = newSnapshot(INDEX_ID);
+    RID rid = new RecordId(30, 5);
+
+    // TombstoneRID at MAX_VALUE-1, RecordId guard at MAX_VALUE.
+    // lowerEntry(searchKey with version=MAX_VALUE) finds the TombstoneRID
+    // at MAX_VALUE-1 because it's strictly less than the search key.
+    // The RecordId at MAX_VALUE is NOT strictly less, so it's excluded.
+    snap.addSnapshotPair(
+        new CompositeKey("X", rid, Long.MAX_VALUE - 1),
+        new CompositeKey("X", rid, Long.MAX_VALUE),
+        rid);
+
+    var key = new CompositeKey("X", rid, Long.MAX_VALUE);
+    var result = callSnapshotLookup(snap, key, Long.MAX_VALUE);
+    assertNotNull(
+        "MAX_VALUE snapshotTs must not overflow — entry should be visible", result);
+    assertEquals(rid, result);
+  }
+
   @Test
   public void emptySnapshot_futureTombstone_notVisible() {
     IndexesSnapshot emptySnap = newSnapshot(INDEX_ID);
