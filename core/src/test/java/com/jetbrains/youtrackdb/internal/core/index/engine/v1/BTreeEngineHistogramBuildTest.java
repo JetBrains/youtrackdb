@@ -14,23 +14,14 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
-import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.TombstoneRID;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
-import com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot;
-import com.jetbrains.youtrackdb.internal.core.index.engine.IndexCountDeltaHolder;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
-import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
-import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
-import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue;
 import java.io.IOException;
-import java.util.function.Function;
 import java.util.stream.Stream;
 import org.junit.Test;
 
@@ -798,7 +789,7 @@ public class BTreeEngineHistogramBuildTest {
 
   @Test
   public void histogramManager_statsFileExists_delegatesToAtomicOperation() {
-    var storage = createMockStorage();
+    var storage = BTreeEngineTestFixtures.createMockStorage();
 
     var mgr = new IndexHistogramManager(
         storage, "test-idx", 0, true,
@@ -826,7 +817,7 @@ public class BTreeEngineHistogramBuildTest {
   }
 
   private static IndexHistogramManager createRealManager() {
-    var storage = createMockStorage();
+    var storage = BTreeEngineTestFixtures.createMockStorage();
     return new IndexHistogramManager(
         storage, "test-idx", 0, true,
         new java.util.concurrent.ConcurrentHashMap<>(),
@@ -836,117 +827,11 @@ public class BTreeEngineHistogramBuildTest {
         (byte) 0);
   }
 
-  private static class SingleValueFixture {
-    final AbstractStorage storage;
-    final AtomicOperation op;
-    final IndexHistogramManager manager;
-    @SuppressWarnings("unchecked")
-    final CellBTreeSingleValue<CompositeKey> sbTree =
-        mock(CellBTreeSingleValue.class);
-    final BTreeSingleValueIndexEngine engine;
-
-    SingleValueFixture() {
-      storage = createMockStorage();
-      op = mock(AtomicOperation.class);
-      // Mock getCommitTs — validatedPut appends version to CompositeKey
-      when(op.getCommitTs()).thenReturn(1L);
-      // Mock index count delta holder — put/remove accumulate deltas here
-      when(op.getOrCreateIndexCountDeltas()).thenReturn(new IndexCountDeltaHolder());
-      manager = mock(IndexHistogramManager.class);
-
-      engine = new BTreeSingleValueIndexEngine(0, "test-sv", storage, 4);
-      injectField(engine, "sbTree", sbTree);
-      engine.setHistogramManager(manager);
-    }
+  private static class SingleValueFixture
+      extends BTreeEngineTestFixtures.SingleValueFixture {
   }
 
-  private static class MultiValueFixture {
-    final AbstractStorage storage;
-    final AtomicOperation op;
-    final IndexHistogramManager manager;
-    @SuppressWarnings("unchecked")
-    final CellBTreeSingleValue<CompositeKey> svTree =
-        mock(CellBTreeSingleValue.class);
-    @SuppressWarnings("unchecked")
-    final CellBTreeSingleValue<CompositeKey> nullTree =
-        mock(CellBTreeSingleValue.class);
-    final BTreeMultiValueIndexEngine engine;
-
-    MultiValueFixture() {
-      storage = createMockStorage();
-      op = mock(AtomicOperation.class);
-      // Mock index count delta holder — doPut/doRemove accumulate deltas here
-      when(op.getOrCreateIndexCountDeltas()).thenReturn(new IndexCountDeltaHolder());
-      manager = mock(IndexHistogramManager.class);
-
-      engine = new BTreeMultiValueIndexEngine(0, "test-mv", storage, 4);
-      injectField(engine, "svTree", svTree);
-      injectField(engine, "nullTree", nullTree);
-      engine.setHistogramManager(manager);
-    }
-  }
-
-  private static AbstractStorage createMockStorage() {
-    var storage = mock(AbstractStorage.class);
-    var factory = new CurrentStorageComponentsFactory(
-        BinarySerializerFactory.currentBinaryFormatVersion());
-    when(storage.getComponentsFactory()).thenReturn(factory);
-    var atomicOps = mock(AtomicOperationsManager.class);
-    when(atomicOps.startAtomicOperation()).thenReturn(mock(AtomicOperation.class));
-    when(storage.getAtomicOperationsManager()).thenReturn(atomicOps);
-    when(storage.getReadCache()).thenReturn(mock(ReadCache.class));
-    when(storage.getWriteCache()).thenReturn(mock(WriteCache.class));
-    // IndexesSnapshot mock: visibilityFilter passes through the stream unchanged,
-    // visibilityFilterMapped applies the key mapper to each entry.
-    var snapshot = mock(IndexesSnapshot.class);
-    when(snapshot.visibilityFilter(any(), any()))
-        .thenAnswer(inv -> inv.getArgument(1));
-    when(snapshot.visibilityFilterMapped(any(), any(), any()))
-        .thenAnswer(inv -> {
-          Stream<RawPair<CompositeKey, RID>> stream = inv.getArgument(1);
-          Function<CompositeKey, Object> mapper = inv.getArgument(2);
-          return stream.map(p -> new RawPair<>(mapper.apply(p.first()), p.second()));
-        });
-    when(storage.subIndexSnapshot(anyLong())).thenReturn(snapshot);
-    var nullSnapshot = mock(IndexesSnapshot.class);
-    when(nullSnapshot.visibilityFilter(any(), any()))
-        .thenAnswer(inv -> inv.getArgument(1));
-    when(nullSnapshot.visibilityFilterValues(any(), any()))
-        .thenAnswer(inv -> {
-          Stream<RawPair<CompositeKey, RID>> stream = inv.getArgument(1);
-          return stream.map(RawPair::second);
-        });
-    when(nullSnapshot.visibilityFilterMapped(any(), any(), any()))
-        .thenAnswer(inv -> {
-          Stream<RawPair<CompositeKey, RID>> stream = inv.getArgument(1);
-          Function<CompositeKey, Object> mapper = inv.getArgument(2);
-          return stream.map(p -> new RawPair<>(mapper.apply(p.first()), p.second()));
-        });
-    when(storage.subNullIndexSnapshot(anyLong())).thenReturn(nullSnapshot);
-    return storage;
-  }
-
-  private static void injectField(
-      Object target, String fieldName, Object value) {
-    try {
-      var field = findField(target.getClass(), fieldName);
-      field.setAccessible(true);
-      field.set(target, value);
-    } catch (ReflectiveOperationException e) {
-      throw new RuntimeException(
-          "Failed to inject field " + fieldName, e);
-    }
-  }
-
-  private static java.lang.reflect.Field findField(
-      Class<?> clazz, String name) {
-    while (clazz != null) {
-      try {
-        return clazz.getDeclaredField(name);
-      } catch (NoSuchFieldException e) {
-        clazz = clazz.getSuperclass();
-      }
-    }
-    throw new RuntimeException("Field not found: " + name);
+  private static class MultiValueFixture
+      extends BTreeEngineTestFixtures.MultiValueFixture {
   }
 }

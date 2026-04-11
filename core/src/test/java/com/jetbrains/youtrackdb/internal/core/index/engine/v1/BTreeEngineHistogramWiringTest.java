@@ -12,20 +12,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
-import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
-import com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot;
-import com.jetbrains.youtrackdb.internal.core.index.engine.IndexCountDeltaHolder;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
-import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
-import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
-import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
-import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue;
 import java.io.IOException;
 import java.util.stream.Stream;
 import org.junit.Test;
@@ -680,103 +670,14 @@ public class BTreeEngineHistogramWiringTest {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // Fixtures
+  // Fixtures — delegated to BTreeEngineTestFixtures
   // ═══════════════════════════════════════════════════════════════════════
 
-  /**
-   * Test fixture for BTreeSingleValueIndexEngine with a mocked B-tree
-   * and histogram manager.
-   */
-  private static class SingleValueFixture {
-    final AbstractStorage storage;
-    final AtomicOperation op;
-    final IndexHistogramManager manager;
-    @SuppressWarnings("unchecked")
-    final CellBTreeSingleValue<Object> sbTree =
-        mock(CellBTreeSingleValue.class);
-    final BTreeSingleValueIndexEngine engine;
-
-    SingleValueFixture() {
-      storage = createMockStorage();
-      op = mock(AtomicOperation.class);
-      // Mock getCommitTs — validatedPut/remove append version to CompositeKey
-      when(op.getCommitTs()).thenReturn(1L);
-      // Mock getOrCreateIndexCountDeltas — put/remove accumulate count deltas
-      when(op.getOrCreateIndexCountDeltas()).thenReturn(new IndexCountDeltaHolder());
-      manager = mock(IndexHistogramManager.class);
-
-      // Create engine with a mocked sbTree injected via Mockito field access
-      engine = new BTreeSingleValueIndexEngine(0, "test-sv", storage, 4);
-      // Replace the real sbTree with our mock via reflection
-      injectField(engine, "sbTree", sbTree);
-      engine.setHistogramManager(manager);
-    }
+  private static class SingleValueFixture
+      extends BTreeEngineTestFixtures.SingleValueFixture {
   }
 
-  /**
-   * Test fixture for BTreeMultiValueIndexEngine with mocked trees
-   * and histogram manager.
-   */
-  private static class MultiValueFixture {
-    final AbstractStorage storage;
-    final AtomicOperation op;
-    final IndexHistogramManager manager;
-    @SuppressWarnings("unchecked")
-    final CellBTreeSingleValue<Object> svTree =
-        mock(CellBTreeSingleValue.class);
-    @SuppressWarnings("unchecked")
-    final CellBTreeSingleValue<Object> nullTree =
-        mock(CellBTreeSingleValue.class);
-    final BTreeMultiValueIndexEngine engine;
-
-    MultiValueFixture() {
-      storage = createMockStorage();
-      op = mock(AtomicOperation.class);
-      // Mock getCommitTs — remove appends version to CompositeKey
-      when(op.getCommitTs()).thenReturn(1L);
-      // Mock getOrCreateIndexCountDeltas — put/remove accumulate count deltas
-      when(op.getOrCreateIndexCountDeltas()).thenReturn(new IndexCountDeltaHolder());
-      manager = mock(IndexHistogramManager.class);
-
-      engine = new BTreeMultiValueIndexEngine(0, "test-mv", storage, 4);
-      injectField(engine, "svTree", svTree);
-      injectField(engine, "nullTree", nullTree);
-      engine.setHistogramManager(manager);
-    }
-  }
-
-  private static AbstractStorage createMockStorage() {
-    var storage = mock(AbstractStorage.class);
-    var factory = new CurrentStorageComponentsFactory(
-        BinarySerializerFactory.currentBinaryFormatVersion());
-    when(storage.getComponentsFactory()).thenReturn(factory);
-    when(storage.getAtomicOperationsManager())
-        .thenReturn(mock(AtomicOperationsManager.class));
-    when(storage.getReadCache()).thenReturn(mock(ReadCache.class));
-    when(storage.getWriteCache()).thenReturn(mock(WriteCache.class));
-    when(storage.subIndexSnapshot(anyLong())).thenReturn(mock(IndexesSnapshot.class));
-    when(storage.subNullIndexSnapshot(anyLong())).thenReturn(mock(IndexesSnapshot.class));
-    return storage;
-  }
-
-  private static void injectField(Object target, String fieldName, Object value) {
-    try {
-      var field = findField(target.getClass(), fieldName);
-      field.setAccessible(true);
-      field.set(target, value);
-    } catch (ReflectiveOperationException e) {
-      throw new RuntimeException("Failed to inject field " + fieldName, e);
-    }
-  }
-
-  private static java.lang.reflect.Field findField(Class<?> clazz, String name) {
-    while (clazz != null) {
-      try {
-        return clazz.getDeclaredField(name);
-      } catch (NoSuchFieldException e) {
-        clazz = clazz.getSuperclass();
-      }
-    }
-    throw new RuntimeException("Field " + name + " not found");
+  private static class MultiValueFixture
+      extends BTreeEngineTestFixtures.MultiValueFixture {
   }
 }

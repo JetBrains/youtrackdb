@@ -1,20 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine.v1;
 
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
-import static org.mockito.Mockito.when;
 
-import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
-import com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot;
-import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
-import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
-import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
-import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue;
 import org.junit.Test;
 
 /**
@@ -173,79 +161,14 @@ public class BTreeEnginePersistCountDeltaTest {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // Test fixtures
+  // Fixtures — delegated to BTreeEngineTestFixtures
   // ═══════════════════════════════════════════════════════════════════════
 
-  private static class SingleValueFixture {
-    final AtomicOperation op = mock(AtomicOperation.class);
-    @SuppressWarnings("unchecked")
-    final CellBTreeSingleValue<Object> sbTree =
-        mock(CellBTreeSingleValue.class);
-    final BTreeSingleValueIndexEngine engine;
-
-    SingleValueFixture() {
-      var storage = createMockStorage();
-      engine = new BTreeSingleValueIndexEngine(0, "test-sv", storage, 4);
-      injectField(engine, "sbTree", sbTree);
-    }
+  private static class SingleValueFixture
+      extends BTreeEngineTestFixtures.SingleValueFixture {
   }
 
-  private static class MultiValueFixture {
-    final AtomicOperation op = mock(AtomicOperation.class);
-    @SuppressWarnings("unchecked")
-    final CellBTreeSingleValue<Object> svTree =
-        mock(CellBTreeSingleValue.class);
-    @SuppressWarnings("unchecked")
-    final CellBTreeSingleValue<Object> nullTree =
-        mock(CellBTreeSingleValue.class);
-    final BTreeMultiValueIndexEngine engine;
-
-    MultiValueFixture() {
-      var storage = createMockStorage();
-      engine = new BTreeMultiValueIndexEngine(0, "test-mv", storage, 4);
-      injectField(engine, "svTree", svTree);
-      injectField(engine, "nullTree", nullTree);
-    }
-  }
-
-  private static AbstractStorage createMockStorage() {
-    var storage = mock(AbstractStorage.class);
-    var factory = new CurrentStorageComponentsFactory(
-        BinarySerializerFactory.currentBinaryFormatVersion());
-    when(storage.getComponentsFactory()).thenReturn(factory);
-    var atomicOps = mock(AtomicOperationsManager.class);
-    when(atomicOps.startAtomicOperation()).thenReturn(mock(AtomicOperation.class));
-    when(storage.getAtomicOperationsManager()).thenReturn(atomicOps);
-    when(storage.getReadCache()).thenReturn(mock(ReadCache.class));
-    when(storage.getWriteCache()).thenReturn(mock(WriteCache.class));
-    var snapshot = mock(IndexesSnapshot.class);
-    when(storage.subIndexSnapshot(anyLong())).thenReturn(snapshot);
-    var nullSnapshot = mock(IndexesSnapshot.class);
-    when(storage.subNullIndexSnapshot(anyLong())).thenReturn(nullSnapshot);
-    return storage;
-  }
-
-  private static void injectField(
-      Object target, String fieldName, Object value) {
-    try {
-      var field = findField(target.getClass(), fieldName);
-      field.setAccessible(true);
-      field.set(target, value);
-    } catch (ReflectiveOperationException e) {
-      throw new RuntimeException(
-          "Failed to inject field " + fieldName, e);
-    }
-  }
-
-  private static java.lang.reflect.Field findField(
-      Class<?> clazz, String name) {
-    while (clazz != null) {
-      try {
-        return clazz.getDeclaredField(name);
-      } catch (NoSuchFieldException e) {
-        clazz = clazz.getSuperclass();
-      }
-    }
-    throw new RuntimeException("Field not found: " + name);
+  private static class MultiValueFixture
+      extends BTreeEngineTestFixtures.MultiValueFixture {
   }
 }
