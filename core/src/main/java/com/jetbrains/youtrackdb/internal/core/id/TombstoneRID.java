@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.id;
 
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
-import java.util.Objects;
 import javax.annotation.Nonnull;
 
 /**
@@ -22,6 +21,7 @@ public final class TombstoneRID implements RID {
 
   private final int collectionId;
   private final long collectionPosition;
+  private final RecordId identity;
 
   public TombstoneRID(int collectionId, long collectionPosition) {
     assert collectionId >= 0
@@ -30,6 +30,7 @@ public final class TombstoneRID implements RID {
         : "TombstoneRID requires non-negative collectionPosition: " + collectionPosition;
     this.collectionId = collectionId;
     this.collectionPosition = collectionPosition;
+    this.identity = new RecordId(collectionId, collectionPosition);
   }
 
   /** Wrapping constructor for convenience (existing call sites). */
@@ -61,14 +62,14 @@ public final class TombstoneRID implements RID {
   @Nonnull
   @Override
   public RID getIdentity() {
-    return new RecordId(collectionId, collectionPosition);
+    return identity;
   }
 
   @Override
   public int compareTo(@Nonnull Identifiable o) {
     // Comparison uses unwrapped identity (real RID), not the encoded getters
     // (which negate collectionId for on-disk tombstone detection).
-    return getIdentity().compareTo(o);
+    return identity.compareTo(o);
   }
 
   @Override
@@ -91,6 +92,8 @@ public final class TombstoneRID implements RID {
 
   @Override
   public int hashCode() {
-    return Objects.hash(collectionId, collectionPosition);
+    // Must match RecordId's record-generated hashCode algorithm (accumulator
+    // starts at 0) so that equal objects produce equal hash codes.
+    return 31 * Integer.hashCode(collectionId) + Long.hashCode(collectionPosition);
   }
 }
