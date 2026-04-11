@@ -164,6 +164,29 @@ public class TombstoneRIDTest {
   }
 
   /**
+   * TombstoneRID(Short.MAX_VALUE, 0) must encode collectionId as
+   * -(32767 + 1) = -32768 = Short.MIN_VALUE. Short.MAX_VALUE is the
+   * largest valid collection ID (RecordId enforces this limit).
+   */
+  @Test
+  public void encodesCollectionId_maxValue_overflowSafe() {
+    var tombstone = new TombstoneRID(Short.MAX_VALUE, 0);
+    assertEquals(-(Short.MAX_VALUE + 1), tombstone.getCollectionId());
+    assertEquals(Short.MAX_VALUE, tombstone.getIdentity().getCollectionId());
+  }
+
+  /**
+   * TombstoneRID(0, Long.MAX_VALUE) must pass position through unchanged
+   * (TombstoneRID only encodes collectionId, not position).
+   */
+  @Test
+  public void encodesCollectionPosition_maxValue_overflowSafe() {
+    var tombstone = new TombstoneRID(0, Long.MAX_VALUE);
+    assertEquals(Long.MAX_VALUE, tombstone.getCollectionPosition());
+    assertEquals(Long.MAX_VALUE, tombstone.getIdentity().getCollectionPosition());
+  }
+
+  /**
    * getIdentity() returns a RecordId with the original (non-encoded) values.
    */
   @Test

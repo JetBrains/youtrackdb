@@ -58,6 +58,37 @@ public class CellBTreeSingleValueBucketV3Test {
     assertEquals(0, marker.getIdentity().getCollectionPosition());
   }
 
+  /**
+   * TombstoneRID at Short.MAX_VALUE cluster must survive the encode/decode
+   * round-trip. This is the realistic maximum cluster ID boundary.
+   */
+  @Test
+  public void testDecodeRID_tombstoneMaxCluster() {
+    var original = new TombstoneRID(new RecordId(Short.MAX_VALUE, 0));
+    RID decoded = CellBTreeSingleValueBucketV3.decodeRID(
+        original.getCollectionId(), original.getCollectionPosition());
+
+    assertTrue(decoded instanceof TombstoneRID);
+    assertEquals(Short.MAX_VALUE,
+        ((TombstoneRID) decoded).getIdentity().getCollectionId());
+  }
+
+  /**
+   * SnapshotMarkerRID at Long.MAX_VALUE position must survive the
+   * encode/decode round-trip. The encoded position overflows to
+   * Long.MIN_VALUE in two's complement.
+   */
+  @Test
+  public void testDecodeRID_snapshotMarkerMaxPosition() {
+    var original = new SnapshotMarkerRID(new RecordId(0, Long.MAX_VALUE));
+    RID decoded = CellBTreeSingleValueBucketV3.decodeRID(
+        original.getCollectionId(), original.getCollectionPosition());
+
+    assertTrue(decoded instanceof SnapshotMarkerRID);
+    assertEquals(Long.MAX_VALUE,
+        ((SnapshotMarkerRID) decoded).getIdentity().getCollectionPosition());
+  }
+
   /** A plain RecordId with non-negative fields must decode as a plain RecordId. */
   @Test
   public void testDecodeRID_plainRecordId() {

@@ -165,6 +165,31 @@ public class SnapshotMarkerRIDTest {
   }
 
   /**
+   * SnapshotMarkerRID(0, Long.MAX_VALUE) must encode position as
+   * -(MAX_VALUE + 1) = MIN_VALUE via two's-complement overflow.
+   * The identity must recover the original MAX_VALUE.
+   */
+  @Test
+  public void encodesCollectionPosition_maxValue_overflowSafe() {
+    var marker = new SnapshotMarkerRID(0, Long.MAX_VALUE);
+    // -(MAX_VALUE + 1) = MIN_VALUE in two's complement
+    assertEquals(Long.MIN_VALUE, marker.getCollectionPosition());
+    assertEquals(Long.MAX_VALUE, marker.getIdentity().getCollectionPosition());
+  }
+
+  /**
+   * SnapshotMarkerRID(Short.MAX_VALUE, 0) must pass collectionId through
+   * unchanged (SnapshotMarkerRID only encodes position, not id).
+   * Short.MAX_VALUE is the largest valid collection ID.
+   */
+  @Test
+  public void encodesCollectionId_maxValue_overflowSafe() {
+    var marker = new SnapshotMarkerRID(Short.MAX_VALUE, 0);
+    assertEquals(Short.MAX_VALUE, marker.getCollectionId());
+    assertEquals(Short.MAX_VALUE, marker.getIdentity().getCollectionId());
+  }
+
+  /**
    * getIdentity() returns a RecordId with the original (non-encoded) values.
    */
   @Test
