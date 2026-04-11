@@ -48,10 +48,12 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- * Verifies that commitChanges() skips WAL records for non-durable files:
+ * Verifies commitChanges() behavior for durable and non-durable files:
  * (a) pure non-durable operations produce no WAL records at all,
  * (b) mixed operations produce WAL records only for the durable subset,
- * (c) durable-only operations are unchanged (full WAL unit).
+ * (c) durable pages must have PageOperations flushed before commit
+ *     (StorageException guard for missing registration),
+ * (d) commitChanges flushes unflushed pending ops for standalone atomic operations.
  */
 public class AtomicOperationBinaryTrackingWALSkipTest {
 
@@ -183,6 +185,8 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     assertThat(loggedRecords).hasSize(4);
     assertThat(loggedRecords.get(0)).isNull(); // start record placeholder
     assertThat(loggedRecords.get(1)).isInstanceOf(PageOperation.class);
+    assertThat(((PageOperation) loggedRecords.get(1)).getFileId())
+        .isEqualTo(fileId);
     assertThat(loggedRecords.get(2)).isInstanceOf(FileCreatedWALRecord.class);
     assertThat(loggedRecords.get(3)).isInstanceOf(AtomicUnitEndRecord.class);
     // No UpdatePageRecord anywhere
@@ -190,6 +194,45 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
         .isZero();
     // commitChanges() must return the LSN of the AtomicUnitEndRecord
     assertThat(result).isEqualTo(loggedRecords.get(3).getLsn());
+  }
+
+  /**
+   * When PageOperations are registered but NOT flushed before commitChanges
+   * (the standalone atomic operation path, e.g., histogram snapshot flush),
+   * commitChanges must flush them via its internal flushPendingOperations()
+   * call. The commit must succeed without StorageException.
+   */
+  @Test
+  public void commitChangesFlushesPendingOpsWhenNotPreFlushed()
+      throws IOException {
+    var op = createOperationWithWAL();
+    long fileId = setupNewFileWithPage(op, "standalone.dat", false);
+
+    // Register a mock PageOperation but do NOT call flushPendingOperations —
+    // simulating a standalone atomic operation outside
+    // executeInsideComponentOperation boundaries.
+    var mockOp = mock(PageOperation.class, CALLS_REAL_METHODS);
+    when(mockOp.getFileId()).thenReturn(fileId);
+    when(mockOp.getPageIndex()).thenReturn(0L);
+    op.registerPageOperation(fileId, 0, mockOp);
+
+    // Set commitTs (normally done by startToApplyOperations)
+    op.startToApplyOperations(42L);
+
+    mockAllocateNewPage(fileId, 0);
+
+    // commitChanges must succeed — the internal flushPendingOperations
+    // should flush the pending op and set changeLSN
+    var result = op.commitChanges(42L, wal);
+
+    assertThat(result).isNotNull();
+    // start + PageOperation (flushed by commitChanges) + FileCreated + End
+    assertThat(loggedRecords).hasSize(4);
+    assertThat(loggedRecords.get(1)).isInstanceOf(PageOperation.class);
+    assertThat(loggedRecords.get(3)).isInstanceOf(AtomicUnitEndRecord.class);
+    // No UpdatePageRecord
+    assertThat(loggedRecords.stream().filter(r -> r instanceof UpdatePageRecord).count())
+        .isZero();
   }
 
   /**
@@ -215,6 +258,8 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     assertThat(loggedRecords).hasSize(4);
     assertThat(loggedRecords.get(0)).isNull();
     assertThat(loggedRecords.get(1)).isInstanceOf(PageOperation.class);
+    assertThat(((PageOperation) loggedRecords.get(1)).getFileId())
+        .isEqualTo(durableFileId);
     assertThat(loggedRecords.get(2)).isInstanceOf(FileCreatedWALRecord.class);
     assertThat(((FileCreatedWALRecord) loggedRecords.get(2)).getFileId())
         .isEqualTo(durableFileId);
@@ -346,8 +391,10 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     // Durable file's PageOperation was already flushed before commitChanges
     var pageOps = loggedRecords.stream()
         .filter(r -> r instanceof PageOperation)
+        .map(r -> (PageOperation) r)
         .toList();
     assertThat(pageOps).hasSize(1);
+    assertThat(pageOps.get(0).getFileId()).isEqualTo(durableFileId);
   }
 
   /**
@@ -535,6 +582,7 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     // FileCreated(durable, from commit), End
     assertThat(loggedRecords).hasSize(4);
     var pageOp = (PageOperation) loggedRecords.get(1);
+    assertThat(pageOp.getFileId()).isEqualTo(durableFileId);
     var fileCreated = (FileCreatedWALRecord) loggedRecords.get(2);
     assertThat(fileCreated.getFileId()).isEqualTo(durableFileId);
 

@@ -697,6 +697,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       // operation path, hasPendingOperations is false (already flushed at the
       // boundary), so this is a no-op fast-path.
       flushPendingOperations();
+      assert !hasPendingOperations
+          : "hasPendingOperations still true after flushPendingOperations in commitChanges";
 
       var deletedFilesIterator = deletedFiles.longIterator();
       while (deletedFilesIterator.hasNext()) {
