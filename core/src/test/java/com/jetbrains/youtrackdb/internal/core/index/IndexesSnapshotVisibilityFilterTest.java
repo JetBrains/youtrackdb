@@ -1741,4 +1741,57 @@ public class IndexesSnapshotVisibilityFilterTest {
       throw error.get();
     }
   }
+
+  // ========================================================================
+  //  Cross-index isolation: two IndexesSnapshot instances sharing backing map
+  // ========================================================================
+
+  /**
+   * Two IndexesSnapshot instances with different indexIds sharing the same
+   * backing ConcurrentSkipListMap must not leak entries. A lookupSnapshotRid
+   * on index 1 must never return an entry from index 2, even when both
+   * indexes have entries with the same user key and overlapping versions.
+   */
+  @Test
+  public void lookupSnapshotRid_crossIndexIsolation() {
+    // Create two snapshots with different indexIds sharing the same backing maps
+    var data = new ConcurrentSkipListMap<CompositeKey, RID>();
+    var visIdx = new ConcurrentSkipListMap<CompositeKey, CompositeKey>(
+        AbstractStorage.INDEX_SNAPSHOT_VERSION_COMPARATOR);
+    var counter = new AtomicLong();
+
+    var snap1 = new IndexesSnapshot(data, visIdx, counter, 1L);
+    var snap2 = new IndexesSnapshot(data, visIdx, counter, 2L);
+
+    RID rid1 = new RecordId(10, 1);
+    RID rid2 = new RecordId(20, 2);
+
+    // Index 1: entry "Foo" at versions 100->200
+    snap1.addSnapshotPair(
+        new CompositeKey("Foo", rid1, 100L),
+        new CompositeKey("Foo", rid1, 200L),
+        rid1);
+
+    // Index 2: entry "Foo" at versions 150->250
+    snap2.addSnapshotPair(
+        new CompositeKey("Foo", rid2, 150L),
+        new CompositeKey("Foo", rid2, 250L),
+        rid2);
+
+    // lookupSnapshotRid on index 1 with key matching index 1's entry
+    var result1 = snap1.lookupSnapshotRid(
+        new CompositeKey("Foo", rid1, 200L), 180L);
+    assertEquals("Index 1 must find its own entry", rid1, result1);
+
+    // lookupSnapshotRid on index 2 with key matching index 2's entry
+    var result2 = snap2.lookupSnapshotRid(
+        new CompositeKey("Foo", rid2, 250L), 180L);
+    assertEquals("Index 2 must find its own entry", rid2, result2);
+
+    // lookupSnapshotRid on index 1 with a key that matches only index 2's data
+    // (different RID in key) must return null, not index 2's entry
+    var crossResult = snap1.lookupSnapshotRid(
+        new CompositeKey("Foo", rid2, 250L), 180L);
+    assertNull("Index 1 must not see index 2's entries", crossResult);
+  }
 }
