@@ -1003,6 +1003,30 @@ public class IndexesSnapshotVisibilityFilterTest {
     assertEquals(RID_20_0, result.getFirst().second());
   }
 
+  // --- visibilityFilterValues() — SnapshotMarkerRID unwrapping ---
+
+  /**
+   * visibilityFilterValues() must unwrap SnapshotMarkerRID to plain RecordId.
+   * If it bypasses checkVisibility(), SnapshotMarkerRID wrappers would leak.
+   */
+  @Test
+  public void visibilityFilterValues_snapshotMarkerRid_emitsUnwrappedIdentity() {
+    var snap = newSnapshot(INDEX_ID);
+    var marker = new SnapshotMarkerRID(RID_20_0);
+    var pair = new RawPair<>(
+        new CompositeKey("Foo", RID_20_0, 100L), (RID) marker);
+
+    var result = snap.visibilityFilterValues(
+        atomicOpStub(200L, LongOpenHashSet.of()),
+        Stream.of(pair))
+        .toList();
+
+    assertEquals(1, result.size());
+    assertEquals(RID_20_0, result.getFirst());
+    assertTrue("Must emit plain RecordId, not SnapshotMarkerRID",
+        result.getFirst() instanceof RecordId);
+  }
+
   // ========================================================================
   //  checkVisibility() — direct single-entry visibility checks
   //  These test the new checkVisibility() method which encapsulates the full
