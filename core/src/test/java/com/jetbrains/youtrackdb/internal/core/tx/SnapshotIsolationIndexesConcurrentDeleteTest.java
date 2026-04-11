@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.tx;
 
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -60,6 +61,13 @@ public class SnapshotIsolationIndexesConcurrentDeleteTest {
     db.commit();
 
     runConcurrentDelete("RecNU");
+
+    // Post-condition: the record must be deleted after concurrent deletes
+    db.begin();
+    try (var rs = db.query("SELECT FROM RecNU WHERE val = 1")) {
+      assertFalse("Record should be deleted after concurrent delete", rs.hasNext());
+    }
+    db.rollback();
   }
 
   /**
@@ -79,6 +87,13 @@ public class SnapshotIsolationIndexesConcurrentDeleteTest {
     db.commit();
 
     runConcurrentDelete("RecU");
+
+    // Post-condition: the record must be deleted after concurrent deletes
+    db.begin();
+    try (var rs = db.query("SELECT FROM RecU WHERE val = 1")) {
+      assertFalse("Record should be deleted after concurrent delete", rs.hasNext());
+    }
+    db.rollback();
   }
 
   /**
