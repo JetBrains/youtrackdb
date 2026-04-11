@@ -111,7 +111,7 @@ public class CollectionPageAppendRecordOpTest {
     Arrays.fill(record, (byte) 0xAB);
     var original = new CollectionPageAppendRecordOp(
         0, 0, 0, new LogSequenceNumber(0, 0), Long.MAX_VALUE, record,
-        Integer.MAX_VALUE, 2048, 0);
+        Integer.MAX_VALUE, 2048, 300);
 
     var content = new byte[original.serializedSize()];
     original.toStream(content, 0);
@@ -123,6 +123,7 @@ public class CollectionPageAppendRecordOpTest {
     Assert.assertEquals(Long.MAX_VALUE, deserialized.getRecordVersion());
     Assert.assertEquals(Integer.MAX_VALUE, deserialized.getAllocatedIndex());
     Assert.assertEquals(2048, deserialized.getEntryPosition());
+    Assert.assertEquals(300, deserialized.getHoleSize());
   }
 
   // --- Factory roundtrip ---
@@ -130,7 +131,7 @@ public class CollectionPageAppendRecordOpTest {
   @Test
   public void testFactoryRoundtrip() {
     var original = new CollectionPageAppendRecordOp(
-        1, 2, 3, new LogSequenceNumber(10, 20), 99L, new byte[] {10, 20, 30}, 5, 7000, 0);
+        1, 2, 3, new LogSequenceNumber(10, 20), 99L, new byte[] {10, 20, 30}, 5, 7000, 212);
 
     ByteBuffer serialized = WALRecordsFactory.toStream(original);
     var content = new byte[serialized.limit()];
@@ -141,6 +142,7 @@ public class CollectionPageAppendRecordOpTest {
     Assert.assertArrayEquals(new byte[] {10, 20, 30}, result.getRecord());
     Assert.assertEquals(5, result.getAllocatedIndex());
     Assert.assertEquals(7000, result.getEntryPosition());
+    Assert.assertEquals(212, result.getHoleSize());
   }
 
   // --- Redo correctness ---
@@ -639,6 +641,17 @@ public class CollectionPageAppendRecordOpTest {
           opCaptor.getValue() instanceof CollectionPageAppendRecordOp);
       var appendOp = (CollectionPageAppendRecordOp) opCaptor.getValue();
       Assert.assertEquals(holeIdx, appendOp.getAllocatedIndex());
+      // Verify hole-reuse path captures correct entryPosition and non-zero holeSize
+      Assert.assertEquals(
+          "entryPosition should match the hole position",
+          page.getPointerValuePosition(holeIdx), appendOp.getEntryPosition());
+      Assert.assertTrue(
+          "holeSize must be > 0 for hole reuse path",
+          appendOp.getHoleSize() > 0);
+      int expectedEntrySize = record.length + 3 * Integer.BYTES;
+      Assert.assertTrue(
+          "holeSize must be >= entrySize for hole reuse",
+          appendOp.getHoleSize() >= expectedEntrySize);
     } finally {
       releaseEntry(entry);
     }

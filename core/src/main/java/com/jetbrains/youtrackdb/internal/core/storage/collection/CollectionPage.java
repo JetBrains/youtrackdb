@@ -967,6 +967,8 @@ public final class CollectionPage extends DurablePage {
       int holeSize) {
     assert entryIndex >= 0
         : "entryIndex must be non-negative but was " + entryIndex;
+    assert holeSize >= 0
+        : "holeSize must be non-negative but was " + holeSize;
     var entrySize = record.length + 3 * IntegerSerializer.INT_SIZE;
     assert entryPosition >= 0 && entryPosition + entrySize <= PAGE_SIZE
         : "entryPosition " + entryPosition + " + entrySize " + entrySize
@@ -983,6 +985,9 @@ public final class CollectionPage extends DurablePage {
           : "Hole size " + holeSize + " < entry size " + entrySize
               + " at position " + entryPosition;
       if (holeSize != entrySize) {
+        assert entryPosition + entrySize + Integer.BYTES <= PAGE_SIZE
+            : "Remainder hole marker at " + (entryPosition + entrySize)
+                + " would exceed page bounds (PAGE_SIZE=" + PAGE_SIZE + ")";
         // Leave a smaller hole after the entry
         setIntValue(entryPosition + entrySize, -(holeSize - entrySize));
       }
