@@ -1,5 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal;
 
+import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramStatsPageWriteEmptyOp;
+import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramStatsPageWriteHllToPage1Op;
+import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramStatsPageWriteSnapshotOp;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPageAppendRecordOp;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPageDeleteRecordOp;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPageDoDefragmentationOp;
@@ -84,7 +87,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v
  * can deserialize logical WAL records. Must be called after WAL initialization but before
  * {@code recoverIfNeeded()} — see {@code AbstractStorage.open()}.
  *
- * <p>Future tracks (5-7b) will add their PageOperation types here as they are implemented.
+ * <p>Future tracks will add their PageOperation types here as they are implemented.
  */
 public final class PageOperationRegistry {
 
@@ -96,7 +99,8 @@ public final class PageOperationRegistry {
    * registered with its unique WAL record type ID (see {@link WALRecordTypes}).
    *
    * <p>Currently registers Track 2-3 types (IDs 201-218), Track 5 types (IDs 219-238),
-   * Track 6 types (IDs 239-263), and Track 7a types (IDs 264-278):
+   * Track 6 types (IDs 239-263), Track 7a types (IDs 264-278), and Track 7b types
+   * (IDs 279-281):
    * <ul>
    *   <li>PaginatedCollectionStateV2 (2 ops)</li>
    *   <li>CollectionPage (5 ops)</li>
@@ -397,5 +401,16 @@ public final class PageOperationRegistry {
     factory.registerNewRecord(
         WALRecordTypes.SBTREE_BUCKET_V2_SHRINK_OP,
         SBTreeBucketV2ShrinkOp.class);
+
+    // HistogramStatsPage operations (Track 7b)
+    factory.registerNewRecord(
+        WALRecordTypes.HISTOGRAM_STATS_PAGE_WRITE_EMPTY_OP,
+        HistogramStatsPageWriteEmptyOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.HISTOGRAM_STATS_PAGE_WRITE_SNAPSHOT_OP,
+        HistogramStatsPageWriteSnapshotOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.HISTOGRAM_STATS_PAGE_WRITE_HLL_TO_PAGE1_OP,
+        HistogramStatsPageWriteHllToPage1Op.class);
   }
 }

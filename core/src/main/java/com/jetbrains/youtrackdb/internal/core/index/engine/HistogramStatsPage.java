@@ -26,6 +26,7 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializ
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.CacheEntryChanges;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -110,6 +111,14 @@ final class HistogramStatsPage extends DurablePage {
     setLongValue(TOTAL_COUNT_AT_LAST_BUILD_OFFSET, 0);
     setIntValue(HISTOGRAM_DATA_LENGTH_OFFSET, 0);
     setIntValue(HLL_REGISTER_COUNT_OFFSET, 0);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new HistogramStatsPageWriteEmptyOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), serializerId));
+    }
   }
 
   /**
@@ -153,8 +162,9 @@ final class HistogramStatsPage extends DurablePage {
 
     // Write histogram data blob
     int histogramDataLength = 0;
+    byte[] histData = null;
     if (snapshot.histogram() != null) {
-      byte[] histData = snapshot.histogram().serialize(
+      histData = snapshot.histogram().serialize(
           keySerializer, serializerFactory);
       histogramDataLength = histData.length;
       if (VARIABLE_DATA_OFFSET + histogramDataLength > MAX_PAGE_SIZE_BYTES) {
@@ -170,6 +180,7 @@ final class HistogramStatsPage extends DurablePage {
     }
 
     // Write HLL registers inline on page 0 only when NOT spilled to page 1
+    byte[] inlineHllData = null;
     if (hllRegisterCount > 0 && !hllOnPage1) {
       int hllOffset = VARIABLE_DATA_OFFSET + histogramDataLength;
       if (hllOffset + hllRegisterCount > MAX_PAGE_SIZE_BYTES) {
@@ -178,10 +189,67 @@ final class HistogramStatsPage extends DurablePage {
                 + (hllOffset + hllRegisterCount) + " > "
                 + MAX_PAGE_SIZE_BYTES);
       }
-      byte[] hllData = new byte[hllRegisterCount];
-      snapshot.hllSketch().writeTo(hllData, 0);
-      setBinaryValue(hllOffset, hllData);
+      inlineHllData = new byte[hllRegisterCount];
+      snapshot.hllSketch().writeTo(inlineHllData, 0);
+      setBinaryValue(hllOffset, inlineHllData);
     }
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new HistogramStatsPageWriteSnapshotOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(),
+              serializerId,
+              snapshot.stats().totalCount(),
+              snapshot.stats().distinctCount(),
+              snapshot.stats().nullCount(),
+              snapshot.mutationsSinceRebalance(),
+              snapshot.totalCountAtLastBuild(),
+              persistedHllCount,
+              histData != null ? histData : new byte[0],
+              inlineHllData != null ? inlineHllData : new byte[0]));
+    }
+  }
+
+  // ---- Redo helper methods (package-private, used by PageOperation subclasses) ----
+
+  /**
+   * Writes pre-serialized snapshot data directly to the page buffer. Used by
+   * {@link HistogramStatsPageWriteSnapshotOp#redo} during recovery — avoids needing
+   * BinarySerializer/BinarySerializerFactory which are unavailable during WAL replay.
+   */
+  void writeSnapshotRaw(byte serializerId, long totalCount, long distinctCount,
+      long nullCount, long mutationsSinceRebalance, long totalCountAtLastBuild,
+      int persistedHllCount, byte[] histData, byte[] inlineHllData) {
+    setIntValue(FORMAT_VERSION_OFFSET, FORMAT_VERSION);
+    setByteValue(SERIALIZER_ID_OFFSET, serializerId);
+    setLongValue(TOTAL_COUNT_OFFSET, totalCount);
+    setLongValue(DISTINCT_COUNT_OFFSET, distinctCount);
+    setLongValue(NULL_COUNT_OFFSET, nullCount);
+    setLongValue(MUTATIONS_SINCE_REBALANCE_OFFSET, mutationsSinceRebalance);
+    setLongValue(TOTAL_COUNT_AT_LAST_BUILD_OFFSET, totalCountAtLastBuild);
+    setIntValue(HLL_REGISTER_COUNT_OFFSET, persistedHllCount);
+
+    int histogramDataLength = (histData != null) ? histData.length : 0;
+    setIntValue(HISTOGRAM_DATA_LENGTH_OFFSET, histogramDataLength);
+    if (histogramDataLength > 0) {
+      setBinaryValue(VARIABLE_DATA_OFFSET, histData);
+    }
+
+    if (inlineHllData != null && inlineHllData.length > 0) {
+      int hllOffset = VARIABLE_DATA_OFFSET + histogramDataLength;
+      setBinaryValue(hllOffset, inlineHllData);
+    }
+  }
+
+  /**
+   * Writes raw HLL register bytes directly to a page. Used by
+   * {@link HistogramStatsPageWriteHllToPage1Op#redo} during recovery.
+   */
+  static void writeHllRaw(CacheEntry cacheEntry, byte[] hllData) {
+    var page = new HistogramStatsPage(cacheEntry);
+    page.setBinaryValue(NEXT_FREE_POSITION, hllData);
   }
 
   // ---- Read methods ----
@@ -285,6 +353,13 @@ final class HistogramStatsPage extends DurablePage {
     byte[] hllData = new byte[HyperLogLogSketch.serializedSize()];
     hll.writeTo(hllData, 0);
     page1.setBinaryValue(NEXT_FREE_POSITION, hllData);
+
+    if (page1CacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new HistogramStatsPageWriteHllToPage1Op(
+              page1CacheEntry.getPageIndex(), page1CacheEntry.getFileId(),
+              0, cec.getInitialLSN(), hllData));
+    }
   }
 
   /**

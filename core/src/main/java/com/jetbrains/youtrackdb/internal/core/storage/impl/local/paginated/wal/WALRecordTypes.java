@@ -348,4 +348,10 @@ public final class WALRecordTypes {
   // SBTreeBucketV2 bulk operations (Track 7a)
   public static final int SBTREE_BUCKET_V2_ADD_ALL_OP = PAGE_OPERATION_ID_BASE + 77;
   public static final int SBTREE_BUCKET_V2_SHRINK_OP = PAGE_OPERATION_ID_BASE + 78;
+
+  // HistogramStatsPage operations (Track 7b)
+  public static final int HISTOGRAM_STATS_PAGE_WRITE_EMPTY_OP = PAGE_OPERATION_ID_BASE + 79;
+  public static final int HISTOGRAM_STATS_PAGE_WRITE_SNAPSHOT_OP = PAGE_OPERATION_ID_BASE + 80;
+  public static final int HISTOGRAM_STATS_PAGE_WRITE_HLL_TO_PAGE1_OP =
+      PAGE_OPERATION_ID_BASE + 81;
 }
