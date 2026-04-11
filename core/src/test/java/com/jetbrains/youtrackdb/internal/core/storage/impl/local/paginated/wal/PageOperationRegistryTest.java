@@ -82,6 +82,13 @@ import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVNullBucketV3InitOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVNullBucketV3RemoveValueOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVNullBucketV3SetValueOp;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagBucketInitOp;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagBucketSetLeftSiblingOp;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagBucketSetRightSiblingOp;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagBucketSwitchBucketTypeOp;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagEntryPointInitOp;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagEntryPointSetPagesSizeOp;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagEntryPointSetTreeSizeOp;
 import java.nio.ByteBuffer;
 import java.util.List;
 import org.junit.Assert;
@@ -90,7 +97,7 @@ import org.junit.Test;
 
 /**
  * Tests that {@link PageOperationRegistry#registerAll(WALRecordsFactory)} correctly registers
- * all 81 Track 2-3, Track 5, Track 6, Track 7a, and Track 7b PageOperation types so they can be
+ * all 88 Track 2-3, Track 5, Track 6, Track 7a, and Track 7b PageOperation types so they can be
  * deserialized by the factory during recovery.
  */
 public class PageOperationRegistryTest {
@@ -269,6 +276,21 @@ public class PageOperationRegistryTest {
             1024, new byte[] {1, 2, 3}, new byte[] {4, 5}),
         new HistogramStatsPageWriteHllToPage1Op(
             pageIndex, fileId, opUnitId, initialLsn, new byte[] {10, 20, 30}),
+
+        // Track 7b: Ridbag EntryPoint (3 ops)
+        new RidbagEntryPointInitOp(pageIndex, fileId, opUnitId, initialLsn),
+        new RidbagEntryPointSetTreeSizeOp(
+            pageIndex, fileId, opUnitId, initialLsn, 999L),
+        new RidbagEntryPointSetPagesSizeOp(
+            pageIndex, fileId, opUnitId, initialLsn, 7),
+
+        // Track 7b: Ridbag Bucket simple (4 ops)
+        new RidbagBucketInitOp(pageIndex, fileId, opUnitId, initialLsn, true),
+        new RidbagBucketSwitchBucketTypeOp(pageIndex, fileId, opUnitId, initialLsn),
+        new RidbagBucketSetLeftSiblingOp(
+            pageIndex, fileId, opUnitId, initialLsn, 100L),
+        new RidbagBucketSetRightSiblingOp(
+            pageIndex, fileId, opUnitId, initialLsn, 200L),
     };
 
     for (PageOperation op : ops) {
@@ -295,12 +317,12 @@ public class PageOperationRegistryTest {
     // createOpForId throws for unknown IDs, so any gap causes immediate failure.
     int registeredCount = 0;
     for (int id = WALRecordTypes.PAGE_OPERATION_ID_BASE + 1;
-        id <= WALRecordTypes.PAGE_OPERATION_ID_BASE + 81; id++) {
+        id <= WALRecordTypes.PAGE_OPERATION_ID_BASE + 88; id++) {
       var testOp = createMinimalRecord(id);
       Assert.assertNotNull("WAL record ID " + id + " failed to roundtrip", testOp);
       registeredCount++;
     }
-    Assert.assertEquals("Expected 81 registered PageOperation types", 81, registeredCount);
+    Assert.assertEquals("Expected 88 registered PageOperation types", 88, registeredCount);
   }
 
   /**
@@ -541,6 +563,24 @@ public class PageOperationRegistryTest {
               new byte[0], new byte[0]);
       case WALRecordTypes.HISTOGRAM_STATS_PAGE_WRITE_HLL_TO_PAGE1_OP ->
           new HistogramStatsPageWriteHllToPage1Op(0, 0, 0, lsn, new byte[0]);
+
+      // Track 7b: Ridbag EntryPoint (3 ops)
+      case WALRecordTypes.RIDBAG_ENTRY_POINT_INIT_OP ->
+          new RidbagEntryPointInitOp(0, 0, 0, lsn);
+      case WALRecordTypes.RIDBAG_ENTRY_POINT_SET_TREE_SIZE_OP ->
+          new RidbagEntryPointSetTreeSizeOp(0, 0, 0, lsn, 0L);
+      case WALRecordTypes.RIDBAG_ENTRY_POINT_SET_PAGES_SIZE_OP ->
+          new RidbagEntryPointSetPagesSizeOp(0, 0, 0, lsn, 0);
+
+      // Track 7b: Ridbag Bucket simple (4 ops)
+      case WALRecordTypes.RIDBAG_BUCKET_INIT_OP ->
+          new RidbagBucketInitOp(0, 0, 0, lsn, true);
+      case WALRecordTypes.RIDBAG_BUCKET_SWITCH_BUCKET_TYPE_OP ->
+          new RidbagBucketSwitchBucketTypeOp(0, 0, 0, lsn);
+      case WALRecordTypes.RIDBAG_BUCKET_SET_LEFT_SIBLING_OP ->
+          new RidbagBucketSetLeftSiblingOp(0, 0, 0, lsn, 0L);
+      case WALRecordTypes.RIDBAG_BUCKET_SET_RIGHT_SIBLING_OP ->
+          new RidbagBucketSetRightSiblingOp(0, 0, 0, lsn, 0L);
 
       default -> throw new IllegalArgumentException("Unknown PageOperation ID: " + id);
     };

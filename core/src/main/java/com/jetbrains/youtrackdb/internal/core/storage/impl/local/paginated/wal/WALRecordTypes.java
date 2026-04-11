@@ -354,4 +354,15 @@ public final class WALRecordTypes {
   public static final int HISTOGRAM_STATS_PAGE_WRITE_SNAPSHOT_OP = PAGE_OPERATION_ID_BASE + 80;
   public static final int HISTOGRAM_STATS_PAGE_WRITE_HLL_TO_PAGE1_OP =
       PAGE_OPERATION_ID_BASE + 81;
+
+  // Ridbag EntryPoint operations (Track 7b)
+  public static final int RIDBAG_ENTRY_POINT_INIT_OP = PAGE_OPERATION_ID_BASE + 82;
+  public static final int RIDBAG_ENTRY_POINT_SET_TREE_SIZE_OP = PAGE_OPERATION_ID_BASE + 83;
+  public static final int RIDBAG_ENTRY_POINT_SET_PAGES_SIZE_OP = PAGE_OPERATION_ID_BASE + 84;
+
+  // Ridbag Bucket simple operations (Track 7b)
+  public static final int RIDBAG_BUCKET_INIT_OP = PAGE_OPERATION_ID_BASE + 85;
+  public static final int RIDBAG_BUCKET_SWITCH_BUCKET_TYPE_OP = PAGE_OPERATION_ID_BASE + 86;
+  public static final int RIDBAG_BUCKET_SET_LEFT_SIBLING_OP = PAGE_OPERATION_ID_BASE + 87;
+  public static final int RIDBAG_BUCKET_SET_RIGHT_SIBLING_OP = PAGE_OPERATION_ID_BASE + 88;
 }

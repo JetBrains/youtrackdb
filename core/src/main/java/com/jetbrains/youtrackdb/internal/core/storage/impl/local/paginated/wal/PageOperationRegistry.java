@@ -81,6 +81,13 @@ import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVNullBucketV3InitOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVNullBucketV3RemoveValueOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVNullBucketV3SetValueOp;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagBucketInitOp;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagBucketSetLeftSiblingOp;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagBucketSetRightSiblingOp;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagBucketSwitchBucketTypeOp;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagEntryPointInitOp;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagEntryPointSetPagesSizeOp;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagEntryPointSetTreeSizeOp;
 
 /**
  * Registers all {@link PageOperation} subclasses with {@link WALRecordsFactory} so that recovery
@@ -412,5 +419,30 @@ public final class PageOperationRegistry {
     factory.registerNewRecord(
         WALRecordTypes.HISTOGRAM_STATS_PAGE_WRITE_HLL_TO_PAGE1_OP,
         HistogramStatsPageWriteHllToPage1Op.class);
+
+    // Ridbag EntryPoint operations (Track 7b)
+    factory.registerNewRecord(
+        WALRecordTypes.RIDBAG_ENTRY_POINT_INIT_OP,
+        RidbagEntryPointInitOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.RIDBAG_ENTRY_POINT_SET_TREE_SIZE_OP,
+        RidbagEntryPointSetTreeSizeOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.RIDBAG_ENTRY_POINT_SET_PAGES_SIZE_OP,
+        RidbagEntryPointSetPagesSizeOp.class);
+
+    // Ridbag Bucket simple operations (Track 7b)
+    factory.registerNewRecord(
+        WALRecordTypes.RIDBAG_BUCKET_INIT_OP,
+        RidbagBucketInitOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.RIDBAG_BUCKET_SWITCH_BUCKET_TYPE_OP,
+        RidbagBucketSwitchBucketTypeOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.RIDBAG_BUCKET_SET_LEFT_SIBLING_OP,
+        RidbagBucketSetLeftSiblingOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.RIDBAG_BUCKET_SET_RIGHT_SIBLING_OP,
+        RidbagBucketSetRightSiblingOp.class);
   }
 }
