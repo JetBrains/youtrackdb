@@ -49,7 +49,7 @@ public class CompositeKey
   private Set<IdentityChangeListener> identityChangeListeners;
 
   private final List<Object> keys;
-  private transient List<Object> unmodifiableKeys;
+  private transient volatile List<Object> unmodifiableKeys;
 
   public CompositeKey(final List<?> keys) {
     this.keys = new ArrayList<>(keys.size());
