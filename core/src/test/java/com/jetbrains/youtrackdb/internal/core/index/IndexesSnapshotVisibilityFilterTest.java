@@ -187,7 +187,7 @@ public class IndexesSnapshotVisibilityFilterTest {
   @Test
   public void afterFirstRemove_readerStillAliveBeforeRemove_visible() {
     var result = callSnapshotLookup(pairAfterRemove128().first(), 127L);
-    assertNotNull(result);
+    assertEquals(RID_20_0, result);
   }
 
   // ========================================================================
@@ -209,7 +209,7 @@ public class IndexesSnapshotVisibilityFilterTest {
   @Test
   public void afterReAdd_readerWhileAliveBeforeFirstRemove_visible() {
     var result = callSnapshotLookup(pairAfterPut130().first(), 126L);
-    assertNotNull(result);
+    assertEquals(RID_20_0, result);
   }
 
   /**
@@ -244,7 +244,7 @@ public class IndexesSnapshotVisibilityFilterTest {
   public void afterFinalRemove_readerDuringFirstAlivePhase_visible() {
     // v=126 < 135: snapshot lowerEntry(126) = {125: Tombstone} → visible
     var result = callSnapshotLookup(pairAfterRemove135().first(), 126L);
-    assertNotNull(result);
+    assertEquals(RID_20_0, result);
   }
 
   @Test
@@ -253,7 +253,7 @@ public class IndexesSnapshotVisibilityFilterTest {
     // With the inclusive bound (version <= 127), the RecordId guard at v128 is excluded,
     // and the TombstoneRID at v125 (was alive) is correctly found.
     var result = callSnapshotLookup(pairAfterRemove135().first(), 127L);
-    assertNotNull(result);
+    assertEquals(RID_20_0, result);
   }
 
   /**
@@ -288,13 +288,13 @@ public class IndexesSnapshotVisibilityFilterTest {
   @Test
   public void afterFinalRemove_readerAtReAdd_visible() {
     var result = callSnapshotLookup(pairAfterRemove135().first(), 131L);
-    assertNotNull(result);
+    assertEquals(RID_20_0, result);
   }
 
   @Test
   public void afterFinalRemove_readerAfterReAdd_visible() {
     var result = callSnapshotLookup(pairAfterRemove135().first(), 133L);
-    assertNotNull(result);
+    assertEquals(RID_20_0, result);
   }
 
   @Test
@@ -303,7 +303,7 @@ public class IndexesSnapshotVisibilityFilterTest {
     // With the inclusive bound (version <= 134), the RecordId guard at v135 is excluded,
     // and the TombstoneRID at v130 (was alive after re-add) is correctly found.
     var result = callSnapshotLookup(pairAfterRemove135().first(), 134L);
-    assertNotNull(result);
+    assertEquals(RID_20_0, result);
   }
 
   // ========================================================================
@@ -417,7 +417,7 @@ public class IndexesSnapshotVisibilityFilterTest {
     var key = new CompositeKey("Key", rid, 110L);
 
     var result = callSnapshotLookup(snap, key, 109L);
-    assertNotNull("Was alive at v=100, reader at snapshotTs=109 should see it", result);
+    assertEquals("Was alive at v=100, reader at snapshotTs=109 should see it", rid, result);
   }
 
   // ========================================================================
