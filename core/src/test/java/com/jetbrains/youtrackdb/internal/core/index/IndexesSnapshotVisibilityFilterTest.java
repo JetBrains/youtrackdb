@@ -89,6 +89,19 @@ public class IndexesSnapshotVisibilityFilterTest {
         new AtomicLong(), indexId);
   }
 
+  /** Creates a snapshot and returns both the snapshot and its size counter. */
+  private static SnapshotWithCounter newSnapshotWithCounter(long indexId) {
+    var counter = new AtomicLong();
+    var snap = new IndexesSnapshot(
+        new ConcurrentSkipListMap<>(),
+        new ConcurrentSkipListMap<>(AbstractStorage.INDEX_SNAPSHOT_VERSION_COMPARATOR),
+        counter, indexId);
+    return new SnapshotWithCounter(snap, counter);
+  }
+
+  private record SnapshotWithCounter(IndexesSnapshot snapshot, AtomicLong counter) {
+  }
+
   @Before
   public void setUp() {
     snapshot = newSnapshot(INDEX_ID);
@@ -1406,5 +1419,106 @@ public class IndexesSnapshotVisibilityFilterTest {
     if (error.get() != null) {
       throw error.get();
     }
+  }
+
+  // ========================================================================
+  //  Concurrent stress test: clear() vs addSnapshotPair() interleaving
+  // ========================================================================
+
+  /**
+   * Stress test for the race between {@link IndexesSnapshot#clear()} and
+   * {@link IndexesSnapshot#addSnapshotPair}.
+   *
+   * <p>{@code clear()} iterates the snapshot, removes visibilityIndex entries,
+   * clears the map, and decrements the counter. If {@code addSnapshotPair()} writes
+   * between the TombstoneRID put and the visibilityIndex put, {@code clear()} may
+   * remove the TombstoneRID while the visibilityIndex entry is still written — an
+   * "orphaned" entry. This is documented as benign (lines 101-106).
+   *
+   * <p>This test verifies:
+   * <ol>
+   *   <li>The size counter never goes negative under contention (clamp to zero works).</li>
+   *   <li>After all writers stop and a final {@code clear()} is called, the snapshot
+   *       is empty.</li>
+   * </ol>
+   */
+  @Test(timeout = 30_000)
+  public void concurrent_clear_vs_addSnapshotPair_counterNeverNegative() throws Throwable {
+    int writerCount = 4;
+    int clearIterations = 100;
+    var swc = newSnapshotWithCounter(INDEX_ID);
+    var snap = swc.snapshot();
+    var counter = swc.counter();
+
+    var running = new java.util.concurrent.atomic.AtomicBoolean(true);
+    var barrier = new CyclicBarrier(writerCount + 1); // +1 for clearer thread
+    var latch = new CountDownLatch(writerCount + 1);
+    var error = new AtomicReference<Throwable>();
+
+    // Writers: continuously addSnapshotPair until the clearer signals stop
+    for (int w = 0; w < writerCount; w++) {
+      final int wi = w;
+      new Thread(
+          () -> {
+            try {
+              barrier.await();
+              long ver = (long) wi * 1_000_000;
+              var rid = new RecordId(10, wi);
+              var keyName = "K" + wi;
+              while (running.get() && error.get() == null) {
+                snap.addSnapshotPair(
+                    new CompositeKey(keyName, rid, ver),
+                    new CompositeKey(keyName, rid, ver + 1),
+                    rid);
+                ver += 2;
+              }
+            } catch (Throwable t) {
+              error.compareAndSet(null, t);
+            } finally {
+              latch.countDown();
+            }
+          },
+          "writer-" + w)
+          .start();
+    }
+
+    // Clearer thread: calls clear() and checks counter >= 0 after each clear
+    new Thread(
+        () -> {
+          try {
+            barrier.await();
+            for (int i = 0; i < clearIterations && error.get() == null; i++) {
+              snap.clear();
+              long counterVal = counter.get();
+              if (counterVal < 0) {
+                error.compareAndSet(
+                    null,
+                    new AssertionError(
+                        "Counter went negative: " + counterVal));
+              }
+            }
+            running.set(false);
+          } catch (Throwable t) {
+            error.compareAndSet(null, t);
+          } finally {
+            latch.countDown();
+          }
+        },
+        "clearer")
+        .start();
+
+    latch.await();
+    if (error.get() != null) {
+      throw error.get();
+    }
+
+    // Final clear with no concurrent writers — snapshot must be empty
+    snap.clear();
+    assertTrue(
+        "After final clear with no concurrent writers, snapshot must be empty",
+        snap.allEntries().isEmpty());
+    assertTrue(
+        "Counter must be non-negative after final clear",
+        counter.get() >= 0);
   }
 }
