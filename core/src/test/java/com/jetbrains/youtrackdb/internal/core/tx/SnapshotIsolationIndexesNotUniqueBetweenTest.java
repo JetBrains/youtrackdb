@@ -17,7 +17,9 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- *
+ * Snapshot-isolation tests for {@code P.between()} range queries with NOTUNIQUE indexes.
+ * Exercises {@code BTreeMultiValueIndexEngine.iterateEntriesBetween} via Gremlin traversals.
+ * Mirrors {@link SnapshotIsolationIndexesUniqueBetweenTest} for the NOTUNIQUE engine path.
  */
 public class SnapshotIsolationIndexesNotUniqueBetweenTest {
   //
