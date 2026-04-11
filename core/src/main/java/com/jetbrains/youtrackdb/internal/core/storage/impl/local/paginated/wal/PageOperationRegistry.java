@@ -114,7 +114,7 @@ public final class PageOperationRegistry {
    *
    * <p>Currently registers Track 2-3 types (IDs 201-218), Track 5 types (IDs 219-238),
    * Track 6 types (IDs 239-263), Track 7a types (IDs 264-278), and Track 7b types
-   * (IDs 279-281):
+   * (IDs 279-295) — 95 types total:
    * <ul>
    *   <li>PaginatedCollectionStateV2 (2 ops)</li>
    *   <li>CollectionPage (5 ops)</li>
@@ -139,6 +139,12 @@ public final class PageOperationRegistry {
    *   <li>SBTreeBucketV2 entry (5 ops: addLeaf, addNonLeaf, removeLeaf, removeNonLeaf,
    *       updateValue)</li>
    *   <li>SBTreeBucketV2 bulk (2 ops: addAll, shrink)</li>
+   *   <li>HistogramStatsPage (3 ops: writeEmpty, writeSnapshot, writeHllToPage1)</li>
+   *   <li>Ridbag EntryPoint (3 ops: init, setTreeSize, setPagesSize)</li>
+   *   <li>Ridbag Bucket simple (4 ops: init, switchType, leftSibling, rightSibling)</li>
+   *   <li>Ridbag Bucket entry (4 ops: addLeaf, addNonLeaf, removeLeaf, removeNonLeaf)</li>
+   *   <li>Ridbag Bucket bulk (2 ops: addAll, shrink)</li>
+   *   <li>Ridbag Bucket updateValue (1 op)</li>
    * </ul>
    */
   public static void registerAll(WALRecordsFactory factory) {

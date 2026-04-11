@@ -40,7 +40,8 @@ public final class RidbagBucketAddNonLeafEntryOp extends PageOperation {
   @Override
   public void redo(DurablePage page) {
     var bucket = new Bucket(page.getCacheEntry());
-    assert bucket.addNonLeafEntry(index, leftChild, rightChild, key, updateNeighbors);
+    var result = bucket.addNonLeafEntry(index, leftChild, rightChild, key, updateNeighbors);
+    assert result : "addNonLeafEntry failed during redo — inconsistent page state";
   }
 
   @Override

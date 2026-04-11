@@ -401,6 +401,90 @@ public class RidbagBucketEntryBulkOpsTest {
     });
   }
 
+  /** removeNonLeafEntry with prevChild >= 0: triggers neighbor child pointer update. */
+  @Test
+  public void testRemoveNonLeafEntryWithPositivePrevChildRedoCorrectness() {
+    withTwoPages((entry1, cp1, entry2, cp2) -> {
+      byte[] key1 = {1, 2};
+      byte[] key2 = {3, 4};
+      byte[] key3 = {5, 6};
+
+      // Init non-leaf and add 3 entries on both pages
+      new Bucket(entry1).init(false);
+      new Bucket(entry1).addNonLeafEntry(0, 10, 20, key1, false);
+      new Bucket(entry1).addNonLeafEntry(1, 20, 30, key2, false);
+      new Bucket(entry1).addNonLeafEntry(2, 30, 40, key3, false);
+
+      new Bucket(entry2).init(false);
+      new Bucket(entry2).addNonLeafEntry(0, 10, 20, key1, false);
+      new Bucket(entry2).addNonLeafEntry(1, 20, 30, key2, false);
+      new Bucket(entry2).addNonLeafEntry(2, 30, 40, key3, false);
+
+      // Remove middle entry with prevChild >= 0 (triggers neighbor update)
+      new Bucket(entry1).removeNonLeafEntry(1, key2, 25);
+      new RidbagBucketRemoveNonLeafEntryOp(
+          0, 0, 0, new LogSequenceNumber(0, 0), 1, key2, 25)
+          .redo(new Bucket(entry2));
+
+      Assert.assertEquals(0, cp1.getBuffer().compareTo(cp2.getBuffer()));
+      Assert.assertEquals(2, new Bucket(entry2).size());
+    });
+  }
+
+  /** removeNonLeafEntry with prevChild < 0: no neighbor child pointer update. */
+  @Test
+  public void testRemoveNonLeafEntryWithNegativePrevChildRedoCorrectness() {
+    withTwoPages((entry1, cp1, entry2, cp2) -> {
+      byte[] key1 = {1, 2};
+      byte[] key2 = {3, 4};
+
+      new Bucket(entry1).init(false);
+      new Bucket(entry1).addNonLeafEntry(0, 10, 20, key1, false);
+      new Bucket(entry1).addNonLeafEntry(1, 20, 30, key2, false);
+
+      new Bucket(entry2).init(false);
+      new Bucket(entry2).addNonLeafEntry(0, 10, 20, key1, false);
+      new Bucket(entry2).addNonLeafEntry(1, 20, 30, key2, false);
+
+      // Remove with prevChild = -1 (no neighbor update)
+      new Bucket(entry1).removeNonLeafEntry(0, key1, -1);
+      new RidbagBucketRemoveNonLeafEntryOp(
+          0, 0, 0, new LogSequenceNumber(0, 0), 0, key1, -1)
+          .redo(new Bucket(entry2));
+
+      Assert.assertEquals(0, cp1.getBuffer().compareTo(cp2.getBuffer()));
+      Assert.assertEquals(1, new Bucket(entry2).size());
+    });
+  }
+
+  /** addNonLeafEntry with updateNeighbors=true: verifies neighbor child pointer patching. */
+  @Test
+  public void testAddNonLeafEntryWithUpdateNeighborsRedoCorrectness() {
+    withTwoPages((entry1, cp1, entry2, cp2) -> {
+      new Bucket(entry1).init(false);
+      new Bucket(entry2).init(false);
+
+      byte[] key1 = {1, 2};
+      byte[] key2 = {3, 4};
+      byte[] key3 = {5, 6};
+
+      // Add first and third entries
+      new Bucket(entry1).addNonLeafEntry(0, 10, 20, key1, false);
+      new Bucket(entry1).addNonLeafEntry(1, 20, 30, key3, false);
+      // Insert middle entry with updateNeighbors=true
+      new Bucket(entry1).addNonLeafEntry(1, 15, 25, key2, true);
+
+      new Bucket(entry2).addNonLeafEntry(0, 10, 20, key1, false);
+      new Bucket(entry2).addNonLeafEntry(1, 20, 30, key3, false);
+      new RidbagBucketAddNonLeafEntryOp(
+          0, 0, 0, new LogSequenceNumber(0, 0), 1, 15, 25, key2, true)
+          .redo(new Bucket(entry2));
+
+      Assert.assertEquals(0, cp1.getBuffer().compareTo(cp2.getBuffer()));
+      Assert.assertEquals(3, new Bucket(entry2).size());
+    });
+  }
+
   // ---- Equals/hashCode ----
 
   @Test
