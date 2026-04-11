@@ -1566,4 +1566,118 @@ public class IndexesSnapshotVisibilityFilterTest {
         "Counter must be non-negative after final clear",
         counter.get() >= 0);
   }
+
+  // ========================================================================
+  //  Concurrent stress test: same-key partial-write visibility
+  // ========================================================================
+
+  /**
+   * Stress test for same-key readers during the partial-write window in
+   * {@link IndexesSnapshot#addSnapshotPair}.
+   *
+   * <p>addSnapshotPair performs two non-atomic puts (TombstoneRID first,
+   * RecordId guard second). Between these two puts, a same-key reader via
+   * lookupSnapshotRid must either return the correct historical RID or null
+   * — never a wrong RID from a different version or key.
+   *
+   * <p>This complements {@code concurrent_addSnapshotPair_noCrossKeyLeak},
+   * which tests cross-key isolation. This test probes the same keys writers
+   * are updating to verify same-key correctness during partial state.
+   */
+  @Test(timeout = 30_000)
+  public void concurrent_addSnapshotPair_sameKey_partialWriteVisibility() throws Throwable {
+    int writerCount = 4;
+    int readerCount = 4;
+    int iterationsPerThread = 10_000;
+
+    var snap = newSnapshot(INDEX_ID);
+    var barrier = new CyclicBarrier(writerCount + readerCount);
+    var latch = new CountDownLatch(writerCount + readerCount);
+    var error = new AtomicReference<Throwable>();
+
+    // Each writer has a distinct key prefix and RID.
+    RID[] rids = new RID[writerCount];
+    String[] keyNames = new String[writerCount];
+    for (int i = 0; i < writerCount; i++) {
+      rids[i] = new RecordId(10, i);
+      keyNames[i] = "K" + i;
+    }
+
+    // Writers: continuously addSnapshotPair for their own key with increasing
+    // versions. Each writer's version range: [wi*20000, wi*20000+19999].
+    for (int w = 0; w < writerCount; w++) {
+      final int wi = w;
+      new Thread(
+          () -> {
+            try {
+              barrier.await();
+              for (int i = 0; i < iterationsPerThread && error.get() == null; i++) {
+                long oldVer = (long) wi * iterationsPerThread * 2 + i * 2;
+                long newVer = oldVer + 1;
+                snap.addSnapshotPair(
+                    new CompositeKey(keyNames[wi], rids[wi], oldVer),
+                    new CompositeKey(keyNames[wi], rids[wi], newVer),
+                    rids[wi]);
+              }
+            } catch (Throwable t) {
+              error.compareAndSet(null, t);
+            } finally {
+              latch.countDown();
+            }
+          },
+          "writer-" + w)
+          .start();
+    }
+
+    // Readers: probe the SAME keys that writers are updating. If a non-null
+    // result is returned, it must be the expected RID for that key — any
+    // mismatch indicates a visibility bug in the partial-write window.
+    for (int r = 0; r < readerCount; r++) {
+      final int ri = r;
+      new Thread(
+          () -> {
+            try {
+              barrier.await();
+              // Each reader targets a specific writer's key for maximum contention
+              int ki = ri % writerCount;
+              for (int i = 0; i < iterationsPerThread && error.get() == null; i++) {
+                var rng = ThreadLocalRandom.current();
+                long probeVer =
+                    (long) ki * iterationsPerThread * 2
+                        + rng.nextInt(iterationsPerThread * 2)
+                        + 1;
+                long snapshotTs = probeVer - 1;
+
+                var key = new CompositeKey(keyNames[ki], rids[ki], probeVer);
+                var result = snap.lookupSnapshotRid(key, snapshotTs);
+
+                if (result != null && !result.equals(rids[ki])) {
+                  error.compareAndSet(
+                      null,
+                      new AssertionError(
+                          "Same-key partial-write leak! Key '"
+                              + keyNames[ki]
+                              + "' expected "
+                              + rids[ki]
+                              + " but got "
+                              + result
+                              + " at probeVer="
+                              + probeVer));
+                }
+              }
+            } catch (Throwable t) {
+              error.compareAndSet(null, t);
+            } finally {
+              latch.countDown();
+            }
+          },
+          "same-key-reader-" + r)
+          .start();
+    }
+
+    latch.await();
+    if (error.get() != null) {
+      throw error.get();
+    }
+  }
 }
