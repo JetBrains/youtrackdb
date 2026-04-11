@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.tx;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
@@ -313,6 +314,260 @@ public class SnapshotIsolationIndexesConcurrentReadWriteTest {
       var count = (Long) rs.next().getProperty("cnt");
       rs.close();
       assertTrue("Total count must be >= pre-populated", count >= prePopulated);
+    } finally {
+      db.rollback();
+    }
+  }
+
+  /**
+   * Same-key contention: multiple writers concurrently update the same UNIQUE
+   * key while readers verify exactly 1 result is always visible for that key.
+   *
+   * <p>This exercises the doVersionedPut scan-then-remove-then-put sequence
+   * and snapshot-level visibility under real contention on the same B-tree
+   * leaf page and IndexesSnapshot entries.
+   */
+  @Test
+  public void unique_concurrentUpdatesSameKey_readersAlwaysSeeConsistentValue()
+      throws Throwable {
+    int writerCount = 4;
+    int readerCount = 4;
+
+    var cls = db.createClass("SameKeyU");
+    cls.createProperty("key", PropertyType.INTEGER);
+    cls.createProperty("ver", PropertyType.INTEGER);
+    cls.createIndex("SameKeyUIdx", INDEX_TYPE.UNIQUE, "key");
+
+    // Insert initial record: key=1, ver=0
+    db.begin();
+    var initial = db.newEntity("SameKeyU");
+    initial.setProperty("key", 1);
+    initial.setProperty("ver", 0);
+    db.commit();
+
+    var running = new AtomicBoolean(true);
+    var barrier = new CyclicBarrier(writerCount + readerCount);
+    var latch = new CountDownLatch(writerCount + readerCount);
+    var error = new AtomicReference<Throwable>();
+    var versionCounter = new AtomicInteger(1);
+
+    // Writers: concurrently update key=1 with incrementing versions
+    for (int w = 0; w < writerCount; w++) {
+      new Thread(
+          () -> {
+            DatabaseSessionEmbedded s = null;
+            try {
+              s = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+              barrier.await();
+              for (int i = 0; i < 50 && running.get() && error.get() == null; i++) {
+                try {
+                  s.begin();
+                  var rs = s.query("SELECT FROM SameKeyU WHERE key = 1");
+                  if (rs.hasNext()) {
+                    var entity = rs.next().asEntity();
+                    entity.setProperty("ver", versionCounter.getAndIncrement());
+                  }
+                  rs.close();
+                  s.commit();
+                } catch (Exception e) {
+                  // Concurrent modification — rollback and retry
+                  try {
+                    s.rollback();
+                  } catch (Exception ignored) {
+                  }
+                }
+              }
+            } catch (Throwable t) {
+              error.compareAndSet(null, t);
+            } finally {
+              if (s != null && !s.isClosed()) {
+                try {
+                  s.rollback();
+                } catch (Exception ignored) {
+                }
+                s.close();
+              }
+              latch.countDown();
+            }
+          },
+          "writer-" + w)
+          .start();
+    }
+
+    // Readers: query key=1 and verify exactly 1 result
+    for (int r = 0; r < readerCount; r++) {
+      new Thread(
+          () -> {
+            DatabaseSessionEmbedded s = null;
+            try {
+              s = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+              barrier.await();
+              for (int i = 0; i < 200 && running.get() && error.get() == null; i++) {
+                s.begin();
+                try {
+                  var rs = s.query("SELECT FROM SameKeyU WHERE key = 1");
+                  int count = 0;
+                  while (rs.hasNext()) {
+                    rs.next();
+                    count++;
+                  }
+                  rs.close();
+                  if (count != 1) {
+                    error.compareAndSet(
+                        null,
+                        new AssertionError(
+                            "Expected exactly 1 result for key=1 but got " + count));
+                  }
+                } finally {
+                  s.rollback();
+                }
+              }
+              running.set(false);
+            } catch (Throwable t) {
+              error.compareAndSet(null, t);
+              running.set(false);
+            } finally {
+              if (s != null && !s.isClosed()) {
+                try {
+                  s.rollback();
+                } catch (Exception ignored) {
+                }
+                s.close();
+              }
+              latch.countDown();
+            }
+          },
+          "reader-" + r)
+          .start();
+    }
+
+    assertTrue("Threads should finish within 30s",
+        latch.await(30, TimeUnit.SECONDS));
+    if (error.get() != null) {
+      throw error.get();
+    }
+  }
+
+  /**
+   * Same-key contention for NOTUNIQUE: writers insert more records with the
+   * same tag while readers verify the count is always >= the pre-populated count.
+   *
+   * <p>Since all records share the same key, this exercises the multi-value
+   * B-tree's concurrent handling of the same key prefix.
+   */
+  @Test
+  public void notUnique_concurrentInsertSameKey_readersAlwaysSeeMonotonicCount()
+      throws Throwable {
+    int writerCount = 4;
+    int readerCount = 4;
+    int prePopulated = 10;
+
+    var cls = db.createClass("SameKeyNU");
+    cls.createProperty("tag", PropertyType.STRING);
+    cls.createIndex("SameKeyNUIdx", INDEX_TYPE.NOTUNIQUE, "tag");
+
+    // Pre-populate 10 records all with tag="shared"
+    db.begin();
+    for (int i = 0; i < prePopulated; i++) {
+      db.newEntity("SameKeyNU").setProperty("tag", "shared");
+    }
+    db.commit();
+
+    var running = new AtomicBoolean(true);
+    var barrier = new CyclicBarrier(writerCount + readerCount);
+    var latch = new CountDownLatch(writerCount + readerCount);
+    var error = new AtomicReference<Throwable>();
+
+    // Writers: insert more records with tag="shared"
+    for (int w = 0; w < writerCount; w++) {
+      new Thread(
+          () -> {
+            DatabaseSessionEmbedded s = null;
+            try {
+              s = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+              barrier.await();
+              for (int i = 0; i < 50 && running.get() && error.get() == null; i++) {
+                s.begin();
+                s.newEntity("SameKeyNU").setProperty("tag", "shared");
+                s.commit();
+              }
+            } catch (Throwable t) {
+              error.compareAndSet(null, t);
+            } finally {
+              if (s != null && !s.isClosed()) {
+                try {
+                  s.rollback();
+                } catch (Exception ignored) {
+                }
+                s.close();
+              }
+              latch.countDown();
+            }
+          },
+          "writer-" + w)
+          .start();
+    }
+
+    // Readers: count records with tag="shared" and verify count >= prePopulated
+    for (int r = 0; r < readerCount; r++) {
+      new Thread(
+          () -> {
+            DatabaseSessionEmbedded s = null;
+            try {
+              s = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+              barrier.await();
+              for (int i = 0; i < 200 && running.get() && error.get() == null; i++) {
+                s.begin();
+                try {
+                  var rs = s.query(
+                      "SELECT count(*) as cnt FROM SameKeyNU WHERE tag = 'shared'");
+                  var count = (Long) rs.next().getProperty("cnt");
+                  rs.close();
+                  if (count < prePopulated) {
+                    error.compareAndSet(
+                        null,
+                        new AssertionError(
+                            "Count for tag='shared' must be >= " + prePopulated
+                                + " but got " + count));
+                  }
+                } finally {
+                  s.rollback();
+                }
+              }
+              running.set(false);
+            } catch (Throwable t) {
+              error.compareAndSet(null, t);
+              running.set(false);
+            } finally {
+              if (s != null && !s.isClosed()) {
+                try {
+                  s.rollback();
+                } catch (Exception ignored) {
+                }
+                s.close();
+              }
+              latch.countDown();
+            }
+          },
+          "reader-" + r)
+          .start();
+    }
+
+    assertTrue("Threads should finish within 30s",
+        latch.await(30, TimeUnit.SECONDS));
+    if (error.get() != null) {
+      throw error.get();
+    }
+
+    // Verify final count
+    db.begin();
+    try {
+      var rs = db.query(
+          "SELECT count(*) as cnt FROM SameKeyNU WHERE tag = 'shared'");
+      var count = (Long) rs.next().getProperty("cnt");
+      rs.close();
+      assertEquals("Final count must be prePopulated + (writerCount * 50)",
+          prePopulated + writerCount * 50L, count.longValue());
     } finally {
       db.rollback();
     }
