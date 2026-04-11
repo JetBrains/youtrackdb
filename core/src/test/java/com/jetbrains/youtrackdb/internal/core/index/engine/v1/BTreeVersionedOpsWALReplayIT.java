@@ -170,4 +170,169 @@ public class BTreeVersionedOpsWALReplayIT {
     session.close();
     ytdb.drop(dbName);
   }
+
+  /**
+   * NOTUNIQUE (multi-value) crash recovery for versionedPut.
+   *
+   * <p>Multi-value indexes use two separate B-trees (svTree for non-null entries,
+   * nullTree for null entries) with a different key format ([userKey, RID, version]
+   * vs single-value's [userKey, version]). A crash between svTree and nullTree
+   * mutations could leave them inconsistent. WAL replay must correctly restore
+   * the multi-value key format including embedded RID elements.
+   *
+   * <p>Inserts multiple records with the same key (multi-value scenario) and
+   * some with null key, then simulates crash and verifies all committed data
+   * survives WAL replay.
+   */
+  @Test
+  public void multiValue_versionedPut_survivesCrashRecovery() {
+    var dbName = "crash_mv_put";
+    ytdb.create(dbName, DatabaseType.DISK, ADMIN, ADMIN_PWD, "admin");
+
+    var session = (DatabaseSessionEmbedded) ytdb.open(dbName, ADMIN, ADMIN_PWD);
+
+    session.createClassIfNotExist("MvPutTest");
+    var cls = session.getClass("MvPutTest");
+    cls.createProperty("tag", PropertyType.STRING);
+    cls.createIndex("MvPutTest.tag", SchemaClass.INDEX_TYPE.NOTUNIQUE, "tag");
+
+    // Insert first batch — 3 records with the same key
+    session.begin();
+    for (int i = 0; i < 3; i++) {
+      session.newEntity("MvPutTest").setProperty("tag", "shared");
+    }
+    session.commit();
+
+    // Insert second batch — 2 more with same key + 2 with null key
+    session.begin();
+    for (int i = 0; i < 2; i++) {
+      session.newEntity("MvPutTest").setProperty("tag", "shared");
+    }
+    for (int i = 0; i < 2; i++) {
+      // tag is null — will go into nullTree
+      session.newEntity("MvPutTest");
+    }
+    session.commit();
+
+    // Simulate crash — no graceful flush
+    session.activateOnCurrentThread();
+    ytdb.internal.forceDatabaseClose(dbName);
+
+    // Reopen — WAL replay
+    session = (DatabaseSessionEmbedded) ytdb.open(dbName, ADMIN, ADMIN_PWD);
+
+    session.begin();
+    try {
+      // Verify: all 5 records with key "shared" are accessible via index
+      var rs = session.query("SELECT FROM MvPutTest WHERE tag = 'shared'");
+      int sharedCount = 0;
+      while (rs.hasNext()) {
+        var result = rs.next();
+        assertEquals("shared", result.getProperty("tag"));
+        sharedCount++;
+      }
+      rs.close();
+      assertEquals(
+          "All 5 records with key 'shared' must survive crash recovery",
+          5, sharedCount);
+
+      // Verify: null-keyed records are accessible
+      var nullRs = session.query("SELECT FROM MvPutTest WHERE tag IS NULL");
+      int nullCount = 0;
+      while (nullRs.hasNext()) {
+        nullRs.next();
+        nullCount++;
+      }
+      nullRs.close();
+      assertEquals(
+          "Both null-keyed records must survive crash recovery",
+          2, nullCount);
+
+      // Verify total count
+      var countRs = session.query("SELECT count(*) as cnt FROM MvPutTest");
+      var totalCount = (Long) countRs.next().getProperty("cnt");
+      countRs.close();
+      assertEquals("Total record count must be 7 after crash recovery",
+          7L, totalCount.longValue());
+    } finally {
+      session.rollback();
+    }
+
+    session.close();
+    ytdb.drop(dbName);
+  }
+
+  /**
+   * NOTUNIQUE (multi-value) crash recovery for versionedRemove.
+   *
+   * <p>Inserts multiple records with the same key, deletes one record,
+   * commits, then simulates crash. After WAL replay, the deleted record
+   * must not appear in index results, while the remaining records must
+   * still be accessible.
+   */
+  @Test
+  public void multiValue_versionedRemove_survivesCrashRecovery() {
+    var dbName = "crash_mv_rm";
+    ytdb.create(dbName, DatabaseType.DISK, ADMIN, ADMIN_PWD, "admin");
+
+    var session = (DatabaseSessionEmbedded) ytdb.open(dbName, ADMIN, ADMIN_PWD);
+
+    session.createClassIfNotExist("MvRemTest");
+    var cls = session.getClass("MvRemTest");
+    cls.createProperty("val", PropertyType.STRING);
+    cls.createIndex("MvRemTest.val", SchemaClass.INDEX_TYPE.NOTUNIQUE, "val");
+
+    // Insert 3 records with the same key, each with a unique "seq" to identify them
+    session.begin();
+    for (int i = 0; i < 3; i++) {
+      var entity = session.newEntity("MvRemTest");
+      entity.setProperty("val", "same");
+      entity.setProperty("seq", i);
+    }
+    session.commit();
+
+    // Delete one record (seq=0)
+    session.begin();
+    session.command("DELETE FROM MvRemTest WHERE val = 'same' AND seq = 0 LIMIT 1");
+    session.commit();
+
+    // Simulate crash
+    session.activateOnCurrentThread();
+    ytdb.internal.forceDatabaseClose(dbName);
+
+    // Reopen — WAL replay
+    session = (DatabaseSessionEmbedded) ytdb.open(dbName, ADMIN, ADMIN_PWD);
+
+    session.begin();
+    try {
+      // Verify: only 2 records remain in the index for key "same"
+      var rs = session.query("SELECT FROM MvRemTest WHERE val = 'same'");
+      int count = 0;
+      while (rs.hasNext()) {
+        var result = rs.next();
+        int seq = result.getProperty("seq");
+        assertTrue(
+            "Deleted record (seq=0) must not appear after crash recovery",
+            seq == 1 || seq == 2);
+        count++;
+      }
+      rs.close();
+
+      assertEquals(
+          "Only 2 surviving records should be in index after delete + crash recovery",
+          2, count);
+
+      // Verify total count is 2
+      var countRs = session.query("SELECT count(*) as cnt FROM MvRemTest");
+      var totalCount = (Long) countRs.next().getProperty("cnt");
+      countRs.close();
+      assertEquals("Total count must be 2 after delete + crash recovery",
+          2L, totalCount.longValue());
+    } finally {
+      session.rollback();
+    }
+
+    session.close();
+    ytdb.drop(dbName);
+  }
 }
