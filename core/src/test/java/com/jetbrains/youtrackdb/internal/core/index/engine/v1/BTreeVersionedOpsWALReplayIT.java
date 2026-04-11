@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine.v1;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
@@ -328,6 +329,80 @@ public class BTreeVersionedOpsWALReplayIT {
       countRs.close();
       assertEquals("Total count must be 2 after delete + crash recovery",
           2L, totalCount.longValue());
+    } finally {
+      session.rollback();
+    }
+
+    session.close();
+    ytdb.drop(dbName);
+  }
+
+  /**
+   * Crash with an uncommitted transaction: only committed data should survive.
+   *
+   * <p>TX1 commits 5 records. TX2 inserts 5 more but does NOT commit.
+   * After crash (forceDatabaseClose) and WAL replay, only TX1's records
+   * must be visible — the uncommitted TX2 mutations must be rolled back.
+   */
+  @Test
+  public void uncommittedTransaction_notVisibleAfterCrashRecovery() {
+    var dbName = "crash_uncommitted";
+    ytdb.create(dbName, DatabaseType.DISK, ADMIN, ADMIN_PWD, "admin");
+
+    var session = (DatabaseSessionEmbedded) ytdb.open(dbName, ADMIN, ADMIN_PWD);
+
+    session.createClassIfNotExist("UncommitTest");
+    var cls = session.getClass("UncommitTest");
+    cls.createProperty("key", PropertyType.STRING);
+    cls.createIndex("UncommitTest.key", SchemaClass.INDEX_TYPE.UNIQUE, "key");
+
+    // TX1: insert 5 committed records
+    session.begin();
+    for (int i = 1; i <= 5; i++) {
+      session.newEntity("UncommitTest").setProperty("key", "committed-" + i);
+    }
+    session.commit();
+
+    // TX2: insert 5 uncommitted records — do NOT commit
+    session.begin();
+    for (int i = 1; i <= 5; i++) {
+      session.newEntity("UncommitTest").setProperty("key", "uncommitted-" + i);
+    }
+    // No commit — TX2 is still active
+
+    // Simulate crash with uncommitted TX2
+    session.activateOnCurrentThread();
+    ytdb.internal.forceDatabaseClose(dbName);
+
+    // Reopen — WAL replay should only recover TX1
+    session = (DatabaseSessionEmbedded) ytdb.open(dbName, ADMIN, ADMIN_PWD);
+
+    session.begin();
+    try {
+      // Verify: all 5 committed records are visible
+      for (int i = 1; i <= 5; i++) {
+        var rs = session.query(
+            "SELECT FROM UncommitTest WHERE key = 'committed-" + i + "'");
+        assertTrue("Committed record 'committed-" + i
+            + "' must be visible after crash recovery", rs.hasNext());
+        rs.close();
+      }
+
+      // Verify: none of the uncommitted records are visible
+      for (int i = 1; i <= 5; i++) {
+        var rs = session.query(
+            "SELECT FROM UncommitTest WHERE key = 'uncommitted-" + i + "'");
+        assertFalse("Uncommitted record 'uncommitted-" + i
+            + "' must NOT be visible after crash recovery", rs.hasNext());
+        rs.close();
+      }
+
+      // Verify total count is 5 (only committed)
+      var countRs = session.query("SELECT count(*) as cnt FROM UncommitTest");
+      var count = (Long) countRs.next().getProperty("cnt");
+      countRs.close();
+      assertEquals("Total count must be 5 (uncommitted TX rolled back)",
+          5L, count.longValue());
     } finally {
       session.rollback();
     }
