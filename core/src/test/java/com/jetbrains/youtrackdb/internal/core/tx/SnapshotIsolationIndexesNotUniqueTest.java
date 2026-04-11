@@ -47,10 +47,9 @@ public class SnapshotIsolationIndexesNotUniqueTest {
     YTDBGraphTraversalSource newGraph = null;
     try {
       graph.tx().begin();
-      var u1 = graph.addV("Userr").property("name", fooValue).next();
-      var u2 = graph.addV("Userr").property("name", fooValue).next();
-      var u3 = graph.addV("Userr").property("name", fooValue).next();
-      var id1 = u1.id();
+      graph.addV("Userr").property("name", fooValue).next();
+      graph.addV("Userr").property("name", fooValue).next();
+      graph.addV("Userr").property("name", fooValue).next();
       graph.tx().commit();
 
       // start repeatable-read snapshot TX
