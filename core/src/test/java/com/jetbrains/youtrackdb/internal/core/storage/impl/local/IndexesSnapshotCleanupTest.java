@@ -8,7 +8,10 @@ import com.jetbrains.youtrackdb.internal.core.id.TombstoneRID;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -757,5 +760,104 @@ public class IndexesSnapshotCleanupTest {
     AbstractStorage.evictStaleIndexesSnapshotEntries(19L, data, verIdx, counter);
     assertThat(data).isEmpty();
     assertThat(verIdx).isEmpty();
+  }
+
+  // --- Concurrent eviction vs addSnapshotPair ---
+
+  /**
+   * Concurrent writers add snapshot pairs while an evictor thread evicts
+   * stale entries. Verifies no data corruption, no exceptions, and that
+   * sizeCounter remains consistent.
+   *
+   * <p>This tests the production path where eviction runs on the commit/close
+   * path of any transaction while concurrent transactions call addSnapshotPair.
+   */
+  @Test(timeout = 30_000)
+  public void concurrent_eviction_and_addSnapshotPair_noDataCorruption()
+      throws Exception {
+    var data = new ConcurrentSkipListMap<CompositeKey, RID>();
+    var verIdx =
+        new ConcurrentSkipListMap<CompositeKey, CompositeKey>(
+            AbstractStorage.INDEX_SNAPSHOT_VERSION_COMPARATOR);
+    var counter = new AtomicLong();
+
+    int writerCount = 4;
+    int evictionRounds = 100;
+    int pairsPerWriter = 200;
+
+    var barrier = new CyclicBarrier(writerCount + 1);
+    var stopLatch = new CountDownLatch(1);
+    var error = new AtomicReference<Throwable>();
+
+    // Writer threads: each adds snapshot pairs with unique key prefixes
+    var writers = new Thread[writerCount];
+    for (int w = 0; w < writerCount; w++) {
+      final int writerId = w;
+      writers[w] = new Thread(() -> {
+        try {
+          var sub = new IndexesSnapshot(data, verIdx, counter, writerId);
+          barrier.await();
+          for (int i = 0; i < pairsPerWriter && stopLatch.getCount() > 0; i++) {
+            long oldVersion = (long) writerId * pairsPerWriter + i;
+            long newVersion = oldVersion + 1000;
+            var rid = new RecordId(1, oldVersion);
+            sub.addSnapshotPair(
+                new CompositeKey("w" + writerId + "_k" + i, oldVersion),
+                new CompositeKey("w" + writerId + "_k" + i, newVersion),
+                rid);
+          }
+        } catch (Throwable t) {
+          error.compareAndSet(null, t);
+        }
+      }, "writer-" + w);
+      writers[w].start();
+    }
+
+    // Evictor thread
+    var evictor = new Thread(() -> {
+      try {
+        barrier.await();
+        for (int round = 0; round < evictionRounds; round++) {
+          long lwm = round * 10L;
+          AbstractStorage.evictStaleIndexesSnapshotEntries(
+              lwm, data, verIdx, counter);
+        }
+      } catch (Throwable t) {
+        error.compareAndSet(null, t);
+      } finally {
+        stopLatch.countDown();
+      }
+    }, "evictor");
+    evictor.start();
+
+    // Wait for all threads
+    evictor.join();
+    for (var writer : writers) {
+      writer.join();
+    }
+
+    // Verify no exceptions
+    assertThat(error.get())
+        .as("No thread should throw an exception")
+        .isNull();
+
+    // Verify sizeCounter is non-negative
+    assertThat(counter.get())
+        .as("sizeCounter must be >= 0 after concurrent add+evict")
+        .isGreaterThanOrEqualTo(0);
+
+    // Final eviction pass — clean up everything
+    AbstractStorage.evictStaleIndexesSnapshotEntries(
+        Long.MAX_VALUE - 1, data, verIdx, counter);
+
+    assertThat(counter.get())
+        .as("sizeCounter must be 0 after full eviction")
+        .isEqualTo(0);
+    assertThat(data)
+        .as("snapshotData must be empty after full eviction")
+        .isEmpty();
+    assertThat(verIdx)
+        .as("versionIndex must be empty after full eviction")
+        .isEmpty();
   }
 }
