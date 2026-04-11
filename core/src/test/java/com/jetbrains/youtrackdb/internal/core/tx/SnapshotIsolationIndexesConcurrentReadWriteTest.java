@@ -48,6 +48,7 @@ public class SnapshotIsolationIndexesConcurrentReadWriteTest {
 
   @After
   public void after() {
+    db.activateOnCurrentThread();
     db.close();
     youTrackDB.close();
   }
@@ -61,8 +62,9 @@ public class SnapshotIsolationIndexesConcurrentReadWriteTest {
    * from 1000 upward, exercising the visibility filter under concurrent
    * B-tree modifications.
    */
-  @Test
+  @Test(timeout = 60_000)
   public void unique_concurrentReadersAndWriters_noPhantoms() throws Throwable {
+    db.activateOnCurrentThread();
     int writerCount = 4;
     int readerCount = 4;
     int prePopulated = 100;
@@ -186,8 +188,9 @@ public class SnapshotIsolationIndexesConcurrentReadWriteTest {
    * Writers insert new records while readers query pre-populated tags
    * and verify count consistency within each snapshot TX.
    */
-  @Test
+  @Test(timeout = 60_000)
   public void notUnique_concurrentReadersAndWriters_noPhantoms() throws Throwable {
+    db.activateOnCurrentThread();
     int writerCount = 4;
     int readerCount = 4;
     int prePopulated = 100;
@@ -327,9 +330,10 @@ public class SnapshotIsolationIndexesConcurrentReadWriteTest {
    * and snapshot-level visibility under real contention on the same B-tree
    * leaf page and IndexesSnapshot entries.
    */
-  @Test
+  @Test(timeout = 60_000)
   public void unique_concurrentUpdatesSameKey_readersAlwaysSeeConsistentValue()
       throws Throwable {
+    db.activateOnCurrentThread();
     int writerCount = 4;
     int readerCount = 4;
 
@@ -455,9 +459,10 @@ public class SnapshotIsolationIndexesConcurrentReadWriteTest {
    * <p>Since all records share the same key, this exercises the multi-value
    * B-tree's concurrent handling of the same key prefix.
    */
-  @Test
+  @Test(timeout = 60_000)
   public void notUnique_concurrentInsertSameKey_readersAlwaysSeeMonotonicCount()
       throws Throwable {
+    db.activateOnCurrentThread();
     int writerCount = 4;
     int readerCount = 4;
     int prePopulated = 10;

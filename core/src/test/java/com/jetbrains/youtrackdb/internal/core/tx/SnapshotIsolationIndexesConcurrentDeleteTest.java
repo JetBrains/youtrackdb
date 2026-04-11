@@ -49,9 +49,10 @@ public class SnapshotIsolationIndexesConcurrentDeleteTest {
    * Two threads both delete the same record; the second commit's index
    * remove finds the tombstone from the first commit.
    */
-  @Test
+  @Test(timeout = 60_000)
   public void notUnique_concurrentDeleteSameRecord_encountersTombstone()
       throws Throwable {
+    db.activateOnCurrentThread();
     var clazz = db.createClass("RecNU");
     clazz.createProperty("val", PropertyType.INTEGER);
     clazz.createIndex("RecNUIdx", INDEX_TYPE.NOTUNIQUE, "val");
@@ -75,9 +76,10 @@ public class SnapshotIsolationIndexesConcurrentDeleteTest {
    * Same scenario: two threads both delete the same record; the second
    * commit's index remove finds the tombstone from the first commit.
    */
-  @Test
+  @Test(timeout = 60_000)
   public void unique_concurrentDeleteSameRecord_encountersTombstone()
       throws Throwable {
+    db.activateOnCurrentThread();
     var clazz = db.createClass("RecU");
     clazz.createProperty("val", PropertyType.INTEGER);
     clazz.createIndex("RecUIdx", INDEX_TYPE.UNIQUE, "val");
@@ -161,8 +163,9 @@ public class SnapshotIsolationIndexesConcurrentDeleteTest {
    *   <li>Snapshot TX queries val=1 → sees 1 phantom record (WRONG)</li>
    * </ol>
    */
-  @Test
+  @Test(timeout = 60_000)
   public void unique_doubleDelete_corruptsSnapshotVisibility() throws Exception {
+    db.activateOnCurrentThread();
     var clazz = db.createClass("RecVis");
     clazz.createProperty("val", PropertyType.INTEGER);
     clazz.createIndex("RecVisIdx", INDEX_TYPE.UNIQUE, "val");
@@ -285,6 +288,7 @@ public class SnapshotIsolationIndexesConcurrentDeleteTest {
 
   @After
   public void after() {
+    db.activateOnCurrentThread();
     db.close();
     youTrackDB.close();
   }
