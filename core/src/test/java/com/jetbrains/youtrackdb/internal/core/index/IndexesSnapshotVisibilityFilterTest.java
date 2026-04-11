@@ -1061,6 +1061,42 @@ public class IndexesSnapshotVisibilityFilterTest {
   }
 
   /**
+   * A committed TombstoneRID at version == snapshotTs must be invisible (null).
+   * This is the critical boundary: version > snapshotTs is phantom (future),
+   * version == snapshotTs is committed. A committed TombstoneRID means the
+   * entry was deleted — it must return null.
+   *
+   * <p>Off-by-one (>= instead of >) would make this tombstone appear as
+   * a phantom and trigger the lookupSnapshotRid fallback, potentially
+   * resurrecting a deleted record.
+   */
+  @Test
+  public void checkVisibility_tombstoneAtExactSnapshotTs_returnsNull() {
+    IndexesSnapshot snap = newSnapshot(INDEX_ID);
+    var key = new CompositeKey("Foo", RID_20_0, 100L);
+    var result = snap.checkVisibility(
+        key, TOMBSTONE_20_0, 100L, new LongOpenHashSet());
+    assertNull(
+        "Committed TombstoneRID at exact snapshotTs must be invisible", result);
+  }
+
+  /**
+   * A committed plain RecordId at version == snapshotTs must be visible.
+   * Symmetric boundary test: the entry was inserted at the exact snapshot
+   * moment and should be visible.
+   */
+  @Test
+  public void checkVisibility_recordIdAtExactSnapshotTs_returnsRid() {
+    IndexesSnapshot snap = newSnapshot(INDEX_ID);
+    var key = new CompositeKey("Foo", RID_20_0, 100L);
+    var result = snap.checkVisibility(
+        key, RID_20_0, 100L, new LongOpenHashSet());
+    assertEquals(
+        "Committed RecordId at exact snapshotTs must be visible",
+        RID_20_0, result);
+  }
+
+  /**
    * A committed SnapshotMarkerRID (version < visibleVersion) represents a
    * re-added record. Must return the unwrapped identity RID.
    */
