@@ -58,6 +58,21 @@ public class CellBTreeSingleValueBucketV3Test {
     assertEquals(0, marker.getIdentity().getCollectionPosition());
   }
 
+  @Test
+  public void testDecodeRID_snapshotMarkerClusterZero_positionZero() {
+    // SnapshotMarkerRID(0, 0) encodes as (collectionId=0, collectionPosition=-1).
+    // collectionId=0 is NOT negative → TombstoneRID branch skipped.
+    // collectionPosition=-1 IS negative → SnapshotMarkerRID branch decodes it.
+    var original = new SnapshotMarkerRID(0, 0);
+    RID decoded = CellBTreeSingleValueBucketV3.decodeRID(
+        original.getCollectionId(), original.getCollectionPosition());
+
+    assertTrue("Must decode as SnapshotMarkerRID", decoded instanceof SnapshotMarkerRID);
+    var marker = (SnapshotMarkerRID) decoded;
+    assertEquals(0, marker.getIdentity().getCollectionId());
+    assertEquals(0, marker.getIdentity().getCollectionPosition());
+  }
+
   /**
    * TombstoneRID at Short.MAX_VALUE cluster must survive the encode/decode
    * round-trip. This is the realistic maximum cluster ID boundary.
