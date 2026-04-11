@@ -309,6 +309,12 @@ public final class CellBTreeSingleValueBucketV3<K> extends DurablePage {
     }
   }
 
+  // Invariant: live RecordId values stored in the B-tree index always have non-negative
+  // collectionId and non-negative collectionPosition. Temporary RIDs (negative position)
+  // and invalid RIDs (collectionId = -1) must never reach the index. The encoding uses
+  // negative collectionId for TombstoneRID and negative collectionPosition for
+  // SnapshotMarkerRID, which would collide with negative-valued live RIDs if the
+  // invariant were violated.
   static RID decodeRID(int collectionId, long collectionPosition) {
     if (collectionId < 0) {
       // TombstoneRID — decode the shifted collectionId (0 → -1, 1 → -2, etc.)

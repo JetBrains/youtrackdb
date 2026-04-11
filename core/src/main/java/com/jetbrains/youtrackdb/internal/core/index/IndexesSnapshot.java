@@ -97,6 +97,13 @@ public class IndexesSnapshot {
     //
     // Neither order is safe without the prefix validation in
     // lookupSnapshotRid.
+    //
+    // Note on concurrent clear(): if clear() runs between the TombstoneRID write
+    // (line below) and the visibilityIndex write, clear() will remove the
+    // TombstoneRID from indexesSnapshot but the visibilityIndex entry will still be
+    // written. This orphaned visibilityIndex entry is benign: eviction will attempt
+    // to remove a non-existent key from indexesSnapshot (ConcurrentSkipListMap.remove
+    // is idempotent) and decrement the counter (clamped to zero).
     indexesSnapshot.put(enhancedAddedKey, new TombstoneRID(value));
     indexesSnapshot.put(enhancedRemovedKey, value);
     // Key by removedKey (newVersion) so the comparator orders by newVersion.

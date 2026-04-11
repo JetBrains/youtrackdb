@@ -78,6 +78,10 @@ public final class SnapshotMarkerRID implements RID {
     return "~#" + collectionId + ":" + collectionPosition;
   }
 
+  // Equality is based on the underlying record identity (collectionId,
+  // collectionPosition), not on the marker type. A TombstoneRID, SnapshotMarkerRID,
+  // and RecordId with the same identity are all considered equal. This is intentional:
+  // marker types represent the same logical record, differing only in lifecycle state.
   @Override
   public boolean equals(Object obj) {
     if (obj == this) {
