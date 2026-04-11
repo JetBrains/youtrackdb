@@ -18,6 +18,20 @@ public final class CellBTreeSingleValueEntryPointV3<K> extends DurablePage {
   private static final int APPROXIMATE_ENTRIES_COUNT_OFFSET =
       FREE_LIST_HEAD_OFFSET + IntegerSerializer.INT_SIZE;
 
+  static {
+    assert KEY_SIZE_OFFSET == KEY_SERIALIZER_OFFSET + ByteSerializer.BYTE_SIZE
+        : "KEY_SIZE_OFFSET overlaps KEY_SERIALIZER";
+    assert TREE_SIZE_OFFSET == KEY_SIZE_OFFSET + IntegerSerializer.INT_SIZE
+        : "TREE_SIZE_OFFSET overlaps KEY_SIZE";
+    assert PAGES_SIZE_OFFSET == TREE_SIZE_OFFSET + LongSerializer.LONG_SIZE
+        : "PAGES_SIZE_OFFSET overlaps TREE_SIZE";
+    assert FREE_LIST_HEAD_OFFSET == PAGES_SIZE_OFFSET + IntegerSerializer.INT_SIZE
+        : "FREE_LIST_HEAD_OFFSET overlaps PAGES_SIZE";
+    assert APPROXIMATE_ENTRIES_COUNT_OFFSET
+        == FREE_LIST_HEAD_OFFSET + IntegerSerializer.INT_SIZE
+        : "APPROXIMATE_ENTRIES_COUNT_OFFSET overlaps FREE_LIST_HEAD";
+  }
+
   public CellBTreeSingleValueEntryPointV3(final CacheEntry cacheEntry) {
     super(cacheEntry);
   }
