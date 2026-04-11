@@ -1,6 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine.v1;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.doThrow;
@@ -620,7 +622,7 @@ public class BTreeEngineHistogramWiringTest {
   // Histogram manager error propagation
   // ═══════════════════════════════════════════════════════════════════════
 
-  @Test(expected = RuntimeException.class)
+  @Test
   public void singleValue_put_histogramFailure_propagatesException()
       throws IOException {
     // Given a histogram manager that throws on onPut
@@ -632,7 +634,9 @@ public class BTreeEngineHistogramWiringTest {
 
     // When put is called, the exception propagates (histogram failure is
     // not silently swallowed — it should be visible to the caller)
-    fixture.engine.put(fixture.op, "key1", new RecordId(1, 1));
+    var ex = assertThrows(RuntimeException.class,
+        () -> fixture.engine.put(fixture.op, "key1", new RecordId(1, 1)));
+    assertEquals("histogram error", ex.getMessage());
   }
 
   // ═══════════════════════════════════════════════════════════════════════
