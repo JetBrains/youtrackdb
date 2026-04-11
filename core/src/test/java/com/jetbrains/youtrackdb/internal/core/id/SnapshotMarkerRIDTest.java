@@ -81,7 +81,9 @@ public class SnapshotMarkerRIDTest {
    */
   @Test
   public void negativeCollectionId_throwsAssertionError() {
-    assertThrows(AssertionError.class, () -> new SnapshotMarkerRID(-1, 0));
+    var error = assertThrows(AssertionError.class, () -> new SnapshotMarkerRID(-1, 0));
+    assertTrue("Must mention non-negative collectionId",
+        error.getMessage().contains("non-negative collectionId"));
   }
 
   /**
@@ -89,7 +91,9 @@ public class SnapshotMarkerRIDTest {
    */
   @Test
   public void negativeCollectionPosition_throwsAssertionError() {
-    assertThrows(AssertionError.class, () -> new SnapshotMarkerRID(0, -1));
+    var error = assertThrows(AssertionError.class, () -> new SnapshotMarkerRID(0, -1));
+    assertTrue("Must mention non-negative collectionPosition",
+        error.getMessage().contains("non-negative collectionPosition"));
   }
 
   /**
@@ -97,7 +101,10 @@ public class SnapshotMarkerRIDTest {
    */
   @Test
   public void wrappingConstructor_negativeCollectionId_throwsAssertionError() {
-    assertThrows(AssertionError.class, () -> new SnapshotMarkerRID(new RecordId(-1, 0)));
+    var error = assertThrows(AssertionError.class,
+        () -> new SnapshotMarkerRID(new RecordId(-1, 0)));
+    assertTrue("Must mention non-negative collectionId",
+        error.getMessage().contains("non-negative collectionId"));
   }
 
   /**
@@ -105,7 +112,10 @@ public class SnapshotMarkerRIDTest {
    */
   @Test
   public void wrappingConstructor_negativeCollectionPosition_throwsAssertionError() {
-    assertThrows(AssertionError.class, () -> new SnapshotMarkerRID(new RecordId(0, -1)));
+    var error = assertThrows(AssertionError.class,
+        () -> new SnapshotMarkerRID(new RecordId(0, -1)));
+    assertTrue("Must mention non-negative collectionPosition",
+        error.getMessage().contains("non-negative collectionPosition"));
   }
 
   /**

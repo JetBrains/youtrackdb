@@ -80,7 +80,9 @@ public class TombstoneRIDTest {
    */
   @Test
   public void negativeCollectionId_throwsAssertionError() {
-    assertThrows(AssertionError.class, () -> new TombstoneRID(-1, 0));
+    var error = assertThrows(AssertionError.class, () -> new TombstoneRID(-1, 0));
+    assertTrue("Must mention non-negative collectionId",
+        error.getMessage().contains("non-negative collectionId"));
   }
 
   /**
@@ -88,7 +90,9 @@ public class TombstoneRIDTest {
    */
   @Test
   public void negativeCollectionPosition_throwsAssertionError() {
-    assertThrows(AssertionError.class, () -> new TombstoneRID(0, -1));
+    var error = assertThrows(AssertionError.class, () -> new TombstoneRID(0, -1));
+    assertTrue("Must mention non-negative collectionPosition",
+        error.getMessage().contains("non-negative collectionPosition"));
   }
 
   /**
@@ -96,7 +100,10 @@ public class TombstoneRIDTest {
    */
   @Test
   public void wrappingConstructor_negativeCollectionId_throwsAssertionError() {
-    assertThrows(AssertionError.class, () -> new TombstoneRID(new RecordId(-1, 0)));
+    var error = assertThrows(AssertionError.class,
+        () -> new TombstoneRID(new RecordId(-1, 0)));
+    assertTrue("Must mention non-negative collectionId",
+        error.getMessage().contains("non-negative collectionId"));
   }
 
   /**
@@ -104,7 +111,10 @@ public class TombstoneRIDTest {
    */
   @Test
   public void wrappingConstructor_negativeCollectionPosition_throwsAssertionError() {
-    assertThrows(AssertionError.class, () -> new TombstoneRID(new RecordId(0, -1)));
+    var error = assertThrows(AssertionError.class,
+        () -> new TombstoneRID(new RecordId(0, -1)));
+    assertTrue("Must mention non-negative collectionPosition",
+        error.getMessage().contains("non-negative collectionPosition"));
   }
 
   /**
