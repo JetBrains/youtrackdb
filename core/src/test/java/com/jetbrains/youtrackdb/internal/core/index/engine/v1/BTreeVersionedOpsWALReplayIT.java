@@ -410,4 +410,73 @@ public class BTreeVersionedOpsWALReplayIT {
     session.close();
     ytdb.drop(dbName);
   }
+
+  /**
+   * Tombstone resurrection crash recovery: insert → delete → re-insert → crash.
+   *
+   * <p>The resurrection path in doVersionedPut (line 74) accumulates +1 when
+   * overwriting a TombstoneRID. After WAL replay, the final state must show
+   * the re-inserted record as visible, and the persisted approximate count
+   * must reflect exactly 1 visible entry (not 0 or 2).
+   */
+  @Test
+  public void resurrection_overTombstone_survivesCrashRecovery() {
+    var dbName = "crash_resurrection";
+    ytdb.create(dbName, DatabaseType.DISK, ADMIN, ADMIN_PWD, "admin");
+
+    var session = (DatabaseSessionEmbedded) ytdb.open(dbName, ADMIN, ADMIN_PWD);
+
+    session.createClassIfNotExist("ResTest");
+    var cls = session.getClass("ResTest");
+    cls.createProperty("name", PropertyType.STRING);
+    cls.createIndex("ResTest.name", SchemaClass.INDEX_TYPE.UNIQUE, "name");
+
+    // TX1: Insert "Alice"
+    session.begin();
+    session.newEntity("ResTest").setProperty("name", "Alice");
+    session.commit();
+
+    // TX2: Delete "Alice" — creates tombstone, count delta -1
+    session.begin();
+    session.command("DELETE FROM ResTest WHERE name = 'Alice'");
+    session.commit();
+
+    // TX3: Re-insert "Alice" — resurrection over tombstone, count delta +1
+    session.begin();
+    session.newEntity("ResTest").setProperty("name", "Alice");
+    session.commit();
+
+    // Simulate crash — no graceful flush
+    session.activateOnCurrentThread();
+    ytdb.internal.forceDatabaseClose(dbName);
+
+    // Reopen — WAL replay
+    session = (DatabaseSessionEmbedded) ytdb.open(dbName, ADMIN, ADMIN_PWD);
+
+    session.begin();
+    try {
+      // Verify: "Alice" is accessible via index
+      var rs = session.query("SELECT FROM ResTest WHERE name = 'Alice'");
+      assertTrue(
+          "Resurrected 'Alice' must be accessible via index after crash recovery",
+          rs.hasNext());
+      var result = rs.next();
+      assertEquals("Alice", result.getProperty("name"));
+      assertFalse("Only one 'Alice' record should exist", rs.hasNext());
+      rs.close();
+
+      // Verify total count is 1 (insert +1, delete -1, resurrection +1 = net +1)
+      var countRs = session.query("SELECT count(*) as cnt FROM ResTest");
+      var count = (Long) countRs.next().getProperty("cnt");
+      countRs.close();
+      assertEquals(
+          "Total count must be 1 after insert/delete/resurrection + crash recovery",
+          1L, count.longValue());
+    } finally {
+      session.rollback();
+    }
+
+    session.close();
+    ytdb.drop(dbName);
+  }
 }
