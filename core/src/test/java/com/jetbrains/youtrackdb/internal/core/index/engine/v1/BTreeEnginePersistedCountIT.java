@@ -373,6 +373,139 @@ public class BTreeEnginePersistedCountIT extends DbTestBase {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
+  // Multi-value crash recovery: forceDatabaseClose + WAL replay
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Multi-value crash recovery for persisted counts: insert non-null and null
+   * entries, forceDatabaseClose (no flush), reopen (WAL replay), verify both
+   * getTotalCount and getNullCount are correct.
+   *
+   * <p>persistCountDelta() for multi-value indexes issues TWO separate page
+   * writes (one to svTree's entry point, one to nullTree's entry point). If
+   * the process crashes after one write but before the other, WAL replay must
+   * replay both atomically.
+   */
+  @Test
+  public void multiValue_countsSurviveCrashRecovery() throws Exception {
+    var crashDbName = "crash_mv_count";
+    youTrackDB.create(crashDbName, DatabaseType.DISK,
+        adminUser, adminPassword, "admin");
+    var crashSession =
+        (DatabaseSessionEmbedded) youTrackDB.open(crashDbName, adminUser, adminPassword);
+
+    crashSession.createClassIfNotExist("CrashMV");
+    var cls = crashSession.getClass("CrashMV");
+    cls.createProperty("tag", PropertyType.STRING);
+    cls.createIndex("CrashMV.tag", SchemaClass.INDEX_TYPE.NOTUNIQUE, "tag");
+
+    // Insert 50 non-null entries + 10 null entries
+    crashSession.begin();
+    for (int i = 0; i < 50; i++) {
+      crashSession.newEntity("CrashMV").setProperty("tag", "tag_" + i);
+    }
+    for (int i = 0; i < 10; i++) {
+      // No tag property → null key in nullTree
+      crashSession.newEntity("CrashMV");
+    }
+    crashSession.commit();
+
+    // Simulate non-graceful shutdown — no flush
+    crashSession.activateOnCurrentThread();
+    youTrackDB.internal.forceDatabaseClose(crashDbName);
+
+    // Reopen — WAL replay restores both B-trees
+    crashSession =
+        (DatabaseSessionEmbedded) youTrackDB.open(crashDbName, adminUser, adminPassword);
+
+    var engine = getBTreeIndexEngine(crashSession, "CrashMV.tag");
+    var finalSession = crashSession;
+    crashSession.getStorage().getAtomicOperationsManager()
+        .executeInsideAtomicOperation(atomicOp -> {
+          assertEquals(
+              "Total count must be 60 after crash recovery",
+              60, engine.getTotalCount(atomicOp));
+          assertEquals(
+              "Null count must be 10 after crash recovery",
+              10, engine.getNullCount(atomicOp));
+        });
+
+    finalSession.close();
+    youTrackDB.drop(crashDbName);
+  }
+
+  /**
+   * Multi-value crash recovery after inserts and deletes: insert non-null
+   * and null entries, delete some of each, forceDatabaseClose, reopen,
+   * verify counts reflect the net state.
+   */
+  @Test
+  public void multiValue_insertAndDelete_countSurviveCrashRecovery()
+      throws Exception {
+    var crashDbName = "crash_mv_del";
+    youTrackDB.create(crashDbName, DatabaseType.DISK,
+        adminUser, adminPassword, "admin");
+    var crashSession =
+        (DatabaseSessionEmbedded) youTrackDB.open(crashDbName, adminUser, adminPassword);
+
+    crashSession.createClassIfNotExist("CrashMvDel");
+    var cls = crashSession.getClass("CrashMvDel");
+    cls.createProperty("val", PropertyType.STRING);
+    cls.createIndex("CrashMvDel.val", SchemaClass.INDEX_TYPE.NOTUNIQUE, "val");
+
+    // Insert 30 non-null + 5 null entries
+    crashSession.begin();
+    for (int i = 0; i < 30; i++) {
+      crashSession.newEntity("CrashMvDel").setProperty("val", "v" + i);
+    }
+    for (int i = 0; i < 5; i++) {
+      crashSession.newEntity("CrashMvDel");
+    }
+    crashSession.commit();
+
+    // Delete 10 non-null entries
+    crashSession.begin();
+    for (int i = 0; i < 10; i++) {
+      crashSession.command("DELETE FROM CrashMvDel WHERE val = 'v" + i + "'");
+    }
+    crashSession.commit();
+
+    // Delete 2 null entries
+    crashSession.begin();
+    crashSession.command("DELETE FROM CrashMvDel WHERE val IS NULL LIMIT 2");
+    crashSession.commit();
+
+    // Simulate non-graceful shutdown
+    crashSession.activateOnCurrentThread();
+    youTrackDB.internal.forceDatabaseClose(crashDbName);
+
+    // Reopen — WAL replay
+    crashSession =
+        (DatabaseSessionEmbedded) youTrackDB.open(crashDbName, adminUser, adminPassword);
+
+    var engine = getBTreeIndexEngine(crashSession, "CrashMvDel.val");
+    var finalSession = crashSession;
+    crashSession.getStorage().getAtomicOperationsManager()
+        .executeInsideAtomicOperation(atomicOp -> {
+          // 30 + 5 - 10 - 2 = 23 total
+          long totalCount = engine.getTotalCount(atomicOp);
+          assertTrue(
+              "Total count must be ~23 after insert+delete + crash recovery, got "
+                  + totalCount,
+              totalCount >= 20 && totalCount <= 26);
+          // 5 - 2 = 3 null
+          long nullCount = engine.getNullCount(atomicOp);
+          assertTrue(
+              "Null count must be ~3 after delete + crash recovery, got "
+                  + nullCount,
+              nullCount >= 2 && nullCount <= 4);
+        });
+
+    finalSession.close();
+    youTrackDB.drop(crashDbName);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
   // Helpers
   // ═══════════════════════════════════════════════════════════════════════
 
