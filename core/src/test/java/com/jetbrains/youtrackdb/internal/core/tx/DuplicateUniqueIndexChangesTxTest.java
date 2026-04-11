@@ -345,6 +345,7 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
       session.commit();
       Assert.fail("Expected RecordDuplicatedException");
     } catch (RecordDuplicatedException e) {
+      Assert.assertNotNull("Exception message must not be null", e.getMessage());
       session.rollback();
     }
 
@@ -400,6 +401,7 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
       session.commit();
       Assert.fail("Expected RecordDuplicatedException");
     } catch (RecordDuplicatedException e) {
+      Assert.assertNotNull("Exception message must not be null", e.getMessage());
       session.rollback();
     }
 
