@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine.v1;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
@@ -24,6 +25,7 @@ import java.util.Optional;
 import java.util.stream.Stream;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 
 /**
@@ -147,10 +149,16 @@ public class VersionedIndexOpsRePutGuardTest {
 
     // New entry must be a SnapshotMarkerRID wrapping RID_B at current TX version
     var expectedNewKey = new CompositeKey("key1", TX_VERSION);
+    var captor = ArgumentCaptor.forClass(RID.class);
     verify(tree).put(
         ArgumentMatchers.eq(atomicOp),
         ArgumentMatchers.eq(expectedNewKey),
-        ArgumentMatchers.any(SnapshotMarkerRID.class));
+        captor.capture());
+    var captured = captor.getValue();
+    assertTrue("New entry must be SnapshotMarkerRID",
+        captured instanceof SnapshotMarkerRID);
+    assertEquals("SnapshotMarkerRID must wrap RID_B",
+        RID_B, captured.getIdentity());
 
     // Snapshot pair must use the unwrapped identity (RID_A), not the marker
     verify(snapshot).addSnapshotPair(
@@ -189,10 +197,16 @@ public class VersionedIndexOpsRePutGuardTest {
 
     // New entry must be a SnapshotMarkerRID wrapping RID_B at current TX version
     var expectedNewKey = new CompositeKey("key1", TX_VERSION);
+    var captor = ArgumentCaptor.forClass(RID.class);
     verify(tree).put(
         ArgumentMatchers.eq(atomicOp),
         ArgumentMatchers.eq(expectedNewKey),
-        ArgumentMatchers.any(SnapshotMarkerRID.class));
+        captor.capture());
+    var captured = captor.getValue();
+    assertTrue("New entry must be SnapshotMarkerRID",
+        captured instanceof SnapshotMarkerRID);
+    assertEquals("SnapshotMarkerRID must wrap RID_B",
+        RID_B, captured.getIdentity());
 
     // Snapshot pair must NOT be created — tombstone has no visible prior state
     verify(snapshot, never()).addSnapshotPair(
@@ -302,10 +316,16 @@ public class VersionedIndexOpsRePutGuardTest {
     verify(tree).remove(atomicOp, existingKey);
 
     var expectedNewKey = new CompositeKey("key1", TX_VERSION);
+    var captor = ArgumentCaptor.forClass(RID.class);
     verify(tree).put(
         ArgumentMatchers.eq(atomicOp),
         ArgumentMatchers.eq(expectedNewKey),
-        ArgumentMatchers.any(TombstoneRID.class));
+        captor.capture());
+    var captured = captor.getValue();
+    assertTrue("Entry must be TombstoneRID",
+        captured instanceof TombstoneRID);
+    assertEquals("TombstoneRID must wrap unwrapped identity of original marker (RID_A)",
+        RID_A, captured.getIdentity());
 
     // Snapshot pair must receive the unwrapped identity (RID_A), not SnapshotMarkerRID
     verify(snapshot).addSnapshotPair(
@@ -338,10 +358,16 @@ public class VersionedIndexOpsRePutGuardTest {
 
     assertTrue("Remove of live entry must proceed", result);
     verify(tree).remove(atomicOp, existingKey);
+    var captor = ArgumentCaptor.forClass(RID.class);
     verify(tree).put(
         ArgumentMatchers.eq(atomicOp),
         ArgumentMatchers.eq(new CompositeKey("key1", TX_VERSION)),
-        ArgumentMatchers.any(TombstoneRID.class));
+        captor.capture());
+    var captured = captor.getValue();
+    assertTrue("Entry must be TombstoneRID",
+        captured instanceof TombstoneRID);
+    assertEquals("TombstoneRID must wrap RID_A",
+        RID_A, captured.getIdentity());
     verify(snapshot).addSnapshotPair(
         ArgumentMatchers.eq(existingKey),
         ArgumentMatchers.eq(new CompositeKey("key1", TX_VERSION)),
