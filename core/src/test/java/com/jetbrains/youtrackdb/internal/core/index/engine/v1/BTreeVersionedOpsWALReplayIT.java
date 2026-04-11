@@ -104,8 +104,8 @@ public class BTreeVersionedOpsWALReplayIT {
 
       // "Alice" must not be in the index (was replaced)
       var rsOld = session.query("SELECT FROM PutTest WHERE name = 'Alice'");
-      assertTrue("Old key 'Alice' must not be accessible after update + crash recovery",
-          !rsOld.hasNext());
+      assertFalse("Old key 'Alice' must not be accessible after update + crash recovery",
+          rsOld.hasNext());
       rsOld.close();
     } finally {
       session.rollback();
@@ -153,9 +153,9 @@ public class BTreeVersionedOpsWALReplayIT {
     session.begin();
     try {
       var rs = session.query("SELECT FROM RemTest WHERE val = 'X'");
-      assertTrue(
+      assertFalse(
           "Deleted record must not be accessible via index after crash recovery",
-          !rs.hasNext());
+          rs.hasNext());
       rs.close();
 
       // Verify total count is 0
