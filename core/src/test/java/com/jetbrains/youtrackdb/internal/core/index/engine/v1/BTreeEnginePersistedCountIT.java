@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine.v1;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
@@ -360,12 +359,12 @@ public class BTreeEnginePersistedCountIT extends DbTestBase {
     var finalSession = crashSession;
     crashSession.getStorage().getAtomicOperationsManager()
         .executeInsideAtomicOperation(atomicOp -> {
-          long count = engine.getTotalCount(atomicOp);
-          // Approximate count should be 50 after crash recovery.
-          // Allow a small tolerance since it's an approximate count.
-          assertTrue(
-              "Approximate count must be ~50 after delete + crash recovery, got " + count,
-              count >= 45 && count <= 55);
+          // Delta is persisted inside the same atomic operation as the B-tree
+          // mutation (persistCountDelta). WAL replay replays the full operation
+          // atomically, so the count must be exact.
+          assertEquals(
+              "Count must be 50 after delete + crash recovery",
+              50, engine.getTotalCount(atomicOp));
         });
 
     finalSession.close();
@@ -487,18 +486,17 @@ public class BTreeEnginePersistedCountIT extends DbTestBase {
     var finalSession = crashSession;
     crashSession.getStorage().getAtomicOperationsManager()
         .executeInsideAtomicOperation(atomicOp -> {
+          // Delta is persisted inside the same atomic operation as the B-tree
+          // mutation (persistCountDelta). WAL replay replays the full operation
+          // atomically, so counts must be exact.
           // 30 + 5 - 10 - 2 = 23 total
-          long totalCount = engine.getTotalCount(atomicOp);
-          assertTrue(
-              "Total count must be ~23 after insert+delete + crash recovery, got "
-                  + totalCount,
-              totalCount >= 20 && totalCount <= 26);
+          assertEquals(
+              "Total count must be 23 after insert+delete + crash recovery",
+              23, engine.getTotalCount(atomicOp));
           // 5 - 2 = 3 null
-          long nullCount = engine.getNullCount(atomicOp);
-          assertTrue(
-              "Null count must be ~3 after delete + crash recovery, got "
-                  + nullCount,
-              nullCount >= 2 && nullCount <= 4);
+          assertEquals(
+              "Null count must be 3 after delete + crash recovery",
+              3, engine.getNullCount(atomicOp));
         });
 
     finalSession.close();
