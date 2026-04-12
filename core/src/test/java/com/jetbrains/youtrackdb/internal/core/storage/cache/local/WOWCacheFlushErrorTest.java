@@ -456,9 +456,9 @@ public class WOWCacheFlushErrorTest {
 
   /**
    * Verifies that {@code stopFlush()} correctly waits for an already-completed flush future.
-   * When {@code cancel(false)} is called on a completed future it returns false, and
-   * {@code future.get()} returns immediately without throwing CancellationException.
-   * This covers the normal-completion path of {@code future.get()}.
+   * The method relies on the {@code stopFlush} flag (not {@code cancel()}) to signal the
+   * periodic flush task to exit, then calls {@code future.get()} to wait for completion.
+   * When the future is already complete, {@code get()} returns immediately.
    */
   @Test
   public void testStopFlushWithCompletedFlushFuture() throws Exception {
@@ -475,16 +475,18 @@ public class WOWCacheFlushErrorTest {
 
     assertTrue("stopFlush flag must be true after stopFlush()",
         getStopFlushFlag(cache));
-    // cancel(false) and get() must have been called on the future
-    Mockito.verify(future).cancel(false);
+    // get() must have been called; cancel() must NOT be called (see stopFlush comment
+    // about the FutureTask cancel-before-get race that leaks direct memory buffers)
+    Mockito.verify(future, Mockito.never()).cancel(Mockito.anyBoolean());
     Mockito.verify(future).get(10_000L, TimeUnit.MILLISECONDS);
   }
 
   /**
    * Verifies that {@code stopFlush()} silently swallows {@link CancellationException}
-   * when the flush future was successfully cancelled (task not yet started). This is the
-   * primary path introduced by the cancel(false) addition: the periodic flush task was
-   * pending on the single-threaded executor and gets cancelled before running.
+   * when the flush future was cancelled by a concurrent {@code close()} call. Although
+   * {@code stopFlush()} itself no longer calls {@code cancel()}, a concurrent caller may
+   * have cancelled the future externally; the {@code get()} call then throws
+   * {@link CancellationException}, which must be caught and ignored.
    */
   @Test
   public void testStopFlushWithCancelledFlushFuture() throws Exception {
@@ -529,7 +531,6 @@ public class WOWCacheFlushErrorTest {
     // its get() throw InterruptedException without actually interrupting the
     // calling thread before the call (which is racy).
     var interruptedFuture = Mockito.mock(Future.class);
-    Mockito.when(interruptedFuture.cancel(false)).thenReturn(false);
     Mockito.when(interruptedFuture.get(10_000L, TimeUnit.MILLISECONDS))
         .thenThrow(new InterruptedException("simulated interrupt"));
     setField(cache, "flushFuture", interruptedFuture);
@@ -541,8 +542,10 @@ public class WOWCacheFlushErrorTest {
 
     assertTrue("stopFlush flag must be true after stopFlush()",
         getStopFlushFlag(cache));
-    // cancel(false) must be called before get() per the stopFlush() contract
-    Mockito.verify(interruptedFuture).cancel(false);
+    // cancel() must NOT be called — stopFlush() relies on the stopFlush flag
+    // instead to avoid the FutureTask cancel-before-get race
+    Mockito.verify(interruptedFuture, Mockito.never())
+        .cancel(Mockito.anyBoolean());
     // The interrupt flag must be restored by the catch block
     assertTrue(
         "Thread interrupt flag must be restored after InterruptedException",
@@ -579,6 +582,16 @@ public class WOWCacheFlushErrorTest {
       assertTrue(
           "Expected WriteCacheException, got: " + e.getCause().getClass().getName(),
           e.getCause() instanceof WriteCacheException);
+      // Verify the cause chain preserves the original ExecutionException so that
+      // operators can diagnose why the flush task crashed
+      var wce = (WriteCacheException) e.getCause();
+      assertNotNull("WriteCacheException must chain the original ExecutionException",
+          wce.getCause());
+      assertTrue("Cause must be ExecutionException",
+          wce.getCause() instanceof java.util.concurrent.ExecutionException);
+      assertNotNull("ExecutionException must chain the flush crash",
+          wce.getCause().getCause());
+      assertEquals("simulated flush crash", wce.getCause().getCause().getMessage());
     }
   }
 
@@ -598,12 +611,9 @@ public class WOWCacheFlushErrorTest {
     setField(cache, "shutdownTimeout", 1);
     setField(cache, "storageName", "test");
 
-    // Use a mock Future that resists cancellation and times out on get().
-    // CompletableFuture.cancel(false) always succeeds (transitions to cancelled),
-    // so we need a mock to simulate a running task that cannot be cancelled.
+    // Use a mock Future that times out on get(). stopFlush() no longer calls
+    // cancel(), so we only need to stub get() to throw TimeoutException.
     var hungFuture = Mockito.mock(java.util.concurrent.Future.class);
-    Mockito.when(hungFuture.cancel(false)).thenReturn(false);
-    Mockito.when(hungFuture.isCancelled()).thenReturn(false);
     Mockito.when(hungFuture.get(1L, TimeUnit.MILLISECONDS))
         .thenThrow(new java.util.concurrent.TimeoutException("simulated timeout"));
     setField(cache, "flushFuture", hungFuture);
@@ -617,6 +627,101 @@ public class WOWCacheFlushErrorTest {
       assertTrue(
           "Expected WriteCacheException, got: " + e.getCause().getClass().getName(),
           e.getCause() instanceof WriteCacheException);
+      // cancel() must NOT be called — consistent with other stopFlush tests
+      Mockito.verify(hungFuture, Mockito.never()).cancel(Mockito.anyBoolean());
+      // Verify the cause chain preserves the original TimeoutException for diagnostics
+      var wce = (WriteCacheException) e.getCause();
+      assertNotNull("WriteCacheException must chain the original TimeoutException",
+          wce.getCause());
+      assertTrue("Cause must be TimeoutException",
+          wce.getCause() instanceof java.util.concurrent.TimeoutException);
+    }
+  }
+
+  /**
+   * Verifies that {@code stopFlush()} throws {@link WriteCacheException} when a
+   * triggered task's completion latch does not count down within shutdownTimeout.
+   * This exercises the {@code !completionLatch.await()} branch in stopFlush().
+   */
+  @Test
+  public void testStopFlushThrowsWhenTriggeredTaskLatchTimesOut() throws Exception {
+    var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+
+    // A latch that will never be counted down, simulating a hung ExclusiveFlushTask
+    var hungLatch = new CountDownLatch(1);
+    var triggeredTasks = new ConcurrentHashMap<ExclusiveFlushTask, CountDownLatch>();
+    var task = Mockito.mock(ExclusiveFlushTask.class);
+    triggeredTasks.put(task, hungLatch);
+    setField(cache, "triggeredTasks", triggeredTasks);
+    // Use a very short timeout so the test completes quickly
+    setField(cache, "shutdownTimeout", 1);
+    setField(cache, "storageName", "test");
+    // flushFuture is null — we are testing only the latch path
+    setField(cache, "flushFuture", null);
+
+    Method method = WOWCache.class.getDeclaredMethod("stopFlush");
+    method.setAccessible(true);
+    try {
+      method.invoke(cache);
+      fail("Expected WriteCacheException for latch timeout");
+    } catch (InvocationTargetException e) {
+      assertTrue(
+          "Expected WriteCacheException, got: " + e.getCause().getClass().getName(),
+          e.getCause() instanceof WriteCacheException);
+      assertTrue("Message must mention shutdown",
+          e.getCause().getMessage().contains("Can not shutdown"));
+    }
+  }
+
+  /**
+   * Verifies that {@code stopFlush()} throws {@link WriteCacheException} when the
+   * thread is interrupted while waiting on a triggered task's completion latch.
+   * Unlike the future.get() InterruptedException handler (which restores the interrupt
+   * flag), the latch path must throw a wrapped exception.
+   */
+  @Test
+  public void testStopFlushThrowsWhenTriggeredTaskLatchIsInterrupted()
+      throws Exception {
+    var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+
+    // A latch that will never count down — the test thread will be interrupted
+    // while await() is blocking
+    var blockedLatch = new CountDownLatch(1);
+    var triggeredTasks = new ConcurrentHashMap<ExclusiveFlushTask, CountDownLatch>();
+    var task = Mockito.mock(ExclusiveFlushTask.class);
+    triggeredTasks.put(task, blockedLatch);
+    setField(cache, "triggeredTasks", triggeredTasks);
+    // Long timeout so the interrupt fires before the latch times out
+    setField(cache, "shutdownTimeout", 60_000);
+    setField(cache, "storageName", "test");
+    setField(cache, "flushFuture", null);
+
+    // Schedule an interrupt on the current thread after a short delay
+    var currentThread = Thread.currentThread();
+    var interruptor = new Thread(() -> {
+      try {
+        Thread.sleep(50);
+      } catch (InterruptedException ignored) {
+      }
+      currentThread.interrupt();
+    });
+    interruptor.start();
+
+    Method method = WOWCache.class.getDeclaredMethod("stopFlush");
+    method.setAccessible(true);
+    try {
+      method.invoke(cache);
+      fail("Expected WriteCacheException wrapping InterruptedException");
+    } catch (InvocationTargetException e) {
+      assertTrue(
+          "Expected WriteCacheException, got: " + e.getCause().getClass().getName(),
+          e.getCause() instanceof WriteCacheException);
+      assertTrue("Message must mention interrupted",
+          e.getCause().getMessage().contains("interrupted"));
+    } finally {
+      interruptor.join(1000);
+      // Clear any stale interrupt flag
+      Thread.interrupted();
     }
   }
 
