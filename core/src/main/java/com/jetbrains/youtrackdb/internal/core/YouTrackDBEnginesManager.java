@@ -490,16 +490,22 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
 
       shutdownEngines();
 
-      // Shut down the WOW cache flush executor after engines are stopped but before
-      // clearing the buffer pool. Even though each WOWCache.stopFlush() waits for its
-      // periodic flush to complete, there is a race window: ByteBufferPool.clear()
-      // iterates pointersPool (free list) first, then pointerMapping (in-use). If a
-      // flush task's removeWrittenPagesFromCache concurrently calls release() between
-      // these two loops, the pointer moves from pointerMapping to pointersPool after
-      // the first loop already drained it — missed by both loops, leaving a tracked
-      // pointer in DirectMemoryAllocator. Shutting down the executor here ensures all
-      // submitted tasks have completed before clear() iterates.
-      shutdownExecutor(wowCacheFlushExecutor, "WOW cache flush", 5, TimeUnit.SECONDS);
+      // Drain the WOW cache flush executor: submit a barrier task and wait for it
+      // to complete. Because the executor is single-threaded, the barrier runs after
+      // all previously submitted tasks (removeWrittenPagesFromCache, delete, etc.)
+      // finish, ensuring no concurrent release() calls race with ByteBufferPool.clear()
+      // below. We must NOT call shutdownExecutor() here because the executor is a
+      // final field that must survive shutdown/startup cycles in tests (see comment
+      // on ShutdownPendingThreadsHandler).
+      try {
+        wowCacheFlushExecutor.submit(() -> {
+        }).get(5, TimeUnit.SECONDS);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      } catch (Exception e) {
+        LogManager.instance()
+            .warn(this, "Failed to drain WOW cache flush executor", e);
+      }
 
       LogManager.instance().info(this, "Clearing byte buffer pool");
       ByteBufferPool.instance(null).clear();
