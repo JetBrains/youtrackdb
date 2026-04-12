@@ -799,28 +799,36 @@ public class BTreeMVBucketV2BulkOpsTest {
     // Redo uses a plain CacheEntry (not CacheEntryChanges), so no registration should happen.
     // Verifying D4 redo suppression: changes=null => no registerPageOperation call.
     var cacheEntry = createLeafBucketCacheEntry();
-    var bucket = new CellBTreeMultiValueV2Bucket<>(cacheEntry);
+    try {
+      var bucket = new CellBTreeMultiValueV2Bucket<>(cacheEntry);
 
-    bucket.addAll(List.of(
-        new CellBTreeMultiValueV2Bucket.LeafEntry(
-            new byte[] {0, 0, 0, 4, 1, 2, 3, 4}, 42L,
-            List.of(new RecordId(5, 100L)), 1)));
+      bucket.addAll(List.of(
+          new CellBTreeMultiValueV2Bucket.LeafEntry(
+              new byte[] {0, 0, 0, 4, 1, 2, 3, 4}, 42L,
+              List.of(new RecordId(5, 100L)), 1)));
 
-    // No CacheEntryChanges means no registerPageOperation call — nothing to verify
-    // but the method should succeed without errors
-    Assert.assertEquals(1, bucket.size());
+      // No CacheEntryChanges means no registerPageOperation call — nothing to verify
+      // but the method should succeed without errors
+      Assert.assertEquals(1, bucket.size());
+    } finally {
+      releaseCacheEntry(cacheEntry);
+    }
   }
 
   @Test
   public void testAddAllNonLeafRedoDoesNotRegisterOp() {
     var cacheEntry = createNonLeafBucketCacheEntry();
-    var bucket = new CellBTreeMultiValueV2Bucket<>(cacheEntry);
+    try {
+      var bucket = new CellBTreeMultiValueV2Bucket<>(cacheEntry);
 
-    bucket.addAll(List.of(
-        new CellBTreeMultiValueV2Bucket.NonLeafEntry(
-            new byte[] {0, 0, 0, 3, 1, 2, 3}, 1, 2)));
+      bucket.addAll(List.of(
+          new CellBTreeMultiValueV2Bucket.NonLeafEntry(
+              new byte[] {0, 0, 0, 3, 1, 2, 3}, 1, 2)));
 
-    Assert.assertEquals(1, bucket.size());
+      Assert.assertEquals(1, bucket.size());
+    } finally {
+      releaseCacheEntry(cacheEntry);
+    }
   }
 
   // ---------- equals/hashCode tests ----------
@@ -878,41 +886,48 @@ public class BTreeMVBucketV2BulkOpsTest {
     // Simulate a split scenario: addAll to new bucket, then shrink original
     var newCacheEntry = createLeafBucketCacheEntry();
     var originalCacheEntry = createLeafBucketCacheEntry();
-    var lsn = new LogSequenceNumber(0, 0);
+    try {
+      var lsn = new LogSequenceNumber(0, 0);
 
-    // First: addAll 3 entries into the original bucket
-    var allEntries = List.of(
-        new BTreeMVBucketV2AddAllLeafEntriesOp.LeafEntryData(
-            new byte[] {0, 0, 0, 4, 1, 2, 3, 4}, 10L, 1,
-            List.of(new BTreeMVBucketV2AddAllLeafEntriesOp.RidData((short) 1, 1L))),
-        new BTreeMVBucketV2AddAllLeafEntriesOp.LeafEntryData(
-            new byte[] {0, 0, 0, 4, 5, 6, 7, 8}, 20L, 1,
-            List.of(new BTreeMVBucketV2AddAllLeafEntriesOp.RidData((short) 2, 2L))),
-        new BTreeMVBucketV2AddAllLeafEntriesOp.LeafEntryData(
-            new byte[] {0, 0, 0, 4, 9, 10, 11, 12}, 30L, 1,
-            List.of(new BTreeMVBucketV2AddAllLeafEntriesOp.RidData((short) 3, 3L))));
+      // First: addAll 3 entries into the original bucket
+      var allEntries = List.of(
+          new BTreeMVBucketV2AddAllLeafEntriesOp.LeafEntryData(
+              new byte[] {0, 0, 0, 4, 1, 2, 3, 4}, 10L, 1,
+              List.of(new BTreeMVBucketV2AddAllLeafEntriesOp.RidData((short) 1, 1L))),
+          new BTreeMVBucketV2AddAllLeafEntriesOp.LeafEntryData(
+              new byte[] {0, 0, 0, 4, 5, 6, 7, 8}, 20L, 1,
+              List.of(new BTreeMVBucketV2AddAllLeafEntriesOp.RidData((short) 2, 2L))),
+          new BTreeMVBucketV2AddAllLeafEntriesOp.LeafEntryData(
+              new byte[] {0, 0, 0, 4, 9, 10, 11, 12}, 30L, 1,
+              List.of(new BTreeMVBucketV2AddAllLeafEntriesOp.RidData((short) 3, 3L))));
 
-    var addAllOp = new BTreeMVBucketV2AddAllLeafEntriesOp(0, 0, 0, lsn, allEntries);
-    addAllOp.redo(
-        new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage(
-            originalCacheEntry));
-    Assert.assertEquals(3, new CellBTreeMultiValueV2Bucket<>(originalCacheEntry).size());
+      var addAllOp = new BTreeMVBucketV2AddAllLeafEntriesOp(0, 0, 0, lsn, allEntries);
+      addAllOp.redo(
+          new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage(
+              originalCacheEntry));
+      Assert.assertEquals(3, new CellBTreeMultiValueV2Bucket<>(originalCacheEntry).size());
 
-    // Second: addAll 2 entries to the new bucket (simulating split target)
-    var newBucketEntries = List.of(allEntries.get(1), allEntries.get(2));
-    var addAllNewOp = new BTreeMVBucketV2AddAllLeafEntriesOp(0, 0, 0, lsn, newBucketEntries);
-    addAllNewOp.redo(
-        new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage(
-            newCacheEntry));
-    Assert.assertEquals(2, new CellBTreeMultiValueV2Bucket<>(newCacheEntry).size());
+      // Second: addAll 2 entries to the new bucket (simulating split target)
+      var newBucketEntries = List.of(allEntries.get(1), allEntries.get(2));
+      var addAllNewOp =
+          new BTreeMVBucketV2AddAllLeafEntriesOp(0, 0, 0, lsn, newBucketEntries);
+      addAllNewOp.redo(
+          new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage(
+              newCacheEntry));
+      Assert.assertEquals(2, new CellBTreeMultiValueV2Bucket<>(newCacheEntry).size());
 
-    // Third: shrink original to retain only the first entry
-    var shrinkRetained = List.of(allEntries.get(0));
-    var shrinkOp = new BTreeMVBucketV2ShrinkLeafEntriesOp(0, 0, 0, lsn, shrinkRetained);
-    shrinkOp.redo(
-        new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage(
-            originalCacheEntry));
-    Assert.assertEquals(1, new CellBTreeMultiValueV2Bucket<>(originalCacheEntry).size());
+      // Third: shrink original to retain only the first entry
+      var shrinkRetained = List.of(allEntries.get(0));
+      var shrinkOp =
+          new BTreeMVBucketV2ShrinkLeafEntriesOp(0, 0, 0, lsn, shrinkRetained);
+      shrinkOp.redo(
+          new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage(
+              originalCacheEntry));
+      Assert.assertEquals(1, new CellBTreeMultiValueV2Bucket<>(originalCacheEntry).size());
+    } finally {
+      releaseCacheEntry(newCacheEntry);
+      releaseCacheEntry(originalCacheEntry);
+    }
   }
 
   // ---------- Helper methods ----------
@@ -939,5 +954,11 @@ public class BTreeMVBucketV2BulkOpsTest {
     var bucket = new CellBTreeMultiValueV2Bucket<>(cacheEntry);
     bucket.init(false);
     return cacheEntry;
+  }
+
+  /** Releases exclusive lock and direct memory for a cache entry created by the helpers. */
+  private static void releaseCacheEntry(CacheEntry cacheEntry) {
+    cacheEntry.releaseExclusiveLock();
+    cacheEntry.getCachePointer().decrementReferrer();
   }
 }

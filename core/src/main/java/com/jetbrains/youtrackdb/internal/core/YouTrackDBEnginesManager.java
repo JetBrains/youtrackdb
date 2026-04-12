@@ -490,6 +490,17 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
 
       shutdownEngines();
 
+      // Shut down the WOW cache flush executor after engines are stopped but before
+      // clearing the buffer pool. Even though each WOWCache.stopFlush() waits for its
+      // periodic flush to complete, there is a race window: ByteBufferPool.clear()
+      // iterates pointersPool (free list) first, then pointerMapping (in-use). If a
+      // flush task's removeWrittenPagesFromCache concurrently calls release() between
+      // these two loops, the pointer moves from pointerMapping to pointersPool after
+      // the first loop already drained it — missed by both loops, leaving a tracked
+      // pointer in DirectMemoryAllocator. Shutting down the executor here ensures all
+      // submitted tasks have completed before clear() iterates.
+      shutdownExecutor(wowCacheFlushExecutor, "WOW cache flush", 5, TimeUnit.SECONDS);
+
       LogManager.instance().info(this, "Clearing byte buffer pool");
       ByteBufferPool.instance(null).clear();
 
