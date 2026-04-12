@@ -1602,19 +1602,10 @@ public final class WOWCache extends AbstractWriteCache
   private void stopFlush() {
     stopFlush = true;
 
-    // Cancel the scheduled periodic flush task early, before waiting for
-    // triggeredTasks, to free up the single-threaded shared commitExecutor.
-    // This reduces congestion so the triggeredTasks await loop below completes
-    // without timing out.
+    // Capture the current scheduled future. The periodic flush task checks
+    // stopFlush at the start, between flush phases, and before re-scheduling,
+    // so it will exit promptly once we set the flag.
     final var future = flushFuture;
-    if (future != null) {
-      // If the task hasn't started yet, cancel prevents it from running. If the
-      // task is already running, cancel(false) won't interrupt it — the running
-      // task will check the stopFlush flag and exit promptly. In both cases,
-      // get() below throws CancellationException (because cancel(false) transitions
-      // the FutureTask state to CANCELLED even while the task's code is executing).
-      future.cancel(false);
-    }
 
     for (final var completionLatch : triggeredTasks.values()) {
       try {
@@ -1631,12 +1622,26 @@ public final class WOWCache extends AbstractWriteCache
     }
 
     if (future != null) {
+      // Wait for the periodic flush to complete. We must NOT call cancel(false)
+      // before get(): FutureTask's state remains NEW while the callable is
+      // executing, so cancel(false) would transition it to CANCELLED even though
+      // the task is still running. get() on a CANCELLED future throws
+      // CancellationException immediately without waiting for the task to finish,
+      // causing a race where acquired direct memory buffers have not yet been
+      // released when the shutdown leak detector runs.
+      //
+      // Instead we rely on the stopFlush flag: the periodic flush checks it at
+      // the start, between flush phases, and in the finally block (skipping
+      // re-schedule). If the task hasn't started, it will start and exit
+      // immediately. If it's mid-flush, it will finish the current phase and
+      // exit at the next checkpoint. get() waits for this to complete.
       try {
         future.get(shutdownTimeout, TimeUnit.MILLISECONDS);
       } catch (final java.lang.InterruptedException e) {
         Thread.currentThread().interrupt();
       } catch (final CancellationException e) {
-        // Expected — task was cancelled above.
+        // The future may have been cancelled by a concurrent close() call;
+        // in that case the task either never started or already completed.
       } catch (final ExecutionException e) {
         throw BaseException.wrapException(
             new WriteCacheException(storageName,
@@ -3533,6 +3538,19 @@ public final class WOWCache extends AbstractWriteCache
               chunkFileIds);
       fsyncFiles = doubleWriteLog.write(containerBuffers, chunkFileIds, chunkPageIndexes);
       writePageChunksToFiles(buffersByFileId);
+    } catch (final Exception | Error e) {
+      // Release per-page copy buffers on error to prevent direct memory leak.
+      // Each WritePageContainer holds a pageCopyDirectMemoryPointer allocated by
+      // the caller (bufferPool.acquireDirect); normally released by
+      // removeWrittenPagesFromCache, which is skipped on the error path.
+      // We catch Error (not just Exception) because this method re-throws —
+      // buffers must be released before any throwable propagates to the caller.
+      for (final var chunk : chunks) {
+        for (final var chunkPage : chunk) {
+          bufferPool.release(chunkPage.pageCopyDirectMemoryPointer);
+        }
+      }
+      throw e;
     } finally {
       for (final var containerPointer : containerPointers) {
         if (containerPointer != null) {
@@ -3592,10 +3610,12 @@ public final class WOWCache extends AbstractWriteCache
       // Skip doubleWriteLog.write() — non-durable pages do not need DWL protection
       writePageChunksToFiles(buffersByFileId);
       // Skip fsyncFiles() — non-durable data does not need to be forced to stable storage
-    } catch (final Exception e) {
+    } catch (final Exception | Error e) {
       // Non-durable data is discardable — log and continue without setting flushError.
       // Do NOT call removeWrittenPagesFromCache here — pages may not have been written
       // successfully, so they must remain in the write cache for retry on the next flush.
+      // We catch Error (not just Exception) so that per-page copy buffers are released
+      // even on OOM or other fatal conditions — matching the flushPages error path.
       LogManager.instance()
           .warn(
               this,
@@ -3671,7 +3691,18 @@ public final class WOWCache extends AbstractWriteCache
     }
 
     var flushed = 0;
-    flushed += flushPages(durableChunks, fullLogLSN);
+    try {
+      flushed += flushPages(durableChunks, fullLogLSN);
+    } catch (final Exception | Error e) {
+      // If the durable flush fails, release non-durable chunk buffers that would
+      // otherwise leak (flushNonDurablePages is never called on the error path).
+      for (final var chunk : nonDurableChunks) {
+        for (final var chunkPage : chunk) {
+          bufferPool.release(chunkPage.pageCopyDirectMemoryPointer);
+        }
+      }
+      throw e;
+    }
     flushed += flushNonDurablePages(nonDurableChunks);
     return flushed;
   }
