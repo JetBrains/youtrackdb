@@ -40,7 +40,10 @@ YouTrackDB's key features are:
    modes.
 6. **[Strong security](docs/security.md)**: A strong security profiling system based on user, role,
    and predicate [security policies](docs/yql/YQL-Create-Security-Policy.md).
-7. **Encryption of data at rest**: Optionally encrypts all data stored on disk.
+7. **Snapshot isolation by default**: All transactions run under snapshot isolation. Each
+   transaction sees a stable snapshot of the database as of its start time, eliminating dirty
+   reads, non-repeatable reads, and phantom reads.
+8. **Encryption of data at rest**: Optionally encrypts all data stored on disk.
 
 ### Easy to install and use
 
