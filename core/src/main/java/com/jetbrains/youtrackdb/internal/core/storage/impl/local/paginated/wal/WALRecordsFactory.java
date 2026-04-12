@@ -171,7 +171,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.c
 import java.lang.reflect.InvocationTargetException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 import net.jpountz.lz4.LZ4Factory;
 
 /**
@@ -194,14 +194,14 @@ public final class WALRecordsFactory {
   private static final int COMPRESSED_METADATA_SIZE =
       RECORD_ID_SIZE + OPERATION_ID_SIZE + ORIGINAL_CONTENT_SIZE;
 
-  // ConcurrentHashMap for thread safety: registerNewRecord() (called from
-  // PageOperationRegistry.registerAll() during storage open/create) may run
-  // concurrently with fromStream() (called during WAL recovery on another
-  // already-opened storage sharing this singleton). Int2ObjectOpenHashMap is
-  // not thread-safe — concurrent put + get during rehash can corrupt internal
-  // state.
-  private final ConcurrentHashMap<Integer, Class<?>> idToTypeMap =
-      new ConcurrentHashMap<>();
+  // Array-based lookup for dynamically registered WAL record types. Sized
+  // to cover all PageOperation IDs (currently 200–295) with generous headroom.
+  // AtomicReferenceArray provides volatile-read/write semantics per element,
+  // giving thread safety without boxing overhead — registerNewRecord() may
+  // run concurrently with fromStream() during WAL recovery.
+  private static final int ID_TABLE_SIZE = 512;
+  private final AtomicReferenceArray<Class<?>> idToTypeTable =
+      new AtomicReferenceArray<>(ID_TABLE_SIZE);
 
   public static final WALRecordsFactory INSTANCE = new WALRecordsFactory();
 
@@ -427,7 +427,8 @@ public final class WALRecordsFactory {
               "Cannot deserialize passed in wal record not exists anymore.");
       case TX_METADATA -> walRecord = new MetaDataRecord();
       default -> {
-        var type = idToTypeMap.get(recordId);
+        var type =
+            (recordId >= 0 && recordId < ID_TABLE_SIZE) ? idToTypeTable.get(recordId) : null;
         if (type != null) {
           try {
             walRecord =
@@ -450,6 +451,10 @@ public final class WALRecordsFactory {
     assert id >= WALRecordTypes.PAGE_OPERATION_ID_BASE
         : "Registered ID " + id + " must be >= PAGE_OPERATION_ID_BASE ("
             + WALRecordTypes.PAGE_OPERATION_ID_BASE + ") to avoid collision with switch-case IDs";
-    idToTypeMap.put(id, type);
+    if (id < 0 || id >= ID_TABLE_SIZE) {
+      throw new IllegalArgumentException(
+          "WAL record ID " + id + " is out of range [0, " + ID_TABLE_SIZE + ")");
+    }
+    idToTypeTable.set(id, type);
   }
 }

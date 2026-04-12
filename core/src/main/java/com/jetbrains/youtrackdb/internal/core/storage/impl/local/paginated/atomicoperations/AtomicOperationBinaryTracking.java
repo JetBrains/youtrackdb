@@ -108,6 +108,12 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   // (read-only operations, unconverted page types).
   private boolean hasPendingOperations;
 
+  // Pages that have pending operations waiting to be flushed. Populated by
+  // registerPageOperation(), drained by flushPendingOperations(). Avoids the
+  // O(files × pages) full scan that would otherwise be needed to locate the
+  // few pages with pending ops after each component operation boundary.
+  private final ArrayList<PendingFlushEntry> pendingFlushEntries = new ArrayList<>();
+
   private final Map<String, AtomicOperationMetadata<?>> metadata = new LinkedHashMap<>();
 
   private boolean active;
@@ -442,6 +448,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
             + " has no CacheEntryChanges — page must be loaded for write first";
 
     pageChanges.addPendingOperation(op);
+    pendingFlushEntries.add(
+        new PendingFlushEntry(fileId, changesContainer.nonDurable, pageChanges));
     hasPendingOperations = true;
   }
 
@@ -458,39 +466,38 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
         : "flushPendingOperations called before operationCommitTs was set"
             + " — call startToApplyOperations first";
 
-    for (final var fileEntry : fileChanges.long2ObjectEntrySet()) {
-      final var fileId = fileEntry.getLongKey();
-      final var fileChanges = fileEntry.getValue();
-
+    for (final var entry : pendingFlushEntries) {
       // Skip non-durable files — they never produce WAL records
-      if (fileChanges.nonDurable || writeCache.isNonDurable(fileId)) {
+      if (entry.nonDurable() || writeCache.isNonDurable(entry.fileId())) {
+        entry.changes().clearPendingOperations();
         continue;
       }
 
-      for (final var pageEntry : fileChanges.pageChangesMap.long2ObjectEntrySet()) {
-        final var pageChanges = pageEntry.getValue();
-        final var pendingOps = pageChanges.getPendingOperations();
+      final var pageChanges = entry.changes();
+      final var pendingOps = pageChanges.getPendingOperations();
 
-        if (pendingOps.isEmpty()) {
-          continue;
-        }
-
-        // Lazy emission of AtomicUnitStartRecord before the first WAL record
-        if (!walUnitStarted) {
-          startLSN = emitWalUnitStart(writeAheadLog, operationCommitTs);
-          walUnitStarted = true;
-        }
-
-        for (final var op : pendingOps) {
-          op.setOperationUnitId(operationCommitTs);
-          final var lsn = writeAheadLog.log(op);
-          pageChanges.setChangeLSN(lsn);
-        }
-
-        pageChanges.clearPendingOperations();
+      // A page may appear more than once in the list if multiple operations
+      // were registered between flushes; earlier visits already drained it.
+      if (pendingOps.isEmpty()) {
+        continue;
       }
+
+      // Lazy emission of AtomicUnitStartRecord before the first WAL record
+      if (!walUnitStarted) {
+        startLSN = emitWalUnitStart(writeAheadLog, operationCommitTs);
+        walUnitStarted = true;
+      }
+
+      for (final var op : pendingOps) {
+        op.setOperationUnitId(operationCommitTs);
+        final var lsn = writeAheadLog.log(op);
+        pageChanges.setChangeLSN(lsn);
+      }
+
+      pageChanges.clearPendingOperations();
     }
 
+    pendingFlushEntries.clear();
     hasPendingOperations = false;
   }
 
@@ -1244,6 +1251,13 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   @Override
   public int hashCode() {
     return Long.hashCode(operationCommitTs);
+  }
+
+  // Lightweight entry linking a page's pending operations to its parent file
+  // identity, used by flushPendingOperations() to avoid a full scan of all
+  // files and pages.
+  private record PendingFlushEntry(
+      long fileId, boolean nonDurable, CacheEntryChanges changes) {
   }
 
   private static final class FileChanges {
