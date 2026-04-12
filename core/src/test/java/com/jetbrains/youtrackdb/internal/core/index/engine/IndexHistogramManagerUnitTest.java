@@ -3037,8 +3037,9 @@ public class IndexHistogramManagerUnitTest {
 
   @Test
   public void computeNewSnapshot_versionMismatchWithFreqDeltas_preservesHistogram() {
-    // When version mismatches, histogram is preserved unchanged even
-    // though delta has frequencyDeltas
+    // When version mismatches, frequency deltas are discarded (bucket
+    // frequencies stay at rebalance-time values), but nonNullCount must
+    // still track the authoritative scalar counters to avoid drift.
     var histogram = new EquiDepthHistogram(
         2,
         new Comparable<?>[] {0, 50, 100},
@@ -3058,10 +3059,11 @@ public class IndexHistogramManagerUnitTest {
 
     var result = IndexHistogramManager.computeNewSnapshot(snapshot, delta);
 
-    // Frequencies preserved, mcv preserved
+    // Frequencies preserved (stale deltas discarded), mcv preserved
     assertEquals(50, result.histogram().frequencies()[0]);
     assertEquals(50, result.histogram().frequencies()[1]);
-    assertEquals(100, result.histogram().nonNullCount());
+    // nonNullCount updated from scalar counters: (100 + 5) - 0 = 105
+    assertEquals(105, result.histogram().nonNullCount());
     assertEquals("mcv", result.histogram().mcvValue());
     assertEquals(10, result.histogram().mcvFrequency());
   }

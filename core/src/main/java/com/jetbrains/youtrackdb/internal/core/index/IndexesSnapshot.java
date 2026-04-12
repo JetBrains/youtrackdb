@@ -315,18 +315,34 @@ public class IndexesSnapshot {
   }
 
   public void clear() {
-    // Remove visibilityIndex entries that correspond to this (sub-)snapshot's data.
-    // visibilityIndex keys are the removedKey entries (newVersion) — those are the
-    // RecordId guard entries in indexesSnapshot (non-TombstoneRID values).
-    // Count entries before clearing so the size counter stays consistent.
+    // Capture the current upper bound to guarantee termination even when
+    // concurrent writers keep adding entries within this submap range.
+    // Both entrySet() iteration and SubMap.clear() use weakly-consistent
+    // iterators that can see entries inserted ahead of the current position,
+    // causing livelock when writers add entries faster than the iterator
+    // advances. Using pollFirstEntry() with an upper bound avoids this:
+    // each poll atomically removes one entry, and we stop after reaching
+    // the key that was last when clear() began.
+    var lastEntry = indexesSnapshot.lastEntry();
+    if (lastEntry == null) {
+      return;
+    }
+    var upperBound = lastEntry.getKey();
+
     long entryCount = 0;
-    for (var entry : indexesSnapshot.entrySet()) {
+    Entry<CompositeKey, RID> entry;
+    while ((entry = indexesSnapshot.pollFirstEntry()) != null) {
       entryCount++;
+      // Remove the corresponding visibilityIndex entry for RecordId guard
+      // entries (non-TombstoneRID). visibilityIndex keys are the removedKey
+      // entries (newVersion).
       if (!(entry.getValue() instanceof TombstoneRID)) {
         visibilityIndex.remove(entry.getKey());
       }
+      if (entry.getKey().compareTo(upperBound) >= 0) {
+        break;
+      }
     }
-    indexesSnapshot.clear();
     if (entryCount > 0) {
       // Clamp to zero: concurrent clear() and eviction may both decrement
       // for the same entries (ConcurrentSkipListMap.remove is idempotent

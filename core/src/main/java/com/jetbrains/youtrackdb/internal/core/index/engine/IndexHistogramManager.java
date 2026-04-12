@@ -651,9 +651,26 @@ public class IndexHistogramManager extends StorageComponent {
           accurateNonNull,
           newHistogram.mcvValue(),
           newHistogram.mcvFrequency());
+    } else if (newHistogram != null) {
+      // Version mismatch or no frequency deltas — bucket frequencies stay as-is
+      // (the rebalanced histogram's frequencies are already accurate at rebalance
+      // time). However, nonNullCount must still track the authoritative scalar
+      // counters. Without this update, nonNullCount freezes at the rebalance-time
+      // value while totalCount/nullCount continue to advance through subsequent
+      // commits, causing drift between histogram.nonNullCount() and the true
+      // (totalCount - nullCount).
+      long accurateNonNull = Math.max(0, newTotal - newNull);
+      if (newHistogram.nonNullCount() != accurateNonNull) {
+        newHistogram = new EquiDepthHistogram(
+            newHistogram.bucketCount(),
+            newHistogram.boundaries(),
+            newHistogram.frequencies(),
+            newHistogram.distinctCounts(),
+            accurateNonNull,
+            newHistogram.mcvValue(),
+            newHistogram.mcvFrequency());
+      }
     }
-    // If version differs (rebalance occurred), frequencyDeltas are discarded.
-    // The rebalanced histogram's frequencies are already accurate.
 
     long newMutations =
         current.mutationsSinceRebalance() + delta.mutationCount;

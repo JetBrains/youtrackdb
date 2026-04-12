@@ -260,7 +260,8 @@ public class IndexHistogramManagerTest {
     assertNotNull(result.histogram());
     assertEquals(300, result.histogram().frequencies()[0]);
     assertEquals(300, result.histogram().frequencies()[1]);
-    assertEquals(600, result.histogram().nonNullCount());
+    // nonNullCount updated from scalar counters: (600 + 10) - 0 = 610
+    assertEquals(610, result.histogram().nonNullCount());
   }
 
   @Test
