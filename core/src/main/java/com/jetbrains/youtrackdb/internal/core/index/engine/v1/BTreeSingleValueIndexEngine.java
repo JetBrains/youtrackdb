@@ -192,6 +192,15 @@ public final class BTreeSingleValueIndexEngine
   public void clear(Storage storage, @Nonnull AtomicOperation atomicOperation) {
     try {
       doClearTree(atomicOperation);
+      // Postcondition: doClearTree must remove every entry from the B-tree.
+      // If entries remain, the iterate-and-remove loop missed them (e.g., due
+      // to cursor invalidation during page rebalancing). This assert fires
+      // BEFORE the approximate count reset, so the CI stack trace
+      // distinguishes "doClearTree left entries" from "entries appeared later."
+      assert sbTree.firstKey(atomicOperation) == null
+          : "doClearTree() left entries in engine=" + name + " id=" + id
+              + " treeSize=" + sbTree.size(atomicOperation)
+              + " approximateCount=" + approximateIndexEntriesCount.get();
       // Reset persisted count on entry point page after clearing tree data.
       // persistIndexCountDeltas adds only deltas from replayed entries after
       // the clear, yielding the correct final count.
@@ -533,10 +542,12 @@ public final class BTreeSingleValueIndexEngine
 
   @Override
   public void addToApproximateEntriesCount(long delta) {
+    long prev = approximateIndexEntriesCount.get();
     long updated = approximateIndexEntriesCount.addAndGet(delta);
     assert updated >= 0
-        : "In-memory approximateIndexEntriesCount underflow: updated="
-            + updated + " delta=" + delta;
+        : "In-memory approximateIndexEntriesCount underflow: engine=" + name
+            + " id=" + id + " prev=" + prev + " delta=" + delta
+            + " updated=" + updated;
   }
 
   @Override
