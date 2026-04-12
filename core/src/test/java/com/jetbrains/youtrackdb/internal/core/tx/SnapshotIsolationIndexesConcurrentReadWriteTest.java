@@ -343,7 +343,12 @@ public class SnapshotIsolationIndexesConcurrentReadWriteTest
     var error = new AtomicReference<Throwable>();
     var versionCounter = new AtomicInteger(1);
 
-    // Writers: concurrently update key=1 with incrementing versions
+    // Writers: concurrently update key=1 with incrementing versions.
+    // Writers only stop on error — NOT on the running flag — because
+    // readers set running=false when they finish their read loop, which
+    // must not short-circuit the writer iteration count. Without this,
+    // on slow CI hosts, writers could perform 0 iterations and the test
+    // would vacuously pass without exercising any concurrent contention.
     for (int w = 0; w < writerCount; w++) {
       new Thread(
           () -> {
@@ -351,7 +356,7 @@ public class SnapshotIsolationIndexesConcurrentReadWriteTest
             try {
               s = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
               barrier.await();
-              for (int i = 0; i < 50 && running.get() && error.get() == null; i++) {
+              for (int i = 0; i < 50 && error.get() == null; i++) {
                 try {
                   s.begin();
                   var rs = s.query("SELECT FROM SameKeyU WHERE key = 1");
@@ -438,6 +443,21 @@ public class SnapshotIsolationIndexesConcurrentReadWriteTest
     if (error.get() != null) {
       throw error.get();
     }
+
+    // Verify at least one writer committed an update, confirming that
+    // concurrent contention on the doVersionedPut path was actually exercised.
+    db.begin();
+    try {
+      var rs = db.query("SELECT ver FROM SameKeyU WHERE key = 1");
+      assertTrue("Record for key=1 must exist after concurrent updates",
+          rs.hasNext());
+      var finalVer = (Integer) rs.next().getProperty("ver");
+      rs.close();
+      assertTrue("Final ver must be > 0 (at least one writer committed)",
+          finalVer != null && finalVer > 0);
+    } finally {
+      db.rollback();
+    }
   }
 
   /**
@@ -471,7 +491,11 @@ public class SnapshotIsolationIndexesConcurrentReadWriteTest
     var latch = new CountDownLatch(writerCount + readerCount);
     var error = new AtomicReference<Throwable>();
 
-    // Writers: insert more records with tag="shared"
+    // Writers: insert more records with tag="shared".
+    // Writers only stop on error — NOT on the running flag — because the final
+    // assertion expects every writer to complete all 50 iterations. Readers
+    // set running=false when they finish their read loop, which must not
+    // short-circuit the writer iteration count.
     for (int w = 0; w < writerCount; w++) {
       new Thread(
           () -> {
@@ -479,7 +503,7 @@ public class SnapshotIsolationIndexesConcurrentReadWriteTest
             try {
               s = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
               barrier.await();
-              for (int i = 0; i < 50 && running.get() && error.get() == null; i++) {
+              for (int i = 0; i < 50 && error.get() == null; i++) {
                 s.begin();
                 s.newEntity("SameKeyNU").setProperty("tag", "shared");
                 s.commit();
