@@ -576,6 +576,9 @@ public class MatchEdgeTraverser implements ExecutionStream {
     // it returns null without materializing. Only the first vertex whose
     // link bag is large enough triggers actual resolution and caching.
     if (edge.getIntersectionDescriptor() != null) {
+      // Resolve effectiveness metric once for all vertices in this call,
+      // not per-vertex — avoids repeated MetricsRegistry map lookups.
+      Ratio effectiveness = resolveEffectivenessMetric();
       int linkBagSize = pfli.size();
       if (linkBagSize < TraversalPreFilterHelper.minLinkBagSize()) {
         // Link bag too small for pre-filter to be worthwhile.
@@ -599,7 +602,7 @@ public class MatchEdgeTraverser implements ExecutionStream {
             // probed = linkBagSize. Guarded by probed > 0 (R5).
             if (linkBagSize > 0) {
               long filtered = Math.max(0, linkBagSize - ridSet.size());
-              resolveEffectivenessMetric().record(filtered, linkBagSize);
+              effectiveness.record(filtered, linkBagSize);
             }
             if (logger.isDebugEnabled()) {
               logger.debug(
