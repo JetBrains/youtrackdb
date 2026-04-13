@@ -367,6 +367,55 @@ public class IndexSearchDescriptor {
     return Math.max(1, (long) (indexStats.totalCount() * selectivity));
   }
 
+  /**
+   * Estimates the selectivity of this index lookup as a fraction of the
+   * total index entries that match the key condition. Returns a value in
+   * [0.0, 1.0] where 0.0 means no entries match and 1.0 means all entries
+   * match.
+   *
+   * <p>Computed as {@code estimateHits / totalCount} in a single pass
+   * through {@link Index#getStatistics}. Returns {@code -1.0} if statistics
+   * are unavailable or the index is empty ({@code totalCount == 0}).
+   *
+   * <p>Used by {@link RidFilterDescriptor.IndexLookup#passesSelectivityCheck}
+   * to decide whether the index pre-filter is worth applying.
+   */
+  public double estimateSelectivity(CommandContext ctx) {
+    if (keyCondition == null) {
+      return -1.0;
+    }
+    var session = ctx.getDatabaseSession();
+    var indexStats = index.getStatistics(session);
+    if (indexStats == null || indexStats.totalCount() == 0) {
+      return -1.0;
+    }
+    var histogram = index.getHistogram(session);
+
+    var subBlocks = getSubBlocks();
+    var leadingField = index.getDefinition().getProperties().getFirst();
+
+    double selectivity = estimateBlockSelectivity(
+        subBlocks.getFirst(), leadingField, indexStats, histogram, ctx);
+    if (selectivity < 0) {
+      return -1.0;
+    }
+
+    if (additionalRangeCondition != null && subBlocks.size() == 1) {
+      double rangeSel = estimateCombinedRange(
+          subBlocks.getFirst(), additionalRangeCondition,
+          indexStats, histogram, ctx);
+      if (rangeSel >= 0) {
+        selectivity = rangeSel;
+      }
+    }
+
+    for (int i = 1; i < subBlocks.size(); i++) {
+      selectivity *= SelectivityEstimator.defaultSelectivity();
+    }
+
+    return Math.min(1.0, Math.max(0.0, selectivity));
+  }
+
   public Index getIndex() {
     return index;
   }

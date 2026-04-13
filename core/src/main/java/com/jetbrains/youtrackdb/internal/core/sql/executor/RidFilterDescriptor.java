@@ -91,10 +91,48 @@ public sealed interface RidFilterDescriptor {
   @Nullable Object cacheKey(CommandContext ctx);
 
   /**
+   * Returns {@code true} if this descriptor's pre-filter is worth applying
+   * given the estimated or actual RidSet size and the current vertex's link
+   * bag size.
+   *
+   * <p>This method has dual-use semantics:
+   * <ul>
+   *   <li>In {@code EdgeTraversal.resolveWithCache()} (pre-materialization),
+   *       {@code resolvedSize} is an <em>estimate</em>.</li>
+   *   <li>In {@code MatchEdgeTraverser.applyPreFilter()} (post-materialization),
+   *       {@code resolvedSize} is the actual {@code ridSet.size()}.</li>
+   * </ul>
+   *
+   * <p>Implementations use descriptor-specific formulas:
+   * <ul>
+   *   <li>{@link DirectRid} — always returns {@code true}</li>
+   *   <li>{@link EdgeRidLookup} — overlap-based ratio:
+   *       {@code resolvedSize / linkBagSize <= edgeLookupMaxRatio}</li>
+   *   <li>{@link IndexLookup} — class-level selectivity:
+   *       {@code estimateSelectivity <= indexLookupMaxSelectivity}
+   *       (ignores {@code resolvedSize} and {@code linkBagSize})</li>
+   *   <li>{@link Composite} — returns {@code true} if any child passes</li>
+   * </ul>
+   *
+   * @param resolvedSize the actual or estimated RidSet size
+   * @param linkBagSize  the current vertex's link bag size
+   * @param ctx          command context (for schema/statistics access)
+   */
+  boolean passesSelectivityCheck(int resolvedSize, int linkBagSize, CommandContext ctx);
+
+  /**
    * Direct RID equality: {@code WHERE @rid = <expr>}.
    * Resolves the expression to a single RID and returns a singleton set.
    */
   record DirectRid(SQLExpression ridExpression) implements RidFilterDescriptor {
+
+    /** A single-RID filter is always worth applying — zero cost. */
+    @Override
+    public boolean passesSelectivityCheck(
+        int resolvedSize, int linkBagSize, CommandContext ctx) {
+      return true;
+    }
+
     /** A direct RID filter always produces exactly 1 entry. */
     @Override
     public int estimatedSize(CommandContext ctx, @Nullable Object cacheKey) {
@@ -143,6 +181,23 @@ public sealed interface RidFilterDescriptor {
       String traversalDirection,
       SQLExpression targetRidExpression,
       boolean collectEdgeRids) implements RidFilterDescriptor {
+
+    /**
+     * Overlap-based ratio check: {@code resolvedSize / linkBagSize <=
+     * edgeLookupMaxRatio}. Replicates the original
+     * {@link TraversalPreFilterHelper#passesRatioCheck} formula exactly.
+     * When {@code linkBagSize} is unknown (zero or negative), passes
+     * conservatively.
+     */
+    @Override
+    public boolean passesSelectivityCheck(
+        int resolvedSize, int linkBagSize, CommandContext ctx) {
+      if (linkBagSize <= 0) {
+        return true;
+      }
+      return (double) resolvedSize / linkBagSize
+          <= TraversalPreFilterHelper.edgeLookupMaxRatio();
+    }
 
     /**
      * Returns the reverse link bag size — exact, O(1) stored field.
@@ -201,6 +256,26 @@ public sealed interface RidFilterDescriptor {
       IndexSearchDescriptor indexDescriptor) implements RidFilterDescriptor {
 
     /**
+     * Class-level selectivity check: {@code estimateSelectivity <=
+     * indexLookupMaxSelectivity}. Ignores {@code resolvedSize} and
+     * {@code linkBagSize} — the selectivity is a property of the index
+     * condition and the class, not of any specific vertex's link bag.
+     *
+     * <p>Returns {@code true} (conservative: apply the filter) when
+     * statistics are unavailable ({@code estimateSelectivity} returns
+     * {@code -1.0}).
+     */
+    @Override
+    public boolean passesSelectivityCheck(
+        int resolvedSize, int linkBagSize, CommandContext ctx) {
+      double selectivity = indexDescriptor.estimateSelectivity(ctx);
+      if (selectivity < 0) {
+        return true; // unknown selectivity — optimistic
+      }
+      return selectivity <= TraversalPreFilterHelper.indexLookupMaxSelectivity();
+    }
+
+    /**
      * Returns a histogram-based estimate of index hits. Approximate but
      * cheap (O(1), uses cached statistics). The {@code cacheKey} is not
      * used (index results are constant for the entire query).
@@ -238,6 +313,23 @@ public sealed interface RidFilterDescriptor {
    */
   record Composite(
       List<RidFilterDescriptor> descriptors) implements RidFilterDescriptor {
+
+    /**
+     * Returns {@code true} if ANY child passes. Since the composite
+     * intersects child results, the output is bounded by the smallest
+     * (most selective) child. If even one child is selective enough,
+     * the intersection is worth computing.
+     */
+    @Override
+    public boolean passesSelectivityCheck(
+        int resolvedSize, int linkBagSize, CommandContext ctx) {
+      for (var d : descriptors) {
+        if (d.passesSelectivityCheck(resolvedSize, linkBagSize, ctx)) {
+          return true;
+        }
+      }
+      return false;
+    }
 
     /**
      * Returns the minimum of child estimates. Since Composite intersects

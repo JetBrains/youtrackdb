@@ -46,6 +46,37 @@ public final class TraversalPreFilterHelper {
   }
 
   /**
+   * Returns the maximum overlap ratio for {@link
+   * RidFilterDescriptor.EdgeRidLookup} pre-filters. Above this threshold
+   * the reverse set covers too much of the link bag to be useful.
+   *
+   * <p>Reads the new {@code QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO} config
+   * with fallback to the old {@code QUERY_PREFILTER_MAX_SELECTIVITY_RATIO}
+   * (same semantics). See Step 2 for full config wiring.
+   */
+  public static double edgeLookupMaxRatio() {
+    // TODO(Track 1 Step 2): wire to new GlobalConfiguration entry with
+    // isChanged() fallback. For now, delegates to the existing config.
+    return maxSelectivityRatio();
+  }
+
+  /**
+   * Returns the maximum class-level selectivity for {@link
+   * RidFilterDescriptor.IndexLookup} pre-filters. Above this threshold
+   * the index condition matches too many records to be useful.
+   *
+   * <p>Reads the new {@code QUERY_PREFILTER_INDEX_LOOKUP_MAX_SELECTIVITY}
+   * config. Does NOT fall back to the old
+   * {@code QUERY_PREFILTER_MAX_SELECTIVITY_RATIO} — the semantics are
+   * fundamentally different (class-level selectivity vs. overlap ratio).
+   */
+  public static double indexLookupMaxSelectivity() {
+    // TODO(Track 1 Step 2): wire to new GlobalConfiguration entry.
+    // Default is 0.95.
+    return 0.95;
+  }
+
+  /**
    * Returns the minimum link bag size below which pre-filtering is skipped
    * entirely. Loading a handful of records is cheaper than building
    * a RidSet and checking {@code contains()} on each.
