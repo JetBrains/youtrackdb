@@ -277,13 +277,14 @@ public class BTreeTombstoneGCTest {
 
     long tombstonesAfter = countEntriesOfType(TombstoneRID.class);
 
-    // We assert "fewer tombstones" rather than "zero tombstones" because GC
-    // only runs on buckets that actually overflow. Tombstones in buckets that
-    // had room for the new entry are never visited, so a strict isZero()
-    // assertion would be flaky depending on key distribution and bucket sizing.
+    // We assert "substantially fewer tombstones" rather than "zero tombstones"
+    // because GC only runs on buckets that actually overflow. Tombstones in
+    // buckets that had room for the new entry are never visited. However,
+    // overflow events are distributed across buckets, so at least half should
+    // be collected.
     assertThat(tombstonesAfter)
         .as("Tombstones below LWM should be GC'd during bucket overflow")
-        .isLessThan(tombstonesBefore);
+        .isLessThan(tombstonesBefore / 2);
 
     // All live entries must be present
     assertThat(countEntriesOfType(RecordId.class))
@@ -342,6 +343,11 @@ public class BTreeTombstoneGCTest {
       }
 
       long tombstonesBefore = countEntriesOfType(TombstoneRID.class);
+      // At version == LWM, even bucket overflows during tombstone insertion
+      // should not GC any tombstones (condition is version < lwm, not <=).
+      assertThat(tombstonesBefore)
+          .as("All tombstones at version == LWM should survive insertion-phase overflows")
+          .isEqualTo(FILL_COUNT);
 
       // Insert live entries at odd positions to trigger overflows
       for (int i = 0; i < FILL_COUNT; i++) {
@@ -452,19 +458,20 @@ public class BTreeTombstoneGCTest {
 
     long markersAfter = countEntriesOfType(SnapshotMarkerRID.class);
 
-    // Markers should have been demoted to RecordId during GC. Note: some
-    // markers may already be demoted during the marker insertion phase itself
-    // (bucket overflows during insertion trigger GC on earlier markers).
+    // Markers should have been demoted to RecordId during GC. Overflow events
+    // are distributed across buckets, so at least half should be demoted.
     assertThat(markersAfter)
         .as("SnapshotMarkerRID entries below LWM should be demoted")
-        .isLessThan(markersBefore);
+        .isLessThan(markersBefore / 2);
 
     // Total entry count should remain the same (demotions don't remove)
     assertThat(countAllEntries())
         .as("Demotions should not change total entry count")
         .isEqualTo(FILL_COUNT * 2);
 
-    // Spot-check that demoted entries retain their original identity
+    // Spot-check that demoted entries retain their original identity.
+    // Track demotedCount to ensure at least one identity assertion fires.
+    int demotedCount = 0;
     for (int i = 0; i < 10; i++) {
       final var key = new CompositeKey(
           "key" + String.format("%06d", i * 2), 1L);
@@ -472,7 +479,9 @@ public class BTreeTombstoneGCTest {
       atomicOperationsManager.executeInsideAtomicOperation(
           atomicOperation -> result[0] = bTree.get(key, atomicOperation));
       // If demoted, the entry should be a plain RecordId with the original identity
-      if (result[0] instanceof RecordId && !(result[0] instanceof SnapshotMarkerRID)) {
+      if (result[0] instanceof RecordId
+          && !(result[0] instanceof SnapshotMarkerRID)) {
+        demotedCount++;
         assertThat(result[0].getCollectionId())
             .as("Demoted marker at position %d should retain original collection ID", i)
             .isEqualTo(1);
@@ -481,6 +490,9 @@ public class BTreeTombstoneGCTest {
             .isEqualTo(i);
       }
     }
+    assertThat(demotedCount)
+        .as("At least one of the first 10 markers should have been demoted")
+        .isGreaterThan(0);
   }
 
   @Test
@@ -698,10 +710,10 @@ public class BTreeTombstoneGCTest {
 
     assertThat(countEntriesOfType(TombstoneRID.class))
         .as("Tombstones should be GC'd from mixed bucket")
-        .isLessThan(tombstonesBefore);
+        .isLessThan(tombstonesBefore / 2);
     assertThat(countEntriesOfType(SnapshotMarkerRID.class))
         .as("Markers should be demoted from mixed bucket")
-        .isLessThan(markersBefore);
+        .isLessThan(markersBefore / 2);
 
     // Verify tree size consistency after mixed GC
     long[] reportedSize = {0};
