@@ -22,6 +22,7 @@ import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
@@ -1551,27 +1552,34 @@ public class IndexesSnapshotVisibilityFilterTest {
   @Test(timeout = 30_000)
   public void concurrent_clear_vs_addSnapshotPair_counterNeverNegative() throws Throwable {
     int writerCount = 4;
-    int clearIterations = 100;
+    // Bounded iteration count per writer. Total entries: writerCount * iterationsPerWriter * 2.
+    // This bounds total memory and prevents clear()'s maxEntries from growing exponentially
+    // (unbounded writers inflate the counter faster than pollFirstEntry can drain it,
+    // causing each successive clear() to take longer than the last).
+    int iterationsPerWriter = 10_000;
     var swc = newSnapshotWithCounter(INDEX_ID);
     var snap = swc.snapshot();
     var counter = swc.counter();
 
-    var running = new java.util.concurrent.atomic.AtomicBoolean(true);
     var barrier = new CyclicBarrier(writerCount + 1); // +1 for clearer thread
     var latch = new CountDownLatch(writerCount + 1);
     var error = new AtomicReference<Throwable>();
+    var writersRunning = new AtomicInteger(writerCount);
+    // Tracks how many clear() calls the clearer performed during the concurrent
+    // phase. Asserted > 0 after the test to verify the race was exercised.
+    var clearCount = new AtomicInteger(0);
 
-    // Writers: continuously addSnapshotPair until the clearer signals stop
+    // Writers: each performs a fixed number of addSnapshotPair calls.
     for (int w = 0; w < writerCount; w++) {
       final int wi = w;
       new Thread(
           () -> {
             try {
               barrier.await();
-              long ver = (long) wi * 1_000_000;
+              long ver = (long) wi * iterationsPerWriter * 2;
               var rid = new RecordId(10, wi);
               var keyName = "K" + wi;
-              while (running.get() && error.get() == null) {
+              for (int i = 0; i < iterationsPerWriter && error.get() == null; i++) {
                 snap.addSnapshotPair(
                     new CompositeKey(keyName, rid, ver),
                     new CompositeKey(keyName, rid, ver + 1),
@@ -1581,6 +1589,7 @@ public class IndexesSnapshotVisibilityFilterTest {
             } catch (Throwable t) {
               error.compareAndSet(null, t);
             } finally {
+              writersRunning.decrementAndGet();
               latch.countDown();
             }
           },
@@ -1588,13 +1597,15 @@ public class IndexesSnapshotVisibilityFilterTest {
           .start();
     }
 
-    // Clearer thread: calls clear() and checks counter >= 0 after each clear
+    // Clearer thread: calls clear() and checks counter >= 0 until all writers finish.
+    // With bounded writers the clearer naturally terminates after all writers exit.
     new Thread(
         () -> {
           try {
             barrier.await();
-            for (int i = 0; i < clearIterations && error.get() == null; i++) {
+            while (writersRunning.get() > 0 && error.get() == null) {
               snap.clear();
+              clearCount.incrementAndGet();
               long counterVal = counter.get();
               if (counterVal < 0) {
                 error.compareAndSet(
@@ -1603,7 +1614,19 @@ public class IndexesSnapshotVisibilityFilterTest {
                         "Counter went negative: " + counterVal));
               }
             }
-            running.set(false);
+            // Post-loop drain: clear entries from the last writer iterations
+            // that may have been added after the clearer's last concurrent
+            // clear() call. Writers have finished addSnapshotPair but the
+            // snapshot may still hold entries whose counter increments were
+            // concurrent with earlier clear() calls.
+            snap.clear();
+            long counterVal = counter.get();
+            if (counterVal < 0) {
+              error.compareAndSet(
+                  null,
+                  new AssertionError(
+                      "Counter went negative after final drain: " + counterVal));
+            }
           } catch (Throwable t) {
             error.compareAndSet(null, t);
           } finally {
@@ -1618,11 +1641,22 @@ public class IndexesSnapshotVisibilityFilterTest {
       throw error.get();
     }
 
+    // Verify the race was actually exercised: the clearer must have run at
+    // least one clear() while writers were active.
+    assertTrue(
+        "Clearer must have executed at least one clear() during concurrent phase, "
+            + "but executed " + clearCount.get(),
+        clearCount.get() > 0);
+
     // Final clear with no concurrent writers — snapshot must be empty
     snap.clear();
     assertTrue(
         "After final clear with no concurrent writers, snapshot must be empty",
         snap.allEntries().isEmpty());
+    // Counter is approximate: addSnapshotPair() increments AFTER the puts,
+    // so clear() can poll entries before their counter increment fires,
+    // leaving a positive residual (up to writerCount * 2). Non-negativity
+    // is the invariant; exactness requires a non-concurrent test.
     assertTrue(
         "Counter must be non-negative after final clear",
         counter.get() >= 0);
