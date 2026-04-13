@@ -980,4 +980,83 @@ public class EdgeTraversalCacheTest {
     // resolve() never called
     verify(desc, never()).resolve(any(), any());
   }
+
+  // =========================================================================
+  // computeMinNeighborsForBuild — build amortization formula
+  // =========================================================================
+
+  /**
+   * Normal case: estimatedSize=100_000, loadToScanRatio=100, selectivity=0.5.
+   * Expected: 100_000 / (100 * 0.5) = 2000.0
+   */
+  @Test
+  public void computeMinNeighborsForBuild_normalCase() {
+    double result = EdgeTraversal.computeMinNeighborsForBuild(
+        100_000, 100.0, 0.5);
+    assertThat(result).isEqualTo(2000.0);
+  }
+
+  /** Zero estimatedSize → 0.0 (build immediately — trivially small). */
+  @Test
+  public void computeMinNeighborsForBuild_zeroEstimatedSize_returnsZero() {
+    assertThat(EdgeTraversal.computeMinNeighborsForBuild(0, 100.0, 0.5))
+        .isEqualTo(0.0);
+  }
+
+  /** Negative estimatedSize → 0.0 (unknown — build immediately). */
+  @Test
+  public void computeMinNeighborsForBuild_negativeEstimatedSize_returnsZero() {
+    assertThat(EdgeTraversal.computeMinNeighborsForBuild(-1, 100.0, 0.5))
+        .isEqualTo(0.0);
+  }
+
+  /**
+   * Selectivity = 0.0 (perfect filter — every scan saves a load).
+   * Expected: estimatedSize / loadToScanRatio = 100_000 / 100 = 1000.0
+   */
+  @Test
+  public void computeMinNeighborsForBuild_zeroSelectivity_perfectFilter() {
+    double result = EdgeTraversal.computeMinNeighborsForBuild(
+        100_000, 100.0, 0.0);
+    assertThat(result).isEqualTo(1000.0);
+  }
+
+  /**
+   * Selectivity = 0.99 (nearly all records match — filter saves very little).
+   * Expected: 100_000 / (100 * 0.01) = 100_000.0 — very large threshold,
+   * effectively deferring the build until many neighbors are accumulated.
+   */
+  @Test
+  public void computeMinNeighborsForBuild_highSelectivity_defersBuilds() {
+    double result = EdgeTraversal.computeMinNeighborsForBuild(
+        100_000, 100.0, 0.99);
+    assertThat(result).isCloseTo(100_000.0, org.assertj.core.data.Offset.offset(1.0));
+  }
+
+  /**
+   * Selectivity >= 1.0 → Double.MAX_VALUE (never build — no filtering
+   * benefit when all records match).
+   */
+  @Test
+  public void computeMinNeighborsForBuild_selectivityOne_neverBuilds() {
+    assertThat(EdgeTraversal.computeMinNeighborsForBuild(
+        100_000, 100.0, 1.0)).isEqualTo(Double.MAX_VALUE);
+  }
+
+  /** Selectivity > 1.0 is treated the same as 1.0 → Double.MAX_VALUE. */
+  @Test
+  public void computeMinNeighborsForBuild_selectivityAboveOne_neverBuilds() {
+    assertThat(EdgeTraversal.computeMinNeighborsForBuild(
+        100_000, 100.0, 1.5)).isEqualTo(Double.MAX_VALUE);
+  }
+
+  /**
+   * Unknown selectivity (-1.0) → 0.0 (build immediately to be conservative,
+   * per review finding T1).
+   */
+  @Test
+  public void computeMinNeighborsForBuild_unknownSelectivity_buildsImmediately() {
+    assertThat(EdgeTraversal.computeMinNeighborsForBuild(
+        100_000, 100.0, -1.0)).isEqualTo(0.0);
+  }
 }

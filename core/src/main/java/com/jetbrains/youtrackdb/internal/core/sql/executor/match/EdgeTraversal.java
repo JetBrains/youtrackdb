@@ -79,6 +79,15 @@ public class EdgeTraversal {
   @Nullable private SemiJoinDescriptor semiJoinDescriptor;
 
   /**
+   * Default load-to-scan cost ratio used in the build amortization formula.
+   * Represents how many times more expensive a random record load is compared
+   * to scanning one entry in a pre-built RidSet. The value 100 is a reasonable
+   * default for cold SSD storage. Track 5 replaces this with live metrics
+   * from {@code MetricsRegistry}.
+   */
+  static final double DEFAULT_LOAD_TO_SCAN_RATIO = 100.0;
+
+  /**
    * Fixed-capacity cache of resolved RidSets, keyed by
    * {@link RidFilterDescriptor#cacheKey}. Stops accepting new entries
    * at capacity — no eviction, no LRU bookkeeping. Allocated lazily
@@ -284,6 +293,46 @@ public class EdgeTraversal {
       cache.put(key, ridSet);
     }
     return ridSet;
+  }
+
+  /**
+   * Computes the minimum accumulated neighbor count (sum of link bag sizes
+   * across vertices) before building an {@code IndexLookup} RidSet is
+   * cost-effective.
+   *
+   * <p>The formula models the break-even point where the total scan savings
+   * from the pre-filter equal the one-time build cost:
+   * {@code estimatedSize / (loadToScanRatio * (1 - selectivity))}.
+   *
+   * <p>Boundary handling:
+   * <ul>
+   *   <li>{@code estimatedSize <= 0} → {@code 0.0} (build immediately —
+   *       trivially small or unknown size)</li>
+   *   <li>{@code selectivity < 0} → {@code 0.0} (unknown selectivity —
+   *       build immediately to be conservative, per review finding T1)</li>
+   *   <li>{@code selectivity >= 1.0} → {@link Double#MAX_VALUE} (never
+   *       build — no filtering benefit when all records match)</li>
+   *   <li>Normal case → {@code estimatedSize / (loadToScanRatio *
+   *       (1 - selectivity))}</li>
+   * </ul>
+   *
+   * @param estimatedSize    estimated RidSet size (index hits)
+   * @param loadToScanRatio  cost ratio of random load vs. RidSet scan
+   * @param selectivity      fraction of records matching (0.0–1.0)
+   * @return minimum accumulated link bag total to justify building
+   */
+  static double computeMinNeighborsForBuild(
+      int estimatedSize, double loadToScanRatio, double selectivity) {
+    if (estimatedSize <= 0) {
+      return 0.0;
+    }
+    if (selectivity < 0) {
+      return 0.0;
+    }
+    if (selectivity >= 1.0) {
+      return Double.MAX_VALUE;
+    }
+    return estimatedSize / (loadToScanRatio * (1.0 - selectivity));
   }
 
   @Override
