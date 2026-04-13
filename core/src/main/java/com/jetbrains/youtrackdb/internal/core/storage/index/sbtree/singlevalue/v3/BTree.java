@@ -337,7 +337,12 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
       // search key sorts before any real versioned entry with the same user-key
       // prefix. bucket.find() will return a negative insertion point at the first
       // entry with the matching prefix.
-      final var searchKey = buildSearchKey(key);
+      // Preprocess normalizes DATE (truncates time component) and LINK
+      // (unwraps Identifiable to RID) so the search key matches the stored
+      // representation. For common types (STRING, INTEGER, LONG) this is a no-op.
+      final var preprocessedKey =
+          keySerializer.preprocess(serializerFactory, key, (Object[]) keyTypes);
+      final var searchKey = buildSearchKey(preprocessedKey);
       // Serialize the search key for zero-allocation binary search in the bucket.
       // The serialized form is used by bucket.find(byte[], ...) which delegates
       // to IndexMultiValuKeySerializer.compareInByteBuffer() for field-by-field
