@@ -1,9 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
-import com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics;
-import com.jetbrains.youtrackdb.internal.common.profiler.metrics.MetricsRegistry;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Ratio;
-import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
@@ -576,9 +573,9 @@ public class MatchEdgeTraverser implements ExecutionStream {
     // it returns null without materializing. Only the first vertex whose
     // link bag is large enough triggers actual resolution and caching.
     if (edge.getIntersectionDescriptor() != null) {
-      // Resolve effectiveness metric once for all vertices in this call,
-      // not per-vertex — avoids repeated MetricsRegistry map lookups.
-      Ratio effectiveness = resolveEffectivenessMetric();
+      // Resolve effectiveness metric from the EdgeTraversal's cache,
+      // avoiding per-vertex MetricsRegistry map lookups.
+      Ratio effectiveness = edge.resolveEffectivenessMetric();
       int linkBagSize = pfli.size();
       if (linkBagSize < TraversalPreFilterHelper.minLinkBagSize()) {
         // Link bag too small for pre-filter to be worthwhile.
@@ -621,19 +618,6 @@ public class MatchEdgeTraverser implements ExecutionStream {
     }
 
     return pfli;
-  }
-
-  /**
-   * Resolves the {@link CoreMetrics#PREFILTER_EFFECTIVENESS} metric from
-   * the global registry, falling back to {@link Ratio#NOOP} when the
-   * registry is unavailable (early startup, tests without engine).
-   */
-  static Ratio resolveEffectivenessMetric() {
-    MetricsRegistry registry =
-        YouTrackDBEnginesManager.instance().getMetricsRegistry();
-    return registry != null
-        ? registry.globalMetric(CoreMetrics.PREFILTER_EFFECTIVENESS)
-        : Ratio.NOOP;
   }
 
   /**

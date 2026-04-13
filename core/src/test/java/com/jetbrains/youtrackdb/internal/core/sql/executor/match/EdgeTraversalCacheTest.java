@@ -11,6 +11,8 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Ratio;
+import com.jetbrains.youtrackdb.internal.common.profiler.metrics.TimeRate;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
@@ -1961,16 +1963,20 @@ public class EdgeTraversalCacheTest {
   // ---- Metric resolve fallback (null registry in unit test env) ----
 
   /**
-   * resolveEffectivenessMetric() must return a functional (non-null)
-   * Ratio regardless of whether a live MetricsRegistry is available.
-   * When no registry exists it falls back to NOOP; when one does exist
-   * it returns a live Impl. Either way, record() must not throw.
+   * resolveEffectivenessMetric() must return a functional Ratio that
+   * either resolves from the live registry (Impl) or falls back to
+   * NOOP. The cached reference is reused on subsequent calls, avoiding
+   * repeated ConcurrentHashMap lookups.
    */
   @Test
-  public void resolveEffectivenessMetricReturnsNonNull() {
-    var metric = MatchEdgeTraverser.resolveEffectivenessMetric();
+  public void resolveEffectivenessMetricReturnsCachedFunctionalMetric() {
+    var et = createEdgeTraversal();
+    var metric = et.resolveEffectivenessMetric();
     assertThat(metric).isNotNull();
+    assertThat(metric).isInstanceOfAny(Ratio.Impl.class, Ratio.NOOP.getClass());
     metric.record(50, 100);
+    // Second call returns the same cached reference.
+    assertThat(et.resolveEffectivenessMetric()).isSameAs(metric);
   }
 
   // ---- computeLiveCostRatio tests ----
@@ -2090,15 +2096,20 @@ public class EdgeTraversalCacheTest {
 
   /**
    * cacheHitPct beyond [0, 100] is clamped before use.
-   * A value of 200% should be treated as 100%.
+   * cacheHitPct=100 → hitFraction=1.0 → estimatedLoad = 500
+   * avgScanNanosPerEntry = 1_000_000/10_000 = 100
+   * ratio = 500/100 = 5.0 → clamped to MIN (5.0)
+   * A value of 200% should produce the same result as 100%.
    */
   @Test
   public void liveCostRatio_cacheHitPctClampedAbove100() {
     double ratioAt100 = EdgeTraversal.computeLiveCostRatio(
         1_000_000, 10_000, 100);
+    assertThat(ratioAt100).isEqualTo(EdgeTraversal.MIN_LOAD_TO_SCAN_RATIO);
+
     double ratioAt200 = EdgeTraversal.computeLiveCostRatio(
         1_000_000, 10_000, 200);
-    assertThat(ratioAt200).isEqualTo(ratioAt100);
+    assertThat(ratioAt200).isEqualTo(EdgeTraversal.MIN_LOAD_TO_SCAN_RATIO);
   }
 
   /**
@@ -2113,13 +2124,97 @@ public class EdgeTraversalCacheTest {
 
   /**
    * Negative cacheHitPct should be treated as 0%.
+   * cacheHitPct=0 → hitFraction=0 → estimatedLoad = 100000
+   * avgScanNanosPerEntry = 1_000_000/10_000 = 100
+   * ratio = 100000/100 = 1000 → clamped to MAX (1000)
    */
   @Test
   public void liveCostRatio_negativeCacheHitPctClampedToZero() {
     double ratioAt0 = EdgeTraversal.computeLiveCostRatio(
         1_000_000, 10_000, 0);
+    assertThat(ratioAt0).isEqualTo(EdgeTraversal.MAX_LOAD_TO_SCAN_RATIO);
+
     double ratioAtNeg = EdgeTraversal.computeLiveCostRatio(
         1_000_000, 10_000, -50);
-    assertThat(ratioAtNeg).isEqualTo(ratioAt0);
+    assertThat(ratioAtNeg).isEqualTo(EdgeTraversal.MAX_LOAD_TO_SCAN_RATIO);
+  }
+
+  // ---- Infinity/NaN symmetric coverage for all parameters (TC3, TB3) ----
+
+  /**
+   * Infinity cacheHitPct should fall back to default, not silently
+   * treat the cache as 100% hit (which would underestimate load cost).
+   */
+  @Test
+  public void liveCostRatio_infinityCacheHitPct_fallback() {
+    assertThat(EdgeTraversal.computeLiveCostRatio(
+        1_000_000, 10_000, Double.POSITIVE_INFINITY))
+        .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
+    assertThat(EdgeTraversal.computeLiveCostRatio(
+        1_000_000, 10_000, Double.NEGATIVE_INFINITY))
+        .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
+  }
+
+  /** NaN in scanEntriesRate also falls back to default. */
+  @Test
+  public void liveCostRatio_nanScanEntries_fallback() {
+    assertThat(EdgeTraversal.computeLiveCostRatio(1000, Double.NaN, 50))
+        .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
+  }
+
+  /** POSITIVE_INFINITY in scanNanosRate also falls back to default. */
+  @Test
+  public void liveCostRatio_infinityScanNanos_fallback() {
+    assertThat(EdgeTraversal.computeLiveCostRatio(
+        Double.POSITIVE_INFINITY, 1000, 50))
+        .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
+  }
+
+  /** NEGATIVE_INFINITY in either rate parameter → fallback. */
+  @Test
+  public void liveCostRatio_negativeInfinityRates_fallback() {
+    assertThat(EdgeTraversal.computeLiveCostRatio(
+        Double.NEGATIVE_INFINITY, 1000, 50))
+        .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
+    assertThat(EdgeTraversal.computeLiveCostRatio(
+        1000, Double.NEGATIVE_INFINITY, 50))
+        .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
+  }
+
+  // ---- copy() resets metric references and cached live ratio (TC1) ----
+
+  /**
+   * copy() must reset all metric reference fields and the cached live
+   * ratio — stale metric data from a previous execution must not leak
+   * into a new plan instance. If cachedLiveRatio leaked, the new query
+   * would skip live ratio recomputation (NaN sentinel check at
+   * resolveLoadToScanRatio).
+   */
+  @Test
+  public void copy_resetsMetricReferencesAndCachedLiveRatio() throws Exception {
+    var et = createEdgeTraversal();
+
+    // Set non-default values via reflection.
+    setField(et, "cachedScanNanos", TimeRate.NOOP);
+    setField(et, "cachedScanEntries", TimeRate.NOOP);
+    setField(et, "cachedCacheHitRatio", Ratio.NOOP);
+    setField(et, "cachedLiveRatio", 42.0);
+    setField(et, "cachedEffectiveness", Ratio.NOOP);
+
+    var copy = et.copy();
+
+    // All metric fields must be at their initial defaults.
+    assertThat(getField(copy, "cachedScanNanos")).isNull();
+    assertThat(getField(copy, "cachedScanEntries")).isNull();
+    assertThat(getField(copy, "cachedCacheHitRatio")).isNull();
+    assertThat((double) getField(copy, "cachedLiveRatio")).isNaN();
+    assertThat(getField(copy, "cachedEffectiveness")).isNull();
+  }
+
+  private static Object getField(Object target, String fieldName)
+      throws Exception {
+    var field = target.getClass().getDeclaredField(fieldName);
+    field.setAccessible(true);
+    return field.get(target);
   }
 }
