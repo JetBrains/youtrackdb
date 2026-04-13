@@ -109,25 +109,32 @@ import org.junit.Test;
  */
 public class PageOperationRegistryTest {
 
+  private static final LogSequenceNumber INITIAL_LSN = new LogSequenceNumber(1, 100);
+  private static final long PAGE_INDEX = 7;
+  private static final long FILE_ID = 13;
+  private static final long OP_UNIT_ID = 99;
+
   @BeforeClass
   public static void register() {
     PageOperationRegistry.registerAll(WALRecordsFactory.INSTANCE);
   }
 
   /**
-   * Verifies that all 95 registered record IDs survive a full WALRecordsFactory roundtrip:
-   * toStream → fromStream. Uses non-zero field values for all parameters (including parent
-   * fields) and verifies full field-level equality via equals(), not just class/ID match.
+   * Builds the canonical array of all 95 PageOperation instances with non-zero field values.
+   * Shared by roundtrip, equals-contract, and inequality tests.
    */
-  @Test
-  public void testAllRegisteredTypesRoundtrip() {
-    var initialLsn = new LogSequenceNumber(1, 100);
-    // Use non-zero values for parent fields to verify they survive the factory pipeline
-    long pageIndex = 7;
-    long fileId = 13;
-    long opUnitId = 99;
+  private static PageOperation[] buildAllOps() {
+    return buildAllOps(PAGE_INDEX, FILE_ID, OP_UNIT_ID, INITIAL_LSN);
+  }
 
-    PageOperation[] ops = {
+  /**
+   * Builds the canonical array of all 95 PageOperation instances with the given parent field
+   * values. Allows creating structurally identical ops with different base fields for inequality
+   * testing.
+   */
+  private static PageOperation[] buildAllOps(
+      long pageIndex, long fileId, long opUnitId, LogSequenceNumber initialLsn) {
+    return new PageOperation[] {
         // Track 2-3: Collection types (18 ops)
         new PaginatedCollectionStateV2SetFileSizeOp(pageIndex, fileId, opUnitId, initialLsn, 42),
         new PaginatedCollectionStateV2SetApproxRecordsCountOp(
@@ -321,7 +328,16 @@ public class PageOperationRegistryTest {
             pageIndex, fileId, opUnitId, initialLsn,
             0, new byte[] {10, 20}, 2),
     };
+  }
 
+  /**
+   * Verifies that all 95 registered record IDs survive a full WALRecordsFactory roundtrip:
+   * toStream → fromStream. Uses non-zero field values for all parameters (including parent
+   * fields) and verifies full field-level equality via equals(), not just class/ID match.
+   */
+  @Test
+  public void testAllRegisteredTypesRoundtrip() {
+    PageOperation[] ops = buildAllOps();
     for (PageOperation op : ops) {
       ByteBuffer serialized = WALRecordsFactory.toStream(op);
       var content = new byte[serialized.limit()];
@@ -334,6 +350,9 @@ public class PageOperationRegistryTest {
       Assert.assertEquals(
           "Full field-level equality failed for " + op.getClass().getSimpleName(),
           op, deserialized);
+      Assert.assertEquals(
+          "hashCode must be consistent with equals for " + op.getClass().getSimpleName(),
+          op.hashCode(), deserialized.hashCode());
     }
   }
 
@@ -373,6 +392,142 @@ public class PageOperationRegistryTest {
 
     WriteableWALRecord deserialized = WALRecordsFactory.INSTANCE.fromStream(content);
     Assert.assertEquals(CollectionPageInitOp.class, deserialized.getClass());
+  }
+
+  /**
+   * Verifies reflexive equals: every PageOperation must be equal to itself. This exercises the
+   * {@code this == o} identity check (true branch) in each subclass's equals() method.
+   */
+  @Test
+  public void testAllOperationsReflexiveEquals() {
+    PageOperation[] ops = buildAllOps();
+    for (PageOperation op : ops) {
+      Assert.assertEquals(
+          "Reflexive equals failed for " + op.getClass().getSimpleName(), op, op);
+    }
+  }
+
+  /**
+   * Verifies null and wrong-type inequality: every PageOperation must not be equal to null or a
+   * String. This exercises the {@code instanceof} check (false branch) in each subclass's
+   * equals() method.
+   */
+  @Test
+  public void testAllOperationsNullAndWrongTypeInequality() {
+    PageOperation[] ops = buildAllOps();
+    for (PageOperation op : ops) {
+      var name = op.getClass().getSimpleName();
+      Assert.assertFalse("Should not equal null: " + name, op.equals(null));
+      Assert.assertFalse("Should not equal wrong type: " + name, op.equals("wrong-type"));
+    }
+  }
+
+  /**
+   * Verifies that two PageOperation instances with different parent fields (pageIndex, fileId,
+   * operationUnitId) are not equal, even when subclass-specific fields are identical. This
+   * exercises the {@code super.equals(o)} false branch in each subclass's equals() method.
+   */
+  @Test
+  public void testAllOperationsDifferentBaseFieldsInequality() {
+    PageOperation[] opsA = buildAllOps();
+    // Any values distinct from the canonical constants suffice —
+    // we only need the parent fields to differ so super.equals() returns false.
+    PageOperation[] opsB = buildAllOps(
+        PAGE_INDEX + 1, FILE_ID + 1, OP_UNIT_ID + 1, new LogSequenceNumber(2, 200));
+
+    for (int i = 0; i < opsA.length; i++) {
+      var name = opsA[i].getClass().getSimpleName();
+      Assert.assertNotEquals(
+          "Different base fields should not be equal: " + name, opsA[i], opsB[i]);
+    }
+  }
+
+  /**
+   * Verifies that two instances differing only in initialLsn are not equal. This isolates the
+   * initialLsn comparison in {@link PageOperation#equals(Object)} — the field that PageOperation
+   * adds above AbstractPageWALRecord. Without this, a mutation removing the initialLsn check
+   * would pass all other inequality tests (which change multiple base fields simultaneously).
+   */
+  @Test
+  public void testAllOperationsDifferentInitialLsnInequality() {
+    var lsnA = new LogSequenceNumber(1, 100);
+    var lsnB = new LogSequenceNumber(1, 101);
+    PageOperation[] opsA = buildAllOps(PAGE_INDEX, FILE_ID, OP_UNIT_ID, lsnA);
+    PageOperation[] opsB = buildAllOps(PAGE_INDEX, FILE_ID, OP_UNIT_ID, lsnB);
+
+    for (int i = 0; i < opsA.length; i++) {
+      var name = opsA[i].getClass().getSimpleName();
+      Assert.assertNotEquals(
+          "Different initialLsn should not be equal: " + name, opsA[i], opsB[i]);
+    }
+  }
+
+  /**
+   * Verifies that two instances with identical base fields but different subclass-specific fields
+   * are not equal. This exercises the field-comparison return value (the final
+   * {@code return field == that.field} expression) in each representative subclass's equals()
+   * method. Covers one type per distinct field pattern: int, long, short, boolean, byte[],
+   * List-of-byte[].
+   */
+  @Test
+  public void testRepresentativeSubclassFieldInequality() {
+    // int field: PaginatedCollectionStateV2SetFileSizeOp.size
+    Assert.assertNotEquals("Different size",
+        new PaginatedCollectionStateV2SetFileSizeOp(
+            PAGE_INDEX, FILE_ID, OP_UNIT_ID, INITIAL_LSN, 42),
+        new PaginatedCollectionStateV2SetFileSizeOp(
+            PAGE_INDEX, FILE_ID, OP_UNIT_ID, INITIAL_LSN, 43));
+
+    // long field: SBTreeBucketV2SetTreeSizeOp.treeSize
+    Assert.assertNotEquals("Different treeSize",
+        new SBTreeBucketV2SetTreeSizeOp(
+            PAGE_INDEX, FILE_ID, OP_UNIT_ID, INITIAL_LSN, 100L),
+        new SBTreeBucketV2SetTreeSizeOp(
+            PAGE_INDEX, FILE_ID, OP_UNIT_ID, INITIAL_LSN, 200L));
+
+    // boolean field: SBTreeBucketV2InitOp.isLeaf
+    Assert.assertNotEquals("Different isLeaf",
+        new SBTreeBucketV2InitOp(
+            PAGE_INDEX, FILE_ID, OP_UNIT_ID, INITIAL_LSN, true),
+        new SBTreeBucketV2InitOp(
+            PAGE_INDEX, FILE_ID, OP_UNIT_ID, INITIAL_LSN, false));
+
+    // byte[] field: SBTreeNullBucketV2SetValueOp.value
+    Assert.assertNotEquals("Different value bytes",
+        new SBTreeNullBucketV2SetValueOp(
+            PAGE_INDEX, FILE_ID, OP_UNIT_ID, INITIAL_LSN, new byte[] {1, 2}),
+        new SBTreeNullBucketV2SetValueOp(
+            PAGE_INDEX, FILE_ID, OP_UNIT_ID, INITIAL_LSN, new byte[] {3, 4}));
+
+    // List<byte[]> field: BTreeSVBucketV3AddAllOp.rawEntries
+    Assert.assertNotEquals("Different rawEntries",
+        new BTreeSVBucketV3AddAllOp(
+            PAGE_INDEX, FILE_ID, OP_UNIT_ID, INITIAL_LSN,
+            List.of(new byte[] {1, 2, 3})),
+        new BTreeSVBucketV3AddAllOp(
+            PAGE_INDEX, FILE_ID, OP_UNIT_ID, INITIAL_LSN,
+            List.of(new byte[] {9, 9, 9})));
+
+    // short field: BTreeMVNullBucketV2AddValueOp.clusterId
+    Assert.assertNotEquals("Different clusterId",
+        new BTreeMVNullBucketV2AddValueOp(
+            PAGE_INDEX, FILE_ID, OP_UNIT_ID, INITIAL_LSN, (short) 5, 1000L),
+        new BTreeMVNullBucketV2AddValueOp(
+            PAGE_INDEX, FILE_ID, OP_UNIT_ID, INITIAL_LSN, (short) 6, 1000L));
+
+    // Multi-field: CollectionPageDeleteRecordOp — different position, same boolean
+    Assert.assertNotEquals("Different position",
+        new CollectionPageDeleteRecordOp(
+            PAGE_INDEX, FILE_ID, OP_UNIT_ID, INITIAL_LSN, 5, true),
+        new CollectionPageDeleteRecordOp(
+            PAGE_INDEX, FILE_ID, OP_UNIT_ID, INITIAL_LSN, 6, true));
+
+    // Multi-field: same position, different boolean
+    Assert.assertNotEquals("Different preserveFreeListPointer",
+        new CollectionPageDeleteRecordOp(
+            PAGE_INDEX, FILE_ID, OP_UNIT_ID, INITIAL_LSN, 5, true),
+        new CollectionPageDeleteRecordOp(
+            PAGE_INDEX, FILE_ID, OP_UNIT_ID, INITIAL_LSN, 5, false));
   }
 
   /**
