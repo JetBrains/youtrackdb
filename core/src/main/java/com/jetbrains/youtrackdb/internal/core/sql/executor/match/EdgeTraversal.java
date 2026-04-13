@@ -292,34 +292,35 @@ public class EdgeTraversal {
     }
 
     // 4. Descriptor-specific selectivity check against estimate.
+    //    For IndexLookup: handled together with the build amortization
+    //    guard below (step 4b) to avoid redundant estimateSelectivity()
+    //    calls — the selectivity is cached once and reused for both the
+    //    threshold check and the amortization formula.
     //    For EdgeRidLookup: per-vertex overlap ratio (DON'T cache null —
     //    a later vertex with a larger link bag may benefit).
-    //    For IndexLookup: class-level selectivity (vertex-independent —
-    //    cache null if it fails since the result won't change).
     //    For DirectRid: always passes (never reaches this branch in
     //    practice since estimatedSize is 1).
-    if (estimatedSize >= 0
-        && !desc.passesSelectivityCheck(estimatedSize, linkBagSize, ctx)) {
-      if (desc instanceof RidFilterDescriptor.IndexLookup
-          && key != null && cache.size() < CACHE_CAPACITY) {
-        // IndexLookup selectivity is class-level (constant) — safe to
-        // cache the rejection permanently.
-        cache.put(key, null);
-      }
-      return null;
-    }
-
-    // 4b. Build amortization guard for IndexLookup.
-    //     Accumulate link bag sizes across vertices and defer
-    //     materialization until the total justifies the build cost.
-    //     EdgeRidLookup/DirectRid/Composite paths are unaffected.
     if (desc instanceof RidFilterDescriptor.IndexLookup indexLookup) {
-      // Cache selectivity on first call — class-level, constant per query.
+      // 4a. Cache selectivity on first call — class-level, constant per query.
       if (Double.isNaN(indexLookupSelectivity)) {
         indexLookupSelectivity =
             indexLookup.indexDescriptor().estimateSelectivity(ctx);
       }
-      // Unknown selectivity (-1.0): bypass accumulator, build immediately.
+      // 4b. Selectivity threshold check (replaces passesSelectivityCheck
+      //     for IndexLookup to reuse the cached value).
+      if (estimatedSize >= 0
+          && indexLookupSelectivity >= 0
+          && indexLookupSelectivity
+              > TraversalPreFilterHelper.indexLookupMaxSelectivity()) {
+        // Class-level selectivity too high — cache null permanently.
+        if (key != null && cache.size() < CACHE_CAPACITY) {
+          cache.put(key, null);
+        }
+        return null;
+      }
+      // 4c. Build amortization guard: accumulate link bag sizes across
+      //     vertices and defer materialization until the total justifies
+      //     the build cost.
       if (indexLookupSelectivity >= 0) {
         accumulatedLinkBagTotal += linkBagSize;
         double minNeighbors = computeMinNeighborsForBuild(
@@ -334,6 +335,10 @@ public class EdgeTraversal {
         }
       }
       // Threshold met (or unknown selectivity) — fall through to materialize.
+    } else if (estimatedSize >= 0
+        && !desc.passesSelectivityCheck(estimatedSize, linkBagSize, ctx)) {
+      // EdgeRidLookup / DirectRid / Composite: delegate to the descriptor.
+      return null;
     }
 
     // 5. First big-enough hit — resolve (materialize) and cache.
@@ -410,8 +415,10 @@ public class EdgeTraversal {
     copy.acceptedCollectionIds = acceptedCollectionIds;
     copy.consumed = consumed;
     copy.consumedPredecessor = consumedPredecessor;
-    // Cache is intentionally not copied — stale data from a previous
-    // execution must not leak into a new plan instance.
+    // Cache, accumulatedLinkBagTotal, and indexLookupSelectivity are
+    // intentionally not copied — stale data from a previous execution
+    // must not leak into a new plan instance. The constructor and field
+    // initializers reset them to their correct initial values.
     return copy;
   }
 }
