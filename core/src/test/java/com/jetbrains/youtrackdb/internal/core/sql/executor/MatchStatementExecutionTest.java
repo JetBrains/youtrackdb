@@ -2337,9 +2337,9 @@ public class MatchStatementExecutionTest extends DbTestBase {
   }
 
   /**
-   * Exercises explain() with NOT pattern. After Track 2 (YTDB-592), NOT patterns that
-   * qualify for hash anti-join produce "HASH ANTI_JOIN" in the EXPLAIN output instead
-   * of "NOT". This test accepts either form.
+   * Exercises explain() with NOT pattern. NOT patterns that qualify for hash
+   * anti-join produce "HASH ANTI_JOIN" in the EXPLAIN output instead of "NOT".
+   * This test accepts either form.
    */
   @Test
   public void testExplainMatchNotPattern() {

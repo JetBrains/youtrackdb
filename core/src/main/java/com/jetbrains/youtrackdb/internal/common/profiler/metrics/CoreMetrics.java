@@ -26,7 +26,7 @@ public class CoreMetrics {
               TimeInterval.of(1, TimeUnit.SECONDS),
               100.0));
 
-  // ---- Pre-filter index scan metrics (YTDB-650 Track 5) ----
+  // ---- Pre-filter index scan metrics ----
 
   public static final MetricDefinition<MetricScope.Global, TimeRate> PREFILTER_SCAN_NANOS =
       new MetricDefinition<>(

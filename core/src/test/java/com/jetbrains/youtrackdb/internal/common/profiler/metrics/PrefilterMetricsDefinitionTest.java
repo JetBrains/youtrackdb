@@ -9,7 +9,7 @@ import org.junit.Test;
 
 /**
  * Verifies the CoreMetrics definitions added for pre-filter live cost
- * calibration (Track 5): metric types, GLOBAL_METRICS registration,
+ * calibration: metric types, GLOBAL_METRICS registration,
  * and the config entry for explicit load-to-scan ratio override.
  */
 public class PrefilterMetricsDefinitionTest {
