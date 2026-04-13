@@ -31,11 +31,12 @@ public class TraversalPreFilterHelperTest {
     GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.setValue(100_000);
     GlobalConfiguration.QUERY_PREFILTER_MAX_SELECTIVITY_RATIO.setValue(0.8);
     GlobalConfiguration.QUERY_PREFILTER_MIN_LINKBAG_SIZE.setValue(50);
-    // Reset new split config entries to their defaults. Note: isChanged()
-    // will remain true after setValue(), but the value itself is correct.
-    GlobalConfiguration.QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO.setValue(0.8);
+    // Reset new split config entries fully — resetToDefault() restores the
+    // "never explicitly set" state so isChanged() returns false and the
+    // fallback path in edgeLookupMaxRatio() is testable.
+    GlobalConfiguration.QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO.resetToDefault();
     GlobalConfiguration.QUERY_PREFILTER_INDEX_LOOKUP_MAX_SELECTIVITY
-        .setValue(0.95);
+        .resetToDefault();
   }
 
   // =========================================================================
@@ -376,15 +377,30 @@ public class TraversalPreFilterHelperTest {
   /**
    * indexLookupMaxSelectivity reads from its own config entry, not the
    * old selectivity ratio. Even when the old property changes, the index
-   * lookup threshold is independent.
+   * lookup threshold is independent. Uses a non-default value (0.88) to
+   * ensure the test would fail if the implementation returned a hardcoded
+   * default.
    */
   @Test
   public void indexLookupMaxSelectivity_independentOfOldConfig() {
     GlobalConfiguration.QUERY_PREFILTER_INDEX_LOOKUP_MAX_SELECTIVITY
-        .setValue(0.95);
+        .setValue(0.88);
     GlobalConfiguration.QUERY_PREFILTER_MAX_SELECTIVITY_RATIO.setValue(0.5);
-    // Should read from its own entry (0.95), not old (0.5)
+    // Should read from its own entry (0.88), not old (0.5)
     assertThat(TraversalPreFilterHelper.indexLookupMaxSelectivity())
-        .isEqualTo(0.95);
+        .isEqualTo(0.88);
+  }
+
+  /**
+   * When the new edge lookup config is NOT explicitly set, edgeLookupMaxRatio
+   * falls back to the old maxSelectivityRatio property. This is the critical
+   * backward-compatibility path for existing deployments.
+   */
+  @Test
+  public void edgeLookupMaxRatio_fallsBackToOldConfig() {
+    // Ensure new config is in "never set" state (resetToDefault in @After)
+    GlobalConfiguration.QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO.resetToDefault();
+    GlobalConfiguration.QUERY_PREFILTER_MAX_SELECTIVITY_RATIO.setValue(0.55);
+    assertThat(TraversalPreFilterHelper.edgeLookupMaxRatio()).isEqualTo(0.55);
   }
 }

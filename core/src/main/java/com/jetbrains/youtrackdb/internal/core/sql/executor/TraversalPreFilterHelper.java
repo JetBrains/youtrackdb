@@ -54,9 +54,8 @@ public final class TraversalPreFilterHelper {
    * <ol>
    *   <li>New {@code QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO} if explicitly
    *       set</li>
-   *   <li>Old {@code QUERY_PREFILTER_MAX_SELECTIVITY_RATIO} as fallback
-   *       (same overlap-ratio semantics)</li>
-   *   <li>New property's default (0.8)</li>
+   *   <li>Old {@code QUERY_PREFILTER_MAX_SELECTIVITY_RATIO} value as
+   *       fallback (same overlap-ratio semantics; default 0.8)</li>
    * </ol>
    */
   public static double edgeLookupMaxRatio() {
