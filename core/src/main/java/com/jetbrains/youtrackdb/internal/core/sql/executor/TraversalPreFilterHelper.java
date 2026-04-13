@@ -91,6 +91,22 @@ public final class TraversalPreFilterHelper {
     return GlobalConfiguration.QUERY_PREFILTER_MIN_LINKBAG_SIZE.getValueAsInteger();
   }
 
+  /**
+   * Returns the explicitly configured load-to-scan cost ratio, or
+   * {@code -1.0} if not explicitly set (auto-compute from live metrics).
+   * A positive return value overrides live metric computation.
+   */
+  public static double configuredLoadToScanRatio() {
+    if (GlobalConfiguration.QUERY_PREFILTER_LOAD_TO_SCAN_RATIO.isChanged()) {
+      double value =
+          GlobalConfiguration.QUERY_PREFILTER_LOAD_TO_SCAN_RATIO.getValueAsDouble();
+      if (value > 0) {
+        return value;
+      }
+    }
+    return -1.0;
+  }
+
   /** Number of index/edge results between adaptive-abort checks. */
   private static final int CHECKPOINT_INTERVAL_MASK = 0x3FF; // every 1024
 
