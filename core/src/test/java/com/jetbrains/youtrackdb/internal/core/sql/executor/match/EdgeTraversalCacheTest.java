@@ -1972,4 +1972,144 @@ public class EdgeTraversalCacheTest {
     assertThat(metric).isNotNull();
     metric.record(50, 100);
   }
+
+  // ---- computeLiveCostRatio tests ----
+
+  /**
+   * Cold start: both rates are 0 → falls back to DEFAULT_LOAD_TO_SCAN_RATIO.
+   */
+  @Test
+  public void liveCostRatio_coldStart_fallsBackToDefault() {
+    assertThat(EdgeTraversal.computeLiveCostRatio(0, 0, 0))
+        .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
+  }
+
+  /**
+   * Warm cache (cacheHitPct=95, moderate scan speed): the ratio should
+   * be lower than the default because loads are mostly from cache.
+   * estimatedLoadNanos = 0.05 * 100000 + 0.95 * 500 = 5475
+   * avgScanNanosPerEntry = 1000000 / 10000 = 100
+   * ratio = 5475 / 100 = 54.75
+   */
+  @Test
+  public void liveCostRatio_warmCache_lowRatio() {
+    double ratio = EdgeTraversal.computeLiveCostRatio(
+        1_000_000, 10_000, 95);
+    assertThat(ratio).isCloseTo(54.75, Offset.offset(0.01));
+  }
+
+  /**
+   * Cold storage (cacheHitPct=10, fast scans): the ratio should be
+   * higher because most loads are cold SSD reads.
+   * estimatedLoadNanos = 0.9 * 100000 + 0.1 * 500 = 90050
+   * avgScanNanosPerEntry = 1000000 / 10000 = 100
+   * ratio = 90050 / 100 = 900.5
+   */
+  @Test
+  public void liveCostRatio_coldStorage_highRatio() {
+    double ratio = EdgeTraversal.computeLiveCostRatio(
+        1_000_000, 10_000, 10);
+    assertThat(ratio).isCloseTo(900.5, Offset.offset(0.01));
+  }
+
+  /**
+   * Asymmetric zero: scanNanos > 0 but scanEntries == 0 → fallback.
+   */
+  @Test
+  public void liveCostRatio_scanNanosOnlyZeroEntries_fallback() {
+    assertThat(EdgeTraversal.computeLiveCostRatio(1000, 0, 50))
+        .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
+  }
+
+  /**
+   * Asymmetric zero: scanEntries > 0 but scanNanos == 0 → fallback.
+   */
+  @Test
+  public void liveCostRatio_zeroNanosPositiveEntries_fallback() {
+    assertThat(EdgeTraversal.computeLiveCostRatio(0, 1000, 50))
+        .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
+  }
+
+  /**
+   * NaN input for scanNanosRate → fallback.
+   */
+  @Test
+  public void liveCostRatio_nanInput_fallback() {
+    assertThat(EdgeTraversal.computeLiveCostRatio(
+        Double.NaN, 1000, 50))
+        .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
+  }
+
+  /**
+   * Infinity input for scanEntriesRate → fallback.
+   */
+  @Test
+  public void liveCostRatio_infinityInput_fallback() {
+    assertThat(EdgeTraversal.computeLiveCostRatio(
+        1000, Double.POSITIVE_INFINITY, 50))
+        .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
+  }
+
+  /**
+   * Negative inputs → fallback (negative rates are nonsensical).
+   */
+  @Test
+  public void liveCostRatio_negativeRates_fallback() {
+    assertThat(EdgeTraversal.computeLiveCostRatio(-100, 1000, 50))
+        .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
+    assertThat(EdgeTraversal.computeLiveCostRatio(100, -1000, 50))
+        .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
+  }
+
+  /**
+   * Very fast scans with cold storage → ratio would exceed MAX,
+   * so it gets clamped to MAX_LOAD_TO_SCAN_RATIO.
+   * estimatedLoadNanos = 1.0 * 100000 = 100000 (0% cache hit)
+   * avgScanNanosPerEntry = 10 / 10 = 1
+   * raw ratio = 100000 → clamped to MAX (1000)
+   */
+  @Test
+  public void liveCostRatio_clampedToMax() {
+    double ratio = EdgeTraversal.computeLiveCostRatio(10, 10, 0);
+    assertThat(ratio).isEqualTo(EdgeTraversal.MAX_LOAD_TO_SCAN_RATIO);
+  }
+
+  /**
+   * Very slow scans with warm cache → ratio would be below MIN,
+   * so it gets clamped to MIN_LOAD_TO_SCAN_RATIO.
+   * estimatedLoadNanos = 0.0 * 100000 + 1.0 * 500 = 500 (100% cache hit)
+   * avgScanNanosPerEntry = 100000000 / 1000 = 100000
+   * raw ratio = 500 / 100000 = 0.005 → clamped to MIN (5)
+   */
+  @Test
+  public void liveCostRatio_clampedToMin() {
+    double ratio = EdgeTraversal.computeLiveCostRatio(
+        100_000_000, 1000, 100);
+    assertThat(ratio).isEqualTo(EdgeTraversal.MIN_LOAD_TO_SCAN_RATIO);
+  }
+
+  /**
+   * cacheHitPct beyond [0, 100] is clamped before use.
+   * A value of 200% should be treated as 100%.
+   */
+  @Test
+  public void liveCostRatio_cacheHitPctClampedAbove100() {
+    double ratioAt100 = EdgeTraversal.computeLiveCostRatio(
+        1_000_000, 10_000, 100);
+    double ratioAt200 = EdgeTraversal.computeLiveCostRatio(
+        1_000_000, 10_000, 200);
+    assertThat(ratioAt200).isEqualTo(ratioAt100);
+  }
+
+  /**
+   * Negative cacheHitPct should be treated as 0%.
+   */
+  @Test
+  public void liveCostRatio_negativeCacheHitPctClampedToZero() {
+    double ratioAt0 = EdgeTraversal.computeLiveCostRatio(
+        1_000_000, 10_000, 0);
+    double ratioAtNeg = EdgeTraversal.computeLiveCostRatio(
+        1_000_000, 10_000, -50);
+    assertThat(ratioAtNeg).isEqualTo(ratioAt0);
+  }
 }
