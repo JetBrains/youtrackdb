@@ -2807,10 +2807,19 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
 
       final var key = keyBucket.getKey(i, keySerializer, serializerFactory);
 
-      // Extract version — always the last element of the CompositeKey
+      // Extract version — always the last element of the CompositeKey.
+      // Defensive: guard against empty keys or non-Long last element to
+      // avoid NoSuchElementException / ClassCastException if the BTree
+      // is ever used with a non-standard key structure.
       final long version;
       if (key instanceof CompositeKey compositeKey) {
-        version = (Long) compositeKey.getKeys().getLast();
+        final var keys = compositeKey.getKeys();
+        if (keys.isEmpty() || !(keys.getLast() instanceof Long v)) {
+          survivors.add(
+              keyBucket.getRawEntry(i, keySerializer, serializerFactory));
+          continue;
+        }
+        version = v;
       } else {
         // Not a versioned key — keep as-is
         survivors.add(
