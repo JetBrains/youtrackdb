@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.engine.EquiDepthHistogram;
@@ -154,7 +153,8 @@ public class IndexSearchDescriptor {
       return Integer.MAX_VALUE;
     }
 
-    double selectivity = computeRawSelectivity(session, ctx);
+    double selectivity = computeRawSelectivity(
+        indexStats, index.getHistogram(session), ctx);
     if (selectivity < 0) {
       return Integer.MAX_VALUE;
     }
@@ -320,7 +320,8 @@ public class IndexSearchDescriptor {
     if (indexStats == null || indexStats.totalCount() == 0) {
       return -1;
     }
-    double selectivity = computeRawSelectivity(session, ctx);
+    double selectivity = computeRawSelectivity(
+        indexStats, index.getHistogram(session), ctx);
     if (selectivity < 0) {
       return -1;
     }
@@ -350,7 +351,8 @@ public class IndexSearchDescriptor {
     if (indexStats == null || indexStats.totalCount() == 0) {
       return -1.0;
     }
-    double selectivity = computeRawSelectivity(session, ctx);
+    double selectivity = computeRawSelectivity(
+        indexStats, index.getHistogram(session), ctx);
     if (selectivity < 0) {
       return -1.0;
     }
@@ -364,12 +366,13 @@ public class IndexSearchDescriptor {
    * or {@code -1.0} if estimation is not possible (field mismatch,
    * non-constant value, or unsupported operator).
    *
-   * <p>Callers are responsible for null-checking statistics before calling.
+   * <p>Callers are responsible for null-checking {@code indexStats}
+   * before calling. The histogram may be {@code null} (in which case
+   * default selectivity estimation is used).
    */
   private double computeRawSelectivity(
-      DatabaseSessionEmbedded session, CommandContext ctx) {
-    var indexStats = index.getStatistics(session);
-    var histogram = index.getHistogram(session);
+      IndexStatistics indexStats, @Nullable EquiDepthHistogram histogram,
+      CommandContext ctx) {
 
     var subBlocks = getSubBlocks();
     var leadingField = index.getDefinition().getProperties().getFirst();

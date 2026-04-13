@@ -65,9 +65,9 @@ public sealed interface RidFilterDescriptor {
    * (exceeding {@link TraversalPreFilterHelper#maxRidSetSize()}).
    *
    * <p>Resolution uses only the absolute cap to bound materialization.
-   * Per-vertex ratio checks (comparing RidSet size against the actual
-   * link bag size) are performed by the caller — see
-   * {@link TraversalPreFilterHelper#passesRatioCheck}.
+   * Per-vertex selectivity checks are performed by the caller — the
+   * MATCH engine uses {@link #passesSelectivityCheck}, while the SELECT
+   * engine uses {@link TraversalPreFilterHelper#passesRatioCheck}.
    *
    * <p>Implementations should use the pre-computed {@code cacheKey}
    * when available to avoid re-evaluating the expression.

@@ -575,9 +575,16 @@ public class MatchEdgeTraverser implements ExecutionStream {
       int linkBagSize = pfli.size();
       if (linkBagSize >= TraversalPreFilterHelper.minLinkBagSize()) {
         var ridSet = edge.resolveWithCache(ctx, linkBagSize);
+        // IndexLookup selectivity is class-level (constant per query) — if
+        // resolveWithCache returned non-null the check already passed, so
+        // skip the redundant per-vertex recomputation.  EdgeRidLookup still
+        // needs the per-vertex re-check because resolveWithCache used an
+        // estimate, but applyPreFilter has the actual ridSet.size().
         if (ridSet != null
-            && edge.getIntersectionDescriptor()
-                .passesSelectivityCheck(ridSet.size(), linkBagSize, ctx)) {
+            && (edge.getIntersectionDescriptor() instanceof RidFilterDescriptor.IndexLookup
+                || edge.getIntersectionDescriptor()
+                    .passesSelectivityCheck(
+                        ridSet.size(), linkBagSize, ctx))) {
           this.currentPreFilterRids = ridSet;
           if (logger.isDebugEnabled()) {
             logger.debug(

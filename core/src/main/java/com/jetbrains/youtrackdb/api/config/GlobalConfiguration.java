@@ -1511,6 +1511,18 @@ public enum GlobalConfiguration {
     return value != nullValue;
   }
 
+  /**
+   * Resets this configuration entry to its default state, as if it was
+   * never explicitly set. After calling this, {@link #isChanged()} returns
+   * {@code false} and {@link #getValue()} returns the declared default.
+   *
+   * <p>Intended for test teardown only — production code should use
+   * {@link #setValue(Object)} instead.
+   */
+  public void resetToDefault() {
+    value = nullValue;
+  }
+
   public void setValue(final Object iValue) {
     var oldValue = value;
 

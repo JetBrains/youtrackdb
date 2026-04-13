@@ -24,6 +24,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.RidSet;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
+import java.util.List;
 import org.junit.Test;
 
 /**
@@ -433,7 +434,7 @@ public class EdgeTraversalCacheTest {
     when(desc2.resolve(any(), any())).thenReturn(set2);
 
     var composite = new RidFilterDescriptor.Composite(
-        java.util.List.of(desc1, desc2));
+        List.of(desc1, desc2));
     var result = composite.resolve(new BasicCommandContext(), null);
 
     assertThat(result).isNotNull();
@@ -455,7 +456,7 @@ public class EdgeTraversalCacheTest {
     when(desc2.resolve(any(), any())).thenReturn(null);
 
     var composite = new RidFilterDescriptor.Composite(
-        java.util.List.of(desc1, desc2));
+        List.of(desc1, desc2));
     var result = composite.resolve(new BasicCommandContext(), null);
 
     assertThat(result).isSameAs(set1);
@@ -474,10 +475,10 @@ public class EdgeTraversalCacheTest {
     when(desc2.cacheKey(any())).thenReturn(key2);
 
     var composite = new RidFilterDescriptor.Composite(
-        java.util.List.of(desc1, desc2));
+        List.of(desc1, desc2));
     var key = composite.cacheKey(new BasicCommandContext());
 
-    assertThat(key).isEqualTo(java.util.List.of(key1, key2));
+    assertThat(key).isEqualTo(List.of(key1, key2));
   }
 
   /**
@@ -491,7 +492,7 @@ public class EdgeTraversalCacheTest {
     when(desc2.estimatedSize(any(), any())).thenReturn(100);
 
     var composite = new RidFilterDescriptor.Composite(
-        java.util.List.of(desc1, desc2));
+        List.of(desc1, desc2));
     assertThat(composite.estimatedSize(new BasicCommandContext(), null))
         .isEqualTo(100);
   }
@@ -507,7 +508,7 @@ public class EdgeTraversalCacheTest {
     when(desc2.estimatedSize(any(), any())).thenReturn(200);
 
     var composite = new RidFilterDescriptor.Composite(
-        java.util.List.of(desc1, desc2));
+        List.of(desc1, desc2));
     assertThat(composite.estimatedSize(new BasicCommandContext(), null))
         .isEqualTo(200);
   }
@@ -523,7 +524,7 @@ public class EdgeTraversalCacheTest {
     when(desc2.estimatedSize(any(), any())).thenReturn(-1);
 
     var composite = new RidFilterDescriptor.Composite(
-        java.util.List.of(desc1, desc2));
+        List.of(desc1, desc2));
     assertThat(composite.estimatedSize(new BasicCommandContext(), null))
         .isEqualTo(-1);
   }
@@ -625,6 +626,12 @@ public class EdgeTraversalCacheTest {
     // Large link bag → selectivity check passes → resolve and cache
     assertThat(et.resolveWithCache(ctx, LARGE_LINKBAG)).isSameAs(ridSet);
     verify(desc, times(1)).resolve(any(), any());
+
+    // Verify passesSelectivityCheck was called for both attempts — the
+    // EdgeRidLookup rejection is NOT cached (unlike IndexLookup), so
+    // each resolveWithCache call re-checks selectivity.
+    verify(desc, times(2))
+        .passesSelectivityCheck(anyInt(), anyInt(), any());
 
     // Subsequent call with same key → cache hit
     assertThat(et.resolveWithCache(ctx, LARGE_LINKBAG)).isSameAs(ridSet);
@@ -856,10 +863,12 @@ public class EdgeTraversalCacheTest {
     var desc = new IndexLookup(indexDesc);
     var ctx = new BasicCommandContext();
 
-    boolean r1 = desc.passesSelectivityCheck(1, 1, ctx);
-    boolean r2 = desc.passesSelectivityCheck(100_000, 1, ctx);
-    boolean r3 = desc.passesSelectivityCheck(1, 100_000, ctx);
-    assertThat(r1).isEqualTo(r2).isEqualTo(r3).isTrue();
+    assertThat(desc.passesSelectivityCheck(1, 1, ctx))
+        .as("resolvedSize=1, linkBagSize=1").isTrue();
+    assertThat(desc.passesSelectivityCheck(100_000, 1, ctx))
+        .as("resolvedSize=100000, linkBagSize=1").isTrue();
+    assertThat(desc.passesSelectivityCheck(1, 100_000, ctx))
+        .as("resolvedSize=1, linkBagSize=100000").isTrue();
   }
 
   // =========================================================================
@@ -877,7 +886,7 @@ public class EdgeTraversalCacheTest {
     when(passing.passesSelectivityCheck(anyInt(), anyInt(), any()))
         .thenReturn(true);
     var composite = new RidFilterDescriptor.Composite(
-        java.util.List.of(failing, passing));
+        List.of(failing, passing));
     var ctx = new BasicCommandContext();
 
     assertThat(composite.passesSelectivityCheck(100, 1000, ctx)).isTrue();
@@ -893,7 +902,7 @@ public class EdgeTraversalCacheTest {
     when(f2.passesSelectivityCheck(anyInt(), anyInt(), any()))
         .thenReturn(false);
     var composite = new RidFilterDescriptor.Composite(
-        java.util.List.of(f1, f2));
+        List.of(f1, f2));
     var ctx = new BasicCommandContext();
 
     assertThat(composite.passesSelectivityCheck(100, 1000, ctx)).isFalse();
@@ -902,9 +911,73 @@ public class EdgeTraversalCacheTest {
   /** Empty composite returns false. */
   @Test
   public void composite_passesSelectivityCheck_empty_returnsFalse() {
-    var composite = new RidFilterDescriptor.Composite(java.util.List.of());
+    var composite = new RidFilterDescriptor.Composite(List.of());
     var ctx = new BasicCommandContext();
 
     assertThat(composite.passesSelectivityCheck(100, 1000, ctx)).isFalse();
+  }
+
+  // =========================================================================
+  // passesSelectivityCheck — boundary values (ratio=1.0, selectivity=1.0)
+  // =========================================================================
+
+  /** When resolvedSize equals linkBagSize (ratio = 1.0), filter is useless. */
+  @Test
+  public void edgeRidLookup_passesSelectivityCheck_fullOverlap_fails() {
+    var expr = mock(SQLExpression.class);
+    var desc = new EdgeRidLookup("KNOWS", "out", expr, false);
+    var ctx = new BasicCommandContext();
+
+    // 1000 / 1000 = 1.0 > 0.8
+    assertThat(desc.passesSelectivityCheck(1000, 1000, ctx)).isFalse();
+  }
+
+  /** Selectivity 1.0 (all records match) fails — no filtering benefit. */
+  @Test
+  public void indexLookup_passesSelectivityCheck_fullSelectivity_fails() {
+    var indexDesc = mock(IndexSearchDescriptor.class);
+    when(indexDesc.estimateSelectivity(any())).thenReturn(1.0);
+    var desc = new IndexLookup(indexDesc);
+    var ctx = new BasicCommandContext();
+
+    assertThat(desc.passesSelectivityCheck(0, 0, ctx)).isFalse();
+  }
+
+  // =========================================================================
+  // resolveWithCache — IndexLookup selectivity rejection caching
+  // =========================================================================
+
+  /**
+   * When IndexLookup fails the selectivity check, the rejection is cached
+   * permanently (selectivity is class-level, constant per query). Subsequent
+   * calls with the same key return null without re-checking selectivity.
+   * Contrast with {@link #resolveWithCache_smallLinkBag_defersResolution}
+   * where EdgeRidLookup rejections are NOT cached.
+   */
+  @Test
+  public void resolveWithCache_indexLookupSelectivityFails_cachesNull() {
+    var et = createEdgeTraversal();
+    var desc = mock(IndexLookup.class);
+    var key = "Post.creationDate";
+
+    when(desc.cacheKey(any())).thenReturn(key);
+    when(desc.estimatedSize(any(), any())).thenReturn(500);
+    // Selectivity check fails (high class-level selectivity)
+    when(desc.passesSelectivityCheck(anyInt(), anyInt(), any()))
+        .thenReturn(false);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    // First call: selectivity fails → null, cached for IndexLookup
+    assertThat(et.resolveWithCache(ctx, LARGE_LINKBAG)).isNull();
+
+    // Second call: cache hit → null, passesSelectivityCheck NOT re-called
+    assertThat(et.resolveWithCache(ctx, LARGE_LINKBAG)).isNull();
+
+    // passesSelectivityCheck called only once (second call is cache hit)
+    verify(desc, times(1))
+        .passesSelectivityCheck(anyInt(), anyInt(), any());
+    // resolve() never called
+    verify(desc, never()).resolve(any(), any());
   }
 }
