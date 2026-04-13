@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionStepInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilterDescriptor;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFieldMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMultiMatchPathItem;
@@ -143,6 +144,7 @@ public class MatchStep extends AbstractExecutionStep {
     }
     result.append("{").append(edge.edge.in.alias).append("}");
     appendIntersectionDescriptor(result);
+    appendPreFilterStats(result);
     return result.toString();
   }
 
@@ -164,11 +166,75 @@ public class MatchStep extends AbstractExecutionStep {
           .append(lookup.edgeClassName()).append("'))");
     } else if (descriptor instanceof RidFilterDescriptor.IndexLookup indexLookup) {
       result.append(" (intersection: index ")
-          .append(indexLookup.indexDescriptor().getIndex().getName()).append(")");
+          .append(indexLookup.indexDescriptor().getIndex().getName());
+      // Show selectivity: use cached value (PROFILE) or compute lazily (EXPLAIN)
+      double selectivity = edge.getIndexLookupSelectivity();
+      if (Double.isNaN(selectivity) && ctx != null) {
+        selectivity = indexLookup.indexDescriptor().estimateSelectivity(ctx);
+      }
+      if (!Double.isNaN(selectivity) && selectivity >= 0) {
+        result.append(String.format(" selectivity=%.4f", selectivity));
+      }
+      result.append(")");
     } else if (descriptor instanceof RidFilterDescriptor.Composite composite) {
       for (var inner : composite.descriptors()) {
         appendDescriptor(result, inner);
       }
+    }
+  }
+
+  /**
+   * Appends pre-filter PROFILE statistics. Gated behind
+   * {@code profilingEnabled} (T6) to avoid false "NEVER APPLIED"
+   * diagnostics for EXPLAIN-only queries.
+   */
+  void appendPreFilterStats(StringBuilder result) {
+    if (!profilingEnabled || edge.getIntersectionDescriptor() == null) {
+      return;
+    }
+    result.append("\n");
+    int applied = edge.getPreFilterAppliedCount();
+    int skipped = edge.getPreFilterSkippedCount();
+    long probed = edge.getPreFilterTotalProbed();
+    long filtered = edge.getPreFilterTotalFiltered();
+
+    if (applied == 0 && probed == 0) {
+      // Pre-filter never activated — show diagnostic
+      var reason = edge.getLastSkipReason();
+      result.append("    pre-filter: NEVER APPLIED");
+      if (reason != PreFilterSkipReason.NONE) {
+        result.append(" (reason: ").append(reason);
+        appendSkipDiagnostic(result, reason);
+        result.append(")");
+      }
+    } else {
+      result.append("    pre-filter: applied=").append(applied)
+          .append(" skipped=").append(skipped);
+      if (edge.getPreFilterRidSetSize() > 0) {
+        result.append(" ridSetSize=").append(edge.getPreFilterRidSetSize());
+      }
+      if (edge.getPreFilterBuildTimeNanos() > 0) {
+        result.append(String.format(" buildTime=%.3fms",
+            edge.getPreFilterBuildTimeNanos() / 1_000_000.0));
+      }
+      if (probed > 0) {
+        double rate = (double) filtered / probed;
+        result.append(String.format(" filterRate=%.1f%%", rate * 100));
+      }
+    }
+  }
+
+  private void appendSkipDiagnostic(
+      StringBuilder result, PreFilterSkipReason reason) {
+    switch (reason) {
+      case CAP_EXCEEDED -> result.append(", cap=")
+          .append(TraversalPreFilterHelper.maxRidSetSize());
+      case SELECTIVITY_TOO_LOW -> result.append(", threshold=")
+          .append(TraversalPreFilterHelper.indexLookupMaxSelectivity());
+      case OVERLAP_RATIO_TOO_HIGH -> result.append(", threshold=")
+          .append(TraversalPreFilterHelper.edgeLookupMaxRatio());
+      default -> {
+        /* no extra diagnostic */ }
     }
   }
 

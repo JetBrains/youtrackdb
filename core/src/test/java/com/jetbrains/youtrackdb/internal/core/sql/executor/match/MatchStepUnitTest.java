@@ -283,14 +283,15 @@ public class MatchStepUnitTest extends DbTestBase {
     var indexDesc = mock(
         com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchDescriptor.class);
     when(indexDesc.getIndex()).thenReturn(index);
+    when(indexDesc.estimateSelectivity(ctx)).thenReturn(0.42);
 
     edge.setIntersectionDescriptor(
         new RidFilterDescriptor.IndexLookup(indexDesc));
 
     var step = new MatchStep(ctx, edge, false);
     var result = step.prettyPrint(0, 2);
-    assertTrue("Should contain IndexLookup intersection",
-        result.contains("(intersection: index Post.creationDate)"));
+    assertTrue("Should contain IndexLookup intersection with selectivity",
+        result.contains("(intersection: index Post.creationDate selectivity=0.4200)"));
   }
 
   /**
@@ -332,6 +333,149 @@ public class MatchStepUnitTest extends DbTestBase {
     assertTrue("Should contain OPTIONAL MATCH", result.contains("OPTIONAL MATCH"));
     assertTrue("Should contain EdgeRidLookup intersection",
         result.contains("(intersection: in('HasCreator'))"));
+  }
+
+  // -- Pre-filter PROFILE/EXPLAIN output tests --
+
+  /**
+   * PROFILE output when pre-filter was applied: shows applied/skipped counts,
+   * ridSetSize, buildTime, and filterRate. Only shown when profilingEnabled=true.
+   */
+  @Test
+  public void testMatchStepPrettyPrintProfileApplied() throws Exception {
+    var ctx = createCommandContext();
+    var edge = createTestEdgeTraversal();
+    edge.setIntersectionDescriptor(
+        new RidFilterDescriptor.EdgeRidLookup(
+            "Knows", "out", new SQLExpression(-1), false));
+
+    // Set non-default counter values via reflection (recording happens at
+    // runtime; here we test the formatting output)
+    setCounterField(edge, "preFilterAppliedCount", 5);
+    setCounterField(edge, "preFilterSkippedCount", 2);
+    setCounterField(edge, "preFilterTotalProbed", 10000L);
+    setCounterField(edge, "preFilterTotalFiltered", 9500L);
+    setCounterField(edge, "preFilterBuildTimeNanos", 1_500_000L); // 1.5ms
+    setCounterField(edge, "preFilterRidSetSize", 42);
+
+    var step = new MatchStep(ctx, edge, true);
+    var result = step.prettyPrint(0, 2);
+
+    assertTrue("Should contain applied count",
+        result.contains("pre-filter: applied=5"));
+    assertTrue("Should contain skipped count",
+        result.contains("skipped=2"));
+    assertTrue("Should contain ridSetSize",
+        result.contains("ridSetSize=42"));
+    assertTrue("Should contain buildTime",
+        result.contains("buildTime=1.500ms"));
+    assertTrue("Should contain filterRate",
+        result.contains("filterRate=95.0%"));
+  }
+
+  /**
+   * PROFILE output when pre-filter never activated: shows "NEVER APPLIED"
+   * with diagnostic info including the skip reason and relevant threshold.
+   */
+  @Test
+  public void testMatchStepPrettyPrintProfileNeverApplied() throws Exception {
+    var ctx = createCommandContext();
+    var edge = createTestEdgeTraversal();
+    edge.setIntersectionDescriptor(
+        new RidFilterDescriptor.EdgeRidLookup(
+            "Knows", "out", new SQLExpression(-1), false));
+
+    setCounterField(edge, "lastSkipReason",
+        PreFilterSkipReason.CAP_EXCEEDED);
+
+    var step = new MatchStep(ctx, edge, true);
+    var result = step.prettyPrint(0, 2);
+
+    assertTrue("Should contain NEVER APPLIED",
+        result.contains("pre-filter: NEVER APPLIED"));
+    assertTrue("Should contain CAP_EXCEEDED reason",
+        result.contains("reason: CAP_EXCEEDED"));
+    assertTrue("Should contain cap value",
+        result.contains("cap="));
+  }
+
+  /**
+   * EXPLAIN (profilingEnabled=false) does NOT show pre-filter stats.
+   * This prevents false "NEVER APPLIED" when no query has executed yet.
+   */
+  @Test
+  public void testMatchStepPrettyPrintExplainNoPreFilterStats() {
+    var ctx = createCommandContext();
+    var edge = createTestEdgeTraversal();
+    edge.setIntersectionDescriptor(
+        new RidFilterDescriptor.EdgeRidLookup(
+            "Knows", "out", new SQLExpression(-1), false));
+
+    var step = new MatchStep(ctx, edge, false);
+    var result = step.prettyPrint(0, 2);
+
+    assertFalse("EXPLAIN should not contain pre-filter stats",
+        result.contains("pre-filter:"));
+  }
+
+  /**
+   * OptionalMatchStep PROFILE output also shows pre-filter stats (T1).
+   */
+  @Test
+  public void testOptionalMatchStepPrettyPrintProfile() throws Exception {
+    var ctx = createCommandContext();
+    var patternEdge = createTestPatternEdge();
+    var edge = new EdgeTraversal(patternEdge, true);
+    edge.setIntersectionDescriptor(
+        new RidFilterDescriptor.EdgeRidLookup(
+            "HasCreator", "in", new SQLExpression(-1), false));
+
+    setCounterField(edge, "preFilterAppliedCount", 3);
+    setCounterField(edge, "preFilterTotalProbed", 500L);
+    setCounterField(edge, "preFilterTotalFiltered", 400L);
+
+    var step = new OptionalMatchStep(ctx, edge, true);
+    var result = step.prettyPrint(0, 2);
+
+    assertTrue("Should contain OPTIONAL MATCH",
+        result.contains("OPTIONAL MATCH"));
+    assertTrue("Should contain pre-filter stats",
+        result.contains("pre-filter: applied=3"));
+    assertTrue("Should contain filterRate",
+        result.contains("filterRate=80.0%"));
+  }
+
+  /**
+   * PROFILE output for SELECTIVITY_TOO_LOW shows the threshold value.
+   */
+  @Test
+  public void testMatchStepPrettyPrintNeverAppliedSelectivityTooLow()
+      throws Exception {
+    var ctx = createCommandContext();
+    var edge = createTestEdgeTraversal();
+    edge.setIntersectionDescriptor(
+        new RidFilterDescriptor.EdgeRidLookup(
+            "Knows", "out", new SQLExpression(-1), false));
+
+    setCounterField(edge, "lastSkipReason",
+        PreFilterSkipReason.SELECTIVITY_TOO_LOW);
+
+    var step = new MatchStep(ctx, edge, true);
+    var result = step.prettyPrint(0, 2);
+
+    assertTrue("Should contain NEVER APPLIED",
+        result.contains("pre-filter: NEVER APPLIED"));
+    assertTrue("Should contain SELECTIVITY_TOO_LOW",
+        result.contains("SELECTIVITY_TOO_LOW"));
+    assertTrue("Should contain threshold value",
+        result.contains("threshold="));
+  }
+
+  private static void setCounterField(
+      Object target, String fieldName, Object value) throws Exception {
+    var field = target.getClass().getDeclaredField(fieldName);
+    field.setAccessible(true);
+    field.set(target, value);
   }
 
   // -- MatchFirstStep tests --

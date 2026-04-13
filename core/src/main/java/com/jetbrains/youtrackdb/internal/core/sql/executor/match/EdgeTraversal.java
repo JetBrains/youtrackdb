@@ -310,6 +310,15 @@ public class EdgeTraversal {
     return lastSkipReason;
   }
 
+  /**
+   * Returns the cached IndexLookup selectivity, or {@code NaN} if not yet
+   * computed. Used by {@code MatchStep.prettyPrint()} for PROFILE output
+   * to show the selectivity that was used for the threshold check.
+   */
+  public double getIndexLookupSelectivity() {
+    return indexLookupSelectivity;
+  }
+
   // =========================================================================
   // Pre-filter counter mutators (called by MatchEdgeTraverser.applyPreFilter)
   // =========================================================================
