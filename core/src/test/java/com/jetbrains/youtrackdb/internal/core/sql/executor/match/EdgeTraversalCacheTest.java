@@ -1617,21 +1617,30 @@ public class EdgeTraversalCacheTest {
   /**
    * copy() resets all pre-filter counters to their default values —
    * the copy must not inherit counters from a previous query execution.
-   * This test verifies the contract by setting non-default values on
-   * the original and checking that the copy has defaults.
+   * Uses reflection to set non-default values on the original (no
+   * public setters exist yet) and verifies the copy has defaults.
    */
   @Test
-  public void copy_resetsPreFilterCounters() {
+  public void copy_resetsPreFilterCounters() throws Exception {
     var et = createEdgeTraversal();
-    var desc = mock(EdgeRidLookup.class);
-    stubSmallEstimate(desc);
-    et.setIntersectionDescriptor(desc);
 
-    // Trigger a resolve to exercise the edge traversal (optional — the
-    // real contract is that copy() doesn't carry over counter state).
-    // We verify by checking the copy's counters are at defaults.
+    // Force non-default counter values via reflection (no setters exist
+    // yet — recording logic is added in Steps 2-3).
+    setField(et, "preFilterAppliedCount", 42);
+    setField(et, "preFilterSkippedCount", 7);
+    setField(et, "preFilterTotalProbed", 999L);
+    setField(et, "preFilterTotalFiltered", 500L);
+    setField(et, "preFilterBuildTimeNanos", 123456L);
+    setField(et, "preFilterRidSetSize", 200);
+    setField(et, "lastSkipReason", PreFilterSkipReason.CAP_EXCEEDED);
+
+    // Sanity: verify the original has non-default values.
+    assertThat(et.getPreFilterAppliedCount()).isEqualTo(42);
+    assertThat(et.getLastSkipReason()).isEqualTo(PreFilterSkipReason.CAP_EXCEEDED);
+
     var copy = et.copy();
 
+    // copy() must reset all counters to defaults.
     assertThat(copy.getPreFilterAppliedCount()).isZero();
     assertThat(copy.getPreFilterSkippedCount()).isZero();
     assertThat(copy.getPreFilterTotalProbed()).isZero();
@@ -1639,5 +1648,12 @@ public class EdgeTraversalCacheTest {
     assertThat(copy.getPreFilterBuildTimeNanos()).isZero();
     assertThat(copy.getPreFilterRidSetSize()).isZero();
     assertThat(copy.getLastSkipReason()).isEqualTo(PreFilterSkipReason.NONE);
+  }
+
+  private static void setField(Object target, String fieldName, Object value)
+      throws Exception {
+    var field = target.getClass().getDeclaredField(fieldName);
+    field.setAccessible(true);
+    field.set(target, value);
   }
 }
