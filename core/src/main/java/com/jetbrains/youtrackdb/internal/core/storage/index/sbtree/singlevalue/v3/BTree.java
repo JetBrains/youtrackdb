@@ -2785,7 +2785,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
   private int filterAndRebuildBucket(
       final CellBTreeSingleValueBucketV3<K> keyBucket) {
     final long lwm = storage.computeGlobalLowWaterMark();
-    assert lwm >= 0 : "Global LWM must be non-negative, got " + lwm;
+    assert lwm > 0 : "Global LWM must be positive, got " + lwm;
     assert keyBucket.isLeaf() : "GC must only run on leaf buckets";
 
     final int bucketSize = keyBucket.size();
@@ -2852,7 +2852,12 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
             + ") != original size (" + bucketSize + ")";
 
     keyBucket.shrink(0, keySerializer, serializerFactory);
+    assert keyBucket.size() == 0
+        : "Bucket must be empty after shrink(0), got " + keyBucket.size();
     keyBucket.addAll(survivors, keySerializer);
+    assert keyBucket.size() == survivors.size()
+        : "Bucket size after rebuild (" + keyBucket.size()
+            + ") must equal survivor count (" + survivors.size() + ")";
 
     return removedCount;
   }
