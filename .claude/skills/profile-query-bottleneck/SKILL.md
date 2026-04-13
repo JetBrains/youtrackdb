@@ -1,6 +1,6 @@
 ---
 name: profile-query-bottleneck
-description: "Profile and diagnose YouTrackDB SQL/MATCH query bottlenecks. Combines async-profiler flame graphs, step-by-step selectivity measurement, and fan-out analysis on a Hetzner CCX33 server against the LDBC SF 1 dataset. Use when a query is slower than expected and you need to understand WHERE time is spent and WHY."
+description: "Profile and diagnose YouTrackDB SQL/MATCH query bottlenecks. Accepts one or more LDBC query names (e.g., IC5, IS7, IC1,IC10). Combines async-profiler flame graphs, step-by-step selectivity measurement, and fan-out analysis on a Hetzner CCX33 server against the LDBC SF 1 dataset."
 user-invocable: true
 ---
 
@@ -9,6 +9,18 @@ user-invocable: true
 Diagnose performance bottlenecks in YouTrackDB SQL and MATCH queries by combining
 CPU profiling (async-profiler), step-by-step selectivity analysis, and fan-out
 measurement on a dedicated Hetzner CCX33 server with the LDBC SF 1 dataset.
+
+## Input
+
+Accepts one or more LDBC query names as arguments. Format examples:
+- `/profile-query-bottleneck IC5` — single query
+- `/profile-query-bottleneck IC5,IC10,IS7` — comma-separated list
+- `/profile-query-bottleneck IC5 IC10 IS7` — space-separated list
+
+Query names are case-insensitive (`ic5`, `IC5`, `Ic5` all work). Valid names:
+IS1–IS7, IC1–IC13.
+
+If no query names are provided, ask the user which queries to profile.
 
 ## When to Use
 
@@ -24,6 +36,69 @@ measurement on a dedicated Hetzner CCX33 server with the LDBC SF 1 dataset.
 - SSH key pair at `~/.ssh/id_ed25519`
 - The `jmh-ldbc` module compiles locally
 - Environment variables: `HETZNER_S3_ACCESS_KEY`, `HETZNER_S3_SECRET_KEY`, `HETZNER_S3_ENDPOINT`
+
+## Phase 0: Resolve Query Parameters
+
+For each query name from the input, look up the benchmark method, benchmark class prefix,
+and tier-appropriate profiling JMH arguments from the table below.
+
+### Query Lookup Table
+
+| Query | Benchmark method | ST class prefix | Tier | Profiling args (ST) |
+|-------|-----------------|-----------------|------|---------------------|
+| IS1 | `is1_personProfile` | `LdbcSingleThreadISUltraFast` | IS-ultra-fast | `-f 1 -wi 1 -w 5s -i 3 -r 10s -t 1` |
+| IS2 | `is2_personPosts` | `LdbcSingleThreadIS` | IS-noisy | `-f 1 -wi 1 -w 5s -i 3 -r 10s -t 1` |
+| IS3 | `is3_personFriends` | `LdbcSingleThreadISUltraFast` | IS-ultra-fast | `-f 1 -wi 1 -w 5s -i 3 -r 10s -t 1` |
+| IS4 | `is4_messageContent` | `LdbcSingleThreadISUltraFast` | IS-ultra-fast | `-f 1 -wi 1 -w 5s -i 3 -r 10s -t 1` |
+| IS5 | `is5_messageCreator` | `LdbcSingleThreadISUltraFast` | IS-ultra-fast | `-f 1 -wi 1 -w 5s -i 3 -r 10s -t 1` |
+| IS6 | `is6_messageForum` | `LdbcSingleThreadISUltraFast` | IS-ultra-fast | `-f 1 -wi 1 -w 5s -i 3 -r 10s -t 1` |
+| IS7 | `is7_messageReplies` | `LdbcSingleThreadIS` | IS-noisy | `-f 1 -wi 1 -w 5s -i 3 -r 10s -t 1` |
+| IC1 | `ic1_transitiveFriends` | `LdbcSingleThreadICSlow` | IC-slow | `-f 1 -wi 1 -w 30s -i 3 -r 30s -t 1` |
+| IC2 | `ic2_recentFriendMessages` | `LdbcSingleThreadIC` | IC | `-f 1 -wi 1 -w 10s -i 3 -r 20s -t 1` |
+| IC3 | `ic3_friendsInCountries` | `LdbcSingleThreadICUltraSlow` | IC-ultra-slow | `-f 1 -wi 1 -w 60s -i 3 -r 60s -t 1` |
+| IC4 | `ic4_newTopics` | `LdbcSingleThreadICSlow` | IC-slow | `-f 1 -wi 2 -w 30s -i 3 -r 30s -t 1` |
+| IC5 | `ic5_newGroups` | `LdbcSingleThreadICUltraSlow` | IC-ultra-slow | `-f 1 -wi 1 -w 60s -i 3 -r 60s -t 1` |
+| IC6 | `ic6_tagCoOccurrence` | `LdbcSingleThreadICSlow` | IC-slow | `-f 1 -wi 1 -w 30s -i 3 -r 30s -t 1` |
+| IC7 | `ic7_recentLikers` | `LdbcSingleThreadIC` | IC | `-f 1 -wi 1 -w 10s -i 3 -r 20s -t 1` |
+| IC8 | `ic8_recentReplies` | `LdbcSingleThreadIS` | IS-noisy | `-f 1 -wi 1 -w 5s -i 3 -r 10s -t 1` |
+| IC9 | `ic9_recentFofMessages` | `LdbcSingleThreadICSlow` | IC-slow | `-f 1 -wi 1 -w 30s -i 3 -r 30s -t 1` |
+| IC10 | `ic10_friendRecommendation` | `LdbcSingleThreadICUltraSlow` | IC-ultra-slow | `-f 1 -wi 1 -w 60s -i 3 -r 60s -t 1` |
+| IC11 | `ic11_jobReferral` | `LdbcSingleThreadIC` | IC | `-f 1 -wi 1 -w 10s -i 3 -r 20s -t 1` |
+| IC12 | `ic12_expertSearch` | `LdbcSingleThreadICSlow` | IC-slow | `-f 1 -wi 1 -w 30s -i 3 -r 30s -t 1` |
+| IC13 | `ic13_shortestPath` | `LdbcSingleThreadISUltraFast` | IS-ultra-fast | `-f 1 -wi 1 -w 5s -i 3 -r 10s -t 1` |
+
+**IC4 exception**: `ic4_newTopics` has a method-level `@Warmup(iterations = 3, time = 30)` override.
+Profiling uses `-wi 2 -w 30s` instead of the IC-slow default `-wi 1 -w 30s`.
+
+**Multi-thread class prefix**: Replace `LdbcSingleThread` with `LdbcMultiThread` and omit `-t 1`.
+Single-thread profiling is recommended — use MT only if the bottleneck is contention-related.
+
+### Constructing the Benchmark Regex
+
+The JMH benchmark regex for profiling combines the class prefix and method:
+
+```
+<ST class prefix>Benchmark.<method>
+```
+
+Examples:
+- IC5 → `LdbcSingleThreadICUltraSlowBenchmark.ic5_newGroups`
+- IS7 → `LdbcSingleThreadISBenchmark.is7_messageReplies`
+- IC13 → `LdbcSingleThreadISUltraFastBenchmark.ic13_shortestPath`
+
+For multiple queries in the **same tier**, combine with `|`:
+```
+"LdbcSingleThreadICSlow.*(ic1_transitiveFriends|ic6_tagCoOccurrence)"
+```
+
+For queries in **different tiers**, run them as separate profiling invocations — each
+needs its own tier-appropriate warmup/measurement parameters.
+
+### Query SQL Source Files
+
+The actual SQL for each LDBC query lives in `jmh-ldbc/src/main/resources/ldbc-queries/<QUERY>.sql`
+(e.g., `IC5.sql`, `IS7.sql`). Read these to understand the MATCH chain before writing
+the diagnostic program in Phase 3.
 
 ## Phase 1: Infrastructure Setup
 
@@ -77,10 +152,15 @@ chmod +x /root/run-profile.sh'
 
 ### 2b. Flame Graph
 
-Run the target benchmark with async-profiler attached:
+For each query resolved in Phase 0, run the benchmark with async-profiler attached
+using the benchmark regex and tier-appropriate profiling args:
 
 ```bash
-ssh root@<IP> '/root/run-profile.sh "<BenchmarkClass>.<method>" flamegraph -f 1 -wi 1 -w 10s -i 1 -r 60s -t 1'
+# Example: IC5 (IC-ultra-slow tier)
+ssh root@<IP> '/root/run-profile.sh "LdbcSingleThreadICUltraSlowBenchmark.ic5_newGroups" flamegraph -f 1 -wi 1 -w 60s -i 3 -r 60s -t 1'
+
+# Example: IS7 (IS-noisy tier)
+ssh root@<IP> '/root/run-profile.sh "LdbcSingleThreadISBenchmark.is7_messageReplies" flamegraph -f 1 -wi 1 -w 5s -i 3 -r 10s -t 1'
 ```
 
 **Important**: Use `-t 1` (single thread) for profiling — multi-threaded profiles are
@@ -91,6 +171,9 @@ diagnostic programs) while profiling. Concurrent processes compete for CPU and m
 causing OOM kills (exit 137), corrupted profiles, and skewed results. Finish all other
 work first, then run the profiler on a quiet machine.
 
+**Important**: When profiling multiple queries, run them **sequentially** — one at a time.
+Never run concurrent JMH processes on the same server.
+
 Download the flame graphs:
 ```bash
 scp root@<IP>:/root/profiles/<benchmark-name>-Throughput/flame-cpu-reverse.html /tmp/flame-reverse-$$.html
@@ -99,10 +182,11 @@ scp root@<IP>:/root/profiles/<benchmark-name>-Throughput/flame-cpu-forward.html 
 
 ### 2c. Collapsed Stacks for Programmatic Analysis
 
-Run with `collapsed` output to get machine-parseable stacks:
+Run with `collapsed` output to get machine-parseable stacks (same regex and args):
 
 ```bash
-ssh root@<IP> '/root/run-profile.sh "<BenchmarkClass>.<method>" collapsed -f 1 -wi 1 -w 10s -i 1 -r 60s -t 1'
+# Example: IC5
+ssh root@<IP> '/root/run-profile.sh "LdbcSingleThreadICUltraSlowBenchmark.ic5_newGroups" collapsed -f 1 -wi 1 -w 60s -i 3 -r 60s -t 1'
 ```
 
 Download:
