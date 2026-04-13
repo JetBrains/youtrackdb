@@ -14,7 +14,7 @@ import javax.annotation.Nullable;
  * ExpandStep}) and the MATCH engine to skip non-matching vertices without
  * loading them from storage.
  *
- * <p>Three variants are supported:
+ * <p>Four variants are supported:
  * <ul>
  *   <li>{@link DirectRid} — {@code @rid = <expr>}
  *   <li>{@link EdgeRidLookup} — {@code out/in('EdgeClass').@rid = <expr>}
@@ -22,6 +22,8 @@ import javax.annotation.Nullable;
  *       {@code $matched.X.@rid})
  *   <li>{@link IndexLookup} — queries an index to produce the accepted
  *       RID set
+ *   <li>{@link Composite} — combines multiple descriptors by intersecting
+ *       their results at the bitmap level
  * </ul>
  */
 public sealed interface RidFilterDescriptor {
@@ -319,6 +321,11 @@ public sealed interface RidFilterDescriptor {
      * intersects child results, the output is bounded by the smallest
      * (most selective) child. If even one child is selective enough,
      * the intersection is worth computing.
+     *
+     * <p>Note: {@code resolvedSize} is the composite's overall estimate
+     * (minimum of children), not individual child estimates. This makes
+     * the {@link EdgeRidLookup} ratio check more permissive (smaller
+     * numerator), which is intentionally conservative.
      */
     @Override
     public boolean passesSelectivityCheck(
