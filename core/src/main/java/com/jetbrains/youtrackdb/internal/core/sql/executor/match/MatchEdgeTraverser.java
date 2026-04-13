@@ -576,8 +576,8 @@ public class MatchEdgeTraverser implements ExecutionStream {
       if (linkBagSize >= TraversalPreFilterHelper.minLinkBagSize()) {
         var ridSet = edge.resolveWithCache(ctx, linkBagSize);
         if (ridSet != null
-            && TraversalPreFilterHelper.passesRatioCheck(
-                ridSet.size(), linkBagSize)) {
+            && edge.getIntersectionDescriptor()
+                .passesSelectivityCheck(ridSet.size(), linkBagSize, ctx)) {
           this.currentPreFilterRids = ridSet;
           if (logger.isDebugEnabled()) {
             logger.debug(

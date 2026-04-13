@@ -259,12 +259,21 @@ public class EdgeTraversal {
       return null;
     }
 
-    // 4. Per-vertex ratio check against estimate — DON'T cache null.
-    //    This vertex's link bag is too small relative to the estimated
-    //    RidSet size. A later vertex with a larger link bag may benefit,
-    //    so we leave the cache empty for this key.
+    // 4. Descriptor-specific selectivity check against estimate.
+    //    For EdgeRidLookup: per-vertex overlap ratio (DON'T cache null —
+    //    a later vertex with a larger link bag may benefit).
+    //    For IndexLookup: class-level selectivity (vertex-independent —
+    //    cache null if it fails since the result won't change).
+    //    For DirectRid: always passes (never reaches this branch in
+    //    practice since estimatedSize is 1).
     if (estimatedSize >= 0
-        && !TraversalPreFilterHelper.passesRatioCheck(estimatedSize, linkBagSize)) {
+        && !desc.passesSelectivityCheck(estimatedSize, linkBagSize, ctx)) {
+      if (desc instanceof RidFilterDescriptor.IndexLookup
+          && key != null && cache.size() < CACHE_CAPACITY) {
+        // IndexLookup selectivity is class-level (constant) — safe to
+        // cache the rejection permanently.
+        cache.put(key, null);
+      }
       return null;
     }
 
