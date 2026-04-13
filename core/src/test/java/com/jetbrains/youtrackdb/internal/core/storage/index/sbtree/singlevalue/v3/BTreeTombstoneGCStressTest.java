@@ -458,6 +458,10 @@ public class BTreeTombstoneGCStressTest {
                   keyIndex, threadId)
               .isInstanceOf(RecordId.class)
               .isNotInstanceOf(TombstoneRID.class);
+          assertThat(result[0].getCollectionId())
+              .as("Live entry at keyIndex=%d must have clusterId=2 (thread %d)",
+                  keyIndex, threadId)
+              .isEqualTo(2);
           assertThat(result[0].getCollectionPosition())
               .as("Live entry at keyIndex=%d must have position=%d (thread %d)",
                   keyIndex, keyIndex, threadId)
