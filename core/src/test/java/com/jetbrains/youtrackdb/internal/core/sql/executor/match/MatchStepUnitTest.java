@@ -31,6 +31,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.QueryPlanningInfo;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilterDescriptor;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
@@ -396,7 +397,7 @@ public class MatchStepUnitTest extends DbTestBase {
     assertTrue("Should contain CAP_EXCEEDED reason",
         result.contains("reason: CAP_EXCEEDED"));
     assertTrue("Should contain cap value",
-        result.contains("cap="));
+        result.contains("cap=" + TraversalPreFilterHelper.maxRidSetSize()));
   }
 
   /**
@@ -468,7 +469,58 @@ public class MatchStepUnitTest extends DbTestBase {
     assertTrue("Should contain SELECTIVITY_TOO_LOW",
         result.contains("SELECTIVITY_TOO_LOW"));
     assertTrue("Should contain threshold value",
-        result.contains("threshold="));
+        result.contains(
+            "threshold=" + TraversalPreFilterHelper.indexLookupMaxSelectivity()));
+  }
+
+  /**
+   * PROFILE output for OVERLAP_RATIO_TOO_HIGH shows the edgeLookupMaxRatio
+   * threshold.
+   */
+  @Test
+  public void testMatchStepPrettyPrintNeverAppliedOverlapRatioTooHigh()
+      throws Exception {
+    var ctx = createCommandContext();
+    var edge = createTestEdgeTraversal();
+    edge.setIntersectionDescriptor(
+        new RidFilterDescriptor.EdgeRidLookup(
+            "Knows", "out", new SQLExpression(-1), false));
+
+    setCounterField(edge, "lastSkipReason",
+        PreFilterSkipReason.OVERLAP_RATIO_TOO_HIGH);
+
+    var step = new MatchStep(ctx, edge, true);
+    var result = step.prettyPrint(0, 2);
+
+    assertTrue("Should contain NEVER APPLIED",
+        result.contains("pre-filter: NEVER APPLIED"));
+    assertTrue("Should contain OVERLAP_RATIO_TOO_HIGH",
+        result.contains("OVERLAP_RATIO_TOO_HIGH"));
+    assertTrue("Should contain threshold value",
+        result.contains(
+            "threshold=" + TraversalPreFilterHelper.edgeLookupMaxRatio()));
+  }
+
+  /**
+   * PROFILE output with default counters (no skip recorded): shows bare
+   * "NEVER APPLIED" without a parenthetical reason.
+   */
+  @Test
+  public void testMatchStepPrettyPrintNeverAppliedNoReason() {
+    var ctx = createCommandContext();
+    var edge = createTestEdgeTraversal();
+    edge.setIntersectionDescriptor(
+        new RidFilterDescriptor.EdgeRidLookup(
+            "Knows", "out", new SQLExpression(-1), false));
+
+    // All counters at defaults (0), lastSkipReason at NONE
+    var step = new MatchStep(ctx, edge, true);
+    var result = step.prettyPrint(0, 2);
+
+    assertTrue("Should contain bare NEVER APPLIED",
+        result.contains("pre-filter: NEVER APPLIED"));
+    assertFalse("Should NOT contain '(reason:'",
+        result.contains("(reason:"));
   }
 
   private static void setCounterField(

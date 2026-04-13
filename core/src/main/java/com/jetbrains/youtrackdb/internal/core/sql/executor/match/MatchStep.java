@@ -11,6 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHel
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFieldMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMultiMatchPathItem;
+import java.util.Locale;
 
 /**
  * Execution step that traverses a single edge in the MATCH pattern graph.
@@ -173,7 +174,8 @@ public class MatchStep extends AbstractExecutionStep {
         selectivity = indexLookup.indexDescriptor().estimateSelectivity(ctx);
       }
       if (!Double.isNaN(selectivity) && selectivity >= 0) {
-        result.append(String.format(" selectivity=%.4f", selectivity));
+        result.append(
+            String.format(Locale.ROOT, " selectivity=%.4f", selectivity));
       }
       result.append(")");
     } else if (descriptor instanceof RidFilterDescriptor.Composite composite) {
@@ -214,12 +216,13 @@ public class MatchStep extends AbstractExecutionStep {
         result.append(" ridSetSize=").append(edge.getPreFilterRidSetSize());
       }
       if (edge.getPreFilterBuildTimeNanos() > 0) {
-        result.append(String.format(" buildTime=%.3fms",
+        result.append(String.format(Locale.ROOT, " buildTime=%.3fms",
             edge.getPreFilterBuildTimeNanos() / 1_000_000.0));
       }
       if (probed > 0) {
         double rate = (double) filtered / probed;
-        result.append(String.format(" filterRate=%.1f%%", rate * 100));
+        result.append(
+            String.format(Locale.ROOT, " filterRate=%.1f%%", rate * 100));
       }
     }
   }
