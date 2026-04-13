@@ -502,6 +502,64 @@ public class MatchStepUnitTest extends DbTestBase {
   }
 
   /**
+   * PROFILE output for BUILD_NOT_AMORTIZED shows "NEVER APPLIED" with the
+   * reason but no threshold (falls through to default in appendSkipDiagnostic).
+   */
+  @Test
+  public void testMatchStepPrettyPrintNeverAppliedBuildNotAmortized()
+      throws Exception {
+    var ctx = createCommandContext();
+    var edge = createTestEdgeTraversal();
+    edge.setIntersectionDescriptor(
+        new RidFilterDescriptor.EdgeRidLookup(
+            "Knows", "out", new SQLExpression(-1), false));
+
+    setCounterField(edge, "lastSkipReason",
+        PreFilterSkipReason.BUILD_NOT_AMORTIZED);
+
+    var step = new MatchStep(ctx, edge, true);
+    var result = step.prettyPrint(0, 2);
+
+    assertTrue("Should contain NEVER APPLIED",
+        result.contains("pre-filter: NEVER APPLIED"));
+    assertTrue("Should contain BUILD_NOT_AMORTIZED",
+        result.contains("BUILD_NOT_AMORTIZED"));
+    assertFalse("Should NOT contain threshold= (no diagnostic for this reason)",
+        result.contains("threshold="));
+    assertFalse("Should NOT contain cap= (wrong diagnostic for this reason)",
+        result.contains("cap="));
+  }
+
+  /**
+   * PROFILE output for LINKBAG_TOO_SMALL shows "NEVER APPLIED" with the
+   * reason but no threshold (falls through to default in appendSkipDiagnostic).
+   */
+  @Test
+  public void testMatchStepPrettyPrintNeverAppliedLinkBagTooSmall()
+      throws Exception {
+    var ctx = createCommandContext();
+    var edge = createTestEdgeTraversal();
+    edge.setIntersectionDescriptor(
+        new RidFilterDescriptor.EdgeRidLookup(
+            "Knows", "out", new SQLExpression(-1), false));
+
+    setCounterField(edge, "lastSkipReason",
+        PreFilterSkipReason.LINKBAG_TOO_SMALL);
+
+    var step = new MatchStep(ctx, edge, true);
+    var result = step.prettyPrint(0, 2);
+
+    assertTrue("Should contain NEVER APPLIED",
+        result.contains("pre-filter: NEVER APPLIED"));
+    assertTrue("Should contain LINKBAG_TOO_SMALL",
+        result.contains("LINKBAG_TOO_SMALL"));
+    assertFalse("Should NOT contain threshold= (no diagnostic for this reason)",
+        result.contains("threshold="));
+    assertFalse("Should NOT contain cap= (wrong diagnostic for this reason)",
+        result.contains("cap="));
+  }
+
+  /**
    * PROFILE output with default counters (no skip recorded): shows bare
    * "NEVER APPLIED" without a parenthetical reason.
    */
