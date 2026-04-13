@@ -25,6 +25,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHel
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import java.util.List;
+import org.assertj.core.data.Offset;
 import org.junit.Test;
 
 /**
@@ -1030,7 +1031,7 @@ public class EdgeTraversalCacheTest {
   public void computeMinNeighborsForBuild_highSelectivity_defersBuilds() {
     double result = EdgeTraversal.computeMinNeighborsForBuild(
         100_000, 100.0, 0.99);
-    assertThat(result).isCloseTo(100_000.0, org.assertj.core.data.Offset.offset(1.0));
+    assertThat(result).isCloseTo(100_000.0, Offset.offset(1e-6));
   }
 
   /**
@@ -1058,5 +1059,35 @@ public class EdgeTraversalCacheTest {
   public void computeMinNeighborsForBuild_unknownSelectivity_buildsImmediately() {
     assertThat(EdgeTraversal.computeMinNeighborsForBuild(
         100_000, 100.0, -1.0)).isEqualTo(0.0);
+  }
+
+  /**
+   * Verifies that the loadToScanRatio parameter actually influences the result.
+   * With ratio=50 instead of 100, the threshold doubles:
+   * 100_000 / (50 * 0.5) = 4000.0
+   */
+  @Test
+  public void computeMinNeighborsForBuild_differentLoadToScanRatio() {
+    double result = EdgeTraversal.computeMinNeighborsForBuild(
+        100_000, 50.0, 0.5);
+    assertThat(result).isEqualTo(4000.0);
+  }
+
+  /**
+   * estimatedSize = 1 is the smallest positive value — boundary just above
+   * the early-return guard. Verifies it enters the normal formula path.
+   * Expected: 1 / (100.0 * 0.5) = 0.02
+   */
+  @Test
+  public void computeMinNeighborsForBuild_estimatedSizeOne_usesFormula() {
+    double result = EdgeTraversal.computeMinNeighborsForBuild(
+        1, 100.0, 0.5);
+    assertThat(result).isEqualTo(0.02);
+  }
+
+  /** Change detector — the default SSD-calibrated ratio must be 100. */
+  @Test
+  public void defaultLoadToScanRatio_isOneHundred() {
+    assertThat(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO).isEqualTo(100.0);
   }
 }
