@@ -958,26 +958,27 @@ public class EdgeTraversalCacheTest {
   @Test
   public void resolveWithCache_indexLookupSelectivityFails_cachesNull() {
     var et = createEdgeTraversal();
+    // High selectivity (0.96 > 0.95 threshold) — the IndexLookup path
+    // in resolveWithCache caches this selectivity and rejects permanently.
+    var indexDesc = mock(IndexSearchDescriptor.class);
+    when(indexDesc.estimateSelectivity(any())).thenReturn(0.96);
     var desc = mock(IndexLookup.class);
+    when(desc.indexDescriptor()).thenReturn(indexDesc);
     var key = "Post.creationDate";
 
     when(desc.cacheKey(any())).thenReturn(key);
     when(desc.estimatedSize(any(), any())).thenReturn(500);
-    // Selectivity check fails (high class-level selectivity)
-    when(desc.passesSelectivityCheck(anyInt(), anyInt(), any()))
-        .thenReturn(false);
     et.setIntersectionDescriptor(desc);
     var ctx = new BasicCommandContext();
 
-    // First call: selectivity fails → null, cached for IndexLookup
+    // First call: selectivity too high → null, cached for IndexLookup
     assertThat(et.resolveWithCache(ctx, LARGE_LINKBAG)).isNull();
 
-    // Second call: cache hit → null, passesSelectivityCheck NOT re-called
+    // Second call: cache hit → null, estimateSelectivity NOT re-called
     assertThat(et.resolveWithCache(ctx, LARGE_LINKBAG)).isNull();
 
-    // passesSelectivityCheck called only once (second call is cache hit)
-    verify(desc, times(1))
-        .passesSelectivityCheck(anyInt(), anyInt(), any());
+    // estimateSelectivity called only once (second call is cache hit)
+    verify(indexDesc, times(1)).estimateSelectivity(any());
     // resolve() never called
     verify(desc, never()).resolve(any(), any());
   }
@@ -1124,8 +1125,8 @@ public class EdgeTraversalCacheTest {
    * threshold triggers materialization immediately on the first call.
    *
    * <p>With selectivity=0.5, estimatedSize=100_000, ratio=100:
-   * minNeighbors = 100_000 / (100 * 0.5) = 2000. A linkBag of 10_000
-   * exceeds 2000, so the first call materializes.
+   * minNeighbors = 100_000 / (100 * (1 - 0.5)) = 2000. A linkBag of
+   * 10_000 exceeds 2000, so the first call materializes.
    */
   @Test
   public void resolveWithCache_indexLookup_singleLargeVertex_triggersImmediately() {
@@ -1139,6 +1140,8 @@ public class EdgeTraversalCacheTest {
     var result = et.resolveWithCache(ctx, 10_000);
     assertThat(result).isSameAs(ridSet);
     verify(desc, times(1)).resolve(any(), any());
+    // Verify the accumulator path was entered (selectivity was fetched)
+    verify(desc.indexDescriptor(), times(1)).estimateSelectivity(any());
   }
 
   /**
@@ -1146,9 +1149,10 @@ public class EdgeTraversalCacheTest {
    * Vertices 1..N return null (deferred), vertex N+1 triggers materialization.
    *
    * <p>With selectivity=0.5, estimatedSize=100_000, ratio=100:
-   * minNeighbors = 2000. With linkBagSize=500 per vertex, it takes 4
-   * deferred calls (accumulated=2000) before the 4th call triggers
-   * (ceil(2000) = 2000, accumulated 4*500=2000 >= 2000).
+   * minNeighbors = 100_000 / (100 * (1 - 0.5)) = 2000. With
+   * linkBagSize=500 per vertex, the first 3 calls are deferred
+   * (accumulated = 500, 1000, 1500 &lt; 2000) and the 4th call
+   * triggers (accumulated = 2000 >= 2000).
    */
   @Test
   public void resolveWithCache_indexLookup_multipleSmallVertices_accumulate() {
@@ -1162,6 +1166,8 @@ public class EdgeTraversalCacheTest {
     assertThat(et.resolveWithCache(ctx, 500)).isNull();
     assertThat(et.resolveWithCache(ctx, 500)).isNull();
     assertThat(et.resolveWithCache(ctx, 500)).isNull();
+    // resolve() never called during deferral
+    verify(desc, never()).resolve(any(), any());
 
     // Vertex 4: accumulated = 2000 >= ceil(2000) → triggers
     assertThat(et.resolveWithCache(ctx, 500)).isSameAs(ridSet);
@@ -1203,6 +1209,7 @@ public class EdgeTraversalCacheTest {
 
     // Small vertex — deferred (null, not cached)
     assertThat(et.resolveWithCache(ctx, 100)).isNull();
+    verify(desc, never()).resolve(any(), any());
 
     // Large vertex — should trigger (not a cache-hit returning null)
     assertThat(et.resolveWithCache(ctx, 10_000)).isSameAs(ridSet);
@@ -1210,11 +1217,13 @@ public class EdgeTraversalCacheTest {
   }
 
   /**
-   * When estimateSelectivity returns -1.0 (unknown), the accumulator is
-   * bypassed entirely and the RidSet is materialized immediately.
+   * When estimateSelectivity returns -1.0 (unknown), the RidSet is
+   * materialized immediately even with a tiny linkBag — the accumulator
+   * is bypassed because unknown selectivity means we cannot compute a
+   * meaningful build threshold.
    */
   @Test
-  public void resolveWithCache_indexLookup_unknownSelectivity_bypassesAccumulator() {
+  public void resolveWithCache_indexLookup_unknownSelectivity_materializesImmediately() {
     var et = createEdgeTraversal();
     var ridSet = singletonRidSet(10, 1);
     // selectivity=-1.0 (unknown), estimatedSize=100_000
@@ -1226,5 +1235,28 @@ public class EdgeTraversalCacheTest {
     var result = et.resolveWithCache(ctx, 1);
     assertThat(result).isSameAs(ridSet);
     verify(desc, times(1)).resolve(any(), any());
+  }
+
+  /**
+   * estimateSelectivity is called exactly once across multiple
+   * resolveWithCache calls — the result is cached in
+   * indexLookupSelectivity. Regression guard for the NaN-sentinel
+   * caching mechanism.
+   */
+  @Test
+  public void resolveWithCache_indexLookup_selectivityCachedAcrossCalls() {
+    var et = createEdgeTraversal();
+    var ridSet = singletonRidSet(10, 1);
+    var desc = stubIndexLookup(0.5, 100_000, "Post.date", ridSet);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    // Three calls: deferred, deferred, trigger
+    et.resolveWithCache(ctx, 500);
+    et.resolveWithCache(ctx, 500);
+    et.resolveWithCache(ctx, 10_000);
+
+    // estimateSelectivity must be called exactly once (cached after first)
+    verify(desc.indexDescriptor(), times(1)).estimateSelectivity(any());
   }
 }
