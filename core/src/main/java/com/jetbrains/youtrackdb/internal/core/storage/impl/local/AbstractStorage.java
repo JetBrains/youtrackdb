@@ -164,6 +164,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.NavigableMap;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
@@ -6360,6 +6361,91 @@ public abstract class AbstractStorage
     return new IndexesSnapshot(
         sharedNullIndexesSnapshot, nullIndexSnapshotVisibilityIndex, indexesSnapshotEntriesCount,
         indexId);
+  }
+
+  /**
+   * Resolves the sub-{@link IndexesSnapshot} for an index engine by its name.
+   * Used by {@code BTree} during tombstone GC to check for active snapshot entries.
+   *
+   * @return the scoped snapshot, or {@code null} if no engine with this name exists
+   */
+  @Nullable public IndexesSnapshot getIndexSnapshotByEngineName(String engineName) {
+    var engine = indexEngineNameMap.get(engineName);
+    if (engine == null) {
+      return null;
+    }
+    return subIndexSnapshot(engine.getId());
+  }
+
+  /**
+   * Resolves the null-key sub-{@link IndexesSnapshot} for an index engine by its name.
+   * Used by {@code BTree} during tombstone GC for null-key trees in multi-value indexes.
+   *
+   * @return the scoped null snapshot, or {@code null} if no engine with this name exists
+   */
+  @Nullable public IndexesSnapshot getNullIndexSnapshotByEngineName(String engineName) {
+    var engine = indexEngineNameMap.get(engineName);
+    if (engine == null) {
+      return null;
+    }
+    return subNullIndexSnapshot(engine.getId());
+  }
+
+  private static final String NULL_TREE_SUFFIX = "$null";
+
+  /**
+   * Checks whether any snapshot entries exist for the given user-key prefix with
+   * {@code version >= lwm} in the index identified by {@code engineName}.
+   * For null-key trees (name ending with {@code "$null"}), the null snapshot is used.
+   *
+   * <p>Queries the shared {@code ConcurrentSkipListMap} directly without creating
+   * an intermediate {@link IndexesSnapshot} instance.
+   *
+   * @param engineName the index engine name (may end with "$null" for null-key trees)
+   * @param userKeyPrefix the key prefix (all CompositeKey elements except the version)
+   * @param lwm the global low-water mark
+   * @return {@code true} if at least one snapshot entry exists with version >= lwm,
+   *     or {@code false} if no engine or no matching entries exist
+   */
+  public boolean hasActiveIndexSnapshotEntries(
+      String engineName, CompositeKey userKeyPrefix, long lwm) {
+    final String resolvedName;
+    final NavigableMap<CompositeKey, RID> snapshotMap;
+    if (engineName.endsWith(NULL_TREE_SUFFIX)) {
+      resolvedName = engineName.substring(
+          0, engineName.length() - NULL_TREE_SUFFIX.length());
+      snapshotMap = sharedNullIndexesSnapshot;
+    } else {
+      resolvedName = engineName;
+      snapshotMap = sharedIndexesSnapshot;
+    }
+
+    var engine = indexEngineNameMap.get(resolvedName);
+    if (engine == null) {
+      return false;
+    }
+    long indexId = engine.getId();
+
+    // Build range keys: CompositeKey(indexId, userKeyPrefix..., lwm) to
+    // CompositeKey(indexId, userKeyPrefix..., Long.MAX_VALUE)
+    var prefixKeys = userKeyPrefix.getKeys();
+    int size = prefixKeys.size();
+
+    var lower = new CompositeKey(size + 2);
+    lower.addKey(indexId);
+    for (int i = 0; i < size; i++) {
+      lower.addKey(prefixKeys.get(i));
+    }
+    lower.addKey(lwm);
+
+    var upper = new CompositeKey(size + 2);
+    upper.addKey(indexId);
+    for (int i = 0; i < size; i++) {
+      upper.addKey(prefixKeys.get(i));
+    }
+    upper.addKey(Long.MAX_VALUE);
+
+    return !snapshotMap.subMap(lower, true, upper, true).isEmpty();
   }
 
   /**

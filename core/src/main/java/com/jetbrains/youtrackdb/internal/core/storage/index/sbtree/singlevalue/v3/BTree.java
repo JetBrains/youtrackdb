@@ -29,6 +29,8 @@ import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.TooBigIndexKeyException;
+import com.jetbrains.youtrackdb.internal.core.id.SnapshotMarkerRID;
+import com.jetbrains.youtrackdb.internal.core.id.TombstoneRID;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot;
 import com.jetbrains.youtrackdb.internal.core.index.comparator.AlwaysGreaterKey;
@@ -728,7 +730,31 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
                 sizeDiff = 1;
               }
 
+              // GC flag: attempt tombstone filtering at most once per insert.
+              // If GC frees enough space, the retry succeeds without splitting.
+              // If not, the normal split proceeds on the already-filtered bucket.
+              boolean gcAttempted = false;
+
               while (!keyBucket.addLeafEntry(insertionIndex, serializedKey, serializedValue)) {
+                // Attempt tombstone GC before splitting — removes tombstones
+                // below the global LWM and demotes stale SnapshotMarkerRIDs.
+                if (!gcAttempted) {
+                  gcAttempted = true;
+                  int removedCount =
+                      filterAndRebuildBucket(keyBucket);
+                  if (removedCount > 0) {
+                    updateSize(-removedCount, atomicOperation);
+                    // Re-derive insertion index — bucket contents shifted after GC.
+                    insertionIndex =
+                        -keyBucket.find(
+                            serializedKey, keySerializer, serializerFactory) - 1;
+                    assert insertionIndex >= 0
+                        : "Insertion index must be non-negative after GC, got "
+                            + insertionIndex;
+                    continue;
+                  }
+                }
+
                 bucketSearchResult =
                     splitBucket(
                         keyBucket,
@@ -2731,5 +2757,127 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
     }
 
     return false;
+  }
+
+  // ---- Tombstone GC helpers (used during leaf page split) ----
+
+  /**
+   * Filters removable tombstones from a leaf bucket and rebuilds it in-place
+   * with only the surviving entries. Stale {@link SnapshotMarkerRID} entries
+   * are demoted to plain {@code RecordId} in the raw bytes.
+   *
+   * <p>A tombstone is removable when:
+   * <ol>
+   *   <li>Its value is a {@link TombstoneRID}</li>
+   *   <li>Its version (last CompositeKey element) is strictly below LWM</li>
+   * </ol>
+   *
+   * <p>A {@link SnapshotMarkerRID} is demotable when:
+   * <ol>
+   *   <li>Its version is strictly below LWM</li>
+   *   <li>No snapshot entries with version >= LWM exist for the same
+   *       user-key prefix</li>
+   * </ol>
+   *
+   * @return the number of entries removed (tombstones deleted); demotions
+   *     do not change the count
+   */
+  private int filterAndRebuildBucket(
+      final CellBTreeSingleValueBucketV3<K> keyBucket) {
+    final long lwm = storage.computeGlobalLowWaterMark();
+    assert lwm >= 0 : "Global LWM must be non-negative, got " + lwm;
+    assert keyBucket.isLeaf() : "GC must only run on leaf buckets";
+
+    final int bucketSize = keyBucket.size();
+    final List<byte[]> survivors = new ArrayList<>(bucketSize);
+    int removedCount = 0;
+    boolean demoted = false;
+
+    for (int i = 0; i < bucketSize; i++) {
+      final var value =
+          keyBucket.getValue(i, keySerializer, serializerFactory);
+
+      // Plain RecordId — not a tombstone or marker, always a survivor.
+      // Skip key deserialization for performance (T5 optimization).
+      if (!(value instanceof TombstoneRID) && !(value instanceof SnapshotMarkerRID)) {
+        survivors.add(
+            keyBucket.getRawEntry(i, keySerializer, serializerFactory));
+        continue;
+      }
+
+      final var key = keyBucket.getKey(i, keySerializer, serializerFactory);
+
+      // Extract version — always the last element of the CompositeKey
+      final long version;
+      if (key instanceof CompositeKey compositeKey) {
+        version = (Long) compositeKey.getKeys().getLast();
+      } else {
+        // Not a versioned key — keep as-is
+        survivors.add(
+            keyBucket.getRawEntry(i, keySerializer, serializerFactory));
+        continue;
+      }
+
+      if (value instanceof TombstoneRID && version < lwm) {
+        // Tombstone below LWM — remove (GC'd)
+        removedCount++;
+      } else if (value instanceof SnapshotMarkerRID && version < lwm) {
+        // SnapshotMarkerRID below LWM — demote to plain RecordId if no
+        // active snapshot entries exist for this user-key prefix
+        var userKeyPrefix = new CompositeKey(
+            compositeKey.getKeys().subList(
+                0, compositeKey.getKeys().size() - 1));
+        if (!storage.hasActiveIndexSnapshotEntries(getName(), userKeyPrefix, lwm)) {
+          survivors.add(
+              demoteMarkerRawBytes(
+                  keyBucket.getRawEntry(i, keySerializer, serializerFactory)));
+          demoted = true;
+        } else {
+          survivors.add(
+              keyBucket.getRawEntry(i, keySerializer, serializerFactory));
+        }
+      } else {
+        survivors.add(
+            keyBucket.getRawEntry(i, keySerializer, serializerFactory));
+      }
+    }
+
+    if (removedCount == 0 && !demoted) {
+      return 0;
+    }
+
+    assert removedCount + survivors.size() == bucketSize
+        : "Partition invariant violated: removed (" + removedCount
+            + ") + survivors (" + survivors.size()
+            + ") != original size (" + bucketSize + ")";
+
+    keyBucket.shrink(0, keySerializer, serializerFactory);
+    keyBucket.addAll(survivors, keySerializer);
+
+    return removedCount;
+  }
+
+  /**
+   * Demotes a {@link SnapshotMarkerRID} in a raw leaf entry to a plain
+   * {@code RecordId} by rewriting the encoded {@code collectionPosition}.
+   *
+   * <p>Raw leaf entry layout: {@code [key_bytes | 2-byte collectionId | 8-byte
+   * collectionPosition]}. For {@code SnapshotMarkerRID}, the
+   * {@code collectionPosition} is encoded as {@code -(realPos + 1)}. This
+   * method decodes it back to the real positive value.
+   *
+   * @param rawEntry the raw entry bytes (modified in-place and returned)
+   * @return the same byte array with the position corrected
+   */
+  private static byte[] demoteMarkerRawBytes(byte[] rawEntry) {
+    // collectionPosition is the last 8 bytes of the raw entry
+    int posOffset = rawEntry.length - LongSerializer.LONG_SIZE;
+    long encodedPosition = LongSerializer.deserializeNative(rawEntry, posOffset);
+    // SnapshotMarkerRID encodes as -(realPos + 1); decode back
+    long realPosition = -(encodedPosition + 1);
+    assert realPosition >= 0
+        : "Demoted position must be non-negative, got " + realPosition;
+    LongSerializer.serializeNative(realPosition, rawEntry, posOffset);
+    return rawEntry;
   }
 }
