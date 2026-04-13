@@ -1090,4 +1090,141 @@ public class EdgeTraversalCacheTest {
   public void defaultLoadToScanRatio_isOneHundred() {
     assertThat(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO).isEqualTo(100.0);
   }
+
+  // =========================================================================
+  // Build amortization guard — accumulate-and-trigger for IndexLookup
+  // =========================================================================
+
+  /**
+   * Creates an IndexLookup descriptor with the given selectivity and
+   * estimated hits. The descriptor's resolve() returns the given RidSet.
+   */
+  private IndexLookup stubIndexLookup(
+      double selectivity, long estimatedHits, String indexName, RidSet ridSet) {
+    var indexDesc = mock(IndexSearchDescriptor.class);
+    when(indexDesc.estimateSelectivity(any())).thenReturn(selectivity);
+    when(indexDesc.estimateHits(any())).thenReturn(estimatedHits);
+    var index = mock(Index.class);
+    when(index.getName()).thenReturn(indexName);
+    when(indexDesc.getIndex()).thenReturn(index);
+
+    var lookup = mock(IndexLookup.class);
+    when(lookup.indexDescriptor()).thenReturn(indexDesc);
+    when(lookup.cacheKey(any())).thenReturn(indexName);
+    when(lookup.estimatedSize(any(), any()))
+        .thenReturn((int) Math.min(estimatedHits, Integer.MAX_VALUE));
+    when(lookup.passesSelectivityCheck(anyInt(), anyInt(), any()))
+        .thenReturn(true);
+    when(lookup.resolve(any(), any())).thenReturn(ridSet);
+    return lookup;
+  }
+
+  /**
+   * A single large vertex whose linkBagSize exceeds the amortization
+   * threshold triggers materialization immediately on the first call.
+   *
+   * <p>With selectivity=0.5, estimatedSize=100_000, ratio=100:
+   * minNeighbors = 100_000 / (100 * 0.5) = 2000. A linkBag of 10_000
+   * exceeds 2000, so the first call materializes.
+   */
+  @Test
+  public void resolveWithCache_indexLookup_singleLargeVertex_triggersImmediately() {
+    var et = createEdgeTraversal();
+    var ridSet = singletonRidSet(10, 1);
+    var desc = stubIndexLookup(0.5, 100_000, "Post.date", ridSet);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    // linkBagSize=10_000 > threshold 2000 → materialize
+    var result = et.resolveWithCache(ctx, 10_000);
+    assertThat(result).isSameAs(ridSet);
+    verify(desc, times(1)).resolve(any(), any());
+  }
+
+  /**
+   * Multiple small vertices accumulate until the threshold is reached.
+   * Vertices 1..N return null (deferred), vertex N+1 triggers materialization.
+   *
+   * <p>With selectivity=0.5, estimatedSize=100_000, ratio=100:
+   * minNeighbors = 2000. With linkBagSize=500 per vertex, it takes 4
+   * deferred calls (accumulated=2000) before the 4th call triggers
+   * (ceil(2000) = 2000, accumulated 4*500=2000 >= 2000).
+   */
+  @Test
+  public void resolveWithCache_indexLookup_multipleSmallVertices_accumulate() {
+    var et = createEdgeTraversal();
+    var ridSet = singletonRidSet(10, 1);
+    var desc = stubIndexLookup(0.5, 100_000, "Post.date", ridSet);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    // Vertices 1-3: accumulated = 500, 1000, 1500 — all < 2000
+    assertThat(et.resolveWithCache(ctx, 500)).isNull();
+    assertThat(et.resolveWithCache(ctx, 500)).isNull();
+    assertThat(et.resolveWithCache(ctx, 500)).isNull();
+
+    // Vertex 4: accumulated = 2000 >= ceil(2000) → triggers
+    assertThat(et.resolveWithCache(ctx, 500)).isSameAs(ridSet);
+    verify(desc, times(1)).resolve(any(), any());
+  }
+
+  /**
+   * After the accumulator triggers materialization and caches the RidSet,
+   * subsequent calls are cache hits — resolve() is not called again.
+   */
+  @Test
+  public void resolveWithCache_indexLookup_afterTrigger_cacheHit() {
+    var et = createEdgeTraversal();
+    var ridSet = singletonRidSet(10, 1);
+    var desc = stubIndexLookup(0.5, 100_000, "Post.date", ridSet);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    // Trigger on first call (large vertex)
+    assertThat(et.resolveWithCache(ctx, 10_000)).isSameAs(ridSet);
+    // Subsequent call — cache hit
+    assertThat(et.resolveWithCache(ctx, 10_000)).isSameAs(ridSet);
+
+    verify(desc, times(1)).resolve(any(), any());
+  }
+
+  /**
+   * Deferred builds do NOT cache null. Verify by checking that subsequent
+   * calls still go through the selectivity + accumulator path (not a
+   * cache hit returning null).
+   */
+  @Test
+  public void resolveWithCache_indexLookup_deferredBuild_doesNotCacheNull() {
+    var et = createEdgeTraversal();
+    var ridSet = singletonRidSet(10, 1);
+    var desc = stubIndexLookup(0.5, 100_000, "Post.date", ridSet);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    // Small vertex — deferred (null, not cached)
+    assertThat(et.resolveWithCache(ctx, 100)).isNull();
+
+    // Large vertex — should trigger (not a cache-hit returning null)
+    assertThat(et.resolveWithCache(ctx, 10_000)).isSameAs(ridSet);
+    verify(desc, times(1)).resolve(any(), any());
+  }
+
+  /**
+   * When estimateSelectivity returns -1.0 (unknown), the accumulator is
+   * bypassed entirely and the RidSet is materialized immediately.
+   */
+  @Test
+  public void resolveWithCache_indexLookup_unknownSelectivity_bypassesAccumulator() {
+    var et = createEdgeTraversal();
+    var ridSet = singletonRidSet(10, 1);
+    // selectivity=-1.0 (unknown), estimatedSize=100_000
+    var desc = stubIndexLookup(-1.0, 100_000, "Post.date", ridSet);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    // Even with tiny linkBag, unknown selectivity → immediate materialization
+    var result = et.resolveWithCache(ctx, 1);
+    assertThat(result).isSameAs(ridSet);
+    verify(desc, times(1)).resolve(any(), any());
+  }
 }

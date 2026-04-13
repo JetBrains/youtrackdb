@@ -88,6 +88,25 @@ public class EdgeTraversal {
   static final double DEFAULT_LOAD_TO_SCAN_RATIO = 100.0;
 
   /**
+   * Running sum of link bag sizes across vertices for {@link
+   * RidFilterDescriptor.IndexLookup} build amortization. The accumulator
+   * tracks how many total neighbors have been encountered; once the total
+   * exceeds {@link #computeMinNeighborsForBuild}'s threshold, the RidSet
+   * is materialized. Not copied by {@link #copy()} — each query execution
+   * starts with a fresh accumulator (Java default 0L).
+   */
+  private long accumulatedLinkBagTotal;
+
+  /**
+   * Cached selectivity value for the {@link RidFilterDescriptor.IndexLookup}
+   * descriptor. {@code NaN} means not yet computed; {@code < 0} (e.g.
+   * {@code -1.0}) means unknown (bypass accumulator and build immediately).
+   * Not copied by {@link #copy()} — each query execution re-computes on
+   * first use (the field initializer resets to {@code NaN}).
+   */
+  private double indexLookupSelectivity = Double.NaN;
+
+  /**
    * Fixed-capacity cache of resolved RidSets, keyed by
    * {@link RidFilterDescriptor#cacheKey}. Stops accepting new entries
    * at capacity — no eviction, no LRU bookkeeping. Allocated lazily
@@ -224,6 +243,10 @@ public class EdgeTraversal {
    *       vertex's link bag is too small relative to the estimated
    *       RidSet size, return {@code null} without caching (a later
    *       vertex with a larger link bag may trigger resolution).</li>
+   *   <li><b>Build amortization guard (IndexLookup only)</b> —
+   *       accumulates link bag sizes across vertices and defers
+   *       materialization until the total justifies the build cost.
+   *       Returns {@code null} without caching when deferred.</li>
    *   <li><b>First big-enough hit</b> — resolve (materialize) and
    *       cache. The cached RidSet is a pure function of descriptor
    *       parameters.</li>
@@ -284,6 +307,33 @@ public class EdgeTraversal {
         cache.put(key, null);
       }
       return null;
+    }
+
+    // 4b. Build amortization guard for IndexLookup.
+    //     Accumulate link bag sizes across vertices and defer
+    //     materialization until the total justifies the build cost.
+    //     EdgeRidLookup/DirectRid/Composite paths are unaffected.
+    if (desc instanceof RidFilterDescriptor.IndexLookup indexLookup) {
+      // Cache selectivity on first call — class-level, constant per query.
+      if (Double.isNaN(indexLookupSelectivity)) {
+        indexLookupSelectivity =
+            indexLookup.indexDescriptor().estimateSelectivity(ctx);
+      }
+      // Unknown selectivity (-1.0): bypass accumulator, build immediately.
+      if (indexLookupSelectivity >= 0) {
+        accumulatedLinkBagTotal += linkBagSize;
+        double minNeighbors = computeMinNeighborsForBuild(
+            estimatedSize, DEFAULT_LOAD_TO_SCAN_RATIO,
+            indexLookupSelectivity);
+        if (accumulatedLinkBagTotal < (long) Math.ceil(minNeighbors)) {
+          // Threshold not yet met — return null WITHOUT caching.
+          // A later vertex may push the accumulated total over.
+          assert key == null || !cache.containsKey(key)
+              : "deferred build must not cache null";
+          return null;
+        }
+      }
+      // Threshold met (or unknown selectivity) — fall through to materialize.
     }
 
     // 5. First big-enough hit — resolve (materialize) and cache.
