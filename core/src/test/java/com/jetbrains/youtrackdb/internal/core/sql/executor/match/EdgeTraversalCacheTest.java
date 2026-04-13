@@ -1656,4 +1656,192 @@ public class EdgeTraversalCacheTest {
     field.setAccessible(true);
     field.set(target, value);
   }
+
+  // =========================================================================
+  // Counter recording in resolveWithCache
+  // =========================================================================
+
+  /**
+   * When estimatedSize exceeds maxRidSetSize, the counter records
+   * CAP_EXCEEDED and increments the skipped count.
+   */
+  @Test
+  public void resolveWithCache_capExceeded_recordsCounter() {
+    var et = createEdgeTraversal();
+    var desc = mock(EdgeRidLookup.class);
+    var key = new RecordId(5, 1);
+
+    when(desc.cacheKey(any())).thenReturn(key);
+    when(desc.estimatedSize(any(), any()))
+        .thenReturn(TraversalPreFilterHelper.maxRidSetSize() + 1);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    et.resolveWithCache(ctx, LARGE_LINKBAG);
+
+    assertThat(et.getLastSkipReason())
+        .isEqualTo(PreFilterSkipReason.CAP_EXCEEDED);
+    assertThat(et.getPreFilterSkippedCount()).isEqualTo(1);
+    assertThat(et.getPreFilterAppliedCount()).isZero();
+  }
+
+  /**
+   * When IndexLookup selectivity exceeds the threshold, the counter
+   * records SELECTIVITY_TOO_LOW and increments the skipped count.
+   */
+  @Test
+  public void resolveWithCache_selectivityTooLow_recordsCounter() {
+    var et = createEdgeTraversal();
+    var indexDesc = mock(IndexSearchDescriptor.class);
+    when(indexDesc.estimateSelectivity(any())).thenReturn(0.96);
+    var desc = mock(IndexLookup.class);
+    when(desc.indexDescriptor()).thenReturn(indexDesc);
+    when(desc.cacheKey(any())).thenReturn("Post.creationDate");
+    when(desc.estimatedSize(any(), any())).thenReturn(500);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    et.resolveWithCache(ctx, LARGE_LINKBAG);
+
+    assertThat(et.getLastSkipReason())
+        .isEqualTo(PreFilterSkipReason.SELECTIVITY_TOO_LOW);
+    assertThat(et.getPreFilterSkippedCount()).isEqualTo(1);
+    assertThat(et.getPreFilterAppliedCount()).isZero();
+  }
+
+  /**
+   * When the IndexLookup build amortization threshold is not yet met,
+   * the counter records BUILD_NOT_AMORTIZED and increments the skipped
+   * count. Each deferred call increments the count.
+   */
+  @Test
+  public void resolveWithCache_buildNotAmortized_recordsCounter() {
+    var et = createEdgeTraversal();
+    var ridSet = singletonRidSet(10, 1);
+    // selectivity=0.5, estimatedSize=100_000 → threshold=2000
+    var desc = stubIndexLookup(0.5, 100_000, "Post.date", ridSet);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    // linkBag=500 → accumulated=500 < 2000 → deferred
+    et.resolveWithCache(ctx, 500);
+
+    assertThat(et.getLastSkipReason())
+        .isEqualTo(PreFilterSkipReason.BUILD_NOT_AMORTIZED);
+    assertThat(et.getPreFilterSkippedCount()).isEqualTo(1);
+
+    // Second deferral
+    et.resolveWithCache(ctx, 500);
+    assertThat(et.getPreFilterSkippedCount()).isEqualTo(2);
+  }
+
+  /**
+   * When EdgeRidLookup's passesSelectivityCheck returns false (overlap
+   * ratio too high), the counter records OVERLAP_RATIO_TOO_HIGH.
+   */
+  @Test
+  public void resolveWithCache_overlapTooHigh_recordsCounter() {
+    var et = createEdgeTraversal();
+    var desc = mock(EdgeRidLookup.class);
+    var key = new RecordId(5, 1);
+
+    when(desc.cacheKey(any())).thenReturn(key);
+    when(desc.estimatedSize(any(), any())).thenReturn(500);
+    when(desc.passesSelectivityCheck(anyInt(), anyInt(), any()))
+        .thenReturn(false);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    et.resolveWithCache(ctx, 50);
+
+    assertThat(et.getLastSkipReason())
+        .isEqualTo(PreFilterSkipReason.OVERLAP_RATIO_TOO_HIGH);
+    assertThat(et.getPreFilterSkippedCount()).isEqualTo(1);
+    assertThat(et.getPreFilterAppliedCount()).isZero();
+  }
+
+  /**
+   * On the success path (materialization), the counter records
+   * preFilterAppliedCount, preFilterRidSetSize, and
+   * preFilterBuildTimeNanos. The lastSkipReason is NONE.
+   */
+  @Test
+  public void resolveWithCache_success_recordsCounters() {
+    var et = createEdgeTraversal();
+    var desc = mock(EdgeRidLookup.class);
+    var key = new RecordId(5, 1);
+    var ridSet = singletonRidSet(10, 1);
+
+    when(desc.cacheKey(any())).thenReturn(key);
+    when(desc.resolve(any(), any())).thenReturn(ridSet);
+    stubSmallEstimate(desc);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    et.resolveWithCache(ctx, LARGE_LINKBAG);
+
+    assertThat(et.getPreFilterAppliedCount()).isEqualTo(1);
+    assertThat(et.getPreFilterRidSetSize()).isEqualTo(1);
+    assertThat(et.getPreFilterBuildTimeNanos()).isGreaterThanOrEqualTo(0);
+    assertThat(et.getLastSkipReason()).isEqualTo(PreFilterSkipReason.NONE);
+    assertThat(et.getPreFilterSkippedCount()).isZero();
+  }
+
+  /**
+   * preFilterRidSetSize is set once at first materialization and not
+   * overwritten on subsequent cache hits (T8).
+   */
+  @Test
+  public void resolveWithCache_ridSetSize_setOnceAtMaterialization() {
+    var et = createEdgeTraversal();
+    var desc = mock(EdgeRidLookup.class);
+    var key = new RecordId(5, 1);
+    var ridSet = singletonRidSet(10, 1);
+
+    when(desc.cacheKey(any())).thenReturn(key);
+    when(desc.resolve(any(), any())).thenReturn(ridSet);
+    stubSmallEstimate(desc);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    // First call materializes — ridSetSize set to 1
+    et.resolveWithCache(ctx, LARGE_LINKBAG);
+    assertThat(et.getPreFilterRidSetSize()).isEqualTo(1);
+
+    // Second call is a cache hit — appliedCount increments but
+    // ridSetSize remains 1 (not doubled)
+    et.resolveWithCache(ctx, LARGE_LINKBAG);
+    assertThat(et.getPreFilterAppliedCount()).isEqualTo(1);
+    assertThat(et.getPreFilterRidSetSize()).isEqualTo(1);
+  }
+
+  /**
+   * Build amortization deferred, then threshold met — counters show both
+   * the deferred skips and the eventual success.
+   */
+  @Test
+  public void resolveWithCache_deferredThenTriggered_recordsCounters() {
+    var et = createEdgeTraversal();
+    var ridSet = singletonRidSet(10, 1);
+    // selectivity=0.5, estimatedSize=100_000 → threshold=2000
+    var desc = stubIndexLookup(0.5, 100_000, "Post.date", ridSet);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    // Defer 3 times (500 each = 1500 < 2000)
+    et.resolveWithCache(ctx, 500);
+    et.resolveWithCache(ctx, 500);
+    et.resolveWithCache(ctx, 500);
+    assertThat(et.getPreFilterSkippedCount()).isEqualTo(3);
+    assertThat(et.getLastSkipReason())
+        .isEqualTo(PreFilterSkipReason.BUILD_NOT_AMORTIZED);
+
+    // 4th call pushes to 2000 → triggers
+    et.resolveWithCache(ctx, 500);
+    assertThat(et.getPreFilterAppliedCount()).isEqualTo(1);
+    assertThat(et.getPreFilterSkippedCount()).isEqualTo(3);
+    assertThat(et.getLastSkipReason()).isEqualTo(PreFilterSkipReason.NONE);
+    assertThat(et.getPreFilterRidSetSize()).isEqualTo(1);
+    assertThat(et.getPreFilterBuildTimeNanos()).isGreaterThanOrEqualTo(0);
+  }
 }
