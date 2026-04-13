@@ -478,22 +478,23 @@ public class TraversalPreFilterHelperTest {
 
   /**
    * resolveScanNanos() must return a functional (non-null) TimeRate
-   * even without a running MetricsRegistry — it falls back to NOOP.
+   * regardless of whether a live MetricsRegistry is available. When
+   * no registry exists it falls back to NOOP; when one does exist it
+   * returns a live Impl. Either way, record() must not throw.
    */
   @Test
-  public void resolveScanNanosFallsBackToNoop() {
+  public void resolveScanNanosReturnsNonNull() {
     var metric = TraversalPreFilterHelper.resolveScanNanos();
     assertThat(metric).isNotNull();
-    // NOOP silently discards — must not throw
     metric.record(12345);
   }
 
   /**
    * resolveScanEntries() must return a functional (non-null) TimeRate
-   * even without a running MetricsRegistry.
+   * regardless of registry availability.
    */
   @Test
-  public void resolveScanEntriesFallsBackToNoop() {
+  public void resolveScanEntriesReturnsNonNull() {
     var metric = TraversalPreFilterHelper.resolveScanEntries();
     assertThat(metric).isNotNull();
     metric.record(100);

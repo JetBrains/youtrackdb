@@ -1961,14 +1961,15 @@ public class EdgeTraversalCacheTest {
   // ---- Metric resolve fallback (null registry in unit test env) ----
 
   /**
-   * resolveEffectivenessMetric() must return a functional (non-null) Ratio
-   * even without a running MetricsRegistry — it falls back to Ratio.NOOP.
+   * resolveEffectivenessMetric() must return a functional (non-null)
+   * Ratio regardless of whether a live MetricsRegistry is available.
+   * When no registry exists it falls back to NOOP; when one does exist
+   * it returns a live Impl. Either way, record() must not throw.
    */
   @Test
-  public void resolveEffectivenessMetricFallsBackToNoop() {
+  public void resolveEffectivenessMetricReturnsNonNull() {
     var metric = MatchEdgeTraverser.resolveEffectivenessMetric();
     assertThat(metric).isNotNull();
-    // NOOP silently discards — must not throw
     metric.record(50, 100);
   }
 }
