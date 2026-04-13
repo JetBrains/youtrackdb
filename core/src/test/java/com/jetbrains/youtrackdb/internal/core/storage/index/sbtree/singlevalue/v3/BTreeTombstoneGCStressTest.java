@@ -520,6 +520,125 @@ public class BTreeTombstoneGCStressTest {
         .isEqualTo(actualCount[0]);
   }
 
+  /**
+   * Reader threads concurrently call {@code bTree.get()} while writer threads
+   * trigger bucket overflow and GC. The B-tree's optimistic read path
+   * ({@code getOptimistic}) relies on sequence counters to detect concurrent
+   * modifications and falls back to pinned reads. GC introduces a new kind
+   * of bucket restructuring (rebuild via {@code filterAndRebuildBucket})
+   * that must be correctly detected by the optimistic validation.
+   *
+   * <p>Phase 1 pre-populates the tree with a mix of live entries and
+   * tombstones. Phase 2 launches concurrent writers (adding new live entries
+   * to trigger GC during overflow) and readers (continuously looking up
+   * pre-populated live entries). All live entries must remain readable
+   * throughout the concurrent phase.
+   */
+  @Test
+  public void testConcurrentReadDuringGCTriggeredByWrites() throws Exception {
+    // Phase 1: Pre-populate with a mix of live entries and tombstones.
+    // Every 3rd entry is a tombstone (version=1, below LWM), the rest
+    // are live (version=100).
+    int prePopCount = 400;
+    for (int i = 0; i < prePopCount; i++) {
+      final int pos = i;
+      final boolean isTombstone = (i % 3 == 0);
+      final long version = isTombstone ? 1L : 100L;
+      final var key = new CompositeKey(
+          "key" + String.format("%06d", pos), version);
+      final RID value = isTombstone
+          ? new TombstoneRID(new RecordId(1, pos))
+          : new RecordId(2, pos);
+      atomicOperationsManager.executeInsideAtomicOperation(
+          op -> bTree.put(op, key, value));
+    }
+
+    // Phase 2: concurrent writers + readers
+    ExecutorService executor = Executors.newFixedThreadPool(THREAD_COUNT);
+    try {
+      CountDownLatch startLatch = new CountDownLatch(1);
+      List<Future<?>> futures = new ArrayList<>();
+
+      int writerCount = THREAD_COUNT / 2;
+      int readerCount = THREAD_COUNT - writerCount;
+
+      // Writer threads: insert new entries to trigger bucket overflow + GC
+      for (int t = 0; t < writerCount; t++) {
+        final int threadId = t;
+        futures.add(executor.submit(() -> {
+          try {
+            startLatch.await();
+          } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return;
+          }
+
+          for (int i = 0; i < OPS_PER_THREAD; i++) {
+            final int pos = 1000 + threadId * OPS_PER_THREAD + i;
+            final var key = new CompositeKey(
+                "key" + String.format("%06d", pos), 100L);
+            final var value = new RecordId(3, pos);
+            try {
+              atomicOperationsManager.executeInsideAtomicOperation(
+                  op -> bTree.put(op, key, value));
+            } catch (Exception e) {
+              throw new RuntimeException(
+                  "Writer thread " + threadId + " failed at pos " + pos, e);
+            }
+          }
+        }));
+      }
+
+      // Reader threads: continuously read pre-populated live entries.
+      // Live entries are at non-tombstone positions (i % 3 != 0).
+      for (int t = 0; t < readerCount; t++) {
+        final int threadId = writerCount + t;
+        futures.add(executor.submit(() -> {
+          try {
+            startLatch.await();
+          } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return;
+          }
+
+          for (int round = 0; round < OPS_PER_THREAD; round++) {
+            // Pick a known live entry (position where i % 3 != 0)
+            int pos = (round % 133) * 3 + 1;
+            final var key = new CompositeKey(
+                "key" + String.format("%06d", pos), 100L);
+            final RID[] result = {null};
+            try {
+              atomicOperationsManager.executeInsideAtomicOperation(
+                  op -> result[0] = bTree.get(key, op));
+            } catch (Exception e) {
+              throw new RuntimeException(
+                  "Reader thread " + threadId + " failed at pos " + pos, e);
+            }
+            assertThat(result[0])
+                .as("Live entry pos=%d must be readable during concurrent "
+                    + "GC (reader thread %d, round %d)",
+                    pos, threadId, round)
+                .isNotNull()
+                .isInstanceOf(RecordId.class);
+          }
+        }));
+      }
+
+      startLatch.countDown();
+
+      executor.shutdown();
+      assertThat(executor.awaitTermination(120, TimeUnit.SECONDS))
+          .as("Executor should terminate within timeout (deadlock detection)")
+          .isTrue();
+
+      for (Future<?> future : futures) {
+        future.get();
+      }
+    } finally {
+      executor.shutdownNow();
+    }
+  }
+
   // ---- Stub engine (duplicated from BTreeTombstoneGCTest) ----
 
   private static class StubIndexEngine implements BaseIndexEngine {

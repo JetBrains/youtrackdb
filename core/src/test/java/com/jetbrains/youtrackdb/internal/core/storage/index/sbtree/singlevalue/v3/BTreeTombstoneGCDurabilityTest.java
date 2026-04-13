@@ -198,6 +198,48 @@ public class BTreeTombstoneGCDurabilityTest {
           .as("Deleted values must not reappear after recovery (ghost resurrection)")
           .doesNotContainAnyElementsOf(deletedValues);
 
+      // Verify index-directed lookups work after recovery. A full scan
+      // reads records from clusters, bypassing the index — if the B-tree
+      // is corrupt but records are intact, the scan passes. Index-targeted
+      // queries exercise the B-tree structure directly.
+      var sampleSurvivors = survivingValues.stream().limit(10).toList();
+      for (var val : sampleSurvivors) {
+        try (var lookupResult = txVerify.query(
+            "SELECT FROM TestDoc WHERE value = ?", val)) {
+          assertThat(lookupResult.hasNext())
+              .as("Index lookup must find surviving value '%s' after recovery",
+                  val)
+              .isTrue();
+          assertThat(lookupResult.next().<String>getProperty("value"))
+              .isEqualTo(val);
+        }
+      }
+
+      var sampleNew = newValues.stream().limit(10).toList();
+      for (var val : sampleNew) {
+        try (var lookupResult = txVerify.query(
+            "SELECT FROM TestDoc WHERE value = ?", val)) {
+          assertThat(lookupResult.hasNext())
+              .as("Index lookup must find new value '%s' after recovery", val)
+              .isTrue();
+          assertThat(lookupResult.next().<String>getProperty("value"))
+              .isEqualTo(val);
+        }
+      }
+
+      // Verify deleted values are not found via index lookup either
+      // (ghost resurrection through index path)
+      var sampleDeleted = deletedValues.stream().limit(10).toList();
+      for (var val : sampleDeleted) {
+        try (var lookupResult = txVerify.query(
+            "SELECT FROM TestDoc WHERE value = ?", val)) {
+          assertThat(lookupResult.hasNext())
+              .as("Index lookup must NOT find deleted value '%s' after "
+                  + "recovery", val)
+              .isFalse();
+        }
+      }
+
       txVerify.commit();
     } finally {
       recoveredSession.close();
