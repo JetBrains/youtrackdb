@@ -402,6 +402,87 @@ For the full YQL reference, see:
 - [CREATE CLASS](yql/YQL-Create-Class.md) (including `ABSTRACT` and `EXTENDS`)
 - [ALTER CLASS](yql/YQL-Alter-Class.md) (change superclasses at runtime)
 
+## 11. Sequences
+
+Sequences generate auto-incrementing numeric values — useful for invoice numbers,
+ticket IDs, or any counter that must be unique across records.
+
+### Creating a Sequence
+
+```java
+g.executeInTx(tx -> {
+  tx.command("CREATE SEQUENCE invoiceSeq TYPE ORDERED");
+});
+```
+
+`ORDERED` guarantees strictly incrementing values with no gaps. `CACHED`
+pre-allocates blocks of values for higher throughput, but may introduce gaps
+after a restart.
+
+### Auto-Generated IDs with Property Defaults
+
+Use a sequence in a property's `default` expression to auto-assign values
+whenever a vertex is created:
+
+```java
+g.executeInTx(tx -> {
+  tx.command("CREATE CLASS Invoice EXTENDS V");
+  tx.command("CREATE PROPERTY Invoice.invoiceNo LONG"
+      + " (MANDATORY TRUE, default \"sequence('invoiceSeq').next()\")");
+  tx.command("CREATE PROPERTY Invoice.customer STRING (MANDATORY TRUE)");
+  tx.command("CREATE PROPERTY Invoice.amount DOUBLE");
+  tx.command("CREATE INDEX Invoice.invoiceNo ON Invoice (invoiceNo) UNIQUE");
+});
+```
+
+Now every `Invoice` vertex gets an `invoiceNo` automatically:
+
+```java
+g.executeInTx(tx -> {
+  tx.yql("CREATE VERTEX Invoice SET customer = 'Acme Corp', amount = 1500.00").iterate();
+  tx.yql("CREATE VERTEX Invoice SET customer = 'Globex Inc', amount = 2300.50").iterate();
+  tx.yql("CREATE VERTEX Invoice SET customer = 'Initech', amount = 750.00").iterate();
+});
+
+g.executeInTx(tx -> {
+  var invoices = tx.yql(
+      "SELECT invoiceNo, customer FROM Invoice ORDER BY invoiceNo").toList();
+  for (var row : invoices) {
+    var map = (Map<String, Object>) row;
+    System.out.println(map.get("invoiceNo") + ": " + map.get("customer"));
+  }
+});
+// 1: Acme Corp
+// 2: Globex Inc
+// 3: Initech
+```
+
+### Using `sequence().next()` in Statements
+
+You can also call `sequence().next()` directly in `UPDATE` statements:
+
+```java
+g.executeInTx(tx -> {
+  tx.command("CREATE SEQUENCE ticketSeq TYPE CACHED START 1000 INCREMENT 1 CACHE 20");
+  tx.command("CREATE CLASS Ticket EXTENDS V");
+  tx.command("CREATE PROPERTY Ticket.ticketNo LONG");
+  tx.command("CREATE PROPERTY Ticket.summary STRING (MANDATORY TRUE)");
+});
+
+g.executeInTx(tx -> {
+  tx.yql("CREATE VERTEX Ticket SET summary = 'Login bug'").iterate();
+});
+g.executeInTx(tx -> {
+  tx.yql("UPDATE Ticket SET ticketNo = sequence('ticketSeq').next()"
+      + " WHERE summary = 'Login bug'").iterate();
+});
+```
+
+For the full YQL reference, see:
+- [CREATE SEQUENCE](yql/YQL-Create-Sequence.md)
+- [ALTER SEQUENCE](yql/YQL-Alter-Sequence.md)
+- [DROP SEQUENCE](yql/YQL-Drop-Sequence.md)
+
 ## Next Steps
 
 - [Fine-Grained Security](security.md) — predicate-based security policies, per-role filtering
