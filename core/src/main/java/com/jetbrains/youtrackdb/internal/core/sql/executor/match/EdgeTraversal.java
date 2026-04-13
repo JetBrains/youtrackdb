@@ -87,8 +87,8 @@ public class EdgeTraversal {
    * Default load-to-scan cost ratio used in the build amortization formula.
    * Represents how many times more expensive a random record load is compared
    * to scanning one entry in a pre-built RidSet. The value 100 is a reasonable
-   * default for cold SSD storage. Track 5 replaces this with live metrics
-   * from {@code MetricsRegistry}.
+   * default for cold SSD storage. Live metrics from {@code MetricsRegistry}
+   * replace this when available.
    */
   static final double DEFAULT_LOAD_TO_SCAN_RATIO = 100.0;
 
