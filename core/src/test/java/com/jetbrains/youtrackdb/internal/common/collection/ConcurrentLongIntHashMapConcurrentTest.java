@@ -281,6 +281,200 @@ public class ConcurrentLongIntHashMapConcurrentTest {
         .isEqualTo(entryCount.get());
   }
 
+  /**
+   * Rehash from minimum capacity (2) under concurrent access. The capacity-2 section has resize
+   * threshold {@code (int)(2 * 0.66) = 1}, so the very first insert triggers a rehash. The mask
+   * change from 1 (0b01) to 3 (0b11) is the most extreme relative shift, maximizing the window
+   * for the ARM store-reorder race where a reader could observe the new (larger) capacity before
+   * the new (larger) array.
+   *
+   * <p>Verifies: no {@link ArrayIndexOutOfBoundsException}, correct values returned by concurrent
+   * readers, and that the map grew well beyond the initial capacity.
+   */
+  @Test
+  public void rehashFromMinimumCapacityUnderConcurrentAccessIsCorrect() throws Exception {
+    // Single section, capacity 2 — every insert triggers rehash initially
+    var map = new ConcurrentLongIntHashMap<String>(2, 1);
+    assertThat(map.capacity()).as("initial capacity should be minimum 2").isEqualTo(2);
+
+    int totalThreads = 6; // 3 writers + 3 readers
+    var executor = Executors.newFixedThreadPool(totalThreads);
+    var futures = new ArrayList<Future<Void>>();
+    var startBarrier = new CyclicBarrier(totalThreads);
+    int keyBound = 5_000;
+    int opsPerThread = 50_000;
+
+    try {
+      // 3 writer threads — insert entries, causing frequent rehash from minimum capacity
+      for (int t = 0; t < 3; t++) {
+        futures.add(
+            executor.submit(
+                () -> {
+                  startBarrier.await();
+                  var rng = ThreadLocalRandom.current();
+                  for (int i = 0; i < opsPerThread; i++) {
+                    int key = rng.nextInt(keyBound);
+                    long fileId = key / 100;
+                    int pageIndex = key % 100;
+                    map.put(fileId, pageIndex, fileId + ":" + pageIndex);
+                  }
+                  return null;
+                }));
+      }
+
+      // 3 reader threads — continuous reads; verify non-null results are valid
+      for (int t = 0; t < 3; t++) {
+        futures.add(
+            executor.submit(
+                () -> {
+                  startBarrier.await();
+                  var rng = ThreadLocalRandom.current();
+                  for (int i = 0; i < opsPerThread; i++) {
+                    int key = rng.nextInt(keyBound);
+                    long fileId = key / 100;
+                    int pageIndex = key % 100;
+                    String result = map.get(fileId, pageIndex);
+                    if (result != null) {
+                      assertThat(result)
+                          .as("get(%d, %d) returned a valid value", fileId, pageIndex)
+                          .isEqualTo(fileId + ":" + pageIndex);
+                    }
+                  }
+                  return null;
+                }));
+      }
+
+      for (var future : futures) {
+        future.get(60, TimeUnit.SECONDS);
+      }
+    } finally {
+      executor.shutdownNow();
+      executor.awaitTermination(5, TimeUnit.SECONDS);
+    }
+
+    // Verify consistency and that capacity grew well beyond initial 2
+    var entryCount = new AtomicLong();
+    map.forEach(
+        (fileId, pageIndex, value) -> {
+          assertThat(value).isNotNull();
+          assertThat(map.get(fileId, pageIndex))
+              .as("get(%d, %d) matches forEach entry", fileId, pageIndex)
+              .isSameAs(value);
+          entryCount.incrementAndGet();
+        });
+    assertThat(map.size())
+        .as("size() matches forEach entry count")
+        .isEqualTo(entryCount.get());
+    assertThat(map.capacity())
+        .as("capacity should have grown well beyond initial 2")
+        .isGreaterThan(2);
+  }
+
+  /**
+   * Shrink under concurrent access. Uses a single-section map that is initially grown to large
+   * capacity, then one thread repeatedly calls {@code shrink()} while reader threads continuously
+   * perform {@code get()}. Exercises the same {@code rehashTo()} code path as grow-rehash but with
+   * {@code newCapacity < capacity}, which creates the symmetric ARM store-reorder risk (reader sees
+   * new smaller array but old larger capacity). A grower thread re-inserts entries to oscillate
+   * capacity up and down, maximizing rehash frequency.
+   *
+   * <p>Verifies: no {@link ArrayIndexOutOfBoundsException}, correct values returned by concurrent
+   * readers, and final map consistency.
+   */
+  @Test
+  public void shrinkUnderConcurrentAccessIsCorrect() throws Exception {
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    int keyCount = 500;
+    int totalThreads = 6; // 1 shrinker + 1 grower + 4 readers
+    var executor = Executors.newFixedThreadPool(totalThreads);
+    var futures = new ArrayList<Future<Void>>();
+    var startBarrier = new CyclicBarrier(totalThreads);
+    int rounds = 200;
+
+    // Pre-populate so there are entries to read during shrink cycles
+    for (int i = 0; i < keyCount; i++) {
+      map.put((long) i, i, i + ":" + i);
+    }
+
+    try {
+      // 1 thread repeatedly removes entries then calls shrink()
+      futures.add(
+          executor.submit(
+              () -> {
+                startBarrier.await();
+                for (int r = 0; r < rounds; r++) {
+                  // Remove most entries to make shrink meaningful
+                  for (int i = 100; i < keyCount; i++) {
+                    map.remove((long) i, i);
+                  }
+                  map.shrink();
+                  // Re-insert to grow capacity back up for next shrink
+                  for (int i = 100; i < keyCount; i++) {
+                    map.put((long) i, i, i + ":" + i);
+                  }
+                }
+                return null;
+              }));
+
+      // 1 thread that triggers grow-rehash by inserting beyond current capacity
+      futures.add(
+          executor.submit(
+              () -> {
+                startBarrier.await();
+                var rng = ThreadLocalRandom.current();
+                for (int r = 0; r < rounds * 100; r++) {
+                  int key = rng.nextInt(keyCount);
+                  map.put((long) key, key, key + ":" + key);
+                }
+                return null;
+              }));
+
+      // 4 reader threads — continuous reads during shrink/grow cycles
+      for (int t = 0; t < 4; t++) {
+        futures.add(
+            executor.submit(
+                () -> {
+                  startBarrier.await();
+                  var rng = ThreadLocalRandom.current();
+                  for (int r = 0; r < rounds * 500; r++) {
+                    int key = rng.nextInt(keyCount);
+                    String result = map.get((long) key, key);
+                    if (result != null) {
+                      assertThat(result)
+                          .as("get(%d, %d) returned a valid value", (long) key, key)
+                          .isEqualTo(key + ":" + key);
+                    }
+                  }
+                  return null;
+                }));
+      }
+
+      for (var future : futures) {
+        future.get(60, TimeUnit.SECONDS);
+      }
+    } finally {
+      executor.shutdownNow();
+      executor.awaitTermination(5, TimeUnit.SECONDS);
+    }
+
+    // Final consistency check
+    var entryCount = new AtomicLong();
+    map.forEach(
+        (fileId, pageIndex, value) -> {
+          assertThat(value).isNotNull();
+          assertThat(value)
+              .as("value at (%d, %d) matches canonical form", fileId, pageIndex)
+              .isEqualTo(fileId + ":" + pageIndex);
+          assertThat(map.get(fileId, pageIndex))
+              .as("get(%d, %d) matches forEach entry", fileId, pageIndex)
+              .isSameAs(value);
+          entryCount.incrementAndGet();
+        });
+    assertThat(map.size())
+        .as("size() matches forEach entry count after shrink stress")
+        .isEqualTo(entryCount.get());
+  }
+
   // ---- removeByFileId concurrent tests ----
 
   /**
