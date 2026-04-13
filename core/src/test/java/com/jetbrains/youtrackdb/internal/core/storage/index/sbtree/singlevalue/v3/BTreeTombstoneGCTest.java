@@ -604,6 +604,29 @@ public class BTreeTombstoneGCTest {
         .isEqualTo(FILL_COUNT * 3);
   }
 
+  // ---- AbstractStorage helper edge cases ----
+
+  @Test
+  public void testGetIndexSnapshotByEngineNameReturnsNullForUnknownEngine() {
+    // Verifies the defensive null-return path in getIndexSnapshotByEngineName
+    // when the engine name is not registered in indexEngineNameMap.
+    var snapshot = storage.getIndexSnapshotByEngineName("nonExistentEngine");
+    assertThat(snapshot)
+        .as("Unknown engine name must return null snapshot")
+        .isNull();
+  }
+
+  @Test
+  public void testHasActiveSnapshotEntriesReturnsFalseForUnknownEngine() {
+    // Verifies the defensive false-return path in hasActiveIndexSnapshotEntries
+    // when the resolved engine name is not found in indexEngineNameMap.
+    var result = storage.hasActiveIndexSnapshotEntries(
+        "nonExistentEngine", new CompositeKey("key"), 1L);
+    assertThat(result)
+        .as("Unknown engine name must return false for active snapshot check")
+        .isFalse();
+  }
+
   // ---- Mixed entry types ----
 
   @Test
