@@ -201,7 +201,7 @@ Async-profiler captures ALL JVM threads across the entire fork lifetime — incl
 and obscure the real benchmark-thread signal. **Always filter before analysis.**
 
 ```bash
-grep -vE 'tearDown|WALVacuum|G1Conc|G1ParScan|GCThread|GangWorker|VMThread|CompilerThread|ServiceThread|SafepointSynchronize|SafepointCleanup|MonitorDeflation' collapsed-cpu.csv > collapsed-filtered.csv
+grep -vE 'tearDown|WALVacuum|G1Conc|G1ParScan|GCThread|GangWorker|VMThread|CompilerThread|ServiceThread|SafepointSynchronize|SafepointCleanup|MonitorDeflation' /tmp/collapsed-$$.csv > collapsed-filtered.csv
 ```
 
 Compare total samples before and after filtering. Large deltas indicate TearDown
