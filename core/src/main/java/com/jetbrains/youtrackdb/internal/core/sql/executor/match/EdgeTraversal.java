@@ -135,6 +135,16 @@ public class EdgeTraversal {
   @Nullable private Ratio cachedCacheHitRatio;
 
   /**
+   * Cached live cost ratio computed once per query from the metric
+   * references above. {@code NaN} means not yet computed. Since metrics
+   * flush at ~1 Hz and EdgeTraversal is per-query (sub-second lifetime),
+   * reading the rates once is sufficient — avoids per-vertex
+   * {@code ReentrantLock} acquisitions inside {@code Meter.getRate()}.
+   * Not copied by {@link #copy()}.
+   */
+  private double cachedLiveRatio = Double.NaN;
+
+  /**
    * Running sum of link bag sizes across vertices for {@link
    * RidFilterDescriptor.IndexLookup} build amortization. The accumulator
    * tracks how many total neighbors have been encountered; once the total
@@ -617,11 +627,19 @@ public class EdgeTraversal {
    */
   static double computeLiveCostRatio(
       double scanNanosRate, double scanEntriesRate, double cacheHitPct) {
+    // NaN inputs bypass the <= 0 guard (NaN comparisons are always false)
+    // but are caught by the !isFinite guards below.
     if (scanNanosRate <= 0 || scanEntriesRate <= 0) {
       return DEFAULT_LOAD_TO_SCAN_RATIO;
     }
     double avgScanNanosPerEntry = scanNanosRate / scanEntriesRate;
     if (avgScanNanosPerEntry <= 0 || !Double.isFinite(avgScanNanosPerEntry)) {
+      return DEFAULT_LOAD_TO_SCAN_RATIO;
+    }
+    // Guard NaN cacheHitPct explicitly — Math.max/min with NaN silently
+    // returns 0 due to IEEE 754 comparison semantics, which would treat
+    // a corrupt metric as 0% cache hit (cold-storage assumption).
+    if (!Double.isFinite(cacheHitPct)) {
       return DEFAULT_LOAD_TO_SCAN_RATIO;
     }
     double hitFraction = Math.max(0, Math.min(1.0, cacheHitPct / 100.0));
@@ -647,25 +665,28 @@ public class EdgeTraversal {
     if (configured > 0) {
       return configured;
     }
-    // Lazy resolution — only on first IndexLookup encounter.
-    if (cachedScanNanos == null) {
-      MetricsRegistry registry =
-          YouTrackDBEnginesManager.instance().getMetricsRegistry();
-      if (registry != null) {
-        cachedScanNanos = registry.globalMetric(CoreMetrics.PREFILTER_SCAN_NANOS);
-        cachedScanEntries =
-            registry.globalMetric(CoreMetrics.PREFILTER_SCAN_ENTRIES);
-        cachedCacheHitRatio = registry.globalMetric(CoreMetrics.CACHE_HIT_RATIO);
-      } else {
-        cachedScanNanos = TimeRate.NOOP;
-        cachedScanEntries = TimeRate.NOOP;
-        cachedCacheHitRatio = Ratio.NOOP;
-      }
+    // Return cached ratio if already computed (once per query lifetime).
+    if (!Double.isNaN(cachedLiveRatio)) {
+      return cachedLiveRatio;
     }
-    return computeLiveCostRatio(
+    // Lazy resolution — only on first IndexLookup encounter.
+    MetricsRegistry registry =
+        YouTrackDBEnginesManager.instance().getMetricsRegistry();
+    if (registry != null) {
+      cachedScanNanos = registry.globalMetric(CoreMetrics.PREFILTER_SCAN_NANOS);
+      cachedScanEntries =
+          registry.globalMetric(CoreMetrics.PREFILTER_SCAN_ENTRIES);
+      cachedCacheHitRatio = registry.globalMetric(CoreMetrics.CACHE_HIT_RATIO);
+    } else {
+      cachedScanNanos = TimeRate.NOOP;
+      cachedScanEntries = TimeRate.NOOP;
+      cachedCacheHitRatio = Ratio.NOOP;
+    }
+    cachedLiveRatio = computeLiveCostRatio(
         cachedScanNanos.getRate(),
         cachedScanEntries.getRate(),
         cachedCacheHitRatio.getRatio());
+    return cachedLiveRatio;
   }
 
   @Override
