@@ -105,7 +105,7 @@
     <docker.platforms>linux/amd64,linux/arm64/v8</docker.platforms>
     <guice.version>7.0.0</guice.version>
     <antlr.version>4.13.2</antlr.version>
-    <errorprone.version>2.47.0</errorprone.version>
+    <errorprone.version>2.49.0</errorprone.version>
     <errorprone.extra.args/>
     <nullaway.version>0.13.1</nullaway.version>
     <jspecify.version>1.0.0</jspecify.version>
