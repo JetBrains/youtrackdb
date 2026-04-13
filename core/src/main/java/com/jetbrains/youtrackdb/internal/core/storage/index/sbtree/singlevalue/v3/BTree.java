@@ -2833,10 +2833,11 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
       } else if (value instanceof SnapshotMarkerRID && version < lwm) {
         // SnapshotMarkerRID below LWM — demote to plain RecordId if no
         // active snapshot entries exist for this user-key prefix
+        var allKeys = compositeKey.getKeys();
         var userKeyPrefix = new CompositeKey(
-            compositeKey.getKeys().subList(
-                0, compositeKey.getKeys().size() - 1));
-        if (!storage.hasActiveIndexSnapshotEntries(getName(), userKeyPrefix, lwm)) {
+            allKeys.subList(0, allKeys.size() - 1));
+        if (!storage.hasActiveIndexSnapshotEntries(
+            getName(), userKeyPrefix, lwm)) {
           survivors.add(
               demoteMarkerRawBytes(
                   keyBucket.getRawEntry(i, keySerializer, serializerFactory)));

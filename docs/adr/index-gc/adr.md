@@ -118,6 +118,15 @@ performance optimization. Since `instanceof` on the deserialized value is
 sufficient to determine that an entry is not a GC candidate, there is no
 need to deserialize the key.
 
+#### D7: Defensive version extraction guard (emerged during code review)
+
+Version extraction from `CompositeKey` uses pattern matching
+(`instanceof Long v`) and an emptiness check instead of an unsafe cast.
+This prevents `NoSuchElementException`, `ClassCastException`, or
+`NullPointerException` if the BTree is ever used with a non-standard key
+structure. Entries with unexpected key shapes are preserved as survivors
+(the conservative choice for a GC pass).
+
 ### Invariants
 
 - **No ghost resurrection**: After tombstone removal, the index read path
