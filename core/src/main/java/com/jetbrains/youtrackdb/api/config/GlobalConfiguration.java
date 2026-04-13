@@ -1343,6 +1343,16 @@ public enum GlobalConfiguration {
       Integer.class,
       50,
       true),
+
+  QUERY_PREFILTER_LOAD_TO_SCAN_RATIO(
+      "youtrackdb.query.prefilter.loadToScanRatio",
+      "Cost ratio of random record load vs. RidSet scan entry."
+          + " When set to a positive value, overrides the live-computed"
+          + " ratio from MetricsRegistry. Default -1 means auto-compute"
+          + " from live metrics (falling back to 100 on cold start)",
+      Double.class,
+      -1.0,
+      true),
       ;
 
   static {
