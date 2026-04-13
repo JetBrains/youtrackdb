@@ -344,15 +344,18 @@ def main():
 
     # Database load time comparison
     if args.base_load_time is not None and args.head_load_time is not None:
-        def fmt_time(seconds):
-            m, s = divmod(int(seconds), 60)
-            return f"{m}m {s}s" if m > 0 else f"{s}s"
+        def fmt_time(seconds, signed=False):
+            abs_s = abs(seconds)
+            m, s = divmod(abs_s, 60)
+            res = f"{int(m)}m {s:.1f}s" if m > 0 else f"{s:.1f}s"
+            if signed:
+                return f"{'+' if seconds >= 0 else '-'}{res}"
+            return res
 
         base_t = args.base_load_time
         head_t = args.head_load_time
         delta_t = head_t - base_t
         delta_pct = (delta_t / base_t * 100) if base_t > 0 else 0
-        sign = "+" if delta_t >= 0 else ""
         # For load time, faster (negative delta) is improvement
         if abs(delta_pct) < 5.0:
             icon = ""
@@ -367,7 +370,7 @@ def main():
         lines.append(f"| Base | {fmt_time(base_t)} | |")
         lines.append(
             f"| Head | {fmt_time(head_t)} "
-            f"| {sign}{delta_pct:.1f}% ({sign}{fmt_time(abs(delta_t))})"
+            f"| {delta_pct:+.1f}% ({fmt_time(delta_t, signed=True)})"
             f"{icon} |"
         )
         lines.append("")
