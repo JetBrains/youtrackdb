@@ -1303,11 +1303,11 @@ public class EdgeTraversalCacheTest {
   }
 
   /**
-   * Unknown estimatedSize (-1) with IndexLookup bypasses the accumulator
-   * and proceeds directly to materialization (per R2/T2). The negative
-   * estimatedSize causes the selectivity check to be skipped (estimatedSize
-   * >= 0 is false) and the build amortization guard also uses the selectivity
-   * check result.
+   * Unknown estimatedSize (-1) with IndexLookup proceeds directly to
+   * materialization (per R2/T2). The negative estimatedSize passes
+   * through the accumulator but {@code computeMinNeighborsForBuild}
+   * returns 0.0 for non-positive sizes, so the threshold is trivially
+   * met on the first call.
    */
   @Test
   public void resolveWithCache_indexLookup_unknownEstimatedSize_proceedsToResolve() {
@@ -1325,29 +1325,37 @@ public class EdgeTraversalCacheTest {
   }
 
   /**
-   * copy() returns an EdgeTraversal with fresh accumulator state:
-   * accumulatedLinkBagTotal = 0 (Java default) and
-   * indexLookupSelectivity = NaN (field initializer). The copied
-   * instance should re-accumulate from scratch (per T3).
+   * copy() resets accumulator state: accumulatedLinkBagTotal = 0 (Java
+   * default) and indexLookupSelectivity = NaN (field initializer). The
+   * copied instance re-accumulates from scratch (per T3).
+   *
+   * <p>Discriminating test: the original accumulates 1500 (below
+   * threshold 2000). If the copy leaked state, 1500+500=2000 would
+   * trigger; if reset, 0+500=500 defers.
    */
   @Test
   public void copy_resetsAccumulatorState() {
     var et = createEdgeTraversal();
-    var ridSet1 = singletonRidSet(10, 1);
-    var ridSet2 = singletonRidSet(10, 2);
-    var desc = stubIndexLookup(0.5, 100_000, "Post.date", ridSet1);
-    when(desc.resolve(any(), any())).thenReturn(ridSet1, ridSet2);
+    var ridSet = singletonRidSet(10, 1);
+    var desc = stubIndexLookup(0.5, 100_000, "Post.date", ridSet);
     et.setIntersectionDescriptor(desc);
     var ctx = new BasicCommandContext();
 
-    // Partially accumulate on the original (below threshold)
+    // Accumulate 1500 on the original (below threshold of 2000)
     assertThat(et.resolveWithCache(ctx, 500)).isNull();
-    assertThat(et.resolveWithCache(ctx, 500)).isNull(); // accumulated=1000
+    assertThat(et.resolveWithCache(ctx, 500)).isNull();
+    assertThat(et.resolveWithCache(ctx, 500)).isNull(); // accumulated=1500
 
-    // Copy and verify the copy starts fresh
+    // Copy must start fresh — 500 should defer (not trigger at 1500+500=2000)
     var copy = et.copy();
-    // The copy should also defer (starting from 0, not 1000)
     assertThat(copy.resolveWithCache(ctx, 500)).isNull();
+
+    // Verify no resolve() was called (neither original nor copy triggered)
+    verify(desc, never()).resolve(any(), any());
+
+    // Verify the copy re-fetched selectivity (reset to NaN, not inherited)
+    // Original call + copy call = 2 total
+    verify(desc.indexDescriptor(), times(2)).estimateSelectivity(any());
   }
 
   /**
@@ -1423,8 +1431,8 @@ public class EdgeTraversalCacheTest {
     var et = createEdgeTraversal();
     var ridSet = singletonRidSet(10, 1);
 
-    // Create a Composite wrapping an IndexLookup
-    var innerDesc = stubIndexLookup(0.5, 100_000, "Post.date", ridSet);
+    // Mock a Composite — verifies that the instanceof check matches
+    // Composite (not IndexLookup), so the accumulator is NOT used.
     var composite = mock(RidFilterDescriptor.Composite.class);
     when(composite.cacheKey(any())).thenReturn("composite-key");
     when(composite.estimatedSize(any(), any())).thenReturn(100_000);
@@ -1448,5 +1456,50 @@ public class EdgeTraversalCacheTest {
     // Each call re-checks selectivity (no accumulation shortcut)
     verify(composite, times(3))
         .passesSelectivityCheck(anyInt(), anyInt(), any());
+  }
+
+  /**
+   * Fractional threshold: with selectivity=0.3, minNeighbors =
+   * 100_000 / (100 * (1 - 0.3)) = 1428.571..., ceil = 1429.
+   * Verifies that Math.ceil rounds up correctly — accumulated 1428
+   * defers, accumulated 1429 triggers.
+   */
+  @Test
+  public void resolveWithCache_indexLookup_fractionalThreshold_ceilRoundsUp() {
+    var et = createEdgeTraversal();
+    var ridSet = singletonRidSet(10, 1);
+    var desc = stubIndexLookup(0.3, 100_000, "Post.date", ridSet);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    // 1428 < ceil(1428.571) = 1429 → defers
+    assertThat(et.resolveWithCache(ctx, 1428)).isNull();
+    verify(desc, never()).resolve(any(), any());
+
+    // +1 → accumulated = 1429 >= 1429 → triggers
+    assertThat(et.resolveWithCache(ctx, 1)).isSameAs(ridSet);
+    verify(desc, times(1)).resolve(any(), any());
+  }
+
+  /**
+   * IndexLookup with selectivity exactly at the threshold (0.95) should
+   * NOT be rejected by the inline check (step 4b uses strict '>'),
+   * proceeding to the accumulator instead.
+   */
+  @Test
+  public void resolveWithCache_indexLookup_selectivityAtThreshold_proceedsToAccumulator() {
+    var et = createEdgeTraversal();
+    var ridSet = singletonRidSet(10, 1);
+    // selectivity=0.95 (at threshold), estimatedSize=100_000
+    // minNeighbors = 100_000 / (100 * 0.05) = 20_000
+    var desc = stubIndexLookup(0.95, 100_000, "Post.date", ridSet);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    // Small linkBag: should defer via accumulator (NOT permanently reject)
+    assertThat(et.resolveWithCache(ctx, 100)).isNull();
+    // Large linkBag: should trigger via accumulator
+    assertThat(et.resolveWithCache(ctx, 20_000)).isSameAs(ridSet);
+    verify(desc, times(1)).resolve(any(), any());
   }
 }
