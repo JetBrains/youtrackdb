@@ -1086,6 +1086,20 @@ public class EdgeTraversalCacheTest {
     assertThat(result).isEqualTo(0.02);
   }
 
+  /**
+   * Integer.MAX_VALUE is the largest input from IndexLookup.estimatedSize().
+   * Verifies the formula produces a finite, reasonable double at the int
+   * boundary without overflow. Expected: 2_147_483_647 / (100 * 0.5) =
+   * 42_949_672.94
+   */
+  @Test
+  public void computeMinNeighborsForBuild_maxEstimatedSize_finiteResult() {
+    double result = EdgeTraversal.computeMinNeighborsForBuild(
+        Integer.MAX_VALUE, 100.0, 0.5);
+    assertThat(result).isCloseTo(42_949_672.94, Offset.offset(0.01));
+    assertThat(Double.isFinite(result)).isTrue();
+  }
+
   /** Change detector — the default SSD-calibrated ratio must be 100. */
   @Test
   public void defaultLoadToScanRatio_isOneHundred() {
@@ -1500,6 +1514,62 @@ public class EdgeTraversalCacheTest {
     assertThat(et.resolveWithCache(ctx, 100)).isNull();
     // Large linkBag: should trigger via accumulator
     assertThat(et.resolveWithCache(ctx, 20_000)).isSameAs(ridSet);
+    verify(desc, times(1)).resolve(any(), any());
+  }
+
+  /**
+   * Zero-neighbor vertices contribute nothing to the accumulator. Interspersed
+   * with a threshold-meeting vertex, the zeros are harmlessly skipped and the
+   * final non-zero linkBag triggers materialization.
+   */
+  @Test
+  public void resolveWithCache_indexLookup_zeroLinkBag_thenPositive_triggers() {
+    var et = createEdgeTraversal();
+    var ridSet = singletonRidSet(10, 1);
+    // selectivity=0.5, estimatedSize=100_000 → threshold=2000
+    var desc = stubIndexLookup(0.5, 100_000, "Post.date", ridSet);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    // Zeros don't advance the accumulator
+    assertThat(et.resolveWithCache(ctx, 0)).isNull();
+    assertThat(et.resolveWithCache(ctx, 0)).isNull();
+    verify(desc, never()).resolve(any(), any());
+
+    // 2000 >= threshold 2000 → triggers
+    assertThat(et.resolveWithCache(ctx, 2000)).isSameAs(ridSet);
+    verify(desc, times(1)).resolve(any(), any());
+  }
+
+  /**
+   * The accumulator is shared across all cache keys: volume accumulated for
+   * key A counts toward triggering key B. This is intentional — the
+   * accumulator measures total traversal volume, not per-key volume.
+   *
+   * <p>In practice, IndexLookup produces a single stable key per query, but
+   * this test documents the shared-accumulator design property.
+   */
+  @Test
+  public void resolveWithCache_indexLookup_sharedAccumulator_acrossKeys() {
+    var et = createEdgeTraversal();
+    var ridSet = singletonRidSet(10, 1);
+    // selectivity=0.5, estimatedSize=100_000 → threshold=2000
+    var desc = stubIndexLookup(0.5, 100_000, "Post.date", ridSet);
+    // Return different keys on successive calls to simulate two distinct keys
+    when(desc.cacheKey(any()))
+        .thenReturn("keyA", "keyA", "keyA", "keyB");
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    // Accumulate 1500 with keyA (below threshold 2000)
+    assertThat(et.resolveWithCache(ctx, 500)).isNull();
+    assertThat(et.resolveWithCache(ctx, 500)).isNull();
+    assertThat(et.resolveWithCache(ctx, 500)).isNull();
+    verify(desc, never()).resolve(any(), any());
+
+    // keyB arrives with linkBag=500: accumulated becomes 2000 >= 2000
+    // → triggers because the shared accumulator already has 1500
+    assertThat(et.resolveWithCache(ctx, 500)).isSameAs(ridSet);
     verify(desc, times(1)).resolve(any(), any());
   }
 }
