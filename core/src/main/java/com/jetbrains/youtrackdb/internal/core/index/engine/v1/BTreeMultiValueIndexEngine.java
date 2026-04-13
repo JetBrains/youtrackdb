@@ -150,26 +150,47 @@ public final class BTreeMultiValueIndexEngine
 
   private void doClearTree(CellBTreeSingleValue<CompositeKey> tree,
       @Nonnull AtomicOperation atomicOperation) {
-    final var firstKey = tree.firstKey(atomicOperation);
-    final var lastKey = tree.lastKey(atomicOperation);
-
-    if (firstKey == null || lastKey == null) {
-      return;
-    }
-
-    try (var stream =
-        tree.iterateEntriesBetween(firstKey, true, lastKey, true,
-            true, atomicOperation)) {
-      stream.forEach(
-          pair -> {
-            try {
-              tree.remove(atomicOperation, pair.first());
-            } catch (IOException e) {
-              throw BaseException.wrapException(
-                  new IndexException(storage.getName(), "Error during index cleaning"), e,
-                  storage.getName());
-            }
-          });
+    // A single iterate-and-remove pass may miss entries when the B-tree
+    // spliterator's LSN-based cursor terminates prematurely after page
+    // modifications from remove(). Retry until the tree is empty.
+    int pass = 0;
+    long sizeBeforePass;
+    while ((sizeBeforePass = tree.size(atomicOperation)) > 0) {
+      pass++;
+      final int currentPass = pass;
+      var firstKey = tree.firstKey(atomicOperation);
+      var lastKey = tree.lastKey(atomicOperation);
+      assert firstKey != null && lastKey != null
+          : "tree.size() > 0 but firstKey/lastKey is null in engine=" + name + " id=" + id;
+      if (firstKey == null || lastKey == null) {
+        return;
+      }
+      try (var stream =
+          tree.iterateEntriesBetween(firstKey, true, lastKey, true,
+              true, atomicOperation)) {
+        stream.forEach(
+            pair -> {
+              try {
+                var removed = tree.remove(atomicOperation, pair.first());
+                assert removed != null
+                    : "doClearTree pass " + currentPass + ": remove() returned null"
+                        + " for key from stream in engine=" + name + " id=" + id
+                        + " key=" + pair.first();
+              } catch (IOException e) {
+                throw BaseException.wrapException(
+                    new IndexException(storage.getName(), "Error during index cleaning"), e,
+                    storage.getName());
+              }
+            });
+      }
+      long sizeAfterPass = tree.size(atomicOperation);
+      long removedInPass = sizeBeforePass - sizeAfterPass;
+      if (removedInPass <= 0) {
+        throw new IndexException(storage.getName(),
+            "doClearTree pass " + pass + " removed 0 entries"
+                + " (sizeBefore=" + sizeBeforePass + ", sizeAfter=" + sizeAfterPass + ")"
+                + " in engine=" + name + " id=" + id);
+      }
     }
   }
 
@@ -243,6 +264,13 @@ public final class BTreeMultiValueIndexEngine
   @Override
   public void clear(Storage storage, @Nonnull AtomicOperation atomicOperation) {
     clearSVTree(atomicOperation);
+    // Postcondition: doClearTree must remove every entry from both trees.
+    assert svTree.firstKey(atomicOperation) == null
+        : "doClearTree() left entries in svTree of engine=" + name + " id=" + id
+            + " treeSize=" + svTree.size(atomicOperation);
+    assert nullTree.firstKey(atomicOperation) == null
+        : "doClearTree() left entries in nullTree of engine=" + name + " id=" + id
+            + " treeSize=" + nullTree.size(atomicOperation);
     // Reset persisted counts on entry point pages after clearing tree data.
     // persistIndexCountDeltas adds only deltas from replayed entries after
     // the clear, yielding the correct final count.

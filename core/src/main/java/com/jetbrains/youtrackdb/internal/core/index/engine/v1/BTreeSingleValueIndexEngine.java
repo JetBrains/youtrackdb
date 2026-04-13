@@ -124,17 +124,44 @@ public final class BTreeSingleValueIndexEngine
   }
 
   private void doClearTree(@Nonnull AtomicOperation atomicOperation) {
-    try (var stream = sbTree.keyStream(atomicOperation)) {
-      stream.forEach(
-          key -> {
-            try {
-              sbTree.remove(atomicOperation, key);
-            } catch (IOException e) {
-              throw BaseException.wrapException(
-                  new IndexException(storage.getName(), "Can not clear index"), e,
-                  storage.getName());
-            }
-          });
+    // A single iterate-and-remove pass may miss entries when the B-tree
+    // spliterator's LSN-based cursor terminates prematurely after page
+    // modifications from remove(). Retry until the tree is empty.
+    int pass = 0;
+    long sizeBeforePass;
+    while ((sizeBeforePass = sbTree.size(atomicOperation)) > 0) {
+      pass++;
+      final int currentPass = pass;
+      try (var stream = sbTree.keyStream(atomicOperation)) {
+        stream.forEach(
+            key -> {
+              try {
+                var removed = sbTree.remove(atomicOperation, key);
+                // Diagnostic: if remove() returns null, the key read from the
+                // stream was not found by findBucketForRemove — a serialization
+                // round-trip mismatch between getEntry() and find(byte[]).
+                assert removed != null
+                    : "doClearTree pass " + currentPass + ": remove() returned null"
+                        + " for key from stream in engine=" + name + " id=" + id
+                        + " key=" + key;
+              } catch (IOException e) {
+                throw BaseException.wrapException(
+                    new IndexException(storage.getName(), "Can not clear index"), e,
+                    storage.getName());
+              }
+            });
+      }
+      long sizeAfterPass = sbTree.size(atomicOperation);
+      long removedInPass = sizeBeforePass - sizeAfterPass;
+      // Hard check: if a pass removed zero entries, we would loop forever.
+      // This distinguishes spliterator terminating with zero entries (broken
+      // cursor) from remove() silently failing (caught by the assert above).
+      if (removedInPass <= 0) {
+        throw new IndexException(storage.getName(),
+            "doClearTree pass " + pass + " removed 0 entries"
+                + " (sizeBefore=" + sizeBeforePass + ", sizeAfter=" + sizeAfterPass + ")"
+                + " in engine=" + name + " id=" + id);
+      }
     }
   }
 

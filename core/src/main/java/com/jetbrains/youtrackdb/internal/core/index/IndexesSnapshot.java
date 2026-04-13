@@ -315,19 +315,30 @@ public class IndexesSnapshot {
   }
 
   public void clear() {
-    // Capture the current upper bound to guarantee termination even when
-    // concurrent writers keep adding entries within this submap range.
-    // Both entrySet() iteration and SubMap.clear() use weakly-consistent
-    // iterators that can see entries inserted ahead of the current position,
-    // causing livelock when writers add entries faster than the iterator
-    // advances. Using pollFirstEntry() with an upper bound avoids this:
-    // each poll atomically removes one entry, and we stop after reaching
-    // the key that was last when clear() began.
+    // Capture the current upper bound to guarantee termination when there
+    // are no concurrent writers (the production case: clear() runs inside
+    // an atomic operation with exclusive index access).
     var lastEntry = indexesSnapshot.lastEntry();
     if (lastEntry == null) {
       return;
     }
     var upperBound = lastEntry.getKey();
+    // Secondary termination bound: the approximate entry count at call time.
+    // With concurrent writers, entries inserted before the upper bound extend
+    // the poll loop indefinitely (writers add entries faster than one poll
+    // per iteration can remove them). The count bound ensures O(N)
+    // termination where N is the snapshot size at call time. Without
+    // concurrent writers, the key-based bound terminates first.
+    //
+    // Note: snapshotSizeCounter is shared across all per-index sub-map views
+    // (global counter from AbstractStorage), so maxEntries may over-count for
+    // this specific sub-map. This is intentionally loose — the key-based
+    // bound handles the production case; the count bound is a safety net for
+    // the concurrent-writer edge case only.
+    //
+    // +2: one addSnapshotPair (2 entries) may occur between reading the
+    // counter and starting the poll loop.
+    long maxEntries = Math.max(snapshotSizeCounter.get(), 0) + 2;
 
     long entryCount = 0;
     Entry<CompositeKey, RID> entry;
@@ -339,7 +350,7 @@ public class IndexesSnapshot {
       if (!(entry.getValue() instanceof TombstoneRID)) {
         visibilityIndex.remove(entry.getKey());
       }
-      if (entry.getKey().compareTo(upperBound) >= 0) {
+      if (entry.getKey().compareTo(upperBound) >= 0 || entryCount >= maxEntries) {
         break;
       }
     }
