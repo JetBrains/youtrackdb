@@ -50,13 +50,22 @@ public final class TraversalPreFilterHelper {
    * RidFilterDescriptor.EdgeRidLookup} pre-filters. Above this threshold
    * the reverse set covers too much of the link bag to be useful.
    *
-   * <p>Reads the new {@code QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO} config
-   * with fallback to the old {@code QUERY_PREFILTER_MAX_SELECTIVITY_RATIO}
-   * (same semantics). See Step 2 for full config wiring.
+   * <p>Resolution order:
+   * <ol>
+   *   <li>New {@code QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO} if explicitly
+   *       set</li>
+   *   <li>Old {@code QUERY_PREFILTER_MAX_SELECTIVITY_RATIO} as fallback
+   *       (same overlap-ratio semantics)</li>
+   *   <li>New property's default (0.8)</li>
+   * </ol>
    */
   public static double edgeLookupMaxRatio() {
-    // TODO(Track 1 Step 2): wire to new GlobalConfiguration entry with
-    // isChanged() fallback. For now, delegates to the existing config.
+    if (GlobalConfiguration.QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO
+        .isChanged()) {
+      return GlobalConfiguration.QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO
+          .getValueAsDouble();
+    }
+    // Fall back to old property (same semantics: overlap ratio)
     return maxSelectivityRatio();
   }
 
@@ -65,15 +74,13 @@ public final class TraversalPreFilterHelper {
    * RidFilterDescriptor.IndexLookup} pre-filters. Above this threshold
    * the index condition matches too many records to be useful.
    *
-   * <p>Reads the new {@code QUERY_PREFILTER_INDEX_LOOKUP_MAX_SELECTIVITY}
-   * config. Does NOT fall back to the old
+   * <p>Does NOT fall back to the old
    * {@code QUERY_PREFILTER_MAX_SELECTIVITY_RATIO} — the semantics are
    * fundamentally different (class-level selectivity vs. overlap ratio).
    */
   public static double indexLookupMaxSelectivity() {
-    // TODO(Track 1 Step 2): wire to new GlobalConfiguration entry.
-    // Default is 0.95.
-    return 0.95;
+    return GlobalConfiguration.QUERY_PREFILTER_INDEX_LOOKUP_MAX_SELECTIVITY
+        .getValueAsDouble();
   }
 
   /**
