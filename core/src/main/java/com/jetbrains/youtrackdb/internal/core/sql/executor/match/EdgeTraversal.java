@@ -145,6 +145,14 @@ public class EdgeTraversal {
   private double cachedLiveRatio = Double.NaN;
 
   /**
+   * Cached reference to the {@link CoreMetrics#PREFILTER_EFFECTIVENESS}
+   * metric. Lazily resolved on first pre-filter application. Falls back
+   * to {@link Ratio#NOOP} if the MetricsRegistry is unavailable.
+   * Not copied by {@link #copy()} — each query execution re-resolves.
+   */
+  @Nullable private Ratio cachedEffectiveness;
+
+  /**
    * Running sum of link bag sizes across vertices for {@link
    * RidFilterDescriptor.IndexLookup} build amortization. The accumulator
    * tracks how many total neighbors have been encountered; once the total
@@ -636,9 +644,9 @@ public class EdgeTraversal {
     if (avgScanNanosPerEntry <= 0 || !Double.isFinite(avgScanNanosPerEntry)) {
       return DEFAULT_LOAD_TO_SCAN_RATIO;
     }
-    // Guard NaN cacheHitPct explicitly — Math.max/min with NaN silently
-    // returns 0 due to IEEE 754 comparison semantics, which would treat
-    // a corrupt metric as 0% cache hit (cold-storage assumption).
+    // Guard NaN/Infinity cacheHitPct explicitly — Math.max/min propagates
+    // NaN (IEEE 754), which would silently corrupt the ratio downstream.
+    // Infinity would clamp to 100% cache hit, underestimating load cost.
     if (!Double.isFinite(cacheHitPct)) {
       return DEFAULT_LOAD_TO_SCAN_RATIO;
     }
@@ -687,6 +695,23 @@ public class EdgeTraversal {
         cachedScanEntries.getRate(),
         cachedCacheHitRatio.getRatio());
     return cachedLiveRatio;
+  }
+
+  /**
+   * Resolves the {@link CoreMetrics#PREFILTER_EFFECTIVENESS} metric,
+   * caching the reference for reuse across vertices. Falls back to
+   * {@link Ratio#NOOP} when the MetricsRegistry is unavailable.
+   */
+  Ratio resolveEffectivenessMetric() {
+    if (cachedEffectiveness != null) {
+      return cachedEffectiveness;
+    }
+    MetricsRegistry registry =
+        YouTrackDBEnginesManager.instance().getMetricsRegistry();
+    cachedEffectiveness = registry != null
+        ? registry.globalMetric(CoreMetrics.PREFILTER_EFFECTIVENESS)
+        : Ratio.NOOP;
+    return cachedEffectiveness;
   }
 
   @Override

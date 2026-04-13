@@ -105,7 +105,7 @@ public final class TraversalPreFilterHelper {
   public static double configuredLoadToScanRatio() {
     double value =
         GlobalConfiguration.QUERY_PREFILTER_LOAD_TO_SCAN_RATIO.getValueAsDouble();
-    return value > 0 ? value : -1.0;
+    return value > 0 && Double.isFinite(value) ? value : -1.0;
   }
 
   /** Number of index/edge results between adaptive-abort checks. */

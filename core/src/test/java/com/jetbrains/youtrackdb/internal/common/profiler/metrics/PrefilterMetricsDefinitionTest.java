@@ -139,6 +139,29 @@ public class PrefilterMetricsDefinitionTest {
         .isEqualTo(-1.0);
   }
 
+  /**
+   * Infinity must be treated as auto-compute to prevent assertion
+   * failures in computeMinNeighborsForBuild (which requires finite input).
+   */
+  @Test
+  public void configuredLoadToScanRatioInfinityTreatedAsAutoCompute() {
+    GlobalConfiguration.QUERY_PREFILTER_LOAD_TO_SCAN_RATIO
+        .setValue(Double.POSITIVE_INFINITY);
+    assertThat(TraversalPreFilterHelper.configuredLoadToScanRatio())
+        .isEqualTo(-1.0);
+  }
+
+  /**
+   * NaN must be treated as auto-compute.
+   */
+  @Test
+  public void configuredLoadToScanRatioNaNTreatedAsAutoCompute() {
+    GlobalConfiguration.QUERY_PREFILTER_LOAD_TO_SCAN_RATIO
+        .setValue(Double.NaN);
+    assertThat(TraversalPreFilterHelper.configuredLoadToScanRatio())
+        .isEqualTo(-1.0);
+  }
+
   // ---- NOOP fallback assertions ----
 
   /**

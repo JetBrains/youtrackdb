@@ -5,6 +5,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.common.profiler.metrics.TimeRate;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
@@ -478,25 +479,27 @@ public class TraversalPreFilterHelperTest {
 
   /**
    * resolveScanNanos() must return a functional (non-null) TimeRate
-   * regardless of whether a live MetricsRegistry is available. When
-   * no registry exists it falls back to NOOP; when one does exist it
-   * returns a live Impl. Either way, record() must not throw.
+   * that either resolves from the live registry (Impl) or falls back
+   * to NOOP. Either way, record() must not throw.
    */
   @Test
-  public void resolveScanNanosReturnsNonNull() {
+  public void resolveScanNanosReturnsFunctionalMetric() {
     var metric = TraversalPreFilterHelper.resolveScanNanos();
     assertThat(metric).isNotNull();
+    assertThat(metric).isInstanceOfAny(TimeRate.Impl.class, TimeRate.NOOP.getClass());
     metric.record(12345);
   }
 
   /**
    * resolveScanEntries() must return a functional (non-null) TimeRate
-   * regardless of registry availability.
+   * that either resolves from the live registry (Impl) or falls back
+   * to NOOP. Either way, record() must not throw.
    */
   @Test
-  public void resolveScanEntriesReturnsNonNull() {
+  public void resolveScanEntriesReturnsFunctionalMetric() {
     var metric = TraversalPreFilterHelper.resolveScanEntries();
     assertThat(metric).isNotNull();
+    assertThat(metric).isInstanceOfAny(TimeRate.Impl.class, TimeRate.NOOP.getClass());
     metric.record(100);
   }
 }
