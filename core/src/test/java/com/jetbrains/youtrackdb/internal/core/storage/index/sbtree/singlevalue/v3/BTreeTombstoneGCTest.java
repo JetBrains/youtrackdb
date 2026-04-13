@@ -21,6 +21,7 @@ import java.io.File;
 import java.lang.reflect.Field;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.locks.ReadWriteLock;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -159,25 +160,44 @@ public class BTreeTombstoneGCTest {
    * Registers a minimal stub {@link BaseIndexEngine} in AbstractStorage's
    * {@code indexEngineNameMap} so that
    * {@code AbstractStorage.hasActiveSnapshotEntries()} can resolve the index.
+   * Acquires stateLock.writeLock() because indexEngineNameMap is a plain HashMap
+   * that requires external synchronization.
    */
   @SuppressWarnings("unchecked")
   private static void registerStubEngine(String name, int id) throws Exception {
-    // Create a minimal stub that only needs getId() and getName()
     BaseIndexEngine stub = new StubIndexEngine(name, id);
-    Field mapField = AbstractStorage.class.getDeclaredField("indexEngineNameMap");
-    mapField.setAccessible(true);
-    Map<String, BaseIndexEngine> map =
-        (Map<String, BaseIndexEngine>) mapField.get(storage);
-    map.put(name, stub);
+    var lock = getStateLock();
+    lock.writeLock().lock();
+    try {
+      Field mapField = AbstractStorage.class.getDeclaredField("indexEngineNameMap");
+      mapField.setAccessible(true);
+      Map<String, BaseIndexEngine> map =
+          (Map<String, BaseIndexEngine>) mapField.get(storage);
+      map.put(name, stub);
+    } finally {
+      lock.writeLock().unlock();
+    }
   }
 
   @SuppressWarnings("unchecked")
   private static void unregisterStubEngine(String name) throws Exception {
-    Field mapField = AbstractStorage.class.getDeclaredField("indexEngineNameMap");
-    mapField.setAccessible(true);
-    Map<String, BaseIndexEngine> map =
-        (Map<String, BaseIndexEngine>) mapField.get(storage);
-    map.remove(name);
+    var lock = getStateLock();
+    lock.writeLock().lock();
+    try {
+      Field mapField = AbstractStorage.class.getDeclaredField("indexEngineNameMap");
+      mapField.setAccessible(true);
+      Map<String, BaseIndexEngine> map =
+          (Map<String, BaseIndexEngine>) mapField.get(storage);
+      map.remove(name);
+    } finally {
+      lock.writeLock().unlock();
+    }
+  }
+
+  private static ReadWriteLock getStateLock() throws Exception {
+    Field lockField = AbstractStorage.class.getDeclaredField("stateLock");
+    lockField.setAccessible(true);
+    return (ReadWriteLock) lockField.get(storage);
   }
 
   // ---- Helpers ----
@@ -239,6 +259,12 @@ public class BTreeTombstoneGCTest {
     }
 
     long tombstonesBefore = countEntriesOfType(TombstoneRID.class);
+    // Some tombstones may already be GC'd during their own insertion phase
+    // (bucket overflows during tombstone insertion trigger GC on earlier
+    // tombstones). Verify at least some survive.
+    assertThat(tombstonesBefore)
+        .as("At least some tombstones should exist before live entry inserts")
+        .isGreaterThan(0);
 
     // Insert FILL_COUNT live entries at odd positions to trigger overflows
     for (int i = 0; i < FILL_COUNT; i++) {
@@ -425,9 +451,10 @@ public class BTreeTombstoneGCTest {
     }
 
     long markersAfter = countEntriesOfType(SnapshotMarkerRID.class);
-    long recordIdsAfter = countEntriesOfType(RecordId.class);
 
-    // Markers should have been demoted to RecordId during GC
+    // Markers should have been demoted to RecordId during GC. Note: some
+    // markers may already be demoted during the marker insertion phase itself
+    // (bucket overflows during insertion trigger GC on earlier markers).
     assertThat(markersAfter)
         .as("SnapshotMarkerRID entries below LWM should be demoted")
         .isLessThan(markersBefore);
@@ -436,6 +463,24 @@ public class BTreeTombstoneGCTest {
     assertThat(countAllEntries())
         .as("Demotions should not change total entry count")
         .isEqualTo(FILL_COUNT * 2);
+
+    // Spot-check that demoted entries retain their original identity
+    for (int i = 0; i < 10; i++) {
+      final var key = new CompositeKey(
+          "key" + String.format("%06d", i * 2), 1L);
+      final RID[] result = {null};
+      atomicOperationsManager.executeInsideAtomicOperation(
+          atomicOperation -> result[0] = bTree.get(key, atomicOperation));
+      // If demoted, the entry should be a plain RecordId with the original identity
+      if (result[0] instanceof RecordId && !(result[0] instanceof SnapshotMarkerRID)) {
+        assertThat(result[0].getCollectionId())
+            .as("Demoted marker at position %d should retain original collection ID", i)
+            .isEqualTo(1);
+        assertThat(result[0].getCollectionPosition())
+            .as("Demoted marker at position %d should retain original position", i)
+            .isEqualTo(i);
+      }
+    }
   }
 
   @Test
@@ -517,15 +562,20 @@ public class BTreeTombstoneGCTest {
 
     long actualCount = countAllEntries();
 
+    // Verify GC actually removed some tombstones (actualCount < total inserted)
+    assertThat(actualCount)
+        .as("GC should have removed some tombstones, reducing count below 2*FILL_COUNT")
+        .isLessThan(FILL_COUNT * 2L);
+
     assertThat(reportedSize[0])
         .as("Reported tree size must match actual entry count after GC")
         .isEqualTo(actualCount);
   }
 
-  // ---- GC-once guard ----
+  // ---- Splits proceed when GC finds no candidates ----
 
   @Test
-  public void testGCRunsAtMostOncePerInsert() throws Exception {
+  public void testSplitsProceedNormallyWhenNoTombstonesExist() throws Exception {
     // Fill the tree so buckets are nearly full, then insert entries that
     // trigger overflow. Even if GC doesn't free enough space (e.g., no
     // tombstones to remove), the split should still proceed without error.
@@ -552,6 +602,110 @@ public class BTreeTombstoneGCTest {
     assertThat(countAllEntries())
         .as("All entries must be present after splits with no GC candidates")
         .isEqualTo(FILL_COUNT * 3);
+  }
+
+  // ---- Mixed entry types ----
+
+  @Test
+  public void testMixedTombstonesMarkersAndLiveEntriesInSameBucket() throws Exception {
+    // Insert interleaved tombstones (version=1), markers (version=2), and live
+    // entries (version=3) — all below default LWM. Then trigger overflow.
+    // Tombstones should be removed, markers demoted, live entries preserved.
+    // This exercises the case where both removedCount > 0 and demoted == true
+    // in filterAndRebuildBucket, plus the partition invariant across all three
+    // entry types.
+    int count = FILL_COUNT / 3;
+    for (int i = 0; i < count; i++) {
+      int base = i * 6;
+      // Tombstone
+      final var tKey = new CompositeKey(
+          "key" + String.format("%06d", base), 1L);
+      final var tVal = new TombstoneRID(new RecordId(1, i));
+      atomicOperationsManager.executeInsideAtomicOperation(
+          op -> bTree.put(op, tKey, tVal));
+      // SnapshotMarker
+      final var mKey = new CompositeKey(
+          "key" + String.format("%06d", base + 2), 2L);
+      final var mVal = new SnapshotMarkerRID(new RecordId(1, i + count));
+      atomicOperationsManager.executeInsideAtomicOperation(
+          op -> bTree.put(op, mKey, mVal));
+      // Live entry
+      final var lKey = new CompositeKey(
+          "key" + String.format("%06d", base + 4), 3L);
+      final var lVal = new RecordId(1, i + 2 * count);
+      atomicOperationsManager.executeInsideAtomicOperation(
+          op -> bTree.put(op, lKey, lVal));
+    }
+
+    long tombstonesBefore = countEntriesOfType(TombstoneRID.class);
+    long markersBefore = countEntriesOfType(SnapshotMarkerRID.class);
+
+    // Trigger overflow with more live entries at higher key values
+    for (int i = 0; i < FILL_COUNT; i++) {
+      final var key = new CompositeKey(
+          "key" + String.format("%06d", count * 6 + i), 100L);
+      final var val = new RecordId(2, i);
+      atomicOperationsManager.executeInsideAtomicOperation(
+          op -> bTree.put(op, key, val));
+    }
+
+    assertThat(countEntriesOfType(TombstoneRID.class))
+        .as("Tombstones should be GC'd from mixed bucket")
+        .isLessThan(tombstonesBefore);
+    assertThat(countEntriesOfType(SnapshotMarkerRID.class))
+        .as("Markers should be demoted from mixed bucket")
+        .isLessThan(markersBefore);
+
+    // Verify tree size consistency after mixed GC
+    long[] reportedSize = {0};
+    atomicOperationsManager.executeInsideAtomicOperation(
+        op -> reportedSize[0] = bTree.size(op));
+    assertThat(reportedSize[0])
+        .as("Reported tree size must match actual count after mixed GC")
+        .isEqualTo(countAllEntries());
+  }
+
+  // ---- Sort order preservation ----
+
+  @Test
+  public void testEntriesRemainCorrectlyOrderedAfterGC() throws Exception {
+    // After GC removes tombstones and rebuilds the bucket, the insertion index
+    // is recalculated via keyBucket.find(). If the recalculated index is wrong,
+    // entries are inserted at incorrect positions, corrupting B-tree sort order.
+    // This test verifies that all entries remain in strictly ascending key order
+    // after GC + insert.
+
+    for (int i = 0; i < FILL_COUNT; i++) {
+      final var key = new CompositeKey(
+          "key" + String.format("%06d", i * 2), 1L);
+      final var value = new TombstoneRID(new RecordId(1, i));
+      atomicOperationsManager.executeInsideAtomicOperation(
+          op -> bTree.put(op, key, value));
+    }
+    for (int i = 0; i < FILL_COUNT; i++) {
+      final var key = new CompositeKey(
+          "key" + String.format("%06d", i * 2 + 1), 100L);
+      final var value = new RecordId(2, i);
+      atomicOperationsManager.executeInsideAtomicOperation(
+          op -> bTree.put(op, key, value));
+    }
+
+    // Verify ascending key order across the entire tree
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      var firstKey = bTree.firstKey(atomicOperation);
+      var lastKey = bTree.lastKey(atomicOperation);
+      try (var stream = bTree.iterateEntriesBetween(
+          firstKey, true, lastKey, true, true, atomicOperation)) {
+        var keys = stream.map(p -> (Comparable<?>) p.first()).toList();
+        for (int i = 1; i < keys.size(); i++) {
+          @SuppressWarnings("unchecked")
+          var prev = (Comparable<Object>) keys.get(i - 1);
+          assertThat(prev.compareTo(keys.get(i)))
+              .as("Keys must be in ascending order at position %d", i)
+              .isLessThan(0);
+        }
+      }
+    });
   }
 
   // ---- Stub engine for indexEngineNameMap registration ----
