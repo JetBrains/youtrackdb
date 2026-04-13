@@ -578,29 +578,31 @@ public class MatchEdgeTraverser implements ExecutionStream {
         edge.recordPreFilterSkip(PreFilterSkipReason.LINKBAG_TOO_SMALL);
       } else {
         var ridSet = edge.resolveWithCache(ctx, linkBagSize);
+        // ridSet == null → skip reason already set by resolveWithCache().
         // IndexLookup selectivity is class-level (constant per query) — if
         // resolveWithCache returned non-null the check already passed, so
         // skip the redundant per-vertex recomputation.  EdgeRidLookup still
         // needs the per-vertex re-check because resolveWithCache used an
         // estimate, but applyPreFilter has the actual ridSet.size().
-        if (ridSet == null) {
-          // Skip reason already set by resolveWithCache().
-        } else if (edge.getIntersectionDescriptor() instanceof RidFilterDescriptor.IndexLookup
-            || edge.getIntersectionDescriptor()
-                .passesSelectivityCheck(
-                    ridSet.size(), linkBagSize, ctx)) {
-          this.currentPreFilterRids = ridSet;
-          edge.recordPreFilterApplied(linkBagSize, ridSet.size());
-          if (logger.isDebugEnabled()) {
-            logger.debug(
-                "MATCH pre-filter applied: linkBag={} ridSet={} descriptor={}",
-                linkBagSize, ridSet.size(), edge.getIntersectionDescriptor());
+        if (ridSet != null) {
+          if (edge.getIntersectionDescriptor() instanceof RidFilterDescriptor.IndexLookup
+              || edge.getIntersectionDescriptor()
+                  .passesSelectivityCheck(
+                      ridSet.size(), linkBagSize, ctx)) {
+            this.currentPreFilterRids = ridSet;
+            edge.recordPreFilterApplied(linkBagSize, ridSet.size());
+            if (logger.isDebugEnabled()) {
+              logger.debug(
+                  "MATCH pre-filter applied: linkBag={} ridSet={} descriptor={}",
+                  linkBagSize, ridSet.size(),
+                  edge.getIntersectionDescriptor());
+            }
+            pfli = pfli.withRidFilter(ridSet);
+          } else {
+            // EdgeRidLookup ratio check failed on actual ridSet.size().
+            edge.recordPreFilterSkip(
+                PreFilterSkipReason.OVERLAP_RATIO_TOO_HIGH);
           }
-          pfli = pfli.withRidFilter(ridSet);
-        } else {
-          // EdgeRidLookup ratio check failed on actual ridSet.size().
-          edge.recordPreFilterSkip(
-              PreFilterSkipReason.OVERLAP_RATIO_TOO_HIGH);
         }
       }
     }
