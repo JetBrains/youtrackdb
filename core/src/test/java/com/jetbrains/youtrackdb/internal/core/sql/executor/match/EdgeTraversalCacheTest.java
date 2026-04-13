@@ -695,4 +695,216 @@ public class EdgeTraversalCacheTest {
 
     verify(desc, times(2)).resolve(any(), any());
   }
+
+  // =========================================================================
+  // passesSelectivityCheck — DirectRid (always true)
+  // =========================================================================
+
+  /** DirectRid always passes regardless of inputs. */
+  @Test
+  public void directRid_passesSelectivityCheck_alwaysTrue() {
+    var expr = mock(SQLExpression.class);
+    var desc = new DirectRid(expr);
+    var ctx = new BasicCommandContext();
+
+    assertThat(desc.passesSelectivityCheck(0, 0, ctx)).isTrue();
+    assertThat(desc.passesSelectivityCheck(Integer.MAX_VALUE, 1, ctx)).isTrue();
+    assertThat(desc.passesSelectivityCheck(100, 0, ctx)).isTrue();
+  }
+
+  // =========================================================================
+  // passesSelectivityCheck — EdgeRidLookup (overlap ratio)
+  // =========================================================================
+
+  /** Small ratio (highly selective) passes the overlap check. */
+  @Test
+  public void edgeRidLookup_passesSelectivityCheck_smallRatio_passes() {
+    var expr = mock(SQLExpression.class);
+    var desc = new EdgeRidLookup("KNOWS", "out", expr, false);
+    var ctx = new BasicCommandContext();
+
+    // 100 / 10000 = 0.01, well below 0.8
+    assertThat(desc.passesSelectivityCheck(100, 10_000, ctx)).isTrue();
+  }
+
+  /** Ratio at exact boundary (0.8) passes (uses <=). */
+  @Test
+  public void edgeRidLookup_passesSelectivityCheck_atBoundary_passes() {
+    var expr = mock(SQLExpression.class);
+    var desc = new EdgeRidLookup("KNOWS", "out", expr, false);
+    var ctx = new BasicCommandContext();
+
+    // 80 / 100 = 0.8 = edgeLookupMaxRatio
+    assertThat(desc.passesSelectivityCheck(80, 100, ctx)).isTrue();
+  }
+
+  /** Ratio above boundary fails. */
+  @Test
+  public void edgeRidLookup_passesSelectivityCheck_aboveBoundary_fails() {
+    var expr = mock(SQLExpression.class);
+    var desc = new EdgeRidLookup("KNOWS", "out", expr, false);
+    var ctx = new BasicCommandContext();
+
+    // 81 / 100 = 0.81 > 0.8
+    assertThat(desc.passesSelectivityCheck(81, 100, ctx)).isFalse();
+  }
+
+  /** Zero linkBagSize passes conservatively (avoids division by zero). */
+  @Test
+  public void edgeRidLookup_passesSelectivityCheck_zeroLinkBag_passes() {
+    var expr = mock(SQLExpression.class);
+    var desc = new EdgeRidLookup("KNOWS", "out", expr, false);
+    var ctx = new BasicCommandContext();
+
+    assertThat(desc.passesSelectivityCheck(100, 0, ctx)).isTrue();
+  }
+
+  /** Negative linkBagSize passes conservatively. */
+  @Test
+  public void edgeRidLookup_passesSelectivityCheck_negativeLinkBag_passes() {
+    var expr = mock(SQLExpression.class);
+    var desc = new EdgeRidLookup("KNOWS", "out", expr, false);
+    var ctx = new BasicCommandContext();
+
+    assertThat(desc.passesSelectivityCheck(100, -1, ctx)).isTrue();
+  }
+
+  /** Zero resolvedSize always passes (most selective). */
+  @Test
+  public void edgeRidLookup_passesSelectivityCheck_zeroResolved_passes() {
+    var expr = mock(SQLExpression.class);
+    var desc = new EdgeRidLookup("KNOWS", "out", expr, false);
+    var ctx = new BasicCommandContext();
+
+    assertThat(desc.passesSelectivityCheck(0, 1000, ctx)).isTrue();
+  }
+
+  /** Negative resolvedSize (-1 = unknown estimate) passes conservatively. */
+  @Test
+  public void edgeRidLookup_passesSelectivityCheck_negativeResolved_passes() {
+    var expr = mock(SQLExpression.class);
+    var desc = new EdgeRidLookup("KNOWS", "out", expr, false);
+    var ctx = new BasicCommandContext();
+
+    assertThat(desc.passesSelectivityCheck(-1, 100, ctx)).isTrue();
+  }
+
+  // =========================================================================
+  // passesSelectivityCheck — IndexLookup (class-level selectivity)
+  // =========================================================================
+
+  /** Low selectivity (highly selective) passes. */
+  @Test
+  public void indexLookup_passesSelectivityCheck_lowSelectivity_passes() {
+    var indexDesc = mock(IndexSearchDescriptor.class);
+    when(indexDesc.estimateSelectivity(any())).thenReturn(0.03);
+    var desc = new IndexLookup(indexDesc);
+    var ctx = new BasicCommandContext();
+
+    assertThat(desc.passesSelectivityCheck(100, 200, ctx)).isTrue();
+  }
+
+  /** Selectivity at exact threshold (0.95) passes (uses <=). */
+  @Test
+  public void indexLookup_passesSelectivityCheck_atThreshold_passes() {
+    var indexDesc = mock(IndexSearchDescriptor.class);
+    when(indexDesc.estimateSelectivity(any())).thenReturn(0.95);
+    var desc = new IndexLookup(indexDesc);
+    var ctx = new BasicCommandContext();
+
+    assertThat(desc.passesSelectivityCheck(0, 0, ctx)).isTrue();
+  }
+
+  /** Selectivity above threshold fails. */
+  @Test
+  public void indexLookup_passesSelectivityCheck_aboveThreshold_fails() {
+    var indexDesc = mock(IndexSearchDescriptor.class);
+    when(indexDesc.estimateSelectivity(any())).thenReturn(0.96);
+    var desc = new IndexLookup(indexDesc);
+    var ctx = new BasicCommandContext();
+
+    assertThat(desc.passesSelectivityCheck(0, 0, ctx)).isFalse();
+  }
+
+  /** Unknown selectivity (-1.0) passes conservatively. */
+  @Test
+  public void indexLookup_passesSelectivityCheck_unknownSelectivity_passes() {
+    var indexDesc = mock(IndexSearchDescriptor.class);
+    when(indexDesc.estimateSelectivity(any())).thenReturn(-1.0);
+    var desc = new IndexLookup(indexDesc);
+    var ctx = new BasicCommandContext();
+
+    assertThat(desc.passesSelectivityCheck(0, 0, ctx)).isTrue();
+  }
+
+  /** Zero selectivity (perfect filter) passes. */
+  @Test
+  public void indexLookup_passesSelectivityCheck_zeroSelectivity_passes() {
+    var indexDesc = mock(IndexSearchDescriptor.class);
+    when(indexDesc.estimateSelectivity(any())).thenReturn(0.0);
+    var desc = new IndexLookup(indexDesc);
+    var ctx = new BasicCommandContext();
+
+    assertThat(desc.passesSelectivityCheck(0, 0, ctx)).isTrue();
+  }
+
+  /** IndexLookup ignores resolvedSize and linkBagSize — same result. */
+  @Test
+  public void indexLookup_passesSelectivityCheck_ignoresParameters() {
+    var indexDesc = mock(IndexSearchDescriptor.class);
+    when(indexDesc.estimateSelectivity(any())).thenReturn(0.5);
+    var desc = new IndexLookup(indexDesc);
+    var ctx = new BasicCommandContext();
+
+    boolean r1 = desc.passesSelectivityCheck(1, 1, ctx);
+    boolean r2 = desc.passesSelectivityCheck(100_000, 1, ctx);
+    boolean r3 = desc.passesSelectivityCheck(1, 100_000, ctx);
+    assertThat(r1).isEqualTo(r2).isEqualTo(r3).isTrue();
+  }
+
+  // =========================================================================
+  // passesSelectivityCheck — Composite (any child passes)
+  // =========================================================================
+
+  /** Composite passes if at least one child passes. */
+  @Test
+  public void composite_passesSelectivityCheck_oneChildPasses_returnsTrue() {
+    // Use EdgeRidLookup mocks (permitted type of sealed interface)
+    var failing = mock(EdgeRidLookup.class);
+    when(failing.passesSelectivityCheck(anyInt(), anyInt(), any()))
+        .thenReturn(false);
+    var passing = mock(EdgeRidLookup.class);
+    when(passing.passesSelectivityCheck(anyInt(), anyInt(), any()))
+        .thenReturn(true);
+    var composite = new RidFilterDescriptor.Composite(
+        java.util.List.of(failing, passing));
+    var ctx = new BasicCommandContext();
+
+    assertThat(composite.passesSelectivityCheck(100, 1000, ctx)).isTrue();
+  }
+
+  /** Composite fails when all children fail. */
+  @Test
+  public void composite_passesSelectivityCheck_allFail_returnsFalse() {
+    var f1 = mock(EdgeRidLookup.class);
+    when(f1.passesSelectivityCheck(anyInt(), anyInt(), any()))
+        .thenReturn(false);
+    var f2 = mock(EdgeRidLookup.class);
+    when(f2.passesSelectivityCheck(anyInt(), anyInt(), any()))
+        .thenReturn(false);
+    var composite = new RidFilterDescriptor.Composite(
+        java.util.List.of(f1, f2));
+    var ctx = new BasicCommandContext();
+
+    assertThat(composite.passesSelectivityCheck(100, 1000, ctx)).isFalse();
+  }
+
+  /** Empty composite returns false. */
+  @Test
+  public void composite_passesSelectivityCheck_empty_returnsFalse() {
+    var composite = new RidFilterDescriptor.Composite(java.util.List.of());
+    var ctx = new BasicCommandContext();
+
+    assertThat(composite.passesSelectivityCheck(100, 1000, ctx)).isFalse();
+  }
 }

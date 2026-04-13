@@ -31,6 +31,11 @@ public class TraversalPreFilterHelperTest {
     GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.setValue(100_000);
     GlobalConfiguration.QUERY_PREFILTER_MAX_SELECTIVITY_RATIO.setValue(0.8);
     GlobalConfiguration.QUERY_PREFILTER_MIN_LINKBAG_SIZE.setValue(50);
+    // Reset new split config entries to their defaults. Note: isChanged()
+    // will remain true after setValue(), but the value itself is correct.
+    GlobalConfiguration.QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO.setValue(0.8);
+    GlobalConfiguration.QUERY_PREFILTER_INDEX_LOOKUP_MAX_SELECTIVITY
+        .setValue(0.95);
   }
 
   // =========================================================================
@@ -340,5 +345,46 @@ public class TraversalPreFilterHelperTest {
     var where = new SQLWhereClause(-1);
     assertThat(TraversalPreFilterHelper.findIndexForFilter(
         where, "EmptyClass", ctx)).isNull();
+  }
+
+  // =========================================================================
+  // Split config — edgeLookupMaxRatio and indexLookupMaxSelectivity
+  // =========================================================================
+
+  /**
+   * When the new edge lookup config is explicitly set, it takes precedence
+   * over the old config.
+   */
+  @Test
+  public void edgeLookupMaxRatio_newConfigTakesPrecedence() {
+    GlobalConfiguration.QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO.setValue(0.6);
+    GlobalConfiguration.QUERY_PREFILTER_MAX_SELECTIVITY_RATIO.setValue(0.3);
+    assertThat(TraversalPreFilterHelper.edgeLookupMaxRatio()).isEqualTo(0.6);
+  }
+
+  /**
+   * When the new index lookup config is explicitly set, it is used.
+   */
+  @Test
+  public void indexLookupMaxSelectivity_newConfigOverride() {
+    GlobalConfiguration.QUERY_PREFILTER_INDEX_LOOKUP_MAX_SELECTIVITY
+        .setValue(0.99);
+    assertThat(TraversalPreFilterHelper.indexLookupMaxSelectivity())
+        .isEqualTo(0.99);
+  }
+
+  /**
+   * indexLookupMaxSelectivity reads from its own config entry, not the
+   * old selectivity ratio. Even when the old property changes, the index
+   * lookup threshold is independent.
+   */
+  @Test
+  public void indexLookupMaxSelectivity_independentOfOldConfig() {
+    GlobalConfiguration.QUERY_PREFILTER_INDEX_LOOKUP_MAX_SELECTIVITY
+        .setValue(0.95);
+    GlobalConfiguration.QUERY_PREFILTER_MAX_SELECTIVITY_RATIO.setValue(0.5);
+    // Should read from its own entry (0.95), not old (0.5)
+    assertThat(TraversalPreFilterHelper.indexLookupMaxSelectivity())
+        .isEqualTo(0.95);
   }
 }
