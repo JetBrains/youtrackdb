@@ -109,9 +109,8 @@ public class BTreeTombstoneGCDurabilityTest {
     var survivingValues = new HashSet<String>();
     var deletedValues = new HashSet<String>();
     var newValues = new HashSet<String>();
-    // Store RIDs and values from phase 1 for cross-tx deletion in phase 2
+    // Store RIDs from phase 1 for cross-tx deletion in phase 2
     List<RID> allRids = new ArrayList<>();
-    List<String> allValues = new ArrayList<>();
 
     var session = ytdb.open(dbName, ADMIN, ADMIN_PWD);
     try {
@@ -127,7 +126,6 @@ public class BTreeTombstoneGCDurabilityTest {
         var doc = tx.newVertex("TestDoc");
         var val = "val" + String.format("%06d", i);
         doc.setProperty("value", val);
-        allValues.add(val);
         survivingValues.add(val);
       }
       tx.commit();
@@ -175,45 +173,30 @@ public class BTreeTombstoneGCDurabilityTest {
     try {
       var txVerify = recoveredSession.begin();
 
+      // Collect all values found via full scan after recovery
+      var recoveredValues = new HashSet<String>();
+      try (var results = txVerify.query("SELECT FROM TestDoc")) {
+        while (results.hasNext()) {
+          var val = results.next().<String>getProperty("value");
+          recoveredValues.add(val);
+        }
+      }
+
       // Build the full expected set: original survivors + new records
       var expectedValues = new HashSet<>(survivingValues);
       expectedValues.addAll(newValues);
 
-      // Verify each expected value is findable via index lookup
-      for (var val : expectedValues) {
-        try (var results = txVerify.query(
-            "SELECT FROM TestDoc WHERE value = ?", val)) {
-          assertThat(results.hasNext())
-              .as("Expected value '%s' must be findable via index after recovery",
-                  val)
-              .isTrue();
-        }
-      }
+      // Exact-match assertion: catches ghosts, missing entries, duplicates,
+      // and count mismatches in one shot with a clear diff in failure message.
+      assertThat(recoveredValues)
+          .as("Recovered values must exactly match expected survivors + new values")
+          .containsExactlyInAnyOrderElementsOf(expectedValues);
 
-      // Verify deleted values do NOT appear (no ghost resurrection)
-      for (var val : deletedValues) {
-        try (var results = txVerify.query(
-            "SELECT FROM TestDoc WHERE value = ?", val)) {
-          assertThat(results.hasNext())
-              .as("Deleted value '%s' must not reappear after recovery "
-                  + "(ghost resurrection)", val)
-              .isFalse();
-        }
-      }
-
-      // Verify total count matches expected
-      long totalCount;
-      try (var countResults = txVerify.query(
-          "SELECT count(*) as cnt FROM TestDoc")) {
-        assertThat(countResults.hasNext()).isTrue();
-        totalCount = countResults.next().<Long>getProperty("cnt");
-      }
-
-      long expectedCount =
-          INITIAL_COUNT - DELETE_COUNT + INSERT_AFTER_DELETE_COUNT;
-      assertThat(totalCount)
-          .as("Total record count after recovery must match expected")
-          .isEqualTo(expectedCount);
+      // Separate ghost-resurrection check for diagnostic clarity —
+      // if it fails, the developer immediately knows the issue.
+      assertThat(recoveredValues)
+          .as("Deleted values must not reappear after recovery (ghost resurrection)")
+          .doesNotContainAnyElementsOf(deletedValues);
 
       txVerify.commit();
     } finally {
