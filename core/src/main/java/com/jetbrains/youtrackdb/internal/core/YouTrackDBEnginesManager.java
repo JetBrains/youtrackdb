@@ -367,6 +367,17 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
         dumpConfigurationToLog();
       }
 
+      // Always log the effective pre-filter cap so operators can see the
+      // auto-scaled value and know which config key to override.
+      var maxRidSetSize =
+          GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE;
+      LogManager.instance().info(this,
+          "Pre-filter maxRidSetSize cap: %d (%s). Override with: %s",
+          maxRidSetSize.getValueAsInteger(),
+          maxRidSetSize.isChanged() ? "explicitly configured"
+              : "auto-scaled from heap",
+          maxRidSetSize.getKey());
+
       active = true;
       scheduler.activate();
 
