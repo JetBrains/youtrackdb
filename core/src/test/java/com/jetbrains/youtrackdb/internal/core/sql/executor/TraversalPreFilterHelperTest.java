@@ -136,16 +136,15 @@ public class TraversalPreFilterHelperTest {
   /**
    * The three adaptive-abort defaults must have their documented values.
    * maxRidSetSize is auto-scaled from heap: 0.5% of maxMemory, clamped
-   * to [100K, 10M].
+   * to [100K, 10M]. With the test JVM at -Xmx4096m (~4.3 GB), the
+   * formula yields ~21.5M which clamps to the 10M ceiling.
    */
   @Test
   public void defaults_haveExpectedValues() {
-    int expectedCap = (int) Math.min(10_000_000L,
-        Math.max(100_000L, Runtime.getRuntime().maxMemory() / 200));
+    // Concrete expected value for the known 4 GB test heap — more
+    // falsifiable than duplicating the production formula.
     assertThat(TraversalPreFilterHelper.maxRidSetSize())
-        .isEqualTo(expectedCap)
-        .isGreaterThanOrEqualTo(100_000)
-        .isLessThanOrEqualTo(10_000_000);
+        .isEqualTo(10_000_000);
     assertThat(TraversalPreFilterHelper.maxSelectivityRatio()).isEqualTo(0.8);
     assertThat(TraversalPreFilterHelper.minLinkBagSize()).isEqualTo(50);
   }
@@ -439,10 +438,9 @@ public class TraversalPreFilterHelperTest {
     GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.setValue(42);
     GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.resetToDefault();
 
-    int expectedCap = (int) Math.min(10_000_000L,
-        Math.max(100_000L, Runtime.getRuntime().maxMemory() / 200));
+    // Concrete value for 4 GB test heap (hits the 10M ceiling).
     assertThat(TraversalPreFilterHelper.maxRidSetSize())
-        .isEqualTo(expectedCap);
+        .isEqualTo(10_000_000);
     assertThat(
         GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.isChanged())
         .isFalse();
