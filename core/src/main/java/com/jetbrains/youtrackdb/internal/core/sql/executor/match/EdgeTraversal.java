@@ -323,6 +323,8 @@ public class EdgeTraversal {
    */
   static double computeMinNeighborsForBuild(
       int estimatedSize, double loadToScanRatio, double selectivity) {
+    assert loadToScanRatio > 0 && Double.isFinite(loadToScanRatio)
+        : "loadToScanRatio must be positive and finite: " + loadToScanRatio;
     if (estimatedSize <= 0) {
       return 0.0;
     }
