@@ -31,8 +31,8 @@ public class TraversalPreFilterHelperTest {
     // resetToDefault() restores the auto-scaled value and the "never
     // explicitly set" state so isChanged() returns false.
     GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.resetToDefault();
-    GlobalConfiguration.QUERY_PREFILTER_MAX_SELECTIVITY_RATIO.setValue(0.8);
-    GlobalConfiguration.QUERY_PREFILTER_MIN_LINKBAG_SIZE.setValue(50);
+    GlobalConfiguration.QUERY_PREFILTER_MAX_SELECTIVITY_RATIO.resetToDefault();
+    GlobalConfiguration.QUERY_PREFILTER_MIN_LINKBAG_SIZE.resetToDefault();
     // Reset new split config entries fully — resetToDefault() restores the
     // "never explicitly set" state so isChanged() returns false and the
     // fallback path in edgeLookupMaxRatio() is testable.
@@ -143,7 +143,9 @@ public class TraversalPreFilterHelperTest {
     int expectedCap = (int) Math.min(10_000_000L,
         Math.max(100_000L, Runtime.getRuntime().maxMemory() / 200));
     assertThat(TraversalPreFilterHelper.maxRidSetSize())
-        .isEqualTo(expectedCap);
+        .isEqualTo(expectedCap)
+        .isGreaterThanOrEqualTo(100_000)
+        .isLessThanOrEqualTo(10_000_000);
     assertThat(TraversalPreFilterHelper.maxSelectivityRatio()).isEqualTo(0.8);
     assertThat(TraversalPreFilterHelper.minLinkBagSize()).isEqualTo(50);
   }
@@ -447,62 +449,30 @@ public class TraversalPreFilterHelperTest {
   }
 
   /**
-   * Verifies the auto-scale formula for representative heap sizes:
-   * - Small heap (1 GB): 1 GB / 200 = 5M → above 100K floor → 5M
-   *   (but we can't control Runtime.maxMemory, so we verify the
-   *   invariant: result >= 100K and result <= 10M)
-   * - The actual JVM's heap: must match the formula exactly
-   * - The formula is: (int) min(10M, max(100K, maxMemory / 200))
+   * Verifies the shouldAbort guard works correctly at the auto-scale
+   * formula's floor and ceiling boundary values by exercising production
+   * code via setValue(). Each boundary is tested at the exact threshold
+   * and one above.
    */
   @Test
-  public void maxRidSetSize_autoScaleFormulaMatchesDocumented() {
-    long maxMemory = Runtime.getRuntime().maxMemory();
-    int expected = (int) Math.min(10_000_000L,
-        Math.max(100_000L, maxMemory / 200));
+  public void maxRidSetSize_shouldAbortAtBoundaryValues() {
+    // Floor value: the minimum the auto-scale formula can produce
+    GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.setValue(100_000);
+    assertThat(TraversalPreFilterHelper.maxRidSetSize()).isEqualTo(100_000);
+    assertThat(TraversalPreFilterHelper.shouldAbort(100_000)).isFalse();
+    assertThat(TraversalPreFilterHelper.shouldAbort(100_001)).isTrue();
 
-    // The auto-scaled value must match the formula
-    GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.resetToDefault();
+    // Ceiling value: the maximum the auto-scale formula can produce
+    GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.setValue(10_000_000);
     assertThat(TraversalPreFilterHelper.maxRidSetSize())
-        .isEqualTo(expected);
+        .isEqualTo(10_000_000);
+    assertThat(TraversalPreFilterHelper.shouldAbort(10_000_000)).isFalse();
+    assertThat(TraversalPreFilterHelper.shouldAbort(10_000_001)).isTrue();
 
-    // Invariant: always within [100K, 10M]
+    // Verify the actual auto-scaled default is within the documented bounds
+    GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.resetToDefault();
     assertThat(TraversalPreFilterHelper.maxRidSetSize())
         .isGreaterThanOrEqualTo(100_000)
         .isLessThanOrEqualTo(10_000_000);
-  }
-
-  /**
-   * Verifies the auto-scale formula boundaries by direct computation:
-   * - 1 GB heap → maxMemory/200 = 5,368,709 → clamped to 5,368,709
-   * - 20 MB heap → maxMemory/200 = 104,857 → clamped to 104,857
-   *   (above floor)
-   * - 10 MB heap → maxMemory/200 = 52,428 → clamped to floor 100,000
-   * - 4 GB heap → maxMemory/200 = 21,474,836 → clamped to ceiling
-   *   10,000,000
-   *
-   * This test verifies the formula logic directly — it does not
-   * depend on the actual JVM heap since we compute expected values.
-   */
-  @Test
-  public void maxRidSetSize_autoScaleFormulaBoundaryCases() {
-    // Small heap: 10 MB → hits floor
-    long smallHeap = 10L * 1024 * 1024; // 10 MB
-    assertThat((int) Math.min(10_000_000L,
-        Math.max(100_000L, smallHeap / 200)))
-        .isEqualTo(100_000);
-
-    // Typical heap: 4 GB → hits ceiling
-    long largeHeap = 4L * 1024 * 1024 * 1024; // 4 GB
-    assertThat((int) Math.min(10_000_000L,
-        Math.max(100_000L, largeHeap / 200)))
-        .isEqualTo(10_000_000);
-
-    // Mid-range heap: 1 GB → between floor and ceiling
-    long midHeap = 1L * 1024 * 1024 * 1024; // 1 GB
-    int midExpected = (int) Math.min(10_000_000L,
-        Math.max(100_000L, midHeap / 200));
-    assertThat(midExpected)
-        .isGreaterThan(100_000)
-        .isLessThan(10_000_000);
   }
 }
