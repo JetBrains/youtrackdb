@@ -2,6 +2,8 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -57,12 +59,14 @@ public class EdgeTraversalCacheTest {
   }
 
   /**
-   * Stubs the mock descriptor to return a small estimatedSize so that
-   * the ratio check in resolveWithCache passes when called with a large
-   * linkBagSize.
+   * Stubs the mock descriptor to return a small estimatedSize and pass
+   * the selectivity check so that resolveWithCache proceeds to resolution
+   * when called with a large linkBagSize.
    */
   private void stubSmallEstimate(RidFilterDescriptor mock) {
     when(mock.estimatedSize(any(), any())).thenReturn(1);
+    when(mock.passesSelectivityCheck(anyInt(), anyInt(), any()))
+        .thenReturn(true);
   }
 
   /**
@@ -601,18 +605,24 @@ public class EdgeTraversalCacheTest {
     var ridSet = singletonRidSet(10, 1);
 
     when(desc.cacheKey(any())).thenReturn(key);
-    // estimatedSize = 500, which fails ratio check for linkBag=50
-    // (500/50 = 10.0 > maxSelectivityRatio)
+    // estimatedSize = 500, which fails selectivity check for linkBag=50
+    // (500/50 = 10.0 > edgeLookupMaxRatio)
     when(desc.estimatedSize(any(), any())).thenReturn(500);
+    // Selectivity check: fails for small linkBag (estimate=500),
+    // passes for large linkBag (estimate=500 vs LARGE_LINKBAG)
+    when(desc.passesSelectivityCheck(eq(500), eq(50), any()))
+        .thenReturn(false);
+    when(desc.passesSelectivityCheck(eq(500), eq(LARGE_LINKBAG), any()))
+        .thenReturn(true);
     when(desc.resolve(any(), any())).thenReturn(ridSet);
     et.setIntersectionDescriptor(desc);
     var ctx = new BasicCommandContext();
 
-    // Small link bag → ratio fails → null, not cached
+    // Small link bag → selectivity check fails → null, not cached
     assertThat(et.resolveWithCache(ctx, 50)).isNull();
     verify(desc, never()).resolve(any(), any());
 
-    // Large link bag → ratio passes → resolve and cache
+    // Large link bag → selectivity check passes → resolve and cache
     assertThat(et.resolveWithCache(ctx, LARGE_LINKBAG)).isSameAs(ridSet);
     verify(desc, times(1)).resolve(any(), any());
 
@@ -661,12 +671,17 @@ public class EdgeTraversalCacheTest {
     when(desc.cacheKey(any()))
         .thenReturn(keyX, keyY, keyX, keyY);
     when(desc.estimatedSize(any(), any())).thenReturn(500);
+    // Selectivity check: fails for small linkBag, passes for large
+    when(desc.passesSelectivityCheck(eq(500), eq(50), any()))
+        .thenReturn(false);
+    when(desc.passesSelectivityCheck(eq(500), eq(LARGE_LINKBAG), any()))
+        .thenReturn(true);
     // resolve() is called in order: first for keyY (vertex 2), then keyX (vertex 3)
     when(desc.resolve(any(), any())).thenReturn(ridSetY, ridSetX);
     et.setIntersectionDescriptor(desc);
     var ctx = new BasicCommandContext();
 
-    // Vertex 1: target=X, small linkBag → deferred (no resolve)
+    // Vertex 1: target=X, small linkBag → selectivity fails → deferred
     assertThat(et.resolveWithCache(ctx, 50)).isNull();
 
     // Vertex 2: target=Y, large linkBag → first resolve() → ridSetY
