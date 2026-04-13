@@ -327,7 +327,12 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
     session.rollback();
   }
 
-  @Test(expected = RecordDuplicatedException.class)
+  /**
+   * Inserting two records with the same key in a single tx must throw
+   * RecordDuplicatedException, and after rollback the index size must remain 0
+   * (nothing was committed).
+   */
+  @Test
   public void testDuplicateCreateThrows() {
     session.begin();
     var person1 = session.newInstance("Person");
@@ -336,16 +341,25 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
     session.newInstance("Person");
     var person4 = session.newInstance("Person");
     person4.setProperty("name", "Name1");
-    //    Assert.assertThrows(RecordDuplicatedException.class, new Assert.ThrowingRunnable() {
-    //      @Override
-    //      public void run() throws Throwable {
-    //        db.commit();
-    //      }
-    //    });
-    session.commit();
+    try {
+      session.commit();
+      Assert.fail("Expected RecordDuplicatedException");
+    } catch (RecordDuplicatedException e) {
+      Assert.assertNotNull("Exception message must not be null", e.getMessage());
+      session.rollback();
+    }
+
+    // After rollback, the index must be empty — no entries were committed.
+    session.begin();
+    Assert.assertEquals(0, index.size(session));
+    session.rollback();
   }
 
-  @Test(expected = RecordDuplicatedException.class)
+  /**
+   * Updating records to produce a duplicate key must throw RecordDuplicatedException,
+   * and after rollback the index size must remain 4 (the original committed state).
+   */
+  @Test
   public void testDuplicateUpdateThrows() {
     session.begin();
     var person1 = session.newInstance("Person");
@@ -383,6 +397,17 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
 
     person4.setProperty("name", null);
 
-    session.commit();
+    try {
+      session.commit();
+      Assert.fail("Expected RecordDuplicatedException");
+    } catch (RecordDuplicatedException e) {
+      Assert.assertNotNull("Exception message must not be null", e.getMessage());
+      session.rollback();
+    }
+
+    // After rollback, the index must still contain the 4 originally committed entries.
+    session.begin();
+    Assert.assertEquals(4, index.size(session));
+    session.rollback();
   }
 }

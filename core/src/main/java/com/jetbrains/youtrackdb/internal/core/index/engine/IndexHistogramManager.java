@@ -651,9 +651,26 @@ public class IndexHistogramManager extends StorageComponent {
           accurateNonNull,
           newHistogram.mcvValue(),
           newHistogram.mcvFrequency());
+    } else if (newHistogram != null) {
+      // Version mismatch or no frequency deltas — bucket frequencies stay as-is
+      // (the rebalanced histogram's frequencies are already accurate at rebalance
+      // time). However, nonNullCount must still track the authoritative scalar
+      // counters. Without this update, nonNullCount freezes at the rebalance-time
+      // value while totalCount/nullCount continue to advance through subsequent
+      // commits, causing drift between histogram.nonNullCount() and the true
+      // (totalCount - nullCount).
+      long accurateNonNull = Math.max(0, newTotal - newNull);
+      if (newHistogram.nonNullCount() != accurateNonNull) {
+        newHistogram = new EquiDepthHistogram(
+            newHistogram.bucketCount(),
+            newHistogram.boundaries(),
+            newHistogram.frequencies(),
+            newHistogram.distinctCounts(),
+            accurateNonNull,
+            newHistogram.mcvValue(),
+            newHistogram.mcvFrequency());
+      }
     }
-    // If version differs (rebalance occurred), frequencyDeltas are discarded.
-    // The rebalanced histogram's frequencies are already accurate.
 
     long newMutations =
         current.mutationsSinceRebalance() + delta.mutationCount;
@@ -722,11 +739,16 @@ public class IndexHistogramManager extends StorageComponent {
    * @param op           atomic operation for page I/O
    * @param sortedKeys   non-null keys only (sorted by DefaultComparator).
    *                     The caller is responsible for closing this stream.
-   * @param totalCount   total entries including nulls
-   * @param nullCount    number of null entries
+   * @param totalCount   total entries including nulls (may be approximate —
+   *                     used only for bucket sizing and early-exit threshold)
+   * @param nullCount    number of null entries (may be approximate)
    * @param keyFieldCnt  number of key fields (1 for simple, >1 for composite)
+   * @return for the normal path: exact count of non-null keys consumed from the
+   *     stream (callers can use this to recalibrate approximate counters). For the
+   *     early-exit path (nonNullCount < histogramMinSize): the approximate
+   *     {@code totalCount - nullCount} input — no stream elements are consumed.
    */
-  public void buildHistogram(AtomicOperation op, Stream<Object> sortedKeys,
+  public long buildHistogram(AtomicOperation op, Stream<Object> sortedKeys,
       long totalCount, long nullCount, int keyFieldCnt) throws IOException {
     long nonNullCount = totalCount - nullCount;
     if (nonNullCount < histogramMinSize) {
@@ -739,7 +761,9 @@ public class IndexHistogramManager extends StorageComponent {
           stats, null, 0, totalCount, 0, false, null, false);
       cache.put(engineId, snapshot);
       writeSnapshotToPage(op, snapshot);
-      return;
+      // Early exit: return approximate count (no stream consumed).
+      // Callers' "recalibration" is effectively a no-op for small indexes.
+      return nonNullCount;
     }
 
     // Compute effective keys (leading field for composite indexes)
@@ -780,7 +804,7 @@ public class IndexHistogramManager extends StorageComponent {
           stats, null, 0, totalCount, 0, false, null, false);
       cache.put(engineId, snapshot);
       writeSnapshotToPage(op, snapshot);
-      return;
+      return 0;
     }
 
     // Compute actual non-null count from scan (consistent with frequencies)
@@ -805,6 +829,7 @@ public class IndexHistogramManager extends StorageComponent {
         stats, histogram, 0, totalCount, 0, false, hll, hllOnPage1);
     cache.put(engineId, snapshot);
     writeSnapshotToPage(op, snapshot);
+    return scannedNonNull;
   }
 
   // ---- Rebalance ----

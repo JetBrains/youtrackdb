@@ -42,18 +42,52 @@ public interface BTreeIndexEngine extends V1IndexEngine {
   void buildInitialHistogram(AtomicOperation atomicOperation) throws IOException;
 
   /**
-   * Returns the number of null entries in the index. Used during migration
-   * to initialize histogram counters.
+   * Returns the approximate number of null entries in the index. O(1) read
+   * from a maintained counter, recalibrated by {@link #buildInitialHistogram}
+   * and {@code load()}.
    *
-   * @param atomicOperation current atomic operation for page I/O
+   * @param atomicOperation current atomic operation (unused, kept for API
+   *     compatibility)
    */
   long getNullCount(AtomicOperation atomicOperation);
 
   /**
-   * Returns the total number of entries (including nulls). Used during
-   * migration to initialize histogram counters.
+   * Returns the approximate total number of entries (including nulls). O(1)
+   * read from a maintained counter, recalibrated by
+   * {@link #buildInitialHistogram} and {@code load()}.
    *
-   * @param atomicOperation current atomic operation for page I/O
+   * @param atomicOperation current atomic operation (unused, kept for API
+   *     compatibility)
    */
   long getTotalCount(AtomicOperation atomicOperation);
+
+  /**
+   * Adjusts the approximate total entry count by the given delta. Called by
+   * {@code AbstractStorage.applyIndexCountDeltas()} after a successful commit.
+   */
+  void addToApproximateEntriesCount(long delta);
+
+  /**
+   * Adjusts the approximate null entry count by the given delta. Called by
+   * {@code AbstractStorage.applyIndexCountDeltas()} after a successful commit.
+   */
+  void addToApproximateNullCount(long delta);
+
+  /**
+   * Persists the accumulated count deltas to the BTree entry point page(s)
+   * within the given atomic operation. Called by
+   * {@code AbstractStorage.persistIndexCountDeltas()} inside the commit's WAL
+   * atomic operation, between {@code commitIndexes()} and
+   * {@code endTxCommit()}.
+   *
+   * <p>Each engine implementation maps the total/null deltas to its underlying
+   * tree(s). Single-value applies {@code totalDelta} to its single tree.
+   * Multi-value splits: {@code totalDelta - nullDelta} to svTree,
+   * {@code nullDelta} to nullTree.
+   *
+   * @param atomicOperation current atomic operation for WAL-protected page I/O
+   * @param totalDelta net change to total visible entry count
+   * @param nullDelta net change to null-key visible entry count
+   */
+  void persistCountDelta(AtomicOperation atomicOperation, long totalDelta, long nullDelta);
 }

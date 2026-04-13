@@ -22,6 +22,8 @@ package com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.
 import com.jetbrains.youtrackdb.internal.common.serialization.types.ShortSerializer;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.SnapshotMarkerRID;
+import com.jetbrains.youtrackdb.internal.core.id.TombstoneRID;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
@@ -55,6 +57,10 @@ public final class CellBTreeSingleValueV3NullBucket extends DurablePage {
   }
 
   public void setValue(final RID value) {
+    assert !(value instanceof TombstoneRID)
+        : "TombstoneRID must not be stored in null bucket: " + value;
+    assert !(value instanceof SnapshotMarkerRID)
+        : "SnapshotMarkerRID must not be stored in null bucket: " + value;
 
     setByteValue(NEXT_FREE_POSITION, (byte) 1);
 

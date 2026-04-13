@@ -305,6 +305,17 @@ public abstract class IndexAbstract implements Index {
       indexId = storage.addIndexEngine(im, engineProperties);
 
       onIndexEngineChange(session, indexId);
+
+      // The old metadata entity was deleted by doDelete() above. Reset identity
+      // so save() creates a fresh entity instead of trying to update the deleted one.
+      // Then persist the metadata and register it in the IndexManager's CONFIG_INDEXES
+      // link set, so the index survives crash + WAL replay.
+      identity = null;
+      session.executeInTxInternal(tx -> {
+        save(tx);
+        session.getSharedContext().getIndexManager()
+            .addIndexInternal(session, tx, this, true);
+      });
     } catch (Exception e) {
       try {
         if (indexId >= 0) {
@@ -404,15 +415,24 @@ public abstract class IndexAbstract implements Index {
       entitiesIndexed = doFillIndex(session, progressListener);
     } catch (final Exception e) {
       LogManager.instance().error(this, "Error during index rebuild", e);
+      var clearSucceeded = false;
       try {
         if (indexId >= 0) {
           storage.clearIndex(indexId);
+          clearSucceeded = true;
         }
       } catch (Exception e2) {
-        LogManager.instance().error(this, "Error during index rebuild", e2);
+        LogManager.instance().error(this,
+            "Error during clearIndex after failed rebuild of index '%s' (id=%d)",
+            e2, im.getName(), indexId);
         // IGNORE EXCEPTION: IF THE REBUILD WAS LAUNCHED IN CASE OF RID INVALID CLEAR ALWAYS GOES IN
         // ERROR
       }
+      LogManager.instance().info(this,
+          "fillIndex failed for '%s' (id=%d): clearIndex %s. Cause: %s",
+          im.getName(), indexId,
+          clearSucceeded ? "succeeded" : "FAILED or skipped",
+          e.getClass().getSimpleName());
 
       throw BaseException.wrapException(
           new IndexException(session,

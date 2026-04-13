@@ -278,6 +278,15 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
     if (statement instanceof DDLStatement
         && !(statement instanceof SQLAlterSequenceStatement)
         && !(statement instanceof SQLDropSequenceStatement)) {
+      // The traversal strategy evaluation (isPolymorphic) may have auto-opened
+      // the Gremlin transaction via readWrite(), taking a snapshot BEFORE the
+      // DDL runs. Commit it first so any pending work from prior g.command()
+      // calls (e.g., CREATE SEQUENCE) is persisted. After the DDL runs on its
+      // own schema session, the closed transaction forces the next operation to
+      // start a fresh transaction with a snapshot that sees the DDL's changes.
+      if (tx.isOpen()) {
+        tx.commit();
+      }
       try (var schemaSession = acquireSession()) {
         schemaSession.command(statement, params);
       }

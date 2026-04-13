@@ -26,6 +26,7 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrackdb.api.exception.HighLevelException;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrackdb.internal.common.comparator.DefaultComparator;
 import com.jetbrains.youtrackdb.internal.common.concur.NeedRetryException;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedException;
@@ -69,11 +70,13 @@ import com.jetbrains.youtrackdb.internal.core.exception.StorageExistsException;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrackdb.internal.core.index.Indexes;
+import com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramSnapshot;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngine;
@@ -212,6 +215,42 @@ public abstract class AbstractStorage
       Comparator.comparing(
           o -> o.record.getIdentity());
 
+  /**
+   * Version comparator for index snapshot visibility-index maps: orders by the
+   * last key element (the committing TX's version = newVersion), falling back
+   * to full element-wise comparison for uniqueness. Enables efficient
+   * headMap(lwm) eviction.
+   *
+   * <p>Hand-written to avoid per-comparison allocations from
+   * Comparator.comparingLong (unboxing) and thenComparing(identity)
+   * (iterator allocation in CompositeKey.compareTo).
+   */
+  public static final Comparator<CompositeKey> INDEX_SNAPSHOT_VERSION_COMPARATOR =
+      (a, b) -> {
+        var aKeys = a.getKeys();
+        var bKeys = b.getKeys();
+        // Primary: compare last element (version) as long
+        int cmp = Long.compare(
+            (Long) aKeys.getLast(),
+            (Long) bKeys.getLast());
+        if (cmp != 0) {
+          return cmp;
+        }
+        // Tiebreaker: element-wise comparison without iterator allocation.
+        // Uses DefaultComparator for null-safe comparison (null keys are valid
+        // in snapshot visibility maps for null-indexed entries).
+        int aSize = aKeys.size();
+        int bSize = bKeys.size();
+        int minSize = Math.min(aSize, bSize);
+        for (int i = 0; i < minSize; i++) {
+          cmp = DefaultComparator.INSTANCE.compare(aKeys.get(i), bKeys.get(i));
+          if (cmp != 0) {
+            return cmp;
+          }
+        }
+        return Integer.compare(aSize, bSize);
+      };
+
   protected volatile LinkCollectionsBTreeManagerShared linkCollectionsBTreeManager;
 
   private final Map<String, StorageCollection> collectionMap = new HashMap<>();
@@ -337,6 +376,26 @@ public abstract class AbstractStorage
   // exhaustion under sustained heavy concurrent load (e.g., 30-minute soak tests).
   // Incremented during flushSnapshotBuffers(), decremented during evictStaleSnapshotEntries().
   protected final AtomicLong snapshotIndexSize = new AtomicLong();
+
+  // Indexes snapshot: maps CompositeKey(indexId, userKey..., version) → RID (TombstoneRID or plain).
+  private final ConcurrentSkipListMap<CompositeKey, RID> sharedIndexesSnapshot =
+      new ConcurrentSkipListMap<>();
+  private final ConcurrentSkipListMap<CompositeKey, RID> sharedNullIndexesSnapshot =
+      new ConcurrentSkipListMap<>();
+
+  // Indexes snapshot visibility index: maps removedKey (newVersion) → addedKey (oldVersion),
+  // ordered by newVersion (last key element). Enables efficient range-scan eviction via
+  // headMap(lowWaterMark), matching the collection/edge eviction pattern.
+  private final ConcurrentSkipListMap<CompositeKey, CompositeKey> indexesSnapshotVisibilityIndex =
+      new ConcurrentSkipListMap<>(INDEX_SNAPSHOT_VERSION_COMPARATOR);
+  private final ConcurrentSkipListMap<CompositeKey, CompositeKey> nullIndexSnapshotVisibilityIndex =
+      new ConcurrentSkipListMap<>(INDEX_SNAPSHOT_VERSION_COMPARATOR);
+
+  // Approximate count of entries in sharedIndexesSnapshotData + sharedNullIndexesSnapshotData,
+  // used for O(1) cleanup threshold checks.
+  // Incremented by IndexesSnapshot.addSnapshotPair() (2 per pair), decremented by
+  // evictStaleIndexesSnapshotEntries().
+  protected final AtomicLong indexesSnapshotEntriesCount = new AtomicLong();
 
   // Edge snapshot index: maps (componentId, ridBagId, targetCollection, targetPosition, version)
   // → LinkBagValue. Stores old versions of link bag entries for snapshot isolation on edges.
@@ -2100,6 +2159,12 @@ public abstract class AbstractStorage
 
             commitIndexes(frontendTransaction.getDatabaseSession(), atomicOperation,
                 indexOperations);
+
+            // Persist accumulated index count deltas to BTree entry point pages.
+            // Runs inside the same WAL atomic operation as commitIndexes — any
+            // failure triggers rollback, ensuring persisted counts always match
+            // index data (design decision D2).
+            persistIndexCountDeltas(atomicOperation);
           } catch (final IOException | RuntimeException e) {
             error = e;
             if (e instanceof RuntimeException runtimeException) {
@@ -2113,6 +2178,18 @@ public abstract class AbstractStorage
               rollback(error, atomicOperation);
             } else {
               endTxCommit(atomicOperation);
+              try {
+                applyIndexCountDeltas(atomicOperation);
+              } catch (final RuntimeException e) {
+                // Counter application is a cache-only operation — its failure
+                // must never mask a successful commit. Counters will be
+                // recalibrated by load() on restart or buildInitialHistogram().
+                LogManager.instance()
+                    .warn(this,
+                        "Index count delta application failed after successful"
+                            + " commit",
+                        e);
+              }
               try {
                 applyHistogramDeltas(atomicOperation);
               } catch (final RuntimeException e) {
@@ -2201,6 +2278,65 @@ public abstract class AbstractStorage
         }
         case CLEAR -> {
           // SHOULD NEVER BE THE CASE HANDLE BY cleared FLAG
+        }
+      }
+    }
+  }
+
+  /**
+   * Persists accumulated index count deltas to the BTree entry point pages
+   * within the current WAL atomic operation. Called between
+   * {@code commitIndexes()} and the catch clause in the commit flow, so any
+   * failure triggers the existing rollback path.
+   *
+   * <p>Mirrors the defensive checks of {@link #applyIndexCountDeltas}: skips
+   * engines with out-of-bounds IDs, null entries, or non-{@link BTreeIndexEngine}
+   * instances (e.g., if an engine was concurrently dropped, leaving a stale delta).
+   */
+  private void persistIndexCountDeltas(AtomicOperation atomicOperation) {
+    var holder = atomicOperation.getIndexCountDeltas();
+    if (holder == null) {
+      return;
+    }
+    for (var entry : holder.getDeltas().int2ObjectEntrySet()) {
+      int engineId = entry.getIntKey();
+      var delta = entry.getValue();
+      if (engineId >= 0 && engineId < indexEngines.size()) {
+        var engine = indexEngines.get(engineId);
+        if (engine instanceof BTreeIndexEngine btreeEngine) {
+          btreeEngine.persistCountDelta(
+              atomicOperation, delta.getTotalDelta(), delta.getNullDelta());
+        }
+      }
+    }
+  }
+
+  /**
+   * Applies index entry count deltas accumulated during the transaction to
+   * the engines' in-memory {@code AtomicLong} counters. Called after
+   * {@code endTxCommit()} succeeds so that counters always reflect committed
+   * state only. On rollback, the delta holder is discarded with the
+   * operation.
+   */
+  private void applyIndexCountDeltas(AtomicOperation atomicOperation) {
+    var holder = atomicOperation.getIndexCountDeltas();
+    if (holder == null) {
+      return;
+    }
+    for (var entry : holder.getDeltas().int2ObjectEntrySet()) {
+      int engineId = entry.getIntKey();
+      var delta = entry.getValue();
+      // Engine may have been dropped concurrently — the commit is already
+      // durable, so the delta for a removed engine is stale and safe to skip.
+      // Safety: indexEngines is a plain ArrayList; concurrent structural
+      // modification is prevented by the stateLock read lock held on the
+      // commit path and the atomic operation serialization for index
+      // creation/deletion.
+      if (engineId >= 0 && engineId < indexEngines.size()) {
+        var engine = indexEngines.get(engineId);
+        if (engine instanceof BTreeIndexEngine btreeEngine) {
+          btreeEngine.addToApproximateEntriesCount(delta.getTotalDelta());
+          btreeEngine.addToApproximateNullCount(delta.getNullDelta());
         }
       }
     }
@@ -4759,6 +4895,11 @@ public abstract class AbstractStorage
       sharedEdgeSnapshotIndex.clear();
       edgeVisibilityIndex.clear();
       edgeSnapshotIndexSize.set(0);
+      sharedIndexesSnapshot.clear();
+      indexesSnapshotVisibilityIndex.clear();
+      sharedNullIndexesSnapshot.clear();
+      nullIndexSnapshotVisibilityIndex.clear();
+      indexesSnapshotEntriesCount.set(0);
 
       if (writeCache != null) {
         writeCache.removeBackgroundExceptionListener(this);
@@ -4836,6 +4977,11 @@ public abstract class AbstractStorage
         sharedEdgeSnapshotIndex.clear();
         edgeVisibilityIndex.clear();
         edgeSnapshotIndexSize.set(0);
+        sharedIndexesSnapshot.clear();
+        indexesSnapshotVisibilityIndex.clear();
+        sharedNullIndexesSnapshot.clear();
+        nullIndexSnapshotVisibilityIndex.clear();
+        indexesSnapshotEntriesCount.set(0);
 
         if (writeCache != null) {
           writeCache.removeBackgroundExceptionListener(this);
@@ -5906,7 +6052,8 @@ public abstract class AbstractStorage
   private void cleanupSnapshotIndex() {
     int threshold = configuration.getContextConfiguration()
         .getValueAsInteger(GlobalConfiguration.STORAGE_SNAPSHOT_INDEX_CLEANUP_THRESHOLD);
-    long combinedSize = snapshotIndexSize.get() + edgeSnapshotIndexSize.get();
+    long combinedSize =
+        snapshotIndexSize.get() + edgeSnapshotIndexSize.get() + indexesSnapshotEntriesCount.get();
     if (combinedSize <= threshold) {
       return;
     }
@@ -5914,7 +6061,8 @@ public abstract class AbstractStorage
       return;
     }
     try {
-      combinedSize = snapshotIndexSize.get() + edgeSnapshotIndexSize.get();
+      combinedSize =
+          snapshotIndexSize.get() + edgeSnapshotIndexSize.get() + indexesSnapshotEntriesCount.get();
       if (combinedSize <= threshold) {
         return;
       }
@@ -5925,6 +6073,10 @@ public abstract class AbstractStorage
       evictStaleEdgeSnapshotEntries(
           lwm, sharedEdgeSnapshotIndex, edgeVisibilityIndex,
           edgeSnapshotIndexSize);
+      evictStaleIndexesSnapshotEntries(lwm, sharedIndexesSnapshot,
+          indexesSnapshotVisibilityIndex, indexesSnapshotEntriesCount);
+      evictStaleIndexesSnapshotEntries(lwm, sharedNullIndexesSnapshot,
+          nullIndexSnapshotVisibilityIndex, indexesSnapshotEntriesCount);
     } finally {
       snapshotCleanupLock.unlock();
     }
@@ -6121,6 +6273,52 @@ public abstract class AbstractStorage
   }
 
   /**
+   * Core eviction logic for index snapshot entries: removes all index snapshot/version entries
+   * with version strictly below the given low-water-mark. Follows the same pattern as
+   * {@link #evictStaleSnapshotEntries} and {@link #evictStaleEdgeSnapshotEntries} but for
+   * index-specific key types. Operates on the raw maps owned by AbstractStorage.
+   *
+   * @param lwm the global low-water-mark; entries with version < lwm are evicted
+   * @param snapshotData the index snapshot data map to remove stale entries from
+   * @param versionIdx the version index to scan and remove stale entries from
+   * @param sizeCounter approximate entry count to decrement (2 per evicted pair)
+   */
+  static void evictStaleIndexesSnapshotEntries(
+      long lwm,
+      ConcurrentSkipListMap<CompositeKey, RID> snapshotData,
+      ConcurrentSkipListMap<CompositeKey, CompositeKey> versionIdx,
+      AtomicLong sizeCounter) {
+    if (lwm == Long.MAX_VALUE) {
+      return;
+    }
+    // Sentinel: a CompositeKey whose last element is LWM, with minimal preceding keys
+    // so that headMap captures everything with version < LWM
+    var sentinel = new CompositeKey(Long.MIN_VALUE, lwm);
+    var stale = versionIdx.headMap(sentinel);
+    long evicted = 0;
+    // Use iterator.remove() instead of stale.clear() to avoid a race with
+    // concurrent addSnapshotPair(): clear() removes ALL entries currently in the
+    // live headMap view, including entries added after the for-loop iterator
+    // passed them. That would orphan the corresponding snapshotData entries
+    // (never cleaned up → slow memory leak). With iterator.remove(), only
+    // entries whose snapshotData was already cleaned are removed from versionIdx.
+    for (var it = stale.entrySet().iterator(); it.hasNext();) {
+      var entry = it.next();
+      snapshotData.remove(entry.getKey());
+      snapshotData.remove(entry.getValue());
+      it.remove();
+      evicted += 2;
+    }
+    if (evicted > 0) {
+      // Clamp to zero: concurrent clear() and eviction may both decrement
+      // for the same entries (ConcurrentSkipListMap.remove is idempotent
+      // but both callers counted entries during their own iteration pass).
+      final long delta = evicted;
+      sizeCounter.updateAndGet(current -> Math.max(0, current - delta));
+    }
+  }
+
+  /**
    * Starts the stale transaction monitor if enabled in the configuration. Called once when
    * the storage transitions to OPEN status.
    */
@@ -6150,6 +6348,18 @@ public abstract class AbstractStorage
       monitor.stop();
       staleTransactionMonitor = null;
     }
+  }
+
+  public IndexesSnapshot subIndexSnapshot(long indexId) {
+    return new IndexesSnapshot(
+        sharedIndexesSnapshot, indexesSnapshotVisibilityIndex, indexesSnapshotEntriesCount,
+        indexId);
+  }
+
+  public IndexesSnapshot subNullIndexSnapshot(long indexId) {
+    return new IndexesSnapshot(
+        sharedNullIndexesSnapshot, nullIndexSnapshotVisibilityIndex, indexesSnapshotEntriesCount,
+        indexId);
   }
 
   /**
@@ -6191,6 +6401,10 @@ public abstract class AbstractStorage
 
   public AtomicLong getEdgeSnapshotIndexSize() {
     return edgeSnapshotIndexSize;
+  }
+
+  public AtomicLong getIndexesSnapshotEntriesCount() {
+    return indexesSnapshotEntriesCount;
   }
 
   /**

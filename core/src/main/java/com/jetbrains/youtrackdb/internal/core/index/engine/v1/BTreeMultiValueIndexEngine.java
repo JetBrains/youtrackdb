@@ -3,18 +3,16 @@ package com.jetbrains.youtrackdb.internal.core.index.engine.v1;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexMetadata;
+import com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
 import com.jetbrains.youtrackdb.internal.core.index.engine.MultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.CompactedLinkSerializer;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.index.IndexMultiValuKeySerializer;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
@@ -22,9 +20,9 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomi
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTree;
 import java.io.IOException;
-import java.util.Spliterators;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
-import java.util.stream.StreamSupport;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -38,13 +36,30 @@ public final class BTreeMultiValueIndexEngine
   @Nonnull
   private final CellBTreeSingleValue<CompositeKey> svTree;
   @Nonnull
-  private final CellBTreeSingleValue<Identifiable> nullTree;
+  private final CellBTreeSingleValue<CompositeKey> nullTree;
+  @Nonnull
+  private final IndexesSnapshot indexesSnapshot;
+  @Nonnull
+  private final IndexesSnapshot nullIndexesSnapshot;
 
   private final String name;
   private final int id;
   private final String nullTreeName;
   private final AbstractStorage storage;
   @Nullable private volatile IndexHistogramManager histogramManager;
+
+  // Approximate count of visible index entries (svTree + nullTree), used by the
+  // query optimizer for cost estimation. Read from persisted
+  // APPROXIMATE_ENTRIES_COUNT on both trees on load(). Adjusted at commit time
+  // via delta holder (not directly in doPut/doRemove). AtomicLong because
+  // concurrent TXs can commit index changes simultaneously. Recalibrated by
+  // buildInitialHistogram() as self-healing.
+  private final AtomicLong approximateIndexEntriesCount = new AtomicLong();
+
+  // Approximate count of null-key entries. Read from nullTree's persisted
+  // APPROXIMATE_ENTRIES_COUNT on load(). Adjusted at commit time, recalibrated
+  // by buildInitialHistogram().
+  private final AtomicLong approximateNullCount = new AtomicLong();
 
   public BTreeMultiValueIndexEngine(
       int id, @Nonnull String name, AbstractStorage storage, final int version) {
@@ -62,6 +77,8 @@ public final class BTreeMultiValueIndexEngine
       nullTree =
           new BTree<>(
               nullTreeName, DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage);
+      indexesSnapshot = storage.subIndexSnapshot(id);
+      nullIndexesSnapshot = storage.subNullIndexSnapshot(id);
     } else {
       throw new IllegalStateException("Invalid tree version " + version);
     }
@@ -95,8 +112,11 @@ public final class BTreeMultiValueIndexEngine
           sbTypes,
           data.getKeySize() + 1);
       nullTree.create(
-          atomicOperation, CompactedLinkSerializer.INSTANCE,
-          new PropertyTypeInternal[] {PropertyTypeInternal.LINK}, 1);
+          atomicOperation, new IndexMultiValuKeySerializer(),
+          new PropertyTypeInternal[] {PropertyTypeInternal.LINK, PropertyTypeInternal.LONG},
+          2);
+      approximateIndexEntriesCount.set(0);
+      approximateNullCount.set(0);
     } catch (IOException e) {
       throw BaseException.wrapException(
           new IndexException(storage.getName(), "Error during creation of index " + name), e,
@@ -107,7 +127,9 @@ public final class BTreeMultiValueIndexEngine
   @Override
   public void delete(@Nonnull AtomicOperation atomicOperation) {
     try {
-      doClearSVTree(atomicOperation);
+      clearSVTree(atomicOperation);
+      indexesSnapshot.clear();
+      nullIndexesSnapshot.clear();
       svTree.delete(atomicOperation);
       nullTree.delete(atomicOperation);
       var mgr = histogramManager;
@@ -121,18 +143,39 @@ public final class BTreeMultiValueIndexEngine
     }
   }
 
-  private void doClearSVTree(@Nonnull final AtomicOperation atomicOperation) {
-    {
-      final var firstKey = svTree.firstKey(atomicOperation);
-      final var lastKey = svTree.lastKey(atomicOperation);
+  private void clearSVTree(final @Nonnull AtomicOperation atomicOperation) {
+    doClearTree(svTree, atomicOperation);
+    doClearTree(nullTree, atomicOperation);
+  }
 
+  private void doClearTree(CellBTreeSingleValue<CompositeKey> tree,
+      @Nonnull AtomicOperation atomicOperation) {
+    // A single iterate-and-remove pass may miss entries when the B-tree
+    // spliterator's LSN-based cursor terminates prematurely after page
+    // modifications from remove(). Retry until the tree is empty.
+    int pass = 0;
+    long sizeBeforePass;
+    while ((sizeBeforePass = tree.size(atomicOperation)) > 0) {
+      pass++;
+      final int currentPass = pass;
+      var firstKey = tree.firstKey(atomicOperation);
+      var lastKey = tree.lastKey(atomicOperation);
+      assert firstKey != null && lastKey != null
+          : "tree.size() > 0 but firstKey/lastKey is null in engine=" + name + " id=" + id;
+      if (firstKey == null || lastKey == null) {
+        return;
+      }
       try (var stream =
-          svTree.iterateEntriesBetween(firstKey, true, lastKey, true,
+          tree.iterateEntriesBetween(firstKey, true, lastKey, true,
               true, atomicOperation)) {
         stream.forEach(
-            (pair) -> {
+            pair -> {
               try {
-                svTree.remove(atomicOperation, pair.first());
+                var removed = tree.remove(atomicOperation, pair.first());
+                assert removed != null
+                    : "doClearTree pass " + currentPass + ": remove() returned null"
+                        + " for key from stream in engine=" + name + " id=" + id
+                        + " key=" + pair.first();
               } catch (IOException e) {
                 throw BaseException.wrapException(
                     new IndexException(storage.getName(), "Error during index cleaning"), e,
@@ -140,27 +183,13 @@ public final class BTreeMultiValueIndexEngine
               }
             });
       }
-    }
-
-    {
-      final var firstKey = nullTree.firstKey(atomicOperation);
-      final var lastKey = nullTree.lastKey(atomicOperation);
-
-      if (firstKey != null && lastKey != null) {
-        try (var stream =
-            nullTree.iterateEntriesBetween(firstKey, true, lastKey, true,
-                true, atomicOperation)) {
-          stream.forEach(
-              (pair) -> {
-                try {
-                  nullTree.remove(atomicOperation, pair.first());
-                } catch (IOException e) {
-                  throw BaseException.wrapException(
-                      new IndexException(storage.getName(), "Error during index cleaning"), e,
-                      storage.getName());
-                }
-              });
-        }
+      long sizeAfterPass = tree.size(atomicOperation);
+      long removedInPass = sizeBeforePass - sizeAfterPass;
+      if (removedInPass <= 0) {
+        throw new IndexException(storage.getName(),
+            "doClearTree pass " + pass + " removed 0 entries"
+                + " (sizeBefore=" + sizeBeforePass + ", sizeAfter=" + sizeAfterPass + ")"
+                + " in engine=" + name + " id=" + id);
       }
     }
   }
@@ -174,39 +203,44 @@ public final class BTreeMultiValueIndexEngine
 
     svTree.load(name, keySize + 1, sbTypes, new IndexMultiValuKeySerializer(), atomicOperation);
     nullTree.load(
-        nullTreeName, 1, new PropertyTypeInternal[] {PropertyTypeInternal.LINK},
-        CompactedLinkSerializer.INSTANCE, atomicOperation);
+        nullTreeName, 2,
+        new PropertyTypeInternal[] {PropertyTypeInternal.LINK, PropertyTypeInternal.LONG},
+        new IndexMultiValuKeySerializer(), atomicOperation);
+
+    // Read persisted visible counts from both trees' entry point pages — O(1)
+    // instead of the previous O(n) visibility-filtered scans.
+    long svCount = svTree.getApproximateEntriesCount(atomicOperation);
+    if (svCount == 0) {
+      // Upgrade path: APPROXIMATE_ENTRIES_COUNT was not present in prior format.
+      // Use TREE_SIZE as initial estimate — overcounts (includes tombstones/markers)
+      // but prevents the optimizer from seeing empty indexes until recalibration.
+      svCount = svTree.size(atomicOperation);
+    }
+    long nullCount = nullTree.getApproximateEntriesCount(atomicOperation);
+    if (nullCount == 0) {
+      // Upgrade path: same fallback for the null tree.
+      nullCount = nullTree.size(atomicOperation);
+    }
+    assert svCount >= 0
+        : "Persisted svTree approximate entries count must be non-negative: " + svCount;
+    assert nullCount >= 0
+        : "Persisted nullTree approximate entries count must be non-negative: " + nullCount;
+    approximateIndexEntriesCount.set(svCount + nullCount);
+    approximateNullCount.set(nullCount);
   }
 
   @Override
-  public boolean remove(@Nonnull final AtomicOperation atomicOperation, Object key, RID value) {
+  public boolean remove(final @Nonnull AtomicOperation atomicOperation, Object key, RID value) {
     try {
       boolean removed;
       if (key != null) {
-        final var compositeKey = createCompositeKey(key, value);
-
-        final var removedArr = new boolean[1];
-        try (var stream =
-            svTree.iterateEntriesBetween(compositeKey, true, compositeKey,
-                true, true, atomicOperation)) {
-          stream.forEach(
-              (pair) -> {
-                try {
-                  final var result = svTree.remove(atomicOperation, pair.first()) != null;
-                  removedArr[0] = result || removedArr[0];
-                } catch (final IOException e) {
-                  throw BaseException.wrapException(
-                      new IndexException(storage.getName(),
-                          "Error during remove of entry (" + key + ", " + value + ")"),
-                      e, storage.getName());
-                }
-              });
-        }
-
-        removed = removedArr[0];
+        removed = VersionedIndexOps.doVersionedRemove(svTree, indexesSnapshot,
+            atomicOperation, createCompositeKey(key, value), id, false);
       } else {
-        removed = nullTree.remove(atomicOperation, value) != null;
+        removed = VersionedIndexOps.doVersionedRemove(nullTree, nullIndexesSnapshot,
+            atomicOperation, new CompositeKey(value), id, true);
       }
+
       if (removed) {
         var mgr = histogramManager;
         if (mgr != null) {
@@ -229,9 +263,40 @@ public final class BTreeMultiValueIndexEngine
 
   @Override
   public void clear(Storage storage, @Nonnull AtomicOperation atomicOperation) {
-    doClearSVTree(atomicOperation);
+    clearSVTree(atomicOperation);
+    // Postcondition: doClearTree must remove every entry from both trees.
+    assert svTree.firstKey(atomicOperation) == null
+        : "doClearTree() left entries in svTree of engine=" + name + " id=" + id
+            + " treeSize=" + svTree.size(atomicOperation);
+    assert nullTree.firstKey(atomicOperation) == null
+        : "doClearTree() left entries in nullTree of engine=" + name + " id=" + id
+            + " treeSize=" + nullTree.size(atomicOperation);
+    // Reset persisted counts on entry point pages after clearing tree data.
+    // persistIndexCountDeltas adds only deltas from replayed entries after
+    // the clear, yielding the correct final count.
+    svTree.setApproximateEntriesCount(atomicOperation, 0);
+    nullTree.setApproximateEntriesCount(atomicOperation, 0);
+    indexesSnapshot.clear();
+    nullIndexesSnapshot.clear();
+    // In-memory counters are set eagerly inside the atomic operation. If the
+    // enclosing transaction rolls back:
+    // 1. WAL reverts the persisted page to pre-clear count (e.g., 1000)
+    // 2. In-memory counters stay at 0
+    // 3. Next commit's persistCountDelta adds delta (e.g., +5) to reverted
+    //    page → 1005
+    // 4. applyIndexCountDeltas adds delta to in-memory 0 → 5
+    // 5. On restart, load() reads 1005, diverging from the 5 the live
+    //    instance has
+    //
+    // Self-healing: buildInitialHistogram() recalibrates both from an exact
+    // scan. This divergence is tolerable because counters are approximate and
+    // rollback of clear() is an extremely rare edge case.
+    approximateIndexEntriesCount.set(0);
+    approximateNullCount.set(0);
     var mgr = histogramManager;
     if (mgr != null) {
+      // Local try-catch needed: unlike BTreeSingleValueIndexEngine.clear(),
+      // this method's outer scope does not catch IOException.
       try {
         mgr.resetOnClear(atomicOperation);
       } catch (IOException e) {
@@ -256,20 +321,19 @@ public final class BTreeMultiValueIndexEngine
   @Override
   public Stream<RID> get(Object key, @Nonnull AtomicOperation atomicOperation) {
     if (key != null) {
-      final var firstKey = convertToCompositeKey(key);
-      final var lastKey = convertToCompositeKey(key);
-
-      return svTree
-          .iterateEntriesBetween(firstKey, true, lastKey, true,
-              true, atomicOperation)
-          .map(RawPair::second);
+      final var compositeKey = CompositeKey.asCompositeKey(key);
+      return svTree.getVisibleStream(compositeKey, indexesSnapshot, atomicOperation);
     } else {
-      return nullTree
-          .iterateEntriesBetween(
-              new RecordId(0, 0), true,
-              new RecordId(Short.MAX_VALUE, Long.MAX_VALUE), true,
-              true, atomicOperation)
-          .map(RawPair::second);
+      // Null tree stores entries as [RID, version] with varying RIDs — a prefix
+      // match on firstKey() would restrict to a single RID. Use the full iteration
+      // path instead to collect all visible null-key entries.
+      var prefixKey = nullTree.firstKey(atomicOperation);
+      if (prefixKey == null) {
+        return Stream.empty();
+      }
+      var stream = nullTree.iterateEntriesMajor(
+          prefixKey, true, true, atomicOperation);
+      return nullIndexesSnapshot.visibilityFilterValues(atomicOperation, stream);
     }
   }
 
@@ -278,20 +342,12 @@ public final class BTreeMultiValueIndexEngine
       @Nonnull AtomicOperation atomicOperation) {
     final var firstKey = svTree.firstKey(atomicOperation);
     if (firstKey == null) {
-      return emptyStream();
+      return Stream.empty();
     }
 
-    return mapSVStream(svTree.iterateEntriesMajor(firstKey, true,
-        true, atomicOperation));
-  }
-
-  private static Stream<RawPair<Object, RID>> mapSVStream(
-      Stream<RawPair<CompositeKey, RID>> stream) {
-    return stream.map((entry) -> new RawPair<>(extractKey(entry.first()), entry.second()));
-  }
-
-  private static Stream<RawPair<Object, RID>> emptyStream() {
-    return StreamSupport.stream(Spliterators.emptySpliterator(), false);
+    return indexesSnapshot.visibilityFilterMapped(atomicOperation,
+        svTree.iterateEntriesMajor(firstKey, true, true, atomicOperation),
+        BTreeMultiValueIndexEngine::extractKey);
   }
 
   @Override
@@ -299,45 +355,59 @@ public final class BTreeMultiValueIndexEngine
       IndexEngineValuesTransformer valuesTransformer, @Nonnull AtomicOperation atomicOperation) {
     final var lastKey = svTree.lastKey(atomicOperation);
     if (lastKey == null) {
-      return emptyStream();
+      return Stream.empty();
     }
-    return mapSVStream(svTree.iterateEntriesMinor(lastKey, true,
-        false, atomicOperation));
+
+    return indexesSnapshot.visibilityFilterMapped(atomicOperation,
+        svTree.iterateEntriesMinor(lastKey, true, false, atomicOperation),
+        BTreeMultiValueIndexEngine::extractKey);
   }
 
   @Override
   public Stream<Object> keyStream(@Nonnull AtomicOperation atomicOperation) {
-    return svTree.keyStream(atomicOperation).map(BTreeMultiValueIndexEngine::extractKey);
+    return stream(null, atomicOperation).map(RawPair::first);
   }
 
   @Override
   public boolean put(@Nonnull AtomicOperation atomicOperation, Object key, RID value) {
-    boolean wasInsert;
-    if (key != null) {
-      try {
-        wasInsert =
-            svTree.put(atomicOperation, createCompositeKey(key, value), value);
-      } catch (IOException e) {
-        throw BaseException.wrapException(
-            new IndexException(storage.getName(),
-                "Error during insertion of key " + key + " and RID " + value + " to index " + name),
-            e, storage.getName());
+    try {
+      boolean wasInserted;
+      if (key != null) {
+        wasInserted = doPut(svTree, indexesSnapshot, atomicOperation,
+            createCompositeKey(key, value), value, false);
+      } else {
+        wasInserted = doPut(nullTree, nullIndexesSnapshot, atomicOperation,
+            new CompositeKey(value), value, true);
       }
-    } else {
-      try {
-        wasInsert = nullTree.put(atomicOperation, value, value);
-      } catch (IOException e) {
-        throw BaseException.wrapException(
-            new IndexException(storage.getName(),
-                "Error during insertion of null key and RID " + value + " to index " + name),
-            e, storage.getName());
+
+      var mgr = histogramManager;
+      if (mgr != null) {
+        mgr.onPut(atomicOperation, key, false, wasInserted);
       }
+      return wasInserted;
+    } catch (IOException e) {
+      throw BaseException.wrapException(
+          new IndexException(storage.getName(),
+              "Error during insertion of key " + key + " and RID " + value + " to index " + name),
+          e, storage.getName());
     }
-    var mgr = histogramManager;
-    if (mgr != null) {
-      mgr.onPut(atomicOperation, key, false, wasInsert);
+  }
+
+  private boolean doPut(
+      CellBTreeSingleValue<CompositeKey> tree,
+      IndexesSnapshot snapshot,
+      @Nonnull AtomicOperation atomicOperation,
+      CompositeKey newKey,
+      RID value,
+      boolean isNullKey) throws IOException {
+    // Find existing entry by (userKey, RID) prefix
+    Optional<RawPair<CompositeKey, RID>> existing;
+    try (var stream = tree.iterateEntriesBetween(
+        newKey, true, newKey, true, true, atomicOperation)) {
+      existing = stream.findAny();
     }
-    return wasInsert;
+    return VersionedIndexOps.doVersionedPut(
+        tree, snapshot, atomicOperation, newKey, value, id, isNullKey, existing);
   }
 
   @Override
@@ -348,36 +418,37 @@ public final class BTreeMultiValueIndexEngine
       boolean toInclusive,
       boolean ascSortOrder,
       IndexEngineValuesTransformer transformer, @Nonnull AtomicOperation atomicOperation) {
+
     // "from", "to" are null, then scan whole tree as for infinite range
     if (rangeFrom == null && rangeTo == null) {
-      return mapSVStream(svTree.allEntries(atomicOperation));
+      return ascSortOrder
+          ? stream(transformer, atomicOperation)
+          : descStream(transformer, atomicOperation);
     }
 
     // "from" could be null, then "to" is not (minor)
-    final var toKey = convertToCompositeKey(rangeTo);
     if (rangeFrom == null) {
-      return mapSVStream(
-          svTree.iterateEntriesMinor(toKey, toInclusive, ascSortOrder, atomicOperation));
+      final var toKey = CompositeKey.asCompositeKey(rangeTo);
+      return indexesSnapshot.visibilityFilterMapped(atomicOperation,
+          svTree.iterateEntriesMinor(toKey, toInclusive, ascSortOrder, atomicOperation),
+          BTreeMultiValueIndexEngine::extractKey);
     }
-    final var fromKey = convertToCompositeKey(rangeFrom);
-    // "to" could be null, then "from" is not (major)
-    if (rangeTo == null) {
-      return mapSVStream(
-          svTree.iterateEntriesMajor(fromKey, fromInclusive, ascSortOrder, atomicOperation));
-    }
-    return mapSVStream(
-        svTree.iterateEntriesBetween(fromKey, fromInclusive, toKey, toInclusive, ascSortOrder,
-            atomicOperation));
-  }
 
-  private static CompositeKey convertToCompositeKey(Object rangeFrom) {
-    CompositeKey firstKey;
-    if (rangeFrom instanceof CompositeKey compositeKey) {
-      firstKey = compositeKey;
-    } else {
-      firstKey = new CompositeKey(rangeFrom);
+    // "to" could be null, then "from" is not (major)
+    final var fromKey = CompositeKey.asCompositeKey(rangeFrom);
+    if (rangeTo == null) {
+      return indexesSnapshot.visibilityFilterMapped(atomicOperation,
+          svTree.iterateEntriesMajor(fromKey, fromInclusive, ascSortOrder, atomicOperation),
+          BTreeMultiValueIndexEngine::extractKey);
     }
-    return firstKey;
+
+    final var toKey = CompositeKey.asCompositeKey(rangeTo);
+    var stream =
+        svTree.iterateEntriesBetween(fromKey, fromInclusive, toKey, toInclusive, ascSortOrder,
+            atomicOperation);
+
+    return indexesSnapshot.visibilityFilterMapped(atomicOperation, stream,
+        BTreeMultiValueIndexEngine::extractKey);
   }
 
   @Override
@@ -386,9 +457,8 @@ public final class BTreeMultiValueIndexEngine
       boolean isInclusive,
       boolean ascSortOrder,
       IndexEngineValuesTransformer transformer, @Nonnull AtomicOperation atomicOperation) {
-    final var firstKey = convertToCompositeKey(fromKey);
-    return mapSVStream(
-        svTree.iterateEntriesMajor(firstKey, isInclusive, ascSortOrder, atomicOperation));
+    return iterateEntriesBetween(
+        fromKey, isInclusive, null, false, ascSortOrder, transformer, atomicOperation);
   }
 
   @Override
@@ -397,19 +467,14 @@ public final class BTreeMultiValueIndexEngine
       boolean isInclusive,
       boolean ascSortOrder,
       IndexEngineValuesTransformer transformer, @Nonnull AtomicOperation atomicOperation) {
-    final var lastKey = convertToCompositeKey(toKey);
-    return mapSVStream(
-        svTree.iterateEntriesMinor(lastKey, isInclusive, ascSortOrder, atomicOperation));
+    return iterateEntriesBetween(
+        null, false, toKey, isInclusive, ascSortOrder, transformer, atomicOperation);
   }
 
   @Override
   public long size(Storage storage, final IndexEngineValuesTransformer transformer,
       @Nonnull AtomicOperation atomicOperation) {
-    return svTreeEntries(atomicOperation);
-  }
-
-  private long svTreeEntries(@Nonnull AtomicOperation atomicOperation) {
-    return svTree.size(atomicOperation) + nullTree.size(atomicOperation);
+    return approximateIndexEntriesCount.get();
   }
 
   @Override
@@ -423,11 +488,14 @@ public final class BTreeMultiValueIndexEngine
   private static PropertyTypeInternal[] calculateTypes(final PropertyTypeInternal[] keyTypes) {
     final PropertyTypeInternal[] sbTypes;
     if (keyTypes != null) {
-      sbTypes = new PropertyTypeInternal[keyTypes.length + 1];
+      sbTypes = new PropertyTypeInternal[keyTypes.length + 2];
       System.arraycopy(keyTypes, 0, sbTypes, 0, keyTypes.length);
-      sbTypes[sbTypes.length - 1] = PropertyTypeInternal.LINK;
+      // property type for RID
+      sbTypes[sbTypes.length - 2] = PropertyTypeInternal.LINK;
+      // property type for version
+      sbTypes[sbTypes.length - 1] = PropertyTypeInternal.LONG;
     } else {
-      throw new IndexException("Types of fields should be provided upon of creation of index");
+      throw new IndexException("Types of fields should be provided upon creation of index");
     }
     return sbTypes;
   }
@@ -438,48 +506,98 @@ public final class BTreeMultiValueIndexEngine
     return compositeKey;
   }
 
+  // Strips RID and version (2 trailing elements) to recover the user-visible key.
   @Nullable private static Object extractKey(final CompositeKey compositeKey) {
-    if (compositeKey == null) {
-      return null;
-    }
-    final var keys = compositeKey.getKeys();
-
-    final Object key;
-    if (keys.size() == 2) {
-      key = keys.getFirst();
-    } else {
-      key = new CompositeKey(keys.subList(0, keys.size() - 1));
-    }
-    return key;
+    return VersionedIndexOps.extractUserKey(compositeKey, 2);
   }
 
   @Override
-  public void buildInitialHistogram(AtomicOperation atomicOperation)
+  public void buildInitialHistogram(@Nonnull AtomicOperation atomicOperation)
       throws IOException {
     var mgr = histogramManager;
     if (mgr == null) {
       return;
     }
-    long svCount = svTree.size(atomicOperation);
-    long nullCount = nullTree.size(atomicOperation);
-    long totalCount = svCount + nullCount;
 
-    // keyStream() extracts the original key from CompositeKey(key, RID)
-    try (var keys = keyStream(atomicOperation)) {
-      mgr.buildHistogram(
-          atomicOperation, keys, totalCount, nullCount,
+    // Use approximate count for bucket sizing, scan for exact count + keys.
+    long approxTotal = approximateIndexEntriesCount.get();
+    long approxNull = approximateNullCount.get();
+
+    long scannedNonNull;
+    try (var keyStream = keyStream(atomicOperation)) {
+      scannedNonNull = mgr.buildHistogram(
+          atomicOperation, keyStream,
+          approxTotal, approxNull,
           mgr.getKeyFieldCount());
     }
+
+    // Count visible null entries for recalibration. The null tree is typically
+    // small (one entry per null-keyed document), so the scan cost is negligible
+    // compared to the svTree scan.
+    long exactNullCount;
+    var nullFirstKey = nullTree.firstKey(atomicOperation);
+    if (nullFirstKey == null) {
+      exactNullCount = 0;
+    } else {
+      try (var nullStream = nullIndexesSnapshot.visibilityFilterValues(
+          atomicOperation,
+          nullTree.iterateEntriesMajor(nullFirstKey, true, true, atomicOperation))) {
+        exactNullCount = nullStream.count();
+      }
+    }
+
+    // Recalibrate from exact counts — persist first so that if setApproximateEntriesCount
+    // throws, the in-memory counters remain at their prior (approximate) values.
+    //
+    // Note: if the enclosing atomic operation rolls back after this point, WAL reverts
+    // the persisted page but the in-memory counters keep the new values. This temporary
+    // divergence is acceptable because counters are approximate by design and the next
+    // buildInitialHistogram() or load() will recalibrate them.
+    svTree.setApproximateEntriesCount(atomicOperation, scannedNonNull);
+    nullTree.setApproximateEntriesCount(atomicOperation, exactNullCount);
+    approximateNullCount.set(exactNullCount);
+    approximateIndexEntriesCount.set(scannedNonNull + exactNullCount);
   }
 
   @Override
-  public long getNullCount(AtomicOperation atomicOperation) {
-    return nullTree.size(atomicOperation);
+  public long getNullCount(@Nonnull AtomicOperation atomicOperation) {
+    return approximateNullCount.get();
   }
 
   @Override
-  public long getTotalCount(AtomicOperation atomicOperation) {
-    return svTree.size(atomicOperation) + nullTree.size(atomicOperation);
+  public long getTotalCount(@Nonnull AtomicOperation atomicOperation) {
+    return approximateIndexEntriesCount.get();
+  }
+
+  @Override
+  public void addToApproximateEntriesCount(long delta) {
+    long updated = approximateIndexEntriesCount.addAndGet(delta);
+    assert updated >= 0
+        : "In-memory approximateIndexEntriesCount underflow: updated="
+            + updated + " delta=" + delta;
+  }
+
+  @Override
+  public void addToApproximateNullCount(long delta) {
+    long updated = approximateNullCount.addAndGet(delta);
+    assert updated >= 0
+        : "In-memory approximateNullCount underflow: updated="
+            + updated + " delta=" + delta;
+  }
+
+  @Override
+  public void persistCountDelta(
+      AtomicOperation atomicOperation, long totalDelta, long nullDelta) {
+    // Multi-value engine splits entries across two trees:
+    // svTree holds non-null entries, nullTree holds null entries.
+    // totalDelta = nonNullDelta + nullDelta, so nonNullDelta = totalDelta - nullDelta.
+    long nonNullDelta = totalDelta - nullDelta;
+    if (nonNullDelta != 0) {
+      svTree.addToApproximateEntriesCount(atomicOperation, nonNullDelta);
+    }
+    if (nullDelta != 0) {
+      nullTree.addToApproximateEntriesCount(atomicOperation, nullDelta);
+    }
   }
 
   /**

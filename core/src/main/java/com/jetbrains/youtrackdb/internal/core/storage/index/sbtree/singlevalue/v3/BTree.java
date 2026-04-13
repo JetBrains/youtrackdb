@@ -29,8 +29,8 @@ import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.TooBigIndexKeyException;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
+import com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot;
 import com.jetbrains.youtrackdb.internal.core.index.comparator.AlwaysGreaterKey;
 import com.jetbrains.youtrackdb.internal.core.index.comparator.AlwaysLessKey;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
@@ -47,6 +47,7 @@ import it.unimi.dsi.fastutil.ints.IntList;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongList;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -316,6 +317,301 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
   }
 
   @Override
+  @Nullable public RID getVisible(K key, IndexesSnapshot snapshot,
+      @Nonnull AtomicOperation atomicOperation) {
+    assert key instanceof CompositeKey
+        : "getVisible() requires CompositeKey, got " + (key == null ? "null" : key.getClass());
+    // If the key has fewer user elements than the index expects (e.g., raw null
+    // passed for a composite index becomes CompositeKey(null) with 1 element,
+    // but a 2-field composite index expects 2 user elements), no entry can match.
+    // Composite indexes have no "null key" concept — only composite keys with
+    // individually-null fields.
+    final var userKeyElements = ((CompositeKey) key).getKeys().size();
+    if (userKeyElements < keySize - 1) {
+      return null;
+    }
+    try {
+      // Build a search key padded with Long.MIN_VALUE as the version component.
+      // This ensures the serialized key has the full number of elements that
+      // IndexMultiValuKeySerializer expects, and Long.MIN_VALUE guarantees the
+      // search key sorts before any real versioned entry with the same user-key
+      // prefix. bucket.find() will return a negative insertion point at the first
+      // entry with the matching prefix.
+      final var searchKey = buildSearchKey(key);
+      final var preprocessedKey =
+          keySerializer.preprocess(serializerFactory, searchKey, (Object[]) keyTypes);
+      final var serializedKey =
+          keySerializer.serializeNativeAsWhole(
+              serializerFactory, preprocessedKey, (Object[]) keyTypes);
+
+      final var opsSnapshot = atomicOperation.getAtomicOperationsSnapshot();
+      final var snapshotTs = opsSnapshot.snapshotTs();
+      final var inProgressVersions = opsSnapshot.inProgressTxs();
+
+      return executeOptimisticStorageRead(
+          atomicOperation,
+          () -> getVisibleOptimistic(
+              atomicOperation, preprocessedKey, serializedKey, snapshot,
+              snapshotTs, inProgressVersions),
+          () -> getVisiblePinned(
+              atomicOperation, preprocessedKey, serializedKey, snapshot,
+              snapshotTs, inProgressVersions));
+    } catch (final IOException e) {
+      throw BaseException.wrapException(
+          new CellBTreeSingleValueV3Exception(
+              "Error during getVisible of sbtree with name " + getName(), this),
+          e, storage.getName());
+    }
+  }
+
+  /**
+   * Builds a search key by padding to {@code keySize} with {@code Long.MIN_VALUE}.
+   * Used by {@link #getVisible} where the caller supplies all user-key elements
+   * and only the version element is missing.
+   */
+  @SuppressWarnings("unchecked")
+  private K buildSearchKey(K prefixKey) {
+    if (prefixKey instanceof CompositeKey compositeKey) {
+      var fullKey = new CompositeKey(compositeKey);
+      // Pad with Long.MIN_VALUE for each missing key element
+      var itemsToAdd = keySize - fullKey.getKeys().size();
+      for (var i = 0; i < itemsToAdd; i++) {
+        fullKey.addKey(Long.MIN_VALUE);
+      }
+      return (K) fullKey;
+    }
+    return prefixKey;
+  }
+
+  /**
+   * Optimistic path for getVisible: descends to the leaf page using loadPageOptimistic(),
+   * then scans entries with prefix matching and inline visibility check. If the leaf page
+   * is exhausted without finding a visible entry, falls through to pinned path (which
+   * can follow right siblings for cross-page entries).
+   */
+  @Nullable private RID getVisibleOptimistic(
+      final AtomicOperation atomicOperation,
+      final K prefixKey,
+      final byte[] serializedKey,
+      final IndexesSnapshot snapshot,
+      final long snapshotTs,
+      final LongOpenHashSet inProgressVersions) {
+    final var scope = atomicOperation.getOptimisticReadScope();
+    var pageIndex = ROOT_INDEX;
+
+    var depth = 0;
+    while (true) {
+      depth++;
+      if (depth > MAX_PATH_LENGTH) {
+        throw OptimisticReadFailedException.INSTANCE;
+      }
+
+      final var pageView = loadPageOptimistic(atomicOperation, fileId, pageIndex);
+      final var bucket = new CellBTreeSingleValueBucketV3<K>(pageView);
+      final var index = bucket.find(serializedKey, keySerializer, serializerFactory);
+
+      if (bucket.isLeaf()) {
+        return scanLeafForVisible(
+            bucket, index, prefixKey, snapshot,
+            snapshotTs, inProgressVersions, true);
+      }
+
+      if (index >= 0) {
+        pageIndex = bucket.getRight(index);
+      } else {
+        final var insertionIndex = -index - 1;
+        if (insertionIndex >= bucket.size()) {
+          pageIndex = bucket.getRight(insertionIndex - 1);
+        } else {
+          pageIndex = bucket.getLeft(insertionIndex);
+        }
+      }
+      scope.validateLastOrThrow();
+    }
+  }
+
+  /**
+   * Pinned fallback path for getVisible: uses loadPageForRead() with try-with-resources.
+   * Follows right sibling pointers for cross-page entries.
+   */
+  @Nullable private RID getVisiblePinned(
+      final AtomicOperation atomicOperation,
+      final K prefixKey, final byte[] serializedKey,
+      final IndexesSnapshot snapshot,
+      final long snapshotTs,
+      final LongOpenHashSet inProgressVersions) throws IOException {
+    final var bucketSearchResult =
+        findBucketSerialized(prefixKey, serializedKey, atomicOperation);
+
+    var pageIndex = bucketSearchResult.getPageIndex();
+    var foundIndex = bucketSearchResult.getItemIndex();
+
+    while (true) {
+      try (final var cacheEntry =
+          loadPageForRead(atomicOperation, fileId, pageIndex)) {
+        final var bucket = new CellBTreeSingleValueBucketV3<K>(cacheEntry);
+
+        final var result = scanLeafForVisible(
+            bucket, foundIndex, prefixKey, snapshot,
+            snapshotTs, inProgressVersions, false);
+        if (result != null) {
+          return result;
+        }
+
+        // Leaf exhausted — follow right sibling for cross-page entries
+        final var rightSibling = bucket.getRightSibling();
+        if (rightSibling < 0) {
+          return null;
+        }
+        pageIndex = (int) rightSibling;
+        // On the next page, scan from the start
+        foundIndex = Integer.MIN_VALUE;
+      }
+    }
+  }
+
+  @Override
+  public Stream<RID> getVisibleStream(K key, IndexesSnapshot snapshot,
+      @Nonnull AtomicOperation atomicOperation) {
+    assert key instanceof CompositeKey
+        : "getVisibleStream() requires CompositeKey, got "
+            + (key == null ? "null" : key.getClass());
+    final var preprocessedKey =
+        keySerializer.preprocess(serializerFactory, key, (Object[]) keyTypes);
+    @SuppressWarnings("unchecked")
+    var entryStream =
+        (Stream<RawPair<CompositeKey, RID>>) (Stream<?>) iterateEntriesBetween(
+            preprocessedKey, true, preprocessedKey, true, true, atomicOperation);
+    return snapshot.visibilityFilterValues(atomicOperation, entryStream);
+  }
+
+  /**
+   * Scans leaf entries forward from the found index for the first visible entry matching
+   * the user-key prefix.
+   *
+   * <p>The search key is the user key padded with {@code Long.MIN_VALUE}, which sorts before
+   * any real versioned entry. So {@code bucket.find()} typically returns a negative insertion
+   * point at the first version entry. In the rare case of an exact match (a real entry has
+   * version {@code Long.MIN_VALUE}), the found index points directly at a matching entry.
+   *
+   * <p>Prefix matching uses {@link #userKeyPrefixMatches}, which compares all CompositeKey
+   * elements except the last (version) element. This correctly identifies entries belonging
+   * to the same user key regardless of their version values.
+   *
+   * @param bucket the leaf bucket to scan
+   * @param foundIndex the result of bucket.find() — positive if exact match, negative
+   *     (-(insertionPoint)-1) if not found. Use Integer.MIN_VALUE to scan from index 0
+   *     (for continuation pages in pinned path).
+   * @param prefixKey the preprocessed search key (user key + Long.MIN_VALUE) for
+   *     forward prefix-match checks
+   * @param snapshot the indexes snapshot for visibility checks
+   * @param snapshotTs the reader's snapshot timestamp (upper visibility bound,
+   *     matching {@code AtomicOperationsSnapshot.snapshotTs()})
+   * @param inProgressVersions set of in-progress transaction versions
+   * @param optimistic if true, throw OptimisticReadFailedException when leaf is exhausted
+   *     instead of returning null (to fall through to pinned path for cross-page entries)
+   * @return the first visible RID, or null if no visible entry found on this page
+   */
+  @Nullable private RID scanLeafForVisible(
+      final CellBTreeSingleValueBucketV3<K> bucket,
+      final int foundIndex,
+      final K prefixKey,
+      final IndexesSnapshot snapshot,
+      final long snapshotTs,
+      final LongOpenHashSet inProgressVersions,
+      final boolean optimistic) {
+    final var bucketSize = bucket.size();
+
+    if (bucketSize == 0) {
+      if (optimistic) {
+        throw OptimisticReadFailedException.INSTANCE;
+      }
+      return null;
+    }
+
+    int startIndex;
+    if (foundIndex == Integer.MIN_VALUE) {
+      // Continuation page in pinned path: start from index 0
+      startIndex = 0;
+    } else if (foundIndex >= 0) {
+      // Exact match (rare: entry with version Long.MIN_VALUE exists).
+      // Start directly from this entry.
+      startIndex = foundIndex;
+    } else {
+      // Negative: insertion point. The first entry with the prefix (if any)
+      // is at the insertion point index.
+      startIndex = -foundIndex - 1;
+      if (startIndex >= bucketSize) {
+        // All entries on this page sort before the search key — no match here
+        if (optimistic) {
+          throw OptimisticReadFailedException.INSTANCE;
+        }
+        return null;
+      }
+    }
+
+    // Extract the user-key prefix elements (all except the last version element)
+    // once before the loop to avoid repeated getKeys() / UnmodifiableList wrapper
+    // allocations per entry.
+    final var searchPrefixKeys = ((CompositeKey) prefixKey).getKeys();
+    final var prefixLen = searchPrefixKeys.size() - 1;
+
+    // Scan forward from startIndex applying visibility
+    for (var i = startIndex; i < bucketSize; i++) {
+      final var entry = bucket.getEntry(i, keySerializer, serializerFactory);
+
+      // Check if entry still matches the user-key prefix (all elements except
+      // the last version element). If the prefix differs, we've passed the range.
+      final var entryComposite = (CompositeKey) entry.key;
+      if (!userKeyPrefixMatches(searchPrefixKeys, prefixLen, entryComposite)) {
+        return null;
+      }
+
+      final var rid = entry.value;
+      final var visibleRid = snapshot.checkVisibility(
+          entryComposite, rid, snapshotTs, inProgressVersions);
+      if (visibleRid != null) {
+        return visibleRid;
+      }
+    }
+
+    // Leaf exhausted without finding a visible entry
+    if (optimistic) {
+      // Versions may span to right sibling — fall through to pinned path
+      throw OptimisticReadFailedException.INSTANCE;
+    }
+    return null;
+  }
+
+  /**
+   * Checks whether the entry's CompositeKey shares the same user-key prefix as the
+   * pre-extracted search key elements. The prefix is all elements except the last
+   * (version) element.
+   *
+   * @param searchPrefixKeys the search key's element list (pre-extracted to avoid
+   *     repeated {@code getKeys()} allocations in the scan loop)
+   * @param prefixLen the number of user-key elements to compare
+   *     ({@code searchPrefixKeys.size() - 1})
+   * @param entryComposite the entry's CompositeKey to check against
+   */
+  private static boolean userKeyPrefixMatches(
+      List<?> searchPrefixKeys, int prefixLen,
+      CompositeKey entryComposite) {
+    var entryKeys = entryComposite.getKeys();
+    if (entryKeys.size() - 1 != prefixLen) {
+      return false;
+    }
+    for (var i = 0; i < prefixLen; i++) {
+      var cmp = DefaultComparator.INSTANCE.compare(
+          searchPrefixKeys.get(i), entryKeys.get(i));
+      if (cmp != 0) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  @Override
   public boolean put(@Nonnull final AtomicOperation atomicOperation,
       final K key, final RID value) {
     return update(atomicOperation, key, value, null) > 0;
@@ -379,7 +675,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
                 final var collectionPosition =
                     LongSerializer.deserializeNative(
                         oldRawValue, ShortSerializer.SHORT_SIZE);
-                oldValue = new RecordId(collectionId, collectionPosition);
+                oldValue = CellBTreeSingleValueBucketV3.decodeRID(collectionId, collectionPosition);
               }
 
               if (validator != null) {
@@ -576,6 +872,75 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
   }
 
   @Override
+  public long getApproximateEntriesCount(@Nonnull AtomicOperation atomicOperation) {
+    try {
+      return executeOptimisticStorageRead(
+          atomicOperation,
+          () -> {
+            final var pageView =
+                loadPageOptimistic(atomicOperation, fileId, ENTRY_POINT_INDEX);
+            final var entryPoint =
+                new CellBTreeSingleValueEntryPointV3<K>(pageView);
+            return entryPoint.getApproximateEntriesCount();
+          },
+          () -> {
+            try (final var entryPointCacheEntry =
+                loadPageForRead(atomicOperation, fileId, ENTRY_POINT_INDEX)) {
+              final var entryPoint =
+                  new CellBTreeSingleValueEntryPointV3<K>(entryPointCacheEntry);
+              return entryPoint.getApproximateEntriesCount();
+            }
+          });
+    } catch (final IOException e) {
+      throw BaseException.wrapException(
+          new CellBTreeSingleValueV3Exception(
+              "Error during retrieving approximate entries count of index "
+                  + getName(),
+              this),
+          e, storage.getName());
+    }
+  }
+
+  @Override
+  public void setApproximateEntriesCount(
+      @Nonnull AtomicOperation atomicOperation, long count) {
+    assert count >= 0
+        : "setApproximateEntriesCount called with negative count: " + count;
+    executeInsideComponentOperation(
+        atomicOperation,
+        operation -> {
+          try (final var entryPointCacheEntry =
+              loadPageForWrite(
+                  atomicOperation, fileId, ENTRY_POINT_INDEX, true)) {
+            final var entryPoint =
+                new CellBTreeSingleValueEntryPointV3<K>(entryPointCacheEntry);
+            entryPoint.setApproximateEntriesCount(count);
+          }
+        });
+  }
+
+  @Override
+  public void addToApproximateEntriesCount(
+      @Nonnull AtomicOperation atomicOperation, long delta) {
+    executeInsideComponentOperation(
+        atomicOperation,
+        operation -> {
+          try (final var entryPointCacheEntry =
+              loadPageForWrite(
+                  atomicOperation, fileId, ENTRY_POINT_INDEX, true)) {
+            final var entryPoint =
+                new CellBTreeSingleValueEntryPointV3<K>(entryPointCacheEntry);
+            long updated = entryPoint.getApproximateEntriesCount() + delta;
+            assert updated >= 0
+                : "approximateEntriesCount underflow: current="
+                    + entryPoint.getApproximateEntriesCount()
+                    + " delta=" + delta;
+            entryPoint.setApproximateEntriesCount(updated);
+          }
+        });
+  }
+
+  @Override
   public RID remove(@Nonnull final AtomicOperation atomicOperation, final K key) {
     return calculateInsideComponentOperation(
         atomicOperation,
@@ -613,7 +978,8 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
                       LongSerializer.deserializeNative(
                           rawValue, ShortSerializer.SHORT_SIZE);
 
-                  removedValue = new RecordId(collectionId, collectionPosition);
+                  removedValue =
+                      CellBTreeSingleValueBucketV3.decodeRID(collectionId, collectionPosition);
                 }
               } else {
                 return null;

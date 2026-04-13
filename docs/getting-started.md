@@ -298,8 +298,12 @@ g.executeInTx(tx -> {
 
 ## 9. Transactions
 
-All data operations in YouTrackDB are transactional. The `executeInTx()` method
-automatically starts, commits, and rolls back transactions:
+All data operations in YouTrackDB are transactional and run under snapshot
+isolation by default. Each transaction sees a consistent snapshot of the database
+as of its start time. Dirty reads, non-repeatable reads, and phantom reads are
+eliminated automatically.
+
+The `executeInTx()` method starts, commits, and rolls back transactions:
 
 ```java
 // Read-write transaction — commits on success, rolls back on exception

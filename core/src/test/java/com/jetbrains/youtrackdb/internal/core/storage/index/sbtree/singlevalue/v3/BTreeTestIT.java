@@ -1075,6 +1075,84 @@ public class BTreeTestIT {
         + (char) (key.charAt(key.length() - 1) + delta);
   }
 
+  // Verifies that setApproximateEntriesCount persists a value readable via
+  // getApproximateEntriesCount, and that addToApproximateEntriesCount applies
+  // a delta additively (not as an absolute value).
+  @Test
+  public void approximateEntriesCountSetGetAndAdd() throws Exception {
+    // A freshly created BTree must report 0 approximate entries (set by
+    // init() on the entry point page during create()).
+    atomicOperationsManager.executeInsideAtomicOperation(
+        atomicOperation -> Assert.assertEquals(
+            "freshly created BTree must have count 0",
+            0L,
+            singleValueTree.getApproximateEntriesCount(atomicOperation)));
+
+    // set → get round-trip
+    atomicOperationsManager.executeInsideAtomicOperation(
+        atomicOperation -> singleValueTree.setApproximateEntriesCount(
+            atomicOperation, 100L));
+    atomicOperationsManager.executeInsideAtomicOperation(
+        atomicOperation -> Assert.assertEquals(100L,
+            singleValueTree.getApproximateEntriesCount(atomicOperation)));
+
+    // Verify treeSize (adjacent field on same entry point page) is not
+    // corrupted by writing approximateEntriesCount.
+    atomicOperationsManager.executeInsideAtomicOperation(
+        atomicOperation -> Assert.assertEquals(
+            "treeSize must not be corrupted by setApproximateEntriesCount",
+            0L,
+            singleValueTree.size(atomicOperation)));
+
+    // addTo adds to existing value, not replaces
+    atomicOperationsManager.executeInsideAtomicOperation(
+        atomicOperation -> singleValueTree.addToApproximateEntriesCount(
+            atomicOperation, 50L));
+    atomicOperationsManager.executeInsideAtomicOperation(
+        atomicOperation -> Assert.assertEquals(150L,
+            singleValueTree.getApproximateEntriesCount(atomicOperation)));
+
+    // negative delta decrements
+    atomicOperationsManager.executeInsideAtomicOperation(
+        atomicOperation -> singleValueTree.addToApproximateEntriesCount(
+            atomicOperation, -30L));
+    atomicOperationsManager.executeInsideAtomicOperation(
+        atomicOperation -> Assert.assertEquals(120L,
+            singleValueTree.getApproximateEntriesCount(atomicOperation)));
+  }
+
+  // Verifies that addToApproximateEntriesCount throws AssertionError when a
+  // negative delta would drive the count below zero (underflow). This is the
+  // last line of defense against count drift bugs propagating to the query
+  // optimizer — a negative approximate count is never valid.
+  @Test
+  public void addToApproximateEntriesCountThrowsOnUnderflow() throws Exception {
+    // Set known initial count
+    atomicOperationsManager.executeInsideAtomicOperation(
+        atomicOperation -> singleValueTree.setApproximateEntriesCount(
+            atomicOperation, 5L));
+
+    // Delta of -10 would produce count = 5 + (-10) = -5, triggering the
+    // assert guard in BTree.addToApproximateEntriesCount().
+    try {
+      atomicOperationsManager.executeInsideAtomicOperation(
+          atomicOperation -> singleValueTree.addToApproximateEntriesCount(
+              atomicOperation, -10L));
+      Assert.fail("Expected AssertionError for underflow delta");
+    } catch (AssertionError e) {
+      Assert.assertTrue(
+          "Error message must mention 'underflow'",
+          e.getMessage().contains("underflow"));
+    }
+
+    // Verify count was NOT modified — the assert fires before the write
+    atomicOperationsManager.executeInsideAtomicOperation(
+        atomicOperation -> Assert.assertEquals(
+            "Count must remain 5 after failed underflow attempt",
+            5L,
+            singleValueTree.getApproximateEntriesCount(atomicOperation)));
+  }
+
   static final class RollbackException extends BaseException implements HighLevelException {
 
     @SuppressWarnings("WeakerAccess")

@@ -28,6 +28,8 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializ
 import com.jetbrains.youtrackdb.internal.common.serialization.types.ShortSerializer;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.SnapshotMarkerRID;
+import com.jetbrains.youtrackdb.internal.core.id.TombstoneRID;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
@@ -292,8 +294,8 @@ public final class CellBTreeSingleValueBucketV3<K> extends DurablePage {
       final int collectionId = getShortValue(entryPosition);
       final var collectionPosition = getLongValue(entryPosition + ShortSerializer.SHORT_SIZE);
 
-      return new CellBTreeSingleValueEntryV3<>(
-          -1, -1, key, new RecordId(collectionId, collectionPosition));
+      var ridValue = decodeRID(collectionId, collectionPosition);
+      return new CellBTreeSingleValueEntryV3<>(-1, -1, key, ridValue);
     } else {
       final var leftChild = getIntValue(entryPosition);
       entryPosition += IntegerSerializer.INT_SIZE;
@@ -304,6 +306,32 @@ public final class CellBTreeSingleValueBucketV3<K> extends DurablePage {
       final var key = deserializeFromDirectMemory(keySerializer, serializerFactory, entryPosition);
 
       return new CellBTreeSingleValueEntryV3<>(leftChild, rightChild, key, null);
+    }
+  }
+
+  // Invariant: live RecordId values stored in the B-tree index always have non-negative
+  // collectionId and non-negative collectionPosition. Temporary RIDs (negative position)
+  // and invalid RIDs (collectionId = -1) must never reach the index. The encoding uses
+  // negative collectionId for TombstoneRID and negative collectionPosition for
+  // SnapshotMarkerRID, which would collide with negative-valued live RIDs if the
+  // invariant were violated.
+  static RID decodeRID(int collectionId, long collectionPosition) {
+    if (collectionId < 0) {
+      // TombstoneRID — decode the shifted collectionId (0 → -1, 1 → -2, etc.)
+      int decodedId = -(collectionId + 1);
+      assert decodedId >= 0
+          : "TombstoneRID decoded collectionId overflow: raw=" + collectionId;
+      return new TombstoneRID(decodedId, collectionPosition);
+    } else if (collectionPosition < 0) {
+      // SnapshotMarkerRID — decode the shifted position
+      long decodedPos = -(collectionPosition + 1);
+      assert decodedPos >= 0
+          : "SnapshotMarkerRID decoded collectionPosition overflow: raw="
+              + collectionPosition;
+      return new SnapshotMarkerRID(collectionId, decodedPos);
+    } else {
+      // Normal RID
+      return new RecordId(collectionId, collectionPosition);
     }
   }
 
@@ -362,7 +390,7 @@ public final class CellBTreeSingleValueBucketV3<K> extends DurablePage {
     final int collectionId = getShortValue(entryPosition);
     final var collectionPosition = getLongValue(entryPosition + ShortSerializer.SHORT_SIZE);
 
-    return new RecordId(collectionId, collectionPosition);
+    return decodeRID(collectionId, collectionPosition);
   }
 
   byte[] getRawValue(final int entryIndex, final BinarySerializer<K> keySerializer,

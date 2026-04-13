@@ -49,6 +49,7 @@ public class CompositeKey
   private Set<IdentityChangeListener> identityChangeListeners;
 
   private final List<Object> keys;
+  private transient volatile List<Object> unmodifiableKeys;
 
   public CompositeKey(final List<?> keys) {
     this.keys = new ArrayList<>(keys.size());
@@ -75,19 +76,37 @@ public class CompositeKey
   }
 
   /**
+   * Returns the key as a CompositeKey without copying. If the key is already a
+   * CompositeKey, returns it directly; otherwise wraps it in a new single-element
+   * CompositeKey. Used for read-only paths where the key is not mutated.
+   */
+  public static CompositeKey asCompositeKey(Object key) {
+    if (key instanceof CompositeKey compositeKey) {
+      return compositeKey;
+    }
+    return new CompositeKey(key);
+  }
+
+  /**
    * Clears the keys array for reuse of the object
    */
   public void reset() {
     if (this.keys != null) {
       this.keys.clear();
     }
+    unmodifiableKeys = null; // invalidate cached view
   }
 
   /**
    * Returns an unmodifiable view of the key values in this composite key.
    */
   public List<Object> getKeys() {
-    return Collections.unmodifiableList(keys);
+    var result = unmodifiableKeys;
+    if (result == null) {
+      result = Collections.unmodifiableList(keys);
+      unmodifiableKeys = result;
+    }
+    return result;
   }
 
   /**
@@ -107,6 +126,8 @@ public class CompositeKey
       keys.add(key);
     }
 
+    unmodifiableKeys = null; // invalidate cached view
+
     if (key instanceof ChangeableIdentity changeableIdentity) {
       var canChangeIdentity = changeableIdentity.canChangeIdentity();
 
@@ -118,6 +139,17 @@ public class CompositeKey
         changeableIdentity.addIdentityChangeListener(this.identityChangeListener);
       }
     }
+  }
+
+  /**
+   * Adds a key element directly without {@link ChangeableIdentity} tracking.
+   * Use only when the element is known to be an immutable value (Long, String,
+   * etc.) that cannot be a ChangeableIdentity. Package-private for use by
+   * {@link IndexesSnapshot} key construction.
+   */
+  void addKeyDirect(Object key) {
+    keys.add(key);
+    unmodifiableKeys = null;
   }
 
   /**
@@ -133,12 +165,10 @@ public class CompositeKey
    */
   @Override
   public int compareTo(final CompositeKey otherKey) {
-    final var inIter = keys.iterator();
-    final var outIter = otherKey.keys.iterator();
-
-    while (inIter.hasNext() && outIter.hasNext()) {
-      final var inKey = inIter.next();
-      final var outKey = outIter.next();
+    final int len = Math.min(keys.size(), otherKey.keys.size());
+    for (int i = 0; i < len; i++) {
+      final var inKey = keys.get(i);
+      final var outKey = otherKey.keys.get(i);
 
       if (outKey instanceof AlwaysGreaterKey) {
         return -1;
@@ -222,6 +252,7 @@ public class CompositeKey
 
     keys.clear();
     keys.addAll(keyMap.values());
+    unmodifiableKeys = null; // invalidate cached view
   }
 
   @Override

@@ -165,7 +165,7 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
     final var bTree = fileIdBTreeMap.get(fileId);
     if (bTree == null) {
       throw new StorageException(storageName,
-          "RidBug for with collection pointer " + collectionPointer + " does not exist");
+          "RidBag for collection pointer " + collectionPointer + " does not exist");
     }
 
     var linkBagId = collectionPointer.linkBagId();
@@ -173,16 +173,31 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
     // remove(), which triggers the same-ts physical delete path. This is safe
     // because link bag deletion is a whole-collection operation — no concurrent
     // readers can hold a snapshot of an already-dropped collection.
-    try (var stream =
-        bTree.streamEntriesBetween(
-            new EdgeKey(linkBagId, Integer.MIN_VALUE, Long.MIN_VALUE, Long.MIN_VALUE),
-            true,
-            new EdgeKey(linkBagId, Integer.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE),
-            true,
-            true, atomicOperation)) {
-      stream.forEach(pair -> bTree.remove(atomicOperation, pair.first()));
-
-    }
+    //
+    // A single iterate-and-remove pass may miss entries when page modifications
+    // during removal invalidate the spliterator's LSN-based position tracking.
+    // Retry until no entries remain in the range.
+    var lowerBound =
+        new EdgeKey(linkBagId, Integer.MIN_VALUE, Long.MIN_VALUE, Long.MIN_VALUE);
+    var upperBound =
+        new EdgeKey(linkBagId, Integer.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE);
+    long removedInPass;
+    do {
+      removedInPass = 0;
+      try (var stream =
+          bTree.streamEntriesBetween(
+              lowerBound, true, upperBound, true, true, atomicOperation)) {
+        for (var iter = stream.iterator(); iter.hasNext();) {
+          // SharedLinkBagBTree.remove() returns null without removing for
+          // tombstone entries left by prior cross-transaction deletes. Only
+          // count actual removals so the loop terminates when only tombstones
+          // remain (they will be cleaned by periodic tombstone GC).
+          if (bTree.remove(atomicOperation, iter.next().first()) != null) {
+            removedInPass++;
+          }
+        }
+      }
+    } while (removedInPass > 0);
 
     return true;
   }

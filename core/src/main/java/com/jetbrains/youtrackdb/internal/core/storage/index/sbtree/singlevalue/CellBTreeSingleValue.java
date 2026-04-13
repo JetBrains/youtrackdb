@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
@@ -21,6 +22,35 @@ public interface CellBTreeSingleValue<K> {
       throws IOException;
 
   @Nullable RID get(K key, @Nonnull AtomicOperation atomicOperation);
+
+  /**
+   * Returns the first visible RID for the given key according to the snapshot isolation
+   * visibility rules. Uses optimistic lock-free reads on the happy path with pinned
+   * fallback. This is an SI-aware operation — visibility is applied inline during the
+   * leaf scan via {@link IndexesSnapshot#checkVisibility}.
+   *
+   * @param key the user key (without version component)
+   * @param snapshot the indexes snapshot for visibility checks
+   * @param atomicOperation the current atomic operation (provides snapshot version)
+   * @return the visible RID, or null if no visible entry exists for this key
+   */
+  @Nullable RID getVisible(K key, IndexesSnapshot snapshot,
+      @Nonnull AtomicOperation atomicOperation);
+
+  /**
+   * Returns all visible RIDs for the given key according to snapshot isolation visibility
+   * rules. This is the multi-value variant of {@link #getVisible} — instead of returning
+   * only the first visible entry, it collects ALL visible entries with the same user-key
+   * prefix into a stream. Uses the same optimistic lock-free leaf descent with pinned
+   * fallback.
+   *
+   * @param key the user key (without version component)
+   * @param snapshot the indexes snapshot for visibility checks
+   * @param atomicOperation the current atomic operation (provides snapshot version)
+   * @return a stream of all visible RIDs for this key (may be empty)
+   */
+  Stream<RID> getVisibleStream(K key, IndexesSnapshot snapshot,
+      @Nonnull AtomicOperation atomicOperation);
 
   boolean put(@Nonnull AtomicOperation atomicOperation, K key, RID value) throws IOException;
 
@@ -68,4 +98,25 @@ public interface CellBTreeSingleValue<K> {
       @Nonnull AtomicOperation atomicOperation);
 
   void acquireAtomicExclusiveLock(@Nonnull AtomicOperation atomicOperation);
+
+  /**
+   * Returns the persisted approximate count of live (non-tombstone) entries.
+   * Uses optimistic read with fallback to pinned read.
+   */
+  long getApproximateEntriesCount(@Nonnull AtomicOperation atomicOperation);
+
+  /**
+   * Sets the persisted approximate entry count to an absolute value.
+   * Used by {@code clear()} and {@code buildInitialHistogram()} to reset
+   * or recalibrate the count.
+   */
+  void setApproximateEntriesCount(
+      @Nonnull AtomicOperation atomicOperation, long count);
+
+  /**
+   * Adds a delta to the persisted approximate entry count. Used at commit
+   * time to apply accumulated {@code IndexCountDelta} values.
+   */
+  void addToApproximateEntriesCount(
+      @Nonnull AtomicOperation atomicOperation, long delta);
 }
