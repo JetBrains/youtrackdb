@@ -610,9 +610,21 @@ public class BTreeTombstoneGCTest {
   public void testGetIndexSnapshotByEngineNameReturnsNullForUnknownEngine() {
     // Verifies the defensive null-return path in getIndexSnapshotByEngineName
     // when the engine name is not registered in indexEngineNameMap.
-    var snapshot = storage.getIndexSnapshotByEngineName("nonExistentEngine");
-    assertThat(snapshot)
+    assertThat(storage.getIndexSnapshotByEngineName(ENGINE_NAME))
+        .as("Registered engine name must return a non-null snapshot")
+        .isNotNull();
+    assertThat(storage.getIndexSnapshotByEngineName("nonExistentEngine"))
         .as("Unknown engine name must return null snapshot")
+        .isNull();
+  }
+
+  @Test
+  public void testGetNullIndexSnapshotByEngineNameReturnsNullForUnknownEngine() {
+    // Verifies the defensive null-return path in getNullIndexSnapshotByEngineName
+    // when the engine name is not registered in indexEngineNameMap.
+    var snapshot = storage.getNullIndexSnapshotByEngineName("nonExistentEngine");
+    assertThat(snapshot)
+        .as("Unknown engine name must return null for null-index snapshot")
         .isNull();
   }
 
@@ -624,6 +636,18 @@ public class BTreeTombstoneGCTest {
         "nonExistentEngine", new CompositeKey("key"), 1L);
     assertThat(result)
         .as("Unknown engine name must return false for active snapshot check")
+        .isFalse();
+  }
+
+  @Test
+  public void testHasActiveSnapshotEntriesReturnsFalseForUnknownNullTreeEngine() {
+    // The "$null" suffix triggers a different code path that strips the suffix
+    // and queries sharedNullIndexesSnapshot. An unregistered base name must
+    // still return false.
+    var result = storage.hasActiveIndexSnapshotEntries(
+        "nonExistentEngine$null", new CompositeKey("key"), 1L);
+    assertThat(result)
+        .as("Unknown null-tree engine name must return false")
         .isFalse();
   }
 
