@@ -95,16 +95,13 @@ public final class TraversalPreFilterHelper {
    * Returns the explicitly configured load-to-scan cost ratio, or
    * {@code -1.0} if not explicitly set (auto-compute from live metrics).
    * A positive return value overrides live metric computation.
+   * Non-positive values (including the sentinel default {@code -1.0})
+   * are treated as "auto-compute".
    */
   public static double configuredLoadToScanRatio() {
-    if (GlobalConfiguration.QUERY_PREFILTER_LOAD_TO_SCAN_RATIO.isChanged()) {
-      double value =
-          GlobalConfiguration.QUERY_PREFILTER_LOAD_TO_SCAN_RATIO.getValueAsDouble();
-      if (value > 0) {
-        return value;
-      }
-    }
-    return -1.0;
+    double value =
+        GlobalConfiguration.QUERY_PREFILTER_LOAD_TO_SCAN_RATIO.getValueAsDouble();
+    return value > 0 ? value : -1.0;
   }
 
   /** Number of index/edge results between adaptive-abort checks. */

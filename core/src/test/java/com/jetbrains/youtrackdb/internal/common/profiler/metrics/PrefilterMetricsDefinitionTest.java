@@ -21,55 +21,54 @@ public class PrefilterMetricsDefinitionTest {
 
   // ---- Metric type assertions ----
 
-  /** PREFILTER_SCAN_NANOS must be a TimeRate metric. */
+  /**
+   * PREFILTER_SCAN_NANOS must resolve to a live (non-NOOP) TimeRate
+   * metric instance from the registry.
+   */
   @Test
-  public void scanNanosIsTimeRate() {
+  public void scanNanosIsLiveTimeRate() {
     var registry = new MetricsRegistry(new StubTicker(1));
     TimeRate metric = registry.globalMetric(CoreMetrics.PREFILTER_SCAN_NANOS);
-    assertThat(metric).isNotNull();
-    // Fresh metric reports zero rate
-    assertThat(metric.getRate()).isEqualTo(0.0);
-    // MetricsRegistry is test-scoped — no cleanup needed
+    assertThat(metric).isInstanceOf(TimeRate.Impl.class);
   }
 
-  /** PREFILTER_SCAN_ENTRIES must be a TimeRate metric. */
+  /**
+   * PREFILTER_SCAN_ENTRIES must resolve to a live (non-NOOP) TimeRate
+   * metric instance from the registry.
+   */
   @Test
-  public void scanEntriesIsTimeRate() {
+  public void scanEntriesIsLiveTimeRate() {
     var registry = new MetricsRegistry(new StubTicker(1));
     TimeRate metric = registry.globalMetric(CoreMetrics.PREFILTER_SCAN_ENTRIES);
-    assertThat(metric).isNotNull();
-    assertThat(metric.getRate()).isEqualTo(0.0);
-    // MetricsRegistry is test-scoped — no cleanup needed
+    assertThat(metric).isInstanceOf(TimeRate.Impl.class);
   }
 
-  /** PREFILTER_EFFECTIVENESS must be a Ratio metric with coefficient 100. */
+  /**
+   * PREFILTER_EFFECTIVENESS must resolve to a live (non-NOOP) Ratio
+   * metric instance from the registry.
+   */
   @Test
-  public void effectivenessIsRatio() {
+  public void effectivenessIsLiveRatio() {
     var registry = new MetricsRegistry(new StubTicker(1));
     Ratio metric = registry.globalMetric(CoreMetrics.PREFILTER_EFFECTIVENESS);
-    assertThat(metric).isNotNull();
-    // Fresh ratio metric reports zero
-    assertThat(metric.getRatio()).isEqualTo(0.0);
-    // MetricsRegistry is test-scoped — no cleanup needed
+    assertThat(metric).isInstanceOf(Ratio.Impl.class);
   }
 
   // ---- GLOBAL_METRICS registration ----
 
-  /** All three new metrics must be included in GLOBAL_METRICS. */
+  /**
+   * GLOBAL_METRICS must contain exactly the 5 expected metrics —
+   * the 2 originals plus the 3 new pre-filter metrics. This catches
+   * both accidental additions and accidental removals.
+   */
   @Test
-  public void globalMetricsIncludesPrefilterMetrics() {
-    assertThat(CoreMetrics.GLOBAL_METRICS)
-        .contains(CoreMetrics.PREFILTER_SCAN_NANOS)
-        .contains(CoreMetrics.PREFILTER_SCAN_ENTRIES)
-        .contains(CoreMetrics.PREFILTER_EFFECTIVENESS);
-  }
-
-  /** GLOBAL_METRICS must still include the original two metrics. */
-  @Test
-  public void globalMetricsRetainsOriginalMetrics() {
-    assertThat(CoreMetrics.GLOBAL_METRICS)
-        .contains(CoreMetrics.FILE_EVICTION_RATE)
-        .contains(CoreMetrics.CACHE_HIT_RATIO);
+  public void globalMetricsContainsExactlyExpectedMetrics() {
+    assertThat(CoreMetrics.GLOBAL_METRICS).containsExactlyInAnyOrder(
+        CoreMetrics.FILE_EVICTION_RATE,
+        CoreMetrics.CACHE_HIT_RATIO,
+        CoreMetrics.PREFILTER_SCAN_NANOS,
+        CoreMetrics.PREFILTER_SCAN_ENTRIES,
+        CoreMetrics.PREFILTER_EFFECTIVENESS);
   }
 
   // ---- Config entry assertions ----
@@ -92,7 +91,8 @@ public class PrefilterMetricsDefinitionTest {
   }
 
   /**
-   * When explicitly set to a positive value, the accessor returns that value.
+   * When explicitly set to a positive value, the accessor returns
+   * that value directly.
    */
   @Test
   public void configuredLoadToScanRatioExplicitOverride() {
@@ -102,8 +102,20 @@ public class PrefilterMetricsDefinitionTest {
   }
 
   /**
-   * When explicitly set to zero or negative, the accessor ignores it and
-   * returns -1.0 (auto-compute).
+   * The smallest positive double (Double.MIN_VALUE) is still positive
+   * and must be returned by the accessor.
+   */
+  @Test
+  public void configuredLoadToScanRatioSmallestPositive() {
+    GlobalConfiguration.QUERY_PREFILTER_LOAD_TO_SCAN_RATIO
+        .setValue(Double.MIN_VALUE);
+    assertThat(TraversalPreFilterHelper.configuredLoadToScanRatio())
+        .isEqualTo(Double.MIN_VALUE);
+  }
+
+  /**
+   * When explicitly set to zero or negative, the accessor treats it
+   * as auto-compute and returns -1.0.
    */
   @Test
   public void configuredLoadToScanRatioIgnoresNonPositive() {
@@ -112,6 +124,17 @@ public class PrefilterMetricsDefinitionTest {
         .isEqualTo(-1.0);
 
     GlobalConfiguration.QUERY_PREFILTER_LOAD_TO_SCAN_RATIO.setValue(-5.0);
+    assertThat(TraversalPreFilterHelper.configuredLoadToScanRatio())
+        .isEqualTo(-1.0);
+  }
+
+  /**
+   * When explicitly set to the sentinel value -1.0 itself, the accessor
+   * must still return -1.0 (auto-compute), not treat it as an override.
+   */
+  @Test
+  public void configuredLoadToScanRatioExplicitSentinelValue() {
+    GlobalConfiguration.QUERY_PREFILTER_LOAD_TO_SCAN_RATIO.setValue(-1.0);
     assertThat(TraversalPreFilterHelper.configuredLoadToScanRatio())
         .isEqualTo(-1.0);
   }
