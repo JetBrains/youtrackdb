@@ -1663,7 +1663,7 @@ public class EdgeTraversalCacheTest {
 
   /**
    * When estimatedSize exceeds maxRidSetSize, the counter records
-   * CAP_EXCEEDED and increments the skipped count.
+   * CAP_EXCEEDED and increments the skipped count. Returns null.
    */
   @Test
   public void resolveWithCache_capExceeded_recordsCounter() {
@@ -1677,8 +1677,9 @@ public class EdgeTraversalCacheTest {
     et.setIntersectionDescriptor(desc);
     var ctx = new BasicCommandContext();
 
-    et.resolveWithCache(ctx, LARGE_LINKBAG);
+    var result = et.resolveWithCache(ctx, LARGE_LINKBAG);
 
+    assertThat(result).isNull();
     assertThat(et.getLastSkipReason())
         .isEqualTo(PreFilterSkipReason.CAP_EXCEEDED);
     assertThat(et.getPreFilterSkippedCount()).isEqualTo(1);
@@ -1686,13 +1687,14 @@ public class EdgeTraversalCacheTest {
   }
 
   /**
-   * When IndexLookup selectivity exceeds the threshold, the counter
-   * records SELECTIVITY_TOO_LOW and increments the skipped count.
+   * When IndexLookup selectivity exceeds the threshold (0.96 > default
+   * 0.95), the counter records SELECTIVITY_TOO_LOW. Returns null.
    */
   @Test
   public void resolveWithCache_selectivityTooLow_recordsCounter() {
     var et = createEdgeTraversal();
     var indexDesc = mock(IndexSearchDescriptor.class);
+    // 0.96 > default threshold 0.95 → triggers SELECTIVITY_TOO_LOW
     when(indexDesc.estimateSelectivity(any())).thenReturn(0.96);
     var desc = mock(IndexLookup.class);
     when(desc.indexDescriptor()).thenReturn(indexDesc);
@@ -1701,8 +1703,9 @@ public class EdgeTraversalCacheTest {
     et.setIntersectionDescriptor(desc);
     var ctx = new BasicCommandContext();
 
-    et.resolveWithCache(ctx, LARGE_LINKBAG);
+    var result = et.resolveWithCache(ctx, LARGE_LINKBAG);
 
+    assertThat(result).isNull();
     assertThat(et.getLastSkipReason())
         .isEqualTo(PreFilterSkipReason.SELECTIVITY_TOO_LOW);
     assertThat(et.getPreFilterSkippedCount()).isEqualTo(1);
@@ -1712,7 +1715,7 @@ public class EdgeTraversalCacheTest {
   /**
    * When the IndexLookup build amortization threshold is not yet met,
    * the counter records BUILD_NOT_AMORTIZED and increments the skipped
-   * count. Each deferred call increments the count.
+   * count. Each deferred call increments the count. Returns null.
    */
   @Test
   public void resolveWithCache_buildNotAmortized_recordsCounter() {
@@ -1724,8 +1727,9 @@ public class EdgeTraversalCacheTest {
     var ctx = new BasicCommandContext();
 
     // linkBag=500 → accumulated=500 < 2000 → deferred
-    et.resolveWithCache(ctx, 500);
+    var result = et.resolveWithCache(ctx, 500);
 
+    assertThat(result).isNull();
     assertThat(et.getLastSkipReason())
         .isEqualTo(PreFilterSkipReason.BUILD_NOT_AMORTIZED);
     assertThat(et.getPreFilterSkippedCount()).isEqualTo(1);
@@ -1737,7 +1741,8 @@ public class EdgeTraversalCacheTest {
 
   /**
    * When EdgeRidLookup's passesSelectivityCheck returns false (overlap
-   * ratio too high), the counter records OVERLAP_RATIO_TOO_HIGH.
+   * ratio too high), the counter records OVERLAP_RATIO_TOO_HIGH. Returns
+   * null.
    */
   @Test
   public void resolveWithCache_overlapTooHigh_recordsCounter() {
@@ -1752,8 +1757,9 @@ public class EdgeTraversalCacheTest {
     et.setIntersectionDescriptor(desc);
     var ctx = new BasicCommandContext();
 
-    et.resolveWithCache(ctx, 50);
+    var result = et.resolveWithCache(ctx, 50);
 
+    assertThat(result).isNull();
     assertThat(et.getLastSkipReason())
         .isEqualTo(PreFilterSkipReason.OVERLAP_RATIO_TOO_HIGH);
     assertThat(et.getPreFilterSkippedCount()).isEqualTo(1);
@@ -1782,17 +1788,53 @@ public class EdgeTraversalCacheTest {
 
     assertThat(et.getPreFilterAppliedCount()).isEqualTo(1);
     assertThat(et.getPreFilterRidSetSize()).isEqualTo(1);
-    assertThat(et.getPreFilterBuildTimeNanos()).isGreaterThanOrEqualTo(0);
+    assertThat(et.getPreFilterBuildTimeNanos()).isGreaterThan(0L);
     assertThat(et.getLastSkipReason()).isEqualTo(PreFilterSkipReason.NONE);
     assertThat(et.getPreFilterSkippedCount()).isZero();
   }
 
   /**
    * preFilterRidSetSize is set once at first materialization and not
-   * overwritten on subsequent cache hits (T8).
+   * overwritten on a second materialization with a different cache key
+   * that produces a differently-sized RidSet (T8).
    */
   @Test
   public void resolveWithCache_ridSetSize_setOnceAtMaterialization() {
+    var et = createEdgeTraversal();
+    var desc = mock(EdgeRidLookup.class);
+    var key1 = new RecordId(5, 1);
+    var key2 = new RecordId(5, 2);
+    var ridSet1 = singletonRidSet(10, 1); // size = 1
+
+    var ridSet2 = new RidSet();
+    ridSet2.add(new RecordId(10, 1));
+    ridSet2.add(new RecordId(10, 2));
+    ridSet2.add(new RecordId(10, 3)); // size = 3
+
+    when(desc.cacheKey(any())).thenReturn(key1, key2);
+    when(desc.resolve(any(), any())).thenReturn(ridSet1, ridSet2);
+    stubSmallEstimate(desc);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    // First materialization — ridSetSize set to 1
+    et.resolveWithCache(ctx, LARGE_LINKBAG);
+    assertThat(et.getPreFilterRidSetSize()).isEqualTo(1);
+
+    // Second materialization (different key, size=3) — ridSetSize must
+    // remain 1, NOT change to 3
+    et.resolveWithCache(ctx, LARGE_LINKBAG);
+    assertThat(et.getPreFilterAppliedCount()).isEqualTo(2);
+    assertThat(et.getPreFilterRidSetSize()).isEqualTo(1);
+  }
+
+  /**
+   * Cache-hit path (step 1 in resolveWithCache) returns early without
+   * touching any counter field. All counters must reflect only the
+   * initial materialization, not the subsequent cache hit.
+   */
+  @Test
+  public void resolveWithCache_cacheHit_doesNotIncrementCounters() {
     var et = createEdgeTraversal();
     var desc = mock(EdgeRidLookup.class);
     var key = new RecordId(5, 1);
@@ -1804,14 +1846,18 @@ public class EdgeTraversalCacheTest {
     et.setIntersectionDescriptor(desc);
     var ctx = new BasicCommandContext();
 
-    // First call materializes — ridSetSize set to 1
+    // First call — materializes
     et.resolveWithCache(ctx, LARGE_LINKBAG);
-    assertThat(et.getPreFilterRidSetSize()).isEqualTo(1);
+    long buildTimeAfterFirst = et.getPreFilterBuildTimeNanos();
 
-    // Second call is a cache hit — appliedCount increments but
-    // ridSetSize remains 1 (not doubled)
+    // Second call — cache hit, no counter change
     et.resolveWithCache(ctx, LARGE_LINKBAG);
+
     assertThat(et.getPreFilterAppliedCount()).isEqualTo(1);
+    assertThat(et.getPreFilterSkippedCount()).isZero();
+    assertThat(et.getLastSkipReason()).isEqualTo(PreFilterSkipReason.NONE);
+    assertThat(et.getPreFilterBuildTimeNanos())
+        .isEqualTo(buildTimeAfterFirst);
     assertThat(et.getPreFilterRidSetSize()).isEqualTo(1);
   }
 
@@ -1842,6 +1888,6 @@ public class EdgeTraversalCacheTest {
     assertThat(et.getPreFilterSkippedCount()).isEqualTo(3);
     assertThat(et.getLastSkipReason()).isEqualTo(PreFilterSkipReason.NONE);
     assertThat(et.getPreFilterRidSetSize()).isEqualTo(1);
-    assertThat(et.getPreFilterBuildTimeNanos()).isGreaterThanOrEqualTo(0);
+    assertThat(et.getPreFilterBuildTimeNanos()).isGreaterThan(0L);
   }
 }

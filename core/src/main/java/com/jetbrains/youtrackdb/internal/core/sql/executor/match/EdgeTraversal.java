@@ -136,8 +136,9 @@ public class EdgeTraversal {
   private long preFilterTotalFiltered;
 
   /**
-   * Wall-clock time (nanoseconds) spent building the pre-filter RidSet.
-   * Recorded once on the cold path (first materialization).
+   * Accumulated wall-clock time (nanoseconds) spent building pre-filter
+   * RidSets. Each cold-path materialization (one per distinct cache key)
+   * adds its build duration via {@code +=}.
    */
   private long preFilterBuildTimeNanos;
 
@@ -436,11 +437,13 @@ public class EdgeTraversal {
     long buildStart = System.nanoTime();
     var ridSet = desc.resolve(ctx, key);
     preFilterBuildTimeNanos += System.nanoTime() - buildStart;
-    if (ridSet != null && preFilterRidSetSize == 0) {
-      preFilterRidSetSize = ridSet.size();
+    if (ridSet != null) {
+      if (preFilterRidSetSize == 0) {
+        preFilterRidSetSize = ridSet.size();
+      }
+      preFilterAppliedCount++;
+      lastSkipReason = PreFilterSkipReason.NONE;
     }
-    preFilterAppliedCount++;
-    lastSkipReason = PreFilterSkipReason.NONE;
     if (key != null && cache.size() < CACHE_CAPACITY) {
       cache.put(key, ridSet);
     }
