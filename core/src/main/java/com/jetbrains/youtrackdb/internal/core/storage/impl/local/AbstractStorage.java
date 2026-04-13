@@ -6370,11 +6370,16 @@ public abstract class AbstractStorage
    * @return the scoped snapshot, or {@code null} if no engine with this name exists
    */
   @Nullable public IndexesSnapshot getIndexSnapshotByEngineName(String engineName) {
-    var engine = indexEngineNameMap.get(engineName);
-    if (engine == null) {
-      return null;
+    stateLock.readLock().lock();
+    try {
+      var engine = indexEngineNameMap.get(engineName);
+      if (engine == null) {
+        return null;
+      }
+      return subIndexSnapshot(engine.getId());
+    } finally {
+      stateLock.readLock().unlock();
     }
-    return subIndexSnapshot(engine.getId());
   }
 
   /**
@@ -6384,11 +6389,16 @@ public abstract class AbstractStorage
    * @return the scoped null snapshot, or {@code null} if no engine with this name exists
    */
   @Nullable public IndexesSnapshot getNullIndexSnapshotByEngineName(String engineName) {
-    var engine = indexEngineNameMap.get(engineName);
-    if (engine == null) {
-      return null;
+    stateLock.readLock().lock();
+    try {
+      var engine = indexEngineNameMap.get(engineName);
+      if (engine == null) {
+        return null;
+      }
+      return subNullIndexSnapshot(engine.getId());
+    } finally {
+      stateLock.readLock().unlock();
     }
-    return subNullIndexSnapshot(engine.getId());
   }
 
   private static final String NULL_TREE_SUFFIX = "$null";
@@ -6420,11 +6430,19 @@ public abstract class AbstractStorage
       snapshotMap = sharedIndexesSnapshot;
     }
 
-    var engine = indexEngineNameMap.get(resolvedName);
-    if (engine == null) {
-      return false;
+    // indexEngineNameMap is a plain HashMap — guard with stateLock.readLock()
+    // to avoid racing with concurrent index creation/deletion.
+    final long indexId;
+    stateLock.readLock().lock();
+    try {
+      var engine = indexEngineNameMap.get(resolvedName);
+      if (engine == null) {
+        return false;
+      }
+      indexId = engine.getId();
+    } finally {
+      stateLock.readLock().unlock();
     }
-    long indexId = engine.getId();
 
     // Build range keys: CompositeKey(indexId, userKeyPrefix..., lwm) to
     // CompositeKey(indexId, userKeyPrefix..., Long.MAX_VALUE)
