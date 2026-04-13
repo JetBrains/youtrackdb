@@ -1957,4 +1957,18 @@ public class EdgeTraversalCacheTest {
     // No explicit skip reason is set on this path — remains at NONE.
     assertThat(et.getLastSkipReason()).isEqualTo(PreFilterSkipReason.NONE);
   }
+
+  // ---- Metric resolve fallback (null registry in unit test env) ----
+
+  /**
+   * resolveEffectivenessMetric() must return a functional (non-null) Ratio
+   * even without a running MetricsRegistry — it falls back to Ratio.NOOP.
+   */
+  @Test
+  public void resolveEffectivenessMetricFallsBackToNoop() {
+    var metric = MatchEdgeTraverser.resolveEffectivenessMetric();
+    assertThat(metric).isNotNull();
+    // NOOP silently discards — must not throw
+    metric.record(50, 100);
+  }
 }

@@ -473,4 +473,29 @@ public class TraversalPreFilterHelperTest {
         .isGreaterThanOrEqualTo(100_000)
         .isLessThanOrEqualTo(10_000_000);
   }
+
+  // ---- Scan metric resolve fallback (null registry in unit test env) ----
+
+  /**
+   * resolveScanNanos() must return a functional (non-null) TimeRate
+   * even without a running MetricsRegistry — it falls back to NOOP.
+   */
+  @Test
+  public void resolveScanNanosFallsBackToNoop() {
+    var metric = TraversalPreFilterHelper.resolveScanNanos();
+    assertThat(metric).isNotNull();
+    // NOOP silently discards — must not throw
+    metric.record(12345);
+  }
+
+  /**
+   * resolveScanEntries() must return a functional (non-null) TimeRate
+   * even without a running MetricsRegistry.
+   */
+  @Test
+  public void resolveScanEntriesFallsBackToNoop() {
+    var metric = TraversalPreFilterHelper.resolveScanEntries();
+    assertThat(metric).isNotNull();
+    metric.record(100);
+  }
 }

@@ -138,4 +138,28 @@ public class PrefilterMetricsDefinitionTest {
     assertThat(TraversalPreFilterHelper.configuredLoadToScanRatio())
         .isEqualTo(-1.0);
   }
+
+  // ---- NOOP fallback assertions ----
+
+  /**
+   * TimeRate.NOOP must silently accept recordings without crashing.
+   * This verifies the scan metric fallback path is safe when the
+   * engine's MetricsRegistry is unavailable.
+   */
+  @Test
+  public void timeRateNoopSilentlyDiscards() {
+    TimeRate.NOOP.record(12345);
+    assertThat(TimeRate.NOOP.getRate()).isEqualTo(0.0);
+  }
+
+  /**
+   * Ratio.NOOP must silently accept recordings without crashing.
+   * This verifies the effectiveness metric fallback path is safe
+   * when the engine's MetricsRegistry is unavailable.
+   */
+  @Test
+  public void ratioNoopSilentlyDiscards() {
+    Ratio.NOOP.record(50, 100);
+    assertThat(Ratio.NOOP.getRatio()).isEqualTo(0.0);
+  }
 }

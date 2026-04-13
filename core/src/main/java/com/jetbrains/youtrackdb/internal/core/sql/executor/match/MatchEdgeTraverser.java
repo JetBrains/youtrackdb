@@ -1,5 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
+import com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics;
+import com.jetbrains.youtrackdb.internal.common.profiler.metrics.MetricsRegistry;
+import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Ratio;
+import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
@@ -591,6 +595,12 @@ public class MatchEdgeTraverser implements ExecutionStream {
                       ridSet.size(), linkBagSize, ctx)) {
             this.currentPreFilterRids = ridSet;
             edge.recordPreFilterApplied(linkBagSize, ridSet.size());
+            // Record effectiveness metric: filtered = (linkBagSize - ridSetSize),
+            // probed = linkBagSize. Guarded by probed > 0 (R5).
+            if (linkBagSize > 0) {
+              long filtered = Math.max(0, linkBagSize - ridSet.size());
+              resolveEffectivenessMetric().record(filtered, linkBagSize);
+            }
             if (logger.isDebugEnabled()) {
               logger.debug(
                   "MATCH pre-filter applied: linkBag={} ridSet={} descriptor={}",
@@ -608,6 +618,19 @@ public class MatchEdgeTraverser implements ExecutionStream {
     }
 
     return pfli;
+  }
+
+  /**
+   * Resolves the {@link CoreMetrics#PREFILTER_EFFECTIVENESS} metric from
+   * the global registry, falling back to {@link Ratio#NOOP} when the
+   * registry is unavailable (early startup, tests without engine).
+   */
+  static Ratio resolveEffectivenessMetric() {
+    MetricsRegistry registry =
+        YouTrackDBEnginesManager.instance().getMetricsRegistry();
+    return registry != null
+        ? registry.globalMetric(CoreMetrics.PREFILTER_EFFECTIVENESS)
+        : Ratio.NOOP;
   }
 
   /**
