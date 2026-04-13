@@ -111,8 +111,10 @@ public class EdgeTraversal {
   // =========================================================================
 
   /**
-   * Number of vertices where the pre-filter RidSet was applied
-   * (materialized and used for intersection).
+   * Number of vertices where the pre-filter RidSet was successfully used
+   * for intersection. Incremented in {@link #recordPreFilterApplied},
+   * which is called from {@code applyPreFilter()} for each vertex that
+   * passes both the selectivity and ratio checks.
    */
   private int preFilterAppliedCount;
 
@@ -343,6 +345,7 @@ public class EdgeTraversal {
    * @param ridSetSize  the number of entries in the pre-filter RidSet
    */
   void recordPreFilterApplied(int linkBagSize, int ridSetSize) {
+    preFilterAppliedCount++;
     preFilterTotalProbed += linkBagSize;
     preFilterTotalFiltered += Math.max(0, linkBagSize - ridSetSize);
   }
@@ -391,7 +394,14 @@ public class EdgeTraversal {
         cache = new HashMap<>();
       }
       if (cache.containsKey(key)) {
-        return cache.get(key);
+        var cached = cache.get(key);
+        if (cached == null) {
+          // Previously rejected descriptor (e.g., CAP_EXCEEDED,
+          // SELECTIVITY_TOO_LOW) — count each vertex that hits the
+          // cached-null entry as a skip for accurate PROFILE output.
+          preFilterSkippedCount++;
+        }
+        return cached;
       }
     }
 
@@ -478,7 +488,6 @@ public class EdgeTraversal {
       if (preFilterRidSetSize == 0) {
         preFilterRidSetSize = ridSet.size();
       }
-      preFilterAppliedCount++;
       lastSkipReason = PreFilterSkipReason.NONE;
     }
     if (key != null && cache.size() < CACHE_CAPACITY) {

@@ -254,6 +254,7 @@ public class ApplyPreFilterInterfaceTest {
     var stub = new StubPreFilterable(1000);
     var result = traverser.applyPreFilter(stub, ctx);
 
+    assertThat(edge.getPreFilterAppliedCount()).isEqualTo(1);
     assertThat(edge.getPreFilterTotalProbed()).isEqualTo(1000);
     assertThat(edge.getPreFilterTotalFiltered()).isEqualTo(999);
     assertThat(edge.getPreFilterSkippedCount()).isZero();
@@ -296,7 +297,8 @@ public class ApplyPreFilterInterfaceTest {
 
     assertThat(edge.getPreFilterTotalProbed()).isEqualTo(1000);
     assertThat(edge.getPreFilterTotalFiltered()).isEqualTo(999);
-    assertThat(((StubPreFilterable) result).appliedRidFilter).isNotNull();
+    assertThat(((StubPreFilterable) result).appliedRidFilter)
+        .containsExactly(new RecordId(10, 1));
   }
 
   /**
@@ -327,8 +329,49 @@ public class ApplyPreFilterInterfaceTest {
 
     // Vertex 2: linkBagSize=300 (cache hit for ridSet)
     traverser.applyPreFilter(new StubPreFilterable(300), ctx);
+    assertThat(edge.getPreFilterAppliedCount()).isEqualTo(2);
     assertThat(edge.getPreFilterTotalProbed()).isEqualTo(500); // 200+300
     assertThat(edge.getPreFilterTotalFiltered()).isEqualTo(498); // 199+299
+  }
+
+  /**
+   * When ridSetSize exceeds linkBagSize (e.g. IndexLookup returns more
+   * hits than the vertex has neighbors), preFilterTotalFiltered stays at
+   * zero via the Math.max(0, ...) floor in recordPreFilterApplied.
+   */
+  @Test
+  public void applyPreFilter_ridSetLargerThanLinkBag_filteredStaysZero() {
+    var edge = createEdgeTraversal();
+    var indexDesc = mock(
+        com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchDescriptor.class);
+    when(indexDesc.estimateSelectivity(any())).thenReturn(0.1);
+    when(indexDesc.estimateHits(any())).thenReturn(10L);
+    var index = mock(
+        com.jetbrains.youtrackdb.internal.core.index.Index.class);
+    when(index.getName()).thenReturn("Post.date");
+    when(indexDesc.getIndex()).thenReturn(index);
+
+    var desc = mock(
+        com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilterDescriptor.IndexLookup.class);
+    when(desc.indexDescriptor()).thenReturn(indexDesc);
+    // RidSet has 500 entries, link bag only has 100
+    var ridSet = new RidSet();
+    for (int i = 0; i < 500; i++) {
+      ridSet.add(new RecordId(10, i));
+    }
+    when(desc.cacheKey(any())).thenReturn("Post.date");
+    when(desc.estimatedSize(any(), any())).thenReturn(500);
+    when(desc.resolve(any(), any())).thenReturn(ridSet);
+    edge.setIntersectionDescriptor(desc);
+    var traverser = createTraverser(edge);
+    var ctx = new BasicCommandContext();
+
+    var stub = new StubPreFilterable(100);
+    traverser.applyPreFilter(stub, ctx);
+
+    assertThat(edge.getPreFilterTotalProbed()).isEqualTo(100);
+    assertThat(edge.getPreFilterTotalFiltered()).isZero();
+    assertThat(edge.getPreFilterAppliedCount()).isEqualTo(1);
   }
 
   /**

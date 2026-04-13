@@ -1786,7 +1786,9 @@ public class EdgeTraversalCacheTest {
 
     et.resolveWithCache(ctx, LARGE_LINKBAG);
 
-    assertThat(et.getPreFilterAppliedCount()).isEqualTo(1);
+    // appliedCount is incremented by recordPreFilterApplied (in
+    // applyPreFilter), not at materialization time in resolveWithCache.
+    assertThat(et.getPreFilterAppliedCount()).isZero();
     assertThat(et.getPreFilterRidSetSize()).isEqualTo(1);
     assertThat(et.getPreFilterBuildTimeNanos()).isGreaterThan(0L);
     assertThat(et.getLastSkipReason()).isEqualTo(PreFilterSkipReason.NONE);
@@ -1824,14 +1826,15 @@ public class EdgeTraversalCacheTest {
     // Second materialization (different key, size=3) — ridSetSize must
     // remain 1, NOT change to 3
     et.resolveWithCache(ctx, LARGE_LINKBAG);
-    assertThat(et.getPreFilterAppliedCount()).isEqualTo(2);
+    // appliedCount stays 0 — incremented by recordPreFilterApplied, not here.
+    assertThat(et.getPreFilterAppliedCount()).isZero();
     assertThat(et.getPreFilterRidSetSize()).isEqualTo(1);
   }
 
   /**
-   * Cache-hit path (step 1 in resolveWithCache) returns early without
-   * touching any counter field. All counters must reflect only the
-   * initial materialization, not the subsequent cache hit.
+   * Cache-hit path (step 1 in resolveWithCache) returns early for a
+   * non-null cached RidSet without touching counter fields. All counters
+   * must reflect only the initial materialization.
    */
   @Test
   public void resolveWithCache_cacheHit_doesNotIncrementCounters() {
@@ -1850,10 +1853,11 @@ public class EdgeTraversalCacheTest {
     et.resolveWithCache(ctx, LARGE_LINKBAG);
     long buildTimeAfterFirst = et.getPreFilterBuildTimeNanos();
 
-    // Second call — cache hit, no counter change
+    // Second call — cache hit (non-null), no counter change
     et.resolveWithCache(ctx, LARGE_LINKBAG);
 
-    assertThat(et.getPreFilterAppliedCount()).isEqualTo(1);
+    // appliedCount stays 0 — incremented by recordPreFilterApplied, not here.
+    assertThat(et.getPreFilterAppliedCount()).isZero();
     assertThat(et.getPreFilterSkippedCount()).isZero();
     assertThat(et.getLastSkipReason()).isEqualTo(PreFilterSkipReason.NONE);
     assertThat(et.getPreFilterBuildTimeNanos())
@@ -1882,12 +1886,75 @@ public class EdgeTraversalCacheTest {
     assertThat(et.getLastSkipReason())
         .isEqualTo(PreFilterSkipReason.BUILD_NOT_AMORTIZED);
 
-    // 4th call pushes to 2000 → triggers
+    // 4th call pushes to 2000 → triggers materialization
     et.resolveWithCache(ctx, 500);
-    assertThat(et.getPreFilterAppliedCount()).isEqualTo(1);
+    // appliedCount stays 0 — incremented by recordPreFilterApplied, not here.
+    assertThat(et.getPreFilterAppliedCount()).isZero();
     assertThat(et.getPreFilterSkippedCount()).isEqualTo(3);
     assertThat(et.getLastSkipReason()).isEqualTo(PreFilterSkipReason.NONE);
     assertThat(et.getPreFilterRidSetSize()).isEqualTo(1);
     assertThat(et.getPreFilterBuildTimeNanos()).isGreaterThan(0L);
+  }
+
+  /**
+   * Cache-hit-null path increments preFilterSkippedCount for each vertex
+   * that hits the cached-null entry (BC2 fix). The first call caches null
+   * and records the skip reason; subsequent calls hit the cache and
+   * increment the counter without re-computing the decision.
+   */
+  @Test
+  public void resolveWithCache_cacheHitNull_incrementsSkippedCount() {
+    var et = createEdgeTraversal();
+    var desc = mock(EdgeRidLookup.class);
+    var key = new RecordId(5, 1);
+
+    when(desc.cacheKey(any())).thenReturn(key);
+    when(desc.estimatedSize(any(), any()))
+        .thenReturn(TraversalPreFilterHelper.maxRidSetSize() + 1);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    // First call — CAP_EXCEEDED, caches null
+    et.resolveWithCache(ctx, LARGE_LINKBAG);
+    assertThat(et.getPreFilterSkippedCount()).isEqualTo(1);
+
+    // Second call — cache hit null, increments skipped count
+    et.resolveWithCache(ctx, LARGE_LINKBAG);
+    assertThat(et.getPreFilterSkippedCount()).isEqualTo(2);
+
+    // Third call — still cache hit null
+    et.resolveWithCache(ctx, LARGE_LINKBAG);
+    assertThat(et.getPreFilterSkippedCount()).isEqualTo(3);
+    assertThat(et.getPreFilterAppliedCount()).isZero();
+    assertThat(et.getLastSkipReason())
+        .isEqualTo(PreFilterSkipReason.CAP_EXCEEDED);
+  }
+
+  /**
+   * When resolve() returns null on the materialization cold path (all
+   * selectivity checks passed, but descriptor produced no RidSet),
+   * preFilterBuildTimeNanos is accumulated (build cost was real) but
+   * preFilterAppliedCount stays at 0 and no skip reason is set.
+   */
+  @Test
+  public void resolveWithCache_resolveReturnsNull_buildTimeButNotApplied() {
+    var et = createEdgeTraversal();
+    var desc = mock(EdgeRidLookup.class);
+    var key = new RecordId(5, 1);
+
+    when(desc.cacheKey(any())).thenReturn(key);
+    when(desc.resolve(any(), any())).thenReturn(null);
+    stubSmallEstimate(desc);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    var result = et.resolveWithCache(ctx, LARGE_LINKBAG);
+
+    assertThat(result).isNull();
+    assertThat(et.getPreFilterBuildTimeNanos()).isGreaterThan(0L);
+    assertThat(et.getPreFilterAppliedCount()).isZero();
+    assertThat(et.getPreFilterRidSetSize()).isZero();
+    // No explicit skip reason is set on this path — remains at NONE.
+    assertThat(et.getLastSkipReason()).isEqualTo(PreFilterSkipReason.NONE);
   }
 }
