@@ -1259,4 +1259,194 @@ public class EdgeTraversalCacheTest {
     // estimateSelectivity must be called exactly once (cached after first)
     verify(desc.indexDescriptor(), times(1)).estimateSelectivity(any());
   }
+
+  // =========================================================================
+  // Build amortization — regression and edge case tests
+  // =========================================================================
+
+  /**
+   * Regression: EdgeRidLookup still uses per-vertex ratio check, not the
+   * accumulator. Multiple calls with varying linkBag sizes should NOT
+   * accumulate — each call is independently evaluated via
+   * passesSelectivityCheck (per R1).
+   */
+  @Test
+  public void resolveWithCache_edgeRidLookup_noAccumulation_perVertexRatio() {
+    var et = createEdgeTraversal();
+    var desc = mock(EdgeRidLookup.class);
+    var key = new RecordId(5, 1);
+    var ridSet = singletonRidSet(10, 1);
+
+    when(desc.cacheKey(any())).thenReturn(key);
+    // estimatedSize = 500 (small enough to be under maxRidSetSize)
+    when(desc.estimatedSize(any(), any())).thenReturn(500);
+    // Selectivity check: fails for linkBag=50, passes for linkBag=1000
+    when(desc.passesSelectivityCheck(eq(500), eq(50), any()))
+        .thenReturn(false);
+    when(desc.passesSelectivityCheck(eq(500), eq(1000), any()))
+        .thenReturn(true);
+    when(desc.resolve(any(), any())).thenReturn(ridSet);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    // Call 1: small linkBag → ratio check fails → null (no accumulation)
+    assertThat(et.resolveWithCache(ctx, 50)).isNull();
+    // Call 2: small linkBag again → still fails (no accumulation helped)
+    assertThat(et.resolveWithCache(ctx, 50)).isNull();
+    // Call 3: large linkBag → ratio check passes → resolve
+    assertThat(et.resolveWithCache(ctx, 1000)).isSameAs(ridSet);
+
+    // Each call re-checks selectivity independently (not accumulated)
+    verify(desc, times(3))
+        .passesSelectivityCheck(anyInt(), anyInt(), any());
+    verify(desc, times(1)).resolve(any(), any());
+  }
+
+  /**
+   * Unknown estimatedSize (-1) with IndexLookup bypasses the accumulator
+   * and proceeds directly to materialization (per R2/T2). The negative
+   * estimatedSize causes the selectivity check to be skipped (estimatedSize
+   * >= 0 is false) and the build amortization guard also uses the selectivity
+   * check result.
+   */
+  @Test
+  public void resolveWithCache_indexLookup_unknownEstimatedSize_proceedsToResolve() {
+    var et = createEdgeTraversal();
+    var ridSet = singletonRidSet(10, 1);
+    // estimatedHits=-1 (unknown), selectivity=0.5
+    var desc = stubIndexLookup(0.5, -1, "Post.date", ridSet);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    // Unknown estimate → bypass ratio check and accumulator → resolve
+    var result = et.resolveWithCache(ctx, 1);
+    assertThat(result).isSameAs(ridSet);
+    verify(desc, times(1)).resolve(any(), any());
+  }
+
+  /**
+   * copy() returns an EdgeTraversal with fresh accumulator state:
+   * accumulatedLinkBagTotal = 0 (Java default) and
+   * indexLookupSelectivity = NaN (field initializer). The copied
+   * instance should re-accumulate from scratch (per T3).
+   */
+  @Test
+  public void copy_resetsAccumulatorState() {
+    var et = createEdgeTraversal();
+    var ridSet1 = singletonRidSet(10, 1);
+    var ridSet2 = singletonRidSet(10, 2);
+    var desc = stubIndexLookup(0.5, 100_000, "Post.date", ridSet1);
+    when(desc.resolve(any(), any())).thenReturn(ridSet1, ridSet2);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    // Partially accumulate on the original (below threshold)
+    assertThat(et.resolveWithCache(ctx, 500)).isNull();
+    assertThat(et.resolveWithCache(ctx, 500)).isNull(); // accumulated=1000
+
+    // Copy and verify the copy starts fresh
+    var copy = et.copy();
+    // The copy should also defer (starting from 0, not 1000)
+    assertThat(copy.resolveWithCache(ctx, 500)).isNull();
+  }
+
+  /**
+   * Threshold exactly met: accumulated == ceil(minNeighborsForBuild)
+   * triggers materialization.
+   *
+   * <p>With selectivity=0.5, estimatedSize=100_000, ratio=100:
+   * minNeighbors = 100_000 / (100 * (1 - 0.5)) = 2000.0, ceil = 2000.
+   * A single call with linkBagSize=2000 triggers immediately.
+   */
+  @Test
+  public void resolveWithCache_indexLookup_thresholdExactlyMet_triggers() {
+    var et = createEdgeTraversal();
+    var ridSet = singletonRidSet(10, 1);
+    var desc = stubIndexLookup(0.5, 100_000, "Post.date", ridSet);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    // Exactly at threshold → triggers
+    assertThat(et.resolveWithCache(ctx, 2000)).isSameAs(ridSet);
+    verify(desc, times(1)).resolve(any(), any());
+  }
+
+  /**
+   * Threshold off-by-one: accumulated = ceil(minNeighborsForBuild) - 1
+   * defers materialization.
+   *
+   * <p>With selectivity=0.5, estimatedSize=100_000, ratio=100:
+   * minNeighbors = 2000. linkBagSize=1999 → accumulated=1999 < 2000.
+   */
+  @Test
+  public void resolveWithCache_indexLookup_thresholdOffByOne_defers() {
+    var et = createEdgeTraversal();
+    var ridSet = singletonRidSet(10, 1);
+    var desc = stubIndexLookup(0.5, 100_000, "Post.date", ridSet);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    // One below threshold → defers
+    assertThat(et.resolveWithCache(ctx, 1999)).isNull();
+    verify(desc, never()).resolve(any(), any());
+
+    // One more to push over → triggers
+    assertThat(et.resolveWithCache(ctx, 1)).isSameAs(ridSet);
+    verify(desc, times(1)).resolve(any(), any());
+  }
+
+  /**
+   * estimatedSize = 0 with IndexLookup: computeMinNeighborsForBuild
+   * returns 0.0, so the threshold is immediately met — materialization
+   * on the first call regardless of linkBagSize.
+   */
+  @Test
+  public void resolveWithCache_indexLookup_zeroEstimatedSize_triggersImmediately() {
+    var et = createEdgeTraversal();
+    var ridSet = singletonRidSet(10, 1);
+    // estimatedHits=0 → minNeighbors=0 → triggers immediately
+    var desc = stubIndexLookup(0.5, 0, "Post.date", ridSet);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    assertThat(et.resolveWithCache(ctx, 1)).isSameAs(ridSet);
+    verify(desc, times(1)).resolve(any(), any());
+  }
+
+  /**
+   * Composite descriptor with an IndexLookup child does NOT use the
+   * accumulator — the instanceof check matches Composite, not
+   * IndexLookup. The Composite path delegates to passesSelectivityCheck.
+   */
+  @Test
+  public void resolveWithCache_compositeWithIndexLookup_noAccumulation() {
+    var et = createEdgeTraversal();
+    var ridSet = singletonRidSet(10, 1);
+
+    // Create a Composite wrapping an IndexLookup
+    var innerDesc = stubIndexLookup(0.5, 100_000, "Post.date", ridSet);
+    var composite = mock(RidFilterDescriptor.Composite.class);
+    when(composite.cacheKey(any())).thenReturn("composite-key");
+    when(composite.estimatedSize(any(), any())).thenReturn(100_000);
+    // passesSelectivityCheck fails for small linkBag
+    when(composite.passesSelectivityCheck(eq(100_000), eq(50), any()))
+        .thenReturn(false);
+    when(composite.passesSelectivityCheck(eq(100_000), eq(LARGE_LINKBAG), any()))
+        .thenReturn(true);
+    when(composite.resolve(any(), any())).thenReturn(ridSet);
+    et.setIntersectionDescriptor(composite);
+    var ctx = new BasicCommandContext();
+
+    // Small linkBag → passesSelectivityCheck fails → null (per-vertex, no
+    // accumulation)
+    assertThat(et.resolveWithCache(ctx, 50)).isNull();
+    assertThat(et.resolveWithCache(ctx, 50)).isNull();
+
+    // Large linkBag → passesSelectivityCheck passes → resolve
+    assertThat(et.resolveWithCache(ctx, LARGE_LINKBAG)).isSameAs(ridSet);
+
+    // Each call re-checks selectivity (no accumulation shortcut)
+    verify(composite, times(3))
+        .passesSelectivityCheck(anyInt(), anyInt(), any());
+  }
 }
