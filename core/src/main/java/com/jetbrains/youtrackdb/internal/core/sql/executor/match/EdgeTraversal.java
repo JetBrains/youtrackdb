@@ -310,6 +310,34 @@ public class EdgeTraversal {
     return lastSkipReason;
   }
 
+  // =========================================================================
+  // Pre-filter counter mutators (called by MatchEdgeTraverser.applyPreFilter)
+  // =========================================================================
+
+  /**
+   * Records a pre-filter skip event at a specific decision point in
+   * {@code applyPreFilter()}. Increments {@link #preFilterSkippedCount}
+   * and updates {@link #lastSkipReason}.
+   */
+  void recordPreFilterSkip(PreFilterSkipReason reason) {
+    lastSkipReason = reason;
+    preFilterSkippedCount++;
+  }
+
+  /**
+   * Records a successful pre-filter application for one vertex.
+   * Increments {@link #preFilterTotalProbed} by the link bag size and
+   * {@link #preFilterTotalFiltered} by the estimated number of entries
+   * removed (link bag size minus the RidSet size, floored at zero).
+   *
+   * @param linkBagSize the number of adjacency list entries for this vertex
+   * @param ridSetSize  the number of entries in the pre-filter RidSet
+   */
+  void recordPreFilterApplied(int linkBagSize, int ridSetSize) {
+    preFilterTotalProbed += linkBagSize;
+    preFilterTotalFiltered += Math.max(0, linkBagSize - ridSetSize);
+  }
+
   /**
    * Resolves the intersection descriptor with lazy resolution and a
    * fixed-capacity cache. Uses a three-way decision based on a cheap
