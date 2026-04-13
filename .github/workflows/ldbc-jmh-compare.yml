@@ -181,6 +181,7 @@ jobs:
           echo "Canonical curated params installed for base run"
 
       - name: 'Base: setup database'
+        id: base_load
         run: |
           set -euo pipefail
           DB_DIR="jmh-ldbc/target/ldbc-bench-db"
@@ -203,17 +204,20 @@ jobs:
           echo "CSV dataset verified: static/ and dynamic/ present"
 
           echo "Loading database from CSV..."
+          LOAD_START=$(date +%s)
           ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
             -Dspotless.check.skip=true -Dcentral.skip=true \
             -Djmh.args="LdbcSingleThreadIC.*ic5_newGroups -f 0 -wi 0 -i 1 -r 1s -t 1" \
             2>&1 | tee /tmp/jmh-load-base-${{ github.run_id }}.txt
+          LOAD_END=$(date +%s)
+          echo "load_time=$((LOAD_END - LOAD_START))" >> "$GITHUB_OUTPUT"
 
           # Verify the database was actually created
           if [ ! -d "$DB_DIR/ldbc_benchmark" ]; then
             echo "::error::Database was not created after CSV load. Check load output above."
             exit 1
           fi
-          echo "Database loaded successfully from CSV"
+          echo "Database loaded successfully from CSV ($(( LOAD_END - LOAD_START ))s)"
 
       - name: 'Base: warm OS page cache'
         env:
@@ -291,6 +295,7 @@ jobs:
           echo "Canonical curated params installed for head run"
 
       - name: 'Head: setup database'
+        id: head_load
         run: |
           set -euo pipefail
           DB_DIR="jmh-ldbc/target/ldbc-bench-db"
@@ -313,17 +318,20 @@ jobs:
           echo "CSV dataset verified: static/ and dynamic/ present"
 
           echo "Loading database from CSV..."
+          LOAD_START=$(date +%s)
           ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
             -Dspotless.check.skip=true -Dcentral.skip=true \
             -Djmh.args="LdbcSingleThreadIC.*ic5_newGroups -f 0 -wi 0 -i 1 -r 1s -t 1" \
             2>&1 | tee /tmp/jmh-load-head-${{ github.run_id }}.txt
+          LOAD_END=$(date +%s)
+          echo "load_time=$((LOAD_END - LOAD_START))" >> "$GITHUB_OUTPUT"
 
           # Verify the database was actually created
           if [ ! -d "$DB_DIR/ldbc_benchmark" ]; then
             echo "::error::Database was not created after CSV load. Check load output above."
             exit 1
           fi
-          echo "Database loaded successfully from CSV"
+          echo "Database loaded successfully from CSV ($(( LOAD_END - LOAD_START ))s)"
 
       - name: 'Head: warm OS page cache'
         env:
@@ -384,6 +392,9 @@ jobs:
             --head "/tmp/jmh-head-${{ github.run_id }}.json" \
             --base-sha "${{ steps.commits.outputs.fork_point }}" \
             --head-sha "${{ steps.commits.outputs.head_sha }}" \
+            --repo-url "${{ github.server_url }}/${{ github.repository }}" \
+            --base-load-time "${{ steps.base_load.outputs.load_time }}" \
+            --head-load-time "${{ steps.head_load.outputs.load_time }}" \
             --output "/tmp/jmh-comparison-${{ github.run_id }}.md"
 
       - name: Upload artifacts
