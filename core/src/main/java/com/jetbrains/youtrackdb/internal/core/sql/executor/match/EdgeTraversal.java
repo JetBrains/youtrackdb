@@ -366,6 +366,8 @@ public class EdgeTraversal {
     //    No vertex of any link bag size would benefit from a RidSet
     //    this large (exceeds maxRidSetSize).
     if (estimatedSize > TraversalPreFilterHelper.maxRidSetSize()) {
+      lastSkipReason = PreFilterSkipReason.CAP_EXCEEDED;
+      preFilterSkippedCount++;
       if (key != null && cache.size() < CACHE_CAPACITY) {
         cache.put(key, null);
       }
@@ -394,6 +396,8 @@ public class EdgeTraversal {
           && indexLookupSelectivity
               > TraversalPreFilterHelper.indexLookupMaxSelectivity()) {
         // Class-level selectivity too high — cache null permanently.
+        lastSkipReason = PreFilterSkipReason.SELECTIVITY_TOO_LOW;
+        preFilterSkippedCount++;
         if (key != null && cache.size() < CACHE_CAPACITY) {
           cache.put(key, null);
         }
@@ -410,6 +414,8 @@ public class EdgeTraversal {
         if (accumulatedLinkBagTotal < (long) Math.ceil(minNeighbors)) {
           // Threshold not yet met — return null WITHOUT caching.
           // A later vertex may push the accumulated total over.
+          lastSkipReason = PreFilterSkipReason.BUILD_NOT_AMORTIZED;
+          preFilterSkippedCount++;
           assert key == null || !cache.containsKey(key)
               : "deferred build must not cache null";
           return null;
@@ -419,12 +425,22 @@ public class EdgeTraversal {
     } else if (estimatedSize >= 0
         && !desc.passesSelectivityCheck(estimatedSize, linkBagSize, ctx)) {
       // EdgeRidLookup / DirectRid / Composite: delegate to the descriptor.
+      lastSkipReason = PreFilterSkipReason.OVERLAP_RATIO_TOO_HIGH;
+      preFilterSkippedCount++;
       return null;
     }
 
     // 5. First big-enough hit — resolve (materialize) and cache.
     //    Pass the cache key so EdgeRidLookup reuses the target RID.
+    //    Record build time unconditionally on this cold path (T7).
+    long buildStart = System.nanoTime();
     var ridSet = desc.resolve(ctx, key);
+    preFilterBuildTimeNanos += System.nanoTime() - buildStart;
+    if (ridSet != null && preFilterRidSetSize == 0) {
+      preFilterRidSetSize = ridSet.size();
+    }
+    preFilterAppliedCount++;
+    lastSkipReason = PreFilterSkipReason.NONE;
     if (key != null && cache.size() < CACHE_CAPACITY) {
       cache.put(key, ridSet);
     }
