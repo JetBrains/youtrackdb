@@ -2102,6 +2102,16 @@ public class EdgeTraversalCacheTest {
   }
 
   /**
+   * NaN cacheHitPct should fall back to the default, not silently
+   * treat the cache as 0% hit (cold-storage assumption).
+   */
+  @Test
+  public void liveCostRatio_nanCacheHitPct_fallback() {
+    assertThat(EdgeTraversal.computeLiveCostRatio(1_000_000, 10_000, Double.NaN))
+        .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
+  }
+
+  /**
    * Negative cacheHitPct should be treated as 0%.
    */
   @Test
