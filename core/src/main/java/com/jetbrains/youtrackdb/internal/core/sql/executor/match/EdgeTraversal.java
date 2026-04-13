@@ -106,6 +106,55 @@ public class EdgeTraversal {
    */
   private double indexLookupSelectivity = Double.NaN;
 
+  // =========================================================================
+  // Pre-filter observability counters — not copied by copy().
+  // =========================================================================
+
+  /**
+   * Number of vertices where the pre-filter RidSet was applied
+   * (materialized and used for intersection).
+   */
+  private int preFilterAppliedCount;
+
+  /**
+   * Number of vertices where the pre-filter was skipped (not applied).
+   * Complementary to {@link #preFilterAppliedCount}.
+   */
+  private int preFilterSkippedCount;
+
+  /**
+   * Total number of adjacency list entries probed across all vertices
+   * where the pre-filter was applied. Equals the sum of link bag sizes
+   * for applied vertices.
+   */
+  private long preFilterTotalProbed;
+
+  /**
+   * Total number of adjacency list entries filtered out by the pre-filter
+   * across all vertices. Equals {@code totalProbed - totalRetained}.
+   */
+  private long preFilterTotalFiltered;
+
+  /**
+   * Wall-clock time (nanoseconds) spent building the pre-filter RidSet.
+   * Recorded once on the cold path (first materialization).
+   */
+  private long preFilterBuildTimeNanos;
+
+  /**
+   * Size of the materialized pre-filter RidSet (number of entries).
+   * Set once at materialization time.
+   */
+  private int preFilterRidSetSize;
+
+  /**
+   * Last reason a pre-filter was skipped. Initialized to {@link
+   * PreFilterSkipReason#NONE} to indicate no skip has occurred.
+   * Updated at each decision point in {@code resolveWithCache()} and
+   * {@code applyPreFilter()}.
+   */
+  private PreFilterSkipReason lastSkipReason = PreFilterSkipReason.NONE;
+
   /**
    * Fixed-capacity cache of resolved RidSets, keyed by
    * {@link RidFilterDescriptor#cacheKey}. Stops accepting new entries
@@ -226,6 +275,38 @@ public class EdgeTraversal {
 
   public void setAcceptedCollectionIds(@Nullable IntSet acceptedCollectionIds) {
     this.acceptedCollectionIds = acceptedCollectionIds;
+  }
+
+  // =========================================================================
+  // Pre-filter counter accessors (read by MatchStep.prettyPrint)
+  // =========================================================================
+
+  public int getPreFilterAppliedCount() {
+    return preFilterAppliedCount;
+  }
+
+  public int getPreFilterSkippedCount() {
+    return preFilterSkippedCount;
+  }
+
+  public long getPreFilterTotalProbed() {
+    return preFilterTotalProbed;
+  }
+
+  public long getPreFilterTotalFiltered() {
+    return preFilterTotalFiltered;
+  }
+
+  public long getPreFilterBuildTimeNanos() {
+    return preFilterBuildTimeNanos;
+  }
+
+  public int getPreFilterRidSetSize() {
+    return preFilterRidSetSize;
+  }
+
+  public PreFilterSkipReason getLastSkipReason() {
+    return lastSkipReason;
   }
 
   /**
@@ -415,10 +496,11 @@ public class EdgeTraversal {
     copy.acceptedCollectionIds = acceptedCollectionIds;
     copy.consumed = consumed;
     copy.consumedPredecessor = consumedPredecessor;
-    // Cache, accumulatedLinkBagTotal, and indexLookupSelectivity are
-    // intentionally not copied — stale data from a previous execution
-    // must not leak into a new plan instance. The constructor and field
-    // initializers reset them to their correct initial values.
+    // Cache, accumulatedLinkBagTotal, indexLookupSelectivity, and
+    // pre-filter counters are intentionally not copied — stale data
+    // from a previous execution must not leak into a new plan instance.
+    // The constructor and field initializers reset them to their correct
+    // initial values.
     return copy;
   }
 }
