@@ -1292,9 +1292,12 @@ public enum GlobalConfiguration {
   QUERY_PREFILTER_MAX_RIDSET_SIZE(
       "youtrackdb.query.prefilter.maxRidSetSize",
       "Maximum number of RIDs collected from an index or reverse edge lookup"
-          + " before aborting the pre-filter build (memory protection cap)",
+          + " before aborting the pre-filter build (memory protection cap)."
+          + " Auto-scaled to 0.5% of max heap, clamped to [100K, 10M]."
+          + " Set explicitly to override auto-scaling",
       Integer.class,
-      100_000,
+      (int) Math.min(10_000_000L,
+          Math.max(100_000L, Runtime.getRuntime().maxMemory() / 200)),
       true),
 
   /**
