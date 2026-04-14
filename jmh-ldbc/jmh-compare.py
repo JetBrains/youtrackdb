@@ -269,6 +269,12 @@ def main():
     parser.add_argument("--head", required=True, help="Head (branch tip) results JSON")
     parser.add_argument("--base-sha", required=True, help="Base commit SHA")
     parser.add_argument("--head-sha", required=True, help="Head commit SHA")
+    parser.add_argument("--repo-url", default="",
+                        help="Repository URL for commit links (e.g. https://github.com/owner/repo)")
+    parser.add_argument("--base-load-time", type=float, default=None,
+                        help="Base database load time in seconds")
+    parser.add_argument("--head-load-time", type=float, default=None,
+                        help="Head database load time in seconds")
     parser.add_argument("--output", default="-", help="Output file (- for stdout)")
     args = parser.parse_args()
 
@@ -287,12 +293,18 @@ def main():
     scal_reg, scal_imp, scal_sup = count_scalability_changes(
         base_scal, head_scal)
 
+    def fmt_sha(sha):
+        short = sha[:10]
+        if args.repo_url:
+            return f"[`{short}`]({args.repo_url}/commit/{sha})"
+        return f"`{short}`"
+
     lines = []
     lines.append("## JMH LDBC Benchmark Comparison")
     lines.append("")
     lines.append(
-        f"**Base:** `{args.base_sha[:10]}` (fork-point with develop) "
-        f"| **Head:** `{args.head_sha[:10]}`"
+        f"**Base:** {fmt_sha(args.base_sha)} (fork-point with develop) "
+        f"| **Head:** {fmt_sha(args.head_sha)}"
     )
     has_throughput = regressions > 0 or improvements > 0 or suppressed > 0
     has_scalability = scal_reg > 0 or scal_imp > 0 or scal_sup > 0
@@ -329,6 +341,39 @@ def main():
     else:
         lines.append("**Summary:** No significant changes detected.")
     lines.append("")
+
+    # Database load time comparison
+    if args.base_load_time is not None and args.head_load_time is not None:
+        def fmt_time(seconds, signed=False):
+            abs_s = abs(seconds)
+            m, s = divmod(abs_s, 60)
+            res = f"{int(m)}m {s:.1f}s" if m > 0 else f"{s:.1f}s"
+            if signed:
+                return f"{'+' if seconds >= 0 else '-'}{res}"
+            return res
+
+        base_t = args.base_load_time
+        head_t = args.head_load_time
+        delta_t = head_t - base_t
+        delta_pct = (delta_t / base_t * 100) if base_t > 0 else 0
+        # For load time, faster (negative delta) is improvement
+        if abs(delta_pct) < 5.0:
+            icon = ""
+        elif delta_t < 0:
+            icon = " :green_circle:"
+        else:
+            icon = " :red_circle:"
+        lines.append("### Database Load Time")
+        lines.append("")
+        lines.append("| | Time | \u0394 |")
+        lines.append("|---|---|---|")
+        lines.append(f"| Base | {fmt_time(base_t)} | |")
+        lines.append(
+            f"| Head | {fmt_time(head_t)} "
+            f"| {delta_pct:+.1f}% ({fmt_time(delta_t, signed=True)})"
+            f"{icon} |"
+        )
+        lines.append("")
 
     for suite, label in [("SingleThread", "Single-Thread"),
                          ("MultiThread", "Multi-Thread")]:
