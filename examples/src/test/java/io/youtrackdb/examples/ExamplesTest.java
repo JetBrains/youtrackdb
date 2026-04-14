@@ -200,8 +200,16 @@ public class ExamplesTest {
     // 13. Multiple inheritance: Pet query returns HouseDog
     assertEquals("output:pet:Buddy,owner=Alice", outputLines.get(21));
 
-    assertEquals("Expected exactly 22 output lines, got: " + outputLines,
-        22, outputLines.size());
+    // 14. Sequences: auto-generated invoice numbers via property default
+    assertEquals("output:invoice:1,Acme Corp", outputLines.get(22));
+    assertEquals("output:invoice:2,Globex Inc", outputLines.get(23));
+    assertEquals("output:invoice:3,Initech", outputLines.get(24));
+
+    // 15. Sequences: explicit sequence().next() in UPDATE (CACHED, START 1000)
+    assertEquals("output:ticket:1001,Login bug", outputLines.get(25));
+
+    assertEquals("Expected exactly 26 output lines, got: " + outputLines,
+        26, outputLines.size());
   }
 
   /**

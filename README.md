@@ -27,22 +27,22 @@ YouTrackDB's key features are:
    object-oriented data models. Fundamental concepts of
    [inheritance and polymorphism](docs/yql/YQL-Create-Class.md) are implemented on the database
    level.
-3. **Implementation of TinkerPop API and [Gremlin query language](https://tinkerpop.apache.org/)**:
+3. **Snapshot isolation by default**: All transactions run under snapshot isolation. Each
+   transaction sees a stable snapshot of the database as of its start time, eliminating dirty
+   reads, non-repeatable reads, and phantom reads.
+4. **Implementation of TinkerPop API and [Gremlin query language](https://tinkerpop.apache.org/)**:
    You can use both Gremlin query language for your queries and TinkerPop API out of the box. 
    Support of `GQL` with seamless integration with `Gremlin` is [in progress](https://youtrackdb.zulipchat.com/#narrow/channel/511446-dev/topic/GQL.20.20implementation/with/567918479).
    For maximum query performance, we suggest using [YQL](docs/yql/YQL-Introduction.md) for initial
    data prefetching.
-4. **[YQL](docs/yql/YQL-Introduction.md) (YouTrackDB Query Language)**: A SQL-based query language
+5. **[YQL](docs/yql/YQL-Introduction.md) (YouTrackDB Query Language)**: A SQL-based query language
    with extensions for graph functionality. YQL uses intuitive dot notation for link traversal
    instead of JOINs, supports the powerful [MATCH statement](docs/yql/YQL-Match.md) for graph
    pattern matching, and includes automatic index usage for query optimization.
-5. **Scalable development workflow**: YouTrackDB works in schema-less, schema-mixed, and schema-full
+6. **Scalable development workflow**: YouTrackDB works in schema-less, schema-mixed, and schema-full
    modes.
-6. **[Strong security](docs/security.md)**: A strong security profiling system based on user, role,
+7. **[Strong security](docs/security.md)**: A strong security profiling system based on user, role,
    and predicate [security policies](docs/yql/YQL-Create-Security-Policy.md).
-7. **Snapshot isolation by default**: All transactions run under snapshot isolation. Each
-   transaction sees a stable snapshot of the database as of its start time, eliminating dirty
-   reads, non-repeatable reads, and phantom reads.
 8. **Encryption of data at rest**: Optionally encrypts all data stored on disk.
 
 ### Easy to install and use
@@ -129,7 +129,3 @@ To learn how to use YouTrackDB, see the [Getting Started](docs/getting-started.m
 
 For more examples covering both server and embedded deployments, check out the
 [examples](examples/src/main/java/io/youtrackdb/examples) project.
-
-## Stargazers over time
-
-[![Stargazers over time](https://starchart.cc/JetBrains/youtrackdb.svg?variant=adaptive)](https://starchart.cc/JetBrains/youtrackdb)

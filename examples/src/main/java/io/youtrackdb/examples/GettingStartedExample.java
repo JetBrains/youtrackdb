@@ -258,6 +258,10 @@ public class GettingStartedExample {
       // ---- Inheritance and Polymorphic Queries ----
 
       inheritanceExample(ytdb);
+
+      // ---- Sequences ----
+
+      sequenceExample(ytdb);
     }
   }
 
@@ -342,6 +346,89 @@ public class GettingStartedExample {
           System.out.println(
               "output:pet:" + map.get("name") + ",owner=" + map.get("ownerName"));
         }
+      });
+    }
+  }
+
+  @SuppressWarnings("SystemOut")
+  static void sequenceExample(YouTrackDB ytdb) {
+    ytdb.create("sequence-demo", DatabaseType.MEMORY,
+        "admin", "adminpwd", "admin");
+
+    try (var g = ytdb.openTraversal("sequence-demo", "admin", "adminpwd")) {
+      // Create an ORDERED sequence. Each call to sequence('name').next()
+      // returns the next value (default: starts at 0, increments by 1).
+      g.executeInTx(tx -> {
+        tx.command("CREATE SEQUENCE invoiceSeq TYPE ORDERED");
+      });
+
+      // Use the sequence as a property default for auto-generated IDs.
+      // When a vertex is created without setting invoiceNo, the default
+      // expression calls sequence('invoiceSeq').next() automatically.
+      g.executeInTx(tx -> {
+        tx.command("CREATE CLASS Invoice EXTENDS V");
+        tx.command("CREATE PROPERTY Invoice.invoiceNo LONG"
+            + " (MANDATORY TRUE,"
+            + " default \"sequence('invoiceSeq').next()\")");
+        tx.command(
+            "CREATE PROPERTY Invoice.customer STRING (MANDATORY TRUE)");
+        tx.command("CREATE PROPERTY Invoice.amount DOUBLE");
+        tx.command(
+            "CREATE INDEX Invoice.invoiceNo ON Invoice (invoiceNo) UNIQUE");
+      });
+
+      // Insert invoices — invoiceNo is assigned automatically.
+      g.executeInTx(tx -> {
+        tx.yql("CREATE VERTEX Invoice"
+            + " SET customer = 'Acme Corp', amount = 1500.00").iterate();
+        tx.yql("CREATE VERTEX Invoice"
+            + " SET customer = 'Globex Inc', amount = 2300.50").iterate();
+        tx.yql("CREATE VERTEX Invoice"
+            + " SET customer = 'Initech', amount = 750.00").iterate();
+      });
+
+      // Query to see auto-assigned invoice numbers.
+      g.executeInTx(tx -> {
+        var invoices = tx.yql(
+            "SELECT invoiceNo, customer FROM Invoice ORDER BY invoiceNo")
+            .toList();
+        for (var row : invoices) {
+          @SuppressWarnings("unchecked")
+          var map = (Map<String, Object>) row;
+          System.out.println(
+              "output:invoice:" + map.get("invoiceNo")
+                  + "," + map.get("customer"));
+        }
+      });
+
+      // Use sequence('name').next() explicitly in an UPDATE statement.
+      // CACHED sequences pre-allocate values in blocks for higher throughput.
+      g.executeInTx(tx -> {
+        tx.command("CREATE SEQUENCE ticketSeq TYPE CACHED"
+            + " START 1000 INCREMENT 1 CACHE 20");
+        tx.command("CREATE CLASS Ticket EXTENDS V");
+        tx.command("CREATE PROPERTY Ticket.ticketNo LONG");
+        tx.command(
+            "CREATE PROPERTY Ticket.summary STRING (MANDATORY TRUE)");
+      });
+
+      g.executeInTx(tx -> {
+        tx.yql("CREATE VERTEX Ticket SET summary = 'Login bug'")
+            .iterate();
+      });
+      g.executeInTx(tx -> {
+        tx.yql("UPDATE Ticket SET ticketNo = sequence('ticketSeq').next()"
+            + " WHERE summary = 'Login bug'").iterate();
+      });
+
+      g.executeInTx(tx -> {
+        var ticket = tx.yql(
+            "SELECT ticketNo, summary FROM Ticket").next();
+        @SuppressWarnings("unchecked")
+        var map = (Map<String, Object>) ticket;
+        System.out.println(
+            "output:ticket:" + map.get("ticketNo")
+                + "," + map.get("summary"));
       });
     }
   }
