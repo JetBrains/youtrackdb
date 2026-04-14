@@ -160,9 +160,11 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
       return indexScanFiltered(ridSet, ctx, upstreamRow);
     } else {
-      // Low density: load directly from RidSet (unsorted).
-      // OrderByStep will sort with bounded heap.
-      ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
+      // Low density: load from RidSet, sort in-memory.
+      // Emits sorted stream — downstream OrderByStep passes through,
+      // and lazy evaluation + LIMIT means subsequent edges only
+      // process the top K records.
+      ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
       return loadFromRidSet(ridSet, ctx, upstreamRow);
     }
   }
@@ -196,18 +198,50 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   }
 
   /**
-   * Single-source low-density fallback: load targets directly from RidSet
-   * without sorting. Downstream OrderByStep handles sorting with bounded heap.
+   * Single-source low-density fallback: load targets directly from RidSet,
+   * sort by the ORDER BY property, and emit as a pre-sorted stream.
+   * Because the output is sorted, downstream OrderByStep passes through,
+   * and lazy evaluation + LIMIT means subsequent edges only process the
+   * top K records instead of all loaded records.
    */
+  @SuppressWarnings("unchecked")
   private ExecutionStream loadFromRidSet(
       RidSet ridSet, CommandContext ctx, Result upstreamRow) {
     var session = ctx.getDatabaseSession();
+
+    // Materialize all matching targets
+    var records = new ArrayList<Result>();
+    for (var rid : ridSet) {
+      var record = loadRecord(rid, session);
+      if (record != null
+          && matchesTargetFilter(record, ctx)
+          && !isAlreadyBoundAndDifferent(upstreamRow, record, session)) {
+        records.add(record);
+      }
+    }
+
+    // Sort by ORDER BY property for pre-sorted output.
+    // Property name comes from the index definition (single-field index).
+    var propertyName =
+        index.getDefinition().getProperties().iterator().next();
+    records.sort((a, b) -> {
+      var va = (Comparable<Object>) a.getProperty(propertyName);
+      var vb = (Comparable<Object>) b.getProperty(propertyName);
+      if (va == null && vb == null) {
+        return 0;
+      }
+      if (va == null) {
+        return orderAsc ? 1 : -1;
+      }
+      if (vb == null) {
+        return orderAsc ? -1 : 1;
+      }
+      int cmp = va.compareTo(vb);
+      return orderAsc ? cmp : -cmp;
+    });
+
     return ExecutionStream.resultIterator(
-        ridSet.stream()
-            .map(rid -> loadRecord(rid, session))
-            .filter(record -> record != null
-                && matchesTargetFilter(record, ctx)
-                && !isAlreadyBoundAndDifferent(upstreamRow, record, session))
+        records.stream()
             .map(record -> (Result) new MatchResultRow(
                 session, upstreamRow, targetAlias, record))
             .iterator());
