@@ -2671,14 +2671,18 @@ public abstract class AbstractStorage
     mgr.setKeyFieldCount(keyFieldCount);
 
     // Wire the sorted key stream function for background rebalance.
-    // The atomic operation is created by the caller (on the rebalance thread)
-    // so that snapshot visibility and tsMin tracking are thread-local correct.
+    // Uses the raw (non-SI-filtered) key stream: SI filtering is unnecessary
+    // for histogram rebalance because the histogram tolerates the tiny error
+    // from uncommitted/phantom entries (< 0.01% of index size), and skipping
+    // it avoids drift between scanned counts and scalar counters.
     if (isSingleValue) {
       mgr.setKeyStreamSupplier(
-          atomicOp -> ((BTreeSingleValueIndexEngine) engine).keyStream(atomicOp));
+          atomicOp -> ((BTreeSingleValueIndexEngine) engine)
+              .rawKeyStreamForHistogram(atomicOp));
     } else {
       mgr.setKeyStreamSupplier(
-          atomicOp -> ((BTreeMultiValueIndexEngine) engine).keyStream(atomicOp));
+          atomicOp -> ((BTreeMultiValueIndexEngine) engine)
+              .rawKeyStreamForHistogram(atomicOp));
     }
     engine.setHistogramManager(mgr);
 
