@@ -20,7 +20,7 @@ jobs:
       # validated during the pull_request event.
       - name: Check and update PR title
         if: github.event_name == 'pull_request'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const prNumber = context.payload.pull_request.number;
