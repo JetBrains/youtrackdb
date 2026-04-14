@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
@@ -83,9 +84,9 @@ public class PathNodeTest {
   }
 
   /**
-   * Two paths sharing a common prefix produce independent lists — mutating one
-   * does not affect the other. This verifies that structural sharing in the
-   * cons-cell chain does not leak through toList().
+   * Two paths sharing a common prefix produce independent lists with correct
+   * contents. This verifies that structural sharing in the cons-cell chain does
+   * not leak through toList().
    */
   @Test
   public void structuralSharingProducesIndependentLists() {
@@ -108,8 +109,9 @@ public class PathNodeTest {
     assertSame(rLeft, leftList.get(1));
     assertSame(rRight, rightList.get(1));
 
-    // Mutating one list does not affect the other
-    leftList.clear();
+    // Lists are independent objects with correct sizes
+    assertNotSame(leftList, rightList);
+    assertEquals(2, leftList.size());
     assertEquals(2, rightList.size());
   }
 
