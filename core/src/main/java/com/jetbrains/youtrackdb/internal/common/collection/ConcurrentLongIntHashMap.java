@@ -275,11 +275,16 @@ public class ConcurrentLongIntHashMap<V> {
     }
   }
 
-  /** Returns the total capacity (sum of all section capacities). */
+  /**
+   * Returns the total capacity (sum of all section capacities). Reads each section's
+   * {@code entries.length} without locking — safe for diagnostics and test assertions
+   * (the array reference is always a valid object, though the value may be momentarily stale
+   * during concurrent rehash).
+   */
   public long capacity() {
     long total = 0;
     for (Section<V> s : sections) {
-      total += s.capacity;
+      total += s.entries.length;
     }
     return total;
   }
@@ -354,8 +359,8 @@ public class ConcurrentLongIntHashMap<V> {
    * {@link StampedLock}. Uses open addressing with linear probing.
    *
    * <p>An empty slot has {@code entries[i] == null}. All mutations happen under the write lock;
-   * optimistic readers snapshot the array reference and capacity, then validate the stamp after
-   * probing.
+   * optimistic readers snapshot the array reference and derive the bucket mask from its length,
+   * then validate the stamp after probing.
    */
   private static final class Section<V> {
     private static final float FILL_FACTOR = 0.66f;
@@ -371,7 +376,10 @@ public class ConcurrentLongIntHashMap<V> {
     /** Number of occupied buckets. Drives resize threshold. */
     private int usedBuckets;
 
-    /** Current array length (always a power of two). */
+    /**
+     * Current array length (always a power of two). Only accessed under lock; the optimistic
+     * read path derives capacity from {@code entries.length} instead to avoid ARM reorder races.
+     */
     private int capacity;
 
     /** Resize when usedBuckets exceeds this. */
@@ -392,9 +400,15 @@ public class ConcurrentLongIntHashMap<V> {
       // validation will fail and we fall back to the read lock.
       long stamp = lock.tryOptimisticRead();
 
-      // Snapshot mutable fields to locals under the optimistic stamp
-      int cap = capacity;
+      // Snapshot the array reference, then derive capacity from it — NOT from the
+      // `capacity` field. On weakly-ordered architectures (ARM/aarch64), plain-field
+      // stores in rehashTo() can be reordered: a reader may observe the new `capacity`
+      // (larger) while still seeing the old `entries` array (smaller), causing
+      // ArrayIndexOutOfBoundsException when the mask exceeds the array length.
+      // Deriving the mask from tbl.length guarantees consistency: the length is an
+      // immutable property of the array object we already hold a reference to.
       Entry<V>[] tbl = entries;
+      int cap = tbl.length;
 
       int bucketMask = cap - 1;
       int bucket = hashMix & bucketMask;
@@ -756,11 +770,12 @@ public class ConcurrentLongIntHashMap<V> {
         }
       }
 
-      // Swap array BEFORE capacity — an optimistic reader that snapshots the new capacity
-      // but old array would use a mask larger than the array length, causing AIOOBE.
-      // By writing the array first, a reader that sees the old capacity uses a smaller mask
-      // against a larger array (safe), while a reader that sees the new capacity uses the
-      // correct mask against the new array (also safe).
+      // Write order between entries and capacity does not matter for correctness:
+      // optimistic readers derive their bucket mask from tbl.length (not from the
+      // `capacity` field), and validate() catches any concurrent modifications.
+      // On weakly-ordered architectures (ARM/aarch64), plain stores can be reordered
+      // by the CPU regardless of program order, so write ordering alone would be
+      // insufficient — the tbl.length approach is the actual safety mechanism.
       entries = newEntries;
       capacity = newCapacity;
       resizeThreshold = (int) (newCapacity * FILL_FACTOR);
