@@ -193,22 +193,22 @@ public class LdbcQueryExplainTest {
   }
 
   /**
-   * IC3: The LET subqueries use {@code expand(in('HAS_CREATOR'))} with
-   * {@code WHERE creationDate >= :startDate AND creationDate < :endDate}.
-   * Since {@code Message.creationDate} is indexed, the planner should
-   * produce an index pre-filter push-down in the EXPAND step.
+   * IC3: The MATCH chain traverses {@code {person}.in('HAS_CREATOR'){message}}
+   * with {@code WHERE creationDate >= :startDate AND creationDate < :endDate}.
+   * Since {@code Message.creationDate} is indexed, the planner should use
+   * adjacency list intersection with the index during the MATCH step.
    */
   @Test
-  public void testIC3_indexPreFilterPushDown() {
+  public void testIC3_indexIntersection() {
     String plan = explain(LdbcQuerySql.IC3,
         "personId", 1L,
         "startDate", new Date(epochMillis(2012, 6, 1)),
         "endDate", new Date(epochMillis(2012, 7, 1)),
         "countryX", "China", "countryY", "India", "limit", 10);
     assertTrue(
-        "IC3 plan should show index pre-filter push-down on EXPAND for "
+        "IC3 plan should show index intersection on HAS_CREATOR step for "
             + "Message.creationDate range. Plan was:\n" + plan,
-        plan.contains("index pre-filter"));
+        plan.contains("intersection: index Message.creationDate"));
   }
 
   // ==================== Helpers ====================
