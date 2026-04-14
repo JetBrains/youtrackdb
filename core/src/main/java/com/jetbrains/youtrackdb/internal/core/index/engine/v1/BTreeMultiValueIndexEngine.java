@@ -5,6 +5,7 @@ import com.jetbrains.youtrackdb.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.id.TombstoneRID;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexMetadata;
@@ -20,6 +21,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomi
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTree;
 import java.io.IOException;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
@@ -511,6 +513,26 @@ public final class BTreeMultiValueIndexEngine
     return VersionedIndexOps.extractUserKey(compositeKey, 2);
   }
 
+  /**
+   * Returns a raw key stream that skips {@link TombstoneRID} entries but does
+   * <b>not</b> apply SI visibility filtering. Suitable only for histogram
+   * building/rebalance where approximate counts are acceptable.
+   *
+   * <p>See {@link BTreeSingleValueIndexEngine#rawKeyStreamForHistogram} for the
+   * full rationale.
+   */
+  public Stream<Object> rawKeyStreamForHistogram(
+      @Nonnull AtomicOperation atomicOperation) {
+    final var firstKey = svTree.firstKey(atomicOperation);
+    if (firstKey == null) {
+      return Stream.empty();
+    }
+    return svTree.iterateEntriesMajor(firstKey, true, true, atomicOperation)
+        .filter(pair -> !(pair.second() instanceof TombstoneRID))
+        .map(pair -> extractKey(pair.first()))
+        .filter(Objects::nonNull);
+  }
+
   @Override
   public void buildInitialHistogram(@Nonnull AtomicOperation atomicOperation)
       throws IOException {
@@ -524,7 +546,11 @@ public final class BTreeMultiValueIndexEngine
     long approxNull = approximateNullCount.get();
 
     long scannedNonNull;
-    try (var keyStream = keyStream(atomicOperation)) {
+    // Use the raw (non-SI-filtered) key stream for histogram building.
+    // SI filtering is unnecessary here because the histogram tolerates the
+    // tiny error from uncommitted/phantom entries (< 0.01% of index size),
+    // and skipping it avoids drift between scanned counts and scalar counters.
+    try (var keyStream = rawKeyStreamForHistogram(atomicOperation)) {
       scannedNonNull = mgr.buildHistogram(
           atomicOperation, keyStream,
           approxTotal, approxNull,

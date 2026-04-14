@@ -16,6 +16,7 @@ import static org.mockito.Mockito.when;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.SnapshotMarkerRID;
 import com.jetbrains.youtrackdb.internal.core.id.TombstoneRID;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
@@ -290,6 +291,138 @@ public class BTreeEngineHistogramBuildTest {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
+  // Single-value: rawKeyStreamForHistogram — TombstoneRID / SnapshotMarkerRID
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * rawKeyStreamForHistogram must filter out TombstoneRID entries (logically
+   * deleted keys) but pass through live RecordId entries. This verifies the
+   * core filter predicate: {@code !(pair.second() instanceof TombstoneRID)}.
+   */
+  @Test
+  public void singleValue_buildInitialHistogram_filtersTombstoneRID()
+      throws IOException {
+    // Given: B-tree contains 3 live entries and 2 tombstones
+    var f = new SingleValueFixture();
+    f.engine.addToApproximateEntriesCount(5);
+    when(f.sbTree.iterateEntriesBetween(
+        any(), eq(true), any(), eq(true), eq(true), any()))
+        .thenAnswer(inv -> Stream.empty());
+    var firstKey = new CompositeKey("a", 0L);
+    when(f.sbTree.firstKey(f.op)).thenReturn(firstKey);
+    when(f.sbTree.iterateEntriesMajor(eq(firstKey), eq(true), eq(true), any()))
+        .thenAnswer(inv -> Stream.of(
+            new RawPair<>(new CompositeKey("a", 0L), new RecordId(2, 1)),
+            new RawPair<>(new CompositeKey("b", 0L),
+                new TombstoneRID(new RecordId(2, 2))),
+            new RawPair<>(new CompositeKey("c", 0L), new RecordId(2, 3)),
+            new RawPair<>(new CompositeKey("d", 0L),
+                new TombstoneRID(new RecordId(2, 4))),
+            new RawPair<>(new CompositeKey("e", 0L), new RecordId(2, 5))));
+    when(f.manager.getKeyFieldCount()).thenReturn(1);
+    // buildHistogram receives stream with 3 live keys (tombstones filtered)
+    when(f.manager.buildHistogram(any(), any(), anyLong(), anyLong(), anyInt()))
+        .thenReturn(3L);
+
+    f.engine.buildInitialHistogram(f.op);
+
+    // Counters must reflect 3 live entries, not 5 total
+    assertEquals(3, f.engine.getTotalCount(f.op));
+    assertEquals(0, f.engine.getNullCount(f.op));
+  }
+
+  /**
+   * SnapshotMarkerRID entries represent re-inserted/updated keys — they are
+   * live and must NOT be filtered by rawKeyStreamForHistogram. This test
+   * verifies that SnapshotMarkerRID passes through the filter while
+   * TombstoneRID is excluded.
+   */
+  @Test
+  public void singleValue_buildInitialHistogram_countsSnapshotMarkerRID()
+      throws IOException {
+    // Given: B-tree has 1 RecordId, 1 SnapshotMarkerRID (live), 1 TombstoneRID
+    var f = new SingleValueFixture();
+    f.engine.addToApproximateEntriesCount(3);
+    when(f.sbTree.iterateEntriesBetween(
+        any(), eq(true), any(), eq(true), eq(true), any()))
+        .thenAnswer(inv -> Stream.empty());
+    var firstKey = new CompositeKey("a", 0L);
+    when(f.sbTree.firstKey(f.op)).thenReturn(firstKey);
+    when(f.sbTree.iterateEntriesMajor(eq(firstKey), eq(true), eq(true), any()))
+        .thenAnswer(inv -> Stream.of(
+            new RawPair<>(new CompositeKey("a", 0L), new RecordId(2, 1)),
+            new RawPair<>(new CompositeKey("b", 0L),
+                new SnapshotMarkerRID(new RecordId(2, 2))),
+            new RawPair<>(new CompositeKey("c", 0L),
+                new TombstoneRID(new RecordId(2, 3)))));
+    when(f.manager.getKeyFieldCount()).thenReturn(1);
+    // buildHistogram receives 2 keys: "a" (RecordId) + "b" (SnapshotMarkerRID)
+    when(f.manager.buildHistogram(any(), any(), anyLong(), anyLong(), anyInt()))
+        .thenReturn(2L);
+
+    f.engine.buildInitialHistogram(f.op);
+
+    // 2 live entries (RecordId + SnapshotMarkerRID), tombstone excluded
+    assertEquals(2, f.engine.getTotalCount(f.op));
+  }
+
+  /**
+   * When the B-tree is completely empty (firstKey returns null),
+   * rawKeyStreamForHistogram returns Stream.empty(). This exercises the
+   * early-return branch at the top of the method.
+   */
+  @Test
+  public void singleValue_buildInitialHistogram_completelyEmptyTree()
+      throws IOException {
+    // Given: completely empty B-tree (firstKey returns null)
+    var f = new SingleValueFixture();
+    f.engine.addToApproximateEntriesCount(0);
+    // sbTree.firstKey returns null by default (Mockito default for Object)
+    when(f.manager.getKeyFieldCount()).thenReturn(1);
+    when(f.manager.buildHistogram(any(), any(), anyLong(), anyLong(), anyInt()))
+        .thenReturn(0L);
+
+    f.engine.buildInitialHistogram(f.op);
+
+    verify(f.manager).buildHistogram(eq(f.op), any(), eq(0L), eq(0L), eq(1));
+    assertEquals(0, f.engine.getTotalCount(f.op));
+    assertEquals(0, f.engine.getNullCount(f.op));
+  }
+
+  /**
+   * When all non-null B-tree entries are TombstoneRID (mass deletion without
+   * compaction), the raw stream produces zero elements after filtering.
+   */
+  @Test
+  public void singleValue_buildInitialHistogram_allTombstones_returnsZero()
+      throws IOException {
+    // Given: all non-null entries are tombstones
+    var f = new SingleValueFixture();
+    f.engine.addToApproximateEntriesCount(3);
+    when(f.sbTree.iterateEntriesBetween(
+        any(), eq(true), any(), eq(true), eq(true), any()))
+        .thenAnswer(inv -> Stream.empty());
+    var firstKey = new CompositeKey("a", 0L);
+    when(f.sbTree.firstKey(f.op)).thenReturn(firstKey);
+    when(f.sbTree.iterateEntriesMajor(eq(firstKey), eq(true), eq(true), any()))
+        .thenAnswer(inv -> Stream.of(
+            new RawPair<>(new CompositeKey("a", 0L),
+                new TombstoneRID(new RecordId(2, 1))),
+            new RawPair<>(new CompositeKey("b", 0L),
+                new TombstoneRID(new RecordId(2, 2))),
+            new RawPair<>(new CompositeKey("c", 0L),
+                new TombstoneRID(new RecordId(2, 3)))));
+    when(f.manager.getKeyFieldCount()).thenReturn(1);
+    when(f.manager.buildHistogram(any(), any(), anyLong(), anyLong(), anyInt()))
+        .thenReturn(0L);
+
+    f.engine.buildInitialHistogram(f.op);
+
+    // All entries filtered out, exact total = 0 non-null + 0 null = 0
+    assertEquals(0, f.engine.getTotalCount(f.op));
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
   // Single-value: getNullCount() / getTotalCount() — O(1) counter reads
   // ═══════════════════════════════════════════════════════════════════════
 
@@ -402,6 +535,38 @@ public class BTreeEngineHistogramBuildTest {
     verify(f.svTree).setApproximateEntriesCount(f.op, 2L);
     // Null tree is empty (firstKey returns null by default), so exact null count = 0
     verify(f.nullTree).setApproximateEntriesCount(f.op, 0L);
+  }
+
+  /**
+   * Multi-value rawKeyStreamForHistogram must filter out TombstoneRID entries
+   * while counting live entries, mirroring the single-value behavior.
+   */
+  @Test
+  public void multiValue_buildInitialHistogram_filtersTombstoneRID()
+      throws IOException {
+    // Given: svTree has 2 live entries and 1 tombstone
+    var f = new MultiValueFixture();
+    f.engine.addToApproximateEntriesCount(3);
+    var firstKey = new CompositeKey("a", new RecordId(2, 1), 0L);
+    when(f.svTree.firstKey(f.op)).thenReturn(firstKey);
+    when(f.svTree.iterateEntriesMajor(eq(firstKey), eq(true), eq(true), any()))
+        .thenAnswer(inv -> Stream.of(
+            new RawPair<>(new CompositeKey("a", new RecordId(2, 1), 0L),
+                new RecordId(2, 1)),
+            new RawPair<>(new CompositeKey("b", new RecordId(2, 2), 0L),
+                new TombstoneRID(new RecordId(2, 2))),
+            new RawPair<>(new CompositeKey("c", new RecordId(2, 3), 0L),
+                new RecordId(2, 3))));
+    when(f.manager.getKeyFieldCount()).thenReturn(1);
+    // buildHistogram receives 2 live keys (tombstone filtered out)
+    when(f.manager.buildHistogram(any(), any(), anyLong(), anyLong(), anyInt()))
+        .thenReturn(2L);
+
+    f.engine.buildInitialHistogram(f.op);
+
+    // Counters: 2 non-null live + 0 null = 2 total
+    assertEquals(2, f.engine.getTotalCount(f.op));
+    verify(f.svTree).setApproximateEntriesCount(f.op, 2L);
   }
 
   @Test

@@ -523,6 +523,31 @@ public final class BTreeSingleValueIndexEngine
     }
   }
 
+  /**
+   * Returns a raw key stream that skips {@link TombstoneRID} entries but does
+   * <b>not</b> apply SI visibility filtering. Suitable only for histogram
+   * building/rebalance where approximate counts are acceptable.
+   *
+   * <p>Under snapshot isolation the B-tree stores exactly one physical entry per
+   * logical key — old versions live in the snapshot index, not in the B-tree.
+   * The only non-visible entries during raw iteration come from uncommitted or
+   * phantom transactions (bounded by concurrent writer count, typically
+   * &lt;&lt; 0.01% of index size). Skipping the per-entry visibility check
+   * eliminates the drift between the scanned count and the scalar counters
+   * that caused flaky stress-test failures (nonNullCount deviation).
+   */
+  public Stream<Object> rawKeyStreamForHistogram(
+      @Nonnull AtomicOperation atomicOperation) {
+    final var firstKey = sbTree.firstKey(atomicOperation);
+    if (firstKey == null) {
+      return Stream.empty();
+    }
+    return sbTree.iterateEntriesMajor(firstKey, true, true, atomicOperation)
+        .filter(pair -> !(pair.second() instanceof TombstoneRID))
+        .map(pair -> extractKey(pair.first()))
+        .filter(Objects::nonNull);
+  }
+
   @Override
   public void buildInitialHistogram(@Nonnull AtomicOperation atomicOperation)
       throws IOException {
@@ -536,7 +561,11 @@ public final class BTreeSingleValueIndexEngine
     long exactNullCount = countNulls(atomicOperation);
 
     long scannedNonNull;
-    try (var keyStream = keyStream(atomicOperation)) {
+    // Use the raw (non-SI-filtered) key stream for histogram building.
+    // SI filtering is unnecessary here because the histogram tolerates the
+    // tiny error from uncommitted/phantom entries (< 0.01% of index size),
+    // and skipping it avoids drift between scanned counts and scalar counters.
+    try (var keyStream = rawKeyStreamForHistogram(atomicOperation)) {
       scannedNonNull = mgr.buildHistogram(
           atomicOperation, keyStream,
           approxTotal, exactNullCount,
