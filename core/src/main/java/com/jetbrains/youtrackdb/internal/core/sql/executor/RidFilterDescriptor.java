@@ -378,5 +378,20 @@ public sealed interface RidFilterDescriptor {
       }
       return keys;
     }
+
+    /**
+     * Returns the first {@link IndexLookup} child, or {@code null} if none
+     * exists. Used by {@code EdgeTraversal} to apply the build amortization
+     * guard and selectivity caching to Composite descriptors that contain
+     * an expensive index lookup.
+     */
+    @Nullable public IndexLookup findIndexLookup() {
+      for (var d : descriptors) {
+        if (d instanceof IndexLookup il) {
+          return il;
+        }
+      }
+      return null;
+    }
   }
 }

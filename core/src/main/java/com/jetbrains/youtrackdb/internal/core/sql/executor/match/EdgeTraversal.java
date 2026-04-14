@@ -154,7 +154,8 @@ public class EdgeTraversal {
 
   /**
    * Running sum of link bag sizes across vertices for {@link
-   * RidFilterDescriptor.IndexLookup} build amortization. The accumulator
+   * RidFilterDescriptor.IndexLookup} build amortization (standalone or
+   * inside a {@link RidFilterDescriptor.Composite}). The accumulator
    * tracks how many total neighbors have been encountered; once the total
    * exceeds {@link #computeMinNeighborsForBuild}'s threshold, the RidSet
    * is materialized. Not copied by {@link #copy()} — each query execution
@@ -164,10 +165,12 @@ public class EdgeTraversal {
 
   /**
    * Cached selectivity value for the {@link RidFilterDescriptor.IndexLookup}
-   * descriptor. {@code NaN} means not yet computed; {@code < 0} (e.g.
-   * {@code -1.0}) means unknown (bypass accumulator and build immediately).
-   * Not copied by {@link #copy()} — each query execution re-computes on
-   * first use (the field initializer resets to {@code NaN}).
+   * component of the intersection descriptor (standalone or inside a
+   * {@link RidFilterDescriptor.Composite}). {@code NaN} means not yet
+   * computed; {@code < 0} (e.g. {@code -1.0}) means unknown (bypass
+   * accumulator and build immediately). Not copied by {@link #copy()} —
+   * each query execution re-computes on first use (the field initializer
+   * resets to {@code NaN}).
    */
   private double indexLookupSelectivity = Double.NaN;
 
@@ -488,15 +491,23 @@ public class EdgeTraversal {
     }
 
     // 4. Descriptor-specific selectivity check against estimate.
-    //    For IndexLookup: handled together with the build amortization
-    //    guard below (step 4b) to avoid redundant estimateSelectivity()
-    //    calls — the selectivity is cached once and reused for both the
-    //    threshold check and the amortization formula.
+    //    For IndexLookup (standalone or inside Composite): handled together
+    //    with the build amortization guard below (step 4c) to avoid
+    //    redundant estimateSelectivity() calls — the selectivity is cached
+    //    once and reused for both the threshold check and the amortization
+    //    formula.
     //    For EdgeRidLookup: per-vertex overlap ratio (DON'T cache null —
     //    a later vertex with a larger link bag may benefit).
     //    For DirectRid: always passes (never reaches this branch in
     //    practice since estimatedSize is 1).
-    if (desc instanceof RidFilterDescriptor.IndexLookup indexLookup) {
+    RidFilterDescriptor.IndexLookup indexLookup = null;
+    if (desc instanceof RidFilterDescriptor.IndexLookup il) {
+      indexLookup = il;
+    } else if (desc instanceof RidFilterDescriptor.Composite composite) {
+      indexLookup = composite.findIndexLookup();
+    }
+
+    if (indexLookup != null) {
       // 4a. Cache selectivity on first call — class-level, constant per query.
       if (Double.isNaN(indexLookupSelectivity)) {
         indexLookupSelectivity =
@@ -537,7 +548,7 @@ public class EdgeTraversal {
       // Threshold met (or unknown selectivity) — fall through to materialize.
     } else if (estimatedSize >= 0
         && !desc.passesSelectivityCheck(estimatedSize, linkBagSize, ctx)) {
-      // EdgeRidLookup / DirectRid / Composite: delegate to the descriptor.
+      // EdgeRidLookup / DirectRid: delegate to the descriptor.
       lastSkipReason = PreFilterSkipReason.OVERLAP_RATIO_TOO_HIGH;
       preFilterSkippedCount++;
       return null;

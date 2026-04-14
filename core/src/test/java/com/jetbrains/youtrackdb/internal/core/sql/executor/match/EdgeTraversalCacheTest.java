@@ -921,6 +921,40 @@ public class EdgeTraversalCacheTest {
   }
 
   // =========================================================================
+  // findIndexLookup — Composite helper
+  // =========================================================================
+
+  /** findIndexLookup returns the first IndexLookup child. */
+  @Test
+  public void composite_findIndexLookup_present_returnsIt() {
+    var edgeLookup = mock(RidFilterDescriptor.EdgeRidLookup.class);
+    var indexLookup = mock(RidFilterDescriptor.IndexLookup.class);
+    var composite = new RidFilterDescriptor.Composite(
+        List.of(edgeLookup, indexLookup));
+
+    assertThat(composite.findIndexLookup()).isSameAs(indexLookup);
+  }
+
+  /** findIndexLookup returns null when no IndexLookup child exists. */
+  @Test
+  public void composite_findIndexLookup_absent_returnsNull() {
+    var edgeLookup1 = mock(RidFilterDescriptor.EdgeRidLookup.class);
+    var edgeLookup2 = mock(RidFilterDescriptor.EdgeRidLookup.class);
+    var composite = new RidFilterDescriptor.Composite(
+        List.of(edgeLookup1, edgeLookup2));
+
+    assertThat(composite.findIndexLookup()).isNull();
+  }
+
+  /** findIndexLookup returns null for empty composite. */
+  @Test
+  public void composite_findIndexLookup_empty_returnsNull() {
+    var composite = new RidFilterDescriptor.Composite(List.of());
+
+    assertThat(composite.findIndexLookup()).isNull();
+  }
+
+  // =========================================================================
   // passesSelectivityCheck — boundary values (ratio=1.0, selectivity=1.0)
   // =========================================================================
 
@@ -1438,17 +1472,18 @@ public class EdgeTraversalCacheTest {
   }
 
   /**
-   * Composite descriptor with an IndexLookup child does NOT use the
-   * accumulator — the instanceof check matches Composite, not
-   * IndexLookup. The Composite path delegates to passesSelectivityCheck.
+   * Composite descriptor WITHOUT an IndexLookup child does NOT use the
+   * accumulator — findIndexLookup() returns null, so the code falls
+   * through to the passesSelectivityCheck path. Verifies that
+   * EdgeRidLookup-only Composites retain per-vertex ratio checks.
    */
   @Test
-  public void resolveWithCache_compositeWithIndexLookup_noAccumulation() {
+  public void resolveWithCache_compositeWithoutIndexLookup_noAccumulation() {
     var et = createEdgeTraversal();
     var ridSet = singletonRidSet(10, 1);
 
-    // Mock a Composite — verifies that the instanceof check matches
-    // Composite (not IndexLookup), so the accumulator is NOT used.
+    // Mock a Composite with no IndexLookup child — findIndexLookup()
+    // returns null by default, so the accumulator is NOT used.
     var composite = mock(RidFilterDescriptor.Composite.class);
     when(composite.cacheKey(any())).thenReturn("composite-key");
     when(composite.estimatedSize(any(), any())).thenReturn(100_000);
@@ -1472,6 +1507,99 @@ public class EdgeTraversalCacheTest {
     // Each call re-checks selectivity (no accumulation shortcut)
     verify(composite, times(3))
         .passesSelectivityCheck(anyInt(), anyInt(), any());
+  }
+
+  /**
+   * Composite descriptor WITH an IndexLookup child uses the build
+   * amortization accumulator — findIndexLookup() returns the child,
+   * so selectivity is cached and the accumulator defers materialization
+   * until the threshold is met. selectivity=0.5, estimatedSize=100_000
+   * → threshold = 100_000 / (100 * 0.5) = 2000.
+   */
+  @Test
+  public void resolveWithCache_compositeWithIndexLookup_usesAccumulation() {
+    var et = createEdgeTraversal();
+    var ridSet = singletonRidSet(10, 1);
+
+    // Build a real Composite with an IndexLookup child.
+    var indexLookup = stubIndexLookup(0.5, 100_000, "Post.date", ridSet);
+    var edgeLookup = mock(RidFilterDescriptor.EdgeRidLookup.class);
+    when(edgeLookup.estimatedSize(any(), any())).thenReturn(500);
+    when(edgeLookup.cacheKey(any())).thenReturn(new RecordId(10, 1));
+    when(edgeLookup.resolve(any(), any())).thenReturn(ridSet);
+
+    var composite = new RidFilterDescriptor.Composite(
+        List.of(edgeLookup, indexLookup));
+    et.setIntersectionDescriptor(composite);
+    var ctx = new BasicCommandContext();
+
+    // Composite.estimatedSize() = min(500, 100_000) = 500.
+    // IndexLookup selectivity = 0.5.
+    // threshold = 500 / (100 * 0.5) = 10.
+    // linkBag=5 → accumulated=5 < 10 → defers (BUILD_NOT_AMORTIZED)
+    assertThat(et.resolveWithCache(ctx, 5)).isNull();
+
+    // linkBag=4 → accumulated=9 < 10 → still defers
+    assertThat(et.resolveWithCache(ctx, 4)).isNull();
+
+    // linkBag=1 → accumulated=10 >= 10 → triggers materialization
+    assertThat(et.resolveWithCache(ctx, 1)).isNotNull();
+  }
+
+  /**
+   * Composite with an IndexLookup child whose selectivity exceeds the
+   * threshold (0.96 > 0.95) should be rejected by the selectivity check
+   * (step 4b) and cache null permanently — same as standalone IndexLookup.
+   */
+  @Test
+  public void resolveWithCache_compositeWithIndexLookup_selectivityTooHigh_rejected() {
+    var et = createEdgeTraversal();
+    var ridSet = singletonRidSet(10, 1);
+
+    var indexLookup = stubIndexLookup(0.96, 100_000, "Post.date", ridSet);
+    var edgeLookup = mock(RidFilterDescriptor.EdgeRidLookup.class);
+    when(edgeLookup.estimatedSize(any(), any())).thenReturn(500);
+    when(edgeLookup.cacheKey(any())).thenReturn(new RecordId(10, 1));
+
+    var composite = new RidFilterDescriptor.Composite(
+        List.of(edgeLookup, indexLookup));
+    et.setIntersectionDescriptor(composite);
+    var ctx = new BasicCommandContext();
+
+    // selectivity 0.96 > threshold 0.95 → rejected, cached null
+    assertThat(et.resolveWithCache(ctx, LARGE_LINKBAG)).isNull();
+
+    // Second call returns cached null immediately (no re-evaluation)
+    assertThat(et.resolveWithCache(ctx, LARGE_LINKBAG)).isNull();
+  }
+
+  /**
+   * Composite with an IndexLookup child caches the selectivity value
+   * across calls — estimateSelectivity() is called once, not per vertex.
+   */
+  @Test
+  public void resolveWithCache_compositeWithIndexLookup_selectivityCached() {
+    var et = createEdgeTraversal();
+    var ridSet = singletonRidSet(10, 1);
+
+    var indexLookup = stubIndexLookup(0.5, 100_000, "Post.date", ridSet);
+    var edgeLookup = mock(RidFilterDescriptor.EdgeRidLookup.class);
+    when(edgeLookup.estimatedSize(any(), any())).thenReturn(500);
+    when(edgeLookup.cacheKey(any())).thenReturn(new RecordId(10, 1));
+    when(edgeLookup.resolve(any(), any())).thenReturn(ridSet);
+
+    var composite = new RidFilterDescriptor.Composite(
+        List.of(edgeLookup, indexLookup));
+    et.setIntersectionDescriptor(composite);
+    var ctx = new BasicCommandContext();
+
+    // Three calls — selectivity should be computed only once.
+    et.resolveWithCache(ctx, 3);
+    et.resolveWithCache(ctx, 3);
+    et.resolveWithCache(ctx, LARGE_LINKBAG);
+
+    verify(indexLookup.indexDescriptor(), times(1))
+        .estimateSelectivity(any());
   }
 
   /**
