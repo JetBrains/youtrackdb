@@ -1,8 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
 import com.jetbrains.youtrackdb.internal.core.query.Result;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import javax.annotation.Nonnull;
@@ -24,7 +22,7 @@ import javax.annotation.Nullable;
 record PathNode(@Nonnull Result value, @Nullable PathNode prev, int depth) {
 
   /**
-   * Materializes the path into a mutable {@link ArrayList} in traversal order
+   * Materializes the path into an unmodifiable {@link List} in traversal order
    * (oldest element first). Only called when the user declares a {@code pathAlias}
    * and the path must be exposed as a property.
    */
@@ -35,7 +33,7 @@ record PathNode(@Nonnull Result value, @Nullable PathNode prev, int depth) {
       results[i] = current.value;
       current = current.prev;
     }
-    return new ArrayList<>(Arrays.asList(results));
+    return List.of(results);
   }
 
   /**
