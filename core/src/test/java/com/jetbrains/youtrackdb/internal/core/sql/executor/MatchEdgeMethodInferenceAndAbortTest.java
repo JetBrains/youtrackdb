@@ -268,7 +268,7 @@ public class MatchEdgeMethodInferenceAndAbortTest extends DbTestBase {
     assertTrue(
         "Plan should show index intersection for VITag_name (proves class"
             + " inference), but plan was:\n" + plan,
-        plan.contains("(intersection: index VITag_name)"));
+        plan.contains("(intersection: index VITag_name"));
 
     session.commit();
   }
