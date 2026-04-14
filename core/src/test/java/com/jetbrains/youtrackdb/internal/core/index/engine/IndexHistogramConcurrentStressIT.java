@@ -362,11 +362,12 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
     if (histogramIncremental != null && histogramAnalyzed != null) {
       // nonNullCount can drift slightly between incremental and ANALYZE:
       // the incremental nonNullCount is derived from scalar counters
-      // (totalCount - nullCount) that are always applied, while the ANALYZE
-      // nonNullCount is the sum of bucket frequencies from a B-tree scan
-      // with SI visibility filtering. Under snapshot isolation, the scan's
-      // atomic operation may see a slightly different set of visible entries
-      // than the scalar counters reflect. Allow up to 2% relative drift —
+      // (totalCount - nullCount) updated atomically per TX commit, while
+      // the ANALYZE nonNullCount is the sum of bucket frequencies from a
+      // raw B-tree scan (skipping SI visibility filtering, filtering only
+      // TombstoneRID entries). Under concurrent writes, the raw scan may
+      // include entries from in-progress transactions or miss entries that
+      // committed after the scan started. Allow up to 2% relative drift —
       // ~2x headroom over the worst observed drift (~1% on CPX42 with
       // 4 writers over 2 minutes).
       long incrNnc = histogramIncremental.nonNullCount();
@@ -393,9 +394,10 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
       // rebalance fires. During rebalance transitions, in-flight deltas
       // sized for the old bucket layout are discarded (version mismatch),
       // causing residual drift concentrated in the last bucket. Allow up
-      // to 300% max deviation for the last bucket only (observed up to
-      // ~245% under concurrent insert/delete load with raw histogram
-      // scans), 50% for other buckets, and 10% mean deviation.
+      // to 300% max deviation for the last bucket only (~22% headroom
+      // above worst observed ~245% under concurrent insert/delete load
+      // with raw histogram scans), 50% for other buckets, and 10% mean
+      // deviation.
       assertFrequencyDeviation("StressInt",
           histogramIncremental, histogramAnalyzed, 0.50, 3.00, 0.10);
 

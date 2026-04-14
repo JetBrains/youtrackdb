@@ -21,6 +21,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomi
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTree;
 import java.io.IOException;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
@@ -529,7 +530,7 @@ public final class BTreeMultiValueIndexEngine
     return svTree.iterateEntriesMajor(firstKey, true, true, atomicOperation)
         .filter(pair -> !(pair.second() instanceof TombstoneRID))
         .map(pair -> extractKey(pair.first()))
-        .filter(key -> key != null);
+        .filter(Objects::nonNull);
   }
 
   @Override
