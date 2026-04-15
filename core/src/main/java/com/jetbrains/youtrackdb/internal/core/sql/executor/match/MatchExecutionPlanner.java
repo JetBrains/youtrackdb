@@ -414,7 +414,8 @@ public class MatchExecutionPlanner {
       boolean multiFieldOrderBy,
       @Nullable SQLWhereClause targetFilter,
       @Nullable String targetClassName,
-      boolean isEdgeTraversal) {
+      boolean isEdgeTraversal,
+      int downstreamEdgeCount) {
   }
 
   /**
@@ -4440,6 +4441,7 @@ public class MatchExecutionPlanner {
           candidate.targetFilter(),
           candidate.targetClassName(),
           candidate.isEdgeTraversal(),
+          candidate.downstreamEdgeCount(),
           profilingEnabled));
     } else {
       plan.chain(new MatchStep(context, edge, profilingEnabled));
@@ -4612,14 +4614,18 @@ public class MatchExecutionPlanner {
     }
 
     // 9. Determine multi-source mode (null = single-source).
-    // Single-source is safe ONLY when the source has a RID constraint (guaranteed
-    // exactly 1 row). With class + WHERE filter, the estimator may undercount
+    // Single-source is safe when the source is guaranteed to produce exactly 1 row:
+    //   (a) explicit RID constraint ({rid: #X:Y}), or
+    //   (b) WHERE equality on a UNIQUE-index field (e.g., id = :personId).
+    // With class + non-unique WHERE, the estimator may undercount
     // (e.g., LIKE matching multiple rows estimated as 1). In single-source mode,
     // flatMap concatenates per-source results — but OrderByStep is suppressed,
     // so the output would be incorrectly ordered if >1 source rows arrive.
     // Multi-source mode always produces globally sorted results, so it is the
-    // safe default whenever the source is not pinned to a single RID.
-    var sourceHasRidConstraint = aliasRids.get(sourceAlias) != null;
+    // safe default whenever the source is not pinned to a single row.
+    var sourceHasRidConstraint = aliasRids.get(sourceAlias) != null
+        || hasSingleRowGuarantee(
+            sourceAlias, aliasClasses, aliasFilters, context);
     MultiSourceMode multiSourceMode = null;
     if (!sourceHasRidConstraint) {
       // Verify reverse field can exist on target class. The in_/out_ LinkBag
@@ -4703,11 +4709,29 @@ public class MatchExecutionPlanner {
       return null;
     }
 
+    // 12. Count downstream edges after the matched edge in the schedule.
+    // These edges represent traversal work done PER result row. With index
+    // scan + LIMIT, only K rows go through downstream edges; with load-all,
+    // all N rows do. This cost difference tips the balance toward index scan
+    // when downstream work is significant (e.g., IS2's REPLY_OF chain).
+    int downstreamEdgeCount = 0;
+    boolean pastMatched = false;
+    for (var edge : sortedEdges) {
+      if (edge.edge == matchedEdge.edge) {
+        pastMatched = true;
+        continue;
+      }
+      if (pastMatched) {
+        downstreamEdgeCount++;
+      }
+    }
+
     return new IndexOrderedCandidate(
         matchedEdge, sourceAlias, targetAlias, edgeClassName,
         linkBagFieldName, matchedIndex, orderAsc, queryLimit,
         multiSourceMode, reverseFieldName, sourceClassName,
-        multiFieldOrderBy, targetFilter, targetClassName, isEdgeTraversal);
+        multiFieldOrderBy, targetFilter, targetClassName, isEdgeTraversal,
+        downstreamEdgeCount);
   }
 
   /**
@@ -5396,6 +5420,137 @@ public class MatchExecutionPlanner {
    * @return a map from alias name to estimated record count
    * @throws CommandExecutionException if a referenced class does not exist in the schema
    */
+  /**
+   * Checks whether the source alias is guaranteed to produce exactly one row
+   * by having a WHERE equality condition on a single-field UNIQUE index.
+   * For example, {@code {class: Person, where: (id = :personId)}} with a
+   * UNIQUE index on Person.id guarantees one row.
+   *
+   * <p>This enables single-source index-ordered mode for queries like IS2
+   * where the source is identified by a unique key rather than a literal RID.
+   */
+  private static boolean hasSingleRowGuarantee(
+      String alias,
+      Map<String, String> aliasClasses,
+      Map<String, SQLWhereClause> aliasFilters,
+      CommandContext context) {
+    var className = aliasClasses.get(alias);
+    var filter = aliasFilters.get(alias);
+    if (className == null || filter == null) {
+      return false;
+    }
+    var session = context.getDatabaseSession();
+    var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    var clazz = schema.getClassInternal(className);
+    if (clazz == null) {
+      return false;
+    }
+
+    // Extract equality field names from the WHERE clause.
+    // The aliasFilters map stores filters as a SQLWhereClause with an
+    // SQLAndBlock base expression containing the individual conditions.
+    // Walk the AND block directly to find equality conditions.
+    var equalityFields = new HashSet<String>();
+    var baseExpr = filter.getBaseExpression();
+    if (baseExpr instanceof SQLAndBlock andBlock) {
+      for (var sub : andBlock.getSubBlocks()) {
+        extractEqualityField(sub, equalityFields);
+      }
+    } else {
+      extractEqualityField(baseExpr, equalityFields);
+    }
+    if (equalityFields.isEmpty()) {
+      return false;
+    }
+
+    // Check if any single-field UNIQUE index is fully covered by equality fields.
+    for (var idx : clazz.getIndexesInternal()) {
+      if (!idx.isUnique()) {
+        continue;
+      }
+      var def = idx.getDefinition();
+      if (def == null) {
+        continue;
+      }
+      var props = def.getProperties();
+      if (props.isEmpty()) {
+        continue;
+      }
+      if (equalityFields.containsAll(props)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * If the expression is a simple {@code field = value} equality (with
+   * {@link SQLEqualsOperator}), extracts the field name(s) into the set.
+   * Recurses into AND blocks and single-branch OR blocks.
+   */
+  private static void extractEqualityField(
+      SQLBooleanExpression expr, Set<String> fields) {
+    if (expr instanceof SQLBinaryCondition cond
+        && cond.getOperator() instanceof SQLEqualsOperator) {
+      var leftField = extractSimpleFieldName(cond.getLeft());
+      if (leftField != null) {
+        fields.add(leftField);
+      }
+      var rightField = extractSimpleFieldName(cond.getRight());
+      if (rightField != null) {
+        fields.add(rightField);
+      }
+    } else if (expr instanceof SQLAndBlock andBlock) {
+      for (var sub : andBlock.getSubBlocks()) {
+        extractEqualityField(sub, fields);
+      }
+    } else if (expr instanceof SQLOrBlock orBlock) {
+      // Single-branch OR is just wrapping — recurse into it
+      if (orBlock.getSubBlocks().size() == 1) {
+        extractEqualityField(orBlock.getSubBlocks().getFirst(), fields);
+      }
+    } else if (expr instanceof SQLNotBlock notBlock) {
+      // SQLNotBlock with negate=false is just a wrapper — recurse into sub
+      if (!notBlock.isNegate()) {
+        extractEqualityField(notBlock.getSub(), fields);
+      }
+      // Actual NOT conditions don't give us equality guarantees
+    } else {
+      // For any other expression type (e.g., SQLInCondition, function calls),
+      // try toString-based detection as fallback: if it looks like "field = value",
+      // the structured checks above would have caught it. Skip gracefully.
+    }
+  }
+
+  /**
+   * Extracts a simple field name from an expression like {@code id} or
+   * {@code fieldName}. Returns null for anything more complex (functions,
+   * dot-access, arithmetic, etc.).
+   */
+  @Nullable private static String extractSimpleFieldName(SQLExpression expr) {
+    var math = expr.getMathExpression();
+    if (!(math instanceof SQLBaseExpression baseExpr)) {
+      return null;
+    }
+    // Must have no modifier (no .property, no method call)
+    if (baseExpr.getModifier() != null) {
+      return null;
+    }
+    var ident = baseExpr.getIdentifier();
+    if (ident == null) {
+      return null;
+    }
+    var suffix = ident.getSuffix();
+    if (suffix == null || suffix.getIdentifier() == null) {
+      return null;
+    }
+    // Must not be a special identifier (like @rid, @class, etc.)
+    if (ident.getLevelZero() != null) {
+      return null;
+    }
+    return suffix.getIdentifier().getStringValue();
+  }
+
   static Map<String, Long> estimateRootEntries(
       Map<String, String> aliasClasses,
       Map<String, SQLRid> aliasRids,

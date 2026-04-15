@@ -140,6 +140,22 @@ public class LdbcQueryExplainTest {
             || plan.contains("intersection:"));
   }
 
+  // ==================== IS2 index-ordered detection ====================
+
+  /**
+   * IS2: The index-ordered MATCH optimization should detect the single-source
+   * Person → .in('HAS_CREATOR') → Message edge with ORDER BY creationDate DESC
+   * and use an index scan on Message.creationDate.
+   */
+  @Test
+  public void testIS2_indexOrderedDetection() {
+    String plan = explain(LdbcQuerySql.IS2, "personId", 1L, "limit", 20);
+    assertTrue(
+        "IS2 plan should use INDEX ORDERED MATCH for the HAS_CREATOR edge. "
+            + "Plan was:\n" + plan,
+        plan.contains("INDEX ORDERED MATCH"));
+  }
+
   // ==================== Index pre-filter on edge properties ====================
 
   /**
