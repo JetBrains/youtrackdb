@@ -10470,7 +10470,10 @@ public class SelectStatementExecutionTest extends DbTestBase {
     // Verify $info (LET subquery) was computed correctly after push-down
     var infoResult = (List<?>) list.getFirst().getProperty("$info");
     Assert.assertNotNull("$info should be populated after push-down", infoResult);
-    Assert.assertFalse("$info should contain at least one result", infoResult.isEmpty());
+    Assert.assertEquals("$info should contain exactly one result row", 1, infoResult.size());
+    var infoRow = (Result) infoResult.getFirst();
+    Assert.assertEquals("$info count should reflect all 6 records",
+        6L, ((Number) infoRow.getProperty("count(*)")).longValue());
 
     // Verify EXPLAIN: FilterStep before LET, no second FilterStep after
     var explain = session.query("EXPLAIN " + query).toList();
@@ -10567,7 +10570,10 @@ public class SelectStatementExecutionTest extends DbTestBase {
     // Verify $info (LET subquery) was computed correctly after push-down
     var infoResult = (List<?>) list.getFirst().getProperty("$info");
     Assert.assertNotNull("$info should be populated after push-down", infoResult);
-    Assert.assertFalse("$info should contain at least one result", infoResult.isEmpty());
+    Assert.assertEquals("$info should contain exactly one result row", 1, infoResult.size());
+    var infoRow = (Result) infoResult.getFirst();
+    Assert.assertEquals("$info count should reflect all 10 records",
+        10L, ((Number) infoRow.getProperty("count(*)")).longValue());
 
     // Verify EXPLAIN: FilterStep before LET, no second FilterStep after
     var explain = session.query("EXPLAIN " + query).toList();
@@ -10766,6 +10772,12 @@ public class SelectStatementExecutionTest extends DbTestBase {
         .map(r -> (String) r.getProperty("name"))
         .collect(Collectors.toSet());
     Assert.assertEquals(Set.of("n0", "n1", "n2", "n3", "n4"), names);
+    // Verify the expression LET ($info = val * 2) was computed correctly
+    var n3 = list.stream()
+        .filter(r -> "n3".equals(r.getProperty("name")))
+        .findFirst().orElseThrow();
+    Assert.assertEquals("$info for n3 (val=3) should be 6",
+        6, ((Number) n3.getProperty("$info")).intValue());
 
     // Verify EXPLAIN: FilterStep after LET (no push-down)
     var explain = session.query("EXPLAIN " + query).toList();
