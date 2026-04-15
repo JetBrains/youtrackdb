@@ -2909,6 +2909,9 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
         : "Partition invariant violated: removed (" + removedCount
             + ") + survivors (" + survivors.size()
             + ") != original size (" + bucketSize + ")";
+    assert survivors.size() <= bucketSize
+        : "Survivors (" + survivors.size()
+            + ") cannot exceed original bucket size (" + bucketSize + ")";
 
     keyBucket.clear();
     assert keyBucket.size() == 0

@@ -509,13 +509,12 @@ public class BTreeTombstoneGCStressTest {
     }
 
     // Phase 2: concurrent writers + readers
+    int writerCount = THREAD_COUNT / 2;
+    int readerCount = THREAD_COUNT - writerCount;
     ExecutorService executor = Executors.newFixedThreadPool(THREAD_COUNT);
     try {
       CountDownLatch startLatch = new CountDownLatch(1);
       List<Future<?>> futures = new ArrayList<>();
-
-      int writerCount = THREAD_COUNT / 2;
-      int readerCount = THREAD_COUNT - writerCount;
 
       // Writer threads: insert new entries to trigger bucket overflow + GC
       for (int t = 0; t < writerCount; t++) {
@@ -556,12 +555,15 @@ public class BTreeTombstoneGCStressTest {
             return;
           }
 
+          // Number of distinct live positions in the pre-populated range.
+          // Derived from prePopCount: every 3rd entry is a tombstone,
+          // so there are prePopCount/3 live "slots" at offset *3 + 1.
+          int livePositionCount = prePopCount / 3;
+
           for (int round = 0; round < OPS_PER_THREAD; round++) {
             // Pick a known live entry (position where i % 3 != 0).
-            // 133 * 3 + 1 = 400 = prePopCount, so all computed positions
-            // fall within the pre-populated range. The *3 + 1 offset
-            // skips tombstone positions (i % 3 == 0).
-            int pos = (round % 133) * 3 + 1;
+            // The *3 + 1 offset skips tombstone positions (i % 3 == 0).
+            int pos = (round % livePositionCount) * 3 + 1;
             final var key = new CompositeKey(
                 "key" + String.format("%06d", pos), 100L);
             final RID[] result = {null};
@@ -606,6 +608,107 @@ public class BTreeTombstoneGCStressTest {
     } finally {
       executor.shutdownNow();
     }
+
+    // Verify: writer entries must be present after the concurrent phase.
+    // Without this check, a GC bug that silently drops the pending
+    // insertion would go undetected (readers only check pre-populated data).
+    for (int t = 0; t < writerCount; t++) {
+      for (int i = 0; i < Math.min(20, OPS_PER_THREAD); i++) {
+        final int pos = 1000 + t * OPS_PER_THREAD + i;
+        final int threadId = t;
+        final var key = new CompositeKey(
+            "key" + String.format("%06d", pos), 100L);
+        final RID[] result = {null};
+        atomicOperationsManager.executeInsideAtomicOperation(
+            op -> result[0] = bTree.get(key, op));
+        assertThat(result[0])
+            .as("Writer entry at pos=%d must exist after concurrent "
+                + "phase (writer thread %d)", pos, threadId)
+            .isNotNull()
+            .isInstanceOf(RecordId.class)
+            .isNotInstanceOf(TombstoneRID.class);
+        assertThat(result[0].getCollectionId())
+            .as("Writer entry at pos=%d must have collectionId=3", pos)
+            .isEqualTo(3);
+        assertThat(result[0].getCollectionPosition())
+            .as("Writer entry at pos=%d must have collectionPosition=%d",
+                pos, pos)
+            .isEqualTo(pos);
+      }
+    }
   }
+
+  // ---- Lock ordering safety ----
+
+  /**
+   * Verifies that GC does not deadlock when {@code stateLock.writeLock()}
+   * is held by another thread. The production GC code uses
+   * {@link AbstractStorage#hasActiveIndexSnapshotEntriesById} (lock-free)
+   * instead of {@code hasActiveIndexSnapshotEntries} (acquires
+   * {@code stateLock.readLock()}). If a future refactor accidentally used
+   * the name-based variant, this test would deadlock because the write-lock
+   * holder blocks the read-lock acquisition.
+   *
+   * <p>Thread 1 holds {@code stateLock.writeLock()} while Thread 2
+   * triggers GC via {@code put()} on a bucket full of tombstones.
+   */
+  @Test
+  public void testGCDoesNotDeadlockWithStateLockWriter() throws Exception {
+    // Pre-populate with tombstones to guarantee GC triggers on next insert
+    for (int i = 0; i < FILL_COUNT; i++) {
+      final var key = new CompositeKey(
+          "key" + String.format("%06d", i), 1L);
+      final var value = new TombstoneRID(new RecordId(1, i));
+      atomicOperationsManager.executeInsideAtomicOperation(
+          op -> bTree.put(op, key, value));
+    }
+
+    var stateLock = BTreeGCTestSupport.getStateLock(storage);
+    CountDownLatch writerReady = new CountDownLatch(1);
+    CountDownLatch putDone = new CountDownLatch(1);
+
+    ExecutorService executor = Executors.newFixedThreadPool(2);
+    try {
+      // Thread 1: hold stateLock.writeLock() while Thread 2 triggers GC.
+      // If GC tried to acquire stateLock.readLock(), it would deadlock.
+      Future<?> lockHolder = executor.submit(() -> {
+        stateLock.writeLock().lock();
+        try {
+          writerReady.countDown();
+          putDone.await(30, TimeUnit.SECONDS);
+        } finally {
+          stateLock.writeLock().unlock();
+        }
+        return null;
+      });
+
+      // Thread 2: after stateLock.writeLock() is held, insert a live entry
+      // that triggers bucket overflow + GC on the tombstones.
+      Future<?> gcTrigger = executor.submit(() -> {
+        writerReady.await();
+        final var key = new CompositeKey("key000050", 100L);
+        final var value = new RecordId(2, 50);
+        atomicOperationsManager.executeInsideAtomicOperation(
+            op -> bTree.put(op, key, value));
+        putDone.countDown();
+        return null;
+      });
+
+      executor.shutdown();
+      assertThat(executor.awaitTermination(30, TimeUnit.SECONDS))
+          .as("GC must not deadlock when stateLock.writeLock is held "
+              + "by another thread")
+          .isTrue();
+
+      // Propagate exceptions from both threads
+      lockHolder.get();
+      gcTrigger.get();
+    } finally {
+      executor.shutdownNow();
+    }
+  }
+
+  // Enough entries to fill multiple buckets (matches BTreeTombstoneGCTest)
+  private static final int FILL_COUNT = 400;
 
 }
