@@ -4612,19 +4612,14 @@ public class MatchExecutionPlanner {
     }
 
     // 9. Determine multi-source mode (null = single-source).
-    // Single-source is safe ONLY when the source is guaranteed to produce
-    // exactly 1 row. Two cases qualify:
-    //   (a) explicit RID constraint ({rid: #X:Y}), or
-    //   (b) WHERE equality on a UNIQUE-index field (e.g., id = :personId).
-    // With class + non-unique WHERE, the estimator may undercount
+    // Single-source is safe ONLY when the source has a RID constraint (guaranteed
+    // exactly 1 row). With class + WHERE filter, the estimator may undercount
     // (e.g., LIKE matching multiple rows estimated as 1). In single-source mode,
     // flatMap concatenates per-source results — but OrderByStep is suppressed,
     // so the output would be incorrectly ordered if >1 source rows arrive.
     // Multi-source mode always produces globally sorted results, so it is the
-    // safe default whenever the source is not pinned to a single row.
-    var sourceHasRidConstraint = aliasRids.get(sourceAlias) != null
-        || hasSingleRowGuarantee(
-            sourceAlias, aliasClasses, aliasFilters, context);
+    // safe default whenever the source is not pinned to a single RID.
+    var sourceHasRidConstraint = aliasRids.get(sourceAlias) != null;
     MultiSourceMode multiSourceMode = null;
     if (!sourceHasRidConstraint) {
       // Verify reverse field can exist on target class. The in_/out_ LinkBag
@@ -4713,105 +4708,6 @@ public class MatchExecutionPlanner {
         linkBagFieldName, matchedIndex, orderAsc, queryLimit,
         multiSourceMode, reverseFieldName, sourceClassName,
         multiFieldOrderBy, targetFilter, targetClassName, isEdgeTraversal);
-  }
-
-  /**
-   * Checks whether the source alias is guaranteed to produce at most one row.
-   * This is true when the source class has a single-field UNIQUE index and the
-   * WHERE filter contains an equality predicate on that index's field (e.g.,
-   * {@code WHERE (id = :personId)} with a UNIQUE index on {@code Person.id}).
-   *
-   * <p>When this returns {@code true}, the source can safely use single-source
-   * mode even without an explicit {@code {rid: #X:Y}} constraint, because the
-   * UNIQUE index guarantees at most one matching row.
-   */
-  private static boolean hasSingleRowGuarantee(
-      String sourceAlias,
-      Map<String, String> aliasClasses,
-      Map<String, SQLWhereClause> aliasFilters,
-      CommandContext context) {
-    var className = aliasClasses.get(sourceAlias);
-    if (className == null) {
-      return false;
-    }
-    var filter = aliasFilters.get(sourceAlias);
-    if (filter == null || filter.getBaseExpression() == null) {
-      return false;
-    }
-
-    // Collect all field names that appear in top-level equality conditions.
-    // The filter's base expression is an SQLAndBlock (built by addAliases),
-    // whose sub-blocks may themselves be SQLAndBlock, SQLNotBlock, or
-    // directly SQLBinaryCondition. We walk one level deep to find simple
-    // "field = value" patterns.
-    var equalityFields = new HashSet<String>();
-    collectEqualityFields(filter.getBaseExpression(), equalityFields);
-    if (equalityFields.isEmpty()) {
-      return false;
-    }
-
-    // Check if any single-field UNIQUE index on the source class matches
-    // one of the equality fields.
-    var session = context.getDatabaseSession();
-    var schema = session.getMetadata().getImmutableSchemaSnapshot();
-    var clazz = schema.getClassInternal(className);
-    if (clazz == null) {
-      return false;
-    }
-    for (var idx : clazz.getIndexesInternal()) {
-      if (!idx.isUnique()) {
-        continue;
-      }
-      var def = idx.getDefinition();
-      if (def == null) {
-        continue;
-      }
-      var props = def.getProperties();
-      if (props.size() != 1) {
-        continue;
-      }
-      if (equalityFields.contains(props.iterator().next())) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /**
-   * Recursively collects field names from equality conditions ({@code field = expr})
-   * in a boolean expression tree. Descends into AND blocks, NOT blocks
-   * (with {@code negate == false}), and single-child OR blocks (which are
-   * parser artifacts equivalent to their single child). Multi-child OR blocks
-   * and negated NOT blocks are skipped because they do not guarantee
-   * single-row results.
-   */
-  private static void collectEqualityFields(
-      SQLBooleanExpression expr, Set<String> fields) {
-    if (expr instanceof SQLBinaryCondition binCond) {
-      if (binCond.getOperator() instanceof SQLEqualsOperator) {
-        var propName = binCond.getRelatedIndexPropertyName();
-        if (propName != null) {
-          fields.add(propName);
-        }
-      }
-    } else if (expr instanceof SQLAndBlock andBlock) {
-      for (var sub : andBlock.getSubBlocks()) {
-        collectEqualityFields(sub, fields);
-      }
-    } else if (expr instanceof SQLNotBlock notBlock) {
-      // Only descend if not negated — a non-negated NOT block is just
-      // a wrapper (parser artifact), not an actual negation.
-      if (!notBlock.isNegate() && notBlock.getSub() != null) {
-        collectEqualityFields(notBlock.getSub(), fields);
-      }
-    } else if (expr instanceof SQLOrBlock orBlock) {
-      // A single-child OR block is a parser artifact (e.g., grammar
-      // wraps "personId = 1" in OR → AND → NOT → BinaryCondition).
-      // Safe to descend because a single OR branch is equivalent to AND.
-      if (orBlock.getSubBlocks().size() == 1) {
-        collectEqualityFields(orBlock.getSubBlocks().getFirst(), fields);
-      }
-    }
   }
 
   /**
