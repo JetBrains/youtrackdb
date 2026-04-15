@@ -16,7 +16,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -340,8 +339,9 @@ public class MatchEdgeTraverser implements ExecutionStream {
    * @param item           the path item describing the traversal
    * @param startingPoint  the record to traverse from
    * @param depth          current recursion depth (0 at the start)
-   * @param pathToHere     the sequence of records visited so far (for `$matchPath`),
-   *                       `null` at the start
+   * @param pathToHere     immutable cons-cell path of records visited so far (for
+   *                       `$matchPath`), or `null` at the start. Appending is O(1);
+   *                       materialization to a list is deferred to when pathAlias is read.
    * @param visited        mutable bitmap set of RIDs already emitted; used to deduplicate
    *                       vertices reachable via multiple paths in diamond/cyclic graphs
    * @return a stream of matching result records
@@ -351,7 +351,7 @@ public class MatchEdgeTraverser implements ExecutionStream {
       SQLMatchPathItem item,
       Result startingPoint,
       int depth,
-      List<Result> pathToHere,
+      @Nullable PathNode pathToHere,
       RidSet visited) {
     SQLWhereClause filter = null;
     SQLWhereClause whileCondition = null;
@@ -410,7 +410,8 @@ public class MatchEdgeTraverser implements ExecutionStream {
       // declared the user wants all distinct paths, so we null out the
       // visited set to disable dedup entirely.
       assert item.getFilter() != null : "filter guaranteed non-null in recursive branch";
-      var dedupVisited = item.getFilter().getPathAlias() == null ? visited : null;
+      var hasPathAlias = item.getFilter().getPathAlias() != null;
+      var dedupVisited = hasPathAlias ? null : visited;
 
       // Evaluate the starting point against all filters
       if (startingPoint != null
@@ -426,8 +427,10 @@ public class MatchEdgeTraverser implements ExecutionStream {
         if (rs != null) {
           // Store traversal metadata so the user can access it via depthAlias/pathAlias
           rs.setMetadata("$depth", depth);
-          rs.setMetadata("$matchPath",
-              pathToHere == null ? Collections.EMPTY_LIST : pathToHere);
+          if (hasPathAlias) {
+            rs.setMetadata("$matchPath",
+                pathToHere == null ? PathNode.emptyPath() : pathToHere.toList());
+          }
           result.add(rs);
         }
       }
@@ -464,12 +467,10 @@ public class MatchEdgeTraverser implements ExecutionStream {
             }
           }
 
-          // Build the path by appending the current neighbor
-          List<Result> newPath = new ArrayList<>();
-          if (pathToHere != null) {
-            newPath.addAll(pathToHere);
-          }
-          newPath.add(origin);
+          // Only build the path when the user declared a pathAlias — otherwise skip
+          // all PathNode allocation entirely. For IS2 (no pathAlias) this eliminates
+          // all path-related allocations across the entire REPLY_OF chain.
+          var newPath = hasPathAlias ? new PathNode(origin, pathToHere, depth) : null;
 
           // Recursive call with incremented depth, sharing the visited set
           var subResult =
