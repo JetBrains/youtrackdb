@@ -37,18 +37,33 @@ final class IndexOrderedCostModel {
 
   /**
    * Computes cost estimates for index scan vs load-all-and-sort.
+   * Delegates to {@link #computeCosts(int, long, long, EquiDepthHistogram,
+   * boolean, int)} with zero downstream edges.
+   */
+  @Nullable static CostEstimate computeCosts(
+      int linkBagSize, long indexSize, long limit,
+      @Nullable EquiDepthHistogram histogram, boolean orderAsc) {
+    return computeCosts(linkBagSize, indexSize, limit, histogram, orderAsc, 0);
+  }
+
+  /**
+   * Computes cost estimates for index scan vs load-all-and-sort.
    *
-   * @param linkBagSize number of edges from the source vertex
-   * @param indexSize   total entries in the property index
-   * @param limit       query LIMIT value, or -1 if no LIMIT
-   * @param histogram   equi-depth histogram for skew correction, or null
-   * @param orderAsc    true for ASC scan direction, false for DESC
+   * @param linkBagSize          number of edges from the source vertex
+   * @param indexSize            total entries in the property index
+   * @param limit                query LIMIT value, or -1 if no LIMIT
+   * @param histogram            equi-depth histogram for skew correction, or null
+   * @param orderAsc             true for ASC scan direction, false for DESC
+   * @param downstreamEdgeCount  number of MATCH edges after the target alias.
+   *     With index scan + LIMIT, only K rows traverse these edges; with
+   *     load-all, all N rows do. Each downstream edge costs ~randRead per row.
    * @return cost estimate, or null if the index scan should be skipped
    *     (below threshold, zero index, or scan too large)
    */
   @Nullable static CostEstimate computeCosts(
       int linkBagSize, long indexSize, long limit,
-      @Nullable EquiDepthHistogram histogram, boolean orderAsc) {
+      @Nullable EquiDepthHistogram histogram, boolean orderAsc,
+      int downstreamEdgeCount) {
     int minLinkBag =
         GlobalConfiguration.QUERY_INDEX_ORDERED_MIN_LINKBAG.getValueAsInteger();
     if (linkBagSize < minLinkBag || indexSize <= 0) {
@@ -99,6 +114,15 @@ final class IndexOrderedCostModel {
     double costLoadSort = (double) linkBagSize * randRead
         + (double) linkBagSize * cpu
         + (double) linkBagSize * sortFactor * cpu;
+
+    // Downstream edge cost: with index scan + LIMIT, only K rows traverse
+    // downstream edges; with load-all, all N rows do. Each downstream edge
+    // requires ~1 random record load per row.
+    if (downstreamEdgeCount > 0 && limit > 0) {
+      double downstreamPerRow = downstreamEdgeCount * randRead;
+      costUnionScan += k * downstreamPerRow;
+      costLoadSort += (double) linkBagSize * downstreamPerRow;
+    }
 
     return new CostEstimate(
         expectedScanLength, k, seqRead, randRead, cpu, seekCost,
