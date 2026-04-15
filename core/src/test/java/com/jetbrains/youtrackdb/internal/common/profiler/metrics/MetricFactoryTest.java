@@ -123,13 +123,16 @@ public class MetricFactoryTest {
     Stopwatch instance = type.create(ticker);
     assertThat(instance).isNotNull();
 
+    // Noop stopwatch returns 0.0 (not null like Gauge noop), and set calls are ignored
     Stopwatch noop = type.noop();
+    assertThat(noop.getValue()).isEqualTo(0.0);
     noop.setMillis(100);
-    // Noop stopwatch may return default value (0.0) rather than null
-    assertThat(noop).isNotNull();
+    assertThat(noop.getValue()).isEqualTo(0.0);
+    noop.setNanos(999_000_000);
+    assertThat(noop.getValue()).isEqualTo(0.0);
   }
 
-  /** MetricType.rate creates time rate instances. */
+  /** MetricType.rate creates working time rate instances (not noop). */
   @Test
   public void metricTypeRateCreate() {
     var interval = TimeInterval.of(1, TimeUnit.SECONDS);
@@ -138,10 +141,12 @@ public class MetricFactoryTest {
     assertThat(type.valueType()).isEqualTo(Double.class);
 
     TimeRate instance = type.create(ticker);
-    assertThat(instance).isNotNull();
+    // Verify it accepts records without throwing and is not the NOOP instance
+    instance.record(1);
+    assertThat(instance).isNotSameAs(TimeRate.NOOP);
   }
 
-  /** MetricType.ratio creates ratio instances. */
+  /** MetricType.ratio creates working ratio instances (not noop). */
   @Test
   public void metricTypeRatioCreate() {
     var interval = TimeInterval.of(1, TimeUnit.SECONDS);
@@ -150,7 +155,9 @@ public class MetricFactoryTest {
     assertThat(type.valueType()).isEqualTo(Double.class);
 
     Ratio instance = type.create(ticker);
-    assertThat(instance).isNotNull();
+    // Verify it accepts records without throwing and is not the NOOP instance
+    instance.record(1, 1);
+    assertThat(instance).isNotSameAs(Ratio.NOOP);
   }
 
   // ---------------------------------------------------------------------------

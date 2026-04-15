@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.common.parser;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.Test;
 
@@ -420,17 +421,19 @@ public class StringParserTest {
   }
 
   /** Truncated unicode input (fewer than 4 hex digits) throws StringIndexOutOfBoundsException. */
-  @Test(expected = StringIndexOutOfBoundsException.class)
+  @Test
   public void readUnicodeTruncatedInputThrows() {
     StringBuilder buffer = new StringBuilder();
-    StringParser.readUnicode("0A", 0, buffer);
+    assertThatThrownBy(() -> StringParser.readUnicode("0A", 0, buffer))
+        .isInstanceOf(StringIndexOutOfBoundsException.class);
   }
 
   /** Invalid hex characters throw NumberFormatException. */
-  @Test(expected = NumberFormatException.class)
+  @Test
   public void readUnicodeInvalidHexThrows() {
     StringBuilder buffer = new StringBuilder();
-    StringParser.readUnicode("GHIJ", 0, buffer);
+    assertThatThrownBy(() -> StringParser.readUnicode("GHIJ", 0, buffer))
+        .isInstanceOf(NumberFormatException.class);
   }
 
   // ---------------------------------------------------------------------------

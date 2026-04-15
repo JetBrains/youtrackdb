@@ -95,6 +95,22 @@ public class FileUtilsTest {
     assertThat(FileUtils.getSizeAsNumber("50%")).isEqualTo(-50L);
   }
 
+  /** Zero string is parsed as 0 bytes. */
+  @Test
+  public void getSizeAsNumberZeroString() {
+    assertThat(FileUtils.getSizeAsNumber("0")).isEqualTo(0L);
+  }
+
+  /**
+   * Empty string causes NumberFormatException — vacuous-truth bug in the digit-check loop (same
+   * pattern as IOUtils.isLong("")).
+   */
+  @Test
+  public void getSizeAsNumberEmptyStringThrows() {
+    assertThatThrownBy(() -> FileUtils.getSizeAsNumber(""))
+        .isInstanceOf(NumberFormatException.class);
+  }
+
   // ---------------------------------------------------------------------------
   // string2number
   // ---------------------------------------------------------------------------
@@ -159,6 +175,18 @@ public class FileUtilsTest {
   @Test
   public void getSizeAsStringExactKilobyte() {
     assertThat(FileUtils.getSizeAsString(1024)).isEqualTo("1024b");
+  }
+
+  /** Zero size is formatted as bytes. */
+  @Test
+  public void getSizeAsStringZero() {
+    assertThat(FileUtils.getSizeAsString(0)).isEqualTo("0b");
+  }
+
+  /** Negative size falls through all checks to bytes format. */
+  @Test
+  public void getSizeAsStringNegative() {
+    assertThat(FileUtils.getSizeAsString(-100)).isEqualTo("-100b");
   }
 
   // ---------------------------------------------------------------------------

@@ -3,16 +3,24 @@ package com.jetbrains.youtrackdb.internal.common.profiler.metrics;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import java.lang.management.ManagementFactory;
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
 import org.junit.After;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Tests for {@link MetricsRegistry} — registry for database metrics exposed via JMX. Also covers
  * MetricsMBean (getAttribute, getAttributes, getMBeanInfo, invoke/setAttribute throw).
+ *
+ * <p>Marked @SequentialTest because MetricsRegistry registers JMX MBeans with fixed ObjectNames
+ * (e.g., scope=Global) on the JVM-global MBeanServer. Concurrent tests that start the engine
+ * (DbTestBase) create their own MetricsRegistry, causing registration conflicts and potential
+ * MBean theft during shutdown.
  */
+@Category(SequentialTest.class)
 public class MetricsRegistryTest {
 
   private final StubTicker ticker = new StubTicker(1_000_000);
@@ -46,6 +54,7 @@ public class MetricsRegistryTest {
     ObjectName name = new ObjectName("com.jetbrains.youtrackdb.metrics:scope=Global");
     registry.shutdown();
     assertThat(mbs.isRegistered(name)).isFalse();
+    // Prevent @After from calling shutdown() again on the already-closed registry
     registry = null;
   }
 

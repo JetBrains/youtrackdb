@@ -143,6 +143,20 @@ public class IOUtilsTest {
     assertThat(IOUtils.getTimeAsString(IOUtils.YEAR)).isEqualTo("365d");
   }
 
+  /** Negative time falls through all checks to milliseconds format. */
+  @Test
+  public void getTimeAsStringNegativeValue() {
+    assertThat(IOUtils.getTimeAsString(-500)).isEqualTo("-500ms");
+  }
+
+  /** Null input throws IllegalArgumentException. */
+  @Test
+  public void getTimeAsMillisecsNullThrows() {
+    assertThatThrownBy(() -> IOUtils.getTimeAsMillisecs(null))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("Time is null");
+  }
+
   /** Unrecognized time suffix throws IllegalArgumentException. */
   @Test
   public void getTimeAsMillisecsUnrecognizedSuffixThrows() {
@@ -400,6 +414,13 @@ public class IOUtilsTest {
     assertThat(IOUtils.isLong("")).isTrue();
   }
 
+  /** Null input throws NullPointerException — no null guard in production code. */
+  @Test
+  public void isLongNullThrowsNpe() {
+    assertThatThrownBy(() -> IOUtils.isLong(null))
+        .isInstanceOf(NullPointerException.class);
+  }
+
   // ---------------------------------------------------------------------------
   // getUnixFileName
   // ---------------------------------------------------------------------------
@@ -448,6 +469,16 @@ public class IOUtilsTest {
   @Test
   public void getRelativePathNullBaseNoSlash() {
     assertThat(IOUtils.getRelativePathIfAny("db", null)).isEqualTo("db");
+  }
+
+  /**
+   * When base path equals the full URL, substring exceeds bounds — pre-existing crash.
+   * The code computes pos + iBasePath.length() + 1 which exceeds the string length.
+   */
+  @Test
+  public void getRelativePathBaseEqualsFullUrlCrashes() {
+    assertThatThrownBy(() -> IOUtils.getRelativePathIfAny("/path/to", "/path/to"))
+        .isInstanceOf(StringIndexOutOfBoundsException.class);
   }
 
   // ---------------------------------------------------------------------------

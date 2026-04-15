@@ -45,10 +45,12 @@ public class VariableParserTest {
             BEGIN,
             END,
             var -> {
-              if ("a".equals(var))
+              if ("a".equals(var)) {
                 return "X";
-              if ("b".equals(var))
+              }
+              if ("b".equals(var)) {
                 return "Y";
+              }
               return null;
             });
     assertThat(result).isEqualTo("X and Y");
@@ -67,10 +69,12 @@ public class VariableParserTest {
             BEGIN,
             END,
             var -> {
-              if ("b".equals(var))
+              if ("b".equals(var)) {
                 return "c";
-              if ("ac".equals(var))
+              }
+              if ("ac".equals(var)) {
                 return "result";
+              }
               return null;
             });
     assertThat(result).isEqualTo("result");
