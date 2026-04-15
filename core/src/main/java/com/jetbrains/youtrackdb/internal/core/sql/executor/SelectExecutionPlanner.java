@@ -1756,7 +1756,7 @@ public class SelectExecutionPlanner {
 
     var split = info.whereClause.splitByLetDependency(letVarNames);
     long timeout =
-        this.info.timeout != null ? this.info.timeout.getVal().longValue() : -1;
+        info.timeout != null ? info.timeout.getVal().longValue() : -1;
 
     if (split == null) {
       // No LET variable is referenced — push the entire WHERE down.
