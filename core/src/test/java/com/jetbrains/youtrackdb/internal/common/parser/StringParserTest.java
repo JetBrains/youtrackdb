@@ -221,6 +221,27 @@ public class StringParserTest {
     assertThat(result).containsExactly("a" + "\\" + "bc", "d");
   }
 
+  /** Trailing delimiter does not produce a trailing empty field. */
+  @Test
+  public void splitTrailingDelimiterDropsEmptyField() {
+    String[] result = StringParser.split("a,b,", ',', " ");
+    assertThat(result).containsExactly("a", "b");
+  }
+
+  /** Leading delimiter produces a leading empty field. */
+  @Test
+  public void splitLeadingDelimiterProducesEmptyField() {
+    String[] result = StringParser.split(",a,b", ',', " ");
+    assertThat(result).containsExactly("", "a", "b");
+  }
+
+  /** Consecutive delimiters produce empty fields between them. */
+  @Test
+  public void splitConsecutiveDelimitersProduceEmptyFields() {
+    String[] result = StringParser.split("a,,b", ',', " ");
+    assertThat(result).containsExactly("a", "", "b");
+  }
+
   // ---------------------------------------------------------------------------
   // indexOfOutsideStrings
   // ---------------------------------------------------------------------------
@@ -278,6 +299,33 @@ public class StringParserTest {
   public void indexOfOutsideStringsBoundedRange() {
     // Search from 0 to 3 in "hello,world" — comma is at 5, outside range
     int pos = StringParser.indexOfOutsideStrings("hello,world", ',', 0, 3);
+    assertThat(pos).isEqualTo(-1);
+  }
+
+  /**
+   * Escaped quote inside a quoted string does not terminate the string. Input: 'can\'t',x — the
+   * backslash-escaped quote at position 5 is not a closing quote. The real closing quote is at
+   * position 7, and the comma is at position 8.
+   */
+  @Test
+  public void indexOfOutsideStringsEscapedQuoteInsideString() {
+    // Characters: ' c a n \ ' t ' , x  (positions 0-9)
+    String input = "'can" + "\\" + "'t',x";
+    int pos = StringParser.indexOfOutsideStrings(input, ',', 0, -1);
+    assertThat(pos).isEqualTo(8);
+  }
+
+  /** When iFrom == iTo, exactly one position is checked — finds char if present. */
+  @Test
+  public void indexOfOutsideStringsSameFromAndToFindsChar() {
+    int pos = StringParser.indexOfOutsideStrings("hello,world", ',', 5, 5);
+    assertThat(pos).isEqualTo(5);
+  }
+
+  /** When iFrom == iTo and char is not at that position, returns -1. */
+  @Test
+  public void indexOfOutsideStringsSameFromAndToMissReturnsMinusOne() {
+    int pos = StringParser.indexOfOutsideStrings("hello,world", ',', 3, 3);
     assertThat(pos).isEqualTo(-1);
   }
 
@@ -366,8 +414,23 @@ public class StringParserTest {
   public void readUnicodeNonAscii() {
     StringBuilder buffer = new StringBuilder();
     // "00E9" = 'é'
-    StringParser.readUnicode("00E9", 0, buffer);
+    int lastPos = StringParser.readUnicode("00E9", 0, buffer);
     assertThat(buffer.toString()).isEqualTo("\u00E9");
+    assertThat(lastPos).isEqualTo(3);
+  }
+
+  /** Truncated unicode input (fewer than 4 hex digits) throws StringIndexOutOfBoundsException. */
+  @Test(expected = StringIndexOutOfBoundsException.class)
+  public void readUnicodeTruncatedInputThrows() {
+    StringBuilder buffer = new StringBuilder();
+    StringParser.readUnicode("0A", 0, buffer);
+  }
+
+  /** Invalid hex characters throw NumberFormatException. */
+  @Test(expected = NumberFormatException.class)
+  public void readUnicodeInvalidHexThrows() {
+    StringBuilder buffer = new StringBuilder();
+    StringParser.readUnicode("GHIJ", 0, buffer);
   }
 
   // ---------------------------------------------------------------------------
@@ -437,6 +500,13 @@ public class StringParserTest {
     assertThat(result).isEqualTo("hello");
   }
 
+  /** Null replacement value appends literal "null" (StringBuffer behavior). */
+  @Test
+  public void replaceAllNullReplacementAppendsLiteralNull() {
+    String result = StringParser.replaceAll("abc", "b", null);
+    assertThat(result).isEqualTo("anullc");
+  }
+
   // ---------------------------------------------------------------------------
   // startsWithIgnoreCase
   // ---------------------------------------------------------------------------
@@ -463,5 +533,42 @@ public class StringParserTest {
   @Test
   public void startsWithIgnoreCasePrefixLongerThanText() {
     assertThat(StringParser.startsWithIgnoreCase("hi", "hello")).isFalse();
+  }
+
+  /** Empty prefix matches any string. */
+  @Test
+  public void startsWithIgnoreCaseEmptyPrefixMatchesAny() {
+    assertThat(StringParser.startsWithIgnoreCase("hello", "")).isTrue();
+  }
+
+  /** Both empty strings returns true. */
+  @Test
+  public void startsWithIgnoreCaseBothEmptyReturnsTrue() {
+    assertThat(StringParser.startsWithIgnoreCase("", "")).isTrue();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Boundary tests (review findings)
+  // ---------------------------------------------------------------------------
+
+  /** Input without any separator match yields a single-element array. */
+  @Test
+  public void getWordsSingleWordNoSeparatorMatch() {
+    String[] result = StringParser.getWords("hello", ",");
+    assertThat(result).containsExactly("hello");
+  }
+
+  /** Custom jump chars are skipped but separators still split tokens. */
+  @Test
+  public void getWordsCustomJumpCharsWithSeparators() {
+    String[] result = StringParser.getWords("a-b,c-d", ",", "-", false);
+    assertThat(result).containsExactly("ab", "cd");
+  }
+
+  /** Trailing backslash at end of input is treated as a literal character. */
+  @Test
+  public void getWordsTrailingBackslashIsLiteral() {
+    String[] result = StringParser.getWords("abc" + "\\", ",", false);
+    assertThat(result).containsExactly("abc" + "\\");
   }
 }
