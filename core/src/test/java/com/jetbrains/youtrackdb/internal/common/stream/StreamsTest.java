@@ -23,7 +23,7 @@ public class StreamsTest {
     // Merging two empty streams produces an empty stream.
     var result = Streams.mergeSortedSpliterators(
         Stream.<Integer>empty(), Stream.<Integer>empty(), Comparator.naturalOrder());
-    assertEquals(0, result.count());
+    assertArrayEquals(new Integer[0], result.toArray(Integer[]::new));
   }
 
   @Test
@@ -126,6 +126,15 @@ public class StreamsTest {
   }
 
   @Test
+  public void testMergeNullComparatorDoesNotDeduplicateEqualComparables() {
+    // Unlike the explicit-comparator path, the Comparable fallback does not
+    // deduplicate when compareTo returns 0 — both copies are emitted.
+    var result = Streams.mergeSortedSpliterators(
+        Stream.of(1, 3, 5), Stream.of(1, 3, 5), (Comparator<Integer>) null);
+    assertArrayEquals(new Integer[] {1, 1, 3, 3, 5, 5}, result.toArray(Integer[]::new));
+  }
+
+  @Test
   public void testMergeNullComparatorWithNonComparable() {
     // When comparator is null and values are not Comparable, throws
     // IllegalArgumentException.
@@ -200,6 +209,27 @@ public class StreamsTest {
       assertEquals("Second close exception should be suppressed", 1, suppressed.length);
       assertTrue(suppressed[0].getMessage().contains("close error 2"));
     }
+  }
+
+  @Test
+  public void testCloseSecondThrowsFirstSucceeds() {
+    // When only the second stream's close throws, the exception propagates directly
+    // via the non-catch path in composedClose.
+    var firstClosed = new AtomicBoolean(false);
+    var s1 = Stream.of(1).onClose(() -> firstClosed.set(true));
+    var s2 = Stream.of(2).onClose(() -> {
+      throw new RuntimeException("close error 2");
+    });
+
+    var merged = Streams.mergeSortedSpliterators(s1, s2, Comparator.naturalOrder());
+    try {
+      merged.close();
+      fail("Expected RuntimeException from second stream close");
+    } catch (RuntimeException e) {
+      assertTrue(e.getMessage().contains("close error 2"));
+    }
+    assertTrue("First stream should have been closed before second threw",
+        firstClosed.get());
   }
 
   // --- mergeSortedSpliterators: single-element streams ---

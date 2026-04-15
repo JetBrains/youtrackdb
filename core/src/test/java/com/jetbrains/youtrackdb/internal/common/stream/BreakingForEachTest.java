@@ -72,6 +72,22 @@ public class BreakingForEachTest {
   }
 
   @Test
+  public void testForEachStopOnLastElement() {
+    // Calling stop() on the last element still collects all elements — both
+    // termination conditions (shouldBreak and stream exhaustion) coincide.
+    var collected = new ArrayList<Integer>();
+    BreakingForEach.forEach(
+        Stream.of(1, 2, 3),
+        (elem, breaker) -> {
+          collected.add(elem);
+          if (elem == 3) {
+            breaker.stop();
+          }
+        });
+    assertEquals(List.of(1, 2, 3), collected);
+  }
+
+  @Test
   public void testForEachStopOnCondition() {
     // Stop when a specific condition is met — collect elements until "stop".
     var collected = new ArrayList<String>();
