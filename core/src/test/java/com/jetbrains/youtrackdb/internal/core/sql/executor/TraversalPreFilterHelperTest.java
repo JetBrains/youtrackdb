@@ -32,12 +32,8 @@ public class TraversalPreFilterHelperTest {
     // resetToDefault() restores the auto-scaled value and the "never
     // explicitly set" state so isChanged() returns false.
     GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.resetToDefault();
-    GlobalConfiguration.QUERY_PREFILTER_MAX_SELECTIVITY_RATIO.resetToDefault();
-    GlobalConfiguration.QUERY_PREFILTER_MIN_LINKBAG_SIZE.resetToDefault();
-    // Reset new split config entries fully — resetToDefault() restores the
-    // "never explicitly set" state so isChanged() returns false and the
-    // fallback path in edgeLookupMaxRatio() is testable.
     GlobalConfiguration.QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO.resetToDefault();
+    GlobalConfiguration.QUERY_PREFILTER_MIN_LINKBAG_SIZE.resetToDefault();
     GlobalConfiguration.QUERY_PREFILTER_INDEX_LOOKUP_MAX_SELECTIVITY
         .resetToDefault();
   }
@@ -89,14 +85,14 @@ public class TraversalPreFilterHelperTest {
   }
 
   /**
-   * A RidSet that covers more than {@link TraversalPreFilterHelper#maxSelectivityRatio()}
+   * A RidSet that covers more than {@link TraversalPreFilterHelper#edgeLookupMaxRatio()}
    * of the link bag fails — the filter rejects too few elements.
    */
   @Test
   public void passesRatioCheck_ridSetTooLargeRelativeToLinkBag_fails() {
     int linkBag = 1000;
     int ridSetSize =
-        (int) (linkBag * TraversalPreFilterHelper.maxSelectivityRatio()) + 1;
+        (int) (linkBag * TraversalPreFilterHelper.edgeLookupMaxRatio()) + 1;
     assertThat(TraversalPreFilterHelper.passesRatioCheck(ridSetSize, linkBag))
         .isFalse();
   }
@@ -117,7 +113,7 @@ public class TraversalPreFilterHelperTest {
   public void passesRatioCheck_exactlyAtBoundary_passes() {
     int linkBag = 1000;
     int ridSetSize =
-        (int) (linkBag * TraversalPreFilterHelper.maxSelectivityRatio());
+        (int) (linkBag * TraversalPreFilterHelper.edgeLookupMaxRatio());
     assertThat(TraversalPreFilterHelper.passesRatioCheck(ridSetSize, linkBag))
         .isTrue();
   }
@@ -146,7 +142,7 @@ public class TraversalPreFilterHelperTest {
     // falsifiable than duplicating the production formula.
     assertThat(TraversalPreFilterHelper.maxRidSetSize())
         .isEqualTo(10_000_000);
-    assertThat(TraversalPreFilterHelper.maxSelectivityRatio()).isEqualTo(0.8);
+    assertThat(TraversalPreFilterHelper.edgeLookupMaxRatio()).isEqualTo(0.8);
     assertThat(TraversalPreFilterHelper.minLinkBagSize()).isEqualTo(50);
   }
 
@@ -165,8 +161,8 @@ public class TraversalPreFilterHelperTest {
     assertThat(TraversalPreFilterHelper.shouldAbort(501)).isTrue();
     assertThat(TraversalPreFilterHelper.shouldAbort(499)).isFalse();
 
-    GlobalConfiguration.QUERY_PREFILTER_MAX_SELECTIVITY_RATIO.setValue(0.5);
-    assertThat(TraversalPreFilterHelper.maxSelectivityRatio()).isEqualTo(0.5);
+    GlobalConfiguration.QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO.setValue(0.5);
+    assertThat(TraversalPreFilterHelper.edgeLookupMaxRatio()).isEqualTo(0.5);
     assertThat(TraversalPreFilterHelper.passesRatioCheck(600, 1000)).isFalse();
     assertThat(TraversalPreFilterHelper.passesRatioCheck(500, 1000)).isTrue();
 
@@ -362,55 +358,23 @@ public class TraversalPreFilterHelperTest {
   // =========================================================================
 
   /**
-   * When the new edge lookup config is explicitly set, it takes precedence
-   * over the old config.
+   * Runtime override of edgeLookupMaxRatio is immediately visible.
    */
   @Test
-  public void edgeLookupMaxRatio_newConfigTakesPrecedence() {
+  public void edgeLookupMaxRatio_runtimeOverride() {
     GlobalConfiguration.QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO.setValue(0.6);
-    GlobalConfiguration.QUERY_PREFILTER_MAX_SELECTIVITY_RATIO.setValue(0.3);
     assertThat(TraversalPreFilterHelper.edgeLookupMaxRatio()).isEqualTo(0.6);
   }
 
   /**
-   * When the new index lookup config is explicitly set, it is used.
+   * Runtime override of indexLookupMaxSelectivity is immediately visible.
    */
   @Test
-  public void indexLookupMaxSelectivity_newConfigOverride() {
+  public void indexLookupMaxSelectivity_runtimeOverride() {
     GlobalConfiguration.QUERY_PREFILTER_INDEX_LOOKUP_MAX_SELECTIVITY
         .setValue(0.99);
     assertThat(TraversalPreFilterHelper.indexLookupMaxSelectivity())
         .isEqualTo(0.99);
-  }
-
-  /**
-   * indexLookupMaxSelectivity reads from its own config entry, not the
-   * old selectivity ratio. Even when the old property changes, the index
-   * lookup threshold is independent. Uses a non-default value (0.88) to
-   * ensure the test would fail if the implementation returned a hardcoded
-   * default.
-   */
-  @Test
-  public void indexLookupMaxSelectivity_independentOfOldConfig() {
-    GlobalConfiguration.QUERY_PREFILTER_INDEX_LOOKUP_MAX_SELECTIVITY
-        .setValue(0.88);
-    GlobalConfiguration.QUERY_PREFILTER_MAX_SELECTIVITY_RATIO.setValue(0.5);
-    // Should read from its own entry (0.88), not old (0.5)
-    assertThat(TraversalPreFilterHelper.indexLookupMaxSelectivity())
-        .isEqualTo(0.88);
-  }
-
-  /**
-   * When the new edge lookup config is NOT explicitly set, edgeLookupMaxRatio
-   * falls back to the old maxSelectivityRatio property. This is the critical
-   * backward-compatibility path for existing deployments.
-   */
-  @Test
-  public void edgeLookupMaxRatio_fallsBackToOldConfig() {
-    // Ensure new config is in "never set" state (resetToDefault in @After)
-    GlobalConfiguration.QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO.resetToDefault();
-    GlobalConfiguration.QUERY_PREFILTER_MAX_SELECTIVITY_RATIO.setValue(0.55);
-    assertThat(TraversalPreFilterHelper.edgeLookupMaxRatio()).isEqualTo(0.55);
   }
 
   // =========================================================================

@@ -1300,29 +1300,10 @@ public enum GlobalConfiguration {
           Math.max(100_000L, Runtime.getRuntime().maxMemory() / 200)),
       true),
 
-  /**
-   * @deprecated Use {@link #QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO} and
-   *     {@link #QUERY_PREFILTER_INDEX_LOOKUP_MAX_SELECTIVITY} instead.
-   *     This property is retained for backward compatibility: when the new
-   *     edge-lookup property is not explicitly set, its value is used as
-   *     fallback (same overlap-ratio semantics). The new index-lookup
-   *     property does NOT fall back to this — the semantics differ.
-   */
-  @Deprecated
-  QUERY_PREFILTER_MAX_SELECTIVITY_RATIO(
-      "youtrackdb.query.prefilter.maxSelectivityRatio",
-      "Maximum ratio of ridSetSize/linkBagSize at which the pre-filter is"
-          + " still applied. Above this the filter is too weak to be useful."
-          + " Deprecated — use edgeLookupMaxRatio and indexLookupMaxSelectivity",
-      Double.class,
-      0.8,
-      true),
-
   QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO(
       "youtrackdb.query.prefilter.edgeLookupMaxRatio",
       "Maximum ratio of ridSetSize/linkBagSize for EdgeRidLookup pre-filters."
-          + " Above this the overlap is too high to be useful."
-          + " Falls back to maxSelectivityRatio if not explicitly set",
+          + " Above this the overlap is too high to be useful.",
       Double.class,
       0.8,
       true),
@@ -1331,7 +1312,7 @@ public enum GlobalConfiguration {
       "youtrackdb.query.prefilter.indexLookupMaxSelectivity",
       "Maximum selectivity (estimateHits/totalCount) for IndexLookup"
           + " pre-filters. Above this the condition matches too many records."
-          + " Does NOT fall back to maxSelectivityRatio (different semantics)",
+          + " Independent of edgeLookupMaxRatio (different semantics).",
       Double.class,
       0.95,
       true),

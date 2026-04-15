@@ -39,47 +39,19 @@ public final class TraversalPreFilterHelper {
   }
 
   /**
-   * Returns the maximum ratio of {@code ridSetSize / linkBagSize} at which
-   * the pre-filter is still considered useful. Above this threshold the
-   * filter lets through too many elements and the overhead of
-   * {@code contains()} checks outweighs the I/O savings.
-   */
-  public static double maxSelectivityRatio() {
-    return GlobalConfiguration.QUERY_PREFILTER_MAX_SELECTIVITY_RATIO
-        .getValueAsDouble();
-  }
-
-  /**
    * Returns the maximum overlap ratio for {@link
    * RidFilterDescriptor.EdgeRidLookup} pre-filters. Above this threshold
    * the reverse set covers too much of the link bag to be useful.
-   *
-   * <p>Resolution order:
-   * <ol>
-   *   <li>New {@code QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO} if explicitly
-   *       set</li>
-   *   <li>Old {@code QUERY_PREFILTER_MAX_SELECTIVITY_RATIO} value as
-   *       fallback (same overlap-ratio semantics; default 0.8)</li>
-   * </ol>
    */
   public static double edgeLookupMaxRatio() {
-    if (GlobalConfiguration.QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO
-        .isChanged()) {
-      return GlobalConfiguration.QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO
-          .getValueAsDouble();
-    }
-    // Fall back to old property (same semantics: overlap ratio)
-    return maxSelectivityRatio();
+    return GlobalConfiguration.QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO
+        .getValueAsDouble();
   }
 
   /**
    * Returns the maximum class-level selectivity for {@link
    * RidFilterDescriptor.IndexLookup} pre-filters. Above this threshold
    * the index condition matches too many records to be useful.
-   *
-   * <p>Does NOT fall back to the old
-   * {@code QUERY_PREFILTER_MAX_SELECTIVITY_RATIO} — the semantics are
-   * fundamentally different (class-level selectivity vs. overlap ratio).
    */
   public static double indexLookupMaxSelectivity() {
     return GlobalConfiguration.QUERY_PREFILTER_INDEX_LOOKUP_MAX_SELECTIVITY
@@ -443,6 +415,6 @@ public final class TraversalPreFilterHelper {
     if (linkBagSize <= 0) {
       return true;
     }
-    return (double) ridSetSize / linkBagSize <= maxSelectivityRatio();
+    return (double) ridSetSize / linkBagSize <= edgeLookupMaxRatio();
   }
 }
