@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.common.util;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import org.junit.Test;
 
 public class MemoryTest {
@@ -27,10 +28,14 @@ public class MemoryTest {
   }
 
   @Test
-  public void testFixCommonConfigurationProblemsDoesNotThrowOnDefaultConfig() {
+  public void testFixCommonConfigurationProblemsDoesNotModifyOn64Bit() {
     // On a 64-bit JVM (the standard test environment), this method should
     // execute without errors and without modifying the disk cache size.
+    var diskCacheSizeBefore =
+        GlobalConfiguration.DISK_CACHE_SIZE.getValueAsLong();
     Memory.fixCommonConfigurationProblems();
-    // No exception means the method handled the default configuration correctly.
+    assertEquals(
+        diskCacheSizeBefore,
+        GlobalConfiguration.DISK_CACHE_SIZE.getValueAsLong());
   }
 }

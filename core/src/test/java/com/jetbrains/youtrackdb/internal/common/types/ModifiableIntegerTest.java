@@ -202,4 +202,57 @@ public class ModifiableIntegerTest {
     var mi = new ModifiableInteger(123);
     assertEquals("123", mi.toString());
   }
+
+  // --- Negative values ---
+
+  @Test
+  public void testNegativeValueConstructorAndAccessors() {
+    var mi = new ModifiableInteger(-42);
+    assertEquals(-42, mi.getValue());
+    assertEquals("-42", mi.toString());
+    assertEquals(-42, mi.hashCode());
+  }
+
+  @Test
+  public void testCompareToNegativeVsPositive() {
+    var neg = new ModifiableInteger(-5);
+    var pos = new ModifiableInteger(5);
+    assertTrue(neg.compareTo(pos) < 0);
+    assertTrue(pos.compareTo(neg) > 0);
+  }
+
+  @Test
+  public void testEqualsNegativeValues() {
+    var a = new ModifiableInteger(-7);
+    var b = new ModifiableInteger(-7);
+    assertEquals(a, b);
+    assertEquals(a.hashCode(), b.hashCode());
+  }
+
+  // --- Overflow / underflow boundaries ---
+
+  @Test
+  public void testIncrementOverflow() {
+    // Documents integer overflow behavior: MAX_VALUE + 1 wraps to MIN_VALUE.
+    var mi = new ModifiableInteger(Integer.MAX_VALUE);
+    mi.increment();
+    assertEquals(Integer.MIN_VALUE, mi.getValue());
+  }
+
+  @Test
+  public void testDecrementUnderflow() {
+    // Documents integer underflow behavior: MIN_VALUE - 1 wraps to MAX_VALUE.
+    var mi = new ModifiableInteger(Integer.MIN_VALUE);
+    mi.decrement();
+    assertEquals(Integer.MAX_VALUE, mi.getValue());
+  }
+
+  @Test
+  public void testIncrementWithMaxClampBypassedByOverflow() {
+    // Documents that when value + iValue overflows, Math.min returns the
+    // overflowed negative value, bypassing the max clamp.
+    var mi = new ModifiableInteger(Integer.MAX_VALUE);
+    mi.increment(1, 100);
+    assertEquals(Integer.MIN_VALUE, mi.getValue());
+  }
 }
