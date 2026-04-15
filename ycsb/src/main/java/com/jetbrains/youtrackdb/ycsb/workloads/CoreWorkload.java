@@ -17,12 +17,37 @@
 
 package com.jetbrains.youtrackdb.ycsb.workloads;
 
-import com.jetbrains.youtrackdb.ycsb.*;
-import com.jetbrains.youtrackdb.ycsb.generator.*;
+import com.jetbrains.youtrackdb.ycsb.ByteIterator;
+import com.jetbrains.youtrackdb.ycsb.Client;
+import com.jetbrains.youtrackdb.ycsb.DB;
+import com.jetbrains.youtrackdb.ycsb.RandomByteIterator;
+import com.jetbrains.youtrackdb.ycsb.Status;
+import com.jetbrains.youtrackdb.ycsb.StringByteIterator;
+import com.jetbrains.youtrackdb.ycsb.Utils;
+import com.jetbrains.youtrackdb.ycsb.Workload;
+import com.jetbrains.youtrackdb.ycsb.WorkloadException;
+import com.jetbrains.youtrackdb.ycsb.generator.AcknowledgedCounterGenerator;
+import com.jetbrains.youtrackdb.ycsb.generator.ConstantIntegerGenerator;
+import com.jetbrains.youtrackdb.ycsb.generator.CounterGenerator;
+import com.jetbrains.youtrackdb.ycsb.generator.DiscreteGenerator;
+import com.jetbrains.youtrackdb.ycsb.generator.ExponentialGenerator;
+import com.jetbrains.youtrackdb.ycsb.generator.HistogramGenerator;
+import com.jetbrains.youtrackdb.ycsb.generator.HotspotIntegerGenerator;
+import com.jetbrains.youtrackdb.ycsb.generator.NumberGenerator;
+import com.jetbrains.youtrackdb.ycsb.generator.ScrambledZipfianGenerator;
+import com.jetbrains.youtrackdb.ycsb.generator.SequentialGenerator;
+import com.jetbrains.youtrackdb.ycsb.generator.SkewedLatestGenerator;
 import com.jetbrains.youtrackdb.ycsb.generator.UniformLongGenerator;
+import com.jetbrains.youtrackdb.ycsb.generator.ZipfianGenerator;
 import com.jetbrains.youtrackdb.ycsb.measurements.Measurements;
 import java.io.IOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.Vector;
 
 /**
  * The core benchmark scenario. Represents a set of clients doing simple CRUD operations. The
