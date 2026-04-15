@@ -204,6 +204,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
    * and lazy evaluation + LIMIT means subsequent edges only process the
    * top K records instead of all loaded records.
    */
+  @SuppressWarnings("unchecked")
   private ExecutionStream loadFromRidSet(
       RidSet ridSet, CommandContext ctx, Result upstreamRow) {
     var session = ctx.getDatabaseSession();
@@ -219,7 +220,25 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       }
     }
 
-    sortByOrderProperty(records);
+    // Sort by ORDER BY property for pre-sorted output.
+    // Property name comes from the index definition (single-field index).
+    var propertyName =
+        index.getDefinition().getProperties().iterator().next();
+    records.sort((a, b) -> {
+      var va = (Comparable<Object>) a.getProperty(propertyName);
+      var vb = (Comparable<Object>) b.getProperty(propertyName);
+      if (va == null && vb == null) {
+        return 0;
+      }
+      if (va == null) {
+        return orderAsc ? 1 : -1;
+      }
+      if (vb == null) {
+        return orderAsc ? -1 : 1;
+      }
+      int cmp = va.compareTo(vb);
+      return orderAsc ? cmp : -cmp;
+    });
 
     return ExecutionStream.resultIterator(
         records.stream()
@@ -280,7 +299,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     int maxSources =
         GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SOURCES.getValueAsInteger();
     if (sourceCount > maxSources) {
-      ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
+      ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
       return loadFromSourcesUnsorted(sourceMap, ctx);
     }
 
@@ -300,7 +319,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
         yield indexScanGlobal(sourceMap, ctx);
       }
       case LOAD_ALL_SORT -> {
-        ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
+        ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
         yield loadFromSourcesUnsorted(sourceMap, ctx);
       }
     };
@@ -357,13 +376,13 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       return ExecutionStream.empty();
     }
 
-    // If source or union overflowed, or cost model rejects, load from
-    // source LinkBags, sort in-memory, and emit as pre-sorted stream.
+    // If source or union overflowed, or cost model rejects, stream from
+    // source LinkBags without sorting. OrderByStep handles sort downstream.
     long indexSize = index.size(session);
     var histogram = index.getHistogram(session);
     if (sourceOverflow || ridSetOverflow || unionRidSet.isEmpty()
         || !shouldUseIndexScan(unionRidSet.size(), indexSize, histogram)) {
-      ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
+      ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
       return loadFromSourcesUnbound(sourceRids, ctx);
     }
 
@@ -389,30 +408,33 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   }
 
   /**
-   * Mode B fallback: iterate source LinkBags, load targets, sort by
-   * ORDER BY property, and emit as a pre-sorted stream without source
-   * binding. Downstream OrderByStep passes through, and lazy evaluation
-   * + LIMIT means subsequent edges only process the top K records.
+   * Mode B fallback: iterate source LinkBags, load targets, emit
+   * without sorting or source binding. OrderByStep sorts downstream.
    */
   private ExecutionStream loadFromSourcesUnbound(
       List<RID> sourceRids, CommandContext ctx) {
     var session = ctx.getDatabaseSession();
     var emptyUpstream = new ResultInternal(session);
+    return batchedStream(
+        sourceRids.iterator(),
+        sourceRid -> loadSourceEdgesUnbound(sourceRid, emptyUpstream, session, ctx));
+  }
+
+  private ExecutionStream loadSourceEdgesUnbound(
+      RID sourceRid, Result emptyUpstream,
+      DatabaseSessionEmbedded session, CommandContext ctx) {
+    var linkBag = loadLinkBag(sourceRid, session);
+    if (linkBag == null) {
+      return ExecutionStream.empty();
+    }
     var results = new ArrayList<Result>();
-    for (var sourceRid : sourceRids) {
-      var linkBag = loadLinkBag(sourceRid, session);
-      if (linkBag == null) {
-        continue;
-      }
-      for (RidPair pair : linkBag) {
-        var record = loadRecord(ridFromPair(pair), session);
-        if (record != null && matchesTargetFilter(record, ctx)) {
-          results.add(
-              new MatchResultRow(session, emptyUpstream, targetAlias, record));
-        }
+    for (RidPair pair : linkBag) {
+      var record = loadRecord(ridFromPair(pair), session);
+      if (record != null && matchesTargetFilter(record, ctx)) {
+        results.add(
+            new MatchResultRow(session, emptyUpstream, targetAlias, record));
       }
     }
-    sortByOrderProperty(results);
     return ExecutionStream.resultIterator(results.iterator());
   }
 
@@ -557,7 +579,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
 
     if (overflow) {
       ctx.setSystemVariable(
-          CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
+          CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
       return loadFromSourcesUnsorted(sourceMap, ctx);
     }
 
@@ -595,67 +617,40 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
 
   /**
    * Low-density fallback: iterate all sources' LinkBags, load targets,
-   * sort by ORDER BY property, and emit as a pre-sorted stream.
-   * Because the output is sorted, downstream OrderByStep passes through,
-   * and lazy evaluation + LIMIT means subsequent edges only process the
-   * top K records instead of all loaded records.
+   * emit WITHOUT sorting. Downstream OrderByStep handles sort with
+   * bounded heap (O(LIMIT) memory).
    */
   private ExecutionStream loadFromSourcesUnsorted(
       Map<RID, List<Result>> sourceMap, CommandContext ctx) {
     var session = ctx.getDatabaseSession();
+    return batchedStream(
+        sourceMap.entrySet().iterator(),
+        entry -> loadSourceEdgesBound(entry, session, ctx));
+  }
+
+  /** Load edges from one source, emit as MatchResultRows with source binding. */
+  private ExecutionStream loadSourceEdgesBound(
+      Map.Entry<RID, List<Result>> entry,
+      DatabaseSessionEmbedded session, CommandContext ctx) {
+    var linkBag = loadLinkBag(entry.getKey(), session);
+    if (linkBag == null) {
+      return ExecutionStream.empty();
+    }
+    var upstreamRows = entry.getValue();
     var results = new ArrayList<Result>();
-    for (var entry : sourceMap.entrySet()) {
-      var linkBag = loadLinkBag(entry.getKey(), session);
-      if (linkBag == null) {
+    for (RidPair pair : linkBag) {
+      var record = loadRecord(ridFromPair(pair), session);
+      if (record == null || !matchesTargetFilter(record, ctx)) {
         continue;
       }
-      var upstreamRows = entry.getValue();
-      for (RidPair pair : linkBag) {
-        var record = loadRecord(ridFromPair(pair), session);
-        if (record == null || !matchesTargetFilter(record, ctx)) {
-          continue;
-        }
-        for (var row : upstreamRows) {
-          if (!isAlreadyBoundAndDifferent(row, record, session)) {
-            results.add(
-                new MatchResultRow(session, row, targetAlias, record));
-          }
+      for (var row : upstreamRows) {
+        if (!isAlreadyBoundAndDifferent(row, record, session)) {
+          results.add(
+              new MatchResultRow(session, row, targetAlias, record));
         }
       }
     }
-    sortByOrderProperty(results);
     return ExecutionStream.resultIterator(results.iterator());
-  }
-
-  // =====================================================================
-  // Sort helper
-  // =====================================================================
-
-  /**
-   * Sorts a list of loaded Result records by the ORDER BY property
-   * (extracted from the index definition). Used by all fallback paths
-   * to produce pre-sorted output that enables lazy early termination
-   * through downstream edges.
-   */
-  @SuppressWarnings("unchecked")
-  private void sortByOrderProperty(List<Result> records) {
-    var propertyName =
-        index.getDefinition().getProperties().iterator().next();
-    records.sort((a, b) -> {
-      var va = (Comparable<Object>) a.getProperty(propertyName);
-      var vb = (Comparable<Object>) b.getProperty(propertyName);
-      if (va == null && vb == null) {
-        return 0;
-      }
-      if (va == null) {
-        return orderAsc ? 1 : -1;
-      }
-      if (vb == null) {
-        return orderAsc ? -1 : 1;
-      }
-      int cmp = va.compareTo(vb);
-      return orderAsc ? cmp : -cmp;
-    });
   }
 
   // =====================================================================
