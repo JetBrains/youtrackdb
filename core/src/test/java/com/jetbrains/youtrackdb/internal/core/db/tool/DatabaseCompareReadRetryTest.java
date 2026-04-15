@@ -5,8 +5,11 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
@@ -85,6 +88,7 @@ public class DatabaseCompareReadRetryTest {
     assertArrayEquals(EXPECTED_DATA, result.buffer());
     assertEquals(RECORD_VERSION, result.recordVersion());
     assertEquals(RECORD_TYPE, result.recordType());
+    verify(storage, times(2)).readRecord(any(), any());
   }
 
   /**
@@ -102,6 +106,74 @@ public class DatabaseCompareReadRetryTest {
 
     assertNotNull(result);
     assertArrayEquals(EXPECTED_DATA, result.buffer());
-    assertEquals(1, result.recordVersion());
+    assertEquals(RECORD_VERSION, result.recordVersion());
+    assertEquals(RECORD_TYPE, result.recordType());
+    verify(storage, times(1)).readRecord(any(), any());
+  }
+
+  /**
+   * Verifies that readRecordWithRetry handles multiple consecutive
+   * OptimisticReadFailedExceptions before succeeding — simulating sustained page contention
+   * where the optimistic stamp is invalidated repeatedly.
+   */
+  @Test
+  public void testMultipleConsecutiveRetriesBeforeSuccess() {
+    var frame = new PageFrame(pointer);
+    frame.getBuffer().position(0);
+    frame.getBuffer().put(EXPECTED_DATA);
+
+    // Create 3 stale RawPageBuffers with invalidated stamps
+    long staleStamp1 = frame.tryOptimisticRead();
+    long ws1 = frame.acquireExclusiveLock();
+    frame.releaseExclusiveLock(ws1);
+
+    long staleStamp2 = frame.tryOptimisticRead();
+    long ws2 = frame.acquireExclusiveLock();
+    frame.releaseExclusiveLock(ws2);
+
+    long staleStamp3 = frame.tryOptimisticRead();
+    long ws3 = frame.acquireExclusiveLock();
+    frame.releaseExclusiveLock(ws3);
+
+    var stale1 = new RawPageBuffer(frame, staleStamp1, 0, EXPECTED_DATA.length,
+        RECORD_VERSION, RECORD_TYPE);
+    var stale2 = new RawPageBuffer(frame, staleStamp2, 0, EXPECTED_DATA.length,
+        RECORD_VERSION, RECORD_TYPE);
+    var stale3 = new RawPageBuffer(frame, staleStamp3, 0, EXPECTED_DATA.length,
+        RECORD_VERSION, RECORD_TYPE);
+    var successResult = new RawBuffer(EXPECTED_DATA, RECORD_VERSION, RECORD_TYPE);
+
+    var storage = mock(Storage.class);
+    var rid = new RecordId(1, 0);
+    when(storage.readRecord(any(), any()))
+        .thenReturn(stale1)
+        .thenReturn(stale2)
+        .thenReturn(stale3)
+        .thenReturn(successResult);
+
+    RawBuffer result = DatabaseCompare.readRecordWithRetry(storage, rid, null);
+
+    assertNotNull(result);
+    assertArrayEquals(EXPECTED_DATA, result.buffer());
+    assertEquals(RECORD_VERSION, result.recordVersion());
+    assertEquals(RECORD_TYPE, result.recordType());
+    // Verify exactly 4 calls: 3 failures + 1 success
+    verify(storage, times(4)).readRecord(any(), any());
+  }
+
+  /**
+   * Verifies that readRecordWithRetry does NOT catch non-OptimisticReadFailedException
+   * exceptions — they propagate immediately to the caller without retry. This ensures
+   * the retry loop only handles the specific stamp-invalidation case, not general
+   * storage errors.
+   */
+  @Test(expected = RecordNotFoundException.class)
+  public void testNonOptimisticExceptionPropagatesWithoutRetry() {
+    var storage = mock(Storage.class);
+    var rid = new RecordId(1, 0);
+    when(storage.readRecord(any(), any()))
+        .thenThrow(new RecordNotFoundException("test-db", rid));
+
+    DatabaseCompare.readRecordWithRetry(storage, rid, null);
   }
 }

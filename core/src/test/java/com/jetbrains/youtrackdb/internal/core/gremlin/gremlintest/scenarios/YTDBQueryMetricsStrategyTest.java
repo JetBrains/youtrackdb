@@ -47,10 +47,13 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
 
     // The ticker background thread fires at fixed-rate intervals of `granularity`, but actual
     // scheduling jitter can be significant — especially on Windows CI where the OS timer
-    // resolution is ~15.6 ms and thread scheduling under load adds further delay. A 3x
-    // multiplier provides enough headroom to absorb worst-case jitter while still being a
-    // meaningful upper bound on ticker staleness.
-    TICKER_POSSIBLE_LAG_NANOS = granularity * 3;
+    // resolution is ~15.6 ms and ScheduledExecutorService.scheduleAtFixedRate(10ms) actually
+    // fires at ~15.6 ms intervals. Under CPU contention a tick can be delayed by an additional
+    // timer quantum, pushing worst-case staleness to ~31 ms for a 10 ms configured granularity.
+    // A 5x multiplier (50 ms) provides enough headroom for two missed Windows timer quanta plus
+    // additional scheduling jitter, while still being a meaningful upper bound on ticker
+    // staleness.
+    TICKER_POSSIBLE_LAG_NANOS = granularity * 5;
     TICKER_POSSIBLE_LAG_MILLIS = TICKER_POSSIBLE_LAG_NANOS / 1_000_000;
   }
 
