@@ -183,6 +183,8 @@ public class StreamsTest {
       fail("Expected RuntimeException from first stream close");
     } catch (RuntimeException e) {
       assertTrue(e.getMessage().contains("close error 1"));
+      assertEquals("No suppressed exceptions when only first close throws",
+          0, e.getSuppressed().length);
     }
     assertTrue("Second stream should be closed even when first throws",
         secondClosed.get());
