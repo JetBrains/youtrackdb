@@ -481,33 +481,37 @@ public final class CellBTreeSingleValueBucketV3<K> extends DurablePage {
   }
 
   /**
-   * Checks whether any entry in this leaf bucket has a tombstone or snapshot
-   * marker value, by inspecting only the raw value bytes (collectionId sign
-   * and collectionPosition sign) without allocating RID objects or byte arrays.
+   * Classifies the value type of the entry at the given index by inspecting
+   * only the raw value bytes (collectionId sign and collectionPosition sign)
+   * without allocating RID objects.
    *
-   * @return {@code true} if at least one entry is a {@link TombstoneRID}
-   *     or {@link SnapshotMarkerRID}
+   * @return {@link ValueType#TOMBSTONE} if collectionId is negative,
+   *     {@link ValueType#MARKER} if collectionPosition is negative,
+   *     {@link ValueType#PLAIN} otherwise
    */
-  public boolean hasAnyTombstoneOrMarker(
+  public ValueType classifyValueType(
+      final int entryIndex,
       final BinarySerializer<K> keySerializer,
       final BinarySerializerFactory serializerFactory) {
     assert isLeaf();
-    final int bucketSize = size();
-    for (int i = 0; i < bucketSize; i++) {
-      var entryPosition = getPointer(i);
-      entryPosition +=
-          getObjectSizeInDirectMemory(keySerializer, serializerFactory, entryPosition);
-      final int collectionId = getShortValue(entryPosition);
-      if (collectionId < 0) {
-        return true;
-      }
-      final long collectionPosition =
-          getLongValue(entryPosition + ShortSerializer.SHORT_SIZE);
-      if (collectionPosition < 0) {
-        return true;
-      }
+    var entryPosition = getPointer(entryIndex);
+    entryPosition +=
+        getObjectSizeInDirectMemory(keySerializer, serializerFactory, entryPosition);
+    final int collectionId = getShortValue(entryPosition);
+    if (collectionId < 0) {
+      return ValueType.TOMBSTONE;
     }
-    return false;
+    final long collectionPosition =
+        getLongValue(entryPosition + ShortSerializer.SHORT_SIZE);
+    if (collectionPosition < 0) {
+      return ValueType.MARKER;
+    }
+    return ValueType.PLAIN;
+  }
+
+  /** Classification of a leaf entry's value without RID allocation. */
+  enum ValueType {
+    PLAIN, TOMBSTONE, MARKER
   }
 
   /**

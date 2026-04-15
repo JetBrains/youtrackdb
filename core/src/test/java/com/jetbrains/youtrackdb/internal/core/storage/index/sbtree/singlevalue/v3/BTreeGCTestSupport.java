@@ -13,6 +13,13 @@ import java.util.concurrent.locks.ReadWriteLock;
  * Shared test infrastructure for BTree tombstone GC tests.
  * Provides a stub {@link BaseIndexEngine} for {@code indexEngineNameMap} registration
  * and reflection helpers for LWM pinning and engine registration/unregistration.
+ *
+ * <p><b>Fragile reflection coupling:</b> This class accesses private fields of
+ * {@link AbstractStorage} ({@code tsMins}, {@code stateLock}, {@code indexEngineNameMap})
+ * and the package-private class {@code TsMinHolder} via reflection. If any of
+ * these fields are renamed or their types change, this class will fail at runtime
+ * with reflection errors rather than compile-time failures. Update field names here
+ * whenever the corresponding {@code AbstractStorage} internals change.
  */
 final class BTreeGCTestSupport {
 

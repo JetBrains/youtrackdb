@@ -216,6 +216,9 @@ public abstract class AbstractStorage
       Comparator.comparing(
           o -> o.record.getIdentity());
 
+  /** Suffix appended to index engine names for null-key trees. */
+  public static final String NULL_TREE_SUFFIX = "$null";
+
   /**
    * Version comparator for index snapshot visibility-index maps: orders by the
    * last key element (the committing TX's version = newVersion), falling back
@@ -6367,6 +6370,11 @@ public abstract class AbstractStorage
    * Resolves the sub-{@link IndexesSnapshot} for an index engine by its name.
    * Used by {@code BTree} during tombstone GC to check for active snapshot entries.
    *
+   * <p><b>Warning:</b> This method acquires {@code stateLock.readLock()}. It must
+   * not be called while holding a BTree component lock, as this would create a
+   * lock ordering inversion. Use {@link #hasActiveIndexSnapshotEntriesById} from
+   * within BTree code paths instead.
+   *
    * @return the scoped snapshot, or {@code null} if no engine with this name exists
    */
   @Nullable public IndexesSnapshot getIndexSnapshotByEngineName(String engineName) {
@@ -6387,6 +6395,10 @@ public abstract class AbstractStorage
    * Currently used only by test infrastructure for snapshot cleanup; reserved for
    * future null-key tree GC support (Track 2).
    *
+   * <p><b>Warning:</b> This method acquires {@code stateLock.readLock()}. It must
+   * not be called while holding a BTree component lock, as this would create a
+   * lock ordering inversion.
+   *
    * @return the scoped null snapshot, or {@code null} if no engine with this name exists
    */
   @Nullable public IndexesSnapshot getNullIndexSnapshotByEngineName(String engineName) {
@@ -6401,8 +6413,6 @@ public abstract class AbstractStorage
       stateLock.readLock().unlock();
     }
   }
-
-  private static final String NULL_TREE_SUFFIX = "$null";
 
   /**
    * Checks whether any snapshot entries exist for the given user-key prefix with
@@ -6473,29 +6483,28 @@ public abstract class AbstractStorage
     return hasActiveSnapshotEntriesInMap(snapshotMap, indexId, userKeyPrefix, lwm);
   }
 
+  private static final Long LONG_MAX_VALUE = Long.MAX_VALUE;
+
   private static boolean hasActiveSnapshotEntriesInMap(
       NavigableMap<CompositeKey, RID> snapshotMap,
       long indexId,
       CompositeKey userKeyPrefix,
       long lwm) {
     var prefixKeys = userKeyPrefix.getKeys();
-    int size = prefixKeys.size();
-
-    var lower = new CompositeKey(size + 2);
-    lower.addKey(indexId);
-    for (int i = 0; i < size; i++) {
-      lower.addKey(prefixKeys.get(i));
-    }
-    lower.addKey(lwm);
-
-    var upper = new CompositeKey(size + 2);
-    upper.addKey(indexId);
-    for (int i = 0; i < size; i++) {
-      upper.addKey(prefixKeys.get(i));
-    }
-    upper.addKey(Long.MAX_VALUE);
-
+    var lower = buildSnapshotBoundKey(indexId, prefixKeys, lwm);
+    var upper = buildSnapshotBoundKey(indexId, prefixKeys, LONG_MAX_VALUE);
     return !snapshotMap.subMap(lower, true, upper, true).isEmpty();
+  }
+
+  private static CompositeKey buildSnapshotBoundKey(
+      long indexId, List<Object> prefixKeys, long version) {
+    var key = new CompositeKey(prefixKeys.size() + 2);
+    key.addKey(indexId);
+    for (var pk : prefixKeys) {
+      key.addKey(pk);
+    }
+    key.addKey(version);
+    return key;
   }
 
   /**

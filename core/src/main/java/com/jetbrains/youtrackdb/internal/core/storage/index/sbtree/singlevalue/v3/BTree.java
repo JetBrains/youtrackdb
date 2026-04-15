@@ -2795,11 +2795,13 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
   /**
    * Checks whether any active snapshot entries exist for the given
    * user-key prefix, using the cached {@link #engineId} for a lock-free
-   * lookup. Falls back to {@code false} (safe: never demotes) if the
+   * lookup. Falls back to {@code true} (safe: never demotes) if the
    * engine ID was not set.
+   *
+   * @param isNullTree pre-computed flag for null-tree detection
    */
   private boolean hasActiveSnapshotEntries(
-      CompositeKey compositeKey, long lwm) {
+      CompositeKey compositeKey, boolean isNullTree, long lwm) {
     if (engineId < 0) {
       // engineId not set — conservatively assume active entries exist,
       // so markers are not demoted.
@@ -2808,7 +2810,6 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
     var allKeys = compositeKey.getKeys();
     var userKeyPrefix = new CompositeKey(
         allKeys.subList(0, allKeys.size() - 1));
-    boolean isNullTree = getName().endsWith("$null");
     return storage.hasActiveIndexSnapshotEntriesById(
         engineId, isNullTree, userKeyPrefix, lwm);
   }
@@ -2817,6 +2818,11 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
    * Filters removable tombstones from a leaf bucket and rebuilds it in-place
    * with only the surviving entries. Stale {@link SnapshotMarkerRID} entries
    * are demoted to plain {@code RecordId} directly on the page.
+   *
+   * <p>Uses a single scan that classifies each entry's value type from raw
+   * bytes (zero RID allocations for plain entries), then deserializes the
+   * key only for tombstones and markers that need version checking. The LWM
+   * is computed lazily on the first tombstone/marker encountered.
    *
    * <p>A tombstone is removable when:
    * <ol>
@@ -2838,48 +2844,47 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
       final CellBTreeSingleValueBucketV3<K> keyBucket) {
     assert keyBucket.isLeaf() : "GC must only run on leaf buckets";
 
-    // Prescan: check raw value bytes for tombstones/markers without
-    // allocating RID objects or byte arrays. Early-out when the bucket
-    // contains only plain RecordId entries (common case for append-heavy
-    // workloads).
-    if (!keyBucket.hasAnyTombstoneOrMarker(keySerializer, serializerFactory)) {
-      return 0;
-    }
-
-    final long lwm = storage.computeGlobalLowWaterMark();
-    assert lwm > 0 : "Global LWM must be positive, got " + lwm;
-
-    // First pass: classify entries and apply in-place demotions.
-    // Collect indices of tombstones to remove; demote markers directly
-    // on the page without rebuilding.
+    // Single pass: classify entries from raw bytes, deserialize keys only
+    // for tombstones/markers. LWM is computed lazily on first candidate.
     final int bucketSize = keyBucket.size();
+    long lwm = -1;
+    boolean isNullTree = false;
     IntList tombstoneIndices = null;
 
     for (int i = 0; i < bucketSize; i++) {
-      final var value =
-          keyBucket.getValue(i, keySerializer, serializerFactory);
+      final var type =
+          keyBucket.classifyValueType(i, keySerializer, serializerFactory);
+      if (type == CellBTreeSingleValueBucketV3.ValueType.PLAIN) {
+        continue;
+      }
 
-      if (value instanceof TombstoneRID) {
-        final var key = keyBucket.getKey(i, keySerializer, serializerFactory);
-        final long version = extractVersion(key);
-        if (version >= 0 && version < lwm) {
-          if (tombstoneIndices == null) {
-            tombstoneIndices = new IntArrayList();
-          }
-          tombstoneIndices.add(i);
+      // Compute LWM lazily on first tombstone/marker encountered.
+      if (lwm < 0) {
+        lwm = storage.computeGlobalLowWaterMark();
+        assert lwm >= 0 : "Global LWM must be non-negative, got " + lwm;
+        isNullTree = getName().endsWith(AbstractStorage.NULL_TREE_SUFFIX);
+      }
+
+      final var key = keyBucket.getKey(i, keySerializer, serializerFactory);
+      final long version = extractVersion(key);
+      if (version < 0 || version >= lwm) {
+        continue;
+      }
+
+      if (type == CellBTreeSingleValueBucketV3.ValueType.TOMBSTONE) {
+        if (tombstoneIndices == null) {
+          tombstoneIndices = new IntArrayList();
         }
-      } else if (value instanceof SnapshotMarkerRID) {
-        final var key = keyBucket.getKey(i, keySerializer, serializerFactory);
-        final long version = extractVersion(key);
-        if (version >= 0 && version < lwm
-            && key instanceof CompositeKey compositeKey
-            && !hasActiveSnapshotEntries(compositeKey, lwm)) {
+        tombstoneIndices.add(i);
+      } else {
+        // MARKER — demote if no active snapshot entries exist
+        if (key instanceof CompositeKey compositeKey
+            && !hasActiveSnapshotEntries(compositeKey, isNullTree, lwm)) {
           // Demote in-place on the page (WAL-tracked via setLongValue)
           keyBucket.demoteSnapshotMarkerValue(
               i, keySerializer, serializerFactory);
         }
       }
-      // Plain RecordId entries and entries above LWM are left untouched.
     }
 
     if (tombstoneIndices == null) {
