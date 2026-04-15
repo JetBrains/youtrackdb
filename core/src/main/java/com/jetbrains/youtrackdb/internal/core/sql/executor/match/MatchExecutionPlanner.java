@@ -1960,7 +1960,7 @@ public class MatchExecutionPlanner {
           // edges back into the main plan by not skipping them. Since we already
           // skipped them above, we need to add them now.
           for (var branchEdge : branch.branchEdges()) {
-            addStepsFor(plan, branchEdge, context, first, profilingEnabled);
+            addStepsFor(plan, branchEdge, context, first, null, profilingEnabled);
             first = false;
           }
         } else {
