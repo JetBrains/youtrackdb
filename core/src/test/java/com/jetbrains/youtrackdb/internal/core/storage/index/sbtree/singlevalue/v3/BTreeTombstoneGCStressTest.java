@@ -10,23 +10,18 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.TombstoneRID;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
-import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.index.IndexMultiValuKeySerializer;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import java.io.File;
-import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReadWriteLock;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -110,6 +105,7 @@ public class BTreeTombstoneGCStressTest {
   @Before
   public void beforeMethod() throws Exception {
     bTree = new BTree<>(ENGINE_NAME, ".cbt", ".nbt", storage);
+    bTree.setEngineId(STUB_ENGINE_ID);
     atomicOperationsManager.executeInsideAtomicOperation(
         atomicOperation -> bTree.create(
             atomicOperation,
@@ -119,7 +115,7 @@ public class BTreeTombstoneGCStressTest {
                 PropertyTypeInternal.LONG},
             2));
 
-    registerStubEngine(ENGINE_NAME, STUB_ENGINE_ID);
+    BTreeGCTestSupport.registerStubEngine(storage, ENGINE_NAME, STUB_ENGINE_ID);
   }
 
   @After
@@ -129,50 +125,9 @@ public class BTreeTombstoneGCStressTest {
       snapshot.clear();
     }
 
-    unregisterStubEngine(ENGINE_NAME);
+    BTreeGCTestSupport.unregisterStubEngine(storage, ENGINE_NAME);
     atomicOperationsManager.executeInsideAtomicOperation(
         atomicOperation -> bTree.delete(atomicOperation));
-  }
-
-  // ---- Reflection helpers (duplicated from BTreeTombstoneGCTest) ----
-
-  @SuppressWarnings("unchecked")
-  private static void registerStubEngine(String name, int id) throws Exception {
-    BaseIndexEngine stub = new StubIndexEngine(name, id);
-    var lock = getStateLock();
-    lock.writeLock().lock();
-    try {
-      Field mapField =
-          AbstractStorage.class.getDeclaredField("indexEngineNameMap");
-      mapField.setAccessible(true);
-      Map<String, BaseIndexEngine> map =
-          (Map<String, BaseIndexEngine>) mapField.get(storage);
-      map.put(name, stub);
-    } finally {
-      lock.writeLock().unlock();
-    }
-  }
-
-  @SuppressWarnings("unchecked")
-  private static void unregisterStubEngine(String name) throws Exception {
-    var lock = getStateLock();
-    lock.writeLock().lock();
-    try {
-      Field mapField =
-          AbstractStorage.class.getDeclaredField("indexEngineNameMap");
-      mapField.setAccessible(true);
-      Map<String, BaseIndexEngine> map =
-          (Map<String, BaseIndexEngine>) mapField.get(storage);
-      map.remove(name);
-    } finally {
-      lock.writeLock().unlock();
-    }
-  }
-
-  private static ReadWriteLock getStateLock() throws Exception {
-    Field lockField = AbstractStorage.class.getDeclaredField("stateLock");
-    lockField.setAccessible(true);
-    return (ReadWriteLock) lockField.get(storage);
   }
 
   // ---- Stress tests ----
@@ -639,129 +594,4 @@ public class BTreeTombstoneGCStressTest {
     }
   }
 
-  // ---- Stub engine (duplicated from BTreeTombstoneGCTest) ----
-
-  private static class StubIndexEngine implements BaseIndexEngine {
-    private final String name;
-    private final int id;
-
-    StubIndexEngine(String name, int id) {
-      this.name = name;
-      this.id = id;
-    }
-
-    @Override
-    public int getId() {
-      return id;
-    }
-
-    @Override
-    public String getName() {
-      return name;
-    }
-
-    @Override
-    public void init(
-        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded s,
-        com.jetbrains.youtrackdb.internal.core.index.IndexMetadata m) {
-    }
-
-    @Override
-    public void flush() {
-    }
-
-    @Override
-    public void create(AtomicOperation o,
-        com.jetbrains.youtrackdb.internal.core.config.IndexEngineData d) {
-    }
-
-    @Override
-    public void load(
-        com.jetbrains.youtrackdb.internal.core.config.IndexEngineData d,
-        AtomicOperation o) {
-    }
-
-    @Override
-    public void delete(AtomicOperation o) {
-    }
-
-    @Override
-    public void clear(
-        com.jetbrains.youtrackdb.internal.core.storage.Storage s,
-        AtomicOperation o) {
-    }
-
-    @Override
-    public void close() {
-    }
-
-    @Override
-    public java.util.stream.Stream<
-        com.jetbrains.youtrackdb.internal.common.util.RawPair<Object, RID>>
-        iterateEntriesBetween(Object f, boolean fi, Object t, boolean ti,
-            boolean a,
-            com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer tr,
-            AtomicOperation o) {
-      return java.util.stream.Stream.empty();
-    }
-
-    @Override
-    public java.util.stream.Stream<
-        com.jetbrains.youtrackdb.internal.common.util.RawPair<Object, RID>>
-        iterateEntriesMajor(Object k, boolean i, boolean a,
-            com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer t,
-            AtomicOperation o) {
-      return java.util.stream.Stream.empty();
-    }
-
-    @Override
-    public java.util.stream.Stream<
-        com.jetbrains.youtrackdb.internal.common.util.RawPair<Object, RID>>
-        iterateEntriesMinor(Object k, boolean i, boolean a,
-            com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer t,
-            AtomicOperation o) {
-      return java.util.stream.Stream.empty();
-    }
-
-    @Override
-    public java.util.stream.Stream<
-        com.jetbrains.youtrackdb.internal.common.util.RawPair<Object, RID>>
-        stream(
-            com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer t,
-            AtomicOperation o) {
-      return java.util.stream.Stream.empty();
-    }
-
-    @Override
-    public java.util.stream.Stream<
-        com.jetbrains.youtrackdb.internal.common.util.RawPair<Object, RID>>
-        descStream(
-            com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer t,
-            AtomicOperation o) {
-      return java.util.stream.Stream.empty();
-    }
-
-    @Override
-    public java.util.stream.Stream<Object> keyStream(AtomicOperation o) {
-      return java.util.stream.Stream.empty();
-    }
-
-    @Override
-    public long size(
-        com.jetbrains.youtrackdb.internal.core.storage.Storage s,
-        com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer t,
-        AtomicOperation o) {
-      return 0;
-    }
-
-    @Override
-    public int getEngineAPIVersion() {
-      return 0;
-    }
-
-    @Override
-    public boolean acquireAtomicExclusiveLock(AtomicOperation o) {
-      return false;
-    }
-  }
 }

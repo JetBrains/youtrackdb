@@ -11,17 +11,11 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.SnapshotMarkerRID;
 import com.jetbrains.youtrackdb.internal.core.id.TombstoneRID;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
-import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.index.IndexMultiValuKeySerializer;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import java.io.File;
-import java.lang.reflect.Field;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.locks.ReadWriteLock;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -98,6 +92,7 @@ public class BTreeTombstoneGCTest {
     // Create a BTree with CompositeKey(userKey, version) layout, matching
     // BTreeSingleValueIndexEngine's key structure.
     bTree = new BTree<>(ENGINE_NAME, ".cbt", ".nbt", storage);
+    bTree.setEngineId(STUB_ENGINE_ID);
     atomicOperationsManager.executeInsideAtomicOperation(
         atomicOperation -> bTree.create(
             atomicOperation,
@@ -107,8 +102,8 @@ public class BTreeTombstoneGCTest {
                 PropertyTypeInternal.LONG},
             2));
 
-    // Register a stub engine so AbstractStorage.hasActiveSnapshotEntries() resolves it
-    registerStubEngine(ENGINE_NAME, STUB_ENGINE_ID);
+    // Register a stub engine so AbstractStorage snapshot queries resolve it
+    BTreeGCTestSupport.registerStubEngine(storage, ENGINE_NAME, STUB_ENGINE_ID);
   }
 
   @After
@@ -121,83 +116,9 @@ public class BTreeTombstoneGCTest {
       snapshot.clear();
     }
 
-    unregisterStubEngine(ENGINE_NAME);
+    BTreeGCTestSupport.unregisterStubEngine(storage, ENGINE_NAME);
     atomicOperationsManager.executeInsideAtomicOperation(
         atomicOperation -> bTree.delete(atomicOperation));
-  }
-
-  // ---- LWM pinning helpers (via reflection) ----
-
-  @SuppressWarnings("unchecked")
-  private static Object pinLwm(long lwmValue) throws Exception {
-    Class<?> holderClass = Class.forName(
-        "com.jetbrains.youtrackdb.internal.core.storage.impl.local.TsMinHolder");
-    var ctor = holderClass.getDeclaredConstructor();
-    ctor.setAccessible(true);
-    Object holder = ctor.newInstance();
-    Field tsMinField = holderClass.getDeclaredField("tsMin");
-    tsMinField.setAccessible(true);
-    tsMinField.setLong(holder, lwmValue);
-
-    Field tsMinsField = AbstractStorage.class.getDeclaredField("tsMins");
-    tsMinsField.setAccessible(true);
-    Set<Object> tsMins = (Set<Object>) tsMinsField.get(storage);
-    tsMins.add(holder);
-    return holder;
-  }
-
-  @SuppressWarnings("unchecked")
-  private static void unpinLwm(Object holder) throws Exception {
-    Field tsMinsField = AbstractStorage.class.getDeclaredField("tsMins");
-    tsMinsField.setAccessible(true);
-    Set<Object> tsMins = (Set<Object>) tsMinsField.get(storage);
-    tsMins.remove(holder);
-  }
-
-  // ---- Stub engine registration (via reflection) ----
-
-  /**
-   * Registers a minimal stub {@link BaseIndexEngine} in AbstractStorage's
-   * {@code indexEngineNameMap} so that
-   * {@code AbstractStorage.hasActiveSnapshotEntries()} can resolve the index.
-   * Acquires stateLock.writeLock() because indexEngineNameMap is a plain HashMap
-   * that requires external synchronization.
-   */
-  @SuppressWarnings("unchecked")
-  private static void registerStubEngine(String name, int id) throws Exception {
-    BaseIndexEngine stub = new StubIndexEngine(name, id);
-    var lock = getStateLock();
-    lock.writeLock().lock();
-    try {
-      Field mapField = AbstractStorage.class.getDeclaredField("indexEngineNameMap");
-      mapField.setAccessible(true);
-      Map<String, BaseIndexEngine> map =
-          (Map<String, BaseIndexEngine>) mapField.get(storage);
-      map.put(name, stub);
-    } finally {
-      lock.writeLock().unlock();
-    }
-  }
-
-  @SuppressWarnings("unchecked")
-  private static void unregisterStubEngine(String name) throws Exception {
-    var lock = getStateLock();
-    lock.writeLock().lock();
-    try {
-      Field mapField = AbstractStorage.class.getDeclaredField("indexEngineNameMap");
-      mapField.setAccessible(true);
-      Map<String, BaseIndexEngine> map =
-          (Map<String, BaseIndexEngine>) mapField.get(storage);
-      map.remove(name);
-    } finally {
-      lock.writeLock().unlock();
-    }
-  }
-
-  private static ReadWriteLock getStateLock() throws Exception {
-    Field lockField = AbstractStorage.class.getDeclaredField("stateLock");
-    lockField.setAccessible(true);
-    return (ReadWriteLock) lockField.get(storage);
   }
 
   // ---- Helpers ----
@@ -295,7 +216,7 @@ public class BTreeTombstoneGCTest {
   @Test
   public void testTombstonesAboveLwmArePreserved() throws Exception {
     // Pin LWM so that tombstones with ts=100 are ABOVE it
-    var holder = pinLwm(5L);
+    var holder = BTreeGCTestSupport.pinLwm(storage, 5L);
     try {
       // Insert tombstones at version=100 (above lwm=5)
       for (int i = 0; i < FILL_COUNT; i++) {
@@ -320,7 +241,7 @@ public class BTreeTombstoneGCTest {
           .as("Tombstones above LWM must not be removed")
           .isEqualTo(FILL_COUNT);
     } finally {
-      unpinLwm(holder);
+      BTreeGCTestSupport.unpinLwm(storage, holder);
     }
   }
 
@@ -331,7 +252,7 @@ public class BTreeTombstoneGCTest {
     // needed by a transaction reading at exactly that timestamp.
 
     final long lwmValue = 50L;
-    var holder = pinLwm(lwmValue);
+    var holder = BTreeGCTestSupport.pinLwm(storage, lwmValue);
     try {
       // Insert tombstones at version == LWM (exactly 50)
       for (int i = 0; i < FILL_COUNT; i++) {
@@ -363,7 +284,7 @@ public class BTreeTombstoneGCTest {
           .as("Tombstones at exactly LWM must not be removed (strict < comparison)")
           .isEqualTo(tombstonesBefore);
     } finally {
-      unpinLwm(holder);
+      BTreeGCTestSupport.unpinLwm(storage, holder);
     }
   }
 
@@ -515,7 +436,7 @@ public class BTreeTombstoneGCTest {
 
     // Pin LWM at 5 so markers at version=1 are below LWM (eligible for
     // demotion check), but snapshot entries at version 50 >= LWM prevent it.
-    var holder = pinLwm(5L);
+    var holder = BTreeGCTestSupport.pinLwm(storage, 5L);
     try {
       // Insert markers at version=1 (below LWM=5)
       for (int i = 0; i < FILL_COUNT; i++) {
@@ -540,7 +461,7 @@ public class BTreeTombstoneGCTest {
           .as("Markers with active snapshot entries must be preserved")
           .isEqualTo(FILL_COUNT);
     } finally {
-      unpinLwm(holder);
+      BTreeGCTestSupport.unpinLwm(storage, holder);
     }
   }
 
@@ -767,132 +688,4 @@ public class BTreeTombstoneGCTest {
     });
   }
 
-  // ---- Stub engine for indexEngineNameMap registration ----
-
-  /**
-   * Minimal {@link BaseIndexEngine} stub that provides only {@code getId()}
-   * and {@code getName()} — the only methods used by
-   * {@code AbstractStorage.hasActiveSnapshotEntries()}.
-   */
-  private static class StubIndexEngine implements BaseIndexEngine {
-    private final String name;
-    private final int id;
-
-    StubIndexEngine(String name, int id) {
-      this.name = name;
-      this.id = id;
-    }
-
-    @Override
-    public int getId() {
-      return id;
-    }
-
-    @Override
-    public String getName() {
-      return name;
-    }
-
-    @Override
-    public void init(
-        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded s,
-        com.jetbrains.youtrackdb.internal.core.index.IndexMetadata m) {
-    }
-
-    @Override
-    public void flush() {
-    }
-
-    @Override
-    public void create(AtomicOperation o,
-        com.jetbrains.youtrackdb.internal.core.config.IndexEngineData d) {
-    }
-
-    @Override
-    public void load(
-        com.jetbrains.youtrackdb.internal.core.config.IndexEngineData d,
-        AtomicOperation o) {
-    }
-
-    @Override
-    public void delete(AtomicOperation o) {
-    }
-
-    @Override
-    public void clear(
-        com.jetbrains.youtrackdb.internal.core.storage.Storage s,
-        AtomicOperation o) {
-    }
-
-    @Override
-    public void close() {
-    }
-
-    @Override
-    public java.util.stream.Stream<
-        com.jetbrains.youtrackdb.internal.common.util.RawPair<Object, RID>>
-        iterateEntriesBetween(Object f, boolean fi, Object t, boolean ti,
-            boolean a,
-            com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer tr,
-            AtomicOperation o) {
-      return java.util.stream.Stream.empty();
-    }
-
-    @Override
-    public java.util.stream.Stream<
-        com.jetbrains.youtrackdb.internal.common.util.RawPair<Object, RID>>
-        iterateEntriesMajor(Object k, boolean i, boolean a,
-            com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer t,
-            AtomicOperation o) {
-      return java.util.stream.Stream.empty();
-    }
-
-    @Override
-    public java.util.stream.Stream<
-        com.jetbrains.youtrackdb.internal.common.util.RawPair<Object, RID>>
-        iterateEntriesMinor(Object k, boolean i, boolean a,
-            com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer t,
-            AtomicOperation o) {
-      return java.util.stream.Stream.empty();
-    }
-
-    @Override
-    public java.util.stream.Stream<
-        com.jetbrains.youtrackdb.internal.common.util.RawPair<Object, RID>>
-        stream(com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer t,
-            AtomicOperation o) {
-      return java.util.stream.Stream.empty();
-    }
-
-    @Override
-    public java.util.stream.Stream<
-        com.jetbrains.youtrackdb.internal.common.util.RawPair<Object, RID>>
-        descStream(
-            com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer t,
-            AtomicOperation o) {
-      return java.util.stream.Stream.empty();
-    }
-
-    @Override
-    public java.util.stream.Stream<Object> keyStream(AtomicOperation o) {
-      return java.util.stream.Stream.empty();
-    }
-
-    @Override
-    public long size(com.jetbrains.youtrackdb.internal.core.storage.Storage s,
-        com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer t,
-        AtomicOperation o) {
-      return 0;
-    }
-
-    @Override
-    public int getEngineAPIVersion() {
-      return 0;
-    }
-
-    @Override
-    public boolean acquireAtomicExclusiveLock(AtomicOperation o) {
-      return false;
-    }
-  }
 }

@@ -470,6 +470,70 @@ public final class CellBTreeSingleValueBucketV3<K> extends DurablePage {
     setSize(newSize);
   }
 
+  /**
+   * Resets the bucket to an empty state without reading any existing entries.
+   * More efficient than {@code shrink(0)} which materializes all entries
+   * into byte arrays only to discard them.
+   */
+  public void clear() {
+    setFreePointer(MAX_PAGE_SIZE_BYTES);
+    setSize(0);
+  }
+
+  /**
+   * Checks whether any entry in this leaf bucket has a tombstone or snapshot
+   * marker value, by inspecting only the raw value bytes (collectionId sign
+   * and collectionPosition sign) without allocating RID objects or byte arrays.
+   *
+   * @return {@code true} if at least one entry is a {@link TombstoneRID}
+   *     or {@link SnapshotMarkerRID}
+   */
+  public boolean hasAnyTombstoneOrMarker(
+      final BinarySerializer<K> keySerializer,
+      final BinarySerializerFactory serializerFactory) {
+    assert isLeaf();
+    final int bucketSize = size();
+    for (int i = 0; i < bucketSize; i++) {
+      var entryPosition = getPointer(i);
+      entryPosition +=
+          getObjectSizeInDirectMemory(keySerializer, serializerFactory, entryPosition);
+      final int collectionId = getShortValue(entryPosition);
+      if (collectionId < 0) {
+        return true;
+      }
+      final long collectionPosition =
+          getLongValue(entryPosition + ShortSerializer.SHORT_SIZE);
+      if (collectionPosition < 0) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Demotes a {@link SnapshotMarkerRID} value to a plain {@code RecordId}
+   * in-place on the page by rewriting the encoded {@code collectionPosition}.
+   *
+   * <p>{@code SnapshotMarkerRID} encodes as {@code -(realPos + 1)}. This
+   * method decodes it back to the real positive value and writes it directly
+   * to the page buffer (WAL-tracked via {@code setLongValue}).
+   */
+  public void demoteSnapshotMarkerValue(
+      final int entryIndex,
+      final BinarySerializer<K> keySerializer,
+      final BinarySerializerFactory serializerFactory) {
+    assert isLeaf();
+    var entryPosition = getPointer(entryIndex);
+    entryPosition +=
+        getObjectSizeInDirectMemory(keySerializer, serializerFactory, entryPosition);
+    final int posOffset = entryPosition + ShortSerializer.SHORT_SIZE;
+    final long encodedPosition = getLongValue(posOffset);
+    final long realPosition = -(encodedPosition + 1);
+    assert realPosition >= 0
+        : "Demoted position must be non-negative, got " + realPosition;
+    setLongValue(posOffset, realPosition);
+  }
+
   private void setSize(final int newSize) {
     setIntValue(SIZE_OFFSET, newSize);
   }

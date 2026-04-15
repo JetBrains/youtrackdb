@@ -120,6 +120,11 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
   private final BinarySerializerFactory serializerFactory;
   private volatile PropertyTypeInternal[] keyTypes;
 
+  // Cached engine ID for lock-free snapshot queries during GC.
+  // Set by the owning index engine after construction via setEngineId().
+  // -1 means not set (GC will skip snapshot-entry checks).
+  private volatile long engineId = -1;
+
   public BTree(
       @Nonnull final String name,
       final String dataFileExtension,
@@ -148,6 +153,17 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
     } finally {
       releaseExclusiveLock();
     }
+  }
+
+  /**
+   * Sets the cached engine ID for this BTree, used during tombstone GC to
+   * perform lock-free snapshot queries via
+   * {@link AbstractStorage#hasActiveIndexSnapshotEntriesById}.
+   * Must be called by the owning index engine after construction.
+   */
+  @Override
+  public void setEngineId(long engineId) {
+    this.engineId = engineId;
   }
 
   @Override
@@ -2762,9 +2778,45 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
   // ---- Tombstone GC helpers (used during leaf page split) ----
 
   /**
+   * Extracts the version from a CompositeKey — always the last element.
+   * Returns -1 if the key is not a versioned CompositeKey (empty keys,
+   * non-Long last element, or non-CompositeKey).
+   */
+  private static long extractVersion(Object key) {
+    if (key instanceof CompositeKey compositeKey) {
+      final var keys = compositeKey.getKeys();
+      if (!keys.isEmpty() && keys.getLast() instanceof Long v) {
+        return v;
+      }
+    }
+    return -1;
+  }
+
+  /**
+   * Checks whether any active snapshot entries exist for the given
+   * user-key prefix, using the cached {@link #engineId} for a lock-free
+   * lookup. Falls back to {@code false} (safe: never demotes) if the
+   * engine ID was not set.
+   */
+  private boolean hasActiveSnapshotEntries(
+      CompositeKey compositeKey, long lwm) {
+    if (engineId < 0) {
+      // engineId not set — conservatively assume active entries exist,
+      // so markers are not demoted.
+      return true;
+    }
+    var allKeys = compositeKey.getKeys();
+    var userKeyPrefix = new CompositeKey(
+        allKeys.subList(0, allKeys.size() - 1));
+    boolean isNullTree = getName().endsWith("$null");
+    return storage.hasActiveIndexSnapshotEntriesById(
+        engineId, isNullTree, userKeyPrefix, lwm);
+  }
+
+  /**
    * Filters removable tombstones from a leaf bucket and rebuilds it in-place
    * with only the surviving entries. Stale {@link SnapshotMarkerRID} entries
-   * are demoted to plain {@code RecordId} in the raw bytes.
+   * are demoted to plain {@code RecordId} directly on the page.
    *
    * <p>A tombstone is removable when:
    * <ol>
@@ -2784,76 +2836,67 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
    */
   private int filterAndRebuildBucket(
       final CellBTreeSingleValueBucketV3<K> keyBucket) {
-    final long lwm = storage.computeGlobalLowWaterMark();
-    assert lwm > 0 : "Global LWM must be positive, got " + lwm;
     assert keyBucket.isLeaf() : "GC must only run on leaf buckets";
 
+    // Prescan: check raw value bytes for tombstones/markers without
+    // allocating RID objects or byte arrays. Early-out when the bucket
+    // contains only plain RecordId entries (common case for append-heavy
+    // workloads).
+    if (!keyBucket.hasAnyTombstoneOrMarker(keySerializer, serializerFactory)) {
+      return 0;
+    }
+
+    final long lwm = storage.computeGlobalLowWaterMark();
+    assert lwm > 0 : "Global LWM must be positive, got " + lwm;
+
+    // First pass: classify entries and apply in-place demotions.
+    // Collect indices of tombstones to remove; demote markers directly
+    // on the page without rebuilding.
     final int bucketSize = keyBucket.size();
-    final List<byte[]> survivors = new ArrayList<>(bucketSize);
-    int removedCount = 0;
-    boolean demoted = false;
+    IntList tombstoneIndices = null;
 
     for (int i = 0; i < bucketSize; i++) {
       final var value =
           keyBucket.getValue(i, keySerializer, serializerFactory);
 
-      // Plain RecordId — not a tombstone or marker, always a survivor.
-      // Skip key deserialization for performance (T5 optimization).
-      if (!(value instanceof TombstoneRID) && !(value instanceof SnapshotMarkerRID)) {
-        survivors.add(
-            keyBucket.getRawEntry(i, keySerializer, serializerFactory));
-        continue;
-      }
-
-      final var key = keyBucket.getKey(i, keySerializer, serializerFactory);
-
-      // Extract version — always the last element of the CompositeKey.
-      // Defensive: guard against empty keys or non-Long last element to
-      // avoid NoSuchElementException / ClassCastException if the BTree
-      // is ever used with a non-standard key structure.
-      final long version;
-      if (key instanceof CompositeKey compositeKey) {
-        final var keys = compositeKey.getKeys();
-        if (keys.isEmpty() || !(keys.getLast() instanceof Long v)) {
-          survivors.add(
-              keyBucket.getRawEntry(i, keySerializer, serializerFactory));
-          continue;
+      if (value instanceof TombstoneRID) {
+        final var key = keyBucket.getKey(i, keySerializer, serializerFactory);
+        final long version = extractVersion(key);
+        if (version >= 0 && version < lwm) {
+          if (tombstoneIndices == null) {
+            tombstoneIndices = new IntArrayList();
+          }
+          tombstoneIndices.add(i);
         }
-        version = v;
-      } else {
-        // Not a versioned key — keep as-is
-        survivors.add(
-            keyBucket.getRawEntry(i, keySerializer, serializerFactory));
-        continue;
-      }
-
-      if (value instanceof TombstoneRID && version < lwm) {
-        // Tombstone below LWM — remove (GC'd)
-        removedCount++;
-      } else if (value instanceof SnapshotMarkerRID && version < lwm) {
-        // SnapshotMarkerRID below LWM — demote to plain RecordId if no
-        // active snapshot entries exist for this user-key prefix
-        var allKeys = compositeKey.getKeys();
-        var userKeyPrefix = new CompositeKey(
-            allKeys.subList(0, allKeys.size() - 1));
-        if (!storage.hasActiveIndexSnapshotEntries(
-            getName(), userKeyPrefix, lwm)) {
-          survivors.add(
-              demoteMarkerRawBytes(
-                  keyBucket.getRawEntry(i, keySerializer, serializerFactory)));
-          demoted = true;
-        } else {
-          survivors.add(
-              keyBucket.getRawEntry(i, keySerializer, serializerFactory));
+      } else if (value instanceof SnapshotMarkerRID) {
+        final var key = keyBucket.getKey(i, keySerializer, serializerFactory);
+        final long version = extractVersion(key);
+        if (version >= 0 && version < lwm
+            && key instanceof CompositeKey compositeKey
+            && !hasActiveSnapshotEntries(compositeKey, lwm)) {
+          // Demote in-place on the page (WAL-tracked via setLongValue)
+          keyBucket.demoteSnapshotMarkerValue(
+              i, keySerializer, serializerFactory);
         }
-      } else {
-        survivors.add(
-            keyBucket.getRawEntry(i, keySerializer, serializerFactory));
       }
+      // Plain RecordId entries and entries above LWM are left untouched.
     }
 
-    if (removedCount == 0 && !demoted) {
+    if (tombstoneIndices == null) {
+      // No tombstones to remove. Demotions (if any) were applied in-place
+      // and don't free space, so no rebuild needed.
       return 0;
+    }
+
+    // Second pass: rebuild the bucket without the removed tombstones.
+    final int removedCount = tombstoneIndices.size();
+    final var tombstoneSet = new IntOpenHashSet(tombstoneIndices);
+    final List<byte[]> survivors = new ArrayList<>(bucketSize - removedCount);
+    for (int i = 0; i < bucketSize; i++) {
+      if (!tombstoneSet.contains(i)) {
+        survivors.add(
+            keyBucket.getRawEntry(i, keySerializer, serializerFactory));
+      }
     }
 
     assert removedCount + survivors.size() == bucketSize
@@ -2861,38 +2904,14 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
             + ") + survivors (" + survivors.size()
             + ") != original size (" + bucketSize + ")";
 
-    keyBucket.shrink(0, keySerializer, serializerFactory);
+    keyBucket.clear();
     assert keyBucket.size() == 0
-        : "Bucket must be empty after shrink(0), got " + keyBucket.size();
+        : "Bucket must be empty after clear(), got " + keyBucket.size();
     keyBucket.addAll(survivors, keySerializer);
     assert keyBucket.size() == survivors.size()
         : "Bucket size after rebuild (" + keyBucket.size()
             + ") must equal survivor count (" + survivors.size() + ")";
 
     return removedCount;
-  }
-
-  /**
-   * Demotes a {@link SnapshotMarkerRID} in a raw leaf entry to a plain
-   * {@code RecordId} by rewriting the encoded {@code collectionPosition}.
-   *
-   * <p>Raw leaf entry layout: {@code [key_bytes | 2-byte collectionId | 8-byte
-   * collectionPosition]}. For {@code SnapshotMarkerRID}, the
-   * {@code collectionPosition} is encoded as {@code -(realPos + 1)}. This
-   * method decodes it back to the real positive value.
-   *
-   * @param rawEntry the raw entry bytes (modified in-place and returned)
-   * @return the same byte array with the position corrected
-   */
-  private static byte[] demoteMarkerRawBytes(byte[] rawEntry) {
-    // collectionPosition is the last 8 bytes of the raw entry
-    int posOffset = rawEntry.length - LongSerializer.LONG_SIZE;
-    long encodedPosition = LongSerializer.deserializeNative(rawEntry, posOffset);
-    // SnapshotMarkerRID encodes as -(realPos + 1); decode back
-    long realPosition = -(encodedPosition + 1);
-    assert realPosition >= 0
-        : "Demoted position must be non-negative, got " + realPosition;
-    LongSerializer.serializeNative(realPosition, rawEntry, posOffset);
-    return rawEntry;
   }
 }

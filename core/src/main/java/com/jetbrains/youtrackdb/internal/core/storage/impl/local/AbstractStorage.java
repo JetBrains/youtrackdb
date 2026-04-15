@@ -6384,7 +6384,8 @@ public abstract class AbstractStorage
 
   /**
    * Resolves the null-key sub-{@link IndexesSnapshot} for an index engine by its name.
-   * Used by {@code BTree} during tombstone GC for null-key trees in multi-value indexes.
+   * Currently used only by test infrastructure for snapshot cleanup; reserved for
+   * future null-key tree GC support (Track 2).
    *
    * @return the scoped null snapshot, or {@code null} if no engine with this name exists
    */
@@ -6410,6 +6411,11 @@ public abstract class AbstractStorage
    *
    * <p>Queries the shared {@code ConcurrentSkipListMap} directly without creating
    * an intermediate {@link IndexesSnapshot} instance.
+   *
+   * <p><b>Note:</b> This method acquires {@code stateLock.readLock()} to resolve
+   * the engine name to an ID. If the caller already knows the engine ID (e.g.,
+   * from a cached field), prefer {@link #hasActiveIndexSnapshotEntriesById} to
+   * avoid the lock acquisition.
    *
    * @param engineName the index engine name (may end with "$null" for null-key trees)
    * @param userKeyPrefix the key prefix (all CompositeKey elements except the version)
@@ -6444,8 +6450,34 @@ public abstract class AbstractStorage
       stateLock.readLock().unlock();
     }
 
-    // Build range keys: CompositeKey(indexId, userKeyPrefix..., lwm) to
-    // CompositeKey(indexId, userKeyPrefix..., Long.MAX_VALUE)
+    return hasActiveSnapshotEntriesInMap(snapshotMap, indexId, userKeyPrefix, lwm);
+  }
+
+  /**
+   * Lock-free variant of {@link #hasActiveIndexSnapshotEntries} that accepts a
+   * pre-resolved engine ID and a flag to select the snapshot map. This avoids
+   * acquiring {@code stateLock.readLock()} for the {@code indexEngineNameMap}
+   * lookup, eliminating the lock-ordering inversion when called while holding
+   * a BTree component lock.
+   *
+   * @param indexId the pre-resolved index engine ID
+   * @param useNullSnapshot {@code true} to query the null-key snapshot map
+   * @param userKeyPrefix the key prefix (all CompositeKey elements except the version)
+   * @param lwm the global low-water mark
+   * @return {@code true} if at least one snapshot entry exists with version >= lwm
+   */
+  public boolean hasActiveIndexSnapshotEntriesById(
+      long indexId, boolean useNullSnapshot, CompositeKey userKeyPrefix, long lwm) {
+    final NavigableMap<CompositeKey, RID> snapshotMap =
+        useNullSnapshot ? sharedNullIndexesSnapshot : sharedIndexesSnapshot;
+    return hasActiveSnapshotEntriesInMap(snapshotMap, indexId, userKeyPrefix, lwm);
+  }
+
+  private static boolean hasActiveSnapshotEntriesInMap(
+      NavigableMap<CompositeKey, RID> snapshotMap,
+      long indexId,
+      CompositeKey userKeyPrefix,
+      long lwm) {
     var prefixKeys = userKeyPrefix.getKeys();
     int size = prefixKeys.size();
 

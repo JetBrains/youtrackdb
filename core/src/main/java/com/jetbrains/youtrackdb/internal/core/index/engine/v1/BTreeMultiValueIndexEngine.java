@@ -74,9 +74,11 @@ public final class BTreeMultiValueIndexEngine
       svTree =
           new BTree<>(
               name, DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage);
+      svTree.setEngineId(id);
       nullTree =
           new BTree<>(
               nullTreeName, DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage);
+      nullTree.setEngineId(id);
       indexesSnapshot = storage.subIndexSnapshot(id);
       nullIndexesSnapshot = storage.subNullIndexSnapshot(id);
     } else {
