@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -44,8 +45,6 @@ class CorrelatedOptionalHashJoinStep extends AbstractExecutionStep {
   private record NeighborEntry(Set<RID> rids, boolean truncated) {
   }
 
-  private static final int NEIGHBOR_CACHE_SIZE = 16;
-
   private final String correlatedAlias;
   private final String probeAlias;
   private final String targetAlias;
@@ -55,15 +54,10 @@ class CorrelatedOptionalHashJoinStep extends AbstractExecutionStep {
   /**
    * LRU cache of correlated RID → neighbor set. Handles interleaved upstream
    * rows (e.g., after a preceding INNER_JOIN that reorders by a different key)
-   * without rebuilding the neighbor set on every alternation.
+   * without rebuilding the neighbor set on every alternation. Size is
+   * configurable via {@link GlobalConfiguration#QUERY_MATCH_CORRELATED_CACHE_SIZE}.
    */
-  private final Map<RID, NeighborEntry> neighborCache =
-      new LinkedHashMap<>(NEIGHBOR_CACHE_SIZE, 0.75f, true) {
-        @Override
-        protected boolean removeEldestEntry(Map.Entry<RID, NeighborEntry> eldest) {
-          return size() > NEIGHBOR_CACHE_SIZE;
-        }
-      };
+  private final Map<RID, NeighborEntry> neighborCache;
 
   CorrelatedOptionalHashJoinStep(
       CommandContext ctx,
@@ -83,6 +77,14 @@ class CorrelatedOptionalHashJoinStep extends AbstractExecutionStep {
     this.targetAlias = targetAlias;
     this.edgeLabel = edgeLabel;
     this.edgeOut = edgeOut;
+    int cacheSize = Math.max(1,
+        GlobalConfiguration.QUERY_MATCH_CORRELATED_CACHE_SIZE.getValueAsInteger());
+    this.neighborCache = new LinkedHashMap<>(cacheSize, 0.75f, true) {
+      @Override
+      protected boolean removeEldestEntry(Map.Entry<RID, NeighborEntry> eldest) {
+        return size() > cacheSize;
+      }
+    };
   }
 
   @Override

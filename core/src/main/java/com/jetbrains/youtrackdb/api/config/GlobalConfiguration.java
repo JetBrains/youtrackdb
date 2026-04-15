@@ -872,6 +872,16 @@ public enum GlobalConfiguration {
       5L,
       true),
 
+  QUERY_MATCH_CORRELATED_CACHE_SIZE(
+      "youtrackdb.query.match.correlatedCacheSize",
+      "Maximum number of entries in the LRU neighbor cache used by the"
+          + " correlated optional hash join step. Higher values reduce rebuilds"
+          + " when upstream rows interleave many distinct correlated vertices,"
+          + " at the cost of memory.",
+      Integer.class,
+      16,
+      true),
+
   QUERY_PARALLEL_AUTO(
       "youtrackdb.query.parallelAuto",
       "Auto enable parallel query, if requirements are met",
