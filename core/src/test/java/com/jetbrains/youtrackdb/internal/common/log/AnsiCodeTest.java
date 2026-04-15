@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.common.log;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.Test;
 
@@ -14,12 +15,12 @@ public class AnsiCodeTest {
   // Enum values
   // ---------------------------------------------------------------------------
 
-  /** All non-NULL codes have non-empty toString. */
+  /** All non-NULL codes contain the ANSI escape sequence prefix. */
   @Test
-  public void allCodesHaveNonEmptyToString() {
+  public void allCodesContainAnsiEscapePrefix() {
     for (AnsiCode code : AnsiCode.values()) {
       if (code != AnsiCode.NULL) {
-        assertThat(code.toString()).isNotEmpty();
+        assertThat(code.toString()).startsWith("\u001B[");
       }
     }
   }
@@ -79,7 +80,8 @@ public class AnsiCodeTest {
   public void formatColorsEnabledCodeOnlyNoReset() {
     String result = AnsiCode.format("$ANSI{red}", true);
     assertThat(result).contains(AnsiCode.RED.toString());
-    // No RESET because there's no text (pos == -1)
+    // No RESET should be appended because there's no text (pos == -1)
+    assertThat(result).doesNotContain(AnsiCode.RESET.toString());
   }
 
   /** Multiple colon-separated codes are all applied. */
@@ -89,5 +91,12 @@ public class AnsiCodeTest {
     assertThat(result).contains(AnsiCode.RED.toString());
     assertThat(result).contains(AnsiCode.HIGH_INTENSITY.toString());
     assertThat(result).contains("Bold red");
+  }
+
+  /** Unknown ANSI code name throws IllegalArgumentException from Enum.valueOf. */
+  @Test
+  public void formatColorsEnabledUnknownCodeThrows() {
+    assertThatThrownBy(() -> AnsiCode.format("$ANSI{unknowncode text}", true))
+        .isInstanceOf(IllegalArgumentException.class);
   }
 }

@@ -61,15 +61,15 @@ public class AnsiLogFormatterTest {
     assertThat(result).contains("[MyService]");
   }
 
-  /** The output always contains a cyan timestamp marker. */
+  /** The output always contains a formatted timestamp with date pattern. */
   @Test
-  public void formatContainsCyanTimestampMarker() {
+  public void formatContainsTimestamp() {
     LogRecord record = new LogRecord(Level.INFO, "Test");
-    // The AnsiLogFormatter always wraps the timestamp with $ANSI{cyan ...}
+    // The AnsiLogFormatter wraps the timestamp with $ANSI{cyan ...}
     // If colors are not supported, the marker is resolved to plain text
     String result = formatter.format(record);
-    // The result should contain a timestamp (date pattern) regardless of color support
-    assertThat(result).isNotEmpty();
+    // Verify the output contains a date-like pattern (yyyy-MM-dd HH:mm:ss)
+    assertThat(result).containsPattern("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}");
   }
 
   /** SEVERE message with thrown exception includes stack trace. */
