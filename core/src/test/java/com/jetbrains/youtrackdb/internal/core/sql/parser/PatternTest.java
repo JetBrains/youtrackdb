@@ -658,6 +658,10 @@ public class PatternTest extends ParserTestAbstract {
     assertNull(
         "Independent part should not reference LET vars",
         result.independent().splitByLetDependency(Set.of("scores")));
+    // Verify dependent part still references $scores
+    assertNotNull(
+        "Dependent part should still reference LET vars",
+        result.dependent().splitByLetDependency(Set.of("scores")));
   }
 
   /**
@@ -681,7 +685,8 @@ public class PatternTest extends ParserTestAbstract {
     var result = where.splitByLetDependency(Set.of("x", "y"));
     assertNotNull("Should return split result", result);
     assertNull("Should have null independent part", result.independent());
-    assertNotNull("Should have dependent part", result.dependent());
+    assertSame("Dependent part should be the original WHERE",
+        where, result.dependent());
   }
 
   /**
@@ -707,7 +712,8 @@ public class PatternTest extends ParserTestAbstract {
     assertNull(
         "Should have null independent part (cannot split OR)",
         result.independent());
-    assertNotNull("Should have dependent part (entire WHERE)", result.dependent());
+    assertSame("Dependent part should be the original WHERE (cannot split OR)",
+        where, result.dependent());
   }
 
   /**
@@ -733,7 +739,8 @@ public class PatternTest extends ParserTestAbstract {
     var result = where.splitByLetDependency(Set.of("x"));
     assertNotNull("Should return split result for dependent single condition", result);
     assertNull("Should have null independent part", result.independent());
-    assertNotNull("Should have dependent part", result.dependent());
+    assertSame("Dependent part should be the original WHERE",
+        where, result.dependent());
   }
 
   /**
@@ -768,6 +775,46 @@ public class PatternTest extends ParserTestAbstract {
     assertNull(
         "Independent part should not reference LET vars",
         result.independent().splitByLetDependency(Set.of("x", "y")));
+    // Verify dependent part still references LET vars
+    assertNotNull(
+        "Dependent part should still reference LET vars",
+        result.dependent().splitByLetDependency(Set.of("x", "y")));
+  }
+
+  /** Null baseExpression: returns null without NPE. */
+  @Test
+  public void testSplitByLetDependency_nullBaseExpression() {
+    var where = new SQLWhereClause(-1);
+    var result = where.splitByLetDependency(Set.of("x"));
+    assertNull("Should return null for null baseExpression", result);
+  }
+
+  /**
+   * Empty letVarNames with $parent: the $parent reference alone should trigger
+   * splitting, classifying the $parent conjunct as dependent.
+   */
+  @Test
+  public void testSplitByLetDependency_emptyLetVarsWithParent()
+      throws ParseException {
+    var where = parseWhere(
+        "age > 25 AND out('X').@rid = $parent.$current.@rid");
+    var result = where.splitByLetDependency(Set.of());
+    assertNotNull("Should return split result due to $parent", result);
+    assertNotNull("Should have independent part", result.independent());
+    assertNotNull("Should have dependent part", result.dependent());
+  }
+
+  /**
+   * Nested OR inside AND: WHERE (a = $x OR b = $x) AND c > 5 with LET $x.
+   * The parenthesized OR conjunct references $x → dependent. c > 5 → independent.
+   */
+  @Test
+  public void testSplitByLetDependency_nestedOrInAnd() throws ParseException {
+    var where = parseWhere("(a = $x OR b = $x) AND c > 5");
+    var result = where.splitByLetDependency(Set.of("x"));
+    assertNotNull("Should return split result", result);
+    assertNotNull("Should have independent part (c > 5)", result.independent());
+    assertNotNull("Should have dependent part (OR sub-block)", result.dependent());
   }
 
   // ====== findRidEquality tests ======
