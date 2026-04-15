@@ -10437,4 +10437,253 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.commit();
   }
 
+  /**
+   * Single-condition WHERE (non-AND) that is LET-independent: the entire WHERE
+   * is pushed before the LET step. This exercises the splitByLetDependency
+   * quick-exit path where no LET variable is referenced and the expression is
+   * not an AND block.
+   */
+  @Test
+  public void testLetPreFilter_singleConditionIndependent() {
+    var cls = "LpfSingleIndep";
+    session.execute("CREATE CLASS " + cls).close();
+
+    for (var i = 0; i < 6; i++) {
+      session.begin();
+      var doc = session.newInstance(cls);
+      doc.setProperty("name", "n" + i);
+      doc.setProperty("val", i);
+      session.commit();
+    }
+
+    // Single condition (val > 3) is independent of LET $info → full push-down
+    session.begin();
+    var query = "SELECT name, $info FROM " + cls
+        + " LET $info = (SELECT count(*) FROM " + cls + ")"
+        + " WHERE val > 3";
+    var list = session.query(query).toList();
+    Assert.assertEquals("Should return 2 rows with val > 3", 2, list.size());
+    var names = list.stream()
+        .map(r -> (String) r.getProperty("name"))
+        .collect(Collectors.toSet());
+    Assert.assertEquals(Set.of("n4", "n5"), names);
+
+    // Verify EXPLAIN: FilterStep before LET, no second FilterStep after
+    var explain = session.query("EXPLAIN " + query).toList();
+    var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
+    var filterIdx = plan.indexOf("FILTER ITEMS WHERE");
+    var letIdx = plan.indexOf("LET (for each record)");
+    Assert.assertTrue("EXPLAIN should contain FILTER step, plan:\n" + plan,
+        filterIdx >= 0);
+    Assert.assertTrue("EXPLAIN should contain LET step, plan:\n" + plan,
+        letIdx >= 0);
+    Assert.assertTrue(
+        "Single independent condition should push down, plan:\n" + plan,
+        filterIdx < letIdx);
+    var postLetFilterIdx = plan.indexOf("FILTER ITEMS WHERE", letIdx);
+    Assert.assertTrue(
+        "Full push-down should NOT produce a post-LET FilterStep, plan:\n" + plan,
+        postLetFilterIdx < 0);
+    session.commit();
+  }
+
+  /**
+   * Single-condition WHERE (non-AND) that is LET-dependent: the entire WHERE
+   * stays after the LET step. This exercises the splitByLetDependency path
+   * where the single condition references a LET variable.
+   */
+  @Test
+  public void testLetPreFilter_singleConditionDependent() {
+    var cls = "LpfSingleDep";
+    session.execute("CREATE CLASS " + cls).close();
+
+    for (var i = 0; i < 4; i++) {
+      session.begin();
+      var doc = session.newInstance(cls);
+      doc.setProperty("name", "n" + i);
+      session.commit();
+    }
+
+    // Single condition referencing LET variable → no push-down
+    session.begin();
+    var query = "SELECT name, $cnt FROM " + cls
+        + " LET $cnt = (SELECT count(*) as c FROM " + cls + ")"
+        + " WHERE $cnt[0].c > 0";
+    var list = session.query(query).toList();
+    Assert.assertEquals("All 4 rows should pass since count > 0", 4, list.size());
+    var names = list.stream()
+        .map(r -> (String) r.getProperty("name"))
+        .collect(Collectors.toSet());
+    Assert.assertEquals(Set.of("n0", "n1", "n2", "n3"), names);
+
+    // Verify EXPLAIN: FilterStep after LET
+    var explain = session.query("EXPLAIN " + query).toList();
+    var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
+    var filterIdx = plan.indexOf("FILTER ITEMS WHERE");
+    var letIdx = plan.indexOf("LET (for each record)");
+    Assert.assertTrue("EXPLAIN should contain FILTER step, plan:\n" + plan,
+        filterIdx >= 0);
+    Assert.assertTrue("EXPLAIN should contain LET step, plan:\n" + plan,
+        letIdx >= 0);
+    Assert.assertTrue(
+        "Single dependent condition should NOT push down, plan:\n" + plan,
+        filterIdx > letIdx);
+    session.commit();
+  }
+
+  /**
+   * Multi-OR WHERE where ALL branches are LET-independent: the entire WHERE
+   * is pushed before the LET step. This exercises the splitByLetDependency
+   * quick-exit path for multi-OR blocks where no branch references any LET
+   * variable.
+   */
+  @Test
+  public void testLetPreFilter_multiOrAllIndependentPushDown() {
+    var cls = "LpfMultiOrIndep";
+    session.execute("CREATE CLASS " + cls).close();
+
+    for (var i = 0; i < 10; i++) {
+      session.begin();
+      var doc = session.newInstance(cls);
+      doc.setProperty("name", "n" + i);
+      doc.setProperty("val", i);
+      session.commit();
+    }
+
+    // OR of two independent conditions: val < 2 (n0,n1) OR val > 7 (n8,n9)
+    session.begin();
+    var query = "SELECT name, $info FROM " + cls
+        + " LET $info = (SELECT count(*) FROM " + cls + ")"
+        + " WHERE val < 2 OR val > 7";
+    var list = session.query(query).toList();
+    Assert.assertEquals("Should return 4 rows", 4, list.size());
+    var names = list.stream()
+        .map(r -> (String) r.getProperty("name"))
+        .collect(Collectors.toSet());
+    Assert.assertEquals(Set.of("n0", "n1", "n8", "n9"), names);
+
+    // Verify EXPLAIN: FilterStep before LET, no second FilterStep after
+    var explain = session.query("EXPLAIN " + query).toList();
+    var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
+    var filterIdx = plan.indexOf("FILTER ITEMS WHERE");
+    var letIdx = plan.indexOf("LET (for each record)");
+    Assert.assertTrue("EXPLAIN should contain FILTER step, plan:\n" + plan,
+        filterIdx >= 0);
+    Assert.assertTrue("EXPLAIN should contain LET step, plan:\n" + plan,
+        letIdx >= 0);
+    Assert.assertTrue(
+        "Multi-OR all-independent should push down, plan:\n" + plan,
+        filterIdx < letIdx);
+    var postLetFilterIdx = plan.indexOf("FILTER ITEMS WHERE", letIdx);
+    Assert.assertTrue(
+        "Full push-down should NOT produce a post-LET FilterStep, plan:\n" + plan,
+        postLetFilterIdx < 0);
+    session.commit();
+  }
+
+  /**
+   * LET expression (not subquery): WHERE independent of the expression-based
+   * LET is pushed before the LET step. This exercises the LetExpressionStep
+   * code path through handleLetPreFilter, verifying that the variable name
+   * collection works for expression LETs (not just subquery LETs).
+   */
+  @Test
+  public void testLetPreFilter_letExpressionPushDown() {
+    var cls = "LpfLetExpr";
+    session.execute("CREATE CLASS " + cls).close();
+
+    for (var i = 0; i < 8; i++) {
+      session.begin();
+      var doc = session.newInstance(cls);
+      doc.setProperty("name", "n" + i);
+      doc.setProperty("score", i * 5);
+      session.commit();
+    }
+
+    // LET $bonus = score + 100 is an expression (not a subquery).
+    // WHERE score >= 20 is independent of $bonus → push-down.
+    session.begin();
+    var query = "SELECT name, $bonus FROM " + cls
+        + " LET $bonus = score + 100"
+        + " WHERE score >= 20";
+    var list = session.query(query).toList();
+    // score values: 0,5,10,15,20,25,30,35 → 4 rows have score >= 20
+    Assert.assertEquals("Should return 4 rows with score >= 20", 4, list.size());
+    var names = list.stream()
+        .map(r -> (String) r.getProperty("name"))
+        .collect(Collectors.toSet());
+    Assert.assertEquals(Set.of("n4", "n5", "n6", "n7"), names);
+    // Verify $bonus is computed correctly for a returned row
+    var n4 = list.stream()
+        .filter(r -> "n4".equals(r.getProperty("name")))
+        .findFirst().orElseThrow();
+    Assert.assertEquals("$bonus for n4 (score=20) should be 120",
+        120, ((Number) n4.getProperty("$bonus")).intValue());
+
+    // Verify EXPLAIN: FilterStep before LET, no second FilterStep after
+    var explain = session.query("EXPLAIN " + query).toList();
+    var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
+    var filterIdx = plan.indexOf("FILTER ITEMS WHERE");
+    var letIdx = plan.indexOf("LET (for each record)");
+    Assert.assertTrue("EXPLAIN should contain FILTER step, plan:\n" + plan,
+        filterIdx >= 0);
+    Assert.assertTrue("EXPLAIN should contain LET step, plan:\n" + plan,
+        letIdx >= 0);
+    Assert.assertTrue(
+        "LET expression with independent WHERE should push down, plan:\n" + plan,
+        filterIdx < letIdx);
+    var postLetFilterIdx = plan.indexOf("FILTER ITEMS WHERE", letIdx);
+    Assert.assertTrue(
+        "Full push-down should NOT produce a post-LET FilterStep, plan:\n" + plan,
+        postLetFilterIdx < 0);
+    session.commit();
+  }
+
+  /**
+   * LET expression with dependent WHERE: the WHERE references the expression
+   * LET variable, so no push-down occurs. Verifies that expression-based LET
+   * variables are correctly detected as dependencies.
+   */
+  @Test
+  public void testLetPreFilter_letExpressionDependent() {
+    var cls = "LpfLetExprDep";
+    session.execute("CREATE CLASS " + cls).close();
+
+    for (var i = 0; i < 6; i++) {
+      session.begin();
+      var doc = session.newInstance(cls);
+      doc.setProperty("name", "n" + i);
+      doc.setProperty("score", i * 10);
+      session.commit();
+    }
+
+    // WHERE references $bonus (a LET expression variable) → no push-down.
+    session.begin();
+    var query = "SELECT name, $bonus FROM " + cls
+        + " LET $bonus = score + 100"
+        + " WHERE $bonus > 130";
+    var list = session.query(query).toList();
+    // score values: 0,10,20,30,40,50 → bonus: 100,110,120,130,140,150
+    // $bonus > 130 → n4 (140), n5 (150)
+    Assert.assertEquals("Should return 2 rows with $bonus > 130", 2, list.size());
+    var names = list.stream()
+        .map(r -> (String) r.getProperty("name"))
+        .collect(Collectors.toSet());
+    Assert.assertEquals(Set.of("n4", "n5"), names);
+
+    // Verify EXPLAIN: FilterStep after LET (no push-down)
+    var explain = session.query("EXPLAIN " + query).toList();
+    var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
+    var filterIdx = plan.indexOf("FILTER ITEMS WHERE");
+    var letIdx = plan.indexOf("LET (for each record)");
+    Assert.assertTrue("EXPLAIN should contain FILTER step, plan:\n" + plan,
+        filterIdx >= 0);
+    Assert.assertTrue("EXPLAIN should contain LET step, plan:\n" + plan,
+        letIdx >= 0);
+    Assert.assertTrue(
+        "LET expression dependent WHERE should NOT push down, plan:\n" + plan,
+        filterIdx > letIdx);
+    session.commit();
+  }
+
 }
