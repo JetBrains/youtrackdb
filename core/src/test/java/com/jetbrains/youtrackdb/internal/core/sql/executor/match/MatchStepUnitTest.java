@@ -1982,11 +1982,17 @@ public class MatchStepUnitTest extends DbTestBase {
     // Simulate what toExecutionStream does: wrap a bare RID
     var result = new ResultInternal(session, rid);
 
-    // getIdentity() should return the RID without loading
+    // getIdentity() should return the RID without triggering entity loading
     assertEquals(rid, result.getIdentity());
+    // Verify the identifiable is still the bare RID, not a loaded Entity
+    assertFalse("getIdentity() must not trigger entity loading",
+        result.getIdentifiable() instanceof Entity);
 
     // getProperty() triggers lazy loading and returns the value
     assertEquals("Alice", result.getProperty("name"));
+    // After getProperty(), the identifiable should now be a loaded Entity
+    assertTrue("getProperty() must trigger entity loading",
+        result.getIdentifiable() instanceof Entity);
     session.commit();
   }
 

@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
@@ -14,7 +15,9 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.NoSuchElementException;
 import org.junit.Before;
@@ -257,7 +260,7 @@ public class VertexFromLinkBagIteratorTest {
     mockLoadReturnsVertex(matchingRid);
     // nonMatchingRid should never be loaded — no mock needed
 
-    var accepted = it.unimi.dsi.fastutil.ints.IntOpenHashSet.of(10);
+    var accepted = IntOpenHashSet.of(10);
     var iterator = new VertexFromLinkBagIterator(
         List.of(nonMatchingPair, matchingPair).iterator(), session, 2, accepted);
 
@@ -276,7 +279,7 @@ public class VertexFromLinkBagIteratorTest {
     mockLoadReturnsVertex(rid1);
     mockLoadReturnsVertex(rid2);
 
-    var accepted = it.unimi.dsi.fastutil.ints.IntOpenHashSet.of(10);
+    var accepted = IntOpenHashSet.of(10);
     var iterator = new VertexFromLinkBagIterator(
         List.of(
             RidPair.ofPair(new RecordId(30, 1), rid1),
@@ -297,7 +300,7 @@ public class VertexFromLinkBagIteratorTest {
   public void classFilter_noneMatch_yieldsEmpty() {
     var rid = new RecordId(20, 1); // collection 20 — not accepted
 
-    var accepted = it.unimi.dsi.fastutil.ints.IntOpenHashSet.of(10);
+    var accepted = IntOpenHashSet.of(10);
     var iterator = new VertexFromLinkBagIterator(
         List.of(RidPair.ofPair(new RecordId(30, 1), rid)).iterator(),
         session, 1, accepted);
@@ -320,7 +323,7 @@ public class VertexFromLinkBagIteratorTest {
     mockLoadReturnsVertex(matchingRid);
     // nonMatchingRid should never be loaded
 
-    var acceptedRids = new java.util.HashSet<RID>();
+    var acceptedRids = new HashSet<RID>();
     acceptedRids.add(matchingRid);
 
     var iterator = new VertexFromLinkBagIterator(
@@ -343,7 +346,7 @@ public class VertexFromLinkBagIteratorTest {
 
     var iterator = new VertexFromLinkBagIterator(
         List.of(RidPair.ofPair(new RecordId(30, 1), rid)).iterator(),
-        session, 1, null, new java.util.HashSet<>());
+        session, 1, null, new HashSet<>());
 
     assertFalse(iterator.hasNext());
   }
@@ -367,8 +370,8 @@ public class VertexFromLinkBagIteratorTest {
 
     mockLoadReturnsVertex(rid1);
 
-    var acceptedCollections = it.unimi.dsi.fastutil.ints.IntOpenHashSet.of(10);
-    var acceptedRids = new java.util.HashSet<RID>();
+    var acceptedCollections = IntOpenHashSet.of(10);
+    var acceptedRids = new HashSet<RID>();
     acceptedRids.add(rid1);
 
     var iterator = new VertexFromLinkBagIterator(
@@ -410,7 +413,7 @@ public class VertexFromLinkBagIteratorTest {
     assertFalse(iter.hasNext());
 
     // Verify loadEntity was never called — entities were not loaded
-    org.mockito.Mockito.verifyNoInteractions(transaction);
+    verifyNoInteractions(transaction);
   }
 
   /**
@@ -425,7 +428,7 @@ public class VertexFromLinkBagIteratorTest {
         RidPair.ofPair(new RecordId(30, 2), matchingRid));
 
     var iterable = new VertexFromLinkBagIterable(linkBag, session)
-        .withClassFilter(it.unimi.dsi.fastutil.ints.IntOpenHashSet.of(10));
+        .withClassFilter(IntOpenHashSet.of(10));
     var iter = iterable.ridIterator();
 
     assertTrue(iter.hasNext());
@@ -444,7 +447,7 @@ public class VertexFromLinkBagIteratorTest {
         RidPair.ofPair(new RecordId(30, 1), nonMatchingRid),
         RidPair.ofPair(new RecordId(30, 2), matchingRid));
 
-    var acceptedRids = new java.util.HashSet<RID>();
+    var acceptedRids = new HashSet<RID>();
     acceptedRids.add(matchingRid);
 
     var iterable = new VertexFromLinkBagIterable(linkBag, session)
@@ -507,7 +510,7 @@ public class VertexFromLinkBagIteratorTest {
     // rid3: collection 20 (rejected by class filter) → skipped
     var rid3 = new RecordId(20, 1);
 
-    var acceptedRids = new java.util.HashSet<RID>();
+    var acceptedRids = new HashSet<RID>();
     acceptedRids.add(rid1);
 
     var linkBag = mockLinkBag(
@@ -516,7 +519,7 @@ public class VertexFromLinkBagIteratorTest {
         RidPair.ofPair(new RecordId(30, 3), rid1));
 
     var iter = new VertexFromLinkBagIterable(linkBag, session)
-        .withClassFilter(it.unimi.dsi.fastutil.ints.IntOpenHashSet.of(10))
+        .withClassFilter(IntOpenHashSet.of(10))
         .withRidFilter(acceptedRids)
         .ridIterator();
 
@@ -525,7 +528,7 @@ public class VertexFromLinkBagIteratorTest {
     assertFalse(iter.hasNext());
 
     // No entity loading should have occurred
-    org.mockito.Mockito.verifyNoInteractions(transaction);
+    verifyNoInteractions(transaction);
   }
 
   /**
@@ -549,7 +552,7 @@ public class VertexFromLinkBagIteratorTest {
     assertEquals(rid3, iter.next().getIdentity());
     assertFalse(iter.hasNext());
 
-    org.mockito.Mockito.verifyNoInteractions(transaction);
+    verifyNoInteractions(transaction);
   }
 
   /**

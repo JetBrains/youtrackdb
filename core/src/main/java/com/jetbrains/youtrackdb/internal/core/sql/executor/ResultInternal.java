@@ -468,18 +468,19 @@ public class ResultInternal implements Result, BasicResultInternal {
       result = (T) content.get(name);
     } else if (identifiable != null) {
       // Fast path: resolve entity directly without going through asEntity()
-      // which would call isEntity() → isBlob() a second time. For bare RIDs
-      // (lazy MATCH path) this avoids 2 redundant schema snapshot lookups
-      // per property access.
+      // which would call isEntity() → isBlob() twice. Uses instanceof checks
+      // instead of isBlob() to avoid schema snapshot lookups for bare RIDs.
       Entity entity;
       if (identifiable instanceof Entity e) {
         entity = e;
-      } else if (!isBlob()) {
+      } else if (identifiable instanceof Blob) {
+        entity = null;
+      } else {
+        // Bare RID — load entity directly. Blob RIDs never reach
+        // getProperty() in practice (blobs have no properties).
         var transaction = session.getActiveTransaction();
         entity = transaction.loadEntity(identifiable);
         this.identifiable = entity;
-      } else {
-        entity = null;
       }
       if (entity != null) {
         //noinspection unchecked
@@ -610,11 +611,23 @@ public class ResultInternal implements Result, BasicResultInternal {
   @Override
   public boolean hasProperty(@Nonnull String propName) {
     assert checkSession();
-    if (isEntity() && asEntity().hasProperty(propName)) {
+    if (content != null && content.containsKey(propName)) {
       return true;
     }
-    if (content != null) {
-      return content.containsKey(propName);
+    if (identifiable != null) {
+      Entity entity;
+      if (identifiable instanceof Entity e) {
+        entity = e;
+      } else if (identifiable instanceof Blob) {
+        entity = null;
+      } else {
+        var transaction = session.getActiveTransaction();
+        entity = transaction.loadEntity(identifiable);
+        this.identifiable = entity;
+      }
+      if (entity != null) {
+        return entity.hasProperty(propName);
+      }
     }
     return false;
   }
@@ -884,6 +897,15 @@ public class ResultInternal implements Result, BasicResultInternal {
   @Override
   public void setIdentity(@Nonnull RID identity) {
     setIdentifiable(identity);
+  }
+
+  /**
+   * Returns the raw identifiable without triggering entity loading.
+   * For a bare RID (lazy MATCH path), returns the RID; for an already
+   * materialized entity, returns the entity.
+   */
+  public Identifiable getIdentifiable() {
+    return identifiable;
   }
 
   public void setIdentifiable(Identifiable identifiable) {
