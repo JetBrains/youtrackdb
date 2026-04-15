@@ -18,8 +18,8 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexStatistics;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
-import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
-import com.jetbrains.youtrackdb.internal.core.tx.TxConsumer;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -458,18 +458,21 @@ public class IndexAbstractHistogramDelegationTest {
     when(btreeEngine.getHistogramManager()).thenReturn(null);
     when(storage.getIndexEngine(7)).thenReturn(btreeEngine);
 
+    var atomicOpsMgr = mock(AtomicOperationsManager.class);
+    when(storage.getAtomicOperationsManager()).thenReturn(atomicOpsMgr);
+
     // When
     invokeBuildHistogramAfterFill();
 
-    // Then: no executeInTxInternal call since manager is null
-    verify(session, never()).executeInTxInternal(
-        any());
+    // Then: no executeInsideAtomicOperation call since manager is null
+    verify(atomicOpsMgr, never()).executeInsideAtomicOperation(any());
   }
 
   /**
-   * Verifies that buildHistogramAfterFill() calls executeInTxInternal and
-   * within the transaction invokes buildInitialHistogram on the B-tree
-   * engine when the histogram manager is non-null.
+   * Verifies that buildHistogramAfterFill() calls
+   * executeInsideAtomicOperation and within the atomic operation invokes
+   * buildInitialHistogram on the B-tree engine when the histogram manager
+   * is non-null.
    */
   @SuppressWarnings("unchecked")
   @Test
@@ -485,24 +488,23 @@ public class IndexAbstractHistogramDelegationTest {
     when(btreeEngine.getHistogramManager()).thenReturn(manager);
     when(storage.getIndexEngine(7)).thenReturn(btreeEngine);
 
-    // Mock executeInTxInternal to actually invoke the lambda
-    var mockTx = mock(FrontendTransactionImpl.class);
-    var mockAtomicOp = mock(
-        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation.class);
-    when(mockTx.getAtomicOperation()).thenReturn(mockAtomicOp);
+    // Mock executeInsideAtomicOperation to invoke the lambda
+    var mockAtomicOp = mock(AtomicOperation.class);
+    var atomicOpsMgr = mock(AtomicOperationsManager.class);
+    when(storage.getAtomicOperationsManager()).thenReturn(atomicOpsMgr);
     doAnswer(invocation -> {
-      TxConsumer<FrontendTransactionImpl, ?> consumer =
+      com.jetbrains.youtrackdb.internal.common.function.TxConsumer consumer =
           invocation.getArgument(0);
-      consumer.accept(mockTx);
+      consumer.accept(mockAtomicOp);
       return null;
-    }).when(session).executeInTxInternal(any());
+    }).when(atomicOpsMgr).executeInsideAtomicOperation(any());
 
     // When
     invokeBuildHistogramAfterFill();
 
-    // Then: executeInTxInternal was called and buildInitialHistogram
-    // was invoked on the B-tree engine with the atomic operation
-    verify(session).executeInTxInternal(any());
+    // Then: executeInsideAtomicOperation was called and
+    // buildInitialHistogram was invoked with the atomic operation
+    verify(atomicOpsMgr).executeInsideAtomicOperation(any());
     verify(btreeEngine).buildInitialHistogram(mockAtomicOp);
   }
 
@@ -526,17 +528,17 @@ public class IndexAbstractHistogramDelegationTest {
     when(btreeEngine.getHistogramManager()).thenReturn(manager);
     when(storage.getIndexEngine(7)).thenReturn(btreeEngine);
 
-    // Mock the engine to throw IOException during buildInitialHistogram
-    var mockTx = mock(FrontendTransactionImpl.class);
-    var mockAtomicOp = mock(
-        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation.class);
-    when(mockTx.getAtomicOperation()).thenReturn(mockAtomicOp);
+    // Mock executeInsideAtomicOperation to invoke the lambda, which
+    // triggers IOException from buildInitialHistogram.
+    var mockAtomicOp = mock(AtomicOperation.class);
+    var atomicOpsMgr = mock(AtomicOperationsManager.class);
+    when(storage.getAtomicOperationsManager()).thenReturn(atomicOpsMgr);
     doAnswer(invocation -> {
-      TxConsumer<FrontendTransactionImpl, ?> consumer =
+      com.jetbrains.youtrackdb.internal.common.function.TxConsumer consumer =
           invocation.getArgument(0);
-      consumer.accept(mockTx);
+      consumer.accept(mockAtomicOp);
       return null;
-    }).when(session).executeInTxInternal(any());
+    }).when(atomicOpsMgr).executeInsideAtomicOperation(any());
     doAnswer(invocation2 -> {
       throw new java.io.IOException("simulated build failure");
     })
@@ -588,8 +590,8 @@ public class IndexAbstractHistogramDelegationTest {
 
   private void invokeBuildHistogramAfterFill() throws Exception {
     var method = IndexAbstract.class.getDeclaredMethod(
-        "buildHistogramAfterFill", DatabaseSessionEmbedded.class);
+        "buildHistogramAfterFill");
     method.setAccessible(true);
-    method.invoke(index, session);
+    method.invoke(index);
   }
 }

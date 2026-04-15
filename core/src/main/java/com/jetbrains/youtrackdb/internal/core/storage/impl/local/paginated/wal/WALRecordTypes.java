@@ -374,4 +374,8 @@ public final class WALRecordTypes {
   public static final int RIDBAG_BUCKET_ADD_ALL_OP = PAGE_OPERATION_ID_BASE + 93;
   public static final int RIDBAG_BUCKET_SHRINK_OP = PAGE_OPERATION_ID_BASE + 94;
   public static final int RIDBAG_BUCKET_UPDATE_VALUE_OP = PAGE_OPERATION_ID_BASE + 95;
+
+  // CellBTreeSingleValueEntryPointV3 — approximate entries count (Track 5 addition)
+  public static final int BTREE_SV_ENTRY_POINT_V3_SET_APPROX_ENTRIES_COUNT_OP =
+      PAGE_OPERATION_ID_BASE + 96;
 }

@@ -75,6 +75,14 @@ public final class CellBTreeSingleValueEntryPointV3<K> extends DurablePage {
   public void setApproximateEntriesCount(final long count) {
     assert count >= 0 : "Negative approximate entries count: " + count;
     setLongValue(APPROXIMATE_ENTRIES_COUNT_OFFSET, count);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeSVEntryPointV3SetApproxEntriesCountOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), count));
+    }
   }
 
   public long getApproximateEntriesCount() {

@@ -76,6 +76,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVBucketV3UpdateKeyOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVBucketV3UpdateValueOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVEntryPointV3InitOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVEntryPointV3SetApproxEntriesCountOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVEntryPointV3SetFreeListHeadOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVEntryPointV3SetPagesSizeOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVEntryPointV3SetTreeSizeOp;
@@ -104,7 +105,7 @@ import org.junit.Test;
 
 /**
  * Tests that {@link PageOperationRegistry#registerAll(WALRecordsFactory)} correctly registers
- * all 95 Track 2-3, Track 5, Track 6, Track 7a, and Track 7b PageOperation types so they can be
+ * all 96 Track 2-3, Track 5, Track 6, Track 7a, and Track 7b PageOperation types so they can be
  * deserialized by the factory during recovery.
  */
 public class PageOperationRegistryTest {
@@ -120,7 +121,7 @@ public class PageOperationRegistryTest {
   }
 
   /**
-   * Builds the canonical array of all 95 PageOperation instances with non-zero field values.
+   * Builds the canonical array of all 96 PageOperation instances with non-zero field values.
    * Shared by roundtrip, equals-contract, and inequality tests.
    */
   private static PageOperation[] buildAllOps() {
@@ -128,7 +129,7 @@ public class PageOperationRegistryTest {
   }
 
   /**
-   * Builds the canonical array of all 95 PageOperation instances with the given parent field
+   * Builds the canonical array of all 96 PageOperation instances with the given parent field
    * values. Allows creating structurally identical ops with different base fields for inequality
    * testing.
    */
@@ -159,12 +160,14 @@ public class PageOperationRegistryTest {
         new DirtyPageBitSetPageClearBitOp(pageIndex, fileId, opUnitId, initialLsn, 23),
         new MapEntryPointSetFileSizeOp(pageIndex, fileId, opUnitId, initialLsn, 10),
 
-        // Track 5: CellBTreeSingleValueEntryPointV3 (4 ops)
+        // Track 5: CellBTreeSingleValueEntryPointV3 (5 ops)
         new BTreeSVEntryPointV3InitOp(pageIndex, fileId, opUnitId, initialLsn),
         new BTreeSVEntryPointV3SetTreeSizeOp(
             pageIndex, fileId, opUnitId, initialLsn, 123456789L),
         new BTreeSVEntryPointV3SetPagesSizeOp(pageIndex, fileId, opUnitId, initialLsn, 42),
         new BTreeSVEntryPointV3SetFreeListHeadOp(pageIndex, fileId, opUnitId, initialLsn, 5),
+        new BTreeSVEntryPointV3SetApproxEntriesCountOp(
+            pageIndex, fileId, opUnitId, initialLsn, 999L),
 
         // Track 5: CellBTreeSingleValueV3NullBucket (3 ops)
         new BTreeSVNullBucketV3InitOp(pageIndex, fileId, opUnitId, initialLsn),
@@ -331,7 +334,7 @@ public class PageOperationRegistryTest {
   }
 
   /**
-   * Verifies that all 95 registered record IDs survive a full WALRecordsFactory roundtrip:
+   * Verifies that all 96 registered record IDs survive a full WALRecordsFactory roundtrip:
    * toStream → fromStream. Uses non-zero field values for all parameters (including parent
    * fields) and verifies full field-level equality via equals(), not just class/ID match.
    */
@@ -359,18 +362,18 @@ public class PageOperationRegistryTest {
   /** Verifies the expected total count of registered types — catches accidentally omitted types. */
   @Test
   public void testRegisteredTypeCount() {
-    // IDs 201-295 = 95 types (18 Track 2-3 + 20 Track 5 + 25 Track 6 + 15 Track 7a
+    // IDs 201-296 = 96 types (18 Track 2-3 + 21 Track 5 + 25 Track 6 + 15 Track 7a
     //   + 17 Track 7b).
     // Each ID must have both a createOpForId entry and a factory registration.
     // createOpForId throws for unknown IDs, so any gap causes immediate failure.
     int registeredCount = 0;
     for (int id = WALRecordTypes.PAGE_OPERATION_ID_BASE + 1;
-        id <= WALRecordTypes.PAGE_OPERATION_ID_BASE + 95; id++) {
+        id <= WALRecordTypes.PAGE_OPERATION_ID_BASE + 96; id++) {
       var testOp = createMinimalRecord(id);
       Assert.assertNotNull("WAL record ID " + id + " failed to roundtrip", testOp);
       registeredCount++;
     }
-    Assert.assertEquals("Expected 95 registered PageOperation types", 95, registeredCount);
+    Assert.assertEquals("Expected 96 registered PageOperation types", 96, registeredCount);
   }
 
   /**
@@ -588,7 +591,7 @@ public class PageOperationRegistryTest {
       case WALRecordTypes.MAP_ENTRY_POINT_SET_FILE_SIZE_OP ->
           new MapEntryPointSetFileSizeOp(0, 0, 0, lsn, 0);
 
-      // Track 5: CellBTreeSingleValueEntryPointV3 (4 ops)
+      // Track 5: CellBTreeSingleValueEntryPointV3 (5 ops)
       case WALRecordTypes.BTREE_SV_ENTRY_POINT_V3_INIT_OP ->
           new BTreeSVEntryPointV3InitOp(0, 0, 0, lsn);
       case WALRecordTypes.BTREE_SV_ENTRY_POINT_V3_SET_TREE_SIZE_OP ->
@@ -597,6 +600,8 @@ public class PageOperationRegistryTest {
           new BTreeSVEntryPointV3SetPagesSizeOp(0, 0, 0, lsn, 0);
       case WALRecordTypes.BTREE_SV_ENTRY_POINT_V3_SET_FREE_LIST_HEAD_OP ->
           new BTreeSVEntryPointV3SetFreeListHeadOp(0, 0, 0, lsn, 0);
+      case WALRecordTypes.BTREE_SV_ENTRY_POINT_V3_SET_APPROX_ENTRIES_COUNT_OP ->
+          new BTreeSVEntryPointV3SetApproxEntriesCountOp(0, 0, 0, lsn, 0L);
 
       // Track 5: CellBTreeSingleValueV3NullBucket (3 ops)
       case WALRecordTypes.BTREE_SV_NULL_BUCKET_V3_INIT_OP ->

@@ -347,7 +347,7 @@ public abstract class IndexAbstract implements Index {
       setBulkLoading(false);
     }
 
-    buildHistogramAfterFill(session);
+    buildHistogramAfterFill();
 
     return entitiesIndexed;
   }
@@ -376,28 +376,36 @@ public abstract class IndexAbstract implements Index {
 
   /**
    * Builds the initial histogram after fillIndex() completes. Runs the
-   * build inside a new transaction so the full B-tree scan has its own
-   * atomic operation for page reads.
+   * build inside a standalone atomic operation so that
+   * {@code startToApplyOperations} is called before any B-tree component
+   * operations (which generate PageOperation WAL records and trigger
+   * {@code flushPendingOperations}).
+   *
+   * <p>Using {@code executeInsideAtomicOperation} rather than
+   * {@code executeInTxInternal} is deliberate: the latter defers
+   * {@code startToApplyOperations} until the commit phase, but the
+   * B-tree writes inside {@code buildInitialHistogram} happen immediately
+   * and require a valid commit timestamp for WAL record emission.
    */
-  private void buildHistogramAfterFill(DatabaseSessionEmbedded session) {
+  private void buildHistogramAfterFill() {
     while (true) {
       try {
         var engine = storage.getIndexEngine(indexId);
         if (engine instanceof BTreeIndexEngine btreeEngine) {
           if (btreeEngine.getHistogramManager() != null) {
-            session.executeInTxInternal(tx -> {
-              try {
-                btreeEngine.buildInitialHistogram(
-                    tx.getAtomicOperation());
-              } catch (IOException e) {
-                // Histogram build failure must not fail the index rebuild.
-                // The histogram will be built lazily on the next rebalance.
-                LogManager.instance().warn(
-                    IndexAbstract.this,
-                    "Failed to build initial histogram for index '%s': %s",
-                    im.getName(), e.getMessage());
-              }
-            });
+            try {
+              storage.getAtomicOperationsManager()
+                  .executeInsideAtomicOperation(
+                      atomicOperation -> btreeEngine
+                          .buildInitialHistogram(atomicOperation));
+            } catch (IOException e) {
+              // Histogram build failure must not fail the index rebuild.
+              // The histogram will be built lazily on the next rebalance.
+              LogManager.instance().warn(
+                  IndexAbstract.this,
+                  "Failed to build initial histogram for index '%s': %s",
+                  im.getName(), e.getMessage());
+            }
           }
         }
         break;

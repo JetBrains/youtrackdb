@@ -75,6 +75,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVBucketV3UpdateKeyOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVBucketV3UpdateValueOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVEntryPointV3InitOp;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVEntryPointV3SetApproxEntriesCountOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVEntryPointV3SetFreeListHeadOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVEntryPointV3SetPagesSizeOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTreeSVEntryPointV3SetTreeSizeOp;
@@ -227,6 +228,9 @@ public final class PageOperationRegistry {
     factory.registerNewRecord(
         WALRecordTypes.BTREE_SV_ENTRY_POINT_V3_SET_FREE_LIST_HEAD_OP,
         BTreeSVEntryPointV3SetFreeListHeadOp.class);
+    factory.registerNewRecord(
+        WALRecordTypes.BTREE_SV_ENTRY_POINT_V3_SET_APPROX_ENTRIES_COUNT_OP,
+        BTreeSVEntryPointV3SetApproxEntriesCountOp.class);
 
     // CellBTreeSingleValueV3NullBucket operations (Track 5)
     factory.registerNewRecord(
