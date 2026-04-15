@@ -151,6 +151,32 @@ public class UnsafeComparatorTest {
     Assert.assertTrue(v2.compare(b, a) > 0);
   }
 
+  // --- Empty byte array boundary tests ---
+
+  @Test
+  public void testUnsafeEmptyArrays() {
+    // Empty arrays should compare as equal; empty vs non-empty by length.
+    Assert.assertEquals(0, comparator.compare(new byte[0], new byte[0]));
+    Assert.assertTrue(comparator.compare(new byte[0], new byte[] {1}) < 0);
+    Assert.assertTrue(comparator.compare(new byte[] {1}, new byte[0]) > 0);
+  }
+
+  @Test
+  public void testByteArrayComparatorEmptyArrays() {
+    final var bac = ByteArrayComparator.INSTANCE;
+    Assert.assertEquals(0, bac.compare(new byte[0], new byte[0]));
+    Assert.assertTrue(bac.compare(new byte[0], new byte[] {1}) < 0);
+    Assert.assertTrue(bac.compare(new byte[] {1}, new byte[0]) > 0);
+  }
+
+  @Test
+  public void testV2EmptyArrays() {
+    final var v2 = UnsafeByteArrayComparatorV2.INSTANCE;
+    Assert.assertEquals(0, v2.compare(new byte[0], new byte[0]));
+    // Safe direction: shorter (empty) as first argument.
+    Assert.assertTrue(v2.compare(new byte[0], new byte[] {1}) < 0);
+  }
+
   private void assertCompareTwoKeys(
       final Comparator<byte[]> comparator, byte[] keyOne, byte[] keyTwo) {
     Assert.assertTrue(comparator.compare(keyOne, keyTwo) < 0);
