@@ -170,8 +170,12 @@ public class ErrorCodeTest {
       ErrorCode.GENERIC_ERROR.throwException();
       fail("Expected NullPointerException from 'throw null'");
     } catch (NullPointerException e) {
-      // JVM generates a descriptive message for the throw-null NPE.
-      assertNotNull(e);
+      // The JVM generates a descriptive message for 'throw null' (JDK 14+
+      // helpful NPE messages). Verify this is the throw-null path, not some
+      // other NullPointerException from a missing field or method call.
+      assertNotNull("JVM should provide a helpful NPE message", e.getMessage());
+      assertTrue("NPE message should indicate a null throw target",
+          e.getMessage().contains("null"));
     }
   }
 
