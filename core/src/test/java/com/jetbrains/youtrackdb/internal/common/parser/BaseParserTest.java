@@ -50,8 +50,9 @@ public class BaseParserTest {
   @Test
   public void nextWordForcesUpperCase() {
     StringBuilder word = new StringBuilder();
-    BaseParser.nextWord("select name", "SELECT NAME", 0, word, true);
+    int pos = BaseParser.nextWord("select name", "SELECT NAME", 0, word, true);
     assertThat(word.toString()).isEqualTo("SELECT");
+    assertThat(pos).isEqualTo(6);
   }
 
   /** Skips leading whitespace before the word. */
@@ -197,7 +198,9 @@ public class BaseParserTest {
   public void parseOptionalWordMismatchThrows() {
     TestableBaseParser p = parser("DELETE name");
     assertThatThrownBy(() -> p.parseOptionalWord("testDb", true, "SELECT", "INSERT"))
-        .isInstanceOf(IllegalArgumentException.class);
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("DELETE")
+        .hasMessageContaining("SELECT");
   }
 
   /** Backtick-delimited identifiers without spaces have backticks stripped. */
@@ -226,7 +229,8 @@ public class BaseParserTest {
     TestableBaseParser p = parser("done");
     p.parserOptionalWord(false); // consumes "done"
     assertThatThrownBy(() -> p.parserRequiredWord("testDb", false))
-        .isInstanceOf(IllegalArgumentException.class);
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("Syntax error");
   }
 
   /** Custom error message is passed to the exception. */
@@ -251,41 +255,46 @@ public class BaseParserTest {
   // Instance: parserRequiredKeyword
   // ---------------------------------------------------------------------------
 
-  /** Matches one of the expected keywords. */
+  /** Matches one of the expected keywords and advances position. */
   @Test
   public void parserRequiredKeywordMatches() {
     TestableBaseParser p = parser("SELECT name");
     p.parserRequiredKeyword("testDb", "SELECT", "INSERT");
     assertThat(p.parserGetLastWord()).isEqualTo("SELECT");
+    assertThat(p.parserGetCurrentPosition()).isEqualTo(6);
   }
 
-  /** Throws when the word doesn't match any expected keyword. */
+  /** Throws with details when the word doesn't match any expected keyword. */
   @Test
   public void parserRequiredKeywordMismatchThrows() {
     TestableBaseParser p = parser("DELETE name");
     assertThatThrownBy(() -> p.parserRequiredKeyword("testDb", "SELECT", "INSERT"))
-        .isInstanceOf(IllegalArgumentException.class);
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("DELETE")
+        .hasMessageContaining("SELECT");
   }
 
-  /** Throws when no word found (end of text). */
+  /** Throws with details when no word found (end of text). */
   @Test
   public void parserRequiredKeywordEndOfTextThrows() {
     TestableBaseParser p = parser("done");
     p.parserOptionalWord(false); // consumes "done"
     assertThatThrownBy(() -> p.parserRequiredKeyword("testDb", "SELECT"))
-        .isInstanceOf(IllegalArgumentException.class);
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("Cannot find expected keyword");
   }
 
   // ---------------------------------------------------------------------------
   // Instance: parserOptionalKeyword
   // ---------------------------------------------------------------------------
 
-  /** Returns true when keyword matches. */
+  /** Returns true when keyword matches and records which keyword was found. */
   @Test
   public void parserOptionalKeywordMatchesReturnsTrue() {
     TestableBaseParser p = parser("SELECT name");
     boolean found = p.parserOptionalKeyword("testDb", "SELECT", "INSERT");
     assertThat(found).isTrue();
+    assertThat(p.parserGetLastWord()).isEqualTo("SELECT");
   }
 
   /** Returns false when no word found (end of text). */
@@ -297,20 +306,24 @@ public class BaseParserTest {
     assertThat(found).isFalse();
   }
 
-  /** Throws when word is found but doesn't match any expected keyword. */
+  /** Throws with details when word doesn't match any expected keyword. */
   @Test
   public void parserOptionalKeywordMismatchThrows() {
     TestableBaseParser p = parser("DELETE name");
     assertThatThrownBy(() -> p.parserOptionalKeyword("testDb", "SELECT", "INSERT"))
-        .isInstanceOf(IllegalArgumentException.class);
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("DELETE")
+        .hasMessageContaining("SELECT");
   }
 
-  /** With empty iWords array, any word matches (returns true). */
+  /** With empty iWords array, any word matches and is consumed. */
   @Test
   public void parserOptionalKeywordEmptyWordsMatchesAny() {
     TestableBaseParser p = parser("anything");
     boolean found = p.parserOptionalKeyword("testDb");
     assertThat(found).isTrue();
+    assertThat(p.parserGetLastWord()).isEqualTo("ANYTHING");
+    assertThat(p.parserIsEnded()).isTrue();
   }
 
   // ---------------------------------------------------------------------------
@@ -648,11 +661,35 @@ public class BaseParserTest {
   // Instance: parserNextChars
   // ---------------------------------------------------------------------------
 
-  /** Matches a candidate word by character-by-character comparison. */
+  /** Matches a candidate word when followed by a space separator. */
   @Test
-  public void parserNextCharsMatchesCandidateWord() {
-    TestableBaseParser p = parser(">=rest");
+  public void parserNextCharsMatchesCandidateWithSeparator() {
+    TestableBaseParser p = parser(">= rest");
     int index = p.parserNextChars("testDb", false, false, ">=", "<=", "!=");
+    assertThat(index).isEqualTo(0);
+  }
+
+  /** Matches a candidate word at end of text (EOF acts as separator). */
+  @Test
+  public void parserNextCharsMatchesCandidateAtEndOfText() {
+    TestableBaseParser p = parser(">=");
+    int index = p.parserNextChars("testDb", false, false, ">=", "<=", "!=");
+    assertThat(index).isEqualTo(0);
+  }
+
+  /** Matches a non-first candidate to verify correct index is returned. */
+  @Test
+  public void parserNextCharsMatchesNonFirstCandidate() {
+    TestableBaseParser p = parser("!= rest");
+    int index = p.parserNextChars("testDb", false, false, ">=", "<=", "!=");
+    assertThat(index).isEqualTo(2);
+  }
+
+  /** With uppercase mode, matches case-insensitively. */
+  @Test
+  public void parserNextCharsUpperCaseMode() {
+    TestableBaseParser p = parser(">= rest");
+    int index = p.parserNextChars("testDb", true, false, ">=", "<=");
     assertThat(index).isEqualTo(0);
   }
 
@@ -664,33 +701,36 @@ public class BaseParserTest {
     assertThat(index).isEqualTo(-1);
   }
 
-  /** Throws when mandatory and no candidate matches. */
+  /** Throws with details when mandatory and no candidate matches. */
   @Test
   public void parserNextCharsMandatoryNoMatchThrows() {
     TestableBaseParser p = parser("abc rest");
     assertThatThrownBy(() -> p.parserNextChars("testDb", false, true, ">=", "<="))
-        .isInstanceOf(IllegalArgumentException.class);
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("unexpected keyword")
+        .hasMessageContaining(">=");
   }
 
   // ---------------------------------------------------------------------------
   // Instance: getLastWordLength with escape sequences
   // ---------------------------------------------------------------------------
 
-  /** getLastWordLength accounts for escape sequence count. */
+  /** getLastWordLength accounts for escape sequence count in unicode escapes. */
   @Test
   public void getLastWordLengthIncludesEscapeSequenceCount() {
     TestableBaseParser p = parser("\\" + "u0041rest");
-    p.parserOptionalWord(false); // unicode escape: 6 chars input → 5 chars word + 5 escape count
-    // parserLastWord = "Arest" (5 chars), parserEscapeSequenceCount = 5
+    p.parserOptionalWord(false);
+    // Input: \u0041rest (10 chars) → word: "Arest" (5 chars), escapeCount: 5
+    // getLastWordLength = 5 + 5 = 10 (matches original input length)
     assertThat(p.getLastWordLength()).isEqualTo(10);
   }
 
-  /** getLastWordLength with non-special escape (1 char consumed for \x → just 'x'). */
+  /** getLastWordLength with non-special escape: \x consumes 2 input chars, produces 1 output. */
   @Test
   public void getLastWordLengthWithNonSpecialEscape() {
     TestableBaseParser p = parser("\\" + "x");
-    p.parserOptionalWord(false); // \x → 'x', escape count = 1
-    // parserLastWord = "x" (1 char), parserEscapeSequenceCount = 1
+    p.parserOptionalWord(false);
+    // \x → 'x' (1 char output), escapeCount = 1. Total = 2 = original input length.
     assertThat(p.getLastWordLength()).isEqualTo(2);
   }
 
@@ -708,5 +748,106 @@ public class BaseParserTest {
     assertThat(p.parserOptionalWord(false)).isEqualTo("class");
     assertThat(p.parserOptionalWord(false)).isNull();
     assertThat(p.parserIsEnded()).isTrue();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Boundary tests (review findings)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Backslash inside a brace expression is treated as literal text (not decoded as an escape
+   * sequence), and the escape sequence count is tracked.
+   */
+  @Test
+  public void parserNextWordEscapeInsideBracesIsTreatedAsLiteral() {
+    TestableBaseParser p = parser("{a" + "\\" + "nb}");
+    String word = p.parserOptionalWord(false);
+    assertThat(word).isEqualTo("{a" + "\\" + "nb}");
+    assertThat(p.getLastWordLength()).isGreaterThan(word.length());
+  }
+
+  /** Empty text immediately ends the parser — parserOptionalWord returns null. */
+  @Test
+  public void parserOptionalWordOnEmptyTextReturnsNull() {
+    TestableBaseParser p = parser("");
+    assertThat(p.parserOptionalWord(false)).isNull();
+    assertThat(p.parserIsEnded()).isTrue();
+  }
+
+  /** parserRequiredWord on empty text throws syntax error. */
+  @Test
+  public void parserRequiredWordOnEmptyTextThrows() {
+    TestableBaseParser p = parser("");
+    assertThatThrownBy(() -> p.parserRequiredWord("testDb", false))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  /** Setting position to exactly text length marks end of text. */
+  @Test
+  public void parserSetCurrentPositionAtExactLength() {
+    TestableBaseParser p = parser("hi");
+    boolean notEnded = p.parserSetCurrentPosition(2);
+    assertThat(notEnded).isFalse();
+    assertThat(p.parserIsEnded()).isTrue();
+  }
+
+  /** Setting position to last valid index (length - 1) keeps parser active. */
+  @Test
+  public void parserSetCurrentPositionAtLastChar() {
+    TestableBaseParser p = parser("hi");
+    boolean notEnded = p.parserSetCurrentPosition(1);
+    assertThat(notEnded).isTrue();
+    assertThat(p.parserGetCurrentChar()).isEqualTo('i');
+  }
+
+  /** Nested brackets inside braces are parsed as a single word. */
+  @Test
+  public void parserNextWordNestedBracketsInsideBraces() {
+    TestableBaseParser p = parser("{tags: [a, b]} rest");
+    String word = p.parserOptionalWord(false);
+    assertThat(word).isEqualTo("{tags: [a, b]}");
+  }
+
+  /** Quoted strings inside brackets — closing quote does not break the bracket expression. */
+  @Test
+  public void parserNextWordQuotedStringsInsideBrackets() {
+    TestableBaseParser p = parser("['a','b'] rest");
+    String word = p.parserOptionalWord(false);
+    assertThat(word).isEqualTo("['a','b']");
+  }
+
+  /** parserRequiredWord with custom separators uses them instead of defaults. */
+  @Test
+  public void parserRequiredWordWithCustomSeparators() {
+    TestableBaseParser p = parser("key:value");
+    String word = p.parserRequiredWord(false, "Expected word", ":", "testDb");
+    assertThat(word).isEqualTo("key");
+  }
+
+  /**
+   * Backtick-delimited word with keyword validation: the keyword check uses the raw word including
+   * backticks, so `SELECT` does not match "SELECT". Documents that backtick keywords are rejected.
+   */
+  @Test
+  public void parseOptionalWordBacktickDelimitedKeywordDoesNotMatch() {
+    TestableBaseParser p = parser("`SELECT` rest");
+    assertThatThrownBy(() -> p.parseOptionalWord("testDb", true, "SELECT"))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  /** Trailing backslash at end of input is treated as literal, not as escape prefix. */
+  @Test
+  public void parserNextWordTrailingBackslashIsLiteral() {
+    TestableBaseParser p = parser("abc" + "\\");
+    String word = p.parserOptionalWord(false);
+    assertThat(word).isEqualTo("abc" + "\\");
+  }
+
+  /** Input consisting entirely of separator characters produces empty word. */
+  @Test
+  public void getWordStaticAllSeparatorsProducesEmpty() {
+    StringBuilder buffer = new StringBuilder();
+    BaseParser.getWordStatic("===", 0, "=", buffer);
+    assertThat(buffer.toString()).isEmpty();
   }
 }
