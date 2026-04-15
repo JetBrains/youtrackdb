@@ -63,7 +63,8 @@ public class MetricFactoryTest {
         () -> {
           ticker.setTime(11_000_000);
         });
-    assertThat(sw.getValue()).isGreaterThan(0.0);
+    // 10_000_000 ns elapsed = 10.0 ms
+    assertThat(sw.getValue()).isCloseTo(10.0, org.assertj.core.data.Offset.offset(0.1));
   }
 
   // ---------------------------------------------------------------------------

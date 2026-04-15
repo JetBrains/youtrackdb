@@ -53,7 +53,15 @@ public class MetricsRegistryTest {
   @Test
   public void globalMetricReturnsWorkingInstance() {
     registry = new MetricsRegistry(ticker);
-    Gauge<Long> gauge = registry.databaseMetric(CoreMetrics.OLDEST_TX_AGE, "testDb");
+    Ratio ratio = registry.globalMetric(CoreMetrics.CACHE_HIT_RATIO);
+    assertThat(ratio).isNotNull();
+  }
+
+  /** databaseMetric returns a working gauge with set/get. */
+  @Test
+  public void databaseMetricReturnsWorkingGauge() {
+    registry = new MetricsRegistry(ticker);
+    Gauge<Long> gauge = registry.databaseMetric(CoreMetrics.OLDEST_TX_AGE, "gaugeTestDb");
     assertThat(gauge).isNotNull();
     gauge.setValue(42L);
     assertThat(gauge.getValue()).isEqualTo(42L);
