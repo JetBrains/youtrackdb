@@ -16,7 +16,11 @@
  */
 package com.jetbrains.youtrackdb.ycsb.generator;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.NoSuchElementException;
+import java.util.Set;
 
 /**
  * A generator that produces strings of {@link #length} using a set of code points
