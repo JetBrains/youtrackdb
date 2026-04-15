@@ -2330,30 +2330,23 @@ public class EdgeTraversalCacheTest {
    * resolveLoadToScanRatio).
    */
   @Test
-  public void copy_resetsMetricReferencesAndCachedLiveRatio() throws Exception {
+  public void copy_resetsMetricReferencesAndCachedLiveRatio() {
     var et = createEdgeTraversal();
 
-    // Set non-default values via reflection.
-    setField(et, "cachedScanNanos", TimeRate.NOOP);
-    setField(et, "cachedScanEntries", TimeRate.NOOP);
-    setField(et, "cachedCacheHitRatio", Ratio.NOOP);
-    setField(et, "cachedLiveRatio", 42.0);
-    setField(et, "cachedEffectiveness", Ratio.NOOP);
+    // Set non-default values via package-private setters.
+    et.setCachedScanNanos(TimeRate.NOOP);
+    et.setCachedScanEntries(TimeRate.NOOP);
+    et.setCachedCacheHitRatio(Ratio.NOOP);
+    et.setCachedLiveRatio(42.0);
+    et.setCachedEffectiveness(Ratio.NOOP);
 
     var copy = et.copy();
 
     // All metric fields must be at their initial defaults.
-    assertThat(getField(copy, "cachedScanNanos")).isNull();
-    assertThat(getField(copy, "cachedScanEntries")).isNull();
-    assertThat(getField(copy, "cachedCacheHitRatio")).isNull();
-    assertThat((double) getField(copy, "cachedLiveRatio")).isNaN();
-    assertThat(getField(copy, "cachedEffectiveness")).isNull();
-  }
-
-  private static Object getField(Object target, String fieldName)
-      throws Exception {
-    var field = target.getClass().getDeclaredField(fieldName);
-    field.setAccessible(true);
-    return field.get(target);
+    assertThat(copy.getCachedScanNanos()).isNull();
+    assertThat(copy.getCachedScanEntries()).isNull();
+    assertThat(copy.getCachedCacheHitRatio()).isNull();
+    assertThat(copy.getCachedLiveRatio()).isNaN();
+    assertThat(copy.getCachedEffectiveness()).isNull();
   }
 }

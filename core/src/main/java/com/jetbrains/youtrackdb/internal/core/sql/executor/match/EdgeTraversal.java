@@ -401,6 +401,59 @@ public class EdgeTraversal {
   }
 
   // =========================================================================
+  // Metric cache accessors (package-private — used by tests to verify
+  // copy() resets without reflection)
+  // =========================================================================
+
+  /** Returns the cached scan nanos metric reference, or {@code null} if not yet resolved. */
+  @Nullable TimeRate getCachedScanNanos() {
+    return cachedScanNanos;
+  }
+
+  /** Returns the cached scan entries metric reference, or {@code null} if not yet resolved. */
+  @Nullable TimeRate getCachedScanEntries() {
+    return cachedScanEntries;
+  }
+
+  /** Returns the cached cache hit ratio metric reference, or {@code null} if not yet resolved. */
+  @Nullable Ratio getCachedCacheHitRatio() {
+    return cachedCacheHitRatio;
+  }
+
+  /** Returns the cached live cost ratio, or {@code NaN} if not yet computed. */
+  double getCachedLiveRatio() {
+    return cachedLiveRatio;
+  }
+
+  /** Returns the cached effectiveness metric reference, or {@code null} if not yet resolved. */
+  @Nullable Ratio getCachedEffectiveness() {
+    return cachedEffectiveness;
+  }
+
+  // Package-private setters for test setup — allow tests to inject
+  // non-default metric references without reflection.
+
+  void setCachedScanNanos(@Nullable TimeRate value) {
+    cachedScanNanos = value;
+  }
+
+  void setCachedScanEntries(@Nullable TimeRate value) {
+    cachedScanEntries = value;
+  }
+
+  void setCachedCacheHitRatio(@Nullable Ratio value) {
+    cachedCacheHitRatio = value;
+  }
+
+  void setCachedLiveRatio(double value) {
+    cachedLiveRatio = value;
+  }
+
+  void setCachedEffectiveness(@Nullable Ratio value) {
+    cachedEffectiveness = value;
+  }
+
+  // =========================================================================
   // Pre-filter counter mutators (called by MatchEdgeTraverser.applyPreFilter)
   // =========================================================================
 
@@ -495,7 +548,7 @@ public class EdgeTraversal {
     if (estimatedSize > TraversalPreFilterHelper.maxRidSetSize()) {
       lastSkipReason = PreFilterSkipReason.CAP_EXCEEDED;
       preFilterSkippedCount++;
-      if (key != null && cache.size() < CACHE_CAPACITY) {
+      if (key != null && cache != null && cache.size() < CACHE_CAPACITY) {
         cache.put(key, null);
       }
       return null;
@@ -516,12 +569,12 @@ public class EdgeTraversal {
     }
 
     if (indexLookup != null) {
-      var amortizationResult = checkIndexLookupAmortization(
+      var decision = checkIndexLookupAmortization(
           indexLookup, estimatedSize, linkBagSize, key, ctx);
-      if (amortizationResult != null) {
-        return amortizationResult.ridSet;
+      if (decision != AmortizationDecision.PROCEED) {
+        return null;
       }
-      // amortizationResult == null means fall through to materialize.
+      // PROCEED means fall through to materialize.
     } else if (estimatedSize >= 0
         && !desc.passesSelectivityCheck(estimatedSize, linkBagSize, ctx)) {
       // EdgeRidLookup / DirectRid: delegate to the descriptor.
@@ -545,41 +598,34 @@ public class EdgeTraversal {
       }
       lastSkipReason = PreFilterSkipReason.NONE;
     }
-    if (key != null && cache.size() < CACHE_CAPACITY) {
+    if (key != null && cache != null && cache.size() < CACHE_CAPACITY) {
       cache.put(key, ridSet);
     }
     return ridSet;
   }
 
   /**
-   * Result of the IndexLookup amortization check. A non-null return from
-   * {@link #checkIndexLookupAmortization} means the caller should return
-   * early (either with the {@code ridSet} field, which may be {@code null}
-   * to signal a rejection).
+   * Result of the IndexLookup amortization check in
+   * {@link #checkIndexLookupAmortization}.
    */
-  private record AmortizationResult(@Nullable RidSet ridSet) {
+  private enum AmortizationDecision {
+    /** Selectivity too high — cache null permanently. */
+    REJECT,
+    /** Build not yet amortized — return null without caching. */
+    DEFER,
+    /** Threshold met or unknown selectivity — caller should materialize. */
+    PROCEED
   }
-
-  /** Sentinel: selectivity too high — cache null permanently. */
-  private static final AmortizationResult REJECT =
-      new AmortizationResult(null);
-
-  /** Sentinel: build not yet amortized — return null without caching. */
-  private static final AmortizationResult DEFER =
-      new AmortizationResult(null);
 
   /**
    * Checks IndexLookup selectivity threshold and build amortization guard.
-   * Returns:
-   * <ul>
-   *   <li>{@code non-null AmortizationResult} — caller should return
-   *       early with {@code result.ridSet} (may be null for rejections)
-   *   </li>
-   *   <li>{@code null} — threshold met or unknown selectivity; caller
-   *       should fall through to materialize</li>
-   * </ul>
+   * Returns {@link AmortizationDecision#REJECT} when selectivity is too
+   * high (cache null permanently), {@link AmortizationDecision#DEFER}
+   * when the build is not yet amortized (return null without caching),
+   * or {@link AmortizationDecision#PROCEED} when the caller should
+   * fall through to materialize.
    */
-  @Nullable private AmortizationResult checkIndexLookupAmortization(
+  private AmortizationDecision checkIndexLookupAmortization(
       RidFilterDescriptor.IndexLookup indexLookup,
       int estimatedSize, int linkBagSize,
       @Nullable Object key, CommandContext ctx) {
@@ -600,7 +646,7 @@ public class EdgeTraversal {
       if (key != null && cache != null && cache.size() < CACHE_CAPACITY) {
         cache.put(key, null);
       }
-      return REJECT;
+      return AmortizationDecision.REJECT;
     }
     // Build amortization guard: accumulate link bag sizes across
     // vertices and defer materialization until the total justifies
@@ -617,11 +663,11 @@ public class EdgeTraversal {
         preFilterSkippedCount++;
         assert key == null || cache == null || !cache.containsKey(key)
             : "deferred build must not cache null";
-        return DEFER;
+        return AmortizationDecision.DEFER;
       }
     }
     // Threshold met (or unknown selectivity) — caller should materialize.
-    return null;
+    return AmortizationDecision.PROCEED;
   }
 
   /**
