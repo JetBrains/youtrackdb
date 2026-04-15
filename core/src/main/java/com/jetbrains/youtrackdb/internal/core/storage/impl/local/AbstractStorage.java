@@ -6368,7 +6368,7 @@ public abstract class AbstractStorage
 
   /**
    * Resolves the sub-{@link IndexesSnapshot} for an index engine by its name.
-   * Used by {@code BTree} during tombstone GC to check for active snapshot entries.
+   * Used by test infrastructure for snapshot cleanup and assertions.
    *
    * <p><b>Warning:</b> This method acquires {@code stateLock.readLock()}. It must
    * not be called while holding a BTree component lock, as this would create a
@@ -6433,6 +6433,7 @@ public abstract class AbstractStorage
    * @return {@code true} if at least one snapshot entry exists with version >= lwm,
    *     or {@code false} if no engine or no matching entries exist
    */
+  // Visible for testing — production code uses hasActiveIndexSnapshotEntriesById.
   public boolean hasActiveIndexSnapshotEntries(
       String engineName, CompositeKey userKeyPrefix, long lwm) {
     final String resolvedName;

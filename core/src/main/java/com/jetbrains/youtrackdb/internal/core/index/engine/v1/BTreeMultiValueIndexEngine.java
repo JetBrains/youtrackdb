@@ -66,7 +66,7 @@ public final class BTreeMultiValueIndexEngine
     this.id = id;
     this.name = name;
     this.storage = storage;
-    nullTreeName = name + "$null";
+    nullTreeName = name + AbstractStorage.NULL_TREE_SUFFIX;
 
     if (version == 1 || version == 2 || version == 3) {
       throw new IllegalArgumentException("Unsupported version of index : " + version);
