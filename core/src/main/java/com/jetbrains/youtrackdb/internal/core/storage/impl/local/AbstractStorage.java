@@ -6479,6 +6479,7 @@ public abstract class AbstractStorage
    */
   public boolean hasActiveIndexSnapshotEntriesById(
       long indexId, boolean useNullSnapshot, CompositeKey userKeyPrefix, long lwm) {
+    assert indexId >= 0 : "indexId must be non-negative, got " + indexId;
     final NavigableMap<CompositeKey, RID> snapshotMap =
         useNullSnapshot ? sharedNullIndexesSnapshot : sharedIndexesSnapshot;
     return hasActiveSnapshotEntriesInMap(snapshotMap, indexId, userKeyPrefix, lwm);
@@ -6491,6 +6492,7 @@ public abstract class AbstractStorage
       long indexId,
       CompositeKey userKeyPrefix,
       long lwm) {
+    assert lwm >= 0 : "LWM must be non-negative, got " + lwm;
     var prefixKeys = userKeyPrefix.getKeys();
     var lower = buildSnapshotBoundKey(indexId, prefixKeys, lwm);
     var upper = buildSnapshotBoundKey(indexId, prefixKeys, LONG_MAX_VALUE);

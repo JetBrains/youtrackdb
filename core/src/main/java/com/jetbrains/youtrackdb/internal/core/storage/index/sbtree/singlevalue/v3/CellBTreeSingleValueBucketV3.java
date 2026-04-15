@@ -476,6 +476,7 @@ public final class CellBTreeSingleValueBucketV3<K> extends DurablePage {
    * into byte arrays only to discard them.
    */
   public void clear() {
+    assert isLeaf() : "clear() must only be called on leaf buckets";
     setFreePointer(MAX_PAGE_SIZE_BYTES);
     setSize(0);
   }

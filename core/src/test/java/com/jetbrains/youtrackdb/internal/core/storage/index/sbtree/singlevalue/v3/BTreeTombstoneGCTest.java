@@ -180,12 +180,14 @@ public class BTreeTombstoneGCTest {
     }
 
     long tombstonesBefore = countEntriesOfType(TombstoneRID.class);
-    // Some tombstones may already be GC'd during their own insertion phase
-    // (bucket overflows during tombstone insertion trigger GC on earlier
-    // tombstones). Verify at least some survive.
+    // GC during the insertion phase is aggressive: every bucket overflow
+    // removes all tombstones in that bucket. Only partially-filled
+    // buckets at the end survive. Require enough for the post-condition
+    // ratio check (isLessThan(before / 2)) to be meaningful.
     assertThat(tombstonesBefore)
-        .as("At least some tombstones should exist before live entry inserts")
-        .isGreaterThan(0);
+        .as("Enough tombstones should survive insertion-phase GC "
+            + "for the ratio check to be meaningful")
+        .isGreaterThan(5);
 
     // Insert FILL_COUNT live entries at odd positions to trigger overflows
     for (int i = 0; i < FILL_COUNT; i++) {
@@ -386,9 +388,13 @@ public class BTreeTombstoneGCTest {
     }
 
     long markersBefore = countEntriesOfType(SnapshotMarkerRID.class);
+    // GC during the insertion phase is aggressive: bucket overflows
+    // demote all markers in overflowing buckets. Require enough for
+    // the ratio check to be meaningful.
     assertThat(markersBefore)
-        .as("Markers should exist before live entry inserts")
-        .isGreaterThan(0);
+        .as("Enough markers should survive insertion-phase GC "
+            + "for the ratio check to be meaningful")
+        .isGreaterThan(5);
 
     // Insert live entries at odd positions to trigger overflows
     for (int i = 0; i < FILL_COUNT; i++) {
@@ -575,10 +581,11 @@ public class BTreeTombstoneGCTest {
 
   @Test
   public void testGetNullIndexSnapshotByEngineNameReturnsNullForUnknownEngine() {
-    // Verifies the defensive null-return path in getNullIndexSnapshotByEngineName
-    // when the engine name is not registered in indexEngineNameMap.
-    var snapshot = storage.getNullIndexSnapshotByEngineName("nonExistentEngine");
-    assertThat(snapshot)
+    // Verifies both positive and negative paths in getNullIndexSnapshotByEngineName.
+    assertThat(storage.getNullIndexSnapshotByEngineName(ENGINE_NAME))
+        .as("Registered engine name must return a non-null null-index snapshot")
+        .isNotNull();
+    assertThat(storage.getNullIndexSnapshotByEngineName("nonExistentEngine"))
         .as("Unknown engine name must return null for null-index snapshot")
         .isNull();
   }
@@ -838,25 +845,40 @@ public class BTreeTombstoneGCTest {
                 PropertyTypeInternal.LONG},
             2));
     try {
-      // Insert markers at version=1 (below default LWM)
+      // Insert interleaved markers and tombstones (same key prefix so
+      // they co-locate in the same B-tree buckets). Markers at positions
+      // i*3, tombstones at positions i*3+1. Version=1 (below default LWM).
       for (int i = 0; i < FILL_COUNT; i++) {
-        final var key = new CompositeKey(
-            "key" + String.format("%06d", i * 2), 1L);
-        final var value = new SnapshotMarkerRID(new RecordId(1, i));
+        final var mKey = new CompositeKey(
+            "key" + String.format("%06d", i * 3), 1L);
+        final var mVal = new SnapshotMarkerRID(new RecordId(1, i));
         atomicOperationsManager.executeInsideAtomicOperation(
-            op -> unregisteredTree.put(op, key, value));
+            op -> unregisteredTree.put(op, mKey, mVal));
+
+        final var tKey = new CompositeKey(
+            "key" + String.format("%06d", i * 3 + 1), 1L);
+        final var tVal = new TombstoneRID(new RecordId(3, i));
+        atomicOperationsManager.executeInsideAtomicOperation(
+            op -> unregisteredTree.put(op, tKey, tVal));
       }
 
       long markersBefore = countEntriesOfType(
           unregisteredTree, SnapshotMarkerRID.class);
       assertThat(markersBefore)
-          .as("Markers should exist before live entry inserts")
-          .isGreaterThan(0);
+          .as("Enough markers should survive insertion-phase GC")
+          .isGreaterThan(5);
 
-      // Insert live entries to trigger overflow + GC
+      long tombstonesBefore = countEntriesOfType(
+          unregisteredTree, TombstoneRID.class);
+      assertThat(tombstonesBefore)
+          .as("Enough tombstones should survive insertion-phase GC")
+          .isGreaterThan(5);
+
+      // Insert live entries at interleaved positions (i*3+2) to trigger
+      // overflow + GC. These share buckets with markers and tombstones.
       for (int i = 0; i < FILL_COUNT; i++) {
         final var key = new CompositeKey(
-            "key" + String.format("%06d", i * 2 + 1), 100L);
+            "key" + String.format("%06d", i * 3 + 2), 100L);
         final var value = new RecordId(2, i);
         atomicOperationsManager.executeInsideAtomicOperation(
             op -> unregisteredTree.put(op, key, value));
@@ -868,6 +890,13 @@ public class BTreeTombstoneGCTest {
           unregisteredTree, SnapshotMarkerRID.class))
           .as("All markers must be preserved when engineId is not set")
           .isEqualTo(markersBefore);
+
+      // Tombstones must still be GC'd even without engineId —
+      // tombstone removal bypasses the snapshot check entirely
+      assertThat(countEntriesOfType(
+          unregisteredTree, TombstoneRID.class))
+          .as("Tombstones must be removed regardless of engineId")
+          .isLessThan(tombstonesBefore / 2);
     } finally {
       atomicOperationsManager.executeInsideAtomicOperation(
           op -> unregisteredTree.delete(op));
@@ -971,6 +1000,94 @@ public class BTreeTombstoneGCTest {
     } finally {
       BTreeGCTestSupport.unpinLwm(storage, holder);
     }
+  }
+
+  // ---- All-tombstone bucket GC ----
+
+  @Test
+  public void testAllTombstoneBucketIsFullyClearedByGC() throws Exception {
+    // When a leaf bucket contains ONLY tombstones below LWM,
+    // filterAndRebuildBucket removes all entries, calls clear(), then
+    // addAll(survivors) with an empty list. The subsequent addLeafEntry
+    // must succeed on the empty bucket. This exercises the extreme case
+    // where the survivor list is empty after GC.
+    for (int i = 0; i < FILL_COUNT; i++) {
+      final var key = new CompositeKey(
+          "key" + String.format("%06d", i), 1L);
+      final var value = new TombstoneRID(new RecordId(1, i));
+      atomicOperationsManager.executeInsideAtomicOperation(
+          op -> bTree.put(op, key, value));
+    }
+
+    // Insert a single live entry into the middle of the key range
+    // to trigger GC on a bucket full of tombstones
+    final var liveKey = new CompositeKey("key000100", 100L);
+    final var liveVal = new RecordId(2, 100);
+    atomicOperationsManager.executeInsideAtomicOperation(
+        op -> bTree.put(op, liveKey, liveVal));
+
+    // Verify the live entry exists
+    final RID[] result = {null};
+    atomicOperationsManager.executeInsideAtomicOperation(
+        op -> result[0] = bTree.get(liveKey, op));
+    assertThat(result[0])
+        .as("Live entry must be findable after all-tombstone GC")
+        .isNotNull()
+        .isInstanceOf(RecordId.class)
+        .isNotInstanceOf(TombstoneRID.class);
+
+    // Tree size must be consistent
+    long[] reportedSize = {0};
+    atomicOperationsManager.executeInsideAtomicOperation(
+        op -> reportedSize[0] = bTree.size(op));
+    assertThat(reportedSize[0])
+        .as("Reported tree size must match actual count after "
+            + "all-tombstone GC")
+        .isEqualTo(countAllEntries());
+  }
+
+  // ---- Snapshot entry boundary tests ----
+
+  @Test
+  public void testHasActiveSnapshotEntriesReturnsTrueForEntryAtExactLwm() {
+    // Register a snapshot entry at version exactly == LWM. The subMap
+    // query uses inclusive bounds, so an entry at exactly LWM must be
+    // detected.
+    var snapshot = storage.getIndexSnapshotByEngineName(ENGINE_NAME);
+    assertThat(snapshot).isNotNull();
+    final long lwm = 50L;
+    var userKeyPrefix = new CompositeKey("testKey");
+    snapshot.addSnapshotPair(
+        new CompositeKey(userKeyPrefix, 1L),
+        new CompositeKey(userKeyPrefix, lwm),
+        new RecordId(1, 1));
+
+    var result = storage.hasActiveIndexSnapshotEntries(
+        ENGINE_NAME, userKeyPrefix, lwm);
+    assertThat(result)
+        .as("Snapshot entry at exactly LWM should be detected (inclusive)")
+        .isTrue();
+  }
+
+  @Test
+  public void testHasActiveSnapshotEntriesReturnsFalseWhenAllBelowLwm() {
+    // Register a snapshot entry at version below LWM. The subMap query
+    // range starts at LWM (inclusive), so an entry at version < LWM
+    // must not be detected.
+    var snapshot = storage.getIndexSnapshotByEngineName(ENGINE_NAME);
+    assertThat(snapshot).isNotNull();
+    final long lwm = 50L;
+    var userKeyPrefix = new CompositeKey("testKey");
+    snapshot.addSnapshotPair(
+        new CompositeKey(userKeyPrefix, 1L),
+        new CompositeKey(userKeyPrefix, 49L),
+        new RecordId(1, 1));
+
+    var result = storage.hasActiveIndexSnapshotEntries(
+        ENGINE_NAME, userKeyPrefix, lwm);
+    assertThat(result)
+        .as("Snapshot entry below LWM should not be detected")
+        .isFalse();
   }
 
   // ---- Helpers (overloads for arbitrary trees) ----

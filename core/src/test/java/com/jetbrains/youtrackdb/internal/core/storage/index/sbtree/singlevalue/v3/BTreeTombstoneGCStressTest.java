@@ -577,7 +577,8 @@ public class BTreeTombstoneGCStressTest {
                     + "GC (reader thread %d, round %d)",
                     pos, threadId, round)
                 .isNotNull()
-                .isInstanceOf(RecordId.class);
+                .isInstanceOf(RecordId.class)
+                .isNotInstanceOf(TombstoneRID.class);
             assertThat(result[0].getCollectionId())
                 .as("Live entry pos=%d must have collectionId=2 "
                     + "(reader thread %d, round %d)",
