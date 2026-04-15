@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.MetricsRegistry;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Ratio;
@@ -93,16 +94,26 @@ public class EdgeTraversal {
   static final double DEFAULT_LOAD_TO_SCAN_RATIO = 100.0;
 
   /**
-   * Estimated nanoseconds for a random record load from cold SSD storage.
-   * Hardware physical constant — not a tuning knob.
+   * Returns the estimated nanoseconds for a random record load from cold
+   * SSD storage, reading from {@link GlobalConfiguration}. Override via
+   * {@code youtrackdb.query.prefilter.coldLoadNanos} to match actual
+   * hardware.
    */
-  static final double COLD_LOAD_NANOS = 100_000.0;
+  static double coldLoadNanos() {
+    return GlobalConfiguration.QUERY_PREFILTER_COLD_LOAD_NANOS
+        .getValueAsDouble();
+  }
 
   /**
-   * Estimated nanoseconds for a record load from warm page cache.
-   * Hardware physical constant — not a tuning knob.
+   * Returns the estimated nanoseconds for a record load from warm page
+   * cache, reading from {@link GlobalConfiguration}. Override via
+   * {@code youtrackdb.query.prefilter.warmLoadNanos} to match actual
+   * hardware.
    */
-  static final double WARM_LOAD_NANOS = 500.0;
+  static double warmLoadNanos() {
+    return GlobalConfiguration.QUERY_PREFILTER_WARM_LOAD_NANOS
+        .getValueAsDouble();
+  }
 
   /** Minimum clamp for live cost ratio — prevents unreasonably low values. */
   static final double MIN_LOAD_TO_SCAN_RATIO = 5.0;
@@ -491,14 +502,11 @@ public class EdgeTraversal {
     }
 
     // 4. Descriptor-specific selectivity check against estimate.
-    //    For IndexLookup (standalone or inside Composite): handled together
-    //    with the build amortization guard below (step 4c) to avoid
-    //    redundant estimateSelectivity() calls — the selectivity is cached
-    //    once and reused for both the threshold check and the amortization
-    //    formula.
-    //    For EdgeRidLookup: per-vertex overlap ratio (DON'T cache null —
+    //    IndexLookup path (standalone or inside Composite) is extracted
+    //    into checkIndexLookupAmortization() to keep this method readable.
+    //    EdgeRidLookup: per-vertex overlap ratio (DON'T cache null —
     //    a later vertex with a larger link bag may benefit).
-    //    For DirectRid: always passes (never reaches this branch in
+    //    DirectRid: always passes (never reaches this branch in
     //    practice since estimatedSize is 1).
     RidFilterDescriptor.IndexLookup indexLookup = null;
     if (desc instanceof RidFilterDescriptor.IndexLookup il) {
@@ -508,44 +516,12 @@ public class EdgeTraversal {
     }
 
     if (indexLookup != null) {
-      // 4a. Cache selectivity on first call — class-level, constant per query.
-      if (Double.isNaN(indexLookupSelectivity)) {
-        indexLookupSelectivity =
-            indexLookup.indexDescriptor().estimateSelectivity(ctx);
+      var amortizationResult = checkIndexLookupAmortization(
+          indexLookup, estimatedSize, linkBagSize, key, ctx);
+      if (amortizationResult != null) {
+        return amortizationResult.ridSet;
       }
-      // 4b. Selectivity threshold check (replaces passesSelectivityCheck
-      //     for IndexLookup to reuse the cached value).
-      if (estimatedSize >= 0
-          && indexLookupSelectivity >= 0
-          && indexLookupSelectivity
-              > TraversalPreFilterHelper.indexLookupMaxSelectivity()) {
-        // Class-level selectivity too high — cache null permanently.
-        lastSkipReason = PreFilterSkipReason.SELECTIVITY_TOO_LOW;
-        preFilterSkippedCount++;
-        if (key != null && cache.size() < CACHE_CAPACITY) {
-          cache.put(key, null);
-        }
-        return null;
-      }
-      // 4c. Build amortization guard: accumulate link bag sizes across
-      //     vertices and defer materialization until the total justifies
-      //     the build cost.
-      if (indexLookupSelectivity >= 0) {
-        accumulatedLinkBagTotal += linkBagSize;
-        double minNeighbors = computeMinNeighborsForBuild(
-            estimatedSize, resolveLoadToScanRatio(),
-            indexLookupSelectivity);
-        if (accumulatedLinkBagTotal < (long) Math.ceil(minNeighbors)) {
-          // Threshold not yet met — return null WITHOUT caching.
-          // A later vertex may push the accumulated total over.
-          lastSkipReason = PreFilterSkipReason.BUILD_NOT_AMORTIZED;
-          preFilterSkippedCount++;
-          assert key == null || !cache.containsKey(key)
-              : "deferred build must not cache null";
-          return null;
-        }
-      }
-      // Threshold met (or unknown selectivity) — fall through to materialize.
+      // amortizationResult == null means fall through to materialize.
     } else if (estimatedSize >= 0
         && !desc.passesSelectivityCheck(estimatedSize, linkBagSize, ctx)) {
       // EdgeRidLookup / DirectRid: delegate to the descriptor.
@@ -561,6 +537,9 @@ public class EdgeTraversal {
     var ridSet = desc.resolve(ctx, key);
     preFilterBuildTimeNanos += System.nanoTime() - buildStart;
     if (ridSet != null) {
+      // Set once: an empty RidSet (size==0) does not "claim" the slot,
+      // so the next non-empty materialization overwrites it.  This is
+      // intentional — reporting ridSetSize=0 in PROFILE is meaningless.
       if (preFilterRidSetSize == 0) {
         preFilterRidSetSize = ridSet.size();
       }
@@ -570,6 +549,79 @@ public class EdgeTraversal {
       cache.put(key, ridSet);
     }
     return ridSet;
+  }
+
+  /**
+   * Result of the IndexLookup amortization check. A non-null return from
+   * {@link #checkIndexLookupAmortization} means the caller should return
+   * early (either with the {@code ridSet} field, which may be {@code null}
+   * to signal a rejection).
+   */
+  private record AmortizationResult(@Nullable RidSet ridSet) {
+  }
+
+  /** Sentinel: selectivity too high — cache null permanently. */
+  private static final AmortizationResult REJECT =
+      new AmortizationResult(null);
+
+  /** Sentinel: build not yet amortized — return null without caching. */
+  private static final AmortizationResult DEFER =
+      new AmortizationResult(null);
+
+  /**
+   * Checks IndexLookup selectivity threshold and build amortization guard.
+   * Returns:
+   * <ul>
+   *   <li>{@code non-null AmortizationResult} — caller should return
+   *       early with {@code result.ridSet} (may be null for rejections)
+   *   </li>
+   *   <li>{@code null} — threshold met or unknown selectivity; caller
+   *       should fall through to materialize</li>
+   * </ul>
+   */
+  @Nullable private AmortizationResult checkIndexLookupAmortization(
+      RidFilterDescriptor.IndexLookup indexLookup,
+      int estimatedSize, int linkBagSize,
+      @Nullable Object key, CommandContext ctx) {
+    // Cache selectivity on first call — class-level, constant per query.
+    if (Double.isNaN(indexLookupSelectivity)) {
+      indexLookupSelectivity =
+          indexLookup.indexDescriptor().estimateSelectivity(ctx);
+    }
+    // Selectivity threshold check (replaces passesSelectivityCheck
+    // for IndexLookup to reuse the cached value).
+    if (estimatedSize >= 0
+        && indexLookupSelectivity >= 0
+        && indexLookupSelectivity
+            > TraversalPreFilterHelper.indexLookupMaxSelectivity()) {
+      // Class-level selectivity too high — cache null permanently.
+      lastSkipReason = PreFilterSkipReason.SELECTIVITY_TOO_LOW;
+      preFilterSkippedCount++;
+      if (key != null && cache != null && cache.size() < CACHE_CAPACITY) {
+        cache.put(key, null);
+      }
+      return REJECT;
+    }
+    // Build amortization guard: accumulate link bag sizes across
+    // vertices and defer materialization until the total justifies
+    // the build cost.
+    if (indexLookupSelectivity >= 0) {
+      accumulatedLinkBagTotal += linkBagSize;
+      double minNeighbors = computeMinNeighborsForBuild(
+          estimatedSize, resolveLoadToScanRatio(),
+          indexLookupSelectivity);
+      if (accumulatedLinkBagTotal < (long) Math.ceil(minNeighbors)) {
+        // Threshold not yet met — return null WITHOUT caching.
+        // A later vertex may push the accumulated total over.
+        lastSkipReason = PreFilterSkipReason.BUILD_NOT_AMORTIZED;
+        preFilterSkippedCount++;
+        assert key == null || cache == null || !cache.containsKey(key)
+            : "deferred build must not cache null";
+        return DEFER;
+      }
+    }
+    // Threshold met (or unknown selectivity) — caller should materialize.
+    return null;
   }
 
   /**
@@ -625,8 +677,8 @@ public class EdgeTraversal {
    *   <li>Average scan cost per entry:
    *       {@code avgScanNanosPerEntry = scanNanosRate / scanEntriesRate}</li>
    *   <li>Estimated load cost (weighted by cache hit rate):
-   *       {@code (1 - cacheHitPct/100) * COLD_LOAD_NANOS
-   *              + (cacheHitPct/100) * WARM_LOAD_NANOS}</li>
+   *       {@code (1 - cacheHitPct/100) * coldLoadNanos
+   *              + (cacheHitPct/100) * warmLoadNanos}</li>
    *   <li>Ratio: {@code estimatedLoadNanos / avgScanNanosPerEntry},
    *       clamped to [{@link #MIN_LOAD_TO_SCAN_RATIO},
    *       {@link #MAX_LOAD_TO_SCAN_RATIO}]</li>
@@ -641,11 +693,14 @@ public class EdgeTraversal {
    * @param scanNanosRate    cumulative scan nanoseconds per second
    * @param scanEntriesRate  cumulative entries scanned per second
    * @param cacheHitPct      disk cache hit ratio in percents (0–100)
+   * @param coldLoadNanos    estimated nanos per cold SSD load
+   * @param warmLoadNanos    estimated nanos per warm cache load
    * @return the cost ratio, clamped to [MIN, MAX], or the default
    *     fallback if data is insufficient
    */
   static double computeLiveCostRatio(
-      double scanNanosRate, double scanEntriesRate, double cacheHitPct) {
+      double scanNanosRate, double scanEntriesRate, double cacheHitPct,
+      double coldLoadNanos, double warmLoadNanos) {
     // NaN inputs bypass the <= 0 guard (NaN comparisons are always false)
     // but are caught by the !isFinite guards below.
     if (scanNanosRate <= 0 || scanEntriesRate <= 0) {
@@ -663,7 +718,7 @@ public class EdgeTraversal {
     }
     double hitFraction = Math.max(0, Math.min(1.0, cacheHitPct / 100.0));
     double estimatedLoadNanos =
-        (1.0 - hitFraction) * COLD_LOAD_NANOS + hitFraction * WARM_LOAD_NANOS;
+        (1.0 - hitFraction) * coldLoadNanos + hitFraction * warmLoadNanos;
     double ratio = estimatedLoadNanos / avgScanNanosPerEntry;
     if (!Double.isFinite(ratio)) {
       return DEFAULT_LOAD_TO_SCAN_RATIO;
@@ -704,7 +759,8 @@ public class EdgeTraversal {
     cachedLiveRatio = computeLiveCostRatio(
         cachedScanNanos.getRate(),
         cachedScanEntries.getRate(),
-        cachedCacheHitRatio.getRatio());
+        cachedCacheHitRatio.getRatio(),
+        coldLoadNanos(), warmLoadNanos());
     return cachedLiveRatio;
   }
 
