@@ -212,6 +212,10 @@ public class BTreeTombstoneGCDurabilityTest {
               .isTrue();
           assertThat(lookupResult.next().<String>getProperty("value"))
               .isEqualTo(val);
+          assertThat(lookupResult.hasNext())
+              .as("Index lookup must return exactly one result for "
+                  + "surviving value '%s'", val)
+              .isFalse();
         }
       }
 
@@ -224,6 +228,10 @@ public class BTreeTombstoneGCDurabilityTest {
               .isTrue();
           assertThat(lookupResult.next().<String>getProperty("value"))
               .isEqualTo(val);
+          assertThat(lookupResult.hasNext())
+              .as("Index lookup must return exactly one result for "
+                  + "new value '%s'", val)
+              .isFalse();
         }
       }
 

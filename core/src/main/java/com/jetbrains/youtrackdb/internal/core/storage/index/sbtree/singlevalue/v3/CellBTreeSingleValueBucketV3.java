@@ -494,6 +494,9 @@ public final class CellBTreeSingleValueBucketV3<K> extends DurablePage {
       final BinarySerializer<K> keySerializer,
       final BinarySerializerFactory serializerFactory) {
     assert isLeaf();
+    assert entryIndex >= 0 && entryIndex < size()
+        : "classifyValueType index out of bounds: " + entryIndex
+            + ", size=" + size();
     var entryPosition = getPointer(entryIndex);
     entryPosition +=
         getObjectSizeInDirectMemory(keySerializer, serializerFactory, entryPosition);
@@ -527,11 +530,18 @@ public final class CellBTreeSingleValueBucketV3<K> extends DurablePage {
       final BinarySerializer<K> keySerializer,
       final BinarySerializerFactory serializerFactory) {
     assert isLeaf();
+    assert entryIndex >= 0 && entryIndex < size()
+        : "demoteSnapshotMarkerValue index out of bounds: " + entryIndex
+            + ", size=" + size();
     var entryPosition = getPointer(entryIndex);
     entryPosition +=
         getObjectSizeInDirectMemory(keySerializer, serializerFactory, entryPosition);
     final int posOffset = entryPosition + ShortSerializer.SHORT_SIZE;
     final long encodedPosition = getLongValue(posOffset);
+    assert encodedPosition < 0
+        : "demoteSnapshotMarkerValue called on non-marker entry:"
+            + " encodedPosition=" + encodedPosition
+            + " at index " + entryIndex;
     final long realPosition = -(encodedPosition + 1);
     assert realPosition >= 0
         : "Demoted position must be non-negative, got " + realPosition;

@@ -135,7 +135,7 @@ public class BTreeTombstoneGCStressTest {
   /**
    * Multiple threads concurrently insert live entries and tombstones into
    * the same B-tree. All threads share a common key prefix with non-overlapping
-   * version ranges, so entries from different threads co-locate in the same
+   * key-position ranges, so entries from different threads co-locate in the same
    * B-tree buckets. Bucket overflows trigger GC attempts that filter tombstones
    * from any thread's entries, testing cross-thread GC correctness.
    *
@@ -557,7 +557,10 @@ public class BTreeTombstoneGCStressTest {
           }
 
           for (int round = 0; round < OPS_PER_THREAD; round++) {
-            // Pick a known live entry (position where i % 3 != 0)
+            // Pick a known live entry (position where i % 3 != 0).
+            // 133 * 3 + 1 = 400 = prePopCount, so all computed positions
+            // fall within the pre-populated range. The *3 + 1 offset
+            // skips tombstone positions (i % 3 == 0).
             int pos = (round % 133) * 3 + 1;
             final var key = new CompositeKey(
                 "key" + String.format("%06d", pos), 100L);
@@ -575,6 +578,16 @@ public class BTreeTombstoneGCStressTest {
                     pos, threadId, round)
                 .isNotNull()
                 .isInstanceOf(RecordId.class);
+            assertThat(result[0].getCollectionId())
+                .as("Live entry pos=%d must have collectionId=2 "
+                    + "(reader thread %d, round %d)",
+                    pos, threadId, round)
+                .isEqualTo(2);
+            assertThat(result[0].getCollectionPosition())
+                .as("Live entry pos=%d must have collectionPosition=%d "
+                    + "(reader thread %d, round %d)",
+                    pos, pos, threadId, round)
+                .isEqualTo(pos);
           }
         }));
       }

@@ -211,6 +211,28 @@ public class BTreeTombstoneGCTest {
     assertThat(countEntriesOfType(RecordId.class))
         .as("All live entries must survive GC")
         .isEqualTo(FILL_COUNT);
+
+    // Spot-check that live entries retain their original RID identity
+    for (int i = 0; i < 10; i++) {
+      final var key = new CompositeKey(
+          "key" + String.format("%06d", i * 2 + 1), 100L);
+      final RID[] result = {null};
+      atomicOperationsManager.executeInsideAtomicOperation(
+          atomicOperation -> result[0] = bTree.get(key, atomicOperation));
+      assertThat(result[0])
+          .as("Live entry at odd position %d must exist", i * 2 + 1)
+          .isNotNull()
+          .isInstanceOf(RecordId.class)
+          .isNotInstanceOf(TombstoneRID.class);
+      assertThat(result[0].getCollectionId())
+          .as("Live entry at odd position %d must have collectionId=2",
+              i * 2 + 1)
+          .isEqualTo(2);
+      assertThat(result[0].getCollectionPosition())
+          .as("Live entry at odd position %d must have "
+              + "collectionPosition=%d", i * 2 + 1, i)
+          .isEqualTo(i);
+    }
   }
 
   @Test
@@ -643,6 +665,28 @@ public class BTreeTombstoneGCTest {
     assertThat(reportedSize[0])
         .as("Reported tree size must match actual count after mixed GC")
         .isEqualTo(countAllEntries());
+
+    // Spot-check that original live entries survive with correct identity
+    for (int i = 0; i < Math.min(5, count); i++) {
+      int base = i * 6;
+      final var lKey = new CompositeKey(
+          "key" + String.format("%06d", base + 4), 3L);
+      final RID[] result = {null};
+      atomicOperationsManager.executeInsideAtomicOperation(
+          op -> result[0] = bTree.get(lKey, op));
+      assertThat(result[0])
+          .as("Live entry at base+4 position %d must survive", base + 4)
+          .isNotNull()
+          .isInstanceOf(RecordId.class)
+          .isNotInstanceOf(TombstoneRID.class);
+      assertThat(result[0].getCollectionId())
+          .as("Live entry at base+4 must retain collectionId=1")
+          .isEqualTo(1);
+      assertThat(result[0].getCollectionPosition())
+          .as("Live entry at base+4 must retain position=%d",
+              i + 2 * count)
+          .isEqualTo(i + 2 * count);
+    }
   }
 
   // ---- Sort order preservation ----
@@ -686,6 +730,271 @@ public class BTreeTombstoneGCTest {
         }
       }
     });
+  }
+
+  // ---- Null-tree GC path ----
+
+  @Test
+  public void testNullTreeGCQueriesNullSnapshotMap() throws Exception {
+    // BTreeMultiValueIndexEngine creates a nullTree with name ending in
+    // "$null". GC must query sharedNullIndexesSnapshot (not the regular
+    // sharedIndexesSnapshot) for demotion decisions. This test verifies
+    // that markers on a null tree are preserved when the null snapshot
+    // map has active entries — proving isNullTree routes correctly.
+    var nullEngineName =
+        ENGINE_NAME + AbstractStorage.NULL_TREE_SUFFIX;
+    var nullTree =
+        new BTree<CompositeKey>(nullEngineName, ".cbt", ".nbt", storage);
+    nullTree.setEngineId(STUB_ENGINE_ID);
+    atomicOperationsManager.executeInsideAtomicOperation(
+        op -> nullTree.create(
+            op,
+            new IndexMultiValuKeySerializer(),
+            new PropertyTypeInternal[] {
+                PropertyTypeInternal.STRING,
+                PropertyTypeInternal.LONG},
+            2));
+    try {
+      // Add snapshot entries to the NULL snapshot map. The stub engine
+      // is registered under ENGINE_NAME (without $null suffix).
+      var nullSnapshot =
+          storage.getNullIndexSnapshotByEngineName(ENGINE_NAME);
+      assertThat(nullSnapshot)
+          .as("Null snapshot for registered engine must exist")
+          .isNotNull();
+
+      var holder = BTreeGCTestSupport.pinLwm(storage, 5L);
+      try {
+        for (int i = 0; i < FILL_COUNT; i++) {
+          var userKeyPrefix = new CompositeKey(
+              "key" + String.format("%06d", i * 2));
+          nullSnapshot.addSnapshotPair(
+              new CompositeKey(userKeyPrefix, 1L),
+              new CompositeKey(userKeyPrefix, 50L),
+              new RecordId(1, i));
+        }
+
+        // Insert markers at version=1 (below LWM=5)
+        for (int i = 0; i < FILL_COUNT; i++) {
+          final var key = new CompositeKey(
+              "key" + String.format("%06d", i * 2), 1L);
+          final var value = new SnapshotMarkerRID(new RecordId(1, i));
+          atomicOperationsManager.executeInsideAtomicOperation(
+              op -> nullTree.put(op, key, value));
+        }
+
+        // Insert live entries to trigger overflow + GC
+        for (int i = 0; i < FILL_COUNT; i++) {
+          final var key = new CompositeKey(
+              "key" + String.format("%06d", i * 2 + 1), 100L);
+          final var value = new RecordId(2, i);
+          atomicOperationsManager.executeInsideAtomicOperation(
+              op -> nullTree.put(op, key, value));
+        }
+
+        // Markers should be preserved: GC queries the null snapshot map
+        // where active entries exist (version 50 >= LWM 5).
+        long[] markerCount = {0};
+        atomicOperationsManager.executeInsideAtomicOperation(op -> {
+          var firstKey = nullTree.firstKey(op);
+          var lastKey = nullTree.lastKey(op);
+          try (var stream = nullTree.iterateEntriesBetween(
+              firstKey, true, lastKey, true, true, op)) {
+            markerCount[0] = stream
+                .filter(p -> p.second() instanceof SnapshotMarkerRID)
+                .count();
+          }
+        });
+        assertThat(markerCount[0])
+            .as("Markers on null tree must be preserved when null "
+                + "snapshot map has active entries")
+            .isEqualTo(FILL_COUNT);
+      } finally {
+        nullSnapshot.clear();
+        BTreeGCTestSupport.unpinLwm(storage, holder);
+      }
+    } finally {
+      atomicOperationsManager.executeInsideAtomicOperation(
+          op -> nullTree.delete(op));
+    }
+  }
+
+  // ---- engineId fallback ----
+
+  @Test
+  public void testMarkersNotDemotedWhenEngineIdNotSet() throws Exception {
+    // When engineId is not set (-1), hasActiveSnapshotEntries
+    // conservatively returns true, preventing marker demotion.
+    // Tombstones should still be removed (they bypass snapshot checks).
+    var unregisteredTree = new BTree<CompositeKey>(
+        "unregisteredTree", ".cbt", ".nbt", storage);
+    // Deliberately do NOT call setEngineId — default is -1
+    atomicOperationsManager.executeInsideAtomicOperation(
+        op -> unregisteredTree.create(
+            op,
+            new IndexMultiValuKeySerializer(),
+            new PropertyTypeInternal[] {
+                PropertyTypeInternal.STRING,
+                PropertyTypeInternal.LONG},
+            2));
+    try {
+      // Insert markers at version=1 (below default LWM)
+      for (int i = 0; i < FILL_COUNT; i++) {
+        final var key = new CompositeKey(
+            "key" + String.format("%06d", i * 2), 1L);
+        final var value = new SnapshotMarkerRID(new RecordId(1, i));
+        atomicOperationsManager.executeInsideAtomicOperation(
+            op -> unregisteredTree.put(op, key, value));
+      }
+
+      long markersBefore = countEntriesOfType(
+          unregisteredTree, SnapshotMarkerRID.class);
+      assertThat(markersBefore)
+          .as("Markers should exist before live entry inserts")
+          .isGreaterThan(0);
+
+      // Insert live entries to trigger overflow + GC
+      for (int i = 0; i < FILL_COUNT; i++) {
+        final var key = new CompositeKey(
+            "key" + String.format("%06d", i * 2 + 1), 100L);
+        final var value = new RecordId(2, i);
+        atomicOperationsManager.executeInsideAtomicOperation(
+            op -> unregisteredTree.put(op, key, value));
+      }
+
+      // With engineId == -1, ALL markers must be preserved
+      // (conservative fallback prevents demotion)
+      assertThat(countEntriesOfType(
+          unregisteredTree, SnapshotMarkerRID.class))
+          .as("All markers must be preserved when engineId is not set")
+          .isEqualTo(markersBefore);
+    } finally {
+      atomicOperationsManager.executeInsideAtomicOperation(
+          op -> unregisteredTree.delete(op));
+    }
+  }
+
+  // ---- SnapshotMarkerRID boundary ----
+
+  @Test
+  public void testSnapshotMarkersAtExactLwmArePreserved() throws Exception {
+    // The GC condition is `version < LWM` (strictly below). Markers whose
+    // version equals exactly the LWM must NOT be demoted — they may still
+    // be needed by a transaction reading at exactly that timestamp.
+    final long lwmValue = 50L;
+    var holder = BTreeGCTestSupport.pinLwm(storage, lwmValue);
+    try {
+      // Insert markers at version == LWM (exactly 50)
+      for (int i = 0; i < FILL_COUNT; i++) {
+        final var key = new CompositeKey(
+            "key" + String.format("%06d", i * 2), lwmValue);
+        final var value = new SnapshotMarkerRID(new RecordId(1, i));
+        atomicOperationsManager.executeInsideAtomicOperation(
+            op -> bTree.put(op, key, value));
+      }
+
+      // Insert live entries at odd positions to trigger overflows
+      for (int i = 0; i < FILL_COUNT; i++) {
+        final var key = new CompositeKey(
+            "key" + String.format("%06d", i * 2 + 1), 200L);
+        final var value = new RecordId(2, i);
+        atomicOperationsManager.executeInsideAtomicOperation(
+            op -> bTree.put(op, key, value));
+      }
+
+      // Markers at exactly LWM must NOT be demoted
+      assertThat(countEntriesOfType(SnapshotMarkerRID.class))
+          .as("Markers at exactly LWM must not be demoted "
+              + "(strict < comparison)")
+          .isEqualTo(FILL_COUNT);
+    } finally {
+      BTreeGCTestSupport.unpinLwm(storage, holder);
+    }
+  }
+
+  // ---- Snapshot entry scoping ----
+
+  @Test
+  public void testSnapshotMarkerDemotedOnlyForKeysWithoutSnapshotEntries()
+      throws Exception {
+    // Snapshot entries exist for keys at indices 50+ but NOT for indices
+    // 0-49. Markers at indices 0-49 should be demoted (no matching
+    // snapshot entries); markers at indices 50+ should be preserved.
+    // This verifies that hasActiveSnapshotEntriesInMap correctly scopes
+    // the subMap query to the specific user-key prefix.
+    var snapshot = storage.getIndexSnapshotByEngineName(ENGINE_NAME);
+    assertThat(snapshot).isNotNull();
+
+    var holder = BTreeGCTestSupport.pinLwm(storage, 5L);
+    try {
+      // Only add snapshot entries for keys at indices 50+
+      for (int i = 50; i < FILL_COUNT; i++) {
+        var userKeyPrefix = new CompositeKey(
+            "key" + String.format("%06d", i * 2));
+        snapshot.addSnapshotPair(
+            new CompositeKey(userKeyPrefix, 1L),
+            new CompositeKey(userKeyPrefix, 50L),
+            new RecordId(1, i));
+      }
+
+      // Insert markers for ALL keys (version=1, below LWM=5)
+      for (int i = 0; i < FILL_COUNT; i++) {
+        final var key = new CompositeKey(
+            "key" + String.format("%06d", i * 2), 1L);
+        final var value = new SnapshotMarkerRID(new RecordId(1, i));
+        atomicOperationsManager.executeInsideAtomicOperation(
+            op -> bTree.put(op, key, value));
+      }
+
+      // Insert live entries to trigger overflow + GC
+      for (int i = 0; i < FILL_COUNT; i++) {
+        final var key = new CompositeKey(
+            "key" + String.format("%06d", i * 2 + 1), 100L);
+        final var value = new RecordId(2, i);
+        atomicOperationsManager.executeInsideAtomicOperation(
+            op -> bTree.put(op, key, value));
+      }
+
+      // Markers at indices 50+ should be preserved (snapshot entries
+      // exist). Markers at indices 0-49 should be demoted (no snapshot
+      // entries) — at least in buckets that overflowed. Overall marker
+      // count should be less than FILL_COUNT (some demoted) but at
+      // least FILL_COUNT - 50 (those with snapshot entries survive).
+      long survivingMarkers =
+          countEntriesOfType(SnapshotMarkerRID.class);
+      assertThat(survivingMarkers)
+          .as("Some markers without snapshot entries should be demoted")
+          .isLessThan((long) FILL_COUNT);
+      assertThat(survivingMarkers)
+          .as("Markers with snapshot entries must be preserved")
+          .isGreaterThanOrEqualTo((long) FILL_COUNT - 50);
+    } finally {
+      BTreeGCTestSupport.unpinLwm(storage, holder);
+    }
+  }
+
+  // ---- Helpers (overloads for arbitrary trees) ----
+
+  /**
+   * Counts entries of a specific RID type in the given tree.
+   */
+  private long countEntriesOfType(
+      BTree<CompositeKey> tree,
+      Class<? extends RID> ridType) throws Exception {
+    long[] count = {0};
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      var firstKey = tree.firstKey(atomicOperation);
+      if (firstKey == null) {
+        return;
+      }
+      var lastKey = tree.lastKey(atomicOperation);
+      try (var stream = tree.iterateEntriesBetween(
+          firstKey, true, lastKey, true, true, atomicOperation)) {
+        count[0] = stream.filter(p -> ridType.isInstance(p.second()))
+            .count();
+      }
+    });
+    return count[0];
   }
 
 }

@@ -2847,6 +2847,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
     // Single pass: classify entries from raw bytes, deserialize keys only
     // for tombstones/markers. LWM is computed lazily on first candidate.
     final int bucketSize = keyBucket.size();
+    assert bucketSize > 0 : "filterAndRebuildBucket called on empty bucket";
     long lwm = -1;
     boolean isNullTree = false;
     IntList tombstoneIndices = null;
