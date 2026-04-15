@@ -77,7 +77,16 @@ public class FileUtilsTest {
   @Test
   public void getSizeAsNumberNullThrows() {
     assertThatThrownBy(() -> FileUtils.getSizeAsNumber(null))
-        .isInstanceOf(IllegalArgumentException.class);
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("Size is null");
+  }
+
+  /** Unrecognized size suffix throws IllegalArgumentException. */
+  @Test
+  public void getSizeAsNumberUnrecognizedSuffixThrows() {
+    assertThatThrownBy(() -> FileUtils.getSizeAsNumber("100X"))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("unrecognizable format");
   }
 
   /** Percentage value is returned as negative. */
@@ -125,25 +134,31 @@ public class FileUtilsTest {
   /** KB range values. */
   @Test
   public void getSizeAsStringKilobytes() {
-    assertThat(FileUtils.getSizeAsString(2048)).startsWith("2.00KB");
+    assertThat(FileUtils.getSizeAsString(2048)).isEqualTo("2.00KB");
   }
 
   /** MB range values. */
   @Test
   public void getSizeAsStringMegabytes() {
-    assertThat(FileUtils.getSizeAsString(5 * 1048576L)).startsWith("5.00MB");
+    assertThat(FileUtils.getSizeAsString(5 * 1048576L)).isEqualTo("5.00MB");
   }
 
   /** GB range values. */
   @Test
   public void getSizeAsStringGigabytes() {
-    assertThat(FileUtils.getSizeAsString(2L * 1073741824)).startsWith("2.00GB");
+    assertThat(FileUtils.getSizeAsString(2L * 1073741824)).isEqualTo("2.00GB");
   }
 
   /** TB range values. */
   @Test
   public void getSizeAsStringTerabytes() {
-    assertThat(FileUtils.getSizeAsString(2L * 1099511627776L)).startsWith("2.00TB");
+    assertThat(FileUtils.getSizeAsString(2L * 1099511627776L)).isEqualTo("2.00TB");
+  }
+
+  /** Exactly KILOBYTE is formatted as bytes, not KB (strict > boundary). */
+  @Test
+  public void getSizeAsStringExactKilobyte() {
+    assertThat(FileUtils.getSizeAsString(1024)).isEqualTo("1024b");
   }
 
   // ---------------------------------------------------------------------------
@@ -196,14 +211,16 @@ public class FileUtilsTest {
   @Test
   public void checkValidNameRejectsSlash() {
     assertThatThrownBy(() -> FileUtils.checkValidName("path/file"))
-        .isInstanceOf(IOException.class);
+        .isInstanceOf(IOException.class)
+        .hasMessageContaining("Invalid file name");
   }
 
   /** Name with backslash throws IOException. */
   @Test
   public void checkValidNameRejectsBackslash() {
     assertThatThrownBy(() -> FileUtils.checkValidName("path\\file"))
-        .isInstanceOf(IOException.class);
+        .isInstanceOf(IOException.class)
+        .hasMessageContaining("Invalid file name");
   }
 
   // ---------------------------------------------------------------------------
@@ -222,10 +239,13 @@ public class FileUtilsTest {
     assertThat(dir).doesNotExist();
   }
 
-  /** deleteRecursively on non-existent file does nothing. */
+  /** deleteRecursively on non-existent file does nothing (no exception, no side effects). */
   @Test
   public void deleteRecursivelyNonExistentIsNoOp() {
-    FileUtils.deleteRecursively(new File("/nonexistent-for-test-" + System.nanoTime()));
+    File nonExistent = new File(tempFolder.getRoot(), "nonexistent-" + System.nanoTime());
+    assertThat(nonExistent).doesNotExist();
+    FileUtils.deleteRecursively(nonExistent);
+    assertThat(nonExistent).doesNotExist();
   }
 
   /** deleteFolderIfEmpty deletes an empty directory. */
@@ -237,13 +257,16 @@ public class FileUtilsTest {
     assertThat(dir).doesNotExist();
   }
 
-  /** deleteFolderIfEmpty keeps a non-empty directory. */
+  /** deleteFolderIfEmpty keeps a non-empty directory and its contents intact. */
   @Test
   public void deleteFolderIfEmptyKeepsNonEmptyDir() throws IOException {
     File dir = tempFolder.newFolder("nonEmpty");
-    Files.writeString(new File(dir, "file.txt").toPath(), "content");
+    File file = new File(dir, "file.txt");
+    Files.writeString(file.toPath(), "content");
     FileUtils.deleteFolderIfEmpty(dir);
     assertThat(dir).exists();
+    assertThat(file).exists();
+    assertThat(Files.readString(file.toPath())).isEqualTo("content");
   }
 
   /** copyFile copies content from source to destination. */
@@ -270,7 +293,8 @@ public class FileUtilsTest {
     File dstDir = new File(tempFolder.getRoot(), "dstDir");
     FileUtils.copyDirectory(srcDir, dstDir);
 
-    assertThat(new File(dstDir, "a.txt")).exists();
+    assertThat(Files.readString(new File(dstDir, "a.txt").toPath())).isEqualTo("aaa");
+    assertThat(new File(dstDir, "sub")).isDirectory();
     assertThat(Files.readString(new File(dstDir, "sub/b.txt").toPath())).isEqualTo("bbb");
   }
 
@@ -304,12 +328,13 @@ public class FileUtilsTest {
     assertThat(result).isTrue();
   }
 
-  /** prepareForFileCreationOrReplacement creates parent directories. */
+  /** prepareForFileCreationOrReplacement creates parent directories but not the file itself. */
   @Test
   public void prepareForFileCreationCreatesParentDirs() throws IOException {
     Path path = tempFolder.getRoot().toPath().resolve("a/b/c/file.txt");
     FileUtils.prepareForFileCreationOrReplacement(path, this, "testing");
     assertThat(path.getParent()).exists();
+    assertThat(path).doesNotExist();
   }
 
   /** prepareForFileCreationOrReplacement deletes existing file. */
