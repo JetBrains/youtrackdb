@@ -589,10 +589,18 @@ public class MatchEdgeTraverser implements ExecutionStream {
         // needs the per-vertex re-check because resolveWithCache used an
         // estimate, but applyPreFilter has the actual ridSet.size().
         if (ridSet != null) {
-          if (edge.getIntersectionDescriptor() instanceof RidFilterDescriptor.IndexLookup
-              || edge.getIntersectionDescriptor()
-                  .passesSelectivityCheck(
-                      ridSet.size(), linkBagSize, ctx)) {
+          // IndexLookup selectivity is class-level (verified once in
+          // resolveWithCache) — skip the redundant per-vertex recheck.
+          // Applies to both standalone IndexLookup and Composite
+          // containing an IndexLookup child.
+          var desc = edge.getIntersectionDescriptor();
+          boolean indexLookupVerified =
+              desc instanceof RidFilterDescriptor.IndexLookup
+                  || (desc instanceof RidFilterDescriptor.Composite c
+                      && c.findIndexLookup() != null);
+          if (indexLookupVerified
+              || desc.passesSelectivityCheck(
+                  ridSet.size(), linkBagSize, ctx)) {
             this.currentPreFilterRids = ridSet;
             edge.recordPreFilterApplied(linkBagSize, ridSet.size());
             // Record effectiveness metric: filtered = (linkBagSize - ridSetSize),

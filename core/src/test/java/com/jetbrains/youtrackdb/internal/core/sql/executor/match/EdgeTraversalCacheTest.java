@@ -2109,12 +2109,23 @@ public class EdgeTraversalCacheTest {
 
   // ---- computeLiveCostRatio tests ----
 
+  /** Default cold/warm nanos for test formulas (matches GlobalConfiguration defaults). */
+  private static final double COLD = 100_000.0;
+  private static final double WARM = 500.0;
+
+  /** Convenience wrapper using default cold/warm nanos. */
+  private static double liveCostRatio(
+      double scanNanosRate, double scanEntriesRate, double cacheHitPct) {
+    return EdgeTraversal.computeLiveCostRatio(
+        scanNanosRate, scanEntriesRate, cacheHitPct, COLD, WARM);
+  }
+
   /**
    * Cold start: both rates are 0 → falls back to DEFAULT_LOAD_TO_SCAN_RATIO.
    */
   @Test
   public void liveCostRatio_coldStart_fallsBackToDefault() {
-    assertThat(EdgeTraversal.computeLiveCostRatio(0, 0, 0))
+    assertThat(liveCostRatio(0, 0, 0))
         .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
   }
 
@@ -2127,7 +2138,7 @@ public class EdgeTraversalCacheTest {
    */
   @Test
   public void liveCostRatio_warmCache_lowRatio() {
-    double ratio = EdgeTraversal.computeLiveCostRatio(
+    double ratio = liveCostRatio(
         1_000_000, 10_000, 95);
     assertThat(ratio).isCloseTo(54.75, Offset.offset(0.01));
   }
@@ -2141,7 +2152,7 @@ public class EdgeTraversalCacheTest {
    */
   @Test
   public void liveCostRatio_coldStorage_highRatio() {
-    double ratio = EdgeTraversal.computeLiveCostRatio(
+    double ratio = liveCostRatio(
         1_000_000, 10_000, 10);
     assertThat(ratio).isCloseTo(900.5, Offset.offset(0.01));
   }
@@ -2151,7 +2162,7 @@ public class EdgeTraversalCacheTest {
    */
   @Test
   public void liveCostRatio_scanNanosOnlyZeroEntries_fallback() {
-    assertThat(EdgeTraversal.computeLiveCostRatio(1000, 0, 50))
+    assertThat(liveCostRatio(1000, 0, 50))
         .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
   }
 
@@ -2160,7 +2171,7 @@ public class EdgeTraversalCacheTest {
    */
   @Test
   public void liveCostRatio_zeroNanosPositiveEntries_fallback() {
-    assertThat(EdgeTraversal.computeLiveCostRatio(0, 1000, 50))
+    assertThat(liveCostRatio(0, 1000, 50))
         .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
   }
 
@@ -2169,7 +2180,7 @@ public class EdgeTraversalCacheTest {
    */
   @Test
   public void liveCostRatio_nanInput_fallback() {
-    assertThat(EdgeTraversal.computeLiveCostRatio(
+    assertThat(liveCostRatio(
         Double.NaN, 1000, 50))
         .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
   }
@@ -2179,7 +2190,7 @@ public class EdgeTraversalCacheTest {
    */
   @Test
   public void liveCostRatio_infinityInput_fallback() {
-    assertThat(EdgeTraversal.computeLiveCostRatio(
+    assertThat(liveCostRatio(
         1000, Double.POSITIVE_INFINITY, 50))
         .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
   }
@@ -2189,9 +2200,9 @@ public class EdgeTraversalCacheTest {
    */
   @Test
   public void liveCostRatio_negativeRates_fallback() {
-    assertThat(EdgeTraversal.computeLiveCostRatio(-100, 1000, 50))
+    assertThat(liveCostRatio(-100, 1000, 50))
         .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
-    assertThat(EdgeTraversal.computeLiveCostRatio(100, -1000, 50))
+    assertThat(liveCostRatio(100, -1000, 50))
         .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
   }
 
@@ -2204,7 +2215,7 @@ public class EdgeTraversalCacheTest {
    */
   @Test
   public void liveCostRatio_clampedToMax() {
-    double ratio = EdgeTraversal.computeLiveCostRatio(10, 10, 0);
+    double ratio = liveCostRatio(10, 10, 0);
     assertThat(ratio).isEqualTo(EdgeTraversal.MAX_LOAD_TO_SCAN_RATIO);
   }
 
@@ -2217,7 +2228,7 @@ public class EdgeTraversalCacheTest {
    */
   @Test
   public void liveCostRatio_clampedToMin() {
-    double ratio = EdgeTraversal.computeLiveCostRatio(
+    double ratio = liveCostRatio(
         100_000_000, 1000, 100);
     assertThat(ratio).isEqualTo(EdgeTraversal.MIN_LOAD_TO_SCAN_RATIO);
   }
@@ -2231,11 +2242,11 @@ public class EdgeTraversalCacheTest {
    */
   @Test
   public void liveCostRatio_cacheHitPctClampedAbove100() {
-    double ratioAt100 = EdgeTraversal.computeLiveCostRatio(
+    double ratioAt100 = liveCostRatio(
         1_000_000, 10_000, 100);
     assertThat(ratioAt100).isEqualTo(EdgeTraversal.MIN_LOAD_TO_SCAN_RATIO);
 
-    double ratioAt200 = EdgeTraversal.computeLiveCostRatio(
+    double ratioAt200 = liveCostRatio(
         1_000_000, 10_000, 200);
     assertThat(ratioAt200).isEqualTo(EdgeTraversal.MIN_LOAD_TO_SCAN_RATIO);
   }
@@ -2246,7 +2257,7 @@ public class EdgeTraversalCacheTest {
    */
   @Test
   public void liveCostRatio_nanCacheHitPct_fallback() {
-    assertThat(EdgeTraversal.computeLiveCostRatio(1_000_000, 10_000, Double.NaN))
+    assertThat(liveCostRatio(1_000_000, 10_000, Double.NaN))
         .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
   }
 
@@ -2258,11 +2269,11 @@ public class EdgeTraversalCacheTest {
    */
   @Test
   public void liveCostRatio_negativeCacheHitPctClampedToZero() {
-    double ratioAt0 = EdgeTraversal.computeLiveCostRatio(
+    double ratioAt0 = liveCostRatio(
         1_000_000, 10_000, 0);
     assertThat(ratioAt0).isEqualTo(EdgeTraversal.MAX_LOAD_TO_SCAN_RATIO);
 
-    double ratioAtNeg = EdgeTraversal.computeLiveCostRatio(
+    double ratioAtNeg = liveCostRatio(
         1_000_000, 10_000, -50);
     assertThat(ratioAtNeg).isEqualTo(EdgeTraversal.MAX_LOAD_TO_SCAN_RATIO);
   }
@@ -2275,10 +2286,10 @@ public class EdgeTraversalCacheTest {
    */
   @Test
   public void liveCostRatio_infinityCacheHitPct_fallback() {
-    assertThat(EdgeTraversal.computeLiveCostRatio(
+    assertThat(liveCostRatio(
         1_000_000, 10_000, Double.POSITIVE_INFINITY))
         .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
-    assertThat(EdgeTraversal.computeLiveCostRatio(
+    assertThat(liveCostRatio(
         1_000_000, 10_000, Double.NEGATIVE_INFINITY))
         .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
   }
@@ -2286,14 +2297,14 @@ public class EdgeTraversalCacheTest {
   /** NaN in scanEntriesRate also falls back to default. */
   @Test
   public void liveCostRatio_nanScanEntries_fallback() {
-    assertThat(EdgeTraversal.computeLiveCostRatio(1000, Double.NaN, 50))
+    assertThat(liveCostRatio(1000, Double.NaN, 50))
         .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
   }
 
   /** POSITIVE_INFINITY in scanNanosRate also falls back to default. */
   @Test
   public void liveCostRatio_infinityScanNanos_fallback() {
-    assertThat(EdgeTraversal.computeLiveCostRatio(
+    assertThat(liveCostRatio(
         Double.POSITIVE_INFINITY, 1000, 50))
         .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
   }
@@ -2301,10 +2312,10 @@ public class EdgeTraversalCacheTest {
   /** NEGATIVE_INFINITY in either rate parameter → fallback. */
   @Test
   public void liveCostRatio_negativeInfinityRates_fallback() {
-    assertThat(EdgeTraversal.computeLiveCostRatio(
+    assertThat(liveCostRatio(
         Double.NEGATIVE_INFINITY, 1000, 50))
         .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
-    assertThat(EdgeTraversal.computeLiveCostRatio(
+    assertThat(liveCostRatio(
         1000, Double.NEGATIVE_INFINITY, 50))
         .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
   }

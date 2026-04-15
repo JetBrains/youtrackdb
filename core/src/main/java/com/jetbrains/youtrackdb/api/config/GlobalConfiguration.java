@@ -1353,6 +1353,24 @@ public enum GlobalConfiguration {
       Double.class,
       -1.0,
       true),
+
+  QUERY_PREFILTER_COLD_LOAD_NANOS(
+      "youtrackdb.query.prefilter.coldLoadNanos",
+      "Estimated nanoseconds for a random record load from cold SSD"
+          + " storage. Used in the live cost ratio formula for build"
+          + " amortization. Override to match actual hardware",
+      Double.class,
+      100_000.0,
+      true),
+
+  QUERY_PREFILTER_WARM_LOAD_NANOS(
+      "youtrackdb.query.prefilter.warmLoadNanos",
+      "Estimated nanoseconds for a record load from warm page cache."
+          + " Used in the live cost ratio formula for build amortization."
+          + " Override to match actual hardware",
+      Double.class,
+      500.0,
+      true),
       ;
 
   static {
@@ -1529,11 +1547,25 @@ public enum GlobalConfiguration {
    * never explicitly set. After calling this, {@link #isChanged()} returns
    * {@code false} and {@link #getValue()} returns the declared default.
    *
+   * <p>Fires the change callback (if any) for consistency with
+   * {@link #setValue(Object)}.
+   *
    * <p>Intended for test teardown only — production code should use
    * {@link #setValue(Object)} instead.
    */
   public void resetToDefault() {
+    var oldValue = value;
     value = nullValue;
+
+    if (changeCallback != null) {
+      try {
+        changeCallback.change(
+            oldValue == nullValue ? null : oldValue, null);
+      } catch (Exception e) {
+        LogManager.instance()
+            .error(this, "Error during call of 'change callback'", e);
+      }
+    }
   }
 
   public void setValue(final Object iValue) {
