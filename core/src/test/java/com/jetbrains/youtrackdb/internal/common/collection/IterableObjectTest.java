@@ -3,8 +3,10 @@ package com.jetbrains.youtrackdb.internal.common.collection;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
+import java.util.ArrayList;
 import java.util.NoSuchElementException;
 import org.junit.Test;
 
@@ -63,7 +65,7 @@ public class IterableObjectTest {
   public void testIteratorReturnsSelf() {
     // iterator() returns the IterableObject itself.
     var iterable = new IterableObject<>("hello");
-    assertTrue(iterable == iterable.iterator());
+    assertSame(iterable, iterable.iterator());
   }
 
   @Test
@@ -140,7 +142,7 @@ public class IterableObjectTest {
     // Should work in a for-each loop via the Iterable contract.
     var array = new String[] {"x", "y"};
     var iterable = new IterableObjectArray<String>(array);
-    var result = new java.util.ArrayList<String>();
+    var result = new ArrayList<String>();
     for (var v : iterable) {
       result.add(v);
     }

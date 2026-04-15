@@ -76,6 +76,16 @@ public class LRUCacheTest {
   }
 
   @Test
+  public void testCapacityOneAlwaysEvicts() {
+    // With cacheSize=1, removeEldestEntry fires when size() >= 1,
+    // so every entry is evicted immediately. Effective capacity is 0.
+    var cache = new LRUCache<String, Integer>(1);
+    cache.put("a", 1);
+    assertFalse(cache.containsKey("a"));
+    assertEquals(0, cache.size());
+  }
+
+  @Test
   public void testSmallCapacityEviction() {
     // With cacheSize=2, removeEldestEntry fires when size() >= 2,
     // so the effective capacity is 1. The second put evicts the first.

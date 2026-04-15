@@ -289,7 +289,7 @@ public class IdentifiableMultiValueTest {
     MultiValue.add(list, "a");
     MultiValue.add(list, "b");
     MultiValue.add(list, "c");
-    Assert.assertEquals(3, list.size());
+    Assert.assertEquals(java.util.Arrays.asList("a", "b", "c"), list);
   }
 
   // --- remove with allOccurrences flag ---
@@ -302,8 +302,55 @@ public class IdentifiableMultiValueTest {
     list.add("a");
     list.add("c");
     MultiValue.remove(list, "a", true);
-    Assert.assertEquals(2, list.size());
-    Assert.assertFalse(list.contains("a"));
+    Assert.assertEquals(java.util.Arrays.asList("b", "c"), list);
+  }
+
+  // --- isEmpty with null and Map ---
+
+  @Test
+  public void testIsEmptyWithNull() {
+    Assert.assertTrue(MultiValue.isEmpty(null));
+  }
+
+  @Test
+  public void testIsEmptyWithEmptyMap() {
+    Assert.assertTrue(MultiValue.isEmpty(new HashMap<>()));
+  }
+
+  @Test
+  public void testIsEmptyWithNonEmptyMap() {
+    var map = new HashMap<String, Object>();
+    map.put("k", "v");
+    Assert.assertFalse(MultiValue.isEmpty(map));
+  }
+
+  // --- getFirstValue / getLastValue with empty arrays ---
+
+  @Test
+  public void testGetFirstValueEmptyArray() {
+    Assert.assertNull(MultiValue.getFirstValue(new String[] {}));
+  }
+
+  @Test
+  public void testGetLastValueEmptyArray() {
+    // getLastValue relies on RuntimeException catch for empty arrays
+    // (ArrayIndexOutOfBoundsException from Array.get with index -1).
+    Assert.assertNull(MultiValue.getLastValue(new String[] {}));
+  }
+
+  // --- add to array ---
+
+  @Test
+  public void testAddSingleValueToArray() {
+    // Adding to an array returns a new, larger array.
+    Object[] base = new Object[] {"a", "b"};
+    Object[] result = (Object[]) MultiValue.add(base, "c");
+    Assert.assertEquals(3, result.length);
+    Assert.assertEquals("a", result[0]);
+    Assert.assertEquals("b", result[1]);
+    Assert.assertEquals("c", result[2]);
+    // Original array is unchanged.
+    Assert.assertEquals(2, base.length);
   }
 
   @Test

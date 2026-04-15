@@ -48,7 +48,7 @@ public class LazyIteratorListWrapperTest {
     wrapper.next(); // "a"
     var result = wrapper.update("A");
     assertNull(result);
-    assertEquals("A", list.get(0));
+    assertEquals(Arrays.asList("A", "b", "c"), list);
   }
 
   @Test
