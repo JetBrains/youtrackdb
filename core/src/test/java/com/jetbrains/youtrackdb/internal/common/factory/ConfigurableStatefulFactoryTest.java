@@ -161,4 +161,12 @@ public class ConfigurableStatefulFactoryTest {
           e.getMessage().contains("FailingImpl"));
     }
   }
+
+  // Verifies that newInstance with an unregistered key and no default
+  // returns null rather than throwing.
+  @Test
+  public void testNewInstanceUnregisteredKeyNoDefaultReturnsNull() {
+    Runnable instance = factory.newInstance("nonexistent");
+    Assert.assertNull(instance);
+  }
 }

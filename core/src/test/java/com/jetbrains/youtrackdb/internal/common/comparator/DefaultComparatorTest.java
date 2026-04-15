@@ -73,9 +73,11 @@ public class DefaultComparatorTest {
   public void testNonComparableUsesFactory() {
     byte[] a = new byte[] {1, 2, 3};
     byte[] b = new byte[] {1, 2, 4};
+    byte[] aCopy = new byte[] {1, 2, 3};
     Assert.assertTrue(comparator.compare(a, b) < 0);
     Assert.assertTrue(comparator.compare(b, a) > 0);
-    Assert.assertEquals(0, comparator.compare(a, a));
+    // Use distinct but equal arrays to exercise the factory path, not identity.
+    Assert.assertEquals(0, comparator.compare(a, aCopy));
   }
 
   // Verifies that non-Comparable objects without a factory mapping throw IllegalStateException.

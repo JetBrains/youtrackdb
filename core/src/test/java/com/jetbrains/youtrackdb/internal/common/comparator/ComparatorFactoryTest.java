@@ -6,7 +6,8 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- * Tests for {@link ComparatorFactory} comparator lookup logic.
+ * Tests for {@link ComparatorFactory} comparator lookup logic. Note: tests temporarily mutate
+ * GlobalConfiguration.MEMORY_USE_UNSAFE; safe only under single-threaded test execution.
  */
 public class ComparatorFactoryTest {
 
