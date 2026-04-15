@@ -10207,6 +10207,18 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertTrue(
         "FilterStep should appear before LET step (push-down), plan:\n" + plan,
         filterIdx < letIdx);
+    // Full push-down: no second FilterStep should exist after LET
+    var postLetFilterIdx = plan.indexOf("FILTER ITEMS WHERE", letIdx);
+    Assert.assertTrue(
+        "Full push-down should NOT produce a post-LET FilterStep, plan:\n" + plan,
+        postLetFilterIdx < 0);
+    // Verify row contents, not just count
+    var names = list.stream()
+        .map(r -> (String) r.getProperty("name"))
+        .collect(Collectors.toSet());
+    Assert.assertEquals(
+        "Should contain exactly {n5, n6, n7, n8, n9}",
+        Set.of("n5", "n6", "n7", "n8", "n9"), names);
     session.commit();
   }
 
@@ -10280,6 +10292,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
     var firstFilterIdx = plan.indexOf("FILTER ITEMS WHERE");
     var letIdx = plan.indexOf("LET (for each record)");
+    Assert.assertTrue("EXPLAIN should contain LET step, plan:\n" + plan,
+        letIdx >= 0);
     var secondFilterIdx = plan.indexOf("FILTER ITEMS WHERE", letIdx);
     Assert.assertTrue("EXPLAIN should contain pre-LET FILTER, plan:\n" + plan,
         firstFilterIdx >= 0 && firstFilterIdx < letIdx);
@@ -10312,6 +10326,10 @@ public class SelectStatementExecutionTest extends DbTestBase {
         + " WHERE val >= 2";
     var list = session.query(query).toList();
     Assert.assertEquals("Should return 3 rows with val >= 2", 3, list.size());
+    var names = list.stream()
+        .map(r -> (String) r.getProperty("name"))
+        .collect(Collectors.toSet());
+    Assert.assertEquals(Set.of("n2", "n3", "n4"), names);
 
     // Verify EXPLAIN: FilterStep should NOT be pushed before LET
     // (SubQueryStep guard prevents it)

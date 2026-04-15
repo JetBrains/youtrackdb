@@ -1745,7 +1745,7 @@ public class SelectExecutionPlanner {
       return;
     }
 
-    // Collect per-record LET variable names (without $ prefix).
+    // Collect per-record LET variable names.
     var letVarNames = new HashSet<String>();
     for (var item : info.perRecordLetClause.getItems()) {
       var name = item.getVarName().getStringValue();
