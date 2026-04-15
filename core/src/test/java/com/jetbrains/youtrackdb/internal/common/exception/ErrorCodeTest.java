@@ -115,11 +115,12 @@ public class ErrorCodeTest {
   @Test
   public void testThrowExceptionNoArgs() {
     // throwException() with no args uses the default description as the message.
+    // Message format: "%06d_%06d - %s" (category.code, errorCode, description).
     try {
       ErrorCode.QUERY_PARSE_ERROR.throwException();
       fail("Expected QueryParsingException");
     } catch (QueryParsingException e) {
-      assertTrue(e.getMessage().contains("query parse error"));
+      assertEquals("000003_000001 - query parse error", e.getMessage());
     }
   }
 
@@ -130,7 +131,7 @@ public class ErrorCodeTest {
       ErrorCode.QUERY_PARSE_ERROR.throwException("custom parse error");
       fail("Expected QueryParsingException");
     } catch (QueryParsingException e) {
-      assertTrue(e.getMessage().contains("custom parse error"));
+      assertEquals("000003_000001 - custom parse error", e.getMessage());
     }
   }
 
@@ -143,7 +144,7 @@ public class ErrorCodeTest {
       fail("Expected QueryParsingException");
     } catch (QueryParsingException e) {
       assertEquals(cause, e.getCause());
-      assertTrue(e.getMessage().contains("query parse error"));
+      assertEquals("000003_000001 - query parse error", e.getMessage());
     }
   }
 
@@ -155,16 +156,23 @@ public class ErrorCodeTest {
       ErrorCode.QUERY_PARSE_ERROR.throwException("bad query", cause);
       fail("Expected QueryParsingException");
     } catch (QueryParsingException e) {
-      assertTrue(e.getMessage().contains("bad query"));
+      assertEquals("000003_000001 - bad query", e.getMessage());
       assertEquals(cause, e.getCause());
     }
   }
 
-  @Test(expected = NullPointerException.class)
+  @Test
   public void testThrowExceptionNpeWhenReflectionFails() {
-    // When newException returns null (reflection failure), throwException
-    // throws NullPointerException because it tries to throw a null reference.
-    ErrorCode.GENERIC_ERROR.throwException();
+    // KNOWN LIMITATION: When newException returns null (reflection failure),
+    // throwException throws NullPointerException from 'throw null'. This is
+    // not intentional error handling — it's a missing null check.
+    try {
+      ErrorCode.GENERIC_ERROR.throwException();
+      fail("Expected NullPointerException from 'throw null'");
+    } catch (NullPointerException e) {
+      // JVM generates a descriptive message for the throw-null NPE.
+      assertNotNull(e);
+    }
   }
 
   // --- ErrorCategory ---
