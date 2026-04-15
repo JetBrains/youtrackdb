@@ -93,6 +93,13 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
    */
   private final boolean edgeTraversal;
 
+  /**
+   * Number of MATCH edges scheduled after this step's target alias.
+   * Used by the cost model to estimate downstream traversal work that
+   * index scan + LIMIT avoids (only K rows go downstream vs all N).
+   */
+  private final int downstreamEdgeCount;
+
   public IndexOrderedEdgeStep(
       CommandContext ctx,
       String sourceAlias,
@@ -109,6 +116,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       @Nullable SQLWhereClause targetFilter,
       @Nullable String targetClassName,
       boolean edgeTraversal,
+      int downstreamEdgeCount,
       boolean profilingEnabled) {
     super(ctx, profilingEnabled);
     this.sourceAlias = sourceAlias;
@@ -125,6 +133,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     this.targetFilter = targetFilter;
     this.targetClassName = targetClassName;
     this.edgeTraversal = edgeTraversal;
+    this.downstreamEdgeCount = downstreamEdgeCount;
   }
 
   @Override
@@ -631,7 +640,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       int linkBagSize, long indexSize,
       @Nullable EquiDepthHistogram histogram) {
     var costs = IndexOrderedCostModel.computeCosts(
-        linkBagSize, indexSize, limit, histogram, orderAsc);
+        linkBagSize, indexSize, limit, histogram, orderAsc,
+        downstreamEdgeCount);
     if (costs == null) {
       return false;
     }
@@ -927,6 +937,6 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
         ctx, sourceAlias, targetAlias, edgeClassName, linkBagFieldName,
         index, orderAsc, edge.copy(), limit, multiSourceMode,
         reverseFieldName, sourceClassName, targetFilter, targetClassName,
-        edgeTraversal, profilingEnabled);
+        edgeTraversal, downstreamEdgeCount, profilingEnabled);
   }
 }
