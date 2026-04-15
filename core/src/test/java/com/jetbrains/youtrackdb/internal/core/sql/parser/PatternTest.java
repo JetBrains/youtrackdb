@@ -767,6 +767,15 @@ public class PatternTest extends ParserTestAbstract {
     assertNotNull("Should have independent part (age > 25)", result.independent());
     assertNotNull(
         "Should have dependent part ($parent conjunct)", result.dependent());
+    // Verify actual content: age > 25 is independent, $parent is dependent
+    var indepStr = result.independent().toString();
+    assertTrue("Independent part should contain 'age > 25': " + indepStr,
+        indepStr.contains("age > 25"));
+    assertFalse("Independent part should not contain '$parent': " + indepStr,
+        indepStr.contains("$parent"));
+    var depStr = result.dependent().toString();
+    assertTrue("Dependent part should contain '$parent': " + depStr,
+        depStr.contains("$parent"));
   }
 
   /**
@@ -822,6 +831,15 @@ public class PatternTest extends ParserTestAbstract {
     assertNotNull("Should return split result due to $parent", result);
     assertNotNull("Should have independent part", result.independent());
     assertNotNull("Should have dependent part", result.dependent());
+    // Verify actual content: age > 25 is independent, $parent is dependent
+    var indepStr = result.independent().toString();
+    assertTrue("Independent part should contain 'age > 25': " + indepStr,
+        indepStr.contains("age > 25"));
+    assertFalse("Independent part should not contain '$parent': " + indepStr,
+        indepStr.contains("$parent"));
+    var depStr = result.dependent().toString();
+    assertTrue("Dependent part should contain '$parent': " + depStr,
+        depStr.contains("$parent"));
   }
 
   /**
@@ -835,6 +853,15 @@ public class PatternTest extends ParserTestAbstract {
     assertNotNull("Should return split result", result);
     assertNotNull("Should have independent part (c > 5)", result.independent());
     assertNotNull("Should have dependent part (OR sub-block)", result.dependent());
+    // Verify actual content: c > 5 is independent, OR block with $x is dependent
+    var indepStr = result.independent().toString();
+    assertTrue("Independent part should contain 'c > 5': " + indepStr,
+        indepStr.contains("c > 5"));
+    assertFalse("Independent part should not contain '$x': " + indepStr,
+        indepStr.contains("$x"));
+    var depStr = result.dependent().toString();
+    assertTrue("Dependent part should contain '$x': " + depStr,
+        depStr.contains("$x"));
   }
 
   // ====== findRidEquality tests ======
