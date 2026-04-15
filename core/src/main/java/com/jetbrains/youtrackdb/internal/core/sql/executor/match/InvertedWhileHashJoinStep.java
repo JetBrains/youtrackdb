@@ -108,6 +108,8 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
 
     // Multi-map: each reachable RID may map to multiple anchors (e.g., a probe
     // vertex can reach several WHILE targets that all satisfy the WHERE filter).
+    // If the total accumulated set exceeds the threshold, fall back to per-row
+    // traversal to prevent OOM on large hierarchies with many anchors.
     var ridToAnchors = new HashMap<RID, List<Result>>();
     reachableRids = new RidSet();
     var maxSize = MatchExecutionPlanner.getHashJoinThreshold();
@@ -127,6 +129,13 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
         reachableRids.add(descendantRid);
         ridToAnchors.computeIfAbsent(descendantRid, k -> new ArrayList<>())
             .add(anchor);
+      }
+      // Guard: if the total accumulated set exceeds the threshold, the
+      // per-anchor BFS bounds are not sufficient — fall back to per-row
+      // traversal to prevent OOM.
+      if (maxSize > 0 && reachableRids.size() >= maxSize) {
+        reachableRids = null;
+        return fallbackToPerRowTraversal(ctx);
       }
     }
 
@@ -351,7 +360,7 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
     return new InvertedWhileHashJoinStep(
         ctx, anchorClass,
         anchorFilter != null ? anchorFilter.copy() : null,
-        edgeLabel, edgeOut, probeAlias, targetAlias, fallbackEdge,
+        edgeLabel, edgeOut, probeAlias, targetAlias, fallbackEdge.copy(),
         profilingEnabled);
   }
 }

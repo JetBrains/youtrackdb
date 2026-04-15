@@ -28,8 +28,8 @@ import org.junit.Test;
  * </pre>
  *
  * <p>The Person class has small cardinality (5 records), well below
- * {@link MatchExecutionPlanner#HASH_JOIN_THRESHOLD}, so eligible patterns will use
- * hash join instead of nested-loop evaluation.
+ * {@link GlobalConfiguration#QUERY_MATCH_HASH_JOIN_THRESHOLD}, so eligible patterns
+ * will use hash join instead of nested-loop evaluation.
  */
 public class HashJoinPlannerIntegrationTest extends DbTestBase {
 

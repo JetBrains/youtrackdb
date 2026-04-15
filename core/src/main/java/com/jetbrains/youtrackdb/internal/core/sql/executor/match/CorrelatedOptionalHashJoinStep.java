@@ -103,6 +103,10 @@ class CorrelatedOptionalHashJoinStep extends AbstractExecutionStep {
     return upstream.map((row, c) -> {
       var correlatedValue = row.getProperty(correlatedAlias);
       var currentCorrelatedRid = InvertedWhileHashJoinStep.extractRid(correlatedValue);
+      if (currentCorrelatedRid == null) {
+        // No correlated vertex → optional semantics: pass row with null target
+        return new MatchResultRow(session, row, targetAlias, null);
+      }
       var entry = neighborCache.computeIfAbsent(
           currentCorrelatedRid, rid -> buildNeighborEntry(row, session));
       var localSet = entry.rids();

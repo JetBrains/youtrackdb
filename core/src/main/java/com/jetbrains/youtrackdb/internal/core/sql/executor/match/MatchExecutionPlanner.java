@@ -367,6 +367,10 @@ public class MatchExecutionPlanner {
   private static final java.util.regex.Pattern RID_PATTERN =
       java.util.regex.Pattern.compile("@rid");
 
+  /** Pattern for validating edge class names as valid identifiers. */
+  private static final java.util.regex.Pattern VALID_EDGE_LABEL =
+      java.util.regex.Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
+
   /**
    * Creates a planner from a pre-built pattern IR. Bypasses SQL AST parsing entirely:
    * {@link #buildPatterns} becomes a no-op because {@code pattern} is already set.
@@ -1347,8 +1351,9 @@ public class MatchExecutionPlanner {
     // Check that no NON-BRANCH edge references a branch intermediate via $matched.
     // If an edge outside the branch depends on an intermediate, moving the branch
     // to the end would break execution (the alias wouldn't be bound).
+    var branchEdgeSet = new HashSet<>(branchEdges);
     for (var scheduled : scheduledEdges) {
-      if (branchEdges.contains(scheduled)) {
+      if (branchEdgeSet.contains(scheduled)) {
         continue;
       }
       var outFilter = aliasFilters.get(scheduled.edge.out.alias);
@@ -3309,7 +3314,7 @@ public class MatchExecutionPlanner {
       // Validate: edge class names must be valid identifiers. Reject anything
       // containing characters that could break SQL string interpolation (e.g.,
       // single quotes from escaped literals in the MATCH parser).
-      if (!label.matches("[A-Za-z_][A-Za-z0-9_]*")) {
+      if (!VALID_EDGE_LABEL.matcher(label).matches()) {
         return null;
       }
       return label;
