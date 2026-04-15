@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.common.util;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
@@ -72,7 +73,7 @@ public class RawPairVariantsTest {
     var triple = new RawTriple<>("a", 1, true);
     assertEquals("a", triple.first());
     assertEquals(Integer.valueOf(1), triple.second());
-    assertEquals(true, triple.third());
+    assertTrue(triple.third());
   }
 
   @Test
@@ -106,9 +107,9 @@ public class RawPairVariantsTest {
   public void testRawPairIntegerBooleanAccessors() {
     var pair = new RawPairIntegerBoolean(5, true);
     assertEquals(5, pair.getFirst());
-    assertEquals(true, pair.getSecond());
+    assertTrue(pair.getSecond());
     assertEquals(5, pair.first);
-    assertEquals(true, pair.second);
+    assertTrue(pair.second);
   }
 
   @Test
@@ -502,8 +503,8 @@ public class RawPairVariantsTest {
   public void testPairIntegerObjectCompareTo() {
     var p1 = new PairIntegerObject<>(1, "a");
     var p2 = new PairIntegerObject<>(2, "b");
-    assertEquals(true, p1.compareTo(p2) < 0);
-    assertEquals(true, p2.compareTo(p1) > 0);
+    assertTrue(p1.compareTo(p2) < 0);
+    assertTrue(p2.compareTo(p1) > 0);
     assertEquals(0, p1.compareTo(new PairIntegerObject<>(1, "c")));
   }
 
@@ -560,8 +561,8 @@ public class RawPairVariantsTest {
   public void testPairLongObjectCompareTo() {
     var p1 = new PairLongObject<>(1L, "a");
     var p2 = new PairLongObject<>(2L, "b");
-    assertEquals(true, p1.compareTo(p2) < 0);
-    assertEquals(true, p2.compareTo(p1) > 0);
+    assertTrue(p1.compareTo(p2) < 0);
+    assertTrue(p2.compareTo(p1) > 0);
     assertEquals(0, p1.compareTo(new PairLongObject<>(1L, "c")));
   }
 

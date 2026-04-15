@@ -3,6 +3,8 @@ package com.jetbrains.youtrackdb.internal.common.util;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
@@ -13,10 +15,11 @@ public class ArrayUtilsTest {
 
   @Test
   public void testCopyOfObjectArraySameSize() {
-    // Copying an Object[] with the same size produces an equal array.
+    // Copying an Object[] with the same size produces an equal but distinct array.
     var source = new String[] {"a", "b", "c"};
     var result = ArrayUtils.copyOf(source, 3);
     assertArrayEquals(source, result);
+    assertNotSame(source, result);
   }
 
   @Test
@@ -95,6 +98,7 @@ public class ArrayUtilsTest {
     var result = ArrayUtils.copyOfRange(source, 0, 2, String[].class);
     assertEquals(2, result.length);
     assertEquals("a", result[0]);
+    assertEquals("b", result[1]);
     assertTrue(result instanceof String[]);
   }
 
@@ -235,5 +239,73 @@ public class ArrayUtilsTest {
   @Test
   public void testHashAllNulls() {
     assertEquals(0, ArrayUtils.hash(new Object[] {null, null}));
+  }
+
+  // --- Boundary: contains(T[], null) ---
+
+  @Test
+  public void testContainsObjectArraySearchingForNullReturnsFalse() {
+    // contains(T[], T) skips null elements, so searching for null always
+    // returns false even when null is present. This documents the limitation.
+    assertFalse(ArrayUtils.contains(new String[] {null, "a", null}, null));
+  }
+
+  // --- Boundary: copyOf with zero-length target ---
+
+  @Test
+  public void testCopyOfObjectArrayZeroSize() {
+    // Copying to size 0 should produce an empty array.
+    var source = new String[] {"a", "b"};
+    var result = ArrayUtils.copyOf(source, 0);
+    assertEquals(0, result.length);
+  }
+
+  @Test
+  public void testCopyOfIntArrayZeroSize() {
+    var source = new int[] {1, 2, 3};
+    var result = ArrayUtils.copyOf(source, 0);
+    assertEquals(0, result.length);
+  }
+
+  // --- Boundary: copyOfRange with empty range (begin == end) ---
+
+  @Test
+  public void testCopyOfRangeObjectArrayEmptyRange() {
+    // begin == end should produce an empty array, not throw.
+    var source = new String[] {"a", "b"};
+    var result = ArrayUtils.copyOfRange(source, 1, 1);
+    assertEquals(0, result.length);
+  }
+
+  @Test
+  public void testCopyOfRangeByteArrayEmptyRange() {
+    var source = new byte[] {1, 2, 3};
+    var result = ArrayUtils.copyOfRange(source, 2, 2);
+    assertEquals(0, result.length);
+  }
+
+  // --- Boundary: copyOfRange with end beyond source length ---
+
+  @Test
+  public void testCopyOfRangeObjectArrayEndBeyondSourceLength() {
+    // When end > source.length, result is padded with nulls.
+    var source = new String[] {"a", "b"};
+    var result = ArrayUtils.copyOfRange(source, 1, 5);
+    assertEquals(4, result.length);
+    assertEquals("b", result[0]);
+    assertNull(result[1]);
+    assertNull(result[2]);
+    assertNull(result[3]);
+  }
+
+  @Test
+  public void testCopyOfRangeByteArrayEndBeyondSourceLength() {
+    // When end > source.length, result is padded with zeros.
+    var source = new byte[] {10, 20};
+    var result = ArrayUtils.copyOfRange(source, 0, 5);
+    assertEquals(5, result.length);
+    assertEquals(10, result[0]);
+    assertEquals(20, result[1]);
+    assertEquals(0, result[2]);
   }
 }
