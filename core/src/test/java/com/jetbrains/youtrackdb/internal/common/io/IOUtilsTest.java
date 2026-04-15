@@ -125,6 +125,31 @@ public class IOUtilsTest {
     assertThat(IOUtils.getTimeAsString(0)).isEqualTo("0ms");
   }
 
+  /** Exact multiple of years is formatted with y suffix. */
+  @Test
+  public void getTimeAsStringYears() {
+    assertThat(IOUtils.getTimeAsString(2L * IOUtils.YEAR)).isEqualTo("2y");
+  }
+
+  /** Exactly SECOND (1000ms) is formatted as ms, not s (strict > boundary). */
+  @Test
+  public void getTimeAsStringExactSecondFallsToMs() {
+    assertThat(IOUtils.getTimeAsString(IOUtils.SECOND)).isEqualTo("1000ms");
+  }
+
+  /** Exactly YEAR falls through to days (strict > boundary, YEAR % WEEK != 0). */
+  @Test
+  public void getTimeAsStringExactYearFallsToDays() {
+    assertThat(IOUtils.getTimeAsString(IOUtils.YEAR)).isEqualTo("365d");
+  }
+
+  /** Unrecognized time suffix throws IllegalArgumentException. */
+  @Test
+  public void getTimeAsMillisecsUnrecognizedSuffixThrows() {
+    assertThatThrownBy(() -> IOUtils.getTimeAsMillisecs("100Z"))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
   // ---------------------------------------------------------------------------
   // encode
   // ---------------------------------------------------------------------------
@@ -324,6 +349,18 @@ public class IOUtilsTest {
     assertThat(IOUtils.equals(new byte[] {1}, null)).isFalse();
   }
 
+  /** Both null returns false (by design — null arrays are not considered equal). */
+  @Test
+  public void equalsBothNullReturnsFalse() {
+    assertThat(IOUtils.equals(null, null)).isFalse();
+  }
+
+  /** Two empty arrays are equal. */
+  @Test
+  public void equalsEmptyArrays() {
+    assertThat(IOUtils.equals(new byte[0], new byte[0])).isTrue();
+  }
+
   // ---------------------------------------------------------------------------
   // isLong
   // ---------------------------------------------------------------------------
@@ -350,6 +387,17 @@ public class IOUtilsTest {
   @Test
   public void isLongSingleDigit() {
     assertThat(IOUtils.isLong("0")).isTrue();
+  }
+
+  /**
+   * Empty string returns true due to a vacuous-truth bug: the loop body never executes when
+   * iText.length() == 0, so isLong stays true. Callers would then get NumberFormatException from
+   * Long.parseLong(""). This test documents the current (buggy) behavior.
+   */
+  @Test
+  public void isLongEmptyStringReturnsTrueBug() {
+    // Pre-existing bug: empty string passes the digit check vacuously.
+    assertThat(IOUtils.isLong("")).isTrue();
   }
 
   // ---------------------------------------------------------------------------
@@ -451,5 +499,19 @@ public class IOUtilsTest {
     byte[] result = new byte[5];
     assertThatThrownBy(() -> IOUtils.readFully(in, result, 0, 5))
         .isInstanceOf(EOFException.class);
+  }
+
+  // ---------------------------------------------------------------------------
+  // readStreamAsString — BOM stripping
+  // ---------------------------------------------------------------------------
+
+  /** readStreamAsString strips a leading UTF-8 BOM if present. */
+  @Test
+  public void readStreamAsStringStripsUtf8Bom() throws IOException {
+    byte[] bomPlusContent =
+        new byte[] {(byte) 0xEF, (byte) 0xBB, (byte) 0xBF, 'h', 'e', 'l', 'l', 'o'};
+    ByteArrayInputStream in = new ByteArrayInputStream(bomPlusContent);
+    String result = IOUtils.readStreamAsString(in);
+    assertThat(result).isEqualTo("hello");
   }
 }
