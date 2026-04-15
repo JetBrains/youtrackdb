@@ -662,6 +662,15 @@ public class PatternTest extends ParserTestAbstract {
     assertNotNull(
         "Dependent part should still reference LET vars",
         result.dependent().splitByLetDependency(Set.of("scores")));
+    // Verify actual content of both halves
+    var indepStr = result.independent().toString();
+    assertTrue("Independent part should contain 'age' condition: " + indepStr,
+        indepStr.contains("age > 25"));
+    assertTrue("Independent part should contain 'birthday' condition: " + indepStr,
+        indepStr.contains("birthday") && indepStr.contains("2000-01-01"));
+    var depStr = result.dependent().toString();
+    assertTrue("Dependent part should contain '$scores' condition: " + depStr,
+        depStr.contains("$scores"));
   }
 
   /**
@@ -779,6 +788,17 @@ public class PatternTest extends ParserTestAbstract {
     assertNotNull(
         "Dependent part should still reference LET vars",
         result.dependent().splitByLetDependency(Set.of("x", "y")));
+    // Verify actual content of both halves
+    var indepStr = result.independent().toString();
+    assertTrue("Independent part should contain 'b > 5': " + indepStr,
+        indepStr.contains("b > 5"));
+    assertFalse("Independent part should not contain '$x': " + indepStr,
+        indepStr.contains("$x"));
+    var depStr = result.dependent().toString();
+    assertTrue("Dependent part should contain '$x': " + depStr,
+        depStr.contains("$x"));
+    assertTrue("Dependent part should contain '$y': " + depStr,
+        depStr.contains("$y"));
   }
 
   /** Null baseExpression: returns null without NPE. */
