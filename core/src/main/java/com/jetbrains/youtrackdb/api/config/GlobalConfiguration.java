@@ -851,6 +851,37 @@ public enum GlobalConfiguration {
       10000,
       true),
 
+  QUERY_MATCH_HASH_JOIN_THRESHOLD(
+      "youtrackdb.query.match.hashJoinThreshold",
+      "Maximum estimated build-side cardinality for the MATCH hash join"
+          + " optimization. When the planner estimates that a NOT sub-pattern or"
+          + " secondary branch produces more rows than this threshold, it falls"
+          + " back to nested-loop evaluation. Set to 0 to disable hash join.",
+      Long.class,
+      10000L,
+      true),
+
+  QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN(
+      "youtrackdb.query.match.hashJoinUpstreamMin",
+      "Minimum upstream (probe-side) cardinality for the MATCH hash join"
+          + " optimization. When the probe side has fewer rows than this value,"
+          + " hash join is skipped because nested-loop is already fast."
+          + " Set to 0 to bypass upstream and cost-based guards"
+          + " (only the build-side threshold applies).",
+      Long.class,
+      5L,
+      true),
+
+  QUERY_MATCH_CORRELATED_CACHE_SIZE(
+      "youtrackdb.query.match.correlatedCacheSize",
+      "Maximum number of entries in the LRU neighbor cache used by the"
+          + " correlated optional hash join step. Higher values reduce rebuilds"
+          + " when upstream rows interleave many distinct correlated vertices,"
+          + " at the cost of memory.",
+      Integer.class,
+      16,
+      true),
+
   QUERY_PARALLEL_AUTO(
       "youtrackdb.query.parallelAuto",
       "Auto enable parallel query, if requirements are met",

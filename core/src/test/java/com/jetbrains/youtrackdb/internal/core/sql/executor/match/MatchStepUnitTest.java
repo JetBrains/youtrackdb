@@ -10,6 +10,7 @@ import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
@@ -21,6 +22,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
@@ -2032,6 +2034,1435 @@ public class MatchStepUnitTest extends DbTestBase {
   @Test(expected = AssertionError.class)
   public void testValidateAddEdgeArgsNullNode() {
     MatchAssertions.validateAddEdgeArgs(new SQLMatchPathItem(-1), null);
+  }
+
+  // -- HashJoinMatchStep tests --
+
+  /**
+   * Creates a synthetic build-side plan that emits the given rows.
+   * The plan consists of a single source step that streams the rows.
+   */
+  private SelectExecutionPlan createBuildPlan(CommandContext ctx, ResultInternal... rows) {
+    var plan = new SelectExecutionPlan(ctx);
+    plan.chain(new AbstractExecutionStep(ctx, false) {
+      @Override
+      public ExecutionStream internalStart(CommandContext ctx) {
+        return ExecutionStream.resultIterator(java.util.Arrays.asList(rows).iterator());
+      }
+
+      @Override
+      public boolean canBeCached() {
+        return true;
+      }
+
+      @Override
+      public String prettyPrint(int depth, int indent) {
+        return "+ TEST SOURCE";
+      }
+
+      @Override
+      public ExecutionStep copy(CommandContext ctx) {
+        return createBuildPlan(ctx, rows).getSteps().getFirst();
+      }
+    });
+    return plan;
+  }
+
+  /**
+   * Creates a synthetic upstream step that emits the given rows.
+   */
+  private AbstractExecutionStep createUpstreamStep(
+      CommandContext ctx, ResultInternal... rows) {
+    return new AbstractExecutionStep(ctx, false) {
+      @Override
+      public ExecutionStream internalStart(CommandContext ctx) {
+        return ExecutionStream.resultIterator(java.util.Arrays.asList(rows).iterator());
+      }
+
+      @Override
+      public String prettyPrint(int depth, int indent) {
+        return "+ UPSTREAM";
+      }
+
+      @Override
+      public ExecutionStep copy(CommandContext ctx) {
+        return this;
+      }
+    };
+  }
+
+  /** Creates a ResultInternal with a single alias property set to a RID. */
+  private ResultInternal createRow(String alias, RID rid) {
+    var row = new ResultInternal(session);
+    row.setProperty(alias, rid);
+    return row;
+  }
+
+  /** Creates a ResultInternal with two alias properties set to RIDs. */
+  private ResultInternal createRow(String alias1, RID rid1, String alias2, RID rid2) {
+    var row = new ResultInternal(session);
+    row.setProperty(alias1, rid1);
+    row.setProperty(alias2, rid2);
+    return row;
+  }
+
+  /**
+   * Anti-join discards upstream rows whose key exists in the build side.
+   * Build side has friend=#1:1, upstream has friend=#1:1 and friend=#1:2.
+   * Expected: only friend=#1:2 passes.
+   */
+  @Test
+  public void testHashJoinAntiJoinDiscardsMatchingRows() {
+    var ctx = createCommandContext();
+    var buildPlan = createBuildPlan(ctx,
+        createRow("friend", new RecordId(1, 1)));
+    var upstream = createUpstreamStep(ctx,
+        createRow("friend", new RecordId(1, 1)),
+        createRow("friend", new RecordId(1, 2)));
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.ANTI_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    var result = stream.next(ctx);
+    assertEquals(new RecordId(1, 2), result.getProperty("friend"));
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * Anti-join passes all upstream rows when build side is empty.
+   */
+  @Test
+  public void testHashJoinAntiJoinEmptyBuildSide() {
+    var ctx = createCommandContext();
+    var buildPlan = createBuildPlan(ctx);
+    var upstream = createUpstreamStep(ctx,
+        createRow("friend", new RecordId(1, 1)),
+        createRow("friend", new RecordId(1, 2)));
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.ANTI_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    assertEquals(new RecordId(1, 1), stream.next(ctx).getProperty("friend"));
+    assertTrue(stream.hasNext(ctx));
+    assertEquals(new RecordId(1, 2), stream.next(ctx).getProperty("friend"));
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * Anti-join produces empty output when all upstream rows match.
+   */
+  @Test
+  public void testHashJoinAntiJoinAllFiltered() {
+    var ctx = createCommandContext();
+    var buildPlan = createBuildPlan(ctx,
+        createRow("friend", new RecordId(1, 1)),
+        createRow("friend", new RecordId(1, 2)));
+    var upstream = createUpstreamStep(ctx,
+        createRow("friend", new RecordId(1, 1)),
+        createRow("friend", new RecordId(1, 2)));
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.ANTI_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * Semi-join keeps only upstream rows whose key exists in the build side.
+   */
+  @Test
+  public void testHashJoinSemiJoinKeepsMatchingRows() {
+    var ctx = createCommandContext();
+    var buildPlan = createBuildPlan(ctx,
+        createRow("friend", new RecordId(1, 1)));
+    var upstream = createUpstreamStep(ctx,
+        createRow("friend", new RecordId(1, 1)),
+        createRow("friend", new RecordId(1, 2)));
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.SEMI_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    var result = stream.next(ctx);
+    assertEquals(new RecordId(1, 1), result.getProperty("friend"));
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * Build-phase context isolation: the build plan's execution must not
+   * pollute $matched in the parent context.
+   */
+  @Test
+  public void testHashJoinBuildPhaseContextIsolation() {
+    var ctx = createCommandContext();
+    var sentinel = "original-matched-value";
+    ctx.setVariable("$matched", sentinel);
+
+    var buildPlan = createBuildPlan(ctx,
+        createRow("friend", new RecordId(1, 1)));
+    var upstream = createUpstreamStep(ctx,
+        createRow("friend", new RecordId(1, 2)));
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.ANTI_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    while (stream.hasNext(ctx)) {
+      stream.next(ctx);
+    }
+    stream.close(ctx);
+
+    // Parent context's $matched must be unchanged
+    assertEquals(sentinel, ctx.getVariable("$matched"));
+  }
+
+  /**
+   * Multi-alias composite key: anti-join with two shared aliases.
+   * Build side has (friend=#1:1, tag=#2:1). Upstream has that pair
+   * and a different pair. Only the different pair passes.
+   */
+  @Test
+  public void testHashJoinCompositeKeyAntiJoin() {
+    var ctx = createCommandContext();
+    var buildPlan = createBuildPlan(ctx,
+        createRow("friend", new RecordId(1, 1), "tag", new RecordId(2, 1)));
+    var upstream = createUpstreamStep(ctx,
+        createRow("friend", new RecordId(1, 1), "tag", new RecordId(2, 1)),
+        createRow("friend", new RecordId(1, 1), "tag", new RecordId(2, 2)));
+
+    var step = new HashJoinMatchStep(ctx, buildPlan,
+        List.of("friend", "tag"), JoinMode.ANTI_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    var result = stream.next(ctx);
+    // Assert both alias values to confirm correct composite key matching
+    assertEquals(new RecordId(1, 1), result.getProperty("friend"));
+    assertEquals(new RecordId(2, 2), result.getProperty("tag"));
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * Anti-join with null key: upstream row missing the shared alias
+   * should be conservatively kept.
+   */
+  @Test
+  public void testHashJoinAntiJoinNullKeyKeepsRow() {
+    var ctx = createCommandContext();
+    var buildPlan = createBuildPlan(ctx,
+        createRow("friend", new RecordId(1, 1)));
+    var missingAliasRow = new ResultInternal(session);
+    missingAliasRow.setProperty("other", "value");
+    var upstream = createUpstreamStep(ctx, missingAliasRow);
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.ANTI_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    var result = stream.next(ctx);
+    // Verify the specific row with missing alias was kept
+    assertEquals("value", result.getProperty("other"));
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * Semi-join with null key: upstream row missing the shared alias
+   * should be conservatively discarded.
+   */
+  @Test
+  public void testHashJoinSemiJoinNullKeyDiscardsRow() {
+    var ctx = createCommandContext();
+    var buildPlan = createBuildPlan(ctx,
+        createRow("friend", new RecordId(1, 1)));
+    var missingAliasRow = new ResultInternal(session);
+    missingAliasRow.setProperty("other", "value");
+    var upstream = createUpstreamStep(ctx, missingAliasRow);
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.SEMI_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * Semi-join with empty build side filters all upstream rows.
+   */
+  @Test
+  public void testHashJoinSemiJoinEmptyBuildSide() {
+    var ctx = createCommandContext();
+    var buildPlan = createBuildPlan(ctx);
+    var upstream = createUpstreamStep(ctx,
+        createRow("friend", new RecordId(1, 1)),
+        createRow("friend", new RecordId(1, 2)));
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.SEMI_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * INNER_JOIN 1:1: one upstream row matching one build-side row produces
+   * one merged row containing properties from both sides.
+   */
+  @Test
+  public void testHashJoinInnerJoinOneToOne() {
+    var ctx = createCommandContext();
+    var buildRow = new ResultInternal(session);
+    buildRow.setProperty("friend", new RecordId(1, 1));
+    buildRow.setProperty("city", "Berlin");
+    var buildPlan = createBuildPlan(ctx, buildRow);
+
+    var upstreamRow = new ResultInternal(session);
+    upstreamRow.setProperty("friend", new RecordId(1, 1));
+    upstreamRow.setProperty("person", new RecordId(2, 1));
+    var upstream = createUpstreamStep(ctx, upstreamRow);
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.INNER_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    var result = stream.next(ctx);
+    // Merged row has upstream + build-side properties
+    assertEquals(new RecordId(1, 1), result.getProperty("friend"));
+    assertEquals(new RecordId(2, 1), result.getProperty("person"));
+    assertEquals("Berlin", result.getProperty("city"));
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * INNER_JOIN 1:N: one upstream row matching two build-side rows produces
+   * two merged rows, each with the upstream properties plus one build-side row.
+   */
+  @Test
+  public void testHashJoinInnerJoinOneToMany() {
+    var ctx = createCommandContext();
+    var build1 = new ResultInternal(session);
+    build1.setProperty("friend", new RecordId(1, 1));
+    build1.setProperty("city", "Berlin");
+    var build2 = new ResultInternal(session);
+    build2.setProperty("friend", new RecordId(1, 1));
+    build2.setProperty("city", "Paris");
+    var buildPlan = createBuildPlan(ctx, build1, build2);
+
+    var upstreamRow = new ResultInternal(session);
+    upstreamRow.setProperty("friend", new RecordId(1, 1));
+    upstreamRow.setProperty("person", new RecordId(2, 1));
+    var upstream = createUpstreamStep(ctx, upstreamRow);
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.INNER_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    var r1 = stream.next(ctx);
+    assertEquals(new RecordId(1, 1), r1.getProperty("friend"));
+    assertEquals(new RecordId(2, 1), r1.getProperty("person"));
+    assertEquals("Berlin", r1.getProperty("city"));
+
+    assertTrue(stream.hasNext(ctx));
+    var r2 = stream.next(ctx);
+    assertEquals(new RecordId(1, 1), r2.getProperty("friend"));
+    assertEquals(new RecordId(2, 1), r2.getProperty("person"));
+    assertEquals("Paris", r2.getProperty("city"));
+
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * INNER_JOIN with no match: upstream key not in build side → row dropped.
+   */
+  @Test
+  public void testHashJoinInnerJoinNoMatch() {
+    var ctx = createCommandContext();
+    var buildPlan = createBuildPlan(ctx,
+        createRow("friend", new RecordId(1, 1)));
+    var upstream = createUpstreamStep(ctx,
+        createRow("friend", new RecordId(1, 2)));
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.INNER_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * INNER_JOIN with empty build side: all upstream rows are dropped
+   * (no matches possible).
+   */
+  @Test
+  public void testHashJoinInnerJoinEmptyBuildSide() {
+    var ctx = createCommandContext();
+    var buildPlan = createBuildPlan(ctx);
+    var upstream = createUpstreamStep(ctx,
+        createRow("friend", new RecordId(1, 1)));
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.INNER_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * INNER_JOIN with null key in upstream row → row dropped (cannot extract key).
+   */
+  @Test
+  public void testHashJoinInnerJoinNullKeyDropsRow() {
+    var ctx = createCommandContext();
+    var buildPlan = createBuildPlan(ctx,
+        createRow("friend", new RecordId(1, 1)));
+    var upstreamRow = new ResultInternal(session);
+    upstreamRow.setProperty("other", "value"); // "friend" missing → null key
+    var upstream = createUpstreamStep(ctx, upstreamRow);
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.INNER_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * INNER_JOIN merge does not mutate the original upstream row — a fresh
+   * ResultInternal is created for each merged result.
+   */
+  @Test
+  public void testHashJoinInnerJoinDoesNotMutateUpstream() {
+    var ctx = createCommandContext();
+    var buildRow = new ResultInternal(session);
+    buildRow.setProperty("friend", new RecordId(1, 1));
+    buildRow.setProperty("city", "Berlin");
+    var buildPlan = createBuildPlan(ctx, buildRow);
+
+    var upstreamRow = new ResultInternal(session);
+    upstreamRow.setProperty("friend", new RecordId(1, 1));
+    upstreamRow.setProperty("person", new RecordId(2, 1));
+    var upstream = createUpstreamStep(ctx, upstreamRow);
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.INNER_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    var result = stream.next(ctx);
+    assertNotSame(upstreamRow, result);
+    // Original upstream row must NOT have the build-side property
+    assertNull(upstreamRow.getProperty("city"));
+    // Original upstream properties must be untouched
+    assertEquals(new RecordId(1, 1), upstreamRow.getProperty("friend"));
+    assertEquals(new RecordId(2, 1), upstreamRow.getProperty("person"));
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * INNER_JOIN build-side rows are flattened: stored as plain ResultInternal,
+   * not retaining MatchResultRow chains. Verified by checking all properties
+   * are present on the merged result.
+   */
+  @Test
+  public void testHashJoinInnerJoinBuildSideFlattened() {
+    var ctx = createCommandContext();
+    var buildRow = new ResultInternal(session);
+    buildRow.setProperty("friend", new RecordId(1, 1));
+    buildRow.setProperty("city", "Berlin");
+    buildRow.setProperty("age", 42);
+    var buildPlan = createBuildPlan(ctx, buildRow);
+
+    var upstream = createUpstreamStep(ctx,
+        createRow("friend", new RecordId(1, 1)));
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.INNER_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    var result = stream.next(ctx);
+    assertEquals("Berlin", result.getProperty("city"));
+    assertEquals(Integer.valueOf(42), result.getProperty("age"));
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * INNER_JOIN N:M: two upstream rows each matching different build-side rows
+   * produce the correct number of merged rows (Cartesian product per key).
+   */
+  @Test
+  public void testHashJoinInnerJoinManyToMany() {
+    var ctx = createCommandContext();
+    // Build side: two rows for key #1:1, one row for key #1:2
+    var b1 = new ResultInternal(session);
+    b1.setProperty("friend", new RecordId(1, 1));
+    b1.setProperty("city", "Berlin");
+    var b2 = new ResultInternal(session);
+    b2.setProperty("friend", new RecordId(1, 1));
+    b2.setProperty("city", "Paris");
+    var b3 = new ResultInternal(session);
+    b3.setProperty("friend", new RecordId(1, 2));
+    b3.setProperty("city", "Rome");
+    var buildPlan = createBuildPlan(ctx, b1, b2, b3);
+
+    // Upstream: two rows with different keys
+    var u1 = new ResultInternal(session);
+    u1.setProperty("friend", new RecordId(1, 1));
+    u1.setProperty("person", new RecordId(2, 1));
+    var u2 = new ResultInternal(session);
+    u2.setProperty("friend", new RecordId(1, 2));
+    u2.setProperty("person", new RecordId(2, 2));
+    var upstream = createUpstreamStep(ctx, u1, u2);
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.INNER_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    // u1 matches b1,b2 → 2 rows; u2 matches b3 → 1 row; total = 3
+    var results = new ArrayList<Result>();
+    while (stream.hasNext(ctx)) {
+      results.add(stream.next(ctx));
+    }
+    assertEquals(3, results.size());
+    assertEquals(new RecordId(1, 1), results.get(0).getProperty("friend"));
+    assertEquals(new RecordId(2, 1), results.get(0).getProperty("person"));
+    assertEquals("Berlin", results.get(0).getProperty("city"));
+    assertEquals(new RecordId(1, 1), results.get(1).getProperty("friend"));
+    assertEquals(new RecordId(2, 1), results.get(1).getProperty("person"));
+    assertEquals("Paris", results.get(1).getProperty("city"));
+    assertEquals(new RecordId(1, 2), results.get(2).getProperty("friend"));
+    assertEquals(new RecordId(2, 2), results.get(2).getProperty("person"));
+    assertEquals("Rome", results.get(2).getProperty("city"));
+    stream.close(ctx);
+  }
+
+  /**
+   * INNER_JOIN property collision: when both upstream and build side have
+   * the same non-shared property name, the upstream value takes precedence.
+   */
+  @Test
+  public void testHashJoinInnerJoinUpstreamPropertyTakesPrecedence() {
+    var ctx = createCommandContext();
+    var buildRow = new ResultInternal(session);
+    buildRow.setProperty("friend", new RecordId(1, 1));
+    buildRow.setProperty("score", 100);
+    var buildPlan = createBuildPlan(ctx, buildRow);
+
+    var upstreamRow = new ResultInternal(session);
+    upstreamRow.setProperty("friend", new RecordId(1, 1));
+    upstreamRow.setProperty("score", 999);
+    var upstream = createUpstreamStep(ctx, upstreamRow);
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.INNER_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    var result = stream.next(ctx);
+    // Upstream value must win for non-shared properties
+    assertEquals(Integer.valueOf(999), result.getProperty("score"));
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * INNER_JOIN with composite key: two shared aliases must both match
+   * for the join to produce a merged row.
+   */
+  @Test
+  public void testHashJoinInnerJoinCompositeKey() {
+    var ctx = createCommandContext();
+    var buildRow = new ResultInternal(session);
+    buildRow.setProperty("a", new RecordId(1, 1));
+    buildRow.setProperty("b", new RecordId(2, 1));
+    buildRow.setProperty("extra", "found");
+    var buildPlan = createBuildPlan(ctx, buildRow);
+
+    // Matches on both aliases
+    var match = new ResultInternal(session);
+    match.setProperty("a", new RecordId(1, 1));
+    match.setProperty("b", new RecordId(2, 1));
+    // Matches on only one alias — should not join
+    var partial = new ResultInternal(session);
+    partial.setProperty("a", new RecordId(1, 1));
+    partial.setProperty("b", new RecordId(2, 99));
+    var upstream = createUpstreamStep(ctx, match, partial);
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("a", "b"),
+        JoinMode.INNER_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    var result = stream.next(ctx);
+    assertEquals("found", result.getProperty("extra"));
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * INNER_JOIN with non-RID key (String alias value) exercises the
+   * Object[] key fallback path in buildHashMap and mergeMatches.
+   */
+  @Test
+  public void testHashJoinInnerJoinNonRidKey() {
+    var ctx = createCommandContext();
+    var buildRow = new ResultInternal(session);
+    buildRow.setProperty("name", "Alice");
+    buildRow.setProperty("city", "Berlin");
+    var buildPlan = createBuildPlan(ctx, buildRow);
+
+    var upstreamRow = new ResultInternal(session);
+    upstreamRow.setProperty("name", "Alice");
+    upstreamRow.setProperty("age", 30);
+    var upstream = createUpstreamStep(ctx, upstreamRow);
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("name"),
+        JoinMode.INNER_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    var result = stream.next(ctx);
+    assertEquals("Alice", result.getProperty("name"));
+    assertEquals("Berlin", result.getProperty("city"));
+    assertEquals(Integer.valueOf(30), result.getProperty("age"));
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * INNER_JOIN build-side null key: a build-side row missing the shared
+   * alias is silently dropped; only non-null-key rows participate in join.
+   */
+  @Test
+  public void testHashJoinInnerJoinBuildSideNullKeyDropped() {
+    var ctx = createCommandContext();
+    var nullRow = new ResultInternal(session);
+    nullRow.setProperty("other", "irrelevant"); // "friend" missing → null key
+    var goodRow = new ResultInternal(session);
+    goodRow.setProperty("friend", new RecordId(1, 1));
+    goodRow.setProperty("city", "Berlin");
+    var buildPlan = createBuildPlan(ctx, nullRow, goodRow);
+
+    var upstream = createUpstreamStep(ctx,
+        createRow("friend", new RecordId(1, 1)));
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.INNER_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    var result = stream.next(ctx);
+    assertEquals("Berlin", result.getProperty("city"));
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * INNER_JOIN with empty upstream: build side is populated but no upstream
+   * rows arrive, so the result stream must be empty. Verifies that the eager
+   * buildHashMap call does not cause issues when no upstream rows follow.
+   */
+  @Test
+  public void testHashJoinInnerJoinEmptyUpstream() {
+    var ctx = createCommandContext();
+    var buildPlan = createBuildPlan(ctx,
+        createRow("friend", new RecordId(1, 1)));
+    var upstream = createUpstreamStep(ctx);
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.INNER_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * INNER_JOIN with composite key where one alias is a RID and the other is
+   * a String, exercising the Object[] fallback path in extractKey on both
+   * build and probe sides.
+   */
+  @Test
+  public void testHashJoinInnerJoinCompositeKeyMixedTypes() {
+    var ctx = createCommandContext();
+    var buildRow = new ResultInternal(session);
+    buildRow.setProperty("person", new RecordId(1, 1));
+    buildRow.setProperty("tag", "sports");
+    buildRow.setProperty("extra", "found");
+    var buildPlan = createBuildPlan(ctx, buildRow);
+
+    var upstreamRow = new ResultInternal(session);
+    upstreamRow.setProperty("person", new RecordId(1, 1));
+    upstreamRow.setProperty("tag", "sports");
+    var upstream = createUpstreamStep(ctx, upstreamRow);
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("person", "tag"),
+        JoinMode.INNER_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    var result = stream.next(ctx);
+    assertEquals("found", result.getProperty("extra"));
+    assertEquals(new RecordId(1, 1), result.getProperty("person"));
+    assertEquals("sports", result.getProperty("tag"));
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * Anti-join with non-RID alias values exercises the Object[] fallback path.
+   */
+  @Test
+  public void testHashJoinAntiJoinNonRidSingleAlias() {
+    var ctx = createCommandContext();
+    var buildRow = new ResultInternal(session);
+    buildRow.setProperty("name", "Alice");
+    var buildPlan = createBuildPlan(ctx, buildRow);
+
+    var upstreamAlice = new ResultInternal(session);
+    upstreamAlice.setProperty("name", "Alice");
+    var upstreamBob = new ResultInternal(session);
+    upstreamBob.setProperty("name", "Bob");
+    var upstream = createUpstreamStep(ctx, upstreamAlice, upstreamBob);
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("name"),
+        JoinMode.ANTI_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    assertEquals("Bob", stream.next(ctx).getProperty("name"));
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * Build-side row with null alias value is skipped during build phase.
+   * Only the non-null build-side key (#1:1) is added to the hash set.
+   */
+  @Test
+  public void testHashJoinBuildSideNullKeyIsSkipped() {
+    var ctx = createCommandContext();
+    var nullRow = new ResultInternal(session);
+    nullRow.setProperty("other", "irrelevant"); // "friend" alias missing → null
+    var buildPlan = createBuildPlan(ctx,
+        nullRow,
+        createRow("friend", new RecordId(1, 1)));
+    var upstream = createUpstreamStep(ctx,
+        createRow("friend", new RecordId(1, 1)),
+        createRow("friend", new RecordId(1, 2)));
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.ANTI_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    // Only #1:2 passes; #1:1 is in build set, null-key row was skipped
+    assertEquals(new RecordId(1, 2), stream.next(ctx).getProperty("friend"));
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * Multi-alias composite key with mixed RID and non-RID values exercises
+   * the Object[] fallback path in extractKey for multi-alias keys.
+   */
+  @Test
+  public void testHashJoinCompositeKeyMixedRidAndNonRid() {
+    var ctx = createCommandContext();
+    var buildRow = new ResultInternal(session);
+    buildRow.setProperty("friend", new RecordId(1, 1));
+    buildRow.setProperty("label", "close");
+    var buildPlan = createBuildPlan(ctx, buildRow);
+
+    var matchRow = new ResultInternal(session);
+    matchRow.setProperty("friend", new RecordId(1, 1));
+    matchRow.setProperty("label", "close");
+    var noMatchRow = new ResultInternal(session);
+    noMatchRow.setProperty("friend", new RecordId(1, 1));
+    noMatchRow.setProperty("label", "distant");
+    var upstream = createUpstreamStep(ctx, matchRow, noMatchRow);
+
+    var step = new HashJoinMatchStep(ctx, buildPlan,
+        List.of("friend", "label"), JoinMode.ANTI_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    assertEquals("distant", stream.next(ctx).getProperty("label"));
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /** Verifies canBeCached delegates to the build plan — cacheable plan. */
+  @Test
+  public void testHashJoinCanBeCachedTrue() {
+    var ctx = createCommandContext();
+    var buildPlan = createBuildPlan(ctx);
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.ANTI_JOIN, false);
+    assertTrue(step.canBeCached());
+  }
+
+  /** Verifies canBeCached delegates to the build plan — non-cacheable plan. */
+  @Test
+  public void testHashJoinCanBeCachedFalse() {
+    var ctx = createCommandContext();
+    var plan = new SelectExecutionPlan(ctx);
+    plan.chain(new AbstractExecutionStep(ctx, false) {
+      @Override
+      public ExecutionStream internalStart(CommandContext ctx) {
+        return ExecutionStream.empty();
+      }
+
+      @Override
+      public boolean canBeCached() {
+        return false;
+      }
+
+      @Override
+      public String prettyPrint(int depth, int indent) {
+        return "+ NON-CACHEABLE";
+      }
+
+      @Override
+      public ExecutionStep copy(CommandContext ctx) {
+        return this;
+      }
+    });
+    var step = new HashJoinMatchStep(ctx, plan, List.of("friend"),
+        JoinMode.ANTI_JOIN, false);
+    assertFalse(step.canBeCached());
+  }
+
+  /** Verifies prettyPrint output format for ANTI_JOIN mode. */
+  @Test
+  public void testHashJoinPrettyPrintAntiJoin() {
+    var ctx = createCommandContext();
+    var buildPlan = createBuildPlan(ctx);
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.ANTI_JOIN, false);
+    var output = step.prettyPrint(0, 2);
+    assertTrue(output.contains("+ HASH ANTI_JOIN on [friend]"));
+    assertTrue(output.contains("("));
+    assertTrue(output.contains(")"));
+  }
+
+  /** Verifies prettyPrint output format for SEMI_JOIN mode with multiple aliases. */
+  @Test
+  public void testHashJoinPrettyPrintSemiJoin() {
+    var ctx = createCommandContext();
+    var buildPlan = createBuildPlan(ctx);
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend", "tag"),
+        JoinMode.SEMI_JOIN, false);
+    var output = step.prettyPrint(0, 2);
+    assertTrue(output.contains("+ HASH SEMI_JOIN on [friend, tag]"));
+  }
+
+  /** Verifies prettyPrint applies indentation when depth > 0. */
+  @Test
+  public void testHashJoinPrettyPrintWithDepth() {
+    var ctx = createCommandContext();
+    var buildPlan = createBuildPlan(ctx);
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.ANTI_JOIN, false);
+    var output = step.prettyPrint(1, 3);
+    assertTrue(output.startsWith("   ")); // 1 * 3 = 3 spaces
+  }
+
+  /** Verifies getSubSteps returns the build plan's steps. */
+  @Test
+  public void testHashJoinGetSubSteps() {
+    var ctx = createCommandContext();
+    var buildPlan = createBuildPlan(ctx);
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.ANTI_JOIN, false);
+    var subSteps = step.getSubSteps();
+    assertFalse(subSteps.isEmpty());
+    assertEquals(buildPlan.getSteps().size(), subSteps.size());
+  }
+
+  /** Verifies copy() produces a distinct instance with equivalent state. */
+  @Test
+  public void testHashJoinCopy() {
+    var ctx = createCommandContext();
+    var buildPlan = createBuildPlan(ctx,
+        createRow("friend", new RecordId(1, 1)));
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.ANTI_JOIN, false);
+    var rawCopy = step.copy(ctx);
+
+    assertNotSame(step, rawCopy);
+    assertTrue(rawCopy instanceof HashJoinMatchStep);
+    // Verify the copy preserves join mode and shared aliases via prettyPrint
+    assertEquals(step.prettyPrint(0, 2),
+        ((HashJoinMatchStep) rawCopy).prettyPrint(0, 2));
+  }
+
+  /** Verifies prettyPrint output format for INNER_JOIN mode. */
+  @Test
+  public void testHashJoinPrettyPrintInnerJoin() {
+    var ctx = createCommandContext();
+    var step = new HashJoinMatchStep(ctx, createBuildPlan(ctx), List.of("friend"),
+        JoinMode.INNER_JOIN, false);
+    var output = step.prettyPrint(0, 2);
+    assertTrue(output.contains("+ HASH INNER_JOIN on [friend]"));
+    assertTrue(output.contains("("));
+    assertTrue(output.contains(")"));
+  }
+
+  /** Verifies prettyPrint for INNER_JOIN with multiple aliases. */
+  @Test
+  public void testHashJoinPrettyPrintInnerJoinMultiAlias() {
+    var ctx = createCommandContext();
+    var step = new HashJoinMatchStep(ctx, createBuildPlan(ctx),
+        List.of("friend", "tag"), JoinMode.INNER_JOIN, false);
+    var output = step.prettyPrint(0, 2);
+    assertTrue(output.contains("+ HASH INNER_JOIN on [friend, tag]"));
+    assertTrue(output.contains("("));
+    assertTrue(output.contains(")"));
+  }
+
+  /** Verifies copy() preserves INNER_JOIN mode and shared aliases. */
+  @Test
+  public void testHashJoinCopyInnerJoin() {
+    var ctx = createCommandContext();
+    var buildPlan = createBuildPlan(ctx,
+        createRow("friend", new RecordId(1, 1)));
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.INNER_JOIN, false);
+    var rawCopy = step.copy(ctx);
+
+    assertNotSame(step, rawCopy);
+    assertTrue(rawCopy instanceof HashJoinMatchStep);
+    assertEquals(step.prettyPrint(0, 2),
+        ((HashJoinMatchStep) rawCopy).prettyPrint(0, 2));
+  }
+
+  /**
+   * Verifies canBeCached() delegates correctly for INNER_JOIN mode
+   * (same behavior as ANTI_JOIN — mode-agnostic).
+   */
+  @Test
+  public void testHashJoinCanBeCachedInnerJoin() {
+    var ctx = createCommandContext();
+    var step = new HashJoinMatchStep(ctx, createBuildPlan(ctx), List.of("friend"),
+        JoinMode.INNER_JOIN, false);
+    assertTrue(step.canBeCached());
+  }
+
+  // -- HashJoinMatchStep nested-loop fallback tests --
+
+  /**
+   * When the build-side hash set exceeds the runtime threshold, ANTI_JOIN
+   * falls back to per-row nested-loop evaluation. Build side has 2 entries
+   * but threshold is 1 → nestedLoopProbe is used instead.
+   * Expected: friend=#1:1 is excluded (found in build), friend=#1:2 passes.
+   */
+  @Test
+  public void testHashJoinAntiJoinFallbackNestedLoop() {
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(1L);
+      var ctx = createCommandContext();
+      var buildPlan = createBuildPlan(ctx,
+          createRow("friend", new RecordId(1, 1)),
+          createRow("friend", new RecordId(1, 2)));
+      var upstream = createUpstreamStep(ctx,
+          createRow("friend", new RecordId(1, 1)),
+          createRow("friend", new RecordId(1, 3)));
+
+      var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+          JoinMode.ANTI_JOIN, false);
+      step.setPrevious(upstream);
+
+      var stream = step.start(ctx);
+      assertTrue(stream.hasNext(ctx));
+      assertEquals(new RecordId(1, 3), stream.next(ctx).getProperty("friend"));
+      assertFalse(stream.hasNext(ctx));
+      stream.close(ctx);
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);
+    }
+  }
+
+  /**
+   * Nested-loop fallback for SEMI_JOIN: build side exceeds threshold, so
+   * nestedLoopProbe is used. Only upstream rows with matching build-side
+   * keys are kept.
+   */
+  @Test
+  public void testHashJoinSemiJoinFallbackNestedLoop() {
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(1L);
+      var ctx = createCommandContext();
+      var buildPlan = createBuildPlan(ctx,
+          createRow("friend", new RecordId(1, 1)),
+          createRow("friend", new RecordId(1, 2)));
+      var upstream = createUpstreamStep(ctx,
+          createRow("friend", new RecordId(1, 1)),
+          createRow("friend", new RecordId(1, 3)));
+
+      var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+          JoinMode.SEMI_JOIN, false);
+      step.setPrevious(upstream);
+
+      var stream = step.start(ctx);
+      assertTrue(stream.hasNext(ctx));
+      assertEquals(new RecordId(1, 1), stream.next(ctx).getProperty("friend"));
+      assertFalse(stream.hasNext(ctx));
+      stream.close(ctx);
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);
+    }
+  }
+
+  /**
+   * Nested-loop fallback for INNER_JOIN: build map exceeds threshold, so
+   * nestedLoopInnerJoin is used. Upstream rows with matching keys are merged
+   * with build-side properties.
+   */
+  @Test
+  public void testHashJoinInnerJoinFallbackNestedLoop() {
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(1L);
+      var ctx = createCommandContext();
+      var buildRow1 = new ResultInternal(session);
+      buildRow1.setProperty("friend", new RecordId(1, 1));
+      buildRow1.setProperty("extra", "fromBuild");
+      var buildRow2 = new ResultInternal(session);
+      buildRow2.setProperty("friend", new RecordId(1, 2));
+      buildRow2.setProperty("extra", "fromBuild2");
+      var buildPlan = createBuildPlan(ctx, buildRow1, buildRow2);
+
+      var upstreamRow = new ResultInternal(session);
+      upstreamRow.setProperty("friend", new RecordId(1, 1));
+      upstreamRow.setProperty("person", "Alice");
+      var upstream = createUpstreamStep(ctx, upstreamRow);
+
+      var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+          JoinMode.INNER_JOIN, false);
+      step.setPrevious(upstream);
+
+      var stream = step.start(ctx);
+      assertTrue(stream.hasNext(ctx));
+      var result = stream.next(ctx);
+      assertEquals(new RecordId(1, 1), result.getProperty("friend"));
+      assertEquals("Alice", result.getProperty("person"));
+      assertEquals("fromBuild", result.getProperty("extra"));
+      assertFalse(stream.hasNext(ctx));
+      stream.close(ctx);
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);
+    }
+  }
+
+  /**
+   * Nested-loop ANTI_JOIN fallback with a null key in the upstream: rows with
+   * null keys are conservatively kept (same as hash path behavior).
+   */
+  @Test
+  public void testHashJoinAntiJoinFallbackNullKeyKeepsRow() {
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(1L);
+      var ctx = createCommandContext();
+      var buildPlan = createBuildPlan(ctx,
+          createRow("friend", new RecordId(1, 1)),
+          createRow("friend", new RecordId(1, 2)));
+
+      // Upstream row missing the "friend" property → null key
+      var nullRow = new ResultInternal(session);
+      nullRow.setProperty("other", "value");
+      var upstream = createUpstreamStep(ctx, nullRow);
+
+      var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+          JoinMode.ANTI_JOIN, false);
+      step.setPrevious(upstream);
+
+      var stream = step.start(ctx);
+      assertTrue("null key should be kept in ANTI_JOIN fallback",
+          stream.hasNext(ctx));
+      assertEquals("value", stream.next(ctx).getProperty("other"));
+      assertFalse(stream.hasNext(ctx));
+      stream.close(ctx);
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);
+    }
+  }
+
+  /**
+   * Nested-loop SEMI_JOIN fallback with a null key: rows with null keys
+   * are discarded (same as hash path behavior).
+   */
+  @Test
+  public void testHashJoinSemiJoinFallbackNullKeyDiscardsRow() {
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(1L);
+      var ctx = createCommandContext();
+      var buildPlan = createBuildPlan(ctx,
+          createRow("friend", new RecordId(1, 1)),
+          createRow("friend", new RecordId(1, 2)));
+
+      var nullRow = new ResultInternal(session);
+      nullRow.setProperty("other", "value");
+      var upstream = createUpstreamStep(ctx, nullRow);
+
+      var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+          JoinMode.SEMI_JOIN, false);
+      step.setPrevious(upstream);
+
+      var stream = step.start(ctx);
+      assertFalse("null key should be discarded in SEMI_JOIN fallback",
+          stream.hasNext(ctx));
+      stream.close(ctx);
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);
+    }
+  }
+
+  /**
+   * Nested-loop INNER_JOIN fallback with a null key: upstream row is
+   * dropped (returns empty stream).
+   */
+  @Test
+  public void testHashJoinInnerJoinFallbackNullKeyDropsRow() {
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(1L);
+      var ctx = createCommandContext();
+      var buildPlan = createBuildPlan(ctx,
+          createRow("friend", new RecordId(1, 1)),
+          createRow("friend", new RecordId(1, 2)));
+
+      var nullRow = new ResultInternal(session);
+      nullRow.setProperty("other", "value");
+      var upstream = createUpstreamStep(ctx, nullRow);
+
+      var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+          JoinMode.INNER_JOIN, false);
+      step.setPrevious(upstream);
+
+      var stream = step.start(ctx);
+      assertFalse("null key should produce no results in INNER_JOIN fallback",
+          stream.hasNext(ctx));
+      stream.close(ctx);
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);
+    }
+  }
+
+  /**
+   * Nested-loop INNER_JOIN fallback with no match: upstream key doesn't
+   * match any build-side key, so no merged rows are produced.
+   */
+  @Test
+  public void testHashJoinInnerJoinFallbackNoMatch() {
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(1L);
+      var ctx = createCommandContext();
+      var buildPlan = createBuildPlan(ctx,
+          createRow("friend", new RecordId(1, 1)),
+          createRow("friend", new RecordId(1, 2)));
+
+      var upstream = createUpstreamStep(ctx,
+          createRow("friend", new RecordId(1, 99)));
+
+      var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+          JoinMode.INNER_JOIN, false);
+      step.setPrevious(upstream);
+
+      var stream = step.start(ctx);
+      assertFalse("non-matching key should produce no results",
+          stream.hasNext(ctx));
+      stream.close(ctx);
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);
+    }
+  }
+
+  /**
+   * Multi-alias extractKey: null value in the middle of the array
+   * (second alias of three is null) → key is null, row handled according
+   * to join mode.
+   */
+  @Test
+  public void testHashJoinCompositeKeyNullInMiddle() {
+    var ctx = createCommandContext();
+    var buildRow = new ResultInternal(session);
+    buildRow.setProperty("a", new RecordId(1, 1));
+    buildRow.setProperty("b", new RecordId(2, 2));
+    buildRow.setProperty("c", new RecordId(3, 3));
+    var buildPlan = createBuildPlan(ctx, buildRow);
+
+    // Upstream row has null for middle alias "b"
+    var upstreamRow = new ResultInternal(session);
+    upstreamRow.setProperty("a", new RecordId(1, 1));
+    // "b" is missing → null
+    upstreamRow.setProperty("c", new RecordId(3, 3));
+    var upstream = createUpstreamStep(ctx, upstreamRow);
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("a", "b", "c"),
+        JoinMode.ANTI_JOIN, false);
+    step.setPrevious(upstream);
+
+    // Null key in ANTI_JOIN → row is kept (conservative)
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    assertEquals(new RecordId(1, 1), stream.next(ctx).getProperty("a"));
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * Multi-alias extractKey with non-RID value after a RID: exercises the
+   * Object[] fallback path where the third alias has a null value, causing
+   * extractKey to return null.
+   */
+  @Test
+  public void testHashJoinCompositeKeyNullAfterNonRid() {
+    var ctx = createCommandContext();
+    var buildRow = new ResultInternal(session);
+    buildRow.setProperty("a", new RecordId(1, 1));
+    buildRow.setProperty("b", "text");
+    buildRow.setProperty("c", "value");
+    var buildPlan = createBuildPlan(ctx, buildRow);
+
+    // Upstream: first is RID, second is non-RID, third is null
+    var upstreamRow = new ResultInternal(session);
+    upstreamRow.setProperty("a", new RecordId(1, 1));
+    upstreamRow.setProperty("b", "text");
+    // "c" missing → null → extractKey returns null
+    var upstream = createUpstreamStep(ctx, upstreamRow);
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("a", "b", "c"),
+        JoinMode.SEMI_JOIN, false);
+    step.setPrevious(upstream);
+
+    // Null key in SEMI_JOIN → row is discarded
+    var stream = step.start(ctx);
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  // -- JoinKey tests --
+
+  /** Verifies JoinKey.ofRid equality: same collection+position → equal. */
+  @Test
+  public void testJoinKeyOfRidEqualsSameValues() {
+    var rid1 = new RecordId(10, 42);
+    var rid2 = new RecordId(10, 42);
+    var key1 = JoinKey.ofRid(rid1);
+    var key2 = JoinKey.ofRid(rid2);
+
+    assertEquals(key1, key2);
+    assertEquals(key1.hashCode(), key2.hashCode());
+  }
+
+  /** Verifies JoinKey.ofRid inequality: different values → not equal. */
+  @Test
+  public void testJoinKeyOfRidNotEqualDifferentValues() {
+    var key1 = JoinKey.ofRid(new RecordId(10, 42));
+    var key2 = JoinKey.ofRid(new RecordId(10, 99));
+
+    assertFalse(key1.equals(key2));
+  }
+
+  /** Verifies JoinKey.ofRid self-equality via identity. */
+  @Test
+  public void testJoinKeyOfRidSelfEquality() {
+    var key = JoinKey.ofRid(new RecordId(5, 1));
+    assertEquals(key, key);
+  }
+
+  /** Verifies JoinKey.ofRid is not equal to null or unrelated object. */
+  @Test
+  public void testJoinKeyOfRidNotEqualToNullOrOther() {
+    var key = JoinKey.ofRid(new RecordId(5, 1));
+    assertFalse(key.equals(null));
+    assertFalse(key.equals("not a JoinKey"));
+  }
+
+  /** Verifies JoinKey.ofRids equality: same RID arrays → equal. */
+  @Test
+  public void testJoinKeyOfRidsEquals() {
+    var rids1 = new RID[] {new RecordId(1, 10), new RecordId(2, 20)};
+    var rids2 = new RID[] {new RecordId(1, 10), new RecordId(2, 20)};
+    var key1 = JoinKey.ofRids(rids1);
+    var key2 = JoinKey.ofRids(rids2);
+
+    assertEquals(key1, key2);
+    assertEquals(key1.hashCode(), key2.hashCode());
+  }
+
+  /** Verifies JoinKey.ofRids inequality: different RID arrays → not equal. */
+  @Test
+  public void testJoinKeyOfRidsNotEqual() {
+    var rids1 = new RID[] {new RecordId(1, 10), new RecordId(2, 20)};
+    var rids2 = new RID[] {new RecordId(1, 10), new RecordId(3, 30)};
+    var key1 = JoinKey.ofRids(rids1);
+    var key2 = JoinKey.ofRids(rids2);
+
+    assertFalse(key1.equals(key2));
+  }
+
+  /** Verifies JoinKey.ofObjects equality: same object values → equal. */
+  @Test
+  public void testJoinKeyOfObjectsEquals() {
+    var key1 = JoinKey.ofObjects(new Object[] {"hello", 42});
+    var key2 = JoinKey.ofObjects(new Object[] {"hello", 42});
+
+    assertEquals(key1, key2);
+    assertEquals(key1.hashCode(), key2.hashCode());
+  }
+
+  /** Verifies JoinKey.ofObjects inequality: different values → not equal. */
+  @Test
+  public void testJoinKeyOfObjectsNotEqual() {
+    var key1 = JoinKey.ofObjects(new Object[] {"hello", 42});
+    var key2 = JoinKey.ofObjects(new Object[] {"world", 42});
+
+    assertFalse(key1.equals(key2));
+  }
+
+  /** Verifies keys of different kinds are never equal (symmetric). */
+  @Test
+  public void testJoinKeyDifferentKindsNotEqual() {
+    var rid1 = new RecordId(1, 10);
+    var rid2 = new RecordId(2, 20);
+    var singleKey = JoinKey.ofRid(rid1);
+    var arrayKey = JoinKey.ofRids(new RID[] {rid1, rid2});
+    var objectKey = JoinKey.ofObjects(new Object[] {rid1, rid2});
+
+    // Both directions for symmetry
+    assertFalse(singleKey.equals(arrayKey));
+    assertFalse(arrayKey.equals(singleKey));
+    assertFalse(singleKey.equals(objectKey));
+    assertFalse(objectKey.equals(singleKey));
+    assertFalse(arrayKey.equals(objectKey));
+    assertFalse(objectKey.equals(arrayKey));
+  }
+
+  /** Verifies JoinKey.toString() includes RID values for all three kinds. */
+  @Test
+  public void testJoinKeyToStringAllKinds() {
+    var ridKey = JoinKey.ofRid(new RecordId(10, 42));
+    assertTrue(ridKey.toString().contains("#10:42"));
+
+    var ridsKey = JoinKey.ofRids(
+        new RID[] {new RecordId(1, 10), new RecordId(2, 20)});
+    assertTrue(ridsKey.toString().contains("#1:10"));
+    assertTrue(ridsKey.toString().contains("#2:20"));
+
+    var objKey = JoinKey.ofObjects(new Object[] {"hello", 42});
+    assertTrue(objKey.toString().contains("hello"));
+    assertTrue(objKey.toString().contains("42"));
+  }
+
+  /** Verifies JoinKey works correctly as a HashMap key (core use case). */
+  @Test
+  public void testJoinKeyWorksAsHashMapKey() {
+    var map = new java.util.HashMap<JoinKey, String>();
+
+    // Single RID
+    var ridKey = JoinKey.ofRid(new RecordId(10, 42));
+    map.put(ridKey, "rid");
+    assertEquals("rid", map.get(JoinKey.ofRid(new RecordId(10, 42))));
+
+    // RID array
+    var ridsKey = JoinKey.ofRids(
+        new RID[] {new RecordId(1, 10), new RecordId(2, 20)});
+    map.put(ridsKey, "rids");
+    assertEquals("rids", map.get(
+        JoinKey.ofRids(new RID[] {new RecordId(1, 10), new RecordId(2, 20)})));
+
+    // Object array
+    var objKey = JoinKey.ofObjects(new Object[] {"hello", 42});
+    map.put(objKey, "obj");
+    assertEquals("obj", map.get(JoinKey.ofObjects(new Object[] {"hello", 42})));
+  }
+
+  /** Verifies defensive copy: mutating source array does not corrupt the key. */
+  @Test
+  public void testJoinKeyOfRidsDefensiveCopy() {
+    var rids = new RID[] {new RecordId(1, 10), new RecordId(2, 20)};
+    var key = JoinKey.ofRids(rids);
+
+    // Mutate the source array after key creation
+    rids[1] = new RecordId(9, 99);
+
+    // Key must still match the original values, not the mutated array
+    var freshKey = JoinKey.ofRids(
+        new RID[] {new RecordId(1, 10), new RecordId(2, 20)});
+    assertEquals(key, freshKey);
+    assertEquals(key.hashCode(), freshKey.hashCode());
+  }
+
+  /** Verifies ofObjects handles null elements correctly. */
+  @Test
+  public void testJoinKeyOfObjectsWithNullElements() {
+    var key1 = JoinKey.ofObjects(new Object[] {null, "value"});
+    var key2 = JoinKey.ofObjects(new Object[] {null, "value"});
+
+    assertEquals(key1, key2);
+    assertEquals(key1.hashCode(), key2.hashCode());
+
+    var key3 = JoinKey.ofObjects(new Object[] {"value", null});
+    assertFalse(key1.equals(key3));
   }
 
   // -- MatchReverseEdgeTraverser tests --

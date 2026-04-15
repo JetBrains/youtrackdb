@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.util.PairLongObject;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
@@ -262,16 +263,16 @@ public class MatchExecutionPlanner {
   protected List<SQLNestedProjection> returnNestedProjections;
 
   /** `true` when the user wrote `RETURN $elements` — unrolls matched nodes. */
-  private boolean returnElements;
+  boolean returnElements;
 
   /** `true` when the user wrote `RETURN $paths` — returns full matched paths. */
-  private boolean returnPaths;
+  boolean returnPaths;
 
   /** `true` when the user wrote `RETURN $patterns` — returns matched patterns. */
-  private boolean returnPatterns;
+  boolean returnPatterns;
 
   /** `true` when the user wrote `RETURN $pathElements` — unrolls *all* path nodes. */
-  private boolean returnPathElements;
+  boolean returnPathElements;
 
   /** `true` when the `RETURN` clause contains the `DISTINCT` keyword. */
   private boolean returnDistinct;
@@ -322,6 +323,53 @@ public class MatchExecutionPlanner {
    * during the nested-loop pattern matching.
    */
   private static final long THRESHOLD = 100;
+
+  /**
+   * Maximum estimated build-side cardinality for which the planner will choose a
+   * hash-based join (anti-join, semi-join, inner join) over nested-loop evaluation.
+   * If the estimated NOT-pattern result set exceeds this threshold, the planner
+   * falls back to {@link FilterNotMatchPatternStep}. Configurable via
+   * {@link GlobalConfiguration#QUERY_MATCH_HASH_JOIN_THRESHOLD}.
+   */
+  static long getHashJoinThreshold() {
+    return Math.max(0, GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValueAsLong());
+  }
+
+  /**
+   * Minimum upstream (probe-side) cardinality for hash join to be worthwhile.
+   * When set to 0, both the upstream check (Guard 1) and cost-based comparison
+   * (Guard 2) are bypassed — only the build-side threshold applies. Configurable
+   * via {@link GlobalConfiguration#QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN}.
+   */
+  static long getHashJoinUpstreamMin() {
+    return GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.getValueAsLong();
+  }
+
+  /**
+   * Memory weight ratio of INNER_JOIN vs SEMI_JOIN entries. INNER_JOIN materializes
+   * full ResultInternal rows (~100 + aliasCount × 80 bytes each) into a
+   * HashMap&lt;JoinKey, List&lt;Result&gt;&gt;, while SEMI_JOIN stores only JoinKey entries
+   * in a HashSet (~72 bytes each). The INNER_JOIN is roughly 7× heavier per entry
+   * and should use a proportionally tighter threshold.
+   */
+  private static final int INNER_JOIN_MEMORY_WEIGHT = 7;
+
+  // FANOUT_PER_HOP removed — fan-out is now computed per-edge via
+  // EdgeFanOutEstimator.estimateFanOut() using schema statistics
+  // (edgeCount / sourceCount). Falls back to GlobalConfiguration
+  // .QUERY_STATS_DEFAULT_FAN_OUT when schema metadata is unavailable.
+
+  /** Pattern for detecting $matched.ALIAS.@rid correlation in WHERE clauses. */
+  private static final java.util.regex.Pattern MATCHED_RID_PATTERN =
+      java.util.regex.Pattern.compile("\\$matched\\.(\\w+)\\.@rid");
+
+  /** Pattern for counting @rid occurrences in a filter string. */
+  private static final java.util.regex.Pattern RID_PATTERN =
+      java.util.regex.Pattern.compile("@rid");
+
+  /** Pattern for validating edge class names as valid identifiers. */
+  private static final java.util.regex.Pattern VALID_EDGE_LABEL =
+      java.util.regex.Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
 
   /**
    * Creates a planner from a pre-built pattern IR. Bypasses SQL AST parsing entirely:
@@ -493,8 +541,10 @@ public class MatchExecutionPlanner {
       }
     }
 
-    // Phase 6: Append NOT-pattern filter steps
-    manageNotPatterns(result, pattern, notMatchExpressions, context, enableProfiling);
+    // Phase 6: Append NOT-pattern filter steps (nested-loop or hash anti-join)
+    manageNotPatterns(
+        result, pattern, notMatchExpressions, aliasClasses, aliasFilters, aliasRids,
+        context, enableProfiling);
 
     // Phase 7: If optional nodes were encountered, replace EMPTY_OPTIONAL sentinels with null
     if (foundOptional) {
@@ -586,14 +636,7 @@ public class MatchExecutionPlanner {
    * depends on values produced during pattern traversal.
    */
   private boolean dependsOnExecutionContext(String key) {
-    var filter = aliasFilters.get(key);
-    if (filter == null) {
-      return false;
-    }
-    if (filter.refersToParent()) {
-      return true;
-    }
-    return filter.toString().toLowerCase(Locale.ROOT).contains("$matched.");
+    return filterDependsOnContext(aliasFilters.get(key));
   }
 
   private boolean isOptional(String key) {
@@ -616,6 +659,9 @@ public class MatchExecutionPlanner {
    * @param result               the plan being assembled
    * @param pattern              the positive pattern (used to validate alias references)
    * @param notMatchExpressions  the list of negative match expressions
+   * @param aliasClasses         per-alias class names (needed for hash join build-side)
+   * @param aliasFilters         per-alias WHERE clauses
+   * @param aliasRids            per-alias RID constraints
    * @param context              the command context
    * @param enableProfiling      whether to enable step profiling
    */
@@ -623,6 +669,9 @@ public class MatchExecutionPlanner {
       SelectExecutionPlan result,
       Pattern pattern,
       List<SQLMatchExpression> notMatchExpressions,
+      Map<String, String> aliasClasses,
+      Map<String, SQLWhereClause> aliasFilters,
+      Map<String, SQLRid> aliasRids,
       CommandContext context,
       boolean enableProfiling) {
     for (var exp : notMatchExpressions) {
@@ -636,11 +685,12 @@ public class MatchExecutionPlanner {
         throw new CommandExecutionException(context.getDatabaseSession(),
             "This kind of NOT expression is not supported (yet): "
                 + "WHERE condition on the initial alias");
-        // TODO implement his
+        // TODO implement this
       }
 
+      // Build the NOT pattern's MatchStep chain (shared by both strategies)
       var lastFilter = exp.getOrigin();
-      List<AbstractExecutionStep> steps = new ArrayList<>();
+      List<AbstractExecutionStep> matchSteps = new ArrayList<>();
       for (var item : exp.getItems()) {
         if (item instanceof SQLMultiMatchPathItem) {
           throw new CommandExecutionException(context.getDatabaseSession(),
@@ -654,11 +704,1023 @@ public class MatchExecutionPlanner {
         edge.in.alias = item.getFilter().getAlias();
         var traversal = new EdgeTraversal(edge, true);
         var step = new MatchStep(context, traversal, enableProfiling);
-        steps.add(step);
+        matchSteps.add(step);
         lastFilter = item.getFilter();
       }
-      result.chain(new FilterNotMatchPatternStep(steps, context, enableProfiling));
+
+      if (canUseHashJoin(exp, aliasClasses, aliasFilters, aliasRids, context)) {
+        // Hash anti-join path: materialize NOT sub-pattern, probe per upstream row
+        var buildPlan = buildNotPatternPlan(
+            exp, matchSteps, aliasClasses, aliasFilters, aliasRids, context, enableProfiling);
+        var sharedAliases = findSharedAliases(exp, pattern);
+        result.chain(new HashJoinMatchStep(
+            context, buildPlan, sharedAliases, JoinMode.ANTI_JOIN, enableProfiling));
+      } else {
+        // Fallback: nested-loop evaluation via FilterNotMatchPatternStep
+        result.chain(new FilterNotMatchPatternStep(matchSteps, context, enableProfiling));
+      }
     }
+  }
+
+  /**
+   * Checks whether a NOT expression depends on the current execution context
+   * ({@code $matched} or {@code $parent} references). If any filter in the NOT
+   * expression references these variables, the pattern cannot be independently
+   * materialized and must use the nested-loop {@link FilterNotMatchPatternStep}.
+   *
+   * <p>Inspects the origin filter and all intermediate path-item filters, checking
+   * each WHERE clause for {@code refersToParent()} and string-level
+   * {@code $matched.} references (matching the approach in
+   * {@link #dependsOnExecutionContext}).
+   *
+   * @param exp the NOT match expression to inspect
+   * @return {@code true} if any filter depends on execution context
+   */
+  static boolean notPatternDependsOnMatched(SQLMatchExpression exp) {
+    // Check origin filter (currently always null per parser validation in
+    // manageNotPatterns, but check defensively in case that constraint is relaxed)
+    if (filterDependsOnContext(exp.getOrigin().getFilter())) {
+      return true;
+    }
+    // Check each intermediate path item's filter
+    for (var item : exp.getItems()) {
+      var filter = item.getFilter();
+      if (filter != null && filterDependsOnContext(filter.getFilter())) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Checks whether a single WHERE clause references execution context variables.
+   */
+  private static boolean filterDependsOnContext(@Nullable SQLWhereClause where) {
+    if (where == null) {
+      return false;
+    }
+    if (where.refersToParent()) {
+      return true;
+    }
+    return where.toString().toLowerCase(Locale.ROOT).contains("$matched.");
+  }
+
+  /**
+   * Finds aliases shared between a NOT expression and the positive pattern. These
+   * shared aliases form the join key for hash-based evaluation.
+   *
+   * <p>The origin alias is guaranteed to be shared (enforced by the origin-alias
+   * validation in {@code manageNotPatterns}). Additional shared aliases may exist if intermediate path items
+   * reference aliases that also appear in the positive pattern.
+   *
+   * @param exp     the NOT match expression
+   * @param pattern the positive pattern
+   * @return shared alias names, origin first, then others in NOT-expression traversal order;
+   *     never empty
+   */
+  static List<String> findSharedAliases(SQLMatchExpression exp, Pattern pattern) {
+    // Collect all alias names from the NOT expression
+    var notAliases = new LinkedHashSet<String>();
+    var originAlias = exp.getOrigin().getAlias();
+    assert originAlias != null : "NOT expression origin must have an alias";
+    notAliases.add(originAlias);
+    for (var item : exp.getItems()) {
+      var filter = item.getFilter();
+      if (filter != null) {
+        var alias = filter.getAlias();
+        if (alias != null) {
+          notAliases.add(alias);
+        }
+      }
+    }
+
+    // Intersect with positive pattern aliases, preserving origin-first order
+    var positiveAliases = pattern.aliasToNode.keySet();
+    var result = new ArrayList<String>();
+    for (var alias : notAliases) {
+      if (positiveAliases.contains(alias)) {
+        result.add(alias);
+      }
+    }
+
+    assert !result.isEmpty()
+        : "NOT expression must share at least the origin alias with the positive pattern";
+    return result;
+  }
+
+  /**
+   * Estimates the cardinality of a NOT pattern's build side (the materialized result
+   * set used for hash-based evaluation). The estimate drives the planner's decision
+   * to use hash join vs. nested-loop.
+   *
+   * <p>Algorithm:
+   * <ol>
+   *   <li>Get the origin alias's base cardinality via {@link #estimateRootEntries}.
+   *       If the origin alias has no estimable class/RID/filter, returns
+   *       {@code Long.MAX_VALUE} to force fallback to nested-loop.</li>
+   *   <li>For each edge, multiply by schema-based fan-out via
+   *       {@link EdgeFanOutEstimator#estimateFanOut}.</li>
+   *   <li>For each intermediate filter (non-null WHERE clause), apply 0.5 selectivity.</li>
+   *   <li>Cap at {@code Long.MAX_VALUE} to avoid overflow.</li>
+   * </ol>
+   *
+   * @return estimated cardinality, or {@code Long.MAX_VALUE} if not estimable
+   */
+  static long estimateNotPatternCardinality(
+      SQLMatchExpression exp,
+      Map<String, String> aliasClasses,
+      Map<String, SQLWhereClause> aliasFilters,
+      Map<String, SQLRid> aliasRids,
+      CommandContext context) {
+    var originAlias = exp.getOrigin().getAlias();
+    assert originAlias != null : "NOT expression origin must have an alias";
+
+    // If the origin alias has no class, RID, or filter, we can't estimate —
+    // return MAX_VALUE to force fallback to nested-loop.
+    if (aliasClasses.get(originAlias) == null
+        && aliasRids.get(originAlias) == null
+        && aliasFilters.get(originAlias) == null) {
+      return Long.MAX_VALUE;
+    }
+    var session = context.getDatabaseSession();
+    long estimate = estimateAliasCardinality(
+        originAlias, aliasClasses, aliasFilters, aliasRids, context);
+    var currentClass = aliasClasses.get(originAlias);
+    for (var item : exp.getItems()) {
+      // Estimate fan-out from schema statistics (edgeCount / sourceCount)
+      // or fall back to default if schema metadata is unavailable
+      var method = item.getMethod();
+      double fanOut = estimateMethodFanOut(method, currentClass, session);
+      long fanOutLong = Math.max(1, Math.round(fanOut));
+      if (estimate > Long.MAX_VALUE / fanOutLong) {
+        return Long.MAX_VALUE; // overflow guard
+      }
+      estimate *= fanOutLong;
+
+      // Apply selectivity for intermediate filters — use histogram-based
+      // estimation if an index is available, otherwise fall back to default.
+      var filter = item.getFilter();
+      if (filter != null && filter.getFilter() != null) {
+        double selectivity = estimateFilterSelectivity(
+            filter.getFilter(), currentClass, context);
+        estimate = Math.max(1, Math.round(estimate * selectivity));
+      }
+      // Track current class for next hop's fan-out estimation
+      if (filter != null && filter.getClassName(context) != null) {
+        currentClass = filter.getClassName(context);
+      }
+    }
+    return estimate;
+  }
+
+  /**
+   * Determines whether a NOT expression is eligible for hash-based anti-join evaluation.
+   * Returns {@code true} iff all three conditions are met:
+   * <ol>
+   *   <li>No filter in the NOT expression references {@code $matched} or
+   *       {@code $parent}.</li>
+   *   <li>The origin alias has a known class in {@code aliasClasses} (needed to
+   *       construct the build-side scan).</li>
+   *   <li>The estimated build-side cardinality does not exceed
+   *       {@link #getHashJoinThreshold()}.</li>
+   * </ol>
+   */
+  static boolean canUseHashJoin(
+      SQLMatchExpression exp,
+      Map<String, String> aliasClasses,
+      Map<String, SQLWhereClause> aliasFilters,
+      Map<String, SQLRid> aliasRids,
+      CommandContext context) {
+    if (notPatternDependsOnMatched(exp)) {
+      return false;
+    }
+    var originAlias = exp.getOrigin().getAlias();
+    if (originAlias == null || !aliasClasses.containsKey(originAlias)) {
+      return false;
+    }
+    var estimatedCardinality =
+        estimateNotPatternCardinality(exp, aliasClasses, aliasFilters, aliasRids, context);
+    return estimatedCardinality <= getHashJoinThreshold();
+  }
+
+  /**
+   * Determines which pattern aliases are referenced downstream of the MATCH traversal —
+   * in the RETURN clause, GROUP BY, ORDER BY, and UNWIND. This is needed to decide if
+   * a branch's non-shared aliases can be elided via semi-join (i.e., if they are not
+   * referenced downstream, the branch only needs to be probed for existence).
+   *
+   * <p>If any wildcard return mode is active ({@code $elements}, {@code $paths},
+   * {@code $patterns}, {@code $pathElements}), all pattern aliases are implicitly
+   * needed and the method returns the full {@code allPatternAliases} set.
+   *
+   * @param returnItems         expressions in the RETURN clause
+   * @param groupBy             GROUP BY clause (nullable)
+   * @param orderBy             ORDER BY clause (nullable)
+   * @param unwind              UNWIND clause (nullable)
+   * @param allPatternAliases   all aliases defined in the pattern graph
+   * @return the subset of aliases that are referenced downstream
+   */
+  Set<String> collectDownstreamAliases(
+      List<SQLExpression> returnItems,
+      @Nullable SQLGroupBy groupBy,
+      @Nullable SQLOrderBy orderBy,
+      @Nullable SQLUnwind unwind,
+      Set<String> allPatternAliases) {
+    // Wildcard return modes implicitly reference all aliases
+    if (returnElements || returnPaths || returnPatterns || returnPathElements) {
+      return Set.copyOf(allPatternAliases);
+    }
+
+    // Defensive: empty RETURN items shouldn't happen, but return all aliases
+    if (returnItems == null || returnItems.isEmpty()) {
+      return Set.copyOf(allPatternAliases);
+    }
+
+    var referenced = new HashSet<String>();
+
+    // Pre-compile word-boundary patterns for all aliases (avoids repeated
+    // regex compilation when scanning multiple expressions)
+    var compiled = new HashMap<String, java.util.regex.Pattern>();
+    for (var alias : allPatternAliases) {
+      compiled.put(alias, java.util.regex.Pattern.compile(
+          "\\b" + java.util.regex.Pattern.quote(alias) + "\\b"));
+    }
+
+    // Scan RETURN expressions
+    for (var expr : returnItems) {
+      collectAliasesFromText(expr.toString(), allPatternAliases, referenced, compiled);
+    }
+
+    // Scan GROUP BY expressions
+    if (groupBy != null) {
+      for (var expr : groupBy.getItems()) {
+        collectAliasesFromText(
+            expr.toString(), allPatternAliases, referenced, compiled);
+      }
+    }
+
+    // Scan ORDER BY items — use getAlias() which holds the expression text
+    // (e.g., "friend.name"), not Object.toString() which is not overridden
+    if (orderBy != null && orderBy.getItems() != null) {
+      for (var item : orderBy.getItems()) {
+        var alias = item.getAlias();
+        if (alias != null) {
+          collectAliasesFromText(alias, allPatternAliases, referenced, compiled);
+        }
+      }
+    }
+
+    // Scan UNWIND identifiers
+    if (unwind != null) {
+      for (var ident : unwind.getItems()) {
+        collectAliasesFromText(
+            ident.toString(), allPatternAliases, referenced, compiled);
+      }
+    }
+
+    return referenced;
+  }
+
+  /**
+   * Scans a text string for alias references using pre-compiled word-boundary patterns.
+   * An alias is considered referenced if it appears as a standalone word (e.g.,
+   * {@code friend} or {@code friend.name}, but not as a substring of a longer
+   * identifier like {@code friendship}).
+   */
+  private static void collectAliasesFromText(
+      String text,
+      Set<String> allPatternAliases,
+      Set<String> result,
+      Map<String, java.util.regex.Pattern> compiledPatterns) {
+    if (text == null || text.isEmpty()) {
+      return;
+    }
+    for (var alias : allPatternAliases) {
+      var pattern = compiledPatterns.get(alias);
+      if (pattern == null) {
+        pattern = java.util.regex.Pattern.compile(
+            "\\b" + java.util.regex.Pattern.quote(alias) + "\\b");
+      }
+      if (pattern.matcher(text).find()) {
+        result.add(alias);
+      }
+    }
+  }
+
+  /**
+   * Describes a secondary branch in the pattern graph that is eligible for hash join
+   * optimization. Depending on whether intermediate aliases are referenced downstream,
+   * the branch is executed as a {@link JoinMode#SEMI_JOIN} (existence check only) or
+   * {@link JoinMode#INNER_JOIN} (intermediate bindings merged into result rows).
+   *
+   * @param sharedAliases       aliases shared between the branch and the main path (join keys)
+   * @param branchEdges         the edge traversals forming this branch (in schedule order),
+   *                            including the consistency-check edge
+   * @param intermediateAliases aliases visited exclusively by this branch
+   * @param estimatedCardinality estimated number of rows the branch produces
+   * @param joinMode            the join mode: SEMI_JOIN if no intermediates are downstream,
+   *                            INNER_JOIN if any intermediate is referenced downstream
+   * @param scanAlias           the alias to scan from in the build-side plan — must have a
+   *                            known class or RID in {@code aliasClasses}/{@code aliasRids}
+   */
+  record HashJoinBranch(
+      List<String> sharedAliases,
+      List<EdgeTraversal> branchEdges,
+      Set<String> intermediateAliases,
+      long estimatedCardinality,
+      JoinMode joinMode,
+      String scanAlias) {
+  }
+
+  /**
+   * Identifies secondary branches in the pattern graph that are eligible for hash join
+   * optimization (semi-join or inner join). A hash join branch is a contiguous sub-sequence
+   * of scheduled edges that:
+   * <ul>
+   *   <li>ends with a <b>consistency-check edge</b> — an edge whose target alias was already
+   *       visited before this edge (both endpoints known, cost 0 in the scheduler)</li>
+   *   <li>no filter on any branch node depends on {@code $matched} or {@code $parent}</li>
+   *   <li>estimated cardinality does not exceed {@link #getHashJoinThreshold()}</li>
+   *   <li>no intermediate alias uses an auto-generated name ({@link #DEFAULT_ALIAS_PREFIX})</li>
+   * </ul>
+   *
+   * <p>Branches are classified as {@link JoinMode#SEMI_JOIN} when no intermediate alias
+   * is referenced downstream, or {@link JoinMode#INNER_JOIN} when at least one intermediate
+   * alias is referenced downstream (requiring build-side row merge into the result).
+   *
+   * @param scheduledEdges     the edge schedule from {@code getTopologicalSortedSchedule()}
+   * @param downstreamAliases  aliases referenced downstream of the MATCH traversal
+   * @param aliasClasses       per-alias class names
+   * @param aliasFilters       per-alias WHERE clauses
+   * @param aliasRids          per-alias RID constraints
+   * @param context            the command context
+   * @return list of eligible hash join branches (may be empty)
+   */
+  static List<HashJoinBranch> identifyHashJoinBranches(
+      List<EdgeTraversal> scheduledEdges,
+      Set<String> downstreamAliases,
+      Map<String, String> aliasClasses,
+      Map<String, SQLWhereClause> aliasFilters,
+      Map<String, SQLRid> aliasRids,
+      CommandContext context) {
+    if (scheduledEdges.size() < 2) {
+      // Need at least 2 edges: one branch edge + one consistency-check edge
+      return List.of();
+    }
+
+    // Build a per-edge visited snapshot: for each edge index i, we know which
+    // aliases were visited by edges [0..i-1]. This lets traceBackwardBranch
+    // distinguish "main path" aliases from "branch" aliases.
+    var visited = new LinkedHashSet<String>();
+    visited.add(sourceAlias(scheduledEdges.get(0)));
+
+    // visitedBefore[i] = set of aliases visited before edge i is processed
+    @SuppressWarnings("unchecked")
+    var visitedBefore = new Set[scheduledEdges.size()];
+    for (int i = 0; i < scheduledEdges.size(); i++) {
+      visitedBefore[i] = Set.copyOf(visited);
+      visited.add(sourceAlias(scheduledEdges.get(i)));
+      visited.add(targetAlias(scheduledEdges.get(i)));
+    }
+
+    var result = new ArrayList<HashJoinBranch>();
+    // Track claimed edges to prevent overlapping branches from sharing edges.
+    // If two branches share an edge, the same edge would be skipped once in the
+    // main loop but included in two build plans, leading to duplicated traversal.
+    var claimedEdges = new HashSet<EdgeTraversal>();
+
+    for (int i = 0; i < scheduledEdges.size(); i++) {
+      var target = targetAlias(scheduledEdges.get(i));
+      @SuppressWarnings("unchecked")
+      Set<String> beforeThis = visitedBefore[i];
+
+      if (beforeThis.contains(target)) {
+        // This is a consistency-check edge — target was already visited.
+        var branch = traceBackwardBranch(
+            scheduledEdges, i, visitedBefore, downstreamAliases,
+            aliasClasses, aliasFilters, aliasRids, context);
+        if (branch != null) {
+          // Discard branch if any of its edges overlap with an already-claimed branch
+          boolean overlaps = false;
+          for (var edge : branch.branchEdges()) {
+            if (claimedEdges.contains(edge)) {
+              overlaps = true;
+              break;
+            }
+          }
+          if (!overlaps) {
+            claimedEdges.addAll(branch.branchEdges());
+            result.add(branch);
+          }
+        }
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Returns the source alias of an edge traversal (the alias that is already matched).
+   */
+  private static String sourceAlias(EdgeTraversal edge) {
+    return edge.out ? edge.edge.out.alias : edge.edge.in.alias;
+  }
+
+  /**
+   * Returns the target alias of an edge traversal (the alias being traversed to).
+   */
+  private static String targetAlias(EdgeTraversal edge) {
+    return edge.out ? edge.edge.in.alias : edge.edge.out.alias;
+  }
+
+  /**
+   * Traces backward from a consistency-check edge at position {@code checkIdx} to find
+   * the branch's edges. The branch is the contiguous sub-sequence of edges ending at the
+   * consistency-check edge, starting from a "branch root" shared alias. Branches with
+   * downstream intermediates are classified as {@link JoinMode#INNER_JOIN} (build-side
+   * row merge); branches without are classified as {@link JoinMode#SEMI_JOIN}.
+   *
+   * @return a {@link HashJoinBranch} if eligible, or {@code null} if not
+   */
+  @Nullable private static HashJoinBranch traceBackwardBranch(
+      List<EdgeTraversal> scheduledEdges,
+      int checkIdx,
+      Set<String>[] visitedBefore,
+      Set<String> downstreamAliases,
+      Map<String, String> aliasClasses,
+      Map<String, SQLWhereClause> aliasFilters,
+      Map<String, SQLRid> aliasRids,
+      CommandContext context) {
+    var checkEdge = scheduledEdges.get(checkIdx);
+    var checkTarget = targetAlias(checkEdge);
+    var checkSource = sourceAlias(checkEdge);
+
+    // Phase 1: Walk backward to collect branch edges and intermediate aliases
+    var trace = traceBackwardEdges(
+        scheduledEdges, checkIdx, visitedBefore, checkSource, checkTarget);
+    if (trace == null) {
+      return null;
+    }
+
+    // Phase 2: Eligibility checks (optional nodes, context dependencies,
+    // external $matched dependencies on intermediates)
+    var joinMode = checkBranchEligibility(
+        trace.branchEdges, trace.intermediateAliases, scheduledEdges,
+        downstreamAliases, aliasFilters);
+    if (joinMode == null) {
+      return null;
+    }
+
+    // Also check shared aliases (checkTarget, checkSource, branchRoot) — their
+    // filters are used in the build-side plan's scan or leftFilter, and $matched
+    // is not populated in the isolated context.
+    if (filterDependsOnContext(aliasFilters.get(checkTarget))
+        || filterDependsOnContext(aliasFilters.get(checkSource))
+        || filterDependsOnContext(aliasFilters.get(trace.branchRoot))) {
+      return null;
+    }
+
+    // Phase 3: Cardinality estimation and cost-based guards
+    long cardinality = estimateBranchCardinality(
+        trace.branchRoot, trace.branchEdges, aliasClasses, aliasFilters,
+        aliasRids, context);
+    long threshold = getHashJoinThreshold();
+    if (cardinality > threshold) {
+      return null;
+    }
+
+    // INNER_JOIN materializes full ResultInternal rows (~7× heavier per entry
+    // than SEMI_JOIN's lightweight JoinKey entries). Apply a tighter threshold.
+    if (joinMode == JoinMode.INNER_JOIN
+        && cardinality > threshold / INNER_JOIN_MEMORY_WEIGHT) {
+      return null;
+    }
+
+    // Guards 1 & 2 are only active when upstreamMin > 0. Setting upstreamMin to 0
+    // bypasses both guards — only the build-side threshold applies.
+    long upstreamMin = getHashJoinUpstreamMin();
+    if (upstreamMin > 0) {
+      // Guard 1: Skip hash join when the upstream (probe side) is small.
+      long upstreamCardinality = estimateUpstreamCardinality(
+          scheduledEdges, checkIdx, trace.branchEdges,
+          aliasClasses, aliasFilters, aliasRids, context);
+      if (upstreamCardinality < upstreamMin) {
+        return null;
+      }
+
+      // Guard 2: Cost-based comparison.
+      //   hashJoinCost  = build_cardinality + upstream
+      //   nestedLoopCost = upstream × branchFanOut × numHops
+      double branchFanOut = estimateBranchFanOut(
+          trace.branchEdges, trace.branchRoot, aliasClasses, aliasFilters,
+          context);
+      int numBranchHops = Math.max(1, trace.branchEdges.size() - 1);
+      double nestedLoopCost = upstreamCardinality * branchFanOut * numBranchHops;
+      double hashJoinCost = (double) cardinality + upstreamCardinality;
+      if (hashJoinCost >= nestedLoopCost) {
+        return null;
+      }
+    }
+
+    // Shared aliases: the branch root and the check edge's non-intermediate endpoint
+    var otherShared = trace.intermediateAliases.contains(checkSource)
+        ? checkTarget : checkSource;
+    var sharedAliases = trace.branchRoot.equals(otherShared)
+        ? List.of(trace.branchRoot) : List.of(otherShared, trace.branchRoot);
+
+    // The build plan needs a scan alias with a known class or RID.
+    var scanAlias = findScanAlias(
+        otherShared, trace.branchRoot, trace.intermediateAliases, aliasClasses,
+        aliasRids);
+    if (scanAlias == null) {
+      return null;
+    }
+
+    return new HashJoinBranch(
+        sharedAliases, trace.branchEdges, trace.intermediateAliases, cardinality,
+        joinMode, scanAlias);
+  }
+
+  /** Intermediate result from backward edge tracing in {@link #traceBackwardBranch}. */
+  private record BranchTrace(
+      List<EdgeTraversal> branchEdges,
+      Set<String> intermediateAliases,
+      String branchRoot) {
+  }
+
+  /**
+   * Walks backward from the consistency-check edge at {@code checkIdx}, collecting
+   * consecutive edges whose target was not yet visited when that edge was processed
+   * (i.e., edges that introduced new intermediate aliases). Stops when the branch
+   * root (an already-visited source alias) is found.
+   *
+   * @return the traced branch edges, intermediate aliases, and branch root; or
+   *         {@code null} if no valid branch was found
+   */
+  @SuppressWarnings("unchecked")
+  @Nullable private static BranchTrace traceBackwardEdges(
+      List<EdgeTraversal> scheduledEdges,
+      int checkIdx,
+      Set<String>[] visitedBefore,
+      String checkSource,
+      String checkTarget) {
+    var checkEdge = scheduledEdges.get(checkIdx);
+    var branchEdges = new ArrayList<EdgeTraversal>();
+    branchEdges.add(checkEdge);
+    var intermediateAliases = new HashSet<String>();
+
+    String currentAlias = null;
+    for (int j = checkIdx - 1; j >= 0; j--) {
+      var prevEdge = scheduledEdges.get(j);
+      var prevTarget = targetAlias(prevEdge);
+      var prevSource = sourceAlias(prevEdge);
+      Set<String> visitedBeforeJ = visitedBefore[j];
+
+      // This edge introduced prevTarget if prevTarget was NOT in visitedBefore[j]
+      if (!visitedBeforeJ.contains(prevTarget)) {
+        if (currentAlias == null) {
+          // First branch edge: must connect to checkSource or checkTarget
+          if (prevTarget.equals(checkSource) || prevTarget.equals(checkTarget)) {
+            intermediateAliases.add(prevTarget);
+            branchEdges.add(0, prevEdge);
+            currentAlias = prevSource;
+            if (visitedBeforeJ.contains(prevSource)) {
+              break;
+            }
+          }
+        } else if (prevTarget.equals(currentAlias)) {
+          // Continues the branch chain
+          intermediateAliases.add(prevTarget);
+          branchEdges.add(0, prevEdge);
+          currentAlias = prevSource;
+          if (visitedBeforeJ.contains(prevSource)) {
+            break;
+          }
+        }
+      }
+    }
+
+    if (intermediateAliases.isEmpty() || currentAlias == null
+        || branchEdges.size() < 2) {
+      return null;
+    }
+    return new BranchTrace(branchEdges, intermediateAliases, currentAlias);
+  }
+
+  /**
+   * Checks whether a traced branch is eligible for hash join optimization.
+   * Rejects branches with optional nodes, auto-generated internal aliases,
+   * context-dependent filters ({@code $matched}/{@code $parent}), or external
+   * edges that depend on branch intermediates via {@code $matched}.
+   *
+   * @return the {@link JoinMode} if eligible, or {@code null} if not
+   */
+  @Nullable private static JoinMode checkBranchEligibility(
+      List<EdgeTraversal> branchEdges,
+      Set<String> intermediateAliases,
+      List<EdgeTraversal> scheduledEdges,
+      Set<String> downstreamAliases,
+      Map<String, SQLWhereClause> aliasFilters) {
+    // Check for auto-generated internal aliases and classify join mode
+    boolean hasDownstreamIntermediate = false;
+    for (var alias : intermediateAliases) {
+      if (alias.startsWith(DEFAULT_ALIAS_PREFIX)) {
+        return null;
+      }
+      if (downstreamAliases.contains(alias)) {
+        hasDownstreamIntermediate = true;
+      }
+    }
+    var joinMode = hasDownstreamIntermediate
+        ? JoinMode.INNER_JOIN : JoinMode.SEMI_JOIN;
+
+    // Check that no branch edge involves an optional node
+    for (var edgeT : branchEdges) {
+      if (edgeT.edge.out.isOptionalNode() || edgeT.edge.in.isOptionalNode()) {
+        return null;
+      }
+    }
+
+    // Check that no branch node's filter depends on $matched/$parent
+    for (var alias : intermediateAliases) {
+      if (filterDependsOnContext(aliasFilters.get(alias))) {
+        return null;
+      }
+    }
+
+    // Check that no NON-BRANCH edge references a branch intermediate via $matched.
+    // If an edge outside the branch depends on an intermediate, moving the branch
+    // to the end would break execution (the alias wouldn't be bound).
+    var branchEdgeSet = new HashSet<>(branchEdges);
+    for (var scheduled : scheduledEdges) {
+      if (branchEdgeSet.contains(scheduled)) {
+        continue;
+      }
+      var outFilter = aliasFilters.get(scheduled.edge.out.alias);
+      var inFilter = aliasFilters.get(scheduled.edge.in.alias);
+      var outStr = outFilter != null ? outFilter.toString() : null;
+      var inStr = inFilter != null ? inFilter.toString() : null;
+      for (var interAlias : intermediateAliases) {
+        if (outStr != null && outStr.contains("$matched." + interAlias)) {
+          return null;
+        }
+        if (inStr != null && inStr.contains("$matched." + interAlias)) {
+          return null;
+        }
+      }
+    }
+
+    return joinMode;
+  }
+
+  /**
+   * Estimates the cardinality of a hash join branch. Starts from the branch root's
+   * estimated record count and multiplies by schema-based fan-out per edge
+   * (via {@link EdgeFanOutEstimator}), applying 0.5 selectivity for WHERE filters.
+   */
+  private static long estimateBranchCardinality(
+      String branchRoot,
+      List<EdgeTraversal> branchEdges,
+      Map<String, String> aliasClasses,
+      Map<String, SQLWhereClause> aliasFilters,
+      Map<String, SQLRid> aliasRids,
+      CommandContext context) {
+    var session = context.getDatabaseSession();
+    // Start with branch root cardinality
+    long rows = estimateAliasCardinality(
+        branchRoot, aliasClasses, aliasFilters, aliasRids, context);
+
+    // Skip the last edge (consistency-check edge) — it doesn't expand cardinality,
+    // it's a filter verifying the target alias matches an already-visited node (cost 0).
+    int edgeCount = Math.max(0, branchEdges.size() - 1);
+    var currentClass = aliasClasses.get(branchRoot);
+    for (int i = 0; i < edgeCount; i++) {
+      var edgeT = branchEdges.get(i);
+      var method = edgeT.edge.item != null ? edgeT.edge.item.getMethod() : null;
+      double fanOut = estimateMethodFanOut(method, currentClass, session);
+      long fanOutLong = Math.max(1, Math.round(fanOut));
+      if (rows > Long.MAX_VALUE / fanOutLong) {
+        return Long.MAX_VALUE; // overflow guard
+      }
+      rows *= fanOutLong;
+      var target = targetAlias(edgeT);
+      // Apply selectivity — histogram-based if index available, default otherwise
+      var targetFilter = aliasFilters.get(target);
+      if (targetFilter != null) {
+        double selectivity = estimateFilterSelectivity(
+            targetFilter, currentClass, context);
+        rows = Math.max(1, Math.round(rows * selectivity));
+      }
+      // Track current class for next hop
+      var targetClass = aliasClasses.get(target);
+      if (targetClass != null) {
+        currentClass = targetClass;
+      }
+    }
+
+    return rows;
+  }
+
+  /**
+   * Estimates the upstream (probe-side) cardinality at the point where a hash join
+   * branch diverges from the main path. Walks the main-path edges from the scan root
+   * up to (but not including) the branch edges, multiplying by fan-out and selectivity.
+   *
+   * <p>Main-path edges are all edges in {@code scheduledEdges[0..checkIdx-1]} that are
+   * NOT in {@code branchEdges}. The upstream cardinality is:
+   * <pre>
+   *   rootCardinality × Π(fanOut_i × selectivity_i) for each main-path edge i
+   * </pre>
+   *
+   * @param scheduledEdges full edge schedule
+   * @param checkIdx       index of the consistency-check edge
+   * @param branchEdges    edges belonging to the hash join branch
+   * @return estimated upstream row count, or {@link Long#MAX_VALUE} if not estimable
+   */
+  private static long estimateUpstreamCardinality(
+      List<EdgeTraversal> scheduledEdges,
+      int checkIdx,
+      List<EdgeTraversal> branchEdges,
+      Map<String, String> aliasClasses,
+      Map<String, SQLWhereClause> aliasFilters,
+      Map<String, SQLRid> aliasRids,
+      CommandContext context) {
+    var session = context.getDatabaseSession();
+    var branchEdgeSet = new HashSet<>(branchEdges);
+
+    // Find the scan root alias (source of the first scheduled edge)
+    var rootAlias = sourceAlias(scheduledEdges.get(0));
+    long rows = estimateAliasCardinality(
+        rootAlias, aliasClasses, aliasFilters, aliasRids, context);
+
+    var currentClass = aliasClasses.get(rootAlias);
+    for (int i = 0; i < checkIdx; i++) {
+      var edgeT = scheduledEdges.get(i);
+      if (branchEdgeSet.contains(edgeT)) {
+        continue; // Skip branch edges — they don't contribute to upstream
+      }
+      var method = edgeT.edge.item != null ? edgeT.edge.item.getMethod() : null;
+      double fanOut = estimateMethodFanOut(method, currentClass, session);
+      long fanOutLong = Math.max(1, Math.round(fanOut));
+      if (rows > Long.MAX_VALUE / fanOutLong) {
+        return Long.MAX_VALUE;
+      }
+      rows *= fanOutLong;
+      var target = targetAlias(edgeT);
+      var targetFilter = aliasFilters.get(target);
+      if (targetFilter != null) {
+        double selectivity = estimateFilterSelectivity(
+            targetFilter, currentClass, context);
+        rows = Math.max(1, Math.round(rows * selectivity));
+      }
+      var targetClass = aliasClasses.get(target);
+      if (targetClass != null) {
+        currentClass = targetClass;
+      }
+    }
+    return rows;
+  }
+
+  /**
+   * Estimates the per-row branch fan-out — the average number of rows a single upstream
+   * row produces when traversing the branch via nested-loop. This is the product of
+   * fanOut × selectivity for each branch edge, excluding the last consistency-check edge
+   * (which is a free RID equality check, cost 0).
+   *
+   * @return the estimated per-row fan-out (≥ 1.0)
+   */
+  private static double estimateBranchFanOut(
+      List<EdgeTraversal> branchEdges,
+      String branchRoot,
+      Map<String, String> aliasClasses,
+      Map<String, SQLWhereClause> aliasFilters,
+      CommandContext context) {
+    var session = context.getDatabaseSession();
+    // Exclude the last edge (consistency-check) — it's a free RID match
+    int edgeCount = Math.max(0, branchEdges.size() - 1);
+    double fanOut = 1.0;
+    var currentClass = aliasClasses.get(branchRoot);
+    for (int i = 0; i < edgeCount; i++) {
+      var edgeT = branchEdges.get(i);
+      var method = edgeT.edge.item != null ? edgeT.edge.item.getMethod() : null;
+      fanOut *= estimateMethodFanOut(method, currentClass, session);
+      var target = targetAlias(edgeT);
+      var targetFilter = aliasFilters.get(target);
+      if (targetFilter != null) {
+        double selectivity = estimateFilterSelectivity(
+            targetFilter, currentClass, context);
+        fanOut *= selectivity;
+      }
+      var targetClass = aliasClasses.get(target);
+      if (targetClass != null) {
+        currentClass = targetClass;
+      }
+    }
+    return Math.max(1.0, fanOut);
+  }
+
+  /**
+   * Estimates the cardinality of a single alias — the number of records it can produce.
+   * Delegates to {@link #estimateRootEntries} with single-alias maps, matching the
+   * approach used in {@link #estimateNotPatternCardinality}.
+   */
+  private static long estimateAliasCardinality(
+      String alias,
+      Map<String, String> aliasClasses,
+      Map<String, SQLWhereClause> aliasFilters,
+      Map<String, SQLRid> aliasRids,
+      CommandContext context) {
+    var cls = aliasClasses.get(alias);
+    var filter = aliasFilters.get(alias);
+    var rid = aliasRids.get(alias);
+    var singleClasses = cls != null ? Map.of(alias, cls) : Map.<String, String>of();
+    var singleFilters = filter != null ? Map.of(alias, filter) : Map.<String, SQLWhereClause>of();
+    var singleRids = rid != null ? Map.of(alias, rid) : Map.<String, SQLRid>of();
+
+    var rootEstimates = estimateRootEntries(singleClasses, singleRids, singleFilters, context);
+    var count = rootEstimates.get(alias);
+    return count != null ? Math.max(1, count) : THRESHOLD;
+  }
+
+  /**
+   * Selects the best alias to scan from in the build-side plan. Tries shared aliases
+   * first ({@code otherShared}, then {@code branchRoot}), then intermediates. Returns
+   * the first alias that has a known class or RID, or {@code null} if none qualifies.
+   */
+  @Nullable private static String findScanAlias(
+      String otherShared,
+      String branchRoot,
+      Set<String> intermediateAliases,
+      Map<String, String> aliasClasses,
+      Map<String, SQLRid> aliasRids) {
+    // Prefer shared aliases — they anchor the build plan at a join endpoint
+    if (aliasClasses.get(otherShared) != null || aliasRids.get(otherShared) != null) {
+      return otherShared;
+    }
+    if (aliasClasses.get(branchRoot) != null || aliasRids.get(branchRoot) != null) {
+      return branchRoot;
+    }
+    // Fall back to intermediates (relevant for INNER_JOIN where intermediates have classes)
+    for (var alias : intermediateAliases) {
+      if (aliasClasses.get(alias) != null || aliasRids.get(alias) != null) {
+        return alias;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Constructs the build-side {@link SelectExecutionPlan} for a NOT pattern's hash
+   * anti-join. The plan scans the origin alias's class and chains the NOT pattern's
+   * {@link MatchStep}s to traverse the negative edges.
+   *
+   * @param exp              the NOT match expression
+   * @param matchSteps       the pre-built MatchStep chain for the NOT pattern's edges
+   * @param aliasClasses     per-alias class names
+   * @param aliasFilters     per-alias WHERE clauses
+   * @param aliasRids        per-alias RID constraints
+   * @param context          the command context
+   * @param enableProfiling  whether to enable step profiling
+   * @return a complete build-side execution plan
+   */
+  private static SelectExecutionPlan buildNotPatternPlan(
+      SQLMatchExpression exp,
+      List<AbstractExecutionStep> matchSteps,
+      Map<String, String> aliasClasses,
+      Map<String, SQLWhereClause> aliasFilters,
+      Map<String, SQLRid> aliasRids,
+      CommandContext context,
+      boolean enableProfiling) {
+    var originAlias = exp.getOrigin().getAlias();
+    var originClass = aliasClasses.get(originAlias);
+    var originRid = aliasRids.get(originAlias);
+    var originFilter = aliasFilters.get(originAlias);
+
+    // Build the origin scan: SELECT FROM <class> [WHERE ...]
+    // Copy the WHERE clause to prevent mutable filter corruption (same as
+    // buildHashJoinBranchPlan and addStepsFor).
+    var select = createSelectStatement(
+        originClass, originRid, originFilter == null ? null : originFilter.copy());
+
+    // Create PatternNode for the origin alias
+    var originNode = new PatternNode();
+    originNode.alias = originAlias;
+
+    var buildPlan = new SelectExecutionPlan(context);
+    buildPlan.chain(new MatchFirstStep(
+        context, originNode, select.createExecutionPlan(context, enableProfiling),
+        enableProfiling));
+
+    // Chain the NOT pattern's MatchSteps
+    for (var step : matchSteps) {
+      buildPlan.chain(step);
+    }
+
+    return buildPlan;
+  }
+
+  /**
+   * Constructs the build-side {@link SelectExecutionPlan} for a hash join branch.
+   * The plan scans from {@link HashJoinBranch#scanAlias()} (the first shared or
+   * intermediate alias with a known class) and chains {@link MatchStep}s for all
+   * branch edges, building a directed path through the branch's aliases.
+   *
+   * @param branch          the branch descriptor
+   * @param context         the command context
+   * @param profilingEnabled whether to enable step profiling
+   * @return a complete build-side execution plan for the branch, or null if path is incomplete
+   */
+  private SelectExecutionPlan buildHashJoinBranchPlan(
+      HashJoinBranch branch,
+      CommandContext context,
+      boolean profilingEnabled) {
+    // The build plan scans from the branch's scan alias (determined by
+    // traceBackwardBranch — the first shared/intermediate alias with a known
+    // class) and traverses through all branch edges to produce rows containing
+    // all branch aliases.
+    var scanAlias = branch.scanAlias();
+    var scanClass = aliasClasses.get(scanAlias);
+    var scanRid = aliasRids.get(scanAlias);
+    var scanFilter = aliasFilters.get(scanAlias);
+
+    // Copy the WHERE clause to prevent mutable state from the main plan's
+    // execution corrupting the build-side filter (matches addStepsFor behavior).
+    var select = createSelectStatement(
+        scanClass, scanRid, scanFilter == null ? null : scanFilter.copy());
+    var scanNode = new PatternNode();
+    scanNode.alias = scanAlias;
+
+    // Use a sub-context with parent linkage for the SELECT sub-plan, matching
+    // the pattern in addStepsFor(). Without parent linkage, variable lookups
+    // (e.g., input parameters) would fail in the sub-plan's steps.
+    var subCtx = new BasicCommandContext();
+    subCtx.setParentWithoutOverridingChild(context);
+
+    var buildPlan = new SelectExecutionPlan(context);
+    buildPlan.chain(new MatchFirstStep(
+        context, scanNode, select.createExecutionPlan(subCtx, profilingEnabled),
+        profilingEnabled));
+
+    // Build a directed path from scanAlias through intermediates to the other
+    // shared alias (branchRoot). For each branch edge, determine the correct
+    // traversal direction so the path connects.
+    var edges = branch.branchEdges();
+    var current = scanAlias;
+    // We need to traverse branch edges in an order that forms a path from
+    // scanAlias. Try each unused edge that has 'current' as one endpoint.
+    var used = new boolean[edges.size()];
+    for (int step = 0; step < edges.size(); step++) {
+      boolean found = false;
+      for (int j = 0; j < edges.size(); j++) {
+        if (used[j]) {
+          continue;
+        }
+        var orig = edges.get(j);
+        var outAlias = orig.edge.out.alias;
+        var inAlias = orig.edge.in.alias;
+        if (outAlias.equals(current)) {
+          // Forward traversal: current → inAlias
+          var traversal = new EdgeTraversal(orig.edge, true);
+          // Left constraints = edge.out node's constraints (same as createPlanForPattern)
+          traversal.setLeftClass(aliasClasses.get(outAlias));
+          traversal.setLeftFilter(aliasFilters.get(outAlias));
+          traversal.setLeftRid(aliasRids.get(outAlias));
+          buildPlan.chain(new MatchStep(context, traversal, profilingEnabled));
+          current = inAlias;
+          used[j] = true;
+          found = true;
+          break;
+        } else if (inAlias.equals(current)) {
+          // Reverse traversal: current → outAlias
+          var traversal = new EdgeTraversal(orig.edge, false);
+          // Left constraints = edge.out node's constraints, NOT the current (in) node.
+          // MatchReverseEdgeTraverser uses leftClass/leftFilter/leftRid as TARGET
+          // constraints — the target in reverse mode is edge.out.
+          traversal.setLeftClass(aliasClasses.get(outAlias));
+          traversal.setLeftFilter(aliasFilters.get(outAlias));
+          traversal.setLeftRid(aliasRids.get(outAlias));
+          buildPlan.chain(new MatchStep(context, traversal, profilingEnabled));
+          current = outAlias;
+          used[j] = true;
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        break; // Can't continue the path
+      }
+    }
+
+    // Verify all edges were used — if the path is incomplete, the build plan
+    // would produce incorrect results (missing alias bindings for the join key).
+    for (boolean u : used) {
+      if (!u) {
+        // Incomplete path — fall back by returning null. The caller must check.
+        return null;
+      }
+    }
+
+    return buildPlan;
   }
 
   /**
@@ -723,7 +1785,6 @@ public class MatchExecutionPlanner {
         if (edge.edge.out.alias != null) {
           edge.setLeftClass(aliasClasses.get(edge.edge.out.alias));
           edge.setLeftRid(aliasRids.get(edge.edge.out.alias));
-          edge.setLeftClass(aliasClasses.get(edge.edge.out.alias));
           edge.setLeftFilter(aliasFilters.get(edge.edge.out.alias));
         }
       }
@@ -731,9 +1792,56 @@ public class MatchExecutionPlanner {
       optimizeScheduleWithIntersections(sortedEdges, context);
       attachCollectionIdFilters(sortedEdges, context);
 
+      // Hash join optimization: detect secondary branches that can be evaluated as
+      // build-side hash joins (semi-join if intermediates not downstream, inner join
+      // if intermediates are referenced downstream).
+      var downstreamAliases = collectDownstreamAliases(
+          returnItems, groupBy, orderBy, unwind, pattern.aliasToNode.keySet());
+      var hashJoinBranches = identifyHashJoinBranches(
+          sortedEdges, downstreamAliases, aliasClasses, aliasFilters, aliasRids, context);
+
+      // Collect edges that belong to hash join branches — skip them in the main loop.
+      // Guards:
+      // - If ALL edges would be claimed, the main plan would have no source step.
+      // - If the FIRST edge is claimed, the main plan loses its scan root and
+      //   subsequent edges may get an incorrect MatchFirstStep.
+      var branchEdgeSet = new HashSet<PatternEdge>();
+      for (var branch : hashJoinBranches) {
+        for (var branchEdge : branch.branchEdges()) {
+          branchEdgeSet.add(branchEdge.edge);
+        }
+      }
+      if (branchEdgeSet.size() >= sortedEdges.size()
+          || branchEdgeSet.contains(sortedEdges.getFirst().edge)) {
+        // All edges claimed or first edge claimed — fall back to normal execution
+        branchEdgeSet.clear();
+        hashJoinBranches = List.of();
+      }
+
       for (var edge : sortedEdges) {
+        if (branchEdgeSet.contains(edge.edge)) {
+          continue; // Skip edges handled by hash join
+        }
         addStepsFor(plan, edge, context, first, profilingEnabled);
         first = false;
+      }
+
+      // Append HashJoinMatchSteps for each hash join branch
+      for (var branch : hashJoinBranches) {
+        var branchPlan = buildHashJoinBranchPlan(branch, context, profilingEnabled);
+        if (branchPlan == null) {
+          // Build plan construction failed (incomplete path) — re-add the branch's
+          // edges back into the main plan by not skipping them. Since we already
+          // skipped them above, we need to add them now.
+          for (var branchEdge : branch.branchEdges()) {
+            addStepsFor(plan, branchEdge, context, first, profilingEnabled);
+            first = false;
+          }
+        } else {
+          plan.chain(new HashJoinMatchStep(
+              context, branchPlan, branch.sharedAliases(),
+              branch.joinMode(), profilingEnabled));
+        }
       }
     } else {
       // No edges → single isolated node. Use prefetched data if available, otherwise
@@ -1215,6 +2323,96 @@ public class MatchExecutionPlanner {
         outVertexClass, inVertexClass);
 
     return CostModel.edgeTraversalCost(sourceRows, fanOut);
+  }
+
+  /**
+   * Estimates the fan-out for a single edge traversal using schema statistics
+   * via {@link EdgeFanOutEstimator}. Falls back to
+   * {@link EdgeFanOutEstimator#defaultFanOut()} if schema metadata is
+   * unavailable.
+   *
+   * @param method         the edge's traversal method (e.g., out('KNOWS'))
+   * @param sourceClassName class of the vertex we traverse FROM, or null
+   * @param session        database session for schema access
+   * @return estimated fan-out (avg neighbors per source vertex)
+   */
+  static double estimateMethodFanOut(
+      SQLMethodCall method,
+      @Nullable String sourceClassName,
+      DatabaseSessionEmbedded session) {
+    if (method == null) {
+      return EdgeFanOutEstimator.defaultFanOut();
+    }
+    Direction direction = parseDirection(method.getMethodNameString());
+    if (direction == null) {
+      return EdgeFanOutEstimator.defaultFanOut();
+    }
+    String edgeClassName = extractEdgeClassName(method);
+    String outVertexClass = null;
+    String inVertexClass = null;
+    if (edgeClassName != null) {
+      var schema = session.getMetadata().getImmutableSchemaSnapshot();
+      if (schema != null) {
+        var edgeClass = schema.getClassInternal(edgeClassName);
+        if (edgeClass != null) {
+          var outProp = edgeClass.getPropertyInternal("out");
+          if (outProp != null && outProp.getLinkedClass() != null) {
+            outVertexClass = outProp.getLinkedClass().getName();
+          }
+          var inProp = edgeClass.getPropertyInternal("in");
+          if (inProp != null && inProp.getLinkedClass() != null) {
+            inVertexClass = inProp.getLinkedClass().getName();
+          }
+        }
+      }
+    }
+    return EdgeFanOutEstimator.estimateFanOut(
+        session, edgeClassName, sourceClassName, direction,
+        outVertexClass, inVertexClass);
+  }
+
+  /**
+   * Estimates the selectivity of a WHERE clause for cardinality estimation.
+   * Uses the existing {@link TraversalPreFilterHelper#findIndexForFilter} +
+   * {@link IndexSearchDescriptor} pipeline to get histogram-based estimates
+   * when an index exists. Falls back to
+   * {@link SelectivityEstimator#defaultSelectivity()} otherwise.
+   *
+   * @param where      the WHERE clause to estimate
+   * @param className  the class the filter applies to, or null
+   * @param ctx        the command context
+   * @return selectivity in (0.0, 1.0]
+   */
+  private static double estimateFilterSelectivity(
+      @Nullable SQLWhereClause where,
+      @Nullable String className,
+      CommandContext ctx) {
+    if (where == null || className == null) {
+      return SelectivityEstimator.defaultSelectivity();
+    }
+    // Try to find an index that covers this filter and use its statistics
+    var indexDesc = TraversalPreFilterHelper.findIndexForFilter(where, className, ctx);
+    if (indexDesc != null) {
+      var session = ctx.getDatabaseSession();
+      var stats = indexDesc.getIndex().getStatistics(session);
+      if (stats != null && stats.totalCount() > 0) {
+        var histogram = indexDesc.getIndex().getHistogram(session);
+        // Extract the leading condition and estimate selectivity via histogram
+        var baseExpr = where.getBaseExpression();
+        if (baseExpr instanceof SQLBinaryCondition bc
+            && bc.getRight().isEarlyCalculated(ctx)) {
+          var value = bc.getRight().execute((Result) null, ctx);
+          if (value != null) {
+            double sel = SelectivityEstimator.estimateForOperator(
+                bc.getOperator(), stats, histogram, value);
+            if (sel >= 0) {
+              return Math.max(0.001, sel); // clamp to avoid zero
+            }
+          }
+        }
+      }
+    }
+    return SelectivityEstimator.defaultSelectivity();
   }
 
   /**
@@ -1941,6 +3139,149 @@ public class MatchExecutionPlanner {
   }
 
   /**
+   * Detects whether an optional edge with a {@code $matched.X.@rid} correlation
+   * can be replaced with a correlated hash lookup. The pattern is:
+   * {@code .out('LABEL'){where: (@rid = $matched.ALIAS.@rid), optional: true}}
+   *
+   * @return descriptor or null if the pattern is not detected
+   */
+  record CorrelatedOptionalDesc(
+      String correlatedAlias, String probeAlias, String targetAlias,
+      String edgeLabel, boolean edgeOut) {
+  }
+
+  @Nullable private CorrelatedOptionalDesc detectCorrelatedOptionalJoin(EdgeTraversal edge) {
+    // Must be optional
+    if (!edge.edge.in.isOptionalNode()) {
+      return null;
+    }
+
+    var filter = edge.edge.item.getFilter();
+    if (filter == null) {
+      return null;
+    }
+
+    // No WHILE or maxDepth
+    if (filter.getWhileCondition() != null || filter.getMaxDepth() != null) {
+      return null;
+    }
+
+    // Must have a WHERE filter
+    var whereClause = filter.getFilter();
+    if (whereClause == null) {
+      return null;
+    }
+
+    // The WHERE filter must be a simple RID correlation: @rid = $matched.X.@rid
+    // Use regex to extract the correlated alias robustly (handles whitespace,
+    // both operand orders, and rejects complex multi-condition filters).
+    var filterStr = whereClause.toString();
+    var matcher = MATCHED_RID_PATTERN.matcher(filterStr);
+    if (!matcher.find()) {
+      return null;
+    }
+    var correlatedAlias = matcher.group(1);
+
+    // Reject if there are multiple $matched references (complex filter)
+    if (matcher.find()) {
+      return null;
+    }
+
+    // Verify the filter also references @rid on the other side (simple equality)
+    // Count @rid occurrences — must be exactly 2 (one for each side of =)
+    long ridCount = RID_PATTERN.matcher(filterStr).results().count();
+    if (ridCount != 2) {
+      return null;
+    }
+
+    // The correlated alias must already be visited (it's in aliasClasses or known)
+    if (aliasClasses.get(correlatedAlias) == null
+        && aliasRids.get(correlatedAlias) == null
+        && !pattern.aliasToNode.containsKey(correlatedAlias)) {
+      return null;
+    }
+
+    // Edge must be a simple directional method
+    var edgeLabel = getEdgeClassName(edge);
+    if (edgeLabel == null) {
+      return null;
+    }
+    var direction = getEdgeDirection(edge);
+    if (direction == null || (!"out".equals(direction) && !"in".equals(direction))) {
+      return null;
+    }
+
+    var probeAlias = edge.out ? edge.edge.out.alias : edge.edge.in.alias;
+    var targetAlias = edge.out ? edge.edge.in.alias : edge.edge.out.alias;
+
+    return new CorrelatedOptionalDesc(
+        correlatedAlias, probeAlias, targetAlias, edgeLabel, "out".equals(direction));
+  }
+
+  /**
+   * Detects whether a WHILE edge can be replaced with an inverted reachability
+   * hash filter. The pattern is: unconditional WHILE ({@code while: (true)})
+   * with a simple WHERE filter, no $matched dependency, no depth/path alias,
+   * and a simple directional edge method (out/in with single label).
+   *
+   * @return {@code true} if the edge qualifies for inverted-WHILE optimization
+   */
+  private boolean canUseInvertedWhileJoin(EdgeTraversal edge) {
+    var filter = edge.edge.item.getFilter();
+    if (filter == null) {
+      return false;
+    }
+
+    // Must have a WHILE condition
+    var whileCondition = filter.getWhileCondition();
+    if (whileCondition == null) {
+      return false;
+    }
+
+    // WHILE must be unconditional: (true). Check via the base expression.
+    var baseExpr = whileCondition.getBaseExpression();
+    if (baseExpr == null) {
+      return false;
+    }
+    // The WHILE(true) condition parses as a SQLBooleanExpression wrapping "true"
+    var baseStr = baseExpr.toString().strip().toLowerCase(Locale.ROOT);
+    if (!baseStr.equals("true") && !baseStr.equals("(true)")) {
+      return false;
+    }
+
+    // Must have a WHERE filter on the target node
+    var targetFilter = filter.getFilter();
+    if (targetFilter == null) {
+      return false;
+    }
+
+    // No $matched/$parent dependency
+    if (filterDependsOnContext(targetFilter)) {
+      return false;
+    }
+
+    // No depth or path alias (user doesn't need traversal metadata)
+    if (filter.getDepthAlias() != null || filter.getPathAlias() != null) {
+      return false;
+    }
+
+    // The source alias (probe side) must be known — it's the alias whose RID
+    // we probe against the reachable set. The target alias doesn't need a class
+    // constraint; we find the anchor vertex via the WHERE filter by scanning the
+    // source alias's connected class or the entire edge's target class.
+    // For now, we need at least the edge label to determine the traversal.
+
+    // Edge must be a simple directional method (out/in with single label)
+    var edgeLabel = getEdgeClassName(edge);
+    if (edgeLabel == null) {
+      return false;
+    }
+
+    var direction = getEdgeDirection(edge);
+    return "out".equals(direction) || "in".equals(direction);
+  }
+
+  /**
    * Returns the edge class name from an {@link EdgeTraversal}'s path item
    * method, or {@code null} if none is specified.
    */
@@ -1962,7 +3303,21 @@ public class MatchExecutionPlanner {
     }
     var value = base.execute((Result) null, new BasicCommandContext());
     if (value instanceof String s && !s.isEmpty()) {
-      return s;
+      // Strip surrounding quotes if present (defensive — execute() typically
+      // returns the unquoted string, but some AST paths may retain quotes)
+      var label = s;
+      if (label.length() >= 2
+          && ((label.charAt(0) == '\'' && label.charAt(label.length() - 1) == '\'')
+              || (label.charAt(0) == '"' && label.charAt(label.length() - 1) == '"'))) {
+        label = label.substring(1, label.length() - 1);
+      }
+      // Validate: edge class names must be valid identifiers. Reject anything
+      // containing characters that could break SQL string interpolation (e.g.,
+      // single quotes from escaped literals in the MATCH parser).
+      if (!VALID_EDGE_LABEL.matcher(label).matches()) {
+        return null;
+      }
+      return label;
     }
     return null;
   }
@@ -2096,8 +3451,51 @@ public class MatchExecutionPlanner {
               profilingEnabled));
     }
     if (edge.edge.in.isOptionalNode()) {
-      foundOptional = true;
-      plan.chain(new OptionalMatchStep(context, edge, profilingEnabled));
+      // Check if this optional edge can be replaced with a correlated hash lookup
+      var correlatedDesc = detectCorrelatedOptionalJoin(edge);
+      if (correlatedDesc != null) {
+        // Correlated optional hash join: pre-materialize neighbor set, probe per row
+        plan.chain(new CorrelatedOptionalHashJoinStep(
+            context,
+            correlatedDesc.correlatedAlias(),
+            correlatedDesc.probeAlias(),
+            correlatedDesc.targetAlias(),
+            correlatedDesc.edgeLabel(),
+            correlatedDesc.edgeOut(),
+            profilingEnabled));
+        // Still set foundOptional so RemoveEmptyOptionalsStep is present
+        // (no-op for our null values, but needed for other optional nodes)
+        foundOptional = true;
+      } else {
+        foundOptional = true;
+        plan.chain(new OptionalMatchStep(context, edge, profilingEnabled));
+      }
+    } else if (canUseInvertedWhileJoin(edge)) {
+      // Replace WHILE recursion with pre-materialized reachability hash filter
+      var targetAlias = edge.out ? edge.edge.in.alias : edge.edge.out.alias;
+      var probeAlias = edge.out ? edge.edge.out.alias : edge.edge.in.alias;
+      var rawFilter = edge.edge.item.getFilter().getFilter();
+      var targetFilter = rawFilter != null ? rawFilter.copy() : null;
+      var edgeLabel = getEdgeClassName(edge);
+      var edgeDirection = "out".equals(getEdgeDirection(edge));
+      // Anchor class from target alias — the WHERE filter applies to the target,
+      // not the probe. If the alias has no explicit class (common for WHILE
+      // targets where class inference is skipped), infer from edge LINK schema.
+      // For out('IS_SUBCLASS_OF') this infers TagClass from the edge's "in" LINK.
+      var anchorClass = aliasClasses.get(targetAlias);
+      if (anchorClass == null) {
+        anchorClass = inferClassFromEdgeSchema(
+            edge.edge.item.getMethod(), null, context);
+      }
+      if (anchorClass != null) {
+        plan.chain(new InvertedWhileHashJoinStep(
+            context, anchorClass, targetFilter, edgeLabel, edgeDirection,
+            probeAlias, targetAlias, edge, profilingEnabled));
+      } else {
+        // Cannot determine anchor class — fall back to standard WHILE traversal
+        // to avoid catastrophic full V scan
+        plan.chain(new MatchStep(context, edge, profilingEnabled));
+      }
     } else {
       plan.chain(new MatchStep(context, edge, profilingEnabled));
     }

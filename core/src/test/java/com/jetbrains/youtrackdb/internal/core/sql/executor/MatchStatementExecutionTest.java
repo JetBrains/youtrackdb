@@ -2337,8 +2337,9 @@ public class MatchStatementExecutionTest extends DbTestBase {
   }
 
   /**
-   * Exercises explain() with NOT pattern to cover FilterNotMatchPatternStep.prettyPrint().
-   * Verifies the plan contains "NOT".
+   * Exercises explain() with NOT pattern. After Track 2 (YTDB-592), NOT patterns that
+   * qualify for hash anti-join produce "HASH ANTI_JOIN" in the EXPLAIN output instead
+   * of "NOT". This test accepts either form.
    */
   @Test
   public void testExplainMatchNotPattern() {
@@ -2351,7 +2352,9 @@ public class MatchStatementExecutionTest extends DbTestBase {
     assertEquals(1, result.size());
     String plan = result.get(0).getProperty("executionPlanAsString");
     assertNotNull(plan);
-    assertTrue("plan should contain NOT step", plan.contains("NOT"));
+    assertTrue(
+        "plan should contain NOT or HASH ANTI_JOIN step",
+        plan.contains("NOT") || plan.contains("HASH ANTI_JOIN"));
     session.commit();
   }
 
@@ -4838,9 +4841,11 @@ public class MatchStatementExecutionTest extends DbTestBase {
     assertNotNull(plan);
 
     // The WHILE edge to matchedClass should be scheduled after the simple
-    // one-hop edge to directClass due to depth multiplier.
-    int directClassPos = plan.indexOf("{directClass}");
-    int matchedClassPos = plan.indexOf("{matchedClass}");
+    // one-hop edge to directClass. The WHILE may be replaced by an
+    // InvertedWhileHashJoinStep (which prints "matchedClass" without braces)
+    // or remain as a regular MatchStep (which prints "{matchedClass}").
+    int directClassPos = plan.indexOf("directClass");
+    int matchedClassPos = plan.indexOf("matchedClass");
     assertTrue("directClass should appear in plan", directClassPos >= 0);
     assertTrue("matchedClass should appear in plan", matchedClassPos >= 0);
     assertTrue(
