@@ -867,7 +867,9 @@ public class SQLWhereClause extends SimpleNode {
    * no branch references any LET variable or {@code $parent}; otherwise the entire
    * WHERE stays after LET.
    *
-   * @param letVarNames names of all per-record LET variables
+   * @param letVarNames names of all per-record LET variables (without the
+   *     {@code $} prefix, matching the convention of
+   *     {@link SQLBooleanExpression#varMightBeInUse})
    * @return split result, or {@code null} if the clause does not reference any
    *     LET variable or {@code $parent} at all (the caller should push the entire
    *     WHERE down)
