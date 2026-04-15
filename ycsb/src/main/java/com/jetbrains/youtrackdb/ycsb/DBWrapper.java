@@ -18,8 +18,13 @@
 package com.jetbrains.youtrackdb.ycsb;
 
 import com.jetbrains.youtrackdb.ycsb.measurements.Measurements;
-import java.util.*;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Properties;
+import java.util.Set;
+import java.util.Vector;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
