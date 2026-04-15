@@ -29,6 +29,8 @@ import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.TooBigIndexKeyException;
+import com.jetbrains.youtrackdb.internal.core.id.SnapshotMarkerRID;
+import com.jetbrains.youtrackdb.internal.core.id.TombstoneRID;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot;
 import com.jetbrains.youtrackdb.internal.core.index.comparator.AlwaysGreaterKey;
@@ -118,6 +120,11 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
   private final BinarySerializerFactory serializerFactory;
   private volatile PropertyTypeInternal[] keyTypes;
 
+  // Cached engine ID for lock-free snapshot queries during GC.
+  // Set by the owning index engine after construction via setEngineId().
+  // -1 means not set (GC will skip snapshot-entry checks).
+  private volatile long engineId = -1;
+
   public BTree(
       @Nonnull final String name,
       final String dataFileExtension,
@@ -146,6 +153,17 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
     } finally {
       releaseExclusiveLock();
     }
+  }
+
+  /**
+   * Sets the cached engine ID for this BTree, used during tombstone GC to
+   * perform lock-free snapshot queries via
+   * {@link AbstractStorage#hasActiveIndexSnapshotEntriesById}.
+   * Must be called by the owning index engine after construction.
+   */
+  @Override
+  public void setEngineId(long engineId) {
+    this.engineId = engineId;
   }
 
   @Override
@@ -728,7 +746,31 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
                 sizeDiff = 1;
               }
 
+              // GC flag: attempt tombstone filtering at most once per insert.
+              // If GC frees enough space, the retry succeeds without splitting.
+              // If not, the normal split proceeds on the already-filtered bucket.
+              boolean gcAttempted = false;
+
               while (!keyBucket.addLeafEntry(insertionIndex, serializedKey, serializedValue)) {
+                // Attempt tombstone GC before splitting — removes tombstones
+                // below the global LWM and demotes stale SnapshotMarkerRIDs.
+                if (!gcAttempted) {
+                  gcAttempted = true;
+                  int removedCount =
+                      filterAndRebuildBucket(keyBucket);
+                  if (removedCount > 0) {
+                    updateSize(-removedCount, atomicOperation);
+                    // Re-derive insertion index — bucket contents shifted after GC.
+                    insertionIndex =
+                        -keyBucket.find(
+                            serializedKey, keySerializer, serializerFactory) - 1;
+                    assert insertionIndex >= 0
+                        : "Insertion index must be non-negative after GC, got "
+                            + insertionIndex;
+                    continue;
+                  }
+                }
+
                 bucketSearchResult =
                     splitBucket(
                         keyBucket,
@@ -2731,5 +2773,154 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
     }
 
     return false;
+  }
+
+  // ---- Tombstone GC helpers (used during leaf page split) ----
+
+  /**
+   * Extracts the version from a CompositeKey — always the last element.
+   * Returns -1 if the key is not a versioned CompositeKey (empty keys,
+   * non-Long last element, or non-CompositeKey).
+   */
+  private static long extractVersion(Object key) {
+    if (key instanceof CompositeKey compositeKey) {
+      final var keys = compositeKey.getKeys();
+      if (!keys.isEmpty() && keys.getLast() instanceof Long v) {
+        return v;
+      }
+    }
+    return -1;
+  }
+
+  /**
+   * Checks whether any active snapshot entries exist for the given
+   * user-key prefix, using the cached {@link #engineId} for a lock-free
+   * lookup. Falls back to {@code true} (safe: never demotes) if the
+   * engine ID was not set.
+   *
+   * @param isNullTree pre-computed flag for null-tree detection
+   */
+  private boolean hasActiveSnapshotEntries(
+      CompositeKey compositeKey, boolean isNullTree, long lwm) {
+    if (engineId < 0) {
+      // engineId not set — conservatively assume active entries exist,
+      // so markers are not demoted.
+      return true;
+    }
+    var allKeys = compositeKey.getKeys();
+    var userKeyPrefix = new CompositeKey(
+        allKeys.subList(0, allKeys.size() - 1));
+    return storage.hasActiveIndexSnapshotEntriesById(
+        engineId, isNullTree, userKeyPrefix, lwm);
+  }
+
+  /**
+   * Filters removable tombstones from a leaf bucket and rebuilds it in-place
+   * with only the surviving entries. Stale {@link SnapshotMarkerRID} entries
+   * are demoted to plain {@code RecordId} directly on the page.
+   *
+   * <p>Uses a single scan that classifies each entry's value type from raw
+   * bytes (zero RID allocations for plain entries), then deserializes the
+   * key only for tombstones and markers that need version checking. The LWM
+   * is computed lazily on the first tombstone/marker encountered.
+   *
+   * <p>A tombstone is removable when:
+   * <ol>
+   *   <li>Its value is a {@link TombstoneRID}</li>
+   *   <li>Its version (last CompositeKey element) is strictly below LWM</li>
+   * </ol>
+   *
+   * <p>A {@link SnapshotMarkerRID} is demotable when:
+   * <ol>
+   *   <li>Its version is strictly below LWM</li>
+   *   <li>No snapshot entries with version >= LWM exist for the same
+   *       user-key prefix</li>
+   * </ol>
+   *
+   * @return the number of entries removed (tombstones deleted); demotions
+   *     do not change the count
+   */
+  private int filterAndRebuildBucket(
+      final CellBTreeSingleValueBucketV3<K> keyBucket) {
+    assert keyBucket.isLeaf() : "GC must only run on leaf buckets";
+
+    // Single pass: classify entries from raw bytes, deserialize keys only
+    // for tombstones/markers. LWM is computed lazily on first candidate.
+    final int bucketSize = keyBucket.size();
+    assert bucketSize > 0 : "filterAndRebuildBucket called on empty bucket";
+    long lwm = -1;
+    boolean isNullTree = false;
+    IntList tombstoneIndices = null;
+
+    for (int i = 0; i < bucketSize; i++) {
+      final var type =
+          keyBucket.classifyValueType(i, keySerializer, serializerFactory);
+      if (type == CellBTreeSingleValueBucketV3.ValueType.PLAIN) {
+        continue;
+      }
+
+      // Compute LWM lazily on first tombstone/marker encountered.
+      if (lwm < 0) {
+        lwm = storage.computeGlobalLowWaterMark();
+        assert lwm >= 0 : "Global LWM must be non-negative, got " + lwm;
+        isNullTree = getName().endsWith(AbstractStorage.NULL_TREE_SUFFIX);
+      }
+
+      final var key = keyBucket.getKey(i, keySerializer, serializerFactory);
+      final long version = extractVersion(key);
+      if (version < 0 || version >= lwm) {
+        continue;
+      }
+
+      if (type == CellBTreeSingleValueBucketV3.ValueType.TOMBSTONE) {
+        if (tombstoneIndices == null) {
+          tombstoneIndices = new IntArrayList();
+        }
+        tombstoneIndices.add(i);
+      } else {
+        // MARKER — demote if no active snapshot entries exist
+        if (key instanceof CompositeKey compositeKey
+            && !hasActiveSnapshotEntries(compositeKey, isNullTree, lwm)) {
+          // Demote in-place on the page (WAL-tracked via setLongValue)
+          keyBucket.demoteSnapshotMarkerValue(
+              i, keySerializer, serializerFactory);
+        }
+      }
+    }
+
+    if (tombstoneIndices == null) {
+      // No tombstones to remove. Demotions (if any) were applied in-place
+      // and don't free space, so no rebuild needed.
+      return 0;
+    }
+
+    // Second pass: rebuild the bucket without the removed tombstones.
+    final int removedCount = tombstoneIndices.size();
+    final var tombstoneSet = new IntOpenHashSet(tombstoneIndices);
+    final List<byte[]> survivors = new ArrayList<>(bucketSize - removedCount);
+    for (int i = 0; i < bucketSize; i++) {
+      if (!tombstoneSet.contains(i)) {
+        survivors.add(
+            keyBucket.getRawEntry(i, keySerializer, serializerFactory));
+      }
+    }
+
+    assert removedCount + survivors.size() == bucketSize
+        : "Partition invariant violated: removed (" + removedCount
+            + ") + survivors (" + survivors.size()
+            + ") != original size (" + bucketSize + ")";
+    assert survivors.size() <= bucketSize
+        : "Survivors (" + survivors.size()
+            + ") cannot exceed original bucket size (" + bucketSize + ")";
+
+    keyBucket.clear();
+    assert keyBucket.size() == 0
+        : "Bucket must be empty after clear(), got " + keyBucket.size();
+    keyBucket.addAll(survivors, keySerializer);
+    assert keyBucket.size() == survivors.size()
+        : "Bucket size after rebuild (" + keyBucket.size()
+            + ") must equal survivor count (" + survivors.size() + ")";
+
+    return removedCount;
   }
 }

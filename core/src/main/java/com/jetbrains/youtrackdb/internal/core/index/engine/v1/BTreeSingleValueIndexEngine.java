@@ -64,6 +64,7 @@ public final class BTreeSingleValueIndexEngine
       this.sbTree =
           new BTree<>(
               name, DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage);
+      this.sbTree.setEngineId(id);
       indexesSnapshot = storage.subIndexSnapshot(id);
     } else {
       throw new IllegalStateException("Invalid tree version " + version);

@@ -68,7 +68,7 @@ public final class BTreeMultiValueIndexEngine
     this.id = id;
     this.name = name;
     this.storage = storage;
-    nullTreeName = name + "$null";
+    nullTreeName = name + AbstractStorage.NULL_TREE_SUFFIX;
 
     if (version == 1 || version == 2 || version == 3) {
       throw new IllegalArgumentException("Unsupported version of index : " + version);
@@ -76,9 +76,11 @@ public final class BTreeMultiValueIndexEngine
       svTree =
           new BTree<>(
               name, DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage);
+      svTree.setEngineId(id);
       nullTree =
           new BTree<>(
               nullTreeName, DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage);
+      nullTree.setEngineId(id);
       indexesSnapshot = storage.subIndexSnapshot(id);
       nullIndexesSnapshot = storage.subNullIndexSnapshot(id);
     } else {

@@ -164,6 +164,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.NavigableMap;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
@@ -214,6 +215,9 @@ public abstract class AbstractStorage
   private static final Comparator<RecordOperation> COMMIT_RECORD_OPERATION_COMPARATOR =
       Comparator.comparing(
           o -> o.record.getIdentity());
+
+  /** Suffix appended to index engine names for null-key trees. */
+  public static final String NULL_TREE_SUFFIX = "$null";
 
   /**
    * Version comparator for index snapshot visibility-index maps: orders by the
@@ -6364,6 +6368,150 @@ public abstract class AbstractStorage
     return new IndexesSnapshot(
         sharedNullIndexesSnapshot, nullIndexSnapshotVisibilityIndex, indexesSnapshotEntriesCount,
         indexId);
+  }
+
+  /**
+   * Resolves the sub-{@link IndexesSnapshot} for an index engine by its name.
+   * Used by test infrastructure for snapshot cleanup and assertions.
+   *
+   * <p><b>Warning:</b> This method acquires {@code stateLock.readLock()}. It must
+   * not be called while holding a BTree component lock, as this would create a
+   * lock ordering inversion. Use {@link #hasActiveIndexSnapshotEntriesById} from
+   * within BTree code paths instead.
+   *
+   * @return the scoped snapshot, or {@code null} if no engine with this name exists
+   */
+  @Nullable public IndexesSnapshot getIndexSnapshotByEngineName(String engineName) {
+    stateLock.readLock().lock();
+    try {
+      var engine = indexEngineNameMap.get(engineName);
+      if (engine == null) {
+        return null;
+      }
+      return subIndexSnapshot(engine.getId());
+    } finally {
+      stateLock.readLock().unlock();
+    }
+  }
+
+  /**
+   * Resolves the null-key sub-{@link IndexesSnapshot} for an index engine by its name.
+   * Currently used only by test infrastructure for snapshot cleanup; reserved for
+   * future null-key tree GC support (Track 2).
+   *
+   * <p><b>Warning:</b> This method acquires {@code stateLock.readLock()}. It must
+   * not be called while holding a BTree component lock, as this would create a
+   * lock ordering inversion.
+   *
+   * @return the scoped null snapshot, or {@code null} if no engine with this name exists
+   */
+  @Nullable public IndexesSnapshot getNullIndexSnapshotByEngineName(String engineName) {
+    stateLock.readLock().lock();
+    try {
+      var engine = indexEngineNameMap.get(engineName);
+      if (engine == null) {
+        return null;
+      }
+      return subNullIndexSnapshot(engine.getId());
+    } finally {
+      stateLock.readLock().unlock();
+    }
+  }
+
+  /**
+   * Checks whether any snapshot entries exist for the given user-key prefix with
+   * {@code version >= lwm} in the index identified by {@code engineName}.
+   * For null-key trees (name ending with {@code "$null"}), the null snapshot is used.
+   *
+   * <p>Queries the shared {@code ConcurrentSkipListMap} directly without creating
+   * an intermediate {@link IndexesSnapshot} instance.
+   *
+   * <p><b>Note:</b> This method acquires {@code stateLock.readLock()} to resolve
+   * the engine name to an ID. If the caller already knows the engine ID (e.g.,
+   * from a cached field), prefer {@link #hasActiveIndexSnapshotEntriesById} to
+   * avoid the lock acquisition.
+   *
+   * @param engineName the index engine name (may end with "$null" for null-key trees)
+   * @param userKeyPrefix the key prefix (all CompositeKey elements except the version)
+   * @param lwm the global low-water mark
+   * @return {@code true} if at least one snapshot entry exists with version >= lwm,
+   *     or {@code false} if no engine or no matching entries exist
+   */
+  // Visible for testing — production code uses hasActiveIndexSnapshotEntriesById.
+  public boolean hasActiveIndexSnapshotEntries(
+      String engineName, CompositeKey userKeyPrefix, long lwm) {
+    final String resolvedName;
+    final NavigableMap<CompositeKey, RID> snapshotMap;
+    if (engineName.endsWith(NULL_TREE_SUFFIX)) {
+      resolvedName = engineName.substring(
+          0, engineName.length() - NULL_TREE_SUFFIX.length());
+      snapshotMap = sharedNullIndexesSnapshot;
+    } else {
+      resolvedName = engineName;
+      snapshotMap = sharedIndexesSnapshot;
+    }
+
+    // indexEngineNameMap is a plain HashMap — guard with stateLock.readLock()
+    // to avoid racing with concurrent index creation/deletion.
+    final long indexId;
+    stateLock.readLock().lock();
+    try {
+      var engine = indexEngineNameMap.get(resolvedName);
+      if (engine == null) {
+        return false;
+      }
+      indexId = engine.getId();
+    } finally {
+      stateLock.readLock().unlock();
+    }
+
+    return hasActiveSnapshotEntriesInMap(snapshotMap, indexId, userKeyPrefix, lwm);
+  }
+
+  /**
+   * Lock-free variant of {@link #hasActiveIndexSnapshotEntries} that accepts a
+   * pre-resolved engine ID and a flag to select the snapshot map. This avoids
+   * acquiring {@code stateLock.readLock()} for the {@code indexEngineNameMap}
+   * lookup, eliminating the lock-ordering inversion when called while holding
+   * a BTree component lock.
+   *
+   * @param indexId the pre-resolved index engine ID
+   * @param useNullSnapshot {@code true} to query the null-key snapshot map
+   * @param userKeyPrefix the key prefix (all CompositeKey elements except the version)
+   * @param lwm the global low-water mark
+   * @return {@code true} if at least one snapshot entry exists with version >= lwm
+   */
+  public boolean hasActiveIndexSnapshotEntriesById(
+      long indexId, boolean useNullSnapshot, CompositeKey userKeyPrefix, long lwm) {
+    assert indexId >= 0 : "indexId must be non-negative, got " + indexId;
+    final NavigableMap<CompositeKey, RID> snapshotMap =
+        useNullSnapshot ? sharedNullIndexesSnapshot : sharedIndexesSnapshot;
+    return hasActiveSnapshotEntriesInMap(snapshotMap, indexId, userKeyPrefix, lwm);
+  }
+
+  private static final Long LONG_MAX_VALUE = Long.MAX_VALUE;
+
+  private static boolean hasActiveSnapshotEntriesInMap(
+      NavigableMap<CompositeKey, RID> snapshotMap,
+      long indexId,
+      CompositeKey userKeyPrefix,
+      long lwm) {
+    assert lwm >= 0 : "LWM must be non-negative, got " + lwm;
+    var prefixKeys = userKeyPrefix.getKeys();
+    var lower = buildSnapshotBoundKey(indexId, prefixKeys, lwm);
+    var upper = buildSnapshotBoundKey(indexId, prefixKeys, LONG_MAX_VALUE);
+    return !snapshotMap.subMap(lower, true, upper, true).isEmpty();
+  }
+
+  private static CompositeKey buildSnapshotBoundKey(
+      long indexId, List<Object> prefixKeys, long version) {
+    var key = new CompositeKey(prefixKeys.size() + 2);
+    key.addKey(indexId);
+    for (var pk : prefixKeys) {
+      key.addKey(pk);
+    }
+    key.addKey(version);
+    return key;
   }
 
   /**

@@ -470,6 +470,85 @@ public final class CellBTreeSingleValueBucketV3<K> extends DurablePage {
     setSize(newSize);
   }
 
+  /**
+   * Resets the bucket to an empty state without reading any existing entries.
+   * More efficient than {@code shrink(0)} which materializes all entries
+   * into byte arrays only to discard them.
+   */
+  public void clear() {
+    assert isLeaf() : "clear() must only be called on leaf buckets";
+    setFreePointer(MAX_PAGE_SIZE_BYTES);
+    setSize(0);
+  }
+
+  /**
+   * Classifies the value type of the entry at the given index by inspecting
+   * only the raw value bytes (collectionId sign and collectionPosition sign)
+   * without allocating RID objects.
+   *
+   * @return {@link ValueType#TOMBSTONE} if collectionId is negative,
+   *     {@link ValueType#MARKER} if collectionPosition is negative,
+   *     {@link ValueType#PLAIN} otherwise
+   */
+  public ValueType classifyValueType(
+      final int entryIndex,
+      final BinarySerializer<K> keySerializer,
+      final BinarySerializerFactory serializerFactory) {
+    assert isLeaf();
+    assert entryIndex >= 0 && entryIndex < size()
+        : "classifyValueType index out of bounds: " + entryIndex
+            + ", size=" + size();
+    var entryPosition = getPointer(entryIndex);
+    entryPosition +=
+        getObjectSizeInDirectMemory(keySerializer, serializerFactory, entryPosition);
+    final int collectionId = getShortValue(entryPosition);
+    if (collectionId < 0) {
+      return ValueType.TOMBSTONE;
+    }
+    final long collectionPosition =
+        getLongValue(entryPosition + ShortSerializer.SHORT_SIZE);
+    if (collectionPosition < 0) {
+      return ValueType.MARKER;
+    }
+    return ValueType.PLAIN;
+  }
+
+  /** Classification of a leaf entry's value without RID allocation. */
+  enum ValueType {
+    PLAIN, TOMBSTONE, MARKER
+  }
+
+  /**
+   * Demotes a {@link SnapshotMarkerRID} value to a plain {@code RecordId}
+   * in-place on the page by rewriting the encoded {@code collectionPosition}.
+   *
+   * <p>{@code SnapshotMarkerRID} encodes as {@code -(realPos + 1)}. This
+   * method decodes it back to the real positive value and writes it directly
+   * to the page buffer (WAL-tracked via {@code setLongValue}).
+   */
+  public void demoteSnapshotMarkerValue(
+      final int entryIndex,
+      final BinarySerializer<K> keySerializer,
+      final BinarySerializerFactory serializerFactory) {
+    assert isLeaf();
+    assert entryIndex >= 0 && entryIndex < size()
+        : "demoteSnapshotMarkerValue index out of bounds: " + entryIndex
+            + ", size=" + size();
+    var entryPosition = getPointer(entryIndex);
+    entryPosition +=
+        getObjectSizeInDirectMemory(keySerializer, serializerFactory, entryPosition);
+    final int posOffset = entryPosition + ShortSerializer.SHORT_SIZE;
+    final long encodedPosition = getLongValue(posOffset);
+    assert encodedPosition < 0
+        : "demoteSnapshotMarkerValue called on non-marker entry:"
+            + " encodedPosition=" + encodedPosition
+            + " at index " + entryIndex;
+    final long realPosition = -(encodedPosition + 1);
+    assert realPosition >= 0
+        : "Demoted position must be non-negative, got " + realPosition;
+    setLongValue(posOffset, realPosition);
+  }
+
   private void setSize(final int newSize) {
     setIntValue(SIZE_OFFSET, newSize);
   }
