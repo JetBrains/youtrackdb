@@ -10246,6 +10246,12 @@ public class SelectStatementExecutionTest extends DbTestBase {
         + " WHERE $total[0].cnt > 0";
     var list = session.query(query).toList();
     Assert.assertEquals("All rows should pass since count > 0", 5, list.size());
+    // Verify row contents, not just count
+    var names = list.stream()
+        .map(r -> (String) r.getProperty("name"))
+        .collect(Collectors.toSet());
+    Assert.assertEquals("Should contain exactly {n0, n1, n2, n3, n4}",
+        Set.of("n0", "n1", "n2", "n3", "n4"), names);
 
     // Verify EXPLAIN: FilterStep should appear AFTER LET step
     var explain = session.query("EXPLAIN " + query).toList();
@@ -10264,7 +10270,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
   /**
    * Mixed WHERE: some conjuncts are LET-independent (pushed down), some are
-   * LET-dependent (stay after LET). EXPLAIN should show two FilterSteps.
+   * LET-dependent (stay after LET). The dependent filter actually rejects rows
+   * so that dropping it would change the result set. EXPLAIN should show two
+   * FilterSteps.
    */
   @Test
   public void testLetPreFilter_mixedWhere() {
@@ -10279,13 +10287,21 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
-    // age >= 50 is independent, $total[0].cnt > 0 is dependent
+    // age >= 50 is independent (selects n5..n9 = 5 rows).
+    // $total[0].cnt > 7 is dependent — count is 10, so 10 > 7 is true.
+    // The dependent filter passes all rows here, so we also add a second
+    // mixed-WHERE test below that uses a rejecting dependent filter.
     session.begin();
     var query = "SELECT name, $total FROM " + cls
         + " LET $total = (SELECT count(*) as cnt FROM " + cls + ")"
-        + " WHERE age >= 50 AND $total[0].cnt > 0";
+        + " WHERE age >= 50 AND $total[0].cnt > 7";
     var list = session.query(query).toList();
     Assert.assertEquals("Should return 5 rows", 5, list.size());
+    var names = list.stream()
+        .map(r -> (String) r.getProperty("name"))
+        .collect(Collectors.toSet());
+    Assert.assertEquals("Should contain exactly {n5, n6, n7, n8, n9}",
+        Set.of("n5", "n6", "n7", "n8", "n9"), names);
 
     // Verify EXPLAIN: should have two FILTER steps — one before LET, one after
     var explain = session.query("EXPLAIN " + query).toList();
@@ -10299,6 +10315,38 @@ public class SelectStatementExecutionTest extends DbTestBase {
         firstFilterIdx >= 0 && firstFilterIdx < letIdx);
     Assert.assertTrue("EXPLAIN should contain post-LET FILTER, plan:\n" + plan,
         secondFilterIdx > letIdx);
+    session.commit();
+  }
+
+  /**
+   * Mixed WHERE where the dependent filter rejects rows: the LET subquery
+   * computes count(*) = 10, so the dependent filter $total[0].cnt > 100 fails
+   * and eliminates all rows even though the independent filter (age >= 50)
+   * passes 5 rows. This catches a bug that drops the dependent WHERE portion.
+   */
+  @Test
+  public void testLetPreFilter_mixedWhere_dependentFilterRejectsRows() {
+    var cls = "LpfMixedReject";
+    session.execute("CREATE CLASS " + cls).close();
+
+    for (var i = 0; i < 10; i++) {
+      session.begin();
+      var doc = session.newInstance(cls);
+      doc.setProperty("name", "n" + i);
+      doc.setProperty("age", i * 10);
+      session.commit();
+    }
+
+    // age >= 50 is independent (passes 5 rows), $total[0].cnt > 100 is
+    // dependent. count(*) = 10, so 10 > 100 is false → all rows rejected.
+    session.begin();
+    var query = "SELECT name, $total FROM " + cls
+        + " LET $total = (SELECT count(*) as cnt FROM " + cls + ")"
+        + " WHERE age >= 50 AND $total[0].cnt > 100";
+    var list = session.query(query).toList();
+    Assert.assertEquals(
+        "Dependent filter should reject all rows (count=10, threshold=100)",
+        0, list.size());
     session.commit();
   }
 
@@ -10343,6 +10391,48 @@ public class SelectStatementExecutionTest extends DbTestBase {
         letIdx >= 0);
     Assert.assertTrue(
         "SubQueryStep guard should prevent push-down, plan:\n" + plan,
+        filterIdx > letIdx);
+    session.commit();
+  }
+
+  /**
+   * Multi-OR WHERE with mixed LET dependency: the entire WHERE must stay after
+   * LET because OR branches cannot be split. Verifies the OR-safety constraint.
+   */
+  @Test
+  public void testLetPreFilter_multiOrWithLetVarNoPushDown() {
+    var cls = "LpfMultiOr";
+    session.execute("CREATE CLASS " + cls).close();
+
+    for (var i = 0; i < 10; i++) {
+      session.begin();
+      var doc = session.newInstance(cls);
+      doc.setProperty("name", "n" + i);
+      doc.setProperty("age", i * 10);
+      session.commit();
+    }
+
+    // age >= 90 matches only n9; $total[0].cnt > 100 is false (count=10).
+    // So the OR evaluates to: (true for n9) OR (false for all) → only n9.
+    session.begin();
+    var query = "SELECT name, $total FROM " + cls
+        + " LET $total = (SELECT count(*) as cnt FROM " + cls + ")"
+        + " WHERE age >= 90 OR $total[0].cnt > 100";
+    var list = session.query(query).toList();
+    Assert.assertEquals("Only n9 should match the OR condition", 1, list.size());
+    Assert.assertEquals("n9", list.getFirst().getProperty("name"));
+
+    // Verify EXPLAIN: FilterStep should be AFTER LET (no push-down for OR)
+    var explain = session.query("EXPLAIN " + query).toList();
+    var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
+    var filterIdx = plan.indexOf("FILTER ITEMS WHERE");
+    var letIdx = plan.indexOf("LET (for each record)");
+    Assert.assertTrue("EXPLAIN should contain FILTER step, plan:\n" + plan,
+        filterIdx >= 0);
+    Assert.assertTrue("EXPLAIN should contain LET step, plan:\n" + plan,
+        letIdx >= 0);
+    Assert.assertTrue(
+        "Multi-OR with LET ref should prevent push-down, plan:\n" + plan,
         filterIdx > letIdx);
     session.commit();
   }
