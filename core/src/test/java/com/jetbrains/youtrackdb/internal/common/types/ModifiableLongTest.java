@@ -178,4 +178,47 @@ public class ModifiableLongTest {
     var ml = new ModifiableLong(123L);
     assertEquals("123", ml.toString());
   }
+
+  // --- Negative values ---
+
+  @Test
+  public void testNegativeValueConstructorAndAccessors() {
+    var ml = new ModifiableLong(-42L);
+    assertEquals(-42L, ml.getValue());
+    assertEquals("-42", ml.toString());
+  }
+
+  @Test
+  public void testCompareToNegativeVsPositive() {
+    var neg = new ModifiableLong(-1L);
+    var pos = new ModifiableLong(1L);
+    assertTrue(neg.compareTo(pos) < 0);
+    assertTrue(pos.compareTo(neg) > 0);
+  }
+
+  @Test
+  public void testEqualsNegativeValues() {
+    var a = new ModifiableLong(-7L);
+    var b = new ModifiableLong(-7L);
+    assertEquals(a, b);
+    assertEquals(a.hashCode(), b.hashCode());
+  }
+
+  // --- Overflow / underflow boundaries ---
+
+  @Test
+  public void testIncrementAtMaxValue() {
+    // Documents long overflow: MAX_VALUE + 1 wraps to MIN_VALUE.
+    var ml = new ModifiableLong(Long.MAX_VALUE);
+    ml.increment();
+    assertEquals(Long.MIN_VALUE, ml.getValue());
+  }
+
+  @Test
+  public void testDecrementAtMinValue() {
+    // Documents long underflow: MIN_VALUE - 1 wraps to MAX_VALUE.
+    var ml = new ModifiableLong(Long.MIN_VALUE);
+    ml.decrement();
+    assertEquals(Long.MAX_VALUE, ml.getValue());
+  }
 }
