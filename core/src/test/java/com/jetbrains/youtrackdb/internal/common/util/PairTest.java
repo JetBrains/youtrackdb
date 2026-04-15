@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -132,7 +133,7 @@ public class PairTest {
     // Pair with smaller key should compare as negative.
     var pair1 = new Pair<>("aaa", "v1");
     var pair2 = new Pair<>("bbb", "v2");
-    assertEquals(true, pair1.compareTo(pair2) < 0);
+    assertTrue(pair1.compareTo(pair2) < 0);
   }
 
   @Test
@@ -140,7 +141,7 @@ public class PairTest {
     // Pair with larger key should compare as positive.
     var pair1 = new Pair<>("zzz", "v1");
     var pair2 = new Pair<>("aaa", "v2");
-    assertEquals(true, pair1.compareTo(pair2) > 0);
+    assertTrue(pair1.compareTo(pair2) > 0);
   }
 
   // --- Pair: init / getters / setters ---
@@ -312,7 +313,7 @@ public class PairTest {
   public void testTripleCompareToLessThan() {
     var t1 = new Triple<>("aaa", "v1", "s1");
     var t2 = new Triple<>("bbb", "v2", "s2");
-    assertEquals(true, t1.compareTo(t2) < 0);
+    assertTrue(t1.compareTo(t2) < 0);
   }
 
   // --- Triple: toString ---
