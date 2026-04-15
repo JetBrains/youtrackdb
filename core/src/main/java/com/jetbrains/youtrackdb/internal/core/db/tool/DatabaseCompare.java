@@ -32,6 +32,10 @@ import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
+import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
+import com.jetbrains.youtrackdb.internal.core.storage.Storage;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Objects;
@@ -718,10 +722,10 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
                 indexManagerRecordId2, storageType1, storageType2)) {
               continue;
             }
-            final var buffer1 = sessionOne.getStorage()
-                .readRecord(rid1, txOne.getAtomicOperation()).toRawBuffer();
-            final var buffer2 = sessionTwo.getStorage()
-                .readRecord(rid2, txTwo.getAtomicOperation()).toRawBuffer();
+            final var buffer1 = readRecordWithRetry(
+                sessionOne.getStorage(), rid1, txOne.getAtomicOperation());
+            final var buffer2 = readRecordWithRetry(
+                sessionTwo.getStorage(), rid2, txTwo.getAtomicOperation());
 
             if (buffer1.recordType() != buffer2.recordType()) {
               listener.onMessage(
@@ -915,6 +919,27 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
 
   public void setCompareEntriesForAutomaticIndexes(boolean compareEntriesForAutomaticIndexes) {
     this.compareEntriesForAutomaticIndexes = compareEntriesForAutomaticIndexes;
+  }
+
+  /**
+   * Reads a record from storage, converting the result to a {@link RawBuffer}. Retries
+   * transparently when {@link OptimisticReadFailedException} is thrown — this happens when the
+   * optimistic (no-pin) read path returns a {@code RawPageBuffer} whose stamp is invalidated
+   * by a concurrent page eviction before the byte extraction completes.
+   *
+   * <p>Same retry pattern used by {@code EntityImpl.rePopulateSourceBytes()} and
+   * {@code DatabaseSessionEmbedded}.
+   */
+  static RawBuffer readRecordWithRetry(
+      Storage storage, RecordIdInternal rid, AtomicOperation atomicOp) {
+    while (true) {
+      var readResult = storage.readRecord(rid, atomicOp);
+      try {
+        return readResult.toRawBuffer();
+      } catch (OptimisticReadFailedException e) {
+        // Page stamp was invalidated during byte extraction — retry the read.
+      }
+    }
   }
 
   private static void convertSchemaDoc(final EntityImpl entity) {
