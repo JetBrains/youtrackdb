@@ -167,14 +167,33 @@ public class VariableParserTest {
   }
 
   // ---------------------------------------------------------------------------
-  // resolveVariables — 4-arg overload delegates to 5-arg with null default
+  // resolveVariables — boundary cases
   // ---------------------------------------------------------------------------
 
-  /** The 4-arg overload works the same way (null default). */
+  /** Empty variable name ${} passes empty string to the listener. */
   @Test
-  public void resolveFourArgOverload() {
+  public void resolveEmptyVariableName() {
     Object result =
-        VariableParser.resolveVariables("${x}", BEGIN, END, var -> "value");
-    assertThat(result).isEqualTo("value");
+        VariableParser.resolveVariables(
+            "${}", BEGIN, END, var -> {
+              assertThat(var).isEmpty();
+              return "resolved-empty";
+            });
+    assertThat(result).isEqualTo("resolved-empty");
+  }
+
+  /**
+   * Default value only applies to the first resolved variable (rightmost in text). Subsequent
+   * unresolved variables during recursion get null because the recursive call uses the 4-arg
+   * overload which passes null as default.
+   */
+  @Test
+  public void resolveMultipleUnknownVariablesDefaultOnlyAppliedToFirst() {
+    Object result =
+        VariableParser.resolveVariables(
+            "${a}-${b}", BEGIN, END, var -> null, "fallback");
+    // ${b} is found first (lastIndexOf), gets "fallback". Recursion on "${a}-fallback"
+    // finds ${a}, but recursive call has no default, so ${a} becomes empty.
+    assertThat(result).isEqualTo("-fallback");
   }
 }

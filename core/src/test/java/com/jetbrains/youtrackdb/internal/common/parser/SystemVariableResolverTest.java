@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.common.parser;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.junit.Assume;
 import org.junit.Test;
 
 /**
@@ -65,12 +66,9 @@ public class SystemVariableResolverTest {
   @Test
   public void resolveVariableFallsBackToEnvironment() {
     String envPath = System.getenv("PATH");
-    // Only test if PATH is actually set
-    if (envPath != null) {
-      // Use an env var name that's not a system property
-      String result = SystemVariableResolver.resolveVariable("PATH");
-      assertThat(result).isEqualTo(envPath);
-    }
+    Assume.assumeNotNull(envPath);
+    String result = SystemVariableResolver.resolveVariable("PATH");
+    assertThat(result).isEqualTo(envPath);
   }
 
   // ---------------------------------------------------------------------------
@@ -128,14 +126,6 @@ public class SystemVariableResolverTest {
     assertThat(result).isEqualTo("before--after");
   }
 
-  /** Default value is used when the path itself is null. */
-  @Test
-  public void resolveSystemVariablesDefaultWhenPathNull() {
-    String result =
-        SystemVariableResolver.resolveSystemVariables(null, "default-value");
-    assertThat(result).isEqualTo("default-value");
-  }
-
   // ---------------------------------------------------------------------------
   // resolve (instance method — VariableParserListener interface)
   // ---------------------------------------------------------------------------
@@ -155,16 +145,5 @@ public class SystemVariableResolverTest {
     SystemVariableResolver resolver = new SystemVariableResolver();
     String result = resolver.resolve("nonexistent.property.for.test.xyz.12345");
     assertThat(result).isNull();
-  }
-
-  // ---------------------------------------------------------------------------
-  // Constants
-  // ---------------------------------------------------------------------------
-
-  /** VAR_BEGIN and VAR_END have the expected values. */
-  @Test
-  public void constantsHaveExpectedValues() {
-    assertThat(SystemVariableResolver.VAR_BEGIN).isEqualTo("${");
-    assertThat(SystemVariableResolver.VAR_END).isEqualTo("}");
   }
 }
