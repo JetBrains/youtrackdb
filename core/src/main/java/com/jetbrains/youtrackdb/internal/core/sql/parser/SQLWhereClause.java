@@ -844,6 +844,104 @@ public class SQLWhereClause extends SimpleNode {
   }
 
   /**
+   * Result of splitting a WHERE clause by LET variable dependency.
+   *
+   * @param independent conditions that do NOT reference any LET variable and do NOT
+   *     reference {@code $parent}, or {@code null} if all conditions are LET-dependent
+   * @param dependent conditions that reference at least one LET variable or
+   *     {@code $parent}, or {@code null} if all conditions are LET-independent
+   */
+  public record LetSplitResult(
+      @Nullable SQLWhereClause independent,
+      @Nullable SQLWhereClause dependent) {
+  }
+
+  /**
+   * Splits this WHERE clause into LET-independent and LET-dependent conditions.
+   * A conjunct is LET-dependent if it references any variable in {@code letVarNames}
+   * or if it references {@code $parent} (which may depend on context set by upstream
+   * LET steps).
+   *
+   * <p>For single-OR single-AND blocks, partitions AND-level conjuncts individually.
+   * For multi-OR blocks, checks the entire expression: push-down applies only if
+   * no branch references any LET variable or {@code $parent}; otherwise the entire
+   * WHERE stays after LET.
+   *
+   * @param letVarNames names of all per-record LET variables
+   * @return split result, or {@code null} if the clause does not reference any
+   *     LET variable or {@code $parent} at all (the caller should push the entire
+   *     WHERE down)
+   */
+  @Nullable
+  public LetSplitResult splitByLetDependency(Set<String> letVarNames) {
+    if (baseExpression == null) {
+      return null;
+    }
+
+    // Quick check: if no LET variable is referenced and no $parent, no split needed —
+    // the caller pushes the entire WHERE.
+    if (!expressionReferencesAnyLetVar(baseExpression, letVarNames)
+        && !baseExpression.refersToParent()) {
+      return null;
+    }
+
+    var expr = baseExpression;
+    if (expr instanceof SQLOrBlock orBlock) {
+      if (orBlock.subBlocks.size() != 1) {
+        // Multi-OR block: cannot split individual branches.
+        // The entire WHERE is LET-dependent.
+        return new LetSplitResult(null, this);
+      }
+      expr = orBlock.subBlocks.getFirst();
+    }
+    if (!(expr instanceof SQLAndBlock andBlock)) {
+      // Single condition (not AND): it's LET-dependent (we already checked above).
+      return new LetSplitResult(null, this);
+    }
+    if (andBlock.subBlocks.size() < 2) {
+      // Single-element AND block: it's LET-dependent.
+      return new LetSplitResult(null, this);
+    }
+
+    // Partition AND-level conjuncts.
+    List<Integer> independentIndices = new ArrayList<>();
+    List<Integer> dependentIndices = new ArrayList<>();
+    for (var i = 0; i < andBlock.subBlocks.size(); i++) {
+      var sub = andBlock.subBlocks.get(i);
+      if (sub.refersToParent()
+          || expressionReferencesAnyLetVar(sub, letVarNames)) {
+        dependentIndices.add(i);
+      } else {
+        independentIndices.add(i);
+      }
+    }
+
+    if (independentIndices.isEmpty()) {
+      return new LetSplitResult(null, this);
+    }
+
+    var independentWhere = buildWhereWith(andBlock, independentIndices);
+    var dependentWhere = dependentIndices.isEmpty()
+        ? null : buildWhereWith(andBlock, dependentIndices);
+    return new LetSplitResult(independentWhere, dependentWhere);
+  }
+
+  /**
+   * Returns {@code true} if the expression references any of the given LET
+   * variable names. Uses the existing {@link SQLBooleanExpression#varMightBeInUse}
+   * method for each variable.
+   */
+  private static boolean expressionReferencesAnyLetVar(
+      SQLBooleanExpression expr, Set<String> letVarNames) {
+    for (var varName : letVarNames) {
+      if (expr.varMightBeInUse(varName)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Extracts the subset of AND conditions that flatten to a single OR branch.
    * Conditions involving graph navigation functions (e.g. {@code out('X').name
    * CONTAINS :val}) may flatten to multiple OR branches, which prevents index
