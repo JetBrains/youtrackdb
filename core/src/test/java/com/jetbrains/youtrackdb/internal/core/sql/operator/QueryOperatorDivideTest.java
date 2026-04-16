@@ -22,88 +22,110 @@ package com.jetbrains.youtrackdb.internal.core.sql.operator;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.RecordSerializerBinary;
 import com.jetbrains.youtrackdb.internal.core.sql.operator.math.QueryOperatorDivide;
 import java.math.BigDecimal;
+import java.util.Date;
 import org.junit.Assert;
 import org.junit.Test;
 
 /** Tests for the SQL division operator across numeric types. */
 public class QueryOperatorDivideTest {
 
+  private final QueryOperator operator = new QueryOperatorDivide();
+
+  private Object eval(Object left, Object right) {
+    return operator.evaluateRecord(
+        null,
+        null,
+        null,
+        left,
+        right,
+        null,
+        RecordSerializerBinary.INSTANCE.getCurrentSerializer());
+  }
+
   @Test
-  public void test() {
-    QueryOperator operator = new QueryOperatorDivide();
+  public void testIntDivInt() {
+    Assert.assertEquals(10 / 3, eval(10, 3));
+  }
+
+  @Test
+  public void testLongDivLong() {
+    Assert.assertEquals(10L / 3L, eval(10L, 3L));
+  }
+
+  @Test
+  public void testFloatDivInt() {
+    Assert.assertEquals(10.1 / 3, eval(10.1, 3));
+  }
+
+  @Test
+  public void testIntDivFloat() {
+    Assert.assertEquals(10 / 3.1, eval(10, 3.1));
+  }
+
+  @Test
+  public void testDoubleDivInt() {
+    Assert.assertEquals(10.1d / 3, eval(10.1d, 3));
+  }
+
+  @Test
+  public void testIntDivDouble() {
+    Assert.assertEquals(10 / 3.1d, eval(10, 3.1d));
+  }
+
+  @Test
+  public void testBigDecimalDivInt() {
     Assert.assertEquals(
-        operator.evaluateRecord(
-            null, null, null, 10, 3, null, RecordSerializerBinary.INSTANCE.getCurrentSerializer()),
-        10 / 3);
+        new BigDecimal(10).divide(new BigDecimal(4)), eval(new BigDecimal(10), 4));
+  }
+
+  @Test
+  public void testIntDivBigDecimal() {
     Assert.assertEquals(
-        operator.evaluateRecord(
-            null,
-            null,
-            null,
-            10L,
-            3L,
-            null,
-            RecordSerializerBinary.INSTANCE.getCurrentSerializer()),
-        10L / 3L);
-    Assert.assertEquals(
-        operator.evaluateRecord(
-            null,
-            null,
-            null,
-            10.1,
-            3,
-            null,
-            RecordSerializerBinary.INSTANCE.getCurrentSerializer()),
-        10.1 / 3);
-    Assert.assertEquals(
-        operator.evaluateRecord(
-            null,
-            null,
-            null,
-            10,
-            3.1,
-            null,
-            RecordSerializerBinary.INSTANCE.getCurrentSerializer()),
-        10 / 3.1);
-    Assert.assertEquals(
-        operator.evaluateRecord(
-            null,
-            null,
-            null,
-            10.1d,
-            3,
-            null,
-            RecordSerializerBinary.INSTANCE.getCurrentSerializer()),
-        10.1d / 3);
-    Assert.assertEquals(
-        operator.evaluateRecord(
-            null,
-            null,
-            null,
-            10,
-            3.1d,
-            null,
-            RecordSerializerBinary.INSTANCE.getCurrentSerializer()),
-        10 / 3.1d);
-    Assert.assertEquals(
-        operator.evaluateRecord(
-            null,
-            null,
-            null,
-            new BigDecimal(10),
-            4,
-            null,
-            RecordSerializerBinary.INSTANCE.getCurrentSerializer()),
-        new BigDecimal(10).divide(new BigDecimal(4)));
-    Assert.assertEquals(
-        operator.evaluateRecord(
-            null,
-            null,
-            null,
-            10,
-            new BigDecimal(4),
-            null,
-            RecordSerializerBinary.INSTANCE.getCurrentSerializer()),
-        new BigDecimal(10).divide(new BigDecimal(4)));
+        new BigDecimal(10).divide(new BigDecimal(4)), eval(10, new BigDecimal(4)));
+  }
+
+  // --- Short type combinations ---
+
+  @Test
+  public void testShortDivShort() {
+    // Java widens short arithmetic to int, so result is Integer not Short
+    Object result = eval((short) 10, (short) 3);
+    Assert.assertTrue(result instanceof Integer);
+    Assert.assertEquals(3, result);
+  }
+
+  // --- Float combinations ---
+
+  @Test
+  public void testFloatDivFloat() {
+    Assert.assertEquals(10.0f / 3.0f, eval(10.0f, 3.0f));
+  }
+
+  // --- Date-to-long conversion ---
+
+  @Test
+  public void testDateDivLong() {
+    long time = 1000L;
+    Date date = new Date(time);
+    Assert.assertEquals(time / 5L, eval(date, 5L));
+  }
+
+  // --- Null propagation ---
+
+  @Test
+  public void testNullLeftReturnsNull() {
+    Assert.assertNull(eval(null, 10));
+  }
+
+  @Test
+  public void testNullRightReturnsNull() {
+    Assert.assertNull(eval(10, null));
+  }
+
+  // --- Non-numeric returns null ---
+
+  @Test
+  public void testNonNumericReturnsNull() {
+    Assert.assertNull(eval("hello", "world"));
   }
 }

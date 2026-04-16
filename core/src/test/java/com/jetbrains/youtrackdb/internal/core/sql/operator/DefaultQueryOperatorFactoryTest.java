@@ -1,0 +1,97 @@
+package com.jetbrains.youtrackdb.internal.core.sql.operator;
+
+import com.jetbrains.youtrackdb.internal.core.sql.operator.math.QueryOperatorDivide;
+import com.jetbrains.youtrackdb.internal.core.sql.operator.math.QueryOperatorMinus;
+import com.jetbrains.youtrackdb.internal.core.sql.operator.math.QueryOperatorMod;
+import com.jetbrains.youtrackdb.internal.core.sql.operator.math.QueryOperatorMultiply;
+import com.jetbrains.youtrackdb.internal.core.sql.operator.math.QueryOperatorPlus;
+import java.util.Set;
+import org.junit.Assert;
+import org.junit.Test;
+
+/**
+ * Tests for DefaultQueryOperatorFactory: verifies it returns all 27 expected operators in an
+ * unmodifiable set.
+ */
+public class DefaultQueryOperatorFactoryTest {
+
+  private final DefaultQueryOperatorFactory factory = new DefaultQueryOperatorFactory();
+
+  @Test
+  public void testGetOperatorsReturnsExpectedCount() {
+    // 22 comparison/logical + 5 math = 27 operators total
+    Set<QueryOperator> operators = factory.getOperators();
+    Assert.assertEquals(27, operators.size());
+  }
+
+  @Test(expected = UnsupportedOperationException.class)
+  public void testGetOperatorsReturnsUnmodifiableSet() {
+    // The set should be unmodifiable — adding should throw
+    Set<QueryOperator> operators = factory.getOperators();
+    operators.add(new QueryOperatorPlus());
+  }
+
+  @Test
+  public void testContainsAllComparisonOperators() {
+    Set<QueryOperator> operators = factory.getOperators();
+    assertContainsOperatorOfType(operators, QueryOperatorEquals.class);
+    assertContainsOperatorOfType(operators, QueryOperatorNotEquals.class);
+    assertContainsOperatorOfType(operators, QueryOperatorNotEquals2.class);
+    assertContainsOperatorOfType(operators, QueryOperatorMajor.class);
+    assertContainsOperatorOfType(operators, QueryOperatorMajorEquals.class);
+    assertContainsOperatorOfType(operators, QueryOperatorMinor.class);
+    assertContainsOperatorOfType(operators, QueryOperatorMinorEquals.class);
+    assertContainsOperatorOfType(operators, QueryOperatorBetween.class);
+    assertContainsOperatorOfType(operators, QueryOperatorIn.class);
+    assertContainsOperatorOfType(operators, QueryOperatorLike.class);
+    assertContainsOperatorOfType(operators, QueryOperatorMatches.class);
+    assertContainsOperatorOfType(operators, QueryOperatorIs.class);
+    assertContainsOperatorOfType(operators, QueryOperatorInstanceof.class);
+  }
+
+  @Test
+  public void testContainsAllLogicalOperators() {
+    Set<QueryOperator> operators = factory.getOperators();
+    assertContainsOperatorOfType(operators, QueryOperatorAnd.class);
+    assertContainsOperatorOfType(operators, QueryOperatorOr.class);
+    assertContainsOperatorOfType(operators, QueryOperatorNot.class);
+  }
+
+  @Test
+  public void testContainsAllCollectionOperators() {
+    Set<QueryOperator> operators = factory.getOperators();
+    assertContainsOperatorOfType(operators, QueryOperatorContains.class);
+    assertContainsOperatorOfType(operators, QueryOperatorContainsAll.class);
+    assertContainsOperatorOfType(operators, QueryOperatorContainsKey.class);
+    assertContainsOperatorOfType(operators, QueryOperatorContainsValue.class);
+    assertContainsOperatorOfType(operators, QueryOperatorContainsText.class);
+  }
+
+  @Test
+  public void testContainsTraverseOperator() {
+    assertContainsOperatorOfType(factory.getOperators(), QueryOperatorTraverse.class);
+  }
+
+  @Test
+  public void testContainsAllMathOperators() {
+    Set<QueryOperator> operators = factory.getOperators();
+    assertContainsOperatorOfType(operators, QueryOperatorPlus.class);
+    assertContainsOperatorOfType(operators, QueryOperatorMinus.class);
+    assertContainsOperatorOfType(operators, QueryOperatorMultiply.class);
+    assertContainsOperatorOfType(operators, QueryOperatorDivide.class);
+    assertContainsOperatorOfType(operators, QueryOperatorMod.class);
+  }
+
+  @Test
+  public void testGetOperatorsReturnsSameInstance() {
+    // Factory should return the same static unmodifiable set each time
+    Assert.assertSame(factory.getOperators(), factory.getOperators());
+  }
+
+  private void assertContainsOperatorOfType(
+      Set<QueryOperator> operators, Class<? extends QueryOperator> type) {
+    boolean found = operators.stream().anyMatch(type::isInstance);
+    Assert.assertTrue(
+        "Expected operator of type " + type.getSimpleName() + " not found", found);
+  }
+}
