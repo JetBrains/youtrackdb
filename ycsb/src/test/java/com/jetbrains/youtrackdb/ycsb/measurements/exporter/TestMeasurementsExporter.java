@@ -30,6 +30,55 @@ import java.util.Properties;
 import org.junit.Test;
 
 public class TestMeasurementsExporter {
+
+  /**
+   * Verifies that JSONMeasurementsExporter produces valid JSON output using
+   * the Jackson 2.x createGenerator() API. Each write() call emits an
+   * independent JSON object with metric, measurement, and value fields.
+   */
+  @Test
+  public void testJSONMeasurementsExporter() throws IOException {
+    Properties props = new Properties();
+    props.put(Measurements.MEASUREMENT_TYPE_PROPERTY, "histogram");
+    Measurements mm = new Measurements(props);
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    JSONMeasurementsExporter export = new JSONMeasurementsExporter(out);
+
+    mm.measure("READ", 1000);
+    mm.measure("READ", 2000);
+    mm.exportMeasurements(export);
+    export.close();
+
+    // JSONMeasurementsExporter writes individual JSON objects (not an array).
+    // Parse the output and verify the first object has the expected structure.
+    String output = out.toString("UTF-8");
+    assertTrue("Output should not be empty", output.length() > 0);
+
+    // Parse individual root-level JSON objects from the stream
+    ObjectMapper mapper = new ObjectMapper();
+    com.fasterxml.jackson.core.JsonParser parser =
+        mapper.getFactory().createParser(output);
+    parser.enable(com.fasterxml.jackson.core.JsonParser.Feature.AUTO_CLOSE_SOURCE);
+    int objectCount = 0;
+    JsonNode first = null;
+    while (parser.nextToken() != null) {
+      JsonNode node = mapper.readTree(parser);
+      if (node != null) {
+        if (first == null) {
+          first = node;
+        }
+        objectCount++;
+      }
+    }
+    parser.close();
+    assertTrue("Should have at least one measurement object", objectCount > 0);
+
+    // Verify the first object has the expected fields
+    assertEquals("READ", first.get("metric").asText());
+    assertTrue("Should have 'measurement' field", first.has("measurement"));
+    assertTrue("Should have 'value' field", first.has("value"));
+  }
+
   @Test
   public void testJSONArrayMeasurementsExporter() throws IOException {
     Properties props = new Properties();

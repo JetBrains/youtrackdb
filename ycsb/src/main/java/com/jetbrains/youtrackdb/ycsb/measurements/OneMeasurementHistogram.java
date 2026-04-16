@@ -92,7 +92,7 @@ public class OneMeasurementHistogram extends OneMeasurement {
   }
 
   /* (non-Javadoc)
-   * @see com.jetbrains.youtrackdb.ycsb.OneMeasurement#measure(int)
+   * @see com.jetbrains.youtrackdb.ycsb.measurements.OneMeasurement#measure(int)
    */
   public synchronized void measure(int latency) {
     //latency reported in us and collected in bucket by ms.
