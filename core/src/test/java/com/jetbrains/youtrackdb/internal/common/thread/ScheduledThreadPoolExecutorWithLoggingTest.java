@@ -176,4 +176,37 @@ public class ScheduledThreadPoolExecutorWithLoggingTest {
       executor.awaitTermination(5, TimeUnit.SECONDS);
     }
   }
+
+  /**
+   * Verifies that a periodic task executes multiple times without blocking,
+   * confirming afterExecute's isDone() guard correctly skips get() on
+   * non-done periodic futures. If the isDone() check at
+   * ScheduledThreadPoolExecutorWithLogging.afterExecute were removed,
+   * future.get() would block indefinitely and prevent re-execution.
+   */
+  @Test
+  public void periodicTask_executesMultipleTimes_afterExecuteDoesNotBlock()
+      throws Exception {
+    var executor = new ScheduledThreadPoolExecutorWithLogging(
+        1, Thread::new);
+    try {
+      var executionCount = new java.util.concurrent.atomic.AtomicInteger();
+      var threeExecutions = new CountDownLatch(3);
+
+      var future = executor.scheduleAtFixedRate(() -> {
+        executionCount.incrementAndGet();
+        threeExecutions.countDown();
+      }, 0, 50, TimeUnit.MILLISECONDS);
+
+      assertThat(threeExecutions.await(5, TimeUnit.SECONDS))
+          .as("periodic task should execute at least 3 times")
+          .isTrue();
+      assertThat(executionCount.get()).isGreaterThanOrEqualTo(3);
+
+      future.cancel(false);
+    } finally {
+      executor.shutdownNow();
+      executor.awaitTermination(5, TimeUnit.SECONDS);
+    }
+  }
 }

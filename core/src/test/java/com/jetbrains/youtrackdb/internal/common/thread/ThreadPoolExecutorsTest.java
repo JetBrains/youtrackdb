@@ -233,10 +233,10 @@ public class ThreadPoolExecutorsTest {
    */
   @Test
   public void newSingleThreadPool_withMaxQueueAndHandler_createsBoundedPool() {
-    var rejected = new boolean[1];
     ExecutorService executor = ThreadPoolExecutors.newSingleThreadPool(
         "test-single-bounded", 5,
-        (r, e) -> rejected[0] = true);
+        (r, e) -> {
+          /* rejection handler */ });
     try {
       var tpe = (ThreadPoolExecutor) executor;
       assertThat(tpe.getCorePoolSize()).isEqualTo(1);

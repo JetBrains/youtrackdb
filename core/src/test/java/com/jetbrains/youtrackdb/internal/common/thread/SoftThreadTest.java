@@ -2,6 +2,8 @@ package com.jetbrains.youtrackdb.internal.common.thread;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jetbrains.youtrackdb.internal.common.util.UncaughtExceptionHandler;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -190,9 +192,6 @@ public class SoftThreadTest {
    */
   @Test
   public void executeThrowsException_loopContinues() throws Exception {
-    var thread = new TestSoftThread("test-exception");
-    thread.exceptionToThrow = new RuntimeException("test exception");
-
     // Override execute to throw for the first 2 calls, then shut down
     var callCount = new AtomicInteger();
     var testThread = new SoftThread("test-exception-loop") {
@@ -261,15 +260,17 @@ public class SoftThreadTest {
   }
 
   /**
-   * Verifies the single-arg constructor does not explicitly set daemon=true.
-   * (Thread inherits daemon status from the creating thread, unlike the
-   * ThreadGroup constructor which explicitly sets daemon=true.)
+   * Verifies the single-arg constructor sets the thread name and installs
+   * the project's UncaughtExceptionHandler. (Unlike the ThreadGroup
+   * constructor, it does not explicitly set daemon=true — daemon status
+   * is inherited from the creating thread.)
    */
   @Test
   public void singleArgConstructor_setsNameAndUEH() {
     var thread = new TestSoftThread("test-named");
     assertThat(thread.getName()).isEqualTo("test-named");
-    assertThat(thread.getUncaughtExceptionHandler()).isNotNull();
+    assertThat(thread.getUncaughtExceptionHandler())
+        .isInstanceOf(UncaughtExceptionHandler.class);
   }
 
   /**
@@ -335,7 +336,7 @@ public class SoftThreadTest {
    */
   @Test
   public void beforeAndAfterExecution_calledAroundExecute() throws Exception {
-    var order = new java.util.concurrent.CopyOnWriteArrayList<String>();
+    var order = new CopyOnWriteArrayList<String>();
     var doneLatch = new CountDownLatch(1);
     var thread = new SoftThread("test-hooks") {
       @Override
@@ -372,10 +373,12 @@ public class SoftThreadTest {
   @Test
   public void bothConstructors_setUncaughtExceptionHandler() {
     var thread1 = new TestSoftThread("test-ueh1");
-    assertThat(thread1.getUncaughtExceptionHandler()).isNotNull();
+    assertThat(thread1.getUncaughtExceptionHandler())
+        .isInstanceOf(UncaughtExceptionHandler.class);
 
     var group = new ThreadGroup("test-ueh-group");
     var thread2 = new TestSoftThread(group, "test-ueh2");
-    assertThat(thread2.getUncaughtExceptionHandler()).isNotNull();
+    assertThat(thread2.getUncaughtExceptionHandler())
+        .isInstanceOf(UncaughtExceptionHandler.class);
   }
 }

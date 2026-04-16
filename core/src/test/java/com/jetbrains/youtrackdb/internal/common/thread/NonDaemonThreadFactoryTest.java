@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.common.thread;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jetbrains.youtrackdb.internal.common.util.UncaughtExceptionHandler;
 import org.junit.Test;
 
 /**
@@ -23,7 +24,7 @@ public class NonDaemonThreadFactoryTest {
   public void newThread_isNotDaemon_whenCreatedFromNonDaemonThread()
       throws Exception {
     var factory = new NonDaemonThreadFactory("test-prefix");
-    var result = new boolean[1];
+    var result = new boolean[] {true}; // init to true so timeout => assertion fails
     // Create the thread from a known non-daemon thread to verify behavior.
     var creator = new Thread(() -> {
       var thread = factory.newThread(() -> {
@@ -33,6 +34,9 @@ public class NonDaemonThreadFactoryTest {
     creator.setDaemon(false);
     creator.start();
     creator.join(5000);
+    assertThat(creator.isAlive())
+        .as("creator thread should have finished")
+        .isFalse();
     assertThat(result[0])
         .as("thread created from non-daemon should be non-daemon")
         .isFalse();
@@ -65,7 +69,8 @@ public class NonDaemonThreadFactoryTest {
     var factory = new NonDaemonThreadFactory("handler-test");
     var thread = factory.newThread(() -> {
     });
-    assertThat(thread.getUncaughtExceptionHandler()).isNotNull();
+    assertThat(thread.getUncaughtExceptionHandler())
+        .isInstanceOf(UncaughtExceptionHandler.class);
   }
 
   /**

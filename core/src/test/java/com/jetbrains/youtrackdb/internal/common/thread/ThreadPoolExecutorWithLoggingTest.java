@@ -1,10 +1,12 @@
 package com.jetbrains.youtrackdb.internal.common.thread;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import org.junit.Test;
 
@@ -35,8 +37,8 @@ public class ThreadPoolExecutorWithLoggingTest {
 
   /**
    * Verifies that when a submitted task throws an exception, afterExecute
-   * extracts it from the Future via get(). The extraction triggers logging
-   * (we verify the exception propagation through Future.get).
+   * extracts it from the Future via get(). Uses assertThatThrownBy to ensure
+   * the test fails if no exception is thrown (avoiding silent pass).
    */
   @Test
   public void afterExecute_taskThrowsException_extractedFromFuture()
@@ -53,13 +55,11 @@ public class ThreadPoolExecutorWithLoggingTest {
 
       assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
 
-      try {
-        future.get(5, TimeUnit.SECONDS);
-      } catch (ExecutionException ee) {
-        assertThat(ee.getCause())
-            .isInstanceOf(RuntimeException.class)
-            .hasMessage("task failure");
-      }
+      assertThatThrownBy(() -> future.get(5, TimeUnit.SECONDS))
+          .isInstanceOf(ExecutionException.class)
+          .satisfies(e -> assertThat(e.getCause())
+              .isInstanceOf(RuntimeException.class)
+              .hasMessage("task failure"));
     } finally {
       executor.shutdownNow();
       executor.awaitTermination(5, TimeUnit.SECONDS);
@@ -69,6 +69,7 @@ public class ThreadPoolExecutorWithLoggingTest {
   /**
    * Verifies that afterExecute handles cancelled tasks gracefully.
    * CancellationException from Future.get() should be caught and ignored.
+   * After cancellation, the executor should remain functional.
    */
   @Test
   public void afterExecute_cancelledTask_handledGracefully() throws Exception {
@@ -93,11 +94,13 @@ public class ThreadPoolExecutorWithLoggingTest {
       // Cancel the task
       future.cancel(true);
 
-      // Give the executor time to process afterExecute
-      Thread.sleep(200);
-
-      // If afterExecute didn't handle CancellationException gracefully,
-      // the executor would have thrown.
+      // Verify executor is still healthy after cancellation by running
+      // another task (serves as a synchronization barrier).
+      var postCancelLatch = new CountDownLatch(1);
+      executor.execute(postCancelLatch::countDown);
+      assertThat(postCancelLatch.await(5, TimeUnit.SECONDS))
+          .as("executor should remain functional after cancelled task")
+          .isTrue();
     } finally {
       executor.shutdownNow();
       executor.awaitTermination(5, TimeUnit.SECONDS);
@@ -122,7 +125,7 @@ public class ThreadPoolExecutorWithLoggingTest {
     var withHandler = new ThreadPoolExecutorWithLogging(
         2, 4, 30, TimeUnit.SECONDS,
         new LinkedBlockingQueue<>(), Thread::new,
-        new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
+        new ThreadPoolExecutor.AbortPolicy());
     try {
       assertThat(withHandler.getCorePoolSize()).isEqualTo(2);
       assertThat(withHandler.getMaximumPoolSize()).isEqualTo(4);
@@ -145,6 +148,42 @@ public class ThreadPoolExecutorWithLoggingTest {
       var latch = new CountDownLatch(1);
       executor.execute(latch::countDown);
       assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+    } finally {
+      executor.shutdownNow();
+      executor.awaitTermination(5, TimeUnit.SECONDS);
+    }
+  }
+
+  /**
+   * Verifies that when execute() (not submit()) is called with a throwing
+   * Runnable, afterExecute receives the throwable directly via the t parameter
+   * (not wrapped in a Future). The worker thread dies, but the pool replaces
+   * it and remains functional.
+   */
+  @Test
+  public void afterExecute_executeWithThrowingRunnable_poolRecovers()
+      throws Exception {
+    var executor = new ThreadPoolExecutorWithLogging(
+        1, 1, 0, TimeUnit.SECONDS,
+        new LinkedBlockingQueue<>(), Thread::new);
+    try {
+      var exceptionThrown = new CountDownLatch(1);
+      executor.execute(() -> {
+        exceptionThrown.countDown();
+        throw new RuntimeException("direct-throwable");
+      });
+
+      assertThat(exceptionThrown.await(5, TimeUnit.SECONDS))
+          .as("the throwing runnable should have executed")
+          .isTrue();
+
+      // Submit another task to verify the pool recovers (a new worker
+      // thread is created after the old one died from the uncaught exception).
+      var recoveryLatch = new CountDownLatch(1);
+      executor.execute(recoveryLatch::countDown);
+      assertThat(recoveryLatch.await(5, TimeUnit.SECONDS))
+          .as("pool should recover with a new worker thread")
+          .isTrue();
     } finally {
       executor.shutdownNow();
       executor.awaitTermination(5, TimeUnit.SECONDS);

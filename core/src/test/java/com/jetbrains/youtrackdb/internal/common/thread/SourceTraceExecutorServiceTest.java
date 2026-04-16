@@ -3,11 +3,14 @@ package com.jetbrains.youtrackdb.internal.common.thread;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.io.IOException;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -60,11 +63,35 @@ public class SourceTraceExecutorServiceTest {
         .isInstanceOf(ExecutionException.class)
         .hasCauseInstanceOf(TracedExecutionException.class)
         .satisfies(e -> {
-          var traced = (TracedExecutionException) e.getCause();
-          assertThat(traced.getMessage()).contains("Async task");
-          assertThat(traced.getCause())
+          var tracedException = (TracedExecutionException) e.getCause();
+          assertThat(tracedException.getMessage()).contains("Async task");
+          assertThat(tracedException.getCause())
               .isInstanceOf(RuntimeException.class)
               .hasMessage("callable fail");
+        });
+  }
+
+  /**
+   * Verifies that when a Callable throws a checked exception (not
+   * RuntimeException), it propagates as a plain ExecutionException WITHOUT
+   * TracedExecutionException wrapping, because the wrapper only catches
+   * RuntimeException.
+   */
+  @Test
+  public void submitCallable_checkedException_propagatesUnwrapped()
+      throws Exception {
+    var future = traced.submit(() -> {
+      throw new IOException("checked fail");
+    });
+
+    assertThatThrownBy(() -> future.get(5, TimeUnit.SECONDS))
+        .isInstanceOf(ExecutionException.class)
+        .satisfies(e -> {
+          // The cause should be the raw IOException, NOT a TracedExecutionException
+          assertThat(e.getCause())
+              .isNotInstanceOf(TracedExecutionException.class)
+              .isInstanceOf(IOException.class)
+              .hasMessage("checked fail");
         });
   }
 
@@ -84,7 +111,7 @@ public class SourceTraceExecutorServiceTest {
 
   /**
    * Verifies that when a Runnable throws a RuntimeException in submit(Runnable, T),
-   * it is wrapped in a TracedExecutionException.
+   * it is wrapped in a TracedExecutionException with the original cause preserved.
    */
   @Test
   public void submitRunnableWithResult_runtimeException_wrappedWithTrace()
@@ -95,7 +122,13 @@ public class SourceTraceExecutorServiceTest {
 
     assertThatThrownBy(() -> future.get(5, TimeUnit.SECONDS))
         .isInstanceOf(ExecutionException.class)
-        .hasCauseInstanceOf(TracedExecutionException.class);
+        .hasCauseInstanceOf(TracedExecutionException.class)
+        .satisfies(e -> {
+          var tracedException = (TracedExecutionException) e.getCause();
+          assertThat(tracedException.getCause())
+              .isInstanceOf(RuntimeException.class)
+              .hasMessage("runnable fail");
+        });
   }
 
   // --- submit(Runnable) ---
@@ -113,7 +146,7 @@ public class SourceTraceExecutorServiceTest {
 
   /**
    * Verifies that when a Runnable throws a RuntimeException in submit(Runnable),
-   * it is wrapped in a TracedExecutionException.
+   * it is wrapped in a TracedExecutionException with the original cause preserved.
    */
   @Test
   public void submitRunnable_runtimeException_wrappedWithTrace()
@@ -124,7 +157,13 @@ public class SourceTraceExecutorServiceTest {
 
     assertThatThrownBy(() -> future.get(5, TimeUnit.SECONDS))
         .isInstanceOf(ExecutionException.class)
-        .hasCauseInstanceOf(TracedExecutionException.class);
+        .hasCauseInstanceOf(TracedExecutionException.class)
+        .satisfies(e -> {
+          var tracedException = (TracedExecutionException) e.getCause();
+          assertThat(tracedException.getCause())
+              .isInstanceOf(RuntimeException.class)
+              .hasMessage("submit-runnable fail");
+        });
   }
 
   // --- execute(Runnable) ---
@@ -146,7 +185,7 @@ public class SourceTraceExecutorServiceTest {
    */
   @Test
   public void execute_runtimeException_wrappedWithTrace() throws Exception {
-    var caughtException = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+    var caughtException = new AtomicReference<Throwable>();
     var latch = new CountDownLatch(1);
 
     // Create a delegate with a custom thread factory that captures the
@@ -244,7 +283,7 @@ public class SourceTraceExecutorServiceTest {
   @Test
   public void invokeAll_delegatesToWrappedService() throws Exception {
     var results = traced.invokeAll(
-        java.util.List.of(() -> 1, () -> 2, () -> 3));
+        List.of(() -> 1, () -> 2, () -> 3));
     assertThat(results).hasSize(3);
     assertThat(results.get(0).get()).isEqualTo(1);
     assertThat(results.get(1).get()).isEqualTo(2);
@@ -258,7 +297,7 @@ public class SourceTraceExecutorServiceTest {
   public void invokeAllWithTimeout_delegatesToWrappedService()
       throws Exception {
     var results = traced.invokeAll(
-        java.util.List.of(() -> 10, () -> 20),
+        List.of(() -> 10, () -> 20),
         5, TimeUnit.SECONDS);
     assertThat(results).hasSize(2);
     assertThat(results.get(0).get()).isEqualTo(10);
@@ -269,8 +308,7 @@ public class SourceTraceExecutorServiceTest {
    */
   @Test
   public void invokeAny_delegatesToWrappedService() throws Exception {
-    var result = traced.invokeAny(
-        java.util.List.of(() -> 99));
+    var result = traced.invokeAny(List.of(() -> 99));
     assertThat(result).isEqualTo(99);
   }
 
@@ -281,7 +319,7 @@ public class SourceTraceExecutorServiceTest {
   public void invokeAnyWithTimeout_delegatesToWrappedService()
       throws Exception {
     var result = traced.invokeAny(
-        java.util.List.of(() -> 77),
+        List.of(() -> 77),
         5, TimeUnit.SECONDS);
     assertThat(result).isEqualTo(77);
   }

@@ -22,11 +22,10 @@ public class TracedExecutionExceptionTest {
     var trace = TracedExecutionException.prepareTrace(task);
 
     assertThat(trace).isNotNull();
-    assertThat(trace.getMessage()).contains("Async task");
-    // The task is an anonymous lambda, so the class name will be
-    // something like TracedExecutionExceptionTest$$Lambda
-    assertThat(trace.getMessage()).contains("[");
-    assertThat(trace.getMessage()).contains("]");
+    // Format: "Async task [<simpleName>] failed"
+    assertThat(trace.getMessage())
+        .startsWith("Async task [")
+        .endsWith("] failed");
     assertThat(trace.getStackTrace()).isNotEmpty();
     assertThat(trace.getCause()).isNull();
   }
