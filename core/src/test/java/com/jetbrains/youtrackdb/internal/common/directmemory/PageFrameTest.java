@@ -411,6 +411,10 @@ public class PageFrameTest {
     var frame = new PageFrame(pointer);
     frame.initPageCoordinates(10L, 20);
 
+    // Verify first write took effect
+    assertEquals(10L, frame.getFileId());
+    assertEquals(20, frame.getPageIndex());
+
     // Overwrite with new coordinates
     frame.initPageCoordinates(30L, 40);
 

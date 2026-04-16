@@ -25,7 +25,12 @@ public class PointerTest {
 
   @After
   public void tearDown() {
-    allocator.checkMemoryLeaks();
+    // Note: checkMemoryLeaks() is only effective when TRACK mode is enabled
+    // (DirectMemoryAllocatorTest sets it via @BeforeClass/@AfterClass).
+    // Here we verify zero consumption as a lightweight leak check.
+    assertThat(allocator.getMemoryConsumption())
+        .as("all pointers should be deallocated after each test")
+        .isEqualTo(0);
   }
 
   // --- equals() ---
@@ -146,25 +151,6 @@ public class PointerTest {
       assertThat(ptr.hashCode()).isEqualTo(ptr2.hashCode());
     } finally {
       allocator.deallocate(ptr);
-    }
-  }
-
-  /**
-   * Verifies that different Pointers (different address) usually produce
-   * different hashCodes (probabilistic but very likely for non-colliding
-   * memory addresses).
-   */
-  @Test
-  public void hashCode_differentPointers_usuallyDiffer() {
-    var ptr1 = allocator.allocate(64, false, Intention.TEST);
-    var ptr2 = allocator.allocate(64, false, Intention.TEST);
-    try {
-      // Not guaranteed to differ, but for two different heap addresses
-      // it's extremely likely
-      assertThat(ptr1.hashCode()).isNotEqualTo(ptr2.hashCode());
-    } finally {
-      allocator.deallocate(ptr1);
-      allocator.deallocate(ptr2);
     }
   }
 

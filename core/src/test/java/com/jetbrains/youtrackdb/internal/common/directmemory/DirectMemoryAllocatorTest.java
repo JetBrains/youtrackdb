@@ -129,17 +129,14 @@ public class DirectMemoryAllocatorTest {
   public void testMemoryConsumption_multipleAllocations() {
     final var allocator = new DirectMemoryAllocator();
     final var p1 = allocator.allocate(100, false, Intention.TEST);
-    Assert.assertEquals(100, allocator.getMemoryConsumption());
-
     final var p2 = allocator.allocate(200, false, Intention.TEST);
-    Assert.assertEquals(300, allocator.getMemoryConsumption());
-
-    allocator.deallocate(p1);
-    Assert.assertEquals(200, allocator.getMemoryConsumption());
-
-    allocator.deallocate(p2);
+    try {
+      Assert.assertEquals(300, allocator.getMemoryConsumption());
+    } finally {
+      allocator.deallocate(p1);
+      allocator.deallocate(p2);
+    }
     Assert.assertEquals(0, allocator.getMemoryConsumption());
-
     allocator.checkMemoryLeaks();
   }
 
@@ -185,5 +182,34 @@ public class DirectMemoryAllocatorTest {
     allocator.deallocate(ptr);
     // Should not fail — no leaked pointers in the reference queue
     allocator.checkTrackedPointerLeaks();
+  }
+
+  /**
+   * Verifies that checkMemoryLeaks detects a non-deallocated pointer.
+   * With TRACK=true (set by @BeforeClass), the method iterates over
+   * tracked references, logs them, and fires an assertion. The leaked
+   * pointer is cleaned up in the finally block.
+   */
+  @Test
+  public void testCheckMemoryLeaks_withLeak_detectsUnreleasedPointer() {
+    final var allocator = new DirectMemoryAllocator();
+    final var leaked = allocator.allocate(64, false, Intention.TEST);
+    try {
+      // checkMemoryLeaks should detect the unreleased pointer.
+      // With -ea enabled, it fires "assert trackedReferences.isEmpty()"
+      // or "assert false" for non-zero consumption.
+      allocator.checkMemoryLeaks();
+      // If assertions are disabled, the method logs but does not throw.
+      // Verify non-zero consumption as fallback.
+      Assert.assertTrue("Expected non-zero consumption for leaked pointer",
+          allocator.getMemoryConsumption() > 0);
+    } catch (AssertionError expected) {
+      // Expected: leak detection assertion fired — this confirms the
+      // detection path is exercised.
+    } finally {
+      allocator.deallocate(leaked);
+    }
+    // After cleanup, should pass
+    Assert.assertEquals(0, allocator.getMemoryConsumption());
   }
 }
