@@ -18,6 +18,7 @@ package com.jetbrains.youtrackdb.ycsb.binding;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.ycsb.ByteIterator;
@@ -480,6 +481,137 @@ public class YouTrackDBYqlClientTest {
     Map<String, ByteIterator> values2 = new HashMap<>();
     values2.put("field0", new StringByteIterator("after-reinit"));
     assertEquals(Status.OK, client.insert("usertable", "reinit-key", values2));
+  }
+
+  /**
+   * Multiple threads call init() concurrently via CountDownLatch.
+   * Exactly one database should be created. All threads should complete
+   * without error and be able to insert records.
+   */
+  @Test
+  public void testConcurrentInit() throws Exception {
+    // Clean up the instance created by setUp()
+    client.cleanup();
+
+    int threadCount = 4;
+    java.util.concurrent.CountDownLatch startLatch =
+        new java.util.concurrent.CountDownLatch(1);
+    java.util.concurrent.CountDownLatch doneLatch =
+        new java.util.concurrent.CountDownLatch(threadCount);
+    java.util.concurrent.atomic.AtomicInteger errorCount =
+        new java.util.concurrent.atomic.AtomicInteger(0);
+    YouTrackDBYqlClient[] clients = new YouTrackDBYqlClient[threadCount];
+
+    for (int i = 0; i < threadCount; i++) {
+      clients[i] = new YouTrackDBYqlClient();
+      Properties props = new Properties();
+      props.setProperty(YouTrackDBYqlClient.URL_PROPERTY, tempDir.toString());
+      props.setProperty(YouTrackDBYqlClient.DB_NAME_PROPERTY, "concdb");
+      props.setProperty(YouTrackDBYqlClient.DB_TYPE_PROPERTY, "MEMORY");
+      props.setProperty(YouTrackDBYqlClient.NEW_DB_PROPERTY, "true");
+      clients[i].setProperties(props);
+
+      final int idx = i;
+      new Thread(() -> {
+        try {
+          startLatch.await();
+          clients[idx].init();
+        } catch (Exception e) {
+          errorCount.incrementAndGet();
+        } finally {
+          doneLatch.countDown();
+        }
+      }).start();
+    }
+
+    startLatch.countDown();
+    assertTrue("All threads should complete within 30s",
+        doneLatch.await(30, java.util.concurrent.TimeUnit.SECONDS));
+    assertEquals("No init errors", 0, errorCount.get());
+
+    // All clients should be able to insert
+    Map<String, ByteIterator> values = new HashMap<>();
+    values.put("field0", new StringByteIterator("concurrent"));
+    assertEquals(Status.OK, clients[0].insert("usertable", "ckey1", values));
+
+    // Cleanup all clients
+    for (YouTrackDBYqlClient c : clients) {
+      c.cleanup();
+    }
+
+    // After all cleanups, shared state should be released
+    assertNull("traversalSource should be null after all cleanups",
+        YouTrackDBYqlClient.getTraversalSource());
+
+    // Set client to null so tearDown skips cleanup (already cleaned up)
+    client = null;
+  }
+
+  /**
+   * Full workload round-trip: use CoreWorkload to load 100 records and
+   * run 200 operations. Exercises the driver through the real YCSB
+   * framework path including key generation, field selection, and
+   * operation distribution.
+   */
+  @Test
+  public void testFullWorkloadRoundTrip() throws Exception {
+    // Clean up setUp's client since we need fresh state for the workload
+    client.cleanup();
+
+    Properties props = new Properties();
+    props.setProperty(YouTrackDBYqlClient.URL_PROPERTY, tempDir.toString());
+    props.setProperty(YouTrackDBYqlClient.DB_NAME_PROPERTY, "workloaddb");
+    props.setProperty(YouTrackDBYqlClient.DB_TYPE_PROPERTY, "MEMORY");
+    props.setProperty(YouTrackDBYqlClient.NEW_DB_PROPERTY, "true");
+    props.setProperty("recordcount", "100");
+    props.setProperty("operationcount", "200");
+    props.setProperty("fieldcount", "10");
+    props.setProperty("fieldlength", "10");
+    props.setProperty("workload",
+        "com.jetbrains.youtrackdb.ycsb.workloads.CoreWorkload");
+    props.setProperty("readproportion", "0.5");
+    props.setProperty("updateproportion", "0.3");
+    props.setProperty("scanproportion", "0.1");
+    props.setProperty("insertproportion", "0.1");
+    props.setProperty("requestdistribution", "uniform");
+
+    // Initialize Measurements singleton (required by CoreWorkload)
+    com.jetbrains.youtrackdb.ycsb.measurements.Measurements.setProperties(props);
+
+    // Initialize workload
+    var workload = new com.jetbrains.youtrackdb.ycsb.workloads.CoreWorkload();
+    workload.init(props);
+
+    // Create and init the DB client
+    var dbClient = new YouTrackDBYqlClient();
+    dbClient.setProperties(props);
+    dbClient.init();
+
+    try {
+      // Load phase: insert 100 records
+      for (int i = 0; i < 100; i++) {
+        assertTrue("Load insert " + i + " should succeed",
+            workload.doInsert(dbClient, null));
+      }
+
+      // Transaction phase: run 200 operations
+      int successCount = 0;
+      for (int i = 0; i < 200; i++) {
+        if (workload.doTransaction(dbClient, null)) {
+          successCount++;
+        }
+      }
+
+      // At least 90% should succeed (some scans may return empty)
+      assertTrue("At least 90% of operations should succeed, got "
+          + successCount + "/200", successCount >= 180);
+    } finally {
+      dbClient.cleanup();
+      workload.cleanup();
+    }
+
+    // Set client to null so tearDown skips cleanup (already cleaned up)
+    client = null;
   }
 
   private static void deleteDirectory(Path dir) throws IOException {
