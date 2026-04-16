@@ -402,3 +402,73 @@ else
     exit 1
   fi
 fi
+
+# ============================================================================
+# Workload execution (two-pass per workload)
+# ============================================================================
+
+# Restore the database from snapshot to ensure a clean starting state.
+restore_snapshot() {
+  log "Restoring database from snapshot..."
+  rm -rf "$DB_PATH"
+  cp -a "$SNAPSHOT_PATH" "$DB_PATH"
+}
+
+# Parse the overall throughput (ops/sec) from YCSB output.
+# Returns the throughput as a string, or empty if not found.
+parse_throughput() {
+  local output_file="$1"
+  awk -F', ' '/\[OVERALL\], Throughput\(ops\/sec\)/ { print $3 }' "$output_file"
+}
+
+mkdir -p "$RESULTS_DIR"
+
+for w in "${WORKLOAD_LIST[@]}"; do
+  log "========================================"
+  log "Workload $w"
+  log "========================================"
+
+  WORKLOAD_PROPS="$SCRIPT_DIR/workloads/workload-$w.properties"
+  PASS1_OUTPUT="$RESULTS_DIR/workload-$w-pass1.txt"
+  PASS2_OUTPUT="$RESULTS_DIR/workload-$w-pass2.txt"
+
+  # --- Pass 1: Max throughput ---
+  restore_snapshot
+
+  log "Pass 1 (max throughput) — workload $w"
+  YCSB_OUTPUT_FILE="$PASS1_OUTPUT" \
+    run_ycsb run \
+      -P "$WORKLOAD_PROPS" \
+      -p "ytdb.url=$DB_PATH" \
+      -p "ytdb.newdb=false" \
+      -target 0
+
+  THROUGHPUT=$(parse_throughput "$PASS1_OUTPUT")
+  if [ -z "$THROUGHPUT" ] || ! LC_NUMERIC=C awk "BEGIN { exit !($THROUGHPUT > 0) }" 2>/dev/null; then
+    log_error "Could not parse a positive throughput from pass 1 output."
+    log_error "Skipping pass 2 for workload $w."
+    continue
+  fi
+  log "Pass 1 throughput: $THROUGHPUT ops/sec"
+
+  # --- Pass 2: Fixed throughput for latency distribution ---
+  TARGET=$(LC_NUMERIC=C awk "BEGIN { printf \"%d\", $THROUGHPUT * $THROUGHPUT_RATIO }")
+  if [ "$TARGET" -le 0 ]; then
+    log_error "Computed target throughput is 0. Skipping pass 2 for workload $w."
+    continue
+  fi
+  log "Pass 2 target: $TARGET ops/sec (${THROUGHPUT_RATIO} × max)"
+
+  restore_snapshot
+
+  log "Pass 2 (fixed throughput) — workload $w"
+  YCSB_OUTPUT_FILE="$PASS2_OUTPUT" \
+    run_ycsb run \
+      -P "$WORKLOAD_PROPS" \
+      -p "ytdb.url=$DB_PATH" \
+      -p "ytdb.newdb=false" \
+      -p "measurement.interval=intended" \
+      -target "$TARGET"
+
+  log "Workload $w complete."
+done
