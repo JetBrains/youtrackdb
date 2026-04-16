@@ -230,21 +230,7 @@ public class YouTrackDBYqlClient extends DB {
         }
 
         Vertex vertex = (Vertex) optResult.get();
-        if (fields == null) {
-          // Return all user-visible properties (vertex.properties()
-          // excludes internals by TinkerPop API contract)
-          Iterator<VertexProperty<Object>> props = vertex.properties();
-          while (props.hasNext()) {
-            VertexProperty<Object> vp = props.next();
-            result.put(vp.key(),
-                new StringByteIterator(vp.value().toString()));
-          }
-        } else {
-          for (String field : fields) {
-            result.put(field,
-                new StringByteIterator(vertex.value(field).toString()));
-          }
-        }
+        extractFields(vertex, fields, result);
         return Status.OK;
       });
     } catch (Exception e) {
@@ -254,7 +240,6 @@ public class YouTrackDBYqlClient extends DB {
   }
 
   @Override
-  @SuppressWarnings("unchecked")
   public Status scan(String table, String startkey, int recordcount, Set<String> fields,
       Vector<HashMap<String, ByteIterator>> result) {
     try {
@@ -266,21 +251,8 @@ public class YouTrackDBYqlClient extends DB {
             "startkey", startkey, "count", recordcount).toList();
 
         for (Object obj : results) {
-          Vertex vertex = (Vertex) obj;
           HashMap<String, ByteIterator> record = new HashMap<>();
-          if (fields == null) {
-            Iterator<VertexProperty<Object>> props = vertex.properties();
-            while (props.hasNext()) {
-              VertexProperty<Object> vp = props.next();
-              record.put(vp.key(),
-                  new StringByteIterator(vp.value().toString()));
-            }
-          } else {
-            for (String field : fields) {
-              record.put(field,
-                  new StringByteIterator(vertex.value(field).toString()));
-            }
-          }
+          extractFields((Vertex) obj, fields, record);
           result.add(record);
         }
         return Status.OK;
@@ -387,6 +359,29 @@ public class YouTrackDBYqlClient extends DB {
   @FunctionalInterface
   interface RetryableOperation {
     void execute() throws Exception;
+  }
+
+  /**
+   * Extracts properties from a vertex into the result map. When {@code fields}
+   * is null, all user-visible properties are returned (vertex.properties()
+   * excludes internals by TinkerPop API contract). Otherwise, only the
+   * requested fields are extracted.
+   */
+  private static void extractFields(Vertex vertex, Set<String> fields,
+      Map<String, ByteIterator> record) {
+    if (fields == null) {
+      Iterator<VertexProperty<Object>> props = vertex.properties();
+      while (props.hasNext()) {
+        VertexProperty<Object> vp = props.next();
+        record.put(vp.key(),
+            new StringByteIterator(vp.value().toString()));
+      }
+    } else {
+      for (String field : fields) {
+        record.put(field,
+            new StringByteIterator(vertex.value(field).toString()));
+      }
+    }
   }
 
   /**
