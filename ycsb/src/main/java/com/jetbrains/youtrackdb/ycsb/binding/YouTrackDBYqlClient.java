@@ -19,18 +19,23 @@ package com.jetbrains.youtrackdb.ycsb.binding;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.YourTracks;
+import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.ycsb.ByteIterator;
 import com.jetbrains.youtrackdb.ycsb.DB;
 import com.jetbrains.youtrackdb.ycsb.DBException;
 import com.jetbrains.youtrackdb.ycsb.Status;
+import com.jetbrains.youtrackdb.ycsb.StringByteIterator;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.Vector;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
+import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -77,6 +82,8 @@ public class YouTrackDBYqlClient extends DB {
   static final String DB_TYPE_DEFAULT = "DISK";
 
   private static final int FIELD_COUNT = 10;
+  private static final int MAX_RETRY_ATTEMPTS = 3;
+  private static final int MAX_RETRY_BACKOFF_MS = 50;
 
   private static final ReentrantLock initLock = new ReentrantLock();
   private static final AtomicInteger clientCount = new AtomicInteger(0);
@@ -208,7 +215,36 @@ public class YouTrackDBYqlClient extends DB {
   @Override
   public Status read(String table, String key, Set<String> fields,
       Map<String, ByteIterator> result) {
-    return Status.NOT_IMPLEMENTED;
+    try {
+      return traversalSource.computeInTx(tx -> {
+        var g = (YTDBGraphTraversalSource) tx;
+        List<Object> results = g.yql(
+            "SELECT FROM " + table + " WHERE ycsb_key = :key",
+            "key", key).toList();
+
+        if (results.isEmpty()) {
+          return Status.NOT_FOUND;
+        }
+
+        Vertex vertex = (Vertex) results.get(0);
+        if (fields == null) {
+          // Return all properties (except internal ones)
+          for (String propKey : vertex.keys()) {
+            result.put(propKey,
+                new StringByteIterator(vertex.value(propKey).toString()));
+          }
+        } else {
+          for (String field : fields) {
+            result.put(field,
+                new StringByteIterator(vertex.value(field).toString()));
+          }
+        }
+        return Status.OK;
+      });
+    } catch (Exception e) {
+      logger.error("Read failed for key {}", key, e);
+      return Status.ERROR;
+    }
   }
 
   @Override
@@ -219,12 +255,85 @@ public class YouTrackDBYqlClient extends DB {
 
   @Override
   public Status update(String table, String key, Map<String, ByteIterator> values) {
-    return Status.NOT_IMPLEMENTED;
+    return executeWithRetry(() -> {
+      traversalSource.executeInTx(tx -> {
+        var g = (YTDBGraphTraversalSource) tx;
+
+        // Build: UPDATE usertable SET field0 = :f0, ... WHERE ycsb_key = :key
+        StringBuilder sql = new StringBuilder("UPDATE ");
+        sql.append(table).append(" SET ");
+
+        // 2 args per entry (name, value) + 2 for key
+        Object[] args = new Object[2 + values.size() * 2];
+
+        int argIdx = 0;
+        boolean first = true;
+        for (Map.Entry<String, ByteIterator> entry : values.entrySet()) {
+          String fieldName = entry.getKey();
+          if (!first) {
+            sql.append(", ");
+          }
+          sql.append(fieldName).append(" = :").append(fieldName);
+          args[argIdx++] = fieldName;
+          args[argIdx++] = entry.getValue().toString();
+          first = false;
+        }
+
+        sql.append(" WHERE ycsb_key = :key");
+        args[argIdx++] = "key";
+        args[argIdx] = key;
+
+        g.yql(sql.toString(), args).iterate();
+      });
+    }, "Update", key);
   }
 
   @Override
   public Status delete(String table, String key) {
     return Status.NOT_IMPLEMENTED;
+  }
+
+  /**
+   * Executes an operation with retry on {@link ConcurrentModificationException}
+   * (MVCC conflict). Uses random backoff between retries.
+   *
+   * @param operation the operation to execute
+   * @param opName   operation name for logging
+   * @param key      the record key for logging
+   * @return Status.OK on success, Status.ERROR after max retries exhausted
+   */
+  private Status executeWithRetry(RetryableOperation operation,
+      String opName, String key) {
+    for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+      try {
+        operation.execute();
+        return Status.OK;
+      } catch (ConcurrentModificationException e) {
+        if (attempt < MAX_RETRY_ATTEMPTS) {
+          logger.debug("{} CME retry {}/{} for key {}",
+              opName, attempt, MAX_RETRY_ATTEMPTS, key);
+          try {
+            Thread.sleep(ThreadLocalRandom.current().nextInt(1, MAX_RETRY_BACKOFF_MS));
+          } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            return Status.ERROR;
+          }
+        } else {
+          logger.error("{} failed after {} retries for key {}",
+              opName, MAX_RETRY_ATTEMPTS, key, e);
+          return Status.ERROR;
+        }
+      } catch (Exception e) {
+        logger.error("{} failed for key {}", opName, key, e);
+        return Status.ERROR;
+      }
+    }
+    return Status.ERROR;
+  }
+
+  @FunctionalInterface
+  interface RetryableOperation {
+    void execute() throws Exception;
   }
 
   /**
