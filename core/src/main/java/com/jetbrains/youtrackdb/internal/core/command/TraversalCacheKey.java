@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.command;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import java.util.List;
 import java.util.Objects;
-import java.util.stream.Collectors;
 
 /**
  * Immutable key for {@link TraversalCache}. Uniquely identifies a graph traversal result by the
@@ -28,6 +27,6 @@ public record TraversalCacheKey(RID sourceRid, String functionName, List<String>
     return paramValues.stream()
         .filter(Objects::nonNull)
         .map(Object::toString)
-        .collect(Collectors.toList());
+        .toList();
   }
 }

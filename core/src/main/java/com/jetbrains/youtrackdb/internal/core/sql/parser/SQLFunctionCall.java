@@ -4,7 +4,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.TraversalCache;
-import com.jetbrains.youtrackdb.internal.core.command.TraversalCacheKey;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
@@ -153,32 +152,16 @@ public final class SQLFunctionCall extends SimpleNode {
       ctx.setVariable("aggregation", false);
       var session = ctx.getDatabaseSession();
 
-      // Graph navigation functions (out, in, both, outE, inE, bothE) have deterministic results for
-      // a given source entity + labels within a single read-consistent query. Cache them when a
-      // per-query TraversalCache is active so that repeated traversals of the same vertex are
-      // served from memory rather than re-traversing the graph.
+      // Graph navigation functions (out, in, both, outE, inE, bothE, outV, inV, bothV) have
+      // deterministic results for a given source entity + labels within a single read-consistent
+      // query. Cache them when a per-query TraversalCache is active so that repeated traversals
+      // of the same vertex are served from memory rather than re-traversing the graph.
       if (function instanceof SQLGraphNavigationFunction) {
         var cache = ctx.getTraversalCache();
         if (cache != null) {
-          var sourceId = TraversalCache.extractSourceIdentifiable(record);
-          if (sourceId != null) {
-            var rid = sourceId.getIdentity();
-            if (rid != null && !rid.isNew()) {
-              var key = new TraversalCacheKey(
-                  rid, function.getName(session),
-                  TraversalCacheKey.toStringLabels(paramValues));
-              var cached = cache.get(key);
-              if (cached != null) {
-                return cached;
-              }
-              var result = computeFunctionResult(function, targetObjects, record, paramValues, ctx,
-                  session);
-              if (result != null) {
-                return cache.put(key, result);
-              }
-              return null;
-            }
-          }
+          var rec = record;
+          return TraversalCache.getOrCompute(cache, rec, function.getName(session), paramValues,
+              () -> computeFunctionResult(function, targetObjects, rec, paramValues, ctx, session));
         }
       }
 

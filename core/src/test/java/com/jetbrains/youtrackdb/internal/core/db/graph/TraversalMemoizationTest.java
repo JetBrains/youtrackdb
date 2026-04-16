@@ -145,11 +145,12 @@ public class TraversalMemoizationTest extends DbTestBase {
   }
 
   /**
-   * Verifies that a LET subquery using in() traversal correctly navigates incoming edges.
-   * Each Person who KNOWs 'start' should appear with 'start' in their KNOWS neighbors.
+   * Verifies that a LET subquery using out('KNOWS') traversal correctly resolves the KNOWS neighbor
+   * for each fof Person. Each fof Person KNOWs 'start', so expanding out('KNOWS') from fof1 and
+   * fof2 should both yield 'start'.
    */
   @Test
-  public void letSubqueryWithInTraversalProducesCorrectResults() {
+  public void letSubqueryWithOutTraversalResolvesKnowsNeighbor() {
     // For each fof Person, find the names of vertices they KNOW (should be 'start').
     var tx = session.begin();
     var knowsNames = new ArrayList<String>();
@@ -251,6 +252,52 @@ public class TraversalMemoizationTest extends DbTestBase {
 
     assertThat(TraversalCache.getThreadLocalHitCount())
         .as("traversal cache should have been hit at least once")
+        .isGreaterThanOrEqualTo(1);
+  }
+
+  /**
+   * Verifies that the method-call-syntax traversal path ({@code $current.out('KNOWS')}) through
+   * {@code SQLMethodCall.invokeGraphFunction} also benefits from the traversal cache. MATCH-style
+   * queries route graph traversals through the method-call path rather than the function-call path,
+   * so this test confirms the caching logic is exercised on both code paths.
+   *
+   * <p>The query uses MATCH to expand out('KNOWS') from Persons who are not 'start', which yields
+   * fof1 → start and fof2 → start. The 'start' vertex has two HAS_INTEREST edges, so the second
+   * traversal of out('HAS_INTEREST') from 'start' is a cache hit.
+   */
+  @Test
+  public void methodCallSyntaxTraversalBenefitsFromCache() {
+    TraversalCache.resetThreadLocalHitCount();
+
+    var tx = session.begin();
+    var interestNames = new ArrayList<String>();
+    try (var rs =
+        tx.query(
+            "SELECT $interests FROM "
+                + "(MATCH {class: Person, as: p, where: (name <> 'start')}"
+                + ".out('KNOWS'){as: friend} RETURN friend) "
+                + "LET $interests = (SELECT name FROM "
+                + "  (SELECT expand(out('HAS_INTEREST')) FROM Person "
+                + "  WHERE @rid = $parent.$current.friend.@rid))")) {
+      while (rs.hasNext()) {
+        var row = rs.next();
+        var interests = (List<?>) row.getProperty("$interests");
+        if (interests != null) {
+          for (var item : interests) {
+            interestNames.add(((Result) item).getProperty("name"));
+          }
+        }
+      }
+    }
+
+    // Both fof1 and fof2 KNOW 'start', so we get 'start's interests twice (4 names total).
+    // The order within each pair depends on the storage engine, so check count and contents.
+    assertThat(interestNames)
+        .as("both MATCH rows resolve HAS_INTEREST from 'start'")
+        .hasSize(4)
+        .containsOnly("java", "databases");
+    assertThat(TraversalCache.getThreadLocalHitCount())
+        .as("second out('HAS_INTEREST') from 'start' should be a cache hit")
         .isGreaterThanOrEqualTo(1);
   }
 

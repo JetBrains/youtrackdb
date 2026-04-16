@@ -216,6 +216,40 @@ public class TraversalCacheTest {
   }
 
   /**
+   * Keys with multiple labels (e.g. out('KNOWS', 'LIKES')) produce distinct cache entries from keys
+   * with a single label. Label order matters: out('KNOWS', 'LIKES') and out('LIKES', 'KNOWS') are
+   * different keys.
+   */
+  @Test
+  public void multiLabelKeysAreDistinctAndOrderDependent() {
+    var cache = new TraversalCache(10);
+    var kKnowsLikes = new TraversalCacheKey(RID_A, "out", List.of("KNOWS", "LIKES"));
+    var kLikesKnows = new TraversalCacheKey(RID_A, "out", List.of("LIKES", "KNOWS"));
+    var kKnowsOnly = key(RID_A, "out", "KNOWS");
+
+    cache.put(kKnowsLikes, List.of("n1", "n2"));
+    cache.put(kLikesKnows, List.of("n3", "n4"));
+    cache.put(kKnowsOnly, List.of("n5"));
+
+    // All three keys are distinct: different label lists produce different entries.
+    assertThat(cache.get(kKnowsLikes)).asList().containsExactly("n1", "n2");
+    assertThat(cache.get(kLikesKnows)).asList().containsExactly("n3", "n4");
+    assertThat(cache.get(kKnowsOnly)).asList().containsExactly("n5");
+  }
+
+  /**
+   * {@link TraversalCacheKey#toStringLabels} filters out null entries, converts remaining values to
+   * strings, and returns an unmodifiable list suitable for use as the labels component of a cache
+   * key.
+   */
+  @Test
+  public void toStringLabelsFiltersNullsAndConvertsToStrings() {
+    var labels = TraversalCacheKey.toStringLabels(
+        java.util.Arrays.asList("KNOWS", null, "LIKES", null));
+    assertThat(labels).containsExactly("KNOWS", "LIKES");
+  }
+
+  /**
    * Constructing a TraversalCache with maxEntries < 1 throws IllegalArgumentException. Use
    * QUERY_TRAVERSAL_CACHE_ENABLED=false to disable caching; zero-capacity caches are not supported
    * because the put-then-get pattern would silently lose results.

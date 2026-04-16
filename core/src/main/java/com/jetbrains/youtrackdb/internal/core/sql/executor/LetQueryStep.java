@@ -167,7 +167,7 @@ public class LetQueryStep extends AbstractExecutionStep {
   /**
    * Returns {@code true} when the traversal-result cache is enabled in the database configuration.
    * Used only for EXPLAIN display — the actual cache is created at execution time in {@link
-   * #initTraversalCache}.
+   * #internalStart} via {@link TraversalCache#installIfNeeded}.
    */
   private boolean isCacheEnabled() {
     if (ctx == null) {

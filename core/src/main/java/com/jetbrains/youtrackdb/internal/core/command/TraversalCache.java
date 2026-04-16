@@ -6,12 +6,15 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Supplier;
 import javax.annotation.Nullable;
 
 /**
- * Per-query-execution LRU cache for graph traversal results (out, in, both, outE, inE, bothE).
+ * Per-query-execution LRU cache for graph traversal results (out, in, both, outE, inE, bothE,
+ * outV, inV, bothV).
  *
  * <p>Within a single read-consistent SQL statement, traversing the same vertex via the same
  * function and labels always yields the same result. This cache eliminates redundant traversals
@@ -55,8 +58,10 @@ public class TraversalCache {
     }
     // Access-order LinkedHashMap with removeEldestEntry evicts the LRU entry when the cache
     // exceeds maxEntries. Uses > (not >=) so that exactly maxEntries entries are retained.
+    // Pre-size the initial capacity to avoid rehashing as the cache fills up.
+    int initialCapacity = (int) (maxEntries / 0.75f) + 1;
     this.cache =
-        new LinkedHashMap<>(16, 0.75f, true) {
+        new LinkedHashMap<>(initialCapacity, 0.75f, true) {
           @Override
           protected boolean removeEldestEntry(Map.Entry<TraversalCacheKey, Object> eldest) {
             return size() > maxEntries;
@@ -139,6 +144,46 @@ public class TraversalCache {
     }
     // Single value (e.g. a single Vertex) — already immutable after loading.
     return result;
+  }
+
+  /**
+   * Looks up a cached graph traversal result for the given source entity, function name, and
+   * parameter values. On a cache miss, invokes the {@code compute} supplier to obtain the result,
+   * materializes and stores it, and returns the materialized copy. Returns {@code null} and
+   * delegates to {@code compute} without caching when the source cannot be identified by a
+   * persistent RID.
+   *
+   * <p>This method encapsulates the cache lookup + populate pattern used by both
+   * {@code SQLFunctionCall} and {@code SQLMethodCall} to avoid duplicating the caching logic.
+   *
+   * @param cache the traversal cache (must not be null)
+   * @param source the graph-function target (Identifiable or Result wrapping an entity)
+   * @param functionName the traversal function name (e.g. "out", "inE")
+   * @param paramValues the raw parameter values (edge-class labels)
+   * @param compute supplier that executes the actual graph traversal on a cache miss
+   * @return the cached or freshly computed result, or {@code null} if the traversal returned null
+   */
+  @Nullable public static Object getOrCompute(
+      TraversalCache cache, Object source, String functionName,
+      List<Object> paramValues, Supplier<Object> compute) {
+    var sourceId = extractSourceIdentifiable(source);
+    if (sourceId != null) {
+      var rid = sourceId.getIdentity();
+      if (rid != null && !rid.isNew()) {
+        var key = new TraversalCacheKey(
+            rid, functionName, TraversalCacheKey.toStringLabels(paramValues));
+        var cached = cache.get(key);
+        if (cached != null) {
+          return cached;
+        }
+        var result = compute.get();
+        if (result != null) {
+          return cache.put(key, result);
+        }
+        return null;
+      }
+    }
+    return compute.get();
   }
 
   /**
