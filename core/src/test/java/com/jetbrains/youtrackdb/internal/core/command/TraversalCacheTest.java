@@ -86,7 +86,7 @@ public class TraversalCacheTest {
     assertThat(cache.get(k)).isNull();
 
     cache.put(k, List.of("neighbor"));
-    assertThat(cache.get(k)).isNotNull();
+    assertThat(cache.get(k)).asList().containsExactly("neighbor");
   }
 
   /**
