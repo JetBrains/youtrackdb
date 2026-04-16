@@ -183,6 +183,50 @@ public class OneEntryPerKeyLockManagerTest {
     assertNull(mgr.acquireExclusiveLocksInBatch(new String[0]));
   }
 
+  // --- Null key handling ---
+
+  /**
+   * Null key is mapped to an internal sentinel (NULL_KEY). Acquire and release
+   * should work the same as for non-null keys.
+   */
+  @Test
+  public void testNullKeyExclusiveLock() {
+    var mgr = new OneEntryPerKeyLockManager<String>(true, -1, 100);
+    var lock = mgr.acquireExclusiveLock(null);
+    assertNotNull("Null key should return a lock", lock);
+    assertEquals(1, wrapper(lock).getLockCount());
+    mgr.releaseExclusiveLock(null);
+    assertEquals(0, wrapper(lock).getLockCount());
+  }
+
+  /** Null key shared lock acquire and release. */
+  @Test
+  public void testNullKeySharedLock() {
+    var mgr = new OneEntryPerKeyLockManager<String>(true, -1, 100);
+    var lock = mgr.acquireSharedLock(null);
+    assertNotNull("Null key shared lock should work", lock);
+    assertEquals(1, wrapper(lock).getLockCount());
+    mgr.releaseSharedLock(null);
+    assertEquals(0, wrapper(lock).getLockCount());
+  }
+
+  /**
+   * Batch exclusive lock with null elements in the array. The production code
+   * maps each null to an internal NULL_KEY sentinel. The batch should handle
+   * null elements alongside non-null elements.
+   */
+  @Test
+  public void testBatchExclusiveLockWithNullElements() {
+    var mgr = new OneEntryPerKeyLockManager<String>(true, -1, 100);
+    var locks = mgr.acquireExclusiveLocksInBatch("a", null, "b");
+    assertNotNull(locks);
+    assertEquals("Should include null lock + 2 string locks", 3, locks.length);
+    for (var lock : locks) {
+      assertNotNull(lock);
+      lock.unlock();
+    }
+  }
+
   // --- Multi-threaded: concurrent locks on different keys ---
 
   /** Different keys can be locked concurrently by different threads without blocking. */

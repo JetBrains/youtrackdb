@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.common.concur.lock;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -317,13 +318,34 @@ public class PartitionedLockManagerTest {
    * Batch exclusive lock acquisition for int array. Regression test: the input values
    * must be copied into the sorted array (previously allocated a zero-filled array,
    * causing all locks to be acquired for partition 0 regardless of input).
+   *
+   * <p>Verification: acquire an individual lock for value 1, then batch-acquire for
+   * [1]. Both should return the same Lock object (same partition's writeLock). With
+   * the old bug (zeroed array), the batch would lock partition 0 instead of partition
+   * 1, producing a different Lock object.
    */
   @Test
   public void testBatchExclusiveLockIntArray() {
     var mgr = new PartitionedLockManager<String>();
-    var locks = mgr.acquireExclusiveLocksInBatch(new int[] {1, 2, 3});
-    assertEquals(3, locks.length);
-    for (var lock : locks) {
+    // Step 1: individual acquire for value 1 — returns locks[index(1)].writeLock()
+    var individualLock = mgr.acquireExclusiveLock(1);
+    // Step 2: batch acquire for [1] — should also lock partition index(1)
+    // (WriteLock is reentrant, so same-thread double acquire succeeds)
+    var batchLocks = mgr.acquireExclusiveLocksInBatch(new int[] {1});
+    assertEquals(1, batchLocks.length);
+    assertNotNull(batchLocks[0]);
+    // Key assertion: with the fix, both lock the same partition → same Lock object.
+    // With the old bug (zeroed array), batch would lock partition 0 → different object.
+    assertSame("Batch lock for value 1 must be the same Lock object as individual "
+        + "acquire for value 1 (same partition). If this fails, the batch method "
+        + "is not preserving input values.", individualLock, batchLocks[0]);
+    batchLocks[0].unlock();
+    individualLock.unlock();
+
+    // Also verify multi-element batch returns correct count
+    var multiLocks = mgr.acquireExclusiveLocksInBatch(new int[] {1, 2, 3});
+    assertEquals(3, multiLocks.length);
+    for (var lock : multiLocks) {
       assertNotNull(lock);
       lock.unlock();
     }

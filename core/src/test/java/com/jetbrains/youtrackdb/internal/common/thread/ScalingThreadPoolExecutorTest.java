@@ -46,7 +46,7 @@ public class ScalingThreadPoolExecutorTest {
    * Verifies that the pool grows beyond core size when the queue reaches
    * the target capacity (ScalingQueue rejects offers, triggering pool growth).
    */
-  @Test
+  @Test(timeout = 30_000)
   public void poolGrowsBeyondCoreSize_whenQueueReachesTargetCapacity()
       throws Exception {
     // Core=1, Max=4, target queue capacity=1 (offers always rejected when
@@ -96,7 +96,7 @@ public class ScalingThreadPoolExecutorTest {
    * (queue was empty at offer time), task3's offer sees size=1 and rejects,
    * triggering pool growth to max=2.
    */
-  @Test
+  @Test(timeout = 30_000)
   public void afterExecute_setsMaxPoolReached_whenPoolAtMax()
       throws Exception {
     var executor = new ScalingThreadPoolExecutor(
@@ -154,7 +154,7 @@ public class ScalingThreadPoolExecutorTest {
    * <p>Need 3 tasks: task1 occupies core, task2 is queued (queue was empty),
    * task3 sees queue.size()=1 > trigger=0, offer rejects, pool grows.
    */
-  @Test
+  @Test(timeout = 30_000)
   public void targetCapacityOne_alwaysRejectsWhenNonEmpty() throws Exception {
     var executor = new ScalingThreadPoolExecutor(
         1, 2, 60, TimeUnit.SECONDS, 1, testFactory("test-tc1"));
@@ -231,7 +231,7 @@ public class ScalingThreadPoolExecutorTest {
    * Verifies that the rejection handler for ScalingThreadPoolExecutor calls
    * safeOffer on the ScalingQueue (i.e., rejected tasks are re-queued).
    */
-  @Test
+  @Test(timeout = 30_000)
   public void rejectedTask_reQueued_viaSafeOffer() throws Exception {
     // Core=1, Max=1, target=1. With core=max, pool can't grow, so all
     // extra tasks go through the rejection handler which calls safeOffer.
@@ -274,7 +274,7 @@ public class ScalingThreadPoolExecutorTest {
    * task2 is queued (queue was empty), task3 sees size=1 > trigger=0 and
    * triggers growth.
    */
-  @Test
+  @Test(timeout = 30_000)
   public void emptyQueue_resetsMaxPoolReached() throws Exception {
     var executor = new ScalingThreadPoolExecutor(
         1, 2, 60, TimeUnit.SECONDS, 1, testFactory("test-reset"));
