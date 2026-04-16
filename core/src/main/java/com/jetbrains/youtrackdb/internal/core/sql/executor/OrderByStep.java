@@ -127,6 +127,14 @@ public class OrderByStep extends AbstractExecutionStep {
       return ExecutionStream.empty();
     }
 
+    // Start the upstream pipeline FIRST. IndexOrderedEdgeStep sets the
+    // VAR_INDEX_ORDERED_PRE_SORTED context variable inside its
+    // internalStart(), which runs when we call prev.start(). Checking the
+    // flag before starting upstream would always see null (unset) because
+    // the pipeline is started top-down: OrderByStep.internalStart() runs
+    // before IndexOrderedEdgeStep.internalStart().
+    var upstream = prev.start(ctx);
+
     // Pass-through: IndexOrderedEdgeStep signaled that output is fully
     // pre-sorted (single-field ORDER BY). No buffering, no sorting — just
     // forward the stream for downstream LimitStep to handle early termination.
@@ -136,15 +144,16 @@ public class OrderByStep extends AbstractExecutionStep {
         && primaryKeySortedInput == null
         && Boolean.TRUE.equals(
             ctx.getSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED))) {
-      return prev.start(ctx);
+      return upstream;
     }
 
-    var results = init(prev, ctx);
+    var results = init(upstream, ctx);
     return ExecutionStream.resultIterator(results.iterator());
   }
 
   /**
-   * Pulls all records from the upstream step, sorts them, and returns the sorted list.
+   * Pulls all records from the provided upstream stream, sorts them, and returns the
+   * sorted list.
    *
    * <p>When {@code maxResults} is set (derived from SKIP + LIMIT), a bounded min-heap
    * (priority queue) of size {@code maxResults} is used. Each incoming row is compared
@@ -154,24 +163,23 @@ public class OrderByStep extends AbstractExecutionStep {
    *
    * <p>When {@code maxResults} is not set, all rows are collected and sorted once.
    *
-   * @param p   the upstream step to pull from
-   * @param ctx the command context
+   * @param upstream the already-started upstream stream to pull from
+   * @param ctx      the command context
    * @return the sorted (and possibly truncated) list of results
    * @throws CommandExecutionException if the number of elements exceeds
    *         {@code QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP}
    */
-  private List<Result> init(ExecutionStepInternal p, CommandContext ctx) {
+  private List<Result> init(ExecutionStream upstream, CommandContext ctx) {
     var timeoutBegin = System.currentTimeMillis();
-    var lastBatch = p.start(ctx);
 
     if (maxResults != null) {
       if (maxResults == 0) {
-        lastBatch.close(ctx);
+        upstream.close(ctx);
         return Collections.emptyList();
       }
-      return initBoundedHeap(lastBatch, ctx, timeoutBegin);
+      return initBoundedHeap(upstream, ctx, timeoutBegin);
     }
-    return initUnbounded(lastBatch, ctx, timeoutBegin);
+    return initUnbounded(upstream, ctx, timeoutBegin);
   }
 
   /**
