@@ -51,6 +51,7 @@ import org.slf4j.LoggerFactory;
  *   <li>{@code ytdb.user} — database user (default: {@code admin})</li>
  *   <li>{@code ytdb.password} — database password (default: {@code admin})</li>
  *   <li>{@code ytdb.newdb} — drop and recreate the database on init (default: {@code true})</li>
+ *   <li>{@code ytdb.dbtype} — database type: DISK or MEMORY (default: {@code DISK})</li>
  * </ul>
  */
 public class YouTrackDBYqlClient extends DB {
@@ -102,22 +103,39 @@ public class YouTrackDBYqlClient extends DB {
             url, dbName, dbType);
 
         YouTrackDB db = YourTracks.instance(url);
+        boolean success = false;
+        YTDBGraphTraversalSource g = null;
+        try {
+          if (newDb && db.exists(dbName)) {
+            logger.info("Dropping existing database '{}'", dbName);
+            db.drop(dbName);
+          }
 
-        if (newDb && db.exists(dbName)) {
-          logger.info("Dropping existing database '{}'", dbName);
-          db.drop(dbName);
+          if (!db.exists(dbName)) {
+            db.create(dbName, dbType, user, password, "admin");
+            logger.info("Created database '{}'", dbName);
+          }
+
+          g = db.openTraversal(dbName, user, password);
+          createSchema(g);
+
+          dbInstance = db;
+          traversalSource = g;
+          success = true;
+        } finally {
+          if (!success) {
+            if (g != null) {
+              try {
+                g.close();
+              } catch (Exception ignored) {
+              }
+            }
+            try {
+              db.close();
+            } catch (Exception ignored) {
+            }
+          }
         }
-
-        if (!db.exists(dbName)) {
-          db.create(dbName, dbType, user, password, "admin");
-          logger.info("Created database '{}'", dbName);
-        }
-
-        YTDBGraphTraversalSource g = db.openTraversal(dbName, user, password);
-        createSchema(g);
-
-        dbInstance = db;
-        traversalSource = g;
       }
       clientCount.incrementAndGet();
     } catch (Exception e) {
@@ -207,6 +225,13 @@ public class YouTrackDBYqlClient extends DB {
   @Override
   public Status delete(String table, String key) {
     return Status.NOT_IMPLEMENTED;
+  }
+
+  /**
+   * Returns the shared traversal source. Package-private for test access.
+   */
+  static YTDBGraphTraversalSource getTraversalSource() {
+    return traversalSource;
   }
 
   /**
