@@ -289,6 +289,7 @@ done
 THREADS="${THREADS:-$(detect_cpu_count)}"
 RESULTS_DIR="${RESULTS_DIR:-./ycsb-results}"
 DB_PATH="${DB_PATH:-$RESULTS_DIR/ytdb-data}"
+DB_PATH="${DB_PATH%/}"  # Strip trailing slash to prevent snapshot path corruption
 
 # ============================================================================
 # Validation
@@ -300,6 +301,11 @@ require_positive_int "--threads" "$THREADS"
 
 if [ -z "$RESULTS_DIR" ]; then
   log_error "--results-dir must not be empty"
+  exit 1
+fi
+
+if [ -z "$DB_PATH" ]; then
+  log_error "--db-path must not be empty"
   exit 1
 fi
 
@@ -335,6 +341,7 @@ log "  Threads:          $THREADS"
 log "  Heap size:        $HEAP_SIZE"
 log "  Throughput ratio: $THROUGHPUT_RATIO"
 log "  DB path:          $DB_PATH"
+log "  Snapshot path:    ${DB_PATH}-snapshot"
 log "  Results dir:      $RESULTS_DIR"
 
 # Create results directory
@@ -347,7 +354,7 @@ mkdir -p "$RESULTS_DIR"
 SNAPSHOT_PATH="${DB_PATH}-snapshot"
 
 if [ "$SKIP_LOAD" = false ]; then
-  # Remove any existing database and snapshot to start fresh
+  # Remove any existing database, snapshot, and stale temp snapshots
   if [ -d "$DB_PATH" ]; then
     log "Removing existing database at $DB_PATH"
     rm -rf "$DB_PATH"
@@ -356,28 +363,36 @@ if [ "$SKIP_LOAD" = false ]; then
     log "Removing existing snapshot at $SNAPSHOT_PATH"
     rm -rf "$SNAPSHOT_PATH"
   fi
+  rm -rf "${SNAPSHOT_PATH}.tmp."* 2>/dev/null || true
 
   log "Loading data (ytdb.newdb=true)..."
   LOAD_START=$(date +%s)
 
   run_ycsb load \
-    -p "ytdb.path=$DB_PATH" \
+    -p "ytdb.url=$DB_PATH" \
     -p "ytdb.newdb=true"
 
   LOAD_END=$(date +%s)
   LOAD_DURATION=$((LOAD_END - LOAD_START))
   log "Load complete in ${LOAD_DURATION}s."
 
+  # Verify database was created at the expected path
+  if [ ! -d "$DB_PATH" ]; then
+    log_error "Database directory not found after load: $DB_PATH"
+    log_error "Check that ytdb.url property matches --db-path."
+    exit 1
+  fi
+
   # Snapshot the database directory for reproducible workload runs.
   # The YCSB load phase closes the database (cleanup), which flushes WAL,
   # so the directory is in a consistent state.
+  # Use atomic copy-then-rename to prevent partial snapshots from surviving
+  # interrupted runs.
+  SNAPSHOT_TMP="${SNAPSHOT_PATH}.tmp.$$"
   log "Creating snapshot at $SNAPSHOT_PATH"
-  cp -a "$DB_PATH" "$SNAPSHOT_PATH"
-
-  if [ ! -d "$SNAPSHOT_PATH" ]; then
-    log_error "Snapshot directory not found after copy: $SNAPSHOT_PATH"
-    exit 1
-  fi
+  rm -rf "$SNAPSHOT_TMP"
+  cp -a "$DB_PATH" "$SNAPSHOT_TMP"
+  mv "$SNAPSHOT_TMP" "$SNAPSHOT_PATH"
   log "Snapshot created."
 else
   log "Skipping load phase (--skip-load)."
