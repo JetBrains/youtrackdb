@@ -309,6 +309,13 @@ if [ -z "$DB_PATH" ]; then
   exit 1
 fi
 
+# Validate throughput ratio is a positive number in (0, 1.0]
+if ! LC_NUMERIC=C awk -v r="$THROUGHPUT_RATIO" \
+  'BEGIN { exit !(r > 0 && r <= 1.0) }' 2>/dev/null; then
+  log_error "--throughput-ratio must be a number in (0, 1.0], got: $THROUGHPUT_RATIO"
+  exit 1
+fi
+
 # Validate workload names against available property files
 IFS=',' read -ra WORKLOAD_LIST <<< "$WORKLOADS"
 for w in "${WORKLOAD_LIST[@]}"; do
@@ -421,8 +428,6 @@ parse_throughput() {
   awk -F', ' '/\[OVERALL\], Throughput\(ops\/sec\)/ { print $3 }' "$output_file"
 }
 
-mkdir -p "$RESULTS_DIR"
-
 for w in "${WORKLOAD_LIST[@]}"; do
   log "========================================"
   log "Workload $w"
@@ -436,15 +441,19 @@ for w in "${WORKLOAD_LIST[@]}"; do
   restore_snapshot
 
   log "Pass 1 (max throughput) — workload $w"
-  YCSB_OUTPUT_FILE="$PASS1_OUTPUT" \
+  if ! YCSB_OUTPUT_FILE="$PASS1_OUTPUT" \
     run_ycsb run \
       -P "$WORKLOAD_PROPS" \
       -p "ytdb.url=$DB_PATH" \
       -p "ytdb.newdb=false" \
-      -target 0
+      -target 0; then
+    log_error "Pass 1 failed for workload $w. Skipping."
+    continue
+  fi
 
   THROUGHPUT=$(parse_throughput "$PASS1_OUTPUT")
-  if [ -z "$THROUGHPUT" ] || ! LC_NUMERIC=C awk "BEGIN { exit !($THROUGHPUT > 0) }" 2>/dev/null; then
+  if [ -z "$THROUGHPUT" ] || \
+     ! LC_NUMERIC=C awk -v tp="$THROUGHPUT" 'BEGIN { exit !(tp > 0) }' 2>/dev/null; then
     log_error "Could not parse a positive throughput from pass 1 output."
     log_error "Skipping pass 2 for workload $w."
     continue
@@ -452,9 +461,13 @@ for w in "${WORKLOAD_LIST[@]}"; do
   log "Pass 1 throughput: $THROUGHPUT ops/sec"
 
   # --- Pass 2: Fixed throughput for latency distribution ---
-  TARGET=$(LC_NUMERIC=C awk "BEGIN { printf \"%d\", $THROUGHPUT * $THROUGHPUT_RATIO }")
-  if [ "$TARGET" -le 0 ]; then
-    log_error "Computed target throughput is 0. Skipping pass 2 for workload $w."
+  # measurement.interval=intended enables coordinated-omission correction,
+  # accounting for queuing delay when operations cannot keep up with the
+  # target rate.
+  TARGET=$(LC_NUMERIC=C awk -v tp="$THROUGHPUT" -v ratio="$THROUGHPUT_RATIO" \
+    'BEGIN { printf "%d", tp * ratio }')
+  if [ -z "$TARGET" ] || [ "$TARGET" -le 0 ] 2>/dev/null; then
+    log_error "Computed target throughput is 0 or invalid. Skipping pass 2 for workload $w."
     continue
   fi
   log "Pass 2 target: $TARGET ops/sec (${THROUGHPUT_RATIO} × max)"
@@ -462,13 +475,16 @@ for w in "${WORKLOAD_LIST[@]}"; do
   restore_snapshot
 
   log "Pass 2 (fixed throughput) — workload $w"
-  YCSB_OUTPUT_FILE="$PASS2_OUTPUT" \
+  if ! YCSB_OUTPUT_FILE="$PASS2_OUTPUT" \
     run_ycsb run \
       -P "$WORKLOAD_PROPS" \
       -p "ytdb.url=$DB_PATH" \
       -p "ytdb.newdb=false" \
       -p "measurement.interval=intended" \
-      -target "$TARGET"
+      -target "$TARGET"; then
+    log_error "Pass 2 failed for workload $w."
+    continue
+  fi
 
   log "Workload $w complete."
 done
