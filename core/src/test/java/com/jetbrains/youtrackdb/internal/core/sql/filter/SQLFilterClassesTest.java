@@ -139,10 +139,9 @@ public class SQLFilterClassesTest extends DbTestBase {
     session.commit();
   }
 
-  /** Filter with empty text (whitespace only) produces null root condition. */
+  /** A simple numeric equality filter parses successfully. */
   @Test
-  public void testSQLFilterWhitespaceOnlyText() {
-    // An all-whitespace filter parses to null root → evaluate returns true
+  public void testSQLFilterSimpleNumericEquality() {
     var filter = new SQLFilter("1 = 1", context);
     Assert.assertNotNull(filter.getRootCondition());
   }
@@ -177,21 +176,28 @@ public class SQLFilterClassesTest extends DbTestBase {
     session.commit();
   }
 
-  /** SQLFilterCondition.toString() contains operator and value. */
+  /**
+   * SQLFilterCondition.toString() includes operator and operands.
+   * Left is an SQLFilterItemField whose toString uses object identity,
+   * so we only check the operator/value portion.
+   */
   @Test
   public void testSQLFilterConditionToString() {
     var filter = SQLEngine.parseCondition("a = 3", context);
     var str = filter.getRootCondition().toString();
-    Assert.assertTrue(str.contains("="));
-    Assert.assertTrue(str.contains("3"));
+    Assert.assertTrue("toString should contain ' = '", str.contains(" = "));
+    Assert.assertTrue("toString should end with '3)'", str.endsWith("3)"));
   }
 
-  /** SQLFilterCondition.asString() formats with SQLFilterItemAbstract. */
+  /**
+   * SQLFilterCondition.asString() uses field name, not object identity,
+   * so the format is deterministic: "(fieldName operator value)".
+   */
   @Test
   public void testSQLFilterConditionAsString() {
     var filter = SQLEngine.parseCondition("a = 3", context);
     var str = filter.getRootCondition().asString(session);
-    Assert.assertTrue(str.contains("a"));
+    Assert.assertEquals("(a = 3)", str);
   }
 
   /** getLeft/getRight/getOperator return correct components. */
@@ -217,13 +223,14 @@ public class SQLFilterClassesTest extends DbTestBase {
     Assert.assertEquals("newRight", cond.getRight());
   }
 
-  /** getInvolvedFields extracts field names. */
+  /** getInvolvedFields extracts exactly the field names from the condition. */
   @Test
   public void testSQLFilterConditionGetInvolvedFields() {
     var filter = SQLEngine.parseCondition("name = 'test'", context);
     var fields = new ArrayList<String>();
     filter.getRootCondition().getInvolvedFields(fields);
-    Assert.assertTrue(fields.contains("name"));
+    Assert.assertEquals(1, fields.size());
+    Assert.assertEquals("name", fields.get(0));
   }
 
   /** getInvolvedFields with nested AND extracts fields from both branches. */
@@ -232,6 +239,7 @@ public class SQLFilterClassesTest extends DbTestBase {
     var filter = SQLEngine.parseCondition("a = 1 and b = 2", context);
     var fields = new ArrayList<String>();
     filter.getRootCondition().getInvolvedFields(fields);
+    Assert.assertEquals(2, fields.size());
     Assert.assertTrue(fields.contains("a"));
     Assert.assertTrue(fields.contains("b"));
   }
@@ -253,18 +261,23 @@ public class SQLFilterClassesTest extends DbTestBase {
     Assert.assertNull(cond.getEndRidRange(session));
   }
 
-  /** toString with null operator only outputs left in parens. */
+  /**
+   * toString with null operator only outputs left in an opening paren.
+   * The unbalanced paren is the current production behavior — the
+   * closing paren is only appended when operator is non-null.
+   */
   @Test
   public void testSQLFilterConditionToStringNullOperator() {
     var cond = new SQLFilterCondition("left", null);
     Assert.assertEquals("(left", cond.toString());
   }
 
-  /** toString with string right operand adds quotes. */
+  /** toString wraps string right operand in quotes. */
   @Test
   public void testSQLFilterConditionToStringQuotesStringRight() {
     var filter = SQLEngine.parseCondition("name = 'test'", context);
-    Assert.assertTrue(filter.getRootCondition().toString().contains("'"));
+    Assert.assertTrue("Should wrap string right operand in quotes",
+        filter.getRootCondition().toString().contains("'test'"));
   }
 
   // ====================================================================
@@ -322,8 +335,9 @@ public class SQLFilterClassesTest extends DbTestBase {
     Assert.assertNotNull(pred.getRootCondition().getOperator());
   }
 
-  /** SQLPredicate.text() with null text throws. */
-  @Test(expected = Exception.class)
+  /** SQLPredicate.text() with null text throws CommandSQLParsingException. */
+  @Test(
+      expected = com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException.class)
   public void testSQLPredicateNullTextThrows() {
     var pred = new SQLPredicate(context);
     pred.text(session, null);
@@ -385,11 +399,15 @@ public class SQLFilterClassesTest extends DbTestBase {
     pred.addParameter(":invalid-name!");
   }
 
-  /** upperCase keeps original char when its uppercase is >1 char (e.g. ß→SS). */
+  /**
+   * upperCase keeps original char when its uppercase is >1 char
+   * (e.g. ß→SS is 2 chars, so ß is preserved). Verifies both
+   * content and length.
+   */
   @Test
   public void testSQLPredicateUpperCaseMultiCharExpansion() {
     var result = SQLPredicate.upperCase("straße");
-    Assert.assertEquals("straße".length(), result.length());
+    Assert.assertEquals("STRAßE", result);
   }
 
   /** Normal ASCII uppercasing. */
@@ -957,8 +975,8 @@ public class SQLFilterClassesTest extends DbTestBase {
     Assert.assertEquals("c", field.getFieldChain().getItemName(2));
   }
 
-  /** Sub-query in body throws. */
-  @Test(expected = Exception.class)
+  /** Sub-query in body throws QueryParsingException. */
+  @Test(expected = QueryParsingException.class)
   public void testSQLPredicateSubQueryThrows() {
     new SQLPredicate(context, "SELECT from V");
   }
@@ -1048,16 +1066,23 @@ public class SQLFilterClassesTest extends DbTestBase {
   // Evaluate exception wrapping
   // ====================================================================
 
-  /** Generic exception during evaluation returns false, not an exception. */
+  /**
+   * When evaluation encounters type mismatch (string vs integer),
+   * the result is a Boolean — the exception handler path catches
+   * generic exceptions and returns false, or checkForConversion
+   * handles the type mismatch gracefully.
+   */
   @Test
-  public void testSQLFilterConditionEvaluateGenericExceptionReturnsFalse() {
+  public void testSQLFilterConditionEvaluateTypeMismatch() {
     session.getMetadata().getSchema().createClass("ExcTest");
     session.begin();
     var doc = (EntityImpl) session.newInstance("ExcTest");
     doc.setProperty("val", "not-a-date");
     var filter = SQLEngine.parseCondition("val > 42", context);
     var result = filter.getRootCondition().evaluate(doc, null, context);
-    Assert.assertTrue(result instanceof Boolean);
+    // Result is always a Boolean (either via comparison or exception handler)
+    Assert.assertNotNull(result);
+    Assert.assertTrue("Result should be Boolean", result instanceof Boolean);
     session.commit();
   }
 
@@ -1282,6 +1307,77 @@ public class SQLFilterClassesTest extends DbTestBase {
     var filter = SQLEngine.parseCondition(
         "status in ['active', 'pending']", context);
     Assert.assertEquals(Boolean.TRUE,
+        filter.getRootCondition().evaluate(doc, null, context));
+    session.commit();
+  }
+
+  // ====================================================================
+  // TC1: SQLFilterItemVariable — variable resolution in filters
+  // ====================================================================
+
+  /**
+   * Filter referencing a context variable ($myVar) via the
+   * SQLFilterItemVariable path. The variable is set on the
+   * BasicCommandContext before evaluation.
+   */
+  @Test
+  public void testFilterWithContextVariable() {
+    session.getMetadata().getSchema().createClass("VarTest");
+    session.begin();
+    var doc = (EntityImpl) session.newInstance("VarTest");
+    doc.setProperty("name", "Alice");
+    var ctx = new BasicCommandContext();
+    ctx.setDatabaseSession(session);
+    ctx.setVariable("expected", "Alice");
+    var filter = SQLEngine.parseCondition("name = $expected", ctx);
+    Assert.assertEquals(Boolean.TRUE,
+        filter.getRootCondition().evaluate(doc, null, ctx));
+    session.commit();
+  }
+
+  /**
+   * Variable filter with null context variable — the variable resolves
+   * to null, causing a mismatch with the field value.
+   */
+  @Test
+  public void testFilterWithNullContextVariable() {
+    session.getMetadata().getSchema().createClass("VarNullTest");
+    session.begin();
+    var doc = (EntityImpl) session.newInstance("VarNullTest");
+    doc.setProperty("name", "Alice");
+    var ctx = new BasicCommandContext();
+    ctx.setDatabaseSession(session);
+    // $unset is not set → resolves to null
+    var filter = SQLEngine.parseCondition("name = $unset", ctx);
+    Assert.assertEquals(Boolean.FALSE,
+        filter.getRootCondition().evaluate(doc, null, ctx));
+    session.commit();
+  }
+
+  // ====================================================================
+  // TC2: MultiValue right operand in static evaluate()
+  // ====================================================================
+
+  /**
+   * When the right operand is a collection containing SQLFilterItem
+   * instances, the static evaluate() method iterates and resolves
+   * each item. This exercises the MultiValue path in
+   * SQLFilterCondition.evaluate(static).
+   */
+  @Test
+  public void testFilterWithInCollectionEvaluatesMultiValue() {
+    session.getMetadata().getSchema().createClass("MVTest");
+    session.begin();
+    var doc = (EntityImpl) session.newInstance("MVTest");
+    doc.setProperty("val", 2);
+    // "val in [1, 2, 3]" creates a multi-value right operand
+    var filter = SQLEngine.parseCondition("val in [1, 2, 3]", context);
+    Assert.assertEquals(Boolean.TRUE,
+        filter.getRootCondition().evaluate(doc, null, context));
+
+    // Test non-membership
+    doc.setProperty("val", 99);
+    Assert.assertEquals(Boolean.FALSE,
         filter.getRootCondition().evaluate(doc, null, context));
     session.commit();
   }
