@@ -1548,8 +1548,9 @@ public class EdgeTraversalCacheTest {
 
   /**
    * Composite with an IndexLookup child whose selectivity exceeds the
-   * threshold (0.96 > 0.95) should be rejected by the selectivity check
-   * (step 4b) and cache null permanently — same as standalone IndexLookup.
+   * threshold (0.96 > 0.95) AND an EdgeRidLookup whose ratio check
+   * also fails. Both children fail their selectivity checks, so the
+   * Composite is rejected even with the fallback.
    */
   @Test
   public void resolveWithCache_compositeWithIndexLookup_selectivityTooHigh_rejected() {
@@ -1557,19 +1558,23 @@ public class EdgeTraversalCacheTest {
     var ridSet = singletonRidSet(10, 1);
 
     var indexLookup = stubIndexLookup(0.96, 100_000, "Post.date", ridSet);
+    // Override: selectivity 0.96 > 0.95 → passesSelectivityCheck = false
+    when(indexLookup.passesSelectivityCheck(anyInt(), anyInt(), any()))
+        .thenReturn(false);
     var edgeLookup = mock(RidFilterDescriptor.EdgeRidLookup.class);
     when(edgeLookup.estimatedSize(any(), any())).thenReturn(500);
     when(edgeLookup.cacheKey(any())).thenReturn(new RecordId(10, 1));
+    // EdgeRidLookup ratio also fails
+    when(edgeLookup.passesSelectivityCheck(anyInt(), anyInt(), any()))
+        .thenReturn(false);
 
     var composite = new RidFilterDescriptor.Composite(
         List.of(edgeLookup, indexLookup));
     et.setIntersectionDescriptor(composite);
     var ctx = new BasicCommandContext();
 
-    // selectivity 0.96 > threshold 0.95 → rejected, cached null
-    assertThat(et.resolveWithCache(ctx, LARGE_LINKBAG)).isNull();
-
-    // Second call returns cached null immediately (no re-evaluation)
+    // IndexLookup selectivity REJECTED → Composite fallback checks
+    // children's passesSelectivityCheck → both fail → null
     assertThat(et.resolveWithCache(ctx, LARGE_LINKBAG)).isNull();
   }
 
@@ -2329,6 +2334,71 @@ public class EdgeTraversalCacheTest {
    * would skip live ratio recomputation (NaN sentinel check at
    * resolveLoadToScanRatio).
    */
+  // =========================================================================
+  // Composite with high-selectivity IndexLookup — regression test for
+  // IC5 benchmark timeout (YTDB-651). A Composite(IndexLookup, EdgeRidLookup)
+  // must NOT be rejected when only the IndexLookup fails the selectivity
+  // threshold but the EdgeRidLookup still makes the pre-filter effective.
+  // =========================================================================
+
+  /**
+   * Composite containing a high-selectivity IndexLookup (0.98 > 0.95
+   * threshold) and a selective EdgeRidLookup. The IndexLookup alone
+   * would be rejected, but the Composite should fall back to
+   * passesSelectivityCheck() where the EdgeRidLookup child passes,
+   * allowing materialization to proceed.
+   *
+   * <p>This reproduces the IC5 (newGroups) regression where a Composite
+   * of HAS_MEMBER.joinDate index + back-reference EdgeRidLookup was
+   * permanently rejected, causing a 28x performance regression.
+   */
+  @Test
+  public void resolveWithCache_composite_indexHighSelectivity_edgeRidFallback() {
+    var et = createEdgeTraversal();
+
+    // IndexLookup child: selectivity 0.98 (> 0.95 threshold → would
+    // reject a standalone IndexLookup).
+    var indexRidSet = singletonRidSet(10, 1);
+    var indexChild = stubIndexLookup(0.98, 500, "HAS_MEMBER.joinDate",
+        indexRidSet);
+
+    // EdgeRidLookup child: highly selective (resolves to 1 RID).
+    var edgeChild = mock(EdgeRidLookup.class);
+    var edgeRidSet = singletonRidSet(5, 1);
+    when(edgeChild.cacheKey(any())).thenReturn(new RecordId(5, 1));
+    when(edgeChild.estimatedSize(any(), any())).thenReturn(1);
+    when(edgeChild.resolve(any(), any())).thenReturn(edgeRidSet);
+    when(edgeChild.passesSelectivityCheck(anyInt(), anyInt(), any()))
+        .thenReturn(true);
+
+    // Build a real Composite (not mocked) so passesSelectivityCheck()
+    // delegates to children correctly.
+    var composite = new RidFilterDescriptor.Composite(
+        List.of(indexChild, edgeChild));
+    et.setIntersectionDescriptor(composite);
+    var ctx = new BasicCommandContext();
+
+    // The Composite must NOT be rejected — EdgeRidLookup saves it.
+    var result = et.resolveWithCache(ctx, LARGE_LINKBAG);
+    assertThat(result).isNotNull();
+  }
+
+  /**
+   * Standalone IndexLookup with selectivity above threshold is still
+   * rejected (no Composite fallback applies).
+   */
+  @Test
+  public void resolveWithCache_standaloneIndexLookup_highSelectivity_stillRejected() {
+    var et = createEdgeTraversal();
+    var ridSet = singletonRidSet(10, 1);
+    var desc = stubIndexLookup(0.98, 500, "HAS_MEMBER.joinDate", ridSet);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    assertThat(et.resolveWithCache(ctx, LARGE_LINKBAG)).isNull();
+    verify(desc, never()).resolve(any(), any());
+  }
+
   @Test
   public void copy_resetsMetricReferencesAndCachedLiveRatio() {
     var et = createEdgeTraversal();

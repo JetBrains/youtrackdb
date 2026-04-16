@@ -500,7 +500,12 @@ public class EdgeTraversal {
    *   <li><b>Build amortization guard (IndexLookup only)</b> —
    *       accumulates link bag sizes across vertices and defers
    *       materialization until the total justifies the build cost.
-   *       Returns {@code null} without caching when deferred.</li>
+   *       Returns {@code null} without caching when deferred.
+   *       For Composites, if the IndexLookup child is REJECTED (high
+   *       selectivity), falls back to {@code passesSelectivityCheck()}
+   *       to let other children (e.g. EdgeRidLookup) justify the
+   *       pre-filter. DEFER still applies to Composites (build cost
+   *       is shared).</li>
    *   <li><b>First big-enough hit</b> — resolve (materialize) and
    *       cache. The cached RidSet is a pure function of descriptor
    *       parameters.</li>
@@ -555,26 +560,44 @@ public class EdgeTraversal {
     }
 
     // 4. Descriptor-specific selectivity check against estimate.
-    //    IndexLookup path (standalone or inside Composite) is extracted
-    //    into checkIndexLookupAmortization() to keep this method readable.
-    //    EdgeRidLookup: per-vertex overlap ratio (DON'T cache null —
-    //    a later vertex with a larger link bag may benefit).
-    //    DirectRid: always passes (never reaches this branch in
-    //    practice since estimatedSize is 1).
+    //    Standalone IndexLookup: use checkIndexLookupAmortization().
+    //    Composite containing IndexLookup: run the amortization check.
+    //      - On REJECT (selectivity too high): fall back to the Composite's
+    //        passesSelectivityCheck() — other children (e.g. EdgeRidLookup
+    //        for a back-reference) may still make the pre-filter effective.
+    //      - On DEFER (amortization not met): respect it — the build cost
+    //        applies to the entire Composite.
+    //    EdgeRidLookup / DirectRid: delegate to passesSelectivityCheck().
     RidFilterDescriptor.IndexLookup indexLookup = null;
+    boolean isComposite = false;
     if (desc instanceof RidFilterDescriptor.IndexLookup il) {
       indexLookup = il;
     } else if (desc instanceof RidFilterDescriptor.Composite composite) {
       indexLookup = composite.findIndexLookup();
+      isComposite = true;
     }
 
     if (indexLookup != null) {
       var decision = checkIndexLookupAmortization(
           indexLookup, estimatedSize, linkBagSize, key, ctx);
-      if (decision != AmortizationDecision.PROCEED) {
+      if (decision == AmortizationDecision.REJECT && isComposite) {
+        // Composite: the IndexLookup child's selectivity is too high,
+        // but other children (e.g. EdgeRidLookup for a back-reference)
+        // may still justify the pre-filter. Fall through to the
+        // Composite's passesSelectivityCheck ("any child passes").
+        if (estimatedSize >= 0
+            && !desc.passesSelectivityCheck(
+                estimatedSize, linkBagSize, ctx)) {
+          lastSkipReason = PreFilterSkipReason.OVERLAP_RATIO_TOO_HIGH;
+          preFilterSkippedCount++;
+          return null;
+        }
+        // At least one non-IndexLookup child passes → materialize.
+      } else if (decision != AmortizationDecision.PROCEED) {
+        // Standalone REJECT, or DEFER (accumulation not met yet).
         return null;
       }
-      // PROCEED means fall through to materialize.
+      // PROCEED (or Composite fallback passed) → fall through to materialize.
     } else if (estimatedSize >= 0
         && !desc.passesSelectivityCheck(estimatedSize, linkBagSize, ctx)) {
       // EdgeRidLookup / DirectRid: delegate to the descriptor.
