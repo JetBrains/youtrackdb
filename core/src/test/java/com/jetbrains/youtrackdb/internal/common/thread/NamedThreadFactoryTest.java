@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.common.thread;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jetbrains.youtrackdb.internal.common.util.UncaughtExceptionHandler;
 import org.junit.Test;
 
 /**
@@ -65,7 +66,8 @@ public class NamedThreadFactoryTest {
     var factory = new NamedThreadFactory("ueh-test", group);
     var thread = factory.newThread(() -> {
     });
-    assertThat(thread.getUncaughtExceptionHandler()).isNotNull();
+    assertThat(thread.getUncaughtExceptionHandler())
+        .isInstanceOf(UncaughtExceptionHandler.class);
   }
 
   /**
