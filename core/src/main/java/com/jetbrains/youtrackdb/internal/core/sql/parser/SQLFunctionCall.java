@@ -3,6 +3,8 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.command.TraversalCache;
+import com.jetbrains.youtrackdb.internal.core.command.TraversalCacheKey;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
@@ -150,26 +152,61 @@ public final class SQLFunctionCall extends SimpleNode {
 
       ctx.setVariable("aggregation", false);
       var session = ctx.getDatabaseSession();
-      return switch (record) {
-        case Identifiable identifiable -> {
-          var transaction = session.getActiveTransaction();
-          yield function.execute(targetObjects, transaction.loadEntity(identifiable), null,
-              paramValues.toArray(),
-              ctx);
+
+      // Graph navigation functions (out, in, both, outE, inE, bothE) have deterministic results for
+      // a given source entity + labels within a single read-consistent query. Cache them when a
+      // per-query TraversalCache is active so that repeated traversals of the same vertex are
+      // served from memory rather than re-traversing the graph.
+      if (function instanceof SQLGraphNavigationFunction) {
+        var cache = ctx.getTraversalCache();
+        if (cache != null) {
+          var sourceId = TraversalCache.extractSourceIdentifiable(record);
+          if (sourceId != null) {
+            var rid = sourceId.getIdentity();
+            if (rid != null && !rid.isNew()) {
+              var key = new TraversalCacheKey(
+                  rid, function.getName(session),
+                  TraversalCacheKey.toStringLabels(paramValues));
+              var cached = cache.get(key);
+              if (cached != null) {
+                return cached;
+              }
+              var result = computeFunctionResult(function, targetObjects, record, paramValues, ctx,
+                  session);
+              if (result != null) {
+                return cache.put(key, result);
+              }
+              return null;
+            }
+          }
         }
-        case Result result -> function.execute(
-            targetObjects,
-            result,
-            null,
-            paramValues.toArray(),
-            ctx);
-        case null -> function.execute(targetObjects, null, null, paramValues.toArray(), ctx);
-        default ->
-            throw new CommandExecutionException(session, "Invalid value for $current: " + record);
-      };
+      }
+
+      return computeFunctionResult(function, targetObjects, record, paramValues, ctx, session);
     } else {
       throw new CommandExecutionException(ctx.getDatabaseSession(), "Funciton not found: " + name);
     }
+  }
+
+  private static Object computeFunctionResult(
+      SQLFunction function,
+      Object targetObjects,
+      Object record,
+      List<Object> paramValues,
+      CommandContext ctx,
+      DatabaseSessionEmbedded session) {
+    return switch (record) {
+      case Identifiable identifiable -> {
+        var transaction = session.getActiveTransaction();
+        yield function.execute(targetObjects, transaction.loadEntity(identifiable), null,
+            paramValues.toArray(), ctx);
+      }
+      case Result result -> function.execute(targetObjects, result, null, paramValues.toArray(),
+          ctx);
+      case null -> function.execute(targetObjects, null, null, paramValues.toArray(), ctx);
+      default ->
+          throw new CommandExecutionException(session, "Invalid value for $current: " + record);
+    };
   }
 
   private static void validateFunctionParams(DatabaseSessionEmbedded session, SQLFunction function,

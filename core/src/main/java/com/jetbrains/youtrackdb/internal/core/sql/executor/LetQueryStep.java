@@ -1,8 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.command.TraversalCache;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
@@ -139,6 +141,7 @@ public class LetQueryStep extends AbstractExecutionStep {
       throw new CommandExecutionException(ctx.getDatabaseSession(),
           "Cannot execute a local LET on a query without a target");
     }
+    TraversalCache.installIfNeeded(ctx);
     return prev.start(ctx).map(this::mapResult);
   }
 
@@ -149,13 +152,33 @@ public class LetQueryStep extends AbstractExecutionStep {
   @Override
   public String prettyPrint(int depth, int indent) {
     var spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var cacheTag = isCacheEnabled() ? " [traversal-cache=enabled]" : " [traversal-cache=disabled]";
     return spaces
-        + "+ LET (for each record)\n"
+        + "+ LET (for each record)"
+        + cacheTag
+        + "\n"
         + spaces
         + "  "
         + varName
         + " = \n"
         + box(spaces + "    ", getPreviewPlan().prettyPrint(0, indent));
+  }
+
+  /**
+   * Returns {@code true} when the traversal-result cache is enabled in the database configuration.
+   * Used only for EXPLAIN display — the actual cache is created at execution time in {@link
+   * #initTraversalCache}.
+   */
+  private boolean isCacheEnabled() {
+    if (ctx == null) {
+      return false;
+    }
+    var db = ctx.getDatabaseSession();
+    if (db == null) {
+      return false;
+    }
+    return db.getConfiguration()
+        .getValueAsBoolean(GlobalConfiguration.QUERY_TRAVERSAL_CACHE_ENABLED);
   }
 
   @Override

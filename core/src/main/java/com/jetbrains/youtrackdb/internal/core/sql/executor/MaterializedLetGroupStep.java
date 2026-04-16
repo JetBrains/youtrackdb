@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.command.TraversalCache;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
@@ -89,6 +90,7 @@ public class MaterializedLetGroupStep extends AbstractExecutionStep {
       throw new CommandExecutionException(ctx.getDatabaseSession(),
           "Cannot execute a local LET on a query without a target");
     }
+    TraversalCache.installIfNeeded(ctx);
     return prev.start(ctx).map(this::mapResult);
   }
 

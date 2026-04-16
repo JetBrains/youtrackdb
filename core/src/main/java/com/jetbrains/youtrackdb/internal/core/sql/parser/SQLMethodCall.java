@@ -3,6 +3,8 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.command.TraversalCache;
+import com.jetbrains.youtrackdb.internal.core.command.TraversalCacheKey;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
@@ -156,6 +158,45 @@ public class SQLMethodCall extends SimpleNode {
   }
 
   private static Object invokeGraphFunction(
+      SQLFunction graphFunction,
+      Object targetObjects,
+      CommandContext ctx,
+      Iterable<Identifiable> iPossibleResults,
+      List<Object> paramValues) {
+    // Cache only unfiltered traversals on a single persistent source.
+    // When iPossibleResults is set, the result depends on the candidate set and cannot be keyed
+    // by source RID alone.
+    //
+    // Two call sites supply different types for targetObjects:
+    //   - MATCH-style traversal: targetObjects is already an Identifiable (e.g. a Vertex).
+    //   - ProjectionCalculationStep: targetObjects is a Result wrapping an entity. We unwrap
+    //     it here so that both call sites get the same caching benefit.
+    var cache = ctx.getTraversalCache();
+    if (cache != null && iPossibleResults == null) {
+      var sourceId = TraversalCache.extractSourceIdentifiable(targetObjects);
+      if (sourceId != null) {
+        var rid = sourceId.getIdentity();
+        if (rid != null && !rid.isNew()) {
+          var key = new TraversalCacheKey(
+              rid,
+              graphFunction.getName(ctx.getDatabaseSession()),
+              TraversalCacheKey.toStringLabels(paramValues));
+          var cached = cache.get(key);
+          if (cached != null) {
+            return cached;
+          }
+          var result = doInvokeGraphFunction(graphFunction, targetObjects, ctx, null, paramValues);
+          if (result != null) {
+            return cache.put(key, result);
+          }
+          return null;
+        }
+      }
+    }
+    return doInvokeGraphFunction(graphFunction, targetObjects, ctx, iPossibleResults, paramValues);
+  }
+
+  private static Object doInvokeGraphFunction(
       SQLFunction graphFunction,
       Object targetObjects,
       CommandContext ctx,
