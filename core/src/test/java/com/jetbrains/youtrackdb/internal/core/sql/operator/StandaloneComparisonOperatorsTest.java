@@ -28,6 +28,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.regex.Pattern;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -67,7 +68,7 @@ public class StandaloneComparisonOperatorsTest {
   }
 
   @Test
-  public void testLikePercentWildcardAtStart() {
+  public void testLikePercentWildcardAtEnd() {
     var like = new QueryOperatorLike();
     Assert.assertEquals(true, eval(like, "hello world", "hello%"));
   }
@@ -80,9 +81,13 @@ public class StandaloneComparisonOperatorsTest {
 
   @Test
   public void testLikeQuestionMarkWildcard() {
-    // ? matches a single character
+    // ? matches exactly one character
     var like = new QueryOperatorLike();
     Assert.assertEquals(true, eval(like, "hello", "hell?"));
+    // ? should not match zero characters
+    Assert.assertEquals(false, eval(like, "hell", "hell?"));
+    // ? should not match multiple characters
+    Assert.assertEquals(false, eval(like, "helloo", "hell?"));
   }
 
   @Test
@@ -120,11 +125,43 @@ public class StandaloneComparisonOperatorsTest {
 
   @Test
   public void testLikeSpecialRegexCharsEscaped() {
-    // Dots and other regex chars should be escaped by QueryHelper.like
     var like = new QueryOperatorLike();
+    // Dot should be literal, not regex wildcard
     Assert.assertEquals(true, eval(like, "file.txt", "file.txt"));
-    // Without escaping, "." would match any character
     Assert.assertEquals(false, eval(like, "fileXtxt", "file.txt"));
+    // Asterisk should be literal, not regex quantifier
+    Assert.assertEquals(true, eval(like, "a*b", "a*b"));
+    Assert.assertEquals(false, eval(like, "aXXXb", "a*b"));
+    // Plus should be literal, not regex quantifier
+    Assert.assertEquals(true, eval(like, "a+b", "a+b"));
+    Assert.assertEquals(false, eval(like, "aab", "a+b"));
+  }
+
+  @Test
+  public void testLikeEmptyStringLeftReturnsFalse() {
+    // QueryHelper.like returns false for empty left operand
+    var like = new QueryOperatorLike();
+    Assert.assertEquals(false, eval(like, "", "hello"));
+  }
+
+  @Test
+  public void testLikeEmptyStringRightReturnsFalse() {
+    // QueryHelper.like returns false for empty pattern
+    var like = new QueryOperatorLike();
+    Assert.assertEquals(false, eval(like, "hello", ""));
+  }
+
+  @Test
+  public void testLikePercentOnlyMatchesAnything() {
+    var like = new QueryOperatorLike();
+    Assert.assertEquals(true, eval(like, "anything", "%"));
+  }
+
+  @Test
+  public void testLikeQuestionMarkOnlyMatchesSingleChar() {
+    var like = new QueryOperatorLike();
+    Assert.assertEquals(true, eval(like, "x", "?"));
+    Assert.assertEquals(false, eval(like, "xy", "?"));
   }
 
   // ===== QueryOperatorContainsKey =====
@@ -155,9 +192,26 @@ public class StandaloneComparisonOperatorsTest {
   }
 
   @Test
+  public void testContainsKeyMapRightKeyAbsent() {
+    var op = new QueryOperatorContainsKey();
+    Map<String, Object> map = new HashMap<>();
+    map.put("name", "John");
+    Assert.assertEquals(false, eval(op, "age", map));
+  }
+
+  @Test
   public void testContainsKeyEmptyMap() {
     var op = new QueryOperatorContainsKey();
     Assert.assertEquals(false, eval(op, Collections.emptyMap(), "anything"));
+  }
+
+  @Test
+  public void testContainsKeyWithNullValueStillFound() {
+    // containsKey checks key presence, not value
+    var op = new QueryOperatorContainsKey();
+    Map<String, Object> map = new HashMap<>();
+    map.put("key", null);
+    Assert.assertEquals(true, eval(op, map, "key"));
   }
 
   @Test
@@ -208,6 +262,13 @@ public class StandaloneComparisonOperatorsTest {
   public void testContainsTextNullRightReturnsFalse() {
     var op = new QueryOperatorContainsText();
     Assert.assertEquals(false, eval(op, "hello", null));
+  }
+
+  @Test
+  public void testContainsTextEmptyStringRightAlwaysMatches() {
+    // String.indexOf("") returns 0, so empty search term matches any non-null string
+    var op = new QueryOperatorContainsText();
+    Assert.assertEquals(true, eval(op, "hello", ""));
   }
 
   @Test
@@ -277,6 +338,14 @@ public class StandaloneComparisonOperatorsTest {
     Assert.assertEquals(false, eval(and, null, true));
   }
 
+  @Test(expected = NullPointerException.class)
+  public void testAndNullRightThrowsNpe() {
+    // AND does not guard against null right operand:
+    // (Boolean) null unboxing throws NPE at QueryOperatorAnd line 52
+    var and = new QueryOperatorAnd();
+    eval(and, true, null);
+  }
+
   @Test
   public void testAndCanShortCircuitOnFalse() {
     var and = new QueryOperatorAnd();
@@ -333,6 +402,14 @@ public class StandaloneComparisonOperatorsTest {
     Assert.assertEquals(false, eval(or, null, true));
   }
 
+  @Test(expected = NullPointerException.class)
+  public void testOrNullRightThrowsNpe() {
+    // OR does not guard against null right operand:
+    // (Boolean) null unboxing throws NPE at QueryOperatorOr line 52
+    var or = new QueryOperatorOr();
+    eval(or, false, null);
+  }
+
   @Test
   public void testOrCanShortCircuitOnTrue() {
     var or = new QueryOperatorOr();
@@ -346,6 +423,7 @@ public class StandaloneComparisonOperatorsTest {
     var or = new QueryOperatorOr();
     Assert.assertEquals(IndexReuseType.INDEX_UNION, or.getIndexReuseType("a", "b"));
     Assert.assertEquals(IndexReuseType.NO_INDEX, or.getIndexReuseType(null, "b"));
+    Assert.assertEquals(IndexReuseType.NO_INDEX, or.getIndexReuseType("a", null));
   }
 
   @Test
@@ -539,10 +617,14 @@ public class StandaloneComparisonOperatorsTest {
     var matches = new QueryOperatorMatches();
     var context = new BasicCommandContext();
     matches.evaluateRecord(null, null, null, "abc", "a.*", context, SERIALIZER);
-    matches.evaluateRecord(null, null, null, "axyz", "a.*", context, SERIALIZER);
-    // Verify the pattern was cached (key is "MATCHES_" + hashCode)
     var key = "MATCHES_" + "a.*".hashCode();
-    Assert.assertNotNull(context.getVariable(key));
+    Object cached = context.getVariable(key);
+    Assert.assertNotNull(cached);
+    Assert.assertTrue("Cached value should be a Pattern", cached instanceof Pattern);
+    Assert.assertEquals("a.*", ((Pattern) cached).pattern());
+    // Second call should reuse the same Pattern object
+    matches.evaluateRecord(null, null, null, "axyz", "a.*", context, SERIALIZER);
+    Assert.assertSame("Pattern should be reused from cache", cached, context.getVariable(key));
   }
 
   @Test
