@@ -426,7 +426,7 @@ public class PartitionedLockManager<T> implements LockManager<T> {
       assert scalableRWLocks != null;
 
       final var scalableRWLock = scalableRWLocks[index];
-      scalableRWLock.sharedLock();
+      scalableRWLock.sharedUnlock();
       return;
     }
 
