@@ -27,8 +27,9 @@ import com.jetbrains.youtrackdb.ycsb.DBException;
 import com.jetbrains.youtrackdb.ycsb.Status;
 import com.jetbrains.youtrackdb.ycsb.StringByteIterator;
 import java.util.HashMap;
-import java.util.List;
+import java.util.Iterator;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 import java.util.Vector;
@@ -36,6 +37,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
+import org.apache.tinkerpop.gremlin.structure.VertexProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -186,7 +188,8 @@ public class YouTrackDBYqlClient extends DB {
       traversalSource.executeInTx(tx -> {
         var g = (YTDBGraphTraversalSource) tx;
 
-        // Build: CREATE VERTEX usertable SET ycsb_key = :key, field0 = :f0, ...
+        // Build: CREATE VERTEX usertable SET ycsb_key = :key, field0 = :field0, ...
+        // No CME retry: YCSB load phase is single-threaded; duplicates are caller errors.
         StringBuilder sql = new StringBuilder("CREATE VERTEX ");
         sql.append(table).append(" SET ycsb_key = :key");
 
@@ -218,20 +221,23 @@ public class YouTrackDBYqlClient extends DB {
     try {
       return traversalSource.computeInTx(tx -> {
         var g = (YTDBGraphTraversalSource) tx;
-        List<Object> results = g.yql(
+        Optional<Object> optResult = g.yql(
             "SELECT FROM " + table + " WHERE ycsb_key = :key",
-            "key", key).toList();
+            "key", key).tryNext();
 
-        if (results.isEmpty()) {
+        if (optResult.isEmpty()) {
           return Status.NOT_FOUND;
         }
 
-        Vertex vertex = (Vertex) results.get(0);
+        Vertex vertex = (Vertex) optResult.get();
         if (fields == null) {
-          // Return all properties (except internal ones)
-          for (String propKey : vertex.keys()) {
-            result.put(propKey,
-                new StringByteIterator(vertex.value(propKey).toString()));
+          // Return all user-visible properties (vertex.properties()
+          // excludes internals by TinkerPop API contract)
+          Iterator<VertexProperty<Object>> props = vertex.properties();
+          while (props.hasNext()) {
+            VertexProperty<Object> vp = props.next();
+            result.put(vp.key(),
+                new StringByteIterator(vp.value().toString()));
           }
         } else {
           for (String field : fields) {
@@ -255,11 +261,14 @@ public class YouTrackDBYqlClient extends DB {
 
   @Override
   public Status update(String table, String key, Map<String, ByteIterator> values) {
+    if (values.isEmpty()) {
+      return Status.OK;
+    }
     return executeWithRetry(() -> {
       traversalSource.executeInTx(tx -> {
         var g = (YTDBGraphTraversalSource) tx;
 
-        // Build: UPDATE usertable SET field0 = :f0, ... WHERE ycsb_key = :key
+        // Build: UPDATE usertable SET field0 = :field0, ... WHERE ycsb_key = :key
         StringBuilder sql = new StringBuilder("UPDATE ");
         sql.append(table).append(" SET ");
 
@@ -297,12 +306,18 @@ public class YouTrackDBYqlClient extends DB {
    * Executes an operation with retry on {@link ConcurrentModificationException}
    * (MVCC conflict). Uses random backoff between retries.
    *
+   * <p><strong>Known limitation:</strong> {@code executeInTx()} swallows
+   * commit-time exceptions in {@code finishTx()}, so CME from MVCC conflicts
+   * at commit time will not propagate to this retry loop. The retry is only
+   * effective if the database detects the conflict eagerly during command
+   * execution (before commit). This is a best-effort safeguard.
+   *
    * @param operation the operation to execute
    * @param opName   operation name for logging
    * @param key      the record key for logging
    * @return Status.OK on success, Status.ERROR after max retries exhausted
    */
-  private Status executeWithRetry(RetryableOperation operation,
+  Status executeWithRetry(RetryableOperation operation,
       String opName, String key) {
     for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
       try {

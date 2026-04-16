@@ -28,7 +28,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -197,7 +196,9 @@ public class YouTrackDBYqlClientTest {
     Status readStatus = client.read("usertable", "rkey1", null, result);
     assertEquals("Read should succeed", Status.OK, readStatus);
 
-    // fields=null returns all properties including ycsb_key
+    // fields=null returns all properties including ycsb_key — exactly 11
+    assertEquals("Result should contain exactly 11 properties",
+        11, result.size());
     for (int f = 0; f < 10; f++) {
       assertEquals("read_" + f, result.get("field" + f).toString());
     }
@@ -216,9 +217,7 @@ public class YouTrackDBYqlClientTest {
     }
     assertEquals(Status.OK, client.insert("usertable", "rkey2", values));
 
-    Set<String> fields = new HashSet<>();
-    fields.add("field0");
-    fields.add("field5");
+    Set<String> fields = Set.of("field0", "field5");
 
     Map<String, ByteIterator> result = new HashMap<>();
     Status readStatus = client.read("usertable", "rkey2", fields, result);
@@ -268,6 +267,69 @@ public class YouTrackDBYqlClientTest {
     for (int f = 2; f < 10; f++) {
       assertEquals("orig_" + f, result.get("field" + f).toString());
     }
+  }
+
+  /**
+   * Update with an empty values map should be a no-op returning OK,
+   * not produce malformed SQL. Verifies the early-return guard.
+   */
+  @Test
+  public void testUpdateEmptyValuesMapReturnsOk() {
+    Map<String, ByteIterator> values = new HashMap<>();
+    values.put("field0", new StringByteIterator("orig"));
+    assertEquals(Status.OK, client.insert("usertable", "empty-upd", values));
+
+    Status status = client.update("usertable", "empty-upd", new HashMap<>());
+    assertEquals("Empty update should be a no-op returning OK",
+        Status.OK, status);
+
+    // Verify original data is unchanged
+    Map<String, ByteIterator> result = new HashMap<>();
+    assertEquals(Status.OK, client.read("usertable", "empty-upd", null, result));
+    assertEquals("orig", result.get("field0").toString());
+  }
+
+  /**
+   * executeWithRetry succeeds after transient CME — verify retry count
+   * and final OK result.
+   */
+  @Test
+  public void testExecuteWithRetrySucceedsAfterTransientCme() {
+    java.util.concurrent.atomic.AtomicInteger callCount =
+        new java.util.concurrent.atomic.AtomicInteger(0);
+    Status result = client.executeWithRetry(() -> {
+      if (callCount.incrementAndGet() < 3) {
+        throw new com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException(
+            "testdb",
+            new com.jetbrains.youtrackdb.internal.core.id.RecordId(1, 0),
+            1, 0, 2);
+      }
+    }, "Test", "test-key");
+
+    assertEquals(Status.OK, result);
+    assertEquals("Should have been called 3 times (2 CME + 1 success)",
+        3, callCount.get());
+  }
+
+  /**
+   * executeWithRetry returns ERROR when all retry attempts are exhausted
+   * by persistent CME.
+   */
+  @Test
+  public void testExecuteWithRetryExhaustsRetries() {
+    java.util.concurrent.atomic.AtomicInteger callCount =
+        new java.util.concurrent.atomic.AtomicInteger(0);
+    Status result = client.executeWithRetry(() -> {
+      callCount.incrementAndGet();
+      throw new com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException(
+          "testdb",
+          new com.jetbrains.youtrackdb.internal.core.id.RecordId(1, 0),
+          1, 0, 2);
+    }, "Test", "test-key");
+
+    assertEquals(Status.ERROR, result);
+    assertEquals("Should have been called 3 times (all failures)",
+        3, callCount.get());
   }
 
   /**
