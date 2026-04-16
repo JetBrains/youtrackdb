@@ -12,14 +12,17 @@ import org.junit.experimental.categories.Category;
 @Category(SequentialTest.class)
 public class DirectMemoryAllocatorTest {
 
+  private static Object originalTrackMode;
+
   @BeforeClass
   public static void beforeClass() {
+    originalTrackMode = GlobalConfiguration.DIRECT_MEMORY_TRACK_MODE.getValue();
     GlobalConfiguration.DIRECT_MEMORY_TRACK_MODE.setValue(true);
   }
 
   @AfterClass
   public static void afterClass() {
-    GlobalConfiguration.DIRECT_MEMORY_TRACK_MODE.setValue(false);
+    GlobalConfiguration.DIRECT_MEMORY_TRACK_MODE.setValue(originalTrackMode);
   }
 
   @Test
@@ -42,16 +45,18 @@ public class DirectMemoryAllocatorTest {
     final var directMemoryAllocator = new DirectMemoryAllocator();
     try {
       directMemoryAllocator.allocate(0, false, Intention.TEST);
-      Assert.fail();
+      Assert.fail("Should throw IllegalArgumentException for size=0");
     } catch (IllegalArgumentException e) {
-      Assert.assertTrue(true);
+      Assert.assertTrue("Message should describe the constraint",
+          e.getMessage() != null && e.getMessage().contains("less or equal to 0"));
     }
 
     try {
       directMemoryAllocator.allocate(-1, false, Intention.TEST);
-      Assert.fail();
+      Assert.fail("Should throw IllegalArgumentException for size=-1");
     } catch (IllegalArgumentException e) {
-      Assert.assertTrue(true);
+      Assert.assertTrue("Message should describe the constraint",
+          e.getMessage() != null && e.getMessage().contains("less or equal to 0"));
     }
   }
 
@@ -60,9 +65,10 @@ public class DirectMemoryAllocatorTest {
     final var directMemoryAllocator = new DirectMemoryAllocator();
     try {
       directMemoryAllocator.deallocate(null);
-      Assert.fail();
+      Assert.fail("Should throw IllegalArgumentException for null pointer");
     } catch (IllegalArgumentException e) {
-      Assert.assertTrue(true);
+      Assert.assertTrue("Message should mention null",
+          e.getMessage() != null && e.getMessage().contains("Null value"));
     }
   }
 
