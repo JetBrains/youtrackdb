@@ -98,13 +98,17 @@ final class IndexOrderedCostModel {
     // Union RidSet scan: build RidSet + scan (seq) + load matches.
     // B-tree leaf pages hold many entries (~200 per 8KB page); amortize
     // sequential page read cost across entries instead of charging per entry.
+    // Per-entry CPU: each B-tree cursor advance involves read lock
+    // acquire/release, RidSet bitmap check, and stream filter lambda —
+    // significantly more work than a simple field comparison (base cpu).
     int entriesPerPage =
         GlobalConfiguration.QUERY_INDEX_ORDERED_ENTRIES_PER_PAGE
             .getValueAsInteger();
+    double scanCpuPerEntry = 5 * cpu;
     double costUnionScan = linkBagSize * cpu
         + seekCost
         + (expectedScanLength / entriesPerPage) * seqRead
-        + expectedScanLength * cpu
+        + expectedScanLength * scanCpuPerEntry
         + k * randRead;
     costUnionScan *= costBias;
 
@@ -115,13 +119,15 @@ final class IndexOrderedCostModel {
         + (double) linkBagSize * cpu
         + (double) linkBagSize * sortFactor * cpu;
 
-    // Downstream edge cost: with index scan + LIMIT, only K rows traverse
-    // downstream edges; with load-all, all N rows do. Each downstream edge
-    // requires ~1 random record load per row.
+    // Downstream edge cost: with LIMIT, only K rows traverse downstream
+    // edges in BOTH strategies. Index scan produces K rows directly;
+    // loadSortFromRidSet loads all N but sorts and marks PRE_SORTED=true,
+    // so OrderByStep passes through and LimitStep stops after K rows —
+    // only K rows go through downstream MATCH edges.
     if (downstreamEdgeCount > 0 && limit > 0) {
       double downstreamPerRow = downstreamEdgeCount * randRead;
       costUnionScan += k * downstreamPerRow;
-      costLoadSort += (double) linkBagSize * downstreamPerRow;
+      costLoadSort += k * downstreamPerRow;
     }
 
     return new CostEstimate(
