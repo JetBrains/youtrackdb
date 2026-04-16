@@ -1738,12 +1738,18 @@ public class SelectExecutionPlanner {
       return;
     }
 
-    // Guard: skip when the last chained step is a SubQueryStep to avoid
-    // creating a false SubQueryStep → FilterStep adjacency.
+    // When the last chained step is a SubQueryStep, inserting a FilterStep
+    // creates a SubQueryStep → FilterStep adjacency that
+    // tryPushDownFilterIntoExpand() would incorrectly match. This is only
+    // dangerous for mixed splits where info.whereClause retains a non-null
+    // dependent part — tryPushDownFilterIntoExpand would try to push the
+    // dependent WHERE (which references LET vars) into the subquery's expand.
+    // For full push-downs (split == null), info.whereClause becomes null and
+    // tryPushDownFilterIntoExpand bails out at its null check, so the
+    // adjacency is harmless.
     var steps = plan.getSteps();
-    if (!steps.isEmpty() && steps.getLast() instanceof SubQueryStep) {
-      return;
-    }
+    boolean afterSubQuery =
+        !steps.isEmpty() && steps.getLast() instanceof SubQueryStep;
 
     // Collect per-record LET variable names.
     var letVarNames = new HashSet<String>();
@@ -1760,10 +1766,15 @@ public class SelectExecutionPlanner {
 
     if (split == null) {
       // No LET variable is referenced — push the entire WHERE down.
+      // Safe even after SubQueryStep: info.whereClause becomes null, so
+      // tryPushDownFilterIntoExpand will bail out at its null guard.
       plan.chain(new FilterStep(info.whereClause, ctx, timeout, profilingEnabled));
       info.whereClause = null;
-    } else if (split.independent() != null) {
-      // Mixed: push independent conjuncts, keep dependent for handleWhere.
+    } else if (split.independent() != null && !afterSubQuery) {
+      // Mixed split: push independent conjuncts, keep dependent for
+      // handleWhere. Blocked after SubQueryStep to avoid false adjacency
+      // for tryPushDownFilterIntoExpand (info.whereClause would still be
+      // non-null with the dependent part).
       plan.chain(
           new FilterStep(split.independent(), ctx, timeout, profilingEnabled));
       info.whereClause = split.dependent();

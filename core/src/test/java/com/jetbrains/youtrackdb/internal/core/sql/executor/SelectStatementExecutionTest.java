@@ -10355,7 +10355,10 @@ public class SelectStatementExecutionTest extends DbTestBase {
    * push-down. The FilterStep must appear after the LET step.
    */
   @Test
-  public void testLetPreFilter_subqueryTargetSkipsPushDown() {
+  public void testLetPreFilter_subqueryTargetFullyIndependentPushDown() {
+    // Fully-independent WHERE after a SubQueryStep target: push-down IS safe
+    // because info.whereClause becomes null, which makes
+    // tryPushDownFilterIntoExpand bail out at its null guard.
     var cls = "LpfSubQ";
     session.execute("CREATE CLASS " + cls).close();
 
@@ -10367,7 +10370,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
-    // FROM (subquery): the last step before LET is a SubQueryStep
+    // FROM (subquery): last step before LET is a SubQueryStep.
+    // WHERE val >= 2 is fully independent of $info → full push-down.
     session.begin();
     var query = "SELECT name, $info FROM (SELECT FROM " + cls + ")"
         + " LET $info = (SELECT count(*) FROM " + cls + ")"
@@ -10379,8 +10383,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
         .collect(Collectors.toSet());
     Assert.assertEquals(Set.of("n2", "n3", "n4"), names);
 
-    // Verify EXPLAIN: FilterStep should NOT be pushed before LET
-    // (SubQueryStep guard prevents it)
+    // Verify EXPLAIN: FilterStep should appear BEFORE LET step (push-down)
     var explain = session.query("EXPLAIN " + query).toList();
     var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
     var filterIdx = plan.indexOf("FILTER ITEMS WHERE");
@@ -10390,7 +10393,67 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertTrue("EXPLAIN should contain LET step, plan:\n" + plan,
         letIdx >= 0);
     Assert.assertTrue(
-        "SubQueryStep guard should prevent push-down, plan:\n" + plan,
+        "Fully-independent WHERE should be pushed before LET even after"
+            + " SubQueryStep, plan:\n" + plan,
+        filterIdx < letIdx);
+    // Full push-down: no second FilterStep should exist after LET
+    var postLetFilterIdx = plan.indexOf("FILTER ITEMS WHERE", letIdx);
+    Assert.assertTrue(
+        "Full push-down should NOT produce a post-LET FilterStep, plan:\n"
+            + plan,
+        postLetFilterIdx < 0);
+    // Verify $info is still populated (LET subquery ran after the filter)
+    for (var row : list) {
+      Assert.assertNotNull("$info should be populated", row.getProperty("$info"));
+    }
+    session.commit();
+  }
+
+  /**
+   * Mixed WHERE (some conjuncts LET-independent, some LET-dependent) after a
+   * SubQueryStep target: push-down is blocked because a mixed split would leave
+   * info.whereClause non-null with the dependent part, causing
+   * tryPushDownFilterIntoExpand to incorrectly match the SubQueryStep→FilterStep
+   * adjacency.
+   */
+  @Test
+  public void testLetPreFilter_subqueryTargetMixedWhereSkipsPushDown() {
+    var cls = "LpfSubQMix";
+    session.execute("CREATE CLASS " + cls).close();
+
+    for (var i = 0; i < 5; i++) {
+      session.begin();
+      var doc = session.newInstance(cls);
+      doc.setProperty("name", "n" + i);
+      doc.setProperty("val", i);
+      session.commit();
+    }
+
+    // FROM (subquery) + mixed WHERE: val >= 1 is independent, $info check
+    // is dependent. The SubQueryStep guard should prevent splitting.
+    session.begin();
+    var query = "SELECT name, $info FROM (SELECT FROM " + cls + ")"
+        + " LET $info = (SELECT count(*) FROM " + cls + ")"
+        + " WHERE val >= 1 AND $info IS NOT NULL";
+    var list = session.query(query).toList();
+    Assert.assertEquals("Should return 4 rows with val >= 1", 4, list.size());
+    var names = list.stream()
+        .map(r -> (String) r.getProperty("name"))
+        .collect(Collectors.toSet());
+    Assert.assertEquals(Set.of("n1", "n2", "n3", "n4"), names);
+
+    // Verify EXPLAIN: FilterStep should appear AFTER LET (no push-down)
+    var explain = session.query("EXPLAIN " + query).toList();
+    var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
+    var filterIdx = plan.indexOf("FILTER ITEMS WHERE");
+    var letIdx = plan.indexOf("LET (for each record)");
+    Assert.assertTrue("EXPLAIN should contain FILTER step, plan:\n" + plan,
+        filterIdx >= 0);
+    Assert.assertTrue("EXPLAIN should contain LET step, plan:\n" + plan,
+        letIdx >= 0);
+    Assert.assertTrue(
+        "Mixed WHERE after SubQueryStep should NOT be pushed down, plan:\n"
+            + plan,
         filterIdx > letIdx);
     session.commit();
   }
