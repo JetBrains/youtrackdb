@@ -43,9 +43,11 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.commons.configuration2.Configuration;
 import org.apache.commons.lang3.NotImplementedException;
+import org.apache.commons.lang3.function.FailableSupplier;
 import org.apache.tinkerpop.gremlin.process.computer.GraphComputer;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategies;
 import org.apache.tinkerpop.gremlin.structure.Edge;
@@ -416,8 +418,10 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
       throw new IllegalStateException("Transaction is still active");
     }
 
-    currentSession.close();
+    // Null the field before closing so that cleanup code (e.g., withSuspendedTransaction)
+    // never attempts a second close on the same session if close() throws.
     threadLocalState.sessionEmbedded = null;
+    currentSession.close();
   }
 
   @Override
@@ -449,6 +453,53 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
   public UUID uuid() {
     try (var session = acquireSession()) {
       return session.uuid();
+    }
+  }
+
+  @Override
+  public <T, X extends Exception> T withSuspendedTransaction(
+      @Nonnull FailableSupplier<T, X> block) throws X {
+    // Save the entire thread-local state and replace it with a fresh one.
+    // The outer state is fully isolated — the lambda gets its own transaction,
+    // session, and listener set.
+    var savedState = threadLocalState.get();
+    var innerState = new ThreadLocalState(new YTDBTransaction(this));
+    threadLocalState.set(innerState);
+    try {
+      return block.get();
+    } finally {
+      try {
+        // Clean up any transaction/session left open by the lambda.
+        // Using tx().rollback() goes through the normal TinkerPop path:
+        // doRollback() nulls activeSession, fireOnRollback() calls accept(Status)
+        // which closes sessionEmbedded. This handles both in a single call.
+        // The isOpen() + rollback() is wrapped in a single try-catch because isOpen()
+        // itself can throw if the lambda left the session in a bad state (e.g., manually
+        // closed the session without going through tx().rollback()).
+        try {
+          if (innerState.transaction.isOpen()) {
+            logger.warn(
+                "withSuspendedTransaction: lambda left an open transaction; rolling back");
+            innerState.transaction.rollback();
+          }
+        } catch (Exception e) {
+          logger.warn("withSuspendedTransaction: error during leftover tx rollback", e);
+        }
+
+        // If the lambda acquired a session without opening a transaction (e.g., via
+        // getUnderlyingDatabaseSession()), sessionEmbedded is non-null but the rollback
+        // above didn't touch it. Close it directly.
+        if (innerState.sessionEmbedded != null) {
+          try {
+            innerState.sessionEmbedded.close();
+          } catch (Exception e) {
+            logger.warn("withSuspendedTransaction: error closing leftover session", e);
+          }
+        }
+      } finally {
+        // Restore the suspended state regardless of cleanup outcome.
+        threadLocalState.set(savedState);
+      }
     }
   }
 

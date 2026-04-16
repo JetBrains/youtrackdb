@@ -15,6 +15,7 @@ import java.util.function.Supplier;
 import javax.annotation.Nonnull;
 import org.apache.commons.lang3.function.FailableConsumer;
 import org.apache.commons.lang3.function.FailableFunction;
+import org.apache.commons.lang3.function.FailableSupplier;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.service.ServiceRegistry;
 import org.apache.tinkerpop.gremlin.structure.util.GraphFactoryClass;
@@ -122,6 +123,21 @@ public interface YTDBGraph extends Graph {
   /// It is used during generation of backups and also to identify the same replicas of the database
   /// on different hosts.
   UUID uuid();
+
+  /// Suspends the current thread's transaction and session, runs the block, and restores them.
+  /// The block can open its own independent transaction on a fresh session from the pool.
+  ///
+  /// If there is no active transaction on the current thread, the block still runs in its own
+  /// isolated context; nothing needs to be suspended or restored.
+  ///
+  /// If the block leaves a transaction open (does not commit or rollback), it will be rolled back
+  /// and the session will be closed automatically. A warning is logged in this case.
+  ///
+  /// Nesting is supported: calling {@code withSuspendedTransaction} inside the block suspends the
+  /// inner transaction and creates another independent one. Each level saves and restores its own
+  /// state via the call stack.
+  <T, X extends Exception> T withSuspendedTransaction(
+      @Nonnull FailableSupplier<T, X> block) throws X;
 
   /// Closes current graph instance and release acquired resources.
   @Override
