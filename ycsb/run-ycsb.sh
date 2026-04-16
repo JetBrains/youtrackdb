@@ -496,17 +496,16 @@ done
 # Parse a latency percentile from YCSB output.
 # Usage: parse_latency <output_file> <operation> <percentile_label>
 #   e.g., parse_latency file.txt READ "50thPercentileLatency(us)"
-# Returns the value or "-" if not found.
+# Returns the value, or empty string if not found.
 parse_latency() {
   local output_file="$1" op="$2" label="$3"
-  local val
-  val=$(awk -F', ' -v op="$op" -v label="$label" \
-    '$1 == "[" op "]" && $2 == label { print $3 }' "$output_file" 2>/dev/null)
-  echo "${val:--}"
+  awk -F', ' -v op="$op" -v label="$label" \
+    '$1 == "[" op "]" && $2 == label { print $3 }' "$output_file" 2>/dev/null
 }
 
 # Determine the primary operation for latency reporting per workload.
-# Returns the YCSB operation name (READ, SCAN, INSERT, UPDATE).
+# For mixed workloads (B, C, W), report READ latency since it is always
+# present and represents the user-facing operation path.
 primary_operation() {
   local workload="$1"
   case "$workload" in
@@ -532,11 +531,11 @@ for w in "${WORKLOAD_LIST[@]}"; do
   PASS1_FILE="$RESULTS_DIR/workload-$w-pass1.txt"
   PASS2_FILE="$RESULTS_DIR/workload-$w-pass2.txt"
 
-  # Max throughput from pass 1
+  # Max throughput from pass 1 (empty string = not available)
   if [ -f "$PASS1_FILE" ]; then
     MAX_THROUGHPUT=$(parse_throughput "$PASS1_FILE")
   else
-    MAX_THROUGHPUT="-"
+    MAX_THROUGHPUT=""
   fi
 
   # Latency from pass 2 (primary operation depends on workload type)
@@ -546,11 +545,11 @@ for w in "${WORKLOAD_LIST[@]}"; do
     P95=$(parse_latency "$PASS2_FILE" "$OP" "95thPercentileLatency(us)")
     P99=$(parse_latency "$PASS2_FILE" "$OP" "99thPercentileLatency(us)")
   else
-    P50="-"; P95="-"; P99="-"
+    P50=""; P95=""; P99=""
   fi
 
   printf "%-10s %15s %10s %10s %10s %8s\n" \
-    "$w" "${MAX_THROUGHPUT:--}" "$P50" "$P95" "$P99" "$OP"
+    "$w" "${MAX_THROUGHPUT:--}" "${P50:--}" "${P95:--}" "${P99:--}" "$OP"
 
   # Build JSON entry
   JSON_ENTRIES+=("$(cat <<JSON
