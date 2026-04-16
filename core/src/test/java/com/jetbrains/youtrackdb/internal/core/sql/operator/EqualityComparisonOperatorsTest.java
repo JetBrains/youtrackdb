@@ -118,6 +118,21 @@ public class EqualityComparisonOperatorsTest extends DbTestBase {
   }
 
   @Test
+  public void testEqualsBothNullReturnsFalse() {
+    // NULL != NULL in SQL semantics — both-null comparison yields false
+    var eq = new QueryOperatorEquals();
+    Assert.assertEquals(false, eval(eq, null, null));
+  }
+
+  @Test
+  public void testEqualsMultiElementCollectionVsScalar() {
+    // Multi-element collection is NOT unwrapped (size() != 1), so comparison is false
+    var eq = new QueryOperatorEquals();
+    Assert.assertEquals(false, eval(eq, Arrays.asList(1, 2), 1));
+    Assert.assertEquals(false, eval(eq, 1, Arrays.asList(1, 2)));
+  }
+
+  @Test
   public void testEqualsCollectionWithOneElement() {
     // Single-element collection is unwrapped and compared
     var eq = new QueryOperatorEquals();
@@ -163,16 +178,8 @@ public class EqualityComparisonOperatorsTest extends DbTestBase {
     Assert.assertEquals(IndexReuseType.NO_INDEX, eq.getIndexReuseType("a", null));
   }
 
-  // --- Dead code documentation at lines 87-91 ---
-
-  @Test
-  public void testEqualsDeadCodeBranchDocumented() {
-    // Lines 87-91 have duplicate `iRight instanceof Result` check (dead code).
-    // The second branch at line 89 is unreachable because line 87 catches it first.
-    // This test documents the production code has this dead code, not testing it.
-    var eq = new QueryOperatorEquals();
-    Assert.assertTrue(eq.isSupportingBinaryEvaluate());
-  }
+  // NOTE: QueryOperatorEquals lines 87-91 have duplicate `iRight instanceof Result` check
+  // (dead code). The second branch at line 89 is unreachable because line 87 catches it first.
 
   // ===== QueryOperatorNotEquals =====
 
@@ -195,9 +202,21 @@ public class EqualityComparisonOperatorsTest extends DbTestBase {
   }
 
   @Test
-  public void testNotEqualsNullReturnsFalse() {
+  public void testNotEqualsNullLeftReturnsFalse() {
     var ne = new QueryOperatorNotEquals();
     Assert.assertEquals(false, eval(ne, null, 10));
+  }
+
+  @Test
+  public void testNotEqualsNullRightReturnsFalse() {
+    var ne = new QueryOperatorNotEquals();
+    Assert.assertEquals(false, eval(ne, 10, null));
+  }
+
+  @Test
+  public void testNotEqualsBothNullReturnsFalse() {
+    var ne = new QueryOperatorNotEquals();
+    Assert.assertEquals(false, eval(ne, null, null));
   }
 
   @Test
@@ -223,6 +242,13 @@ public class EqualityComparisonOperatorsTest extends DbTestBase {
   public void testNotEquals2DifferentIntegers() {
     var ne2 = new QueryOperatorNotEquals2();
     Assert.assertEquals(true, eval(ne2, 10, 20));
+  }
+
+  @Test
+  public void testNotEquals2NullReturnsFalse() {
+    var ne2 = new QueryOperatorNotEquals2();
+    Assert.assertEquals(false, eval(ne2, null, 10));
+    Assert.assertEquals(false, eval(ne2, 10, null));
   }
 
   @Test
@@ -281,6 +307,14 @@ public class EqualityComparisonOperatorsTest extends DbTestBase {
     var gt = new QueryOperatorMajor();
     Assert.assertEquals(IndexReuseType.INDEX_METHOD, gt.getIndexReuseType("a", "b"));
     Assert.assertEquals(IndexReuseType.NO_INDEX, gt.getIndexReuseType(null, "b"));
+    Assert.assertEquals(IndexReuseType.NO_INDEX, gt.getIndexReuseType("a", null));
+  }
+
+  @Test
+  public void testMajorCrossTypeIntegerVsLong() {
+    var gt = new QueryOperatorMajor();
+    Assert.assertEquals(true, eval(gt, 20, 10L));
+    Assert.assertEquals(false, eval(gt, 5, 10L));
   }
 
   // ===== QueryOperatorMajorEquals (>=) =====
@@ -301,6 +335,13 @@ public class EqualityComparisonOperatorsTest extends DbTestBase {
   public void testMajorEqualsLessReturnsFalse() {
     var ge = new QueryOperatorMajorEquals();
     Assert.assertEquals(false, eval(ge, 5, 10));
+  }
+
+  @Test
+  public void testMajorEqualsNullReturnsFalse() {
+    var ge = new QueryOperatorMajorEquals();
+    Assert.assertEquals(false, eval(ge, null, 10));
+    Assert.assertEquals(false, eval(ge, 10, null));
   }
 
   // ===== QueryOperatorMinor (<) =====
@@ -330,6 +371,20 @@ public class EqualityComparisonOperatorsTest extends DbTestBase {
     Assert.assertEquals(false, eval(lt, "b", "a"));
   }
 
+  @Test
+  public void testMinorNullReturnsFalse() {
+    var lt = new QueryOperatorMinor();
+    Assert.assertEquals(false, eval(lt, null, 10));
+    Assert.assertEquals(false, eval(lt, 10, null));
+  }
+
+  @Test
+  public void testMinorCrossTypeBigDecimalVsInteger() {
+    var lt = new QueryOperatorMinor();
+    Assert.assertEquals(true, eval(lt, new BigDecimal("3"), 5));
+    Assert.assertEquals(false, eval(lt, new BigDecimal("10"), 5));
+  }
+
   // ===== QueryOperatorMinorEquals (<=) =====
 
   @Test
@@ -348,6 +403,13 @@ public class EqualityComparisonOperatorsTest extends DbTestBase {
   public void testMinorEqualsGreaterReturnsFalse() {
     var le = new QueryOperatorMinorEquals();
     Assert.assertEquals(false, eval(le, 20, 10));
+  }
+
+  @Test
+  public void testMinorEqualsNullReturnsFalse() {
+    var le = new QueryOperatorMinorEquals();
+    Assert.assertEquals(false, eval(le, null, 10));
+    Assert.assertEquals(false, eval(le, 10, null));
   }
 
   // ===== QueryOperatorBetween =====
@@ -407,6 +469,7 @@ public class EqualityComparisonOperatorsTest extends DbTestBase {
   public void testBetweenStrings() {
     var between = new QueryOperatorBetween();
     Assert.assertEquals(true, eval(between, "m", Arrays.asList("a", "AND", "z")));
+    // "m" < "n" lexicographically, so below range
     Assert.assertEquals(false, eval(between, "m", Arrays.asList("n", "AND", "z")));
   }
 
@@ -423,11 +486,45 @@ public class EqualityComparisonOperatorsTest extends DbTestBase {
     Assert.assertEquals(false, eval(between, null, Arrays.asList(1, "AND", 10)));
   }
 
-  @Test(expected = IllegalArgumentException.class)
+  @Test
   public void testBetweenWrongSizeThrows() {
     var between = new QueryOperatorBetween();
-    // Only 2 elements instead of 3 — should throw
-    eval(between, 5, Arrays.asList(1, 10));
+    // Only 2 elements instead of 3 — should throw with BETWEEN syntax in message
+    try {
+      eval(between, 5, Arrays.asList(1, 10));
+      Assert.fail("Expected IllegalArgumentException");
+    } catch (IllegalArgumentException e) {
+      Assert.assertTrue(
+          "Exception message should contain BETWEEN",
+          e.getMessage().contains("BETWEEN"));
+    }
+  }
+
+  @Test
+  public void testBetweenBothExclusive() {
+    var between = new QueryOperatorBetween();
+    between.setLeftInclusive(false);
+    between.setRightInclusive(false);
+    // 5 is strictly between 1 and 10
+    Assert.assertEquals(true, eval(between, 5, Arrays.asList(1, "AND", 10)));
+    // At boundaries: strictly exclusive rejects both endpoints
+    Assert.assertEquals(false, eval(between, 1, Arrays.asList(1, "AND", 10)));
+    Assert.assertEquals(false, eval(between, 10, Arrays.asList(1, "AND", 10)));
+  }
+
+  @Test
+  public void testBetweenInvertedRangeAlwaysFalse() {
+    // Lower > upper: no value can satisfy both comparisons
+    var between = new QueryOperatorBetween();
+    Assert.assertEquals(false, eval(between, 5, Arrays.asList(10, "AND", 1)));
+  }
+
+  @Test
+  public void testBetweenPointRangeInclusive() {
+    // lower == upper, both inclusive: only the exact value matches
+    var between = new QueryOperatorBetween();
+    Assert.assertEquals(true, eval(between, 5, Arrays.asList(5, "AND", 5)));
+    Assert.assertEquals(false, eval(between, 4, Arrays.asList(5, "AND", 5)));
   }
 
   @Test
@@ -453,7 +550,8 @@ public class EqualityComparisonOperatorsTest extends DbTestBase {
   @Test
   public void testInEmptyCollection() {
     var in = new QueryOperatorIn();
-    // Non-multi-value left, empty right → falls through to iLeft.equals(iRight)
+    // Empty right collection: recognized as multi-value but the iteration finds
+    // no match, then falls through to iLeft.equals(iRight) which returns false
     Assert.assertEquals(false, eval(in, 5, Collections.emptyList()));
   }
 
@@ -531,6 +629,26 @@ public class EqualityComparisonOperatorsTest extends DbTestBase {
     var set = new HashSet<>(Arrays.asList(1, 5, 10));
     Assert.assertEquals(true, eval(in, set, 5));
     Assert.assertEquals(false, eval(in, set, 7));
+  }
+
+  @Test
+  public void testInCrossTypeSetBypassesCoercion() {
+    // Set.contains() at line 152 bypasses QueryOperatorEquals type coercion.
+    // Set<Long>.contains(Integer(5)) returns false because Integer.equals(Long) is always
+    // false in Java — this is a pre-existing inconsistency where the Set path silently
+    // produces different results than the iteration path (which uses equals() with coercion).
+    var in = new QueryOperatorIn();
+    var longSet = new HashSet<>(Arrays.asList(1L, 5L, 10L));
+    Assert.assertEquals(false, eval(in, 5, longSet));
+  }
+
+  @Test
+  public void testInScalarBothSides() {
+    // When both operands are non-collection/non-array scalars, falls through to
+    // iLeft.equals(iRight) at line 176
+    var in = new QueryOperatorIn();
+    Assert.assertEquals(true, eval(in, 5, 5));
+    Assert.assertEquals(false, eval(in, 5, 6));
   }
 
   @Test
