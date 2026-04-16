@@ -143,12 +143,25 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       return multiSourceDispatch(ctx);
     }
     // Guaranteed single-source: exactly 1 upstream row (source has RID constraint).
-    // Safe to use flatMap — results from the single call are already globally sorted.
-    // Set PRE_SORTED eagerly so OrderByStep sees it before consuming; processUpstreamRow
-    // overrides to FALSE if the cost model rejects index scan at runtime.
-    ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
+    // Consume the upstream eagerly and compute the cost model decision NOW, so
+    // that VAR_INDEX_ORDERED_PRE_SORTED is correctly set BEFORE OrderByStep
+    // checks it. The pipeline starts bottom-up (LimitStep → OrderByStep →
+    // ... → IndexOrderedEdgeStep), so OrderByStep.internalStart() runs first
+    // and checks the flag after calling prev.start() which reaches here.
+    // If we deferred the cost model to a lazy flatMap, OrderByStep would see
+    // the flag as null and always fall through to collect-all mode — defeating
+    // the sort push-down that makes index scan + LIMIT worthwhile.
     var resultSet = prev.start(ctx);
-    return resultSet.flatMap(this::processUpstreamRow);
+    if (!resultSet.hasNext(ctx)) {
+      resultSet.close(ctx);
+      ctx.setSystemVariable(
+          CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
+      return ExecutionStream.empty();
+    }
+    var upstreamRow = resultSet.next(ctx);
+    resultSet.close(ctx); // single-source: at most 1 row
+
+    return processUpstreamRow(upstreamRow, ctx);
   }
 
   // =====================================================================
@@ -159,6 +172,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     var session = ctx.getDatabaseSession();
     var ridSet = resolveEdgeRidSet(upstreamRow, session);
     if (ridSet == null || ridSet.isEmpty()) {
+      ctx.setSystemVariable(
+          CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
       return ExecutionStream.empty();
     }
 
