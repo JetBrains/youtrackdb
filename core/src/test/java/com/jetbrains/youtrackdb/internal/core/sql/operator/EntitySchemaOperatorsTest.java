@@ -410,6 +410,28 @@ public class EntitySchemaOperatorsTest extends DbTestBase {
   }
 
   @Test
+  public void testContainsAllArrayVsArrayLeftDuplicatesOverCounts() {
+    // Pre-existing counting bug: the outer loop iterates LEFT, counting matches per left element
+    // against RIGHT. When LEFT has duplicates matching the same right element, matches over-counts.
+    // {2, 2, 3} CONTAINSALL {2, 3} should semantically be true (left contains both 2 and 3),
+    // but the algorithm counts matches=3 (two 2's + one 3) vs right.length=2, returning false.
+    var op = new QueryOperatorContainsAll();
+    Object[] left = {2, 2, 3};
+    Object[] right = {2, 3};
+    // Documents the current (buggy) behavior: returns false due to over-counting
+    Assert.assertEquals(false, eval(op, left, right));
+  }
+
+  @Test
+  public void testContainsAllArrayVsScalarFallsThroughToTrue() {
+    // Left is an array, right is a scalar — neither array nor Collection sub-branches match,
+    // falls through to return true (vacuous truth). Documents this edge case.
+    var op = new QueryOperatorContainsAll();
+    Object[] left = {1, 2, 3};
+    Assert.assertEquals(true, eval(op, left, 99));
+  }
+
+  @Test
   public void testContainsAllIndexReuse() {
     var op = new QueryOperatorContainsAll();
     Assert.assertEquals(IndexReuseType.NO_INDEX,
@@ -560,36 +582,11 @@ public class EntitySchemaOperatorsTest extends DbTestBase {
   // ===== QueryOperatorContainsValue — Bug Fix Regression =====
 
   @Test
-  public void testContainsValueRightMapConditionIteratesAllValuesAfterFix() {
-    // Regression test: Before the fix, the condition path for right-side Map returned on the
-    // first false (line 143-144). After fix, it correctly iterates ALL values and returns true
-    // only if any value satisfies the condition.
-    var op = new QueryOperatorContainsValue();
-    var ctx = newCommandContext();
-    var subCond = alwaysTrueCondition();
-    var outerCond = new SQLFilterCondition("field", op, subCond);
-
-    session.begin();
-    var e1 = session.newInstance();
-    e1.setProperty("val", "first");
-    var e2 = session.newInstance();
-    e2.setProperty("val", "second");
-
-    // Right-side map with multiple EntityImpl values
-    Map<String, Object> rightMap = new HashMap<>();
-    rightMap.put("a", e1);
-    rightMap.put("b", e2);
-    session.rollback();
-
-    // With the fix, all values are checked — condition is always true, so this returns true
-    Object result =
-        op.evaluateRecord(null, null, outerCond, subCond, rightMap, ctx, SERIALIZER);
-    Assert.assertEquals(true, result);
-  }
-
-  @Test
-  public void testContainsValueRightMapConditionNoMatchAfterFix() {
-    // Regression test: With condition always false, no value matches → returns false
+  public void testContainsValueRightMapConditionEarlyReturnFixRegression() {
+    // Falsifiable regression test for the early-return bug in the right-side Map condition path.
+    // Old buggy code: first value fails condition → return map.containsValue(iLeft).
+    // If iLeft is also a value in the map, containsValue returns TRUE (wrong).
+    // Fixed code: iterates ALL values, condition false for all → returns FALSE.
     var op = new QueryOperatorContainsValue();
     var ctx = newCommandContext();
     var subCond = alwaysFalseCondition();
@@ -598,6 +595,35 @@ public class EntitySchemaOperatorsTest extends DbTestBase {
     session.begin();
     var e1 = session.newInstance();
     e1.setProperty("val", "first");
+    var e2 = session.newInstance();
+    e2.setProperty("val", "second");
+
+    // Right-side map contains e1 and e2 as values
+    Map<String, Object> rightMap = new HashMap<>();
+    rightMap.put("a", e1);
+    rightMap.put("b", e2);
+    session.rollback();
+
+    // Pass e1 as iLeft — it IS a value in rightMap, so containsValue(e1) would return true.
+    // Buggy code: condition false for first value → containsValue(e1) → true
+    // Fixed code: condition false for all values → loop ends → false
+    Object result =
+        op.evaluateRecord(null, null, outerCond, e1, rightMap, ctx, SERIALIZER);
+    Assert.assertEquals(false, result);
+  }
+
+  @Test
+  public void testContainsValueRightMapConditionAllMatchAfterFix() {
+    // Positive regression test: condition is always true → any match returns true.
+    // Both old and new code return true here; this verifies the happy path still works.
+    var op = new QueryOperatorContainsValue();
+    var ctx = newCommandContext();
+    var subCond = alwaysTrueCondition();
+    var outerCond = new SQLFilterCondition("field", op, subCond);
+
+    session.begin();
+    var e1 = session.newInstance();
+    e1.setProperty("val", "first");
 
     Map<String, Object> rightMap = new HashMap<>();
     rightMap.put("a", e1);
@@ -605,7 +631,7 @@ public class EntitySchemaOperatorsTest extends DbTestBase {
 
     Object result =
         op.evaluateRecord(null, null, outerCond, subCond, rightMap, ctx, SERIALIZER);
-    Assert.assertEquals(false, result);
+    Assert.assertEquals(true, result);
   }
 
   // ===== QueryOperatorContainsValue — Index/RID =====
@@ -636,6 +662,50 @@ public class EntitySchemaOperatorsTest extends DbTestBase {
     var op = new QueryOperatorContainsValue();
     Assert.assertNull(op.getBeginRidRange(null, "left", "right"));
     Assert.assertNull(op.getEndRidRange(null, "left", "right"));
+  }
+
+  // ===== QueryOperatorContainsValue — Left-side Map Condition Path =====
+
+  @Test
+  public void testContainsValueLeftMapWithConditionMatch() {
+    // Left is a Map whose values are EntityImpl, condition always true → returns true
+    var op = new QueryOperatorContainsValue();
+    var ctx = newCommandContext();
+    var subCond = alwaysTrueCondition();
+    var outerCond = new SQLFilterCondition("field", op, subCond);
+
+    session.begin();
+    var e1 = session.newInstance();
+    e1.setProperty("val", "first");
+
+    Map<String, Object> leftMap = new HashMap<>();
+    leftMap.put("a", e1);
+    session.rollback();
+
+    Object result =
+        op.evaluateRecord(null, null, outerCond, leftMap, subCond, ctx, SERIALIZER);
+    Assert.assertEquals(true, result);
+  }
+
+  @Test
+  public void testContainsValueLeftMapWithConditionNoMatch() {
+    // Left is a Map whose values are EntityImpl, condition always false → returns false
+    var op = new QueryOperatorContainsValue();
+    var ctx = newCommandContext();
+    var subCond = alwaysFalseCondition();
+    var outerCond = new SQLFilterCondition("field", op, subCond);
+
+    session.begin();
+    var e1 = session.newInstance();
+    e1.setProperty("val", "first");
+
+    Map<String, Object> leftMap = new HashMap<>();
+    leftMap.put("a", e1);
+    session.rollback();
+
+    Object result =
+        op.evaluateRecord(null, null, outerCond, leftMap, subCond, ctx, SERIALIZER);
+    Assert.assertEquals(false, result);
   }
 
   // ===== QueryOperatorContainsValue — Map/Entity Conversion =====
@@ -771,14 +841,37 @@ public class EntitySchemaOperatorsTest extends DbTestBase {
     Assert.assertEquals(false, result);
   }
 
-  @Test(expected = CommandExecutionException.class)
+  @Test
   public void testInstanceofInvalidRightClassThrows() {
     // Right operand references a non-existent class → throws CommandExecutionException
+    // with a message referencing the missing class name
     var op = new QueryOperatorInstanceof();
     var ctx = newCommandContext();
     var cond = new SQLFilterCondition("field", op, "NonExistent");
 
-    op.evaluateRecord(null, null, cond, "AnyClass", "NonExistent", ctx, SERIALIZER);
+    try {
+      op.evaluateRecord(null, null, cond, "AnyClass", "NonExistent", ctx, SERIALIZER);
+      Assert.fail("Expected CommandExecutionException for non-existent class");
+    } catch (CommandExecutionException e) {
+      Assert.assertTrue(
+          "Exception message should reference the missing class",
+          e.getMessage().contains("NonExistent"));
+    }
+  }
+
+  @Test
+  public void testInstanceofLeftStringNonExistentClassReturnsFalse() {
+    // Left is a String naming a class not in schema → schema.getClass() returns null → cls=null
+    // → returns false. Documents asymmetry: right non-existent throws, left non-existent is false.
+    session.getMetadata().getSchema().createClass("ExistingTarget");
+
+    var op = new QueryOperatorInstanceof();
+    var ctx = newCommandContext();
+    var cond = new SQLFilterCondition("field", op, "ExistingTarget");
+
+    Object result =
+        op.evaluateRecord(null, null, cond, "NoSuchClass", "ExistingTarget", ctx, SERIALIZER);
+    Assert.assertEquals(false, result);
   }
 
   @Test
@@ -984,28 +1077,22 @@ public class EntitySchemaOperatorsTest extends DbTestBase {
   }
 
   @Test
-  public void testTraverseDepthLimitStopsEarly() {
-    // Create chain: A -> B -> C. Traverse with depth limit 1.
-    // Condition always true — depth 0 matches A, depth 1 matches B's fields only
+  public void testTraverseDepthLimitBlocksChildren() {
+    // Verify depth limiting actually prevents reaching deeper levels.
+    // A -> B. startDeepLevel=1 skips root. endDeepLevel=0 blocks level 1.
+    // So B at level 1 is blocked even though the condition would match.
     var traverseDepth = session.getMetadata().getSchema().createClass("TraverseDepth");
     traverseDepth.createProperty("next", PropertyType.LINK, traverseDepth);
 
     session.begin();
-    var c = session.newInstance("TraverseDepth");
-    c.setProperty("name", "c");
-
     var b = session.newInstance("TraverseDepth");
-    b.setProperty("name", "b");
-    b.setProperty("next", c.getIdentity());
 
     var a = session.newInstance("TraverseDepth");
-    a.setProperty("name", "a");
     a.setProperty("next", b.getIdentity());
-
     session.commit();
 
-    // Traverse with end depth 0 — only checks root entity at level 0
-    var traverse = new QueryOperatorTraverse(0, 0, new String[] {"any()"});
+    // startDeepLevel=1 skips root, endDeepLevel=0 blocks level 1 children
+    var traverse = new QueryOperatorTraverse(1, 0, new String[] {"any()"});
     var ctx = newCommandContext();
     var subCond = alwaysTrueCondition();
     var outerCond = new SQLFilterCondition("field", traverse, subCond);
@@ -1015,8 +1102,20 @@ public class EntitySchemaOperatorsTest extends DbTestBase {
         traverse.evaluateRecord(
             null, null, outerCond, a.getIdentity(), subCond, ctx, SERIALIZER);
     session.commit();
-    // endDeepLevel=0: traverse() only evaluates at level 0, which matches the root entity
-    Assert.assertEquals(true, result);
+    // Level 0: root skipped. Level 1: endDeepLevel=0, iLevel=1 > 0 → blocked → false
+    Assert.assertEquals(false, result);
+
+    // Verify without depth limit the same data returns true (B is reachable)
+    var traverseUnlimited = new QueryOperatorTraverse(1, -1, new String[] {"any()"});
+    var outerCondUnlimited = new SQLFilterCondition("field", traverseUnlimited, subCond);
+
+    session.begin();
+    Object unlimited =
+        traverseUnlimited.evaluateRecord(
+            null, null, outerCondUnlimited, a.getIdentity(), subCond, ctx, SERIALIZER);
+    session.commit();
+    // Without depth limit, B at level 1 matches → true
+    Assert.assertEquals(true, unlimited);
   }
 
   @Test
@@ -1113,25 +1212,26 @@ public class EntitySchemaOperatorsTest extends DbTestBase {
 
   @Test
   public void testTraverseAllFieldBranchReachableAfterFix() {
-    // Regression test: Before the fix, the ALL() field branch at line 135 was unreachable
-    // because it checked SQLFilterItemFieldAny.FULL_NAME ("ANY()") instead of
-    // SQLFilterItemFieldAll.FULL_NAME ("ALL()"). After the fix, "all()" triggers the ALL branch
-    // which requires ALL properties to traverse successfully.
+    // Falsifiable regression test for the ALL() field branch copy-paste bug.
+    // Use startDeepLevel=1 to skip the root entity match, forcing the ALL branch to be reached.
+    // Root has only a "child" link property (no string properties that would fail ALL).
+    // With fix: "all()" matches ALL branch → iterates "child" → traverse succeeds → true
+    // With bug: "all()" doesn't match ANY() → else branch → traverse(getProperty("all()")) → null
+    //           → returns false
     var traverseAllFix = session.getMetadata().getSchema().createClass("TraverseAllFix");
     traverseAllFix.createProperty("child", PropertyType.LINK, traverseAllFix);
 
     session.begin();
+    // Child has no properties set → propertyNames() empty at its level
     var child = session.newInstance("TraverseAllFix");
-    child.setProperty("name", "child");
 
+    // Root has only "child" property → ALL iterates just ["child"]
     var root = session.newInstance("TraverseAllFix");
-    root.setProperty("name", "root");
     root.setProperty("child", child.getIdentity());
-
     session.commit();
 
-    // Traverse with "all()" fields and condition always true
-    var traverse = new QueryOperatorTraverse(0, -1, new String[] {"all()"});
+    // startDeepLevel=1: root at level 0 is skipped, cfgFields loop runs at level 0
+    var traverse = new QueryOperatorTraverse(1, -1, new String[] {"all()"});
     var ctx = newCommandContext();
     var subCond = alwaysTrueCondition();
     var outerCond = new SQLFilterCondition("field", traverse, subCond);
@@ -1141,27 +1241,27 @@ public class EntitySchemaOperatorsTest extends DbTestBase {
         traverse.evaluateRecord(
             null, null, outerCond, root.getIdentity(), subCond, ctx, SERIALIZER);
     session.commit();
-    // ALL branch: all property traversals must succeed — condition is always true, so true
+    // With fix: ALL branch → traverse(child, ..., 1) → child loaded, condition true → true
+    // With bug: else → traverse(null) → false
     Assert.assertEquals(true, result);
   }
 
   @Test
-  public void testTraverseAllFieldBranchReturnsFalseWhenOnePropertyFails() {
-    // ALL() branch: if any property traversal returns false, the whole expression returns false
+  public void testTraverseAllFieldBranchFailsWhenTraversalFails() {
+    // ALL() branch: if any property traversal returns false, the whole thing returns false.
+    // Use startDeepLevel=1 and an entity with a string property (not traversable).
+    // Traversing a string value returns false → !false = true → ALL returns false immediately.
     session.getMetadata().getSchema().createClass("TraverseAllFail");
 
     session.begin();
-    // Entity with two properties: "name" (a string, not traversable) and no links
     var root = session.newInstance("TraverseAllFail");
     root.setProperty("name", "root");
-    root.setProperty("value", 42);
-
     session.commit();
 
-    // Traverse with "all()" fields and condition always false
-    var traverse = new QueryOperatorTraverse(0, -1, new String[] {"all()"});
+    // startDeepLevel=1 skips root condition check, enters cfgFields loop
+    var traverse = new QueryOperatorTraverse(1, -1, new String[] {"all()"});
     var ctx = newCommandContext();
-    var subCond = alwaysFalseCondition();
+    var subCond = alwaysTrueCondition();
     var outerCond = new SQLFilterCondition("field", traverse, subCond);
 
     session.begin();
@@ -1169,7 +1269,8 @@ public class EntitySchemaOperatorsTest extends DbTestBase {
         traverse.evaluateRecord(
             null, null, outerCond, root.getIdentity(), subCond, ctx, SERIALIZER);
     session.commit();
-    // ALL branch: condition is false for every property → returns false
+    // ALL: traverse("root" string, ..., 1) → string falls through → false
+    // !false = true → return false from ALL branch
     Assert.assertEquals(false, result);
   }
 
