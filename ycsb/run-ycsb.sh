@@ -488,3 +488,99 @@ for w in "${WORKLOAD_LIST[@]}"; do
 
   log "Workload $w complete."
 done
+
+# ============================================================================
+# Results summary
+# ============================================================================
+
+# Parse a latency percentile from YCSB output.
+# Usage: parse_latency <output_file> <operation> <percentile_label>
+#   e.g., parse_latency file.txt READ "50thPercentileLatency(us)"
+# Returns the value or "-" if not found.
+parse_latency() {
+  local output_file="$1" op="$2" label="$3"
+  local val
+  val=$(awk -F', ' -v op="$op" -v label="$label" \
+    '$1 == "[" op "]" && $2 == label { print $3 }' "$output_file" 2>/dev/null)
+  echo "${val:--}"
+}
+
+# Determine the primary operation for latency reporting per workload.
+# Returns the YCSB operation name (READ, SCAN, INSERT, UPDATE).
+primary_operation() {
+  local workload="$1"
+  case "$workload" in
+    E) echo "SCAN" ;;
+    I) echo "INSERT" ;;
+    *) echo "READ" ;;
+  esac
+}
+
+log ""
+log "========================================"
+log "Summary"
+log "========================================"
+
+# Print header
+printf "%-10s %15s %10s %10s %10s %8s\n" \
+  "Workload" "MaxThroughput" "P50(us)" "P95(us)" "P99(us)" "Op"
+
+# Collect summary data for JSON output
+JSON_ENTRIES=()
+
+for w in "${WORKLOAD_LIST[@]}"; do
+  PASS1_FILE="$RESULTS_DIR/workload-$w-pass1.txt"
+  PASS2_FILE="$RESULTS_DIR/workload-$w-pass2.txt"
+
+  # Max throughput from pass 1
+  if [ -f "$PASS1_FILE" ]; then
+    MAX_THROUGHPUT=$(parse_throughput "$PASS1_FILE")
+  else
+    MAX_THROUGHPUT="-"
+  fi
+
+  # Latency from pass 2 (primary operation depends on workload type)
+  OP=$(primary_operation "$w")
+  if [ -f "$PASS2_FILE" ]; then
+    P50=$(parse_latency "$PASS2_FILE" "$OP" "50thPercentileLatency(us)")
+    P95=$(parse_latency "$PASS2_FILE" "$OP" "95thPercentileLatency(us)")
+    P99=$(parse_latency "$PASS2_FILE" "$OP" "99thPercentileLatency(us)")
+  else
+    P50="-"; P95="-"; P99="-"
+  fi
+
+  printf "%-10s %15s %10s %10s %10s %8s\n" \
+    "$w" "${MAX_THROUGHPUT:--}" "$P50" "$P95" "$P99" "$OP"
+
+  # Build JSON entry
+  JSON_ENTRIES+=("$(cat <<JSON
+  {
+    "workload": "$w",
+    "primaryOperation": "$OP",
+    "maxThroughputOpsPerSec": ${MAX_THROUGHPUT:--1},
+    "p50LatencyUs": ${P50:--1},
+    "p95LatencyUs": ${P95:--1},
+    "p99LatencyUs": ${P99:--1}
+  }
+JSON
+  )")
+done
+
+# Write JSON summary
+SUMMARY_JSON="$RESULTS_DIR/summary.json"
+{
+  echo "["
+  for i in "${!JSON_ENTRIES[@]}"; do
+    if [ "$i" -lt $((${#JSON_ENTRIES[@]} - 1)) ]; then
+      echo "${JSON_ENTRIES[$i]},"
+    else
+      echo "${JSON_ENTRIES[$i]}"
+    fi
+  done
+  echo "]"
+} > "$SUMMARY_JSON"
+
+log ""
+log "Results saved to: $RESULTS_DIR/"
+log "JSON summary: $SUMMARY_JSON"
+log "Done."
