@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -23,9 +24,15 @@ public class PartitionedLockManagerTest {
   // --- Constructor validation ---
 
   /** Both spinLock and scalableRWLock flags true throws IllegalArgumentException. */
-  @Test(expected = IllegalArgumentException.class)
+  @Test
   public void testBothFlagsTrueThrowsException() {
-    new PartitionedLockManager<String>(true, true);
+    try {
+      new PartitionedLockManager<String>(true, true);
+      fail("Should throw IllegalArgumentException");
+    } catch (IllegalArgumentException e) {
+      assertTrue("Message should mention simultaneous use",
+          e.getMessage().contains("can not be used simultaneously"));
+    }
   }
 
   /** Default constructor creates a manager using ReentrantReadWriteLock. */
@@ -71,7 +78,8 @@ public class PartitionedLockManagerTest {
   @Test
   public void testDefaultSharedLockInt() {
     var mgr = new PartitionedLockManager<String>();
-    mgr.acquireSharedLock(42);
+    var lock = mgr.acquireSharedLock(42);
+    assertNotNull(lock);
     mgr.releaseSharedLock(42);
   }
 
@@ -88,7 +96,8 @@ public class PartitionedLockManagerTest {
   @Test
   public void testDefaultSharedLockLong() {
     var mgr = new PartitionedLockManager<String>();
-    mgr.acquireSharedLock(100L);
+    var lock = mgr.acquireSharedLock(100L);
+    assertNotNull(lock);
     mgr.releaseSharedLock(100L);
   }
 
@@ -112,22 +121,22 @@ public class PartitionedLockManagerTest {
 
   // --- SpinLock mode ---
 
-  /** SpinLock mode: exclusive lock acquire/release. */
+  /** SpinLock mode: exclusive lock acquire/release via manager-level release. */
   @Test
   public void testSpinLockExclusiveLock() {
     var mgr = new PartitionedLockManager<String>(true, false);
     var lock = mgr.acquireExclusiveLock("key");
     assertNotNull(lock);
-    lock.unlock();
+    mgr.releaseExclusiveLock("key");
   }
 
-  /** SpinLock mode: shared lock acquire/release. */
+  /** SpinLock mode: shared lock acquire/release via manager-level release. */
   @Test
   public void testSpinLockSharedLock() {
     var mgr = new PartitionedLockManager<String>(true, false);
     var lock = mgr.acquireSharedLock("key");
     assertNotNull(lock);
-    lock.unlock();
+    mgr.releaseSharedLock("key");
   }
 
   /** SpinLock mode: int overloads. */
@@ -158,10 +167,16 @@ public class PartitionedLockManagerTest {
    * SpinLock mode: tryAcquireExclusiveLock throws IllegalStateException because
    * spin locks do not support try-lock.
    */
-  @Test(expected = IllegalStateException.class)
+  @Test
   public void testSpinLockTryAcquireThrows() throws Exception {
     var mgr = new PartitionedLockManager<String>(true, false);
-    mgr.tryAcquireExclusiveLock(1, 100);
+    try {
+      mgr.tryAcquireExclusiveLock(1, 100);
+      fail("Should throw IllegalStateException for spin lock try-acquire");
+    } catch (IllegalStateException e) {
+      assertTrue("Message should mention spin lock",
+          e.getMessage().contains("Spin lock"));
+    }
   }
 
   // --- ScalableRWLock mode ---
@@ -298,7 +313,12 @@ public class PartitionedLockManagerTest {
     assertEquals(0, locks.length);
   }
 
-  /** Batch exclusive lock acquisition for int array. */
+  /**
+   * Batch exclusive lock acquisition for int array. Note: there is a pre-existing bug
+   * where the input values are not copied into the sorted array (line 352 allocates
+   * a zero-filled array instead of copying). All locks are acquired for partition
+   * index 0 regardless of input. This test documents the current (buggy) behavior.
+   */
   @Test
   public void testBatchExclusiveLockIntArray() {
     var mgr = new PartitionedLockManager<String>();
@@ -432,6 +452,76 @@ public class PartitionedLockManagerTest {
     canRelease.countDown();
     for (var reader : readers) {
       reader.join(5_000);
+    }
+  }
+
+  // --- ScalableRWLock multi-threaded ---
+
+  /**
+   * ScalableRWLock mode: exclusive lock blocks shared lock in another thread.
+   * Verifies the bug fix path (releaseSLock → sharedUnlock) under cross-thread
+   * contention — the same code path where the sharedLock/sharedUnlock bug was fixed.
+   */
+  @Test(timeout = 10_000)
+  public void testScalableRWLockExclusiveBlocksShared() throws Exception {
+    var mgr = new PartitionedLockManager<String>(false, true);
+    var exclusiveHeld = new CountDownLatch(1);
+    var canRelease = new CountDownLatch(1);
+    var sharedAcquired = new AtomicBoolean(false);
+    var key = "sameKey";
+
+    var writer = new Thread(() -> {
+      mgr.acquireExclusiveLock(key);
+      exclusiveHeld.countDown();
+      try {
+        canRelease.await(10, TimeUnit.SECONDS);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+      mgr.releaseExclusiveLock(key);
+    });
+    writer.start();
+    assertTrue(exclusiveHeld.await(5, TimeUnit.SECONDS));
+
+    var reader = new Thread(() -> {
+      mgr.acquireSharedLock(key);
+      sharedAcquired.set(true);
+      mgr.releaseSharedLock(key);
+    });
+    reader.start();
+
+    Thread.sleep(200);
+    assertFalse("Shared lock should be blocked while exclusive is held (scalableRWLock)",
+        sharedAcquired.get());
+
+    canRelease.countDown();
+    reader.join(5_000);
+    writer.join(5_000);
+    assertTrue("Shared lock should succeed after exclusive released",
+        sharedAcquired.get());
+  }
+
+  // --- Boundary values ---
+
+  /** Boundary int values (0, -1, MIN_VALUE, MAX_VALUE) map to valid partitions. */
+  @Test
+  public void testBoundaryIntValues() {
+    var mgr = new PartitionedLockManager<String>();
+    for (int val : new int[] {0, -1, Integer.MIN_VALUE, Integer.MAX_VALUE}) {
+      var lock = mgr.acquireExclusiveLock(val);
+      assertNotNull("Should handle int value " + val, lock);
+      mgr.releaseExclusiveLock(val);
+    }
+  }
+
+  /** Boundary long values (0, -1, MIN_VALUE, MAX_VALUE) map to valid partitions. */
+  @Test
+  public void testBoundaryLongValues() {
+    var mgr = new PartitionedLockManager<String>();
+    for (long val : new long[] {0L, -1L, Long.MIN_VALUE, Long.MAX_VALUE}) {
+      var lock = mgr.acquireExclusiveLock(val);
+      assertNotNull("Should handle long value " + val, lock);
+      mgr.releaseExclusiveLock(val);
     }
   }
 }

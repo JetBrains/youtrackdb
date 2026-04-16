@@ -143,7 +143,7 @@ public class OneEntryPerKeyLockManagerTest {
 
   // --- Batch lock acquisition ---
 
-  /** Batch exclusive lock for T array. */
+  /** Batch exclusive lock for T array — verify distinct keys are locked. */
   @Test
   public void testBatchExclusiveLockArray() {
     var mgr = new OneEntryPerKeyLockManager<String>(true, -1, 100);
@@ -151,17 +151,25 @@ public class OneEntryPerKeyLockManagerTest {
     assertNotNull(locks);
     assertEquals(3, locks.length);
     for (var lock : locks) {
+      assertNotNull("Each batch lock should be non-null", lock);
+    }
+    assertEquals("Should have 3 distinct keys locked", 3, mgr.getCountCurrentLocks());
+    for (var lock : locks) {
       lock.unlock();
     }
   }
 
-  /** Batch shared lock for T array. */
+  /** Batch shared lock for T array — verify distinct keys are locked. */
   @Test
   public void testBatchSharedLockArray() {
     var mgr = new OneEntryPerKeyLockManager<String>(true, -1, 100);
     var locks = mgr.acquireSharedLocksInBatch("a", "b");
     assertNotNull(locks);
     assertEquals(2, locks.length);
+    for (var lock : locks) {
+      assertNotNull("Each batch lock should be non-null", lock);
+    }
+    assertEquals("Should have 2 distinct keys locked", 2, mgr.getCountCurrentLocks());
     for (var lock : locks) {
       lock.unlock();
     }
