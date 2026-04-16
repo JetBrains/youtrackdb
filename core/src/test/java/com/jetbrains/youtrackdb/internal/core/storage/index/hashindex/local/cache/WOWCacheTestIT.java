@@ -84,7 +84,7 @@ public class WOWCacheTestIT {
     String nativeFileName = null;
 
     if (wowCache != null) {
-      var fileId = wowCache.fileIdByName(fileName);
+      var fileId = wowCache.fileHandlerByName(fileName).fileId();
       nativeFileName = wowCache.nativeFileNameById(fileId);
 
       wowCache.delete();
@@ -179,7 +179,7 @@ public class WOWCacheTestIT {
     var random = new Random();
 
     var pageData = new byte[200][];
-    var fileId = wowCache.addFile(fileName);
+    var fileId = wowCache.addFile(fileName).fileId();
     final var nativeFileName = wowCache.nativeFileNameById(fileId);
 
     for (var i = 0; i < pageData.length; i++) {
@@ -284,7 +284,7 @@ public class WOWCacheTestIT {
     var random = new Random();
 
     var pageData = new byte[200][];
-    var fileId = wowCache.addFile(fileName);
+    var fileId = wowCache.addFile(fileName).fileId();
     final var nativeFileName = wowCache.nativeFileNameById(fileId);
 
     for (var i = 0; i < pageData.length; i++) {
@@ -353,7 +353,7 @@ public class WOWCacheTestIT {
   @Test
   public void testDataUpdate() throws Exception {
     final NavigableMap<Long, byte[]> pageIndexDataMap = new TreeMap<>();
-    var fileId = wowCache.addFile(fileName);
+    var fileId = wowCache.addFile(fileName).fileId();
     final var nativeFileName = wowCache.nativeFileNameById(fileId);
 
     var random = new Random();
@@ -509,7 +509,7 @@ public class WOWCacheTestIT {
     wowCache.loadRegisteredFiles();
 
     final NavigableMap<Long, byte[]> pageIndexDataMap = new TreeMap<>();
-    var fileId = wowCache.addFile(fileName);
+    var fileId = wowCache.addFile(fileName).fileId();
     final var nativeFileName = wowCache.nativeFileNameById(fileId);
 
     final var seed = System.nanoTime();
@@ -623,8 +623,8 @@ public class WOWCacheTestIT {
 
   @Test
   public void testFileRestore() throws IOException {
-    final var nonDelFileId = wowCache.addFile(fileName);
-    final var fileId = wowCache.addFile("removedFile.del");
+    final var nonDelFileId = wowCache.addFile(fileName).fileId();
+    final var fileId = wowCache.addFile("removedFile.del").fileId();
 
     final var removedNativeFileName = wowCache.nativeFileNameById(fileId);
     assert removedNativeFileName != null;
@@ -649,8 +649,8 @@ public class WOWCacheTestIT {
 
   @Test
   public void testFileRestoreAfterClose() throws Exception {
-    final var nonDelFileId = wowCache.addFile(fileName);
-    final var fileId = wowCache.addFile("removedFile.del");
+    final var nonDelFileId = wowCache.addFile(fileName).fileId();
+    final var fileId = wowCache.addFile("removedFile.del").fileId();
 
     final var removedNativeFileName = wowCache.nativeFileNameById(fileId);
     assert removedNativeFileName != null;
@@ -683,7 +683,7 @@ public class WOWCacheTestIT {
   public void testChecksumFailure() throws IOException {
     wowCache.setChecksumMode(ChecksumMode.StoreAndThrow);
 
-    final var fileId = wowCache.addFile(fileName);
+    final var fileId = wowCache.addFile(fileName).fileId();
     Assert.assertEquals(0, wowCache.allocateNewPage(fileId));
     final var cachePointer = wowCache.load(fileId, 0, new ModifiableBoolean(), false);
 
@@ -724,7 +724,7 @@ public class WOWCacheTestIT {
   public void testMagicFailure() throws IOException {
     wowCache.setChecksumMode(ChecksumMode.StoreAndThrow);
 
-    final var fileId = wowCache.addFile(fileName);
+    final var fileId = wowCache.addFile(fileName).fileId();
     Assert.assertEquals(0, wowCache.allocateNewPage(fileId));
     final var cachePointer = wowCache.load(fileId, 0, new ModifiableBoolean(), false);
 
@@ -763,7 +763,7 @@ public class WOWCacheTestIT {
   public void testNoChecksumVerificationIfNotRequested() throws IOException {
     wowCache.setChecksumMode(ChecksumMode.StoreAndThrow);
 
-    final var fileId = wowCache.addFile(fileName);
+    final var fileId = wowCache.addFile(fileName).fileId();
     Assert.assertEquals(0, wowCache.allocateNewPage(fileId));
     final var cachePointer = wowCache.load(fileId, 0, new ModifiableBoolean(), false);
 
@@ -799,7 +799,7 @@ public class WOWCacheTestIT {
   public void testNoChecksumFailureIfVerificationTurnedOff() throws IOException {
     wowCache.setChecksumMode(ChecksumMode.Off);
 
-    final var fileId = wowCache.addFile(fileName);
+    final var fileId = wowCache.addFile(fileName).fileId();
     Assert.assertEquals(0, wowCache.allocateNewPage(fileId));
     final var cachePointer = wowCache.load(fileId, 0, new ModifiableBoolean(), true);
 
@@ -835,7 +835,7 @@ public class WOWCacheTestIT {
   public void testNoChecksumFailureIfVerificationTurnedOffOnLoad() throws IOException {
     wowCache.setChecksumMode(ChecksumMode.Store);
 
-    final var fileId = wowCache.addFile(fileName);
+    final var fileId = wowCache.addFile(fileName).fileId();
     Assert.assertEquals(0, wowCache.allocateNewPage(fileId));
     final var cachePointer = wowCache.load(fileId, 0, new ModifiableBoolean(), true);
 
@@ -871,7 +871,7 @@ public class WOWCacheTestIT {
   public void testNoChecksumFailureIfNoChecksumProvided() throws IOException {
     wowCache.setChecksumMode(ChecksumMode.Off);
 
-    final var fileId = wowCache.addFile(fileName);
+    final var fileId = wowCache.addFile(fileName).fileId();
     Assert.assertEquals(0, wowCache.allocateNewPage(fileId));
     final var cachePointer = wowCache.load(fileId, 0, new ModifiableBoolean(), true);
 

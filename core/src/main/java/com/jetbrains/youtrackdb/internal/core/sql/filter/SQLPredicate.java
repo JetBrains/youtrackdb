@@ -192,8 +192,7 @@ public class SQLPredicate extends BaseParser implements CommandPredicate {
     return currentCondition;
   }
 
-  @Nullable
-  protected SQLFilterCondition extractCondition(DatabaseSessionEmbedded session) {
+  @Nullable protected SQLFilterCondition extractCondition(DatabaseSessionEmbedded session) {
 
     if (!parserSkipWhiteSpaces())
     // END OF TEXT
@@ -238,17 +237,16 @@ public class SQLPredicate extends BaseParser implements CommandPredicate {
   protected boolean checkForEnd(final String iWord) {
     if (iWord != null
         && (iWord.equals("ORDER")
-        || iWord.equals("LIMIT")
-        || iWord.equals("SKIP")
-        || iWord.equals("OFFSET"))) {
+            || iWord.equals("LIMIT")
+            || iWord.equals("SKIP")
+            || iWord.equals("OFFSET"))) {
       parserMoveCurrentPosition(iWord.length() * -1);
       return true;
     }
     return false;
   }
 
-  @Nullable
-  private QueryOperator extractConditionOperator() {
+  @Nullable private QueryOperator extractConditionOperator() {
     if (!parserSkipWhiteSpaces())
     // END OF PARSING: JUST RETURN
     {

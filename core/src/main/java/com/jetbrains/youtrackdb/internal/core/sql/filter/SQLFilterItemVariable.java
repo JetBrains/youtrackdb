@@ -38,8 +38,7 @@ public class SQLFilterItemVariable extends SQLFilterItemAbstract {
   }
 
   @Override
-  @Nullable
-  public Object getValue(
+  @Nullable public Object getValue(
       final Result iRecord, Object iCurrentResult, final CommandContext iContext) {
     if (iContext == null) {
       return null;

@@ -24,6 +24,7 @@ import com.jetbrains.youtrackdb.internal.common.concur.resource.SharedResourceAb
 import com.jetbrains.youtrackdb.internal.common.function.TxConsumer;
 import com.jetbrains.youtrackdb.internal.common.function.TxFunction;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
@@ -40,6 +41,7 @@ import javax.annotation.Nonnull;
  * @since 8/27/13
  */
 public abstract class DurableComponent extends SharedResourceAbstract {
+
   protected final AtomicOperationsManager atomicOperationsManager;
   protected final AbstractStorage storage;
   protected final ReadCache readCache;
@@ -118,45 +120,46 @@ public abstract class DurableComponent extends SharedResourceAbstract {
     atomicOperationsManager.executeInsideComponentOperation(operation, this, consumer);
   }
 
-  protected long getFilledUpTo(final AtomicOperation atomicOperation, final long fileId) {
+  protected long getFilledUpTo(final AtomicOperation atomicOperation,
+      final FileHandler fileHandler) {
     if (atomicOperation == null) {
-      return writeCache.getFilledUpTo(fileId);
+      return writeCache.getFilledUpTo(fileHandler.fileId());
     }
-    return atomicOperation.filledUpTo(fileId);
+    return atomicOperation.filledUpTo(fileHandler);
   }
 
   protected static CacheEntry loadPageForWrite(
       final AtomicOperation atomicOperation,
-      final long fileId,
+      final FileHandler fileHandler,
       final long pageIndex,
       final boolean verifyCheckSum)
       throws IOException {
-    return atomicOperation.loadPageForWrite(fileId, pageIndex, 1, verifyCheckSum);
+    return atomicOperation.loadPageForWrite(fileHandler, pageIndex, 1, verifyCheckSum);
   }
 
   protected CacheEntry loadOrAddPageForWrite(
-      final AtomicOperation atomicOperation, final long fileId, final long pageIndex)
+      final AtomicOperation atomicOperation, final FileHandler fileHandler, final long pageIndex)
       throws IOException {
-    var entry = atomicOperation.loadPageForWrite(fileId, pageIndex, 1, true);
+    var entry = atomicOperation.loadPageForWrite(fileHandler, pageIndex, 1, true);
     if (entry == null) {
-      entry = addPage(atomicOperation, fileId);
+      entry = addPage(atomicOperation, fileHandler);
     }
     return entry;
   }
 
   protected CacheEntry loadPageForRead(
-      final AtomicOperation atomicOperation, final long fileId, final long pageIndex)
+      final AtomicOperation atomicOperation, final FileHandler fileHandler, final long pageIndex)
       throws IOException {
     if (atomicOperation == null) {
-      return readCache.loadForRead(fileId, pageIndex, writeCache, true);
+      return readCache.loadForRead(fileHandler, pageIndex, writeCache, true);
     }
-    return atomicOperation.loadPageForRead(fileId, pageIndex);
+    return atomicOperation.loadPageForRead(fileHandler, pageIndex);
   }
 
-  protected CacheEntry addPage(final AtomicOperation atomicOperation, final long fileId)
+  protected CacheEntry addPage(final AtomicOperation atomicOperation, final FileHandler fileHandler)
       throws IOException {
     assert atomicOperation != null;
-    return atomicOperation.addPage(fileId);
+    return atomicOperation.addPage(fileHandler);
   }
 
   protected void releasePageFromWrite(
@@ -174,13 +177,13 @@ public abstract class DurableComponent extends SharedResourceAbstract {
     }
   }
 
-  protected long addFile(final AtomicOperation atomicOperation, final String fileName)
+  protected FileHandler addFile(final AtomicOperation atomicOperation, final String fileName)
       throws IOException {
     assert atomicOperation != null;
     return atomicOperation.addFile(fileName);
   }
 
-  protected long openFile(final AtomicOperation atomicOperation, final String fileName)
+  protected FileHandler openFile(final AtomicOperation atomicOperation, final String fileName)
       throws IOException {
     if (atomicOperation == null) {
       return writeCache.loadFile(fileName);
@@ -201,9 +204,9 @@ public abstract class DurableComponent extends SharedResourceAbstract {
     return atomicOperation.isFileExists(fileName);
   }
 
-  protected void truncateFile(final AtomicOperation atomicOperation, final long filedId)
+  protected void truncateFile(final AtomicOperation atomicOperation, final FileHandler fileHandler)
       throws IOException {
     assert atomicOperation != null;
-    atomicOperation.truncateFile(filedId);
+    atomicOperation.truncateFile(fileHandler);
   }
 }

@@ -22,6 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableEntry;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
+import com.jetbrains.youtrackdb.internal.common.concur.collection.CASObjectArray;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.LockManager;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.PartitionedLockManager;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ReadersWriterSpinLock;
@@ -49,6 +50,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.WriteCacheException;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageDataVerificationError;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
@@ -67,7 +69,6 @@ import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
-import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -376,6 +377,12 @@ public final class WOWCache extends AbstractWriteCache
    */
   private final ConcurrentMap<Integer, String> idNameMap = new ConcurrentHashMap<>();
 
+  /**
+   * Mapping from external file id to file handler. Used primarily t onot build fileHandler all the
+   * time from scratch.
+   */
+  private final Long2ObjectMap<FileHandler> externalIdHandlerMap = new Long2ObjectOpenHashMap<>();
+
   private final Random fileIdGen = new Random();
 
   /**
@@ -677,7 +684,7 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   @Override
-  public long loadFile(final String fileName) throws IOException {
+  public FileHandler loadFile(final String fileName) throws IOException {
     filesLock.acquireWriteLock();
     try {
       checkForClose();
@@ -691,7 +698,7 @@ public final class WOWCache extends AbstractWriteCache
         fileClassic = files.get(externalId);
 
         if (fileClassic != null) {
-          return externalId;
+          return wrapExternalIdWithHandler(externalId);
         } else {
           throw new StorageException(storageName,
               "File with given name " + fileName + " only partially registered in storage");
@@ -737,7 +744,7 @@ public final class WOWCache extends AbstractWriteCache
 
         writeNameIdEntry(new NameFileIdEntry(fileName, fileId, fileClassic.getName()), true);
 
-        return externalId;
+        return wrapExternalIdWithHandler(externalId);
       }
     } catch (final java.lang.InterruptedException e) {
       throw BaseException.wrapException(
@@ -748,7 +755,7 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   @Override
-  public long addFile(final String fileName) throws IOException {
+  public FileHandler addFile(final String fileName) throws IOException {
     filesLock.acquireWriteLock();
     try {
       checkForClose();
@@ -785,7 +792,7 @@ public final class WOWCache extends AbstractWriteCache
 
       writeNameIdEntry(new NameFileIdEntry(fileName, fileId, fileClassic.getName()), true);
 
-      return externalId;
+      return wrapExternalIdWithHandler(externalId);
     } catch (final java.lang.InterruptedException e) {
       throw BaseException.wrapException(
           new StorageException(storageName, "File add was interrupted"), e, storageName);
@@ -794,15 +801,21 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
+  private FileHandler wrapExternalIdWithHandler(long externalId) {
+    // todo review with Andrii
+    return externalIdHandlerMap.computeIfAbsent(externalId,
+        eid -> new FileHandler(eid, new CASObjectArray<PageKey>()));
+  }
+
   @Override
-  public long fileIdByName(final String fileName) {
+  public FileHandler fileHandlerByName(final String fileName) {
     final var intId = nameIdMap.get(fileName);
 
     if (intId == null || intId < 0) {
-      return -1;
+      return FileHandler.SPECIAL_VALUE_RENAME_WHEN_UNDERSTAND_MEANING_OF_IT;
     }
 
-    return composeFileId(id, intId);
+    return wrapExternalIdWithHandler(composeFileId(id, intId));
   }
 
   @Override
@@ -856,7 +869,7 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   @Override
-  public long addFile(final String fileName, long fileId) throws IOException {
+  public FileHandler addFile(final String fileName, long fileId) throws IOException {
     filesLock.acquireWriteLock();
     try {
       checkForClose();
@@ -882,8 +895,8 @@ public final class WOWCache extends AbstractWriteCache
         }
       }
 
-      fileId = composeFileId(id, intId);
-      fileClassic = files.get(fileId);
+      final var externalId = composeFileId(id, intId);
+      fileClassic = files.get(externalId);
 
       if (fileClassic != null) {
         if (!fileClassic.getName().equals(createInternalFileName(fileName, intId))) {
@@ -903,7 +916,7 @@ public final class WOWCache extends AbstractWriteCache
         fileClassic = createFileInstance(fileName, intId);
         createFile(fileClassic, callFsync);
 
-        files.add(fileId, fileClassic);
+        files.add(externalId, fileClassic);
       }
 
       idNameMap.remove(-intId);
@@ -913,7 +926,7 @@ public final class WOWCache extends AbstractWriteCache
 
       writeNameIdEntry(new NameFileIdEntry(fileName, intId, fileClassic.getName()), true);
 
-      return fileId;
+      return wrapExternalIdWithHandler(externalId);
     } catch (final java.lang.InterruptedException e) {
       throw BaseException.wrapException(
           new StorageException(storageName, "File add was interrupted"), e, storageName);
@@ -1096,17 +1109,18 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   @Override
-  public Map<String, Long> files() {
+  public Map<String, FileHandler> files() {
     filesLock.acquireReadLock();
     try {
       checkForClose();
 
-      final var result = new Object2LongOpenHashMap<String>(1_000);
-      result.defaultReturnValue(-1);
+      final var result = new HashMap<String, FileHandler>(nameIdMap.size());
 
       for (final var entry : nameIdMap.entrySet()) {
         if (entry.getValue() > 0) {
-          result.put(entry.getKey(), composeFileId(id, entry.getValue()));
+          // this is slow, make sure with Andrii it's not on the critical path
+          result.put(entry.getKey(),
+              wrapExternalIdWithHandler(composeFileId(id, entry.getValue())));
         }
       }
 
@@ -1242,15 +1256,15 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   @Override
-  public long getFilledUpTo(long fileId) {
-    final var intId = extractFileId(fileId);
-    fileId = composeFileId(id, intId);
+  public long getFilledUpTo(final long fileId) {
+    // handler should have external id already, do we really need this check?
+    final var split = splitFileId(fileId);
 
     filesLock.acquireReadLock();
     try {
       checkForClose();
 
-      var file = files.get(fileId);
+      var file = files.get(split[1]);
       return file.getFileSize() / pageSize;
     } finally {
       filesLock.releaseReadLock();
@@ -1327,21 +1341,20 @@ public final class WOWCache extends AbstractWriteCache
 
   @Override
   public void renameFile(long fileId, final String newFileName) throws IOException {
-    final var intId = extractFileId(fileId);
-    fileId = composeFileId(id, intId);
+    final var split = splitFileId(fileId);
 
     filesLock.acquireWriteLock();
     try {
       checkForClose();
 
-      final var entry = files.acquire(fileId);
+      final var entry = files.acquire(split[1]);
 
       if (entry == null) {
         return;
       }
 
       final String oldOsFileName;
-      final var newOsFileName = createInternalFileName(newFileName, intId);
+      final var newOsFileName = createInternalFileName(newFileName, (int) split[0]);
 
       try {
         final var file = entry.get();
@@ -1353,15 +1366,15 @@ public final class WOWCache extends AbstractWriteCache
         files.release(entry);
       }
 
-      final var oldFileName = idNameMap.get(intId);
+      final var oldFileName = idNameMap.get((int) split[0]);
 
       nameIdMap.remove(oldFileName);
-      nameIdMap.put(newFileName, intId);
+      nameIdMap.put(newFileName, (int) split[0]);
 
-      idNameMap.put(intId, newFileName);
+      idNameMap.put((int) split[0], newFileName);
 
       writeNameIdEntry(new NameFileIdEntry(oldFileName, -1, oldOsFileName), false);
-      writeNameIdEntry(new NameFileIdEntry(newFileName, intId, newOsFileName), true);
+      writeNameIdEntry(new NameFileIdEntry(newFileName, (int) split[0], newOsFileName), true);
     } catch (final java.lang.InterruptedException e) {
       throw BaseException.wrapException(
           new StorageException(storageName, "Rename of file was interrupted"),
@@ -1369,6 +1382,16 @@ public final class WOWCache extends AbstractWriteCache
     } finally {
       filesLock.releaseWriteLock();
     }
+  }
+
+  private long[] splitFileId(FileHandler fileHandler) {
+    return splitFileId(fileHandler.fileId());
+  }
+
+  private long[] splitFileId(final long inputFileId) {
+    final var intId = extractFileId(inputFileId);
+    final var fileId = composeFileId(id, intId);
+    return new long[] {intId, fileId};
   }
 
   @Override
@@ -1536,23 +1559,23 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   @Override
-  public void close(long fileId, final boolean flush) {
-    final var intId = extractFileId(fileId);
-    fileId = composeFileId(id, intId);
+  public void close(FileHandler fileHandler, final boolean flush) {
+    final var split = splitFileId(fileHandler);
 
     filesLock.acquireWriteLock();
     try {
       checkForClose();
 
       if (flush) {
-        flush(intId);
+        flush(fileHandler.fileId());
       } else {
-        removeCachedPages(intId);
+        removeCachedPages((int) split[0]);
       }
 
-      if (!files.close(fileId)) {
+      if (!files.close(split[1])) {
         throw new StorageException(storageName,
-            "Can not close file with id " + internalFileId(fileId) + " because it is still in use");
+            "Can not close file with id " + internalFileId(split[1])
+                + " because it is still in use");
       }
     } finally {
       filesLock.releaseWriteLock();
@@ -1595,7 +1618,9 @@ public final class WOWCache extends AbstractWriteCache
           continue;
         }
 
-        checkFileStoredPages(commandOutputListener, notificationTimeOut, errors, intId);
+        // is it a hot path or do we need a cache on name here?
+        checkFileStoredPages(commandOutputListener, notificationTimeOut, errors, intId,
+            wrapExternalIdWithHandler(composeFileId(id, intId)));
       }
 
       return errors.toArray(new PageDataVerificationError[0]);
@@ -1611,10 +1636,11 @@ public final class WOWCache extends AbstractWriteCache
       final CommandOutputListener commandOutputListener,
       @SuppressWarnings("SameParameterValue") final int notificationTimeOut,
       final List<PageDataVerificationError> errors,
-      final Integer intId)
+      final Integer intId,
+      final FileHandler fileHandler)
       throws java.lang.InterruptedException {
     boolean fileIsCorrect;
-    final var externalId = composeFileId(id, intId);
+    final var externalId = fileHandler.fileId();
     final var entry = files.acquire(externalId);
     final var fileClassic = entry.get();
     final var fileName = idNameMap.get(intId);
@@ -1624,7 +1650,7 @@ public final class WOWCache extends AbstractWriteCache
         commandOutputListener.onMessage("Flashing file " + fileName + "... ");
       }
 
-      flush(intId);
+      flush(fileHandler.fileId());
 
       if (commandOutputListener != null) {
         commandOutputListener.onMessage(

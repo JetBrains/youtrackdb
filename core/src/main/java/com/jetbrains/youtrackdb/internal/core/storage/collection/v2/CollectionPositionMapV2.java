@@ -24,6 +24,7 @@ import com.jetbrains.youtrackdb.internal.common.util.CommonConst;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.CollectionPositionMapException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMap;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
@@ -107,8 +108,8 @@ import org.apache.commons.lang3.ArrayUtils;
  */
 public final class CollectionPositionMapV2 extends CollectionPositionMap {
 
-  /** Internal file ID assigned by the disk cache when the .cpm file is opened/created. */
-  private long fileId;
+  /** Internal file handler assigned by the disk cache when the .cpm file is opened/created. */
+  private FileHandler fileHandler;
 
   /** Package-private constructor; instances are created by {@link PaginatedCollectionV2}. */
   CollectionPositionMapV2(
@@ -121,7 +122,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
 
   /** Opens an existing position-map file by name through the disk cache. */
   public void open(final AtomicOperation atomicOperation) throws IOException {
-    fileId = openFile(atomicOperation, getFullName());
+    fileHandler = openFile(atomicOperation, getFullName());
   }
 
   /**
@@ -130,17 +131,17 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
    * creation), the existing page 0 is reused and reset.
    */
   public void create(final AtomicOperation atomicOperation) throws IOException {
-    fileId = addFile(atomicOperation, getFullName());
+    fileHandler = addFile(atomicOperation, getFullName());
 
-    if (getFilledUpTo(atomicOperation, fileId) == 0) {
+    if (getFilledUpTo(atomicOperation, fileHandler) == 0) {
       // Fresh file -- append the entry-point page.
-      try (final var cacheEntry = addPage(atomicOperation, fileId)) {
+      try (final var cacheEntry = addPage(atomicOperation, fileHandler)) {
         final var mapEntryPoint = new MapEntryPoint(cacheEntry);
         mapEntryPoint.setFileSize(0);
       }
     } else {
       // File already has pages -- reset the entry point.
-      try (final var cacheEntry = loadPageForWrite(atomicOperation, fileId, 0, false)) {
+      try (final var cacheEntry = loadPageForWrite(atomicOperation, fileHandler, 0, false)) {
         final var mapEntryPoint = new MapEntryPoint(cacheEntry);
         mapEntryPoint.setFileSize(0);
       }
@@ -148,26 +149,26 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
   }
 
   public void flush() {
-    writeCache.flush(fileId);
+    writeCache.flush(fileHandler.fileId());
   }
 
   public void close(final boolean flush) {
-    readCache.closeFile(fileId, flush, writeCache);
+    readCache.closeFile(fileHandler, flush, writeCache);
   }
 
   public void truncate(final AtomicOperation atomicOperation) throws IOException {
-    try (final var cacheEntry = loadPageForWrite(atomicOperation, fileId, 0, true)) {
+    try (final var cacheEntry = loadPageForWrite(atomicOperation, fileHandler, 0, true)) {
       final var mapEntryPoint = new MapEntryPoint(cacheEntry);
       mapEntryPoint.setFileSize(0);
     }
   }
 
   public void delete(final AtomicOperation atomicOperation) throws IOException {
-    deleteFile(atomicOperation, fileId);
+    deleteFile(atomicOperation, fileHandler.fileId());
   }
 
   void rename(final String newName) throws IOException {
-    writeCache.renameFile(fileId, newName + getExtension());
+    writeCache.renameFile(fileHandler.fileId(), newName + getExtension());
     setName(newName);
   }
 
@@ -177,7 +178,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
    */
   private long getLastPage(final AtomicOperation atomicOperation) throws IOException {
     long lastPage;
-    try (final var entryPointEntry = loadPageForRead(atomicOperation, fileId, 0)) {
+    try (final var entryPointEntry = loadPageForRead(atomicOperation, fileHandler, 0)) {
       final var mapEntryPoint = new MapEntryPoint(entryPointEntry);
       lastPage = mapEntryPoint.getFileSize();
     }
@@ -200,11 +201,11 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
     CacheEntry cacheEntry;
     var clear = false;
 
-    try (var entryPointEntry = loadPageForWrite(atomicOperation, fileId, 0, true)) {
+    try (var entryPointEntry = loadPageForWrite(atomicOperation, fileHandler, 0, true)) {
       final var mapEntryPoint = new MapEntryPoint(entryPointEntry);
       final var lastPage = mapEntryPoint.getFileSize();
 
-      var filledUpTo = getFilledUpTo(atomicOperation, fileId);
+      var filledUpTo = getFilledUpTo(atomicOperation, fileHandler);
 
       assert lastPage <= filledUpTo - 1;
 
@@ -212,18 +213,18 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
         // No bucket pages exist yet -- create the first one.
         if (lastPage == filledUpTo - 1) {
           // Physical file has no pages beyond the entry point -- append a new one.
-          cacheEntry = addPage(atomicOperation, fileId);
+          cacheEntry = addPage(atomicOperation, fileHandler);
           filledUpTo++;
         } else {
           // Reuse an existing-but-unclaimed page (recovery scenario).
-          cacheEntry = loadPageForWrite(atomicOperation, fileId, lastPage + 1, false);
+          cacheEntry = loadPageForWrite(atomicOperation, fileHandler, lastPage + 1, false);
         }
         mapEntryPoint.setFileSize(lastPage + 1);
 
         clear = true;
       } else {
         // Load the current last bucket page to check if it has room.
-        cacheEntry = loadPageForWrite(atomicOperation, fileId, lastPage, true);
+        cacheEntry = loadPageForWrite(atomicOperation, fileHandler, lastPage, true);
       }
 
       try {
@@ -239,9 +240,9 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
           assert lastPage <= filledUpTo - 1;
 
           if (lastPage == filledUpTo - 1) {
-            cacheEntry = addPage(atomicOperation, fileId);
+            cacheEntry = addPage(atomicOperation, fileHandler);
           } else {
-            cacheEntry = loadPageForWrite(atomicOperation, fileId, lastPage + 1, false);
+            cacheEntry = loadPageForWrite(atomicOperation, fileHandler, lastPage + 1, false);
           }
 
           mapEntryPoint.setFileSize(lastPage + 1);
@@ -319,10 +320,11 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
       throw new CollectionPositionMapException(storage.getName(),
           "Passed in collection position "
               + collectionPosition
-              + " is outside of range of collection-position map", this);
+              + " is outside of range of collection-position map",
+          this);
     }
 
-    return loadPageForWrite(atomicOperation, fileId, pageIndex, true);
+    return loadPageForWrite(atomicOperation, fileHandler, pageIndex, true);
   }
 
   /**
@@ -333,8 +335,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
    * @param atomicOperation    the current atomic operation context
    * @return the position entry, or {@code null} if not found / not filled
    */
-  @Nullable
-  public CollectionPositionMapBucket.PositionEntry get(
+  @Nullable public CollectionPositionMapBucket.PositionEntry get(
       final long collectionPosition, final AtomicOperation atomicOperation) throws IOException {
     final var pageIndex = collectionPosition / CollectionPositionMapBucket.MAX_ENTRIES + 1;
     final var index = (int) (collectionPosition % CollectionPositionMapBucket.MAX_ENTRIES);
@@ -345,7 +346,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
       return null;
     }
 
-    try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
+    try (final var cacheEntry = loadPageForRead(atomicOperation, fileHandler, pageIndex)) {
       final var bucket = new CollectionPositionMapBucket(cacheEntry);
       return bucket.get(index);
     }
@@ -374,7 +375,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
           CollectionPositionMapBucket.NOT_EXISTENT, null);
     }
 
-    try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
+    try (final var cacheEntry = loadPageForRead(atomicOperation, fileHandler, pageIndex)) {
       final var bucket = new CollectionPositionMapBucket(cacheEntry);
       return bucket.getEntryWithStatus(index);
     }
@@ -395,7 +396,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
     final var index = (int) (collectionPosition % CollectionPositionMapBucket.MAX_ENTRIES);
 
     try (final var cacheEntry =
-        loadPageForWrite(atomicOperation, fileId, pageIndex, true)) {
+        loadPageForWrite(atomicOperation, fileHandler, pageIndex, true)) {
       final var bucket = new CollectionPositionMapBucket(cacheEntry);
 
       bucket.remove(index, deletionVersion);
@@ -409,8 +410,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
   long[] ceilingPositions(
       long collectionPosition,
       AtomicOperation atomicOperation,
-      int limit
-  ) throws IOException {
+      int limit) throws IOException {
     return ceilingPositionsImpl(collectionPosition, limit, atomicOperation,
         LONG_ARRAY_RESULT_BUILDER);
   }
@@ -422,8 +422,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
   long[] higherPositions(
       long collectionPosition,
       AtomicOperation atomicOperation,
-      int limit
-  ) throws IOException {
+      int limit) throws IOException {
     if (collectionPosition == Long.MAX_VALUE) {
       return CommonConst.EMPTY_LONG_ARRAY;
     }
@@ -440,10 +439,9 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
    */
   CollectionPositionEntry[] higherPositionsEntries(
       long collectionPosition,
-      AtomicOperation atomicOperation
-  ) throws IOException {
+      AtomicOperation atomicOperation) throws IOException {
     if (collectionPosition == Long.MAX_VALUE) {
-      return new CollectionPositionEntry[]{};
+      return new CollectionPositionEntry[] {};
     }
 
     return ceilingPositionsImpl(
@@ -456,8 +454,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
       long collectionPosition,
       int limit,
       final AtomicOperation atomicOperation,
-      final PositionResultBuilder<T> resultBuilder
-  ) throws IOException {
+      final PositionResultBuilder<T> resultBuilder) throws IOException {
 
     if (collectionPosition < 0) {
       collectionPosition = 0;
@@ -477,7 +474,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
 
     T result = null;
     do {
-      try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
+      try (final var cacheEntry = loadPageForRead(atomicOperation, fileHandler, pageIndex)) {
 
         final var bucket = new CollectionPositionMapBucket(cacheEntry);
         final var resultSize = bucket.getSize() - index;
@@ -525,8 +522,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
   long[] lowerPositions(
       long collectionPosition,
       AtomicOperation atomicOperation,
-      int limit
-  ) throws IOException {
+      int limit) throws IOException {
     if (collectionPosition == 0) {
       return CommonConst.EMPTY_LONG_ARRAY;
     }
@@ -542,10 +538,9 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
    */
   CollectionPositionEntry[] lowerPositionsEntriesReversed(
       long collectionPosition,
-      AtomicOperation atomicOperation
-  ) throws IOException {
+      AtomicOperation atomicOperation) throws IOException {
     if (collectionPosition == 0) {
-      return new CollectionPositionEntry[]{};
+      return new CollectionPositionEntry[] {};
     }
 
     return floorPositionsImpl(
@@ -560,12 +555,10 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
   long[] floorPositions(
       long collectionPosition,
       AtomicOperation atomicOperation,
-      int limit
-  ) throws IOException {
+      int limit) throws IOException {
     return floorPositionsImpl(
         collectionPosition, limit, atomicOperation,
-        LONG_ARRAY_RESULT_BUILDER, false
-    );
+        LONG_ARRAY_RESULT_BUILDER, false);
   }
 
   /// General logic for finding floor positions for the given position.
@@ -574,8 +567,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
       int limit,
       final AtomicOperation atomicOperation,
       final PositionResultBuilder<T> resultBuilder,
-      final boolean reverseOrder
-  ) throws IOException {
+      final boolean reverseOrder) throws IOException {
     if (collectionPosition < 0) {
       return resultBuilder.emptyResult();
     }
@@ -599,7 +591,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
 
     T result;
     do {
-      try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
+      try (final var cacheEntry = loadPageForRead(atomicOperation, fileHandler, pageIndex)) {
         final var bucket = new CollectionPositionMapBucket(cacheEntry);
         var bucketSize = bucket.getSize();
         if (index == Integer.MIN_VALUE) {
@@ -649,7 +641,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
     final var lastPage = getLastPage(atomicOperation);
 
     for (long pageIndex = 1; pageIndex <= lastPage; pageIndex++) {
-      try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
+      try (final var cacheEntry = loadPageForRead(atomicOperation, fileHandler, pageIndex)) {
         final var bucket = new CollectionPositionMapBucket(cacheEntry);
         final var bucketSize = bucket.getSize();
 
@@ -683,7 +675,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
       return CollectionPositionMapBucket.NOT_EXISTENT;
     }
 
-    try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
+    try (final var cacheEntry = loadPageForRead(atomicOperation, fileHandler, pageIndex)) {
       final var bucket = new CollectionPositionMapBucket(cacheEntry);
 
       return bucket.getStatus(index);
@@ -699,7 +691,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
 
     for (var pageIndex = lastPage; pageIndex >= 1; pageIndex--) {
 
-      try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
+      try (final var cacheEntry = loadPageForRead(atomicOperation, fileHandler, pageIndex)) {
         final var bucket = new CollectionPositionMapBucket(cacheEntry);
         final var bucketSize = bucket.getSize();
 
@@ -717,11 +709,11 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
   }
 
   public long getFileId() {
-    return fileId;
+    return fileHandler.fileId();
   }
 
   /* void replaceFileId(final long newFileId) {
-    this.fileId = newFileId;
+    this.fileHandler = new FileHandler(newFileId);
   }*/
 
   /// Visitor callback for iterating over all position map entries, including
@@ -742,7 +734,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
     final var lastPage = getLastPage(atomicOperation);
     for (long pageIndex = 1; pageIndex <= lastPage; pageIndex++) {
       try (final var cacheEntry =
-          loadPageForRead(atomicOperation, fileId, pageIndex)) {
+          loadPageForRead(atomicOperation, fileHandler, pageIndex)) {
         final var bucket = new CollectionPositionMapBucket(cacheEntry);
         final var bucketSize = bucket.getSize();
         final var startPosition =
@@ -833,8 +825,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
     /// @param bucketIndex Index in the `bucket` of the entry for `position`.
     void setElement(
         T result, int index,
-        long position, CollectionPositionMapBucket bucket, int bucketIndex
-    );
+        long position, CollectionPositionMapBucket bucket, int bucketIndex);
 
     /// Create a copy of the given result of the given size. This method has the same semantics as
     /// [Arrays#copyOf]
@@ -871,42 +862,43 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
         }
       };
 
-  private static final PositionResultBuilder<CollectionPositionEntry[]> COL_POS_ENTRY_ARRAY_RESULT_BUILDER =
-      new PositionResultBuilder<>() {
-        @Override
-        public CollectionPositionEntry[] emptyResult() {
-          return new CollectionPositionEntry[0];
-        }
+  private static final PositionResultBuilder<
+      CollectionPositionEntry[]> COL_POS_ENTRY_ARRAY_RESULT_BUILDER =
+          new PositionResultBuilder<>() {
+            @Override
+            public CollectionPositionEntry[] emptyResult() {
+              return new CollectionPositionEntry[0];
+            }
 
-        @Override
-        public CollectionPositionEntry[] newResultOfSize(int size) {
-          return new CollectionPositionEntry[size];
-        }
+            @Override
+            public CollectionPositionEntry[] newResultOfSize(int size) {
+              return new CollectionPositionEntry[size];
+            }
 
-        @Override
-        public void reverseResult(CollectionPositionEntry[] result) {
-          ArrayUtils.reverse(result);
-        }
+            @Override
+            public void reverseResult(CollectionPositionEntry[] result) {
+              ArrayUtils.reverse(result);
+            }
 
-        @Override
-        public void setElement(
-            CollectionPositionEntry[] result, int index, long position,
-            CollectionPositionMapBucket bucket, int bucketIndex) {
+            @Override
+            public void setElement(
+                CollectionPositionEntry[] result, int index, long position,
+                CollectionPositionMapBucket bucket, int bucketIndex) {
 
-          final var entry = bucket.get(bucketIndex);
-          assert entry != null;
+              final var entry = bucket.get(bucketIndex);
+              assert entry != null;
 
-          result[index] = new CollectionPositionEntry(
-              position,
-              entry.getPageIndex(),
-              entry.getRecordPosition(),
-              entry.getRecordVersion());
-        }
+              result[index] = new CollectionPositionEntry(
+                  position,
+                  entry.getPageIndex(),
+                  entry.getRecordPosition(),
+                  entry.getRecordVersion());
+            }
 
-        @Override
-        public CollectionPositionEntry[] copyResult(CollectionPositionEntry[] result,
-            int newLength) {
-          return Arrays.copyOf(result, newLength);
-        }
-      };
+            @Override
+            public CollectionPositionEntry[] copyResult(CollectionPositionEntry[] result,
+                int newLength) {
+              return Arrays.copyOf(result, newLength);
+            }
+          };
 }

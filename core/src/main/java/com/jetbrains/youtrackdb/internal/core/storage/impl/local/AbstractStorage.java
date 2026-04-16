@@ -99,6 +99,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection.ATTRIBUTES;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.BackgroundExceptionListener;
@@ -5180,14 +5181,15 @@ public abstract class AbstractStorage
           final var pageIndex = updatePageRecord.getPageIndex();
           fileId = writeCache.externalFileId(writeCache.internalFileId(fileId));
 
-          var cacheEntry = readCache.loadForWrite(fileId, pageIndex, writeCache, true, null);
+          var cacheEntry =
+              readCache.loadForWrite(new FileHandler(fileId), pageIndex, writeCache, true, null);
           if (cacheEntry == null) {
             do {
               if (cacheEntry != null) {
                 readCache.releaseFromWrite(cacheEntry, writeCache, true);
               }
 
-              cacheEntry = readCache.allocateNewPage(fileId, writeCache, null);
+              cacheEntry = readCache.allocateNewPage(new FileHandler(fileId), writeCache, null);
             } while (cacheEntry.getPageIndex() != pageIndex);
           }
 

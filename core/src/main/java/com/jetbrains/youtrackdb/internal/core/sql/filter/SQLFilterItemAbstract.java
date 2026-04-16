@@ -55,9 +55,9 @@ public abstract class SQLFilterItemAbstract implements SQLFilterItem {
     final var parts =
         StringSerializerHelper.smartSplit(
             iText,
-            new char[]{'.', '[', ']'},
-            new boolean[]{false, false, true},
-            new boolean[]{false, true, false},
+            new char[] {'.', '[', ']'},
+            new boolean[] {false, false, true},
+            new boolean[] {false, true, false},
             0,
             -1,
             false,
@@ -80,7 +80,7 @@ public abstract class SQLFilterItemAbstract implements SQLFilterItem {
           operationsChain.add(
               new Pair<SQLMethodRuntime, Object[]>(
                   new SQLMethodRuntime(SQLEngine.getMethod(SQLMethodMultiValue.NAME)),
-                  new Object[]{part}));
+                  new Object[] {part}));
         } else if (pindex > -1) {
           final var methodName = part.substring(0, pindex).trim().toLowerCase(Locale.ENGLISH);
 
@@ -91,7 +91,7 @@ public abstract class SQLFilterItemAbstract implements SQLFilterItem {
               arguments = StringSerializerHelper.getParameters(part).toArray();
               if (arguments.length < method.getMinParams()
                   || (method.getMaxParams(session) > -1 && arguments.length > method.getMaxParams(
-                  session))) {
+                      session))) {
                 String params;
                 if (method.getMinParams() == method.getMaxParams(session)) {
                   params = "" + method.getMinParams();
@@ -105,7 +105,8 @@ public abstract class SQLFilterItemAbstract implements SQLFilterItem {
                         + "' needs "
                         + params
                         + " argument(s) while has been received "
-                        + arguments.length, 0);
+                        + arguments.length,
+                    0);
               }
             } else {
               arguments = null;
@@ -122,14 +123,15 @@ public abstract class SQLFilterItemAbstract implements SQLFilterItem {
                   iQueryToParse.parserText,
                   "Syntax error: function or field operator not recognized between the supported"
                       + " ones: "
-                      + SQLEngine.getMethodNames(), 0);
+                      + SQLEngine.getMethodNames(),
+                  0);
             }
 
             if (f.getMaxParams(session) == -1 || f.getMaxParams(session) > 0) {
               arguments = StringSerializerHelper.getParameters(part).toArray();
               if (arguments.length + 1 < f.getMinParams()
                   || (f.getMaxParams(session) > -1 && arguments.length + 1 > f.getMaxParams(
-                  session))) {
+                      session))) {
                 String params;
                 if (f.getMinParams() == f.getMaxParams(session)) {
                   params = "" + f.getMinParams();
@@ -143,7 +145,8 @@ public abstract class SQLFilterItemAbstract implements SQLFilterItem {
                         + "' needs "
                         + params
                         + " argument(s) while has been received "
-                        + arguments.length, 0);
+                        + arguments.length,
+                    0);
               }
             } else {
               arguments = null;
@@ -161,7 +164,7 @@ public abstract class SQLFilterItemAbstract implements SQLFilterItem {
           operationsChain.add(
               new Pair<SQLMethodRuntime, Object[]>(
                   new SQLMethodRuntime(SQLEngine.getMethod(SQLMethodField.NAME)),
-                  new Object[]{part}));
+                  new Object[] {part}));
         }
       }
     }
@@ -192,8 +195,7 @@ public abstract class SQLFilterItemAbstract implements SQLFilterItem {
     return operationsChain != null;
   }
 
-  @Nullable
-  public Pair<SQLMethodRuntime, Object[]> getLastChainOperator() {
+  @Nullable public Pair<SQLMethodRuntime, Object[]> getLastChainOperator() {
     if (operationsChain != null) {
       return operationsChain.get(operationsChain.size() - 1);
     }
@@ -204,8 +206,7 @@ public abstract class SQLFilterItemAbstract implements SQLFilterItem {
   protected abstract void setRoot(DatabaseSessionEmbedded session, BaseParser iQueryToParse,
       final String iRoot);
 
-  @Nullable
-  protected static Collate getCollateForField(DatabaseSessionEmbedded session,
+  @Nullable protected static Collate getCollateForField(DatabaseSessionEmbedded session,
       final SchemaClass iClass,
       final String iFieldName) {
     if (iClass != null) {

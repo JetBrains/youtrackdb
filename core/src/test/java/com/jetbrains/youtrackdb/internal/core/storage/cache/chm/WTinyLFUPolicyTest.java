@@ -3,12 +3,14 @@ package com.jetbrains.youtrackdb.internal.core.storage.cache.chm;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.internal.common.concur.collection.CASObjectArray;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -25,7 +27,7 @@ public class WTinyLFUPolicyTest {
     var memoryAllocator = new DirectMemoryAllocator();
     var pool = new ByteBufferPool(1, memoryAllocator, 0);
 
-    var data = new ConcurrentHashMap<PageKey, CacheEntry>();
+    var data = new ConcurrentHashMap<Long, FileHandler>();
     var admittor = mock(Admittor.class);
 
     var cacheSize = new AtomicInteger();
@@ -61,7 +63,7 @@ public class WTinyLFUPolicyTest {
     }
 
     Assert.assertArrayEquals(
-        new CacheEntry[]{cacheEntries[2], cacheEntries[1], cacheEntries[0]},
+        new CacheEntry[] {cacheEntries[2], cacheEntries[1], cacheEntries[0]},
         toArray(wTinyLFU.eden()));
 
     wTinyLFU.onAccess(cacheEntries[1]);
@@ -77,7 +79,7 @@ public class WTinyLFUPolicyTest {
     }
 
     Assert.assertArrayEquals(
-        new CacheEntry[]{cacheEntries[1], cacheEntries[2], cacheEntries[0]},
+        new CacheEntry[] {cacheEntries[1], cacheEntries[2], cacheEntries[0]},
         toArray(wTinyLFU.eden()));
 
     wTinyLFU.onAccess(cacheEntries[1]);
@@ -92,7 +94,7 @@ public class WTinyLFUPolicyTest {
       Assert.assertFalse(protectionIterator.hasNext());
     }
     Assert.assertArrayEquals(
-        new CacheEntry[]{cacheEntries[1], cacheEntries[2], cacheEntries[0]},
+        new CacheEntry[] {cacheEntries[1], cacheEntries[2], cacheEntries[0]},
         toArray(wTinyLFU.eden()));
 
     wTinyLFU.onAccess(cacheEntries[0]);
@@ -108,7 +110,7 @@ public class WTinyLFUPolicyTest {
     }
 
     Assert.assertArrayEquals(
-        new CacheEntry[]{cacheEntries[0], cacheEntries[1], cacheEntries[2]},
+        new CacheEntry[] {cacheEntries[0], cacheEntries[1], cacheEntries[2]},
         toArray(wTinyLFU.eden()));
 
     Assert.assertEquals(3, cacheSize.get());
@@ -122,7 +124,7 @@ public class WTinyLFUPolicyTest {
     var memoryAllocator = new DirectMemoryAllocator();
     var pool = new ByteBufferPool(1, memoryAllocator, 0);
 
-    var data = new ConcurrentHashMap<PageKey, CacheEntry>();
+    var data = new ConcurrentHashMap<Long, FileHandler>();
     var admittor = mock(Admittor.class);
 
     var cacheSize = new AtomicInteger();
@@ -146,10 +148,10 @@ public class WTinyLFUPolicyTest {
     cacheSize.incrementAndGet();
     wTinyLFU.onAdd(cacheEntries[3]);
 
-    Assert.assertArrayEquals(new CacheEntry[]{cacheEntries[0]}, toArray(wTinyLFU.probation()));
+    Assert.assertArrayEquals(new CacheEntry[] {cacheEntries[0]}, toArray(wTinyLFU.probation()));
     Assert.assertFalse(wTinyLFU.protection().hasNext());
     Assert.assertArrayEquals(
-        new CacheEntry[]{cacheEntries[3], cacheEntries[2], cacheEntries[1]},
+        new CacheEntry[] {cacheEntries[3], cacheEntries[2], cacheEntries[1]},
         toArray(wTinyLFU.eden()));
 
     Assert.assertEquals(4, cacheSize.get());
@@ -163,7 +165,7 @@ public class WTinyLFUPolicyTest {
     var memoryAllocator = new DirectMemoryAllocator();
     var pool = new ByteBufferPool(1, memoryAllocator, 0);
 
-    var data = new ConcurrentHashMap<PageKey, CacheEntry>();
+    var data = new ConcurrentHashMap<Long, FileHandler>();
     var admittor = mock(Admittor.class);
 
     var cacheSize = new AtomicInteger();
@@ -204,7 +206,7 @@ public class WTinyLFUPolicyTest {
     var memoryAllocator = new DirectMemoryAllocator();
     var pool = new ByteBufferPool(1, memoryAllocator, 0);
 
-    var data = new ConcurrentHashMap<PageKey, CacheEntry>();
+    var data = new ConcurrentHashMap<Long, FileHandler>();
     var admittor = mock(Admittor.class);
 
     var cacheSize = new AtomicInteger();
@@ -221,7 +223,7 @@ public class WTinyLFUPolicyTest {
 
     for (var i = 0; i < 16; i++) {
       cacheSize.incrementAndGet();
-      data.put(new PageKey(1, i), cacheEntries[i]);
+      dataPut(data, i, cacheEntries[i]);
       wTinyLFU.onAdd(cacheEntries[i]);
     }
 
@@ -253,7 +255,7 @@ public class WTinyLFUPolicyTest {
     var memoryAllocator = new DirectMemoryAllocator();
     var pool = new ByteBufferPool(1, memoryAllocator, 0);
 
-    var data = new ConcurrentHashMap<PageKey, CacheEntry>();
+    var data = new ConcurrentHashMap<Long, FileHandler>();
     var admittor = mock(Admittor.class);
 
     var cacheSize = new AtomicInteger();
@@ -270,7 +272,7 @@ public class WTinyLFUPolicyTest {
 
     for (var i = 0; i < 16; i++) {
       cacheSize.incrementAndGet();
-      data.put(new PageKey(1, i), cacheEntries[i]);
+      dataPut(data, i, cacheEntries[i]);
       wTinyLFU.onAdd(cacheEntries[i]);
     }
 
@@ -302,7 +304,7 @@ public class WTinyLFUPolicyTest {
     var memoryAllocator = new DirectMemoryAllocator();
     var pool = new ByteBufferPool(1, memoryAllocator, 0);
 
-    var data = new ConcurrentHashMap<PageKey, CacheEntry>();
+    var data = new ConcurrentHashMap<Long, FileHandler>();
     var admittor = mock(Admittor.class);
 
     var cacheSize = new AtomicInteger();
@@ -324,7 +326,7 @@ public class WTinyLFUPolicyTest {
 
     for (var i = 0; i < 16; i++) {
       cacheSize.incrementAndGet();
-      data.put(new PageKey(1, i), cacheEntries[i]);
+      dataPut(data, i, cacheEntries[i]);
       wTinyLFU.onAdd(cacheEntries[i]);
     }
 
@@ -360,7 +362,7 @@ public class WTinyLFUPolicyTest {
     var memoryAllocator = new DirectMemoryAllocator();
     var pool = new ByteBufferPool(1, memoryAllocator, 0);
 
-    var data = new ConcurrentHashMap<PageKey, CacheEntry>();
+    var data = new ConcurrentHashMap<Long, FileHandler>();
     var admittor = mock(Admittor.class);
 
     var cacheSize = new AtomicInteger();
@@ -382,7 +384,7 @@ public class WTinyLFUPolicyTest {
 
     for (var i = 0; i < 16; i++) {
       cacheSize.incrementAndGet();
-      data.put(new PageKey(1, i), cacheEntries[i]);
+      dataPut(data, i, cacheEntries[i]);
       wTinyLFU.onAdd(cacheEntries[i]);
     }
 
@@ -418,7 +420,7 @@ public class WTinyLFUPolicyTest {
     var memoryAllocator = new DirectMemoryAllocator();
     var pool = new ByteBufferPool(1, memoryAllocator, 0);
 
-    var data = new ConcurrentHashMap<PageKey, CacheEntry>();
+    var data = new ConcurrentHashMap<Long, FileHandler>();
     var admittor = mock(Admittor.class);
 
     var cacheSize = new AtomicInteger();
@@ -432,7 +434,7 @@ public class WTinyLFUPolicyTest {
 
     for (var i = 0; i < 15; i++) {
       cacheSize.incrementAndGet();
-      data.put(new PageKey(1, i), cacheEntries[i]);
+      dataPut(data, i, cacheEntries[i]);
       wTinyLFU.onAdd(cacheEntries[i]);
     }
 
@@ -463,7 +465,7 @@ public class WTinyLFUPolicyTest {
     var memoryAllocator = new DirectMemoryAllocator();
     var pool = new ByteBufferPool(1, memoryAllocator, 0);
 
-    var data = new ConcurrentHashMap<PageKey, CacheEntry>();
+    var data = new ConcurrentHashMap<Long, FileHandler>();
     var admittor = mock(Admittor.class);
 
     var cacheSize = new AtomicInteger();
@@ -477,7 +479,7 @@ public class WTinyLFUPolicyTest {
 
     for (var i = 0; i < 6; i++) {
       cacheSize.incrementAndGet();
-      data.put(new PageKey(1, i), cacheEntries[i]);
+      dataPut(data, i, cacheEntries[i]);
       wTinyLFU.onAdd(cacheEntries[i]);
     }
 
@@ -523,7 +525,7 @@ public class WTinyLFUPolicyTest {
     var memoryAllocator = new DirectMemoryAllocator();
     var pool = new ByteBufferPool(1, memoryAllocator, 0);
 
-    var data = new ConcurrentHashMap<PageKey, CacheEntry>();
+    var data = new ConcurrentHashMap<Long, FileHandler>();
     var admittor = mock(Admittor.class);
 
     var cacheSize = new AtomicInteger();
@@ -536,11 +538,11 @@ public class WTinyLFUPolicyTest {
     generateEntries(cacheEntries, cachePointers, pool);
 
     cacheSize.incrementAndGet();
-    data.put(new PageKey(1, 0), cacheEntries[0]);
+    dataPut(data, 0, cacheEntries[0]);
     wTinyLFU.onAdd(cacheEntries[0]);
 
     cacheEntries[0].freeze();
-    data.remove(new PageKey(1, 0), cacheEntries[0]);
+    dataRemove(data, 0);
     cacheSize.decrementAndGet();
     wTinyLFU.onRemove(cacheEntries[0]);
 
@@ -562,7 +564,7 @@ public class WTinyLFUPolicyTest {
     var memoryAllocator = new DirectMemoryAllocator();
     var pool = new ByteBufferPool(1, memoryAllocator, 0);
 
-    var data = new ConcurrentHashMap<PageKey, CacheEntry>();
+    var data = new ConcurrentHashMap<Long, FileHandler>();
     var admittor = mock(Admittor.class);
 
     var cacheSize = new AtomicInteger();
@@ -576,12 +578,12 @@ public class WTinyLFUPolicyTest {
 
     for (var i = 0; i < 6; i++) {
       cacheSize.incrementAndGet();
-      data.put(new PageKey(1, i), cacheEntries[i]);
+      dataPut(data, i, cacheEntries[i]);
       wTinyLFU.onAdd(cacheEntries[i]);
     }
 
     cacheEntries[0].freeze();
-    data.remove(new PageKey(1, 0), cacheEntries[0]);
+    dataRemove(data, 0);
     cacheSize.decrementAndGet();
     wTinyLFU.onRemove(cacheEntries[0]);
 
@@ -614,7 +616,7 @@ public class WTinyLFUPolicyTest {
     var memoryAllocator = new DirectMemoryAllocator();
     var pool = new ByteBufferPool(1, memoryAllocator, 0);
 
-    var data = new ConcurrentHashMap<PageKey, CacheEntry>();
+    var data = new ConcurrentHashMap<Long, FileHandler>();
     var admittor = mock(Admittor.class);
 
     var cacheSize = new AtomicInteger();
@@ -628,7 +630,7 @@ public class WTinyLFUPolicyTest {
 
     for (var i = 0; i < 6; i++) {
       cacheSize.incrementAndGet();
-      data.put(new PageKey(1, i), cacheEntries[i]);
+      dataPut(data, i, cacheEntries[i]);
       wTinyLFU.onAdd(cacheEntries[i]);
     }
 
@@ -637,7 +639,7 @@ public class WTinyLFUPolicyTest {
     }
 
     cacheEntries[0].freeze();
-    data.remove(new PageKey(1, 0), cacheEntries[0]);
+    dataRemove(data, 0);
     cacheSize.decrementAndGet();
     wTinyLFU.onRemove(cacheEntries[0]);
 
@@ -699,5 +701,23 @@ public class WTinyLFUPolicyTest {
       final var cacheEntry = iterator.next();
       cacheEntry.getCachePointer().decrementReadersReferrer();
     }
+  }
+
+  private static void dataPut(ConcurrentHashMap<Long, FileHandler> data, int pageIndex,
+      CacheEntry cacheEntry) {
+    var handler = data.computeIfAbsent(1L,
+        (fileId) -> new FileHandler(fileId, new CASObjectArray<CacheEntry>()));
+    @SuppressWarnings("unchecked")
+    var casArray = (CASObjectArray<CacheEntry>) handler.casArray();
+    casArray.set(pageIndex, cacheEntry,
+        LockFreeReadCache.LOCK_FREE_READ_CACHE_CACHE_ENTRY_PLACEHOLDER);
+  }
+
+  private static void dataRemove(ConcurrentHashMap<Long, FileHandler> data, int pageIndex) {
+    var handler = data.get(1L);
+    @SuppressWarnings("unchecked")
+    var casArray = (CASObjectArray<CacheEntry>) handler.casArray();
+    casArray.set(pageIndex, LockFreeReadCache.LOCK_FREE_READ_CACHE_CACHE_ENTRY_PLACEHOLDER,
+        LockFreeReadCache.LOCK_FREE_READ_CACHE_CACHE_ENTRY_PLACEHOLDER);
   }
 }

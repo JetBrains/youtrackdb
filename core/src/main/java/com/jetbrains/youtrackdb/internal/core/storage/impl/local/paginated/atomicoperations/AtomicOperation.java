@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atom
 
 import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramDeltaHolder;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket.PositionEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.SnapshotKey;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.VisibilityKey;
@@ -30,26 +31,27 @@ public interface AtomicOperation {
 
   void startToApplyOperations(long commitTs);
 
-  CacheEntry loadPageForWrite(long fileId, long pageIndex, int pageCount, boolean verifyChecksum)
+  CacheEntry loadPageForWrite(FileHandler fileHandler, long pageIndex, int pageCount,
+      boolean verifyChecksum)
       throws IOException;
 
-  CacheEntry loadPageForRead(long fileId, long pageIndex) throws IOException;
+  CacheEntry loadPageForRead(FileHandler fileHandler, long pageIndex) throws IOException;
 
   void addMetadata(AtomicOperationMetadata<?> metadata);
 
   AtomicOperationMetadata<?> getMetadata(String key);
 
-  CacheEntry addPage(long fileId) throws IOException;
+  CacheEntry addPage(FileHandler fileHandler) throws IOException;
 
   void releasePageFromRead(CacheEntry cacheEntry);
 
   void releasePageFromWrite(CacheEntry cacheEntry) throws IOException;
 
-  long filledUpTo(long fileId);
+  long filledUpTo(FileHandler fileHandler);
 
-  long addFile(String fileName) throws IOException;
+  FileHandler addFile(String fileName) throws IOException;
 
-  long loadFile(String fileName) throws IOException;
+  FileHandler loadFile(String fileName) throws IOException;
 
   void deleteFile(long fileId) throws IOException;
 
@@ -57,7 +59,7 @@ public interface AtomicOperation {
 
   long fileIdByName(String name);
 
-  void truncateFile(long fileId) throws IOException;
+  void truncateFile(FileHandler fileHandler) throws IOException;
 
   boolean containsInLockedObjects(String lockName);
 

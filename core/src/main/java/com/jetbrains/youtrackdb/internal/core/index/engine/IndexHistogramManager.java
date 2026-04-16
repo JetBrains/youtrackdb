@@ -30,6 +30,7 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.ShortSeriali
 import com.jetbrains.youtrackdb.internal.common.serialization.types.UTF8Serializer;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurableComponent;
@@ -114,7 +115,7 @@ public class IndexHistogramManager extends DurableComponent {
   private final BinarySerializerFactory serializerFactory;
   private final byte serializerId;
 
-  private long fileId = -1;
+  private FileHandler fileHandler = null;
 
   /**
    * Cached persist batch size — read from GlobalConfiguration at construction
@@ -345,7 +346,7 @@ public class IndexHistogramManager extends DurableComponent {
    * Called by the engine during index load.
    */
   public void openStatsFile(AtomicOperation op) throws IOException {
-    fileId = openFile(op, getFullName());
+    fileHandler = openFile(op, getFullName());
     var snapshot = readSnapshotFromPage(op);
     cache.put(engineId, snapshot);
 
@@ -374,7 +375,7 @@ public class IndexHistogramManager extends DurableComponent {
     // background rebalance to finish, then block future ones.
     waitForAndBlockRebalance();
     try {
-      if (fileId != -1 && (long) DIRTY_MUTATIONS.getAcquire(this) > 0) {
+      if (fileHandler != null && (long) DIRTY_MUTATIONS.getAcquire(this) > 0) {
         flushSnapshotToPage();
       }
     } catch (IOException e) {
@@ -382,7 +383,7 @@ public class IndexHistogramManager extends DurableComponent {
           getName(), e);
     }
     cache.remove(engineId);
-    fileId = -1;
+    fileHandler = null;
   }
 
   /**
@@ -393,11 +394,11 @@ public class IndexHistogramManager extends DurableComponent {
    */
   public void deleteStatsFile(AtomicOperation op) throws IOException {
     waitForAndBlockRebalance();
-    if (fileId != -1) {
-      deleteFile(op, fileId);
+    if (fileHandler != null) {
+      deleteFile(op, fileHandler.fileId());
     }
     cache.remove(engineId);
-    fileId = -1;
+    fileHandler = null;
   }
 
   /**
@@ -874,8 +875,8 @@ public class IndexHistogramManager extends DurableComponent {
     cache.put(engineId, emptySnapshot);
     DIRTY_MUTATIONS.setRelease(this, 0L);
 
-    if (fileId != -1) {
-      var cacheEntry = loadPageForWrite(op, fileId, 0, true);
+    if (fileHandler != null) {
+      var cacheEntry = loadPageForWrite(op, fileHandler, 0, true);
       try {
         var page = new HistogramStatsPage(cacheEntry);
         page.writeEmpty(serializerId);
@@ -895,7 +896,7 @@ public class IndexHistogramManager extends DurableComponent {
    */
   public void flushIfDirty(AtomicOperation op) throws IOException {
     long observed = (long) DIRTY_MUTATIONS.getAcquire(this);
-    if (observed > 0 && fileId != -1
+    if (observed > 0 && fileHandler != null
         && DIRTY_MUTATIONS.compareAndSet(this, observed, 0L)) {
       var snapshot = cache.get(engineId);
       if (snapshot != null) {
@@ -1591,7 +1592,7 @@ public class IndexHistogramManager extends DurableComponent {
    * @param bypassMinSize true for ANALYZE INDEX (always build)
    */
   private void doRebalance(boolean bypassMinSize) {
-    if (keyStreamSupplier == null || fileId == -1) {
+    if (keyStreamSupplier == null || fileHandler == null) {
       return;
     }
 
@@ -1755,8 +1756,8 @@ public class IndexHistogramManager extends DurableComponent {
    * {@link #createStatsFile} and {@link #createStatsFileWithCounters}.
    */
   private void createEmptyStatsPage(AtomicOperation op) throws IOException {
-    fileId = addFile(op, getFullName());
-    var cacheEntry = addPage(op, fileId);
+    fileHandler = addFile(op, getFullName());
+    var cacheEntry = addPage(op, fileHandler);
     try {
       var page = new HistogramStatsPage(cacheEntry);
       page.writeEmpty(serializerId);
@@ -1777,7 +1778,7 @@ public class IndexHistogramManager extends DurableComponent {
   private HistogramSnapshot readSnapshotFromPage(AtomicOperation op)
       throws IOException {
     HistogramSnapshot snapshot;
-    var cacheEntry = loadPageForRead(op, fileId, 0);
+    var cacheEntry = loadPageForRead(op, fileHandler, 0);
     try {
       var page = new HistogramStatsPage(cacheEntry);
       snapshot = page.readSnapshot(keySerializer, serializerFactory);
@@ -1789,9 +1790,9 @@ public class IndexHistogramManager extends DurableComponent {
     // Guard against missing page 1 (e.g., crash between page-0 and
     // page-1 write — both are in the same atomic op, but defensive).
     if (snapshot.hllOnPage1()) {
-      long filledUpTo = getFilledUpTo(op, fileId);
+      long filledUpTo = getFilledUpTo(op, fileHandler);
       if (filledUpTo > 1) {
-        var page1Entry = loadPageForRead(op, fileId, 1);
+        var page1Entry = loadPageForRead(op, fileHandler, 1);
         try {
           var hll = HistogramStatsPage.readHllFromPage1(page1Entry);
           snapshot = new HistogramSnapshot(
@@ -1828,7 +1829,7 @@ public class IndexHistogramManager extends DurableComponent {
    */
   private void writeSnapshotToPage(AtomicOperation op,
       HistogramSnapshot snapshot) throws IOException {
-    var cacheEntry = loadPageForWrite(op, fileId, 0, true);
+    var cacheEntry = loadPageForWrite(op, fileHandler, 0, true);
     try {
       var page = new HistogramStatsPage(cacheEntry);
       page.writeSnapshot(snapshot, serializerId,
@@ -1840,7 +1841,7 @@ public class IndexHistogramManager extends DurableComponent {
     // Write HLL to page 1 when spilled. loadOrAddPageForWrite creates
     // page 1 on first use (the .ixs file starts with only page 0).
     if (snapshot.hllOnPage1() && snapshot.hllSketch() != null) {
-      var page1Entry = loadOrAddPageForWrite(op, fileId, 1);
+      var page1Entry = loadOrAddPageForWrite(op, fileHandler, 1);
       try {
         HistogramStatsPage.writeHllToPage1(page1Entry, snapshot.hllSketch());
       } finally {
@@ -1856,7 +1857,7 @@ public class IndexHistogramManager extends DurableComponent {
    */
   private void flushSnapshotToPage() throws IOException {
     var snapshot = cache.get(engineId);
-    if (snapshot == null || fileId == -1) {
+    if (snapshot == null || fileHandler == null) {
       return;
     }
 
@@ -1864,7 +1865,7 @@ public class IndexHistogramManager extends DurableComponent {
     // use executeInsideComponentOperation(null, ...) because that
     // passes null to AtomicOperationsManager which requires non-null.
     storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
-      var cacheEntry = loadPageForWrite(op, fileId, 0, true);
+      var cacheEntry = loadPageForWrite(op, fileHandler, 0, true);
       try {
         var page = new HistogramStatsPage(cacheEntry);
         page.writeSnapshot(snapshot, serializerId,
@@ -1875,7 +1876,7 @@ public class IndexHistogramManager extends DurableComponent {
 
       // Write HLL to page 1 when spilled
       if (snapshot.hllOnPage1() && snapshot.hllSketch() != null) {
-        var page1Entry = loadOrAddPageForWrite(op, fileId, 1);
+        var page1Entry = loadOrAddPageForWrite(op, fileHandler, 1);
         try {
           HistogramStatsPage.writeHllToPage1(
               page1Entry, snapshot.hllSketch());
@@ -1960,7 +1961,7 @@ public class IndexHistogramManager extends DurableComponent {
   }
 
   void setFileIdForTest(long fileId) {
-    this.fileId = fileId;
+    this.fileHandler = new FileHandler(fileId);
   }
 
   void setDirtyMutationsForTest(long value) {

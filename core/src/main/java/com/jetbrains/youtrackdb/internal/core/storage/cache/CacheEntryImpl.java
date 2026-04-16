@@ -36,16 +36,13 @@ public class CacheEntryImpl implements CacheEntry {
   // @GuardedBy cannot resolve cross-class instance locks, so we suppress the
   // checker and keep the annotation as a documentation safeguard.
   @SuppressWarnings("GuardedBy")
-  @GuardedBy("LockFreeReadCache.evictionLock")
-  private CacheEntry next;
+  @GuardedBy("LockFreeReadCache.evictionLock") private CacheEntry next;
 
   @SuppressWarnings("GuardedBy")
-  @GuardedBy("LockFreeReadCache.evictionLock")
-  private CacheEntry prev;
+  @GuardedBy("LockFreeReadCache.evictionLock") private CacheEntry prev;
 
   @SuppressWarnings("GuardedBy")
-  @GuardedBy("LockFreeReadCache.evictionLock")
-  private LRUList container;
+  @GuardedBy("LockFreeReadCache.evictionLock") private LRUList container;
 
   /**
    * Protected by page lock inside disk cache
@@ -62,19 +59,26 @@ public class CacheEntryImpl implements CacheEntry {
       final CachePointer dataPointer,
       final boolean insideCache,
       ReadCache readCache) {
+    this(new PageKey(fileId, pageIndex), dataPointer, insideCache, readCache);
+  }
 
-    if (fileId < 0) {
-      throw new IllegalStateException("File id has invalid value " + fileId);
+  public CacheEntryImpl(
+      final PageKey pageKey,
+      final CachePointer dataPointer,
+      final boolean insideCache,
+      ReadCache readCache) {
+    if (pageKey.fileId() < 0) {
+      throw new IllegalStateException("File id has invalid value " + pageKey.fileId());
     }
 
-    if (pageIndex < 0) {
-      throw new IllegalStateException("Page index has invalid value " + pageIndex);
+    if (pageKey.pageIndex() < 0) {
+      throw new IllegalStateException("Page index has invalid value " + pageKey.pageIndex());
     }
 
     this.dataPointer = dataPointer;
     this.insideCache = insideCache;
     this.readCache = readCache;
-    this.pageKey = new PageKey(fileId, pageIndex);
+    this.pageKey = pageKey;
   }
 
   @Override
@@ -157,8 +161,7 @@ public class CacheEntryImpl implements CacheEntry {
     USAGES_COUNT_UPDATER.decrementAndGet(this);
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public WALChanges getChanges() {
     return null;
   }

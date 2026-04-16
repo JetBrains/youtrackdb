@@ -35,6 +35,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPage;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMap;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket;
@@ -255,7 +256,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   private volatile long approximateRecordsCount;
 
   /** Internal file ID assigned by the disk cache when the data file (.pcl) is opened/created. */
-  private long fileId;
+  private FileHandler fileHandler;
 
   /** Strategy for resolving concurrent-modification conflicts on records in this collection. */
   private RecordConflictStrategy recordConflictStrategy;
@@ -350,7 +351,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         operation -> {
           acquireExclusiveLock();
           try {
-            fileId = addFile(atomicOperation, getFullName());
+            fileHandler = addFile(atomicOperation, getFullName());
             initCollectionState(atomicOperation);
             collectionPositionMap.create(atomicOperation);
             freeSpaceMap.create(atomicOperation);
@@ -368,12 +369,12 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         operation -> {
           acquireExclusiveLock();
           try {
-            fileId = openFile(atomicOperation, getFullName());
+            fileHandler = openFile(atomicOperation, getFullName());
             collectionPositionMap.open(atomicOperation);
 
             // Load the persistent approximate records count into the volatile field.
             try (final var stateCacheEntry =
-                loadPageForRead(atomicOperation, fileId, STATE_ENTRY_INDEX)) {
+                loadPageForRead(atomicOperation, fileHandler, STATE_ENTRY_INDEX)) {
               final var state = new PaginatedCollectionStateV2(stateCacheEntry);
               approximateRecordsCount = state.getApproximateRecordsCount();
             }
@@ -396,11 +397,11 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                       additionalArgs1);
 
               freeSpaceMap.create(atomicOperation);
-              final var filledUpTo = getFilledUpTo(atomicOperation, fileId);
+              final var filledUpTo = getFilledUpTo(atomicOperation, fileHandler);
               for (var pageIndex = 0; pageIndex < filledUpTo; pageIndex++) {
 
                 try (final var cacheEntry =
-                    loadPageForRead(atomicOperation, fileId, pageIndex)) {
+                    loadPageForRead(atomicOperation, fileHandler, pageIndex)) {
                   final var collectionPage = new CollectionPage(cacheEntry);
                   freeSpaceMap.updatePageFreeSpace(
                       atomicOperation, pageIndex, collectionPage.getMaxRecordSize());
@@ -447,7 +448,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       if (flush) {
         synch();
       }
-      readCache.closeFile(fileId, flush, writeCache);
+      readCache.closeFile(fileHandler, flush, writeCache);
       collectionPositionMap.close(flush);
       dirtyPageBitSet.close(flush);
     } finally {
@@ -462,7 +463,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         operation -> {
           acquireExclusiveLock();
           try {
-            deleteFile(atomicOperation, fileId);
+            deleteFile(atomicOperation, fileHandler.fileId());
             collectionPositionMap.delete(atomicOperation);
             freeSpaceMap.delete(atomicOperation);
             dirtyPageBitSet.delete(atomicOperation);
@@ -614,7 +615,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       boolean isNew;
       if (nextPageToWrite >= 0) {
         // Found an existing page with enough free space.
-        cacheEntry = loadPageForWrite(atomicOperation, fileId, nextPageToWrite, true);
+        cacheEntry = loadPageForWrite(atomicOperation, fileHandler, nextPageToWrite, true);
         isNew = false;
       } else {
         // No existing page fits -- grow the data file by one page.
@@ -968,7 +969,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     var operationTs = atomicOperation.getCommitTsUnsafe();
 
     do {
-      try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
+      try (final var cacheEntry = loadPageForRead(atomicOperation, fileHandler, pageIndex)) {
         final var localPage = new CollectionPage(cacheEntry);
         if (firstEntry) {
           recordVersion = localPage.getRecordVersion(recordPosition);
@@ -1055,7 +1056,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     var firstEntry = true;
 
     do {
-      try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
+      try (final var cacheEntry = loadPageForRead(atomicOperation, fileHandler, pageIndex)) {
         final var localPage = new CollectionPage(cacheEntry);
 
         if (localPage.isDeleted(recordPosition)) {
@@ -1243,7 +1244,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   private void incrementApproximateRecordsCount(AtomicOperation atomicOperation)
       throws IOException {
     try (final var stateCacheEntry =
-        loadPageForWrite(atomicOperation, fileId, STATE_ENTRY_INDEX, true)) {
+        loadPageForWrite(atomicOperation, fileHandler, STATE_ENTRY_INDEX, true)) {
       final var state = new PaginatedCollectionStateV2(stateCacheEntry);
       final var count = state.getApproximateRecordsCount();
       state.setApproximateRecordsCount(count + 1);
@@ -1254,7 +1255,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   private void decrementApproximateRecordsCount(AtomicOperation atomicOperation)
       throws IOException {
     try (final var stateCacheEntry =
-        loadPageForWrite(atomicOperation, fileId, STATE_ENTRY_INDEX, true)) {
+        loadPageForWrite(atomicOperation, fileHandler, STATE_ENTRY_INDEX, true)) {
       final var state = new PaginatedCollectionStateV2(stateCacheEntry);
       final var count = state.getApproximateRecordsCount();
       state.setApproximateRecordsCount(count - 1);
@@ -1369,7 +1370,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
    */
   private void keepPreviousRecordVersion(long collectionPosition, long newRecordVersion,
       AtomicOperation atomicOperation, PositionEntry positionEntry) throws IOException {
-    try (final var cacheEntry = loadPageForRead(atomicOperation, fileId,
+    try (final var cacheEntry = loadPageForRead(atomicOperation, fileHandler,
         positionEntry.getPageIndex())) {
       final var localPage = new CollectionPage(cacheEntry);
       var oldRecordVersion = localPage.getRecordVersion(positionEntry.getRecordPosition());
@@ -1427,7 +1428,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
             keepPreviousRecordVersion(
                 collectionPosition, newRecordVersion, atomicOperation, positionEntry);
 
-            try (final var cacheEntry = loadPageForWrite(atomicOperation, fileId, pageIndex,
+            try (final var cacheEntry = loadPageForWrite(atomicOperation, fileHandler, pageIndex,
                 true)) {
               final var localPage = new CollectionPage(cacheEntry);
               if (localPage.getRecordByteValue(
@@ -1472,7 +1473,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       final var pageIndex = positionEntry.getPageIndex();
       final var recordPosition = positionEntry.getRecordPosition();
 
-      try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
+      try (final var cacheEntry = loadPageForRead(atomicOperation, fileHandler, pageIndex)) {
         final var localPage = new CollectionPage(cacheEntry);
         if (localPage.isDeleted(recordPosition)) {
           return null;
@@ -1514,7 +1515,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       final var pageIndex = positionEntry.getPageIndex();
       final var recordPosition = positionEntry.getRecordPosition();
 
-      try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
+      try (final var cacheEntry = loadPageForRead(atomicOperation, fileHandler, pageIndex)) {
         final var localPage = new CollectionPage(cacheEntry);
         return !localPage.isDeleted(recordPosition);
       }
@@ -1725,7 +1726,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       var reclaimedInPage = 0;
 
       try (final var cacheEntry =
-          loadPageForWrite(atomicOperation, fileId, pageIndex, true)) {
+          loadPageForWrite(atomicOperation, fileHandler, pageIndex, true)) {
         final var page = new CollectionPage(cacheEntry);
         final var slotsCount = page.getPageIndexesLength();
 
@@ -1840,7 +1841,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       var nextPageIndex = getPageIndex(nextPagePointer);
       var nextRecordPosition = getRecordPosition(nextPagePointer);
       var contCacheEntry =
-          loadPageForWrite(atomicOperation, fileId, nextPageIndex, true);
+          loadPageForWrite(atomicOperation, fileHandler, nextPageIndex, true);
       touchedContinuationPages.add(contCacheEntry);
       currentPage = new CollectionPage(contCacheEntry);
       currentPosition = nextRecordPosition;
@@ -1862,7 +1863,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   @Override
   public String getFileName() {
     return atomicOperationsManager.readUnderLock(this,
-        () -> writeCache.fileNameById(fileId));
+        () -> writeCache.fileNameById(fileHandler.fileId()));
   }
 
   @Override
@@ -1875,13 +1876,13 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
    */
   @Override
   public long getFileId() {
-    return fileId;
+    return fileHandler.fileId();
   }
 
   @Override
   public void synch() {
     atomicOperationsManager.readUnderLock(this, () -> {
-      writeCache.flush(fileId);
+      writeCache.flush(fileHandler.fileId());
       collectionPositionMap.flush();
       dirtyPageBitSet.flush();
       return null;
@@ -1981,7 +1982,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   public void setCollectionName(final String newName) {
     acquireExclusiveLock();
     try {
-      writeCache.renameFile(fileId, newName + getExtension());
+      writeCache.renameFile(fileHandler.fileId(), newName + getExtension());
       collectionPositionMap.rename(newName);
       freeSpaceMap.rename(newName);
       dirtyPageBitSet.rename(newName);
@@ -2084,18 +2085,18 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   private CacheEntry allocateNewPage(AtomicOperation atomicOperation) throws IOException {
     CacheEntry cacheEntry;
     try (final var stateCacheEntry =
-        loadPageForWrite(atomicOperation, fileId, STATE_ENTRY_INDEX, true)) {
+        loadPageForWrite(atomicOperation, fileHandler, STATE_ENTRY_INDEX, true)) {
       final var collectionState = new PaginatedCollectionStateV2(stateCacheEntry);
       final var fileSize = collectionState.getFileSize();
-      final var filledUpTo = getFilledUpTo(atomicOperation, fileId);
+      final var filledUpTo = getFilledUpTo(atomicOperation, fileHandler);
 
       if (fileSize == filledUpTo - 1) {
         // Logical end matches physical end -- must physically append a new page.
-        cacheEntry = addPage(atomicOperation, fileId);
+        cacheEntry = addPage(atomicOperation, fileHandler);
       } else {
         // Physical file has pages beyond the logical end -- reuse the next one.
         assert fileSize < filledUpTo - 1;
-        cacheEntry = loadPageForWrite(atomicOperation, fileId, fileSize + 1, false);
+        cacheEntry = loadPageForWrite(atomicOperation, fileHandler, fileSize + 1, false);
       }
 
       collectionState.setFileSize(fileSize + 1);
@@ -2110,10 +2111,10 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
    */
   private void initCollectionState(final AtomicOperation atomicOperation) throws IOException {
     final CacheEntry stateEntry;
-    if (getFilledUpTo(atomicOperation, fileId) == 0) {
-      stateEntry = addPage(atomicOperation, fileId);
+    if (getFilledUpTo(atomicOperation, fileHandler) == 0) {
+      stateEntry = addPage(atomicOperation, fileHandler);
     } else {
-      stateEntry = loadPageForWrite(atomicOperation, fileId, STATE_ENTRY_INDEX, false);
+      stateEntry = loadPageForWrite(atomicOperation, fileHandler, STATE_ENTRY_INDEX, false);
     }
 
     assert stateEntry.getPageIndex() == 0;

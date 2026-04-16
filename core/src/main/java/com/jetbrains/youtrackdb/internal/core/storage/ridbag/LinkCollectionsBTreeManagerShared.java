@@ -68,7 +68,7 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
                 fileName.substring(0, fileName.length() - FILE_EXTENSION.length()),
                 FILE_EXTENSION);
         bTree.load(atomicOperation);
-        fileIdBTreeMap.put(AbstractWriteCache.extractFileId(entry.getValue()), bTree);
+        fileIdBTreeMap.put(AbstractWriteCache.extractFileId(entry.getValue().fileId()), bTree);
         final var edgeKey = bTree.firstKey(atomicOperation);
 
         if (edgeKey != null && edgeKey.ridBagId < 0 && ridBagIdCounter.get() < -edgeKey.ridBagId) {
