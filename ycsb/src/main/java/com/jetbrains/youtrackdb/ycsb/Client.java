@@ -167,7 +167,7 @@ public final class Client {
     System.out.println("  -load:  run the loading phase of the workload");
     System.out.println("  -t:  run the transactions phase of the workload (default)");
     System.out.println(
-        "  -db dbname: specify the name of the DB to use (default: com.jetbrains.youtrackdb.ycsb.BasicDB) - \n"
+        "  -db dbname: specify the name of the DB to use (required) - \n"
             +
             "        can also be specified as the \"db\" property using -p");
     System.out
@@ -283,7 +283,12 @@ public final class Client {
 
     //get number of threads, target and db
     int threadcount = Integer.parseInt(props.getProperty(THREAD_COUNT_PROPERTY, "1"));
-    String dbname = props.getProperty(DB_PROPERTY, "com.jetbrains.youtrackdb.ycsb.BasicDB");
+    String dbname = props.getProperty(DB_PROPERTY);
+    if (dbname == null) {
+      System.err.println("Missing required property: " + DB_PROPERTY
+          + ". Specify the DB class via -db or -p db=<classname>.");
+      System.exit(0);
+    }
     int target = Integer.parseInt(props.getProperty(TARGET_PROPERTY, "0"));
 
     //compute the target throughput
