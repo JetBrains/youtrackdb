@@ -28,9 +28,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.Vector;
 import org.junit.After;
 import org.junit.Before;
@@ -180,17 +182,102 @@ public class YouTrackDBYqlClientTest {
   }
 
   /**
-   * All unimplemented operations (read, scan, update, delete) should
-   * return NOT_IMPLEMENTED.
+   * Insert a record then read it back via the driver's read() method with
+   * fields=null (all fields). Verify all field values match.
+   */
+  @Test
+  public void testReadAllFields() {
+    Map<String, ByteIterator> values = new HashMap<>();
+    for (int f = 0; f < 10; f++) {
+      values.put("field" + f, new StringByteIterator("read_" + f));
+    }
+    assertEquals(Status.OK, client.insert("usertable", "rkey1", values));
+
+    Map<String, ByteIterator> result = new HashMap<>();
+    Status readStatus = client.read("usertable", "rkey1", null, result);
+    assertEquals("Read should succeed", Status.OK, readStatus);
+
+    // fields=null returns all properties including ycsb_key
+    for (int f = 0; f < 10; f++) {
+      assertEquals("read_" + f, result.get("field" + f).toString());
+    }
+    assertEquals("rkey1", result.get("ycsb_key").toString());
+  }
+
+  /**
+   * Read with a specific field set — only the requested fields should
+   * appear in the result map.
+   */
+  @Test
+  public void testReadSpecificFields() {
+    Map<String, ByteIterator> values = new HashMap<>();
+    for (int f = 0; f < 10; f++) {
+      values.put("field" + f, new StringByteIterator("sel_" + f));
+    }
+    assertEquals(Status.OK, client.insert("usertable", "rkey2", values));
+
+    Set<String> fields = new HashSet<>();
+    fields.add("field0");
+    fields.add("field5");
+
+    Map<String, ByteIterator> result = new HashMap<>();
+    Status readStatus = client.read("usertable", "rkey2", fields, result);
+    assertEquals(Status.OK, readStatus);
+    assertEquals(2, result.size());
+    assertEquals("sel_0", result.get("field0").toString());
+    assertEquals("sel_5", result.get("field5").toString());
+  }
+
+  /**
+   * Reading a non-existent key should return NOT_FOUND.
+   */
+  @Test
+  public void testReadNonExistentKeyReturnsNotFound() {
+    Map<String, ByteIterator> result = new HashMap<>();
+    Status status = client.read("usertable", "no-such-key", null, result);
+    assertEquals(Status.NOT_FOUND, status);
+    assertEquals("Result map should be empty for NOT_FOUND", 0, result.size());
+  }
+
+  /**
+   * Insert a record, update some fields, then read back and verify
+   * the updated values while unchanged fields retain their original values.
+   */
+  @Test
+  public void testUpdateAndReadBack() {
+    // Insert with all 10 fields
+    Map<String, ByteIterator> values = new HashMap<>();
+    for (int f = 0; f < 10; f++) {
+      values.put("field" + f, new StringByteIterator("orig_" + f));
+    }
+    assertEquals(Status.OK, client.insert("usertable", "ukey1", values));
+
+    // Update only field0 and field1
+    Map<String, ByteIterator> updates = new HashMap<>();
+    updates.put("field0", new StringByteIterator("updated_0"));
+    updates.put("field1", new StringByteIterator("updated_1"));
+    Status updateStatus = client.update("usertable", "ukey1", updates);
+    assertEquals("Update should succeed", Status.OK, updateStatus);
+
+    // Read back all fields and verify
+    Map<String, ByteIterator> result = new HashMap<>();
+    assertEquals(Status.OK, client.read("usertable", "ukey1", null, result));
+    assertEquals("updated_0", result.get("field0").toString());
+    assertEquals("updated_1", result.get("field1").toString());
+    // Unchanged fields should retain original values
+    for (int f = 2; f < 10; f++) {
+      assertEquals("orig_" + f, result.get("field" + f).toString());
+    }
+  }
+
+  /**
+   * Scan and delete are still unimplemented — verify they return
+   * NOT_IMPLEMENTED.
    */
   @Test
   public void testUnimplementedOperationsReturnNotImplemented() {
     assertEquals(Status.NOT_IMPLEMENTED,
-        client.read("usertable", "key1", null, new HashMap<>()));
-    assertEquals(Status.NOT_IMPLEMENTED,
         client.scan("usertable", "key1", 10, null, new Vector<>()));
-    assertEquals(Status.NOT_IMPLEMENTED,
-        client.update("usertable", "key1", new HashMap<>()));
     assertEquals(Status.NOT_IMPLEMENTED,
         client.delete("usertable", "key1"));
   }
