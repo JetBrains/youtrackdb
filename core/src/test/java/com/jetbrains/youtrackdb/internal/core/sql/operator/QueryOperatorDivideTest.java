@@ -54,12 +54,12 @@ public class QueryOperatorDivideTest {
 
   @Test
   public void testFloatDivInt() {
-    Assert.assertEquals(10.1 / 3, eval(10.1, 3));
+    Assert.assertEquals(10.1f / 3f, eval(10.1f, 3));
   }
 
   @Test
   public void testIntDivFloat() {
-    Assert.assertEquals(10 / 3.1, eval(10, 3.1));
+    Assert.assertEquals(10f / 3.1f, eval(10, 3.1f));
   }
 
   @Test
@@ -127,5 +127,25 @@ public class QueryOperatorDivideTest {
   @Test
   public void testNonNumericReturnsNull() {
     Assert.assertNull(eval("hello", "world"));
+  }
+
+  // --- Division by zero ---
+
+  @Test(expected = ArithmeticException.class)
+  public void testIntDivByZeroThrowsArithmeticException() {
+    // Integer division by zero is not caught by the operator — throws ArithmeticException
+    eval(10, 0);
+  }
+
+  @Test(expected = ArithmeticException.class)
+  public void testLongDivByZeroThrowsArithmeticException() {
+    eval(10L, 0L);
+  }
+
+  @Test(expected = ArithmeticException.class)
+  public void testBigDecimalDivNonTerminatingThrowsArithmeticException() {
+    // BigDecimal(10)/BigDecimal(3) = 3.333... is non-terminating.
+    // Production code calls divide() without RoundingMode, so this throws.
+    eval(new BigDecimal(10), new BigDecimal(3));
   }
 }

@@ -1,3 +1,22 @@
+/*
+ *
+ *
+ *  *
+ *  *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  *  you may not use this file except in compliance with the License.
+ *  *  You may obtain a copy of the License at
+ *  *
+ *  *       http://www.apache.org/licenses/LICENSE-2.0
+ *  *
+ *  *  Unless required by applicable law or agreed to in writing, software
+ *  *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  *  See the License for the specific language governing permissions and
+ *  *  limitations under the License.
+ *  *
+ *
+ *
+ */
 package com.jetbrains.youtrackdb.internal.core.sql.operator;
 
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.RecordSerializerBinary;
@@ -82,9 +101,8 @@ public class QueryOperatorModTest {
 
   @Test
   public void testFloatModInteger() {
-    // Float % Integer: left is Float, but right is Integer. Since the Mod operator
-    // dispatches on left type only, this uses l.intValue() % r.intValue() if left is Integer,
-    // but left is Float here. Actually Mod checks left instanceof Float.
+    // Left is Float, so Mod dispatches via the l instanceof Float branch,
+    // computing l.floatValue() % r.floatValue()
     Assert.assertEquals(10.5f % 3, eval(10.5f, 3));
   }
 
@@ -196,23 +214,43 @@ public class QueryOperatorModTest {
     Assert.assertNull(eval("hello", 10));
   }
 
+  // --- Division by zero ---
+
+  @Test(expected = ArithmeticException.class)
+  public void testIntModByZeroThrowsArithmeticException() {
+    // Integer modulo by zero is not caught by the operator — throws ArithmeticException
+    eval(10, 0);
+  }
+
+  @Test(expected = ArithmeticException.class)
+  public void testLongModByZeroThrowsArithmeticException() {
+    eval(10L, 0L);
+  }
+
+  // --- Cross-type truncation (Mod dispatches on left type only) ---
+
+  @Test
+  public void testShortModLongTruncatesRight() {
+    // Mod dispatches on left type only (unlike Plus/Minus/Multiply/Divide which use
+    // getMaxPrecisionClass). When left is Short, r.shortValue() truncates the right operand.
+    Object result = eval((short) 10, 100000L);
+    Assert.assertEquals((short) 10 % (short) 100000, result);
+  }
+
   // --- Index reuse and RID range ---
 
   @Test
   public void testGetIndexReuseTypeReturnsNoIndex() {
-    QueryOperatorMod mod = new QueryOperatorMod();
-    Assert.assertEquals(IndexReuseType.NO_INDEX, mod.getIndexReuseType(10, 3));
+    Assert.assertEquals(IndexReuseType.NO_INDEX, operator.getIndexReuseType(10, 3));
   }
 
   @Test
   public void testGetBeginRidRangeReturnsNull() {
-    QueryOperatorMod mod = new QueryOperatorMod();
-    Assert.assertNull(mod.getBeginRidRange(null, 10, 3));
+    Assert.assertNull(((QueryOperatorMod) operator).getBeginRidRange(null, 10, 3));
   }
 
   @Test
   public void testGetEndRidRangeReturnsNull() {
-    QueryOperatorMod mod = new QueryOperatorMod();
-    Assert.assertNull(mod.getEndRidRange(null, 10, 3));
+    Assert.assertNull(((QueryOperatorMod) operator).getEndRidRange(null, 10, 3));
   }
 }
