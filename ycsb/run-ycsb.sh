@@ -339,3 +339,51 @@ log "  Results dir:      $RESULTS_DIR"
 
 # Create results directory
 mkdir -p "$RESULTS_DIR"
+
+# ============================================================================
+# Load phase
+# ============================================================================
+
+SNAPSHOT_PATH="${DB_PATH}-snapshot"
+
+if [ "$SKIP_LOAD" = false ]; then
+  # Remove any existing database and snapshot to start fresh
+  if [ -d "$DB_PATH" ]; then
+    log "Removing existing database at $DB_PATH"
+    rm -rf "$DB_PATH"
+  fi
+  if [ -d "$SNAPSHOT_PATH" ]; then
+    log "Removing existing snapshot at $SNAPSHOT_PATH"
+    rm -rf "$SNAPSHOT_PATH"
+  fi
+
+  log "Loading data (ytdb.newdb=true)..."
+  LOAD_START=$(date +%s)
+
+  run_ycsb load \
+    -p "ytdb.path=$DB_PATH" \
+    -p "ytdb.newdb=true"
+
+  LOAD_END=$(date +%s)
+  LOAD_DURATION=$((LOAD_END - LOAD_START))
+  log "Load complete in ${LOAD_DURATION}s."
+
+  # Snapshot the database directory for reproducible workload runs.
+  # The YCSB load phase closes the database (cleanup), which flushes WAL,
+  # so the directory is in a consistent state.
+  log "Creating snapshot at $SNAPSHOT_PATH"
+  cp -a "$DB_PATH" "$SNAPSHOT_PATH"
+
+  if [ ! -d "$SNAPSHOT_PATH" ]; then
+    log_error "Snapshot directory not found after copy: $SNAPSHOT_PATH"
+    exit 1
+  fi
+  log "Snapshot created."
+else
+  log "Skipping load phase (--skip-load)."
+  if [ ! -d "$SNAPSHOT_PATH" ]; then
+    log_error "Snapshot not found at $SNAPSHOT_PATH"
+    log_error "Run without --skip-load to create a snapshot first."
+    exit 1
+  fi
+fi
