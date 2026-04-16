@@ -16,14 +16,16 @@
 package com.jetbrains.youtrackdb.ycsb.workloads;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.ycsb.Client;
 import com.jetbrains.youtrackdb.ycsb.generator.DiscreteGenerator;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.Properties;
@@ -42,16 +44,27 @@ public class WorkloadPropertyFilesTest {
    * (Maven default) and from the repository root.
    */
   private static Path workloadsDir() {
-    Path candidate = Paths.get("workloads");
+    Path candidate = Path.of("workloads");
     if (candidate.toFile().isDirectory()) {
       return candidate;
     }
-    candidate = Paths.get("ycsb", "workloads");
+    candidate = Path.of("ycsb", "workloads");
     if (candidate.toFile().isDirectory()) {
       return candidate;
     }
     throw new AssertionError(
         "Cannot find workloads directory — expected ./workloads/ or ./ycsb/workloads/");
+  }
+
+  /** Loads only common properties (no per-workload overlay). */
+  private static Properties loadCommonOnly() throws IOException {
+    Path dir = workloadsDir();
+    Properties props = new Properties();
+    try (FileInputStream common =
+        new FileInputStream(dir.resolve("workload-common.properties").toFile())) {
+      props.load(common);
+    }
+    return props;
   }
 
   /** Loads common properties merged with per-workload properties. */
@@ -70,6 +83,10 @@ public class WorkloadPropertyFilesTest {
     return props;
   }
 
+  /**
+   * Operation types produced by {@link CoreWorkload#createOperationGenerator}.
+   * Must stay in sync with the operation name strings emitted by that method.
+   */
   private enum Op {
     READ, UPDATE, INSERT, SCAN, READMODIFYWRITE
   }
@@ -113,11 +130,21 @@ public class WorkloadPropertyFilesTest {
     assertEquals("Total sample count mismatch", samples, total);
   }
 
+  /** Asserts an observed ratio is within +/-0.03 of the expected proportion. */
+  private static void assertRatio(
+      String label, double expected, double observed) {
+    assertTrue(
+        label + " ratio " + observed + " should be within 0.03 of " + expected,
+        observed >= expected - 0.03 && observed <= expected + 0.03);
+  }
+
   // ---- Common property verification ----
 
   @Test
   public void commonPropertiesHaveRequiredFields() throws IOException {
-    Properties props = loadWorkload("B");
+    // Load common properties only (no per-workload overlay) to verify
+    // shared settings are not accidentally shadowed by workload files.
+    Properties props = loadCommonOnly();
 
     assertEquals(
         "com.jetbrains.youtrackdb.ycsb.workloads.CoreWorkload",
@@ -130,8 +157,26 @@ public class WorkloadPropertyFilesTest {
     assertEquals("10", props.getProperty(CoreWorkload.FIELD_COUNT_PROPERTY));
     assertEquals("100", props.getProperty(CoreWorkload.FIELD_LENGTH_PROPERTY));
     assertEquals("usertable", props.getProperty(CoreWorkload.TABLENAME_PROPERTY));
+    assertEquals("zipfian",
+        props.getProperty(CoreWorkload.REQUEST_DISTRIBUTION_PROPERTY));
     assertEquals("hdrhistogram", props.getProperty("measurementtype"));
     assertEquals("50,95,99,99.9", props.getProperty("hdrhistogram.percentiles"));
+  }
+
+  @Test
+  public void projectPropertiesContainsMavenFilteredVersion() throws IOException {
+    Properties props = new Properties();
+    try (InputStream in = getClass().getClassLoader()
+        .getResourceAsStream("project.properties")) {
+      assertNotNull("project.properties not found on classpath", in);
+      props.load(in);
+    }
+    String version = props.getProperty("version");
+    assertNotNull("version property not found", version);
+    assertFalse(
+        "version should not contain unresolved placeholder: " + version,
+        version.contains("${"));
+    assertFalse("version should not be empty", version.isBlank());
   }
 
   // ---- Per-workload operation mix tests ----
@@ -143,11 +188,8 @@ public class WorkloadPropertyFilesTest {
 
     assertOnlyOperations(counts, Set.of(Op.READ, Op.UPDATE), 10_000);
 
-    // With 95/5 split over 10K samples, READ should dominate
-    double readRatio = counts.get(Op.READ) / 10_000.0;
-    assertTrue(
-        "Read ratio " + readRatio + " should be between 0.90 and 1.0",
-        readRatio >= 0.90 && readRatio <= 1.0);
+    assertRatio("Read", 0.95, counts.get(Op.READ) / 10_000.0);
+    assertRatio("Update", 0.05, counts.get(Op.UPDATE) / 10_000.0);
   }
 
   @Test
@@ -166,10 +208,8 @@ public class WorkloadPropertyFilesTest {
 
     assertOnlyOperations(counts, Set.of(Op.SCAN, Op.INSERT), 10_000);
 
-    double scanRatio = counts.get(Op.SCAN) / 10_000.0;
-    assertTrue(
-        "Scan ratio " + scanRatio + " should be between 0.90 and 1.0",
-        scanRatio >= 0.90 && scanRatio <= 1.0);
+    assertRatio("Scan", 0.95, counts.get(Op.SCAN) / 10_000.0);
+    assertRatio("Insert", 0.05, counts.get(Op.INSERT) / 10_000.0);
 
     // Verify scan-specific properties
     assertEquals("100", props.getProperty(CoreWorkload.MAX_SCAN_LENGTH_PROPERTY));
@@ -184,11 +224,8 @@ public class WorkloadPropertyFilesTest {
 
     assertOnlyOperations(counts, Set.of(Op.READ, Op.UPDATE), 10_000);
 
-    // With 50/50 split, both should be roughly equal
-    double readRatio = counts.get(Op.READ) / 10_000.0;
-    assertTrue(
-        "Read ratio " + readRatio + " should be between 0.40 and 0.60",
-        readRatio >= 0.40 && readRatio <= 0.60);
+    assertRatio("Read", 0.50, counts.get(Op.READ) / 10_000.0);
+    assertRatio("Update", 0.50, counts.get(Op.UPDATE) / 10_000.0);
   }
 
   @Test
@@ -198,10 +235,8 @@ public class WorkloadPropertyFilesTest {
 
     assertOnlyOperations(counts, Set.of(Op.READ, Op.INSERT), 10_000);
 
-    double insertRatio = counts.get(Op.INSERT) / 10_000.0;
-    assertTrue(
-        "Insert ratio " + insertRatio + " should be between 0.70 and 0.90",
-        insertRatio >= 0.70 && insertRatio <= 0.90);
+    assertRatio("Insert", 0.80, counts.get(Op.INSERT) / 10_000.0);
+    assertRatio("Read", 0.20, counts.get(Op.READ) / 10_000.0);
   }
 
   @Test
@@ -215,15 +250,54 @@ public class WorkloadPropertyFilesTest {
     }
   }
 
-  @Test
-  public void perWorkloadPropertiesOverrideCommonDefaults() throws IOException {
-    // Verify that per-workload files properly override the common defaults.
-    // CoreWorkload has default readproportion=0.95. Workload I sets it to 0.2.
-    Properties props = loadWorkload("I");
-    assertEquals("0.2", props.getProperty(CoreWorkload.READ_PROPORTION_PROPERTY));
+  // ---- Exact property value verification ----
 
-    // Workload C sets readproportion=1.0
-    props = loadWorkload("C");
-    assertEquals("1.0", props.getProperty(CoreWorkload.READ_PROPORTION_PROPERTY));
+  @Test
+  public void allWorkloadProportionValuesAreExact() throws IOException {
+    // Workload B: 95% read, 5% update
+    Properties b = loadWorkload("B");
+    assertEquals("0.95", b.getProperty(CoreWorkload.READ_PROPORTION_PROPERTY));
+    assertEquals("0.05", b.getProperty(CoreWorkload.UPDATE_PROPORTION_PROPERTY));
+
+    // Workload C: 100% read
+    Properties c = loadWorkload("C");
+    assertEquals("1.0", c.getProperty(CoreWorkload.READ_PROPORTION_PROPERTY));
+
+    // Workload E: 95% scan, 5% insert
+    Properties e = loadWorkload("E");
+    assertEquals("0.95", e.getProperty(CoreWorkload.SCAN_PROPORTION_PROPERTY));
+    assertEquals("0.05", e.getProperty(CoreWorkload.INSERT_PROPORTION_PROPERTY));
+
+    // Workload W: 50% read, 50% update
+    Properties w = loadWorkload("W");
+    assertEquals("0.5", w.getProperty(CoreWorkload.READ_PROPORTION_PROPERTY));
+    assertEquals("0.5", w.getProperty(CoreWorkload.UPDATE_PROPORTION_PROPERTY));
+
+    // Workload I: 80% insert, 20% read
+    Properties i = loadWorkload("I");
+    assertEquals("0.8", i.getProperty(CoreWorkload.INSERT_PROPORTION_PROPERTY));
+    assertEquals("0.2", i.getProperty(CoreWorkload.READ_PROPORTION_PROPERTY));
+  }
+
+  @Test
+  public void allWorkloadProportionsSumToOne() throws IOException {
+    for (String name : new String[] {"B", "C", "E", "W", "I"}) {
+      Properties props = loadWorkload(name);
+      double sum =
+          Double.parseDouble(
+              props.getProperty(CoreWorkload.READ_PROPORTION_PROPERTY, "0"))
+              + Double.parseDouble(
+                  props.getProperty(CoreWorkload.UPDATE_PROPORTION_PROPERTY, "0"))
+              + Double.parseDouble(
+                  props.getProperty(CoreWorkload.INSERT_PROPORTION_PROPERTY, "0"))
+              + Double.parseDouble(
+                  props.getProperty(CoreWorkload.SCAN_PROPORTION_PROPERTY, "0"))
+              + Double.parseDouble(
+                  props.getProperty(
+                      CoreWorkload.READMODIFYWRITE_PROPORTION_PROPERTY, "0"));
+      assertEquals(
+          "Workload " + name + " proportions should sum to 1.0",
+          1.0, sum, 0.001);
+    }
   }
 }
