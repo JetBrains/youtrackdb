@@ -65,4 +65,125 @@ public class DirectMemoryAllocatorTest {
       Assert.assertTrue(true);
     }
   }
+
+  /**
+   * Verifies that allocate with clear=true zeros the allocated memory.
+   * Every byte in the returned buffer should be zero.
+   */
+  @Test
+  public void testAllocateWithClear_memoryShouldBeZeroed() {
+    final var allocator = new DirectMemoryAllocator();
+    final var pointer = allocator.allocate(256, true, Intention.TEST);
+    try {
+      final var buffer = pointer.getNativeByteBuffer();
+      for (int i = 0; i < 256; i++) {
+        Assert.assertEquals("byte at position " + i + " should be zero",
+            0, buffer.get(i));
+      }
+    } finally {
+      allocator.deallocate(pointer);
+    }
+    allocator.checkMemoryLeaks();
+  }
+
+  /**
+   * Verifies that allocate with clear=false returns a valid pointer (memory
+   * content is indeterminate but pointer is non-null and usable).
+   */
+  @Test
+  public void testAllocateWithoutClear_pointerIsValid() {
+    final var allocator = new DirectMemoryAllocator();
+    final var pointer = allocator.allocate(128, false, Intention.TEST);
+    try {
+      Assert.assertNotNull(pointer);
+      final var buffer = pointer.getNativeByteBuffer();
+      Assert.assertEquals(128, buffer.capacity());
+    } finally {
+      allocator.deallocate(pointer);
+    }
+    allocator.checkMemoryLeaks();
+  }
+
+  /**
+   * Verifies that checkMemoryLeaks passes when all pointers have been
+   * properly deallocated (no leaks).
+   */
+  @Test
+  public void testCheckMemoryLeaks_noLeaks_passes() {
+    final var allocator = new DirectMemoryAllocator();
+    final var p1 = allocator.allocate(64, false, Intention.TEST);
+    final var p2 = allocator.allocate(128, false, Intention.TEST);
+    allocator.deallocate(p1);
+    allocator.deallocate(p2);
+
+    Assert.assertEquals(0, allocator.getMemoryConsumption());
+    // Should not throw — all memory is freed
+    allocator.checkMemoryLeaks();
+  }
+
+  /**
+   * Verifies that multiple allocations and deallocations correctly track
+   * total memory consumption (LongAdder increments/decrements).
+   */
+  @Test
+  public void testMemoryConsumption_multipleAllocations() {
+    final var allocator = new DirectMemoryAllocator();
+    final var p1 = allocator.allocate(100, false, Intention.TEST);
+    Assert.assertEquals(100, allocator.getMemoryConsumption());
+
+    final var p2 = allocator.allocate(200, false, Intention.TEST);
+    Assert.assertEquals(300, allocator.getMemoryConsumption());
+
+    allocator.deallocate(p1);
+    Assert.assertEquals(200, allocator.getMemoryConsumption());
+
+    allocator.deallocate(p2);
+    Assert.assertEquals(0, allocator.getMemoryConsumption());
+
+    allocator.checkMemoryLeaks();
+  }
+
+  /**
+   * Verifies that the singleton instance() method returns the same instance
+   * on subsequent calls.
+   */
+  @Test
+  public void testInstance_returnsSameInstance() {
+    final var inst1 = DirectMemoryAllocator.instance();
+    final var inst2 = DirectMemoryAllocator.instance();
+    Assert.assertSame(inst1, inst2);
+  }
+
+  /**
+   * Verifies that allocating multiple pointers with different intentions
+   * all track correctly and can be cleanly deallocated.
+   */
+  @Test
+  public void testAllocateWithDifferentIntentions() {
+    final var allocator = new DirectMemoryAllocator();
+    final var p1 = allocator.allocate(64, true, Intention.TEST);
+    final var p2 = allocator.allocate(64, false, Intention.PAGE_PRE_ALLOCATION);
+    final var p3 = allocator.allocate(64, true, Intention.LOAD_PAGE_FROM_DISK);
+    try {
+      Assert.assertEquals(192, allocator.getMemoryConsumption());
+    } finally {
+      allocator.deallocate(p1);
+      allocator.deallocate(p2);
+      allocator.deallocate(p3);
+    }
+    allocator.checkMemoryLeaks();
+  }
+
+  /**
+   * Verifies that checkTrackedPointerLeaks does not fail when no pointers
+   * have been leaked (reference queue is empty).
+   */
+  @Test
+  public void testCheckTrackedPointerLeaks_noLeaks() {
+    final var allocator = new DirectMemoryAllocator();
+    final var ptr = allocator.allocate(64, false, Intention.TEST);
+    allocator.deallocate(ptr);
+    // Should not fail — no leaked pointers in the reference queue
+    allocator.checkTrackedPointerLeaks();
+  }
 }
