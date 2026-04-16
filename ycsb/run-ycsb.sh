@@ -39,6 +39,7 @@ JVM_ADD_OPENS=(
 )
 
 ALL_WORKLOADS="B,C,E,W,I"
+DEFAULT_HEAP="4g"
 
 # ============================================================================
 # Defaults
@@ -51,6 +52,7 @@ THREADS=""
 THROUGHPUT_RATIO="0.8"
 DB_PATH=""
 RESULTS_DIR=""
+HEAP_SIZE="$DEFAULT_HEAP"
 SKIP_BUILD=false
 SKIP_LOAD=false
 
@@ -67,6 +69,7 @@ Options:
   --record-count N        Number of records to load (overrides property file)
   --operation-count N     Operations per workload run (overrides property file)
   --threads N             Thread count (default: number of CPUs)
+  --heap SIZE             JVM heap size (default: $DEFAULT_HEAP)
   --throughput-ratio R    Pass 2 target = max_throughput * R (default: 0.8)
   --db-path PATH          Database directory (default: \$RESULTS_DIR/ytdb-data)
   --results-dir PATH      Results output directory (default: ./ycsb-results)
@@ -110,12 +113,30 @@ log_error() {
   echo "[$(date '+%H:%M:%S')] ERROR: $*" >&2
 }
 
+# Require that an option has a non-flag value following it.
+require_arg() {
+  if [ $# -lt 2 ] || [[ "$2" == --* ]]; then
+    log_error "Option $1 requires a value"
+    usage
+    exit 1
+  fi
+}
+
+# Require that a value is a positive integer.
+require_positive_int() {
+  local name="$1" value="$2"
+  if ! [[ "$value" =~ ^[1-9][0-9]*$ ]]; then
+    log_error "$name must be a positive integer, got: $value"
+    exit 1
+  fi
+}
+
 # Resolve the uber-jar path from the Maven build output.
 resolve_uber_jar() {
   local jar
   jar=$(find "$SCRIPT_DIR/target" -maxdepth 1 -name 'youtrackdb-ycsb-*.jar' \
     ! -name '*-sources.jar' ! -name '*-javadoc.jar' ! -name 'original-*' \
-    -print -quit 2>/dev/null)
+    -print 2>/dev/null | head -n 1)
   if [ -z "$jar" ]; then
     log_error "Uber-jar not found in $SCRIPT_DIR/target/"
     log_error "Run without --skip-build or build manually first."
@@ -135,14 +156,23 @@ run_ycsb() {
   local mode="$1"
   shift
 
+  # Translate mode to YCSB CLI flag: -load or -t (transaction/run)
+  local flag
+  case "$mode" in
+    load) flag="-load" ;;
+    run)  flag="-t" ;;
+    *)    log_error "Unknown YCSB mode: $mode"; return 1 ;;
+  esac
+
   local jar
   jar=$(resolve_uber_jar)
 
   local cmd=(
     java
+    "-Xms${HEAP_SIZE}" "-Xmx${HEAP_SIZE}"
     "${JVM_ADD_OPENS[@]}"
     -jar "$jar"
-    "-$mode"
+    "$flag"
     -threads "$THREADS"
   )
 
@@ -163,8 +193,10 @@ run_ycsb() {
   log "Running: ${cmd[*]}"
 
   if [ -n "${YCSB_OUTPUT_FILE:-}" ]; then
-    if ! "${cmd[@]}" 2>&1 | tee "$YCSB_OUTPUT_FILE"; then
-      log_error "YCSB $mode failed (exit code: ${PIPESTATUS[0]})"
+    "${cmd[@]}" 2>&1 | tee "$YCSB_OUTPUT_FILE"
+    local rc=${PIPESTATUS[0]}
+    if [ "$rc" -ne 0 ]; then
+      log_error "YCSB $mode failed (exit code: $rc)"
       return 1
     fi
   else
@@ -181,7 +213,7 @@ cleanup_on_signal() {
   log_error "Interrupted. To resume:"
   log_error "  - If loading was interrupted: re-run without --skip-load"
   log_error "  - If a workload was interrupted: re-run with --skip-load --skip-build"
-  log_error "  - Snapshot location: \${DB_PATH}-snapshot"
+  log_error "  - Snapshot location: ${DB_PATH:-<not yet configured>}-snapshot"
   exit 130
 }
 
@@ -194,30 +226,42 @@ trap cleanup_on_signal INT TERM
 while [ $# -gt 0 ]; do
   case "$1" in
     --workloads)
+      require_arg "$@"
       WORKLOADS="$2"
       shift 2
       ;;
     --record-count)
+      require_arg "$@"
       RECORD_COUNT="$2"
       shift 2
       ;;
     --operation-count)
+      require_arg "$@"
       OPERATION_COUNT="$2"
       shift 2
       ;;
     --threads)
+      require_arg "$@"
       THREADS="$2"
       shift 2
       ;;
+    --heap)
+      require_arg "$@"
+      HEAP_SIZE="$2"
+      shift 2
+      ;;
     --throughput-ratio)
+      require_arg "$@"
       THROUGHPUT_RATIO="$2"
       shift 2
       ;;
     --db-path)
+      require_arg "$@"
       DB_PATH="$2"
       shift 2
       ;;
     --results-dir)
+      require_arg "$@"
       RESULTS_DIR="$2"
       shift 2
       ;;
@@ -247,6 +291,28 @@ RESULTS_DIR="${RESULTS_DIR:-./ycsb-results}"
 DB_PATH="${DB_PATH:-$RESULTS_DIR/ytdb-data}"
 
 # ============================================================================
+# Validation
+# ============================================================================
+
+require_positive_int "--threads" "$THREADS"
+[ -n "$RECORD_COUNT" ] && require_positive_int "--record-count" "$RECORD_COUNT"
+[ -n "$OPERATION_COUNT" ] && require_positive_int "--operation-count" "$OPERATION_COUNT"
+
+if [ -z "$RESULTS_DIR" ]; then
+  log_error "--results-dir must not be empty"
+  exit 1
+fi
+
+# Validate workload names against available property files
+IFS=',' read -ra WORKLOAD_LIST <<< "$WORKLOADS"
+for w in "${WORKLOAD_LIST[@]}"; do
+  if [ ! -f "$SCRIPT_DIR/workloads/workload-$w.properties" ]; then
+    log_error "Unknown workload: $w (valid: $ALL_WORKLOADS)"
+    exit 1
+  fi
+done
+
+# ============================================================================
 # Build
 # ============================================================================
 
@@ -266,6 +332,7 @@ log "  Workloads:        $WORKLOADS"
 log "  Record count:     ${RECORD_COUNT:-<from property file>}"
 log "  Operation count:  ${OPERATION_COUNT:-<from property file>}"
 log "  Threads:          $THREADS"
+log "  Heap size:        $HEAP_SIZE"
 log "  Throughput ratio: $THROUGHPUT_RATIO"
 log "  DB path:          $DB_PATH"
 log "  Results dir:      $RESULTS_DIR"
