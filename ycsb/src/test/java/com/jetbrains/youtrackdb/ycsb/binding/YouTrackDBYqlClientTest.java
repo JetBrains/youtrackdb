@@ -20,10 +20,14 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.ycsb.ByteIterator;
 import com.jetbrains.youtrackdb.ycsb.Status;
 import com.jetbrains.youtrackdb.ycsb.StringByteIterator;
+import com.jetbrains.youtrackdb.ycsb.measurements.Measurements;
+import com.jetbrains.youtrackdb.ycsb.workloads.CoreWorkload;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -34,6 +38,9 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.Vector;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -296,14 +303,11 @@ public class YouTrackDBYqlClientTest {
    */
   @Test
   public void testExecuteWithRetrySucceedsAfterTransientCme() {
-    java.util.concurrent.atomic.AtomicInteger callCount =
-        new java.util.concurrent.atomic.AtomicInteger(0);
+    AtomicInteger callCount = new AtomicInteger(0);
     Status result = client.executeWithRetry(() -> {
       if (callCount.incrementAndGet() < 3) {
-        throw new com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException(
-            "testdb",
-            new com.jetbrains.youtrackdb.internal.core.id.RecordId(1, 0),
-            1, 0, 2);
+        throw new ConcurrentModificationException(
+            "testdb", new RecordId(1, 0), 1, 0, 2);
       }
     }, "Test", "test-key");
 
@@ -318,14 +322,11 @@ public class YouTrackDBYqlClientTest {
    */
   @Test
   public void testExecuteWithRetryExhaustsRetries() {
-    java.util.concurrent.atomic.AtomicInteger callCount =
-        new java.util.concurrent.atomic.AtomicInteger(0);
+    AtomicInteger callCount = new AtomicInteger(0);
     Status result = client.executeWithRetry(() -> {
       callCount.incrementAndGet();
-      throw new com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException(
-          "testdb",
-          new com.jetbrains.youtrackdb.internal.core.id.RecordId(1, 0),
-          1, 0, 2);
+      throw new ConcurrentModificationException(
+          "testdb", new RecordId(1, 0), 1, 0, 2);
     }, "Test", "test-key");
 
     assertEquals(Status.ERROR, result);
@@ -342,9 +343,10 @@ public class YouTrackDBYqlClientTest {
     values.put("field0", new StringByteIterator("to-delete"));
     assertEquals(Status.OK, client.insert("usertable", "dkey1", values));
 
-    // Verify it exists first
+    // Verify it exists first with actual content
     Map<String, ByteIterator> readResult = new HashMap<>();
     assertEquals(Status.OK, client.read("usertable", "dkey1", null, readResult));
+    assertEquals("to-delete", readResult.get("field0").toString());
 
     // Delete
     Status deleteStatus = client.delete("usertable", "dkey1");
@@ -376,10 +378,12 @@ public class YouTrackDBYqlClientTest {
     assertEquals("Scan should succeed", Status.OK, scanStatus);
     assertEquals("Should return 5 records", 5, result.size());
 
-    // Verify ascending order
+    // Verify ascending order and field values
     for (int i = 0; i < 5; i++) {
       String expectedKey = String.format("skey%03d", i + 5);
       assertEquals(expectedKey, result.get(i).get("ycsb_key").toString());
+      assertEquals("scan_" + (i + 5),
+          result.get(i).get("field0").toString());
     }
   }
 
@@ -428,6 +432,12 @@ public class YouTrackDBYqlClientTest {
     Status scanStatus = client.scan("usertable", "bkey000", 10, null, result);
     assertEquals(Status.OK, scanStatus);
     assertEquals("Should return only 3 records (all that exist)", 3, result.size());
+    for (int i = 0; i < 3; i++) {
+      assertEquals(String.format("bkey%03d", i),
+          result.get(i).get("ycsb_key").toString());
+      assertEquals("beyond_" + i,
+          result.get(i).get("field0").toString());
+    }
   }
 
   /**
@@ -459,8 +469,11 @@ public class YouTrackDBYqlClientTest {
     values.put("field0", new StringByteIterator("before-cleanup"));
     assertEquals(Status.OK, client.insert("usertable", "key1", values));
 
-    // Cleanup closes everything — balances setUp()'s init()
+    // Cleanup closes everything — balances setUp()'s init().
+    // Null out immediately to prevent tearDown double-cleanup if an
+    // assertion below fails before we reassign client.
     client.cleanup();
+    client = null;
 
     // Verify shared resources are released
     assertNull("traversalSource should be null after last cleanup",
@@ -490,16 +503,15 @@ public class YouTrackDBYqlClientTest {
    */
   @Test
   public void testConcurrentInit() throws Exception {
-    // Clean up the instance created by setUp()
+    // Clean up the instance created by setUp(). Null out immediately to
+    // prevent tearDown double-cleanup if an assertion below fails.
     client.cleanup();
+    client = null;
 
     int threadCount = 4;
-    java.util.concurrent.CountDownLatch startLatch =
-        new java.util.concurrent.CountDownLatch(1);
-    java.util.concurrent.CountDownLatch doneLatch =
-        new java.util.concurrent.CountDownLatch(threadCount);
-    java.util.concurrent.atomic.AtomicInteger errorCount =
-        new java.util.concurrent.atomic.AtomicInteger(0);
+    CountDownLatch startLatch = new CountDownLatch(1);
+    CountDownLatch doneLatch = new CountDownLatch(threadCount);
+    AtomicInteger errorCount = new AtomicInteger(0);
     YouTrackDBYqlClient[] clients = new YouTrackDBYqlClient[threadCount];
 
     for (int i = 0; i < threadCount; i++) {
@@ -526,13 +538,16 @@ public class YouTrackDBYqlClientTest {
 
     startLatch.countDown();
     assertTrue("All threads should complete within 30s",
-        doneLatch.await(30, java.util.concurrent.TimeUnit.SECONDS));
+        doneLatch.await(30, TimeUnit.SECONDS));
     assertEquals("No init errors", 0, errorCount.get());
 
-    // All clients should be able to insert
-    Map<String, ByteIterator> values = new HashMap<>();
-    values.put("field0", new StringByteIterator("concurrent"));
-    assertEquals(Status.OK, clients[0].insert("usertable", "ckey1", values));
+    // All clients should be able to insert via the shared traversal source
+    for (int i = 0; i < threadCount; i++) {
+      Map<String, ByteIterator> values = new HashMap<>();
+      values.put("field0", new StringByteIterator("concurrent_" + i));
+      assertEquals("Client " + i + " should be able to insert",
+          Status.OK, clients[i].insert("usertable", "ckey" + i, values));
+    }
 
     // Cleanup all clients
     for (YouTrackDBYqlClient c : clients) {
@@ -542,9 +557,6 @@ public class YouTrackDBYqlClientTest {
     // After all cleanups, shared state should be released
     assertNull("traversalSource should be null after all cleanups",
         YouTrackDBYqlClient.getTraversalSource());
-
-    // Set client to null so tearDown skips cleanup (already cleaned up)
-    client = null;
   }
 
   /**
@@ -555,16 +567,21 @@ public class YouTrackDBYqlClientTest {
    */
   @Test
   public void testFullWorkloadRoundTrip() throws Exception {
-    // Clean up setUp's client since we need fresh state for the workload
+    // Clean up setUp's client since we need fresh state for the workload.
+    // Null out immediately to prevent tearDown double-cleanup.
     client.cleanup();
+    client = null;
+
+    int recordCount = 100;
+    int operationCount = 200;
 
     Properties props = new Properties();
     props.setProperty(YouTrackDBYqlClient.URL_PROPERTY, tempDir.toString());
     props.setProperty(YouTrackDBYqlClient.DB_NAME_PROPERTY, "workloaddb");
     props.setProperty(YouTrackDBYqlClient.DB_TYPE_PROPERTY, "MEMORY");
     props.setProperty(YouTrackDBYqlClient.NEW_DB_PROPERTY, "true");
-    props.setProperty("recordcount", "100");
-    props.setProperty("operationcount", "200");
+    props.setProperty("recordcount", String.valueOf(recordCount));
+    props.setProperty("operationcount", String.valueOf(operationCount));
     props.setProperty("fieldcount", "10");
     props.setProperty("fieldlength", "10");
     props.setProperty("workload",
@@ -576,10 +593,10 @@ public class YouTrackDBYqlClientTest {
     props.setProperty("requestdistribution", "uniform");
 
     // Initialize Measurements singleton (required by CoreWorkload)
-    com.jetbrains.youtrackdb.ycsb.measurements.Measurements.setProperties(props);
+    Measurements.setProperties(props);
 
     // Initialize workload
-    var workload = new com.jetbrains.youtrackdb.ycsb.workloads.CoreWorkload();
+    var workload = new CoreWorkload();
     workload.init(props);
 
     // Create and init the DB client
@@ -589,29 +606,122 @@ public class YouTrackDBYqlClientTest {
 
     try {
       // Load phase: insert 100 records
-      for (int i = 0; i < 100; i++) {
+      for (int i = 0; i < recordCount; i++) {
         assertTrue("Load insert " + i + " should succeed",
             workload.doInsert(dbClient, null));
       }
 
-      // Transaction phase: run 200 operations
-      int successCount = 0;
-      for (int i = 0; i < 200; i++) {
-        if (workload.doTransaction(dbClient, null)) {
-          successCount++;
-        }
+      // Transaction phase: run 200 operations.
+      // Note: CoreWorkload.doTransaction() always returns true regardless
+      // of DB operation results, so we verify data integrity below instead
+      // of checking return values.
+      for (int i = 0; i < operationCount; i++) {
+        workload.doTransaction(dbClient, null);
       }
 
-      // At least 90% should succeed (some scans may return empty)
-      assertTrue("At least 90% of operations should succeed, got "
-          + successCount + "/200", successCount >= 180);
+      // Verify data integrity: the load phase inserted 100 records and the
+      // transaction phase has a 10% insert proportion (~20 more inserts).
+      // No deletes are configured, so total should be at least 100.
+      @SuppressWarnings("unchecked")
+      List<Map<String, Object>> countResult = (List<
+          Map<String, Object>>) (List<?>) YouTrackDBYqlClient
+              .getTraversalSource().computeInTx(tx -> {
+                var g = (YTDBGraphTraversalSource) tx;
+                return g.yql("SELECT count(*) as cnt FROM usertable").toList();
+              });
+      long dbRecordCount =
+          ((Number) countResult.get(0).get("cnt")).longValue();
+      assertTrue("Database should contain at least " + recordCount
+          + " records after workload, got " + dbRecordCount,
+          dbRecordCount >= recordCount);
+
+      // Spot-check: read back an arbitrary record via the driver to verify
+      // the data is accessible (use a key from the database, not a predicted
+      // key format, since CoreWorkload uses hashed key ordering by default)
+      @SuppressWarnings("unchecked")
+      List<Map<String, Object>> sampleKey = (List<
+          Map<String, Object>>) (List<?>) YouTrackDBYqlClient
+              .getTraversalSource().computeInTx(tx -> {
+                var g = (YTDBGraphTraversalSource) tx;
+                return g.yql("SELECT ycsb_key FROM usertable LIMIT 1")
+                    .toList();
+              });
+      assertEquals("Should find at least one record", 1, sampleKey.size());
+      String firstKey = (String) sampleKey.get(0).get("ycsb_key");
+
+      Map<String, ByteIterator> verifyResult = new HashMap<>();
+      Status readStatus = dbClient.read("usertable", firstKey,
+          null, verifyResult);
+      assertEquals("Should be able to read back a loaded record",
+          Status.OK, readStatus);
+      assertTrue("Read-back record should have fields",
+          verifyResult.size() > 0);
     } finally {
       dbClient.cleanup();
       workload.cleanup();
     }
+  }
 
-    // Set client to null so tearDown skips cleanup (already cleaned up)
-    client = null;
+  /**
+   * executeWithRetry should restore the interrupt flag and return ERROR
+   * when Thread.sleep is interrupted during CME backoff. This verifies
+   * the interrupt contract required for clean YCSB thread pool shutdown.
+   */
+  @Test
+  public void testExecuteWithRetryRestoresInterruptOnInterruption() {
+    // Pre-set the interrupt flag so Thread.sleep throws immediately
+    Thread.currentThread().interrupt();
+    AtomicInteger callCount = new AtomicInteger(0);
+    Status result = client.executeWithRetry(() -> {
+      callCount.incrementAndGet();
+      throw new ConcurrentModificationException(
+          "testdb", new RecordId(1, 0), 1, 0, 2);
+    }, "Test", "test-key");
+
+    assertEquals("Should return ERROR on interruption",
+        Status.ERROR, result);
+    assertTrue("Interrupt flag should be restored",
+        Thread.currentThread().isInterrupted());
+    assertEquals("Should have been called once before interrupt hit",
+        1, callCount.get());
+    // Clear the interrupt flag for test cleanup
+    Thread.interrupted();
+  }
+
+  /**
+   * Inserting a duplicate key with a UNIQUE index succeeds silently —
+   * CREATE VERTEX does not enforce unique constraint violations as errors.
+   * This documents the actual YouTrackDB behavior discovered during
+   * implementation: the driver returns OK for duplicate key inserts.
+   */
+  @Test
+  public void testInsertDuplicateKeySucceedsSilently() {
+    Map<String, ByteIterator> values = new HashMap<>();
+    values.put("field0", new StringByteIterator("first"));
+    assertEquals(Status.OK, client.insert("usertable", "dup-key", values));
+
+    Map<String, ByteIterator> values2 = new HashMap<>();
+    values2.put("field0", new StringByteIterator("second"));
+    Status status = client.insert("usertable", "dup-key", values2);
+    assertEquals("Duplicate key insert succeeds silently",
+        Status.OK, status);
+  }
+
+  /**
+   * executeWithRetry should return ERROR immediately (no retry) when
+   * the operation throws a non-CME exception.
+   */
+  @Test
+  public void testExecuteWithRetryNoRetryOnNonCmeException() {
+    AtomicInteger callCount = new AtomicInteger(0);
+    Status result = client.executeWithRetry(() -> {
+      callCount.incrementAndGet();
+      throw new RuntimeException("Not a CME");
+    }, "Test", "test-key");
+
+    assertEquals(Status.ERROR, result);
+    assertEquals("Should have been called exactly once (no retry)",
+        1, callCount.get());
   }
 
   private static void deleteDirectory(Path dir) throws IOException {
