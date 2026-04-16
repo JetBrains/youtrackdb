@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.common.concur.resource;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
@@ -10,7 +11,7 @@ import org.junit.Test;
 
 /**
  * Tests for {@link ResourcePoolFactory} covering pool creation/reuse, max pool size,
- * max partitions, getPools, and close lifecycle.
+ * max partitions, getPools, close lifecycle, and post-close guards.
  */
 public class ResourcePoolFactoryTest {
 
@@ -53,18 +54,21 @@ public class ResourcePoolFactoryTest {
     var pool2 = factory.get("key2");
     assertNotNull(pool1);
     assertNotNull(pool2);
-    assertTrue("Different keys should create different pools", pool1 != pool2);
+    assertNotSame("Different keys should create different pools", pool1, pool2);
   }
 
   // --- getPools() ---
 
-  /** getPools returns all created pools. */
+  /** getPools returns all created pools with correct contents. */
   @Test
   public void testGetPools() {
     var factory = new ResourcePoolFactory<>(FACTORY);
-    factory.get("key1");
-    factory.get("key2");
-    assertEquals("Should have 2 pools", 2, factory.getPools().size());
+    var pool1 = factory.get("key1");
+    var pool2 = factory.get("key2");
+    var pools = factory.getPools();
+    assertEquals("Should have 2 pools", 2, pools.size());
+    assertTrue("Should contain pool for key1", pools.contains(pool1));
+    assertTrue("Should contain pool for key2", pools.contains(pool2));
   }
 
   // --- getMaxPoolSize / setMaxPoolSize ---
@@ -76,12 +80,15 @@ public class ResourcePoolFactoryTest {
     assertEquals(64, factory.getMaxPoolSize());
   }
 
-  /** setMaxPoolSize changes the pool size. */
+  /** setMaxPoolSize changes the pool size and affects newly created pools. */
   @Test
-  public void testSetMaxPoolSize() {
+  public void testSetMaxPoolSizeAffectsNewPools() {
     var factory = new ResourcePoolFactory<>(FACTORY);
-    factory.setMaxPoolSize(128);
-    assertEquals(128, factory.getMaxPoolSize());
+    factory.setMaxPoolSize(3);
+    assertEquals(3, factory.getMaxPoolSize());
+    var pool = factory.get("key1");
+    assertEquals("Pool should use the configured maxPoolSize",
+        3, pool.getMaxResources());
   }
 
   // --- getMaxPartitions / setMaxPartitions ---
@@ -105,19 +112,46 @@ public class ResourcePoolFactoryTest {
 
   /** close() closes all pools and prevents further get() calls. */
   @Test(expected = IllegalStateException.class)
-  public void testClosePreventsFurtherAccess() {
+  public void testClosePreventsFurtherGet() {
     var factory = new ResourcePoolFactory<>(FACTORY);
     factory.get("key1");
     factory.close();
-    factory.get("key2"); // Should throw IllegalStateException
+    factory.get("key2");
+  }
+
+  /** setMaxPoolSize after close throws IllegalStateException. */
+  @Test(expected = IllegalStateException.class)
+  public void testSetMaxPoolSizeAfterCloseThrows() {
+    var factory = new ResourcePoolFactory<>(FACTORY);
+    factory.close();
+    factory.setMaxPoolSize(128);
+  }
+
+  /** getPools after close throws IllegalStateException. */
+  @Test(expected = IllegalStateException.class)
+  public void testGetPoolsAfterCloseThrows() {
+    var factory = new ResourcePoolFactory<>(FACTORY);
+    factory.close();
+    factory.getPools();
+  }
+
+  /** Double close is idempotent. */
+  @Test
+  public void testDoubleCloseIsIdempotent() {
+    var factory = new ResourcePoolFactory<>(FACTORY);
+    factory.get("key1");
+    factory.close();
+    factory.close(); // Should not throw
   }
 
   // --- Constructor with capacity ---
 
-  /** Constructor with custom capacity. */
+  /** Constructor with custom capacity creates a functional factory. */
   @Test
   public void testConstructorWithCapacity() {
     var factory = new ResourcePoolFactory<>(FACTORY, 50);
-    assertNotNull(factory.get("key1"));
+    var pool = factory.get("key1");
+    assertNotNull("Should create a pool", pool);
+    assertEquals("Factory should track the pool", 1, factory.getPools().size());
   }
 }
