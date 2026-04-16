@@ -135,6 +135,20 @@ public interface CommandContext {
 
   void setSkipExpandPushDown(boolean skip);
 
+  /**
+   * Returns the traversal cache for this query execution, or {@code null} if none has been
+   * installed. Implementations should walk the parent chain when no local cache is set, so that
+   * child contexts created by {@code LetQueryStep} transparently share the cache of the outermost
+   * query context.
+   */
+  @Nullable TraversalCache getTraversalCache();
+
+  /**
+   * Installs a traversal cache on this context. Called once per query execution by
+   * {@code LetQueryStep} when per-record LET subqueries are detected and caching is enabled.
+   */
+  void setTraversalCache(@Nullable TraversalCache cache);
+
   void startProfiling(ExecutionStep step);
 
   void endProfiling(ExecutionStep step);

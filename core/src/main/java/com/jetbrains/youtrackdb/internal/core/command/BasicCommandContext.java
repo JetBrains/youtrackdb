@@ -70,6 +70,8 @@ public class BasicCommandContext implements CommandContext {
 
   private boolean skipExpandPushDown;
 
+  @Nullable private TraversalCache traversalCache;
+
   public BasicCommandContext() {
   }
 
@@ -608,6 +610,19 @@ public class BasicCommandContext implements CommandContext {
   @Override
   public void setSkipExpandPushDown(boolean skip) {
     this.skipExpandPushDown = skip;
+  }
+
+  @Override
+  @Nullable public TraversalCache getTraversalCache() {
+    if (traversalCache != null) {
+      return traversalCache;
+    }
+    return parent != null ? parent.getTraversalCache() : null;
+  }
+
+  @Override
+  public void setTraversalCache(@Nullable TraversalCache cache) {
+    this.traversalCache = cache;
   }
 
   @Override

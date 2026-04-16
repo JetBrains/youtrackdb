@@ -842,6 +842,23 @@ public enum GlobalConfiguration {
       Integer.class,
       1000),
 
+  QUERY_TRAVERSAL_CACHE_ENABLED(
+      "youtrackdb.query.traversalCache.enabled",
+      "Cache repeated graph traversals (out/in/both/outE/inE/bothE) within a single query"
+          + " execution. Eliminates redundant traversals when the same entity is visited"
+          + " repeatedly across per-record LET subquery executions.",
+      Boolean.class,
+      true,
+      true),
+
+  QUERY_TRAVERSAL_CACHE_MAX_ENTRIES(
+      "youtrackdb.query.traversalCache.maxEntries",
+      "Maximum number of cached traversal results per query execution. When the limit is"
+          + " reached, the least-recently-used entry is evicted.",
+      Integer.class,
+      1024,
+      true),
+
   QUERY_LET_MATERIALIZATION_MAX_SIZE(
       "youtrackdb.query.letMaterialization.maxSize",
       "Maximum number of records to materialize when sharing a common inner subquery"
