@@ -254,9 +254,41 @@ public class YouTrackDBYqlClient extends DB {
   }
 
   @Override
+  @SuppressWarnings("unchecked")
   public Status scan(String table, String startkey, int recordcount, Set<String> fields,
       Vector<HashMap<String, ByteIterator>> result) {
-    return Status.NOT_IMPLEMENTED;
+    try {
+      return traversalSource.computeInTx(tx -> {
+        var g = (YTDBGraphTraversalSource) tx;
+        var results = g.yql(
+            "SELECT FROM " + table + " WHERE ycsb_key >= :startkey"
+                + " ORDER BY ycsb_key ASC LIMIT :count",
+            "startkey", startkey, "count", recordcount).toList();
+
+        for (Object obj : results) {
+          Vertex vertex = (Vertex) obj;
+          HashMap<String, ByteIterator> record = new HashMap<>();
+          if (fields == null) {
+            Iterator<VertexProperty<Object>> props = vertex.properties();
+            while (props.hasNext()) {
+              VertexProperty<Object> vp = props.next();
+              record.put(vp.key(),
+                  new StringByteIterator(vp.value().toString()));
+            }
+          } else {
+            for (String field : fields) {
+              record.put(field,
+                  new StringByteIterator(vertex.value(field).toString()));
+            }
+          }
+          result.add(record);
+        }
+        return Status.OK;
+      });
+    } catch (Exception e) {
+      logger.error("Scan failed for startkey {}", startkey, e);
+      return Status.ERROR;
+    }
   }
 
   @Override
@@ -299,7 +331,13 @@ public class YouTrackDBYqlClient extends DB {
 
   @Override
   public Status delete(String table, String key) {
-    return Status.NOT_IMPLEMENTED;
+    return executeWithRetry(() -> {
+      traversalSource.executeInTx(tx -> {
+        var g = (YTDBGraphTraversalSource) tx;
+        g.yql("DELETE VERTEX " + table + " WHERE ycsb_key = :key",
+            "key", key).iterate();
+      });
+    }, "Delete", key);
   }
 
   /**

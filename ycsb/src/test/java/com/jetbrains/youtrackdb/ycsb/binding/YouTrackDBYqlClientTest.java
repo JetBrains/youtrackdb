@@ -333,15 +333,117 @@ public class YouTrackDBYqlClientTest {
   }
 
   /**
-   * Scan and delete are still unimplemented — verify they return
-   * NOT_IMPLEMENTED.
+   * Insert a record, delete it, then verify read returns NOT_FOUND.
    */
   @Test
-  public void testUnimplementedOperationsReturnNotImplemented() {
-    assertEquals(Status.NOT_IMPLEMENTED,
-        client.scan("usertable", "key1", 10, null, new Vector<>()));
-    assertEquals(Status.NOT_IMPLEMENTED,
-        client.delete("usertable", "key1"));
+  public void testDeleteAndVerifyNotFound() {
+    Map<String, ByteIterator> values = new HashMap<>();
+    values.put("field0", new StringByteIterator("to-delete"));
+    assertEquals(Status.OK, client.insert("usertable", "dkey1", values));
+
+    // Verify it exists first
+    Map<String, ByteIterator> readResult = new HashMap<>();
+    assertEquals(Status.OK, client.read("usertable", "dkey1", null, readResult));
+
+    // Delete
+    Status deleteStatus = client.delete("usertable", "dkey1");
+    assertEquals("Delete should succeed", Status.OK, deleteStatus);
+
+    // Verify it's gone
+    Map<String, ByteIterator> afterDelete = new HashMap<>();
+    assertEquals("Read after delete should return NOT_FOUND",
+        Status.NOT_FOUND, client.read("usertable", "dkey1", null, afterDelete));
+  }
+
+  /**
+   * Insert 10 records with sequential keys, scan from the middle, and
+   * verify correct count and ascending key order.
+   */
+  @Test
+  public void testScanFromMiddle() {
+    for (int i = 0; i < 10; i++) {
+      Map<String, ByteIterator> values = new HashMap<>();
+      values.put("field0", new StringByteIterator("scan_" + i));
+      // Use zero-padded keys for correct lexicographic ordering
+      assertEquals(Status.OK,
+          client.insert("usertable", String.format("skey%03d", i), values));
+    }
+
+    // Scan 5 records starting from skey005
+    Vector<HashMap<String, ByteIterator>> result = new Vector<>();
+    Status scanStatus = client.scan("usertable", "skey005", 5, null, result);
+    assertEquals("Scan should succeed", Status.OK, scanStatus);
+    assertEquals("Should return 5 records", 5, result.size());
+
+    // Verify ascending order
+    for (int i = 0; i < 5; i++) {
+      String expectedKey = String.format("skey%03d", i + 5);
+      assertEquals(expectedKey, result.get(i).get("ycsb_key").toString());
+    }
+  }
+
+  /**
+   * Scan with specific fields — only requested fields should appear in
+   * each result record.
+   */
+  @Test
+  public void testScanWithSpecificFields() {
+    for (int i = 0; i < 5; i++) {
+      Map<String, ByteIterator> values = new HashMap<>();
+      values.put("field0", new StringByteIterator("sf0_" + i));
+      values.put("field1", new StringByteIterator("sf1_" + i));
+      assertEquals(Status.OK,
+          client.insert("usertable", String.format("sfkey%03d", i), values));
+    }
+
+    Vector<HashMap<String, ByteIterator>> result = new Vector<>();
+    Status scanStatus = client.scan("usertable", "sfkey000", 5,
+        Set.of("field0"), result);
+    assertEquals(Status.OK, scanStatus);
+    assertEquals(5, result.size());
+
+    // Each record should have only field0
+    for (int i = 0; i < 5; i++) {
+      assertEquals(1, result.get(i).size());
+      assertEquals("sf0_" + i, result.get(i).get("field0").toString());
+    }
+  }
+
+  /**
+   * Scan beyond the end of the dataset — should return fewer records than
+   * requested without error.
+   */
+  @Test
+  public void testScanBeyondDataset() {
+    for (int i = 0; i < 3; i++) {
+      Map<String, ByteIterator> values = new HashMap<>();
+      values.put("field0", new StringByteIterator("beyond_" + i));
+      assertEquals(Status.OK,
+          client.insert("usertable", String.format("bkey%03d", i), values));
+    }
+
+    // Request 10 records but only 3 exist
+    Vector<HashMap<String, ByteIterator>> result = new Vector<>();
+    Status scanStatus = client.scan("usertable", "bkey000", 10, null, result);
+    assertEquals(Status.OK, scanStatus);
+    assertEquals("Should return only 3 records (all that exist)", 3, result.size());
+  }
+
+  /**
+   * Scan with startkey beyond all existing keys — should return OK with
+   * an empty result set.
+   */
+  @Test
+  public void testScanWithStartkeyBeyondAllKeys() {
+    Map<String, ByteIterator> values = new HashMap<>();
+    values.put("field0", new StringByteIterator("val"));
+    assertEquals(Status.OK, client.insert("usertable", "aaa", values));
+
+    Vector<HashMap<String, ByteIterator>> result = new Vector<>();
+    Status scanStatus = client.scan("usertable", "zzz", 10, null, result);
+    assertEquals(Status.OK, scanStatus);
+    assertEquals("Scan beyond all keys should return empty result",
+        0, result.size());
   }
 
   /**
