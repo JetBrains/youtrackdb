@@ -115,6 +115,17 @@ public class ReadersWriterSpinLockTest {
     writer.join(5_000);
   }
 
+  /** tryAcquireReadLock inside write lock returns true immediately (holds < 0 path). */
+  @Test(timeout = 10_000)
+  public void testTryAcquireReadLockInsideWriteIsNoOp() {
+    var lock = new ReadersWriterSpinLock();
+    lock.acquireWriteLock();
+    assertTrue("tryAcquireReadLock inside write lock should return true",
+        lock.tryAcquireReadLock(TimeUnit.MILLISECONDS.toNanos(100)));
+    lock.releaseReadLock();
+    lock.releaseWriteLock();
+  }
+
   /** tryAcquireReadLock with reentrant read returns true immediately. */
   @Test
   public void testTryAcquireReadLockReentrant() {
