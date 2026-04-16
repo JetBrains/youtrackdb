@@ -466,29 +466,36 @@ public class ResultInternal implements Result, BasicResultInternal {
     if (content != null && content.containsKey(name)) {
       //noinspection unchecked
       result = (T) content.get(name);
+    } else if (identifiable instanceof Entity entity) {
+      // Hot path: entity already materialized — kept slim for JIT inlining.
+      //noinspection unchecked
+      result = (T) entity.getProperty(name);
     } else if (identifiable != null) {
-      // Fast path: resolve entity directly without going through asEntity()
-      // which would call isEntity() → isBlob() twice. Uses instanceof checks
-      // instead of isBlob() to avoid schema snapshot lookups for bare RIDs.
-      Entity entity;
-      if (identifiable instanceof Entity e) {
-        entity = e;
-      } else if (identifiable instanceof Blob) {
-        entity = null;
-      } else {
-        // Bare RID — load entity directly. Blob RIDs never reach
-        // getProperty() in practice (blobs have no properties).
-        var transaction = session.getActiveTransaction();
-        entity = transaction.loadEntity(identifiable);
-        this.identifiable = entity;
-      }
-      if (entity != null) {
-        //noinspection unchecked
-        result = (T) entity.getProperty(name);
-      }
+      // Cold path: bare RID (lazy MATCH traversal) or Blob.
+      // Extracted to a separate method so the JIT can inline the hot path
+      // independently of the lazy-loading bytecode.
+      result = loadLazyAndGetProperty(name);
     }
 
     return result;
+  }
+
+  /**
+   * Cold path for {@link #getProperty}: loads the entity from a bare RID
+   * and returns the requested property. Blob identifiables return {@code null}
+   * (blobs have no properties and never reach getProperty in practice).
+   * Uses {@code instanceof Blob} instead of {@code isBlob()} to avoid
+   * schema snapshot lookups for bare RIDs.
+   */
+  @SuppressWarnings("TypeParameterUnusedInFormals")
+  @Nullable private <T> T loadLazyAndGetProperty(@Nonnull String name) {
+    if (identifiable instanceof Blob) {
+      return null;
+    }
+    var entity = session.getActiveTransaction().loadEntity(identifiable);
+    this.identifiable = entity;
+    //noinspection unchecked
+    return (T) entity.getProperty(name);
   }
 
   @Override
@@ -614,22 +621,27 @@ public class ResultInternal implements Result, BasicResultInternal {
     if (content != null && content.containsKey(propName)) {
       return true;
     }
+    if (identifiable instanceof Entity entity) {
+      return entity.hasProperty(propName);
+    }
     if (identifiable != null) {
-      Entity entity;
-      if (identifiable instanceof Entity e) {
-        entity = e;
-      } else if (identifiable instanceof Blob) {
-        entity = null;
-      } else {
-        var transaction = session.getActiveTransaction();
-        entity = transaction.loadEntity(identifiable);
-        this.identifiable = entity;
-      }
-      if (entity != null) {
-        return entity.hasProperty(propName);
-      }
+      return loadLazyAndHasProperty(propName);
     }
     return false;
+  }
+
+  /**
+   * Cold path for {@link #hasProperty}: loads the entity from a bare RID
+   * and checks for the property. See {@link #loadLazyAndGetProperty} for
+   * rationale on the Blob check and extraction into a separate method.
+   */
+  private boolean loadLazyAndHasProperty(@Nonnull String propName) {
+    if (identifiable instanceof Blob) {
+      return false;
+    }
+    var entity = session.getActiveTransaction().loadEntity(identifiable);
+    this.identifiable = entity;
+    return entity.hasProperty(propName);
   }
 
   @Nullable @Override
