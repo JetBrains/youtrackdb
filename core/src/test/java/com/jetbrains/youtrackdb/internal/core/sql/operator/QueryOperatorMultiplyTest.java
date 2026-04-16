@@ -22,104 +22,205 @@ package com.jetbrains.youtrackdb.internal.core.sql.operator;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.RecordSerializerBinary;
 import com.jetbrains.youtrackdb.internal.core.sql.operator.math.QueryOperatorMultiply;
 import java.math.BigDecimal;
+import java.util.Date;
 import org.junit.Assert;
 import org.junit.Test;
 
 /** Tests for the SQL multiplication operator across numeric types. */
 public class QueryOperatorMultiplyTest {
 
+  private final QueryOperator operator = new QueryOperatorMultiply();
+
+  private Object eval(Object left, Object right) {
+    return operator.evaluateRecord(
+        null,
+        null,
+        null,
+        left,
+        right,
+        null,
+        RecordSerializerBinary.INSTANCE.getCurrentSerializer());
+  }
+
   @Test
-  public void test() {
-    var operator = new QueryOperatorMultiply();
+  public void testIntTimesInt() {
+    Assert.assertEquals(100, eval(10, 10));
+  }
+
+  @Test
+  public void testLongTimesLong() {
+    Assert.assertEquals(100L, eval(10L, 10L));
+  }
+
+  @Test
+  public void testIntOverflowUpscalesToLong() {
+    Assert.assertEquals(100000000000L, eval(10000000, 10000));
+  }
+
+  @Test
+  public void testFloatTimesInt() {
+    Assert.assertEquals(10.1 * 10, eval(10.1, 10));
+  }
+
+  @Test
+  public void testIntTimesFloat() {
+    Assert.assertEquals(10 * 10.1, eval(10, 10.1));
+  }
+
+  @Test
+  public void testDoubleTimesInt() {
+    Assert.assertEquals(10.1d * 10, eval(10.1d, 10));
+  }
+
+  @Test
+  public void testIntTimesDouble() {
+    Assert.assertEquals(10 * 10.1d, eval(10, 10.1d));
+  }
+
+  @Test
+  public void testBigDecimalTimesInt() {
     Assert.assertEquals(
-        operator.evaluateRecord(
-            null,
-            null,
-            null,
-            10,
-            10,
-            null,
-            RecordSerializerBinary.INSTANCE.getCurrentSerializer()),
-        100);
+        new BigDecimal(10).multiply(new BigDecimal(10)), eval(new BigDecimal(10), 10));
+  }
+
+  @Test
+  public void testIntTimesBigDecimal() {
     Assert.assertEquals(
-        operator.evaluateRecord(
-            null,
-            null,
-            null,
-            10L,
-            10L,
-            null,
-            RecordSerializerBinary.INSTANCE.getCurrentSerializer()),
-        100L);
+        new BigDecimal(10).multiply(new BigDecimal(10)), eval(10, new BigDecimal(10)));
+  }
+
+  // --- Short type combinations ---
+
+  @Test
+  public void testShortTimesShort() {
+    // Java widens short arithmetic to int, so result is Integer not Short
+    Object result = eval((short) 5, (short) 3);
+    Assert.assertTrue(result instanceof Integer);
+    Assert.assertEquals(15, result);
+  }
+
+  // --- Float combinations ---
+
+  @Test
+  public void testFloatTimesFloat() {
+    Assert.assertEquals(2.5f * 3.0f, eval(2.5f, 3.0f));
+  }
+
+  // --- Date-to-long conversion ---
+
+  @Test
+  public void testDateTimesLong() {
+    long time = 100L;
+    Date date = new Date(time);
+    Assert.assertEquals(time * 5L, eval(date, 5L));
+  }
+
+  // --- Null propagation ---
+
+  @Test
+  public void testNullLeftReturnsNull() {
+    Assert.assertNull(eval(null, 10));
+  }
+
+  @Test
+  public void testNullRightReturnsNull() {
+    Assert.assertNull(eval(10, null));
+  }
+
+  // --- Non-numeric returns null ---
+
+  @Test
+  public void testNonNumericReturnsNull() {
+    Assert.assertNull(eval("hello", "world"));
+  }
+
+  // --- getMaxPrecisionClass utility method ---
+
+  @Test
+  public void testGetMaxPrecisionClassBigDecimalWins() {
     Assert.assertEquals(
-        operator.evaluateRecord(
-            null,
-            null,
-            null,
-            10000000,
-            10000,
-            null,
-            RecordSerializerBinary.INSTANCE.getCurrentSerializer()),
-        100000000000L); // upscale to long
+        BigDecimal.class, QueryOperatorMultiply.getMaxPrecisionClass(new BigDecimal(1), 1));
+  }
+
+  @Test
+  public void testGetMaxPrecisionClassDoubleWins() {
+    Assert.assertEquals(Double.class, QueryOperatorMultiply.getMaxPrecisionClass(1.0d, 1));
+  }
+
+  @Test
+  public void testGetMaxPrecisionClassFloatWins() {
+    Assert.assertEquals(Float.class, QueryOperatorMultiply.getMaxPrecisionClass(1.0f, 1));
+  }
+
+  @Test
+  public void testGetMaxPrecisionClassLongWins() {
+    Assert.assertEquals(Long.class, QueryOperatorMultiply.getMaxPrecisionClass(1L, 1));
+  }
+
+  @Test
+  public void testGetMaxPrecisionClassIntegerWins() {
+    Assert.assertEquals(Integer.class, QueryOperatorMultiply.getMaxPrecisionClass(1, 1));
+  }
+
+  @Test
+  public void testGetMaxPrecisionClassShortWins() {
     Assert.assertEquals(
-        operator.evaluateRecord(
-            null,
-            null,
-            null,
-            10.1,
-            10,
-            null,
-            RecordSerializerBinary.INSTANCE.getCurrentSerializer()),
-        10.1 * 10);
+        Short.class, QueryOperatorMultiply.getMaxPrecisionClass((short) 1, (short) 1));
+  }
+
+  // --- tryDownscaleToInt ---
+
+  @Test
+  public void testTryDownscaleToIntWithinRange() {
+    Object result = QueryOperatorMultiply.tryDownscaleToInt(100L);
+    Assert.assertTrue(result instanceof Integer);
+    Assert.assertEquals(100, result);
+  }
+
+  @Test
+  public void testTryDownscaleToIntAboveRange() {
+    Object result = QueryOperatorMultiply.tryDownscaleToInt((long) Integer.MAX_VALUE + 1);
+    Assert.assertTrue(result instanceof Long);
+  }
+
+  @Test
+  public void testTryDownscaleToIntBelowRange() {
+    Object result = QueryOperatorMultiply.tryDownscaleToInt((long) Integer.MIN_VALUE - 1);
+    Assert.assertTrue(result instanceof Long);
+  }
+
+  // --- toBigDecimal utility ---
+
+  @Test
+  public void testToBigDecimalFromBigDecimal() {
+    BigDecimal bd = new BigDecimal("3.14");
+    Assert.assertSame(bd, QueryOperatorMultiply.toBigDecimal(bd));
+  }
+
+  @Test
+  public void testToBigDecimalFromDouble() {
     Assert.assertEquals(
-        operator.evaluateRecord(
-            null,
-            null,
-            null,
-            10,
-            10.1,
-            null,
-            RecordSerializerBinary.INSTANCE.getCurrentSerializer()),
-        10 * 10.1);
+        BigDecimal.valueOf(3.14d), QueryOperatorMultiply.toBigDecimal(3.14d));
+  }
+
+  @Test
+  public void testToBigDecimalFromFloat() {
     Assert.assertEquals(
-        operator.evaluateRecord(
-            null,
-            null,
-            null,
-            10.1d,
-            10,
-            null,
-            RecordSerializerBinary.INSTANCE.getCurrentSerializer()),
-        10.1d * 10);
-    Assert.assertEquals(
-        operator.evaluateRecord(
-            null,
-            null,
-            null,
-            10,
-            10.1d,
-            null,
-            RecordSerializerBinary.INSTANCE.getCurrentSerializer()),
-        10 * 10.1d);
-    Assert.assertEquals(
-        operator.evaluateRecord(
-            null,
-            null,
-            null,
-            new BigDecimal(10),
-            10,
-            null,
-            RecordSerializerBinary.INSTANCE.getCurrentSerializer()),
-        new BigDecimal(10).multiply(new BigDecimal(10)));
-    Assert.assertEquals(
-        operator.evaluateRecord(
-            null,
-            null,
-            null,
-            10,
-            new BigDecimal(10),
-            null,
-            RecordSerializerBinary.INSTANCE.getCurrentSerializer()),
-        new BigDecimal(10).multiply(new BigDecimal(10)));
+        BigDecimal.valueOf(3.14f), QueryOperatorMultiply.toBigDecimal(3.14f));
+  }
+
+  @Test
+  public void testToBigDecimalFromLong() {
+    Assert.assertEquals(new BigDecimal(100L), QueryOperatorMultiply.toBigDecimal(100L));
+  }
+
+  @Test
+  public void testToBigDecimalFromInteger() {
+    Assert.assertEquals(new BigDecimal(100), QueryOperatorMultiply.toBigDecimal(100));
+  }
+
+  @Test
+  public void testToBigDecimalFromShort() {
+    Assert.assertEquals(new BigDecimal(10), QueryOperatorMultiply.toBigDecimal((short) 10));
   }
 }
