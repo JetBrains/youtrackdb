@@ -349,7 +349,7 @@ public class PartitionedLockManager<T> implements LockManager<T> {
       return new Lock[0];
     }
 
-    final var orderedValues = new int[values.length];
+    final var orderedValues = Arrays.copyOf(values, values.length);
     Arrays.sort(orderedValues);
 
     final var locks = new Lock[orderedValues.length];

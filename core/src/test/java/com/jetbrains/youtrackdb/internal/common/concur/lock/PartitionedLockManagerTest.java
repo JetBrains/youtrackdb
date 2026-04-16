@@ -314,10 +314,9 @@ public class PartitionedLockManagerTest {
   }
 
   /**
-   * Batch exclusive lock acquisition for int array. Note: there is a pre-existing bug
-   * where the input values are not copied into the sorted array (line 352 allocates
-   * a zero-filled array instead of copying). All locks are acquired for partition
-   * index 0 regardless of input. This test documents the current (buggy) behavior.
+   * Batch exclusive lock acquisition for int array. Regression test: the input values
+   * must be copied into the sorted array (previously allocated a zero-filled array,
+   * causing all locks to be acquired for partition 0 regardless of input).
    */
   @Test
   public void testBatchExclusiveLockIntArray() {
@@ -325,6 +324,7 @@ public class PartitionedLockManagerTest {
     var locks = mgr.acquireExclusiveLocksInBatch(new int[] {1, 2, 3});
     assertEquals(3, locks.length);
     for (var lock : locks) {
+      assertNotNull(lock);
       lock.unlock();
     }
   }
