@@ -49,14 +49,12 @@ public class QueryOperatorContainsValue extends QueryOperatorEqualityNotNulls {
     return IndexReuseType.NO_INDEX;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public RID getBeginRidRange(DatabaseSessionEmbedded session, Object iLeft, Object iRight) {
     return null;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public RID getEndRidRange(DatabaseSessionEmbedded session, Object iLeft, Object iRight) {
     return null;
   }
@@ -140,10 +138,10 @@ public class QueryOperatorContainsValue extends QueryOperatorEqualityNotNulls {
         for (var o : map.values()) {
           if ((Boolean) condition.evaluate((EntityImpl) o, null, iContext)) {
             return true;
-          } else {
-            return map.containsValue(iLeft);
           }
         }
+      } else {
+        return map.containsValue(iLeft);
       }
     }
     return false;
