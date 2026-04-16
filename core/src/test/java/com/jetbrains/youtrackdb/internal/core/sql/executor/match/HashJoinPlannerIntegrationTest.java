@@ -99,20 +99,28 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
    */
   @Test
   public void explainNotPattern_eligible_usesHashAntiJoin() {
-    session.begin();
-    var result = session.query(
-        "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}.out('Friend'){as:b},"
-            + " NOT {as:a}.out('Friend'){as:b, where:(name='n3')}"
-            + " RETURN b.name")
-        .toList();
-    assertEquals(1, result.size());
-    String plan = result.get(0).getProperty("executionPlanAsString");
-    assertNotNull(plan);
-    assertTrue("plan should use hash anti-join, got:\n" + plan,
-        plan.contains("HASH ANTI_JOIN"));
-    assertFalse("plan should NOT use nested-loop NOT step, got:\n" + plan,
-        plan.contains("+ NOT ("));
-    session.commit();
+    // Pin THRESHOLD to prevent concurrent tests (e.g. MatchStepUnitTest) from
+    // lowering it mid-execution, which would cause the planner to reject hash join.
+    var savedThreshold = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(10_000L);
+      session.begin();
+      var result = session.query(
+          "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}.out('Friend'){as:b},"
+              + " NOT {as:a}.out('Friend'){as:b, where:(name='n3')}"
+              + " RETURN b.name")
+          .toList();
+      assertEquals(1, result.size());
+      String plan = result.get(0).getProperty("executionPlanAsString");
+      assertNotNull(plan);
+      assertTrue("plan should use hash anti-join, got:\n" + plan,
+          plan.contains("HASH ANTI_JOIN"));
+      assertFalse("plan should NOT use nested-loop NOT step, got:\n" + plan,
+          plan.contains("+ NOT ("));
+      session.commit();
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(savedThreshold);
+    }
   }
 
   /**
@@ -267,9 +275,14 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
    */
   @Test
   public void diamondPattern_intermediateInReturn_usesHashInnerJoin() {
-    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.getValue();
+    // Save and pin both UPSTREAM_MIN and THRESHOLD to prevent concurrent tests
+    // (e.g. MatchStepUnitTest) from lowering the threshold mid-execution,
+    // which would cause the planner to reject the hash join.
+    var savedMin = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.getValue();
+    var savedThreshold = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
     try {
       GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(0L);
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(10_000L);
       session.begin();
       var result = session.query(
           "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
@@ -284,7 +297,8 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
           + plan, plan.contains("HASH INNER_JOIN"));
       session.commit();
     } finally {
-      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(saved);
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(savedThreshold);
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(savedMin);
     }
   }
 
@@ -322,9 +336,14 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
    */
   @Test
   public void explainDiamondPattern_semiJoinEligible_usesHashSemiJoin() {
-    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.getValue();
+    // Save and pin both UPSTREAM_MIN and THRESHOLD to prevent concurrent tests
+    // (e.g. MatchStepUnitTest) from lowering the threshold mid-execution,
+    // which would cause the planner to reject the hash join.
+    var savedMin = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.getValue();
+    var savedThreshold = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
     try {
       GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(0L);
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(10_000L);
       session.begin();
       var result = session.query(
           "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
@@ -339,7 +358,8 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
           plan.contains("HASH SEMI_JOIN"));
       session.commit();
     } finally {
-      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(saved);
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(savedThreshold);
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(savedMin);
     }
   }
 
@@ -352,9 +372,14 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
    */
   @Test
   public void semiJoin_regressionGuard_preservedAfterRefactor() {
-    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.getValue();
+    // Save and pin both UPSTREAM_MIN and THRESHOLD to prevent concurrent tests
+    // (e.g. MatchStepUnitTest) from lowering the threshold mid-execution,
+    // which would cause the planner to reject the hash join.
+    var savedMin = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.getValue();
+    var savedThreshold = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
     try {
       GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(0L);
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(10_000L);
       session.begin();
       // Verify plan shape: semi-join should still be selected after refactoring
       var explainResult = session.query(
@@ -383,7 +408,8 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
       assertEquals(Set.of("n1:t1", "n1:t2"), names);
       session.commit();
     } finally {
-      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(saved);
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(savedThreshold);
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(savedMin);
     }
   }
 
