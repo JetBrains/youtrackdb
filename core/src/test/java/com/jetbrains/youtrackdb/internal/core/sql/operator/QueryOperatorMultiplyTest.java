@@ -59,12 +59,12 @@ public class QueryOperatorMultiplyTest {
 
   @Test
   public void testFloatTimesInt() {
-    Assert.assertEquals(10.1 * 10, eval(10.1, 10));
+    Assert.assertEquals(10.1f * 10f, eval(10.1f, 10));
   }
 
   @Test
   public void testIntTimesFloat() {
-    Assert.assertEquals(10 * 10.1, eval(10, 10.1));
+    Assert.assertEquals(10f * 10.1f, eval(10, 10.1f));
   }
 
   @Test
@@ -168,6 +168,15 @@ public class QueryOperatorMultiplyTest {
         Short.class, QueryOperatorMultiply.getMaxPrecisionClass((short) 1, (short) 1));
   }
 
+  @Test
+  public void testGetMaxPrecisionClassHigherPrecisionOnRight() {
+    // Verify symmetry: higher-precision type on the right side is also detected
+    Assert.assertEquals(Double.class, QueryOperatorMultiply.getMaxPrecisionClass(1, 1.0d));
+    Assert.assertEquals(Long.class, QueryOperatorMultiply.getMaxPrecisionClass((short) 1, 1L));
+    Assert.assertEquals(
+        BigDecimal.class, QueryOperatorMultiply.getMaxPrecisionClass(1, new BigDecimal(1)));
+  }
+
   // --- tryDownscaleToInt ---
 
   @Test
@@ -179,14 +188,36 @@ public class QueryOperatorMultiplyTest {
 
   @Test
   public void testTryDownscaleToIntAboveRange() {
-    Object result = QueryOperatorMultiply.tryDownscaleToInt((long) Integer.MAX_VALUE + 1);
+    long input = (long) Integer.MAX_VALUE + 1;
+    Object result = QueryOperatorMultiply.tryDownscaleToInt(input);
     Assert.assertTrue(result instanceof Long);
+    Assert.assertEquals(input, result);
   }
 
   @Test
   public void testTryDownscaleToIntBelowRange() {
-    Object result = QueryOperatorMultiply.tryDownscaleToInt((long) Integer.MIN_VALUE - 1);
+    long input = (long) Integer.MIN_VALUE - 1;
+    Object result = QueryOperatorMultiply.tryDownscaleToInt(input);
     Assert.assertTrue(result instanceof Long);
+    Assert.assertEquals(input, result);
+  }
+
+  @Test
+  public void testTryDownscaleToIntAtExactMaxValue() {
+    // Integer.MAX_VALUE is a valid int but the production code uses strict < which
+    // excludes this boundary — it stays as Long. Pre-existing off-by-one.
+    Object result = QueryOperatorMultiply.tryDownscaleToInt((long) Integer.MAX_VALUE);
+    Assert.assertTrue(result instanceof Long);
+    Assert.assertEquals((long) Integer.MAX_VALUE, result);
+  }
+
+  @Test
+  public void testTryDownscaleToIntAtExactMinValue() {
+    // Integer.MIN_VALUE is a valid int but the production code uses strict > which
+    // excludes this boundary — it stays as Long. Pre-existing off-by-one.
+    Object result = QueryOperatorMultiply.tryDownscaleToInt((long) Integer.MIN_VALUE);
+    Assert.assertTrue(result instanceof Long);
+    Assert.assertEquals((long) Integer.MIN_VALUE, result);
   }
 
   // --- toBigDecimal utility ---

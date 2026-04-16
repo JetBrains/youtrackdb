@@ -60,12 +60,12 @@ public class QueryOperatorPlusTest {
 
   @Test
   public void testFloatPlusInt() {
-    Assert.assertEquals(10.1 + 10, eval(10.1, 10));
+    Assert.assertEquals(10.1f + 10f, eval(10.1f, 10));
   }
 
   @Test
   public void testIntPlusFloat() {
-    Assert.assertEquals(10 + 10.1, eval(10, 10.1));
+    Assert.assertEquals(10f + 10.1f, eval(10, 10.1f));
   }
 
   @Test
@@ -172,5 +172,20 @@ public class QueryOperatorPlusTest {
   @Test
   public void testFloatPlusFloat() {
     Assert.assertEquals(2.5f + 3.5f, eval(2.5f, 3.5f));
+  }
+
+  // --- Date + String interaction ---
+
+  @Test
+  public void testDatePlusStringConcatenatesEpochMillis() {
+    // Date is first converted to epoch millis (Long), then concatenated as string
+    Date date = new Date(1000L);
+    Assert.assertEquals("1000suffix", eval(date, "suffix"));
+  }
+
+  @Test
+  public void testStringPlusDateConcatenatesEpochMillis() {
+    Date date = new Date(1000L);
+    Assert.assertEquals("prefix1000", eval("prefix", date));
   }
 }

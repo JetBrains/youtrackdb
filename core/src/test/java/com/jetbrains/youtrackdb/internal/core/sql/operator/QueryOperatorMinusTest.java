@@ -61,12 +61,12 @@ public class QueryOperatorMinusTest {
 
   @Test
   public void testFloatMinusInt() {
-    Assert.assertEquals(10.1 - 10, eval(10.1, 10));
+    Assert.assertEquals(10.1f - 10f, eval(10.1f, 10));
   }
 
   @Test
   public void testIntMinusFloat() {
-    Assert.assertEquals(10 - 10.1, eval(10, 10.1));
+    Assert.assertEquals(10f - 10.1f, eval(10, 10.1f));
   }
 
   @Test
@@ -135,6 +135,12 @@ public class QueryOperatorMinusTest {
   public void testNullLeftNonNumericReturnsNull() {
     // left is null, right is 10 → null is not a Number, falls through to return null
     Assert.assertNull(eval(null, 10));
+  }
+
+  @Test
+  public void testBothNullReturnsNull() {
+    // right is null → return left (null)
+    Assert.assertNull(eval(null, null));
   }
 
   // --- Non-numeric returns null ---
