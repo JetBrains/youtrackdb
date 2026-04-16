@@ -254,47 +254,80 @@ public class WorkloadPropertyFilesTest {
 
   @Test
   public void allWorkloadProportionValuesAreExact() throws IOException {
+    // Verify all five proportions for each workload, including zeros.
+    // Zero-value lines are load-bearing: they suppress CoreWorkload defaults
+    // (e.g., readproportion defaults to 0.95, updateproportion to 0.05).
+
     // Workload B: 95% read, 5% update
     Properties b = loadWorkload("B");
     assertEquals("0.95", b.getProperty(CoreWorkload.READ_PROPORTION_PROPERTY));
     assertEquals("0.05", b.getProperty(CoreWorkload.UPDATE_PROPORTION_PROPERTY));
+    assertEquals("0.0", b.getProperty(CoreWorkload.INSERT_PROPORTION_PROPERTY));
+    assertEquals("0.0", b.getProperty(CoreWorkload.SCAN_PROPORTION_PROPERTY));
+    assertEquals("0.0",
+        b.getProperty(CoreWorkload.READMODIFYWRITE_PROPORTION_PROPERTY));
 
     // Workload C: 100% read
     Properties c = loadWorkload("C");
     assertEquals("1.0", c.getProperty(CoreWorkload.READ_PROPORTION_PROPERTY));
+    assertEquals("0.0", c.getProperty(CoreWorkload.UPDATE_PROPORTION_PROPERTY));
+    assertEquals("0.0", c.getProperty(CoreWorkload.INSERT_PROPORTION_PROPERTY));
+    assertEquals("0.0", c.getProperty(CoreWorkload.SCAN_PROPORTION_PROPERTY));
+    assertEquals("0.0",
+        c.getProperty(CoreWorkload.READMODIFYWRITE_PROPORTION_PROPERTY));
 
     // Workload E: 95% scan, 5% insert
     Properties e = loadWorkload("E");
-    assertEquals("0.95", e.getProperty(CoreWorkload.SCAN_PROPORTION_PROPERTY));
+    assertEquals("0.0", e.getProperty(CoreWorkload.READ_PROPORTION_PROPERTY));
+    assertEquals("0.0", e.getProperty(CoreWorkload.UPDATE_PROPORTION_PROPERTY));
     assertEquals("0.05", e.getProperty(CoreWorkload.INSERT_PROPORTION_PROPERTY));
+    assertEquals("0.95", e.getProperty(CoreWorkload.SCAN_PROPORTION_PROPERTY));
+    assertEquals("0.0",
+        e.getProperty(CoreWorkload.READMODIFYWRITE_PROPORTION_PROPERTY));
 
     // Workload W: 50% read, 50% update
     Properties w = loadWorkload("W");
     assertEquals("0.5", w.getProperty(CoreWorkload.READ_PROPORTION_PROPERTY));
     assertEquals("0.5", w.getProperty(CoreWorkload.UPDATE_PROPORTION_PROPERTY));
+    assertEquals("0.0", w.getProperty(CoreWorkload.INSERT_PROPORTION_PROPERTY));
+    assertEquals("0.0", w.getProperty(CoreWorkload.SCAN_PROPORTION_PROPERTY));
+    assertEquals("0.0",
+        w.getProperty(CoreWorkload.READMODIFYWRITE_PROPORTION_PROPERTY));
 
     // Workload I: 80% insert, 20% read
     Properties i = loadWorkload("I");
-    assertEquals("0.8", i.getProperty(CoreWorkload.INSERT_PROPORTION_PROPERTY));
     assertEquals("0.2", i.getProperty(CoreWorkload.READ_PROPORTION_PROPERTY));
+    assertEquals("0.0", i.getProperty(CoreWorkload.UPDATE_PROPORTION_PROPERTY));
+    assertEquals("0.8", i.getProperty(CoreWorkload.INSERT_PROPORTION_PROPERTY));
+    assertEquals("0.0", i.getProperty(CoreWorkload.SCAN_PROPORTION_PROPERTY));
+    assertEquals("0.0",
+        i.getProperty(CoreWorkload.READMODIFYWRITE_PROPORTION_PROPERTY));
   }
 
   @Test
   public void allWorkloadProportionsSumToOne() throws IOException {
+    // Use the same defaults that CoreWorkload.createOperationGenerator() uses,
+    // so a missing proportion line is detected as a sum mismatch rather than
+    // silently falling back to "0".
     for (String name : new String[] {"B", "C", "E", "W", "I"}) {
       Properties props = loadWorkload(name);
       double sum =
           Double.parseDouble(
-              props.getProperty(CoreWorkload.READ_PROPORTION_PROPERTY, "0"))
+              props.getProperty(CoreWorkload.READ_PROPORTION_PROPERTY,
+                  CoreWorkload.READ_PROPORTION_PROPERTY_DEFAULT))
               + Double.parseDouble(
-                  props.getProperty(CoreWorkload.UPDATE_PROPORTION_PROPERTY, "0"))
+                  props.getProperty(CoreWorkload.UPDATE_PROPORTION_PROPERTY,
+                      CoreWorkload.UPDATE_PROPORTION_PROPERTY_DEFAULT))
               + Double.parseDouble(
-                  props.getProperty(CoreWorkload.INSERT_PROPORTION_PROPERTY, "0"))
+                  props.getProperty(CoreWorkload.INSERT_PROPORTION_PROPERTY,
+                      CoreWorkload.INSERT_PROPORTION_PROPERTY_DEFAULT))
               + Double.parseDouble(
-                  props.getProperty(CoreWorkload.SCAN_PROPORTION_PROPERTY, "0"))
+                  props.getProperty(CoreWorkload.SCAN_PROPORTION_PROPERTY,
+                      CoreWorkload.SCAN_PROPORTION_PROPERTY_DEFAULT))
               + Double.parseDouble(
                   props.getProperty(
-                      CoreWorkload.READMODIFYWRITE_PROPORTION_PROPERTY, "0"));
+                      CoreWorkload.READMODIFYWRITE_PROPORTION_PROPERTY,
+                      CoreWorkload.READMODIFYWRITE_PROPORTION_PROPERTY_DEFAULT));
       assertEquals(
           "Workload " + name + " proportions should sum to 1.0",
           1.0, sum, 0.001);
