@@ -6761,4 +6761,300 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
       session.commit();
     }
   }
+
+  // =====================================================================
+  // loadSortFromRidSet coverage: single-source with downstream edges +
+  // LIMIT triggers local sort fallback when cost model rejects index scan.
+  // Exercises: loadSortFromRidSet, sortByOrderProperty (including null
+  // handling for both-null, va-null, vb-null branches).
+  // =====================================================================
+
+  /**
+   * Creates a 3-hop graph schema: TestPerson (unique name index) → TestMessage
+   * (indexed creationDate) → TestReply. Person1 has 6 messages: 2 with null
+   * creationDate, 4 with dates. Each message has 1 reply.
+   */
+  private void initLoadSortTestData() {
+    session.execute("CREATE CLASS TestPerson EXTENDS V").close();
+    session.execute("CREATE PROPERTY TestPerson.name STRING").close();
+    session.execute("CREATE INDEX TestPerson.name ON TestPerson(name) UNIQUE").close();
+
+    session.execute("CREATE CLASS TestMessage EXTENDS V").close();
+    session.execute("CREATE PROPERTY TestMessage.creationDate DATETIME").close();
+    session.execute("CREATE PROPERTY TestMessage.msgId LONG").close();
+    session.execute("CREATE CLASS TEST_HAS_CREATOR EXTENDS E").close();
+    session.execute(
+        "CREATE INDEX TestMessage.creationDate ON TestMessage(creationDate) NOTUNIQUE")
+        .close();
+
+    session.execute("CREATE CLASS TestReply EXTENDS V").close();
+    session.execute("CREATE PROPERTY TestReply.content STRING").close();
+    session.execute("CREATE CLASS TEST_REPLY_OF EXTENDS E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX TestPerson SET name = 'person1'").close();
+
+    // 6 messages: 2 with null creationDate, 4 with dates
+    session.execute(
+        "CREATE VERTEX TestMessage SET msgId = 1, creationDate = null").close();
+    session.execute(
+        "CREATE VERTEX TestMessage SET msgId = 2, creationDate = null").close();
+    for (var d = 1; d <= 4; d++) {
+      session.execute(
+          "CREATE VERTEX TestMessage SET msgId = " + (d + 2)
+              + ", creationDate = '2025-01-" + String.format("%02d", d) + " 00:00:00'")
+          .close();
+    }
+
+    // Create HAS_CREATOR edges
+    for (var i = 1; i <= 6; i++) {
+      session.execute(
+          "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestMessage WHERE msgId = "
+              + i + ") TO (SELECT FROM TestPerson WHERE name = 'person1')")
+          .close();
+    }
+
+    // Create 1 reply per message
+    for (var i = 1; i <= 6; i++) {
+      session.execute(
+          "CREATE VERTEX TestReply SET content = 'reply" + i + "'").close();
+      session.execute(
+          "CREATE EDGE TEST_REPLY_OF FROM (SELECT FROM TestReply WHERE content = 'reply"
+              + i + "') TO (SELECT FROM TestMessage WHERE msgId = " + i + ")")
+          .close();
+    }
+    session.commit();
+  }
+
+  /**
+   * Single-source 3-hop pattern: the cost model rejects index scan (MAX_SCAN=1)
+   * but downstream edges exist (msg→reply) and LIMIT is present, so the step
+   * falls into the loadSortFromRidSet path — loads all targets from LinkBag,
+   * sorts locally by creationDate, and emits as a pre-sorted stream.
+   *
+   * <p>Includes null creationDate values to exercise sortByOrderProperty null
+   * handling: both-null, va-null, and vb-null branches in the comparator.
+   *
+   * <p>Covers: processUpstreamRow lines 171-178 (downstreamEdges+LIMIT branch),
+   * loadSortFromRidSet lines 222-243, sortByOrderProperty lines 274-292.
+   */
+  @Test
+  public void testIndexOrderedMatchLoadSortFromRidSetWithDownstreamEdges()
+      throws Exception {
+    initLoadSortTestData();
+
+    // Use setIndexOrderedTestConfig to lower MIN_LINKBAG so the planner
+    // approves, then set MAX_SCAN=1 so the runtime cost model rejects
+    // index scan — forcing the loadSortFromRidSet fallback.
+    try (var cfg = setIndexOrderedTestConfig()) {
+      var oldMaxScan = GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.getValue();
+      GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.setValue(1L);
+      try {
+        session.begin();
+        // 3-hop: person → message → reply. ORDER BY on intermediate alias 'm'.
+        // The edge p→m is the optimized edge; m→r is a downstream edge.
+        // downstreamEdgeCount=1, limit=4 → loadSortFromRidSet path.
+        var query =
+            "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
+                + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m}"
+                + ".in('TEST_REPLY_OF'){class: TestReply, as: r} "
+                + "RETURN m.creationDate as cd, r.content as rc"
+                + " ORDER BY cd DESC LIMIT 4";
+        try (var result = session.query(query)) {
+          var plan = getPlan(result);
+          Assert.assertTrue(
+              "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+              plan.contains("INDEX ORDERED MATCH"));
+          // Single-source: no mode suffix
+          Assert.assertFalse(
+              "Should be single-source (no mode suffix), but plan was:\n" + plan,
+              plan.contains("FILTERED") || plan.contains("UNFILTERED"));
+
+          var cds = new java.util.ArrayList<Object>();
+          var contents = new java.util.ArrayList<String>();
+          while (result.hasNext()) {
+            var row = result.next();
+            cds.add(row.getProperty("cd"));
+            contents.add(row.getProperty("rc"));
+          }
+          Assert.assertEquals("Should have 4 results: " + cds, 4, cds.size());
+
+          // Reply content should be bound for every row
+          for (var content : contents) {
+            Assert.assertNotNull("Reply content should be bound", content);
+          }
+
+          // Verify non-null dates are in DESC order (nulls may appear in
+          // any consistent position — the sort comparator's null handling
+          // determines placement, and we're exercising those branches).
+          java.util.Date prevDate = null;
+          for (var cd : cds) {
+            if (cd instanceof java.util.Date d) {
+              if (prevDate != null) {
+                Assert.assertFalse(
+                    "Non-null dates should be in DESC order", d.after(prevDate));
+              }
+              prevDate = d;
+            }
+          }
+        }
+        session.commit();
+      } finally {
+        GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.setValue(oldMaxScan);
+      }
+    }
+  }
+
+  // =====================================================================
+  // Edge traversal (.outE) coverage: exercises the isEdgeTraversal=true
+  // code path in IndexOrderedEdgeStep and the planner.
+  // Covers: ridFromPair (edgeTraversal branch), resolveReverseEdges
+  // (edgeTraversal branch reading LINK field instead of LinkBag), and
+  // planner lines for edge traversal detection and reverse field calc.
+  // =====================================================================
+
+  /**
+   * Creates edge traversal test data: 5 ETPerson vertices connected by
+   * ET_KNOWS edges with an indexed weight property. 8 edges total.
+   */
+  private void initEdgeTraversalTestData() {
+    session.execute("CREATE CLASS ETPerson EXTENDS V").close();
+    session.execute("CREATE PROPERTY ETPerson.name STRING").close();
+
+    session.execute("CREATE CLASS ET_KNOWS EXTENDS E").close();
+    session.execute("CREATE PROPERTY ET_KNOWS.weight INTEGER").close();
+    session.execute(
+        "CREATE INDEX ET_KNOWS.weight ON ET_KNOWS(weight) NOTUNIQUE").close();
+
+    session.begin();
+    for (var name : new String[] {"alice", "bob", "carol", "dave", "eve"}) {
+      session.execute(
+          "CREATE VERTEX ETPerson SET name = '" + name + "'").close();
+    }
+
+    // 8 edges with distinct weights for deterministic ordering
+    var edges = new String[][] {
+        {"alice", "bob", "10"}, {"alice", "carol", "20"},
+        {"alice", "dave", "30"}, {"bob", "carol", "40"},
+        {"bob", "dave", "50"}, {"carol", "dave", "60"},
+        {"carol", "eve", "70"}, {"dave", "eve", "80"}
+    };
+    for (var edge : edges) {
+      session.execute(
+          "CREATE EDGE ET_KNOWS FROM (SELECT FROM ETPerson WHERE name = '"
+              + edge[0] + "') TO (SELECT FROM ETPerson WHERE name = '"
+              + edge[1] + "') SET weight = " + edge[2])
+          .close();
+    }
+    session.commit();
+  }
+
+  /**
+   * Multi-source UNFILTERED_UNBOUND with .outE() edge traversal. The target
+   * alias is the edge record itself (not a vertex), and the index is on the
+   * edge class property ET_KNOWS.weight.
+   *
+   * <p>Exercises the isEdgeTraversal=true code path:
+   * <ul>
+   *   <li>Planner: detects "outE" as edge traversal, sets targetClassName
+   *       from edgeClassName, computes reverseFieldName = linkBagDirection</li>
+   *   <li>Runtime: ridFromPair returns primaryRid (edge record RID),
+   *       resolveReverseEdges reads direct LINK field ("out") instead of
+   *       LinkBag, unfilteredUnbound class check on source vertex</li>
+   * </ul>
+   */
+  @Test
+  public void testIndexOrderedMatchEdgeTraversal() throws Exception {
+    initEdgeTraversalTestData();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      // .outE('ET_KNOWS') → edge traversal, target = edge record
+      // No WHERE on p, p not in RETURN → UNFILTERED_UNBOUND
+      var query =
+          "MATCH {class: ETPerson, as: p}"
+              + ".outE('ET_KNOWS'){as: e} "
+              + "RETURN e.weight as w ORDER BY w DESC LIMIT 5";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertTrue(
+            "Plan should use INDEX ORDERED MATCHE (edge traversal), but was:\n"
+                + plan,
+            plan.contains("INDEX ORDERED MATCHE"));
+        Assert.assertTrue(
+            "Plan should use UNFILTERED_UNBOUND mode, but was:\n" + plan,
+            plan.contains("UNFILTERED_UNBOUND"));
+
+        var weights = new java.util.ArrayList<Integer>();
+        while (result.hasNext()) {
+          var row = result.next();
+          weights.add(((Number) row.getProperty("w")).intValue());
+        }
+        Assert.assertEquals("Should have 5 results: " + weights, 5, weights.size());
+        // DESC: 80, 70, 60, 50, 40
+        Assert.assertEquals(80, (int) weights.get(0));
+        Assert.assertEquals(70, (int) weights.get(1));
+        Assert.assertEquals(60, (int) weights.get(2));
+        Assert.assertEquals(50, (int) weights.get(3));
+        Assert.assertEquals(40, (int) weights.get(4));
+      }
+      session.commit();
+    }
+  }
+
+  /**
+   * Edge traversal with UNFILTERED_BOUND: .outE() with source alias in RETURN.
+   * Verifies that the edge record's reverse LINK field ("out") correctly
+   * resolves back to the source vertex and binds it in the result row.
+   */
+  @Test
+  public void testIndexOrderedMatchEdgeTraversalBound() throws Exception {
+    initEdgeTraversalTestData();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      // p.name in RETURN → UNFILTERED_BOUND
+      var query =
+          "MATCH {class: ETPerson, as: p}"
+              + ".outE('ET_KNOWS'){as: e} "
+              + "RETURN p.name as pname, e.weight as w ORDER BY w ASC LIMIT 5";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertTrue(
+            "Plan should use INDEX ORDERED MATCHE (edge traversal), but was:\n"
+                + plan,
+            plan.contains("INDEX ORDERED MATCHE"));
+        Assert.assertTrue(
+            "Plan should use UNFILTERED_BOUND mode, but was:\n" + plan,
+            plan.contains("UNFILTERED_BOUND"));
+
+        var weights = new java.util.ArrayList<Integer>();
+        var names = new java.util.ArrayList<String>();
+        while (result.hasNext()) {
+          var row = result.next();
+          weights.add(((Number) row.getProperty("w")).intValue());
+          names.add(row.getProperty("pname"));
+        }
+        Assert.assertEquals("Should have 5 results: " + weights, 5, weights.size());
+        // ASC: 10, 20, 30, 40, 50
+        Assert.assertEquals(10, (int) weights.get(0));
+        Assert.assertEquals(20, (int) weights.get(1));
+        Assert.assertEquals(30, (int) weights.get(2));
+        Assert.assertEquals(40, (int) weights.get(3));
+        Assert.assertEquals(50, (int) weights.get(4));
+        // Source binding: first 3 are from alice (weights 10,20,30)
+        Assert.assertEquals("alice", names.get(0));
+        Assert.assertEquals("alice", names.get(1));
+        Assert.assertEquals("alice", names.get(2));
+        // Weights 40,50 are from bob
+        Assert.assertEquals("bob", names.get(3));
+        Assert.assertEquals("bob", names.get(4));
+        // All names bound
+        for (var name : names) {
+          Assert.assertNotNull("Source name should be bound", name);
+        }
+      }
+      session.commit();
+    }
+  }
 }
