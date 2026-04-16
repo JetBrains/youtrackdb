@@ -252,10 +252,60 @@ public class ResourcePoolTest {
 
   // --- Constructor with min resources ---
 
-  /** Constructor with min > 0 does not pre-allocate (min is stored but unused). */
+  /** Constructor with min > 0 pre-allocates min resources into the pool. */
   @Test
-  public void testMinMaxConstructor() {
+  public void testMinMaxConstructorPreAllocates() {
     var pool = new ResourcePool<>(2, 5, new StringPoolListener());
     assertEquals(5, pool.getMaxResources());
+    assertEquals("min=2 should pre-allocate 2 resources",
+        2, pool.getCreatedInstances());
+    assertEquals("Pre-allocated resources should be in pool",
+        2, pool.getInPoolResources());
+    assertEquals("No permits should be consumed by pre-allocation",
+        5, pool.getAvailableResources());
+  }
+
+  // --- Constructor validation ---
+
+  /** Constructor rejects max < 1. */
+  @Test(expected = IllegalArgumentException.class)
+  public void testConstructorRejectsZeroMax() {
+    new ResourcePool<>(0, new StringPoolListener());
+  }
+
+  /** Constructor rejects negative max. */
+  @Test(expected = IllegalArgumentException.class)
+  public void testConstructorRejectsNegativeMax() {
+    new ResourcePool<>(-1, new StringPoolListener());
+  }
+
+  // --- Creation failure ---
+
+  /**
+   * When createNewResource throws, the semaphore permit must be released so
+   * the pool doesn't permanently lose capacity.
+   */
+  @Test
+  public void testSemaphoreReleasedWhenCreateNewResourceThrows() {
+    var failingListener = new ResourcePoolListener<String, String>() {
+      @Override
+      public String createNewResource(String key, Object... args) {
+        throw new RuntimeException("simulated creation failure");
+      }
+
+      @Override
+      public boolean reuseResource(String key, Object[] args, String value) {
+        return true;
+      }
+    };
+    var pool = new ResourcePool<>(2, failingListener);
+    assertEquals(2, pool.getAvailableResources());
+    try {
+      pool.getResource("key", -1);
+    } catch (RuntimeException expected) {
+      // expected
+    }
+    assertEquals("Permit must be restored after creation failure",
+        2, pool.getAvailableResources());
   }
 }
