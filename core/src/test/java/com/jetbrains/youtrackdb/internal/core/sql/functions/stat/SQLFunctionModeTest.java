@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.functions.stat;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -27,10 +28,10 @@ public class SQLFunctionModeTest {
 
   @Test
   public void testSingleMode() {
-    var scores = new int[]{1, 2, 3, 3, 3, 2};
+    var scores = new int[] {1, 2, 3, 3, 3, 2};
 
     for (var s : scores) {
-      mode.execute(null, null, null, new Object[]{s}, null);
+      mode.execute(null, null, null, new Object[] {s}, null);
     }
 
     var result = mode.getResult();
@@ -39,10 +40,10 @@ public class SQLFunctionModeTest {
 
   @Test
   public void testMultiMode() {
-    var scores = new int[]{1, 2, 3, 3, 3, 2, 2};
+    var scores = new int[] {1, 2, 3, 3, 3, 2, 2};
 
     for (var s : scores) {
-      mode.execute(null, null, null, new Object[]{s}, null);
+      mode.execute(null, null, null, new Object[] {s}, null);
     }
 
     var result = mode.getResult();
@@ -59,10 +60,22 @@ public class SQLFunctionModeTest {
     scores[1] = Arrays.asList(1, 1, 1, 2, null);
 
     for (var s : scores) {
-      mode.execute(null, null, null, new Object[]{s}, null);
+      mode.execute(null, null, null, new Object[] {s}, null);
     }
 
     var result = mode.getResult();
     assertEquals(1, (int) ((List<Integer>) result).get(0));
+  }
+
+  @Test
+  public void testAggregateResultsIsAlwaysTrue() {
+    assertTrue(mode.aggregateResults());
+  }
+
+  @Test
+  public void testGetSyntaxAdvertisesFunctionShape() {
+    var syntax = mode.getSyntax(null);
+    assertNotNull(syntax);
+    assertTrue("Expected 'mode(' prefix, got: " + syntax, syntax.startsWith("mode("));
   }
 }
