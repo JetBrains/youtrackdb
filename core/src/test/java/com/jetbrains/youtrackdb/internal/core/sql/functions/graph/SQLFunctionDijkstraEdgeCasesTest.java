@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.functions.graph;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -93,8 +94,15 @@ public class SQLFunctionDijkstraEdgeCasesTest {
 
   @After
   public void tearDown() {
-    session.close();
-    youTrackDB.close();
+    if (session != null && !session.isClosed() && session.isTxActive()) {
+      session.rollback();
+    }
+    if (session != null) {
+      session.close();
+    }
+    if (youTrackDB != null) {
+      youTrackDB.close();
+    }
   }
 
   private void reload() {
@@ -161,7 +169,11 @@ public class SQLFunctionDijkstraEdgeCasesTest {
 
   /**
    * Non-existent weight field → Astar's {@code getDistance(Edge)} returns {@code MIN=0} via the
-   * null branch; algorithm still runs and finds a path.
+   * null branch. With all weights treated as 0, multiple equally-optimal paths exist
+   * (v1→v3→v4 shortcut = 3 vertices; v1→v2→v3→v4 = 4 vertices). The A* open-set processes
+   * vertices in f-score order with ties broken by insertion order; since insertion order can
+   * vary across JVM heap layouts, accept either canonical path but reject any out-of-graph or
+   * out-of-bounds result.
    */
   @Test
   public void dijkstraWithMissingWeightFieldFallsBackToZeroDistance() {
@@ -173,32 +185,39 @@ public class SQLFunctionDijkstraEdgeCasesTest {
     List<Vertex> path =
         function.execute(null, null, null, new Object[] {v1, v4, "'nonexistentWeight'"}, context);
 
-    // With all edge weights = 0 (missing property), any reachable destination returns a path
-    // based on graph traversal, not weights.
     assertNotNull(path);
-    assertTrue("expected a non-empty path when weight field is missing", path.size() >= 2);
     assertEquals(v1, path.get(0));
     assertEquals(v4, path.get(path.size() - 1));
+    // The two canonical zero-weight paths in the fixture.
+    assertTrue(
+        "unexpected path length (fixture admits only 3-vertex or 4-vertex traversals): "
+            + path.size(),
+        path.size() == 3 || path.size() == 4);
+    // Every intermediate vertex must come from the fixture graph (no ghost vertices).
+    for (var v : path) {
+      assertTrue(
+          "path contains vertex not from fixture: " + v,
+          v.equals(v1) || v.equals(v2) || v.equals(v3) || v.equals(v4));
+    }
     tx.commit();
   }
 
   /**
    * Legacy {@code getDistance(node, target)} method returns {@code -1f} sentinel — documented as
-   * "not used anymore" but still on the public hierarchy, so pin the sentinel.
+   * "not used anymore" but still on the public hierarchy, so pin the sentinel. No DB state
+   * required — pure-stub method.
    */
   @Test
   public void dijkstraGetDistanceNodeTargetReturnsLegacySentinel() {
-    var tx = session.begin();
-    reload();
     assertEquals(-1.0f, function.getDistance(v1, v2), 0.0f);
-    tx.commit();
   }
 
+  /** Pin the exact Dijkstra syntax string so parameter-name drift is caught. */
   @Test
   public void dijkstraSyntaxExposesFourParameterSignature() {
-    assertTrue(function.getSyntax(session).contains("dijkstra"));
-    assertTrue(function.getSyntax(session).contains("weight"));
-    assertTrue(function.getSyntax(session).contains("direction"));
+    assertEquals(
+        "dijkstra(<sourceVertex>, <destinationVertex>, <weightEdgeFieldName>, [<direction>])",
+        function.getSyntax(session));
   }
 
   @Test
@@ -212,6 +231,6 @@ public class SQLFunctionDijkstraEdgeCasesTest {
   public void dijkstraAggregateResultsIsFalse() {
     // Inherited from SQLFunctionAstar via SQLFunctionPathFinder — traversal functions are never
     // aggregated; pinning here guards against an accidental override in Dijkstra.
-    assertEquals(Boolean.FALSE, Boolean.valueOf(function.aggregateResults()));
+    assertFalse(function.aggregateResults());
   }
 }

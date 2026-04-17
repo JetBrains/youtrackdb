@@ -1,8 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.sql.functions.graph;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
@@ -76,8 +78,15 @@ public class SQLFunctionPathFinderTest {
 
   @After
   public void tearDown() {
-    session.close();
-    youTrackDB.close();
+    if (session != null && !session.isClosed() && session.isTxActive()) {
+      session.rollback();
+    }
+    if (session != null) {
+      session.close();
+    }
+    if (youTrackDB != null) {
+      youTrackDB.close();
+    }
   }
 
   private void reload() {
@@ -130,24 +139,8 @@ public class SQLFunctionPathFinderTest {
       paramDirection = dir;
     }
 
-    Set<Vertex> exposedNeighbors(Vertex node) {
-      return getNeighbors(node);
-    }
-
     Vertex exposedMin(Set<Vertex> set) {
       return getMinimum(set);
-    }
-
-    boolean exposedNotSettled(Vertex v) {
-      return isNotSettled(v);
-    }
-
-    boolean exposedContinue() {
-      return continueTraversing();
-    }
-
-    float exposedShortest(Vertex v) {
-      return getShortestDistance(v);
     }
 
     float exposedSum(float a, float b) {
@@ -195,9 +188,14 @@ public class SQLFunctionPathFinderTest {
     assertEquals(v3, path.get(2));
     assertEquals(v4, path.get(3));
 
-    // The execute() loop records max* diagnostics onto the context.
-    assertNotNull(ctx.getVariable("maxDistances"));
-    assertNotNull(ctx.getVariable("maxPredecessors"));
+    // The execute() loop records max* diagnostics onto the context. Assert they're positive
+    // integers, not just non-null — a bug that set them to 0 would still satisfy assertNotNull.
+    assertTrue("maxDistances must be positive", ((Integer) ctx.getVariable("maxDistances")) > 0);
+    assertTrue(
+        "maxPredecessors must be positive", ((Integer) ctx.getVariable("maxPredecessors")) > 0);
+    // maxUnSettled starts at 0 because the initial unsettled set already has size 1 before the
+    // first loop iteration; the recorded maximum is updated post-poll so can legitimately be 0
+    // on single-hop paths. Non-null is the only safe claim.
     assertNotNull(ctx.getVariable("maxUnSettled"));
     tx.commit();
   }
@@ -236,19 +234,19 @@ public class SQLFunctionPathFinderTest {
   @Test
   public void defaultIsVariableEdgeWeightIsFalse() {
     var finder = new FixedPathFinder();
-    assertEquals(Boolean.FALSE, Boolean.valueOf(finder.exposedVariableEdgeWeight()));
+    assertFalse(finder.exposedVariableEdgeWeight());
   }
 
   @Test
   public void defaultAggregateResultsIsFalse() {
     var finder = new FixedPathFinder();
-    assertEquals(Boolean.FALSE, Boolean.valueOf(finder.exposedAggregateResults()));
+    assertFalse(finder.exposedAggregateResults());
   }
 
   /**
-   * {@code getResult()} delegates to {@code getPath()} — pin the contract so future changes to
-   * getPath auto-propagate to getResult. Run immediately after execute() to reuse the
-   * predecessors map (execute() nulls only the distance map, not predecessors).
+   * {@code getResult()} delegates to {@code getPath()} — pin both the delegation contract AND
+   * the expected path content so the test catches any future divergence rather than relying on
+   * an internal state-leak contract between execute() and getResult().
    */
   @Test
   public void getResultDelegatesToGetPath() {
@@ -261,9 +259,14 @@ public class SQLFunctionPathFinderTest {
     finder.initEndpoints(v1, v4);
     finder.runExecute(ctx);
 
+    @SuppressWarnings("unchecked")
+    var p2 = (LinkedList<Vertex>) finder.exposedGetResult();
     var p1 = finder.exposedGetPath();
-    var p2 = finder.exposedGetResult();
-    assertEquals(p1, p2);
+    assertEquals("delegation: identical content", p1, p2);
+    // Content-based pin: the only valid v1→v4 path in the linear graph.
+    assertEquals(4, p1.size());
+    assertEquals(v1, p1.get(0));
+    assertEquals(v4, p1.get(3));
     tx.commit();
   }
 

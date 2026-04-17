@@ -2,6 +2,8 @@ package com.jetbrains.youtrackdb.internal.core.sql.functions.graph;
 
 import static java.util.Arrays.asList;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -78,8 +80,17 @@ public class SQLFunctionShortestPathEdgeTest {
 
   @After
   public void tearDown() {
-    session.close();
-    youTrackDB.close();
+    // Roll back any lingering transaction so session.close() does not mask a real failure
+    // with a secondary "active transaction" exception. Matches the Step 1 convention.
+    if (session != null && !session.isClosed() && session.isTxActive()) {
+      session.rollback();
+    }
+    if (session != null) {
+      session.close();
+    }
+    if (youTrackDB != null) {
+      youTrackDB.close();
+    }
   }
 
   private void reloadVertices() {
@@ -122,12 +133,30 @@ public class SQLFunctionShortestPathEdgeTest {
     assertEquals(vertices.get(1).getIdentity(), result.get(0));
     assertEquals(vertices.get(3).getIdentity(), result.get(2));
     assertEquals(vertices.get(4).getIdentity(), result.get(4));
-    // Slots 1 and 3 are edge RIDs — must be Identifiable records that are NOT vertices.
+    // Slots 1 and 3 are edge RIDs — must be edges connecting the adjacent vertex slots (not
+    // just "any edge"). This pins the interleaving contract the test documents.
     var tx = session.getActiveTransaction();
     Entity edge1 = tx.load((RID) result.get(1));
     Entity edge2 = tx.load((RID) result.get(3));
-    assertTrue("slot 1 is expected to be an edge record", edge1.isEdge());
-    assertTrue("slot 3 is expected to be an edge record", edge2.isEdge());
+    assertTrue("slot 1 should be an edge record", edge1.isEdge());
+    assertTrue("slot 3 should be an edge record", edge2.isEdge());
+    var e1 = edge1.asEdge();
+    var e2 = edge2.asEdge();
+    // edge1 connects (v1, v3) — either direction is acceptable for BOTH traversal.
+    assertSame(
+        "edge1 must connect v1 and v3",
+        Boolean.TRUE,
+        (e1.getFrom().getIdentity().equals(vertices.get(1).getIdentity())
+            && e1.getTo().getIdentity().equals(vertices.get(3).getIdentity()))
+            || (e1.getFrom().getIdentity().equals(vertices.get(3).getIdentity())
+                && e1.getTo().getIdentity().equals(vertices.get(1).getIdentity())));
+    assertSame(
+        "edge2 must connect v3 and v4",
+        Boolean.TRUE,
+        (e2.getFrom().getIdentity().equals(vertices.get(3).getIdentity())
+            && e2.getTo().getIdentity().equals(vertices.get(4).getIdentity()))
+            || (e2.getFrom().getIdentity().equals(vertices.get(4).getIdentity())
+                && e2.getTo().getIdentity().equals(vertices.get(3).getIdentity())));
     session.commit();
   }
 
@@ -239,9 +268,6 @@ public class SQLFunctionShortestPathEdgeTest {
 
   @Test
   public void shortestPathNullSourceRaisesIllegalArgument() {
-    session.begin();
-    reloadVertices();
-
     var context = new BasicCommandContext();
     context.setDatabaseSession(session);
 
@@ -249,17 +275,16 @@ public class SQLFunctionShortestPathEdgeTest {
       function.execute(null, null, null, new Object[] {null, vertices.get(4)}, context);
       fail("null source should raise IllegalArgumentException");
     } catch (IllegalArgumentException expected) {
-      assertTrue(expected.getMessage(),
-          expected.getMessage() != null && expected.getMessage().contains("sourceVertex"));
+      assertEquals("Only one sourceVertex is allowed", expected.getMessage());
     }
-    session.commit();
   }
 
   @Test
   public void shortestPathNullDestinationRaisesIllegalArgument() {
+    // Source-side gets past the guard and tries to load the vertex, so we need an active tx
+    // to reach the destination-null check. tearDown rolls back if the commit is skipped.
     session.begin();
     reloadVertices();
-
     var context = new BasicCommandContext();
     context.setDatabaseSession(session);
 
@@ -267,8 +292,7 @@ public class SQLFunctionShortestPathEdgeTest {
       function.execute(null, null, null, new Object[] {vertices.get(1), null}, context);
       fail("null destination should raise IllegalArgumentException");
     } catch (IllegalArgumentException expected) {
-      assertTrue(expected.getMessage(),
-          expected.getMessage() != null && expected.getMessage().contains("destinationVertex"));
+      assertEquals("Only one destinationVertex is allowed", expected.getMessage());
     }
     session.commit();
   }
@@ -294,8 +318,53 @@ public class SQLFunctionShortestPathEdgeTest {
       function.execute(null, null, null, new Object[] {managed, vertices.get(4)}, context);
       fail("plain entity source should raise IllegalArgumentException");
     } catch (IllegalArgumentException expected) {
-      assertTrue(expected.getMessage(),
-          expected.getMessage() != null && expected.getMessage().contains("sourceVertex"));
+      assertEquals("The sourceVertex must be a vertex record", expected.getMessage());
+    }
+    session.commit();
+  }
+
+  /**
+   * Symmetric coverage: non-vertex destination hits the parallel throw at line 117 of
+   * SQLFunctionShortestPath. Uses a separate class from shortestPathNonVertexSourceRaises
+   * IllegalArgument to avoid class-creation conflicts.
+   */
+  @Test
+  public void shortestPathNonVertexDestinationRaisesIllegalArgument() {
+    session.getSchema().createClass("PlainDst");
+    session.begin();
+    var plain = session.newEntity("PlainDst");
+    plain.setProperty("k", "v");
+    session.commit();
+
+    session.begin();
+    reloadVertices();
+    var managed = session.load(plain.getIdentity());
+
+    var context = new BasicCommandContext();
+    context.setDatabaseSession(session);
+
+    try {
+      function.execute(null, null, null, new Object[] {vertices.get(1), managed}, context);
+      fail("plain entity destination should raise IllegalArgumentException");
+    } catch (IllegalArgumentException expected) {
+      assertEquals("The destinationVertex must be a vertex record", expected.getMessage());
+    }
+    session.commit();
+  }
+
+  /** Literal-string destination exercises the final `else throw` branch for the destination. */
+  @Test
+  public void shortestPathLiteralStringDestinationRaisesIllegalArgument() {
+    session.begin();
+    reloadVertices();
+    var context = new BasicCommandContext();
+    context.setDatabaseSession(session);
+
+    try {
+      function.execute(null, null, null, new Object[] {vertices.get(1), "not-a-vertex"}, context);
+      fail("literal string destination should raise IllegalArgumentException");
+    } catch (IllegalArgumentException expected) {
+      assertEquals("The destinationVertex must be a vertex record", expected.getMessage());
     }
     session.commit();
   }
@@ -317,15 +386,104 @@ public class SQLFunctionShortestPathEdgeTest {
       function.execute(null, null, null, new Object[] {"not-a-vertex", vertices.get(4)}, context);
       fail("literal string source should raise IllegalArgumentException");
     } catch (IllegalArgumentException expected) {
-      assertTrue(expected.getMessage(),
-          expected.getMessage() != null && expected.getMessage().contains("sourceVertex"));
+      assertEquals("The sourceVertex must be a vertex record", expected.getMessage());
     }
+  }
+
+  /**
+   * maxDepth=0 forces an immediate break on the first loop-entry {@code maxDepth ≤ depth} check
+   * (depth starts at 1). Complements {@link SQLFunctionShortestPathTest}'s maxDepth tests which
+   * all start at 3+.
+   */
+  @Test
+  public void shortestPathWithMaxDepthZeroReturnsEmpty() {
+    session.begin();
+    reloadVertices();
+
+    var context = new BasicCommandContext();
+    context.setDatabaseSession(session);
+
+    Map<String, Object> opts = new HashMap<>();
+    opts.put("maxDepth", 0);
+
+    var result =
+        function.execute(
+            null,
+            null,
+            null,
+            new Object[] {vertices.get(1), vertices.get(4), "OUT", null, opts},
+            context);
+
+    assertNotNull(result);
+    assertEquals(0, result.size());
     session.commit();
   }
 
+  /**
+   * {@code edge="true"} hits the String-path of {@code toBoolean} (the parseBoolean branch);
+   * the returned path must still be the interleaved vertex/edge form, matching the Boolean
+   * true case.
+   */
+  @Test
+  public void shortestPathWithEdgeOptionAsStringTrueUsesInterleavedForm() {
+    session.begin();
+    reloadVertices();
+
+    var context = new BasicCommandContext();
+    context.setDatabaseSession(session);
+
+    Map<String, Object> opts = new HashMap<>();
+    opts.put("edge", "true");
+
+    var result =
+        function.execute(
+            null,
+            null,
+            null,
+            new Object[] {vertices.get(1), vertices.get(4), "BOTH", null, opts},
+            context);
+
+    assertEquals(5, result.size()); // same size as the Boolean.TRUE test
+    session.commit();
+  }
+
+  /**
+   * {@code edge=Boolean.FALSE} explicitly covers the negative path through {@code toBoolean} →
+   * {@code ctx.edge = FALSE} → vertex-only walk (3-element path).
+   */
+  @Test
+  public void shortestPathWithEdgeOptionExplicitFalseUsesVertexOnlyWalk() {
+    session.begin();
+    reloadVertices();
+
+    var context = new BasicCommandContext();
+    context.setDatabaseSession(session);
+
+    Map<String, Object> opts = new HashMap<>();
+    opts.put("edge", Boolean.FALSE);
+
+    var result =
+        function.execute(
+            null,
+            null,
+            null,
+            new Object[] {vertices.get(1), vertices.get(4), "BOTH", null, opts},
+            context);
+
+    // vertex-only: v1 → v3 → v4, size 3.
+    assertEquals(3, result.size());
+    assertEquals(vertices.get(1).getIdentity(), result.get(0));
+    assertEquals(vertices.get(3).getIdentity(), result.get(1));
+    assertEquals(vertices.get(4).getIdentity(), result.get(2));
+    session.commit();
+  }
+
+  /** Pin the full syntax string so drift in parameter names is caught. */
   @Test
   public void shortestPathSyntaxExposesExpectedForm() {
-    assertTrue(
-        function.getSyntax(session).contains("shortestPath"));
+    assertEquals(
+        "shortestPath(<sourceVertex>, <destinationVertex>,"
+            + " [<direction>, [ <edgeTypeAsString> ]])",
+        function.getSyntax(session));
   }
 }
