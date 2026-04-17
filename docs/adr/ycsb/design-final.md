@@ -1,15 +1,3 @@
----
-source_files:
-  - ycsb/src/main/**
-  - ycsb/workloads/*.properties
-  - ycsb/run-ycsb.sh
-  - ycsb/pom.xml
-related_docs:
-  - docs/adr/ycsb/design.md
-  - docs/adr/ycsb/adr.md
-  - ycsb/README.md
----
-
 # YCSB Benchmark Module — Final Design
 
 ## Overview
