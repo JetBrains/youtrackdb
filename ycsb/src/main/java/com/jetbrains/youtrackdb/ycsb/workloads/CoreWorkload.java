@@ -652,12 +652,19 @@ public class CoreWorkload extends Workload {
   public boolean doInsert(DB db, Object threadstate) {
     int keynum = keysequence.nextValue().intValue();
     String dbkey = CoreWorkload.buildKeyName(keynum, zeropadding, orderedinserts);
-    HashMap<String, ByteIterator> values = buildValues(dbkey);
+    // Materialize field values before the retry loop. Drivers typically read
+    // ByteIterator contents via toString()/nextByte(), which exhausts the
+    // iterator for RandomByteIterator. Without materialization, a retry would
+    // pass empty values to the driver.
+    Map<String, String> materialized = new HashMap<>();
+    for (Map.Entry<String, ByteIterator> entry : buildValues(dbkey).entrySet()) {
+      materialized.put(entry.getKey(), entry.getValue().toString());
+    }
 
     Status status;
     int numOfRetries = 0;
     do {
-      status = db.insert(table, dbkey, values);
+      status = db.insert(table, dbkey, StringByteIterator.getByteIteratorMap(materialized));
       if (null != status && status.isOk()) {
         break;
       }

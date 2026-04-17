@@ -17,6 +17,8 @@
 package com.jetbrains.youtrackdb.ycsb.binding;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -33,6 +35,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -722,6 +725,172 @@ public class YouTrackDBYqlClientTest {
     assertEquals(Status.ERROR, result);
     assertEquals("Should have been called exactly once (no retry)",
         1, callCount.get());
+  }
+
+  /**
+   * Regression test: {@code update()} must materialize ByteIterator values
+   * into Strings <em>before</em> entering the CME retry loop. If the
+   * lambda passed to {@code executeWithRetry} re-reads the iterators on
+   * a retry, a RandomByteIterator-like iterator would be exhausted by
+   * the first attempt and the retry would write an empty string.
+   *
+   * <p>We deterministically force a "retry" via a test-only subclass that
+   * overrides {@code executeWithRetry} to invoke the operation twice in a
+   * row (no CME required). With the fix in place, {@code toString()} is
+   * invoked exactly once on the source iterator regardless of how many
+   * times the lambda runs. Without the fix, each lambda execution would
+   * call {@code toString()} again, and the second call would observe an
+   * empty value.
+   */
+  @Test
+  public void testUpdateMaterializesByteIteratorsBeforeRetry() {
+    // Seed the target record.
+    Map<String, ByteIterator> seed = new HashMap<>();
+    seed.put("field0", new StringByteIterator("seed"));
+    assertEquals(Status.OK, client.insert("usertable", "mat-key", seed));
+
+    // Use a subclass that simulates a single CME retry deterministically
+    // by invoking the retry operation twice before returning OK.
+    RetrySimulatingClient retrying = new RetrySimulatingClient();
+    Properties props = new Properties();
+    props.setProperty(YouTrackDBYqlClient.URL_PROPERTY, tempDir.toString());
+    props.setProperty(YouTrackDBYqlClient.DB_NAME_PROPERTY, "testdb");
+    props.setProperty(YouTrackDBYqlClient.DB_TYPE_PROPERTY, "MEMORY");
+    // Do not recreate — attach to the same shared db as setUp().
+    props.setProperty(YouTrackDBYqlClient.NEW_DB_PROPERTY, "false");
+    retrying.setProperties(props);
+    try {
+      retrying.init();
+
+      AtomicInteger calls = new AtomicInteger();
+      SingleUseByteIterator iter = new SingleUseByteIterator("payload", calls);
+      Map<String, ByteIterator> updates = new HashMap<>();
+      updates.put("field0", iter);
+
+      Status status = retrying.update("usertable", "mat-key", updates);
+      assertEquals("Update must succeed even when the retry runs the"
+          + " operation twice", Status.OK, status);
+      assertEquals("RetrySimulatingClient must have invoked the retryable"
+          + " operation twice", 2, retrying.operationInvocations);
+      assertEquals("toString() must be called exactly once per value,"
+          + " regardless of retry count. If it is called more than once,"
+          + " materialization was skipped and a real CME retry would"
+          + " write an empty string to the database.",
+          1, calls.get());
+
+      // Verify the update actually wrote "payload" — sanity check that the
+      // retry loop did not corrupt the data either.
+      Map<String, ByteIterator> result = new HashMap<>();
+      assertEquals(Status.OK,
+          retrying.read("usertable", "mat-key", null, result));
+      assertEquals("payload", result.get("field0").toString());
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    } finally {
+      try {
+        retrying.cleanup();
+      } catch (Exception ignored) {
+        // best effort
+      }
+    }
+  }
+
+  /**
+   * Subclass that replaces the CME-based retry loop with a deterministic
+   * double-invocation of the operation. Used to verify that values
+   * captured by the retryable lambda remain stable across invocations.
+   */
+  private static final class RetrySimulatingClient extends YouTrackDBYqlClient {
+    int operationInvocations = 0;
+
+    @Override
+    Status executeWithRetry(RetryableOperation operation,
+        String opName, String key) {
+      try {
+        operation.execute();
+        operationInvocations++;
+        operation.execute();
+        operationInvocations++;
+        return Status.OK;
+      } catch (Exception e) {
+        return Status.ERROR;
+      }
+    }
+  }
+
+  /**
+   * Regression test: {@code read()} with a {@code fields} set that includes
+   * a property not set on the target vertex must succeed without throwing
+   * {@code NoSuchElementException}. {@code extractFields} must guard each
+   * lookup with {@code VertexProperty.isPresent()} rather than calling
+   * {@code vertex.value(field)} directly.
+   */
+  @Test
+  public void testReadWithMissingFieldDoesNotThrow() {
+    // Insert a vertex with only field0 populated; field5 and field9 are
+    // declared in the schema but never assigned a value.
+    Map<String, ByteIterator> values = new HashMap<>();
+    values.put("field0", new StringByteIterator("only-set"));
+    assertEquals(Status.OK, client.insert("usertable", "partial-key", values));
+
+    // Ask for a mix of present and missing fields.
+    Set<String> fields = new HashSet<>();
+    fields.add("field0");
+    fields.add("field5");
+    fields.add("field9");
+
+    Map<String, ByteIterator> result = new HashMap<>();
+    Status status = client.read("usertable", "partial-key", fields, result);
+    assertEquals("Read must not crash on missing fields", Status.OK, status);
+
+    assertNotNull("Present field should be returned", result.get("field0"));
+    assertEquals("only-set", result.get("field0").toString());
+    assertFalse("Missing field5 must be absent from result",
+        result.containsKey("field5"));
+    assertFalse("Missing field9 must be absent from result",
+        result.containsKey("field9"));
+  }
+
+  /**
+   * Test-only ByteIterator that counts {@code toString()} invocations.
+   * Returns its value on the first call and an empty string thereafter,
+   * simulating the exhaustion behavior of {@link
+   * com.jetbrains.youtrackdb.ycsb.RandomByteIterator}.
+   */
+  private static final class SingleUseByteIterator extends ByteIterator {
+    private final String value;
+    private final AtomicInteger callCount;
+    private boolean consumed;
+
+    SingleUseByteIterator(String value, AtomicInteger callCount) {
+      this.value = value;
+      this.callCount = callCount;
+    }
+
+    @Override
+    public boolean hasNext() {
+      return !consumed;
+    }
+
+    @Override
+    public byte nextByte() {
+      return 0;
+    }
+
+    @Override
+    public long bytesLeft() {
+      return consumed ? 0L : value.length();
+    }
+
+    @Override
+    public String toString() {
+      callCount.incrementAndGet();
+      if (consumed) {
+        return "";
+      }
+      consumed = true;
+      return value;
+    }
   }
 
   private static void deleteDirectory(Path dir) throws IOException {
