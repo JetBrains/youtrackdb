@@ -18,7 +18,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.functions.graph;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThrows;
-import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
@@ -190,6 +189,7 @@ public class SQLFunctionAstarEdgeCasesTest {
 
     session.begin();
     var v1Id = v1.getIdentity();
+    var v2Id = v2.getIdentity();
     var v3Id = v3.getIdentity();
     var managedOpts = session.load(optsRid);
 
@@ -201,13 +201,14 @@ public class SQLFunctionAstarEdgeCasesTest {
         new Object[] {v1Id, v3Id, "'weight'", managedOpts}, ctx);
 
     // Configuration coming from the stored record must produce the same path as if a Map
-    // literal had been used: v1 -> v2 -> v3.
+    // literal had been used: v1 -> v2 -> v3. Pin every hop (including the v2 middle) so a
+    // regression that still returned three elements with correct endpoints but a wrong
+    // intermediate vertex would fail.
     assertNotNull("Identifiable-options path must produce a non-null result", path);
     assertEquals(3, path.size());
-    assertTrue("path[0] must be the source vertex",
-        path.get(0).getIdentity().equals(v1Id));
-    assertTrue("path[2] must be the destination vertex",
-        path.get(2).getIdentity().equals(v3Id));
+    assertEquals("path[0] must be the source vertex", v1Id, path.get(0).getIdentity());
+    assertEquals("path[1] must be the only intermediate hop", v2Id, path.get(1).getIdentity());
+    assertEquals("path[2] must be the destination vertex", v3Id, path.get(2).getIdentity());
     session.rollback();
   }
 }

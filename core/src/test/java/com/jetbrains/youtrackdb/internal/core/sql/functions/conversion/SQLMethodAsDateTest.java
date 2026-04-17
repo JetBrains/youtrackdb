@@ -204,17 +204,23 @@ public class SQLMethodAsDateTest extends DbTestBase {
     // Pacific/Apia) the local wall clock falls into AM and the pin cannot fire; in that case
     // SKIP the test (Assume.assumeTrue) rather than silently passing, so the WHEN-FIXED contract
     // is never falsely "green" on incompatible runners.
+    //
+    // The assumption MUST gate on the INPUT instant, not on the production-mutated result:
+    // once the bug is fixed, production rewrites HOUR_OF_DAY=0 so the result's AM_PM reads AM
+    // on every runner. Gating on the result's AM_PM would make the test SKIP (not FAIL) once
+    // the bug is fixed — defeating the WHEN-FIXED contract.
     var pm = 1_700_056_730_000L;
+
+    var inputCal = new GregorianCalendar();
+    inputCal.setTimeInMillis(pm);
+    assumeTrue(
+        "TZ-dependent: this bug pin only fires when default TZ reads PM at 2023-11-15 13:45 UTC",
+        inputCal.get(Calendar.AM_PM) == Calendar.PM);
 
     var result = (Date) method().execute(Long.valueOf(pm), null, ctx(), null, new Object[] {});
 
     var cal = new GregorianCalendar();
     cal.setTime(result);
-    var amPm = cal.get(Calendar.AM_PM);
-    assumeTrue(
-        "TZ-dependent: this bug pin only fires when default TZ reads PM at 2023-11-15 13:45 UTC",
-        amPm == Calendar.PM);
-
     assertEquals(
         "WHEN-FIXED: production uses HOUR (AM/PM) → PM input lands on 12:00, not 00:00",
         12,
