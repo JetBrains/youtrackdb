@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (4/8 complete)
+- [ ] Step implementation (5/8 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -496,6 +496,160 @@
   > track's assumptions. The `ResultInternal.setMetadata` coercion detail
   > is pre-existing behaviour. No upstream assumptions broken for Steps
   > 5–8.
+
+- [x] Step 5: Misc standalone functions + SQLStaticReflectiveFunction
+  - [x] Context: info
+  > **What was done:** Added 104 unit tests across 11 new standalone test files
+  > in `sql/functions/misc` (no DbTestBase, all use `BasicCommandContext`):
+  > - `SQLFunctionCountTest` (8): non-null incrementation, null-skip, zero-arg
+  >   drift guard (minParams=1 is not enforced by the body), aggregateResults
+  >   pin, getResult no-clear, setResult coercion via Number.longValue (incl.
+  >   negative-value sign preservation), non-Number ClassCastException pin,
+  >   metadata.
+  > - `SQLFunctionIfTest` (12): Boolean/String/Number condition-type dispatch,
+  >   Number >0 / =0 / <0 intValue truncation, unsupported type → null,
+  >   null condition → null, 2-param false-path AIOOBE caught and swallowed to
+  >   null, syntax.
+  > - `SQLFunctionIfNullTest` (6): 2-arg null/non-null, 3-arg counter-intuitive
+  >   replacement semantics (third param is the "non-null replacement", not
+  >   the fallback), explicit null replacement honoured, metadata.
+  > - `SQLFunctionCoalesceTest` (7): first-non-null-wins, null-null-value,
+  >   all-null, single-non-null, single-null, empty-array drift guard
+  >   (minParams=1 not enforced).
+  > - `SQLFunctionAssertTest` (12): switch dispatch across Boolean/String/
+  >   Number/null/default with CommandExecutionException ("Unsupported
+  >   condition type: …") pinning; AssertionError-on-false with default
+  >   empty-message, explicit 2-arg message, numeric message toString
+  >   coercion; covers all -ea paths.
+  > - `SQLFunctionUUIDTest` (5): canonical 8-4-4-4-12 lowercase hex regex,
+  >   distinct-per-call, aggregateResults(params)=false, getResult=null,
+  >   metadata.
+  > - `SQLFunctionStrcmpciTest` (11): null/null, null/string, string/null
+  >   for both positions, equality, case-insensitive equality, less-than /
+  >   greater-than normalization (short- AND long-distance), non-String
+  >   first/second param treated-as-null drift guards, both non-String
+  >   returns zero (drift guard against hard-cast refactor).
+  > - `SQLFunctionSysdateTest` (6): zero-arg returns stored `now`
+  >   (assertSame across two calls — the "same date for all iterations"
+  >   contract), 2-arg path with explicit UTC timezone (expected ==
+  >   SimpleDateFormat equivalent, regex-shape drift guard), format-cache
+  >   contract (second call with different pattern/tz returns EXACTLY
+  >   firstCall), aggregateResults/getResult, metadata.
+  > - `SQLFunctionDecodeTest` (10): base64 String / binary round-trip,
+  >   case-insensitive format match (BASE64/Base64/base64), non-String
+  >   input via toString (StringBuilder drift guard), invalid base64 →
+  >   propagated IAE, empty-string boundary, unknown format → documented
+  >   wrong DatabaseException (with WHEN-FIXED marker), null candidate /
+  >   null format NPEs.
+  > - `SQLFunctionFormatMiscDeadTest` (6): covers the dead `misc.SQLFunctionFormat`
+  >   class (only `text.SQLFunctionFormat` is registered by
+  >   DefaultSQLFunctionFactory) with a prominent WHEN-FIXED marker in the
+  >   class Javadoc requesting deletion of the dead duplicate.
+  > - `SQLStaticReflectiveFunctionTest` (21): happy path, arity-based
+  >   overload resolution, primitive-weight sort order (int/long/double
+  >   with deliberately wrong input order), Integer→double autoboxing,
+  >   null arg matches any arity-1 method, String→Object assignability,
+  >   sort stability via private-field reflection (assertSame on each
+  >   position), 2→3 arity sort order; pickMethod()-via-reflection
+  >   negative tests (Integer→boolean, Double→long, Integer→StringBuilder
+  >   all return null from pickMethod rather than requiring a session for
+  >   QueryParsingException); byte→long, short→int, short→double, char→int,
+  >   byte→short, int→float, long→float, float→double widening matrix;
+  >   metadata.
+  >
+  > Dimensional review iteration 1 (5 agents) raised 0 blockers and ~17
+  > should-fix items. Applied in the Review-fix commit: replaced weak
+  > catch(Throwable)+assertNotNull tests with direct pickMethod reflection
+  > calls (TB1/BC3/CQ5/TS4); upgraded vacuous length assertion on Sysdate
+  > 2-arg test to exact+regex (TB2/BC1/BC2/TS3); upgraded format-cache
+  > test to full-string equality (TB3); tightened UUID to canonical regex
+  > (TB4); added negative-value case to Count.setResult (TB9); added
+  > exact-message pins for Assert empty-message cases (TB5/TB6) + numeric
+  > message toString pin (TC9); added invalid-base64 IAE propagation +
+  > empty-string boundary to Decode (TC2); added byte→long, short→double,
+  > int→float, long→float widening tests + Integer→StringBuilder
+  > incompatibility test via new `numericFloat`/`takesStringBuilder`
+  > fixtures (TC4/TC5); replaced Class.getMethods()[0] with explicit
+  > Method lookup (TB8/TS1); cleaned up assertEquals(true/false, …) in
+  > favour of assertTrue/assertFalse (CQ2/CQ3); simplified
+  > new Object[]{null}[0] obfuscation (CQ4).
+  >
+  > No production code was modified.
+  >
+  > **What was discovered:**
+  > - `misc.SQLFunctionFormat` is dead code: `DefaultSQLFunctionFactory`
+  >   imports only `text.SQLFunctionFormat` and registers it under the
+  >   NAME "format". The `misc` variant with the same NAME is never
+  >   instantiated by production code. Flagged with a prominent Javadoc
+  >   WHEN-FIXED marker in the test file — removal should happen in a
+  >   future cleanup.
+  > - `SQLFunctionSysdate.execute`'s 1-arg path requires
+  >   `iContext.getDatabaseSession()` (for `DateHelper.getDatabaseTimeZone`)
+  >   so it cannot be tested with a bare `BasicCommandContext`. The
+  >   zero-arg and 2-arg (with explicit timezone) paths are fully
+  >   covered; the 1-arg path is deferred to Step 6 (DB-required misc
+  >   tests).
+  > - `SQLFunctionDecode.execute`'s unknown-format branch calls
+  >   `new DatabaseException(iContext.getDatabaseSession(), ...)`, which
+  >   triggers `BasicCommandContext.getDatabaseSession()`'s
+  >   "No database session found in SQL context" DatabaseException
+  >   BEFORE the intended message can be constructed. Same contract
+  >   mismatch documented in Step 3 (Difference/Intersect). WHEN-FIXED
+  >   marker added; fix should also correct the "unknowned" typo.
+  > - `SQLStaticReflectiveFunction` QueryParsingException paths
+  >   (method==null, ReflectiveOperationException) require a session
+  >   for `getDatabaseName()`. Rather than resorting to catch(Throwable),
+  >   the review fix added reflection-based `pickMethod` direct invocation
+  >   to isolate the isAssignable negative branches cleanly.
+  > - Java `Method.invoke` performs JLS-compliant primitive widening on
+  >   unboxed values: Character→int, byte→short/int/long/float/double,
+  >   short→int/long/float/double, int→long/float/double, long→float/double,
+  >   float→double. All of these are exercised via the widening matrix.
+  > - `SQLStaticReflectiveFunction`'s constructor sorts `methods` in
+  >   place by `(arity ascending, then primitive weight differential
+  >   ascending)`; verified via reflection on the private `methods`
+  >   field using assertSame at each position.
+  > - Java `assert x : message` coerces any Object `message` via
+  >   `.toString()` at AssertionError construction — `SQLFunctionAssert`
+  >   therefore supports non-String messages (e.g. `42` → message "42").
+  >
+  > **What changed from the plan:**
+  > - Step 5 plan scoped to ~10 test classes; landed exactly 11 test
+  >   classes as planned.
+  > - Coverage target for `sql/functions/misc` (plan: 53.0% → ~72% this
+  >   step, then 85/70 in Step 6) is on track; no early verification
+  >   run because Step 8 does the final aggregate check.
+  > - No cross-track impact: all discoveries are localised to the misc
+  >   subpackage; WHEN-FIXED markers document the dead-code class and
+  >   two session-dependency contract mismatches for a future cleanup
+  >   pass (potentially Track 22).
+  >
+  > **Key files:**
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/misc/SQLFunctionCountTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/misc/SQLFunctionIfTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/misc/SQLFunctionIfNullTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/misc/SQLFunctionCoalesceTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/misc/SQLFunctionAssertTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/misc/SQLFunctionUUIDTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/misc/SQLFunctionStrcmpciTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/misc/SQLFunctionSysdateTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/misc/SQLFunctionDecodeTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/misc/SQLFunctionFormatMiscDeadTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/misc/SQLStaticReflectiveFunctionTest.java` (new)
+  >
+  > **Critical context:** Dimensional review (5 agents — code-quality,
+  > bugs-concurrency, test-behavior, test-completeness, test-structure)
+  > ran one iteration, surfaced 0 blockers and ~17 should-fix/suggestion
+  > items. Applied the high-value set in the Review-fix commit.
+  > Deferred: shared `ctx()` / `new BasicCommandContext()` DRY extraction
+  > (CQ1/TS6) — same micro-refactor noted in Step 4, carried to Track 22.
+  > Cross-track impact: CONTINUE — no upstream assumption broken for
+  > Steps 6-8; the `misc` dead-code `SQLFunctionFormat` and contract
+  > mismatches in `Decode`/`StaticReflectiveFunction` unknown-method
+  > paths are Track 6 internal. Step 6 will cover the DB-required misc
+  > portion (SQLFunctionDate, SQLFunctionEncode, SQLFunctionEval,
+  > SQLFunctionIndexKeySize, SQLMethodExclude/Include, SQLFunctionThrowCME,
+  > SQLFunctionSequence, SQLFunctionDistance) + sequence/geo subpackages.
 
 ### Step 1: Factory infrastructure + graph traversal dispatchers + SQLGraphNavigationFunction interface (original plan retained for reference)
 
