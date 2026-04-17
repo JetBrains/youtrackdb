@@ -137,6 +137,64 @@ public class StandaloneComparisonOperatorsTest {
     Assert.assertEquals(false, eval(like, "aab", "a+b"));
   }
 
+  /**
+   * QueryHelper.like escapes 11 regex-special characters before calling
+   * String.matches(): \ [ ] { } ( ) | * + $ ^ . Each must be treated as a
+   * literal, not as its regex meaning. A regression removing any escape()
+   * call causes matches() to throw PatternSyntaxException at runtime for
+   * realistic inputs (JSON braces, paths with parens, currency strings).
+   */
+  @Test
+  public void testLikeEscapesSquareBrackets() {
+    var like = new QueryOperatorLike();
+    Assert.assertEquals(true, eval(like, "a[b]c", "a[b]c"));
+    Assert.assertEquals(false, eval(like, "aXc", "a[b]c"));
+  }
+
+  @Test
+  public void testLikeEscapesCurlyBraces() {
+    var like = new QueryOperatorLike();
+    Assert.assertEquals(true, eval(like, "a{3}b", "a{3}b"));
+    Assert.assertEquals(false, eval(like, "aaab", "a{3}b"));
+  }
+
+  @Test
+  public void testLikeEscapesParentheses() {
+    var like = new QueryOperatorLike();
+    Assert.assertEquals(true, eval(like, "(foo)", "(foo)"));
+    Assert.assertEquals(false, eval(like, "foo", "(foo)"));
+  }
+
+  @Test
+  public void testLikeEscapesPipeAlternation() {
+    var like = new QueryOperatorLike();
+    // '|' must be treated as literal — NOT regex alternation between 'a' and 'b'.
+    Assert.assertEquals(true, eval(like, "a|b", "a|b"));
+    Assert.assertEquals(false, eval(like, "a", "a|b"));
+    Assert.assertEquals(false, eval(like, "b", "a|b"));
+  }
+
+  @Test
+  public void testLikeEscapesDollarAnchor() {
+    var like = new QueryOperatorLike();
+    Assert.assertEquals(true, eval(like, "$10", "$10"));
+    Assert.assertEquals(false, eval(like, "10", "$10"));
+  }
+
+  @Test
+  public void testLikeEscapesCaretAnchor() {
+    var like = new QueryOperatorLike();
+    Assert.assertEquals(true, eval(like, "^hat", "^hat"));
+    Assert.assertEquals(false, eval(like, "hat", "^hat"));
+  }
+
+  @Test
+  public void testLikeEscapesBackslash() {
+    var like = new QueryOperatorLike();
+    // Literal backslash on both sides must compare equal.
+    Assert.assertEquals(true, eval(like, "a\\b", "a\\b"));
+  }
+
   @Test
   public void testLikeEmptyStringLeftReturnsFalse() {
     // QueryHelper.like returns false for empty left operand
@@ -282,7 +340,11 @@ public class StandaloneComparisonOperatorsTest {
   @Test
   public void testContainsTextIgnoreCaseFieldNotConsulted() {
     // Even with ignoreCase=false, the evaluateRecord method behaves the same
-    // because it never checks the ignoreCase field — pre-existing inconsistency
+    // because it never checks the ignoreCase field — pre-existing inconsistency.
+    // WHEN-FIXED: when QueryOperatorContainsText.evaluateRecord starts honoring
+    // the ignoreCase flag, the ignoreCase=false path will remain case-sensitive
+    // and the ignoreCase=true path will become case-insensitive. Update the
+    // assertion below accordingly and delete this WHEN-FIXED block.
     var op = new QueryOperatorContainsText(false);
     Assert.assertFalse(op.isIgnoreCase());
     Assert.assertEquals(false, eval(op, "Hello World", "WORLD"));
@@ -341,7 +403,10 @@ public class StandaloneComparisonOperatorsTest {
   @Test(expected = NullPointerException.class)
   public void testAndNullRightThrowsNpe() {
     // AND does not guard against null right operand:
-    // (Boolean) null unboxing throws NPE at QueryOperatorAnd line 52
+    // (Boolean) null unboxing throws NPE at QueryOperatorAnd line 52.
+    // WHEN-FIXED: when QueryOperatorAnd adds a null-right guard (symmetric with
+    // the existing null-left guard that returns false), change this to
+    // assertEquals(false, eval(and, true, null)) and delete this WHEN-FIXED block.
     var and = new QueryOperatorAnd();
     eval(and, true, null);
   }
@@ -405,7 +470,10 @@ public class StandaloneComparisonOperatorsTest {
   @Test(expected = NullPointerException.class)
   public void testOrNullRightThrowsNpe() {
     // OR does not guard against null right operand:
-    // (Boolean) null unboxing throws NPE at QueryOperatorOr line 52
+    // (Boolean) null unboxing throws NPE at QueryOperatorOr line 52.
+    // WHEN-FIXED: when QueryOperatorOr adds a null-right guard (symmetric with
+    // the existing null-left guard that returns false), change this to
+    // assertEquals(false, eval(or, false, null)) and delete this WHEN-FIXED block.
     var or = new QueryOperatorOr();
     eval(or, false, null);
   }
@@ -631,5 +699,29 @@ public class StandaloneComparisonOperatorsTest {
   public void testMatchesIndexReuseType() {
     var matches = new QueryOperatorMatches();
     Assert.assertEquals(IndexReuseType.NO_INDEX, matches.getIndexReuseType("a", "b"));
+  }
+
+  /**
+   * A malformed regex must surface PatternSyntaxException from Pattern.compile()
+   * — there is no try/catch around compile in QueryOperatorMatches.matches().
+   * Documents the caller contract: invalid regex bubbles up as a runtime
+   * exception rather than silently returning false.
+   */
+  @Test(expected = java.util.regex.PatternSyntaxException.class)
+  public void testMatchesInvalidRegexThrowsPatternSyntaxException() {
+    var matches = new QueryOperatorMatches();
+    evalWithContext(matches, "anything", "[unclosed");
+  }
+
+  /**
+   * With null context and non-null operands, the pattern cache lookup
+   * (iContext.getVariable) NPEs on a cache miss. Documents that the operator
+   * requires a CommandContext for successful evaluation.
+   */
+  @Test(expected = NullPointerException.class)
+  public void testMatchesNullContextThrowsOnCacheMiss() {
+    var matches = new QueryOperatorMatches();
+    // eval() helper passes null for context
+    eval(matches, "hello", "h.*");
   }
 }

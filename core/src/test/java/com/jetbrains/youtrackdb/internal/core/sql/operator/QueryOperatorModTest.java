@@ -232,9 +232,17 @@ public class QueryOperatorModTest {
   @Test
   public void testShortModLongTruncatesRight() {
     // Mod dispatches on left type only (unlike Plus/Minus/Multiply/Divide which use
-    // getMaxPrecisionClass). When left is Short, r.shortValue() truncates the right operand.
+    // getMaxPrecisionClass). When left is Short, r.shortValue() truncates the right operand
+    // via 16-bit narrowing: 100000L narrows to short -31072, then 10 % -31072 = 10.
+    //
+    // WHEN-FIXED: when Mod adopts getMaxPrecisionClass like the other math ops, the right
+    // operand will no longer be truncated and the result will be 10 % 100000L = 10L.
+    // Update the expected value/type and delete this WHEN-FIXED block.
     Object result = eval((short) 10, 100000L);
-    Assert.assertEquals((short) 10 % (short) 100000, result);
+    Assert.assertEquals("Documents short-left truncation of long right operand — revisit after fix",
+        10, result);
+    Assert.assertTrue("Java widens short arithmetic to int — result is Integer",
+        result instanceof Integer);
   }
 
   // --- Index reuse and RID range ---

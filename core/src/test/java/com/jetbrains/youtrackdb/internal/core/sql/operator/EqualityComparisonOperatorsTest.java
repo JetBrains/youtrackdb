@@ -303,6 +303,21 @@ public class EqualityComparisonOperatorsTest extends DbTestBase {
   }
 
   @Test
+  public void testMajorEqualsSupportsBinaryEvaluate() {
+    Assert.assertTrue(new QueryOperatorMajorEquals().isSupportingBinaryEvaluate());
+  }
+
+  @Test
+  public void testMinorSupportsBinaryEvaluate() {
+    Assert.assertTrue(new QueryOperatorMinor().isSupportingBinaryEvaluate());
+  }
+
+  @Test
+  public void testMinorEqualsSupportsBinaryEvaluate() {
+    Assert.assertTrue(new QueryOperatorMinorEquals().isSupportingBinaryEvaluate());
+  }
+
+  @Test
   public void testMajorIndexReuseType() {
     var gt = new QueryOperatorMajor();
     Assert.assertEquals(IndexReuseType.INDEX_METHOD, gt.getIndexReuseType("a", "b"));
@@ -637,9 +652,14 @@ public class EqualityComparisonOperatorsTest extends DbTestBase {
     // Set<Long>.contains(Integer(5)) returns false because Integer.equals(Long) is always
     // false in Java — this is a pre-existing inconsistency where the Set path silently
     // produces different results than the iteration path (which uses equals() with coercion).
+    //
+    // WHEN-FIXED: when QueryOperatorIn replaces the Set fast path with an iteration that
+    // uses QueryOperatorEquals.equals() (with numeric coercion), this assertion flips to
+    // `true`. Update and delete this WHEN-FIXED block.
     var in = new QueryOperatorIn();
     var longSet = new HashSet<>(Arrays.asList(1L, 5L, 10L));
-    Assert.assertEquals(false, eval(in, 5, longSet));
+    Assert.assertEquals("Documents Set-path coercion bypass — flip to true after fix",
+        false, eval(in, 5, longSet));
   }
 
   @Test
