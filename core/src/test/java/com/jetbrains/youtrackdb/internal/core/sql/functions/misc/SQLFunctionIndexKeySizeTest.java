@@ -137,6 +137,36 @@ public class SQLFunctionIndexKeySizeTest extends DbTestBase {
   // ---------------------------------------------------------------------------
 
   @Test
+  public void emptyIndexReturnsZero() {
+    // Boundary: stream.count() + rids.count() == 0 for an index with no keys. Pin the zero-key
+    // contract so a refactor that returns null or throws on empty would be noticed.
+    var clazz = session.getMetadata().getSchema().createClass("Empty");
+    clazz.createProperty("k", PropertyType.STRING);
+    session.execute("create index emptyindex on Empty (k) notunique").close();
+
+    session.begin();
+    try {
+      var function = new SQLFunctionIndexKeySize();
+
+      var result = function.execute(null, null, null, new Object[] {"emptyindex"}, ctx());
+
+      assertEquals("empty index should report 0 distinct keys", 0L, result);
+    } finally {
+      session.rollback();
+    }
+  }
+
+  @Test
+  public void emptyStringIndexNameReturnsNull() {
+    // Boundary: the empty-string name has no matching index → `index == null` → null return.
+    var function = new SQLFunctionIndexKeySize();
+
+    var result = function.execute(null, null, null, new Object[] {""}, ctx());
+
+    assertNull(result);
+  }
+
+  @Test
   public void unknownIndexNameReturnsNull() {
     // Production: `if (index == null) return null;` — no index.stream() is invoked, so no tx
     // is required.

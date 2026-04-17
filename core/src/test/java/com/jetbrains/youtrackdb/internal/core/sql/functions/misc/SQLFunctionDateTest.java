@@ -87,16 +87,19 @@ public class SQLFunctionDateTest extends DbTestBase {
   }
 
   @Test
-  public void zeroArgIsClose_ToWallClockTime() {
+  public void zeroArgIsCloseToWallClockTime() {
     // The stored Date is within 30 seconds of wall-clock time, verifying it actually uses
-    // System.currentTimeMillis under the hood (rather than e.g. an epoch-0 constant).
+    // System.currentTimeMillis under the hood (rather than e.g. an epoch-0 constant). Also pin
+    // monotonicity: the stored Date is captured AFTER `now`, so the difference must be >= 0.
     var now = System.currentTimeMillis();
     var function = new SQLFunctionDate();
 
     var result = (Date) function.execute(null, null, null, new Object[] {}, ctx());
 
     assertNotNull(result);
-    var delta = Math.abs(result.getTime() - now);
+    var delta = result.getTime() - now;
+    assertTrue("stored Date must be captured AFTER the baseline, was " + delta + " ms",
+        delta >= 0);
     assertTrue("stored Date must be within 30s of wall-clock, was " + delta + " ms",
         delta < 30_000);
   }
@@ -231,17 +234,21 @@ public class SQLFunctionDateTest extends DbTestBase {
     assertEquals(firstExpected, first);
 
     // Second call uses a different pattern, but the cached format still parses "yyyy-MM-dd".
-    // Attempt to parse a string that matches ONLY the second pattern — it should fail because the
-    // cached format remains in play.
+    // Attempt to parse a string that matches ONLY the second pattern — it should fail with the
+    // cached-format's wrapped QueryParsingException.
     try {
       function.execute(null, null, null,
           new Object[] {"15/06/2024", "dd/MM/yyyy", "UTC"}, ctx());
       fail("expected QueryParsingException because the cached format does not match 15/06/2024");
-    } catch (RuntimeException expected) {
-      assertTrue("cached format should drive the parse failure, saw: " + expected.getMessage(),
-          expected.getMessage() == null
-              || expected.getMessage().contains("formatting")
-              || expected.getMessage().contains("Error on formatting"));
+    } catch (QueryParsingException expected) {
+      // Exact-ish message pin: both the input and the cached pattern must appear in the message.
+      assertNotNull(expected.getMessage());
+      assertTrue("message should reference the bad input '15/06/2024', saw: "
+          + expected.getMessage(),
+          expected.getMessage().contains("15/06/2024"));
+      assertTrue("message should reference the cached pattern 'yyyy-MM-dd', saw: "
+          + expected.getMessage(),
+          expected.getMessage().contains("yyyy-MM-dd"));
     }
   }
 
@@ -315,12 +322,11 @@ public class SQLFunctionDateTest extends DbTestBase {
   }
 
   @Test
-  public void twoInstancesCaptureDifferentNowDates() throws Exception {
-    // Sanity: two SQLFunctionDate instances constructed at different moments capture different
-    // Date values (or equal values if system clock hasn't advanced — assert not-same instance
-    // and within 1s of each other).
+  public void twoInstancesCaptureDifferentNowDates() {
+    // Sanity: two SQLFunctionDate instances each capture their own `new Date()` in the
+    // constructor, so the two returned Date instances must be DIFFERENT objects (assertNotSame).
+    // No timing needed — we assert identity, not wall-clock advance.
     var first = new SQLFunctionDate();
-    Thread.sleep(5);
     var second = new SQLFunctionDate();
 
     var d1 = (Date) first.execute(null, null, null, new Object[] {}, ctx());

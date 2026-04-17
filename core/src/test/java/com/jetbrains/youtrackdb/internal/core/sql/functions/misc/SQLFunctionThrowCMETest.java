@@ -93,7 +93,8 @@ public class SQLFunctionThrowCMETest extends DbTestBase {
   @Test
   public void happyPathWithDeletedOperationMentionsDeleteInMessage() {
     // Different operation than the happy-path test — drift guard against getName(iParams[3]) being
-    // hard-coded to UPDATE.
+    // hard-coded to UPDATE. Tighten to startsWith so a future "Attempted to DELETE" rewording
+    // would still pass but the current "Cannot DELETE" contract is explicit.
     var function = new SQLFunctionThrowCME();
     RecordIdInternal rid = new RecordId(7, 9);
 
@@ -102,8 +103,10 @@ public class SQLFunctionThrowCMETest extends DbTestBase {
           new Object[] {rid, 1, 0, (int) RecordOperation.DELETED}, ctx());
       fail("expected ConcurrentModificationException");
     } catch (ConcurrentModificationException e) {
-      assertTrue("message should mention DELETE, saw: " + e.getMessage(),
-          e.getMessage().contains("DELETE"));
+      assertNotNull(e.getMessage());
+      assertTrue("message should start with 'Cannot DELETE the record #7:9', saw: "
+          + e.getMessage(),
+          e.getMessage().startsWith("Cannot DELETE the record #7:9"));
     }
   }
 
@@ -139,6 +142,7 @@ public class SQLFunctionThrowCMETest extends DbTestBase {
     // has no type check. Passing a non-RID triggers CCE. Pin this so a later fix to validate the
     // type (e.g. throw CommandExecutionException with a useful message) is noticed here.
     // WHEN-FIXED: validate iParams[0] type and throw a specific exception instead of CCE.
+    // Tighten to exact-class assertion so a future CCE subclass would not pass.
     var function = new SQLFunctionThrowCME();
 
     try {
@@ -146,7 +150,8 @@ public class SQLFunctionThrowCMETest extends DbTestBase {
           new Object[] {"#17:42", 0, 0, (int) RecordOperation.UPDATED}, ctx());
       fail("expected ClassCastException for non-RID first param");
     } catch (ClassCastException expected) {
-      assertNotNull(expected);
+      assertEquals("must be the exact CCE class, not a subclass",
+          ClassCastException.class, expected.getClass());
     }
   }
 
@@ -161,7 +166,7 @@ public class SQLFunctionThrowCMETest extends DbTestBase {
           new Object[] {rid, "not-an-int", 0, (int) RecordOperation.UPDATED}, ctx());
       fail("expected ClassCastException for non-Integer dbVersion");
     } catch (ClassCastException expected) {
-      assertNotNull(expected);
+      assertEquals(ClassCastException.class, expected.getClass());
     }
   }
 
@@ -176,7 +181,7 @@ public class SQLFunctionThrowCMETest extends DbTestBase {
           new Object[] {rid, 0, 0, 3L}, ctx());
       fail("expected ClassCastException for Long operation param");
     } catch (ClassCastException expected) {
-      assertNotNull(expected);
+      assertEquals(ClassCastException.class, expected.getClass());
     }
   }
 
