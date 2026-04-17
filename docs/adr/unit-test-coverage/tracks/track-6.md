@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (3/8 complete)
+- [ ] Step implementation (4/8 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -374,6 +374,128 @@
   > coverage. Cross-track impact: CONTINUE — no upstream assumption broken
   > for Steps 4-8; Step 4 will exercise the deferred DB-required paths as
   > planned.
+
+- [x] Step 4: Collection DB-required + TraversedElement/Edge/Vertex + SQLMethodMultiValue
+  - [x] Context: warning
+  > **What was done:** Added 67 unit tests across 5 new DbTestBase test files
+  > in `sql/functions/coll`.
+  > - `SQLFunctionTraversedElementTest` (31 tests): full coverage of the
+  >   positive-index (reversed stack iteration) and negative-index (insertion-
+  >   order iteration) dispatch, items=1 unwrap vs items>1 list collection,
+  >   both branches of `stackToList` (List fast path + stream conversion for
+  >   generic Collection), Identifiable and TraverseRecordProcess stack
+  >   entries including mixed-type stacks, `ResultInternal` `$stack` metadata
+  >   fallback (via `List.of(a)` to survive `convertPropertyValue` coercion),
+  >   missing-stack `CommandExecutionException` pinning with function-name
+  >   and "traverse" substring assertions (both null-iThis and non-Result
+  >   iThis paths), class-filter "skip without advancing counter" contract
+  >   pinned with 5-entry [V,E,V,E,V] stacks at beginIndex=1/-2, empty-stack
+  >   null-return, missing-RID `RecordNotFoundException` pinning (documents
+  >   that the null-guards in the production code's positive/Identifiable
+  >   branches are defensively-dead because `transaction.load()` throws RNFE
+  >   rather than returning null), metadata/contract surface
+  >   (aggregateResults=false, filterResult=true, getResult=null,
+  >   name-based subclass constructor, syntax, min/max params), and
+  >   HashSet-backed stack acceptance.
+  > - `SQLFunctionTraversedEdgeTest` (5 tests): pins the "E" filter contract
+  >   — filter skips vertices from top and bottom, items>1 collects only
+  >   edges, vertex-only stack returns null for Edge filter, name and
+  >   min/max params inherited from parent.
+  > - `SQLFunctionTraversedVertexTest` (5 tests): symmetric pins for "V"
+  >   filter.
+  > - `SQLMethodMultiValueTest` (19 tests): pins the AbstractSQLMethod
+  >   `execute(iThis, record, context, ioResult, params)` signature (context
+  >   3rd, NOT 5th) — null iThis / null params[0] short-circuits, single
+  >   non-multi-value scalar fast path, single-param collection
+  >   (List/Set/Array/Map) inner-iteration with `EntityHelper.getFieldValue`
+  >   resolution, single-Set unwrap vs multi-Set "each inner name"
+  >   resolution, multi-param path with collection-first vs scalar-first
+  >   ordering, empty-collection null-vs-empty-list contract, missing-field
+  >   null handling, 2-arity list result with no unwrap, size-1 unwrap,
+  >   non-String key toString() coercion, metadata (name, syntax, min/max
+  >   params).
+  > - `SQLFunctionIntersectDbTest` (7 tests): covers the DB-dependent
+  >   branches of `SQLFunctionIntersect.intersectWith(Iterator, Object)` that
+  >   Step 3's standalone suite could not reach — ResultSet of only
+  >   Identifiables converts to RidSet (ids branch, value=ids), mixed rows
+  >   with non-id first (ids.isEmpty→ else branch, value=nonIds), mixed rows
+  >   with id first (`nonIds.addAll(ids)` merge branch), only-non-id rows
+  >   yields empty intersection via nonIds.add(result) branch, Result
+  >   isIdentifiable() normalization in intersectWith's iterator, aggregation
+  >   across identifiable collections. The LinkBag right-hand-side test is
+  >   tightly pinned to the deterministic-empty behaviour (RidPair set vs RID
+  >   mismatch) with a WHEN-FIXED marker documenting that the production
+  >   `case LinkBag` arm is unreachable dead code under the current LinkBag
+  >   class hierarchy.
+  >
+  > No production code was modified.
+  >
+  > **What was discovered:**
+  > - `SQLFunctionIntersect.intersectWith(Iterator, Object)` has a dead
+  >   `case LinkBag rids` arm. `LinkBag implements Iterable<RidPair>` but
+  >   not `Set` and not `SupportsContains`, so the outer conversion block
+  >   calls `MultiValue.toSet(linkBag)` which iterates its `RidPair`
+  >   stream into a `HashSet<RidPair>`. Subsequent
+  >   `collection.contains(curr.getIdentity())` compares `RidPair` entries
+  >   against bare `RID`s — always false — so LinkBag intersections are
+  >   deterministically empty. The `case LinkBag rids` branch at
+  >   `SQLFunctionIntersect.java:192` is unreachable. WHEN-FIXED: either
+  >   hoist `LinkBag` above the outer conversion (so the case fires) or
+  >   delete the dead arm.
+  > - `ResultInternal.setMetadata` runs `convertPropertyValue` on its
+  >   value, which rejects `ArrayDeque` with "Invalid property value for
+  >   Result: … - java.util.ArrayDeque". The `$stack` metadata fallback
+  >   path must therefore be tested with a `List<Identifiable>` (converted
+  >   to `LinkListResultImpl`) rather than arbitrary Collection
+  >   implementations. Not a bug — the function still sees a Collection of
+  >   RIDs — but an implementation detail worth documenting.
+  > - `SQLFunctionTraversedElement`'s positive-branch Identifiable and
+  >   TraverseRecordProcess paths both guard `if (entity != null)` before
+  >   calling `entity.getImmutableSchemaClass(session)`, but the negative-
+  >   branch TraverseRecordProcess path does NOT. Initially hypothesised as
+  >   an NPE risk; empirically `transaction.load()` throws
+  >   `RecordNotFoundException` (not returns null), so all null-guards are
+  >   defensive. Still worth noting as a minor asymmetry; pinned by the
+  >   `missingRidInTraverseRecordProcessTargetThrowsRecordNotFound` test.
+  > - `Property name has to start with a letter or underscore` — schema
+  >   validation rejects numeric property names like "42". The SQLMethod
+  >   non-String key coercion test therefore uses `StringBuilder` instead
+  >   of `Integer` to exercise the `iParams[0].toString()` path.
+  > - `RID.getCollectionId()` (not `getClusterId()` despite the "cluster"
+  >   naming elsewhere). Minor API inconsistency.
+  >
+  > **Key files:**
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/coll/SQLFunctionTraversedElementTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/coll/SQLFunctionTraversedEdgeTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/coll/SQLFunctionTraversedVertexTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/coll/SQLMethodMultiValueTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/coll/SQLFunctionIntersectDbTest.java` (new)
+  >
+  > **Critical context:** Dimensional review (5 agents — code-quality,
+  > bugs-concurrency, test-behavior, test-completeness, test-structure) ran
+  > one iteration, surfaced 0 blockers and ~30 should-fix/suggestion items.
+  > Applied the majority of should-fix items in the `Review fix:` commit:
+  > LinkBag deterministic-empty tightening with WHEN-FIXED marker; mixed-
+  > branch Result ordering regression + symmetric nonIds.addAll merge
+  > regression; multipleParams and Set tests renamed and split so names
+  > match behaviour; counter-advance contract pinned; Map/empty-
+  > collection/collection-first-multiparam/only-nonId ResultSet gaps filled;
+  > exact-message pinning on missingStackFromPlainIThis; assertTrue/
+  > assertFalse idiom; unused locals removed; field names identity1/2/3
+  > match declared Identifiable type; custom contains helper dropped in
+  > favour of Collection.contains; class-level Javadoc documents missing-
+  > stack contract; anyEdgeRid() helper uses try-with-resources.
+  > Deferred: `ctx()`/`stackOf()` DRY extraction across 4 DbTestBase classes
+  > (CQ6/TS7) — out-of-scope micro-refactor noted for Track 22 cleanup;
+  > minor comment reorder (TS10); non-Identifiable-non-TRP stack entries
+  > (TC9) — low-value defensive branch. Iteration 2 (gate check) skipped
+  > because the context window reached `warning` (30%) before the check
+  > could run; remaining items are informational. Cross-track impact:
+  > CONTINUE — Step 4 surfaces a LinkBag dead-code flag that applies only
+  > to `SQLFunctionIntersect` (Track 6 internal), not to any downstream
+  > track's assumptions. The `ResultInternal.setMetadata` coercion detail
+  > is pre-existing behaviour. No upstream assumptions broken for Steps
+  > 5–8.
 
 ### Step 1: Factory infrastructure + graph traversal dispatchers + SQLGraphNavigationFunction interface (original plan retained for reference)
 
