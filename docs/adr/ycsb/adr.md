@@ -310,10 +310,13 @@ both step-level (ground-truth) findings and track-level strategic framing.
   reachable via unrelated exceptions (e.g., connection failure); the
   driver cannot distinguish a duplicate-key no-op from a successful
   insert.
-- **`executeInTx()` swallows commit-time exceptions** in `finishTx()`.
-  CMEs thrown at commit do not propagate to `executeWithRetry()`. The
-  retry is effective only for eager conflict detection during command
-  execution. This is documented in the driver's class Javadoc.
+- **`executeInTx()` propagates commit-time exceptions** out of
+  `finishTx()` (fixed in the same branch as this work). CMEs raised at
+  commit by `AbstractStorage.doUpdateRecord` now reach
+  `executeWithRetry()`, which retries up to `MAX_RETRY_ATTEMPTS`
+  with random backoff before surfacing `Status.ERROR`. Prior to the
+  fix, `finishTx()` logged and swallowed commit failures, making the
+  retry loop effective only for eager (pre-commit) conflict detection.
 - **`yql()` takes alternating key/value pairs**, not positional
   parameters: `yql("... WHERE ycsb_key = :key", "key", keyValue)`. An
   odd number of varargs throws `IllegalArgumentException`.

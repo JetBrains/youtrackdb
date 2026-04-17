@@ -189,7 +189,7 @@ public class YouTrackDBYqlClient extends DB {
         var g = (YTDBGraphTraversalSource) tx;
 
         // Build: CREATE VERTEX usertable SET ycsb_key = :key, field0 = :field0, ...
-        // No CME retry: YCSB load phase is single-threaded; duplicates are caller errors.
+        // No CME retry: YCSB load phase is single-threaded.
         StringBuilder sql = new StringBuilder("CREATE VERTEX ");
         sql.append(table).append(" SET ycsb_key = :key");
 
@@ -315,12 +315,6 @@ public class YouTrackDBYqlClient extends DB {
   /**
    * Executes an operation with retry on {@link ConcurrentModificationException}
    * (MVCC conflict). Uses random backoff between retries.
-   *
-   * <p><strong>Known limitation:</strong> {@code executeInTx()} swallows
-   * commit-time exceptions in {@code finishTx()}, so CME from MVCC conflicts
-   * at commit time will not propagate to this retry loop. The retry is only
-   * effective if the database detects the conflict eagerly during command
-   * execution (before commit). This is a best-effort safeguard.
    *
    * @param operation the operation to execute
    * @param opName   operation name for logging
