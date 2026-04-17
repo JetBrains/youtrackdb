@@ -8,10 +8,14 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.misc.SQLStaticReflectiveFunction;
+import java.util.HashSet;
+import java.util.UUID;
 import org.junit.FixMethodOrder;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import org.junit.runners.MethodSorters;
 
 /**
@@ -23,10 +27,17 @@ import org.junit.runners.MethodSorters;
  * {@link CommandExecutionException}, and re-registering a class under a prefix that collides with
  * existing entries is idempotent (no exception thrown, existing entries preserved).
  */
-// CustomSQLFunctionFactory's registry is a process-wide static map, so the
-// custom-prefix test below leaks entries for the remainder of the JVM. Sort
-// methods by name so the "only math_ prefixes" assertion runs before any test
-// that seeds foreign prefixes.
+// CustomSQLFunctionFactory's registry is a process-wide static HashMap mutated
+// without synchronization. The class is SPI-registered in
+// META-INF/services/...SQLFunctionFactory, so every other test that resolves an
+// SQL function reads the same map concurrently. Tagging this class as
+// @SequentialTest forces it into the sequential surefire execution so its
+// register() writes never race with concurrent reads from parallel test
+// classes (BC1/TX1 from the Track 6 review). The intra-class @FixMethodOrder
+// remains because the foreign-prefix test seeds entries that persist for the
+// rest of the JVM fork — alphabetical ordering keeps prefix-sensitive tests
+// running before prefix-mutating tests.
+@Category(SequentialTest.class)
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public class CustomSQLFunctionFactoryTest extends DbTestBase {
 
@@ -126,13 +137,15 @@ public class CustomSQLFunctionFactoryTest extends DbTestBase {
 
   @Test
   public void registerCustomPrefixExposesStaticMethods() {
-    // Use a unique prefix to avoid collision with prior test runs.
-    var prefix = "customfactorytest_";
+    // UUID-qualified prefix so accidental collisions across future tests are
+    // ruled out, and so that re-running this test in the same JVM never trips
+    // the first-wins guard against a prior run's leftovers.
+    var prefix = "customfactorytest_" + UUID.randomUUID().toString().replace("-", "_") + "_";
     CustomSQLFunctionFactory.register(prefix, ReflectFixture.class);
 
     var factory = new CustomSQLFunctionFactory();
-    assertTrue("Expected 'plus' (overloaded) to register",
-        factory.hasFunction(prefix + "plus", session));
+    assertTrue(
+        "Expected 'plus' (overloaded) to register", factory.hasFunction(prefix + "plus", session));
     assertTrue("Expected 'greet' to register", factory.hasFunction(prefix + "greet", session));
 
     var plus = factory.createFunction(prefix + "plus", session);
@@ -143,12 +156,13 @@ public class CustomSQLFunctionFactoryTest extends DbTestBase {
   public void registerDefaultFunctionsIsNoOp() {
     // CustomSQLFunctionFactory#registerDefaultFunctions is documented as a no-op
     // — it should not throw and should not alter the advertised name set.
+    // Compare the actual name SETS (not just sizes) so a regression that
+    // simultaneously added one entry and removed another would still be caught.
     var factory = new CustomSQLFunctionFactory();
-    var before = factory.getFunctionNames(session).size();
+    var before = new HashSet<>(factory.getFunctionNames(session));
     factory.registerDefaultFunctions(session);
-    var after = factory.getFunctionNames(session).size();
-    // Use assertEquals (not assertTrue) so a regression shows "expected N but
-    // got M" instead of a generic boolean mismatch.
-    assertEquals("registerDefaultFunctions must not change name count", before, after);
+    var after = new HashSet<>(factory.getFunctionNames(session));
+    assertEquals(
+        "registerDefaultFunctions must not change the advertised name set", before, after);
   }
 }
