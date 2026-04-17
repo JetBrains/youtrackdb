@@ -14,8 +14,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- * Exercises the two helpers on {@link SQLFunctionMathAbstract} that are {@code protected} and
- * not directly reached from the current concrete subclasses ({@link SQLFunctionSum} et al.):
+ * Exercises the two {@code protected} helpers on {@link SQLFunctionMathAbstract}:
  *
  * <ul>
  *   <li>{@code getContextValue(Object, Class)} — numeric downcasting / widening via the
@@ -24,8 +23,11 @@ import org.junit.Test;
  *       tracking the best representation across a stream of heterogeneous numbers.
  * </ul>
  *
- * These helpers are still public-ish API surface of the abstract class (exposed via inheritance),
- * so they need direct coverage. A trivial {@link TestMathSubclass} exposes them for the tests.
+ * <p>WHEN-FIXED: both helpers are currently unreferenced by production code (no concrete
+ * subclass of {@link SQLFunctionMathAbstract} calls them — the concrete accumulators use
+ * {@code PropertyTypeInternal.castComparableNumber}/{@code increment} directly). A future
+ * cleanup pass should either delete the helpers or surface them in Max/Min's accumulation
+ * logic. Until then, {@link TestMathSubclass} exposes them so the branches don't rot.
  *
  * <p>Also checks {@link SQLFunctionMathAbstract#aggregateResults()} behavior when the concrete
  * subclass does not override it: configuredParameters length == 1 → true, otherwise false.
@@ -86,6 +88,30 @@ public class SQLFunctionMathAbstractTest {
     assertSame("Unhandled target class must return the original reference", original, result);
   }
 
+  @Test
+  public void getContextValueFromFloatToLongTruncatesFraction() {
+    // Source lane: Float → target Long uses Number.longValue() → fractional part dropped.
+    Number result = fn.callGetContextValue(Float.valueOf(3.9f), Long.class);
+    assertTrue(result instanceof Long);
+    assertEquals(3L, result.longValue());
+  }
+
+  @Test
+  public void getContextValueFromDoubleToShortOverflowsSilently() {
+    // Source lane: Double → target Short uses Number.shortValue() → silent truncation.
+    // 100_000 is outside short range; pins the silent-overflow semantics.
+    Number result = fn.callGetContextValue(Double.valueOf(100_000.0), Short.class);
+    assertTrue(result instanceof Short);
+    assertEquals((short) 100_000, result.shortValue());
+  }
+
+  @Test(expected = NullPointerException.class)
+  public void getContextValueThrowsOnNullContext() {
+    // Pins precondition: iContext must be non-null — the `iClass != iContext.getClass()`
+    // comparison dereferences iContext.
+    fn.callGetContextValue(null, Long.class);
+  }
+
   // ---- getClassWithMorePrecision ----
 
   @Test
@@ -129,6 +155,21 @@ public class SQLFunctionMathAbstractTest {
   }
 
   @Test
+  public void bigDecimalAsFirstClassKeepsItselfAgainstLessPreciseTypes() {
+    // BigDecimal is at the top of the precision lattice — as iClass1, every other numeric
+    // type loses. The method has no BigDecimal-first switch case, so the fall-through
+    // `return iClass1` is what carries this behavior.
+    assertEquals(BigDecimal.class,
+        fn.callGetClassWithMorePrecision(BigDecimal.class, Integer.class));
+    assertEquals(BigDecimal.class,
+        fn.callGetClassWithMorePrecision(BigDecimal.class, Long.class));
+    assertEquals(BigDecimal.class,
+        fn.callGetClassWithMorePrecision(BigDecimal.class, Float.class));
+    assertEquals(BigDecimal.class,
+        fn.callGetClassWithMorePrecision(BigDecimal.class, Double.class));
+  }
+
+  @Test
   public void unhandledFirstClassFallsThroughToItself() {
     // Short is not in any of the switch branches → fall-through returns iClass1.
     assertEquals(Short.class, fn.callGetClassWithMorePrecision(Short.class, Long.class));
@@ -145,10 +186,13 @@ public class SQLFunctionMathAbstractTest {
   }
 
   @Test
-  public void nameAndSyntaxAreExposed() {
+  public void nameIsExposedFromConstructorArgument() {
+    // Only getName is meaningful here — it exercises the parent's getter wiring to the
+    // constructor-supplied name. getSyntax is covered separately in each concrete
+    // subclass's own test (abs, sum, max, ...) and is overridden by TestMathSubclass
+    // itself so would be tautological here.
     assertNotNull(fn.getName(null));
     assertEquals("test-math", fn.getName(null));
-    assertEquals("test-math()", fn.getSyntax(null));
   }
 
   /**

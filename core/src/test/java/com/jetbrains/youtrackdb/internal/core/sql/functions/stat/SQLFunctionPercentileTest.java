@@ -6,6 +6,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import org.junit.Before;
 import org.junit.Test;
@@ -124,6 +125,17 @@ public class SQLFunctionPercentileTest {
     // A String input hits the non-Number, non-MultiValue path: quantile gets set but no
     // values are buffered, so getResult() returns null (empty-values sentinel).
     percentile.execute(null, null, null, new Object[] {"not a number", .5}, null);
+    assertNull(percentile.getResult());
+  }
+
+  @Test
+  public void testEmptyMultiValueInputWithMultipleQuantilesReturnsNull() {
+    // Forces the interplay between the "quantiles get set once" code (line 60 of the
+    // source) and the values.isEmpty() early-return — quantiles is sized 2 but no
+    // values are buffered. Guards against a future refactor that moves the empty-check
+    // inside the `quantiles.size() > 1` branch.
+    percentile.execute(null, null, null,
+        new Object[] {Collections.emptyList(), .25, .75}, null);
     assertNull(percentile.getResult());
   }
 

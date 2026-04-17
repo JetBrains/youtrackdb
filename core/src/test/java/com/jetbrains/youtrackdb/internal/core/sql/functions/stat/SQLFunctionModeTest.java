@@ -6,6 +6,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import org.junit.Before;
 import org.junit.Test;
@@ -65,6 +66,22 @@ public class SQLFunctionModeTest {
 
     var result = mode.getResult();
     assertEquals(1, (int) ((List<Integer>) result).get(0));
+  }
+
+  @Test
+  public void testSingleNullParameterLeavesResultNull() {
+    // Direct single-null param hits the non-collection evaluate() path, where the
+    // `value != null` guard skips the occurrence counter. Without buffered values
+    // the result is null.
+    mode.execute(null, null, null, new Object[] {null}, null);
+    assertNull(mode.getResult());
+  }
+
+  @Test
+  public void testEmptyCollectionLeavesResultNull() {
+    // MultiValue branch, zero-iteration loop — no occurrences recorded → result null.
+    mode.execute(null, null, null, new Object[] {Collections.emptyList()}, null);
+    assertNull(mode.getResult());
   }
 
   @Test

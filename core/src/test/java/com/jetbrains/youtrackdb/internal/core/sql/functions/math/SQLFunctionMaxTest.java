@@ -87,8 +87,9 @@ public class SQLFunctionMaxTest {
 
   @Test
   public void collectionParamIsScannedForInternalMaximum() {
-    // aggregateResults() reads configuredParameters.length, so config() is mandatory.
-    // A Collection parameter is walked element-by-element, not compared as a whole.
+    // Single configured param → aggregateResults()==true, so the per-row max (9) is
+    // buffered into context and observed via getResult(). The Collection-scan path
+    // runs regardless of config — config only decides where the per-row result goes.
     max.config(new Object[] {"scores"});
     max.execute(null, null, null, new Object[] {Arrays.asList(2, 9, 4)}, null);
     assertEquals(9, max.getResult());
@@ -96,10 +97,29 @@ public class SQLFunctionMaxTest {
 
   @Test
   public void collectionWithNullsTakesMaxIgnoringNulls() {
-    // compareTo would NPE on a null element; the loop guards item != null.
+    // The `subitem != null` short-circuit in the Collection branch prevents compareTo
+    // from running on null operands; null elements are silently skipped while non-null
+    // elements update the running max.
     max.config(new Object[] {"scores"});
     max.execute(null, null, null, new Object[] {Arrays.asList(3, null, 5, null, 1)}, null);
     assertEquals(5, max.getResult());
+  }
+
+  @Test
+  public void aggregateAcrossMultipleRowsKeepsLatestDate() {
+    // Aggregate path for non-Number Comparables: the `context instanceof Number
+    // && max instanceof Number` guard must skip castComparableNumber and fall
+    // through to Date.compareTo. Without this test the aggregate-Date branch is
+    // only exercised by integration; a regression dropping the Number check would
+    // NPE only in production.
+    max.config(new Object[] {"when"});
+    Date early = new Date(1_000L);
+    Date late = new Date(5_000L);
+    Date mid = new Date(3_000L);
+    max.execute(null, null, null, new Object[] {early}, null);
+    max.execute(null, null, null, new Object[] {late}, null);
+    max.execute(null, null, null, new Object[] {mid}, null);
+    assertEquals(late, max.getResult());
   }
 
   @Test

@@ -84,7 +84,9 @@ public class SQLFunctionMinTest {
 
   @Test
   public void collectionParamIsScannedForInternalMinimum() {
-    // aggregateResults() reads configuredParameters.length, so config() is mandatory.
+    // Single configured param → aggregateResults()==true, so the per-row min (2) is
+    // buffered into context and observed via getResult(). The Collection-scan path
+    // runs regardless of config.
     min.config(new Object[] {"scores"});
     min.execute(null, null, null, new Object[] {Arrays.asList(2, 9, 4)}, null);
     assertEquals(2, min.getResult());
@@ -92,9 +94,27 @@ public class SQLFunctionMinTest {
 
   @Test
   public void collectionWithNullsTakesMinIgnoringNulls() {
+    // The `subitem != null` short-circuit in the Collection branch prevents compareTo
+    // from running on null operands; null elements are silently skipped.
     min.config(new Object[] {"scores"});
     min.execute(null, null, null, new Object[] {Arrays.asList(3, null, 5, null, 1)}, null);
     assertEquals(1, min.getResult());
+  }
+
+  @Test
+  public void aggregateAcrossMultipleRowsKeepsEarliestDate() {
+    // Aggregate path for non-Number Comparables: the `context instanceof Number
+    // && min instanceof Number` guard must skip castComparableNumber and fall
+    // through to Date.compareTo. Pins the Number-guard-then-compareTo ordering
+    // for non-numeric aggregates.
+    min.config(new Object[] {"when"});
+    Date early = new Date(1_000L);
+    Date late = new Date(5_000L);
+    Date mid = new Date(3_000L);
+    min.execute(null, null, null, new Object[] {mid}, null);
+    min.execute(null, null, null, new Object[] {late}, null);
+    min.execute(null, null, null, new Object[] {early}, null);
+    assertEquals(early, min.getResult());
   }
 
   @Test

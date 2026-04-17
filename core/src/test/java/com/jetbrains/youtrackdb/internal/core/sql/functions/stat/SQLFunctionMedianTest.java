@@ -55,8 +55,8 @@ public class SQLFunctionMedianTest {
 
   @Test
   public void medianOfEvenCountInterpolatesBetweenTwoMiddleValues() {
-    // Sorted: 1, 2, 4, 5 → percentile evaluator interpolates at pos = 0.5 * (4+1) = 2.5
-    // → 2 + 0.5 * (4 - 2) = 3.0
+    // Sorted: 1, 2, 4, 5 → pos = 0.5 * (4+1) = 2.5. floor(2.5)=2 → intPos=2, dif=0.5.
+    // lower=values[1]=2, upper=values[2]=4 → 2 + 0.5*(4-2) = 3.0.
     for (int v : new int[] {1, 2, 4, 5}) {
       median.execute(null, null, null, new Object[] {v}, null);
     }
@@ -72,13 +72,14 @@ public class SQLFunctionMedianTest {
   }
 
   @Test
-  public void medianIsDirtiedAcrossMultipleRows() {
-    // Sort key: percentile stores values into an internal list, and each execute() appends.
+  public void medianAccumulatesValuesAcrossMultipleExecuteCalls() {
+    // Percentile buffers values in an internal list; each execute() appends one value.
+    // Sorted: 10, 20, 30. pos = 0.5 * (3+1) = 2.0 (< n=3, so not the upper-edge branch).
+    // floor(2.0)=2 → intPos=2, dif=0 → lower=values[1]=20, upper=values[2]=30 →
+    // 20 + 0*(30-20) = 20.0.
     median.execute(null, null, null, new Object[] {10}, null);
     median.execute(null, null, null, new Object[] {20}, null);
     median.execute(null, null, null, new Object[] {30}, null);
-    // Even pos = 0.5 * (3+1) = 2.0 — falls into the pos >= n branch only if 2.0 >= 3 (it doesn't).
-    // Interpolation: floor(2.0) = 2, dif = 0 → values[1] + 0 * (values[2] - values[1]) = 20.
     assertEquals(20.0, median.getResult());
   }
 

@@ -52,10 +52,28 @@ public class SQLFunctionIntervalTest {
 
   @Test
   public void testGetResultAlwaysReturnsNull() {
-    // interval does not buffer state between calls; getResult() must return null
-    // even after execute() has been invoked.
-    function.execute(null, null, null, new Object[] {5, 1, 10}, null);
+    // interval does not buffer state between calls: the contract is carried by the
+    // return value of execute(), not getResult() (which always returns null). Assert
+    // both to prove the split clearly.
+    var executeResult = function.execute(null, null, null, new Object[] {5, 1, 10}, null);
+    assertEquals(1, executeResult); // first bound strictly greater than 5 is at index 1 (→ i-1 = 1)
     assertNull(function.getResult());
+  }
+
+  @Test
+  public void testXEqualToBoundIsNotCountedBecauseComparisonIsStrict() {
+    // interval uses strict `>` against the first argument, so a bound equal to x does
+    // NOT match — the next strictly-greater bound is returned instead.
+    doTest(1, 10, 10, 20);
+  }
+
+  @Test(expected = NullPointerException.class)
+  public void testNullBoundThrowsBecauseCompareToDereferencesIt() {
+    // Pins: null bounds are not supported — the loop reaches the null element (x is
+    // larger than the preceding non-null bounds) and `null.compareTo(first)` NPEs.
+    // WHEN-FIXED: if future code skips null bounds, update this to assert the
+    // expected index instead.
+    function.execute(null, null, null, new Object[] {100, 10, null, 200}, null);
   }
 
   @Test
