@@ -6,6 +6,7 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -300,12 +301,22 @@ public class HeuristicFormulaTest {
   @Test
   public void tieBreakingRandomReturnsFiniteValueAndUsesInput() {
     var h = new TestHeuristic();
+    // Random implementation: heuristic += (|cross| + rnd.nextFloat()) * heuristic. For
+    // heuristic=1.0 and cross=2 (computed from the input coordinates) the result is
+    // 1 + (2 + rnd) with rnd ∈ [0,1), so result ∈ [3, 4).
     double result = h.tieBreakRandom(2.0, 3.0, 0.0, 0.0, 4.0, 5.0, 1.0);
-    // Random implementation: heuristic += (|cross| + rnd) * heuristic. For heuristic=1.0 this
-    // is roughly 1 + (2 + rnd). With rnd in [0,1) → result in (3,4).
-    if (result < 3.0 || result >= 4.0) {
-      throw new AssertionError("tieBreakRandom produced out-of-expected-range value: " + result);
-    }
+    assertTrue(
+        "tieBreakRandom produced out-of-expected-range value: " + result,
+        result >= 3.0 && result < 4.0);
+
+    // Two calls with identical inputs must differ whenever rnd.nextFloat() is actually drawn
+    // on each invocation. Catches a regression where the random term is cached or stubbed
+    // out. Probability of two floats being equal by chance is ~2^-24 so failures are
+    // effectively impossible.
+    double call1 = h.tieBreakRandom(2.0, 3.0, 0.0, 0.0, 4.0, 5.0, 1.0);
+    double call2 = h.tieBreakRandom(2.0, 3.0, 0.0, 0.0, 4.0, 5.0, 1.0);
+    assertNotEquals(call1, call2, EPS);
+
     // With heuristic=0.0 the multiplicative term is zero regardless of randomness.
     assertEquals(0.0, h.tieBreakRandom(2.0, 3.0, 0.0, 0.0, 4.0, 5.0, 0.0), EPS);
   }
@@ -430,6 +441,17 @@ public class HeuristicFormulaTest {
     String[] src = {"a", "b"};
     // Production returns the array as-is (cast path).
     assertSame(src, h.exposedStringArray(src));
+  }
+
+  /**
+   * Non-String, non-array Object hits the {@code instanceof Object} branch which forces a cast
+   * to {@code String[]} — ClassCastException is the observed behaviour. Pinning the quirk so
+   * future refactors don't silently change it (the trailing {@code return new String[]{}} is
+   * dead code since {@code instanceof Object} is always true for non-null).
+   */
+  @Test(expected = ClassCastException.class)
+  public void stringArrayFromNonStringNonArrayObjectThrowsClassCastException() {
+    new TestHeuristic().exposedStringArray(Integer.valueOf(5));
   }
 
   @Test
