@@ -648,24 +648,58 @@ public final class LockFreeReadCache implements ReadCache {
 
   @Override
   public void deleteStorage(final WriteCache writeCache) throws IOException {
-    final var files = writeCache.files().values();
-
-    for (final long fileId : files) {
-      clearFile(fileId, writeCache);
-    }
-
+    drainAllEntries(writeCache);
     writeCache.delete();
   }
 
   @Override
   public void closeStorage(final WriteCache writeCache) throws IOException {
-    final var files = writeCache.files().values();
-
-    for (final long fileId : files) {
-      clearFile(fileId, writeCache);
-    }
-
+    drainAllEntries(writeCache);
     writeCache.close();
+  }
+
+  /**
+   * Drain every cache entry in one pass and apply the close/delete side-effects (freeze,
+   * policy.onRemove, cacheSize decrement).
+   *
+   * <p>Per-file iteration via {@link #clearFile} is O(files * total capacity) because each
+   * {@code removeByFileId} call linearly sweeps all 16 sections and same-capacity rehashes any
+   * section with a match. On a storage with thousands of files and a large cache, that cost
+   * dominates close wall time (observed pegged at 100 % CPU inside {@code removeByFileId} for
+   * 30+ minutes). This path collapses the work to a single O(total capacity) sweep.
+   *
+   * <p>Caller must already hold {@link #evictionLock} — we do not reacquire it per entry as
+   * {@code clearFile} does, because close has no progress obligation to other threads and
+   * holding the lock once is simpler than re-taking it 10 000 times.
+   */
+  private void drainAllEntries(final WriteCache writeCache) {
+    flushCurrentThreadReadBatch();
+    evictionLock.lock();
+    try {
+      emptyBuffers();
+
+      // Precondition (same as clearFile): no concurrent doLoad during close. A concurrent load
+      // landing on an already-drained section would stick; callers coordinate storage lifecycle
+      // at a higher level to prevent this.
+      data.drainAll(cacheEntry -> {
+        if (!cacheEntry.freeze()) {
+          throw new StorageException(writeCache.getStorageName(),
+              "Page with index "
+                  + cacheEntry.getPageIndex()
+                  + " for file id "
+                  + cacheEntry.getFileId()
+                  + " is used and cannot be removed");
+        }
+        policy.onRemove(cacheEntry);
+        cacheSize.decrementAndGet();
+      });
+
+      // writeCache.close()/delete() triggers a full flush, so we skip the per-entry
+      // checkCacheOverflow() call that the per-file clearFile path makes — it would be
+      // redundant work under a lock that close holds for the entire drain.
+    } finally {
+      evictionLock.unlock();
+    }
   }
 
   private void clearFile(final long fileId, final WriteCache writeCache) {

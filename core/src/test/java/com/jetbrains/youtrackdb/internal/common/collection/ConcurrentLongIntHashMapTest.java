@@ -3,7 +3,9 @@ package com.jetbrains.youtrackdb.internal.common.collection;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import org.junit.Test;
 
 /**
@@ -1684,5 +1686,232 @@ public class ConcurrentLongIntHashMapTest {
     // Integer.MIN_VALUE * 31 overflows and wraps to Integer.MIN_VALUE in int arithmetic
     assertThat(ConcurrentLongIntHashMap.hashForFrequencySketch(Long.MAX_VALUE, 0))
         .isEqualTo(-2147483648);
+  }
+
+  // ---- drainAll ----
+
+  /** drainAll on an empty map must not invoke the consumer and must leave size at zero. */
+  @Test
+  public void drainAllOnEmptyMapInvokesConsumerZeroTimes() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    var collected = new ArrayList<String>();
+    map.drainAll(collected::add);
+    assertThat(collected).isEmpty();
+    assertThat(map.size()).isEqualTo(0);
+    assertThat(map.isEmpty()).isTrue();
+  }
+
+  /** drainAll on a single-section map delivers every value exactly once, then empties the map. */
+  @Test
+  public void drainAllOnSingleSectionDeliversEveryValueExactlyOnce() {
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    for (int i = 0; i < 10; i++) {
+      map.put(1L, i, "v" + i);
+    }
+    assertThat(map.size()).isEqualTo(10);
+
+    var collected = new ArrayList<String>();
+    map.drainAll(collected::add);
+
+    assertThat(collected).hasSize(10);
+    var expected = new ArrayList<String>();
+    for (int i = 0; i < 10; i++) {
+      expected.add("v" + i);
+    }
+    assertThat(collected).containsExactlyInAnyOrderElementsOf(expected);
+    assertThat(map.size()).isEqualTo(0);
+    assertThat(map.isEmpty()).isTrue();
+  }
+
+  /**
+   * drainAll across many sections collects entries from every section — verifies the iteration
+   * covers all sections, not just the first.
+   */
+  @Test
+  public void drainAllAcrossAllSectionsCollectsEveryEntry() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    int filesCount = 20;
+    int pagesPerFile = 30;
+    var expected = new ArrayList<String>();
+    for (long fid = 0; fid < filesCount; fid++) {
+      for (int page = 0; page < pagesPerFile; page++) {
+        var v = "f" + fid + "-p" + page;
+        map.put(fid, page, v);
+        expected.add(v);
+      }
+    }
+    assertThat(map.size()).isEqualTo(filesCount * pagesPerFile);
+
+    var collected = new ArrayList<String>();
+    map.drainAll(collected::add);
+
+    assertThat(collected).containsExactlyInAnyOrderElementsOf(expected);
+    assertThat(map.size()).isEqualTo(0);
+  }
+
+  /**
+   * drainAll must return the map to a state where get returns null for every previously present
+   * key. Guards against partial drains that leave stale entries.
+   */
+  @Test
+  public void drainAllClearsEveryEntryFromGet() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    for (long fid = 0; fid < 5; fid++) {
+      for (int page = 0; page < 10; page++) {
+        map.put(fid, page, "v-" + fid + "-" + page);
+      }
+    }
+
+    map.drainAll(v -> {
+    });
+
+    for (long fid = 0; fid < 5; fid++) {
+      for (int page = 0; page < 10; page++) {
+        assertThat(map.get(fid, page))
+            .as("Entry (%d, %d) must be null after drainAll", fid, page)
+            .isNull();
+      }
+    }
+  }
+
+  /**
+   * drainAll shrinks each section back to the minimum capacity — avoids retaining a large array
+   * after storage close. Per-section minimum is 2 slots, so total capacity for the default 16
+   * sections is 32.
+   */
+  @Test
+  public void drainAllShrinksCapacityToMinimum() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    // Grow the map past its initial capacity so sections actually have non-default size.
+    for (long fid = 0; fid < 100; fid++) {
+      for (int page = 0; page < 100; page++) {
+        map.put(fid, page, "v");
+      }
+    }
+    long grownCapacity = map.capacity();
+    assertThat(grownCapacity).isGreaterThan(32L);
+
+    map.drainAll(v -> {
+    });
+
+    assertThat(map.capacity())
+        .as("drainAll must shrink capacity to the minimum (2 slots per section * 16 sections)")
+        .isEqualTo(32L);
+    assertThat(map.size()).isEqualTo(0);
+  }
+
+  /** After drainAll the map must be usable — puts and gets work as expected on a fresh table. */
+  @Test
+  public void drainAllLeavesMapUsableForSubsequentPutAndGet() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    for (int i = 0; i < 50; i++) {
+      map.put(1L, i, "old-" + i);
+    }
+    map.drainAll(v -> {
+    });
+
+    for (int i = 0; i < 50; i++) {
+      map.put(1L, i, "new-" + i);
+    }
+    for (int i = 0; i < 50; i++) {
+      assertThat(map.get(1L, i)).isEqualTo("new-" + i);
+    }
+    assertThat(map.size()).isEqualTo(50);
+  }
+
+  /**
+   * An exception thrown by the consumer propagates out of drainAll. Because the consumer runs
+   * after each section is drained (and the lock released), the map is already fully drained by
+   * the time the exception surfaces — matching the "best effort, fail fast" semantics of the
+   * close path.
+   */
+  @Test
+  public void drainAllPropagatesConsumerException() {
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    map.put(1L, 0, "first");
+    map.put(1L, 1, "second");
+
+    assertThatThrownBy(
+        () -> map.drainAll(
+            v -> {
+              throw new IllegalStateException("boom on " + v);
+            }))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("boom on");
+
+    // The map has been fully drained even though the consumer threw — entries were removed
+    // under the write lock before the consumer ran.
+    assertThat(map.size()).isEqualTo(0);
+  }
+
+  /**
+   * drainAll invokes the consumer outside the section write lock, so a consumer that re-enters
+   * the map (e.g., to insert a new entry) must succeed without deadlock. This mirrors the close
+   * path where {@code freeze()} / policy callbacks may touch other maps.
+   */
+  @Test
+  public void drainAllConsumerCanReenterMap() {
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    map.put(1L, 0, "original");
+    map.put(1L, 1, "original");
+
+    var collected = new ArrayList<String>();
+    map.drainAll(
+        v -> {
+          collected.add(v);
+          // Re-entering the map inside the consumer: must not deadlock on the section lock.
+          if (v.equals("original") && map.get(2L, 0) == null) {
+            map.put(2L, 0, "reentrant");
+          }
+        });
+
+    assertThat(collected).hasSize(2);
+    // The reentrant put landed after drainAll returned from that section's write lock.
+    assertThat(map.get(2L, 0)).isEqualTo("reentrant");
+  }
+
+  /**
+   * drainAll resets both size and usedBuckets to zero — a subsequent fill to the original
+   * resize threshold triggers a normal rehash without corruption.
+   */
+  @Test
+  public void drainAllResetsInternalCountersSoRefillWorks() {
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    // Fill single section to its resize threshold (capacity 16, threshold = 10)
+    for (int i = 0; i < 10; i++) {
+      map.put(1L, i, "a-" + i);
+    }
+    map.drainAll(v -> {
+    });
+
+    // Fill again past the (shrunken) capacity — this exercises rehashes on a fresh table.
+    var seen = new HashSet<String>();
+    for (int i = 0; i < 100; i++) {
+      map.put(1L, i, "b-" + i);
+      seen.add("b-" + i);
+    }
+    assertThat(map.size()).isEqualTo(100);
+    for (int i = 0; i < 100; i++) {
+      assertThat(map.get(1L, i)).isEqualTo("b-" + i);
+    }
+  }
+
+  /**
+   * drainAll on a map whose sections have mixed populations (some empty, some nearly full) must
+   * visit only live entries — never an empty slot.
+   */
+  @Test
+  public void drainAllSkipsEmptySlots() {
+    var map = new ConcurrentLongIntHashMap<String>(64, 1);
+    // Insert only 3 entries into a 64-slot section so most slots remain empty.
+    map.put(1L, 0, "a");
+    map.put(1L, 5, "b");
+    map.put(1L, 10, "c");
+
+    List<String> collected = new ArrayList<>();
+    map.drainAll(collected::add);
+
+    assertThat(collected).containsExactlyInAnyOrder("a", "b", "c");
+    assertThat(map.size()).isEqualTo(0);
   }
 }

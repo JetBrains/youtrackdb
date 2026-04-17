@@ -249,6 +249,29 @@ public class ConcurrentLongIntHashMap<V> {
     }
   }
 
+  /**
+   * Drains every entry from the map, invoking {@code consumer} for each removed value. After this
+   * method returns, the map is empty and each section's capacity has been reset to the default
+   * minimum (so the large arrays accumulated during normal operation are released).
+   *
+   * <p>Each section is drained under its own write lock, with collected values copied into a
+   * temporary array. The lock is released <b>before</b> the consumer is invoked, so callbacks may
+   * re-enter the map (matching the reentrancy contract of {@link #removeByFileId(long)}).
+   *
+   * <p>Cost is {@code O(total capacity)} regardless of how many distinct {@code fileId} values are
+   * present — intended for storage close/delete, where the caller would otherwise iterate files
+   * and call {@link #removeByFileId(long)} once per file (which is
+   * {@code O(files * total capacity)}).
+   *
+   * <p>Cross-section iteration is not collectively atomic — matching {@link #clear()} — so a
+   * concurrent {@code put} on a not-yet-drained section may survive the call.
+   */
+  public void drainAll(Consumer<V> consumer) {
+    for (Section<V> s : sections) {
+      s.drain(consumer);
+    }
+  }
+
   /** Iterates all entries, passing (fileId, pageIndex, value) to the consumer. */
   public void forEach(LongIntObjConsumer<V> consumer) {
     for (Section<V> s : sections) {
@@ -794,6 +817,49 @@ public class ConcurrentLongIntHashMap<V> {
         usedBuckets = 0;
       } finally {
         lock.unlockWrite(stamp);
+      }
+    }
+
+    /**
+     * Drain all live entries into a temporary array, reset the section to an empty default-sized
+     * table, then invoke {@code consumer} for each collected value outside the lock. Shrinking
+     * the table avoids retaining a large array after close — the next put() will rehash on
+     * demand.
+     */
+    @SuppressWarnings("unchecked")
+    void drain(Consumer<V> consumer) {
+      Object[] collected;
+      int collectedCount;
+      long stamp = lock.writeLock();
+      try {
+        collected = new Object[size];
+        int k = 0;
+        for (int i = 0; i < capacity; i++) {
+          Entry<V> e = entries[i];
+          if (e != null) {
+            collected[k++] = e.value;
+          }
+        }
+        collectedCount = k;
+        assert collectedCount == size
+            : "collectedCount (" + collectedCount + ") != size (" + size + ")";
+
+        // Reset to a small empty table — no reason to retain capacity accumulated during
+        // normal operation; subsequent puts will rehash on demand.
+        int newCapacity = alignToPowerOfTwo(2);
+        entries = new Entry[newCapacity];
+        capacity = newCapacity;
+        resizeThreshold = (int) (newCapacity * FILL_FACTOR);
+        size = 0;
+        usedBuckets = 0;
+      } finally {
+        lock.unlockWrite(stamp);
+      }
+
+      // Invoke consumer outside the section's write lock. Matches removeByFileId's contract so
+      // callbacks may safely re-enter the map.
+      for (int i = 0; i < collectedCount; i++) {
+        consumer.accept((V) collected[i]);
       }
     }
 
