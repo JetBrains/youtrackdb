@@ -92,4 +92,28 @@ public class LdbcSingleThreadBothEBenchmark {
         "minDate", state.bothEKnowsMinDate(i),
         "limit", LIMIT);
   }
+
+  /**
+   * BothE-HAS_MEMBER: recent joiners of a popular Forum — hub-shape variant of
+   * the pre-filter benchmark. Traverses {@code HAS_MEMBER} edges of a Forum in
+   * the top-100 by bag size (thousands of members) with a selective
+   * {@code joinDate} lower bound.
+   *
+   * <p>This is where YTDB-646 is designed to shine: the
+   * {@code HAS_MEMBER.joinDate} index lets {@code MatchEdgeTraverser}
+   * intersect the Forum's {@code out_HAS_MEMBER} link bag against a small RID
+   * set before loading any edge record, skipping most edge loads — in
+   * contrast to the small-bag {@code BothE-KNOWS} case (Person averages ~100
+   * KNOWS edges) where pre-filter overhead matches the savings.
+   */
+  @Benchmark
+  public List<Map<String, Object>> bothEHasMember_recentJoiners(
+      LdbcBenchmarkState state) {
+    long i = state.nextIndex();
+    return state.executeSql(
+        LdbcQuerySql.FORUM_RECENT_JOINERS,
+        "forumId", state.forumHubId(i),
+        "minDate", state.forumHubMinJoinDate(i),
+        "limit", LIMIT);
+  }
 }

@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -62,6 +63,16 @@ public class LdbcBenchmarkState {
 
   // Curated per-query parameters — populated by ParameterCurator after DB load
   private ParameterCurator.CuratedParams curatedParams;
+
+  // Forum IDs sorted by HAS_MEMBER link-bag size (desc). Populated once in
+  // @Setup via a single SELECT; used by the forum-recent-joiners hub bench,
+  // which exists specifically to exercise YTDB-646 pre-filter at scale where
+  // the small-bag KNOWS benchmark does not show a measurable speedup.
+  private long[] popularForumIds;
+
+  // Cached selective date (95th percentile of curated dates) so the hub bench
+  // accessor avoids re-sorting curated dates on every benchmark invocation.
+  private Date cachedSelectiveDate;
 
   private final AtomicLong counter = new AtomicLong();
 
@@ -235,6 +246,27 @@ public class LdbcBenchmarkState {
     return curatedParams.dates()[(int) (idx % curatedParams.dates().length)];
   }
 
+  // -- BothE-HAS_MEMBER (hub) extension parameters --
+
+  /**
+   * Popular Forum ID cycled across the top-100 by {@code HAS_MEMBER} bag size.
+   * These are hub vertices with thousands of incident edges — the shape where
+   * the YTDB-646 pre-filter measurably beats the pre-fix path.
+   */
+  public long forumHubId(long idx) {
+    return popularForumIds[(int) (idx % popularForumIds.length)];
+  }
+
+  /**
+   * Selective lower-bound date for the hub bench. Fixed at the 95th percentile
+   * of curated dates so that {@code HAS_MEMBER.joinDate >=} filter passes
+   * roughly ~5% of edges — narrow enough for the index-assisted pre-filter
+   * set to visibly reduce edge loads on large bags.
+   */
+  public Date forumHubMinJoinDate(long idx) {
+    return cachedSelectiveDate;
+  }
+
   /** IC13: two distinct person IDs. */
   public long ic13Person1Id(long idx) {
     return curatedParams.ic13PersonIds1()[(int) (idx
@@ -302,6 +334,26 @@ public class LdbcBenchmarkState {
         curatedParams.isMessageIds().length,
         curatedParams.ic1().length,
         curatedParams.ic3().length);
+
+    // Pre-compute a selective (95th-percentile) date once — used as a fixed
+    // lower bound by the hub bench so the filter is narrow enough for the
+    // pre-filter set to meaningfully reduce edge loads.
+    Date[] sortedDates = curatedParams.dates().clone();
+    Arrays.sort(sortedDates);
+    cachedSelectiveDate =
+        sortedDates[Math.min(sortedDates.length - 1, (int) (sortedDates.length * 0.95))];
+
+    // Pre-compute top-100 Forums by HAS_MEMBER bag size. These are the hub
+    // vertices used by bothEHasMember_recentJoiners — ordinary Forums have
+    // dozens of members, hubs have tens of thousands, which is where the
+    // pre-filter optimization is designed to shine.
+    popularForumIds = executeSql(
+        "SELECT id, outE(\"HAS_MEMBER\").size() as sz "
+            + "FROM Forum ORDER BY sz DESC LIMIT 100")
+        .stream()
+        .mapToLong(row -> ((Number) row.get("id")).longValue())
+        .toArray();
+    log.info("Top-100 popular Forum IDs cached for hub benches");
   }
 
   @TearDown(Level.Trial)
