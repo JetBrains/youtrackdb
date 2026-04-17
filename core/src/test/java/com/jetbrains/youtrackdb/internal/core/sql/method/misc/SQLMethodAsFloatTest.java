@@ -15,6 +15,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import java.math.BigDecimal;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -57,10 +58,46 @@ public class SQLMethodAsFloatTest {
   }
 
   @Test
-  public void largeDoublesCoerceToInfinity() {
-    // Double.MAX_VALUE exceeds Float range → positive infinity.
+  public void largeDoublesCoerceToPositiveInfinity() {
+    // Double.MAX_VALUE exceeds Float range → specifically POSITIVE_INFINITY, not negative.
     var result = (Float) method.execute(null, null, null, Double.MAX_VALUE, null);
-    assertTrue("Expected positive infinity, got " + result, Float.isInfinite(result));
+    assertEquals(Float.POSITIVE_INFINITY, result, 0.0f);
+  }
+
+  @Test
+  public void largeNegativeDoubleCoercesToNegativeInfinity() {
+    var result = (Float) method.execute(null, null, null, -Double.MAX_VALUE, null);
+    assertEquals(Float.NEGATIVE_INFINITY, result, 0.0f);
+  }
+
+  @Test
+  public void bigDecimalCoercedViaFloatValue() {
+    // BigDecimal is a Number — floatValue() loses precision but stays finite for reasonable
+    // magnitudes. Delta reflects unavoidable float representation error.
+    var bd = new BigDecimal("3.14159265358979323846");
+    assertEquals(3.14159265f,
+        (Float) method.execute(null, null, null, bd, null), 1e-6f);
+  }
+
+  @Test
+  public void specialDoubleStringsParsedAsNaNAndInfinity() {
+    // Float.valueOf accepts "NaN", "Infinity", "-Infinity" per Double.parseDouble contract.
+    assertTrue(Float.isNaN((Float) method.execute(null, null, null, "NaN", null)));
+    assertEquals(Float.POSITIVE_INFINITY,
+        (Float) method.execute(null, null, null, "Infinity", null), 0.0f);
+    assertEquals(Float.NEGATIVE_INFINITY,
+        (Float) method.execute(null, null, null, "-Infinity", null), 0.0f);
+  }
+
+  @Test
+  public void whitespaceOnlyStringThrowsNumberFormatException() {
+    // trim() leaves "" which Float.valueOf rejects; there's no empty-check short-circuit.
+    try {
+      method.execute(null, null, null, "   ", null);
+      fail("Expected NumberFormatException for whitespace-only string");
+    } catch (NumberFormatException expected) {
+      // expected
+    }
   }
 
   @Test

@@ -54,10 +54,28 @@ public class SQLMethodNormalizeTest {
 
   @Test
   public void explicitFormNfcKeepsDiacritics() {
-    // Single-argument branch + NFC form does NOT strip marks (they stay composed).
-    // Actually: the code applies PATTERN_DIACRITICAL_MARKS regardless, but NFC re-composes
-    // before that regex runs, leaving composed chars untouched.
+    // NFC re-composes code points, so PATTERN_DIACRITICAL_MARKS (which matches combining
+    // marks in the Mn category) finds nothing to strip — precomposed 'é' survives intact.
     assertEquals("café", method.execute(null, null, null, "café", new Object[] {"NFC"}));
+  }
+
+  @Test
+  public void nfkdDecomposesCompatibilityLigature() {
+    // The ligature ﬁ (U+FB01) decomposes to "fi" under NFKD (compatibility decomposition)
+    // but stays as ﬁ under plain NFD. This pins the distinct NFKD path.
+    assertEquals("fi", method.execute(null, null, null, "\uFB01", new Object[] {"NFKD"}));
+  }
+
+  @Test
+  public void nullFirstParamThrowsNpeWhenIParamsNonEmpty() {
+    // Production: iParams[0].toString() is called unconditionally when iParams.length > 0,
+    // so a null first param NPEs. Pin the current behaviour; no explicit null guard exists.
+    try {
+      method.execute(null, null, null, "café", new Object[] {null});
+      fail("Expected NullPointerException — no null-guard on iParams[0]");
+    } catch (NullPointerException expected) {
+      // expected
+    }
   }
 
   @Test

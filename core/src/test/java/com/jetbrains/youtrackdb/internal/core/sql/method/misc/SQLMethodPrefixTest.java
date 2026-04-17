@@ -13,6 +13,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.method.misc;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.fail;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -64,5 +65,17 @@ public class SQLMethodPrefixTest {
     // iThis is toString'd before concatenation.
     assertEquals("prefix-42",
         method.execute(42, null, null, null, new Object[] {"prefix-"}));
+  }
+
+  @Test
+  public void nullParamsArrayThrowsNpe() {
+    // The method indexes iParams[0] with no null-array guard (arity is declared as (NAME, 1)
+    // so a well-formed call always supplies the array). Pin current NPE behaviour.
+    try {
+      method.execute("value", null, null, null, null);
+      fail("Expected NullPointerException — iParams is indexed without a null guard");
+    } catch (NullPointerException expected) {
+      // expected
+    }
   }
 }
