@@ -24,7 +24,6 @@ import com.jetbrains.youtrackdb.internal.common.collection.MultiCollectionIterat
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.sql.filter.SQLFilterItem;
 import com.jetbrains.youtrackdb.internal.core.sql.filter.SQLFilterItemVariable;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -132,9 +131,10 @@ public class SQLFunctionUnionAllTest {
   }
 
   @Test
-  public void aggregationReturnsNullEvenWhenContextAccumulates() {
-    // The aggregation branch returns `context` — but `getResult()` is the canonical accessor.
-    // The returned value is the accumulator list (not null), and getResult returns the same.
+  public void aggregationReturnsAccumulatorListAndGetResultMirrorsIt() {
+    // The aggregation branch of execute() returns the internal `context` list directly.
+    // SQLFunctionMultiValueAbstract.getResult() exposes the same list via the `context` field,
+    // so the two accessors must agree.
     final var fn = new SQLFunctionUnionAll();
     final var ctx = new BasicCommandContext();
     ctx.setVariable("aggregation", Boolean.TRUE);
@@ -144,8 +144,28 @@ public class SQLFunctionUnionAllTest {
 
     assertNotNull(ret);
     assertEquals(List.of("a"), ret);
-    // SQLFunctionMultiValueAbstract exposes the same context via getResult().
     assertEquals(List.of("a"), viaGetResult);
+  }
+
+  @Test
+  public void nonBooleanTrueAggregationVariableTakesInlinePath() {
+    // The aggregation switch is `Boolean.TRUE.equals(...)` — anything else (Boolean.FALSE, the
+    // String "true", Integer 1, etc.) must fall through to the inline MultiCollectionIterator
+    // branch. A loose refactor to `!= null` or `Boolean.parseBoolean(String.valueOf(...))` would
+    // break this contract.
+    for (Object nonTrue : new Object[] {Boolean.FALSE, "true", 1}) {
+      final var fn = new SQLFunctionUnionAll();
+      final var ctx = new BasicCommandContext();
+      ctx.setVariable("aggregation", nonTrue);
+
+      final var result = fn.execute(null, null, null,
+          new Object[] {List.of(1, 2), List.of(3)}, ctx);
+
+      assertTrue("non-TRUE aggregation variable " + nonTrue
+          + " must route to inline MultiCollectionIterator",
+          result instanceof MultiCollectionIterator<?>);
+      assertEquals(List.of(1, 2, 3), drain((Iterator<?>) result));
+    }
   }
 
   @Test
@@ -181,11 +201,11 @@ public class SQLFunctionUnionAllTest {
   }
 
   /**
-   * Minimal {@link SQLFilterItemVariable} substitute — avoids the parser constructor by
-   * implementing the {@link SQLFilterItem} interface directly. The production code path in
-   * {@link SQLFunctionUnionAll} uses {@code instanceof SQLFilterItemVariable}, so we use a real
-   * subclass created via a private helper constructor route — here simulated by implementing
-   * both interfaces.
+   * Real {@link SQLFilterItemVariable} subclass that overrides {@code getValue} to return a
+   * canned result. The production code at {@code SQLFunctionUnionAll#execute} tests
+   * {@code instanceof SQLFilterItemVariable}, so the test must use an actual subclass. We pass
+   * {@code null} session/parser plus {@code "$name"} text; the superclass strips the {@code $}
+   * prefix and calls {@code setRoot} — no database or parser state is touched.
    */
   private static final class FakeVariable extends SQLFilterItemVariable {
     private final Object resolved;
