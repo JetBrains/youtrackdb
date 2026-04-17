@@ -681,6 +681,63 @@ public class LdbcQueryCorrectnessTest {
     LdbcBenchmarkState.loadSqlStatements("/nonexistent-schema.sql");
   }
 
+  // ==================== BothE-KNOWS extension query ====================
+
+  /**
+   * Verifies that bothE('KNOWS') with a date filter returns the expected edges,
+   * including the correct count when KNOWS is stored bidirectionally.
+   *
+   * <p>Test graph KNOWS edges (created by createKnows — each is bidirectional):
+   * <pre>
+   *   Alice—Bob   creationDate = 2011-01-01
+   *   Alice—Carol creationDate = 2011-06-01
+   *   Bob—Dave    creationDate = 2011-03-01
+   *   Dave—Eve    creationDate = 2011-09-01
+   * </pre>
+   *
+   * <p>For Alice (KNOWS: Bob at 2011-01-01, Carol at 2011-06-01), using
+   * {@code bothE('KNOWS'){where: (creationDate >= :minDate)}.inV()} with
+   * minDate = 2011-06-01:
+   * <ul>
+   *   <li>out_KNOWS matches Alice→Carol (2011-06-01 ≥ 2011-06-01) → inV() = Carol</li>
+   *   <li>in_KNOWS matches Carol→Alice (2011-06-01 ≥ 2011-06-01) → inV() = Alice (self)</li>
+   * </ul>
+   * Both limit to 2 rows. Alice→Bob (2011-01-01 < 2011-06-01) is excluded by the pre-filter.
+   */
+  @Test
+  public void testBothEKnows_recentConnectionsFilter() {
+    // minDate = 2011-06-01: only Alice–Carol qualifies; Alice–Bob was 2011-01-01
+    var minDate = new Date(DATE_2011_06_01);
+    var rows = sql(LdbcQuerySql.BOTH_E_KNOWS,
+        "personId", ALICE, "minDate", minDate, "limit", 20);
+
+    // Both directions of Alice—Carol match, giving 2 rows:
+    // out_KNOWS(Alice→Carol).inV() = Carol, in_KNOWS(Carol→Alice).inV() = Alice (self).
+    assertEquals(
+        "bothE from Alice with minDate=2011-06-01 should return exactly 2 rows "
+            + "(one per direction of the Alice–Carol edge): " + rows,
+        2, rows.size());
+
+    // Both rows must have creationDate = 2011-06-01
+    for (var row : rows) {
+      assertEquals("since should match the KNOWS creationDate",
+          DATE_2011_06_01, ((Date) row.get("since")).getTime());
+    }
+  }
+
+  /**
+   * Verifies that a date filter that excludes all KNOWS edges returns zero rows.
+   */
+  @Test
+  public void testBothEKnows_nothingMatchesAfterAllEdges() {
+    // minDate far in the future — no KNOWS edge has this date
+    var minDate = new Date(DATE_2012_09_01);
+    var rows = sql(LdbcQuerySql.BOTH_E_KNOWS,
+        "personId", ALICE, "minDate", minDate, "limit", 20);
+
+    assertEquals("No KNOWS edges should match a future date", 0, rows.size());
+  }
+
   /** Verifies that all 20 SQL query constants are loaded and non-empty. */
   @Test
   public void testAllQuerySqlConstantsLoaded() {
@@ -704,6 +761,7 @@ public class LdbcQueryCorrectnessTest {
     assertNotNull(LdbcQuerySql.IC11);
     assertNotNull(LdbcQuerySql.IC12);
     assertNotNull(LdbcQuerySql.IC13);
+    assertNotNull(LdbcQuerySql.BOTH_E_KNOWS);
     assertTrue("IS1 should contain SQL", LdbcQuerySql.IS1.length() > 10);
   }
 

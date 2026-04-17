@@ -216,6 +216,25 @@ public class LdbcBenchmarkState {
     return p.tagClassName();
   }
 
+  // -- BothE-KNOWS extension parameters --
+
+  /**
+   * Person IDs for the BothE-KNOWS benchmark. Reuses the IS person-ID pool,
+   * which selects active persons likely to have multiple KNOWS connections.
+   */
+  public long bothEKnowsPersonId(long idx) {
+    return curatedParams.isPersonIds()[(int) (idx
+        % curatedParams.isPersonIds().length)];
+  }
+
+  /**
+   * Lower-bound date for the BothE-KNOWS benchmark. Reuses the shared dates
+   * pool (also used by IC5), which covers the KNOWS activity period in the dataset.
+   */
+  public Date bothEKnowsMinDate(long idx) {
+    return curatedParams.dates()[(int) (idx % curatedParams.dates().length)];
+  }
+
   /** IC13: two distinct person IDs. */
   public long ic13Person1Id(long idx) {
     return curatedParams.ic13PersonIds1()[(int) (idx
