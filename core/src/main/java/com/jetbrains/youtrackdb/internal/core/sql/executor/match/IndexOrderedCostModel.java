@@ -101,6 +101,11 @@ final class IndexOrderedCostModel {
     // Per-entry CPU: each B-tree cursor advance involves read lock
     // acquire/release, RidSet bitmap check, and stream filter lambda —
     // significantly more work than a simple field comparison (base cpu).
+    // The 5× factor is a heuristic: ~1× lock acquire/release, ~1× bitmap
+    // check, ~1× filter-lambda invocation, ~1× key comparison + cursor
+    // advance, ~1× per-entry overhead — summed and rounded. Not tied to a
+    // specific benchmark; tuned empirically so the model prefers loadSort
+    // at low density where scan dominates.
     int entriesPerPage =
         GlobalConfiguration.QUERY_INDEX_ORDERED_ENTRIES_PER_PAGE
             .getValueAsInteger();
