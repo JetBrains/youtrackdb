@@ -630,4 +630,107 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
 
     session.commit();
   }
+
+  /**
+   * Verify that {@code both('X')} with a symmetric edge (both endpoints of the
+   * same vertex class) infers the target vertex class from the edge LINK
+   * schema, enabling index pre-filter on an indexed vertex property of the
+   * target alias.
+   *
+   * <p>Setup: a standalone {@code PFKnows} edge class with both endpoints
+   * pointing at {@code PFKnownPerson}. {@code PFKnownPerson.age} has an index.
+   * The query filters the target by {@code age > 30}; the planner should
+   * resolve {@code p} to class {@code PFKnownPerson} and attach the
+   * {@code PFKnownPerson_age} index as an intersection pre-filter.
+   */
+  @Test
+  public void testBothWithSymmetricEdgeInfersClassAndAppliesPreFilter() {
+    session.execute("CREATE class PFKnownPerson extends V").close();
+    session.execute("CREATE property PFKnownPerson.name STRING").close();
+    session.execute("CREATE property PFKnownPerson.age INTEGER").close();
+    session.execute(
+        "CREATE index PFKnownPerson_age on PFKnownPerson (age) NOTUNIQUE").close();
+
+    session.execute("CREATE class PFKnows extends E").close();
+    session.execute("CREATE property PFKnows.out LINK PFKnownPerson").close();
+    session.execute("CREATE property PFKnows.in LINK PFKnownPerson").close();
+
+    session.begin();
+    session.execute(
+        "CREATE VERTEX PFKnownPerson set name = 'alice', age = 25").close();
+    session.execute(
+        "CREATE VERTEX PFKnownPerson set name = 'bob', age = 35").close();
+    session.execute(
+        "CREATE VERTEX PFKnownPerson set name = 'carol', age = 45").close();
+    session.execute(
+        "CREATE EDGE PFKnows from (select from PFKnownPerson where name='alice')"
+            + " to (select from PFKnownPerson where name='bob')")
+        .close();
+    session.execute(
+        "CREATE EDGE PFKnows from (select from PFKnownPerson where name='alice')"
+            + " to (select from PFKnownPerson where name='carol')")
+        .close();
+    session.commit();
+
+    var query =
+        "MATCH {class: PFKnownPerson, as: a, where: (name = 'alice')}"
+            + ".both('PFKnows'){as: p, where: (age > 30)}"
+            + " RETURN p.name";
+    var result = session.query(query).toList();
+
+    // alice.both(PFKnows) = {bob (age=35), carol (age=45)}; filter age > 30
+    // keeps both.
+    assertEquals(2, result.size());
+    Set<String> names = new HashSet<>();
+    for (var r : result) {
+      names.add(r.getProperty("p.name"));
+    }
+    assertTrue("Expected bob in results", names.contains("bob"));
+    assertTrue("Expected carol in results", names.contains("carol"));
+
+    var explainResult = session.query("EXPLAIN " + query).toList();
+    String plan = explainResult.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertTrue(
+        "both('PFKnows') with a symmetric edge and indexed target property "
+            + "should produce an intersection pre-filter on PFKnownPerson.age, "
+            + "but plan was:\n" + plan,
+        plan.contains("intersection:"));
+  }
+
+  /**
+   * Verify that {@code both('X')} with a heterogeneous edge (different in/out
+   * vertex classes, e.g. {@code PFWorkAt}: out=PFPerson, in=PFCompany) does
+   * NOT infer a target class — because the two endpoints cannot both be
+   * safely represented by a single alias class. The traversal must still
+   * produce correct results (via {@link
+   * com.jetbrains.youtrackdb.internal.core.record.impl.PreFilterableChainedIterable
+   * PreFilterableChainedIterable}'s class-filter fallback), but the plan
+   * must not contain a spurious intersection on a wrong class.
+   */
+  @Test
+  public void testBothWithHeterogeneousEdgeSkipsClassInference() {
+    session.begin();
+    // .both('PFWorkAt') from alice: out_PFWorkAt has company0 (alice works there).
+    // in_PFWorkAt on alice is empty. Result: company0.
+    var query =
+        "MATCH {class: PFPerson, as: a, where: (name = 'person0')}"
+            + ".both('PFWorkAt'){as: x}"
+            + " RETURN x.name";
+    var result = session.query(query).toList();
+    assertEquals(1, result.size());
+    assertEquals("company0", result.getFirst().getProperty("x.name"));
+
+    // No target class inferred ⇒ no per-target-class index lookup,
+    // so the plan must NOT claim an intersection pre-filter.
+    var explainResult = session.query("EXPLAIN " + query).toList();
+    String plan = explainResult.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertFalse(
+        "both('PFWorkAt') with heterogeneous endpoints must not infer a "
+            + "target class; intersection pre-filter should be skipped. "
+            + "Plan was:\n" + plan,
+        plan.contains("intersection:"));
+    session.commit();
+  }
 }
