@@ -522,19 +522,57 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
   }
 
   /**
-   * Verify that bothE() with an indexed edge property still produces correct
-   * results via unfiltered traversal. bothE() is intentionally out of scope
-   * for pre-filtering (returns ChainedIterable, not PreFilterableLinkBagIterable)
-   * and silently degrades to no-op. This test documents the intentional
-   * degradation and guards against regressions.
+   * Verify that bothE() with an explicit alias and an indexed edge property
+   * produces correct results AND that the planner now applies the index
+   * pre-filter (intersection descriptor). Previously bothE() silently degraded
+   * to unfiltered traversal; this test confirms the regression is fixed.
+   *
+   * <p>Pattern: Company -bothE('PFWorkAt'){as: w, where: workFrom < 2015}-> outV() as person
+   * company0 has persons 0 and 5 (workFrom 2010, 2015). workFrom < 2015 -> only person0.
    */
   @Test
-  public void testBothEDegradesToNoPreFilterButReturnsCorrectResults() {
+  public void testBothEWithAliasAppliesIndexPreFilter() {
     session.begin();
 
-    // bothE('PFWorkAt') from company0 should find persons working there.
-    // company0 has persons 0 and 5 (workFrom 2010, 2015).
-    // Filter workFrom < 2015 -> only person0 matches.
+    // Note: explicit {as: w} alias is required for the planner to infer the edge class
+    // 'PFWorkAt' and attach the PFWorkAt_workFrom index as an intersection pre-filter.
+    var query =
+        "MATCH {class: PFCompany, as: c, where: (name = 'company0')}"
+            + ".bothE('PFWorkAt'){as: w, where: (workFrom < 2015)}"
+            + ".outV(){as: p}"
+            + " RETURN p.name";
+    var result = session.query(query).toList();
+
+    assertEquals(1, result.size());
+    assertEquals("person0", result.getFirst().getProperty("p.name"));
+
+    // EXPLAIN should now show intersection pre-filter for bothE with alias
+    var explainResult = session.query("EXPLAIN " + query).toList();
+    String plan = explainResult.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertTrue(
+        "bothE with explicit alias should trigger intersection pre-filter "
+            + "(PFWorkAt_workFrom index), but plan was:\n" + plan,
+        plan.contains("intersection:"));
+
+    session.commit();
+  }
+
+  /**
+   * Verify that bothE() WITHOUT an explicit alias still produces correct results AND
+   * still benefits from index pre-filtering. The planner auto-assigns a default alias
+   * (e.g. $YOUTRACKDB_DEFAULT_ALIAS_0), enabling class inference and index intersection
+   * to proceed transparently even without a user-visible alias.
+   *
+   * <p>This test guards against regressions where the absence of an explicit alias
+   * would prevent the optimization from being applied.
+   */
+  @Test
+  public void testBothEWithoutAliasStillAppliesIndexPreFilter() {
+    session.begin();
+
+    // bothE('PFWorkAt') from company0: persons 0 and 5 (workFrom 2010, 2015).
+    // Filter workFrom < 2015 -> only person0.
     var query =
         "MATCH {class: PFCompany, as: c, where: (name = 'company0')}"
             + ".bothE('PFWorkAt'){where: (workFrom < 2015)}"
@@ -545,13 +583,50 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
     assertEquals(1, result.size());
     assertEquals("person0", result.getFirst().getProperty("p.name"));
 
-    // EXPLAIN should NOT show intersection descriptor for bothE
+    // The planner auto-assigns a default alias for the bothE step, so class inference
+    // resolves 'PFWorkAt' and the PFWorkAt_workFrom index is used as intersection pre-filter.
     var explainResult = session.query("EXPLAIN " + query).toList();
     String plan = explainResult.getFirst().getProperty("executionPlanAsString");
-    assertFalse(
-        "bothE should NOT trigger pre-filter intersection, but plan was:\n"
-            + plan,
-        plan.contains("(intersection:"));
+    assertNotNull(plan);
+    assertTrue(
+        "bothE without explicit alias should still produce an intersection pre-filter "
+            + "(via auto-assigned default alias), but plan was:\n" + plan,
+        plan.contains("intersection:"));
+
+    session.commit();
+  }
+
+  /**
+   * Verify that both() (vertex-to-vertex bidirectional traversal) returns correct
+   * results after the fix that wraps its LinkBag-backed iterables in
+   * {@code PreFilterableChainedIterable}. Exercises both the OUT and IN directions.
+   *
+   * <p>both('PFWorkAt') from company0 traverses:
+   * <ul>
+   *   <li>OUT direction: no out_PFWorkAt bag on company — 0 results</li>
+   *   <li>IN direction: in_PFWorkAt bag on company — persons 0 and 5</li>
+   * </ul>
+   */
+  @Test
+  public void testBothTraversalReturnsCorrectResults() {
+    session.begin();
+
+    // PFWorkAt edges run FROM person TO company, so both('PFWorkAt') from company0
+    // finds persons 0 (workFrom=2010) and 5 (workFrom=2015).
+    var query =
+        "MATCH {class: PFCompany, as: c, where: (name = 'company0')}"
+            + ".both('PFWorkAt'){as: p}"
+            + " RETURN p.name";
+    var result = session.query(query).toList();
+
+    assertEquals(2, result.size());
+
+    Set<String> names = new HashSet<>();
+    for (var r : result) {
+      names.add(r.getProperty("p.name"));
+    }
+    assertTrue("Expected person0 in results", names.contains("person0"));
+    assertTrue("Expected person5 in results", names.contains("person5"));
 
     session.commit();
   }

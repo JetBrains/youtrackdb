@@ -133,8 +133,18 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   public Iterable<Vertex> getVertices(Direction direction, String... type) {
     checkForBinding();
     if (direction == Direction.BOTH) {
-      return IterableUtils.chainedIterable(
-          getVertices(Direction.OUT, type), getVertices(Direction.IN, type));
+      var outVertices = getVerticesOptimized(Direction.OUT, type);
+      var inVertices = getVerticesOptimized(Direction.IN, type);
+      // When both directions yield a single PreFilterableLinkBagIterable (i.e. all edge
+      // properties for those labels are backed by a single LinkBag), wrap them in a
+      // PreFilterableChainedIterable so the MATCH engine can apply index pre-filters without
+      // touching disk. Otherwise fall back to the plain Commons chained iterable.
+      if (outVertices instanceof PreFilterableLinkBagIterable pfliOut
+          && inVertices instanceof PreFilterableLinkBagIterable pfliIn) {
+        //noinspection unchecked
+        return (Iterable<Vertex>) (Object) new PreFilterableChainedIterable(pfliOut, pfliIn);
+      }
+      return IterableUtils.chainedIterable(outVertices, inVertices);
     } else {
       return getVerticesOptimized(direction, type);
     }
@@ -363,6 +373,20 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
       return iterables.getFirst();
     } else if (iterables.isEmpty()) {
       return Collections.emptyList();
+    }
+
+    // When every iterable in the list is backed by a LinkBag (i.e. each implements
+    // PreFilterableLinkBagIterable), chain them in a PreFilterableChainedIterable so the MATCH
+    // engine can apply index pre-filters across all edge directions without touching disk.
+    // Otherwise fall back to the plain Commons chained iterable.
+    var allPreFilterable =
+        iterables.stream().allMatch(it -> it instanceof PreFilterableLinkBagIterable);
+    if (allPreFilterable) {
+      var subs = iterables.stream()
+          .map(it -> (PreFilterableLinkBagIterable) it)
+          .toArray(PreFilterableLinkBagIterable[]::new);
+      //noinspection unchecked
+      return (Iterable<EdgeInternal>) (Object) new PreFilterableChainedIterable(subs);
     }
 
     //noinspection unchecked
