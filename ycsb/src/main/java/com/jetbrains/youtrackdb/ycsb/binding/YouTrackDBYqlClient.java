@@ -268,6 +268,14 @@ public class YouTrackDBYqlClient extends DB {
     if (values.isEmpty()) {
       return Status.OK;
     }
+    // Materialize ByteIterators up-front: on a CME retry, executeWithRetry
+    // invokes the lambda again, and ByteIterator.toString() consumes the
+    // iterator on its first call (e.g. RandomByteIterator). Reading the
+    // values into strings here ensures retries see stable data.
+    Map<String, String> materializedValues = new HashMap<>(values.size());
+    for (Map.Entry<String, ByteIterator> entry : values.entrySet()) {
+      materializedValues.put(entry.getKey(), entry.getValue().toString());
+    }
     return executeWithRetry(() -> {
       traversalSource.executeInTx(tx -> {
         var g = (YTDBGraphTraversalSource) tx;
@@ -277,18 +285,18 @@ public class YouTrackDBYqlClient extends DB {
         sql.append(table).append(" SET ");
 
         // 2 args per entry (name, value) + 2 for key
-        Object[] args = new Object[2 + values.size() * 2];
+        Object[] args = new Object[2 + materializedValues.size() * 2];
 
         int argIdx = 0;
         boolean first = true;
-        for (Map.Entry<String, ByteIterator> entry : values.entrySet()) {
+        for (Map.Entry<String, String> entry : materializedValues.entrySet()) {
           String fieldName = entry.getKey();
           if (!first) {
             sql.append(", ");
           }
           sql.append(fieldName).append(" = :").append(fieldName);
           args[argIdx++] = fieldName;
-          args[argIdx++] = entry.getValue().toString();
+          args[argIdx++] = entry.getValue();
           first = false;
         }
 
@@ -371,9 +379,13 @@ public class YouTrackDBYqlClient extends DB {
             new StringByteIterator(vp.value().toString()));
       }
     } else {
+      // Use property(field) + isPresent() so a missing field does not throw
+      // NoSuchElementException and kill the benchmark thread.
       for (String field : fields) {
-        record.put(field,
-            new StringByteIterator(vertex.value(field).toString()));
+        VertexProperty<Object> vp = vertex.property(field);
+        if (vp.isPresent()) {
+          record.put(field, new StringByteIterator(vp.value().toString()));
+        }
       }
     }
   }
