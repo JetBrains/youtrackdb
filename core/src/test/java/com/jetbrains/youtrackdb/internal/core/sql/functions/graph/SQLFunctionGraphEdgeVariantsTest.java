@@ -8,10 +8,12 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import java.util.ArrayList;
 import java.util.List;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -128,16 +130,13 @@ public class SQLFunctionGraphEdgeVariantsTest extends DbTestBase {
     var fn = new SQLFunctionOutV();
     session.begin();
     var result = fn.execute(edgeAB, null, null, new Object[0], ctx());
-    // Capture the identity inside the transaction — after commit the entity is
-    // detached.
-    com.jetbrains.youtrackdb.internal.core.db.record.record.RID id = null;
-    if (result instanceof Identifiable idf) {
-      id = idf.getIdentity();
-    }
+    // Pin the result type AND the captured identity. assertTrue carries a
+    // descriptive failure message; the trailing assertEquals on the identity
+    // is the load-bearing assertion that catches a wrong-vertex regression.
+    assertTrue("outV result must be Identifiable, was: " + result, result instanceof Identifiable);
+    RID id = ((Identifiable) result).getIdentity();
     session.commit();
 
-    assertNotNull("outV should return a vertex-like result for an edge", result);
-    assertNotNull(id);
     assertEquals(a.getIdentity(), id);
   }
 
@@ -146,14 +145,10 @@ public class SQLFunctionGraphEdgeVariantsTest extends DbTestBase {
     var fn = new SQLFunctionInV();
     session.begin();
     var result = fn.execute(edgeAB, null, null, new Object[0], ctx());
-    com.jetbrains.youtrackdb.internal.core.db.record.record.RID id = null;
-    if (result instanceof Identifiable idf) {
-      id = idf.getIdentity();
-    }
+    assertTrue("inV result must be Identifiable, was: " + result, result instanceof Identifiable);
+    RID id = ((Identifiable) result).getIdentity();
     session.commit();
 
-    assertNotNull("inV should return a vertex-like result for an edge", result);
-    assertNotNull(id);
     assertEquals(b.getIdentity(), id);
   }
 
@@ -292,5 +287,17 @@ public class SQLFunctionGraphEdgeVariantsTest extends DbTestBase {
 
   private SchemaClass classE() {
     return session.getMetadata().getImmutableSchemaSnapshot().getClass("E");
+  }
+
+  @After
+  public void rollbackIfLeftOpen() {
+    // Tests in this class wrap fn.execute() between session.begin() and
+    // session.commit(). If an assertion fails between the two, the leaked
+    // transaction would cascade into DbTestBase.afterTest() and mask the real
+    // failure with a secondary tx-close exception. Mirrors the safety net used
+    // by the sibling SQLFunctionOutInBothTest.
+    if (session != null && !session.isClosed() && session.isTxActive()) {
+      session.rollback();
+    }
   }
 }

@@ -10,6 +10,21 @@ import java.util.Collections;
 import org.junit.Before;
 import org.junit.Test;
 
+/**
+ * Tests for {@link SQLFunctionVariance} — Welford-style online population variance accumulator.
+ *
+ * <p>Covered branches:
+ *
+ * <ul>
+ *   <li>{@code n == 0} (no samples) → null
+ *   <li>{@code n == 1} (single sample) → null (variance undefined; pins the strict {@code n > 1}
+ *       boundary that distinguishes "undefined" from "zero variance of identical samples")
+ *   <li>{@code n >= 2} → population variance (m2 / n)
+ *   <li>Number / MultiValue / non-Number-non-MultiValue input dispatch
+ *   <li>Empty MultiValue → result stays null
+ *   <li>aggregateResults() is true; getSyntax() prefix
+ * </ul>
+ */
 public class SQLFunctionVarianceTest {
 
   private SQLFunctionVariance variance;
@@ -22,13 +37,24 @@ public class SQLFunctionVarianceTest {
   }
 
   @Test
-  public void testEmpty() {
+  public void emptyAccumulatorResultIsNull() {
     var result = variance.getResult();
     assertNull(result);
   }
 
   @Test
-  public void testVariance() {
+  public void singleValueReturnsNullBecauseVarianceIsUndefined() {
+    // Pins the n > 1 strict-greater boundary in evaluator(): a single sample yields m2 == 0,
+    // so a refactor to n >= 1 would silently return 0.0 — semantically wrong, since variance
+    // of one sample is undefined, not zero.
+    variance.execute(null, null, null, new Object[] {42}, null);
+    assertNull(variance.getResult());
+  }
+
+  @Test
+  public void varianceOfFourMixedIntegersMatchesHandComputedValue() {
+    // Samples {4, 7, 15, 3}; mean = 7.25; population variance = ((4-7.25)^2 + (7-7.25)^2 +
+    // (15-7.25)^2 + (3-7.25)^2) / 4 = 22.1875.
     Integer[] scores = {4, 7, 15, 3};
 
     for (var s : scores) {
@@ -40,7 +66,8 @@ public class SQLFunctionVarianceTest {
   }
 
   @Test
-  public void testVariance1() {
+  public void varianceOfTwoCloseIntegersIsSmall() {
+    // Samples {4, 7}; mean = 5.5; population variance = ((4-5.5)^2 + (7-5.5)^2) / 2 = 2.25.
     Integer[] scores = {4, 7};
 
     for (var s : scores) {
@@ -52,7 +79,8 @@ public class SQLFunctionVarianceTest {
   }
 
   @Test
-  public void testVariance2() {
+  public void varianceOfTwoWidelySpacedIntegersIsLarge() {
+    // Samples {15, 3}; mean = 9; population variance = ((15-9)^2 + (3-9)^2) / 2 = 36.
     Integer[] scores = {15, 3};
 
     for (var s : scores) {
