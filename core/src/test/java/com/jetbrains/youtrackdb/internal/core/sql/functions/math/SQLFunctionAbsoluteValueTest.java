@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.functions.math;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -170,9 +171,9 @@ public class SQLFunctionAbsoluteValueTest {
   public void testAggregateResultsIsAlwaysFalse() {
     // abs is a per-row function — aggregateResults must always be false, regardless of
     // configured parameter count. Guards against copy-paste of aggregate behavior.
-    assertEquals(false, function.aggregateResults());
+    assertFalse(function.aggregateResults());
     function.config(new Object[] {"x"});
-    assertEquals(false, function.aggregateResults());
+    assertFalse(function.aggregateResults());
   }
 
   @Test

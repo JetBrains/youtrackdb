@@ -127,6 +127,19 @@ public class SQLFunctionDecimalTest {
   }
 
   @Test
+  public void testUnsupportedTypeAfterValidInputLeaksPreviousResult() {
+    // WHEN-FIXED: SQLFunctionDecimal.execute() does NOT reset `result` at the start of
+    // every call — a second call with an unsupported type silently returns (and leaves
+    // accessible) the PREVIOUS call's value. The defensible fix is to assign
+    // `result = null` at the top of execute(); once applied, both assertions below
+    // should become `assertNull(...)`.
+    function.execute(null, null, null, new Object[] {12}, null);
+    var ret = function.execute(null, null, null, new Object[] {new Object()}, null);
+    assertEquals(BigDecimal.valueOf(12), ret);
+    assertEquals(BigDecimal.valueOf(12), function.getResult());
+  }
+
+  @Test
   public void testAggregateResultsIsAlwaysFalse() {
     assertFalse(function.aggregateResults());
   }

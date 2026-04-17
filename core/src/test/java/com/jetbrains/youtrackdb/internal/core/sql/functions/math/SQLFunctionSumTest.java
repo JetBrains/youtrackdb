@@ -1,11 +1,13 @@
 package com.jetbrains.youtrackdb.internal.core.sql.functions.math;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import java.math.BigDecimal;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import org.junit.Before;
 import org.junit.Test;
@@ -103,7 +105,10 @@ public class SQLFunctionSumTest {
     Object result = sum.getResult();
     assertTrue("Expected Long promotion on overflow, got " + result.getClass(),
         result instanceof Long);
-    // Currently buggy: (long) (Integer.MAX_VALUE + 1) = (long) Integer.MIN_VALUE
+    // WHEN-FIXED: PropertyTypeInternal.increment Integer-overflow promotion —
+    // the cast `(long) (a.intValue() + b.intValue())` applies to an already-overflowed
+    // int. Once fixed (widen operands first), change expectation to
+    // `(long) Integer.MAX_VALUE + 1L`.
     assertEquals((long) Integer.MIN_VALUE, result);
   }
 
@@ -127,11 +132,31 @@ public class SQLFunctionSumTest {
 
   @Test
   public void aggregateResultsDependsOnConfiguredParameterCount() {
-    // configuredParameters not set → length lookup NPE? No — length == 0 path returns false.
+    // configuredParameters is sourced from config() — calling aggregateResults() before
+    // config() is a caller error (would NPE on `configuredParameters.length`). Once
+    // configured, aggregateResults() reflects the parameter count.
     sum.config(new Object[] {"field"});
     assertTrue(sum.aggregateResults());
     sum.config(new Object[] {"fieldA", "fieldB"});
-    assertEquals(false, sum.aggregateResults());
+    assertFalse(sum.aggregateResults());
+  }
+
+  @Test
+  public void shortOverflowWithinSumPromotesToInteger() {
+    // Short.MAX_VALUE + (short) 1 overflows short arithmetic → increment widens to Integer.
+    sum.execute(null, null, null, new Object[] {Short.MAX_VALUE}, null);
+    sum.execute(null, null, null, new Object[] {(short) 1}, null);
+    Object result = sum.getResult();
+    assertTrue("Expected Integer promotion after short overflow, got " + result.getClass(),
+        result instanceof Integer);
+    assertEquals(((int) Short.MAX_VALUE) + 1, result);
+  }
+
+  @Test
+  public void emptyMultiValueCollectionPreservesZeroSentinel() {
+    // Empty collection → sum() never called → sum stays null → getResult returns 0.
+    sum.execute(null, null, null, new Object[] {Collections.emptyList()}, null);
+    assertEquals(0, sum.getResult());
   }
 
   @Test

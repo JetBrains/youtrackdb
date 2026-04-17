@@ -7,6 +7,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.math.RoundingMode;
 import java.util.Arrays;
 import java.util.List;
@@ -120,16 +121,39 @@ public class SQLFunctionAverageTest {
 
   @Test
   public void multiArgExecuteResetsSumButNotTotalBetweenCalls() {
-    // Multi-arg branch resets `sum = null` before iterating each call, but `total` is
-    // never reset — it accumulates across all execute() calls. This is the observed
-    // behavior; callers of the multi-arg form should therefore call getResult() within a
-    // single row's execute() (which does: sum returned; getResult is called once per row).
+    // WHEN-FIXED: SQLFunctionAverage.execute() multi-arg branch resets `sum = null`
+    // but NOT `total = 0`. Over successive calls on the same instance this makes
+    // `total` monotonically grow, polluting each row's average with the counts of
+    // prior rows. If the else branch is updated to also reset `total = 0`, the
+    // second-row expectation becomes 60/3 = 20.
+    //
+    // Current pinned behavior:
     // First call: total=3, sum=6 → 6/3 = 2.
-    // Second call: total=6, sum=60 (reset then re-summed) → 60/6 = 10 (NOT 20).
+    // Second call: total=6 (not reset), sum=60 → 60/6 = 10 (buggy; should be 20).
     Object row1 = avg.execute(null, null, null, new Object[] {1, 2, 3}, null);
     assertEquals(2, row1);
     Object row2 = avg.execute(null, null, null, new Object[] {10, 20, 30}, null);
     assertEquals(10, row2);
+  }
+
+  @Test
+  public void singleShortValueReturnsNullBecauseComputeAverageHasNoShortBranch() {
+    // WHEN-FIXED: SQLFunctionAverage.computeAverage has no Short branch — a single
+    // Short value sits in `sum` as a Short and the final instanceof chain falls
+    // through to `return null`. If computeAverage is extended to handle Short, this
+    // expectation becomes `(short) 10` (or the appropriate promoted result).
+    avg.execute(null, null, null, new Object[] {(short) 10}, null);
+    assertNull(avg.getResult());
+  }
+
+  @Test
+  public void singleBigIntegerValueReturnsNullBecauseComputeAverageHasNoBigIntegerBranch() {
+    // WHEN-FIXED: computeAverage has no BigInteger branch — single-BigInteger input
+    // lands in `sum` but falls through to `return null`. Multi-BigInteger input
+    // additionally blows up in PropertyTypeInternal.increment (no BigInteger+BigInteger
+    // case), which is why we test only the single-value path here.
+    avg.execute(null, null, null, new Object[] {new BigInteger("42")}, null);
+    assertNull(avg.getResult());
   }
 
   @Test
