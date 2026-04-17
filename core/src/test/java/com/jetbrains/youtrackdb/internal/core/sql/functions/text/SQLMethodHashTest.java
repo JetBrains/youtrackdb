@@ -25,6 +25,7 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.security.SecurityManager;
+import java.security.NoSuchAlgorithmException;
 import org.junit.Test;
 
 /**
@@ -163,6 +164,11 @@ public class SQLMethodHashTest extends DbTestBase {
 
   @Test
   public void unknownAlgorithmThrowsCommandExecutionExceptionMentioningBadName() {
+    // Production wraps NoSuchAlgorithmException into CommandExecutionException via
+    // BaseException.wrapException. Pin all three observables: the message references the bad
+    // algorithm, it mentions "hash" context, AND the cause chain preserves the underlying
+    // NoSuchAlgorithmException — a future refactor that drops the cause would change debug
+    // ergonomics for callers and should be caught here.
     var bogus = "NOT-A-REAL-HASH-ALGO-42";
 
     try {
@@ -172,9 +178,24 @@ public class SQLMethodHashTest extends DbTestBase {
       assertNotNull("exception must carry a message", e.getMessage());
       assertTrue("message must reference the bad algorithm, saw: " + e.getMessage(),
           e.getMessage().contains(bogus));
-      assertTrue("message should mention hash/algorithm context, saw: " + e.getMessage(),
-          e.getMessage().toLowerCase().contains("hash")
-              || e.getMessage().toLowerCase().contains("not supported"));
+      assertTrue("message must mention 'hash': " + e.getMessage(),
+          e.getMessage().toLowerCase().contains("hash"));
+      assertTrue("cause must be NoSuchAlgorithmException, saw: " + e.getCause(),
+          e.getCause() instanceof NoSuchAlgorithmException);
+    }
+  }
+
+  @Test
+  public void nullAlgorithmParamThrowsNullPointerException() {
+    // WHEN-FIXED: iParams.length > 0 but iParams[0] is null → iParams[0].toString() NPEs on
+    // line 56 of production before we ever reach the algorithm lookup. A sensible fix would
+    // either fall back to the default algorithm or throw CommandExecutionException; this pin
+    // makes either fix visible in the test diff.
+    try {
+      method().execute("abc", null, ctx(), null, new Object[] {null});
+      fail("expected NullPointerException for null algorithm param");
+    } catch (NullPointerException expected) {
+      // pinned
     }
   }
 

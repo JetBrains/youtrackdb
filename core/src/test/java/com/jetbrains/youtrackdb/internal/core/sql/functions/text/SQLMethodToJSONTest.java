@@ -16,6 +16,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.functions.text;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -123,10 +124,11 @@ public class SQLMethodToJSONTest extends DbTestBase {
   }
 
   @Test
-  public void entityWithFormatInvokesOverloadWithFormat() {
-    // Format param is passed as-is (after quote-stripping) to record.toJSON(format).
-    // "rid" asks the serializer to include only the @rid — validate that the output differs from
-    // the 0-param version (which includes properties).
+  public void entityWithFormatDispatchesToOneArgOverloadAndSuppressesProperties() {
+    // Format param is passed as-is (after quote-stripping) to record.toJSON(format). "rid" asks
+    // the serializer to include ONLY the @rid — so the two outputs must differ, the formatted
+    // output must embed the RID, and it must NOT embed property values that the default output
+    // does include.
     var entity = thing("alpha", 1);
     var rid = entity.getIdentity();
 
@@ -135,23 +137,65 @@ public class SQLMethodToJSONTest extends DbTestBase {
 
     assertNotNull(noFormat);
     assertNotNull(withFormat);
+    assertNotEquals("rid-format output must differ from default toJSON output",
+        noFormat, withFormat);
     assertTrue("rid-format output should reference the RID: " + withFormat,
         withFormat.contains(rid.toString()));
+    assertTrue("default toJSON output MUST include the 'name' property: " + noFormat,
+        noFormat.contains("alpha"));
   }
 
   @Test
-  public void formatParamDoubleQuotesAreStripped() {
-    // The production code strips '"' from the format string before passing to toJSON(format).
-    // We pass a format with surrounding quotes; toJSON should not explode and still produce JSON.
+  public void formatParamDoubleQuotesAreStrippedProducingSameOutputAsUnquoted() {
+    // Production strips '"' from the format string before passing it to toJSON(format). The only
+    // way to directly pin "strip happened" is to confirm that quoted and unquoted formats yield
+    // identical output — a dropped strip would leave literal quotes inside the format token and
+    // change what toJSON produces.
     var entity = thing("alpha", 2);
 
-    var result = (String) method().execute(entity, null, ctx(), null, new Object[] {"\"rid\""});
+    var withoutQuotes =
+        (String) method().execute(entity, null, ctx(), null, new Object[] {"rid"});
+    var withQuotes =
+        (String) method().execute(entity, null, ctx(), null, new Object[] {"\"rid\""});
 
-    // After quote-stripping, the format is "rid" — same semantics as the previous test. We just
-    // assert a non-null, well-formed JSON-looking string (leading brace OR bracket).
-    assertNotNull(result);
-    assertTrue("result should start with '{' or '[': " + result,
-        result.startsWith("{") || result.startsWith("["));
+    assertEquals("quote-stripping must normalise the two inputs to the same format token",
+        withoutQuotes, withQuotes);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Null format param — unchecked (String) cast + .replace NPEs
+  // ---------------------------------------------------------------------------
+
+  @Test
+  public void nullFormatParamThrowsNullPointerException() {
+    // WHEN-FIXED: the production code does `((String) iParams[0]).replace(...)`. The cast to
+    // String succeeds for null (null is assignable to any reference type), but `replace` then
+    // NPEs. A null-guard refactor (returning null or treating null as "default format") would
+    // flip this assertion.
+    var entity = thing("alpha", 3);
+
+    try {
+      method().execute(entity, null, ctx(), null, new Object[] {(String) null});
+      fail("expected NullPointerException from null format param");
+    } catch (NullPointerException expected) {
+      // pinned
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Result-but-not-entity — falls through to the final `return null`
+  // ---------------------------------------------------------------------------
+
+  @Test
+  public void nonEntityResultFallsThroughToNull() {
+    // A ResultInternal whose isEntity() is false fails the first `instanceof Result && isEntity`
+    // check (short-circuit on isEntity); the DBRecord/Map/MultiValue branches all fail; the
+    // method returns null. Pins the "partially matching type" branch that the bare-String test
+    // does not cover.
+    var r = new ResultInternal(session);
+    r.setProperty("k", "v");
+
+    assertNull(method().execute(r, null, ctx(), null, new Object[] {}));
   }
 
   @Test
@@ -222,6 +266,51 @@ public class SQLMethodToJSONTest extends DbTestBase {
 
     assertNotNull(result);
     assertEquals("[null]", result);
+  }
+
+  @Test
+  public void multiValueArrayInputAlsoRecurses() {
+    // MultiValue.isMultiValue returns true for arrays. Pins the array branch of getMultiValueIterable,
+    // which uses Array.get under the hood rather than Collection.iterator().
+    var first = new LinkedHashMap<String, Object>();
+    first.put("k", "a");
+    var second = new LinkedHashMap<String, Object>();
+    second.put("k", "b");
+    Object[] arr = new Object[] {first, second};
+
+    var result = (String) method().execute(arr, null, ctx(), null, new Object[] {});
+
+    assertNotNull(result);
+    assertTrue("array result should be a JSON array: " + result,
+        result.startsWith("[") && result.endsWith("]"));
+    assertTrue(result.contains("\"a\""));
+    assertTrue(result.contains("\"b\""));
+  }
+
+  @Test
+  public void multiValueEmptyListProducesEmptyJsonArrayBrackets() {
+    // Loop body never executes for an empty collection; the method still emits "[" and "]".
+    // Without this pin a future refactor that returns "" for empties would go unnoticed.
+    var result = (String) method().execute(List.of(), null, ctx(), null, new Object[] {});
+
+    assertEquals("[]", result);
+  }
+
+  @Test
+  public void multiValueNestedListRecursesTwiceProducingNestedArrays() {
+    // A list whose sole element is itself a list hits the MultiValue branch TWICE (outer +
+    // inner). Pins that the recursion is unbounded and that each level wraps its children in
+    // "[…]".
+    var inner = new LinkedHashMap<String, Object>();
+    inner.put("k", "deep");
+
+    var result =
+        (String) method().execute(List.of(List.of(inner)), null, ctx(), null, new Object[] {});
+
+    assertNotNull(result);
+    assertTrue("nested list must produce nested JSON arrays: " + result,
+        result.startsWith("[[") && result.endsWith("]]"));
+    assertTrue(result.contains("\"deep\""));
   }
 
   // ---------------------------------------------------------------------------

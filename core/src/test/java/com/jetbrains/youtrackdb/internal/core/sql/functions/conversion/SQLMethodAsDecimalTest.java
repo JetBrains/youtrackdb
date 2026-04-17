@@ -76,9 +76,12 @@ public class SQLMethodAsDecimalTest {
 
   @Test
   public void dateAtEpochZeroProducesZero() {
+    // Production uses `new BigDecimal(d.getTime())` which constructs via the long overload —
+    // scale 0 and value 0. Compare against the SAME constructor rather than BigDecimal.ZERO to
+    // avoid a scale-sensitive mismatch if production ever switches to BigDecimal.valueOf.
     var result = method().execute(new Date(0), null, null, null, new Object[] {});
 
-    assertEquals(BigDecimal.ZERO, result);
+    assertEquals(new BigDecimal(0L), result);
   }
 
   // ---------------------------------------------------------------------------

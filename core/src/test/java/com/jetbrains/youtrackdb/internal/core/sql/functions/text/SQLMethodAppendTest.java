@@ -37,8 +37,9 @@ import org.junit.Test;
  *   <li>{@code iThis != null} but {@code iParams[0] == null} → returns {@code iThis} unchanged
  *       (same early-exit branch) — exactly-same identity pinned by assertSame.
  *   <li>Single-arg append concatenates {@code iThis.toString()} with {@code iParams[0].toString()}.
- *   <li>Multi-arg append concatenates ALL elements (the loop starts at index 0, so the first param
- *       is appended twice when there are multiple — latent behaviour pinned below).
+ *   <li>Multi-arg append concatenates every param exactly once, in order, after the seed. The
+ *       buffer is seeded with {@code iThis.toString()} (NOT with {@code iParams[0]}), and the
+ *       loop then appends each non-null element.
  *   <li>Null entries past index 0 are skipped by the inner guard.
  *   <li>Non-String {@code iThis} is coerced via {@code toString()}.
  *   <li>{@code getSyntax()} and the metadata (name, min/max) match the declared contract.
@@ -74,10 +75,14 @@ public class SQLMethodAppendTest {
   @Test
   public void nullFirstParamWithTrailingNonNullStillReturnsIThis() {
     // The guard is on iParams[0] specifically — even if later params are non-null, the method
-    // exits via the early return.
-    var result = method().execute("base", null, null, null, new Object[] {null, "ignored"});
+    // exits via the early return. Use `new String(...)` to force a distinct reference so
+    // assertSame can distinguish identity from equality (string-literal interning would mask
+    // a hypothetical defensive-copy refactor).
+    var iThis = new String("base");
 
-    assertEquals("base", result);
+    var result = method().execute(iThis, null, null, null, new Object[] {null, "ignored"});
+
+    assertSame("null-first-param must return iThis by reference, not a copy", iThis, result);
   }
 
   // ---------------------------------------------------------------------------
@@ -109,16 +114,14 @@ public class SQLMethodAppendTest {
   }
 
   // ---------------------------------------------------------------------------
-  // Multi-arg — LATENT: first param is appended TWICE (loop starts at i=0)
+  // Multi-arg — every param appended once, in order, after the seed
   // ---------------------------------------------------------------------------
 
   @Test
-  public void multiArgAppendsFirstParamTwiceThenRemaining() {
-    // WHEN-FIXED: the inner loop `for (i = 0; i < iParams.length; ++i)` starts at 0, so params[0]
-    // is already tested against null at the top, then appended inside the loop as well.
-    // With iParams=["-", "X", "Y"] we get base + "-" + "X" + "Y".
-    // The StringBuilder is seeded with iThis.toString() only; the first param is NOT pre-appended
-    // before the loop. So "a" + loop("-", "X", "Y") = "a-XY".
+  public void multiArgAppendsEachParamOnceInOrder() {
+    // Buffer is seeded with iThis.toString() only; the subsequent loop appends each non-null
+    // param exactly once in index order. So iThis="a" + params=["-", "X", "Y"] → "a" + "-" + "X"
+    // + "Y" = "a-XY".
     var result = method().execute("a", null, null, null, new Object[] {"-", "X", "Y"});
 
     assertEquals("a-XY", result);

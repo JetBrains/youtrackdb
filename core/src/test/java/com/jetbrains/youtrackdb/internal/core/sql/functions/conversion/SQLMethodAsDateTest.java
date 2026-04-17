@@ -18,35 +18,38 @@ package com.jetbrains.youtrackdb.internal.core.sql.functions.conversion;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.util.DateHelper;
-import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.GregorianCalendar;
-import java.util.TimeZone;
 import org.junit.Test;
 
 /**
- * Tests for {@link SQLMethodAsDate} — converts input to a {@link Date} representing midnight
- * (HOUR/MINUTE/SECOND/MS zeroed via {@link GregorianCalendar}). Three branches: Date, Number,
- * String (via DB-configured date format).
+ * Tests for {@link SQLMethodAsDate} — converts input to a {@link Date} with the AM-PM hour,
+ * minute, second, and millisecond zeroed via {@link GregorianCalendar}. Three branches: Date,
+ * Number, String (via DB-configured date format).
  *
  * <p>Uses {@link DbTestBase} because the String path invokes
  * {@link DateHelper#getDateFormatInstance(com.jetbrains.youtrackdb.internal.core.db
  * .DatabaseSessionEmbedded)}, which reads the session's configured format.
  *
+ * <p><strong>Latent behaviour:</strong> production uses {@link Calendar#HOUR} (AM/PM,
+ * 0–11), not {@link Calendar#HOUR_OF_DAY} (0–23). For PM inputs, the resulting Date is noon
+ * (12:00) rather than midnight (00:00). This is pinned by
+ * {@link #numericInputInPmWindowLandsOnNoonNotMidnightPerCalendarHourBug()} with a WHEN-FIXED
+ * marker — a future fix that switches to {@code HOUR_OF_DAY} will flip the assertion.
+ *
  * <p>Covered branches:
  *
  * <ul>
  *   <li>{@code iThis == null} → null.
- *   <li>Date input → Date with HOUR/MIN/SEC/MS zeroed (midnight in default TZ).
+ *   <li>Date input → Date with AM/PM HOUR, MIN, SEC, MS all zeroed.
  *   <li>Number input (Long, Integer) → {@code new Date(n.longValue())} then zeroed.
- *   <li>String input → parsed via DB's default DateFormat. Track 6 convention: use an input that
- *       matches the DB's default date format (yyyy-MM-dd per GlobalConfiguration).
+ *   <li>String input → parsed via DB's default DateFormat. Track 6 convention: round-trip via
+ *       {@code DateHelper.getDateFormatInstance(session)} so the input/output encoding matches.
  *   <li>Unparseable string → null (ParseException is swallowed and logged).
  *   <li>Metadata: name, min/max, syntax.
  * </ul>
@@ -166,13 +169,13 @@ public class SQLMethodAsDateTest extends DbTestBase {
   }
 
   @Test
-  public void nonStringObjectIThisIsCoercedViaToStringAndParsed() {
-    // iThis is not Date nor Number — it falls to the String branch via iThis.toString(). Use an
-    // Object whose toString matches the DB date format.
-    var dateStr = new SimpleDateFormat("yyyy-MM-dd");
-    dateStr.setTimeZone(TimeZone.getTimeZone("UTC"));
-    var expectedText = dateStr.format(zeroHms(new Date()));
-
+  public void nonStringObjectIThisIsCoercedViaToStringAndParsed() throws Exception {
+    // iThis is not Date nor Number → the String branch runs via iThis.toString(). To make the
+    // assertion falsifiable, build the stubbed text with the DB's OWN DateFormat and compare the
+    // returned Date against the same format (locale/timezone-independent round-trip).
+    var format = DateHelper.getDateFormatInstance(session);
+    var expectedDate = zeroHms(new Date(1_700_000_000_000L));
+    var expectedText = format.format(expectedDate);
     var stubbed = new Object() {
       @Override
       public String toString() {
@@ -180,12 +183,41 @@ public class SQLMethodAsDateTest extends DbTestBase {
       }
     };
 
-    var result = method().execute(stubbed, null, ctx(), null, new Object[] {});
+    var result = (Date) method().execute(stubbed, null, ctx(), null, new Object[] {});
 
-    // The test DB format may differ from the local SimpleDateFormat; we just assert non-null to
-    // pin the "toString-coerced" path.
-    assertTrue("toString-coerced input must reach the String branch",
-        result == null || result instanceof Date);
+    assertNotNull("toString-coerced input must reach the String branch", result);
+    assertEquals("round-trip via the DB format must be lossless",
+        expectedText, format.format(result));
+  }
+
+  @Test
+  public void numericInputInPmWindowLandsOnNoonNotMidnightPerCalendarHourBug() {
+    // WHEN-FIXED: production calls Calendar.set(Calendar.HOUR, 0) — AM/PM hour, 0-11 — instead
+    // of Calendar.HOUR_OF_DAY, 0-23. For any Date whose local time is after noon, the AM_PM
+    // field stays PM, so the resulting Calendar reads 12:00 PM (noon) rather than 00:00. A fix
+    // that switches to HOUR_OF_DAY will flip this assertion visibly.
+    //
+    // Pick an epoch-ms whose UTC wall-clock is firmly in the PM window so the local default TZ
+    // is still PM in most timezones (13:45:30 UTC on 2023-11-15).
+    var pm = 1_700_056_730_000L;
+
+    var result = (Date) method().execute(Long.valueOf(pm), null, ctx(), null, new Object[] {});
+
+    var cal = new GregorianCalendar();
+    cal.setTime(result);
+    // If the default TZ is UTC or a Western timezone, the local hour stays in PM and the bug is
+    // observable. If the local TZ happens to push the wall clock back into AM, skip the pin
+    // rather than fail. Assume.assumeTrue would be cleaner but requires an extra import; use a
+    // plain conditional and a log-style assertion instead.
+    var amPm = cal.get(Calendar.AM_PM);
+    if (amPm == Calendar.PM) {
+      assertEquals("WHEN-FIXED: production uses HOUR (AM/PM) → PM input lands on 12:00, not 00:00",
+          12, cal.get(Calendar.HOUR_OF_DAY));
+    }
+    // Minute/second/ms should always be zero regardless of the HOUR vs HOUR_OF_DAY issue.
+    assertEquals(0, cal.get(Calendar.MINUTE));
+    assertEquals(0, cal.get(Calendar.SECOND));
+    assertEquals(0, cal.get(Calendar.MILLISECOND));
   }
 
   // ---------------------------------------------------------------------------

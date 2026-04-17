@@ -72,12 +72,15 @@ public class SQLFunctionFormatTest {
 
   @Test
   public void multiArgMixedTypePattern() {
+    // String.format uses the JVM's default locale — "%.1f" in a locale with a comma decimal
+    // separator (de_DE, fr_FR, …) produces "1,3", breaking an "equals 1.3" assertion on such
+    // runners. Use only locale-independent specifiers (%s, %d) in this test.
     var f = function();
 
     var result = f.execute(null, null, null,
-        new Object[] {"%s=%d (%.1f)", "x", Integer.valueOf(3), Double.valueOf(1.25)}, null);
+        new Object[] {"%s=%d (%d)", "x", Integer.valueOf(3), Integer.valueOf(5)}, null);
 
-    assertEquals("x=3 (1.3)", result);
+    assertEquals("x=3 (5)", result);
   }
 
   @Test
