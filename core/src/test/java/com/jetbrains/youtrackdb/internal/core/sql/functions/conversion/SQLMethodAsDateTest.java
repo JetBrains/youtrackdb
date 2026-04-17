@@ -18,6 +18,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.functions.conversion;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assume.assumeTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
@@ -195,25 +196,29 @@ public class SQLMethodAsDateTest extends DbTestBase {
     // WHEN-FIXED: production calls Calendar.set(Calendar.HOUR, 0) — AM/PM hour, 0-11 — instead
     // of Calendar.HOUR_OF_DAY, 0-23. For any Date whose local time is after noon, the AM_PM
     // field stays PM, so the resulting Calendar reads 12:00 PM (noon) rather than 00:00. A fix
-    // that switches to HOUR_OF_DAY will flip this assertion visibly.
+    // that switches to HOUR_OF_DAY will flip this PM-window assertion visibly.
     //
-    // Pick an epoch-ms whose UTC wall-clock is firmly in the PM window so the local default TZ
-    // is still PM in most timezones (13:45:30 UTC on 2023-11-15).
+    // Pick an epoch-ms whose UTC wall-clock is firmly in the PM window (13:45:30 UTC on
+    // 2023-11-15). The bug is observable only when the JVM default TZ also reads PM at this
+    // instant — true for UTC and every western timezone. On TZs east of UTC+10.5 (e.g.
+    // Pacific/Apia) the local wall clock falls into AM and the pin cannot fire; in that case
+    // SKIP the test (Assume.assumeTrue) rather than silently passing, so the WHEN-FIXED contract
+    // is never falsely "green" on incompatible runners.
     var pm = 1_700_056_730_000L;
 
     var result = (Date) method().execute(Long.valueOf(pm), null, ctx(), null, new Object[] {});
 
     var cal = new GregorianCalendar();
     cal.setTime(result);
-    // If the default TZ is UTC or a Western timezone, the local hour stays in PM and the bug is
-    // observable. If the local TZ happens to push the wall clock back into AM, skip the pin
-    // rather than fail. Assume.assumeTrue would be cleaner but requires an extra import; use a
-    // plain conditional and a log-style assertion instead.
     var amPm = cal.get(Calendar.AM_PM);
-    if (amPm == Calendar.PM) {
-      assertEquals("WHEN-FIXED: production uses HOUR (AM/PM) → PM input lands on 12:00, not 00:00",
-          12, cal.get(Calendar.HOUR_OF_DAY));
-    }
+    assumeTrue(
+        "TZ-dependent: this bug pin only fires when default TZ reads PM at 2023-11-15 13:45 UTC",
+        amPm == Calendar.PM);
+
+    assertEquals(
+        "WHEN-FIXED: production uses HOUR (AM/PM) → PM input lands on 12:00, not 00:00",
+        12,
+        cal.get(Calendar.HOUR_OF_DAY));
     // Minute/second/ms should always be zero regardless of the HOUR vs HOUR_OF_DAY issue.
     assertEquals(0, cal.get(Calendar.MINUTE));
     assertEquals(0, cal.get(Calendar.SECOND));
