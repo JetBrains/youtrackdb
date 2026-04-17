@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (6/8 complete)
+- [ ] Step implementation (7/8 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -845,6 +845,156 @@
   > unreachability). No upstream assumptions broken for Steps 7-8. Steps
   > 7-8 target sql/functions/math accumulators and sql/functions/text +
   > conversion SQLMethod*, respectively, which are independent surfaces.
+
+- [x] Step 7: Math functions + stat gaps + final math cleanup
+  - [x] Context: warning
+  > **What was done:** Added 162 unit tests across 13 test files (7 new,
+  > 6 extended) covering `sql/functions/math` accumulators +
+  > `SQLFunctionMathAbstract` helpers + `abs/interval/decimal` residual
+  > branches, and `sql/functions/stat` gap-fills for `median`, `stddev`,
+  > plus `percentile`/`variance`/`mode` MultiValue / non-Number / syntax
+  > paths.
+  >
+  > - `SQLFunctionSumTest` (14 tests, new): zero-sum sentinel, single-arg
+  >   Number / MultiValue / non-supported fall-through, multi-arg reset
+  >   semantics, Integer+Long promotion, BigDecimal propagation, Short
+  >   overflow widening to Integer, empty Collection keeps zero sentinel,
+  >   aggregateResults config contract, getSyntax. Pins the production
+  >   bug where `PropertyTypeInternal.increment` on Integer+Integer
+  >   overflow returns `(long) Integer.MIN_VALUE` (type promoted, value
+  >   wrong) — WHEN-FIXED token embedded in the test body.
+  > - `SQLFunctionAverageTest` (15 tests, new): empty→null (divide-by-
+  >   zero sentinel), per-type division (Integer/Long/Float/Double/
+  >   BigDecimal + HALF_UP), Collection unwrap with null filter,
+  >   non-Number/non-MultiValue ignore, aggregateResults config contract,
+  >   getSyntax. Pins the multi-arg total-not-reset bug (WHEN-FIXED),
+  >   plus pinning tests for single-Short and single-BigInteger input
+  >   returning null because `computeAverage` has no Short/BigInteger
+  >   branches (WHEN-FIXED markers).
+  > - `SQLFunctionMaxTest` (13 tests, new): aggregate mode across rows,
+  >   Integer→Long context promotion, all-null rows stay null, per-row
+  >   mode (config length ≠ 1) returns per-row max, Collection scan with
+  >   null filter, Date comparison in per-row AND aggregate paths (non-
+  >   Number guard), empty Collection, `$current` LET-definition guard
+  >   disables aggregation, aggregated global max across Collection rows,
+  >   getSyntax.
+  > - `SQLFunctionMinTest` (13 tests, new): symmetrical mirror of Max
+  >   (same matrix with reversed comparator).
+  > - `SQLFunctionMathAbstractTest` (18 tests, new): `getContextValue`
+  >   identity-short-circuit, Integer → Long/Short/Float/Double
+  >   conversions, unhandled target fall-through, Float→Long truncation,
+  >   Double→Short silent overflow, null context NPE (precondition pin);
+  >   `getClassWithMorePrecision` precision lattice (Integer/Long/Float
+  >   beaten by higher, same-class short-circuit, unhandled first class
+  >   fall-through, Double-first keeps itself, BigDecimal-first keeps
+  >   itself); aggregateResults default; getName inherited from
+  >   constructor. Test-only `TestMathSubclass` exposes the protected
+  >   helpers. Javadoc now flags both helpers as unreferenced-by-
+  >   production (WHEN-FIXED: candidate for removal or integration into
+  >   Max/Min accumulation path).
+  > - `SQLFunctionAbsoluteValueTest` (20 tests, 2 new): added getSyntax
+  >   and aggregateResults-always-false (with config guard) — previously
+  >   uncovered.
+  > - `SQLFunctionIntervalTest` (8 tests, 5 new): aggregateResults
+  >   always false, execute-return-value separate from getResult
+  >   (strengthened), getSyntax, strict `>` semantics (equal bound does
+  >   not match), null-bound NPE precondition (WHEN-FIXED).
+  > - `SQLFunctionDecimalTest` (16 tests, 11 new; kept in `stat/` pkg
+  >   with WHEN-FIXED relocation note): BigDecimal identity pass-
+  >   through, BigInteger promotion, Short/Float/Double Number branch,
+  >   malformed String swallowed to null, null/unsupported-type fall-
+  >   through, aggregateResults, getSyntax; plus a pinning test for
+  >   unsupported-type-after-valid-input leaking the prior BigDecimal
+  >   (WHEN-FIXED: reset `result` at start of execute).
+  > - `SQLFunctionMedianTest` (8 tests, new): empty → null, single
+  >   value, odd/even count interpolation, Collection with nulls,
+  >   multi-row accumulation (correctly named + commented), getSyntax,
+  >   aggregateResults.
+  > - `SQLFunctionStandardDeviationTest` (6 tests, new): empty/n≤1
+  >   guard (evaluate `variance == null`), known-sample sqrt of
+  >   variance, two-sample boundary (n=2), getSyntax, aggregateResults.
+  > - `SQLFunctionPercentileTest` (14 tests, 5 new): MultiValue
+  >   unwrap + null filter, non-Number ignored, empty-collection +
+  >   multi-quantile path, aggregateResults, getSyntax.
+  > - `SQLFunctionVarianceTest` (9 tests, 5 new): MultiValue unwrap,
+  >   empty-collection null, non-Number ignored, aggregateResults,
+  >   getSyntax.
+  > - `SQLFunctionModeTest` (8 tests, 3 new): single-null ignored,
+  >   empty-collection, getSyntax, aggregateResults.
+  >
+  > No production code was modified.
+  >
+  > **What was discovered:**
+  > - **Production bug #1**: `PropertyTypeInternal.increment` applies the
+  >   `(long) ...` cast to the already-overflowed `int` result, so
+  >   Integer.MAX_VALUE + 1 as Sum produces a Long whose value is
+  >   Integer.MIN_VALUE. Pinned (WHEN-FIXED) in
+  >   `SQLFunctionSumTest.integerOverflowPromotesResultTypeToLongButLosesValue`.
+  > - **Production bug #2**: `SQLFunctionAverage.execute()` multi-arg
+  >   branch resets `sum = null` but not `total = 0`. The second
+  >   `execute([a,b,c])` on the same instance produces an average
+  >   polluted by the prior row's count. Pinned (WHEN-FIXED) in
+  >   `multiArgExecuteResetsSumButNotTotalBetweenCalls`.
+  > - **Production bug #3**: `SQLFunctionAverage.computeAverage` has no
+  >   Short or BigInteger branches — single-value inputs of those types
+  >   fall through to `return null`. Pinned (WHEN-FIXED) in two tests.
+  > - **Production bug #4**: `SQLFunctionDecimal.execute()` does not
+  >   reset the `result` field at the start of each call, so an
+  >   unsupported-type input after a valid input leaks the prior
+  >   BigDecimal. Pinned (WHEN-FIXED) in
+  >   `testUnsupportedTypeAfterValidInputLeaksPreviousResult`.
+  > - **Test-file location anomaly**: `SQLFunctionDecimalTest.java`
+  >   physically lives in `sql/functions/stat/` but tests a class in
+  >   `sql/functions/math/`. JaCoCo attributes it to the wrong package
+  >   for the purposes of test-class-per-package conventions. WHEN-FIXED
+  >   note added to the file Javadoc; actual relocation left for a
+  >   follow-up.
+  > - **Dead helpers**: `SQLFunctionMathAbstract.getContextValue` and
+  >   `getClassWithMorePrecision` are `protected` but never called by
+  >   any concrete subclass or other code in the module. They carry
+  >   deprecated `new Float(...)` / `new Double(...)` constructors. Left
+  >   covered via `TestMathSubclass` with a WHEN-FIXED note in the test
+  >   Javadoc.
+  >
+  > **What changed from the plan:**
+  > - Coverage of `sql/functions/math` now includes explicit null-context
+  >   / non-Integer-source paths for `getContextValue` (plan only said
+  >   "cover via concrete subclass + one test-only subclass if needed").
+  > - `SQLFunctionDecimalTest` was extended rather than rewritten —
+  >   avoided creating a duplicate under `sql/functions/math/`.
+  > - Step file listed `SQLFunctionMedian`/`SQLFunctionStandardDeviation`
+  >   as the primary stat targets; plan hit them plus filled
+  >   Percentile/Variance/Mode gaps that were not named but surfaced in
+  >   the JaCoCo method-level scan (MultiValue branches + getSyntax
+  >   lines).
+  >
+  > **Key files:**
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/math/SQLFunctionSumTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/math/SQLFunctionAverageTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/math/SQLFunctionMaxTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/math/SQLFunctionMinTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/math/SQLFunctionMathAbstractTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/math/SQLFunctionAbsoluteValueTest.java` (modified)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/math/SQLFunctionIntervalTest.java` (modified)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/stat/SQLFunctionMedianTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/stat/SQLFunctionStandardDeviationTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/stat/SQLFunctionPercentileTest.java` (modified)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/stat/SQLFunctionVarianceTest.java` (modified)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/stat/SQLFunctionModeTest.java` (modified)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/stat/SQLFunctionDecimalTest.java` (modified)
+  >
+  > **Critical context:** Step-level dimensional review ran one iteration
+  > (4 agents: code-quality, bugs-concurrency, test-behavior,
+  > test-completeness). Findings: 0 blockers, 6 unique should-fix (after
+  > deduplication), ~12 suggestions. Applied all should-fix plus most
+  > suggestions in the `Review fix:` commit (162 tests total, up from
+  > 146 in the initial Step 7 commit). Iteration 2 (gate check) skipped
+  > because context reached `warning` after Iteration 1 — deferred to
+  > the track-level Phase C review. Full core test suite: 1176 tests,
+  > 0 failures, 0 errors. No cross-track impact: all discoveries are
+  > localised to `sql/functions/math` and `sql/functions/stat`. Step 8
+  > targets `sql/functions/text`/`conversion`/`result` SQLMethod* —
+  > independent of math/stat.
 
 ### Step 1: Factory infrastructure + graph traversal dispatchers + SQLGraphNavigationFunction interface (original plan retained for reference)
 
