@@ -170,8 +170,14 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
 
   private ExecutionStream processUpstreamRow(Result upstreamRow, CommandContext ctx) {
     var session = ctx.getDatabaseSession();
-    var ridSet = resolveEdgeRidSet(upstreamRow, session);
-    if (ridSet == null || ridSet.isEmpty()) {
+    var sourceRid = extractSourceRid(upstreamRow);
+    if (sourceRid == null) {
+      ctx.setSystemVariable(
+          CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
+      return ExecutionStream.empty();
+    }
+    var linkBag = loadLinkBag(sourceRid, session);
+    if (linkBag == null || linkBag.size() == 0) {
       ctx.setSystemVariable(
           CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
       return ExecutionStream.empty();
@@ -179,10 +185,13 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
 
     long indexSize = index.size(session);
     var histogram = index.getHistogram(session);
-    if (shouldUseIndexScan(ridSet.size(), indexSize, histogram)) {
+    if (shouldUseIndexScan(linkBag.size(), indexSize, histogram)) {
       // Index scan: results are pre-sorted. Signal OrderByStep to pass through.
+      // Build RidSet only now — it is needed as the bitmap filter for the
+      // index-value scan. The fallback paths below iterate the LinkBag
+      // directly, so they skip the RidSet allocation.
       ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
-      return indexScanFiltered(ridSet, ctx, upstreamRow);
+      return indexScanFiltered(ridSetFromLinkBag(linkBag), ctx, upstreamRow);
     } else if (downstreamEdgeCount > 0 && limit > 0) {
       // Low density but downstream edges + LIMIT: load all, sort locally,
       // and mark PRE_SORTED=true. This enables LIMIT to short-circuit the
@@ -190,13 +199,27 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       // (REPLY_OF chain, HAS_CREATOR, etc.) instead of all N.
       // Sort cost O(N log N) is trivial for typical LinkBag sizes (~50-500).
       ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
-      return loadSortFromRidSet(ridSet, ctx, upstreamRow);
+      return loadSortFromLinkBag(linkBag, ctx, upstreamRow);
     } else {
       // No downstream edges or no LIMIT: stream unsorted to OrderByStep.
       // OrderByStep's bounded heap handles sorting with O(N log K).
       ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
-      return loadFromRidSet(ridSet, ctx, upstreamRow);
+      return loadFromLinkBag(linkBag, ctx, upstreamRow);
     }
+  }
+
+  /**
+   * Builds a RidSet bitmap from the source LinkBag. Used only on the
+   * index-scan branch, where the bitmap is required as a membership filter
+   * for {@link RidFilteredIndexValuesStep}. The fallback branches iterate
+   * the LinkBag directly to avoid this allocation.
+   */
+  private RidSet ridSetFromLinkBag(LinkBag linkBag) {
+    var ridSet = new RidSet();
+    for (RidPair pair : linkBag) {
+      ridSet.add(ridFromPair(pair));
+    }
+    return ridSet;
   }
 
   /**
@@ -229,19 +252,23 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
 
   /**
    * Single-source low-density fallback with downstream edges + LIMIT:
-   * load all targets from RidSet, sort by ORDER BY property, and emit
-   * as a pre-sorted stream. With PRE_SORTED=true, OrderByStep passes
-   * through and LimitStep stops after K rows — only K records traverse
-   * expensive downstream MATCH edges instead of all N.
+   * load all targets from the source LinkBag, sort by ORDER BY property,
+   * and emit as a pre-sorted stream. With PRE_SORTED=true, OrderByStep
+   * passes through and LimitStep stops after K rows — only K records
+   * traverse expensive downstream MATCH edges instead of all N.
+   *
+   * <p>Iterates the LinkBag directly instead of going through an
+   * intermediate RidSet: the cost-model already decided we are not running
+   * an index scan, so the RidSet bitmap would be pure allocation overhead.
    */
   @SuppressWarnings("unchecked")
-  private ExecutionStream loadSortFromRidSet(
-      RidSet ridSet, CommandContext ctx, Result upstreamRow) {
+  private ExecutionStream loadSortFromLinkBag(
+      LinkBag linkBag, CommandContext ctx, Result upstreamRow) {
     var session = ctx.getDatabaseSession();
 
     var records = new ArrayList<Result>();
-    for (var rid : ridSet) {
-      var record = loadRecord(rid, session);
+    for (RidPair pair : linkBag) {
+      var record = loadRecord(ridFromPair(pair), session);
       if (record != null
           && matchesTargetFilter(record, ctx)
           && !isAlreadyBoundAndDifferent(upstreamRow, record, session)) {
@@ -259,21 +286,43 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   }
 
   /**
-   * Single-source low-density fallback: load targets directly from RidSet
-   * without sorting. Downstream OrderByStep handles sorting with bounded heap.
+   * Single-source low-density fallback: load targets directly from the
+   * source LinkBag without sorting. Downstream OrderByStep handles sorting
+   * with its bounded heap (or unbounded collect when there is no LIMIT).
+   *
+   * <p>Streams lazily from the LinkBag iterator — no intermediate RidSet
+   * and no up-front materialisation.
    */
-  private ExecutionStream loadFromRidSet(
-      RidSet ridSet, CommandContext ctx, Result upstreamRow) {
+  private ExecutionStream loadFromLinkBag(
+      LinkBag linkBag, CommandContext ctx, Result upstreamRow) {
     var session = ctx.getDatabaseSession();
-    return ExecutionStream.resultIterator(
-        ridSet.stream()
-            .map(rid -> loadRecord(rid, session))
-            .filter(record -> record != null
-                && matchesTargetFilter(record, ctx)
-                && !isAlreadyBoundAndDifferent(upstreamRow, record, session))
-            .map(record -> (Result) new MatchResultRow(
-                session, upstreamRow, targetAlias, record))
-            .iterator());
+    var iter = linkBag.iterator();
+    return ExecutionStream.resultIterator(new Iterator<Result>() {
+      private Result pending;
+
+      @Override
+      public boolean hasNext() {
+        while (pending == null && iter.hasNext()) {
+          var record = loadRecord(ridFromPair(iter.next()), session);
+          if (record != null
+              && matchesTargetFilter(record, ctx)
+              && !isAlreadyBoundAndDifferent(upstreamRow, record, session)) {
+            pending = new MatchResultRow(session, upstreamRow, targetAlias, record);
+          }
+        }
+        return pending != null;
+      }
+
+      @Override
+      public Result next() {
+        if (!hasNext()) {
+          throw new java.util.NoSuchElementException();
+        }
+        var result = pending;
+        pending = null;
+        return result;
+      }
+    });
   }
 
   // =====================================================================
@@ -282,7 +331,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
 
   /**
    * Sorts records by the ORDER BY property (from the index definition).
-   * Used by loadSortFromRidSet to produce pre-sorted output that enables
+   * Used by loadSortFromLinkBag to produce pre-sorted output that enables
    * LIMIT-based early termination through downstream MATCH edges.
    */
   @SuppressWarnings("unchecked")
