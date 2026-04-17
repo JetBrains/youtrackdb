@@ -17,10 +17,13 @@ package com.jetbrains.youtrackdb.internal.core.sql.functions.coll;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import org.junit.After;
@@ -157,13 +160,54 @@ public class SQLMethodMultiValueTest extends DbTestBase {
 
   @Test
   public void singleSetParamResolvesEachInnerName() {
-    // Set is also a MultiValue — same inner-iteration path.
+    // Set is also a MultiValue — same inner-iteration path. Use LinkedHashSet with 2 entries so
+    // iteration order is deterministic and "each inner name" is actually exercised.
+    var method = new SQLMethodMultiValue();
+    var keys = new LinkedHashSet<String>();
+    keys.add("firstName");
+    keys.add("lastName");
+
+    @SuppressWarnings("unchecked")
+    var result = (List<Object>) method.execute(entity, null, ctx(), null, new Object[] {keys});
+
+    assertEquals(List.of("Alice", "Smith"), result);
+  }
+
+  @Test
+  public void singleSingletonSetParamUnwrapsToScalar() {
+    // Separate coverage: a Set with a single entry yields list.size()==1 → unwrapped scalar.
     var method = new SQLMethodMultiValue();
 
-    // Inner iteration yields 1 entry → unwrapped scalar (list.size()==1 return list.get(0)).
     var result = method.execute(entity, null, ctx(), null, new Object[] {Set.of("firstName")});
 
     assertEquals("Alice", result);
+  }
+
+  @Test
+  public void singleMapParamIteratesValuesViaToString() {
+    // Map qualifies as MultiValue; MultiValue.getMultiValueIterable on a Map iterates its values
+    // (not keys). Each iterated value is toString()-ed as a field name. Pins the observed
+    // behaviour so a refactor changing Map iteration semantics is noticed.
+    var method = new SQLMethodMultiValue();
+    var map = new LinkedHashMap<String, Object>();
+    map.put("k", "firstName");
+
+    var result = method.execute(entity, null, ctx(), null, new Object[] {map});
+
+    // Single value "firstName" → resolves to "Alice", then unwrapped (list.size()==1).
+    assertEquals("Alice", result);
+  }
+
+  @Test
+  public void singleEmptyCollectionParamReturnsEmptyList() {
+    // Empty collection → inner loop yields nothing → list.size() == 1 is false → returns the
+    // empty list, NOT null. Pins the null-vs-empty contract so any future change is visible.
+    var method = new SQLMethodMultiValue();
+
+    var result = method.execute(entity, null, ctx(), null, new Object[] {List.of()});
+
+    assertTrue("empty collection must return a List, not null", result instanceof List<?>);
+    assertEquals(0, ((List<?>) result).size());
   }
 
   @Test
@@ -208,15 +252,26 @@ public class SQLMethodMultiValueTest extends DbTestBase {
   }
 
   @Test
-  public void multipleParamsCollapsingToSingleValueUnwraps() {
-    // Two params but one resolves to null: [null, "firstName"] → getFieldValue(null) may return
-    // null. Actually EntityHelper.getFieldValue returns null for nonexistent; size-1 return only
-    // happens when exactly one value is produced AND list.size()==1. Force that with a single
-    // collection containing one element.
+  public void multipleParamsStartingWithCollectionFlatten() {
+    // Collection first, scalar second. When iParams.length > 1 the scalar-fast-path guard
+    // doesn't fire (it requires length == 1), and the loop handles each param via the
+    // per-element isMultiValue check.
     var method = new SQLMethodMultiValue();
 
-    // Two params: one collection with a missing field, one scalar scalar with a present field.
-    // Both are added to the list — size > 1 → returned as list (no unwrap).
+    @SuppressWarnings("unchecked")
+    var result = (List<Object>) method.execute(entity, null, ctx(), null,
+        new Object[] {List.of("firstName", "lastName"), "age"});
+
+    assertEquals(List.of("Alice", "Smith", 30), result);
+  }
+
+  @Test
+  public void multipleParamsWithMissingFieldKeepsListResult() {
+    // A collection param with an unknown field resolves to null; add a second scalar param so
+    // the final list has size > 1 and is NOT unwrapped. (The unwrap branch is covered by
+    // singleCollectionCollapsingToOneUnwraps below.)
+    var method = new SQLMethodMultiValue();
+
     @SuppressWarnings("unchecked")
     var result = (List<Object>) method.execute(entity, null, ctx(), null,
         new Object[] {List.of("missing"), "firstName"});

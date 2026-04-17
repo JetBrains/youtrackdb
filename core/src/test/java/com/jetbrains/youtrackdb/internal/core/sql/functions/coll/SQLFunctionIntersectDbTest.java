@@ -47,17 +47,17 @@ import org.junit.Test;
  */
 public class SQLFunctionIntersectDbTest extends DbTestBase {
 
-  private Identifiable rid1;
-  private Identifiable rid2;
-  private Identifiable rid3;
+  private Identifiable identity1;
+  private Identifiable identity2;
+  private Identifiable identity3;
 
   @Before
   public void setUpEntities() {
     session.createClass("X");
     session.begin();
-    rid1 = session.newEntity("X").getIdentity();
-    rid2 = session.newEntity("X").getIdentity();
-    rid3 = session.newEntity("X").getIdentity();
+    identity1 = session.newEntity("X").getIdentity();
+    identity2 = session.newEntity("X").getIdentity();
+    identity3 = session.newEntity("X").getIdentity();
     session.commit();
     session.begin();
   }
@@ -84,34 +84,69 @@ public class SQLFunctionIntersectDbTest extends DbTestBase {
     // All ResultSet rows are identifiable → the outer block builds a RidSet (ids branch, not
     // nonIds). Since RidSet IS a Set, the switch matches `case Collection` and the intersection
     // proceeds via collection.contains(curr.getIdentity()).
-    var current = List.of((Object) rid1, rid2, rid3).iterator();
+    var current = List.of((Object) identity1, identity2, identity3).iterator();
     var rs = new IteratorResultSet(session, List.of(
-        new ResultInternal(session, rid1),
-        new ResultInternal(session, rid2)).iterator());
+        new ResultInternal(session, identity1),
+        new ResultInternal(session, identity2)).iterator());
 
     var result = SQLFunctionIntersect.intersectWith(current, rs);
 
-    // Identifiable.getIdentity() normalisation + RidSet.contains → {rid1, rid2}.
-    assertEquals(Set.of(rid1.getIdentity(), rid2.getIdentity()), new HashSet<>(result));
+    // Identifiable.getIdentity() normalisation + RidSet.contains → {identity1, identity2}.
+    assertEquals(Set.of(identity1.getIdentity(), identity2.getIdentity()), new HashSet<>(result));
   }
 
   @Test
   public void resultSetOfMixedResultsMergesIdsIntoNonIdsBranch() {
-    // Mixed identifiable + non-identifiable rows → once a non-identifiable row appears, the
-    // function merges the accumulated identifiable RIDs into the nonIds HashSet. That way the
-    // downstream contains() check still matches the identifiable entries via their RID. The
-    // non-identifiable Result itself goes into the set as an object, so a plain-string match on
-    // the left side would NOT find it (the set holds the Result wrapper, not the property).
-    var current = new ArrayList<>();
-    current.add(rid1);
+    // Put the non-identifiable row FIRST (seeds nonIds) and then TWO identifiable rows. With
+    // the merge-into-nonIds logic, the second identifiable is added to nonIds via
+    // `result.getIdentity()` directly — and the "ids → nonIds" merge is not exercised here
+    // because `ids.isEmpty()` is true at end-of-loop. Combined with the ids-only test above,
+    // this probes the ids-empty / nonIds-non-empty domain row (value = nonIds, ids.addAll is
+    // a no-op). A missing Identifiable on the right side must NOT be dropped from the result.
+    var current = List.of((Object) identity1, identity2).iterator();
     var rs = new IteratorResultSet(session, List.of(
-        (Object) new ResultInternal(session, rid1),
+        (Object) resultWithProperty("plain-string"),
+        new ResultInternal(session, identity1),
+        new ResultInternal(session, identity2)).iterator());
+
+    var result = SQLFunctionIntersect.intersectWith(current, rs);
+
+    // Both identities must be in the intersection. Tight assertion pins both halves of the
+    // normalisation (Identifiable → RID on the left, result.getIdentity() → RID on the right).
+    assertEquals(Set.of(identity1.getIdentity(), identity2.getIdentity()), new HashSet<>(result));
+  }
+
+  @Test
+  public void resultSetIdsThenNonIdsTriggersAddAllMerge() {
+    // Inverse ordering: identifiable FIRST, then non-identifiable. Now `ids` is non-empty when
+    // the non-identifiable appears, so the production code executes `nonIds.addAll(ids)` at
+    // SQLFunctionIntersect.java:172 before assigning `value = nonIds`. Without that merge,
+    // identity1 would be lost.
+    var current = List.of((Object) identity1).iterator();
+    var rs = new IteratorResultSet(session, List.of(
+        (Object) new ResultInternal(session, identity1),
         resultWithProperty("plain-string")).iterator());
 
-    var result = SQLFunctionIntersect.intersectWith(current.iterator(), rs);
+    var result = SQLFunctionIntersect.intersectWith(current, rs);
 
-    // rid1 is normalised via getIdentity() and found in the merged nonIds set.
-    assertTrue("expected rid1 in intersection", contains(result, rid1.getIdentity()));
+    // identity1 survived because ids.addAll happened before value was reassigned to nonIds.
+    assertEquals(Set.of(identity1.getIdentity()), new HashSet<>(result));
+  }
+
+  @Test
+  public void resultSetOfOnlyNonIdentifiableRowsYieldsEmptyIntersection() {
+    // All ResultSet rows are non-identifiable — nonIds contains only Result wrappers (not RIDs).
+    // The left iterator's Identifiable entries normalise to RIDs, which never appear in nonIds,
+    // so the intersection is empty. Exercises the else-else branch at SQLFunctionIntersect.java
+    // line 167 (nonIds.add(result) for non-identifiable rows).
+    var current = List.of((Object) identity1).iterator();
+    var rs = new IteratorResultSet(session, List.of(
+        (Object) resultWithProperty("x"),
+        resultWithProperty("y")).iterator());
+
+    var result = SQLFunctionIntersect.intersectWith(current, rs);
+
+    assertTrue("no RIDs on the right → empty intersection", result.isEmpty());
   }
 
   @Test
@@ -119,15 +154,15 @@ public class SQLFunctionIntersectDbTest extends DbTestBase {
     // The `else if (curr instanceof Result result && result.isIdentifiable())` branch fires when
     // the iterator yields a Result (not an Identifiable). Feed a list of ResultInternal rows.
     var leftResults = new ArrayList<Object>();
-    leftResults.add(new ResultInternal(session, rid1));
-    leftResults.add(new ResultInternal(session, rid2));
+    leftResults.add(new ResultInternal(session, identity1));
+    leftResults.add(new ResultInternal(session, identity2));
 
-    var right = Set.of(rid1.getIdentity(), rid3.getIdentity());
+    var right = Set.of(identity1.getIdentity(), identity3.getIdentity());
 
     var result = SQLFunctionIntersect.intersectWith(leftResults.iterator(), right);
 
-    // Only rid1 is in both — rid2 filtered out.
-    assertEquals(Set.of(rid1.getIdentity()), new HashSet<>(result));
+    // Only identity1 is in both — identity2 filtered out.
+    assertEquals(Set.of(identity1.getIdentity()), new HashSet<>(result));
   }
 
   @Test
@@ -138,56 +173,50 @@ public class SQLFunctionIntersectDbTest extends DbTestBase {
     var context = ctx();
     context.setVariable("aggregation", Boolean.TRUE);
 
-    fn.execute(null, null, null, new Object[] {List.of(rid1, rid2, rid3)}, context);
-    fn.execute(null, null, null, new Object[] {Set.of(rid2.getIdentity(),
-        rid3.getIdentity())}, context);
+    fn.execute(null, null, null, new Object[] {List.of(identity1, identity2, identity3)}, context);
+    fn.execute(null, null, null, new Object[] {Set.of(identity2.getIdentity(),
+        identity3.getIdentity())}, context);
 
     var narrowed = (Set<?>) fn.getResult();
-    // Narrowed set should contain rid2 and rid3 (normalised identities) — not rid1.
-    assertTrue(contains(narrowed, rid2.getIdentity()));
-    assertTrue(contains(narrowed, rid3.getIdentity()));
+    // Narrowed set should contain identity2 and identity3 (normalised identities) — not identity1.
+    assertTrue(narrowed.contains(identity2.getIdentity()));
+    assertTrue(narrowed.contains(identity3.getIdentity()));
     assertEquals(2, narrowed.size());
   }
 
   // ---------------------------------------------------------------------------
   // LinkBag path — the production code has a `case LinkBag` arm, but the outer conversion block
-  // converts LinkBag (which is NOT a Set and NOT SupportsContains) into a HashSet via
-  // MultiValue.toSet BEFORE reaching the switch. Assert the observable consequence: passing a
-  // LinkBag as the right-hand operand still produces a correct intersection (via the
-  // post-conversion Collection branch).
+  // converts LinkBag (which is NOT a Set and NOT SupportsContains) into a HashSet<RidPair> via
+  // MultiValue.toSet BEFORE reaching the switch. LinkBag iterates RidPair objects, which do not
+  // equal bare RIDs, so collection.contains(curr.getIdentity()) always returns false — the
+  // intersection is DETERMINISTICALLY EMPTY. The `case LinkBag rids` arm at
+  // SQLFunctionIntersect.java:192 is unreachable with the current LinkBag class hierarchy.
   // ---------------------------------------------------------------------------
 
   @Test
-  public void linkBagRightHandSideIsConvertedToSetAndIntersects() {
+  public void linkBagRightHandSideYieldsEmptyIntersectionBecauseCaseLinkBagIsUnreachable() {
+    // WHEN-FIXED: SQLFunctionIntersect.intersectWith's outer conversion block converts LinkBag
+    // to HashSet<RidPair> via MultiValue.toSet, so the `case LinkBag rids` arm is dead code. A
+    // fix would either: (a) skip conversion when value instanceof LinkBag so the `case LinkBag`
+    // arm fires (then this test's expected result becomes {identity1}), or (b) delete the dead
+    // `case LinkBag` arm and document the Set-conversion path explicitly. Either way, update
+    // this test when the asymmetry is resolved.
     var bag = new LinkBag(session);
-    bag.add(rid1.getIdentity());
-    bag.add(rid2.getIdentity());
+    bag.add(identity1.getIdentity());
+    bag.add(identity2.getIdentity());
 
-    var current = List.of((Object) rid1, rid3).iterator();
+    var current = List.of((Object) identity1, identity3).iterator();
 
     var result = SQLFunctionIntersect.intersectWith(current, bag);
 
-    // rid1 is in both; rid3 is in current but not in bag.
-    // Normalisation: curr.getIdentity() → rid1's RID. bag (post MultiValue.toSet) contains
-    // RidPair objects (LinkBag iterates RidPair, not RID), so the `collection.contains(curr)`
-    // check may not find rid1's RID. Document actual observed behaviour: the intersection can
-    // be empty or partial depending on how MultiValue.toSet handles LinkBag's Iterable<RidPair>.
-    // This test pins the current behaviour so future refactors notice any change.
-    assertTrue("result is a collection", result.isEmpty() || result.contains(rid1.getIdentity()));
+    // RidPair.equals(RID) returns false for every entry in the converted set → empty result.
+    assertTrue("LinkBag intersection is always empty with current LinkBag class hierarchy",
+        result.isEmpty());
   }
 
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
-
-  private static boolean contains(java.util.Collection<?> coll, Object needle) {
-    for (var o : coll) {
-      if (o == needle || (o != null && o.equals(needle))) {
-        return true;
-      }
-    }
-    return false;
-  }
 
   private ResultInternal resultWithProperty(String value) {
     // Build a non-identifiable Result (no identity set) with a single property — its
