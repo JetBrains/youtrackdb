@@ -5476,30 +5476,14 @@ public abstract class AbstractStorage
             var pageLsn = durablePage.getLsn();
 
             if (pageLsn.compareTo(pageOp.getLsn()) < 0) {
-              // initialLsn CAS check: detects unexpected page state. For
-              // multi-operation pages (common during B-tree splits), the 2nd+
-              // operation's initialLsn won't match pageLsn (updated by prior ops'
-              // redo), producing a false-positive error log. This matches the
-              // existing UpdatePageRecord behavior and is not a correctness issue
-              // — tracked as optional improvement (T4-3).
-              if (!pageLsn.equals(pageOp.getInitialLsn())) {
-                LogManager.instance()
-                    .error(
-                        this,
-                        "Page with index "
-                            + pageIndex
-                            + " and file "
-                            + writeCache.fileNameById(fileId)
-                            + " was changed before page restore was started. Page will"
-                            + " be restored from WAL, but it may contain changes that"
-                            + " were not present before storage crash and data may be"
-                            + " lost. Initial LSN is "
-                            + pageOp.getInitialLsn()
-                            + ", but page contains changes with LSN "
-                            + pageLsn,
-                        null);
-              }
-
+              // For multi-operation pages (common during B-tree splits), a given
+              // operation's initialLsn typically does not match the current
+              // pageLsn — prior operations in the same atomic unit have already
+              // advanced it via redo. That mismatch is not a corruption signal
+              // and must not be logged per-operation: on large restores it
+              // produces millions of SEVERE entries whose stack-trace capture
+              // (SLF4J fillCallerData) turns restore into a CPU bottleneck and
+              // exceeds the CI watchdog.
               pageOp.redo(durablePage);
               durablePage.setLsn(pageOp.getLsn());
             }
