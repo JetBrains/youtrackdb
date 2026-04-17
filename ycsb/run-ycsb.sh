@@ -331,7 +331,11 @@ done
 
 if [ "$SKIP_BUILD" = false ]; then
   log "Building ycsb module..."
-  (cd "$REPO_ROOT" && ./mvnw -pl ycsb -am package -DskipTests -q)
+  # Skip Spotless: the benchmark runner packages a jar, it does not gate
+  # code style. Spotless also depends on the Equo P2 offline cache, which
+  # can fail with transient NoSuchFileException on the bundle-pool jars.
+  (cd "$REPO_ROOT" && ./mvnw -pl ycsb -am package \
+    -DskipTests -Dspotless.check.skip=true -q)
   log "Build complete."
 else
   log "Skipping build (--skip-build)."
