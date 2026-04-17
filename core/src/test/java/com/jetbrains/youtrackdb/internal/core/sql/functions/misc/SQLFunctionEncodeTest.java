@@ -215,6 +215,17 @@ public class SQLFunctionEncodeTest extends DbTestBase {
     assertNull(result);
   }
 
+  @Test
+  public void nullCandidateFirstParamReturnsNull() {
+    // iParams[0] == null falls through every `instanceof` guard (null is not an instance of
+    // anything) — data stays null → returns null. The unknown-format branch is NOT reached.
+    var function = new SQLFunctionEncode();
+
+    var result = function.execute(null, null, null, new Object[] {null, "base64"}, ctx());
+
+    assertNull(result);
+  }
+
   // ---------------------------------------------------------------------------
   // Unknown format — DatabaseException (WHEN-FIXED: "unknowned" typo)
   // ---------------------------------------------------------------------------

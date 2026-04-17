@@ -24,8 +24,6 @@ import static org.junit.Assert.fail;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
-import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -51,9 +49,8 @@ import org.junit.Test;
 public class SQLFunctionEvalTest extends DbTestBase {
 
   @Before
-  public void setUp() {
-    // Schema changes are NOT transactional — create "Counter" class BEFORE opening the tx.
-    session.createClass("Counter");
+  public void openTx() {
+    // SQLPredicate parsing requires an active transaction in the session.
     session.begin();
   }
 
@@ -127,47 +124,47 @@ public class SQLFunctionEvalTest extends DbTestBase {
   }
 
   // ---------------------------------------------------------------------------
-  // Caught exception branches
+  // Exception contract — execute() never lets exceptions escape
   //
   // SQLFunctionEval.execute has two catch clauses — ArithmeticException → 0 and
-  // generic Exception → null. Neither is easy to trigger via SQLPredicate: most SQL-style
-  // division-by-zero inputs parse cleanly and evaluate to Boolean.FALSE because
-  // SQLPredicate treats binary operators as boolean-yielding conditions. We therefore verify
-  // the catch-branch SURFACE (execute() does not let the exception escape) using an expression
-  // that returns a value without throwing, rather than asserting a specific catch.
+  // generic Exception → null. Neither is deterministically reachable via SQLPredicate
+  // from public inputs: division-by-zero like "10 / 0" is parsed as a boolean-yielding
+  // predicate and evaluates to Boolean.FALSE without ever throwing. We therefore assert
+  // the contract "execute does not escape exceptions" rather than branch-specific
+  // outcomes (which would require patching SQLPredicate or reflection injection).
   // ---------------------------------------------------------------------------
 
   @Test
-  public void arithmeticDivisionExpressionDoesNotThrow() {
-    // "10 / 0" parses as a comparison-like predicate; regardless of the exact return value, the
-    // function must not escape an exception. Pin the no-escape contract.
+  public void divisionByZeroExpressionIsSwallowedToBooleanOrNumber() {
+    // "10 / 0" produces a Boolean.FALSE result in the current SQLPredicate; assert against that
+    // observed behaviour instead of a vacuous any-type check. A refactor that made the predicate
+    // throw ArithmeticException (hitting the catch → 0) would turn this into `assertEquals(0, …)`
+    // and flag the change.
     var function = new SQLFunctionEval();
 
-    // Should not throw — either the ArithmeticException catch fires (→ 0) or a normal boolean
-    // result is returned; both are acceptable for this contract test.
-    Object result = function.execute(null, null, null, new Object[] {"10 / 0"}, ctx());
+    var result = function.execute(null, null, null, new Object[] {"10 / 0"}, ctx());
 
-    // Accept any non-exceptional return value; this asserts "no uncaught exception" not a
-    // specific numeric outcome.
-    assertTrue("no uncaught exception must escape execute(), saw: " + result,
-        result == null || result instanceof Number || result instanceof Boolean);
+    // Today: Boolean.FALSE is returned. If production semantics change to hit the
+    // ArithmeticException catch (→ 0), this assertion will fail and the test must be updated
+    // together with the fix — which is exactly the intent of a pinning test.
+    assertEquals("10 / 0 currently yields Boolean.FALSE via the predicate evaluator",
+        Boolean.FALSE, result);
   }
 
   // ---------------------------------------------------------------------------
-  // Current-result integration — EntityImpl reference
+  // Current-result integration — non-EntityImpl fallback branch
   // ---------------------------------------------------------------------------
 
   @Test
-  public void currentResultEntityImplIsPassedToPredicate() {
-    // The execute method casts iCurrentResult to EntityImpl for the predicate. A non-EntityImpl
-    // currentResult becomes null — pin the branch by feeding a non-EntityImpl current-result and
-    // ensuring no ClassCastException fires.
-    var entity = (EntityImpl) session.newEntity("Counter");
-    entity.setProperty("val", 42);
+  public void currentResultNonEntityImplFallsBackWithoutClassCast() {
+    // The production ternary `iCurrentResult instanceof EntityImpl e ? e : null` silently falls
+    // back to null for non-EntityImpl values. Passing `new Object()` exercises the FALSE branch
+    // of the instanceof — the test name and assertions document the branch actually covered.
+    // (The positive "iCurrentResult IS an EntityImpl" branch is exercised indirectly when
+    // callers feed an EntityImpl; here we pin the defensive fallback.)
     var function = new SQLFunctionEval();
 
-    var result = function.execute(null,
-        new ResultInternal(session, entity), new Object(), new Object[] {"1 + 2"}, ctx());
+    var result = function.execute(null, null, new Object(), new Object[] {"1 + 2"}, ctx());
 
     assertEquals(3L, ((Number) result).longValue());
   }

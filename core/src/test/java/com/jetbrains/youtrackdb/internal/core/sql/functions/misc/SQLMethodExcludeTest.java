@@ -162,6 +162,22 @@ public class SQLMethodExcludeTest extends DbTestBase {
   }
 
   @Test
+  public void emptyParamsReturnsFullCopy() {
+    // Boundary: zero field names → no entries removed → result is a full copy of the entity.
+    // The wildcard-loop in copy() iterates iFieldNames once (length 0), so no deletions occur.
+    var entity = personEntity();
+    var method = new SQLMethodExclude();
+
+    var result = (Result) method.execute(entity, null, ctx(), null, new Object[] {});
+
+    assertEquals(4, result.getPropertyNames().size());
+    assertEquals("Alice", result.getProperty("firstName"));
+    assertEquals("Smith", result.getProperty("lastName"));
+    assertEquals(30, (int) result.getProperty("age"));
+    assertEquals("alice@example.com", result.getProperty("email"));
+  }
+
+  @Test
   public void nullFieldNameInListIsSkipped() {
     // Null entries in iParams are explicitly guarded by `if (iFieldName != null)`.
     var entity = personEntity();

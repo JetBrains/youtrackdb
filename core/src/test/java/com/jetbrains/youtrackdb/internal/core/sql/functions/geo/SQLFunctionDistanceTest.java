@@ -125,7 +125,6 @@ public class SQLFunctionDistanceTest extends DbTestBase {
   @Test
   public void milesUnitAppliesConversionFactor() {
     var function = new SQLFunctionDistance();
-    var expectedKm = 100.0; // placeholder — we compute from same inputs below.
 
     var km = (Double) function.execute(null, null, null,
         new Object[] {LONDON_LAT, LONDON_LON, PARIS_LAT, PARIS_LON}, ctx());
@@ -136,8 +135,6 @@ public class SQLFunctionDistanceTest extends DbTestBase {
 
     // Multiplier is 0.621371192 per production source.
     assertEquals(km * 0.621371192, mi, 1e-6);
-    // Use the placeholder so the assignment isn't flagged as dead by tooling.
-    assertTrue(expectedKm > 0);
   }
 
   @Test

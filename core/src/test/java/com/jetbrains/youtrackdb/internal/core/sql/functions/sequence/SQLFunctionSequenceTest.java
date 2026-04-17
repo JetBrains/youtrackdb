@@ -91,13 +91,14 @@ public class SQLFunctionSequenceTest extends DbTestBase {
   }
 
   @Test
-  public void sequenceLookupUsesUppercasedName() {
-    // The library lookup upper-cases the input internally. Pin this so a refactor that changes
-    // case-handling of sequence names is noticed here (mixed-case input should still resolve).
+  public void sequenceLookupAcceptsMixedCaseName() {
+    // The library lookup upper-cases the input internally. Feed mixed-case "mySeq" (what was
+    // originally passed to createSequence) and assert we still resolve the uppercased "MYSEQ"
+    // entry. A refactor that drops the internal toUpperCase would fail this test.
     var function = new SQLFunctionSequence();
     var expected = session.getMetadata().getSequenceLibrary().getSequence("MYSEQ");
 
-    var result = function.execute(null, null, null, new Object[] {"MYSEQ"}, ctx());
+    var result = function.execute(null, null, null, new Object[] {"mySeq"}, ctx());
 
     assertSame(expected, result);
   }
@@ -158,6 +159,28 @@ public class SQLFunctionSequenceTest extends DbTestBase {
     var result = function.execute(null, null, null, new Object[] {"MYSEQ"}, ctx());
 
     assertSame(expected, result);
+  }
+
+  @Test
+  public void configuredSqlFilterItemReturningNullCrashesWithNpeInsteadOfCee() {
+    // Latent bug: FilterItem returns null → (String) null cast succeeds, then the library's
+    // ConcurrentHashMap.get(null) inside SequenceLibraryImpl.getSequence throws NPE BEFORE the
+    // `if (result == null)` → CommandExecutionException branch can fire. Users of the old-style
+    // "configuredParameters[0] instanceof SQLFilterItem" path see a naked NPE instead of the
+    // expected CEE with "Sequence not found: null". This also proves the FilterItem branch was
+    // taken (the iParams "IGNORED" fallback would produce CEE with "IGNORED", not NPE).
+    // WHEN-FIXED: validate the FilterItem result for null before calling getSequence, or make
+    // SequenceLibraryImpl.getSequence null-safe (return null instead of NPE).
+    var function = new SQLFunctionSequence();
+    function.config(new Object[] {new FixedNameFilterItem(null)});
+
+    try {
+      function.execute(null, null, null, new Object[] {"IGNORED"}, ctx());
+      fail("expected NullPointerException (latent bug) for null FilterItem result");
+    } catch (NullPointerException expected) {
+      assertEquals("must be the exact NPE class, not a subclass",
+          NullPointerException.class, expected.getClass());
+    }
   }
 
   @Test
