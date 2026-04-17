@@ -1,4 +1,4 @@
-package com.jetbrains.youtrackdb.internal.core.sql.functions.stat;
+package com.jetbrains.youtrackdb.internal.core.sql.functions.math;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -13,17 +13,18 @@ import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
-import com.jetbrains.youtrackdb.internal.core.sql.functions.math.SQLFunctionDecimal;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import org.junit.Before;
 import org.junit.Test;
 
 /**
- * Tests {@link SQLFunctionDecimal}. Note: this test lives under
- * {@code sql/functions/stat/} for historical reasons; the class under test is in
- * {@code sql/functions/math/}. WHEN-FIXED: relocate this file to
- * {@code sql/functions/math/SQLFunctionDecimalTest} to match the JaCoCo package.
+ * Tests {@link SQLFunctionDecimal}. Covers each branch of the type dispatch in
+ * {@link SQLFunctionDecimal#execute}: BigDecimal pass-through, BigInteger promotion,
+ * Integer/Long widening, generic Number via doubleValue, String parse, malformed-string
+ * swallow, null short-circuit, and the previous-result-leak that occurs when an unsupported
+ * type follows a valid call (pinned with a WHEN-FIXED marker — see
+ * {@link #unsupportedTypeAfterValidInputLeaksPreviousResult()}).
  */
 public class SQLFunctionDecimalTest {
 
@@ -35,27 +36,27 @@ public class SQLFunctionDecimalTest {
   }
 
   @Test
-  public void testEmpty() {
+  public void emptyResultIsNullBeforeAnyExecute() {
     var result = function.getResult();
     assertNull(result);
   }
 
   @Test
-  public void testFromInteger() {
+  public void integerIsPromotedToBigDecimal() {
     function.execute(null, null, null, new Object[] {12}, null);
     var result = function.getResult();
-    assertEquals(result, BigDecimal.valueOf(12));
+    assertEquals(BigDecimal.valueOf(12), result);
   }
 
   @Test
-  public void testFromLong() {
+  public void longIsPromotedToBigDecimal() {
     function.execute(null, null, null, new Object[] {1287623847384L}, null);
     var result = function.getResult();
     assertEquals(new BigDecimal(1287623847384L), result);
   }
 
   @Test
-  public void testFromString() {
+  public void stringIsParsedToBigDecimal() {
     var initial = "12324124321234543256758654.76543212345676543254356765434567654";
     function.execute(null, null, null, new Object[] {initial}, null);
     var result = function.getResult();
@@ -63,7 +64,7 @@ public class SQLFunctionDecimalTest {
   }
 
   @Test
-  public void testFromBigDecimalReturnsSameInstance() {
+  public void bigDecimalInputIsPassedThroughByReference() {
     // BigDecimal passes through the identity branch — the exact reference is preserved.
     var initial = new BigDecimal("123.456");
     var ret = function.execute(null, null, null, new Object[] {initial}, null);
@@ -72,7 +73,7 @@ public class SQLFunctionDecimalTest {
   }
 
   @Test
-  public void testFromBigIntegerIsPromoted() {
+  public void bigIntegerIsPromotedToBigDecimal() {
     var bi = new BigInteger("987654321012345678");
     var ret = function.execute(null, null, null, new Object[] {bi}, null);
     assertTrue("Expected BigDecimal, got " + ret.getClass(), ret instanceof BigDecimal);
@@ -80,7 +81,7 @@ public class SQLFunctionDecimalTest {
   }
 
   @Test
-  public void testFromShortUsesNumberDoubleBranch() {
+  public void shortFallsThroughToGenericNumberDoubleBranch() {
     // Short is neither BigDecimal, BigInteger, Integer, nor Long — it falls through to the
     // generic Number branch (BigDecimal.valueOf(n.doubleValue())).
     var ret = function.execute(null, null, null, new Object[] {(short) 42}, null);
@@ -89,7 +90,7 @@ public class SQLFunctionDecimalTest {
   }
 
   @Test
-  public void testFromFloatUsesNumberDoubleBranch() {
+  public void floatFallsThroughToGenericNumberDoubleBranch() {
     // Float also falls through to the generic Number branch.
     var ret = function.execute(null, null, null, new Object[] {1.5f}, null);
     assertTrue(ret instanceof BigDecimal);
@@ -97,14 +98,14 @@ public class SQLFunctionDecimalTest {
   }
 
   @Test
-  public void testFromDoubleUsesNumberDoubleBranch() {
+  public void doubleFallsThroughToGenericNumberDoubleBranch() {
     var ret = function.execute(null, null, null, new Object[] {2.75d}, null);
     assertTrue(ret instanceof BigDecimal);
     assertEquals(0, BigDecimal.valueOf(2.75).compareTo((BigDecimal) ret));
   }
 
   @Test
-  public void testFromMalformedStringIsSwallowedAndReturnsNull() {
+  public void malformedStringIsSwallowedAndReturnsNull() {
     // The try/catch around `new BigDecimal(s)` must swallow parse errors and set result = null.
     var ret = function.execute(null, null, null, new Object[] {"not a number"}, null);
     assertNull(ret);
@@ -112,14 +113,14 @@ public class SQLFunctionDecimalTest {
   }
 
   @Test
-  public void testFromNullReturnsNull() {
+  public void nullInputReturnsNull() {
     var ret = function.execute(null, null, null, new Object[] {null}, null);
     assertNull(ret);
     assertNull(function.getResult());
   }
 
   @Test
-  public void testFromUnsupportedTypeFallsThroughToResultSoFar() {
+  public void unsupportedTypeFallsThroughLeavingResultUnchanged() {
     // An Object that is neither Number nor String — none of the branches assign result,
     // so result stays null on the first call. This pins the fall-through semantics.
     var ret = function.execute(null, null, null, new Object[] {new Object()}, null);
@@ -127,7 +128,7 @@ public class SQLFunctionDecimalTest {
   }
 
   @Test
-  public void testUnsupportedTypeAfterValidInputLeaksPreviousResult() {
+  public void unsupportedTypeAfterValidInputLeaksPreviousResult() {
     // WHEN-FIXED: SQLFunctionDecimal.execute() does NOT reset `result` at the start of
     // every call — a second call with an unsupported type silently returns (and leaves
     // accessible) the PREVIOUS call's value. The defensible fix is to assign
@@ -140,19 +141,19 @@ public class SQLFunctionDecimalTest {
   }
 
   @Test
-  public void testAggregateResultsIsAlwaysFalse() {
+  public void aggregateResultsIsAlwaysFalse() {
     assertFalse(function.aggregateResults());
   }
 
   @Test
-  public void testGetSyntaxAdvertisesFunctionShape() {
+  public void getSyntaxAdvertisesFunctionShape() {
     var syntax = function.getSyntax(null);
     assertNotNull(syntax);
     assertTrue("Expected 'decimal(' prefix, got: " + syntax, syntax.startsWith("decimal("));
   }
 
   @Test
-  public void testFromQuery() {
+  public void queryReturnsBigDecimalFromLargeNumericLiteral() {
     try (var ytdb = (YouTrackDBImpl) YourTracks.instance(
         DbTestBase.getBaseDirectoryPathStr(getClass()))) {
       ytdb.create("test", DatabaseType.MEMORY,
