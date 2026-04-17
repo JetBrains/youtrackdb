@@ -118,9 +118,10 @@ public class SQLFunctionConcatTest {
   }
 
   @Test
-  public void twoArgConcatUsesDelimFromCurrentRow() {
-    // WHEN-FIXED: the delim is taken from the SECOND call's iParams[1] — not cached from the
-    // first. Demonstrates that different delims across rows compose in call order.
+  public void twoArgConcatReadsDelimPerCallNotFromFirstRow() {
+    // The delim is read from the CURRENT call's iParams[1] (no caching across calls). Rows with
+    // different delimiters compose in call order: "A" (seed, no delim) + "-B" (second row's "-"
+    // delim) + "|C" (third row's "|" delim) = "A-B|C".
     var f = function();
 
     f.execute(null, null, null, new Object[] {"A"}, null);
@@ -128,6 +129,19 @@ public class SQLFunctionConcatTest {
     f.execute(null, null, null, new Object[] {"C", "|"}, null);
 
     assertEquals("A-B|C", f.getResult());
+  }
+
+  @Test
+  public void emptyStringDelimIsNoOpSeparator() {
+    // Empty-string delim ("") is NOT short-circuited — it's appended. StringBuilder.append("") is
+    // a true no-op, so the observable output is the concatenation of values only.
+    var f = function();
+
+    f.execute(null, null, null, new Object[] {"A"}, null);
+    f.execute(null, null, null, new Object[] {"B", ""}, null);
+    f.execute(null, null, null, new Object[] {"C", ""}, null);
+
+    assertEquals("ABC", f.getResult());
   }
 
   // ---------------------------------------------------------------------------

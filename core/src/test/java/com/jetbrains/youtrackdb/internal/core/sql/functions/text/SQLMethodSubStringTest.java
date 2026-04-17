@@ -97,8 +97,11 @@ public class SQLMethodSubStringTest {
   }
 
   @Test
-  public void twoParamFromAtOrBeyondLengthReturnsEmpty() {
-    var result = method().execute("abcd", null, null, null, new Object[] {4, 10});
+  public void twoParamFromEqualsLengthReturnsEmpty() {
+    // Boundary: from == length → the `from >= thisString.length()` check returns "" directly.
+    var length = "abcd".length();
+
+    var result = method().execute("abcd", null, null, null, new Object[] {length, length + 6});
 
     assertEquals("", result);
   }
@@ -108,6 +111,19 @@ public class SQLMethodSubStringTest {
     var result = method().execute("abcd", null, null, null, new Object[] {99, 99});
 
     assertEquals("", result);
+  }
+
+  @Test
+  public void twoParamNullToThrowsNpe() {
+    // WHEN-FIXED: the early-exit guard at the top of execute checks only iParams[0] for null.
+    // A null iParams[1] in the 2-param path reaches Integer.parseInt(null.toString()) which NPEs.
+    // A sensible fix would treat null as "up to length" — this pin would flip visibly.
+    try {
+      method().execute("abcdef", null, null, null, new Object[] {1, null});
+      fail("expected NullPointerException for null iParams[1]");
+    } catch (NullPointerException expected) {
+      // pinned
+    }
   }
 
   @Test

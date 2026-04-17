@@ -16,12 +16,14 @@
 package com.jetbrains.youtrackdb.internal.core.sql.functions.conversion;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import java.math.BigDecimal;
 import org.junit.Test;
 
@@ -162,13 +164,33 @@ public class SQLMethodConvertTest extends DbTestBase {
   @Test
   public void unknownPropertyTypeThrowsIllegalArgumentException() {
     // valueOf("NOT_A_TYPE") throws IllegalArgumentException — the method does not catch it.
+    // Enum.valueOf produces a non-null message of the form "No enum constant …NOT_A_TYPE", so we
+    // can pin both the presence of the message and the bad-name substring.
     try {
       method().execute("42", null, ctx(), null, new Object[] {"NOT_A_TYPE"});
       fail("expected IllegalArgumentException from unknown PropertyTypeInternal");
     } catch (IllegalArgumentException expected) {
-      // pinned — pinned by type; message is "No enum constant …" + fully-qualified enum name.
-      assertTrue("message should reference the bad name, saw: " + expected.getMessage(),
-          expected.getMessage() == null || expected.getMessage().contains("NOT_A_TYPE"));
+      assertNotNull("IllegalArgumentException must carry a message", expected.getMessage());
+      assertTrue("message must reference the bad name, saw: " + expected.getMessage(),
+          expected.getMessage().contains("NOT_A_TYPE"));
+    }
+  }
+
+  @Test
+  public void unconvertibleStringToIntegerThrowsWrappedDatabaseException() {
+    // Non-numeric String + INTEGER target: PropertyTypeInternal.convert catches the underlying
+    // NumberFormatException and wraps it into DatabaseException with a message naming the bad
+    // value and target type. Pins both the wrapping and the message content — a refactor that
+    // either swallows to null or stops wrapping would be visible.
+    try {
+      method().execute("not-a-number", null, ctx(), null, new Object[] {"INTEGER"});
+      fail("expected DatabaseException wrapping NumberFormatException for String → INTEGER");
+    } catch (DatabaseException expected) {
+      assertNotNull(expected.getMessage());
+      assertTrue("message must reference the bad value, saw: " + expected.getMessage(),
+          expected.getMessage().contains("not-a-number"));
+      assertTrue("message must reference the target type, saw: " + expected.getMessage(),
+          expected.getMessage().contains("Integer"));
     }
   }
 
