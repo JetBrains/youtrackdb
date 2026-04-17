@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/8 complete)
+- [ ] Step implementation (3/8 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -251,6 +251,129 @@
   > code-quality task. Cross-track impact: CONTINUE — no upstream
   > assumption broken for Steps 3-8; graph algorithm surface is stable
   > and subsequent tracks target independent subpackages.
+
+- [x] Step 3: Collection standalone functions
+  - [x] Context: warning
+  > **What was done:** Added 131 unit tests across 11 test files (9 new, 2
+  > extended) in `sql/functions/coll`. New: `SQLFunctionDistinctTest` (11 tests —
+  > aggregate filter, null handling, type independence, identity preservation),
+  > `SQLFunctionFirstTest` / `SQLFunctionLastTest` (12/11 — MultiValue first/last,
+  > SQLFilterItem resolution via StubFilterItem, scalar pass-through, empty
+  > handling), `SQLFunctionListTest` (14 — aggregation vs inline, Map special-case,
+  > null skipping, fresh-list-per-call, getResult clears context, aggregateResults
+  > flag matrix), `SQLFunctionMapTest` (17 — even-pair inline, single-Map
+  > aggregation, null-value skip, exact-match exception messages, HashMap
+  > putAll-overwrite semantics, aggregateResults overload+instance), 
+  > `SQLFunctionSetTest` (10 — dedup via HashSet, fresh set per inline call, null
+  > skipping, getResult clears), `SQLFunctionUnionAllTest` (12 —
+  > MultiCollectionIterator inline, aggregation via Boolean.TRUE, duplicates
+  > preserved, SQLFilterItemVariable resolution both branches,
+  > non-Boolean.TRUE fallthrough drift guard, accumulator-list pinning),
+  > `SQLFunctionIntersectTest` (20 — null/empty short-circuit, inline 1/2/3-way,
+  > Set fast-contains path, aggregation with Collection/Iterator/Iterable/scalar
+  > initial context, empty-first-no-context-corruption regression, both
+  > intersectWith overloads, SupportsContains fast-path, opaque-scalar
+  > overlapping+disjoint), `SQLFunctionMultiValueAbstractTest` (5 — via test-only
+  > `ProbeFunction` subclass pinning aggregateResults flag driven by
+  > configuredParameters.length and default getResult non-clearing behaviour).
+  > Extended: `SQLFunctionDifferenceTest` (8 — null-first, empty-first
+  > early-return, single-operand dedup, null-subsequent-skip, scalar singleton,
+  > aggregation-mode rejection, name/syntax, legacy multi-operand kept with
+  > descriptive name), `SQLFunctionSymmetricDifferenceTest` (8 — aggregation
+  > single-value stream, aggregation Collection unroll, inline scalar, mixed
+  > Collection+scalar inline, null-first no-op, rename of legacy tests to
+  > descriptive names).
+  >
+  > Final coverage: `sql/functions/coll` 48.6% → **68.6%** line (+20%),
+  > 38.4% → **61.3%** branch (+23%) — matches the Step 3 target of
+  > ~70% pre-TraversedElement. The remaining ~17% gap (to 85% target) is
+  > assigned to Step 4 — `SQLMethodMultiValue`, `SQLFunctionTraversedElement`/
+  > `Edge`/`Vertex`, Intersect `Identifiable`/`RidSet`/`LinkBag` paths — all
+  > require DbTestBase.
+  >
+  > No production code was modified.
+  >
+  > **What was discovered:**
+  > - `BasicCommandContext.getDatabaseSession()` throws `DatabaseException("No
+  >   database session found in SQL context")` when no session is attached,
+  >   which fires BEFORE the `CommandExecutionException` constructor in
+  >   `SQLFunctionDifference.execute` can build its intended message. The net
+  >   effect is the same (aggregation mode is rejected), but the exception type
+  >   is wrong for standalone tests. Documented; test catches `RuntimeException`
+  >   + message substring and notes the contract mismatch.
+  > - `SQLFunctionList` single-argument execute leaves `context` non-null after
+  >   return (the returned list IS the context reference). A follow-up `execute`
+  >   on the same instance appends rather than resets — different from the
+  >   >1-param inline reset. Documented via the `mapArgumentIsInsertedAsWholeMap`
+  >   test single-call scope.
+  > - `SQLFunctionMap` throws identical `IllegalArgumentException` messages for
+  >   both the single-non-Map and odd-count branches. Substring assertions
+  >   ("map" / "pair") were vacuous — a swap of the two branches would pass the
+  >   naive assertion. Tightened to exact-match string.
+  > - `SQLFunctionIntersect.intersectWith(Iterator, Object)` default-case
+  >   `IllegalArgumentException` is unreachable under standard inputs: the
+  >   outer conversion block always routes opaque values through
+  >   `MultiValue.toSet`, producing a `Set` which matches the `Collection` case.
+  >   The default branch is defensive-only and requires a subclass with
+  >   `supportsFastContains()==true` but no matching interface — no such type
+  >   exists today. Documented; no assertion targets the unreachable path.
+  > - `SQLFunctionUnionAll.execute` uses strict `Boolean.TRUE.equals(...)` —
+  >   `Boolean.FALSE`, the String `"true"`, `Integer 1` all take the inline
+  >   branch. Added `nonBooleanTrueAggregationVariableTakesInlinePath` drift
+  >   guard against loose `!= null` / `Boolean.parseBoolean` refactors.
+  > - `SQLFunctionIntersect` empty-collection short-circuit at lines 62-66
+  >   fires BEFORE the aggregation branch — so `{List.of()}` in aggregation
+  >   mode returns `Set.of()` and leaves `context == null`. The next call with
+  >   real data correctly seeds as if first. Pinned with
+  >   `aggregationWithEmptyCollectionShortCircuitsWithoutCorruptingContext`.
+  > - `SQLFilterItemVariable` can be constructed with `(null, null, "$name")` —
+  >   `SQLFilterItemAbstract.smartSplit` on a plain name without dots/brackets/
+  >   parens parses cleanly, `setRoot` just assigns the string. Used in
+  >   `FakeVariable` test helper without NPEs.
+  >
+  > **What changed from the plan:**
+  > - Added `SQLFunctionMultiValueAbstractTest` that wasn't in the original
+  >   Step 3 target list — covers the shared abstract base via a `ProbeFunction`
+  >   subclass. Pins `aggregateResults()` flag driven by
+  >   `configuredParameters.length` and the default `getResult()` no-clear
+  >   behaviour (subclasses like List/Set/Map override to clear). Strengthens
+  >   the foundation that every collection function inherits.
+  > - Extended `SQLFunctionDifferenceTest` and `SQLFunctionSymmetricDifferenceTest`
+  >   beyond the "if coverage gaps found" optional scope — both had only 1-2
+  >   legacy tests with non-descriptive names (`testExecute`, `testOperator`);
+  >   renamed and added 6-7 branch-coverage tests each.
+  > - `SQLFunctionIntersect` `Identifiable`/`RidSet`/`LinkBag` paths deferred
+  >   to Step 4 as planned; the default `IllegalArgumentException` branch in
+  >   `intersectWith(Iterator, Object)` documented as unreachable and not
+  >   asserted against.
+  >
+  > **Key files:**
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/coll/SQLFunctionDistinctTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/coll/SQLFunctionFirstTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/coll/SQLFunctionLastTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/coll/SQLFunctionListTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/coll/SQLFunctionMapTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/coll/SQLFunctionSetTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/coll/SQLFunctionUnionAllTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/coll/SQLFunctionIntersectTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/coll/SQLFunctionMultiValueAbstractTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/coll/SQLFunctionDifferenceTest.java` (modified)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/coll/SQLFunctionSymmetricDifferenceTest.java` (modified)
+  >
+  > **Critical context:** Dimensional review (5 agents — code-quality,
+  > bugs-concurrency, test-behavior, test-completeness, test-structure) ran
+  > one iteration, surfaced 0 blockers and ~20 should-fix/suggestion items.
+  > Applied the high-value should-fix set (exact-message pinning, misleading
+  > name rename, FakeVariable Javadoc fix, tight-equality upgrade of
+  > containment assertions, Set.equals replacement for hand-rolled helpers,
+  > non-Boolean.TRUE drift guard, empty-short-circuit-state-integrity
+  > regression, mixed Collection+scalar SymmetricDifference, null-only inline
+  > pair for Map, legacy test renames). Deferred: `StubFilterItem` DRY
+  > extraction (CQ3/TS1) — out-of-scope micro-refactor; some edge cases for
+  > First/Last empty arrays/maps (TC6) — diminishing returns on already-good
+  > coverage. Cross-track impact: CONTINUE — no upstream assumption broken
+  > for Steps 4-8; Step 4 will exercise the deferred DB-required paths as
+  > planned.
 
 ### Step 1: Factory infrastructure + graph traversal dispatchers + SQLGraphNavigationFunction interface (original plan retained for reference)
 
