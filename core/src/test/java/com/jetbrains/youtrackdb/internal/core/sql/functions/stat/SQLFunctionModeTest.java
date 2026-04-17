@@ -11,6 +11,21 @@ import java.util.List;
 import org.junit.Before;
 import org.junit.Test;
 
+/**
+ * Tests for {@link SQLFunctionMode} — accumulates samples and returns the most-frequent
+ * value(s) at the end.
+ *
+ * <p>Covered branches:
+ *
+ * <ul>
+ *   <li>Empty accumulator → null
+ *   <li>Single dominant mode → list with one element
+ *   <li>Multi-modal input → list of all tied maxima (preserves multimodality)
+ *   <li>Number / MultiValue / non-Number-non-MultiValue input dispatch
+ *   <li>Empty MultiValue → result stays null
+ *   <li>aggregateResults() is true; getSyntax() prefix
+ * </ul>
+ */
 public class SQLFunctionModeTest {
 
   private SQLFunctionMode mode;

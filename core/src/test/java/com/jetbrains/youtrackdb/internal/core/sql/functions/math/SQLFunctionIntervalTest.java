@@ -23,24 +23,55 @@ public class SQLFunctionIntervalTest {
   }
 
   @Test
-  public void testNull() {
-    // should throw exception - minimum 2 arguments
+  public void nullParamsArrayReturnsMinusOneSentinel() {
+    // Despite the function declaring a minimum of 2 arguments, the implementation does not
+    // throw on a null params array — the for-loop body is never entered and the -1 sentinel
+    // returns. Pin the observed behaviour.
     doTest(-1, (Object[]) null);
   }
 
   @Test
-  public void testSingleArgument() {
-    // should throw exception - minimum 2
+  public void singleArgumentReturnsMinusOneSentinel() {
+    // Same observation as the null-params case: with only the comparand and no bounds, the
+    // bounds loop is empty and -1 is returned.
     doTest(-1, 53);
   }
 
   @Test
-  public void testMultiple() {
+  public void xBetweenBoundsReturnsIndexOfFirstStrictlyGreaterBound() {
+    // x=43 against bounds {35, 5, 15, 50}: first bound strictly greater than 43 is 50 at
+    // index 4 of the params array (i=4) → returns i-1 = 3.
     doTest(3, 43, 35, 5, 15, 50);
+  }
+
+  @Test
+  public void xGreaterThanAllBoundsReturnsMinusOne() {
+    // x=54 against bounds {25, 35, 45}: no bound is strictly greater → -1.
     doTest(-1, 54, 25, 35, 45);
+  }
+
+  @Test
+  public void nullXReturnsMinusOne() {
+    // x=null short-circuits before the comparison loop.
     doTest(-1, null, 5, 50);
+  }
+
+  @Test
+  public void xEqualToSoleBoundReturnsMinusOneBecauseComparisonIsStrict() {
+    // strict-> comparison: x=6 against bound 6 does not match → -1.
     doTest(-1, 6, 6);
+  }
+
+  @Test
+  public void xLessThanFirstBoundReturnsZero() {
+    // x=58 against bounds {60, 30, 65}: first bound (60) is strictly greater → returns 0.
     doTest(0, 58, 60, 30, 65);
+  }
+
+  @Test
+  public void xInFirstIntervalAfterMultipleSmallerBoundsReturnsCorrectIndex() {
+    // x=103 against bounds {54, 106, 98, 119}: first strictly-greater bound is 106 at i=2
+    // → returns i-1 = 1.
     doTest(1, 103, 54, 106, 98, 119);
   }
 
