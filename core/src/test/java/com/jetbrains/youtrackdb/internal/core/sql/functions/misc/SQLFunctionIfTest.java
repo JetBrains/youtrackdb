@@ -16,8 +16,8 @@
 package com.jetbrains.youtrackdb.internal.core.sql.functions.misc;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import org.junit.Test;
@@ -153,6 +153,6 @@ public class SQLFunctionIfTest {
     assertEquals("if", fn.getName(null));
     assertEquals(2, fn.getMinParams());
     assertEquals(3, fn.getMaxParams(null));
-    assertTrue(!fn.aggregateResults());
+    assertFalse(fn.aggregateResults());
   }
 }

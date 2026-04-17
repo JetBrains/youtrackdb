@@ -107,6 +107,10 @@ public class SQLFunctionCountTest {
 
     fn.setResult(99.9);
     assertEquals(99L, fn.getResult());
+
+    // Negative value — pins sign preservation. A mutation like Math.abs(...) would fail here.
+    fn.setResult(-5L);
+    assertEquals(-5L, fn.getResult());
   }
 
   @Test(expected = ClassCastException.class)
