@@ -5483,7 +5483,10 @@ public abstract class AbstractStorage
               // and must not be logged per-operation: on large restores it
               // produces millions of SEVERE entries whose stack-trace capture
               // (SLF4J fillCallerData) turns restore into a CPU bottleneck and
-              // exceeds the CI watchdog.
+              // exceeds the CI watchdog. The sibling UpdatePageRecord branch
+              // above retains an analogous log; it has the same latent issue
+              // but is not the hot path after YTDB-626 and is left as
+              // follow-up cleanup.
               pageOp.redo(durablePage);
               durablePage.setLsn(pageOp.getLsn());
             }
