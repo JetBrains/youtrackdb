@@ -230,7 +230,3 @@ Each invocation of `run-ycsb.sh` writes to `$RESULTS_DIR`:
 ### Output directory layout
 
 By default `$RESULTS_DIR` holds **both** the result text/JSON files **and** the database + snapshot. On a default run, that is roughly 3.5 GB for the DB plus another 3.5 GB for the snapshot in addition to the small text files — budget ~7 GB total. Pass `--db-path` to relocate the database (and snapshot) independently of the results directory; the snapshot always sits next to the DB at `<db-path>-snapshot`.
-
-## Related documentation
-
-- [`docs/adr/ycsb/design-final.md`](../docs/adr/ycsb/design-final.md) — final design of the module.
