@@ -6134,10 +6134,15 @@ public class MatchExecutionPlanner {
   /**
    * Infers the alias class from the edge schema LINK declarations.
    *
-   * <p>Handles seven method types:
+   * <p>Handles eight method types:
    * <ul>
    *   <li>{@code out('X')} / {@code in('X')}: target is the opposite endpoint
    *       of edge class X (vertex class)</li>
+   *   <li>{@code both('X')}: target class is inferred only when both endpoints
+   *       of edge class X resolve to the same vertex class (symmetric edges
+   *       such as {@code KNOWS}). For heterogeneous edges (e.g. in=Post,
+   *       out=Person) inference returns {@code null}, because a single alias
+   *       cannot represent both endpoint classes.</li>
    *   <li>{@code outE('X')} / {@code inE('X')} / {@code bothE('X')}: alias class
    *       is X itself (the edge class)</li>
    *   <li>{@code inV()} / {@code outV()}: alias class is the linked vertex
@@ -6174,13 +6179,30 @@ public class MatchExecutionPlanner {
           dirName, currentEdgeClass, context.getDatabaseSession());
     }
 
-    // out('X') / in('X'): infer the target vertex class from the edge LINK schema
-    if (!"in".equals(dirName) && !"out".equals(dirName)) {
+    // out('X') / in('X') / both('X'): infer the target vertex class from the
+    // edge LINK schema
+    if (!"in".equals(dirName) && !"out".equals(dirName)
+        && !"both".equals(dirName)) {
       return null;
     }
 
     var edgeClassName = extractEdgeClassName(method);
     if (edgeClassName == null) {
+      return null;
+    }
+
+    // both('X'): infer only when both endpoints resolve to the same vertex
+    // class. For symmetric edges (e.g. KNOWS: in=Person, out=Person) this
+    // returns Person; for heterogeneous edges (e.g. HAS_CREATOR: in=Post,
+    // out=Person) it returns null, because a single alias cannot safely
+    // represent both endpoint classes and an index lookup on the alias
+    // could miss records of the other class.
+    if ("both".equals(dirName)) {
+      var inClass = lookupLinkedVertexClass(edgeClassName, "in", context);
+      var outClass = lookupLinkedVertexClass(edgeClassName, "out", context);
+      if (inClass != null && inClass.equals(outClass)) {
+        return inClass;
+      }
       return null;
     }
 
