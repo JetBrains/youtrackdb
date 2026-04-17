@@ -8,8 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.RidSet;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
-import java.util.ArrayDeque;
-import java.util.Deque;
+import java.util.Arrays;
 import javax.annotation.Nullable;
 
 /**
@@ -17,55 +16,27 @@ import javax.annotation.Nullable;
  * materialization in the recursive (WHILE / maxDepth) branch of
  * {@link MatchEdgeTraverser#executeTraversal}.
  *
- * <p>Uses an explicit stack of {@link Frame}s to flatten the recursive DFS into
- * a single iterator with O(1) call-stack depth — no recursive {@code hasNext()}
- * chains regardless of traversal depth.
+ * <p>Uses an explicit parallel-array stack to flatten the recursive DFS into
+ * a single iterator with O(1) call-stack depth and — critically — O(1)
+ * amortized allocation per visited vertex (one doubling arraycopy amortized
+ * across all pushes, instead of one heap-allocated {@code Frame} object per
+ * vertex).
  *
- * <p>Each frame represents a node being visited at a given depth. A frame goes
- * through two phases:
+ * <p>Each stack slot represents a node being visited at a given depth. A slot
+ * goes through two phases:
  * <ol>
  *   <li><b>SELF</b>: yield the node itself if it matches filters
  *   <li><b>NEIGHBORS</b>: expand neighbors via {@code traversePatternEdge()},
- *       pushing a new frame for each neighbor
+ *       pushing a new slot for each neighbor
  * </ol>
  *
- * <p>This eliminates the O(total_results) ArrayList allocation and enables future
+ * <p>This eliminates the O(total_results) ArrayList allocation and enables
  * LIMIT propagation: when the downstream consumer stops pulling, unexplored
  * subtrees are never expanded.
  */
 final class LazyRecursiveTraversalStream implements ExecutionStream {
 
-  /**
-   * A frame on the traversal stack, representing one node being explored.
-   * Tracks whether the node itself has been yielded (selfResult) and the
-   * neighbor iteration state (neighborStream).
-   */
-  private static final class Frame {
-    final Result startingPoint;
-    final int depth;
-    @Nullable final PathNode pathToHere;
-    final Object previousMatch;
-
-    // SELF phase: non-null if the starting point passes filters and hasn't
-    // been yielded yet
-    @Nullable Result selfResult;
-
-    // NEIGHBORS phase: the stream of immediate neighbors, null until
-    // expansion is initiated
-    @Nullable ExecutionStream neighborStream;
-
-    // True once neighbors have been checked (may still be null if
-    // shouldExpand was false)
-    boolean neighborsInitialized;
-
-    Frame(Result startingPoint, int depth, @Nullable PathNode pathToHere,
-        Object previousMatch) {
-      this.startingPoint = startingPoint;
-      this.depth = depth;
-      this.pathToHere = pathToHere;
-      this.previousMatch = previousMatch;
-    }
-  }
+  private static final int INITIAL_CAPACITY = 16;
 
   private final MatchEdgeTraverser traverser;
   private final CommandContext ctx;
@@ -81,8 +52,30 @@ final class LazyRecursiveTraversalStream implements ExecutionStream {
 
   private final DatabaseSessionEmbedded session;
 
-  // Explicit DFS stack — replaces Java call-stack recursion
-  private final Deque<Frame> stack = new ArrayDeque<>();
+  // Parallel-array DFS stack. Top-of-stack is at index (size - 1). Growing by
+  // doubling amortizes allocation cost across all pushes, so the traversal
+  // pays one arraycopy per log2(maxDepth-visited) rather than one Frame
+  // allocation per visited vertex.
+  private Result[] startingPoints = new Result[INITIAL_CAPACITY];
+  private int[] depths = new int[INITIAL_CAPACITY];
+  private PathNode[] pathsToHere = new PathNode[INITIAL_CAPACITY];
+  private Object[] previousMatches = new Object[INITIAL_CAPACITY];
+
+  // SELF phase: non-null if the starting point passes filters and has not yet
+  // been yielded.
+  private Result[] selfResults = new Result[INITIAL_CAPACITY];
+
+  // NEIGHBORS phase: stream of immediate neighbors. Stays null until expansion
+  // is initiated; remains null afterward if shouldExpand() was false.
+  private ExecutionStream[] neighborStreams = new ExecutionStream[INITIAL_CAPACITY];
+
+  // Bitset: bit i set iff slot i has had shouldExpand/traversePatternEdge
+  // evaluated. Needed to distinguish "never initialized" from "initialized
+  // but the neighbor stream is null because shouldExpand was false".
+  private long[] neighborsInitialized =
+      new long[bitsetWords(INITIAL_CAPACITY)];
+
+  private int size;
 
   // Buffered result ready for next()
   @Nullable private Result buffered;
@@ -113,7 +106,7 @@ final class LazyRecursiveTraversalStream implements ExecutionStream {
     this.dedupVisited = dedupVisited;
     this.session = ctx.getDatabaseSession();
 
-    // Push the root frame
+    // Push the root slot
     pushFrame(startingPoint, depth, pathToHere);
   }
 
@@ -141,64 +134,63 @@ final class LazyRecursiveTraversalStream implements ExecutionStream {
 
   @Override
   public void close(CommandContext ctx) {
-    // Close all open neighbor streams on the stack
-    while (!stack.isEmpty()) {
-      var frame = stack.pop();
-      if (frame.neighborStream != null) {
-        frame.neighborStream.close(ctx);
+    // Close all open neighbor streams on the stack and restore context
+    while (size > 0) {
+      var top = size - 1;
+      var stream = neighborStreams[top];
+      if (stream != null) {
+        stream.close(ctx);
       }
-      // Restore context for each frame
-      ctx.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, frame.previousMatch);
+      ctx.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, previousMatches[top]);
+      popSlot(top);
     }
     done = true;
   }
 
   /**
    * Advances the traversal by one result. Processes the stack iteratively:
-   * for each frame, first yields the self-result, then expands neighbors
-   * by pushing new frames.
+   * for each slot, first yields the self-result, then expands neighbors by
+   * pushing new slots.
    */
   @Nullable private Result advance() {
-    while (!stack.isEmpty()) {
-      var frame = stack.peek();
+    while (size > 0) {
+      var top = size - 1;
 
       // Phase 1: yield the starting point if it matches filters
-      if (frame.selfResult != null) {
-        var result = frame.selfResult;
-        frame.selfResult = null;
-        return result;
+      var selfResult = selfResults[top];
+      if (selfResult != null) {
+        selfResults[top] = null;
+        return selfResult;
       }
 
-      // Phase 2: expand neighbors
-      if (!frame.neighborsInitialized) {
-        frame.neighborsInitialized = true;
-
-        if (shouldExpand(frame)) {
+      // Phase 2: expand neighbors (once per slot)
+      if (!isBitSet(neighborsInitialized, top)) {
+        setBit(neighborsInitialized, top);
+        if (shouldExpand(top)) {
           // Set context for traversePatternEdge
-          ctx.setSystemVariable(CommandContext.VAR_DEPTH, frame.depth);
+          ctx.setSystemVariable(CommandContext.VAR_DEPTH, depths[top]);
           ctx.setSystemVariable(
-              CommandContext.VAR_CURRENT_MATCH, frame.startingPoint);
-
-          frame.neighborStream =
-              traverser.traversePatternEdge(frame.startingPoint, ctx);
+              CommandContext.VAR_CURRENT_MATCH, startingPoints[top]);
+          neighborStreams[top] =
+              traverser.traversePatternEdge(startingPoints[top], ctx);
         }
       }
 
-      // Try to find the next valid neighbor and push its frame
-      if (frame.neighborStream != null) {
-        var pushed = pushNextNeighbor(frame);
-        if (pushed) {
-          // A new frame was pushed — loop back to process it (its self-result)
+      // Try to find the next valid neighbor and push its slot
+      var neighborStream = neighborStreams[top];
+      if (neighborStream != null) {
+        if (pushNextNeighbor(top, neighborStream)) {
+          // A new slot was pushed — loop back to process it (its self-result)
           continue;
         }
       }
 
-      // This frame is fully exhausted — pop it and restore context
-      stack.pop();
-      if (frame.neighborStream != null) {
-        frame.neighborStream.close(ctx);
+      // This slot is fully exhausted — pop it and restore context
+      if (neighborStream != null) {
+        neighborStream.close(ctx);
       }
-      ctx.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, frame.previousMatch);
+      ctx.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, previousMatches[top]);
+      popSlot(top);
     }
 
     done = true;
@@ -207,13 +199,15 @@ final class LazyRecursiveTraversalStream implements ExecutionStream {
 
   /**
    * Tries to find the next valid (non-null, non-deduped) neighbor from the
-   * frame's neighborStream and pushes a new frame for it.
+   * given slot's neighborStream and pushes a new slot for it.
    *
-   * @return true if a new frame was pushed, false if no more neighbors
+   * @return true if a new slot was pushed, false if no more neighbors
    */
-  private boolean pushNextNeighbor(Frame frame) {
-    while (frame.neighborStream.hasNext(ctx)) {
-      var origin = ResultInternal.toResult(frame.neighborStream.next(ctx), session);
+  private boolean pushNextNeighbor(int parentIdx, ExecutionStream neighborStream) {
+    var parentPath = pathsToHere[parentIdx];
+    var parentDepth = depths[parentIdx];
+    while (neighborStream.hasNext(ctx)) {
+      var origin = ResultInternal.toResult(neighborStream.next(ctx), session);
       if (origin == null) {
         continue;
       }
@@ -228,17 +222,17 @@ final class LazyRecursiveTraversalStream implements ExecutionStream {
 
       // Build path if pathAlias is declared
       var newPath =
-          hasPathAlias ? new PathNode(origin, frame.pathToHere, frame.depth) : null;
+          hasPathAlias ? new PathNode(origin, parentPath, parentDepth) : null;
 
-      pushFrame(origin, frame.depth + 1, newPath);
+      pushFrame(origin, parentDepth + 1, newPath);
       return true;
     }
     return false;
   }
 
   /**
-   * Creates a new frame for the given node, evaluates it against filters,
-   * sets context variables, and pushes it onto the stack.
+   * Creates a new slot for the given node, evaluates it against filters, sets
+   * context variables, and pushes it onto the stack.
    */
   private void pushFrame(Result startingPoint, int depth,
       @Nullable PathNode pathToHere) {
@@ -249,11 +243,19 @@ final class LazyRecursiveTraversalStream implements ExecutionStream {
     ctx.setSystemVariable(CommandContext.VAR_DEPTH, depth);
     ctx.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, startingPoint);
     try {
-      var frame = new Frame(startingPoint, depth, pathToHere, previousMatch);
+      ensureCapacity(size + 1);
+      var slot = size;
 
-      // Mark visited immediately when frame is created — not deferred to
-      // expansion. This ensures boundary-depth vertices (where shouldExpand
-      // returns false) are still deduplicated.
+      startingPoints[slot] = startingPoint;
+      depths[slot] = depth;
+      pathsToHere[slot] = pathToHere;
+      previousMatches[slot] = previousMatch;
+      // selfResults[slot], neighborStreams[slot] and the neighborsInitialized
+      // bit are guaranteed clear — popSlot() zeroes them on pop, and newly
+      // grown slots are zero-filled by Arrays.copyOf.
+
+      // Mark visited immediately — not deferred to expansion — so boundary
+      // depth vertices (where shouldExpand returns false) are still deduped.
       if (dedupVisited != null && startingPoint != null) {
         var rid = startingPoint.getIdentity();
         if (rid != null) {
@@ -278,21 +280,68 @@ final class LazyRecursiveTraversalStream implements ExecutionStream {
             rs.setMetadata("$matchPath",
                 pathToHere == null ? PathNode.emptyPath() : pathToHere.toList());
           }
-          frame.selfResult = rs;
+          selfResults[slot] = rs;
         }
       }
 
-      stack.push(frame);
+      // Publish the slot last so any exception above leaves size untouched —
+      // no half-written slot becomes visible on the stack.
+      size++;
     } catch (Throwable t) {
       ctx.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, previousMatch);
       throw t;
     }
   }
 
-  private boolean shouldExpand(Frame frame) {
-    return frame.startingPoint != null
-        && (maxDepth == null || frame.depth < maxDepth)
-        && (whileCondition == null
-            || whileCondition.matchesFilters(frame.startingPoint, ctx));
+  private boolean shouldExpand(int idx) {
+    var sp = startingPoints[idx];
+    return sp != null
+        && (maxDepth == null || depths[idx] < maxDepth)
+        && (whileCondition == null || whileCondition.matchesFilters(sp, ctx));
+  }
+
+  private void popSlot(int slot) {
+    // Clear object references for GC and reset the neighbors-initialized bit
+    startingPoints[slot] = null;
+    pathsToHere[slot] = null;
+    previousMatches[slot] = null;
+    selfResults[slot] = null;
+    neighborStreams[slot] = null;
+    clearBit(neighborsInitialized, slot);
+    size = slot;
+  }
+
+  private void ensureCapacity(int required) {
+    var current = startingPoints.length;
+    if (required <= current) {
+      return;
+    }
+    var newCapacity = Math.max(current << 1, required);
+    startingPoints = Arrays.copyOf(startingPoints, newCapacity);
+    depths = Arrays.copyOf(depths, newCapacity);
+    pathsToHere = Arrays.copyOf(pathsToHere, newCapacity);
+    previousMatches = Arrays.copyOf(previousMatches, newCapacity);
+    selfResults = Arrays.copyOf(selfResults, newCapacity);
+    neighborStreams = Arrays.copyOf(neighborStreams, newCapacity);
+    var requiredWords = bitsetWords(newCapacity);
+    if (neighborsInitialized.length < requiredWords) {
+      neighborsInitialized = Arrays.copyOf(neighborsInitialized, requiredWords);
+    }
+  }
+
+  private static int bitsetWords(int capacity) {
+    return (capacity + 63) >>> 6;
+  }
+
+  private static boolean isBitSet(long[] bitset, int idx) {
+    return (bitset[idx >>> 6] & (1L << (idx & 63))) != 0;
+  }
+
+  private static void setBit(long[] bitset, int idx) {
+    bitset[idx >>> 6] |= 1L << (idx & 63);
+  }
+
+  private static void clearBit(long[] bitset, int idx) {
+    bitset[idx >>> 6] &= ~(1L << (idx & 63));
   }
 }

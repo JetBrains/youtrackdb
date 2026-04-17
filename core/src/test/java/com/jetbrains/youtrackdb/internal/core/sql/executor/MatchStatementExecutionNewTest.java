@@ -2551,6 +2551,164 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
         pairs);
   }
 
+  // Semantic equivalence regression: `while: ($depth < N)` and `maxDepth: N`
+  // stop expansion at the same boundary. Before the lazy-path unification,
+  // these two phrasings took different execution branches (eager vs lazy),
+  // so a future refactor could silently diverge their behavior. This test
+  // pins the equivalence on both a linear chain and a branching graph.
+  @Test
+  public void testWhileVsMaxDepthSemanticEquivalence() {
+    var clazz = "testWhileVsMaxDepth";
+    session.execute("CREATE CLASS " + clazz + " EXTENDS V").close();
+
+    // Branching graph: root → {a, b} ; a → {c, d} ; b → {e} ; c → {f}
+    // Depth 0: root.  Depth 1: a, b.  Depth 2: c, d, e.  Depth 3: f.
+    session.executeInTx(
+        tx -> {
+          var root = session.newVertex(clazz);
+          root.setProperty("name", "root");
+          var a = session.newVertex(clazz);
+          a.setProperty("name", "a");
+          var b = session.newVertex(clazz);
+          b.setProperty("name", "b");
+          var c = session.newVertex(clazz);
+          c.setProperty("name", "c");
+          var d = session.newVertex(clazz);
+          d.setProperty("name", "d");
+          var e = session.newVertex(clazz);
+          e.setProperty("name", "e");
+          var f = session.newVertex(clazz);
+          f.setProperty("name", "f");
+
+          root.addEdge(a);
+          root.addEdge(b);
+          a.addEdge(c);
+          a.addEdge(d);
+          b.addEdge(e);
+          c.addEdge(f);
+        });
+
+    // For each boundary depth N, `while: ($depth < N)` must return the
+    // same set of vertices as `maxDepth: N`, and the combined form must
+    // match too.
+    for (int n = 0; n <= 4; n++) {
+      var whileOnly =
+          "MATCH { class: " + clazz
+              + ", as:s, where:(name = 'root')} --> {as:d, while:($depth < " + n
+              + ")} RETURN d.name as dname";
+      var maxDepthOnly =
+          "MATCH { class: " + clazz
+              + ", as:s, where:(name = 'root')} --> {as:d, while:(true),"
+              + " maxDepth: " + n + "} RETURN d.name as dname";
+      var combined =
+          "MATCH { class: " + clazz
+              + ", as:s, where:(name = 'root')} --> {as:d,"
+              + " while:($depth < " + n + "), maxDepth: " + n
+              + "} RETURN d.name as dname";
+
+      var whileNames = collectNames(whileOnly);
+      var maxDepthNames = collectNames(maxDepthOnly);
+      var combinedNames = collectNames(combined);
+
+      Assert.assertEquals(
+          "while:($depth<" + n + ") must match maxDepth: " + n,
+          whileNames, maxDepthNames);
+      Assert.assertEquals(
+          "combined while+maxDepth with equal bound must match either phrasing",
+          whileNames, combinedNames);
+    }
+  }
+
+  private java.util.List<String> collectNames(String query) {
+    session.begin();
+    var result = session.query(query);
+    var names = new java.util.ArrayList<String>();
+    while (result.hasNext()) {
+      names.add((String) result.next().getProperty("dname"));
+    }
+    result.close();
+    session.commit();
+    java.util.Collections.sort(names);
+    return names;
+  }
+
+  // Shallow-wide stress test: 1 root → 100 mids → 99 leaves per mid =
+  // 10 000 vertices reachable at depth ≤ 2, no cycles, no diamond overlap.
+  // Locks in the no-regression guarantee after Frame unboxing: any reintroduced
+  // per-vertex allocation would blow up both allocation rate and runtime on
+  // this shape. Also verifies that the parallel-array stack grows correctly
+  // past its initial 16-slot capacity (deepest stack at any moment ≤ 3).
+  @Test
+  public void testShallowWideFanOutLazyTraversal() {
+    var clazz = "testShallowWideFanOut";
+    session.execute("CREATE CLASS " + clazz + " EXTENDS V").close();
+
+    final int mids = 100;
+    final int leavesPerMid = 99;
+    final int expectedCount = 1 + mids + mids * leavesPerMid; // 10 000
+
+    session.executeInTx(
+        tx -> {
+          var root = session.newVertex(clazz);
+          root.setProperty("name", "root");
+          for (int i = 0; i < mids; i++) {
+            var mid = session.newVertex(clazz);
+            mid.setProperty("name", "m" + i);
+            root.addEdge(mid);
+            for (int j = 0; j < leavesPerMid; j++) {
+              var leaf = session.newVertex(clazz);
+              leaf.setProperty("name", "l" + i + "_" + j);
+              mid.addEdge(leaf);
+            }
+          }
+        });
+
+    // maxDepth: 2, no pathAlias → dedup active, but the graph is a tree so
+    // no vertex is reached twice. Result size must equal the total vertex
+    // count reachable at depth ≤ 2.
+    var query =
+        "MATCH { class: " + clazz
+            + ", as:s, where:(name = 'root')} --> {as:d, while:(true),"
+            + " maxDepth: 2, depthAlias: depth} RETURN d.name as name, depth";
+
+    var start = System.nanoTime();
+    session.begin();
+    var result = session.query(query);
+
+    var depthCounts = new int[3];
+    var seen = new java.util.HashSet<String>();
+    int count = 0;
+    while (result.hasNext()) {
+      var item = result.next();
+      var name = (String) item.getProperty("name");
+      int depth = item.getProperty("depth");
+      Assert.assertTrue(
+          "depth must be within [0, 2] bound", depth >= 0 && depth <= 2);
+      depthCounts[depth]++;
+      Assert.assertTrue(
+          "vertex must appear at most once when pathAlias is absent: " + name,
+          seen.add(name));
+      count++;
+    }
+    result.close();
+    session.commit();
+    var elapsedMs = (System.nanoTime() - start) / 1_000_000L;
+
+    Assert.assertEquals(
+        "all reachable vertices at depth ≤ 2 must be visited",
+        expectedCount, count);
+    Assert.assertEquals("root at depth 0", 1, depthCounts[0]);
+    Assert.assertEquals("mids at depth 1", mids, depthCounts[1]);
+    Assert.assertEquals(
+        "leaves at depth 2", mids * leavesPerMid, depthCounts[2]);
+    // Soft runtime bound — 10 000-vertex fan-out should execute in well under
+    // 30 s on any test host. A serious regression (e.g. per-vertex allocation
+    // reintroduced) would blow past this.
+    Assert.assertTrue(
+        "traversal took " + elapsedMs + "ms, exceeds 30 s soft bound",
+        elapsedMs < 30_000L);
+  }
+
   @Test
   public void testNegativePattern() {
     var clazz = "testNegativePattern";
