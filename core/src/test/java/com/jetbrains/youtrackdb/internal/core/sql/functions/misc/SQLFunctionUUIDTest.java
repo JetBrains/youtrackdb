@@ -49,10 +49,11 @@ public class SQLFunctionUUIDTest {
     assertNotNull(result);
     assertTrue("expected String, got " + result.getClass(), result instanceof String);
     final var s = (String) result;
-    assertFalse("UUID string must be non-empty", s.isEmpty());
-    // Parses — an invalid UUID throws IllegalArgumentException; a pass confirms the format.
-    final var parsed = UUID.fromString(s);
-    assertEquals(s, parsed.toString());
+    // Canonical UUID form: 8-4-4-4-12 lowercase hex. Stricter than UUID.fromString().
+    assertTrue("UUID string must match canonical 8-4-4-4-12 lowercase hex form, was: " + s,
+        s.matches("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"));
+    // And must be parseable back to the same canonical value.
+    assertEquals(s, UUID.fromString(s).toString());
   }
 
   @Test

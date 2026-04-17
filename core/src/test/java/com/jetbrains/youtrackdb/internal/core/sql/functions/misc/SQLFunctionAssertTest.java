@@ -39,28 +39,28 @@ public class SQLFunctionAssertTest {
   @Test
   public void booleanTrueReturnsTrueAndDoesNotThrow() {
     final var fn = new SQLFunctionAssert();
-    assertEquals(true,
+    assertEquals(Boolean.TRUE,
         fn.execute(null, null, null, new Object[] {Boolean.TRUE}, new BasicCommandContext()));
   }
 
   @Test
   public void stringTrueIsParsedAsTrue() {
     final var fn = new SQLFunctionAssert();
-    assertEquals(true,
+    assertEquals(Boolean.TRUE,
         fn.execute(null, null, null, new Object[] {"true"}, new BasicCommandContext()));
-    assertEquals(true,
+    assertEquals(Boolean.TRUE,
         fn.execute(null, null, null, new Object[] {"TRUE"}, new BasicCommandContext()));
   }
 
   @Test
   public void positiveNumberIsTrue() {
     final var fn = new SQLFunctionAssert();
-    assertEquals(true,
+    assertEquals(Boolean.TRUE,
         fn.execute(null, null, null, new Object[] {1}, new BasicCommandContext()));
-    assertEquals(true,
+    assertEquals(Boolean.TRUE,
         fn.execute(null, null, null, new Object[] {42L}, new BasicCommandContext()));
     // Double > 0 — intValue() stays > 0.
-    assertEquals(true,
+    assertEquals(Boolean.TRUE,
         fn.execute(null, null, null, new Object[] {1.9}, new BasicCommandContext()));
   }
 
@@ -72,8 +72,9 @@ public class SQLFunctionAssertTest {
       fn.execute(null, null, null, new Object[] {Boolean.FALSE}, new BasicCommandContext());
       fail("Expected AssertionError");
     } catch (AssertionError e) {
-      // Message is the default empty string when only 1 param was given.
-      assertEquals("", String.valueOf(e.getMessage()));
+      // Default empty-string message when only 1 param given — assert exact, no valueOf wrapper
+      // so a null getMessage() would fail loudly.
+      assertEquals("", e.getMessage());
     }
   }
 
@@ -107,7 +108,7 @@ public class SQLFunctionAssertTest {
       fn.execute(null, null, null, new Object[] {-3}, new BasicCommandContext());
       fail("Expected AssertionError");
     } catch (AssertionError e) {
-      // expected
+      assertEquals("", e.getMessage());
     }
   }
 
@@ -118,7 +119,21 @@ public class SQLFunctionAssertTest {
       fn.execute(null, null, null, new Object[] {"false"}, new BasicCommandContext());
       fail("Expected AssertionError");
     } catch (AssertionError e) {
-      // expected
+      assertEquals("", e.getMessage());
+    }
+  }
+
+  @Test
+  public void nonStringMessageIsCoercedByAssertErrorToString() {
+    // `assert result : message` uses message's toString when assertion fails — a numeric
+    // message arg is stringified, not rejected. Pins the documented SQL function surface
+    // where the message param can be any object.
+    final var fn = new SQLFunctionAssert();
+    try {
+      fn.execute(null, null, null, new Object[] {Boolean.FALSE, 42}, new BasicCommandContext());
+      fail("Expected AssertionError");
+    } catch (AssertionError e) {
+      assertEquals("42", e.getMessage());
     }
   }
 

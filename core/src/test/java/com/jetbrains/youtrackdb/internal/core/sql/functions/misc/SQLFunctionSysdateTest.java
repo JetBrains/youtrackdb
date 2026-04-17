@@ -65,25 +65,19 @@ public class SQLFunctionSysdateTest {
     final var fn = new SQLFunctionSysdate();
     final var ctx = new BasicCommandContext();
 
-    // Use a deterministic format we can verify against an equivalent SimpleDateFormat instance.
-    final var expected =
-        buildExpected((Date) fn.execute(null, null, null, new Object[] {}, ctx),
-            "yyyy-MM-dd HH:mm:ss", "UTC");
-
-    // Build a fresh function so the format cache is in its initial state.
-    final var fn2 = new SQLFunctionSysdate();
-    final var result = fn2.execute(null, null, null,
+    final var result = fn.execute(null, null, null,
         new Object[] {"yyyy-MM-dd HH:mm:ss", "UTC"}, ctx);
+    // Verify against an equivalent SimpleDateFormat instance applied to the same `now` captured
+    // at construction — calling fn with 0 params returns that `now` after the format cache is
+    // already populated.
+    final var now = (Date) fn.execute(null, null, null, new Object[] {}, ctx);
+    final var expected = buildExpected(now, "yyyy-MM-dd HH:mm:ss", "UTC");
 
     assertTrue("expected String, got " + result.getClass(), result instanceof String);
-    // Rebuild expected against fn2's construction-time Date.
-    final var expected2 = buildExpected((Date) fn2.execute(null, null, null, new Object[] {}, ctx),
-        "yyyy-MM-dd HH:mm:ss", "UTC");
-    // The returned string must match BOTH the expected we computed for fn2 AND be a legal
-    // SimpleDateFormat rendering (sanity). Equal comparisons isolate the format from the Date.
-    assertEquals(expected2, result);
-    // Sanity — expected for fn should at least parse through the same pattern.
-    assertEquals(expected.length(), ((String) result).length());
+    assertEquals(expected, result);
+    // Structural drift guard: format must match the literal pattern regardless of Date details.
+    assertTrue("result must match yyyy-MM-dd HH:mm:ss shape, was: " + result,
+        ((String) result).matches("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}"));
   }
 
   @Test
@@ -95,15 +89,13 @@ public class SQLFunctionSysdateTest {
         new Object[] {"yyyy-MM-dd", "UTC"}, ctx);
 
     // Second call with a DIFFERENT pattern/timezone — the implementation caches the first
-    // SimpleDateFormat and never re-reads iParams[0]/[1] afterwards. So the output uses the
-    // original pattern "yyyy-MM-dd", not the new "HH:mm:ss".
+    // SimpleDateFormat and never re-reads iParams[0]/[1] afterwards, so the output must be
+    // EXACTLY the same as the first call (same stored `now`, same pattern, same tz).
     final var secondCall = (String) fn.execute(null, null, null,
         new Object[] {"HH:mm:ss", "America/New_York"}, ctx);
 
-    assertEquals("cached format must ignore new iParams[0]",
-        firstCall.length(), secondCall.length());
-    // Drift guard: a refactor that recreates SimpleDateFormat per call would break this
-    // length equality (the two patterns render very differently).
+    assertEquals("format cache must ignore later iParams — second call must equal first",
+        firstCall, secondCall);
   }
 
   @Test

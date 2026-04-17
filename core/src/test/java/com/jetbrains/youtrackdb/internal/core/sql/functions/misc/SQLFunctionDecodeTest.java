@@ -103,6 +103,24 @@ public class SQLFunctionDecodeTest {
     assertArrayEquals(original.getBytes(StandardCharsets.UTF_8), (byte[]) result);
   }
 
+  @Test(expected = IllegalArgumentException.class)
+  public void invalidBase64PayloadPropagatesIllegalArgumentException() {
+    // Base64.getDecoder().decode throws IllegalArgumentException on non-base64 characters;
+    // SQLFunctionDecode does not catch it, so it propagates.
+    final var fn = new SQLFunctionDecode();
+    fn.execute(null, null, null, new Object[] {"!!!not-base64!!!", "base64"},
+        new BasicCommandContext());
+  }
+
+  @Test
+  public void emptyStringCandidateDecodesToEmptyByteArray() {
+    // Boundary: "" is a valid base64 encoding of the empty byte array.
+    final var fn = new SQLFunctionDecode();
+    final var result = (byte[]) fn.execute(null, null, null,
+        new Object[] {"", "base64"}, new BasicCommandContext());
+    assertArrayEquals(new byte[0], result);
+  }
+
   @Test
   public void unknownFormatThrowsDatabaseException() {
     final var fn = new SQLFunctionDecode();

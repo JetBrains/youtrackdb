@@ -16,13 +16,14 @@
 package com.jetbrains.youtrackdb.internal.core.sql.functions.misc;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import org.junit.Test;
 
 /**
@@ -121,9 +122,9 @@ public class SQLStaticReflectiveFunctionTest {
     final var m = Fixtures.class.getMethod("nullable", Object.class);
     final var fn = new SQLStaticReflectiveFunction("nullable", 1, 1, m);
 
+    final Object nullArg = null;
     assertEquals("null",
-        fn.execute(null, null, null, new Object[] {new Object[] {null}[0]},
-            new BasicCommandContext()));
+        fn.execute(null, null, null, new Object[] {nullArg}, new BasicCommandContext()));
   }
 
   @Test
@@ -176,24 +177,16 @@ public class SQLStaticReflectiveFunctionTest {
   }
 
   @Test
-  public void booleanParamRejectsIntArgAndPickMethodReturnsNoMatch() throws Exception {
+  public void booleanParamRejectsIntArgInPickMethod() throws Exception {
     // isAssignable(Integer, boolean): fromClass=int, iToClass=boolean; primitive; the
     // Integer.TYPE arm returns true ONLY for Long/Float/Double — boolean is none → false.
-    // With NO alternative overload, pickMethod returns null — which then triggers
-    // QueryParsingException via getDatabaseSession(). Confirmed indirectly by asserting
-    // that an exception is raised (we can't assert the specific type without a session).
+    // We verify pickMethod directly via reflection to isolate this branch from the
+    // session-required QueryParsingException path.
     final var m = Fixtures.class.getMethod("takesBoolean", boolean.class);
     final var fn = new SQLStaticReflectiveFunction("tb", 1, 1, m);
 
-    Throwable thrown = null;
-    try {
-      fn.execute(null, null, null, new Object[] {42}, new BasicCommandContext());
-    } catch (Throwable t) {
-      thrown = t;
-    }
-    assertNotNull("a non-matching pickMethod path must raise — but BasicCommandContext has no "
-        + "session so the thrown type will be DatabaseException rather than the intended "
-        + "QueryParsingException (contract mismatch documented).", thrown);
+    assertNull("pickMethod must return null when Integer cannot widen to boolean",
+        invokePickMethod(fn, new Object[] {42}));
   }
 
   @Test
@@ -240,30 +233,80 @@ public class SQLStaticReflectiveFunctionTest {
   }
 
   @Test
-  public void syntaxEqualsFunctionName() {
-    // getSyntax returns getName(session) — pinning prevents accidental override drift.
-    final var m = Fixtures.class.getMethods()[0];
-    final var fn = new SQLStaticReflectiveFunction("customFn", 0, 0, m);
+  public void syntaxEqualsFunctionName() throws Exception {
+    // getSyntax returns getName(session) — pinning prevents accidental override drift. Uses an
+    // explicit Method so test output doesn't depend on Class.getMethods()'s unordered array.
+    final var m = Fixtures.class.getMethod("idInt", int.class);
+    final var fn = new SQLStaticReflectiveFunction("customFn", 1, 1, m);
     assertEquals("customFn", fn.getSyntax(null));
     assertEquals("customFn", fn.getName(null));
   }
 
   @Test
-  public void doubleAssignableToLongIsFalse() throws Exception {
-    // isAssignable(Double, long): fromClass=double; the Double.TYPE arm returns false. With
-    // only a long overload available and no fallback, pickMethod returns null.
+  public void doubleIsNotAssignableToLongInPickMethod() throws Exception {
+    // isAssignable(Double, long): fromClass=double; the Double.TYPE arm always returns false.
+    // Verified via the private pickMethod: with only a long overload and no fallback,
+    // pickMethod returns null. Using reflection isolates this branch from the
+    // session-required QueryParsingException path.
     final var mLong = Fixtures.class.getMethod("numeric", long.class);
     final var fn = new SQLStaticReflectiveFunction("numeric", 1, 1, mLong);
 
-    // Cannot use session so the resulting exception is the "no database session" one; this
-    // at least pins that the double→long assignment is NOT accepted.
-    Throwable thrown = null;
-    try {
-      fn.execute(null, null, null, new Object[] {1.5}, new BasicCommandContext());
-    } catch (Throwable t) {
-      thrown = t;
-    }
-    assertNotNull(thrown);
+    assertNull("pickMethod must return null when Double cannot widen to long",
+        invokePickMethod(fn, new Object[] {1.5}));
+  }
+
+  @Test
+  public void incompatibleReferenceTypeInPickMethodReturnsNull() throws Exception {
+    // isAssignable with both non-primitive: uses iToClass.isAssignableFrom(fromClass).
+    // Integer does not assign to StringBuilder → pickMethod returns null.
+    final var m = Fixtures.class.getMethod("takesStringBuilder", StringBuilder.class);
+    final var fn = new SQLStaticReflectiveFunction("tsb", 1, 1, m);
+
+    assertNull("pickMethod must return null for incompatible reference types",
+        invokePickMethod(fn, new Object[] {Integer.valueOf(42)}));
+  }
+
+  @Test
+  public void byteAssignableToLongViaWidening() throws Exception {
+    // isAssignable(Byte, long): fromClass=byte; Byte.TYPE arm returns short/int/long/float/double
+    // → true. Method.invoke widens byte→long at call time.
+    final var mLong = Fixtures.class.getMethod("numeric", long.class);
+    final var fn = new SQLStaticReflectiveFunction("numeric", 1, 1, mLong);
+
+    assertEquals("long:9",
+        fn.execute(null, null, null, new Object[] {(byte) 9}, new BasicCommandContext()));
+  }
+
+  @Test
+  public void shortAssignableToDoubleViaWidening() throws Exception {
+    // isAssignable(Short, double): fromClass=short; Short.TYPE arm returns
+    // int/long/float/double → true.
+    final var mDouble = Fixtures.class.getMethod("numeric", double.class);
+    final var fn = new SQLStaticReflectiveFunction("numeric", 1, 1, mDouble);
+
+    assertEquals("double:7.0",
+        fn.execute(null, null, null, new Object[] {(short) 7}, new BasicCommandContext()));
+  }
+
+  @Test
+  public void intAssignableToFloatViaWidening() throws Exception {
+    // isAssignable(Integer, float): fromClass=int; Integer.TYPE arm returns
+    // Long/Float/Double → true for float.
+    final var mFloat = Fixtures.class.getMethod("numericFloat", float.class);
+    final var fn = new SQLStaticReflectiveFunction("numericFloat", 1, 1, mFloat);
+
+    assertEquals("float:3.0",
+        fn.execute(null, null, null, new Object[] {3}, new BasicCommandContext()));
+  }
+
+  @Test
+  public void longAssignableToFloatViaWidening() throws Exception {
+    // isAssignable(Long, float): fromClass=long; Long.TYPE arm returns Float/Double → true.
+    final var mFloat = Fixtures.class.getMethod("numericFloat", float.class);
+    final var fn = new SQLStaticReflectiveFunction("numericFloat", 1, 1, mFloat);
+
+    assertEquals("float:4.0",
+        fn.execute(null, null, null, new Object[] {4L}, new BasicCommandContext()));
   }
 
   @Test
@@ -275,9 +318,20 @@ public class SQLStaticReflectiveFunctionTest {
     assertEquals(1, fn.getMinParams());
     assertEquals(1, fn.getMaxParams(null));
     // aggregateResults / filterResult inherit defaults (false / false).
-    assertEquals(false, fn.aggregateResults());
-    assertEquals(false, fn.filterResult());
+    assertFalse(fn.aggregateResults());
+    assertFalse(fn.filterResult());
     assertNull(fn.getResult());
+  }
+
+  private static Object invokePickMethod(SQLStaticReflectiveFunction fn, Object[] iParams)
+      throws Exception {
+    final Method pick =
+        SQLStaticReflectiveFunction.class.getDeclaredMethod("pickMethod", Object[].class);
+    // Defensive: confirm the production surface we rely on is still a private instance method.
+    assert !Modifier.isStatic(pick.getModifiers())
+        : "pickMethod is expected to be an instance method";
+    pick.setAccessible(true);
+    return pick.invoke(fn, (Object) iParams);
   }
 
   /** Fixture holder — all static methods are picked up via reflection by the tests above. */
@@ -301,6 +355,14 @@ public class SQLStaticReflectiveFunctionTest {
 
     public static String numeric(double v) {
       return "double:" + v;
+    }
+
+    public static String numericFloat(float v) {
+      return "float:" + v;
+    }
+
+    public static String takesStringBuilder(StringBuilder sb) {
+      return "sb:" + sb;
     }
 
     public static String arityMarker(int a) {
