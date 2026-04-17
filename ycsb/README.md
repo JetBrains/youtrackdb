@@ -1,14 +1,3 @@
----
-source_files:
-  - ycsb/src/main/**
-  - ycsb/workloads/*.properties
-  - ycsb/run-ycsb.sh
-  - ycsb/pom.xml
-related_docs:
-  - docs/adr/ycsb/design.md
-  - docs/README.md
----
-
 # YouTrackDB YCSB Benchmarks
 
 A [YCSB](https://github.com/brianfrankcooper/YCSB) driver and workload suite for exercising YouTrackDB's **storage-level** I/O paths (read, update, insert, scan, delete) via simple parameterized YQL statements. This module is intentionally distinct from [`jmh-ldbc`](../jmh-ldbc/README.md), which measures graph-traversal performance over the MATCH query engine — `ycsb` targets the underlying page cache, WAL, and index paths instead.
@@ -244,4 +233,4 @@ By default `$RESULTS_DIR` holds **both** the result text/JSON files **and** the 
 
 ## Related documentation
 
-- [`docs/adr/ycsb/design.md`](../docs/adr/ycsb/design.md) — design notes for the module.
+- [`docs/adr/ycsb/design-final.md`](../docs/adr/ycsb/design-final.md) — final design of the module.
