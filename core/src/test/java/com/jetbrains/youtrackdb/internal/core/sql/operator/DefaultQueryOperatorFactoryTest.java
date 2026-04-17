@@ -112,10 +112,17 @@ public class DefaultQueryOperatorFactoryTest {
     Assert.assertSame(factory.getOperators(), factory.getOperators());
   }
 
+  /**
+   * Verifies that the factory returns EXACTLY ONE instance of the given operator
+   * class. This catches both "missing operator" and "duplicate operator"
+   * regressions — a simple anyMatch check would pass even if multiple copies of
+   * the same class were present, masking a bug where one operator got duplicated
+   * at the expense of another.
+   */
   private void assertContainsOperatorOfType(
       Set<QueryOperator> operators, Class<? extends QueryOperator> type) {
-    boolean found = operators.stream().anyMatch(type::isInstance);
-    Assert.assertTrue(
-        "Expected operator of type " + type.getSimpleName() + " not found", found);
+    long count = operators.stream().filter(type::isInstance).count();
+    Assert.assertEquals(
+        "Expected exactly one operator of type " + type.getSimpleName(), 1L, count);
   }
 }

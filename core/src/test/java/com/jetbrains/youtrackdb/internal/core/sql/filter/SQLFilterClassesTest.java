@@ -16,13 +16,17 @@ package com.jetbrains.youtrackdb.internal.core.sql.filter;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.exception.QueryParsingException;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.IndexSearchResult;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
+import com.jetbrains.youtrackdb.internal.core.sql.SQLHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.operator.QueryOperatorEquals;
+import com.jetbrains.youtrackdb.internal.core.sql.operator.QueryOperatorIs;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Date;
@@ -376,20 +380,38 @@ public class SQLFilterClassesTest extends DbTestBase {
     Assert.assertTrue(pred.toString().startsWith("Unparsed:"));
   }
 
-  /** addParameter with named parameter (":name") strips colon. */
+  /**
+   * addParameter with named parameter (":name") strips the colon AND registers
+   * the parameter in the predicate's parameterItems list so subsequent
+   * setValue() calls can locate it. Verifies both the return value and the
+   * side-effect registration.
+   */
   @Test
   public void testSQLPredicateAddParameterNamed() {
     var pred = new SQLPredicate(context);
     var param = pred.addParameter(":myParam");
     Assert.assertEquals("myParam", param.getName());
+    // Side-effect: parameter must be registered in the predicate's internal list
+    Assert.assertNotNull("parameterItems must be initialized", pred.parameterItems);
+    Assert.assertEquals(1, pred.parameterItems.size());
+    Assert.assertSame("Returned parameter must be the same instance registered",
+        param, pred.parameterItems.get(0));
   }
 
-  /** addParameter with positional parameter "?" keeps the name. */
+  /**
+   * addParameter with positional parameter "?" keeps the name AND registers.
+   * Two successive positional adds must produce two registered entries.
+   */
   @Test
   public void testSQLPredicateAddParameterPositional() {
     var pred = new SQLPredicate(context);
-    var param = pred.addParameter("?");
-    Assert.assertEquals("?", param.getName());
+    var param1 = pred.addParameter("?");
+    var param2 = pred.addParameter("?");
+    Assert.assertEquals("?", param1.getName());
+    Assert.assertEquals("?", param2.getName());
+    Assert.assertEquals(2, pred.parameterItems.size());
+    Assert.assertSame(param1, pred.parameterItems.get(0));
+    Assert.assertSame(param2, pred.parameterItems.get(1));
   }
 
   /** addParameter with invalid name (non-alphanumeric) throws. */
@@ -543,22 +565,26 @@ public class SQLFilterClassesTest extends DbTestBase {
     new SQLTarget("NonExistentClassName12345", context);
   }
 
-  /** SQLTarget parses a RID target. */
+  /** SQLTarget parses a single RID target and stores exactly that RID in targetRecords. */
   @Test
   public void testSQLTargetRidTarget() {
     var target = new SQLTarget("#1:0", context);
-    Assert.assertNotNull(target.getTargetRecords());
+    var records = new ArrayList<Identifiable>();
+    target.getTargetRecords().forEach(records::add);
+    Assert.assertEquals(1, records.size());
+    Assert.assertEquals(new RecordId(1, 0), records.get(0).getIdentity());
     Assert.assertTrue(target.toString().contains("records"));
   }
 
-  /** SQLTarget parses a collection of RIDs. */
+  /** SQLTarget parses a collection of RIDs and stores them in order. */
   @Test
   public void testSQLTargetRidCollectionTarget() {
     var target = new SQLTarget("[#1:0, #1:1]", context);
-    Assert.assertNotNull(target.getTargetRecords());
-    var records = new ArrayList<>();
+    var records = new ArrayList<Identifiable>();
     target.getTargetRecords().forEach(records::add);
     Assert.assertEquals(2, records.size());
+    Assert.assertEquals(new RecordId(1, 0), records.get(0).getIdentity());
+    Assert.assertEquals(new RecordId(1, 1), records.get(1).getIdentity());
   }
 
   /** SQLTarget parses INDEX: prefix. */
@@ -593,18 +619,26 @@ public class SQLFilterClassesTest extends DbTestBase {
     Assert.assertFalse(target.isTargetIndexValuesAsc());
   }
 
-  /** METADATA:SCHEMA target resolves to the schema record. */
+  /** METADATA:SCHEMA target resolves to exactly one record at the schema record RID. */
   @Test
   public void testSQLTargetMetadataSchema() {
     var target = new SQLTarget("METADATA:SCHEMA", context);
-    Assert.assertNotNull(target.getTargetRecords());
+    var records = new ArrayList<Identifiable>();
+    target.getTargetRecords().forEach(records::add);
+    Assert.assertEquals(1, records.size());
+    Assert.assertEquals(
+        session.getStorage().getSchemaRecordId(), records.get(0).getIdentity().toString());
   }
 
-  /** METADATA:INDEXMANAGER target resolves to the index manager record. */
+  /** METADATA:INDEXMANAGER resolves to exactly one record at the index-manager record RID. */
   @Test
   public void testSQLTargetMetadataIndexManager() {
     var target = new SQLTarget("METADATA:INDEXMANAGER", context);
-    Assert.assertNotNull(target.getTargetRecords());
+    var records = new ArrayList<Identifiable>();
+    target.getTargetRecords().forEach(records::add);
+    Assert.assertEquals(1, records.size());
+    Assert.assertEquals(
+        session.getStorage().getIndexMgrRecordId(), records.get(0).getIdentity().toString());
   }
 
   /** Unsupported metadata entity throws. */
@@ -778,12 +812,18 @@ public class SQLFilterClassesTest extends DbTestBase {
     Assert.assertEquals("myField", field.asString(session));
   }
 
-  /** asString for chained field includes both parts. */
+  /** asString for chained field "a.b" renders the full dotted path, both parts present. */
   @Test
   public void testSQLFilterItemFieldAsStringChained() {
     var filter = SQLEngine.parseCondition("a.b = 1", context);
     var field = (SQLFilterItemField) filter.getRootCondition().getLeft();
-    Assert.assertTrue(field.asString(session).contains("a"));
+    var rendered = field.asString(session);
+    Assert.assertTrue("Rendered chain should contain 'a': " + rendered, rendered.contains("a"));
+    Assert.assertTrue("Rendered chain should contain 'b': " + rendered, rendered.contains("b"));
+    // Order-preserving: "a" must appear before "b" in the chain rendering
+    Assert.assertTrue(
+        "Rendered chain should be dotted path with 'a' before 'b': " + rendered,
+        rendered.indexOf("a") < rendered.indexOf("b"));
   }
 
   // ====================================================================
@@ -865,59 +905,75 @@ public class SQLFilterClassesTest extends DbTestBase {
     Assert.assertNull(filter.getRootCondition());
   }
 
-  /** Null operator with non-null right → condition returned as-is. */
+  /** Null operator with non-null right → condition is returned unchanged (same instance). */
   @Test
   public void testFilterOptimizerNullOperatorNonNullRight() {
     var optimizer = new FilterOptimizer();
     var filter = SQLEngine.parseCondition("a = 3", context);
     var inner = filter.getRootCondition();
-    filter.setRootCondition(new SQLFilterCondition(inner, null, "something"));
+    var wrapper = new SQLFilterCondition(inner, null, "something");
+    filter.setRootCondition(wrapper);
     var searchResult = new IndexSearchResult(
         inner.getOperator(),
         ((SQLFilterItemField) inner.getLeft()).getFieldChain(), 3);
     optimizer.optimize(filter, searchResult);
-    Assert.assertNotNull(filter.getRootCondition());
+    // Verify no-op: the exact same wrapper instance remains the root
+    Assert.assertSame(
+        "Optimizer should be a no-op when operator is null with non-null right",
+        wrapper, filter.getRootCondition());
   }
 
-  /** Partial optimization with OR: only the matched branch is removed. */
+  /** Partial optimization with OR: the root OR condition is preserved (no-op on OR). */
   @Test
   public void testFilterOptimizerPartialWithOr() {
     var optimizer = new FilterOptimizer();
     var filter = SQLEngine.parseCondition("a = 3 or b > 5", context);
-    var cond = filter.getRootCondition();
-    var leftCond = (SQLFilterCondition) cond.getLeft();
+    var beforeRoot = filter.getRootCondition();
+    var beforeAsString = beforeRoot.asString(session);
+    var leftCond = (SQLFilterCondition) beforeRoot.getLeft();
     var searchResult = new IndexSearchResult(
         leftCond.getOperator(),
         ((SQLFilterItemField) leftCond.getLeft()).getFieldChain(), 3);
     optimizer.optimize(filter, searchResult);
-    Assert.assertNotNull(filter.getRootCondition());
+    // OR combinations are not optimized — the root condition must remain structurally identical
+    Assert.assertSame("Optimizer should not replace the root OR condition",
+        beforeRoot, filter.getRootCondition());
+    Assert.assertEquals("OR condition text should not change",
+        beforeAsString, filter.getRootCondition().asString(session));
   }
 
-  /** Value mismatch (3 vs null) prevents optimization. */
+  /** Value mismatch (3 vs null) prevents optimization — condition remains unchanged. */
   @Test
   public void testFilterOptimizerNullValueMatching() {
     var optimizer = new FilterOptimizer();
     var filter = SQLEngine.parseCondition("a = 3", context);
-    var cond = filter.getRootCondition();
+    var beforeRoot = filter.getRootCondition();
+    var beforeAsString = beforeRoot.asString(session);
     var searchResult = new IndexSearchResult(
-        cond.getOperator(),
-        ((SQLFilterItemField) cond.getLeft()).getFieldChain(), null);
+        beforeRoot.getOperator(),
+        ((SQLFilterItemField) beforeRoot.getLeft()).getFieldChain(), null);
     optimizer.optimize(filter, searchResult);
-    Assert.assertNotNull(filter.getRootCondition());
+    Assert.assertSame("Optimizer should not mutate condition when values differ",
+        beforeRoot, filter.getRootCondition());
+    Assert.assertEquals(beforeAsString, filter.getRootCondition().asString(session));
   }
 
-  /** Field mismatch prevents optimization. */
+  /** Field mismatch prevents optimization — condition is preserved structurally. */
   @Test
   public void testFilterOptimizerFieldMismatch() {
     var optimizer = new FilterOptimizer();
     var filter = SQLEngine.parseCondition("a = 3", context);
+    var beforeRoot = filter.getRootCondition();
+    var beforeAsString = beforeRoot.asString(session);
     var bFilter = SQLEngine.parseCondition("b = 3", context);
     var bCond = bFilter.getRootCondition();
     var searchResult = new IndexSearchResult(
         bCond.getOperator(),
         ((SQLFilterItemField) bCond.getLeft()).getFieldChain(), 3);
     optimizer.optimize(filter, searchResult);
-    Assert.assertNotNull(filter.getRootCondition());
+    Assert.assertSame("Optimizer should not mutate condition when field names differ",
+        beforeRoot, filter.getRootCondition());
+    Assert.assertEquals(beforeAsString, filter.getRootCondition().asString(session));
   }
 
   /** INDEX_OPERATOR path: Major (>) with matching field/value is optimized. */
@@ -933,17 +989,20 @@ public class SQLFilterClassesTest extends DbTestBase {
     Assert.assertNull(filter.getRootCondition());
   }
 
-  /** INDEX_OPERATOR path: Minor (<) with mismatched value is not optimized. */
+  /** INDEX_OPERATOR path: Minor (<) with mismatched value — condition is preserved. */
   @Test
   public void testFilterOptimizerNonEqualsOperatorMismatch() {
     var optimizer = new FilterOptimizer();
     var filter = SQLEngine.parseCondition("a < 5", context);
-    var cond = filter.getRootCondition();
+    var beforeRoot = filter.getRootCondition();
+    var beforeAsString = beforeRoot.asString(session);
     var searchResult = new IndexSearchResult(
-        cond.getOperator(),
-        ((SQLFilterItemField) cond.getLeft()).getFieldChain(), 99);
+        beforeRoot.getOperator(),
+        ((SQLFilterItemField) beforeRoot.getLeft()).getFieldChain(), 99);
     optimizer.optimize(filter, searchResult);
-    Assert.assertNotNull(filter.getRootCondition());
+    Assert.assertSame("Optimizer should be a no-op when values do not match",
+        beforeRoot, filter.getRootCondition());
+    Assert.assertEquals(beforeAsString, filter.getRootCondition().asString(session));
   }
 
   // ====================================================================
@@ -1067,10 +1126,17 @@ public class SQLFilterClassesTest extends DbTestBase {
   // ====================================================================
 
   /**
-   * When evaluation encounters type mismatch (string vs integer),
-   * the result is a Boolean — the exception handler path catches
-   * generic exceptions and returns false, or checkForConversion
-   * handles the type mismatch gracefully.
+   * When evaluation encounters a string that cannot be coerced to integer:
+   *  1. checkForConversion.getInteger("not-a-date") throws NumberFormatException,
+   *  2. the catch-all at SQLFilterCondition.java:570 silently swallows it so
+   *     result stays as the original [String, Integer] pair,
+   *  3. QueryOperatorMajor then converts the Integer operand to String via
+   *     PropertyTypeInternal.convert, so "not-a-date".compareTo("42") runs
+   *     lexicographically ('n'=0x6E > '4'=0x34) and returns true.
+   *
+   * Pins this deterministic (albeit surprising) Boolean.TRUE outcome — a change
+   * to either the conversion catch or the lexicographic fallback will break
+   * this test, flagging the regression.
    */
   @Test
   public void testSQLFilterConditionEvaluateTypeMismatch() {
@@ -1080,9 +1146,9 @@ public class SQLFilterClassesTest extends DbTestBase {
     doc.setProperty("val", "not-a-date");
     var filter = SQLEngine.parseCondition("val > 42", context);
     var result = filter.getRootCondition().evaluate(doc, null, context);
-    // Result is always a Boolean (either via comparison or exception handler)
-    Assert.assertNotNull(result);
-    Assert.assertTrue("Result should be Boolean", result instanceof Boolean);
+    Assert.assertEquals(
+        "String-vs-Integer falls back to lexicographic String compare",
+        Boolean.TRUE, result);
     session.commit();
   }
 
@@ -1148,6 +1214,72 @@ public class SQLFilterClassesTest extends DbTestBase {
   }
 
   // ====================================================================
+  // IS DEFINED sentinel (QueryOperatorIs DEFINED path)
+  // ====================================================================
+
+  /**
+   * Direct evaluateRecord call: DEFINED sentinel on the right of the value pair
+   * (iRight = SQLHelper.DEFINED) invokes evaluateDefined(iRecord, iLeft as String).
+   * When the entity has the named property, evaluateDefined returns true.
+   */
+  @Test
+  public void testIsDefinedSentinelOnRightFieldPresent() {
+    session.getMetadata().getSchema().createClass("DefinedTest");
+    session.begin();
+    var doc = (EntityImpl) session.newInstance("DefinedTest");
+    doc.setProperty("name", "Alice");
+    var is = new QueryOperatorIs();
+    Object result = is.evaluateRecord(
+        doc, null, new SQLFilterCondition("name", is, SQLHelper.DEFINED),
+        "name", SQLHelper.DEFINED, context, null);
+    Assert.assertEquals(Boolean.TRUE, result);
+    session.commit();
+  }
+
+  /**
+   * DEFINED sentinel on the right; the entity lacks the named property so
+   * evaluateDefined returns false (getProperty returned null).
+   */
+  @Test
+  public void testIsDefinedSentinelOnRightFieldAbsent() {
+    session.getMetadata().getSchema().createClass("DefinedTestMiss");
+    session.begin();
+    var doc = (EntityImpl) session.newInstance("DefinedTestMiss");
+    var is = new QueryOperatorIs();
+    Object result = is.evaluateRecord(
+        doc, null, new SQLFilterCondition("missing", is, SQLHelper.DEFINED),
+        "missing", SQLHelper.DEFINED, context, null);
+    Assert.assertEquals(Boolean.FALSE, result);
+    session.commit();
+  }
+
+  /**
+   * DEFINED sentinel on the left (iLeft = SQLHelper.DEFINED): evaluateExpression
+   * falls into the DEFINED-left branch, which calls evaluateDefined(iRecord, iRight).
+   */
+  @Test
+  public void testIsDefinedSentinelOnLeftFieldPresent() {
+    session.getMetadata().getSchema().createClass("DefinedLeftTest");
+    session.begin();
+    var doc = (EntityImpl) session.newInstance("DefinedLeftTest");
+    doc.setProperty("age", 42);
+    var is = new QueryOperatorIs();
+    Object result = is.evaluateRecord(
+        doc, null, new SQLFilterCondition(SQLHelper.DEFINED, is, "age"),
+        SQLHelper.DEFINED, "age", context, null);
+    Assert.assertEquals(Boolean.TRUE, result);
+    session.commit();
+  }
+
+  // Note: the parsed SQL form "fieldName IS DEFINED" goes through the
+  // SQLFilterItemField branch of QueryOperatorIs (line 47-56), which calls
+  // evaluateDefined(iRecord, "" + iCondition.getLeft()). The "" + SQLFilterItemField
+  // conversion uses Object.toString() (class@hash identity), so the lookup key
+  // never matches a real field name and the result is always false. This is a
+  // pre-existing bug in that code path — documented here for future investigation
+  // rather than pinned with a failing test.
+
+  // ====================================================================
   // SQLFilterItemFieldAll / SQLFilterItemFieldAny
   // ====================================================================
 
@@ -1209,17 +1341,39 @@ public class SQLFilterClassesTest extends DbTestBase {
   // Misc SQLPredicate paths
   // ====================================================================
 
-  /** Parsing a simple filter ensures checkForEnd does not interfere. */
+  /**
+   * checkForEnd halts SQLFilter parsing when ORDER BY is encountered so downstream
+   * clauses are left for the enclosing parser. The parsed rootCondition should
+   * capture only the leading "name = 'test'" and the resulting filter text must
+   * not include the ORDER BY portion.
+   */
   @Test
   public void testCheckForEndOrder() {
-    var filter = new SQLFilter("name = 'test'", context);
-    Assert.assertNotNull(filter.getRootCondition());
+    var filter = new SQLFilter("name = 'test' ORDER BY name", context);
+    var root = filter.getRootCondition();
+    Assert.assertNotNull(root);
+    // The condition must reflect only the leading predicate, not the ORDER BY tail
+    Assert.assertEquals("(name = 'test')", root.asString(session));
+    var fields = new ArrayList<String>();
+    root.getInvolvedFields(fields);
+    Assert.assertEquals(1, fields.size());
+    Assert.assertEquals("name", fields.get(0));
   }
 
+  /**
+   * checkForEnd halts SQLFilter parsing at LIMIT. Only the leading condition is
+   * captured; the LIMIT clause is left for the enclosing parser.
+   */
   @Test
   public void testCheckForEndLimit() {
-    var filter = new SQLFilter("age = 5", context);
-    Assert.assertNotNull(filter.getRootCondition());
+    var filter = new SQLFilter("age = 5 LIMIT 10", context);
+    var root = filter.getRootCondition();
+    Assert.assertNotNull(root);
+    Assert.assertEquals("(age = 5)", root.asString(session));
+    var fields = new ArrayList<String>();
+    root.getInvolvedFields(fields);
+    Assert.assertEquals(1, fields.size());
+    Assert.assertEquals("age", fields.get(0));
   }
 
   /** Compound condition triggers computePrefetchFieldList. */

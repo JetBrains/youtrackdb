@@ -404,9 +404,13 @@ public class EntitySchemaOperatorsTest extends DbTestBase {
   @Test
   public void testContainsAllNonArrayNonCollection() {
     // Neither array nor collection: the code falls through to return true (vacuous truth)
-    // because none of the if-else branches match
+    // because none of the if-else branches match.
+    //
+    // WHEN-FIXED: when QueryOperatorContainsAll adds a default-false fallthrough (or throws
+    // an illegal-argument), update this assertion and delete this WHEN-FIXED block.
     var op = new QueryOperatorContainsAll();
-    Assert.assertEquals(true, eval(op, "string", "string"));
+    Assert.assertEquals("Documents vacuous-truth fallthrough — revisit after fix",
+        true, eval(op, "string", "string"));
   }
 
   @Test
@@ -415,20 +419,28 @@ public class EntitySchemaOperatorsTest extends DbTestBase {
     // against RIGHT. When LEFT has duplicates matching the same right element, matches over-counts.
     // {2, 2, 3} CONTAINSALL {2, 3} should semantically be true (left contains both 2 and 3),
     // but the algorithm counts matches=3 (two 2's + one 3) vs right.length=2, returning false.
+    //
+    // WHEN-FIXED: the correct algorithm iterates RIGHT (counting how many right elements
+    // are present in LEFT) or uses a Set-based containment. After the fix, flip the
+    // assertion below to `true` and delete this WHEN-FIXED block.
     var op = new QueryOperatorContainsAll();
     Object[] left = {2, 2, 3};
     Object[] right = {2, 3};
-    // Documents the current (buggy) behavior: returns false due to over-counting
-    Assert.assertEquals(false, eval(op, left, right));
+    Assert.assertEquals("Documents the over-counting bug — flip to true after fix",
+        false, eval(op, left, right));
   }
 
   @Test
   public void testContainsAllArrayVsScalarFallsThroughToTrue() {
     // Left is an array, right is a scalar — neither array nor Collection sub-branches match,
     // falls through to return true (vacuous truth). Documents this edge case.
+    //
+    // WHEN-FIXED: when the operator validates right-operand type (must be array/collection),
+    // update this assertion and delete this WHEN-FIXED block.
     var op = new QueryOperatorContainsAll();
     Object[] left = {1, 2, 3};
-    Assert.assertEquals(true, eval(op, left, 99));
+    Assert.assertEquals("Documents array-vs-scalar vacuous-truth — revisit after fix",
+        true, eval(op, left, 99));
   }
 
   @Test
@@ -876,10 +888,10 @@ public class EntitySchemaOperatorsTest extends DbTestBase {
 
   @Test
   public void testInstanceofNullLeftReturnsFalse() {
-    // QueryOperatorEqualityNotNulls: null left → false
-    session.getMetadata().getSchema().createClass("InstanceofNullTest");
+    // QueryOperatorEqualityNotNulls short-circuits on null left BEFORE any
+    // schema lookup — no class creation needed; right-hand name can be arbitrary.
     var op = new QueryOperatorInstanceof();
-    Assert.assertEquals(false, eval(op, null, "InstanceofNullTest"));
+    Assert.assertEquals(false, eval(op, null, "AnyUndefinedClass"));
   }
 
   @Test

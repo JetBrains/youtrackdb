@@ -927,27 +927,7 @@ public class OperatorCoverageGapTest extends DbTestBase {
     Assert.assertEquals(false, result);
   }
 
-  // =====================================================================
-  // isSupportingBinaryEvaluate — covering the method on comparison ops
-  // =====================================================================
-
-  @Test
-  public void testMajorSupportsBinaryEvaluate() {
-    Assert.assertTrue(new QueryOperatorMajor().isSupportingBinaryEvaluate());
-  }
-
-  @Test
-  public void testMajorEqualsSupportsBinaryEvaluate() {
-    Assert.assertTrue(new QueryOperatorMajorEquals().isSupportingBinaryEvaluate());
-  }
-
-  @Test
-  public void testMinorSupportsBinaryEvaluate() {
-    Assert.assertTrue(new QueryOperatorMinor().isSupportingBinaryEvaluate());
-  }
-
-  @Test
-  public void testMinorEqualsSupportsBinaryEvaluate() {
-    Assert.assertTrue(new QueryOperatorMinorEquals().isSupportingBinaryEvaluate());
-  }
+  // Note: isSupportingBinaryEvaluate tests for Major/MajorEquals/Minor/MinorEquals
+  // live in EqualityComparisonOperatorsTest to keep all isSupportingBinaryEvaluate
+  // coverage in one place.
 }

@@ -206,8 +206,11 @@ public class QueryOperatorMultiplyTest {
   public void testTryDownscaleToIntAtExactMaxValue() {
     // Integer.MAX_VALUE is a valid int but the production code uses strict < which
     // excludes this boundary — it stays as Long. Pre-existing off-by-one.
+    // WHEN-FIXED: when the boundary check switches to <= / >=, the result type flips
+    // to Integer. Update the instanceof check to Integer and delete this WHEN-FIXED block.
     Object result = QueryOperatorMultiply.tryDownscaleToInt((long) Integer.MAX_VALUE);
-    Assert.assertTrue(result instanceof Long);
+    Assert.assertTrue("Documents exclusive-boundary off-by-one — revisit after fix",
+        result instanceof Long);
     Assert.assertEquals((long) Integer.MAX_VALUE, result);
   }
 
@@ -215,8 +218,11 @@ public class QueryOperatorMultiplyTest {
   public void testTryDownscaleToIntAtExactMinValue() {
     // Integer.MIN_VALUE is a valid int but the production code uses strict > which
     // excludes this boundary — it stays as Long. Pre-existing off-by-one.
+    // WHEN-FIXED: when the boundary check switches to <= / >=, the result type flips
+    // to Integer. Update the instanceof check to Integer and delete this WHEN-FIXED block.
     Object result = QueryOperatorMultiply.tryDownscaleToInt((long) Integer.MIN_VALUE);
-    Assert.assertTrue(result instanceof Long);
+    Assert.assertTrue("Documents exclusive-boundary off-by-one — revisit after fix",
+        result instanceof Long);
     Assert.assertEquals((long) Integer.MIN_VALUE, result);
   }
 
