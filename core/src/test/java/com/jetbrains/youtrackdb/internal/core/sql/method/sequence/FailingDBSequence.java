@@ -47,8 +47,11 @@ final class FailingDBSequence extends DBSequence {
       // callRetry opens its own tx, but we only need the entity for
       // Objects.requireNonNull in the super-constructor. Wrap the load in a
       // short-lived tx so this helper works whether or not the caller has one.
-      var existing = session.getActiveTransactionOrNull();
-      boolean openedHere = existing == null || !existing.isActive();
+      //
+      // getActiveTransactionOrNull() returns the active tx if present, else null — it never
+      // returns a non-null inactive tx (see DatabaseSessionEmbedded.getActiveTransactionOrNull).
+      // So a simple null check is sufficient; no `!isActive()` guard is needed.
+      var openedHere = session.getActiveTransactionOrNull() == null;
       if (openedHere) {
         session.begin();
       }

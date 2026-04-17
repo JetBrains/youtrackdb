@@ -21,6 +21,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.SequenceLimitReachedException;
 import com.jetbrains.youtrackdb.internal.core.metadata.sequence.DBSequence;
 import org.junit.Before;
 import org.junit.Test;
@@ -144,6 +145,10 @@ public class SQLMethodNextTest extends DbTestBase {
       method.execute(failing, null, ctx, null, new Object[] {});
       fail("expected CommandExecutionException wrapping the DatabaseException");
     } catch (CommandExecutionException e) {
+      // Catching CommandExecutionException (not DatabaseException) pins the re-wrap:
+      // CommandExecutionException extends CoreException — it is NOT a DatabaseException
+      // subtype — so a re-thrown DatabaseException would fall through this catch and fail
+      // the test at the outer `fail(...)` below.
       assertNotNull(e.getMessage());
       assertTrue(
           "message should start with 'Unable to execute command:', saw: " + e.getMessage(),
@@ -152,6 +157,59 @@ public class SQLMethodNextTest extends DbTestBase {
           "message should carry the original 'boom-next' detail, saw: " + e.getMessage(),
           e.getMessage().contains("boom-next"));
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Error path — SequenceLimitReachedException propagates un-rewrapped
+  // ---------------------------------------------------------------------------
+
+  @Test
+  public void limitReachedPropagatesAsSequenceLimitReachedException() {
+    // SequenceLimitReachedException extends BaseException (NOT DatabaseException), so the
+    // method's `catch (DatabaseException exc)` does NOT intercept it — the exception
+    // propagates to the caller as-is. This is a distinct public contract from the
+    // CommandExecutionException re-wrap path: clients that catch SequenceLimitReachedException
+    // to detect exhaustion rely on it NOT being converted.
+    //
+    // Configure a non-recyclable limited sequence that overflows on the second next() call.
+    var params = new DBSequence.CreateParams().setDefaults()
+        .setStart(0L).setIncrement(1).setLimitValue(1L).setRecyclable(false);
+    session.getMetadata().getSequenceLibrary()
+        .createSequence("limitedSeq", DBSequence.SEQUENCE_TYPE.ORDERED, params);
+    var seq = session.getMetadata().getSequenceLibrary().getSequence("LIMITEDSEQ");
+
+    // First next() reaches the limit value (1) successfully.
+    assertEquals(1L, method.execute(seq, null, ctx, null, new Object[] {}));
+
+    // Second next() overflows → SequenceLimitReachedException, NOT CommandExecutionException.
+    try {
+      method.execute(seq, null, ctx, null, new Object[] {});
+      fail("expected SequenceLimitReachedException on overflow");
+    } catch (SequenceLimitReachedException e) {
+      assertNotNull(e.getMessage());
+      assertTrue(
+          "message should mention 'Limit reached', saw: " + e.getMessage(),
+          e.getMessage().contains("Limit reached"));
+    } catch (CommandExecutionException e) {
+      fail("limit overflow must NOT be re-wrapped into CommandExecutionException, saw: " + e);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Non-default start / increment — pins that the method delegates to seq state
+  // ---------------------------------------------------------------------------
+
+  @Test
+  public void nextWithCustomStartAndIncrementUsesConfiguredValues() {
+    // Bake non-default values so that any regression which hardcodes 0/1/+1 inside the method
+    // (rather than delegating to seq) is caught. start=100, increment=5 → first next() = 105.
+    var params = new DBSequence.CreateParams().setDefaults().setStart(100L).setIncrement(5);
+    session.getMetadata().getSequenceLibrary()
+        .createSequence("customSeq", DBSequence.SEQUENCE_TYPE.ORDERED, params);
+    var seq = session.getMetadata().getSequenceLibrary().getSequence("CUSTOMSEQ");
+
+    assertEquals(105L, method.execute(seq, null, ctx, null, new Object[] {}));
+    assertEquals(110L, method.execute(seq, null, ctx, null, new Object[] {}));
   }
 
   // ---------------------------------------------------------------------------
