@@ -1732,4 +1732,99 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
     session.commit();
   }
 
+  // ── ChainSemiJoin — indexFilter caching across back-ref builds ─────
+
+  /**
+   * Pattern B — query with {@link ChainSemiJoin#indexFilter()} set must
+   * resolve the index only once for the whole query, even when many
+   * distinct back-ref RIDs probe the hash.
+   *
+   * <p>Regression test for a YTDB-650 performance bug: before the fix,
+   * {@code BackRefHashJoinStep.buildChainHashTable} called
+   * {@code TraversalPreFilterHelper.resolveIndexToRidSet} every time a new
+   * back-ref RID missed the LRU cache. On LDBC SF1 IC5 (~800 distinct
+   * friends, cache capacity 256) this re-scanned the
+   * {@code HAS_MEMBER.joinDate} index ~540 times, pushing the single
+   * query past 5 minutes and tripping the 20 h CI timeout. With the fix,
+   * the index RidSet is cached on the {@link BackRefHashJoinStep} instance
+   * and reused across all per-back-ref builds.
+   *
+   * <p>This test creates a synthetic graph where the ChainSemiJoin fires
+   * with an indexed edge filter and multiple distinct back-ref RIDs, then
+   * asserts correctness. The planner path is the same as IC5's.
+   */
+  @Test
+  public void backRef_outEInV_withIndexedEdgeFilter_multipleBackRefs_correctResults() {
+    // Add an edge class with an indexed property so
+    // TraversalPreFilterHelper.findIndexForFilter returns a descriptor
+    // that becomes ChainSemiJoin#indexFilter().
+    session.execute("CREATE class Rated extends E").close();
+    session.execute("CREATE PROPERTY Rated.score INTEGER").close();
+    session.execute("CREATE INDEX Rated_score ON Rated (score) NOTUNIQUE").close();
+
+    session.begin();
+    // Each of n2, n3 is a distinct back-ref in the probe — both need
+    // their own hash build. The fix ensures the Rated.score index is
+    // scanned only once across both builds.
+    // n2 → Rated(score=10) → n1  : matches back-ref (inV=n1 == $matched.a)
+    // n3 → Rated(score=20) → n1  : matches back-ref
+    // n3 → Rated(score=1)  → n5  : filtered by score>5; also wrong target
+    session.execute(
+        "CREATE EDGE Rated from (select from Person where name='n2')"
+            + " to (select from Person where name='n1') set score = 10")
+        .close();
+    session.execute(
+        "CREATE EDGE Rated from (select from Person where name='n3')"
+            + " to (select from Person where name='n1') set score = 20")
+        .close();
+    session.execute(
+        "CREATE EDGE Rated from (select from Person where name='n3')"
+            + " to (select from Person where name='n5') set score = 1")
+        .close();
+    session.commit();
+
+    var result = session.query(
+        "MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b}"
+            + ".outE('Rated'){as:e, where:(score > 5)}"
+            + ".inV(){as:check, where:(@rid = $matched.a.@rid)}"
+            + " RETURN b.name as bName, e.score as score")
+        .toList();
+
+    // Expected: both n2→n1 (score=10) and n3→n1 (score=20) match.
+    // n3→n5 is excluded both by the score filter AND the back-ref check.
+    var rows = result.stream()
+        .map(r -> r.getProperty("bName") + ":" + r.getProperty("score"))
+        .collect(Collectors.toSet());
+    assertEquals(Set.of("n2:10", "n3:20"), rows);
+  }
+
+  /**
+   * Pattern B EXPLAIN sanity: when an indexed edge property is present,
+   * the plan still uses BACK-REF HASH JOIN (the index feeds the build
+   * side, not a separate pre-filter step).
+   */
+  @Test
+  public void explainBackRef_outEInV_withIndexedEdgeFilter_usesChainSemiJoin() {
+    session.execute("CREATE class Rated2 extends E").close();
+    session.execute("CREATE PROPERTY Rated2.score INTEGER").close();
+    session.execute("CREATE INDEX Rated2_score ON Rated2 (score) NOTUNIQUE").close();
+
+    session.begin();
+    var result = session.query(
+        "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b}"
+            + ".outE('Rated2'){as:e, where:(score > 5)}"
+            + ".inV(){as:check, where:(@rid = $matched.a.@rid)}"
+            + " RETURN b.name")
+        .toList();
+    assertEquals(1, result.size());
+    String plan = result.get(0).getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertTrue(
+        "indexed edge filter should still use ChainSemiJoin, got:\n" + plan,
+        plan.contains("BACK-REF HASH JOIN"));
+    session.commit();
+  }
+
 }

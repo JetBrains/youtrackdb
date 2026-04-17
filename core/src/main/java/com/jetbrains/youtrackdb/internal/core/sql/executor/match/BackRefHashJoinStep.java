@@ -86,6 +86,26 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
    */
   @Nullable private LinkedHashMap<RID, Object> cache;
 
+  /**
+   * Cache for the {@link ChainSemiJoin#indexFilter()} RidSet. The index
+   * query is a pure function of the descriptor and query parameters, so
+   * its result is constant across all per-back-ref builds within one
+   * query execution. Without this cache, the index would be re-scanned
+   * for every distinct back-ref RID (e.g. every friend in IC5) — an
+   * O(N_friends × M_index) regression where M can reach hundreds of
+   * thousands of entries for range filters like {@code joinDate >= X}.
+   */
+  @Nullable private RidSet cachedIndexRidSet;
+
+  /**
+   * Flag distinguishing "index not yet resolved" (initial state) from
+   * "resolved to null" (e.g. cap exceeded in
+   * {@link TraversalPreFilterHelper#resolveIndexToRidSet}). When this
+   * flag is true and {@link #cachedIndexRidSet} is null, the build
+   * proceeds without the index filter.
+   */
+  private boolean indexRidSetResolved;
+
   BackRefHashJoinStep(
       CommandContext ctx,
       SemiJoinDescriptor descriptor,
@@ -478,8 +498,14 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
     if (chain.indexFilter() != null) {
       // When an index filter is present, the effective entry count after
       // filtering may be well below the threshold — skip early pre-check.
-      indexRidSet = TraversalPreFilterHelper.resolveIndexToRidSet(
-          chain.indexFilter(), ctx);
+      // The index result is query-level constant, so resolve once and
+      // reuse across all per-back-ref builds (YTDB-650 regression fix).
+      if (!indexRidSetResolved) {
+        cachedIndexRidSet = TraversalPreFilterHelper.resolveIndexToRidSet(
+            chain.indexFilter(), ctx);
+        indexRidSetResolved = true;
+      }
+      indexRidSet = cachedIndexRidSet;
     } else if (maxSize > 0 && linkBag.size() > maxSize) {
       // No index filter — the full link bag will be iterated, so we can
       // reject early without loading any edge records.
@@ -618,6 +644,8 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
   @Override
   public void close() {
     cache = null;
+    cachedIndexRidSet = null;
+    indexRidSetResolved = false;
     super.close();
   }
 
