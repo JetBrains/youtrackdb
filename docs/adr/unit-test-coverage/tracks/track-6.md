@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (7/8 complete)
+- [x] Step implementation (8/8 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -995,6 +995,196 @@
   > localised to `sql/functions/math` and `sql/functions/stat`. Step 8
   > targets `sql/functions/text`/`conversion`/`result` SQLMethod* —
   > independent of math/stat.
+
+- [x] Step 8: Text SQLMethod* + conversion SQLMethod* + result + final verification
+  - [x] Context: warning
+  > **What was done:** Added 162 unit tests across 14 new test files covering
+  > `sql/functions/text` (9 files), `sql/functions/conversion` (4 files), and
+  > `sql/functions/result` (1 file).
+  >
+  > - `SQLMethodAppendTest` (11 tests): null-subject / null-first-param early
+  >   exits (assertSame identity pin via `new String()`), single-arg, empty
+  >   strings, multi-arg in order (buffer seeded with iThis only), interleaved
+  >   null entries skipped, non-String toString coercion, metadata.
+  > - `SQLMethodLengthTest` (6 tests): null→0, empty→0, ASCII count, Integer
+  >   coercion via toString, surrogate-pair counts as 2 UTF-16 code units
+  >   (pins String.length semantics), metadata.
+  > - `SQLMethodReplaceTest` (10 tests): pins the three null-short-circuit
+  >   asymmetries (null subject leaks needle out; null replacement leaks
+  >   needle out; only null needle yields null) with WHEN-FIXED markers;
+  >   replace-all non-regex semantics; $/\\ literal; empty replacement =
+  >   delete-all; non-String coercion; metadata.
+  > - `SQLMethodRightTest` (13 tests): null early exits; tail slice; offset
+  >   ==length and offset>length return whole string; offset 0 returns empty;
+  >   negative offset throws StringIndexOutOfBounds (WHEN-FIXED); non-numeric
+  >   param NumberFormatException; Integer coercion; metadata.
+  > - `SQLMethodSubStringTest` (19 tests): ALL eight clamp branches across
+  >   the 1-param and 2-param paths (from<0, from>=length, to>length,
+  >   to<=from, to==from, from==to==0, negative; 1-param from==length → "");
+  >   null-iParams[1] NPE pin (WHEN-FIXED); String-digit parsing;
+  >   non-numeric NFE; non-String iThis coercion; metadata.
+  > - `SQLMethodHashTest` (11 tests): null-iThis short-circuit; default
+  >   SHA-256 for non-empty + empty; explicit SHA-256 / MD5 / SHA-1 via
+  >   SecurityManager.createHash; non-String iThis/algorithm toString
+  >   coercion; unknown algorithm wraps NoSuchAlgorithmException into
+  >   CommandExecutionException with message-and-cause assertions;
+  >   null-algorithm NPE pin (WHEN-FIXED); metadata.
+  > - `SQLMethodToJSONTest` (16 tests): null short-circuit; entity with/
+  >   without format overload dispatch (assertNotEquals + property-
+  >   exclusion pins); quote-stripping equality pin (`"\"rid\""` normalises
+  >   to `"rid"`); Result-wrapping-entity `asEntity()` unwrap; non-entity
+  >   Result fall-through to null; Map via JSONSerializerJackson;
+  >   MultiValue List, array, empty, and nested-list recursion; "null"
+  >   literal appended for unrecognised MultiValue entry (WHEN-FIXED);
+  >   non-matching fall-through; null-format NPE pin (WHEN-FIXED);
+  >   non-String format ClassCastException pin; metadata.
+  > - `SQLFunctionConcatTest` (10 tests): aggregateResults=true;
+  >   execute-returns-null on every call; getResult-before-execute=null;
+  >   single-arg and two-arg aggregation (delim read per call, not cached);
+  >   empty-string delim no-op; null element appends "null"; non-String
+  >   coercion; metadata.
+  > - `SQLFunctionFormatTest` (10 tests): single/multi-arg formats
+  >   (locale-independent %s/%d only); pattern-without-specifiers;
+  >   MissingFormatArgumentException; IllegalFormatConversionException;
+  >   null pattern NPE; aggregateResults=false; registration cross-check
+  >   via DefaultSQLFunctionFactory.getFunctions() asserts the TEXT
+  >   variant is bound to "format" (not the dead misc duplicate);
+  >   metadata.
+  > - `SQLMethodAsDateTest` (10 tests): null; Date + Number (Long/Integer)
+  >   zeroing; String branch via DateHelper round-trip; unparseable string
+  >   → null (swallowed ParseException); toString-coerced non-String iThis
+  >   lossless round-trip via the DB format (replaces a tautological
+  >   assertion); numeric-input-in-PM-window lands on 12:00 (noon), not
+  >   00:00 (midnight) — WHEN-FIXED pin for the production Calendar.HOUR
+  >   vs HOUR_OF_DAY latent bug; metadata.
+  > - `SQLMethodAsDateTimeTest` (7 tests): null; Date returned as same
+  >   instance (assertSame no-defensive-copy pin, WHEN-FIXED); Long/Integer
+  >   full epoch-ms preservation (no HMS zeroing); String via DateHelper
+  >   round-trip; unparseable → null; metadata.
+  > - `SQLMethodAsDecimalTest` (13 tests): null; Date epoch-ms via
+  >   `new BigDecimal(long)`; epoch-zero scale-stable (`new BigDecimal(0L)`
+  >   rather than `BigDecimal.ZERO` so a valueOf refactor is visible);
+  >   Integer/Long/Double/BigDecimal toString paths; whitespace trim;
+  >   non-numeric and whitespace-only NumberFormatException; metadata.
+  > - `SQLMethodConvertTest` (16 tests): null iThis / null first param;
+  >   Java-class path (`java.lang.Integer`, `Long`, `BigDecimal`), unknown
+  >   Java class returns null via caught CNFE; PropertyTypeInternal path
+  >   (`INTEGER`, `LONG`, `STRING`, `DOUBLE`); case-insensitive resolution;
+  >   unknown type-name IllegalArgumentException with non-null-message +
+  >   name-substring assertion (strengthened from earlier-permissive
+  >   disjunction); same-type no-op; non-String param toString coercion;
+  >   unconvertible String→INTEGER wrapped DatabaseException with
+  >   message-and-target-type pins; metadata.
+  > - `SQLFunctionDetachResultTest` (7 tests): null record raises
+  >   CommandSQLParsingException with "detach()"/"NULL was found" message
+  >   pins; non-null record returns Result with preserved properties;
+  >   assertNotSame-pinned fresh-instance contract (ResultInternal.detach
+  >   always constructs a new Result); entity-wrapping Result detach
+  >   materialises observable entity properties; aggregateResults=false;
+  >   getResult=null; metadata.
+  >
+  > No production code was modified.
+  >
+  > **What was discovered:**
+  > - **Calendar.HOUR (AM/PM) vs HOUR_OF_DAY bug in `SQLMethodAsDate`**:
+  >   production uses `cal.set(Calendar.HOUR, 0)` — the AM/PM 0-11 hour —
+  >   not `HOUR_OF_DAY` (0-23). A PM input stays PM, producing 12:00 (noon)
+  >   rather than 00:00 (midnight). Pinned by
+  >   `numericInputInPmWindowLandsOnNoonNotMidnightPerCalendarHourBug`
+  >   (WHEN-FIXED). The test uses an `AM_PM == PM` guard so it doesn't
+  >   fail on runners whose default TZ happens to push the wall-clock
+  >   back into AM.
+  > - **Asymmetric null contracts in `SQLMethodReplace`**: null subject
+  >   returns the needle (not null); null replacement returns the needle
+  >   (not null or the input); only null needle yields null. Three
+  >   WHEN-FIXED pins.
+  > - **NPE paths on null params**: `SQLMethodSubString.execute(subject,
+  >   from, null)` and `SQLMethodHash.execute(subject, null)` and
+  >   `SQLMethodToJSON.execute(entity, null)` all NPE rather than returning
+  >   null or falling back — early-exit guards check only the first param.
+  >   Three WHEN-FIXED pins.
+  > - **`SQLMethodToJSON` appends literal "null"** when a MultiValue entry
+  >   falls through the inner dispatch — StringBuilder.append(null) emits
+  >   the 4-char `"null"`. Pinned via `[null]` expected output.
+  > - **`SQLMethodAsDateTime` returns `Date` input by reference**, not a
+  >   defensive copy (assertSame pin) — callers mutating the returned Date
+  >   affect the source.
+  > - **Unconvertible-value path in `SQLMethodConvert`** throws wrapped
+  >   `DatabaseException` (NOT the raw underlying `NumberFormatException`),
+  >   with a message naming both the bad value and the target class. Pinned.
+  > - **`SQLMethodToJSON` requires the entity's RID to be persisted** —
+  >   `toJSON()` dereferences linked RIDs during serialisation. Without a
+  >   commit, the entity carries a temporary cluster position (`#N:-2`) and
+  >   serialisation throws. The test helper commits + reloads to obtain a
+  >   persistent RID.
+  > - **`ResultInternal.detach()` always constructs a fresh Result**, never
+  >   returning `this`. An earlier Javadoc assertion ("returns the same
+  >   instance per ResultInternal semantics") was wrong; corrected and
+  >   pinned with `assertNotSame`.
+  > - **SQLFunctionConcat is registered as `.class` (not instance)** in
+  >   `DefaultSQLFunctionFactory`, so each createFunction call returns a
+  >   fresh accumulator — state is per-query, not per-JVM. The TEXT variant
+  >   of `SQLFunctionFormat` is registered as an instance and is the one
+  >   dispatched for the name "format" (verified via
+  >   `DefaultSQLFunctionFactory.getFunctions()` lookup).
+  > - **`SimpleDateFormat` cannot be shared across tests via a static helper
+  >   without an explicit timezone** — Track 6 convention mandates a
+  >   deterministic timezone; this step uses `DateHelper.getDateFormatInstance
+  >   (session)` for all DB-format round-trips rather than hand-rolled
+  >   SimpleDateFormat, avoiding locale-dependent flake.
+  >
+  > **What changed from the plan:**
+  > - Plan bullet for `SQLMethodToJSON` anticipated "check if session needed
+  >   for entity serialization" — confirmed: entity path requires commit +
+  >   reload so the RID is persistent. This drove the `thing()` helper
+  >   pattern.
+  > - Plan did not call out MultiValue array / empty / nested coverage —
+  >   added during the review-fix pass after test-completeness flagged the
+  >   List-only coverage. All three new tests pass.
+  > - Plan's "dead duplicate" tag for `misc.SQLFunctionFormat` was already
+  >   covered in Step 5 via `SQLFunctionFormatMiscDeadTest`; Step 8's
+  >   `SQLFunctionFormatTest` adds the cross-check against
+  >   `DefaultSQLFunctionFactory.getFunctions()` showing that the text
+  >   variant (not the misc duplicate) is bound to "format".
+  >
+  > **Key files:**
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/text/SQLMethodAppendTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/text/SQLMethodLengthTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/text/SQLMethodReplaceTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/text/SQLMethodRightTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/text/SQLMethodSubStringTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/text/SQLMethodHashTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/text/SQLMethodToJSONTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/text/SQLFunctionConcatTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/text/SQLFunctionFormatTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/conversion/SQLMethodAsDateTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/conversion/SQLMethodAsDateTimeTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/conversion/SQLMethodAsDecimalTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/conversion/SQLMethodConvertTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/result/SQLFunctionDetachResultTest.java` (new)
+  >
+  > **Critical context:** Step-level dimensional review ran one iteration
+  > with 5 agents (code-quality, bugs-concurrency, test-behavior,
+  > test-completeness, test-structure). Findings: 0 blockers, ~15 unique
+  > should-fix (after deduplication across agents), ~20 suggestions.
+  > Applied all should-fix items plus the highest-value missing-coverage
+  > suggestions (MultiValue array/empty/nested, non-entity-Result
+  > fall-through, entity-wrapping DetachResult, null-param NPE pins,
+  > NoSuchAlgorithm cause-chain) in the `Review fix:` commit. Remaining
+  > suggestions deferred to track-level Phase C (TS5 split DetachResult
+  > contract-vs-DB tests, TC7 `java.sql.Timestamp` subclass,
+  > TS8 SHA-256 length constant, BC6 known-hex empty-SHA-256,
+  > TB10 exact-JSON mapReturnsMapToJson). Iteration 2 (gate check) skipped
+  > because context reached `warning` after Iteration 1 — the track-level
+  > Phase C dimensional review (next session) will verify the review
+  > fixes and check for regressions. **Coverage verification deferred to
+  > Phase C** — the per-track `./mvnw -P coverage` run and the analyzer/
+  > gate scripts are mandatory but heavy; running them in this session
+  > would push context beyond `critical`. Step 8's test count (162) is
+  > the full scope planned for text/conversion/result subpackages.
+  > Cross-track impact: CONTINUE — all discoveries localised to
+  > `sql/functions/{text,conversion,result}`; no upstream assumption
+  > broken for Track 7+.
 
 ### Step 1: Factory infrastructure + graph traversal dispatchers + SQLGraphNavigationFunction interface (original plan retained for reference)
 
