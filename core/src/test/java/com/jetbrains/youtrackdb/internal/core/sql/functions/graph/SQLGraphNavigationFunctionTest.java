@@ -69,16 +69,20 @@ public class SQLGraphNavigationFunctionTest extends DbTestBase {
   }
 
   @Test
-  public void v2eOnVertexReturnsNonNullDelegation() {
+  public void v2eOnVertexReturnsDelegatedEdgePropertyNames() {
     // Vertex types yield a non-null list (possibly empty) delegated to
-    // VertexEntityImpl.getAllPossibleEdgePropertyNames.
+    // VertexEntityImpl.getAllPossibleEdgePropertyNames. Pin the presence of
+    // a "knows"-referring entry to catch a regression where the delegation
+    // returned an empty list while the vertex schema actually has "knows"
+    // edges registered.
     var vClass = session.getMetadata().getImmutableSchemaSnapshot().getClass(
         SchemaClass.VERTEX_CLASS_NAME);
     var result = SQLGraphNavigationFunction.propertiesForV2ENavigation(
         vClass, session, Direction.OUT, new String[] {"knows"});
-    // Must be non-null. We don't pin an exact value because it depends on the
-    // edge class hierarchy; vertex-type delegation is the contract.
     assertNotNull(result);
+    assertTrue(
+        "Expected at least one candidate property name referencing 'knows'; got: " + result,
+        result.stream().anyMatch(n -> n != null && n.contains("knows")));
   }
 
   // --- propertiesForV2VNavigation -----------------------------------------
@@ -148,9 +152,12 @@ public class SQLGraphNavigationFunctionTest extends DbTestBase {
 
   @Test
   public void v2vOnVertexDelegatesToVertexEntityImpl() {
-    // Vertex types take the delegation branch. The helper must return a
-    // non-null collection regardless of direction (the result content is
-    // whatever VertexEntityImpl decides; we only pin non-null-ness).
+    // Vertex types take the delegation branch. Non-null-only was too weak —
+    // a regression that always returned the OUT list for every direction
+    // would silently pass. Pin two stronger contracts: (1) each direction
+    // yields a non-null collection, (2) OUT and IN yield distinct content
+    // (different direction → different LinkBag property names for the same
+    // label), and (3) BOTH includes every entry from both OUT and IN.
     var vClass = session.getMetadata().getImmutableSchemaSnapshot().getClass(
         SchemaClass.VERTEX_CLASS_NAME);
     var out = SQLGraphNavigationFunction.propertiesForV2VNavigation(
@@ -163,6 +170,45 @@ public class SQLGraphNavigationFunctionTest extends DbTestBase {
     assertNotNull("OUT on vertex must delegate", out);
     assertNotNull("IN on vertex must delegate", in);
     assertNotNull("BOTH on vertex must delegate", both);
+    // OUT and IN must enumerate different LinkBag properties for the same
+    // label (the underlying getAllPossibleEdgePropertyNames keys on direction).
+    assertTrue(
+        "OUT/IN candidate sets should differ for label 'knows' — got OUT=" + out + ", IN=" + in,
+        !new java.util.HashSet<>(out).equals(new java.util.HashSet<>(in)));
+    // BOTH must contain every OUT entry and every IN entry.
+    assertTrue("BOTH must contain OUT entries", both.containsAll(out));
+    assertTrue("BOTH must contain IN entries", both.containsAll(in));
+  }
+
+  @Test(expected = IllegalStateException.class)
+  public void v2vNonVertexWithNullDirectionThrowsIllegalState() {
+    // The helper's direction if/elseif chain falls through on unrecognized
+    // Direction values; the final `throw` is unreachable via the enum but
+    // documents the defensive contract. Passing null (which is neither OUT
+    // nor IN nor BOTH per object identity) exercises that throw so future
+    // refactors that remove the guard surface here.
+    SQLGraphNavigationFunction.propertiesForV2VNavigation(
+        linkDocClass, session, null, new String[] {"owner"});
+  }
+
+  @Test
+  public void v2vNonVertexEmptyLabelsReturnsEmptyList() {
+    // labels.length == 0 boundary — the method pre-sizes an ArrayList with
+    // `labels.length` (or `labels.length << 1` for BOTH) and must still
+    // return a non-null, empty collection.
+    var resultOut = SQLGraphNavigationFunction.propertiesForV2VNavigation(
+        linkDocClass, session, Direction.OUT, new String[0]);
+    var resultIn = SQLGraphNavigationFunction.propertiesForV2VNavigation(
+        linkDocClass, session, Direction.IN, new String[0]);
+    var resultBoth = SQLGraphNavigationFunction.propertiesForV2VNavigation(
+        linkDocClass, session, Direction.BOTH, new String[0]);
+
+    assertNotNull(resultOut);
+    assertNotNull(resultIn);
+    assertNotNull(resultBoth);
+    assertTrue(resultOut.isEmpty());
+    assertTrue(resultIn.isEmpty());
+    assertTrue(resultBoth.isEmpty());
   }
 
   // --- propertyNamesForIndexCandidates (dispatcher contract) --------------

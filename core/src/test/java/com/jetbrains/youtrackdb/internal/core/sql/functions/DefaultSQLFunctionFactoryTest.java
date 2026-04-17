@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.functions;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -64,6 +65,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.functions.stat.SQLFunctionStan
 import com.jetbrains.youtrackdb.internal.core.sql.functions.stat.SQLFunctionVariance;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.text.SQLFunctionConcat;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.text.SQLFunctionFormat;
+import java.util.Locale;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -150,7 +152,7 @@ public class DefaultSQLFunctionFactoryTest extends DbTestBase {
   public void allRegisteredFunctionsAreCreatable() {
     // The factory must produce a non-null SQLFunction for every advertised name.
     for (var name : ALL_NAMES) {
-      var fn = factory.createFunction(name.toLowerCase(java.util.Locale.ENGLISH), session);
+      var fn = factory.createFunction(name.toLowerCase(Locale.ENGLISH), session);
       assertNotNull("Expected registered function for name: " + name, fn);
     }
   }
@@ -161,7 +163,7 @@ public class DefaultSQLFunctionFactoryTest extends DbTestBase {
     for (var name : ALL_NAMES) {
       assertTrue(
           "Expected hasFunction=true for: " + name,
-          factory.hasFunction(name.toLowerCase(java.util.Locale.ENGLISH), session));
+          factory.hasFunction(name.toLowerCase(Locale.ENGLISH), session));
     }
   }
 
@@ -171,21 +173,31 @@ public class DefaultSQLFunctionFactoryTest extends DbTestBase {
     for (var name : ALL_NAMES) {
       assertTrue(
           "getFunctionNames should include: " + name,
-          names.contains(name.toLowerCase(java.util.Locale.ENGLISH)));
+          names.contains(name.toLowerCase(Locale.ENGLISH)));
     }
     // Sanity check — the exact count pins unintended additions/removals.
     assertEquals(ALL_NAMES.length, names.size());
   }
 
   @Test
-  public void functionNamesHaveNoDuplicates() {
-    // A duplicate entry in registerDefaultFunctions would register the same key
-    // twice and silently replace the first; assert the source list is unique.
-    var seen = new java.util.HashSet<String>();
+  public void factoryMapContainsExactlyOneEntryPerExpectedName() {
+    // A duplicate entry in registerDefaultFunctions would silently replace the
+    // first, making the production map SMALLER than ALL_NAMES.length. The
+    // prior version of this test only checked uniqueness within the test
+    // fixture (ALL_NAMES) — which catches fixture typos but cannot detect a
+    // production-side duplicate that happens to pair with a production-side
+    // omission. Here we compare directly against the live factory map: the
+    // count must match AND every expected name must key into the production
+    // map.
+    var productionMap = factory.getFunctions();
+    assertEquals(
+        "Production map size must equal ALL_NAMES.length — a duplicate registration would shrink it",
+        ALL_NAMES.length, productionMap.size());
     for (var name : ALL_NAMES) {
-      var lower = name.toLowerCase(java.util.Locale.ENGLISH);
+      var lower = name.toLowerCase(Locale.ENGLISH);
       assertTrue(
-          "Duplicate function name in registerDefaultFunctions: " + name, seen.add(lower));
+          "Production map must contain entry for: " + name,
+          productionMap.containsKey(lower));
     }
   }
 
@@ -208,8 +220,8 @@ public class DefaultSQLFunctionFactoryTest extends DbTestBase {
     assertNotNull(b);
     assertTrue(a instanceof SQLFunctionCount);
     assertTrue(b instanceof SQLFunctionCount);
-    // They must be distinct objects (a != b) because newInstance is called each time.
-    assertTrue("Class-registered functions must produce new instances each call", a != b);
+    // Distinct objects — assertNotSame pairs symmetrically with assertSame above.
+    assertNotSame("Class-registered functions must produce new instances each call", a, b);
   }
 
   @Test

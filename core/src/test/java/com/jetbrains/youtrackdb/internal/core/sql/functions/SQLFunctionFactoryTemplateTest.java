@@ -189,21 +189,25 @@ public class SQLFunctionFactoryTemplateTest extends DbTestBase {
 
   @Test
   public void createFunctionBrokenConstructorWrapsCause() {
-    // A class registered without a no-arg constructor must raise
-    // CommandExecutionException wrapping the underlying reflective error.
+    // A class registered without a no-arg constructor must raise an exception
+    // whose message names the failing function AND whose cause chain preserves
+    // the underlying reflective error. The previous, too-lax assertion accepted
+    // a null message — that disjunction was vacuous and would mask a regression
+    // that dropped the context entirely. Pin both the message AND the cause.
     var factory = new TestFactory();
     factory.register("broken", BrokenFunction.class);
 
     try {
       factory.createFunction("broken", session);
-      fail("Expected BaseException / CommandExecutionException");
+      fail("Expected BaseException wrapping the reflective failure");
     } catch (BaseException e) {
-      // BaseException.wrapException returns either the original or a wrapper —
-      // verify the message mentions the function name ("broken") so users can
-      // trace which function failed to instantiate.
+      assertNotNull("Exception message must not be null", e.getMessage());
       assertTrue(
-          "Exception message should mention the broken function name",
-          e.getMessage() == null || e.getMessage().contains("broken"));
+          "Exception message should mention the broken function name. Actual: " + e.getMessage(),
+          e.getMessage().contains("broken"));
+      // The reflective failure (NoSuchMethodException / InstantiationException)
+      // must surface via getCause so users can diagnose WHY instantiation failed.
+      assertNotNull("Wrapped cause must be preserved", e.getCause());
     }
   }
 
