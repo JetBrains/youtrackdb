@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (5/8 complete)
+- [ ] Step implementation (6/8 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -650,6 +650,201 @@
   > portion (SQLFunctionDate, SQLFunctionEncode, SQLFunctionEval,
   > SQLFunctionIndexKeySize, SQLMethodExclude/Include, SQLFunctionThrowCME,
   > SQLFunctionSequence, SQLFunctionDistance) + sequence/geo subpackages.
+
+- [x] Step 6: Misc DB-required + SQLFunctionThrowCME + SQLMethodExclude/Include + SQLFunctionEval + Sequence/Distance
+  - [x] Context: warning
+  > **What was done:** Added 116 unit tests across 9 test files (8 new, 1
+  > extended) covering the DB-required remainder of `sql/functions/misc` plus
+  > the `sequence` and `geo` subpackages.
+  > - `SQLFunctionDateTest` (15 tests, DbTestBase, new): zero-arg stored-Date
+  >   stability (assertSame), wall-clock monotonicity + 30s bound, null first
+  >   param → null, Long/Integer epoch-ms → new Date(), 1/2/3-arg string paths
+  >   with explicit UTC timezone (cross-TZ 9h delta between UTC and Asia/Tokyo),
+  >   format caching (cache is lazily set and reused across calls even if
+  >   pattern changes — second call with unmatched pattern throws
+  >   QueryParsingException with cached-pattern + bad-input message content),
+  >   getResult clears the cached format and returns null, aggregateResults
+  >   false, two instances capture distinct Dates (assertNotSame).
+  > - `SQLFunctionEncodeTest` (12 tests, DbTestBase, new): byte[] →
+  >   base64 round-trip with empty-array boundary, case-insensitive format
+  >   (BASE64/Base64/base64), non-String format via toString, RID→Blob happy
+  >   path (session.newBlob + commit + reload), RID→non-Blob returns null
+  >   (pins the `if (rec instanceof Blob)` gate), missing RID → null
+  >   (RecordNotFoundException caught), SerializableStream candidate with
+  >   test-only `FixedBytesStream`, unrecognized String candidate → null,
+  >   null candidate → null. Unknown format throws DatabaseException with
+  >   the "unknowned format :" typo pinned (WHEN-FIXED marker).
+  > - `SQLFunctionEvalTest` (10 tests, DbTestBase, new): literal arithmetic
+  >   "1 + 1" → 2, "3 * 4" → 12, String.valueOf coercion via StringBuilder,
+  >   predicate caching (first-parse-wins — second call with different
+  >   expression returns the SAME cached evaluation), division-by-zero
+  >   observed as Boolean.FALSE (NOT ArithmeticException → 0 because
+  >   SQLPredicate parses "10 / 0" as a predicate; pin this so a behavioural
+  >   change is noticed), non-EntityImpl currentResult falls back without
+  >   ClassCastException, empty-iParams CommandExecutionException gate,
+  >   metadata.
+  > - `SQLFunctionThrowCMETest` (9 tests, DbTestBase, new): happy path pins
+  >   CME fields (rid, databaseVersion, recordVersion) and message content
+  >   ("UPDATE", "#17:42"), DELETED operation produces startsWith("Cannot
+  >   DELETE the record #7:9"), negative-dbVersion wording "does not exist",
+  >   non-RID/non-Integer/Long casts trigger ClassCastException with
+  >   exact-class (not subclass) pin (WHEN-FIXED: validate types before
+  >   cast), metadata.
+  > - `SQLFunctionSequenceTest` (12 tests, DbTestBase, new): happy path
+  >   (assertSame DBSequence), unknown sequence → CEE with "Sequence not
+  >   found: DOES_NOT_EXIST", mixed-case "mySeq" still resolves (pinning
+  >   internal toUpperCase), configured SQLFilterItem "old stuff" branch
+  >   overrides iParams, configured non-FilterItem falls back to iParams,
+  >   empty configuredParameters falls back, non-String iParam via toString,
+  >   null iParam → "null" literal name, FilterItem returning null crashes
+  >   with NullPointerException (latent bug — ConcurrentHashMap.get(null)
+  >   from SequenceLibraryImpl fires BEFORE the intended CEE; WHEN-FIXED
+  >   marker), metadata.
+  > - `SQLFunctionDistanceTest` (14 tests, DbTestBase, new): identical
+  >   points → 0km, London→Paris ≈343.5km Haversine reference (2km
+  >   tolerance), symmetry (a→b == b→a), km multiplier no-op matches 4-arg,
+  >   mi multiplier 0.621371192, nmi multiplier 0.539956803, case-insensitive
+  >   unit matching (KM/Mi/NMI), unknown unit throws IAE with exact message,
+  >   null coordinates in each of 4 positions → null short-circuit, Integer
+  >   (0,0,0,0) and Long (0,0,45,90) inputs coerced via PropertyTypeInternal,
+  >   StringBuilder unit toString, metadata.
+  > - `SQLMethodExcludeTest` (18 tests, DbTestBase, new): null iThis → null,
+  >   unrecognised (non-Entity/Map/MultiValue) → null, literal field removal,
+  >   multi-field removal, non-existent field no-op, empty iParams → full
+  >   copy, null field name skipped (iFieldName != null guard), "prefix*"
+  >   wildcard removes matching, single-star "*" removes all, RID load +
+  >   exclude (commit + reopen + load), missing RID → null, Result →
+  >   asEntity + exclude, Map iThis literal + wildcard, multi-value
+  >   Identifiable list + exclude from each, missing RID inside multi-value
+  >   silently dropped, non-Identifiable multi-value entries skipped,
+  >   metadata.
+  > - `SQLMethodIncludeTest` (17 tests, DbTestBase, new): null iParams[0] →
+  >   null (DIFFERENT from Exclude which tests iThis==null), unrecognised
+  >   iThis → null, literal include, multi-include, non-existent field →
+  >   null property, null-name-in-list skipped (note: iParams[0] must be
+  >   non-null for outer guard), wildcard-key quirk pin ("addr_*" matches
+  >   store under literal "addr_*" key, NOT under original property names —
+  >   latent bug, WHEN-FIXED marker), Identifiable load + include, missing
+  >   RID → null, Result → asEntityOrNull + include, Map literal + wildcard
+  >   (same quirk), empty field name ("") boundary, multi-value list + each
+  >   included, missing RID inside multi-value skipped, non-Identifiable
+  >   skipped, metadata.
+  > - `SQLFunctionIndexKeySizeTest` (9 tests, DbTestBase, extended): the
+  >   existing SQL-parser happy path retained; added direct-call unique
+  >   index (3 distinct keys), non-unique index with duplicates (distinct
+  >   count only), empty index → 0L boundary, empty-string name → null,
+  >   unknown index → null, null input (String.valueOf → "null") → null,
+  >   non-String via String.valueOf coercion, metadata. Direct-call tests
+  >   open a local begin/rollback because `index.stream(session)` requires
+  >   an active transaction.
+  >
+  > No production code was modified. All tests use the AbstractSQLMethod
+  > `execute(iThis, iCurrentRecord, iContext, ioResult, iParams)` signature
+  > (context 3rd, NOT 5th) for SQLMethod* classes, per Track 6 convention.
+  >
+  > **What was discovered:**
+  > - **Schema changes are not transactional** (confirmed again from Step 2).
+  >   Tests that need schema classes must create them BEFORE `session.begin()`
+  >   — otherwise "Cannot change the schema while a transaction is active"
+  >   fires. Pattern locked in the `@Before setUp()` of every new DbTestBase
+  >   test in Step 6.
+  > - **`index.stream(session)` in SQLFunctionIndexKeySize requires an
+  >   active transaction** (`session.getActiveTransaction()` is called from
+  >   `IndexOneValue.stream`). Direct-call tests must wrap in a local
+  >   begin/rollback. Only the `unknown index` and `null input` paths are
+  >   tx-free because they short-circuit before calling `.stream()`.
+  > - **`SequenceLibraryImpl.getSequence(null)` throws NullPointerException**
+  >   (from `ConcurrentHashMap.get(null)`) rather than returning null. A
+  >   FilterItem that yields null therefore crashes the function with a
+  >   naked NPE, never reaching the `CommandExecutionException("Sequence
+  >   not found: null")` branch. Latent bug — pinned with WHEN-FIXED marker.
+  > - **SQLPredicate evaluates "10 / 0" as Boolean.FALSE, not an arithmetic
+  >   expression** — the predicate treats binary operators as boolean
+  >   conditions. This means the `catch (ArithmeticException) return 0;`
+  >   branch of SQLFunctionEval is effectively unreachable from public SQL
+  >   inputs. Test pins the observed Boolean.FALSE contract; a refactor
+  >   that routes to the catch would fail this test and flag the behavioural
+  >   change.
+  > - **SQLFunctionEval's `new SQLPredicate(...)` is outside its try-catch**,
+  >   so SQLPredicate constructor parse errors propagate rather than being
+  >   swallowed to null by the generic `catch (Exception)`. We don't test
+  >   this directly because deliberately malformed inputs often parse
+  >   cleanly; the production contract ("parse errors propagate") is
+  >   documented in the class-level Javadoc.
+  > - **SQLFunctionDate's format cache has no per-pattern key** — once set,
+  >   the cached SimpleDateFormat is reused for all subsequent inputs.
+  >   Feeding a second call with a mismatching pattern throws
+  >   QueryParsingException (wrapped from a ParseException on the cached
+  >   format). `getResult()` is the only reset mechanism.
+  > - **SQLMethodInclude's wildcard-key branch stores every match under the
+  >   wildcard string** (`result.setProperty(fieldName, ...)` where
+  >   `fieldName` is e.g. `"addr_*"`) instead of the matched property name.
+  >   All matches overwrite the same key, keeping only the last iteration's
+  >   value. Latent bug — pinned with WHEN-FIXED marker in both the
+  >   EntityImpl and Map paths.
+  > - **SQLFunctionThrowCME's `(RecordIdInternal) iParams[0]` and
+  >   `(int) iParams[1]/[2]/[3]` casts have no type validation** — a non-RID
+  >   first param or non-Integer db/record/operation param crashes with
+  >   ClassCastException rather than a helpful CommandExecutionException.
+  >   WHEN-FIXED markers pin all three casts.
+  > - **SQLFunctionEncode's unknown-format DatabaseException has the typo
+  >   "unknowned format :"** (should be "unknown format:"). WHEN-FIXED
+  >   marker pins the typo verbatim.
+  >
+  > **What changed from the plan:**
+  > - The review-fix pass removed two weak/misnamed tests and replaced them
+  >   with tighter contract pins:
+  >   * `arithmeticDivisionExpressionDoesNotThrow` (vacuous any-type check)
+  >     → `divisionByZeroExpressionIsSwallowedToBooleanOrNumber` with
+  >     `assertEquals(Boolean.FALSE, result)`.
+  >   * `currentResultEntityImplIsPassedToPredicate` (name contradicted what
+  >     the test actually exercised — the FALSE branch of instanceof) →
+  >     `currentResultNonEntityImplFallsBackWithoutClassCast`.
+  > - The review-fix also added 5 missing tests: `zeroArgIsClose_To…` was
+  >   renamed for Java convention AND gained a monotonicity check;
+  >   `sequenceLookupAcceptsMixedCaseName` replaced a duplicate that passed
+  >   uppercase input; `configuredSqlFilterItemReturningNull…` surfaced the
+  >   NPE latent bug; `nullCandidateFirstParamReturnsNull` for Encode;
+  >   `emptyIndexReturnsZero` / `emptyStringIndexNameReturnsNull` for
+  >   IndexKeySize; `emptyParamsReturnsFullCopy` for Exclude.
+  > - Deferred (low-value or cross-track micro-refactors carried to
+  >   Track 22):
+  >   * Helper extraction `call(Object...)` across Distance/Eval/Date
+  >     (CQ2/CQ3).
+  >   * Abstract base for SQLMethodExclude/Include shared fixtures
+  >     (CQ5/TS4).
+  >   * `rollbackIfLeftOpen` helper hoisted into DbTestBase (TS5).
+  >   * Valid cluster-id usage in missing-RID tests (BC4 — current
+  >     RecordId(999,999) works but is engine-dependent).
+  >   * Targeted Eval catch-branch coverage via reflection/mocking (TC1).
+  >   * Blob-in-multivalue CCE pin for Exclude (TC3 — low value).
+  >   * Antipodal + null-unit distance tests (TC4 — low value).
+  >
+  > **Key files:**
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/misc/SQLFunctionDateTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/misc/SQLFunctionEncodeTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/misc/SQLFunctionThrowCMETest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/misc/SQLMethodExcludeTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/misc/SQLMethodIncludeTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/misc/SQLFunctionIndexKeySizeTest.java` (modified)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/math/SQLFunctionEvalTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/sequence/SQLFunctionSequenceTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/functions/geo/SQLFunctionDistanceTest.java` (new)
+  >
+  > **Critical context:** Dimensional review (5 agents — code-quality,
+  > bugs-concurrency, test-behavior, test-completeness, test-structure) ran
+  > one iteration, surfaced 0 blockers and ~20 should-fix/suggestion items.
+  > Applied the high-value should-fix set in the Review-fix commit
+  > (misleading names, vacuous assertions, dead placeholders, tightened
+  > exception-class pins, added missing boundary/null tests). Iteration 2
+  > (gate check) skipped because the context window reached `warning` (33%)
+  > after Iteration 1. Cross-track impact: CONTINUE — all discoveries
+  > localised to Track 6 classes (SQLFunctionSequence NPE-vs-CEE contract
+  > mismatch, SQLMethodInclude wildcard-key bug, SQLFunctionThrowCME
+  > unchecked casts, SQLFunctionEncode typo, SQLFunctionEval catch-branch
+  > unreachability). No upstream assumptions broken for Steps 7-8. Steps
+  > 7-8 target sql/functions/math accumulators and sql/functions/text +
+  > conversion SQLMethod*, respectively, which are independent surfaces.
 
 ### Step 1: Factory infrastructure + graph traversal dispatchers + SQLGraphNavigationFunction interface (original plan retained for reference)
 
