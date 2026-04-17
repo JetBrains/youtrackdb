@@ -89,8 +89,10 @@ public class SQLFunctionDateTest extends DbTestBase {
   @Test
   public void zeroArgIsCloseToWallClockTime() {
     // The stored Date is within 30 seconds of wall-clock time, verifying it actually uses
-    // System.currentTimeMillis under the hood (rather than e.g. an epoch-0 constant). Also pin
-    // monotonicity: the stored Date is captured AFTER `now`, so the difference must be >= 0.
+    // System.currentTimeMillis under the hood (rather than e.g. an epoch-0 constant).
+    // System.currentTimeMillis is NOT guaranteed to be monotonic across NTP corrections, VM
+    // migrations, or leap-second smoothing, so allow a small negative tolerance instead of
+    // asserting strict monotonicity (BC4).
     var now = System.currentTimeMillis();
     var function = new SQLFunctionDate();
 
@@ -98,8 +100,9 @@ public class SQLFunctionDateTest extends DbTestBase {
 
     assertNotNull(result);
     var delta = result.getTime() - now;
-    assertTrue("stored Date must be captured AFTER the baseline, was " + delta + " ms",
-        delta >= 0);
+    assertTrue(
+        "stored Date must be at most 1s before baseline (NTP tolerance), was " + delta + " ms",
+        delta >= -1_000);
     assertTrue("stored Date must be within 30s of wall-clock, was " + delta + " ms",
         delta < 30_000);
   }
@@ -187,14 +190,21 @@ public class SQLFunctionDateTest extends DbTestBase {
   @Test
   public void twoArgStringPathUsesProvidedFormatAndDbTimezone() throws Exception {
     // Without an explicit timezone, format.setTimeZone is set to DateHelper.getDatabaseTimeZone.
-    // We don't assert the exact DB timezone (environment-dependent) — just that a non-null
-    // Date is produced and the round-trip via the SAME format+DB-TZ matches.
+    // We don't know the exact DB timezone at test time, but we can prove the produced Date
+    // round-trips losslessly through the SAME format + DB timezone — this would fail if the
+    // function returned an arbitrary epoch-0 Date or used a different TZ than it claimed (TB2).
     var function = new SQLFunctionDate();
+    var pattern = "yyyy-MM-dd HH:mm:ss";
 
     var result = (Date) function.execute(null, null, null,
-        new Object[] {"2024-06-15 13:45:30", "yyyy-MM-dd HH:mm:ss"}, ctx());
+        new Object[] {"2024-06-15 13:45:30", pattern}, ctx());
 
     assertNotNull(result);
+    var roundTrip = new SimpleDateFormat(pattern);
+    roundTrip.setTimeZone(
+        com.jetbrains.youtrackdb.internal.core.util.DateHelper.getDatabaseTimeZone(session));
+    assertEquals("round-trip via the DB timezone must reproduce the input string",
+        "2024-06-15 13:45:30", roundTrip.format(result));
   }
 
   // ---------------------------------------------------------------------------
@@ -212,6 +222,14 @@ public class SQLFunctionDateTest extends DbTestBase {
 
     assertNotNull("1-arg string path should parse using DB default datetime format", result);
     assertTrue(result instanceof Date);
+    // Round-trip via the same DB datetime format must reproduce the input string —
+    // assertNotNull alone would silently accept an epoch-0 Date or a wrong-format parse (TB2).
+    var dbFormat =
+        com.jetbrains.youtrackdb.internal.core.util.DateHelper.getDateTimeFormatInstance(session);
+    assertEquals(
+        "1-arg path must parse via the configured DB datetime format",
+        "2024-06-15 13:45:30",
+        dbFormat.format((Date) result));
   }
 
   // ---------------------------------------------------------------------------

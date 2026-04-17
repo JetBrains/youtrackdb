@@ -214,15 +214,22 @@ public class SQLGraphNavigationFunctionTest extends DbTestBase {
   // --- propertyNamesForIndexCandidates (dispatcher contract) --------------
 
   @Test
-  public void outFunctionForVertexReturnsNonNullCandidates() {
+  public void outFunctionForVertexReturnsCandidatesReferencingTheRequestedLabel() {
     // Propagating the dispatcher contract: SQLFunctionOut's candidates come
-    // from the V2V helper — for a vertex, the helper delegates.
+    // from the V2V helper — for a vertex, the helper delegates and returns
+    // the LinkBag property name(s) that reference the requested edge label.
+    // assertNotNull alone would silently accept an empty list, a list with
+    // the wrong property name, or a list of nulls — pin the actual contract
+    // by requiring at least one candidate that contains the "knows" label.
     var fn = new SQLFunctionOut();
     var vClass = session.getMetadata().getImmutableSchemaSnapshot().getClass(
         SchemaClass.VERTEX_CLASS_NAME);
     var candidates = fn.propertyNamesForIndexCandidates(
         new String[] {"knows"}, vClass, false, session);
     assertNotNull(candidates);
+    assertTrue(
+        "Expected a candidate referencing 'knows'; got: " + candidates,
+        candidates.stream().anyMatch(n -> n != null && n.contains("knows")));
   }
 
   @Test

@@ -218,7 +218,11 @@ public class SQLMethodToJSONTest extends DbTestBase {
 
   @Test
   public void mapReturnsMapToJson() {
-    // Use LinkedHashMap to preserve key order so we can assert the exact serialised form.
+    // Use LinkedHashMap to preserve key order so we can pin the exact serialised form.
+    // The previous form asserted only that the result contained "k1" and "42" — that would
+    // also accept e.g. {"k1":"v1","k2":"v1","k3":"v1","k4":42} or any garbled output that
+    // happened to contain both tokens. Pinning the full JSON rules out value swaps and
+    // missing/extra keys (TB10).
     var map = new LinkedHashMap<String, Object>();
     map.put("k1", "v1");
     map.put("k2", 42);
@@ -226,8 +230,7 @@ public class SQLMethodToJSONTest extends DbTestBase {
     var result = (String) method().execute(map, null, ctx(), null, new Object[] {});
 
     assertNotNull(result);
-    assertTrue("result must mention k1/v1: " + result, result.contains("\"k1\""));
-    assertTrue("result must mention numeric value: " + result, result.contains("42"));
+    assertEquals("{\"k1\":\"v1\",\"k2\":42}", result);
   }
 
   // ---------------------------------------------------------------------------

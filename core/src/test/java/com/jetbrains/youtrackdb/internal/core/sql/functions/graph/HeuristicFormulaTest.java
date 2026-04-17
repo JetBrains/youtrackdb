@@ -309,13 +309,19 @@ public class HeuristicFormulaTest {
         "tieBreakRandom produced out-of-expected-range value: " + result,
         result >= 3.0 && result < 4.0);
 
-    // Two calls with identical inputs must differ whenever rnd.nextFloat() is actually drawn
-    // on each invocation. Catches a regression where the random term is cached or stubbed
-    // out. Probability of two floats being equal by chance is ~2^-24 so failures are
-    // effectively impossible.
-    double call1 = h.tieBreakRandom(2.0, 3.0, 0.0, 0.0, 4.0, 5.0, 1.0);
-    double call2 = h.tieBreakRandom(2.0, 3.0, 0.0, 0.0, 4.0, 5.0, 1.0);
-    assertNotEquals(call1, call2, EPS);
+    // Repeated calls with identical inputs must produce more than one distinct value when
+    // rnd.nextFloat() is actually drawn on each invocation. The previous form compared just
+    // two consecutive draws and had a 1-in-2^24 flake risk under sustained CI. Drawing 10
+    // samples drives the false-fail probability to (1/2^24)^9 ≈ 10^-65 while still catching a
+    // regression where the random term is cached or stubbed out (BC3).
+    var samples = new java.util.HashSet<Double>();
+    for (int i = 0; i < 10; i++) {
+      samples.add(h.tieBreakRandom(2.0, 3.0, 0.0, 0.0, 4.0, 5.0, 1.0));
+    }
+    assertTrue(
+        "tieBreakRandom must draw a new random sample per call; saw only " + samples.size()
+            + " distinct values across 10 calls",
+        samples.size() >= 2);
 
     // With heuristic=0.0 the multiplicative term is zero regardless of randomness.
     assertEquals(0.0, h.tieBreakRandom(2.0, 3.0, 0.0, 0.0, 4.0, 5.0, 0.0), EPS);
