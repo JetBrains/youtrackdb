@@ -29,7 +29,7 @@ This module ships **five bespoke workloads**: `B`, `C`, `E`, `W`, `I`. Names `B`
 
 All workloads share the parameters in [`workloads/workload-common.properties`](workloads/workload-common.properties):
 
-- `recordcount=3500000` (~3.5M records, ~3.5 GB on disk with indexes)
+- `recordcount=3500000` (~3.5M records, ~3.5 GB on disk with indexes — approximate)
 - `operationcount=1000000` (1M ops per run)
 - `fieldcount=10`, `fieldlength=100` (standard YCSB schema — 10 string fields × 100 bytes)
 - `table=usertable`
@@ -38,6 +38,8 @@ All workloads share the parameters in [`workloads/workload-common.properties`](w
 - `hdrhistogram.percentiles=50,95,99,99.9`
 
 Override any of these from the CLI with `-p <key>=<value>` (or via `run-ycsb.sh` flags for the common ones).
+
+> Note: all four configured percentiles (including p99.9) are present in the raw pass-2 text output; only p50/p95/p99 are rolled up into `summary.json`.
 
 ## Two-pass execution model
 
@@ -52,7 +54,7 @@ For each workload, `run-ycsb.sh` runs **two passes**, restoring the database fro
 
 - **JDK 21+**
 - **~7 GB free disk** for the default dataset (~3.5 GB DB + same-size snapshot; approximate).
-- **POSIX shell** (`bash`) — for `run-ycsb.sh`.
+- **Bash 4+** — `run-ycsb.sh` uses `set -euo pipefail`, `BASH_SOURCE`, and arrays.
 - No external services — YouTrackDB runs embedded inside the benchmark JVM.
 
 ## Quick Start
@@ -90,7 +92,7 @@ Run `./ycsb/run-ycsb.sh --help` to see the complete flag list. Defaults:
 | `--db-path` | `$RESULTS_DIR/ytdb-data` | Database directory. The snapshot is always placed at `<db-path>-snapshot`. |
 | `--results-dir` | `./ycsb-results` | Output directory (created if missing). Also holds the DB + snapshot by default. |
 | `--skip-build` | *off* | Skip the Maven build. The uber-jar must already exist at `ycsb/target/youtrackdb-ycsb-*.jar`. |
-| `--skip-load` | *off* | Skip the data-load phase. A snapshot must already exist at `<db-path>-snapshot`. |
+| `--skip-load` | *off* | Skip the data-load phase. A snapshot must already exist at `<db-path>-snapshot`. Note that every workload pass still restores `$DB_PATH` from the snapshot — the snapshot is the source of truth, and whatever lives at `$DB_PATH` when the script starts is overwritten. |
 | `--help` | — | Show usage. |
 
 Full-run example:
@@ -99,7 +101,7 @@ Full-run example:
 ./ycsb/run-ycsb.sh --threads 8 --heap 8g --throughput-ratio 0.7 --results-dir /data/ycsb-results
 ```
 
-> **Warning**: do not run two instances against the same `--results-dir` / `--db-path` concurrently — pass distinct paths for parallel runs.
+> **Warning**: do not run two instances concurrently unless **both** `--results-dir` *and* `--db-path` are distinct between them. The per-pass `restore_snapshot` step `rm -rf`s `$DB_PATH` and re-copies from the snapshot; if two runs share either path, one will corrupt the other. Note that by default `--db-path` lives inside `--results-dir` (`$RESULTS_DIR/ytdb-data`), so distinct `--results-dir` values alone are sufficient — but any explicit `--db-path` override must also be distinct.
 
 ### 2. Full repo build
 
@@ -121,8 +123,13 @@ For CI hand-wiring or running outside the script, build the uber-jar directly:
 
 Then launch it with the required JVM flags. The uber-jar main class is `com.jetbrains.youtrackdb.ycsb.Client`, the workload class is `com.jetbrains.youtrackdb.ycsb.workloads.CoreWorkload`, and the driver class is `com.jetbrains.youtrackdb.ycsb.binding.YouTrackDBYqlClient`. All three are already referenced in `workloads/workload-common.properties`.
 
+Run the commands below **from the repo root**. The `-jar` argument is a shell glob that must match exactly one file; the build produces a single shaded jar named `youtrackdb-ycsb-<version>.jar` alongside an `original-*.jar` (filtered out by the glob below). If you have also built sources or javadoc jars, substitute the full versioned filename.
+
 ```bash
-# Required --add-opens flags (keep in sync with run-ycsb.sh:26-39 / ycsb/pom.xml:171-182)
+# Required --add-opens flags.
+# Keep in sync with the JVM_ADD_OPENS array in ycsb/run-ycsb.sh and the
+# <argLine> in ycsb/pom.xml. All flags below are required — omitting any of
+# them causes InaccessibleObjectException at startup.
 ADD_OPENS=(
   --add-opens=jdk.unsupported/sun.misc=ALL-UNNAMED
   --add-opens=java.base/sun.security.x509=ALL-UNNAMED
@@ -138,14 +145,18 @@ ADD_OPENS=(
   --add-opens=java.base/java.net=ALL-UNNAMED
 )
 
-# Load phase (leaves ytdb.newdb at its default true — fresh DB)
+# Load phase — leaves ytdb.newdb at its default `true` (fresh DB).
+# NOTE: without a `-p recordcount=N` override, this loads the 3.5M-record
+# default from workload-common.properties. Set `-p recordcount=...` and
+# `-p operationcount=...` to match the scale you want.
 java "${ADD_OPENS[@]}" -Xms4g -Xmx4g \
   -jar ycsb/target/youtrackdb-ycsb-*.jar \
   -load \
   -P ycsb/workloads/workload-common.properties \
   -P ycsb/workloads/workload-B.properties \
   -threads 8 \
-  -p ytdb.url=./my-db
+  -p ytdb.url=./my-db \
+  -p recordcount=100000
 
 # Run phase — MUST pass ytdb.newdb=false, otherwise the driver drops and
 # recreates the DB on init, destroying the loaded data.
@@ -156,10 +167,9 @@ java "${ADD_OPENS[@]}" -Xms4g -Xmx4g \
   -P ycsb/workloads/workload-B.properties \
   -threads 8 \
   -p ytdb.url=./my-db \
-  -p ytdb.newdb=false
+  -p ytdb.newdb=false \
+  -p operationcount=10000
 ```
-
-Omitting any of the 12 `--add-opens` flags causes `InaccessibleObjectException` at startup.
 
 ## Configuration
 
