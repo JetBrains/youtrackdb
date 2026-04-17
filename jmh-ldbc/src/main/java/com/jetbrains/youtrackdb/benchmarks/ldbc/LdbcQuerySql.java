@@ -36,6 +36,15 @@ final class LdbcQuerySql {
   static final String IC12 = loadResource("ldbc-queries/IC12.sql");
   static final String IC13 = loadResource("ldbc-queries/IC13.sql");
 
+  // -- Extension queries (not part of LDBC standard) --
+
+  /**
+   * Recent KNOWS connections via bothE — targets the bidirectional pre-filter
+   * optimization introduced with {@code PreFilterableChainedIterable}.
+   * Requires {@code KNOWS.creationDate} index (added to {@code ldbc-schema.sql}).
+   */
+  static final String BOTH_E_KNOWS = loadResource("ldbc-queries/both-e-knows.sql");
+
   private LdbcQuerySql() {
   }
 
