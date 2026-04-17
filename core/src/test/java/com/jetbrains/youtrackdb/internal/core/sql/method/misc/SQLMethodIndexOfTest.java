@@ -12,6 +12,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.method.misc;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.fail;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -89,5 +90,17 @@ public class SQLMethodIndexOfTest {
     // String.indexOf accepts negative indexes as 0.
     assertEquals(Integer.valueOf(0),
         method.execute("foobar", null, null, null, new Object[] {"foo", -5}));
+  }
+
+  @Test
+  public void nullFirstParamThrowsNpe() {
+    // Production: iParams[0].toString() is called unconditionally. Pin the current
+    // unchecked-NPE behaviour so a future guard shift is detected.
+    try {
+      method.execute("foobar", null, null, null, new Object[] {null});
+      fail("Expected NullPointerException — no null-guard on iParams[0]");
+    } catch (NullPointerException expected) {
+      // expected
+    }
   }
 }

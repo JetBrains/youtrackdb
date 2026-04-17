@@ -14,6 +14,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.fail;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -76,6 +78,41 @@ public class SQLMethodAsIntegerTest {
     try {
       method.execute(null, null, null, "abc", null);
       fail("Expected NumberFormatException");
+    } catch (NumberFormatException expected) {
+      // expected
+    }
+  }
+
+  @Test
+  public void bigDecimalTruncatedViaIntValue() {
+    // BigDecimal is a Number — intValue() truncates both the fractional part and any
+    // magnitude beyond 32 bits.
+    assertEquals(Integer.valueOf(3),
+        method.execute(null, null, null, new BigDecimal("3.9"), null));
+    assertEquals(Integer.valueOf(-3),
+        method.execute(null, null, null, new BigDecimal("-3.9"), null));
+  }
+
+  @Test
+  public void bigIntegerAt2To32WrapsToZero() {
+    // BigInteger.intValue() takes only the low 32 bits. 2^32 → 0.
+    var bi = BigInteger.ONE.shiftLeft(32);
+    assertEquals(Integer.valueOf(0), method.execute(null, null, null, bi, null));
+  }
+
+  @Test
+  public void integerBoundariesParsedFromString() {
+    assertEquals(Integer.valueOf(Integer.MAX_VALUE),
+        method.execute(null, null, null, String.valueOf(Integer.MAX_VALUE), null));
+    assertEquals(Integer.valueOf(Integer.MIN_VALUE),
+        method.execute(null, null, null, String.valueOf(Integer.MIN_VALUE), null));
+  }
+
+  @Test
+  public void whitespaceOnlyStringThrowsNumberFormatException() {
+    try {
+      method.execute(null, null, null, "   ", null);
+      fail("Expected NumberFormatException for whitespace-only string");
     } catch (NumberFormatException expected) {
       // expected
     }

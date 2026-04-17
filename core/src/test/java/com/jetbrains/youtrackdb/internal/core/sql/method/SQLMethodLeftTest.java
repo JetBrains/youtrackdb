@@ -96,4 +96,21 @@ public class SQLMethodLeftTest {
     // iThis is toString'd before substring — numbers work.
     assertEquals("12", method.execute(12345, null, null, null, new Object[] {2}));
   }
+
+  @Test
+  public void surrogatePairCleanSlicing() {
+    // U+1F600 (emoji) is two UTF-16 code units; left(s, 2) captures the full emoji.
+    var s = "\uD83D\uDE00X"; // 😀 followed by X — String.length() = 3
+    assertEquals("\uD83D\uDE00",
+        method.execute(s, null, null, null, new Object[] {2}));
+  }
+
+  @Test
+  public void surrogatePairSplitLeavesLoneHighSurrogate() {
+    // When left(s, 1) falls between the two surrogate halves, the result is a lone
+    // high surrogate — an invalid UTF-16 char. Pin current substring() behaviour.
+    var s = "\uD83D\uDE00X";
+    assertEquals("\uD83D",
+        method.execute(s, null, null, null, new Object[] {1}));
+  }
 }

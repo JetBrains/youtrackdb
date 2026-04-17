@@ -11,6 +11,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.method.misc;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.fail;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -68,5 +69,29 @@ public class SQLMethodLastIndexOfTest {
     // Java contract: "abc".lastIndexOf("") == 3 (length of the string).
     assertEquals(Integer.valueOf(3),
         method.execute("abc", null, null, null, new Object[] {""}));
+  }
+
+  @Test
+  public void nullThisThrowsNpeDueToMissingGuard() {
+    // WHEN-FIXED: SQLMethodLastIndexOf lacks the null-iThis guard that its sibling
+    // SQLMethodIndexOf has (see SQLMethodIndexOf.execute return-ternary). The asymmetry
+    // is a latent bug. When the symmetric guard is added, replace with assertNull.
+    try {
+      method.execute(null, null, null, null, new Object[] {"a"});
+      fail("Expected NullPointerException — SQLMethodLastIndexOf does not null-guard iThis");
+    } catch (NullPointerException expected) {
+      // expected
+    }
+  }
+
+  @Test
+  public void nullFirstParamThrowsNpe() {
+    // iParams[0].toString() is called unconditionally — null first param NPEs.
+    try {
+      method.execute("foobar", null, null, null, new Object[] {null});
+      fail("Expected NullPointerException — no null-guard on iParams[0]");
+    } catch (NullPointerException expected) {
+      // expected
+    }
   }
 }

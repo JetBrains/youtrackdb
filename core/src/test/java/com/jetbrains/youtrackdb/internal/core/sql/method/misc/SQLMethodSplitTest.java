@@ -72,9 +72,34 @@ public class SQLMethodSplitTest {
   }
 
   @Test
-  public void numberInputToStringThenSplit() {
-    // Non-String iThis is toString'd before split.
+  public void nonStringIThisToStringedThenSplit() {
+    // Non-String iThis is toString'd before split — a StringBuilder hits the non-String path.
+    var sb = new StringBuilder("1-2-3");
     assertEquals(List.of("1", "2", "3"),
-        method.execute("1-2-3", null, null, null, new Object[] {"-"}));
+        method.execute(sb, null, null, null, new Object[] {"-"}));
+  }
+
+  @Test
+  public void emptyStringIThisReturnsSingletonEmpty() {
+    // Java contract: "".split(",") yields [""] (a single empty element).
+    assertEquals(List.of(""), method.execute("", null, null, null, new Object[] {","}));
+  }
+
+  @Test
+  public void emptyDelimiterSplitsEveryCharacter() {
+    // "abc".split("") yields ["a", "b", "c"] — zero-width regex matches between every char.
+    assertEquals(List.of("a", "b", "c"),
+        method.execute("abc", null, null, null, new Object[] {""}));
+  }
+
+  @Test
+  public void invalidRegexDelimiterThrowsPatternSyntaxException() {
+    // The delimiter is treated as a regex; a bracket without its pair is malformed.
+    try {
+      method.execute("abc", null, null, null, new Object[] {"["});
+      throw new AssertionError("Expected PatternSyntaxException for unbalanced bracket regex");
+    } catch (java.util.regex.PatternSyntaxException expected) {
+      // expected — surfaces from String.split's compiler.
+    }
   }
 }

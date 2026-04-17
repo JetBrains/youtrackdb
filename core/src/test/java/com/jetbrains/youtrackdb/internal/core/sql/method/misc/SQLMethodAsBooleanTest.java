@@ -11,10 +11,8 @@
 package com.jetbrains.youtrackdb.internal.core.sql.method.misc;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
-import static org.junit.Assert.assertTrue;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -79,8 +77,29 @@ public class SQLMethodAsBooleanTest {
 
   @Test
   public void booleanInputPassedThroughUnchanged() {
-    // Boolean is not a Number nor String, so the method returns it unchanged.
-    assertTrue((Boolean) method.execute(null, null, null, Boolean.TRUE, null));
-    assertFalse((Boolean) method.execute(null, null, null, Boolean.FALSE, null));
+    // Boolean is not a Number nor String, so the method returns the SAME reference unchanged.
+    // assertSame pins the identity-branch (no allocation of a fresh Boolean).
+    assertSame(Boolean.TRUE, method.execute(null, null, null, Boolean.TRUE, null));
+    assertSame(Boolean.FALSE, method.execute(null, null, null, Boolean.FALSE, null));
+  }
+
+  @Test
+  public void bigDecimalZeroAndFractionalLessThanOneAreFalse() {
+    // BigDecimal is a Number — intValue() truncates. BigDecimal.ZERO → 0 → false.
+    // BigDecimal("0.99") → intValue=0 → false (surprising to callers expecting 0.99 → true).
+    assertEquals(Boolean.FALSE,
+        method.execute(null, null, null, java.math.BigDecimal.ZERO, null));
+    assertEquals(Boolean.FALSE,
+        method.execute(null, null, null, new java.math.BigDecimal("0.99"), null));
+    assertEquals(Boolean.TRUE,
+        method.execute(null, null, null, new java.math.BigDecimal("1.01"), null));
+  }
+
+  @Test
+  public void stringWithInnerWhitespaceTrimmedButStillNotTrue() {
+    // Boolean.valueOf("true extra") → false. The trim only strips leading/trailing whitespace;
+    // any trailing non-whitespace chars after "true" invalidate the match.
+    assertEquals(Boolean.FALSE,
+        method.execute(null, null, null, " true extra ", null));
   }
 }

@@ -11,13 +11,13 @@
 package com.jetbrains.youtrackdb.internal.core.sql.method.misc;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.UUID;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -81,14 +81,22 @@ public class SQLMethodTypeTest {
 
   @Test
   public void collectionReturnsEmbeddedListType() {
-    var result = method.execute(null, null, null, new ArrayList<>(), null);
-    assertNotNull(result);
-    assertEquals(PropertyTypeInternal.EMBEDDEDLIST.toString(), result);
+    // assertEquals on the result suffices — no separate assertNotNull needed.
+    assertEquals(PropertyTypeInternal.EMBEDDEDLIST.toString(),
+        method.execute(null, null, null, new ArrayList<>(), null));
   }
 
   @Test
   public void mapReturnsEmbeddedMapType() {
     assertEquals(PropertyTypeInternal.EMBEDDEDMAP.toString(),
         method.execute(null, null, null, new HashMap<>(), null));
+  }
+
+  @Test
+  public void unknownTypeReturnsNull() {
+    // PropertyTypeInternal.getTypeByValue returns null for values it cannot classify
+    // (UUID has no property-type mapping). The method returns null for the (t == null) branch
+    // — the one path where a non-null input yields null output.
+    assertNull(method.execute(null, null, null, UUID.randomUUID(), null));
   }
 }

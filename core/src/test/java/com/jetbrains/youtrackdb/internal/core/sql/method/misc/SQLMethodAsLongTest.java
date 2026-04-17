@@ -14,6 +14,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.fail;
 
+import java.math.BigInteger;
 import java.util.Date;
 import org.junit.Before;
 import org.junit.Test;
@@ -72,5 +73,20 @@ public class SQLMethodAsLongTest {
     } catch (NumberFormatException expected) {
       // expected
     }
+  }
+
+  @Test
+  public void bigIntegerAt2To64WrapsToZero() {
+    // BigInteger.longValue() takes only the low 64 bits. 2^64 → 0.
+    var bi = BigInteger.ONE.shiftLeft(64);
+    assertEquals(Long.valueOf(0L), method.execute(null, null, null, bi, null));
+  }
+
+  @Test
+  public void charSequenceFallbackToStringParsed() {
+    // A non-String non-Number non-Date object exercises the toString().trim() fallback.
+    // StringBuilder's toString returns its buffer — drives the Long.valueOf path.
+    assertEquals(Long.valueOf(42L),
+        method.execute(null, null, null, new StringBuilder("  42  "), null));
   }
 }
