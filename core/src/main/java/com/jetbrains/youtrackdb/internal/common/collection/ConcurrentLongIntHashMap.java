@@ -251,11 +251,12 @@ public class ConcurrentLongIntHashMap<V> {
 
   /**
    * Drains every entry from the map, invoking {@code consumer} for each removed value. After this
-   * method returns, the map is empty and each section's capacity has been reset to the default
-   * minimum (so the large arrays accumulated during normal operation are released).
+   * method returns, the map is empty and each section's capacity has been reset to the capacity
+   * it was originally constructed with — releasing the large arrays accumulated during normal
+   * operation without forcing a rehash chain if the map is refilled later.
    *
    * <p>Each section is drained under its own write lock, with collected values copied into a
-   * temporary array. The lock is released <b>before</b> the consumer is invoked, so callbacks may
+   * temporary list. The lock is released <b>before</b> the consumer is invoked, so callbacks may
    * re-enter the map (matching the reentrancy contract of {@link #removeByFileId(long)}).
    *
    * <p>Cost is {@code O(total capacity)} regardless of how many distinct {@code fileId} values are
@@ -408,9 +409,17 @@ public class ConcurrentLongIntHashMap<V> {
     /** Resize when usedBuckets exceeds this. */
     private int resizeThreshold;
 
+    /**
+     * Capacity the section was originally constructed with. {@link #drain} resets to this value
+     * rather than the absolute minimum (2) so a map that is refilled after a drain does not pay
+     * a rehash chain (2 → 4 → 8 → … → working-set size) on the way back up.
+     */
+    private final int initialCapacity;
+
     @SuppressWarnings("unchecked")
     Section(int capacity) {
       this.capacity = alignToPowerOfTwo(Math.max(2, capacity));
+      this.initialCapacity = this.capacity;
       this.entries = new Entry[this.capacity];
       this.size = 0;
       this.usedBuckets = 0;
@@ -821,35 +830,32 @@ public class ConcurrentLongIntHashMap<V> {
     }
 
     /**
-     * Drain all live entries into a temporary array, reset the section to an empty default-sized
-     * table, then invoke {@code consumer} for each collected value outside the lock. Shrinking
-     * the table avoids retaining a large array after close — the next put() will rehash on
-     * demand.
+     * Drain all live entries into a list, reset the section to its {@link #initialCapacity}, then
+     * invoke {@code consumer} for each collected value outside the lock. The list is sized from
+     * {@code size} only as a hint — an {@link ArrayList} is used so the code stays bounds-safe
+     * even if a future change lets the non-null slot count diverge from the volatile counter.
      */
     @SuppressWarnings("unchecked")
     void drain(Consumer<V> consumer) {
-      Object[] collected;
-      int collectedCount;
+      ArrayList<V> collected;
       long stamp = lock.writeLock();
       try {
-        collected = new Object[size];
-        int k = 0;
+        collected = new ArrayList<>(size);
         for (int i = 0; i < capacity; i++) {
           Entry<V> e = entries[i];
           if (e != null) {
-            collected[k++] = e.value;
+            collected.add(e.value);
           }
         }
-        collectedCount = k;
-        assert collectedCount == size
-            : "collectedCount (" + collectedCount + ") != size (" + size + ")";
+        assert collected.size() == size
+            : "collected.size() (" + collected.size() + ") != size (" + size + ")";
 
-        // Reset to a small empty table — no reason to retain capacity accumulated during
-        // normal operation; subsequent puts will rehash on demand.
-        int newCapacity = alignToPowerOfTwo(2);
-        entries = new Entry[newCapacity];
-        capacity = newCapacity;
-        resizeThreshold = (int) (newCapacity * FILL_FACTOR);
+        // Reset to the constructor's initial capacity — releases the large array accumulated
+        // during normal operation while keeping enough headroom to avoid an immediate rehash
+        // chain if the map is refilled after drain.
+        entries = new Entry[initialCapacity];
+        capacity = initialCapacity;
+        resizeThreshold = (int) (initialCapacity * FILL_FACTOR);
         size = 0;
         usedBuckets = 0;
       } finally {
@@ -858,8 +864,8 @@ public class ConcurrentLongIntHashMap<V> {
 
       // Invoke consumer outside the section's write lock. Matches removeByFileId's contract so
       // callbacks may safely re-enter the map.
-      for (int i = 0; i < collectedCount; i++) {
-        consumer.accept((V) collected[i]);
+      for (V v : collected) {
+        consumer.accept(v);
       }
     }
 

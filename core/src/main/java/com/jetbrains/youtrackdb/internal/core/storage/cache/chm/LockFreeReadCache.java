@@ -659,18 +659,38 @@ public final class LockFreeReadCache implements ReadCache {
   }
 
   /**
-   * Drain every cache entry in one pass and apply the close/delete side-effects (freeze,
-   * policy.onRemove, cacheSize decrement).
+   * Two-phase bulk drain used by close and delete:
    *
-   * <p>Per-file iteration via {@link #clearFile} is O(files * total capacity) because each
-   * {@code removeByFileId} call linearly sweeps all 16 sections and same-capacity rehashes any
-   * section with a match. On a storage with thousands of files and a large cache, that cost
-   * dominates close wall time (observed pegged at 100 % CPU inside {@code removeByFileId} for
-   * 30+ minutes). This path collapses the work to a single O(total capacity) sweep.
+   * <ol>
+   *   <li>Snapshot every entry via {@code forEachValue} (section read locks).
+   *   <li>{@code freeze()} + {@code policy.onRemove()} each entry. A {@code freeze()} failure
+   *       aborts before the map is modified, matching {@link #clear()} — the caller may retry
+   *       close on a fresh attempt.
+   *   <li>{@code drainAll} sweeps the map in one O(total capacity) pass and shrinks each
+   *       section back to its initial capacity.
+   * </ol>
    *
-   * <p>Caller must already hold {@link #evictionLock} — we do not reacquire it per entry as
-   * {@code clearFile} does, because close has no progress obligation to other threads and
-   * holding the lock once is simpler than re-taking it 10 000 times.
+   * <p>This replaces the per-file {@link #clearFile} loop used by {@code closeStorage} and
+   * {@code deleteStorage} before. That loop was O(files × total capacity) because every
+   * {@code removeByFileId} call linearly swept all 16 sections and same-capacity rehashed any
+   * section with a match — on a storage with thousands of files and a warm cache it pegged a
+   * close thread at 100 % CPU inside {@code removeByFileId} for 30+ minutes.
+   *
+   * <p>The method acquires {@link #evictionLock} once for the whole drain rather than per entry
+   * as {@link #clearFile} does; close has no progress obligation to other threads. The per-entry
+   * {@code writeCache.checkCacheOverflow()} call is intentionally not made — the subsequent
+   * {@code writeCache.close()}/{@code writeCache.delete()} triggers a full flush, making the
+   * per-entry overflow check redundant and also avoiding its latch wait (see WOWCache#1198).
+   *
+   * <p><b>Durability note:</b> this drain only releases the read-cache's reference on each
+   * cache entry. Dirty-page memory is still held by {@link WriteCache} via its own reference
+   * count and is flushed/discarded only by {@code writeCache.close()}/{@code delete()}. Do not
+   * move the {@code writeCache.close()}/{@code delete()} call ahead of this drain.
+   *
+   * <p><b>Precondition:</b> no concurrent {@code doLoad} during close (same as
+   * {@code clearFile}). A concurrent load landing on the map after phase 1 would be drained in
+   * phase 3 without being frozen or counted out of {@code cacheSize} — storage lifecycle must
+   * quiesce readers at a higher level.
    */
   private void drainAllEntries(final WriteCache writeCache) {
     flushCurrentThreadReadBatch();
@@ -678,25 +698,27 @@ public final class LockFreeReadCache implements ReadCache {
     try {
       emptyBuffers();
 
-      // Precondition (same as clearFile): no concurrent doLoad during close. A concurrent load
-      // landing on an already-drained section would stick; callers coordinate storage lifecycle
-      // at a higher level to prevent this.
-      data.drainAll(cacheEntry -> {
-        if (!cacheEntry.freeze()) {
+      final var currentCacheSize = cacheSize.get();
+      final var entries = new ArrayList<CacheEntry>(Math.max(0, currentCacheSize));
+      data.forEachValue(entries::add);
+
+      for (final var entry : entries) {
+        if (!entry.freeze()) {
           throw new StorageException(writeCache.getStorageName(),
               "Page with index "
-                  + cacheEntry.getPageIndex()
+                  + entry.getPageIndex()
                   + " for file id "
-                  + cacheEntry.getFileId()
+                  + entry.getFileId()
                   + " is used and cannot be removed");
         }
-        policy.onRemove(cacheEntry);
-        cacheSize.decrementAndGet();
-      });
+        policy.onRemove(entry);
+      }
 
-      // writeCache.close()/delete() triggers a full flush, so we skip the per-entry
-      // checkCacheOverflow() call that the per-file clearFile path makes — it would be
-      // redundant work under a lock that close holds for the entire drain.
+      // Phase 3: drain the map and shrink each section back to its constructor-time capacity.
+      // Consumer is a no-op because every entry was already handled above.
+      data.drainAll(e -> {
+      });
+      cacheSize.set(0);
     } finally {
       evictionLock.unlock();
     }

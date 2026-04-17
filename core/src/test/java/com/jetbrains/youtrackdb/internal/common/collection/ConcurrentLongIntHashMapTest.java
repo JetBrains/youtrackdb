@@ -1775,28 +1775,36 @@ public class ConcurrentLongIntHashMapTest {
   }
 
   /**
-   * drainAll shrinks each section back to the minimum capacity — avoids retaining a large array
-   * after storage close. Per-section minimum is 2 slots, so total capacity for the default 16
-   * sections is 32.
+   * drainAll shrinks each section back to the capacity it was constructed with — releases the
+   * large Entry[] accumulated during growth while keeping enough headroom that a refill does
+   * not pay a rehash chain from the 2-slot absolute minimum.
+   *
+   * <p>Default constructor: expectedItems=256, sectionCount=16 → 16 slots per section × 16
+   * sections = 256 total capacity at construction time. After growth and drainAll, the map
+   * should shrink back to exactly that.
    */
   @Test
-  public void drainAllShrinksCapacityToMinimum() {
+  public void drainAllShrinksCapacityToInitialCapacity() {
     var map = new ConcurrentLongIntHashMap<String>();
-    // Grow the map past its initial capacity so sections actually have non-default size.
+    long initialCapacity = map.capacity();
+    assertThat(initialCapacity)
+        .as("constructor default: 256 expectedItems / 16 sections = 16 per section * 16 = 256")
+        .isEqualTo(256L);
+
+    // Grow the map far past its initial capacity.
     for (long fid = 0; fid < 100; fid++) {
       for (int page = 0; page < 100; page++) {
         map.put(fid, page, "v");
       }
     }
-    long grownCapacity = map.capacity();
-    assertThat(grownCapacity).isGreaterThan(32L);
+    assertThat(map.capacity()).isGreaterThan(initialCapacity);
 
     map.drainAll(v -> {
     });
 
     assertThat(map.capacity())
-        .as("drainAll must shrink capacity to the minimum (2 slots per section * 16 sections)")
-        .isEqualTo(32L);
+        .as("drainAll must reset capacity back to the constructor-time value")
+        .isEqualTo(initialCapacity);
     assertThat(map.size()).isEqualTo(0);
   }
 
@@ -1845,6 +1853,49 @@ public class ConcurrentLongIntHashMapTest {
   }
 
   /**
+   * When the consumer throws mid-iteration, later sections must NOT have been drained. The
+   * throw aborts the outer section loop, so sections with an index greater than the failing
+   * section still hold their entries.
+   *
+   * <p>Uses two sections and picks one key for each by consulting the package-private
+   * {@link ConcurrentLongIntHashMap#hash} helper, so section assignment is deterministic.
+   */
+  @Test
+  public void drainAllAbortsOnConsumerExceptionLeavingLaterSectionsPopulated() {
+    var map = new ConcurrentLongIntHashMap<String>(4, 2);
+
+    // Find two fileIds that fall into different sections — sectionMask = 1, so bit 32 of the
+    // mixed hash picks the section.
+    long keyInSection0 = -1L;
+    long keyInSection1 = -1L;
+    for (long fid = 1L; keyInSection0 == -1L || keyInSection1 == -1L; fid++) {
+      int sectionIdx = (int) (ConcurrentLongIntHashMap.hash(fid, 0) >>> 32) & 1;
+      if (sectionIdx == 0 && keyInSection0 == -1L) {
+        keyInSection0 = fid;
+      } else if (sectionIdx == 1 && keyInSection1 == -1L) {
+        keyInSection1 = fid;
+      }
+    }
+    map.put(keyInSection0, 0, "A");
+    map.put(keyInSection1, 0, "B");
+    assertThat(map.size()).isEqualTo(2);
+
+    assertThatThrownBy(
+        () -> map.drainAll(
+            v -> {
+              throw new IllegalStateException("boom on " + v);
+            }))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("boom on A");
+
+    // drainAll iterates sections in index order. The first consumer call (for the entry in
+    // section 0) threw, so section 1 was never drained — its entry survives.
+    assertThat(map.size()).isEqualTo(1);
+    assertThat(map.get(keyInSection1, 0)).isEqualTo("B");
+    assertThat(map.get(keyInSection0, 0)).isNull();
+  }
+
+  /**
    * drainAll invokes the consumer outside the section write lock, so a consumer that re-enters
    * the map (e.g., to insert a new entry) must succeed without deadlock. This mirrors the close
    * path where {@code freeze()} / policy callbacks may touch other maps.
@@ -1885,10 +1936,8 @@ public class ConcurrentLongIntHashMapTest {
     });
 
     // Fill again past the (shrunken) capacity — this exercises rehashes on a fresh table.
-    var seen = new HashSet<String>();
     for (int i = 0; i < 100; i++) {
       map.put(1L, i, "b-" + i);
-      seen.add("b-" + i);
     }
     assertThat(map.size()).isEqualTo(100);
     for (int i = 0; i < 100; i++) {
