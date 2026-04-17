@@ -16,6 +16,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.functions.coll;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
@@ -41,7 +42,7 @@ public class SQLFunctionSymmetricDifferenceTest {
     final Set<Object> expectedResult = new HashSet<Object>(Arrays.asList(3, 4, 5));
 
     for (var i : income) {
-      differenceFunction.execute(null, null, null, new Object[]{i}, null);
+      differenceFunction.execute(null, null, null, new Object[] {i}, null);
     }
 
     final var actualResult = differenceFunction.getResult();
@@ -62,13 +63,70 @@ public class SQLFunctionSymmetricDifferenceTest {
     final Set<Object> expectedResult = new HashSet<Object>(Arrays.<Object>asList(4, 7, 8, 9, 0));
 
     final var actualResult =
-        (Set<Object>)
-            function.execute(null, null, null, incomes.toArray(), new BasicCommandContext());
+        (Set<Object>) function.execute(null, null, null, incomes.toArray(),
+            new BasicCommandContext());
 
     assertSetEquals(actualResult, expectedResult);
   }
 
-  private static void assertSetEquals(Set<Object> actualResult, Set<Object> expectedResult) {
+  @Test
+  public void aggregationReturnsNullAndAccumulatesInto() {
+    // Single-param aggregation mode: execute() returns null but fills the internal Set.
+    final var fn = new SQLFunctionSymmetricDifference();
+
+    for (var v : List.of(1, 2, 2, 3)) {
+      final var ret = fn.execute(null, null, null, new Object[] {v}, null);
+      assertNull(ret);
+    }
+
+    // {1} added, {2} added, {2} now rejected (seen before) → removed, {3} added.
+    assertSetEquals(fn.getResult(), Set.of(1, 3));
+  }
+
+  @Test
+  public void aggregationAcceptsCollectionArgAndUnrolls() {
+    // Collection arg in aggregation mode → each element fed through addItemToResult.
+    final var fn = new SQLFunctionSymmetricDifference();
+
+    fn.execute(null, null, null, new Object[] {List.of(1, 2, 3)}, null);
+    fn.execute(null, null, null, new Object[] {List.of(2, 4)}, null);
+
+    // First call seeds {1,2,3}; second rejects 2 (now in rejected), adds 4 → {1,3,4}.
+    assertSetEquals(fn.getResult(), Set.of(1, 3, 4));
+  }
+
+  @Test
+  public void nullFirstParameterReturnsNullNoStateChange() {
+    final var fn = new SQLFunctionSymmetricDifference();
+
+    assertNull(fn.execute(null, null, null, new Object[] {null}, null));
+    // No context was ever created.
+    assertNull(fn.getResult());
+  }
+
+  @Test
+  public void inlineScalarParametersComputeSymmetricDifference() {
+    // Inline mode with non-collection args routes through addItemToResult per scalar.
+    final var fn = new SQLFunctionSymmetricDifference();
+
+    final var result = (Set<?>) fn.execute(null, null, null, new Object[] {1, 2, 2, 3},
+        new BasicCommandContext());
+
+    assertSetEquals(new HashSet<>(result), Set.of(1, 3));
+  }
+
+  @Test
+  public void nameAndSyntaxAreExposed() {
+    final var fn = new SQLFunctionSymmetricDifference();
+    assertEquals("symmetricDifference", SQLFunctionSymmetricDifference.NAME);
+    assertEquals("symmetricDifference", fn.getName(null));
+    // Note: getSyntax reuses the "difference(...)" text — covering the accessor, not the grammar.
+    assertEquals("difference(<field>*)", fn.getSyntax(null));
+    assertEquals(1, fn.getMinParams());
+    assertEquals(-1, fn.getMaxParams(null));
+  }
+
+  private static void assertSetEquals(Set<?> actualResult, Set<?> expectedResult) {
     assertEquals(actualResult.size(), expectedResult.size());
     for (var o : actualResult) {
       assertTrue(expectedResult.contains(o));
