@@ -1,14 +1,18 @@
 package com.jetbrains.youtrackdb.internal.core.sql.functions;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.misc.SQLStaticReflectiveFunction;
+import org.junit.FixMethodOrder;
 import org.junit.Test;
+import org.junit.runners.MethodSorters;
 
 /**
  * Tests for {@link CustomSQLFunctionFactory}: the reflective factory that exposes Java classes'
@@ -19,6 +23,11 @@ import org.junit.Test;
  * {@link CommandExecutionException}, and re-registering a class under a prefix that collides with
  * existing entries is idempotent (no exception thrown, existing entries preserved).
  */
+// CustomSQLFunctionFactory's registry is a process-wide static map, so the
+// custom-prefix test below leaks entries for the remainder of the JVM. Sort
+// methods by name so the "only math_ prefixes" assertion runs before any test
+// that seeds foreign prefixes.
+@FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public class CustomSQLFunctionFactoryTest extends DbTestBase {
 
   @Test
@@ -70,26 +79,33 @@ public class CustomSQLFunctionFactoryTest extends DbTestBase {
   @Test
   public void getFunctionNamesIncludesMathEntries() {
     // The advertised name set must agree with hasFunction for known keys.
+    // We deliberately avoid asserting that EVERY name is a math_ prefix —
+    // the static FUNCTIONS map is process-wide and other tests (or other
+    // test classes sharing the JVM fork) may legitimately register foreign
+    // prefixes. We pin only the contract: math_ entries registered by the
+    // static initializer must be visible.
     var names = new CustomSQLFunctionFactory().getFunctionNames(session);
-    assertTrue(names.contains("math_abs"));
-    assertTrue(names.contains("math_sqrt"));
-    // All entries begin with the "math_" prefix since that is the only
-    // registration.
-    for (var name : names) {
-      assertTrue(
-          "Every custom function should carry the math_ prefix; got: " + name,
-          name.startsWith("math_"));
-    }
+    assertTrue("math_abs must be visible", names.contains("math_abs"));
+    assertTrue("math_sqrt must be visible", names.contains("math_sqrt"));
+    assertTrue("math_min must be visible", names.contains("math_min"));
+    assertTrue("math_max must be visible", names.contains("math_max"));
   }
 
   @Test
   public void reRegisterSamePrefixIsIdempotent() {
     // Registering Math.class again under "math_" must not throw; the first-wins
-    // guard logs a warning but leaves existing entries untouched.
-    CustomSQLFunctionFactory.register("math_", Math.class);
+    // guard logs a warning but leaves existing entries UNTOUCHED (same instance,
+    // not a freshly-built replacement). Capture the reflective function before
+    // re-registering and assert we still get the exact same object afterwards —
+    // this is the assertion that would actually falsify if `register` started
+    // overwriting collisions instead of skipping them.
     var factory = new CustomSQLFunctionFactory();
-    assertTrue(factory.hasFunction("math_abs", session));
-    assertNotNull(factory.createFunction("math_abs", session));
+    var before = factory.createFunction("math_abs", session);
+
+    CustomSQLFunctionFactory.register("math_", Math.class);
+
+    var after = factory.createFunction("math_abs", session);
+    assertSame("first-wins: existing entry must not be replaced", before, after);
   }
 
   /** Class used to verify reflective registration with a custom prefix. */
@@ -131,8 +147,8 @@ public class CustomSQLFunctionFactoryTest extends DbTestBase {
     var before = factory.getFunctionNames(session).size();
     factory.registerDefaultFunctions(session);
     var after = factory.getFunctionNames(session).size();
-    // Count must be unchanged — this both pins the no-op contract and guards
-    // against accidental self-registration loops.
-    assertTrue("registerDefaultFunctions must not change name count", before == after);
+    // Use assertEquals (not assertTrue) so a regression shows "expected N but
+    // got M" instead of a generic boolean mismatch.
+    assertEquals("registerDefaultFunctions must not change name count", before, after);
   }
 }

@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.functions.graph;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -11,9 +12,14 @@ import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunctionAbstract;
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -85,7 +91,7 @@ public class SQLFunctionOutInBothTest extends DbTestBase {
       }
       return out;
     }
-    if (result instanceof java.util.Iterator<?> iter) {
+    if (result instanceof Iterator<?> iter) {
       while (iter.hasNext()) {
         var o = iter.next();
         if (o instanceof Identifiable id) {
@@ -96,20 +102,28 @@ public class SQLFunctionOutInBothTest extends DbTestBase {
     return out;
   }
 
+  /** Guarantee the session is never left inside an open transaction between tests. */
+  @After
+  public void rollbackIfLeftOpen() {
+    if (session != null && !session.isClosed() && session.isTxActive()) {
+      session.rollback();
+    }
+  }
+
   @Test
   public void outNoLabelsReturnsAllOutgoingNeighbors() {
     // A has two outgoing edges (knows→B, follows→C) — out() with no labels
-    // returns both neighbours.
+    // returns both neighbours. Set-equality makes the assertion tight: a
+    // regression returning [B, B] would still satisfy contains(B) + contains(C)
+    // combined with size==2 ONLY if it also contained C, so we compare sets
+    // directly to rule out spurious duplicates.
     var fn = new SQLFunctionOut();
     var src = reload(a);
     var result = fn.execute(src, null, null, new Object[0], ctx());
-    var ids = collectVertices(result).stream()
-        .map(id -> id.getIdentity())
-        .toList();
+    var ids = collectVertices(result).stream().map(Identifiable::getIdentity).toList();
     session.commit();
-    assertEquals(2, ids.size());
-    assertTrue(ids.contains(b.getIdentity()));
-    assertTrue(ids.contains(c.getIdentity()));
+    assertEquals(Set.of(b.getIdentity(), c.getIdentity()), new HashSet<>(ids));
+    assertEquals("No duplicate RIDs expected", 2, ids.size());
   }
 
   @Test
@@ -133,9 +147,8 @@ public class SQLFunctionOutInBothTest extends DbTestBase {
     var ids = collectVertices(result).stream().map(Identifiable::getIdentity).toList();
     session.commit();
 
+    assertEquals(Set.of(a.getIdentity(), b.getIdentity()), new HashSet<>(ids));
     assertEquals(2, ids.size());
-    assertTrue(ids.contains(a.getIdentity()));
-    assertTrue(ids.contains(b.getIdentity()));
   }
 
   @Test
@@ -147,9 +160,8 @@ public class SQLFunctionOutInBothTest extends DbTestBase {
     var ids = collectVertices(result).stream().map(Identifiable::getIdentity).toList();
     session.commit();
 
+    assertEquals(Set.of(a.getIdentity(), c.getIdentity()), new HashSet<>(ids));
     assertEquals(2, ids.size());
-    assertTrue(ids.contains(a.getIdentity()));
-    assertTrue(ids.contains(c.getIdentity()));
   }
 
   @Test
@@ -189,17 +201,23 @@ public class SQLFunctionOutInBothTest extends DbTestBase {
 
   @Test
   public void outWithInvalidArgumentTypeRaises() {
-    // When iThis is neither null, an Identifiable, a Result, nor an Iterable of
-    // those, the foreachRecord lambda throws IllegalArgumentException.
+    // When foreachRecord delivers a non-Identifiable element to the lambda,
+    // SQLFunctionMove.execute throws IllegalArgumentException with a specific
+    // "Invalid argument type:" prefix. We wrap the String in an array so that
+    // foreachRecord's MultiValue iterator reaches the lambda — a bare String
+    // would be silently rejected upstream.
     var fn = new SQLFunctionOut();
     try {
-      // wrap the invalid value inside an Iterable so foreachRecord reaches the
-      // lambda (a bare String would simply be rejected by foreachRecord returning null).
       fn.execute(new Object[] {"not-an-identifiable"}, null, null, new Object[0], ctx());
       fail("Expected IllegalArgumentException for non-Identifiable argument");
     } catch (IllegalArgumentException expected) {
-      assertTrue(expected.getMessage().toLowerCase().contains("argument")
-          || expected.getMessage().contains("String"));
+      assertNotNull(expected.getMessage());
+      assertTrue(
+          "Expected 'Invalid argument type:' prefix. Actual: " + expected.getMessage(),
+          expected.getMessage().startsWith("Invalid argument type:"));
+      assertTrue(
+          "Exception message should name the offending class. Actual: " + expected.getMessage(),
+          expected.getMessage().contains("String"));
     }
   }
 
@@ -249,9 +267,7 @@ public class SQLFunctionOutInBothTest extends DbTestBase {
     var ids = collectVertices(result).stream().map(Identifiable::getIdentity).toList();
     session.commit();
 
-    assertEquals(2, ids.size());
-    assertTrue(ids.contains(b.getIdentity()));
-    assertTrue(ids.contains(c.getIdentity()));
+    assertEquals(Set.of(b.getIdentity(), c.getIdentity()), new HashSet<>(ids));
   }
 
   @Test
@@ -263,19 +279,74 @@ public class SQLFunctionOutInBothTest extends DbTestBase {
     var ids = collectVertices(result).stream().map(Identifiable::getIdentity).toList();
     session.commit();
 
-    assertEquals(2, ids.size());
-    assertTrue(ids.contains(a.getIdentity()));
-    assertTrue(ids.contains(b.getIdentity()));
+    assertEquals(Set.of(a.getIdentity(), b.getIdentity()), new HashSet<>(ids));
   }
 
   @Test
-  public void functionsExtendConfigurableAbstractAndExposeDefaultAggregation() {
+  public void functionsExtendAbstractAndExposeDefaultAggregationForAllDispatchers() {
     // Dispatchers inherit from SQLFunctionAbstract — they are NOT aggregators
-    // and do NOT filter records. Pin this so a future refactor that flips
-    // either flag must update tests deliberately.
-    SQLFunctionAbstract out = new SQLFunctionOut();
-    assertFalse(out.aggregateResults());
-    assertFalse(out.filterResult());
-    assertNull(out.getResult());
+    // and do NOT filter records. Pin this for all three V2V dispatchers so a
+    // refactor that flipped either flag on Out/In/Both must update the test
+    // deliberately (the prior single-dispatcher version would miss regressions
+    // on In or Both).
+    SQLFunctionAbstract[] dispatchers =
+        new SQLFunctionAbstract[] {new SQLFunctionOut(), new SQLFunctionIn(),
+            new SQLFunctionBoth()};
+    for (var fn : dispatchers) {
+      assertFalse(fn.getClass().getSimpleName() + ".aggregateResults", fn.aggregateResults());
+      assertFalse(fn.getClass().getSimpleName() + ".filterResult", fn.filterResult());
+      assertNull(fn.getClass().getSimpleName() + ".getResult", fn.getResult());
+    }
   }
+
+  @Test
+  public void outWithNullLabelElementIsTreatedAsNoLabels() {
+    // SQLFunctionMove.execute has a three-part guard:
+    //   iParameters != null && iParameters.length > 0 && iParameters[0] != null
+    // Previously only the length==0 and non-null paths were tested; an
+    // Object[]{null} exercises the third sub-condition so regressions to the
+    // null-element guard get caught.
+    var fn = new SQLFunctionOut();
+    var src = reload(a);
+    var result = fn.execute(src, null, null, new Object[] {null}, ctx());
+    var ids = collectVertices(result).stream().map(Identifiable::getIdentity).toList();
+    session.commit();
+
+    // {null} is equivalent to no labels — both neighbours of A are returned.
+    assertEquals(Set.of(b.getIdentity(), c.getIdentity()), new HashSet<>(ids));
+  }
+
+  @Test
+  public void outWithMultipleLabelsCoversFetchFromIndexMultiLabelBranch() {
+    // Passing >1 labels exercises SQLFunctionOut.fetchFromIndex's
+    // `iEdgeTypes.length > 1 → return null` branch (ineligible-for-index-shortcut
+    // path). The visible outcome of the fallback to v2v is the union of
+    // neighbours across all matching edge classes.
+    var fn = new SQLFunctionOut();
+    var src = reload(a);
+    var result = fn.execute(src, null, null, new Object[] {"knows", "follows"}, ctx());
+    var ids = collectVertices(result).stream().map(Identifiable::getIdentity).toList();
+    session.commit();
+
+    // A-knows->B and A-follows->C: both edge classes match → {B, C}.
+    assertEquals(Set.of(b.getIdentity(), c.getIdentity()), new HashSet<>(ids));
+  }
+
+  @Test
+  public void outOnResultWrappedIdentifiableDispatches() {
+    // SQLEngine.foreachRecord has a dedicated branch for Result-typed inputs
+    // (result.isEntity() → function.apply(result.asEntity())). The previous
+    // tests only passed Identifiable/RecordId/Object[] — this pins the
+    // Result-based dispatch path used by real SQL execution pipelines.
+    var fn = new SQLFunctionOut();
+    var src = reload(a);
+    var wrapped = new ResultInternal(session, src);
+
+    var result = fn.execute(wrapped, null, null, new Object[0], ctx());
+    var ids = collectVertices(result).stream().map(Identifiable::getIdentity).toList();
+    session.commit();
+
+    assertEquals(Set.of(b.getIdentity(), c.getIdentity()), new HashSet<>(ids));
+  }
+
 }

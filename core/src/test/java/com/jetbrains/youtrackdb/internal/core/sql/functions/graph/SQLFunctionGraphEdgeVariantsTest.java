@@ -183,30 +183,40 @@ public class SQLFunctionGraphEdgeVariantsTest extends DbTestBase {
   public void inEMetadata() {
     var fn = new SQLFunctionInE();
     assertEquals("inE", fn.getName(session));
+    assertEquals(0, fn.getMinParams());
+    assertEquals(-1, fn.getMaxParams(session));
   }
 
   @Test
   public void bothEMetadata() {
     var fn = new SQLFunctionBothE();
     assertEquals("bothE", fn.getName(session));
+    assertEquals(0, fn.getMinParams());
+    assertEquals(-1, fn.getMaxParams(session));
   }
 
   @Test
   public void outVMetadata() {
     var fn = new SQLFunctionOutV();
     assertEquals("outV", fn.getName(session));
+    assertEquals(0, fn.getMinParams());
+    assertEquals(-1, fn.getMaxParams(session));
   }
 
   @Test
   public void inVMetadata() {
     var fn = new SQLFunctionInV();
     assertEquals("inV", fn.getName(session));
+    assertEquals(0, fn.getMinParams());
+    assertEquals(-1, fn.getMaxParams(session));
   }
 
   @Test
   public void bothVMetadata() {
     var fn = new SQLFunctionBothV();
     assertEquals("bothV", fn.getName(session));
+    assertEquals(0, fn.getMinParams());
+    assertEquals(-1, fn.getMaxParams(session));
   }
 
   @Test
@@ -242,20 +252,27 @@ public class SQLFunctionGraphEdgeVariantsTest extends DbTestBase {
   }
 
   @Test
-  public void outEIndexCandidatesDelegateToV2ENavigation() {
+  public void outEIndexCandidatesForVertexLabelKnownEnumeratesEdgeProperty() {
     // For vertex classes the helper returns the concrete edge LinkBag property
-    // names reachable for the requested direction/labels.
+    // names reachable for the requested direction/labels. "knows" is a
+    // registered edge class, so VertexEntityImpl.getAllPossibleEdgePropertyNames
+    // must surface at least one entry whose name carries "knows" — this is the
+    // property that stores outgoing edges of type knows on a vertex record.
+    //
+    // A non-null-only assertion would still pass if a regression returned an
+    // empty list (e.g., getAllPossibleEdgePropertyNames silently returning []),
+    // so we pin the presence of the "knows" token in the candidate list.
     var fn = new SQLFunctionOutE();
     var vertexClass = session.getMetadata().getImmutableSchemaSnapshot().getClass(
         SchemaClass.VERTEX_CLASS_NAME);
-    // The default 'V' class itself has no edge-property labels, so request the
-    // knows edge class — V's getAllPossibleEdgePropertyNames should enumerate
-    // the edge property names stored in vertices for that label.
     var candidates = fn.propertyNamesForIndexCandidates(
         new String[] {"knows"}, vertexClass, false, session);
-    // The contract says: return null (no candidates) for non-vertex; non-null
-    // (possibly empty) list for vertex types. The key property is NON-NULL-ness.
+
     assertNotNull("Vertex types must yield a non-null candidate list", candidates);
+    assertTrue(
+        "Expected at least one candidate whose name references the 'knows' edge class; got: "
+            + candidates,
+        candidates.stream().anyMatch(n -> n != null && n.contains("knows")));
   }
 
   @Test
@@ -268,8 +285,9 @@ public class SQLFunctionGraphEdgeVariantsTest extends DbTestBase {
     // NOT a vertex type.
     var candidates = fn.propertyNamesForIndexCandidates(
         new String[] {"knows"}, edgeClass, false, session);
-    // For an Edge class, V2E navigation returns null.
-    assertTrue("Expected null for edge class input", candidates == null);
+    // Use assertNull directly — previously the test used `assertTrue(candidates == null)`
+    // which loses the "expected null but got X" message when it fails.
+    org.junit.Assert.assertNull("Expected null for edge class input", candidates);
   }
 
   private SchemaClass classE() {
