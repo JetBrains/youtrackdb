@@ -16,6 +16,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.functions.coll;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
@@ -27,7 +28,9 @@ import com.jetbrains.youtrackdb.internal.core.command.traverse.Traverse;
 import com.jetbrains.youtrackdb.internal.core.command.traverse.TraversePath;
 import com.jetbrains.youtrackdb.internal.core.command.traverse.TraverseRecordProcess;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -62,6 +65,10 @@ import org.junit.Test;
  *
  * <p>All tests use an in-memory graph with three vertices A→B→C and a {@code DbTestBase} session;
  * the function needs a real transaction because internally it calls {@code transaction.load(rid)}.
+ *
+ * <p>If no stack is available from either the context variable or the iThis {@link ResultInternal}
+ * {@code $stack} metadata, the function throws {@link CommandExecutionException}; this is
+ * exercised by the "Missing-stack contract" group.
  */
 public class SQLFunctionTraversedElementTest extends DbTestBase {
 
@@ -101,13 +108,24 @@ public class SQLFunctionTraversedElementTest extends DbTestBase {
     return context;
   }
 
-  /** Stack order [a, b, c] means a was pushed first, c most recently. */
+  /**
+   * Stack ordering convention: the first entry is the oldest (bottom of stack); the last entry is
+   * the most recent (top). Applies to every Collection the function sees — Deque produced here,
+   * the ArrayList variant in {@link #positiveIndexStackAsListTakesFastPath()}, and the HashSet
+   * variant in {@link #stackMayBeAnyCollection()}.
+   */
   private static Deque<Object> stackOf(Object... entries) {
     var d = new ArrayDeque<Object>();
     for (var e : entries) {
       d.addLast(e);
     }
     return d;
+  }
+
+  private RID anyEdgeRid() {
+    try (var rs = session.query("select from E")) {
+      return rs.next().getIdentity();
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -130,11 +148,16 @@ public class SQLFunctionTraversedElementTest extends DbTestBase {
 
   @Test
   public void missingStackFromPlainIThisAlsoThrows() {
-    // Plain non-ResultInternal iThis cannot supply $stack metadata — throws.
+    // Plain non-ResultInternal iThis cannot supply $stack metadata — throws with the same
+    // message as the null-iThis sibling so the contract does not drift between paths.
     var fn = new SQLFunctionTraversedElement();
 
-    assertThrows(CommandExecutionException.class,
+    var ex = assertThrows(CommandExecutionException.class,
         () -> fn.execute("not-a-result", null, null, new Object[] {0}, ctx()));
+    assertTrue("message must name the function",
+        ex.getMessage().contains("traversedElement"));
+    assertTrue("message must mention traverse",
+        ex.getMessage().contains("traverse"));
   }
 
   @Test
@@ -189,9 +212,11 @@ public class SQLFunctionTraversedElementTest extends DbTestBase {
 
     var returned = fn.execute(null, null, null, new Object[] {0}, context);
 
-    // Returns the record directly, NOT a list.
+    // Returns the record directly, NOT a list — and the record is the top of reversed [a,b] = b.
     assertTrue("items=1 must return the record directly, not a list",
         returned instanceof Identifiable);
+    assertEquals("top of reversed [a,b] is b", b.getIdentity(),
+        ((Identifiable) returned).getIdentity());
   }
 
   @Test
@@ -375,17 +400,11 @@ public class SQLFunctionTraversedElementTest extends DbTestBase {
 
   @Test
   public void classFilterAcceptsOnlyMatchingEntriesInNegativeBranch() {
-    // Only vertices are in the stack (a is the only vertex; put an edge in too). Ask for "V"
-    // entries from the bottom. Direct invocation of evaluate with iClassName="V".
-    var fn = new SQLFunctionTraversedElement();
+    // Stack contains one edge plus two vertices; the "V" filter must skip the edge and return the
+    // bottom vertex. Use SQLFunctionTraversedVertex to exercise the iClassName="V" path.
     var context = ctx();
+    context.setVariable("stack", stackOf(anyEdgeRid(), a, b));
 
-    // Insert an edge identity into the stack; it must be skipped.
-    var edgeRid = session.query("select from E").next().getIdentity();
-    context.setVariable("stack", stackOf(edgeRid, a, b));
-
-    // Use the subclass trick: SQLFunctionTraversedVertex passes "V" to evaluate. Exercise the
-    // filter by calling the subclass directly.
     var vertexFn = new SQLFunctionTraversedVertex();
     var returned = vertexFn.execute(null, null, null, new Object[] {-1}, context);
 
@@ -395,10 +414,8 @@ public class SQLFunctionTraversedElementTest extends DbTestBase {
 
   @Test
   public void classFilterAcceptsOnlyMatchingEntriesInPositiveBranch() {
-    var fn = new SQLFunctionTraversedElement();
     var context = ctx();
-    var edgeRid = session.query("select from E").next().getIdentity();
-    context.setVariable("stack", stackOf(a, edgeRid, b));
+    context.setVariable("stack", stackOf(a, anyEdgeRid(), b));
 
     var vertexFn = new SQLFunctionTraversedVertex();
     var returned = vertexFn.execute(null, null, null, new Object[] {0}, context);
@@ -411,13 +428,79 @@ public class SQLFunctionTraversedElementTest extends DbTestBase {
   public void classFilterNoMatchReturnsNull() {
     // Stack has only edges; asking for vertices → null.
     var context = ctx();
-    var edgeRid = session.query("select from E").next().getIdentity();
-    context.setVariable("stack", stackOf(edgeRid));
+    context.setVariable("stack", stackOf(anyEdgeRid()));
 
     var vertexFn = new SQLFunctionTraversedVertex();
     var returned = vertexFn.execute(null, null, null, new Object[] {0}, context);
 
     assertNull(returned);
+  }
+
+  @Test
+  public void classFilterCounterAdvancesOnlyOnMatchPositiveBranch() {
+    // Stack bottom-up: [a, edge, b, edge, c]. Reversed: [c, edge, b, edge, a]. Filter "V",
+    // beginIndex=1 → skip c (i=0), skip edge (no advance), match b (i=1) → return b. If edges
+    // incorrectly advanced the counter, a would be returned instead. This pins the "non-matching
+    // entries skipped without advancing the counter" contract claimed in the class-level Javadoc.
+    var edgeRid = anyEdgeRid();
+    var context = ctx();
+    context.setVariable("stack", stackOf(a, edgeRid, b, edgeRid, c));
+
+    var vertexFn = new SQLFunctionTraversedVertex();
+    var returned = vertexFn.execute(null, null, null, new Object[] {1}, context);
+
+    assertEquals("edge skips must not advance the V counter from the top",
+        b.getIdentity(), ((Identifiable) returned).getIdentity());
+  }
+
+  @Test
+  public void classFilterCounterAdvancesOnlyOnMatchNegativeBranch() {
+    // Same semantic in the negative branch. With beginIndex=-2 on the vertex-only sub-sequence
+    // [a, b, c], the second match from the bottom is b. Interleaved edges must not affect this.
+    var edgeRid = anyEdgeRid();
+    var context = ctx();
+    context.setVariable("stack", stackOf(a, edgeRid, b, edgeRid, c));
+
+    var vertexFn = new SQLFunctionTraversedVertex();
+    var returned = vertexFn.execute(null, null, null, new Object[] {-2}, context);
+
+    assertEquals("edge skips must not advance the V counter from the bottom",
+        b.getIdentity(), ((Identifiable) returned).getIdentity());
+  }
+
+  // ---------------------------------------------------------------------------
+  // Boundary cases
+  // ---------------------------------------------------------------------------
+
+  @Test
+  public void emptyStackReturnsNullInsteadOfThrowing() {
+    // A non-null empty Collection passes the missing-stack check, then the loop iterates zero
+    // times → returns null. Distinguishes the "null stack" exception contract from the "empty
+    // stack" null-return contract.
+    var fn = new SQLFunctionTraversedElement();
+    var context = ctx();
+    context.setVariable("stack", new ArrayDeque<Object>());
+
+    assertNull(fn.execute(null, null, null, new Object[] {0}, context));
+  }
+
+  @Test
+  public void missingRidInTraverseRecordProcessTargetThrowsRecordNotFound() {
+    // A TraverseRecordProcess wrapping an RID that does not resolve in the current transaction
+    // triggers transaction.load() to throw RecordNotFoundException (not return null — note the
+    // asymmetric null-guards in the production positive/negative branches are therefore dead
+    // code today). Pins the observed behaviour so a future refactor that changes load()'s
+    // error semantics is noticed.
+    var context = ctx();
+    var cmd = new Traverse(session);
+    var missingRid = new RecordId(a.getIdentity().getCollectionId(), 999_999L);
+    var trp = new TraverseRecordProcess(cmd, missingRid, TraversePath.empty(), session);
+    context.setVariable("stack", stackOf(trp));
+
+    var vertexFn = new SQLFunctionTraversedVertex();
+    assertThrows(
+        com.jetbrains.youtrackdb.api.exception.RecordNotFoundException.class,
+        () -> vertexFn.execute(null, null, null, new Object[] {-1}, context));
   }
 
   // ---------------------------------------------------------------------------
@@ -442,14 +525,14 @@ public class SQLFunctionTraversedElementTest extends DbTestBase {
   @Test
   public void aggregateResultsIsFalse() {
     // traversedElement is not an aggregate — it produces one value per row, not a reduction.
-    assertEquals(false, new SQLFunctionTraversedElement().aggregateResults());
+    assertFalse(new SQLFunctionTraversedElement().aggregateResults());
   }
 
   @Test
   public void filterResultIsTrue() {
     // filterResult() governs whether the engine should apply WHERE filters over the output.
     // traversedElement returns true so the engine forwards the call through correctly.
-    assertEquals(true, new SQLFunctionTraversedElement().filterResult());
+    assertTrue(new SQLFunctionTraversedElement().filterResult());
   }
 
   @Test
@@ -469,9 +552,10 @@ public class SQLFunctionTraversedElementTest extends DbTestBase {
   }
 
   @Test
-  public void setStackDeduplicatesButPreservesUniquenessForEntriesWithDifferentIdentities() {
-    // Sanity regression: the Collection passed as "stack" can be any Collection. Use a HashSet of
-    // identities to show the function doesn't require a List/Deque.
+  public void stackMayBeAnyCollection() {
+    // Sanity regression: the Collection passed as "stack" can be any Collection, not only
+    // List/Deque. Use a HashSet with one identity to show the function accepts it. (HashSet
+    // iteration order is JVM-dependent for multiple elements, so use a single-entry Set.)
     var fn = new SQLFunctionTraversedElement();
     var context = ctx();
     Set<Object> stack = new HashSet<>();
@@ -480,7 +564,6 @@ public class SQLFunctionTraversedElementTest extends DbTestBase {
 
     var returned = fn.execute(null, null, null, new Object[] {0}, context);
 
-    // Single element → positive index 0 returns it.
     assertNotNull(returned);
     assertEquals(a.getIdentity(), ((Identifiable) returned).getIdentity());
   }
