@@ -133,18 +133,13 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   public Iterable<Vertex> getVertices(Direction direction, String... type) {
     checkForBinding();
     if (direction == Direction.BOTH) {
-      var outVertices = getVerticesOptimized(Direction.OUT, type);
-      var inVertices = getVerticesOptimized(Direction.IN, type);
-      // When both directions yield a single PreFilterableLinkBagIterable (i.e. all edge
-      // properties for those labels are backed by a single LinkBag), wrap them in a
-      // PreFilterableChainedIterable so the MATCH engine can apply index pre-filters without
-      // touching disk. Otherwise fall back to the plain Commons chained iterable.
-      if (outVertices instanceof PreFilterableLinkBagIterable pfliOut
-          && inVertices instanceof PreFilterableLinkBagIterable pfliIn) {
-        //noinspection unchecked
-        return (Iterable<Vertex>) (Object) new PreFilterableChainedIterable(pfliOut, pfliIn);
-      }
-      return IterableUtils.chainedIterable(outVertices, inVertices);
+      // Chain OUT and IN; chainIterables promotes the result to PreFilterableChainedIterable when
+      // both directions are LinkBag-backed so the MATCH engine can apply index pre-filters without
+      // touching disk.
+      return chainIterables(
+          List.of(
+              getVerticesOptimized(Direction.OUT, type),
+              getVerticesOptimized(Direction.IN, type)));
     } else {
       return getVerticesOptimized(direction, type);
     }
@@ -193,14 +188,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
       }
     }
 
-    if (iterables.size() == 1) {
-      return iterables.getFirst();
-    } else if (iterables.isEmpty()) {
-      return Collections.emptyList();
-    }
-
-    //noinspection unchecked
-    return IterableUtils.chainedIterable(iterables.toArray(new Iterable[0]));
+    return chainIterables(iterables);
   }
 
   @Override
@@ -369,24 +357,37 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
       }
     }
 
-    if (iterables.size() == 1) {
-      return iterables.getFirst();
-    } else if (iterables.isEmpty()) {
+    return chainIterables(iterables);
+  }
+
+  /**
+   * Chains a list of per-property edge/vertex iterables into a single iterable. When every element
+   * implements {@link PreFilterableLinkBagIterable} (i.e. each is backed by a LinkBag), they are
+   * wrapped in a {@link PreFilterableChainedIterable} so the MATCH engine can apply index
+   * pre-filters across all directions/labels without touching disk. Otherwise the method falls
+   * back to a plain Commons chained iterable. The list is walked in a single pass.
+   */
+  private static <T> Iterable<T> chainIterables(List<Iterable<T>> iterables) {
+    if (iterables.isEmpty()) {
       return Collections.emptyList();
     }
+    if (iterables.size() == 1) {
+      return iterables.getFirst();
+    }
 
-    // When every iterable in the list is backed by a LinkBag (i.e. each implements
-    // PreFilterableLinkBagIterable), chain them in a PreFilterableChainedIterable so the MATCH
-    // engine can apply index pre-filters across all edge directions without touching disk.
-    // Otherwise fall back to the plain Commons chained iterable.
-    var allPreFilterable =
-        iterables.stream().allMatch(it -> it instanceof PreFilterableLinkBagIterable);
+    var subs = new PreFilterableLinkBagIterable[iterables.size()];
+    var allPreFilterable = true;
+    for (var i = 0; i < iterables.size(); i++) {
+      if (iterables.get(i) instanceof PreFilterableLinkBagIterable pfli) {
+        subs[i] = pfli;
+      } else {
+        allPreFilterable = false;
+        break;
+      }
+    }
     if (allPreFilterable) {
-      var subs = iterables.stream()
-          .map(it -> (PreFilterableLinkBagIterable) it)
-          .toArray(PreFilterableLinkBagIterable[]::new);
       //noinspection unchecked
-      return (Iterable<EdgeInternal>) (Object) new PreFilterableChainedIterable(subs);
+      return (Iterable<T>) (Object) new PreFilterableChainedIterable(subs);
     }
 
     //noinspection unchecked
