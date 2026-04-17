@@ -45,6 +45,14 @@ final class LdbcQuerySql {
    */
   static final String BOTH_E_KNOWS = loadResource("ldbc-queries/both-e-knows.sql");
 
+  /**
+   * Forum recent-joiners via bothE(HAS_MEMBER) — hub-shape variant of the
+   * pre-filter benchmark, targeting Forums with thousands of members. Requires
+   * {@code HAS_MEMBER.joinDate} index (present in {@code ldbc-schema.sql}).
+   */
+  static final String FORUM_RECENT_JOINERS =
+      loadResource("ldbc-queries/forum-recent-joiners.sql");
+
   private LdbcQuerySql() {
   }
 
