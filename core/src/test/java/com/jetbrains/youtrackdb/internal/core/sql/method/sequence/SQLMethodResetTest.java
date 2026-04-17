@@ -142,6 +142,10 @@ public class SQLMethodResetTest extends DbTestBase {
       method.execute(failing, null, ctx, null, new Object[] {});
       fail("expected CommandExecutionException wrapping the DatabaseException");
     } catch (CommandExecutionException e) {
+      // Catching CommandExecutionException (not DatabaseException) pins the re-wrap:
+      // CommandExecutionException extends CoreException — it is NOT a DatabaseException
+      // subtype — so a re-thrown DatabaseException would fall through this catch and fail
+      // the test at the outer `fail(...)` below.
       assertNotNull(e.getMessage());
       assertTrue(
           "message should start with 'Unable to execute command:', saw: " + e.getMessage(),
@@ -150,6 +154,25 @@ public class SQLMethodResetTest extends DbTestBase {
           "message should carry the original 'boom-reset' detail, saw: " + e.getMessage(),
           e.getMessage().contains("boom-reset"));
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Non-default start — pins that reset() uses the sequence's configured start, not hardcoded
+  // ---------------------------------------------------------------------------
+
+  @Test
+  public void resetWithCustomStartReturnsConfiguredStart() {
+    // A regression that hardcoded 0 as the reset value would be caught here. start=100
+    // → after any number of next() calls, reset() must return 100.
+    var params = new DBSequence.CreateParams().setDefaults().setStart(100L).setIncrement(1);
+    session.getMetadata().getSequenceLibrary()
+        .createSequence("customSeq", DBSequence.SEQUENCE_TYPE.ORDERED, params);
+    var seq = session.getMetadata().getSequenceLibrary().getSequence("CUSTOMSEQ");
+    seq.next(session);
+    seq.next(session);
+
+    assertEquals(100L, method.execute(seq, null, ctx, null, new Object[] {}));
+    assertEquals(100L, seq.current(session));
   }
 
   // ---------------------------------------------------------------------------

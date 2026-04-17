@@ -12,7 +12,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.method.misc;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
@@ -122,10 +121,12 @@ public class SQLMethodFunctionDelegateTest extends DbTestBase {
 
   @Test
   public void getMaxParamsZeroBecomesNegativeOne() {
-    // WHEN-FIXED: delegate pipes max=0 through the `max == -1 ? -1 : max - 1` formula, yielding
-    // -1 — which the parser treats as "unlimited". Accepted here as a pinned regression. If the
-    // delegate ever grows a `max == 0 ? 0 : max - 1` special-case for strictly-no-args
-    // functions, this assertion must be updated.
+    // WHEN-FIXED: change `max == -1 ? -1 : max - 1` in SQLMethodFunctionDelegate.getMaxParams
+    // to special-case max==0 (strictly-no-args functions) so it returns 0, not -1. Then flip
+    // this assertion to `assertEquals(0, delegate.getMaxParams(session));`.
+    //
+    // Current observable behaviour: the formula yields -1 for max==0, which the SQL parser
+    // treats as "unlimited" — arguably unintended, but pinned here as a regression.
     var fn = new RecordingFunction("noArgs", 0, 0);
     var delegate = new SQLMethodFunctionDelegate(fn);
 
@@ -195,12 +196,12 @@ public class SQLMethodFunctionDelegateTest extends DbTestBase {
       fail("expected CommandExecutionException for insufficient arity");
     } catch (CommandExecutionException e) {
       assertNotNull(e.getMessage());
-      assertTrue(
-          "message should reference the arity mismatch, saw: " + e.getMessage(),
-          e.getMessage().contains("strict"));
-      assertTrue(
-          "message should mention 'argument', saw: " + e.getMessage(),
-          e.getMessage().contains("argument"));
+      // Pin the user-visible message structure: function name, expected arity range, and
+      // observed arity. A regression that drops any of these three pieces is caught.
+      var msg = e.getMessage();
+      assertTrue("message should name the function, saw: " + msg, msg.contains("'strict'"));
+      assertTrue("message should show expected arity range, saw: " + msg, msg.contains("2-3"));
+      assertTrue("message should report observed arity, saw: " + msg, msg.contains("received 1"));
     }
   }
 
@@ -214,9 +215,10 @@ public class SQLMethodFunctionDelegateTest extends DbTestBase {
       fail("expected CommandExecutionException for excess arity");
     } catch (CommandExecutionException e) {
       assertNotNull(e.getMessage());
-      assertTrue(
-          "message should reference the arity mismatch, saw: " + e.getMessage(),
-          e.getMessage().contains("strict"));
+      var msg = e.getMessage();
+      assertTrue("message should name the function, saw: " + msg, msg.contains("'strict'"));
+      assertTrue("message should show expected arity range, saw: " + msg, msg.contains("1-2"));
+      assertTrue("message should report observed arity, saw: " + msg, msg.contains("received 3"));
     }
   }
 
@@ -230,9 +232,9 @@ public class SQLMethodFunctionDelegateTest extends DbTestBase {
     // Passing two runtime params with max=0 should still execute (no CEE raised here).
     var out = delegate.execute("x", null, ctx, null, new Object[] {"extra1", "extra2"});
 
-    // RecordingFunction's default returnValue is null; but it was invoked — assert the capture.
-    assertNotNull("function should have been invoked despite max=0 and non-empty iParams",
-        fn.lastParams.get());
+    // Pin both reachability AND argument threading — a regression that invokes the function
+    // with truncated or replaced params would still be non-null, so assert the exact array.
+    assertArrayEquals(new Object[] {"extra1", "extra2"}, fn.lastParams.get());
   }
 
   // ---------------------------------------------------------------------------
@@ -268,16 +270,14 @@ public class SQLMethodFunctionDelegateTest extends DbTestBase {
   @Test
   public void evaluateParametersInheritsSuperclassDefault() {
     // AbstractSQLMethod.evaluateParameters() defaults to true — delegate doesn't override it,
-    // so the runtime params ARE evaluated for this method. Pin as drift guard.
+    // so the runtime params ARE evaluated for this method. Pin as drift guard: a regression
+    // that flips the default to false (or adds an override returning false) must fail here.
     var fn = new RecordingFunction("any", 0, 0);
     var delegate = new SQLMethodFunctionDelegate(fn);
 
-    // assertTrue/assertFalse reads cleaner than assertEquals(Boolean)
-    if (!delegate.evaluateParameters()) {
-      assertFalse(
-          "if the default ever changes to false, update SQLMethodFieldTest's drift-guard note",
-          false);
-    }
+    assertTrue(
+        "delegate must inherit evaluateParameters()==true from AbstractSQLMethod",
+        delegate.evaluateParameters());
   }
 
   // ---------------------------------------------------------------------------

@@ -61,6 +61,8 @@ public class SQLMethodCurrentTest extends DbTestBase {
   public void setup() {
     method = new SQLMethodCurrent();
     ctx = new BasicCommandContext(session);
+    // SequenceLibrary stores sequences keyed by upper-cased name — getSequence below therefore
+    // looks up SEQ_NAME.toUpperCase() even though createSequence accepts the mixed-case form.
     session.getMetadata().getSequenceLibrary().createSequence(
         SEQ_NAME, DBSequence.SEQUENCE_TYPE.ORDERED,
         new DBSequence.CreateParams().setDefaults());
@@ -145,6 +147,10 @@ public class SQLMethodCurrentTest extends DbTestBase {
       method.execute(failing, null, ctx, null, new Object[] {});
       fail("expected CommandExecutionException wrapping the DatabaseException");
     } catch (CommandExecutionException e) {
+      // Catching CommandExecutionException (not DatabaseException) pins the re-wrap:
+      // CommandExecutionException extends CoreException — it is NOT a DatabaseException
+      // subtype — so a re-thrown DatabaseException would fall through this catch and fail
+      // the test at the outer `fail(...)` below.
       assertNotNull(e.getMessage());
       assertTrue(
           "message should start with 'Unable to execute command:', saw: " + e.getMessage(),
@@ -153,6 +159,22 @@ public class SQLMethodCurrentTest extends DbTestBase {
           "message should carry the original 'boom-current' detail, saw: " + e.getMessage(),
           e.getMessage().contains("boom-current"));
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Non-default start — pins that current() delegates to the sequence's stored value
+  // ---------------------------------------------------------------------------
+
+  @Test
+  public void currentWithCustomStartReflectsStoredValue() {
+    // A regression that hardcoded 0 as current() would be caught here — use start=100 and
+    // verify current() returns 100 before any next() call.
+    var params = new DBSequence.CreateParams().setDefaults().setStart(100L);
+    session.getMetadata().getSequenceLibrary()
+        .createSequence("customSeq", DBSequence.SEQUENCE_TYPE.ORDERED, params);
+    var seq = session.getMetadata().getSequenceLibrary().getSequence("CUSTOMSEQ");
+
+    assertEquals(100L, method.execute(seq, null, ctx, null, new Object[] {}));
   }
 
   // ---------------------------------------------------------------------------

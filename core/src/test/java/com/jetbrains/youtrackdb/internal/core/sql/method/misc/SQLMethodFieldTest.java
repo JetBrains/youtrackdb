@@ -11,20 +11,25 @@
 package com.jetbrains.youtrackdb.internal.core.sql.method.misc;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.filter.SQLFilterItemField;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -89,6 +94,10 @@ public class SQLMethodFieldTest extends DbTestBase {
     var person = session.createClass("Person");
     person.createProperty("name", PropertyType.STRING);
     person.createProperty("age", PropertyType.INTEGER);
+    // Multi-value properties used by the collection-element dispatch tests (flatten + Map
+    // keep-whole branches).
+    person.createProperty("tags", PropertyType.EMBEDDEDLIST);
+    person.createProperty("props", PropertyType.EMBEDDEDMAP);
     // All entity loads/saves run inside a tx.
     session.begin();
 
@@ -97,8 +106,12 @@ public class SQLMethodFieldTest extends DbTestBase {
 
   @After
   public void rollbackIfLeftOpen() {
-    // Carry-forward from Track 6: prevent a leaked tx from cascading to other methods in the class.
-    if (session.getActiveTransaction().isActive()) {
+    // Carry-forward from Track 6: prevent a leaked tx from cascading to other methods in the
+    // class. Use getActiveTransactionOrNull() — not getActiveTransaction() — because the
+    // latter throws DatabaseException when no tx is active, and in that case we have nothing
+    // to roll back anyway.
+    var tx = session.getActiveTransactionOrNull();
+    if (tx != null && tx.isActive()) {
       session.rollback();
     }
   }
@@ -155,15 +168,37 @@ public class SQLMethodFieldTest extends DbTestBase {
   }
 
   @Test
-  public void starFieldNameReturnsCandidateUnchanged() {
-    // "*" is the pass-through — the method returns ioResult unchanged (after any prior branch
-    // mutations). For a plain entity, that means the entity itself comes back.
-    var entity = session.newInstance("Person");
-    entity.setProperty("name", "Alice");
+  public void starFieldNameOnMapReturnsCandidateUnchanged() {
+    // "*" short-circuits the final EntityHelper.getFieldValue/getVariable call only.
+    // We assert identity on a Map candidate because Map is not an Identifiable / Iterable /
+    // String / Collection, so none of the earlier transform branches rewrite ioResult — the
+    // Map reference therefore survives verbatim. Using an entity here would be fragile because
+    // the Identifiable branch re-loads via the transaction and might return a different
+    // reference for a technically-correct implementation.
+    var candidate = new HashMap<String, Object>();
+    candidate.put("name", "Alice");
 
-    var result = method.execute(null, null, ctx, entity, new Object[] {"*"});
+    var result = method.execute(null, null, ctx, candidate, new Object[] {"*"});
 
-    assertSame(entity, result);
+    assertSame(candidate, result);
+  }
+
+  @Test
+  public void starFieldNameWithNullIoResultReturnsNull() {
+    // "*" + null ioResult must return null — the outer if-guard falls through without a
+    // variable/field lookup.
+    assertNull(method.execute(null, null, ctx, null, new Object[] {"*"}));
+  }
+
+  @Test
+  public void starFieldNameWithCommandContextReturnsContextNotVariable() {
+    // "*" must NOT be treated as a variable name on a CommandContext candidate. The outer
+    // if-guard checks `!"*".equals(paramAsString)` BEFORE dispatching on CommandContext, so
+    // the context itself passes through verbatim.
+    var holder = new BasicCommandContext(session);
+    holder.setVariable("x", "y");
+
+    assertSame(holder, method.execute(null, null, ctx, holder, new Object[] {"*"}));
   }
 
   @Test
@@ -257,8 +292,78 @@ public class SQLMethodFieldTest extends DbTestBase {
 
     assertNotNull(out);
     assertEquals(3, out.size());
-    var list = new java.util.ArrayList<>(out);
+    var list = new ArrayList<>(out);
     assertEquals(Arrays.asList("Alice", "Bob", "Carol"), list);
+  }
+
+  @Test
+  public void emptyCollectionCandidateReturnsEmptyList() {
+    // Boundary: empty input must return a non-null empty list (not null, not fall through to
+    // EntityHelper.getFieldValue(emptyList, name)). The production code pre-sizes ArrayList
+    // with MultiValue.getSize(ioResult) == 0 and leaves the loop un-entered.
+    @SuppressWarnings("unchecked")
+    var out = (Collection<Object>) method.execute(
+        null, null, ctx, java.util.Collections.emptyList(), new Object[] {"name"});
+
+    assertNotNull("empty-collection input must NOT return null", out);
+    assertTrue("empty-collection input must return an empty list", out.isEmpty());
+  }
+
+  @Test
+  public void arrayCandidateReturnsListOfFieldValuesInOrder() {
+    // The multi-value expansion branch accepts Collection || Iterator || array. Arrays take
+    // a separate `ioResult.getClass().isArray()` branch that is NOT covered by the Collection
+    // test above. Pins the array dispatch explicitly.
+    var a = session.newInstance("Person");
+    a.setProperty("name", "Alice");
+    var b = session.newInstance("Person");
+    b.setProperty("name", "Bob");
+    Object[] input = new Object[] {a, b};
+
+    @SuppressWarnings("unchecked")
+    var out = (Collection<Object>) method.execute(null, null, ctx, input, new Object[] {"name"});
+
+    assertNotNull(out);
+    assertEquals(Arrays.asList("Alice", "Bob"), new ArrayList<>(out));
+  }
+
+  @Test
+  public void collectionElementWithListFieldFlattensIntoResult() {
+    // When an element's field value is itself a multi-value (and NOT Map or Identifiable), the
+    // inner loop flattens it into the outer result list. Pins the `else` branch at ~line 101
+    // of SQLMethodField — a regression that treats every multi-value as "keep whole" would
+    // return a List-of-Lists here.
+    //
+    // EntityImpl requires getOrCreateEmbeddedList() for EMBEDDEDLIST properties; setProperty
+    // with a bare List rejects with IllegalArgumentException.
+    var a = session.newInstance("Person");
+    a.<String>getOrCreateEmbeddedList("tags").addAll(Arrays.asList("red", "blue"));
+    var b = session.newInstance("Person");
+    b.<String>getOrCreateEmbeddedList("tags").addAll(Arrays.asList("green"));
+    List<?> input = Arrays.asList(a, b);
+
+    @SuppressWarnings("unchecked")
+    var out = (Collection<Object>) method.execute(null, null, ctx, input, new Object[] {"tags"});
+
+    // Flattened: [red, blue, green], not [[red, blue], [green]].
+    assertEquals(Arrays.asList("red", "blue", "green"), new ArrayList<>(out));
+  }
+
+  @Test
+  public void collectionElementWithMapFieldKeepsMapAsSingleElement() {
+    // When an element's field value is a Map, the inner branch preserves it intact instead of
+    // iterating the entry-set. Pins the `instanceof Map || Identifiable` guard.
+    var a = session.newInstance("Person");
+    a.<String>getOrCreateEmbeddedMap("props").put("k", "v");
+    List<?> input = Arrays.asList(a);
+
+    @SuppressWarnings("unchecked")
+    var out = (Collection<Object>) method.execute(null, null, ctx, input, new Object[] {"props"});
+
+    assertEquals(1, out.size());
+    var only = out.iterator().next();
+    assertTrue("map element should be preserved whole, saw: " + only, only instanceof Map);
+    assertEquals(Collections.singletonMap("k", "v"), only);
   }
 
   // ---------------------------------------------------------------------------
@@ -296,13 +401,49 @@ public class SQLMethodFieldTest extends DbTestBase {
   }
 
   @Test
-  public void malformedRidStringLogsErrorAndYieldsNull() {
-    // Production code wraps the RID parse in try/catch and returns null on failure. A random
-    // string that does not start with '#' cannot be parsed as a RID → method swallows the
-    // exception, sets ioResult to null, and returns null from the final if-guard.
-    var out = method.execute(null, null, ctx, "not-a-rid", new Object[] {"name"});
+  public void malformedHashRidStringYieldsNullViaRidParseCatch() {
+    // A string that starts with '#' definitely routes through the `ioResult instanceof String`
+    // RID-parse branch. The parse fails because "bogus:xyz" is not a valid cluster:position
+    // pair, the catch swallows the exception, and the method returns null. Using '#...' here
+    // (rather than "not-a-rid") pins the parse-catch path specifically — a random string with
+    // no '#' could theoretically reach EntityHelper.getFieldValue and also return null, making
+    // the assertion ambiguous about which branch was exercised.
+    var out = method.execute(null, null, ctx, "#bogus:xyz", new Object[] {"name"});
 
     assertNull(out);
+  }
+
+  @Test
+  public void identifiableCandidateForDeletedRecordNpesDueToNullUnguardedIsArrayCheck() {
+    // WHEN-FIXED: guard the `ioResult.getClass().isArray()` check at SQLMethodField line ~94
+    // against a null ioResult (e.g., `ioResult != null && ioResult.getClass().isArray()`).
+    // When the catch (RecordNotFoundException) at line 73-77 nulls ioResult, the subsequent
+    // compound `else if (ioResult instanceof Collection<?> || ... || ioResult.getClass()
+    // .isArray())` NPEs instead of falling through. The corrected behaviour should be: method
+    // returns null (the intended outcome of the RecordNotFoundException catch).
+    //
+    // Until the fix lands, this test pins the latent NPE so a silent change in behaviour is
+    // caught: if someone fixes the NPE without updating the test, this assertion will fail and
+    // the marker guides them to flip it to `assertNull(out);`.
+    var entity = session.newInstance("Person");
+    entity.setProperty("name", "Alice");
+    session.commit();
+    var rid = entity.getIdentity();
+    session.begin();
+    session.delete(session.load(rid));
+    session.commit();
+
+    session.begin();
+    try {
+      method.execute(null, null, ctx, rid, new Object[] {"name"});
+      fail("Expected NullPointerException due to latent bug (WHEN-FIXED)");
+    } catch (NullPointerException expected) {
+      // Pin: production nulls ioResult in catch(RecordNotFoundException) then immediately
+      // dereferences ioResult on the unguarded isArray() check. When fixed, method returns null.
+      assertTrue(
+          "NPE message should blame ioResult, saw: " + expected.getMessage(),
+          expected.getMessage() == null || expected.getMessage().contains("ioResult"));
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -329,8 +470,10 @@ public class SQLMethodFieldTest extends DbTestBase {
   public void evaluateParametersReturnsFalse() {
     // Pins the SQLMethodRuntime contract: the method receives its parameters un-evaluated
     // (so "name" stays the literal string "name", not a looked-up value).
-    assertTrue("evaluateParameters must stay false for field()",
-        !method.evaluateParameters());
+    assertFalse(
+        "evaluateParameters must stay false for field() — SQLMethodRuntime relies on the raw "
+            + "param being the field NAME, not its looked-up value",
+        method.evaluateParameters());
   }
 
   @Test
