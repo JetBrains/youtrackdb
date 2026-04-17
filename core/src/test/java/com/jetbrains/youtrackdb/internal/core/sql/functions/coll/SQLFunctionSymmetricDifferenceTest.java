@@ -17,7 +17,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.functions.coll;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import java.util.Arrays;
@@ -34,25 +33,25 @@ import org.junit.Test;
 public class SQLFunctionSymmetricDifferenceTest {
 
   @Test
-  public void testOperator() {
-    final var differenceFunction =
-        new SQLFunctionSymmetricDifference();
+  public void aggregatingDuplicatesSeparatelyRetainsOnlyValuesSeenOnce() {
+    // Single-param aggregation mode, fed the stream 1,2,3,1,4,5,2,2,1,1:
+    // each repeat promotes the value to the rejected set, so only values seen exactly once
+    // survive — here {3, 4, 5}.
+    final var fn = new SQLFunctionSymmetricDifference();
 
     final List<Object> income = Arrays.asList(1, 2, 3, 1, 4, 5, 2, 2, 1, 1);
-    final Set<Object> expectedResult = new HashSet<Object>(Arrays.asList(3, 4, 5));
-
     for (var i : income) {
-      differenceFunction.execute(null, null, null, new Object[] {i}, null);
+      fn.execute(null, null, null, new Object[] {i}, null);
     }
 
-    final var actualResult = differenceFunction.getResult();
-
-    assertSetEquals(actualResult, expectedResult);
+    assertSetEquals(fn.getResult(), new HashSet<>(Arrays.asList(3, 4, 5)));
   }
 
   @Test
-  public void testExecute() {
-    final var function = new SQLFunctionSymmetricDifference();
+  public void inlineThreeListsSymmetricDifferenceKeepsOddCountElements() {
+    // Inline mode with three Collections. Each element that appears an odd number of times
+    // across the three inputs survives — here {4, 7, 8, 9, 0}.
+    final var fn = new SQLFunctionSymmetricDifference();
 
     final List<List<Object>> incomes =
         Arrays.asList(
@@ -60,13 +59,23 @@ public class SQLFunctionSymmetricDifferenceTest {
             Arrays.asList(3, 5, 6, 7, 0, 1, 3, 3, 6),
             Arrays.asList(2, 2, 8, 9));
 
-    final Set<Object> expectedResult = new HashSet<Object>(Arrays.<Object>asList(4, 7, 8, 9, 0));
-
     final var actualResult =
-        (Set<Object>) function.execute(null, null, null, incomes.toArray(),
+        (Set<Object>) fn.execute(null, null, null, incomes.toArray(),
             new BasicCommandContext());
 
-    assertSetEquals(actualResult, expectedResult);
+    assertSetEquals(actualResult, new HashSet<>(Arrays.<Object>asList(4, 7, 8, 9, 0)));
+  }
+
+  @Test
+  public void inlineMixedCollectionAndScalarArgs() {
+    // Mixed inline dispatch: {1,2} (Collection) + 2 (scalar, rejects) + 3 (scalar, accepts).
+    // The Collection branch iterates, the scalar branch calls addItemToResult directly.
+    final var fn = new SQLFunctionSymmetricDifference();
+
+    final var result = (Set<?>) fn.execute(null, null, null,
+        new Object[] {List.of(1, 2), 2, 3}, new BasicCommandContext());
+
+    assertSetEquals(new HashSet<>(result), Set.of(1, 3));
   }
 
   @Test
@@ -127,9 +136,8 @@ public class SQLFunctionSymmetricDifferenceTest {
   }
 
   private static void assertSetEquals(Set<?> actualResult, Set<?> expectedResult) {
-    assertEquals(actualResult.size(), expectedResult.size());
-    for (var o : actualResult) {
-      assertTrue(expectedResult.contains(o));
-    }
+    // Set.equals handles unordered symmetric equality; catches extras the previous helper
+    // missed.
+    assertEquals(expectedResult, actualResult);
   }
 }

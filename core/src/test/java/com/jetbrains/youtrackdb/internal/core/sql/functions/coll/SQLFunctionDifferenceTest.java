@@ -34,8 +34,10 @@ import org.junit.Test;
 public class SQLFunctionDifferenceTest {
 
   @Test
-  public void testExecute() {
-    final var function = new SQLFunctionDifference();
+  public void threeAndTwoOperandInlineDifferenceRetainsOnlyFirstOperandExclusives() {
+    // First case: first minus second and third. {1,2,3,4,5,1} \ {3,5,6,7,0,1,3,3,6} \
+    // {2,2,8,9} = {4}. Second case: first minus second only = {2,4}.
+    final var fn = new SQLFunctionDifference();
 
     List<List<Object>> incomes =
         Arrays.asList(
@@ -46,7 +48,7 @@ public class SQLFunctionDifferenceTest {
     Set<Object> expectedResult = new HashSet<Object>(List.<Object>of(4));
 
     var actualResult =
-        (List<Object>) function.execute(null, null, null, incomes.toArray(),
+        (List<Object>) fn.execute(null, null, null, incomes.toArray(),
             new BasicCommandContext());
 
     assertSetEquals(new HashSet<>(actualResult), expectedResult);
@@ -57,7 +59,7 @@ public class SQLFunctionDifferenceTest {
     expectedResult = new HashSet<Object>(Arrays.<Object>asList(2, 4));
 
     actualResult =
-        (List<Object>) function.execute(null, null, null, incomes.toArray(),
+        (List<Object>) fn.execute(null, null, null, incomes.toArray(),
             new BasicCommandContext());
     assertSetEquals(new HashSet<>(actualResult), expectedResult);
   }
@@ -149,10 +151,9 @@ public class SQLFunctionDifferenceTest {
     assertEquals(-1, fn.getMaxParams(null));
   }
 
-  private void assertSetEquals(Set<Object> actualResult, Set<Object> expectedResult) {
-    assertEquals(actualResult.size(), expectedResult.size());
-    for (var o : actualResult) {
-      assertTrue(expectedResult.contains(o));
-    }
+  private static void assertSetEquals(Set<?> actualResult, Set<?> expectedResult) {
+    // Set.equals handles unordered symmetric equality and catches extra/missing elements,
+    // which the previous size + contains check did not.
+    assertEquals(expectedResult, actualResult);
   }
 }

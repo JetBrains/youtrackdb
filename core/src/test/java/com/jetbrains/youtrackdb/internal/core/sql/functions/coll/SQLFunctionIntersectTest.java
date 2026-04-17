@@ -100,14 +100,14 @@ public class SQLFunctionIntersectTest {
   @Test
   public void inlineSetSecondOperandUsesFastContainsPath() {
     // The `value instanceof Set<?> set` branch in the multi-param loop uses the Set variant of
-    // intersectWith — verify it produces the expected intersection.
+    // intersectWith — result elements are collected via a LinkedHashSet seeded in left-operand
+    // order, so assert exact order.
     final var fn = new SQLFunctionIntersect();
 
     final var result = (List<?>) fn.execute(null, null, null,
         new Object[] {List.of(1, 2, 3, 4), Set.of(2, 4, 6)}, new BasicCommandContext());
 
-    assertTrue(result.containsAll(List.of(2, 4)));
-    assertEquals(2, result.size());
+    assertEquals(List.of(2, 4), result);
   }
 
   @Test
@@ -151,6 +151,22 @@ public class SQLFunctionIntersectTest {
     fn.execute(null, null, null, new Object[] {List.of(2, 3, 4)}, ctx);
 
     assertEquals(Set.of(2, 3), fn.getResult());
+  }
+
+  @Test
+  public void aggregationWithEmptyCollectionShortCircuitsWithoutCorruptingContext() {
+    // Empty-collection short-circuit fires BEFORE the aggregation branch — so the first call
+    // returns `Set.of()` and leaves `context` null. The next call must treat itself as the
+    // first (seeding), not as a follow-up narrowing an empty accumulator.
+    final var fn = new SQLFunctionIntersect();
+    final var ctx = new BasicCommandContext();
+    ctx.setVariable("aggregation", Boolean.TRUE);
+
+    fn.execute(null, null, null, new Object[] {List.of()}, ctx);
+    fn.execute(null, null, null, new Object[] {List.of(1, 2)}, ctx);
+
+    // Second call seeded context with {1,2}; getResult returns the full set.
+    assertEquals(Set.of(1, 2), fn.getResult());
   }
 
   @Test
@@ -225,7 +241,7 @@ public class SQLFunctionIntersectTest {
   }
 
   @Test
-  public void intersectWithIteratorOverloadConvertsOpaqueValueToSet() {
+  public void intersectWithIteratorOverloadConvertsOpaqueValueToSetDisjoint() {
     // A non-Set, non-SupportsContains, non-LinkBag right-hand value goes through the outer
     // conversion block (MultiValue.toSet), landing as a Set → matched by the Collection case.
     // 99 becomes {99}; intersection with {1, 2} is empty.
@@ -233,7 +249,17 @@ public class SQLFunctionIntersectTest {
 
     final var result = SQLFunctionIntersect.intersectWith(current, 99);
 
-    assertTrue(result.isEmpty());
+    assertEquals(Set.of(), new HashSet<>(result));
+  }
+
+  @Test
+  public void intersectWithIteratorOverloadConvertsOpaqueValueToSetOverlapping() {
+    // Same conversion path, but the scalar IS present in current — result must contain it.
+    final var current = List.of(1, 2, 99).iterator();
+
+    final var result = SQLFunctionIntersect.intersectWith(current, 99);
+
+    assertEquals(Set.of(99), new HashSet<>(result));
   }
 
   @Test

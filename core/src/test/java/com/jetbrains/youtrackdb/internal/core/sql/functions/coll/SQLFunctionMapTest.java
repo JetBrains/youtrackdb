@@ -58,6 +58,18 @@ public class SQLFunctionMapTest {
   }
 
   @Test
+  public void inlinePairWithOnlyNullValueLeavesContextNull() {
+    // Aggregation-compatible pair path (length <= 2 && context == null). With a null value,
+    // the put() is skipped and the HashMap is never created — the function returns null, and
+    // a subsequent getResult() also returns null. This pins the null-vs-empty contract.
+    final var fn = new SQLFunctionMap();
+
+    assertNull(
+        fn.execute(null, null, null, new Object[] {"k", null}, new BasicCommandContext()));
+    assertNull(fn.getResult());
+  }
+
+  @Test
   public void inlineSkipsNullValuesButKeepsKeys() {
     // Per SQLFunctionMap.execute: if value is null, the put() is skipped entirely.
     final var fn = new SQLFunctionMap();
@@ -101,13 +113,18 @@ public class SQLFunctionMapTest {
         fn.execute(null, null, null, new Object[] {null}, new BasicCommandContext()));
   }
 
+  private static final String MAP_EXPECTED_MESSAGE =
+      "Map function: expected a map or pairs of parameters as key, value";
+
   @Test
   public void singleNonMapParameterThrowsIllegalArgument() {
     final var fn = new SQLFunctionMap();
 
     final var ex = assertThrows(IllegalArgumentException.class,
         () -> fn.execute(null, null, null, new Object[] {"not-a-map"}, new BasicCommandContext()));
-    assertTrue(ex.getMessage().toLowerCase().contains("map"));
+    // Pin the exact message so a swap between the single-non-map and odd-count branches
+    // cannot silently pass (production uses the same string in both).
+    assertEquals(MAP_EXPECTED_MESSAGE, ex.getMessage());
   }
 
   @Test
@@ -117,7 +134,7 @@ public class SQLFunctionMapTest {
     final var ex = assertThrows(IllegalArgumentException.class,
         () -> fn.execute(null, null, null,
             new Object[] {"k1", "v1", "orphan"}, new BasicCommandContext()));
-    assertTrue(ex.getMessage().toLowerCase().contains("pair"));
+    assertEquals(MAP_EXPECTED_MESSAGE, ex.getMessage());
   }
 
   @Test
