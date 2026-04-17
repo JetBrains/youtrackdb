@@ -126,10 +126,13 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.H
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.NonTxOperationPerformedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.OperationUnitRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperationRegistry;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.StorageCollectionFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.UpdatePageRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALPageBrokenException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordsFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.EmptyWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.BTreeBasedLinkBag;
@@ -739,6 +742,10 @@ public abstract class AbstractStorage
 
           initWalAndDiskCache(contextConfiguration);
 
+          // Register all PageOperation types so recovery can deserialize logical WAL records.
+          // Must happen after WAL initialization (above) and before recoverIfNeeded() (below).
+          PageOperationRegistry.registerAll(WALRecordsFactory.INSTANCE);
+
           final var startupMetadata = checkIfStorageDirty();
           final var lastTxId = startupMetadata.lastTxId;
           if (lastTxId > 0) {
@@ -1072,6 +1079,9 @@ public abstract class AbstractStorage
     initIv();
 
     initWalAndDiskCache(contextConfiguration);
+
+    // Register all PageOperation types — symmetric with open() path.
+    PageOperationRegistry.registerAll(WALRecordsFactory.INSTANCE);
 
     atomicOperationsTable =
         new AtomicOperationsTable(
@@ -5412,6 +5422,86 @@ public abstract class AbstractStorage
               }
               durablePage.restoreChanges(updatePageRecord.getChanges());
               durablePage.setLsn(updatePageRecord.getLsn());
+            }
+          } finally {
+            readCache.releaseFromWrite(cacheEntry, writeCache, true);
+          }
+
+          atLeastOnePageUpdate.setValue(true);
+        }
+        case PageOperation pageOp -> {
+          var fileId = pageOp.getFileId();
+
+          // Skip page updates for non-durable files deleted during crash recovery
+          if (deletedNonDurableFileIds.contains(writeCache.internalFileId(fileId))) {
+            continue;
+          }
+
+          if (!writeCache.exists(fileId)) {
+            final var fileName = writeCache.restoreFileById(fileId);
+
+            if (fileName == null) {
+              throw new StorageException(name,
+                  "File with id "
+                      + fileId
+                      + " was deleted from storage, the rest of operations"
+                      + " can not be restored");
+            } else {
+              LogManager.instance()
+                  .warn(
+                      this,
+                      "Previously deleted file with name "
+                          + fileName
+                          + " was deleted but new empty file was added to continue"
+                          + " restore process");
+            }
+          }
+
+          final var pageIndex = pageOp.getPageIndex();
+          fileId = writeCache.externalFileId(writeCache.internalFileId(fileId));
+
+          var cacheEntry = readCache.loadForWrite(fileId, pageIndex, writeCache, true, null);
+          if (cacheEntry == null) {
+            do {
+              if (cacheEntry != null) {
+                readCache.releaseFromWrite(cacheEntry, writeCache, true);
+              }
+
+              cacheEntry = readCache.allocateNewPage(fileId, writeCache, null);
+            } while (cacheEntry.getPageIndex() != pageIndex);
+          }
+
+          try {
+            final var durablePage = new DurablePage(cacheEntry);
+            var pageLsn = durablePage.getLsn();
+
+            if (pageLsn.compareTo(pageOp.getLsn()) < 0) {
+              // initialLsn CAS check: detects unexpected page state. For
+              // multi-operation pages (common during B-tree splits), the 2nd+
+              // operation's initialLsn won't match pageLsn (updated by prior ops'
+              // redo), producing a false-positive error log. This matches the
+              // existing UpdatePageRecord behavior and is not a correctness issue
+              // — tracked as optional improvement (T4-3).
+              if (!pageLsn.equals(pageOp.getInitialLsn())) {
+                LogManager.instance()
+                    .error(
+                        this,
+                        "Page with index "
+                            + pageIndex
+                            + " and file "
+                            + writeCache.fileNameById(fileId)
+                            + " was changed before page restore was started. Page will"
+                            + " be restored from WAL, but it may contain changes that"
+                            + " were not present before storage crash and data may be"
+                            + " lost. Initial LSN is "
+                            + pageOp.getInitialLsn()
+                            + ", but page contains changes with LSN "
+                            + pageLsn,
+                        null);
+              }
+
+              pageOp.redo(durablePage);
+              durablePage.setLsn(pageOp.getLsn());
             }
           } finally {
             readCache.releaseFromWrite(cacheEntry, writeCache, true);

@@ -490,6 +490,23 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
 
       shutdownEngines();
 
+      // Drain the WOW cache flush executor: submit a barrier task and wait for it
+      // to complete. Because the executor is single-threaded, the barrier runs after
+      // all previously submitted tasks (removeWrittenPagesFromCache, delete, etc.)
+      // finish, ensuring no concurrent release() calls race with ByteBufferPool.clear()
+      // below. We must NOT call shutdownExecutor() here because the executor is a
+      // final field that must survive shutdown/startup cycles in tests (see comment
+      // on ShutdownPendingThreadsHandler).
+      try {
+        wowCacheFlushExecutor.submit(() -> {
+        }).get(5, TimeUnit.SECONDS);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      } catch (Exception e) {
+        LogManager.instance()
+            .warn(this, "Failed to drain WOW cache flush executor", e);
+      }
+
       LogManager.instance().info(this, "Clearing byte buffer pool");
       ByteBufferPool.instance(null).clear();
 

@@ -30,6 +30,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.CacheEntryChanges;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -78,6 +79,14 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
     setByteValue(IS_LEAF_OFFSET, (byte) (isLeaf ? 1 : 0));
     setLongValue(LEFT_SIBLING_OFFSET, -1);
     setLongValue(RIGHT_SIBLING_OFFSET, -1);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeMVBucketV2InitOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), isLeaf));
+    }
   }
 
   public void switchBucketType() {
@@ -91,6 +100,14 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
       setByteValue(IS_LEAF_OFFSET, (byte) 0);
     } else {
       setByteValue(IS_LEAF_OFFSET, (byte) 1);
+    }
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeMVBucketV2SwitchBucketTypeOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN()));
     }
   }
 
@@ -220,6 +237,23 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
   }
 
   public int removeLeafEntry(final int entryIndex, final RID value) {
+    var result = doRemoveLeafEntry(entryIndex, value);
+
+    if (result >= 0) {
+      var cacheEntry = getCacheEntry();
+      if (cacheEntry instanceof CacheEntryChanges cec) {
+        cec.registerPageOperation(
+            new BTreeMVBucketV2RemoveLeafEntryOp(
+                cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+                0, cec.getInitialLSN(), entryIndex,
+                (short) value.getCollectionId(), value.getCollectionPosition()));
+      }
+    }
+
+    return result;
+  }
+
+  private int doRemoveLeafEntry(final int entryIndex, final RID value) {
     assert isLeaf();
 
     final var entryPosition =
@@ -495,13 +529,27 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
   }
 
   public boolean decrementEntriesCount(final int entryIndex) {
+    assert entryIndex >= 0 && entryIndex < size()
+        : "entryIndex out of bounds: " + entryIndex + ", size=" + size();
+
     final var entryPosition =
         getIntValue(POSITIONS_ARRAY_OFFSET + entryIndex * IntegerSerializer.INT_SIZE);
     final var entriesCount =
         getIntValue(entryPosition + IntegerSerializer.INT_SIZE + ByteSerializer.BYTE_SIZE);
+    assert entriesCount > 0
+        : "entriesCount must be positive before decrement, got " + entriesCount
+            + " at entryIndex=" + entryIndex;
 
     setIntValue(
         entryPosition + IntegerSerializer.INT_SIZE + ByteSerializer.BYTE_SIZE, entriesCount - 1);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeMVBucketV2DecrementEntriesCountOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), entryIndex));
+    }
 
     return entriesCount == 1;
   }
@@ -510,15 +558,34 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
     final var entryPosition =
         getIntValue(POSITIONS_ARRAY_OFFSET + entryIndex * IntegerSerializer.INT_SIZE);
     removeMainLeafEntry(entryIndex, entryPosition, keySize);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeMVBucketV2RemoveMainLeafEntryOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), entryIndex, keySize));
+    }
   }
 
   public void incrementEntriesCount(final int entryIndex) {
+    assert entryIndex >= 0 && entryIndex < size()
+        : "entryIndex out of bounds: " + entryIndex + ", size=" + size();
+
     final var entryPosition =
         getIntValue(POSITIONS_ARRAY_OFFSET + entryIndex * IntegerSerializer.INT_SIZE);
     final var entriesCount =
         getIntValue(entryPosition + IntegerSerializer.INT_SIZE + ByteSerializer.BYTE_SIZE);
     setIntValue(
         entryPosition + IntegerSerializer.INT_SIZE + ByteSerializer.BYTE_SIZE, entriesCount + 1);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeMVBucketV2IncrementEntriesCountOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), entryIndex));
+    }
   }
 
   private void updateAllLinkedListReferences(
@@ -719,6 +786,42 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
     }
 
     setIntValue(SIZE_OFFSET, currentSize + entries.size());
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      if (isLeaf) {
+        var leafData =
+            new ArrayList<BTreeMVBucketV2AddAllLeafEntriesOp.LeafEntryData>(entries.size());
+        for (var e : entries) {
+          var le = (LeafEntry) e;
+          var ridData =
+              new ArrayList<BTreeMVBucketV2AddAllLeafEntriesOp.RidData>(le.values.size());
+          for (var rid : le.values) {
+            ridData.add(new BTreeMVBucketV2AddAllLeafEntriesOp.RidData(
+                (short) rid.getCollectionId(), rid.getCollectionPosition()));
+          }
+          leafData.add(new BTreeMVBucketV2AddAllLeafEntriesOp.LeafEntryData(
+              le.key, le.mId, le.entriesCount, ridData));
+        }
+        cec.registerPageOperation(
+            new BTreeMVBucketV2AddAllLeafEntriesOp(
+                cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+                0, cec.getInitialLSN(), leafData));
+      } else {
+        var nonLeafData =
+            new ArrayList<BTreeMVBucketV2AddAllNonLeafEntriesOp.NonLeafEntryData>(
+                entries.size());
+        for (var e : entries) {
+          var nle = (NonLeafEntry) e;
+          nonLeafData.add(new BTreeMVBucketV2AddAllNonLeafEntriesOp.NonLeafEntryData(
+              nle.key, nle.leftChild, nle.rightChild));
+        }
+        cec.registerPageOperation(
+            new BTreeMVBucketV2AddAllNonLeafEntriesOp(
+                cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+                0, cec.getInitialLSN(), nonLeafData));
+      }
+    }
   }
 
   public void shrink(
@@ -759,6 +862,27 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
         index++;
       }
 
+      var cacheEntry = getCacheEntry();
+      if (cacheEntry instanceof CacheEntryChanges cec) {
+        var leafData =
+            new ArrayList<BTreeMVBucketV2AddAllLeafEntriesOp.LeafEntryData>(
+                entriesToAdd.size());
+        for (var le : entriesToAdd) {
+          var ridData =
+              new ArrayList<BTreeMVBucketV2AddAllLeafEntriesOp.RidData>(le.values.size());
+          for (var rid : le.values) {
+            ridData.add(new BTreeMVBucketV2AddAllLeafEntriesOp.RidData(
+                (short) rid.getCollectionId(), rid.getCollectionPosition()));
+          }
+          leafData.add(new BTreeMVBucketV2AddAllLeafEntriesOp.LeafEntryData(
+              le.key, le.mId, le.entriesCount, ridData));
+        }
+        cec.registerPageOperation(
+            new BTreeMVBucketV2ShrinkLeafEntriesOp(
+                cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+                0, cec.getInitialLSN(), leafData));
+      }
+
     } else {
       final List<NonLeafEntry> entries = new ArrayList<>(newSize);
 
@@ -779,12 +903,54 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
         doAddNonLeafEntry(index, entry.key, entry.leftChild, entry.rightChild, false);
         index++;
       }
+
+      var cacheEntry = getCacheEntry();
+      if (cacheEntry instanceof CacheEntryChanges cec) {
+        var nonLeafData =
+            new ArrayList<BTreeMVBucketV2AddAllNonLeafEntriesOp.NonLeafEntryData>(
+                entries.size());
+        for (var nle : entries) {
+          nonLeafData.add(new BTreeMVBucketV2AddAllNonLeafEntriesOp.NonLeafEntryData(
+              nle.key, nle.leftChild, nle.rightChild));
+        }
+        cec.registerPageOperation(
+            new BTreeMVBucketV2ShrinkNonLeafEntriesOp(
+                cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+                0, cec.getInitialLSN(), nonLeafData));
+      }
     }
+  }
+
+  /**
+   * Resets the page (freePointer to MAX_PAGE_SIZE_BYTES, size to 0) and re-adds all entries.
+   * Used by shrink redo during recovery — called with {@code changes=null} so no PageOperation
+   * registration occurs (D4 redo suppression).
+   */
+  void resetAndAddAll(List<? extends Entry> entries) {
+    setIntValue(FREE_POINTER_OFFSET, MAX_PAGE_SIZE_BYTES);
+    setIntValue(SIZE_OFFSET, 0);
+    addAll(entries);
+    assert size() == entries.size()
+        : "resetAndAddAll: expected size " + entries.size() + " but got " + size();
   }
 
   public boolean createMainLeafEntry(
       final int index, final byte[] serializedKey, final RID value, final long mId) {
-    return !doCreateMainLeafEntry(index, serializedKey, value, mId);
+    final var result = doCreateMainLeafEntry(index, serializedKey, value, mId);
+    // result == false means success (entry was added)
+    if (!result) {
+      var cacheEntry = getCacheEntry();
+      if (cacheEntry instanceof CacheEntryChanges cec) {
+        cec.registerPageOperation(
+            new BTreeMVBucketV2CreateMainLeafEntryOp(
+                cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+                0, cec.getInitialLSN(), index, serializedKey,
+                value != null ? (short) value.getCollectionId() : (short) -1,
+                value != null ? value.getCollectionPosition() : -1L,
+                mId));
+      }
+    }
+    return !result;
   }
 
   private boolean doCreateMainLeafEntry(int index, byte[] serializedKey, RID value, long mId) {
@@ -893,6 +1059,15 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
     setIntValue(
         entryPosition + ByteSerializer.BYTE_SIZE + IntegerSerializer.INT_SIZE, entriesCount + 1);
 
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeMVBucketV2AppendNewLeafEntryOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), index,
+              (short) value.getCollectionId(), value.getCollectionPosition()));
+    }
+
     return -1;
   }
 
@@ -968,7 +1143,20 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
       final boolean updateNeighbors) {
     final var prevChild =
         doAddNonLeafEntry(index, serializedKey, leftChild, rightChild, updateNeighbors);
-    return prevChild >= -1;
+    final var success = prevChild >= -1;
+
+    if (success) {
+      var cacheEntry = getCacheEntry();
+      if (cacheEntry instanceof CacheEntryChanges cec) {
+        cec.registerPageOperation(
+            new BTreeMVBucketV2AddNonLeafEntryOp(
+                cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+                0, cec.getInitialLSN(), index, serializedKey,
+                leftChild, rightChild, updateNeighbors));
+      }
+    }
+
+    return success;
   }
 
   private int doAddNonLeafEntry(
@@ -1029,6 +1217,20 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
       throw new IllegalStateException("Remove is applied to non-leaf buckets only");
     }
 
+    doRemoveNonLeafEntry(entryIndex, key, prevChild);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeMVBucketV2RemoveNonLeafEntryOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), entryIndex, key, prevChild));
+    }
+  }
+
+  private void doRemoveNonLeafEntry(
+      final int entryIndex, final byte[] key, final int prevChild) {
+
     final var entryPosition =
         getIntValue(POSITIONS_ARRAY_OFFSET + entryIndex * IntegerSerializer.INT_SIZE);
     final var entrySize = key.length + 2 * IntegerSerializer.INT_SIZE;
@@ -1078,6 +1280,14 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
 
   public void setLeftSibling(final long pageIndex) {
     setLongValue(LEFT_SIBLING_OFFSET, pageIndex);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeMVBucketV2SetLeftSiblingOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), pageIndex));
+    }
   }
 
   public long getLeftSibling() {
@@ -1086,6 +1296,14 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
 
   public void setRightSibling(final long pageIndex) {
     setLongValue(RIGHT_SIBLING_OFFSET, pageIndex);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeMVBucketV2SetRightSiblingOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), pageIndex));
+    }
   }
 
   public long getRightSibling() {

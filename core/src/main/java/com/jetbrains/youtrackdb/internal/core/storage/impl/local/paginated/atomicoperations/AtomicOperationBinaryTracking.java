@@ -41,7 +41,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.A
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileCreatedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileDeletedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.UpdatePageRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.EdgeSnapshotKey;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.EdgeVisibilityKey;
@@ -64,7 +64,6 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.NoSuchElementException;
-import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentSkipListMap;
@@ -95,6 +94,25 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
   private final ReadCache readCache;
   private final WriteCache writeCache;
+  @Nullable private final WriteAheadLog writeAheadLog;
+
+  // Tracks whether the WAL atomic unit start record has been emitted (lazily).
+  // Shared between flushPendingOperations() and commitChanges() so that the
+  // start record is emitted at most once per atomic operation.
+  private boolean walUnitStarted;
+  @Nullable private LogSequenceNumber startLSN;
+
+  // Fast-path flag: set to true when any page registers a PageOperation,
+  // cleared after flushPendingOperations() completes. Allows the flush hook
+  // in AtomicOperationsManager to short-circuit when no pending ops exist
+  // (read-only operations, unconverted page types).
+  private boolean hasPendingOperations;
+
+  // Pages that have pending operations waiting to be flushed. Populated by
+  // registerPageOperation(), drained by flushPendingOperations(). Avoids the
+  // O(files × pages) full scan that would otherwise be needed to locate the
+  // few pages with pending ops after each component operation boundary.
+  private final ArrayList<PendingFlushEntry> pendingFlushEntries = new ArrayList<>();
 
   private final Map<String, AtomicOperationMetadata<?>> metadata = new LinkedHashMap<>();
 
@@ -139,6 +157,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   AtomicOperationBinaryTracking(
       final ReadCache readCache,
       final WriteCache writeCache,
+      @Nullable final WriteAheadLog writeAheadLog,
       final int storageId,
       @Nonnull AtomicOperationsSnapshot snapshot,
       @Nonnull ConcurrentSkipListMap<SnapshotKey, PositionEntry> sharedSnapshotIndex,
@@ -154,6 +173,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     this.storageId = storageId;
     this.readCache = readCache;
     this.writeCache = writeCache;
+    this.writeAheadLog = writeAheadLog;
     this.sharedSnapshotIndex = sharedSnapshotIndex;
     this.sharedVisibilityIndex = sharedVisibilityIndex;
     this.snapshotIndexSize = snapshotIndexSize;
@@ -412,6 +432,76 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   }
 
   @Override
+  public void registerPageOperation(long fileId, long pageIndex, PageOperation op) {
+    checkIfActive();
+    assert op != null : "PageOperation must not be null";
+
+    fileId = checkFileIdCompatibility(fileId, storageId);
+
+    final var changesContainer = fileChanges.get(fileId);
+    assert changesContainer != null
+        : "File " + fileId + " has no FileChanges — page must be loaded for write first";
+
+    final var pageChanges = changesContainer.pageChangesMap.get(pageIndex);
+    assert pageChanges != null
+        : "Page " + pageIndex + " in file " + fileId
+            + " has no CacheEntryChanges — page must be loaded for write first";
+
+    pageChanges.addPendingOperation(op);
+    pendingFlushEntries.add(
+        new PendingFlushEntry(fileId, changesContainer.nonDurable, pageChanges));
+    hasPendingOperations = true;
+  }
+
+  @Override
+  public void flushPendingOperations() throws IOException {
+    if (!hasPendingOperations) {
+      return;
+    }
+
+    checkIfActive();
+    assert writeAheadLog != null
+        : "flushPendingOperations called but WriteAheadLog is null";
+    assert operationCommitTs != -1
+        : "flushPendingOperations called before operationCommitTs was set"
+            + " — call startToApplyOperations first";
+
+    for (final var entry : pendingFlushEntries) {
+      // Skip non-durable files — they never produce WAL records
+      if (entry.nonDurable() || writeCache.isNonDurable(entry.fileId())) {
+        entry.changes().clearPendingOperations();
+        continue;
+      }
+
+      final var pageChanges = entry.changes();
+      final var pendingOps = pageChanges.getPendingOperations();
+
+      // A page may appear more than once in the list if multiple operations
+      // were registered between flushes; earlier visits already drained it.
+      if (pendingOps.isEmpty()) {
+        continue;
+      }
+
+      // Lazy emission of AtomicUnitStartRecord before the first WAL record
+      if (!walUnitStarted) {
+        startLSN = emitWalUnitStart(writeAheadLog, operationCommitTs);
+        walUnitStarted = true;
+      }
+
+      for (final var op : pendingOps) {
+        op.setOperationUnitId(operationCommitTs);
+        final var lsn = writeAheadLog.log(op);
+        pageChanges.setChangeLSN(lsn);
+      }
+
+      pageChanges.clearPendingOperations();
+    }
+
+    pendingFlushEntries.clear();
+    hasPendingOperations = false;
+  }
+
+  @Override
   public long filledUpTo(long fileId) {
     checkIfActive();
 
@@ -587,6 +677,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   public LogSequenceNumber commitChanges(long commitTs, @Nonnull final WriteAheadLog writeAheadLog)
       throws IOException {
     checkIfActive();
+    assert this.writeAheadLog == null || this.writeAheadLog == writeAheadLog
+        : "commitChanges WAL instance differs from flushPendingOperations WAL instance";
     try {
       LogSequenceNumber txEndLsn;
 
@@ -601,15 +693,19 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
             fileId, entry.getValue().nonDurable || writeCache.isNonDurable(fileId));
       }
 
-      // Defer WAL unit start: only emit when first durable change is encountered.
-      // If the operation contains only non-durable changes, no WAL records are written.
-      boolean walUnitStarted = false;
-      // startLSN is captured immediately after the WAL unit start record, so it
-      // points into the same segment as the start record. This is critical for
-      // dirty-page tracking: pages pin this LSN to prevent WAL truncation of the
-      // segment containing their WAL records.
-      LogSequenceNumber startLSN = null;
+      // walUnitStarted and startLSN are instance fields (shared with
+      // flushPendingOperations). If flushPendingOperations was called before
+      // commitChanges, walUnitStarted may already be true and startLSN set.
       this.operationCommitTs = commitTs;
+
+      // Flush any remaining pending PageOperations that were registered outside
+      // executeInsideComponentOperation boundaries (e.g., standalone atomic
+      // operations like histogram snapshot flush). In the normal component
+      // operation path, hasPendingOperations is false (already flushed at the
+      // boundary), so this is a no-op fast-path.
+      flushPendingOperations();
+      assert !hasPendingOperations
+          : "hasPendingOperations still true after flushPendingOperations in commitChanges";
 
       var deletedFilesIterator = deletedFiles.longIterator();
       while (deletedFilesIterator.hasNext()) {
@@ -657,22 +753,25 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
           final var filePageChangesEntry =
               filePageChangesIterator.next();
 
-          if (filePageChangesEntry.getValue().changes.hasChanges()) {
+          final var filePageChanges = filePageChangesEntry.getValue();
+
+          if (filePageChanges.changes.hasChanges()) {
             final var pageIndex = filePageChangesEntry.getLongKey();
-            final var filePageChanges = filePageChangesEntry.getValue();
 
-            final var initialLSN = filePageChanges.getInitialLSN();
-            Objects.requireNonNull(initialLSN);
-            if (!walUnitStarted) {
-              startLSN = emitWalUnitStart(writeAheadLog, commitTs);
-              walUnitStarted = true;
+            // All durable page types must register PageOperations, which are
+            // flushed to WAL at component boundaries by flushPendingOperations().
+            // changeLSN is set by the flush. If it is still null here, a page
+            // mutation did not register its PageOperation — fail loud.
+            if (filePageChanges.getChangeLSN() == null) {
+              throw new StorageException(
+                  writeCache.getStorageName(),
+                  "Durable page at index " + pageIndex + " in file " + fileId
+                      + " has WAL changes but no changeLSN"
+                      + " — missing PageOperation registration");
             }
-            final var updatePageRecord =
-                new UpdatePageRecord(
-                    pageIndex, fileId, operationCommitTs, filePageChanges.changes, initialLSN);
-            writeAheadLog.log(updatePageRecord);
-            filePageChanges.setChangeLSN(updatePageRecord.getLsn());
-
+            assert filePageChanges.getPendingOperations().isEmpty()
+                : "Pending operations remain after flush for page "
+                    + pageIndex + " in file " + fileId;
           } else {
             filePageChangesIterator.remove();
           }
@@ -775,6 +874,13 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
               // updateDirtyPagesTable (Track 4) ensures these pages
               // don't block WAL truncation.
               if (!nonDurable) {
+                // flushPendingOperations sets changeLSN for all durable pages.
+                // The WAL phase above throws StorageException if changeLSN is
+                // null for a durable page with changes — this assert is a
+                // defense-in-depth double-check.
+                assert filePageChanges.getChangeLSN() != null
+                    : "Durable page must have changeLSN set for page "
+                        + cacheEntry.getPageIndex();
                 cacheEntry.setEndLSN(txEndLsn);
                 durablePage.setLsn(filePageChanges.getChangeLSN());
               }
@@ -1145,6 +1251,13 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   @Override
   public int hashCode() {
     return Long.hashCode(operationCommitTs);
+  }
+
+  // Lightweight entry linking a page's pending operations to its parent file
+  // identity, used by flushPendingOperations() to avoid a full scan of all
+  // files and pages.
+  private record PendingFlushEntry(
+      long fileId, boolean nonDurable, CacheEntryChanges changes) {
   }
 
   private static final class FileChanges {

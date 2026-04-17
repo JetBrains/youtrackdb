@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.collection.v2;
 
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.CacheEntryChanges;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 
 /**
@@ -39,6 +40,14 @@ final class DirtyPageBitSetPage extends DurablePage {
   /** Zeroes out the entire usable area, clearing all bits. */
   void init() {
     setBinaryValue(NEXT_FREE_POSITION, new byte[USABLE_BYTES]);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new DirtyPageBitSetPageInitOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN()));
+    }
   }
 
   /**
@@ -53,6 +62,14 @@ final class DirtyPageBitSetPage extends DurablePage {
     var currentByte = getByteValue(byteOffset);
     var mask = (byte) (1 << (bitIndex % Byte.SIZE));
     setByteValue(byteOffset, (byte) (currentByte | mask));
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new DirtyPageBitSetPageSetBitOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), bitIndex));
+    }
   }
 
   /**
@@ -67,6 +84,14 @@ final class DirtyPageBitSetPage extends DurablePage {
     var currentByte = getByteValue(byteOffset);
     var mask = (byte) (1 << (bitIndex % Byte.SIZE));
     setByteValue(byteOffset, (byte) (currentByte & ~mask));
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new DirtyPageBitSetPageClearBitOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), bitIndex));
+    }
   }
 
   /**

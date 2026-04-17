@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializ
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.CacheEntryChanges;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import java.util.ArrayList;
 import java.util.List;
@@ -36,6 +37,14 @@ final class Bucket extends DurablePage {
     setByteValue(IS_LEAF_OFFSET, (byte) (isLeaf ? 1 : 0));
     setLongValue(LEFT_SIBLING_OFFSET, -1);
     setLongValue(RIGHT_SIBLING_OFFSET, -1);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new RidbagBucketInitOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), isLeaf));
+    }
   }
 
   public void switchBucketType() {
@@ -49,6 +58,14 @@ final class Bucket extends DurablePage {
       setByteValue(IS_LEAF_OFFSET, (byte) 0);
     } else {
       setByteValue(IS_LEAF_OFFSET, (byte) 1);
+    }
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new RidbagBucketSwitchBucketTypeOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN()));
     }
   }
 
@@ -149,6 +166,14 @@ final class Bucket extends DurablePage {
     }
 
     setFreePointer(freePointer + entrySize);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new RidbagBucketRemoveLeafEntryOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), entryIndex, keySize, valueSize));
+    }
   }
 
   public void removeNonLeafEntry(final int entryIndex, final byte[] key, final int prevChild) {
@@ -201,6 +226,14 @@ final class Bucket extends DurablePage {
         final var nextEntryPosition = getPointer(entryIndex);
         setIntValue(nextEntryPosition, prevChild);
       }
+    }
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new RidbagBucketRemoveNonLeafEntryOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), entryIndex, key, prevChild));
     }
   }
 
@@ -283,6 +316,14 @@ final class Bucket extends DurablePage {
     }
 
     setSize(rawEntries.size() + currentSize);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new RidbagBucketAddAllOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), rawEntries));
+    }
   }
 
   private void appendRawEntry(final int index, final byte[] rawEntry) {
@@ -300,6 +341,7 @@ final class Bucket extends DurablePage {
   }
 
   public void shrink(final int newSize, BinarySerializerFactory serializerFactory) {
+    // Capture retained entries BEFORE any page modifications (for WAL registration)
     final List<byte[]> rawEntries = new ArrayList<>(newSize);
 
     for (var i = 0; i < newSize; i++) {
@@ -313,6 +355,14 @@ final class Bucket extends DurablePage {
     }
 
     setSize(newSize);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new RidbagBucketShrinkOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), rawEntries));
+    }
   }
 
   public byte[] getRawEntry(final int entryIndex, BinarySerializerFactory serializerFactory) {
@@ -364,6 +414,14 @@ final class Bucket extends DurablePage {
 
     setBinaryValue(freePointer, serializedKey);
     setBinaryValue(freePointer + serializedKey.length, serializedValue);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new RidbagBucketAddLeafEntryOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), index, serializedKey, serializedValue));
+    }
 
     return true;
   }
@@ -419,11 +477,28 @@ final class Bucket extends DurablePage {
       }
     }
 
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new RidbagBucketAddNonLeafEntryOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), index, leftChild, rightChild, key,
+              updateNeighbors));
+    }
+
     return true;
   }
 
   public void setLeftSibling(final long pageIndex) {
     setLongValue(LEFT_SIBLING_OFFSET, pageIndex);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new RidbagBucketSetLeftSiblingOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), pageIndex));
+    }
   }
 
   public long getLeftSibling() {
@@ -432,6 +507,14 @@ final class Bucket extends DurablePage {
 
   public void setRightSibling(final long pageIndex) {
     setLongValue(RIGHT_SIBLING_OFFSET, pageIndex);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new RidbagBucketSetRightSiblingOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), pageIndex));
+    }
   }
 
   public long getRightSibling() {
@@ -445,13 +528,45 @@ final class Bucket extends DurablePage {
     final var valueSize = getObjectSizeInDirectMemory(LinkBagValueSerializer.INSTANCE,
         serializerFactory, entryPosition);
     if (valueSize == value.length) {
+      // In-place update path: value sizes match, overwrite directly
       setBinaryValue(entryPosition, value);
+
+      var cacheEntry = getCacheEntry();
+      if (cacheEntry instanceof CacheEntryChanges cec) {
+        cec.registerPageOperation(
+            new RidbagBucketUpdateValueOp(
+                cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+                0, cec.getInitialLSN(), index, value, keySize));
+      }
     } else {
+      // Size mismatch: remove + re-add. removeLeafEntry and addLeafEntry
+      // register their own PageOperations.
       final var rawKey = getRawKey(index, serializerFactory);
 
       removeLeafEntry(index, keySize, valueSize);
       addLeafEntry(index, rawKey, value);
     }
+  }
+
+  /**
+   * Package-private: used by {@link RidbagBucketShrinkOp#redo} during crash recovery. Resets the
+   * page (freePointer to MAX_PAGE_SIZE_BYTES, size to 0) and re-appends the retained entries.
+   */
+  void resetAndAddAll(List<byte[]> entries) {
+    setFreePointer(MAX_PAGE_SIZE_BYTES);
+    setSize(0);
+    addAll(entries);
+    assert size() == entries.size()
+        : "resetAndAddAll: expected size " + entries.size() + " but got " + size();
+  }
+
+  /**
+   * Package-private: used by {@link RidbagBucketUpdateValueOp#redo} during crash recovery.
+   * Writes the value directly at the entry position + keySize offset (in-place update only).
+   */
+  void updateValueInPlace(int index, byte[] value, int keySize) {
+    var entryPosition = getPointer(index) + keySize;
+    setBinaryValue(entryPosition, value);
   }
 
   public void setFreePointer(int value) {

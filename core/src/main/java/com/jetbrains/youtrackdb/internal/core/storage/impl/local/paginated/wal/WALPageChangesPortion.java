@@ -65,7 +65,7 @@ public final class WALPageChangesPortion implements WALChanges {
 
   @Override
   public void setByteValue(ByteBuffer pointer, byte value, int offset) {
-    var data = new byte[]{value};
+    var data = new byte[] {value};
 
     updateData(pointer, offset, data);
   }
@@ -167,39 +167,6 @@ public final class WALPageChangesPortion implements WALChanges {
   }
 
   @Override
-  public int toStream(int offset, byte[] stream) {
-    if (pageChunks == null) {
-      ShortSerializer.INSTANCE.serializeNative((short) 0, stream, offset);
-      return offset + ShortSerializer.SHORT_SIZE;
-    }
-
-    var countPos = offset;
-    var count = 0;
-    offset += ShortSerializer.SHORT_SIZE;
-
-    for (var i = 0; i < pageChunks.length; i++) {
-      if (pageChunks[i] != null) {
-        for (var j = 0; j < PORTION_SIZE; j++) {
-          if (pageChunks[i][j] != null) {
-            ByteSerializer.INSTANCE.serializeNative((byte) i, stream, offset);
-            offset += ByteSerializer.BYTE_SIZE;
-            ByteSerializer.INSTANCE.serializeNative((byte) j, stream, offset);
-            offset += ByteSerializer.BYTE_SIZE;
-
-            System.arraycopy(pageChunks[i][j], 0, stream, offset, CHUNK_SIZE);
-            offset += CHUNK_SIZE;
-
-            count++;
-          }
-        }
-      }
-    }
-
-    ShortSerializer.INSTANCE.serializeNative((short) count, stream, countPos);
-    return offset;
-  }
-
-  @Override
   public void toStream(ByteBuffer buffer) {
     if (pageChunks == null) {
       buffer.putShort((short) 0);
@@ -226,35 +193,6 @@ public final class WALPageChangesPortion implements WALChanges {
     }
 
     buffer.putShort(countPos, (short) count);
-  }
-
-  @Override
-  public int fromStream(int offset, byte[] stream) {
-    int chunkLength = ShortSerializer.INSTANCE.deserializeNative(stream, offset);
-
-    offset += ShortSerializer.SHORT_SIZE;
-
-    for (var c = 0; c < chunkLength; c++) {
-      int i = ByteSerializer.INSTANCE.deserializeNative(stream, offset);
-      offset += ByteSerializer.BYTE_SIZE;
-      int j = ByteSerializer.INSTANCE.deserializeNative(stream, offset);
-      offset += ByteSerializer.BYTE_SIZE;
-
-      if (pageChunks == null) {
-        pageChunks = new byte[(pageSize + (PORTION_BYTES - 1)) / PORTION_BYTES][][];
-      }
-      if (pageChunks[i] == null) {
-        pageChunks[i] = new byte[PORTION_SIZE][];
-      }
-
-      if (pageChunks[i][j] == null) {
-        pageChunks[i][j] = new byte[CHUNK_SIZE];
-      }
-
-      System.arraycopy(stream, offset, pageChunks[i][j], 0, CHUNK_SIZE);
-      offset += CHUNK_SIZE;
-    }
-    return offset;
   }
 
   @Override

@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -13,6 +14,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
+import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
@@ -25,6 +27,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.A
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileCreatedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileDeletedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.UpdatePageRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALChanges;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecord;
@@ -45,10 +48,12 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- * Verifies that commitChanges() skips WAL records for non-durable files:
+ * Verifies commitChanges() behavior for durable and non-durable files:
  * (a) pure non-durable operations produce no WAL records at all,
  * (b) mixed operations produce WAL records only for the durable subset,
- * (c) durable-only operations are unchanged (full WAL unit).
+ * (c) durable pages must have PageOperations flushed before commit
+ *     (StorageException guard for missing registration),
+ * (d) commitChanges flushes unflushed pending ops for standalone atomic operations.
  */
 public class AtomicOperationBinaryTrackingWALSkipTest {
 
@@ -94,10 +99,18 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
   }
 
   private AtomicOperationBinaryTracking createOperation() {
+    return createOperation(null);
+  }
+
+  private AtomicOperationBinaryTracking createOperationWithWAL() {
+    return createOperation(wal);
+  }
+
+  private AtomicOperationBinaryTracking createOperation(WriteAheadLog walRef) {
     var snapshot =
         new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 100);
     return new AtomicOperationBinaryTracking(
-        readCache, writeCache, STORAGE_ID,
+        readCache, writeCache, walRef, STORAGE_ID,
         snapshot,
         new ConcurrentSkipListMap<>(),
         new ConcurrentSkipListMap<>(),
@@ -137,40 +150,103 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
   }
 
   /**
-   * A durable-only operation must produce the full WAL unit: start record,
-   * FileCreatedWALRecord, UpdatePageRecord, and AtomicUnitEndRecord.
+   * A durable page with WAL changes but no PageOperation registration (changeLSN
+   * not set by flushPendingOperations) must cause commitChanges to throw
+   * StorageException. This is the safety guard that catches missing PageOperation
+   * registration for any page type.
    */
   @Test
-  public void durableOnlyOperationProducesFullWALUnit() throws IOException {
+  public void durablePageWithoutPageOpsThrowsStorageException() throws IOException {
     var op = createOperation();
     long fileId = setupNewFileWithPage(op, "durable-file.dat", false);
+
+    assertThatThrownBy(() -> op.commitChanges(42L, wal))
+        .isInstanceOf(StorageException.class)
+        .hasMessageContaining("missing PageOperation registration")
+        .hasMessageContaining("Durable page");
+  }
+
+  /**
+   * A durable-only operation with properly flushed PageOperations must produce
+   * the WAL unit: start record, PageOperation (flushed at component boundary),
+   * FileCreatedWALRecord, AtomicUnitEndRecord. No UpdatePageRecord is produced.
+   */
+  @Test
+  public void durableOperationWithFlushedPageOpsProducesCorrectWALUnit()
+      throws IOException {
+    var op = createOperationWithWAL();
+    long fileId = setupNewDurableFileWithFlushedOps(op, "durable-file.dat");
 
     mockAllocateNewPage(fileId, 0);
 
     var result = op.commitChanges(42L, wal);
 
-    // start placeholder, FileCreated, UpdatePage, AtomicUnitEnd
+    // start placeholder, PageOperation (from flush), FileCreated (from commit), End
     assertThat(loggedRecords).hasSize(4);
     assertThat(loggedRecords.get(0)).isNull(); // start record placeholder
-    assertThat(loggedRecords.get(1)).isInstanceOf(FileCreatedWALRecord.class);
-    assertThat(loggedRecords.get(2)).isInstanceOf(UpdatePageRecord.class);
+    assertThat(loggedRecords.get(1)).isInstanceOf(PageOperation.class);
+    assertThat(((PageOperation) loggedRecords.get(1)).getFileId())
+        .isEqualTo(fileId);
+    assertThat(loggedRecords.get(2)).isInstanceOf(FileCreatedWALRecord.class);
     assertThat(loggedRecords.get(3)).isInstanceOf(AtomicUnitEndRecord.class);
+    // No UpdatePageRecord anywhere
+    assertThat(loggedRecords.stream().filter(r -> r instanceof UpdatePageRecord).count())
+        .isZero();
     // commitChanges() must return the LSN of the AtomicUnitEndRecord
     assertThat(result).isEqualTo(loggedRecords.get(3).getLsn());
   }
 
   /**
+   * When PageOperations are registered but NOT flushed before commitChanges
+   * (the standalone atomic operation path, e.g., histogram snapshot flush),
+   * commitChanges must flush them via its internal flushPendingOperations()
+   * call. The commit must succeed without StorageException.
+   */
+  @Test
+  public void commitChangesFlushesPendingOpsWhenNotPreFlushed()
+      throws IOException {
+    var op = createOperationWithWAL();
+    long fileId = setupNewFileWithPage(op, "standalone.dat", false);
+
+    // Register a mock PageOperation but do NOT call flushPendingOperations —
+    // simulating a standalone atomic operation outside
+    // executeInsideComponentOperation boundaries.
+    var mockOp = mock(PageOperation.class, CALLS_REAL_METHODS);
+    when(mockOp.getFileId()).thenReturn(fileId);
+    when(mockOp.getPageIndex()).thenReturn(0L);
+    op.registerPageOperation(fileId, 0, mockOp);
+
+    // Set commitTs (normally done by startToApplyOperations)
+    op.startToApplyOperations(42L);
+
+    mockAllocateNewPage(fileId, 0);
+
+    // commitChanges must succeed — the internal flushPendingOperations
+    // should flush the pending op and set changeLSN
+    var result = op.commitChanges(42L, wal);
+
+    assertThat(result).isNotNull();
+    // start + PageOperation (flushed by commitChanges) + FileCreated + End
+    assertThat(loggedRecords).hasSize(4);
+    assertThat(loggedRecords.get(1)).isInstanceOf(PageOperation.class);
+    assertThat(loggedRecords.get(3)).isInstanceOf(AtomicUnitEndRecord.class);
+    // No UpdatePageRecord
+    assertThat(loggedRecords.stream().filter(r -> r instanceof UpdatePageRecord).count())
+        .isZero();
+  }
+
+  /**
    * A mixed operation with both durable and non-durable files must produce
    * WAL records only for the durable file. The non-durable file's
-   * FileCreatedWALRecord and UpdatePageRecord must be skipped.
+   * FileCreatedWALRecord and page operations must be skipped.
    */
   @Test
   public void mixedOperationProducesWALRecordsOnlyForDurableFiles()
       throws IOException {
-    var op = createOperation();
+    var op = createOperationWithWAL();
 
     long durableFileId =
-        setupNewFileWithPage(op, "durable-file.dat", false);
+        setupNewDurableFileWithFlushedOps(op, "durable-file.dat");
     long ndFileId = setupNewFileWithPage(op, "nd-file.dat", true);
 
     mockAllocateNewPage(durableFileId, 0);
@@ -178,16 +254,19 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
 
     var result = op.commitChanges(42L, wal);
 
-    // start, FileCreated(durable), UpdatePage(durable), AtomicUnitEnd
+    // start, PageOperation(durable, from flush), FileCreated(durable, from commit), End
     assertThat(loggedRecords).hasSize(4);
     assertThat(loggedRecords.get(0)).isNull();
-    assertThat(loggedRecords.get(1)).isInstanceOf(FileCreatedWALRecord.class);
-    assertThat(((FileCreatedWALRecord) loggedRecords.get(1)).getFileId())
+    assertThat(loggedRecords.get(1)).isInstanceOf(PageOperation.class);
+    assertThat(((PageOperation) loggedRecords.get(1)).getFileId())
         .isEqualTo(durableFileId);
-    assertThat(loggedRecords.get(2)).isInstanceOf(UpdatePageRecord.class);
-    assertThat(((UpdatePageRecord) loggedRecords.get(2)).getFileId())
+    assertThat(loggedRecords.get(2)).isInstanceOf(FileCreatedWALRecord.class);
+    assertThat(((FileCreatedWALRecord) loggedRecords.get(2)).getFileId())
         .isEqualTo(durableFileId);
     assertThat(loggedRecords.get(3)).isInstanceOf(AtomicUnitEndRecord.class);
+    // No UpdatePageRecord anywhere
+    assertThat(loggedRecords.stream().filter(r -> r instanceof UpdatePageRecord).count())
+        .isZero();
     // commitChanges() must return the LSN of the AtomicUnitEndRecord
     assertThat(result).isEqualTo(loggedRecords.get(3).getLsn());
   }
@@ -198,7 +277,7 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
    */
   @Test
   public void deleteNonDurableFileSkipsWALRecord() throws IOException {
-    var op = createOperation();
+    var op = createOperationWithWAL();
 
     long existingFileId = composeFileId(10, STORAGE_ID);
     when(writeCache.isNonDurable(existingFileId)).thenReturn(true);
@@ -207,7 +286,7 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
 
     // Add a durable file change so the WAL unit gets started
     long durableFileId =
-        setupNewFileWithPage(op, "durable-file.dat", false);
+        setupNewDurableFileWithFlushedOps(op, "durable-file.dat");
 
     // Delete the non-durable file
     op.deleteFile(existingFileId);
@@ -221,7 +300,7 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
         .filter(r -> r instanceof FileDeletedWALRecord)
         .toList();
     assertThat(deletedRecords).isEmpty();
-    // Total: start + FileCreated(durable) + UpdatePage(durable) + End
+    // Total: start + FileCreated(durable) + PageOperation(durable) + End
     assertThat(loggedRecords).hasSize(4);
     // Durable part still produces a valid end LSN
     assertThat(result).isEqualTo(loggedRecords.get(3).getLsn());
@@ -255,13 +334,13 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
 
   /**
    * An existing non-durable file loaded via loadFile() and modified must not
-   * produce UpdatePageRecord WAL records. writeCache.isNonDurable() is used
+   * produce any WAL records. writeCache.isNonDurable() is used
    * to detect non-durability for files not created in this operation.
    */
   @Test
   public void existingNonDurableFileLoadedViaLoadFileSkipsWAL()
       throws IOException {
-    var op = createOperation();
+    var op = createOperationWithWAL();
 
     long internalFileId = 20;
     long fullFileId = composeFileId(internalFileId, STORAGE_ID);
@@ -287,7 +366,7 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
 
     // Also add a durable file so the operation isn't empty
     long durableFileId =
-        setupNewFileWithPage(op, "durable-file.dat", false);
+        setupNewDurableFileWithFlushedOps(op, "durable-file.dat");
     mockAllocateNewPage(durableFileId, 0);
 
     // Mock cache application for the existing non-durable file's page
@@ -304,13 +383,18 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
 
     op.commitChanges(42L, wal);
 
-    // Verify no UpdatePageRecord for the non-durable file
+    // No UpdatePageRecord for any file — durable uses PageOperation now
     var updateRecords = loggedRecords.stream()
         .filter(r -> r instanceof UpdatePageRecord)
-        .map(r -> (UpdatePageRecord) r)
         .toList();
-    assertThat(updateRecords).hasSize(1);
-    assertThat(updateRecords.get(0).getFileId()).isEqualTo(durableFileId);
+    assertThat(updateRecords).isEmpty();
+    // Durable file's PageOperation was already flushed before commitChanges
+    var pageOps = loggedRecords.stream()
+        .filter(r -> r instanceof PageOperation)
+        .map(r -> (PageOperation) r)
+        .toList();
+    assertThat(pageOps).hasSize(1);
+    assertThat(pageOps.get(0).getFileId()).isEqualTo(durableFileId);
   }
 
   /**
@@ -391,10 +475,10 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
   @Test
   public void mixedOperationSetsEndLSNOnlyOnDurableCacheEntry()
       throws IOException {
-    var op = createOperation();
+    var op = createOperationWithWAL();
 
     long durableFileId =
-        setupNewFileWithPage(op, "durable-file.dat", false);
+        setupNewDurableFileWithFlushedOps(op, "durable-file.dat");
     long ndFileId = setupNewFileWithPage(op, "nd-file.dat", true);
 
     // Durable cache entry — needs a real buffer for DurablePage.restoreChanges
@@ -425,7 +509,7 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
   @Test
   public void truncateNonDurableFileSkipsWALButAppliesCache()
       throws IOException {
-    var op = createOperation();
+    var op = createOperationWithWAL();
 
     // Register a non-durable file as an existing file (not new in this op)
     long ndFileId = composeFileId(10, STORAGE_ID);
@@ -439,14 +523,14 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
 
     // Also add a durable change so the operation has something to commit
     long durableFileId =
-        setupNewFileWithPage(op, "durable-file.dat", false);
+        setupNewDurableFileWithFlushedOps(op, "durable-file.dat");
     mockAllocateNewPage(durableFileId, 0);
 
     op.commitChanges(42L, wal);
 
     // Truncate has no dedicated WAL record type for any file (durable or not).
     // Verify no WAL records reference the non-durable file at all — neither
-    // FileDeletedWALRecord nor UpdatePageRecord (pageChangesMap is cleared by
+    // FileDeletedWALRecord nor PageOperation (pageChangesMap is cleared by
     // truncateFile()).
     var ndRecords = loggedRecords.stream()
         .filter(r -> r != null)
@@ -454,8 +538,8 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
           if (r instanceof FileDeletedWALRecord fdr) {
             return fdr.getFileId() == ndFileId;
           }
-          if (r instanceof UpdatePageRecord upr) {
-            return upr.getFileId() == ndFileId;
+          if (r instanceof PageOperation po) {
+            return po.getFileId() == ndFileId;
           }
           if (r instanceof FileCreatedWALRecord fcr) {
             return fcr.getFileId() == ndFileId;
@@ -464,9 +548,8 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
         })
         .toList();
     assertThat(ndRecords).isEmpty();
-    // Total: start + FileCreated(durable) + UpdatePage(durable) + End = 4.
-    // This count is defense-in-depth — the primary safety assertion is ndRecords.isEmpty() above.
-    // If the WAL protocol adds new record types, update this count accordingly.
+    // Total: start + PageOperation(durable, from flush) + FileCreated(durable, from commit)
+    // + End = 4. Defense-in-depth — primary assertion is ndRecords.isEmpty() above.
     assertThat(loggedRecords).hasSize(4);
 
     // Cache truncation must still be applied
@@ -483,10 +566,10 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
   public void mixedOperationWALRecordsRoundTripThroughRestore()
       throws Exception {
     // --- Phase 1: Create mixed operation and capture WAL records ---
-    var op = createOperation();
+    var op = createOperationWithWAL();
 
     long durableFileId =
-        setupNewFileWithPage(op, "durable-file.dat", false);
+        setupNewDurableFileWithFlushedOps(op, "durable-file.dat");
     long ndFileId = setupNewFileWithPage(op, "nd-file.dat", true);
 
     mockAllocateNewPage(durableFileId, 0);
@@ -495,19 +578,20 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     op.commitChanges(42L, wal);
 
     // Verify emitted records contain only durable file data
-    // start(placeholder=null), FileCreated(durable), UpdatePage(durable), End
+    // start(placeholder=null), PageOperation(durable, from flush),
+    // FileCreated(durable, from commit), End
     assertThat(loggedRecords).hasSize(4);
-    var fileCreated = (FileCreatedWALRecord) loggedRecords.get(1);
+    var pageOp = (PageOperation) loggedRecords.get(1);
+    assertThat(pageOp.getFileId()).isEqualTo(durableFileId);
+    var fileCreated = (FileCreatedWALRecord) loggedRecords.get(2);
     assertThat(fileCreated.getFileId()).isEqualTo(durableFileId);
-    var updatePage = (UpdatePageRecord) loggedRecords.get(2);
-    assertThat(updatePage.getFileId()).isEqualTo(durableFileId);
 
     // --- Phase 2: Feed captured records into restoreAtomicUnit ---
     // Build the atomic unit from the real captured records
     var atomicUnit = new ArrayList<WALRecord>();
     atomicUnit.add(new AtomicUnitStartRecord(false, 42));
     atomicUnit.add(fileCreated);
-    atomicUnit.add(updatePage);
+    atomicUnit.add(pageOp);
     atomicUnit.add(loggedRecords.get(3)); // AtomicUnitEndRecord
 
     // Set up AbstractStorage mock for restoreAtomicUnit — only stubs
@@ -517,7 +601,6 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     int internalDurableId = (int) (durableFileId & 0xFFFFFFFFL);
     when(restoreWriteCache.internalFileId(durableFileId))
         .thenReturn(internalDurableId);
-    // exists(fileId) returns true so UpdatePageRecord doesn't try restoreFileById
     when(restoreWriteCache.exists(durableFileId)).thenReturn(true);
     // exists(fileName) returns false to trigger re-creation in FileCreatedWALRecord
     when(restoreWriteCache.exists("durable-file.dat")).thenReturn(false);
@@ -526,7 +609,7 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     when(restoreWriteCache.fileNameById(durableFileId))
         .thenReturn("durable-file.dat");
 
-    // restoreAtomicUnit calls loadForWrite for UpdatePageRecord
+    // restoreAtomicUnit calls loadForWrite for PageOperation
     var restoreCacheEntry = createCacheEntryWithBuffer(durableFileId, 0);
     when(restoreReadCache.loadForWrite(
         eq(durableFileId), eq(0L), eq(restoreWriteCache), anyBoolean(), any()))
@@ -674,6 +757,36 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
   }
 
   // --- Helper methods ---
+
+  /**
+   * Creates a new durable file in the operation, adds a page with a change,
+   * registers a mock PageOperation, and flushes it to WAL via
+   * flushPendingOperations(). This simulates the production path where
+   * PageOperations are flushed at component boundaries before commitChanges.
+   * The operation must be created with createOperationWithWAL().
+   */
+  private long setupNewDurableFileWithFlushedOps(
+      AtomicOperationBinaryTracking op,
+      String fileName)
+      throws IOException {
+    long fileId = setupNewFileWithPage(op, fileName, false);
+
+    // Register a mock PageOperation for the page. Use CALLS_REAL_METHODS
+    // so setLsn/getLsn and setOperationUnitId work correctly. Override
+    // getFileId/getPageIndex to return the correct values (the no-arg
+    // constructor leaves them as 0).
+    var mockOp = mock(PageOperation.class, CALLS_REAL_METHODS);
+    when(mockOp.getFileId()).thenReturn(fileId);
+    when(mockOp.getPageIndex()).thenReturn(0L);
+
+    op.registerPageOperation(fileId, 0, mockOp);
+
+    // Set commitTs (required by flushPendingOperations) and flush
+    op.startToApplyOperations(42L);
+    op.flushPendingOperations();
+
+    return fileId;
+  }
 
   /**
    * Creates a new file in the operation, adds a page, makes a change,

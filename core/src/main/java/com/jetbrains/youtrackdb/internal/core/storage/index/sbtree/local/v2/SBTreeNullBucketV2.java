@@ -22,6 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.CacheEntryChanges;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import javax.annotation.Nullable;
 
@@ -46,6 +47,14 @@ public final class SBTreeNullBucketV2<V> extends DurablePage {
 
   public void init() {
     setByteValue(NEXT_FREE_POSITION, (byte) 0);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new SBTreeNullBucketV2InitOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN()));
+    }
   }
 
   public void setValue(final byte[] value, final BinarySerializer<V> valueSerializer) {
@@ -53,10 +62,17 @@ public final class SBTreeNullBucketV2<V> extends DurablePage {
 
     setByteValue(NEXT_FREE_POSITION + 1, (byte) 1);
     setBinaryValue(NEXT_FREE_POSITION + 2, value);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new SBTreeNullBucketV2SetValueOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), value));
+    }
   }
 
-  @Nullable
-  public SBTreeValue<V> getValue(final BinarySerializer<V> valueSerializer,
+  @Nullable public SBTreeValue<V> getValue(final BinarySerializer<V> valueSerializer,
       BinarySerializerFactory serializerFactory) {
     if (getByteValue(NEXT_FREE_POSITION) == 0) {
       return null;
@@ -69,11 +85,10 @@ public final class SBTreeNullBucketV2<V> extends DurablePage {
 
     return new SBTreeValue<>(
         false, -1, deserializeFromDirectMemory(valueSerializer, serializerFactory,
-        NEXT_FREE_POSITION + 2));
+            NEXT_FREE_POSITION + 2));
   }
 
-  @Nullable
-  public byte[] getRawValue(final BinarySerializer<V> valueSerializer,
+  @Nullable public byte[] getRawValue(final BinarySerializer<V> valueSerializer,
       BinarySerializerFactory serializerFactory) {
     if (getByteValue(NEXT_FREE_POSITION) == 0) {
       return null;
@@ -89,5 +104,13 @@ public final class SBTreeNullBucketV2<V> extends DurablePage {
 
   public void removeValue(final BinarySerializer<V> valueSerializer) {
     setByteValue(NEXT_FREE_POSITION, (byte) 0);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new SBTreeNullBucketV2RemoveValueOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN()));
+    }
   }
 }

@@ -26,6 +26,7 @@ import com.jetbrains.youtrackdb.internal.core.id.SnapshotMarkerRID;
 import com.jetbrains.youtrackdb.internal.core.id.TombstoneRID;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.CacheEntryChanges;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import javax.annotation.Nullable;
 
@@ -54,6 +55,14 @@ public final class CellBTreeSingleValueV3NullBucket extends DurablePage {
 
   public void init() {
     setByteValue(NEXT_FREE_POSITION, (byte) 0);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeSVNullBucketV3InitOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN()));
+    }
   }
 
   public void setValue(final RID value) {
@@ -67,6 +76,15 @@ public final class CellBTreeSingleValueV3NullBucket extends DurablePage {
     setShortValue(NEXT_FREE_POSITION + 1, (short) value.getCollectionId());
     setLongValue(NEXT_FREE_POSITION + 1 + ShortSerializer.SHORT_SIZE,
         value.getCollectionPosition());
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeSVNullBucketV3SetValueOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(),
+              (short) value.getCollectionId(), value.getCollectionPosition()));
+    }
   }
 
   @Nullable public RID getValue() {
@@ -82,5 +100,13 @@ public final class CellBTreeSingleValueV3NullBucket extends DurablePage {
 
   public void removeValue() {
     setByteValue(NEXT_FREE_POSITION, (byte) 0);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeSVNullBucketV3RemoveValueOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN()));
+    }
   }
 }

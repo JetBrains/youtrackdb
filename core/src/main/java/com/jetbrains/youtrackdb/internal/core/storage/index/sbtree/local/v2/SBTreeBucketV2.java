@@ -29,9 +29,9 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSeria
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.CacheEntryChanges;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 
@@ -79,6 +79,14 @@ public final class SBTreeBucketV2<K, V> extends DurablePage {
 
     setLongValue(TREE_SIZE_OFFSET, 0);
     setLongValue(FREE_VALUES_LIST_OFFSET, -1);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new SBTreeBucketV2InitOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), isLeaf));
+    }
   }
 
   public void switchBucketType() {
@@ -93,10 +101,26 @@ public final class SBTreeBucketV2<K, V> extends DurablePage {
     } else {
       setByteValue(IS_LEAF_OFFSET, (byte) 1);
     }
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new SBTreeBucketV2SwitchBucketTypeOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN()));
+    }
   }
 
   public void setTreeSize(long size) {
     setLongValue(TREE_SIZE_OFFSET, size);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new SBTreeBucketV2SetTreeSizeOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), size));
+    }
   }
 
   public long getTreeSize() {
@@ -164,6 +188,14 @@ public final class SBTreeBucketV2<K, V> extends DurablePage {
       }
       currentPositionOffset += IntegerSerializer.INT_SIZE;
     }
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new SBTreeBucketV2RemoveLeafEntryOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), entryIndex, oldRawKey, oldRawValue));
+    }
   }
 
   public void removeNonLeafEntry(final int entryIndex, final byte[] key, final int prevChild) {
@@ -215,6 +247,14 @@ public final class SBTreeBucketV2<K, V> extends DurablePage {
             getIntValue(POSITIONS_ARRAY_OFFSET + entryIndex * IntegerSerializer.INT_SIZE);
         setLongValue(nextEntryPosition, prevChild);
       }
+    }
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new SBTreeBucketV2RemoveNonLeafEntryOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), entryIndex, key, prevChild));
     }
   }
 
@@ -396,7 +436,22 @@ public final class SBTreeBucketV2<K, V> extends DurablePage {
       appendRawEntry(i + currentSize, rawEntries.get(i));
     }
 
-    setIntValue(SIZE_OFFSET, rawEntries.size() + currentSize);
+    var newSize = rawEntries.size() + currentSize;
+    setIntValue(SIZE_OFFSET, newSize);
+
+    assert getIntValue(FREE_POINTER_OFFSET)
+        >= POSITIONS_ARRAY_OFFSET + newSize * IntegerSerializer.INT_SIZE
+        : "addAll: free pointer " + getIntValue(FREE_POINTER_OFFSET)
+            + " overflows positions array end at "
+            + (POSITIONS_ARRAY_OFFSET + newSize * IntegerSerializer.INT_SIZE);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new SBTreeBucketV2AddAllOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), rawEntries));
+    }
   }
 
   public void shrink(
@@ -409,18 +464,6 @@ public final class SBTreeBucketV2<K, V> extends DurablePage {
       rawEntries.add(getRawEntry(i, keySerializer, valueSerializer, serializerFactory));
     }
 
-    final var oldSize = getIntValue(SIZE_OFFSET);
-    final List<byte[]> removedEntries;
-    if (newSize == oldSize) {
-      removedEntries = Collections.emptyList();
-    } else {
-      removedEntries = new ArrayList<>(oldSize - newSize);
-
-      for (var i = newSize; i < oldSize; i++) {
-        removedEntries.add(getRawEntry(i, keySerializer, valueSerializer, serializerFactory));
-      }
-    }
-
     setIntValue(FREE_POINTER_OFFSET, PAGE_SIZE);
 
     var index = 0;
@@ -430,6 +473,26 @@ public final class SBTreeBucketV2<K, V> extends DurablePage {
     }
 
     setIntValue(SIZE_OFFSET, newSize);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new SBTreeBucketV2ShrinkOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), rawEntries));
+    }
+  }
+
+  /**
+   * Package-private: used by {@link SBTreeBucketV2ShrinkOp#redo} during crash recovery. Resets the
+   * page (freePointer to MAX_PAGE_SIZE_BYTES, size to 0) and re-appends the retained entries.
+   */
+  void resetAndAddAll(List<byte[]> entries) {
+    setIntValue(FREE_POINTER_OFFSET, MAX_PAGE_SIZE_BYTES);
+    setIntValue(SIZE_OFFSET, 0);
+    addAll(entries, null, null);
+    assert size() == entries.size()
+        : "resetAndAddAll: expected size " + entries.size() + " but got " + size();
   }
 
   public boolean addLeafEntry(
@@ -461,6 +524,14 @@ public final class SBTreeBucketV2<K, V> extends DurablePage {
     setBinaryValue(freePointer, serializedKey);
     setByteValue(freePointer + serializedKey.length, (byte) 0);
     setBinaryValue(freePointer + serializedKey.length + ByteSerializer.BYTE_SIZE, serializedValue);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new SBTreeBucketV2AddLeafEntryOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), index, serializedKey, serializedValue));
+    }
 
     return true;
   }
@@ -525,6 +596,15 @@ public final class SBTreeBucketV2<K, V> extends DurablePage {
       }
     }
 
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new SBTreeBucketV2AddNonLeafEntryOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), index, key, leftChild, rightChild,
+              updateNeighbours));
+    }
+
     return true;
   }
 
@@ -538,10 +618,26 @@ public final class SBTreeBucketV2<K, V> extends DurablePage {
     entryPosition += ByteSerializer.BYTE_SIZE;
 
     setBinaryValue(entryPosition, value);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new SBTreeBucketV2UpdateValueOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), index, value, keySize));
+    }
   }
 
   public void setLeftSibling(long pageIndex) {
     setLongValue(LEFT_SIBLING_OFFSET, pageIndex);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new SBTreeBucketV2SetLeftSiblingOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), pageIndex));
+    }
   }
 
   public long getLeftSibling() {
@@ -550,6 +646,14 @@ public final class SBTreeBucketV2<K, V> extends DurablePage {
 
   public void setRightSibling(long pageIndex) {
     setLongValue(RIGHT_SIBLING_OFFSET, pageIndex);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new SBTreeBucketV2SetRightSiblingOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), pageIndex));
+    }
   }
 
   public long getRightSibling() {

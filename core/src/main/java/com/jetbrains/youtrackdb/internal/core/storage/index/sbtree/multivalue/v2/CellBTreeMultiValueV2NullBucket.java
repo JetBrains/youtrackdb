@@ -26,6 +26,7 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.ShortSeriali
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.CacheEntryChanges;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import java.util.ArrayList;
 import java.util.List;
@@ -62,6 +63,14 @@ public final class CellBTreeMultiValueV2NullBucket extends DurablePage {
     setLongValue(M_ID_OFFSET, mId);
     setByteValue(EMBEDDED_RIDS_SIZE_OFFSET, (byte) 0);
     setIntValue(RIDS_SIZE_OFFSET, 0);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeMVNullBucketV2InitOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), mId));
+    }
   }
 
   public long addValue(final RID rid) {
@@ -78,6 +87,16 @@ public final class CellBTreeMultiValueV2NullBucket extends DurablePage {
       final var size = getIntValue(RIDS_SIZE_OFFSET);
       setIntValue(RIDS_SIZE_OFFSET, size + 1);
 
+      // Register only on the success path — threshold-exceeded path does not mutate
+      var cacheEntry = getCacheEntry();
+      if (cacheEntry instanceof CacheEntryChanges cec) {
+        cec.registerPageOperation(
+            new BTreeMVNullBucketV2AddValueOp(
+                cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+                0, cec.getInitialLSN(),
+                (short) rid.getCollectionId(), rid.getCollectionPosition()));
+      }
+
       return -1;
     } else {
       return getLongValue(M_ID_OFFSET);
@@ -86,6 +105,14 @@ public final class CellBTreeMultiValueV2NullBucket extends DurablePage {
 
   public void incrementSize() {
     setIntValue(RIDS_SIZE_OFFSET, getIntValue(RIDS_SIZE_OFFSET) + 1);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeMVNullBucketV2IncrementSizeOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN()));
+    }
   }
 
   public void decrementSize() {
@@ -93,6 +120,14 @@ public final class CellBTreeMultiValueV2NullBucket extends DurablePage {
     assert size >= 1;
 
     setIntValue(RIDS_SIZE_OFFSET, size - 1);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeMVNullBucketV2DecrementSizeOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN()));
+    }
   }
 
   public List<RID> getValues() {
@@ -137,6 +172,17 @@ public final class CellBTreeMultiValueV2NullBucket extends DurablePage {
         moveData(position + RID_SIZE, position, end - (position + RID_SIZE));
         setByteValue(EMBEDDED_RIDS_SIZE_OFFSET, (byte) (embeddedSize - 1));
         setIntValue(RIDS_SIZE_OFFSET, size - 1);
+
+        // Register only when value is found and removed from embedded list
+        var cacheEntry = getCacheEntry();
+        if (cacheEntry instanceof CacheEntryChanges cec) {
+          cec.registerPageOperation(
+              new BTreeMVNullBucketV2RemoveValueOp(
+                  cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+                  0, cec.getInitialLSN(),
+                  (short) rid.getCollectionId(), rid.getCollectionPosition()));
+        }
+
         return 1;
       }
     }

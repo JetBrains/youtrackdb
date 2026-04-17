@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.ByteSerializ
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.CacheEntryChanges;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 
 public final class CellBTreeMultiValueV2EntryPoint<K> extends DurablePage {
@@ -22,10 +23,26 @@ public final class CellBTreeMultiValueV2EntryPoint<K> extends DurablePage {
     setLongValue(TREE_SIZE_OFFSET, 0);
     setIntValue(PAGES_SIZE_OFFSET, 1);
     setLongValue(ENTRY_ID_OFFSET, 0);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeMVEntryPointV2InitOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN()));
+    }
   }
 
   public void setTreeSize(final long size) {
     setLongValue(TREE_SIZE_OFFSET, size);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeMVEntryPointV2SetTreeSizeOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), size));
+    }
   }
 
   public long getTreeSize() {
@@ -34,6 +51,14 @@ public final class CellBTreeMultiValueV2EntryPoint<K> extends DurablePage {
 
   public void setPagesSize(final int pages) {
     setIntValue(PAGES_SIZE_OFFSET, pages);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeMVEntryPointV2SetPagesSizeOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), pages));
+    }
   }
 
   public int getPagesSize() {
@@ -42,6 +67,14 @@ public final class CellBTreeMultiValueV2EntryPoint<K> extends DurablePage {
 
   public void setEntryId(final long id) {
     setLongValue(ENTRY_ID_OFFSET, id);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeMVEntryPointV2SetEntryIdOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), id));
+    }
   }
 
   public long getEntryId() {

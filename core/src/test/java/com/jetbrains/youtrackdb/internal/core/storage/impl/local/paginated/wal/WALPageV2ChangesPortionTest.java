@@ -100,13 +100,13 @@ public class WALPageV2ChangesPortionTest {
     var pointer = ByteBuffer.wrap(data).order(ByteOrder.nativeOrder());
 
     pointer.position(64);
-    pointer.put(new byte[]{11, 12, 13, 14});
+    pointer.put(new byte[] {11, 12, 13, 14});
 
     pointer.position(74);
-    pointer.put(new byte[]{21, 22, 23, 24});
+    pointer.put(new byte[] {21, 22, 23, 24});
 
     var changesCollector = new WALPageChangesPortion(1024);
-    var values = new byte[]{1, 2, 3, 4};
+    var values = new byte[] {1, 2, 3, 4};
 
     changesCollector.setBinaryValue(pointer, values, 64);
     changesCollector.moveData(pointer, 64, 74, 4);
@@ -240,43 +240,6 @@ public class WALPageV2ChangesPortionTest {
   }
 
   @Test
-  public void testSerializationAndRestore() {
-    var random = new Random();
-    var originalData = new byte[1024];
-    random.nextBytes(originalData);
-
-    var data = Arrays.copyOf(originalData, originalData.length);
-
-    var pointer = ByteBuffer.wrap(data).order(ByteOrder.nativeOrder());
-
-    var changesCollector = new WALPageChangesPortion(1024);
-
-    var changes = new byte[128];
-    random.nextBytes(changes);
-
-    changesCollector.setBinaryValue(pointer, changes, 32);
-
-    Assertions.assertThat(changesCollector.getBinaryValue(pointer, 32, 128)).isEqualTo(changes);
-    changesCollector.applyChanges(pointer);
-
-    var newBuffer =
-        ByteBuffer.wrap(Arrays.copyOf(originalData, originalData.length))
-            .order(ByteOrder.nativeOrder());
-
-    var size = changesCollector.serializedSize();
-    var content = new byte[size];
-    changesCollector.toStream(0, content);
-
-    var changesCollectorRestored = new WALPageChangesPortion(1024);
-    changesCollectorRestored.fromStream(0, content);
-    changesCollectorRestored.applyChanges(newBuffer);
-
-    newBuffer.position(0);
-    pointer.position(0);
-    Assert.assertEquals(pointer.compareTo(newBuffer), 0);
-  }
-
-  @Test
   public void testSerializationAndRestoreFromBuffer() {
     var random = new Random();
     var originalData = new byte[1024];
@@ -301,11 +264,12 @@ public class WALPageV2ChangesPortionTest {
             .order(ByteOrder.nativeOrder());
 
     var size = changesCollector.serializedSize();
-    var content = new byte[size];
-    changesCollector.toStream(0, content);
+    var content = ByteBuffer.allocate(size).order(ByteOrder.nativeOrder());
+    changesCollector.toStream(content);
+    content.flip();
 
     var changesCollectorRestored = new WALPageChangesPortion(1024);
-    changesCollectorRestored.fromStream(ByteBuffer.wrap(content).order(ByteOrder.nativeOrder()));
+    changesCollectorRestored.fromStream(content);
     changesCollectorRestored.applyChanges(newBuffer);
 
     newBuffer.position(0);
@@ -317,10 +281,11 @@ public class WALPageV2ChangesPortionTest {
   public void testEmptyChanges() {
     var changesCollector = new WALPageChangesPortion(1024);
     var size = changesCollector.serializedSize();
-    var bytes = new byte[size];
-    changesCollector.toStream(0, bytes);
+    var buffer = ByteBuffer.allocate(size).order(ByteOrder.nativeOrder());
+    changesCollector.toStream(buffer);
+    buffer.flip();
     var changesCollectorRestored = new WALPageChangesPortion(1024);
-    changesCollectorRestored.fromStream(0, bytes);
+    changesCollectorRestored.fromStream(buffer);
 
     Assert.assertEquals(size, changesCollectorRestored.serializedSize());
   }

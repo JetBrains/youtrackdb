@@ -70,7 +70,7 @@ public class WOWCacheTestIT {
     storageName = "WOWCacheTest";
     storagePath = Paths.get(buildDirectory).resolve(storageName);
 
-    WALRecordsFactory.INSTANCE.registerNewRecord((byte) 128, TestRecord.class);
+    WALRecordsFactory.INSTANCE.registerNewRecord(250, TestRecord.class);
   }
 
   @Before
@@ -1045,7 +1045,7 @@ public class WOWCacheTestIT {
 
     @Override
     public int getId() {
-      return (byte) 128;
+      return 250;
     }
   }
 }

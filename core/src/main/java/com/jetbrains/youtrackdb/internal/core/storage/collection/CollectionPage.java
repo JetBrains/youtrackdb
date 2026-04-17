@@ -29,6 +29,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.record.RecordVersionHelper;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.CacheEntryChanges;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import java.util.Objects;
@@ -104,6 +105,14 @@ public final class CollectionPage extends DurablePage {
 
     setFreePosition(PAGE_SIZE);
     setFreeSpace(PAGE_SIZE - PAGE_INDEXES_OFFSET);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new CollectionPageInitOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN()));
+    }
   }
 
   public int appendRecord(
@@ -153,6 +162,15 @@ public final class CollectionPage extends DurablePage {
 
             writeEntry(record, entryPosition, entrySize, entryIndex);
 
+            var cacheEntry = getCacheEntry();
+            if (cacheEntry instanceof CacheEntryChanges cec) {
+              cec.registerPageOperation(
+                  new CollectionPageAppendRecordOp(
+                      cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+                      0, cec.getInitialLSN(), recordVersion, record,
+                      entryIndex, entryPosition, holeSize));
+            }
+
             return entryIndex;
           }
         }
@@ -187,6 +205,15 @@ public final class CollectionPage extends DurablePage {
     writeEntry(record, freePosition, entrySize, entryIndex);
 
     setFreePosition(freePosition);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new CollectionPageAppendRecordOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), recordVersion, record,
+              entryIndex, freePosition, 0));
+    }
 
     return entryIndex;
   }
@@ -482,6 +509,15 @@ public final class CollectionPage extends DurablePage {
     }
 
     setVersionAt(entryIndexPosition, version);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new CollectionPageSetRecordVersionOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), position, version));
+    }
+
     return true;
   }
 
@@ -536,6 +572,14 @@ public final class CollectionPage extends DurablePage {
     setFreeSpace(getFreeSpace() + entrySize);
 
     decrementEntriesCount();
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new CollectionPageDeleteRecordOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), position, preserveFreeListPointer));
+    }
 
     return getRecordEntryBytes(entryPosition, recordSize);
   }
@@ -889,6 +933,75 @@ public final class CollectionPage extends DurablePage {
     // 3. Update free position.
 
     setFreePosition(freePosition + shift);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new CollectionPageDoDefragmentationOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN()));
+    }
+  }
+
+  /**
+   * Writes a record at a specified byte position during WAL redo. Bypasses hole-finding,
+   * space checking, and defragmentation logic — reproducing the exact page layout from the
+   * original operation.
+   *
+   * <p>If {@code holeSize > 0}, the entry was placed in a hole: the hole is split if it
+   * was larger than the entry. The {@code holeSize} is the coalesced total from
+   * {@link #findHole} (which may merge adjacent holes) — reading the individual hole marker
+   * during redo would be insufficient when adjacent holes were merged.
+   *
+   * <p>If {@code holeSize == 0}, the entry was placed at freePosition: freePosition is
+   * decremented.
+   *
+   * @param recordVersion the record version
+   * @param record the record bytes
+   * @param entryPosition the absolute byte offset where the entry was originally written
+   * @param entryIndex the index slot allocated during the original operation
+   * @param holeSize the coalesced hole size (>0 for hole, 0 for freePosition)
+   */
+  void appendRecordAtPosition(
+      long recordVersion, byte[] record, int entryPosition, int entryIndex,
+      int holeSize) {
+    assert entryIndex >= 0
+        : "entryIndex must be non-negative but was " + entryIndex;
+    assert holeSize >= 0
+        : "holeSize must be non-negative but was " + holeSize;
+    var entrySize = record.length + 3 * IntegerSerializer.INT_SIZE;
+    assert entryPosition >= 0 && entryPosition + entrySize <= PAGE_SIZE
+        : "entryPosition " + entryPosition + " + entrySize " + entrySize
+            + " out of page bounds (PAGE_SIZE=" + PAGE_SIZE + ")";
+    var freePosition = getFreePosition();
+    var freeListHeader = getFreeListHeader();
+
+    if (holeSize > 0) {
+      // Hole case: the entry was placed into an existing hole in the entry area.
+      // Use the captured coalesced holeSize (not the page marker which may be smaller).
+      assert entryPosition >= freePosition
+          : "Hole entryPosition " + entryPosition + " < freePosition " + freePosition;
+      assert holeSize >= entrySize
+          : "Hole size " + holeSize + " < entry size " + entrySize
+              + " at position " + entryPosition;
+      if (holeSize != entrySize) {
+        assert entryPosition + entrySize + Integer.BYTES <= PAGE_SIZE
+            : "Remainder hole marker at " + (entryPosition + entrySize)
+                + " would exceed page bounds (PAGE_SIZE=" + PAGE_SIZE + ")";
+        // Leave a smaller hole after the entry
+        setIntValue(entryPosition + entrySize, -(holeSize - entrySize));
+      }
+    } else {
+      // FreePosition case: the entry expands the entry area downward.
+      assert entryPosition == freePosition - entrySize
+          : "Expected entryPosition " + (freePosition - entrySize)
+              + " but got " + entryPosition;
+      setFreePosition(entryPosition);
+    }
+
+    insertIntoRequestedSlot(
+        recordVersion, entryPosition, entrySize, entryIndex, freeListHeader);
+    writeEntry(record, entryPosition, entrySize, entryIndex);
   }
 
   public int getFreePosition() {

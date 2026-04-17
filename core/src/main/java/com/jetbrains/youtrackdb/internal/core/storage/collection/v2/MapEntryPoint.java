@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.collection.v2;
 
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.CacheEntryChanges;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 
 /**
@@ -45,5 +46,13 @@ final class MapEntryPoint extends DurablePage {
   /** Sets the number of bucket pages currently in use. */
   void setFileSize(int size) {
     setIntValue(FILE_SIZE_OFFSET, size);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new MapEntryPointSetFileSizeOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), size));
+    }
   }
 }

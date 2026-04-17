@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal;
 
 public final class WALRecordTypes {
 
+  // --- Active record types (0–18) ---
   public static final int UPDATE_PAGE_RECORD = 0;
   public static final int ATOMIC_UNIT_START_RECORD = 8;
   public static final int ATOMIC_UNIT_END_RECORD = 9;
@@ -13,6 +14,11 @@ public final class WALRecordTypes {
   public static final int ATOMIC_UNIT_START_METADATA_RECORD = 15;
   public static final int HIGH_LEVEL_TRANSACTION_CHANGE_RECORD = 18;
 
+  // --- Tombstoned old page operation IDs (35–198) ---
+  // These IDs belonged to a previous physiological logging system that was removed.
+  // They are tombstoned in WALRecordsFactory.walRecordById() with an IllegalStateException
+  // so that recovery correctly rejects any old WAL files containing them.
+  // Do NOT reuse these IDs — allocate new ones starting at PAGE_OPERATION_ID_BASE.
   public static final int COLLECTION_POSITION_MAP_INIT_PO = 35;
   public static final int COLLECTION_POSITION_MAP_ADD_PO = 36;
   public static final int COLLECTION_POSITION_MAP_ALLOCATE_PO = 37;
@@ -184,4 +190,192 @@ public final class WALRecordTypes {
   public static final int CELL_BTREE_ENTRY_POINT_SINGLE_VALUE_V3_SET_FREE_LIST_HEAD_PO = 197;
 
   public static final int CELL_BTREE_BUCKET_SINGLE_VALUE_V3_SET_NEXT_FREE_LIST_PAGE_PO = 198;
+
+  // --- New physiological page operation IDs (200+) ---
+  // New PageOperation subclasses use IDs starting at PAGE_OPERATION_ID_BASE.
+  // Each concrete subclass is registered in WALRecordsFactory via registerNewRecord().
+  public static final int PAGE_OPERATION_ID_BASE = 200;
+
+  // PaginatedCollectionStateV2 operations
+  public static final int PAGINATED_COLLECTION_STATE_V2_SET_FILE_SIZE_OP =
+      PAGE_OPERATION_ID_BASE + 1;
+  public static final int PAGINATED_COLLECTION_STATE_V2_SET_APPROX_RECORDS_COUNT_OP =
+      PAGE_OPERATION_ID_BASE + 2;
+
+  // CollectionPage operations
+  public static final int COLLECTION_PAGE_INIT_OP = PAGE_OPERATION_ID_BASE + 3;
+  public static final int COLLECTION_PAGE_DELETE_RECORD_OP = PAGE_OPERATION_ID_BASE + 4;
+  public static final int COLLECTION_PAGE_SET_RECORD_VERSION_OP = PAGE_OPERATION_ID_BASE + 5;
+  public static final int COLLECTION_PAGE_DO_DEFRAGMENTATION_OP = PAGE_OPERATION_ID_BASE + 6;
+  public static final int COLLECTION_PAGE_APPEND_RECORD_OP = PAGE_OPERATION_ID_BASE + 7;
+
+  // CollectionPositionMapBucket operations
+  public static final int POSITION_MAP_BUCKET_INIT_OP = PAGE_OPERATION_ID_BASE + 8;
+  public static final int POSITION_MAP_BUCKET_ALLOCATE_OP = PAGE_OPERATION_ID_BASE + 9;
+  public static final int POSITION_MAP_BUCKET_SET_OP = PAGE_OPERATION_ID_BASE + 10;
+  public static final int POSITION_MAP_BUCKET_REMOVE_OP = PAGE_OPERATION_ID_BASE + 11;
+  public static final int POSITION_MAP_BUCKET_UPDATE_VERSION_OP = PAGE_OPERATION_ID_BASE + 12;
+
+  // FreeSpaceMapPage operations
+  public static final int FREE_SPACE_MAP_PAGE_INIT_OP = PAGE_OPERATION_ID_BASE + 13;
+  public static final int FREE_SPACE_MAP_PAGE_UPDATE_OP = PAGE_OPERATION_ID_BASE + 14;
+
+  // DirtyPageBitSetPage operations
+  public static final int DIRTY_PAGE_BIT_SET_PAGE_INIT_OP = PAGE_OPERATION_ID_BASE + 15;
+  public static final int DIRTY_PAGE_BIT_SET_PAGE_SET_BIT_OP = PAGE_OPERATION_ID_BASE + 16;
+  public static final int DIRTY_PAGE_BIT_SET_PAGE_CLEAR_BIT_OP = PAGE_OPERATION_ID_BASE + 17;
+
+  // MapEntryPoint (v2) operations
+  public static final int MAP_ENTRY_POINT_SET_FILE_SIZE_OP = PAGE_OPERATION_ID_BASE + 18;
+
+  // CellBTreeSingleValueEntryPointV3 operations (Track 5)
+  public static final int BTREE_SV_ENTRY_POINT_V3_INIT_OP = PAGE_OPERATION_ID_BASE + 19;
+  public static final int BTREE_SV_ENTRY_POINT_V3_SET_TREE_SIZE_OP =
+      PAGE_OPERATION_ID_BASE + 20;
+  public static final int BTREE_SV_ENTRY_POINT_V3_SET_PAGES_SIZE_OP =
+      PAGE_OPERATION_ID_BASE + 21;
+  public static final int BTREE_SV_ENTRY_POINT_V3_SET_FREE_LIST_HEAD_OP =
+      PAGE_OPERATION_ID_BASE + 22;
+
+  // CellBTreeSingleValueV3NullBucket operations (Track 5)
+  public static final int BTREE_SV_NULL_BUCKET_V3_INIT_OP = PAGE_OPERATION_ID_BASE + 23;
+  public static final int BTREE_SV_NULL_BUCKET_V3_SET_VALUE_OP = PAGE_OPERATION_ID_BASE + 24;
+  public static final int BTREE_SV_NULL_BUCKET_V3_REMOVE_VALUE_OP =
+      PAGE_OPERATION_ID_BASE + 25;
+
+  // CellBTreeSingleValueBucketV3 simple operations (Track 5)
+  public static final int BTREE_SV_BUCKET_V3_INIT_OP = PAGE_OPERATION_ID_BASE + 26;
+  public static final int BTREE_SV_BUCKET_V3_SWITCH_BUCKET_TYPE_OP =
+      PAGE_OPERATION_ID_BASE + 27;
+  public static final int BTREE_SV_BUCKET_V3_SET_LEFT_SIBLING_OP =
+      PAGE_OPERATION_ID_BASE + 28;
+  public static final int BTREE_SV_BUCKET_V3_SET_RIGHT_SIBLING_OP =
+      PAGE_OPERATION_ID_BASE + 29;
+  public static final int BTREE_SV_BUCKET_V3_SET_NEXT_FREE_LIST_PAGE_OP =
+      PAGE_OPERATION_ID_BASE + 30;
+  public static final int BTREE_SV_BUCKET_V3_UPDATE_VALUE_OP = PAGE_OPERATION_ID_BASE + 31;
+
+  // CellBTreeSingleValueBucketV3 entry operations (Track 5)
+  public static final int BTREE_SV_BUCKET_V3_ADD_LEAF_ENTRY_OP = PAGE_OPERATION_ID_BASE + 32;
+  public static final int BTREE_SV_BUCKET_V3_ADD_NON_LEAF_ENTRY_OP =
+      PAGE_OPERATION_ID_BASE + 33;
+  public static final int BTREE_SV_BUCKET_V3_REMOVE_LEAF_ENTRY_OP =
+      PAGE_OPERATION_ID_BASE + 34;
+  public static final int BTREE_SV_BUCKET_V3_REMOVE_NON_LEAF_ENTRY_OP =
+      PAGE_OPERATION_ID_BASE + 35;
+  public static final int BTREE_SV_BUCKET_V3_UPDATE_KEY_OP = PAGE_OPERATION_ID_BASE + 36;
+
+  // CellBTreeSingleValueBucketV3 bulk operations (Track 5)
+  public static final int BTREE_SV_BUCKET_V3_ADD_ALL_OP = PAGE_OPERATION_ID_BASE + 37;
+  public static final int BTREE_SV_BUCKET_V3_SHRINK_OP = PAGE_OPERATION_ID_BASE + 38;
+
+  // CellBTreeMultiValueV2EntryPoint operations (Track 6)
+  public static final int BTREE_MV_ENTRY_POINT_V2_INIT_OP = PAGE_OPERATION_ID_BASE + 39;
+  public static final int BTREE_MV_ENTRY_POINT_V2_SET_TREE_SIZE_OP =
+      PAGE_OPERATION_ID_BASE + 40;
+  public static final int BTREE_MV_ENTRY_POINT_V2_SET_PAGES_SIZE_OP =
+      PAGE_OPERATION_ID_BASE + 41;
+  public static final int BTREE_MV_ENTRY_POINT_V2_SET_ENTRY_ID_OP =
+      PAGE_OPERATION_ID_BASE + 42;
+
+  // CellBTreeMultiValueV2NullBucket operations (Track 6)
+  public static final int BTREE_MV_NULL_BUCKET_V2_INIT_OP = PAGE_OPERATION_ID_BASE + 43;
+  public static final int BTREE_MV_NULL_BUCKET_V2_ADD_VALUE_OP = PAGE_OPERATION_ID_BASE + 44;
+  public static final int BTREE_MV_NULL_BUCKET_V2_REMOVE_VALUE_OP =
+      PAGE_OPERATION_ID_BASE + 45;
+  public static final int BTREE_MV_NULL_BUCKET_V2_INCREMENT_SIZE_OP =
+      PAGE_OPERATION_ID_BASE + 46;
+  public static final int BTREE_MV_NULL_BUCKET_V2_DECREMENT_SIZE_OP =
+      PAGE_OPERATION_ID_BASE + 47;
+
+  // CellBTreeMultiValueV2Bucket simple operations (Track 6)
+  public static final int BTREE_MV_BUCKET_V2_INIT_OP = PAGE_OPERATION_ID_BASE + 48;
+  public static final int BTREE_MV_BUCKET_V2_SWITCH_BUCKET_TYPE_OP =
+      PAGE_OPERATION_ID_BASE + 49;
+  public static final int BTREE_MV_BUCKET_V2_SET_LEFT_SIBLING_OP =
+      PAGE_OPERATION_ID_BASE + 50;
+  public static final int BTREE_MV_BUCKET_V2_SET_RIGHT_SIBLING_OP =
+      PAGE_OPERATION_ID_BASE + 51;
+  public static final int BTREE_MV_BUCKET_V2_INCREMENT_ENTRIES_COUNT_OP =
+      PAGE_OPERATION_ID_BASE + 52;
+  public static final int BTREE_MV_BUCKET_V2_DECREMENT_ENTRIES_COUNT_OP =
+      PAGE_OPERATION_ID_BASE + 53;
+
+  // CellBTreeMultiValueV2Bucket entry operations (Track 6)
+  public static final int BTREE_MV_BUCKET_V2_CREATE_MAIN_LEAF_ENTRY_OP =
+      PAGE_OPERATION_ID_BASE + 54;
+  public static final int BTREE_MV_BUCKET_V2_REMOVE_MAIN_LEAF_ENTRY_OP =
+      PAGE_OPERATION_ID_BASE + 55;
+  public static final int BTREE_MV_BUCKET_V2_APPEND_NEW_LEAF_ENTRY_OP =
+      PAGE_OPERATION_ID_BASE + 56;
+  public static final int BTREE_MV_BUCKET_V2_REMOVE_LEAF_ENTRY_OP =
+      PAGE_OPERATION_ID_BASE + 57;
+  public static final int BTREE_MV_BUCKET_V2_ADD_NON_LEAF_ENTRY_OP =
+      PAGE_OPERATION_ID_BASE + 58;
+  public static final int BTREE_MV_BUCKET_V2_REMOVE_NON_LEAF_ENTRY_OP =
+      PAGE_OPERATION_ID_BASE + 59;
+
+  // CellBTreeMultiValueV2Bucket bulk operations (Track 6)
+  public static final int BTREE_MV_BUCKET_V2_ADD_ALL_LEAF_ENTRIES_OP =
+      PAGE_OPERATION_ID_BASE + 60;
+  public static final int BTREE_MV_BUCKET_V2_ADD_ALL_NON_LEAF_ENTRIES_OP =
+      PAGE_OPERATION_ID_BASE + 61;
+  public static final int BTREE_MV_BUCKET_V2_SHRINK_LEAF_ENTRIES_OP =
+      PAGE_OPERATION_ID_BASE + 62;
+  public static final int BTREE_MV_BUCKET_V2_SHRINK_NON_LEAF_ENTRIES_OP =
+      PAGE_OPERATION_ID_BASE + 63;
+
+  // SBTreeNullBucketV2 operations (Track 7a)
+  public static final int SBTREE_NULL_BUCKET_V2_INIT_OP = PAGE_OPERATION_ID_BASE + 64;
+  public static final int SBTREE_NULL_BUCKET_V2_SET_VALUE_OP = PAGE_OPERATION_ID_BASE + 65;
+  public static final int SBTREE_NULL_BUCKET_V2_REMOVE_VALUE_OP = PAGE_OPERATION_ID_BASE + 66;
+
+  // SBTreeBucketV2 simple operations (Track 7a)
+  public static final int SBTREE_BUCKET_V2_INIT_OP = PAGE_OPERATION_ID_BASE + 67;
+  public static final int SBTREE_BUCKET_V2_SWITCH_BUCKET_TYPE_OP = PAGE_OPERATION_ID_BASE + 68;
+  public static final int SBTREE_BUCKET_V2_SET_TREE_SIZE_OP = PAGE_OPERATION_ID_BASE + 69;
+  public static final int SBTREE_BUCKET_V2_SET_LEFT_SIBLING_OP = PAGE_OPERATION_ID_BASE + 70;
+  public static final int SBTREE_BUCKET_V2_SET_RIGHT_SIBLING_OP = PAGE_OPERATION_ID_BASE + 71;
+
+  // SBTreeBucketV2 entry + update operations (Track 7a)
+  public static final int SBTREE_BUCKET_V2_ADD_LEAF_ENTRY_OP = PAGE_OPERATION_ID_BASE + 72;
+  public static final int SBTREE_BUCKET_V2_ADD_NON_LEAF_ENTRY_OP = PAGE_OPERATION_ID_BASE + 73;
+  public static final int SBTREE_BUCKET_V2_REMOVE_LEAF_ENTRY_OP = PAGE_OPERATION_ID_BASE + 74;
+  public static final int SBTREE_BUCKET_V2_REMOVE_NON_LEAF_ENTRY_OP =
+      PAGE_OPERATION_ID_BASE + 75;
+  public static final int SBTREE_BUCKET_V2_UPDATE_VALUE_OP = PAGE_OPERATION_ID_BASE + 76;
+
+  // SBTreeBucketV2 bulk operations (Track 7a)
+  public static final int SBTREE_BUCKET_V2_ADD_ALL_OP = PAGE_OPERATION_ID_BASE + 77;
+  public static final int SBTREE_BUCKET_V2_SHRINK_OP = PAGE_OPERATION_ID_BASE + 78;
+
+  // HistogramStatsPage operations (Track 7b)
+  public static final int HISTOGRAM_STATS_PAGE_WRITE_EMPTY_OP = PAGE_OPERATION_ID_BASE + 79;
+  public static final int HISTOGRAM_STATS_PAGE_WRITE_SNAPSHOT_OP = PAGE_OPERATION_ID_BASE + 80;
+  public static final int HISTOGRAM_STATS_PAGE_WRITE_HLL_TO_PAGE1_OP =
+      PAGE_OPERATION_ID_BASE + 81;
+
+  // Ridbag EntryPoint operations (Track 7b)
+  public static final int RIDBAG_ENTRY_POINT_INIT_OP = PAGE_OPERATION_ID_BASE + 82;
+  public static final int RIDBAG_ENTRY_POINT_SET_TREE_SIZE_OP = PAGE_OPERATION_ID_BASE + 83;
+  public static final int RIDBAG_ENTRY_POINT_SET_PAGES_SIZE_OP = PAGE_OPERATION_ID_BASE + 84;
+
+  // Ridbag Bucket simple operations (Track 7b)
+  public static final int RIDBAG_BUCKET_INIT_OP = PAGE_OPERATION_ID_BASE + 85;
+  public static final int RIDBAG_BUCKET_SWITCH_BUCKET_TYPE_OP = PAGE_OPERATION_ID_BASE + 86;
+  public static final int RIDBAG_BUCKET_SET_LEFT_SIBLING_OP = PAGE_OPERATION_ID_BASE + 87;
+  public static final int RIDBAG_BUCKET_SET_RIGHT_SIBLING_OP = PAGE_OPERATION_ID_BASE + 88;
+
+  // Ridbag Bucket entry + bulk + updateValue operations (Track 7b)
+  public static final int RIDBAG_BUCKET_ADD_LEAF_ENTRY_OP = PAGE_OPERATION_ID_BASE + 89;
+  public static final int RIDBAG_BUCKET_ADD_NON_LEAF_ENTRY_OP = PAGE_OPERATION_ID_BASE + 90;
+  public static final int RIDBAG_BUCKET_REMOVE_LEAF_ENTRY_OP = PAGE_OPERATION_ID_BASE + 91;
+  public static final int RIDBAG_BUCKET_REMOVE_NON_LEAF_ENTRY_OP = PAGE_OPERATION_ID_BASE + 92;
+  public static final int RIDBAG_BUCKET_ADD_ALL_OP = PAGE_OPERATION_ID_BASE + 93;
+  public static final int RIDBAG_BUCKET_SHRINK_OP = PAGE_OPERATION_ID_BASE + 94;
+  public static final int RIDBAG_BUCKET_UPDATE_VALUE_OP = PAGE_OPERATION_ID_BASE + 95;
+
+  // CellBTreeSingleValueEntryPointV3 — approximate entries count (Track 5 addition)
+  public static final int BTREE_SV_ENTRY_POINT_V3_SET_APPROX_ENTRIES_COUNT_OP =
+      PAGE_OPERATION_ID_BASE + 96;
 }

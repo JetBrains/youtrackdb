@@ -35,7 +35,7 @@ import org.junit.Test;
  */
 public class CASDiskWriteAheadLogCloseTest {
 
-  private static final int TEST_RECORD_ID = 2048;
+  private static final int TEST_RECORD_ID = 500;
   private static Path testDirectory;
 
   @BeforeClass

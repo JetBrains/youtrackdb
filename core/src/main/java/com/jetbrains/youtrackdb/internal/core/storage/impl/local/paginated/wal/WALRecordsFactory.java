@@ -168,10 +168,10 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSeria
 import com.jetbrains.youtrackdb.internal.common.serialization.types.ShortSerializer;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.EmptyWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.WriteableWALRecord;
-import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 import net.jpountz.lz4.LZ4Factory;
 
 /**
@@ -194,7 +194,14 @@ public final class WALRecordsFactory {
   private static final int COMPRESSED_METADATA_SIZE =
       RECORD_ID_SIZE + OPERATION_ID_SIZE + ORIGINAL_CONTENT_SIZE;
 
-  private final Int2ObjectOpenHashMap<Class<?>> idToTypeMap = new Int2ObjectOpenHashMap<>();
+  // Array-based lookup for dynamically registered WAL record types. Sized
+  // to cover all PageOperation IDs (currently 200–295) with generous headroom.
+  // AtomicReferenceArray provides volatile-read/write semantics per element,
+  // giving thread safety without boxing overhead — registerNewRecord() may
+  // run concurrently with fromStream() during WAL recovery.
+  private static final int ID_TABLE_SIZE = 512;
+  private final AtomicReferenceArray<Class<?>> idToTypeTable =
+      new AtomicReferenceArray<>(ID_TABLE_SIZE);
 
   public static final WALRecordsFactory INSTANCE = new WALRecordsFactory();
 
@@ -420,15 +427,16 @@ public final class WALRecordsFactory {
               "Cannot deserialize passed in wal record not exists anymore.");
       case TX_METADATA -> walRecord = new MetaDataRecord();
       default -> {
-        if (idToTypeMap.containsKey(recordId)) {
+        var type =
+            (recordId >= 0 && recordId < ID_TABLE_SIZE) ? idToTypeTable.get(recordId) : null;
+        if (type != null) {
           try {
             walRecord =
-                (WriteableWALRecord)
-                    idToTypeMap.get(recordId).getDeclaredConstructor().newInstance();
+                (WriteableWALRecord) type.getDeclaredConstructor().newInstance();
           } catch (final InstantiationException
-                         | NoSuchMethodException
-                         | InvocationTargetException
-                         | IllegalAccessException e) {
+              | NoSuchMethodException
+              | InvocationTargetException
+              | IllegalAccessException e) {
             throw new IllegalStateException("Cannot deserialize passed in record", e);
           }
         } else {
@@ -440,6 +448,13 @@ public final class WALRecordsFactory {
   }
 
   public void registerNewRecord(final int id, final Class<? extends WriteableWALRecord> type) {
-    idToTypeMap.put(id, type);
+    assert id >= WALRecordTypes.PAGE_OPERATION_ID_BASE
+        : "Registered ID " + id + " must be >= PAGE_OPERATION_ID_BASE ("
+            + WALRecordTypes.PAGE_OPERATION_ID_BASE + ") to avoid collision with switch-case IDs";
+    if (id < 0 || id >= ID_TABLE_SIZE) {
+      throw new IllegalArgumentException(
+          "WAL record ID " + id + " is out of range [0, " + ID_TABLE_SIZE + ")");
+    }
+    idToTypeTable.set(id, type);
   }
 }
