@@ -101,7 +101,16 @@ public class SQLFunctionDijkstraEdgeCasesTest {
       session.close();
     }
     if (youTrackDB != null) {
-      youTrackDB.close();
+      // Drop before close so a failed @Before in the next method cannot trip a "database
+      // already exists" cascade — the in-memory engine retains the entry until either drop()
+      // or full-process exit (BC5/TS8).
+      try {
+        if (youTrackDB.exists("SQLFunctionDijkstraEdgeCasesTest")) {
+          youTrackDB.drop("SQLFunctionDijkstraEdgeCasesTest");
+        }
+      } finally {
+        youTrackDB.close();
+      }
     }
   }
 

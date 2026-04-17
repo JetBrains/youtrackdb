@@ -19,7 +19,9 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
@@ -31,7 +33,13 @@ import org.junit.Test;
  *
  * @since 11.10.12 14:40
  */
-public class SQLFunctionDifferenceTest {
+// Extends DbTestBase so the aggregationContextIsRejected test below can attach a real session
+// to its BasicCommandContext. The production rejection branch throws
+// CommandExecutionException(getDatabaseSession(), "..."); without a session the constructor
+// itself NPEs first and the test cannot distinguish "aggregation rejected" from "no session"
+// (TB4). All other tests in the class are session-agnostic and tolerate the per-method DB
+// lifecycle without behavioural change.
+public class SQLFunctionDifferenceTest extends DbTestBase {
 
   @Test
   public void threeAndTwoOperandInlineDifferenceRetainsOnlyFirstOperandExclusives() {
@@ -123,22 +131,22 @@ public class SQLFunctionDifferenceTest {
 
   @Test
   public void aggregationContextIsRejected() {
-    // Aggregation mode is explicitly unsupported. The production code throws
-    // CommandExecutionException, but its constructor calls ctx.getDatabaseSession() which
-    // throws DatabaseException first when no session is attached — both failure modes are
-    // equally effective for a unit test: the aggregation branch does not produce a result.
+    // Aggregation mode is explicitly unsupported. Attach a real session so the
+    // CommandExecutionException constructor (which calls getDatabaseSession()) succeeds and
+    // the intended "cannot be used in aggregation mode" message reaches us. Without a real
+    // session this test would have accepted any RuntimeException whose message happened to
+    // contain "session", silently masking a removal of the aggregation-reject branch (TB4).
     final var ctx = new BasicCommandContext();
+    ctx.setDatabaseSession(session);
     ctx.setVariable("aggregation", Boolean.TRUE);
     final var fn = new SQLFunctionDifference();
 
-    final var ex = assertThrows(RuntimeException.class,
+    final var ex = assertThrows(CommandExecutionException.class,
         () -> fn.execute(null, null, null, new Object[] {List.of(1)}, ctx));
-    // Either the "cannot be used in aggregation mode" or the "No database session" message
-    // confirms the code entered the aggregation branch and refused to proceed.
     final var message = ex.getMessage() == null ? "" : ex.getMessage().toLowerCase();
     assertTrue(
-        "unexpected exception message: " + message,
-        message.contains("aggregation") || message.contains("session"));
+        "expected message to mention aggregation, was: " + ex.getMessage(),
+        message.contains("aggregation"));
   }
 
   @Test

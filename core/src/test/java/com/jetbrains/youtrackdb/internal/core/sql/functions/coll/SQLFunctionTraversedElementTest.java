@@ -142,8 +142,11 @@ public class SQLFunctionTraversedElementTest extends DbTestBase {
         () -> fn.execute(null, null, null, new Object[] {0}, ctx()));
     assertTrue("message must name the function",
         ex.getMessage().contains("traversedElement"));
-    assertTrue("message must mention traverse",
-        ex.getMessage().contains("traverse"));
+    // The function name itself contains "traverse", so a plain `contains("traverse")` would
+    // pass even if the rest of the message ("non traverse command") were dropped. Pin the
+    // distinctive phrase so a regression that strips the contextual wording still fails (TB5).
+    assertTrue("message must mention 'non traverse command' context, was: " + ex.getMessage(),
+        ex.getMessage().contains("non traverse command"));
   }
 
   @Test
@@ -156,8 +159,11 @@ public class SQLFunctionTraversedElementTest extends DbTestBase {
         () -> fn.execute("not-a-result", null, null, new Object[] {0}, ctx()));
     assertTrue("message must name the function",
         ex.getMessage().contains("traversedElement"));
-    assertTrue("message must mention traverse",
-        ex.getMessage().contains("traverse"));
+    // The function name itself contains "traverse", so a plain `contains("traverse")` would
+    // pass even if the rest of the message ("non traverse command") were dropped. Pin the
+    // distinctive phrase so a regression that strips the contextual wording still fails (TB5).
+    assertTrue("message must mention 'non traverse command' context, was: " + ex.getMessage(),
+        ex.getMessage().contains("non traverse command"));
   }
 
   @Test
