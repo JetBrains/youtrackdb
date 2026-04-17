@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/8 complete)
+- [ ] Step implementation (2/8 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -245,8 +245,9 @@ LiveResultListener, LocalLiveResultListener.
   > Values, SubString) were deliberately left untouched — Track 6 and prior
   > authorship own them.
 
-- [ ] Step 2: `sql/method/misc` DB-required methods + `sql/method/sequence`
+- [x] Step 2: `sql/method/misc` DB-required methods + `sql/method/sequence`
   (all DbTestBase)
+  - [x] Context: warning
   - Scope: 5 test classes.
     - misc: SQLMethodField (session + transaction load), SQLMethodFunctionDelegate
       (delegates to SQLFunctionRuntime; pair fixture with step 4's
@@ -264,6 +265,115 @@ LiveResultListener, LocalLiveResultListener.
     any test that writes records.
   - Verify: `./mvnw -pl core -Dtest='SQLMethodField*Test,SQLMethodFunctionDelegate*Test,SQLMethodCurrent*Test,SQLMethodNext*Test,SQLMethodReset*Test' clean test` green.
   - Expected: ~25-35 test methods across 5 new test classes.
+
+  > **What was done:** Added 67 tests across 5 new test classes + 1 shared
+  > helper (FailingDBSequence) under `core/src/test/java/.../sql/method/`.
+  > Initial commit (`e8b6ceab`) delivered 56 tests; the step-level
+  > dimensional review (5 agents: code-quality, bugs-concurrency,
+  > test-behavior, test-completeness, test-structure) flagged 1 blocker
+  > + 12 should-fix + selective suggestions. Review-fix commit (`1c28c6d9`)
+  > resolved all blockers and should-fix items, adding 11 more tests.
+  > Final: 67 tests, all green.
+  >
+  > Distribution:
+  > - SQLMethodFieldTest — 27 tests (3 star-dispatch variants, entity/Map/
+  >   Collection/array/RecordNotFoundException-dangling-RID/CommandContext/
+  >   SQLFilterItemField/list-flatten/Map-keep-whole/empty-collection).
+  > - SQLMethodFunctionDelegateTest — 14 tests (min/max sentinel pass-through,
+  >   max=0 quirk, argument threading via RecordingFunction harness, arity
+  >   errors pinned with full message structure).
+  > - SQLMethodCurrent/Next/Reset tests — 26 tests combined (happy path +
+  >   custom start/increment variants, null-iThis and wrong-type-iThis
+  >   parsing errors, DatabaseException→CEE re-wrap via FailingDBSequence,
+  >   SequenceLimitReachedException escape pin for Next, metadata).
+  >
+  > **What was discovered:**
+  > - **Latent production NPE in SQLMethodField** (lines 92-94): when
+  >   `catch (RecordNotFoundException)` nulls `ioResult`, the subsequent
+  >   compound `else if (ioResult instanceof Collection<?> || ... ||
+  >   ioResult.getClass().isArray())` dereferences null because the prior
+  >   operands short-circuit only on true. A dangling-RID Identifiable
+  >   candidate triggers a NullPointerException instead of the intended
+  >   null return. Pinned as WHEN-FIXED regression in
+  >   `identifiableCandidateForDeletedRecordNpesDueToNullUnguardedIsArrayCheck`
+  >   with explicit fix directive: guard the isArray() call against null.
+  >   Deferred to Track 22 production-side fix.
+  > - **SequenceLimitReachedException is NOT a DatabaseException subtype**:
+  >   it extends BaseException directly, so the production `catch
+  >   (DatabaseException)` in SQLMethod{Current,Next,Reset} does NOT
+  >   intercept it — the exception propagates un-rewrapped. Pinned as
+  >   explicit behavioral contract in `limitReachedPropagatesAsSequenceLimitReachedException`.
+  >   Important downstream contract for query clients that catch
+  >   SequenceLimitReachedException to detect exhaustion.
+  > - **CommandExecutionException is NOT a DatabaseException subtype**:
+  >   it extends CoreException directly, so `e instanceof DatabaseException`
+  >   is statically impossible inside a `catch (CommandExecutionException e)`
+  >   block (verified by compile error). The re-wrap semantics are
+  >   therefore proven at compile time by the catch block's selection,
+  >   not by a runtime assertion. Comment in the re-wrap tests documents
+  >   this explicitly.
+  > - **FailingDBSequence helper via reflection**: `DBSequence.entityRid`
+  >   is protected, so a test-only subclass can read it via reflection to
+  >   borrow a real sequence's entity for the super-constructor's
+  >   Objects.requireNonNull. Overriding nextWork/currentWork/resetWork
+  >   to throw DatabaseException directly covers the re-wrap catch branch
+  >   without needing a fragile delete-then-dangle setup. Pattern carry-
+  >   forward: when a test needs to exercise a catch block on an abstract
+  >   class with protected state, reflection on the protected field is
+  >   cleaner than schema manipulation.
+  > - **EMBEDDEDLIST/EMBEDDEDMAP properties require `getOrCreateEmbeddedList`
+  >   / `getOrCreateEmbeddedMap`** — a bare `setProperty("tags",
+  >   Arrays.asList(...))` throws IllegalArgumentException ("Data containers
+  >   have to be created using appropriate getOrCreateXxx methods").
+  >   Pattern carry-forward for Track 7 Step 5 and any future track that
+  >   populates typed collections on entities.
+  > - **getActiveTransaction() throws when no tx is active**: use
+  >   `getActiveTransactionOrNull()` in test cleanup / shared helpers that
+  >   may be invoked with or without an outer tx. Applied to
+  >   SQLMethodFieldTest.@After and FailingDBSequence.wrapping.
+  > - **DBSequence subclass construction via protected constructor**:
+  >   accessing `protected DBSequence(EntityImpl entity)` requires the
+  >   test subclass to live in a source package that can see the
+  >   protected constructor — which a subclass naturally does via super().
+  >
+  > **What changed from the plan:** Scope said ~25-35 tests across 5
+  > classes; actual is 67 tests across 5 classes + 1 shared helper. The
+  > extra count (+32-42) is attributable to the review-driven TC1/TC6/
+  > TB10/TC2/TC3/TC4/TC5/TB3 findings that added corner-case / boundary /
+  > branch-coverage tests, plus the 3 starFieldName variants replacing
+  > the original fragile single test. The scope-indicator's test count
+  > estimate is systematically low for test-additive tracks under
+  > dimensional review.
+  >
+  > **Cross-track impact:** Minor. The latent NPE in SQLMethodField joins
+  > the Track 22 production-fix queue (same bucket as the SQLMethodContains
+  > `&&→||` guard, SQLMethodNormalize iParams[0-vs-1] mix-up,
+  > SQLFunctionFormat dead code, CustomSQLFunctionFactory/DefaultSQLMethodFactory
+  > HashMap races). No Component Map changes. No invalidation of Step 3
+  > (DefaultSQLMethodFactory / SQLMethodRuntime / AbstractSQLMethod) or
+  > Step 4 (SQLFunctionRuntime) dependencies — both of those scope over
+  > infrastructure classes unaffected by SQLMethodField's null bug.
+  >
+  > **Step-level review iterations**: Ran iter-1 with 5 dimensions
+  > (CQ/BC/TB/TC/TS). Applied 1 blocker + 12 should-fix + 4 suggestions;
+  > deferred DRY refactor (TS2/TS3 — abstract base class for the three
+  > sequence tests) as a suggestion-level item better handled in Track 22
+  > final sweep. Iter-2 gate check deferred because context hit warning
+  > level (32%) after iter-1 — per workflow protocol, end session before
+  > next review iteration. All blockers and should-fix items verified by
+  > running the full test suite after the fix commit: 67/67 green.
+  >
+  > **Key files:**
+  > - `core/src/test/java/.../sql/method/misc/SQLMethodFieldTest.java` (new, 27 tests)
+  > - `core/src/test/java/.../sql/method/misc/SQLMethodFunctionDelegateTest.java` (new, 14 tests, RecordingFunction harness)
+  > - `core/src/test/java/.../sql/method/sequence/FailingDBSequence.java` (new, shared helper)
+  > - `core/src/test/java/.../sql/method/sequence/SQLMethodCurrentTest.java` (new, 9 tests)
+  > - `core/src/test/java/.../sql/method/sequence/SQLMethodNextTest.java` (new, 10 tests incl. SequenceLimitReached)
+  > - `core/src/test/java/.../sql/method/sequence/SQLMethodResetTest.java` (new, 9 tests)
+  >
+  > **Critical context:** SQLMethodField's null-unguarded isArray() NPE is
+  > the first production bug surfaced in Track 7 and is pinned but not
+  > fixed. Track 22's production-side cleanup scope grows by one entry.
 
 - [ ] Step 3: `sql/method` infrastructure — DefaultSQLMethodFactory,
   SQLMethodRuntime, AbstractSQLMethod helpers
