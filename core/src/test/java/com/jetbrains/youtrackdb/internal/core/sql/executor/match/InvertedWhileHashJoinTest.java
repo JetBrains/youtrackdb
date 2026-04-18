@@ -7,9 +7,11 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Integration tests for the inverted-WHILE hash join optimization. Tests use a
@@ -27,7 +29,13 @@ import org.junit.Test;
  *     tag2 --HAS_TYPE--> OtherClass     (reachable from RootClass)
  *     tag3 --HAS_TYPE--> UnrelatedClass (NOT reachable from RootClass)
  * </pre>
+ *
+ * <p>Runs sequentially because tests mutate
+ * {@link GlobalConfiguration#QUERY_MATCH_HASH_JOIN_THRESHOLD}, a JVM-wide
+ * singleton that would race with other MATCH tests reading the same entry in
+ * the parallel-classes surefire pool.
  */
+@Category(SequentialTest.class)
 public class InvertedWhileHashJoinTest extends DbTestBase {
 
   @Override

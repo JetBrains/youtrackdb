@@ -7,9 +7,11 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * End-to-end SQL-level integration tests verifying that hash join optimizations
@@ -30,7 +32,13 @@ import org.junit.Test;
  * <p>The Person class has small cardinality (5 records), well below
  * {@link GlobalConfiguration#QUERY_MATCH_HASH_JOIN_THRESHOLD}, so eligible patterns
  * will use hash join instead of nested-loop evaluation.
+ *
+ * <p>Runs sequentially because several tests mutate
+ * {@link GlobalConfiguration#QUERY_MATCH_HASH_JOIN_THRESHOLD}, a JVM-wide
+ * singleton that would race with other MATCH tests reading the same entry in
+ * the parallel-classes surefire pool.
  */
+@Category(SequentialTest.class)
 public class HashJoinPlannerIntegrationTest extends DbTestBase {
 
   @Override

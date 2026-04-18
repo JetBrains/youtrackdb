@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -48,11 +49,18 @@ import java.util.List;
 import java.util.Map;
 import javax.annotation.Nonnull;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Unit tests for MATCH execution step classes that exercise copy(), prettyPrint(),
  * and other methods not covered by integration tests.
+ *
+ * <p>Runs sequentially because several tests mutate
+ * {@link GlobalConfiguration#QUERY_MATCH_HASH_JOIN_THRESHOLD}, a JVM-wide
+ * singleton that would race with other MATCH tests reading the same entry in
+ * the parallel-classes surefire pool.
  */
+@Category(SequentialTest.class)
 public class MatchStepUnitTest extends DbTestBase {
 
   // -- EdgeTraversal tests --
