@@ -21,10 +21,15 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Assume;
@@ -63,13 +68,16 @@ public class LockFreeReadCacheBatchingTest {
 
   @After
   public void tearDown() {
-    // Tolerant of a cache that was already drained by closeStorage/deleteStorage, or left in
-    // an un-clearable state by a freeze()-failure test (pinned/frozen entries). The direct
-    // memory is reclaimed on GC or on process exit; individual tests are self-isolating.
+    // readCache.clear() iterates the whole shared map regardless of storage id, so
+    // cross-storage tests that fail mid-way still reclaim all unpinned direct memory.
+    // A StorageException from clear() only surfaces when an entry is still pinned — in that
+    // case, the test harness's direct-memory tracker will flag any leaked allocations at JVM
+    // exit, but the individual test is self-isolating.
     try {
       readCache.clear();
-    } catch (Exception ignored) {
-      // Expected when drainAllEntries aborted mid-way or the cache was already closed.
+    } catch (StorageException ignored) {
+      // A freeze()-failure test may leave a pinned entry that blocks clear; tolerate and
+      // move on. Any non-StorageException here indicates a regression and must surface.
     }
   }
 
@@ -512,11 +520,13 @@ public class LockFreeReadCacheBatchingTest {
   // --- drainAllEntries / closeStorage / deleteStorage tests ---
 
   /**
-   * Happy-path: {@code closeStorage} populates the read cache, then drains every entry in one
-   * pass, resets {@code cacheSize} to zero, and closes the underlying write cache exactly once.
-   * This covers the sequencing {@code flushCurrentThreadReadBatch → evictionLock → emptyBuffers
-   * → forEachValue → freeze → policy.onRemove → clearAndShrink → cacheSize.set(0) → writeCache.close()}
-   * that motivates the whole branch.
+   * Happy-path: {@code closeStorage} populates the read cache, then drains every entry
+   * belonging to this storage in one pass, decrements {@code cacheSize} for each drained
+   * entry, and closes the underlying write cache exactly once. Covers the sequencing
+   * {@code flushCurrentThreadReadBatch → evictionLock → emptyBuffers →
+   * data.removeByStorageId(writeCache.getId()) → (per entry: freeze → policy.onRemove →
+   * cacheSize.decrementAndGet) → writeCache.close()} implemented in
+   * {@code LockFreeReadCache.drainAllEntries}.
    */
   @Test
   public void testCloseStorageDrainsAllEntriesAndClosesWriteCacheExactlyOnce() throws Exception {
@@ -584,14 +594,17 @@ public class LockFreeReadCacheBatchingTest {
   }
 
   /**
-   * The third drainAllEntries phase ({@code data.clearAndShrink}) shrinks each section back to its
-   * constructor-time capacity. After loading many more pages than the initial per-section
-   * capacity, the map total capacity grows; closeStorage must then shrink it back, freeing the
-   * retained Entry[] arrays. Without this phase, a long-lived storage that is closed and reopened
-   * would leak the large arrays accumulated during normal operation.
+   * When {@code removeByStorageId} leaves a section empty, it calls {@code shrinkIfGrown} to
+   * reset the section's backing array to its constructor-time capacity, releasing the large
+   * arrays accumulated during normal operation. After loading many more pages than the initial
+   * per-section capacity, sections grow; closeStorage must shrink them back. Without this, a
+   * long-lived JVM that closes and reopens storages would retain the peak array sizes forever.
    */
   @Test
   public void testCloseStorageShrinksMapCapacityAfterDrain() throws Exception {
+    // Capture capacity of a fresh, empty map to assert growth later.
+    long initialCapacity = getDataMap().capacity();
+
     // Load enough distinct pages to force sections to grow beyond their initial capacity.
     int pageCount = 2000;
     for (int i = 0; i < pageCount; i++) {
@@ -601,80 +614,382 @@ public class LockFreeReadCacheBatchingTest {
 
     long preCloseCapacity = getDataMap().capacity();
     Assert.assertTrue(
-        "sanity: sections must have grown beyond initial capacity (pre=" + preCloseCapacity + ")",
-        preCloseCapacity > 0);
+        "sanity: 2000 loads must have grown the map past its initial capacity "
+            + "(initial=" + initialCapacity + ", grown=" + preCloseCapacity + ")",
+        preCloseCapacity > initialCapacity);
 
     readCache.closeStorage(writeCache);
 
-    long postCloseCapacity = getDataMap().capacity();
-    Assert.assertTrue(
-        "closeStorage must shrink map capacity (pre=" + preCloseCapacity
-            + ", post=" + postCloseCapacity + ")",
-        postCloseCapacity < preCloseCapacity);
+    Assert.assertEquals(
+        "closeStorage must shrink map capacity back to its constructor-time value",
+        initialCapacity, getDataMap().capacity());
     Assert.assertEquals(
         "map must be empty after closeStorage", 0L, getDataMap().size());
   }
 
   /**
-   * Freeze-failure contract: when {@code freeze()} fails on a pinned entry during
-   * drainAllEntries, the method throws {@link StorageException} <em>before</em> the map is
-   * mutated, so the caller can retry close on a fresh attempt. Verified end-to-end by:
+   * Freeze-failure contract (remove-first-then-freeze, with re-insertion on failure):
+   * {@code drainAllEntries} atomically removes this storage's entries from the map via
+   * {@code removeByStorageId} <em>before</em> attempting to freeze them. When {@code freeze()}
+   * fails on a pinned entry, the un-frozen entry is re-inserted into the map so that a retry
+   * after the caller releases the pin can drain it; the method then throws {@link
+   * StorageException}. Without the re-insertion, a single pinned page would leak every
+   * already-removed cache entry of this storage (out-of-map, unfrozen, policy zombies, direct
+   * memory pinned). Verified end-to-end by:
    * <ol>
    *   <li>Loading a single entry and holding its read lock (pin).</li>
-   *   <li>Asserting {@code closeStorage} throws StorageException.</li>
-   *   <li>Asserting the map still contains the entry, {@code cacheSize} is unchanged, and
+   *   <li>Asserting {@code closeStorage} throws StorageException with a message that names the
+   *       offending page index and fileId.</li>
+   *   <li>Asserting the pinned entry is BACK in the map after the abort (re-inserted so retry
+   *       can see it), the pinned entry is NOT frozen, {@code cacheSize} is unchanged, and
    *       {@code writeCache.close()} was not invoked.</li>
-   *   <li>Releasing the pin and re-invoking {@code closeStorage} — the retry must succeed and
-   *       must close the write cache exactly once (not twice across both attempts).</li>
+   *   <li>Releasing the pin and re-invoking {@code closeStorage} — the retry must drain the
+   *       re-inserted entry (cacheSize back to 0, map empty) and close the write cache
+   *       exactly once in the retry attempt.</li>
    * </ol>
-   * Using a single entry guarantees the only iterated entry is the pinned one, so no other entry
-   * is frozen before the abort — the retry therefore reaches a clean state.
    */
   @Test
   public void testCloseStorageAbortsOnFreezeFailureAndIsRetryable() throws Exception {
     var pinnedEntry = readCache.loadForRead(0, 0, writeCache, false);
     // Do NOT release — the entry's use count stays at 1, so freeze() returns false.
 
-    long preCacheSize = getCacheSizeCounter();
-    long preMapSize = getDataMap().size();
-    Assert.assertEquals("sanity: exactly one entry in the map", 1L, preMapSize);
+    int preCacheSize = getCacheSizeCounter();
+    Assert.assertEquals("sanity: exactly one entry in the map", 1L, getDataMap().size());
+    Assert.assertEquals("sanity: cacheSize accounts for the loaded entry", 1, preCacheSize);
 
     try {
       readCache.closeStorage(writeCache);
       Assert.fail("closeStorage must throw StorageException when an entry cannot be frozen");
     } catch (StorageException expected) {
-      // The exception message must name the entry that blocked the close so operators can
-      // identify the leaking caller.
+      // The exception message must name the exact page index and file id that blocked the
+      // close so operators can identify the leaking caller — loose contains("Page with index")
+      // would pass a buggy format like "Page with index null...".
+      Assert.assertNotNull("exception message must not be null", expected.getMessage());
       Assert.assertTrue(
-          "exception message must reference the blocking page: " + expected.getMessage(),
-          expected.getMessage() != null
-              && expected.getMessage().contains("Page with index"));
+          "exception message must name page index 0 and file id 0: " + expected.getMessage(),
+          expected.getMessage().contains("Page with index 0")
+              && expected.getMessage().contains("for file id 0")
+              && expected.getMessage().contains("cannot be removed"));
     }
 
+    // Re-insertion contract: the pinned entry is BACK in the map after the abort so that a
+    // retry (after the pin is released) can drain it. If we left it out, every remaining cache
+    // entry for this storage would be silently leaked.
     Assert.assertEquals(
-        "cacheSize must be unchanged after aborted close",
-        preCacheSize, getCacheSizeCounter());
-    Assert.assertEquals(
-        "map must still contain the entry after aborted close",
-        preMapSize, getDataMap().size());
-    Assert.assertEquals(
-        "writeCache.close() must NOT be called when drainAllEntries aborts",
-        0, writeCache.closeCount.get());
+        "pinned entry must be re-inserted after freeze failure — retry needs to see it",
+        1L, getDataMap().size());
     Assert.assertFalse(
         "pinned entry must NOT be frozen when drainAllEntries aborts on it",
         pinnedEntry.isFrozen());
+    Assert.assertEquals(
+        "cacheSize must be unchanged after aborted close (entry was re-inserted)",
+        preCacheSize, getCacheSizeCounter());
+    Assert.assertEquals(
+        "writeCache.close() must NOT be called when drainAllEntries aborts",
+        0, writeCache.closeCount.get());
 
-    // Retry: once the pin is released, closeStorage must succeed on a fresh attempt.
+    // Retry: once the pin is released, closeStorage must drain the re-inserted entry and
+    // close the write cache.
     readCache.releaseFromRead(pinnedEntry);
     readCache.closeStorage(writeCache);
 
     Assert.assertEquals(
-        "retry must reset cacheSize", 0, getCacheSizeCounter());
+        "retry must drain the re-inserted entry", 0L, getDataMap().size());
     Assert.assertEquals(
-        "retry must drain the map", 0L, getDataMap().size());
+        "retry must decrement cacheSize back to zero", 0, getCacheSizeCounter());
     Assert.assertEquals(
-        "retry must close writeCache exactly once across both attempts",
+        "retry must close writeCache exactly once in the retry attempt",
         1, writeCache.closeCount.get());
+  }
+
+  /**
+   * Cross-storage isolation: {@code LockFreeReadCache} is a JVM singleton shared by every open
+   * storage. Closing ONE storage must leave entries belonging to OTHER live storages untouched;
+   * otherwise concurrent {@code doLoad} calls on other storages would observe a frozen entry and
+   * spin forever. This was the root cause of the CI hang that preceded this test.
+   *
+   * <p>Populates the cache from two write caches with distinct storage ids (0 and 42), closes
+   * storage 0, and asserts that storage 42's entries remain present, alive, and loadable via
+   * cache-hit semantics (no re-insertion as a miss).
+   */
+  @Test
+  public void testCloseStorageDoesNotAffectOtherStorages() throws Exception {
+    var otherWriteCache = new MockedWriteCache(bufferPool, 42);
+
+    // Populate: 5 pages in this writeCache (storageId=0), 5 pages in otherWriteCache.
+    int pages = 5;
+    for (int p = 0; p < pages; p++) {
+      readCache.releaseFromRead(readCache.loadForRead(0, p, writeCache, false));
+      readCache.releaseFromRead(readCache.loadForRead(0, p, otherWriteCache, false));
+    }
+
+    Assert.assertEquals(
+        "sanity: 2 storages * 5 pages = 10 entries before close",
+        10L, getDataMap().size());
+
+    readCache.closeStorage(writeCache);
+
+    Assert.assertEquals(
+        "closeStorage must only remove its own storage's entries — the other storage's 5 pages "
+            + "must still be in the map",
+        5L, getDataMap().size());
+    Assert.assertEquals(
+        "cacheSize must reflect only the surviving entries",
+        5, getCacheSizeCounter());
+
+    // Cache-hit semantics check: loading an already-cached page on the OTHER storage must hit
+    // the cache, so cacheSize does not grow. A regression that accidentally evicted other
+    // storages' entries would turn this into a cache miss and bump cacheSize.
+    int cacheSizeBeforeReloads = getCacheSizeCounter();
+    for (int p = 0; p < pages; p++) {
+      var entry = readCache.loadForRead(0, p, otherWriteCache, false);
+      Assert.assertFalse(
+          "entry for other storage's page " + p + " must not be frozen by the other close",
+          entry.isFrozen());
+      readCache.releaseFromRead(entry);
+    }
+    Assert.assertEquals(
+        "reloading other-storage pages after close must be cache hits (cacheSize unchanged)",
+        cacheSizeBeforeReloads, getCacheSizeCounter());
+
+    // Cleanup: drain the other storage so @After doesn't leak pointers.
+    readCache.closeStorage(otherWriteCache);
+  }
+
+  /**
+   * Cross-storage isolation under a freeze failure: closing storage A fails because one of A's
+   * pages is pinned. The exception must not touch storage B's entries — they must still be
+   * present, alive, and unpinned. A subsequent retry (after releasing A's pin) must drain A
+   * without touching B, and B can then close cleanly. This is the critical invariant that
+   * makes the CI-hang fix safe: even when close aborts mid-way, other live storages keep
+   * functioning.
+   */
+  @Test
+  public void testCloseStorageFreezeFailureDoesNotAffectOtherStorages() throws Exception {
+    var otherWriteCache = new MockedWriteCache(bufferPool, 99);
+
+    // One pinned page in storageId=0.
+    var pinnedEntry = readCache.loadForRead(0, 0, writeCache, false);
+    // Three clean pages in storageId=99 (otherWriteCache).
+    for (int p = 0; p < 3; p++) {
+      readCache.releaseFromRead(readCache.loadForRead(0, p, otherWriteCache, false));
+    }
+
+    try {
+      try {
+        readCache.closeStorage(writeCache);
+        Assert.fail("closeStorage must throw StorageException when a page is pinned");
+      } catch (StorageException expected) {
+        // Exception must name the blocking page so operators can diagnose the leak.
+        Assert.assertNotNull(expected.getMessage());
+        Assert.assertTrue(
+            "exception must name storage 0's pinned page: " + expected.getMessage(),
+            expected.getMessage().contains("Page with index 0")
+                && expected.getMessage().contains("cannot be removed"));
+      }
+
+      // 3 storage-99 entries + 1 re-inserted pinned storage-0 entry = 4.
+      Assert.assertEquals(
+          "after freeze failure: 3 surviving storage-99 + 1 re-inserted pinned = 4",
+          4L, getDataMap().size());
+      Assert.assertEquals(
+          "cacheSize must be unchanged by a freeze failure",
+          4, getCacheSizeCounter());
+
+      // Other storage's entries must still be loadable (cache-hit, not re-inserted).
+      int cacheSizeBeforeReloads = getCacheSizeCounter();
+      for (int p = 0; p < 3; p++) {
+        var entry = readCache.loadForRead(0, p, otherWriteCache, false);
+        Assert.assertFalse(
+            "other storage's entry " + p + " must not be frozen",
+            entry.isFrozen());
+        readCache.releaseFromRead(entry);
+      }
+      Assert.assertEquals(
+          "reloading other-storage pages must be cache hits",
+          cacheSizeBeforeReloads, getCacheSizeCounter());
+    } finally {
+      // Always release the pin so tearDown doesn't fail to clear the cache.
+      readCache.releaseFromRead(pinnedEntry);
+    }
+
+    // Retry closing storageId=0 after releasing the pin — must drain only storage 0's entry
+    // (the re-inserted one), leaving storage 99's 3 entries intact.
+    readCache.closeStorage(writeCache);
+    Assert.assertEquals(
+        "retry must not touch other storage's 3 entries",
+        3L, getDataMap().size());
+    Assert.assertEquals(
+        "retry must decrement cacheSize by 1 (the formerly-pinned entry)",
+        3, getCacheSizeCounter());
+
+    readCache.closeStorage(otherWriteCache);
+    Assert.assertEquals(
+        "final close of storage 99 must empty the cache",
+        0, getCacheSizeCounter());
+  }
+
+  /**
+   * Empty-storage close: closing a storage that never loaded any pages must still invoke
+   * {@code writeCache.close()} exactly once. A regression that guarded
+   * {@code writeCache.close()} behind "drain loop did some work" would silently skip the
+   * file-close I/O and corrupt shutdown.
+   */
+  @Test
+  public void testCloseStorageOnEmptyStorageStillClosesWriteCacheExactlyOnce() throws Exception {
+    Assert.assertEquals(
+        "sanity: cache is empty before closeStorage", 0, readCache.getUsedMemory());
+    Assert.assertEquals(
+        "sanity: writeCache has not been closed", 0, writeCache.closeCount.get());
+
+    readCache.closeStorage(writeCache);
+
+    Assert.assertEquals(
+        "closeStorage on an empty storage must still invoke writeCache.close() exactly once",
+        1, writeCache.closeCount.get());
+    Assert.assertEquals(0, getCacheSizeCounter());
+    Assert.assertEquals(0L, getDataMap().size());
+  }
+
+  /**
+   * Partial freeze failure across many entries: loads 5 clean pages + 1 pinned page for the
+   * same storage, then calls {@code closeStorage}. The 5 frozen-successfully entries must be
+   * fully processed (out of map, policy.onRemove called, cacheSize decremented) while the
+   * single pinned entry is re-inserted so a retry can handle it. A regression that threw on
+   * the first failure without continuing the loop would leak the other 4 clean entries of the
+   * batch (un-frozen, policy-zombies, direct memory pinned until JVM exit).
+   */
+  @Test
+  public void testCloseStoragePartialFreezeFailureProcessesAllNonPinnedEntries() throws Exception {
+    int cleanPages = 5;
+    for (int p = 0; p < cleanPages; p++) {
+      readCache.releaseFromRead(readCache.loadForRead(0, p, writeCache, false));
+    }
+    // Pin the 6th page. Freeze will fail on it.
+    var pinnedEntry = readCache.loadForRead(0, cleanPages, writeCache, false);
+
+    Assert.assertEquals(
+        "sanity: 6 entries in the map before close",
+        cleanPages + 1L, getDataMap().size());
+    Assert.assertEquals(
+        "sanity: cacheSize matches map size",
+        cleanPages + 1, getCacheSizeCounter());
+
+    try {
+      try {
+        readCache.closeStorage(writeCache);
+        Assert.fail("closeStorage must throw StorageException on the pinned entry");
+      } catch (StorageException expected) {
+        // expected
+      }
+
+      // Exactly 1 entry remains (the re-inserted pinned one); the 5 clean entries were fully
+      // processed: frozen, onRemove'd, and decremented from cacheSize.
+      Assert.assertEquals(
+          "5 clean entries must be fully removed from the map; only the pinned one survives "
+              + "via re-insertion",
+          1L, getDataMap().size());
+      Assert.assertEquals(
+          "cacheSize must have been decremented for each of the 5 successfully-frozen entries",
+          1, getCacheSizeCounter());
+      Assert.assertFalse(
+          "the re-inserted pinned entry must NOT be frozen",
+          pinnedEntry.isFrozen());
+      // Cross-check the invariant eden + probation + protection == cacheSize == data.size().
+      // The re-inserted un-frozen entry was never removed from the policy's LRU lists, so
+      // policy state must still match cacheSize / data.size(). A regression that decremented
+      // cacheSize for the failed entry (or called policy.onRemove on the un-frozen re-inserted
+      // one) would be caught here.
+      readCache.assertSize();
+      readCache.assertConsistency();
+    } finally {
+      readCache.releaseFromRead(pinnedEntry);
+    }
+
+    // Retry after unpinning must drain the formerly-pinned entry cleanly.
+    readCache.closeStorage(writeCache);
+    Assert.assertEquals("retry must empty the map", 0L, getDataMap().size());
+    Assert.assertEquals(
+        "retry must decrement cacheSize to zero", 0, getCacheSizeCounter());
+    Assert.assertEquals(
+        "writeCache.close() must be invoked exactly once across the failed attempt + retry",
+        1, writeCache.closeCount.get());
+  }
+
+  /**
+   * Reproducer / live-check for the CI-hang root cause: a reader thread on storage B keeps
+   * calling {@code loadForRead} while storage A closes on the main thread. In the buggy
+   * implementation (pre-fix, unfiltered drain), storage B's entries became frozen mid-close
+   * and the reader's {@code doLoad} would spin forever in its {@code while (true)} loop.
+   *
+   * <p>With the fix, the reader must keep making progress during and after the close — this
+   * is the only test shape that witnesses the absence of the spin at runtime. A regression
+   * that froze other storages' entries (or left a frozen-in-map window) would hang the reader
+   * and fail the 10s join timeout below.
+   */
+  @Test
+  public void testCloseStorageDoesNotHangConcurrentReadsOnOtherStorages() throws Exception {
+    var otherWriteCache = new MockedWriteCache(bufferPool, 42);
+    int pages = 50;
+    for (int p = 0; p < pages; p++) {
+      readCache.releaseFromRead(readCache.loadForRead(0, p, writeCache, false));
+      readCache.releaseFromRead(readCache.loadForRead(0, p, otherWriteCache, false));
+    }
+
+    var readerStarted = new CountDownLatch(1);
+    var stopReader = new AtomicBoolean(false);
+    var readsCompleted = new AtomicLong();
+    var readerFailure = new AtomicReference<Throwable>();
+
+    Thread reader = new Thread(() -> {
+      try {
+        var rng = ThreadLocalRandom.current();
+        readerStarted.countDown();
+        while (!stopReader.get()) {
+          int p = rng.nextInt(pages);
+          var entry = readCache.loadForRead(0, p, otherWriteCache, false);
+          Assert.assertFalse(
+              "other storage's entry " + p + " must never be frozen during unrelated close",
+              entry.isFrozen());
+          readCache.releaseFromRead(entry);
+          readsCompleted.incrementAndGet();
+        }
+      } catch (Throwable t) {
+        readerFailure.set(t);
+      }
+    }, "other-storage-reader");
+    reader.start();
+
+    Assert.assertTrue("reader thread must start within 5s",
+        readerStarted.await(5, TimeUnit.SECONDS));
+    long preCloseReads = readsCompleted.get();
+
+    // Close storage 0 while reader hammers storage 42. If the fix regresses and any storage-42
+    // entry becomes frozen-in-map (or otherwise unacquirable) the reader's doLoad would spin
+    // forever; this line and the subsequent join would not return.
+    readCache.closeStorage(writeCache);
+
+    // Give the reader 2 s to accumulate at least 1000 additional reads post-close — a spinning
+    // reader would make zero progress.
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+    while (System.nanoTime() < deadline && readsCompleted.get() - preCloseReads < 1000) {
+      Thread.yield();
+    }
+
+    stopReader.set(true);
+    reader.join(TimeUnit.SECONDS.toMillis(10));
+    Assert.assertFalse(
+        "reader thread must terminate within 10s — a spin regression would leave it alive",
+        reader.isAlive());
+    Assert.assertNull(
+        "reader thread must not have observed a frozen/stale storage-42 entry",
+        readerFailure.get());
+    Assert.assertTrue(
+        "reader must make forward progress during and after close (post-close reads: "
+            + (readsCompleted.get() - preCloseReads) + ")",
+        readsCompleted.get() - preCloseReads >= 1000);
+
+    readCache.closeStorage(otherWriteCache);
   }
 
   /**
@@ -841,11 +1156,20 @@ public class LockFreeReadCacheBatchingTest {
   private static final class MockedWriteCache implements WriteCache {
 
     private final ByteBufferPool byteBufferPool;
+    private final int storageId;
     final AtomicInteger closeCount = new AtomicInteger();
     final AtomicInteger deleteCount = new AtomicInteger();
 
     MockedWriteCache(final ByteBufferPool byteBufferPool) {
+      this(byteBufferPool, 0);
+    }
+
+    // Tests that exercise storage isolation in drainAllEntries populate the cache from two
+    // different writeCache instances and need distinct storage ids in the composed fileId
+    // (high 32 bits), so a single-storage close leaves the other storage's entries intact.
+    MockedWriteCache(final ByteBufferPool byteBufferPool, final int storageId) {
       this.byteBufferPool = byteBufferPool;
+      this.storageId = storageId;
     }
 
     ByteBufferPool byteBufferPool() {
@@ -1007,7 +1331,7 @@ public class LockFreeReadCacheBatchingTest {
 
     @Override
     public int getId() {
-      return 0;
+      return storageId;
     }
 
     @Override

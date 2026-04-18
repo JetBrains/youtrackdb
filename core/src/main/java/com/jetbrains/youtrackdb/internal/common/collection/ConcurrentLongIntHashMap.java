@@ -242,6 +242,32 @@ public class ConcurrentLongIntHashMap<V> {
     return result;
   }
 
+  /**
+   * Removes all entries whose {@code fileId} high 32 bits match {@code storageId} — i.e., every
+   * entry belonging to the storage whose {@code WriteCache.getId() == storageId}.
+   *
+   * <p>One write-locked sweep per section, matching the contract of {@link #removeByFileId(long)}:
+   * matching entries are collected into the returned list and nullified in place, then the section
+   * is rehashed at the same capacity to repair probe chains. The returned list is safe to iterate
+   * outside any segment lock.
+   *
+   * <p>Cost is {@code O(total capacity)} regardless of the number of files in the storage —
+   * intended for {@code closeStorage}/{@code deleteStorage} callers that would otherwise iterate
+   * {@link #removeByFileId(long)} once per file ({@code O(files * total capacity)}) AND must not
+   * touch entries belonging to other storages sharing the same JVM-level cache.
+   *
+   * <p>Cross-section removal is not collectively atomic, matching {@link #removeByFileId(long)}.
+   *
+   * @return a list of removed values (may be empty, never null)
+   */
+  public List<V> removeByStorageId(int storageId) {
+    var result = new ArrayList<V>();
+    for (Section<V> section : sections) {
+      section.removeByStorageId(storageId, result);
+    }
+    return result;
+  }
+
   /** Removes all entries from all sections. */
   public void clear() {
     for (Section<V> s : sections) {
@@ -684,6 +710,49 @@ public class ConcurrentLongIntHashMap<V> {
         // Since we used simple nullification (not backward-sweep per entry), there may be
         // gaps in probe chains. A same-capacity rehash restores probe chain integrity.
         rehashSameCapacity();
+      } finally {
+        lock.unlockWrite(stamp);
+      }
+    }
+
+    /**
+     * Remove all entries whose {@code fileId} high 32 bits equal {@code storageId}. Same
+     * single-pass-per-section + same-capacity-rehash strategy as {@link #removeByFileId(long,
+     * List)}; only the match predicate differs.
+     *
+     * <p>If the section ends up empty after the sweep, additionally shrinks back to
+     * {@link #initialCapacity} to release the large backing array accumulated during normal
+     * operation. This matches the memory-return behavior of {@link #drain(Consumer)} — important
+     * for long-lived JVMs that repeatedly close storages.
+     */
+    void removeByStorageId(int storageId, List<V> removedEntries) {
+      long stamp = lock.writeLock();
+      try {
+        int removed = 0;
+        for (int i = 0; i < capacity; i++) {
+          Entry<V> e = entries[i];
+          if (e != null && ((int) (e.fileId >>> 32)) == storageId) {
+            removedEntries.add(e.value);
+            entries[i] = null;
+            removed++;
+          }
+        }
+
+        if (removed == 0) {
+          return;
+        }
+
+        size -= removed;
+        usedBuckets -= removed;
+        assert size >= 0 : "size went negative after removeByStorageId: " + size;
+        assert usedBuckets >= 0
+            : "usedBuckets went negative after removeByStorageId: " + usedBuckets;
+
+        if (size == 0) {
+          shrinkIfGrown();
+        } else {
+          rehashSameCapacity();
+        }
       } finally {
         lock.unlockWrite(stamp);
       }

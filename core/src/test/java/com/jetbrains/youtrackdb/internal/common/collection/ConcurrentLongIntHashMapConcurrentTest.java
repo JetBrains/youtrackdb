@@ -8,6 +8,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.Test;
 
@@ -887,5 +889,113 @@ public class ConcurrentLongIntHashMapConcurrentTest {
     assertThat(map.size())
         .as("size() matches forEach entry count after drainAll stress")
         .isEqualTo(entryCount.get());
+  }
+
+  /**
+   * {@code removeByStorageId} contention with concurrent readers and writers on ANOTHER
+   * storage. The remover sweeps the target storage's entries in write-locked section passes;
+   * meanwhile readers and writers hit the other storage's entries. The other storage's entries
+   * must (a) always be findable via {@code get} with their canonical value (no torn reads from
+   * a concurrent same-capacity rehash or {@code shrinkIfGrown} array swap), and (b) fully
+   * survive every removal cycle. This mirrors the production scenario where one storage closes
+   * while other storages continue to serve reads.
+   */
+  @Test
+  public void removeByStorageIdConcurrentWithPutsAndReadsOnOtherStorageIsSafe() throws Exception {
+    var map = new ConcurrentLongIntHashMap<String>(1024);
+    int targetStorage = 1;
+    int otherStorage = 2;
+    int fileCount = 100;
+    int pageCount = 50;
+
+    // Pre-populate both storages. The remover cycles the target storage; writers re-add
+    // target-storage entries so every cycle has real work.
+    for (int lf = 0; lf < fileCount; lf++) {
+      long targetFid = (((long) targetStorage) << 32) | lf;
+      long otherFid = (((long) otherStorage) << 32) | lf;
+      for (int p = 0; p < pageCount; p++) {
+        map.put(targetFid, p, "T:" + lf + ":" + p);
+        map.put(otherFid, p, "O:" + lf + ":" + p);
+      }
+    }
+
+    int readerCount = 4;
+    int writerCount = 2;
+    int totalThreads = readerCount + writerCount + 1;
+    var exec = Executors.newFixedThreadPool(totalThreads);
+    var barrier = new CyclicBarrier(totalThreads);
+    var stop = new AtomicBoolean(false);
+    var removeCycles = new AtomicInteger();
+    int targetCycles = 50;
+    var futures = new ArrayList<Future<Void>>();
+
+    try {
+      // Readers: every non-null result for other-storage MUST match the canonical value. A
+      // torn read would return a wrong string.
+      for (int t = 0; t < readerCount; t++) {
+        futures.add(exec.submit(() -> {
+          barrier.await();
+          var rng = ThreadLocalRandom.current();
+          while (!stop.get()) {
+            int lf = rng.nextInt(fileCount);
+            int p = rng.nextInt(pageCount);
+            long otherFid = (((long) otherStorage) << 32) | lf;
+            String v = map.get(otherFid, p);
+            if (v != null) {
+              assertThat(v).isEqualTo("O:" + lf + ":" + p);
+            }
+          }
+          return null;
+        }));
+      }
+
+      // Writers: re-insert target-storage entries so removeByStorageId has matches every cycle.
+      for (int t = 0; t < writerCount; t++) {
+        futures.add(exec.submit(() -> {
+          barrier.await();
+          var rng = ThreadLocalRandom.current();
+          while (!stop.get()) {
+            int lf = rng.nextInt(fileCount);
+            int p = rng.nextInt(pageCount);
+            long targetFid = (((long) targetStorage) << 32) | lf;
+            map.put(targetFid, p, "T:" + lf + ":" + p);
+          }
+          return null;
+        }));
+      }
+
+      // Remover: repeated sweeps of the target storage.
+      futures.add(exec.submit(() -> {
+        barrier.await();
+        for (int i = 0; i < targetCycles; i++) {
+          map.removeByStorageId(targetStorage);
+          removeCycles.incrementAndGet();
+          Thread.yield();
+        }
+        stop.set(true);
+        return null;
+      }));
+
+      for (var f : futures) {
+        f.get(60, TimeUnit.SECONDS);
+      }
+      assertThat(removeCycles.get()).isEqualTo(targetCycles);
+    } finally {
+      stop.set(true);
+      exec.shutdownNow();
+      exec.awaitTermination(5, TimeUnit.SECONDS);
+    }
+
+    // Final invariant: every other-storage entry still has its canonical value. A missing or
+    // torn entry here indicates cross-storage damage from the concurrent removeByStorageId.
+    for (int lf = 0; lf < fileCount; lf++) {
+      long otherFid = (((long) otherStorage) << 32) | lf;
+      for (int p = 0; p < pageCount; p++) {
+        assertThat(map.get(otherFid, p))
+            .as("other storage entry (%d,%d) must survive concurrent removeByStorageId",
+                lf, p)
+            .isEqualTo("O:" + lf + ":" + p);
+      }
+    }
   }
 }

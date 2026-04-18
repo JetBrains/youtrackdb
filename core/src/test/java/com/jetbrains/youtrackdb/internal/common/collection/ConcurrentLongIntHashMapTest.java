@@ -2179,4 +2179,254 @@ public class ConcurrentLongIntHashMapTest {
         .as("clearAndShrink must shrink an empty-but-grown section")
         .isEqualTo(initialCapacity);
   }
+
+  // ---- removeByStorageId() ----
+
+  /**
+   * {@code removeByStorageId} must drop every entry whose fileId has matching high 32 bits and
+   * leave other storages' entries untouched. This is the invariant that protects the JVM-shared
+   * {@code LockFreeReadCache} from cross-storage damage when one storage closes — without it, a
+   * bulk drain would freeze entries from live storages and cause concurrent {@code doLoad}
+   * callers to spin forever.
+   */
+  @Test
+  public void removeByStorageIdRemovesOnlyTargetStorageEntries() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    int storageA = 1;
+    int storageB = 2;
+    int pagesPerFile = 5;
+
+    // 3 files per storage, each with 5 pages. File ids differ between storages.
+    for (int localFid = 0; localFid < 3; localFid++) {
+      long fidA = (((long) storageA) << 32) | localFid;
+      long fidB = (((long) storageB) << 32) | (10 + localFid);
+      for (int p = 0; p < pagesPerFile; p++) {
+        map.put(fidA, p, "A-f" + localFid + "-p" + p);
+        map.put(fidB, p, "B-f" + localFid + "-p" + p);
+      }
+    }
+    assertThat(map.size()).isEqualTo(30);
+
+    var removed = map.removeByStorageId(storageA);
+
+    assertThat(removed).as("must collect exactly storage A's 15 entries").hasSize(15);
+    assertThat(removed).allMatch(v -> v.startsWith("A-"));
+    assertThat(map.size()).as("only storage B's 15 entries remain").isEqualTo(15);
+
+    // Every storage A entry is gone; every storage B entry is still findable.
+    for (int localFid = 0; localFid < 3; localFid++) {
+      long fidA = (((long) storageA) << 32) | localFid;
+      long fidB = (((long) storageB) << 32) | (10 + localFid);
+      for (int p = 0; p < pagesPerFile; p++) {
+        assertThat(map.get(fidA, p))
+            .as("Storage A entry (%d,%d) must be null after removeByStorageId(1)", fidA, p)
+            .isNull();
+        assertThat(map.get(fidB, p))
+            .as("Storage B entry (%d,%d) must survive removeByStorageId(1)", fidB, p)
+            .isEqualTo("B-f" + localFid + "-p" + p);
+      }
+    }
+  }
+
+  /** Empty map and missing-storage paths must both return an empty list without throwing. */
+  @Test
+  public void removeByStorageIdOnEmptyOrMissingStorageReturnsEmpty() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    assertThat(map.removeByStorageId(7))
+        .as("empty map must return empty list")
+        .isEmpty();
+
+    map.put((1L << 32) | 0L, 0, "exists");
+    assertThat(map.removeByStorageId(9))
+        .as("no entries for this storage must return empty list")
+        .isEmpty();
+    assertThat(map.size()).as("map must be unchanged").isEqualTo(1);
+  }
+
+  /**
+   * After bulk removal the section's probe chains are repaired via same-capacity rehash so
+   * surviving entries (possibly from other storages, possibly from the same one in different
+   * files) remain findable. Without the rehash, a long entry that probed past a now-removed
+   * slot would become unreachable.
+   */
+  @Test
+  public void removeByStorageIdCompactsSectionSoSurvivorsRemainFindable() {
+    // Force all entries into a single section so probe chain integrity is meaningfully tested.
+    var map = new ConcurrentLongIntHashMap<String>(32, 1);
+    int storageA = 1;
+    int storageB = 2;
+
+    // Interleave storage A and B entries — removing A may leave gaps that B entries probed past.
+    for (int i = 0; i < 16; i++) {
+      map.put((((long) storageA) << 32) | i, 0, "A" + i);
+      map.put((((long) storageB) << 32) | i, 0, "B" + i);
+    }
+    assertThat(map.size()).isEqualTo(32);
+
+    map.removeByStorageId(storageA);
+    assertThat(map.size()).isEqualTo(16);
+
+    for (int i = 0; i < 16; i++) {
+      assertThat(map.get((((long) storageB) << 32) | i, 0))
+          .as("Storage B entry %d must still be findable after storage A removal", i)
+          .isEqualTo("B" + i);
+    }
+  }
+
+  /**
+   * If the section becomes empty after removing this storage's entries, the backing array must
+   * be shrunk back to {@code initialCapacity}. This matches the memory-return behavior of
+   * {@code drainAll} and is important for long-lived JVMs that repeatedly close storages — a
+   * closed-and-reopened cache must not retain the peak array.
+   */
+  @Test
+  public void removeByStorageIdShrinksSectionThatBecomesEmpty() {
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    long initialCapacity = map.capacity();
+    int storageA = 1;
+
+    for (int i = 0; i < 500; i++) {
+      map.put((((long) storageA) << 32) | i, 0, "A" + i);
+    }
+    long grownCapacity = map.capacity();
+    assertThat(grownCapacity).isGreaterThan(initialCapacity);
+
+    map.removeByStorageId(storageA);
+
+    assertThat(map.size()).isEqualTo(0);
+    assertThat(map.capacity())
+        .as("section that became empty must shrink back to initialCapacity")
+        .isEqualTo(initialCapacity);
+  }
+
+  /**
+   * If a section still has entries from other storages after the removal, it must NOT shrink —
+   * shrinking would either re-rehash the survivors (no perf win over same-capacity rehash) or
+   * drop them entirely (bug). The backing array stays at its grown capacity.
+   */
+  @Test
+  public void removeByStorageIdDoesNotShrinkSectionWithSurvivingEntries() {
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    long initialCapacity = map.capacity();
+    int storageA = 1;
+    int storageB = 2;
+
+    for (int i = 0; i < 300; i++) {
+      map.put((((long) storageA) << 32) | i, 0, "A" + i);
+    }
+    // Pin a couple of storage B entries so the section keeps a non-empty size after removing A.
+    for (int i = 0; i < 5; i++) {
+      map.put((((long) storageB) << 32) | i, 0, "B" + i);
+    }
+    long grownCapacity = map.capacity();
+    assertThat(grownCapacity).isGreaterThan(initialCapacity);
+
+    map.removeByStorageId(storageA);
+
+    assertThat(map.size()).isEqualTo(5);
+    assertThat(map.capacity())
+        .as("section with survivors must keep its grown capacity, not shrink")
+        .isEqualTo(grownCapacity);
+    for (int i = 0; i < 5; i++) {
+      assertThat(map.get((((long) storageB) << 32) | i, 0)).isEqualTo("B" + i);
+    }
+  }
+
+  /**
+   * After a multi-section {@code removeByStorageId} sweep, every survivor in every section
+   * must still be findable via {@code get()} (which follows probe chains). This is the actual
+   * production configuration — a single-section test does not catch a bug where one section's
+   * probe chain repair interacts wrongly with another's. Uses 2000 entries per storage spread
+   * across the default 16 sections so each section exercises both "has matches" and "has
+   * survivors".
+   */
+  @Test
+  public void removeByStorageIdRepairsProbeChainsAcrossAllSections() {
+    var map = new ConcurrentLongIntHashMap<String>(4096, 16);
+    int storageA = 1;
+    int storageB = 2;
+
+    for (int i = 0; i < 2000; i++) {
+      map.put((((long) storageA) << 32) | i, 0, "A" + i);
+      map.put((((long) storageB) << 32) | i, 0, "B" + i);
+    }
+
+    map.removeByStorageId(storageA);
+
+    assertThat(map.size()).isEqualTo(2000);
+    // Every surviving B entry must remain reachable via get() — a broken probe chain
+    // somewhere would surface as a null here for the affected entries.
+    for (int i = 0; i < 2000; i++) {
+      assertThat(map.get((((long) storageB) << 32) | i, 0))
+          .as("Storage B entry %d must still be findable across multi-section sweep", i)
+          .isEqualTo("B" + i);
+    }
+  }
+
+  /**
+   * Calling {@code removeByStorageId} again on the same storage after a successful drain must
+   * be a no-op: no entries to remove, no allocations, no capacity change. The remove path's
+   * early return at {@code if (removed == 0)} guarantees this, but an explicit regression
+   * test prevents a future "optimization" from accidentally re-allocating on empty sections.
+   */
+  @Test
+  public void removeByStorageIdSecondCallOnSameStorageIsNoOp() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    for (int i = 0; i < 20; i++) {
+      map.put((1L << 32) | i, 0, "v" + i);
+    }
+    map.removeByStorageId(1);
+    long capacityAfterFirst = map.capacity();
+
+    var removed = map.removeByStorageId(1);
+
+    assertThat(removed).as("second call must return empty").isEmpty();
+    assertThat(map.size()).isZero();
+    assertThat(map.capacity())
+        .as("second call must not re-allocate the backing arrays")
+        .isEqualTo(capacityAfterFirst);
+  }
+
+  /**
+   * Boundary storage ids: {@code Integer.MAX_VALUE}, {@code Integer.MIN_VALUE}, and {@code -1}
+   * must work correctly. Storage id is an {@code int}; the predicate at
+   * {@code Section.removeByStorageId} uses {@code (int) (fileId >>> 32)} (unsigned shift then
+   * narrowing cast) to match the composition used by {@code AbstractWriteCache.composeFileId}.
+   * A regression that changed the encoding (e.g. to a signed shift) would silently break
+   * storages whose id has the sign bit set.
+   */
+  @Test
+  public void removeByStorageIdWithNegativeAndMaxBoundaries() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    map.put((((long) -1) << 32) | 7L, 0, "s-neg1");
+    map.put((((long) Integer.MAX_VALUE) << 32) | 7L, 0, "s-max");
+    map.put((((long) Integer.MIN_VALUE) << 32) | 7L, 0, "s-min");
+    map.put(7L, 0, "s-zero"); // storageId = 0, kept as control
+
+    assertThat(map.removeByStorageId(-1)).containsExactly("s-neg1");
+    assertThat(map.removeByStorageId(Integer.MAX_VALUE)).containsExactly("s-max");
+    assertThat(map.removeByStorageId(Integer.MIN_VALUE)).containsExactly("s-min");
+    assertThat(map.size()).as("only storage 0 survives").isEqualTo(1);
+    assertThat(map.get(7L, 0)).isEqualTo("s-zero");
+  }
+
+  /**
+   * Storage id 0 is a valid storage id (it's what {@code MockedWriteCache} uses by default and
+   * what the first-opened storage receives). It must not be confused with empty slots whose
+   * default fileId is 0.
+   */
+  @Test
+  public void removeByStorageIdWithStorageIdZero() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    // storageId=0: composed fileId == localFid, so the entry's high 32 bits are zero.
+    map.put(0L, 0, "s0-f0-p0");
+    map.put(0L, 1, "s0-f0-p1");
+    // storageId=5: high 32 bits are 5.
+    map.put((5L << 32) | 3L, 0, "s5-f3-p0");
+
+    var removed = map.removeByStorageId(0);
+    assertThat(removed).containsExactlyInAnyOrder("s0-f0-p0", "s0-f0-p1");
+    assertThat(map.size()).as("storage 5 entry must survive").isEqualTo(1);
+    assertThat(map.get((5L << 32) | 3L, 0)).isEqualTo("s5-f3-p0");
+  }
 }

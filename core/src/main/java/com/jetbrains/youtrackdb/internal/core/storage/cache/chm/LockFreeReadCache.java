@@ -659,22 +659,24 @@ public final class LockFreeReadCache implements ReadCache {
   }
 
   /**
-   * Two-phase bulk drain used by close and delete:
+   * Single-pass bulk drain used by {@code closeStorage} and {@code deleteStorage}:
    *
    * <ol>
-   *   <li>Snapshot every entry via {@code forEachValue} (section read locks).
-   *   <li>{@code freeze()} + {@code policy.onRemove()} each entry. A {@code freeze()} failure
-   *       aborts before the map is modified, matching {@link #clear()} — the caller may retry
-   *       close on a fresh attempt.
-   *   <li>{@code clearAndShrink} sweeps the map in one O(section count) pass and shrinks each
-   *       section back to its initial capacity without re-collecting values.
+   *   <li>{@code data.removeByStorageId(writeCache.getId())} — one write-locked sweep per
+   *       section, atomically removing every entry whose fileId's high 32 bits match this
+   *       storage's id. Entries from other storages sharing the same JVM cache are left intact.
+   *   <li>For each removed entry: {@code freeze()} + {@code policy.onRemove()} +
+   *       {@code cacheSize.decrementAndGet()}. If {@code freeze()} fails (entry still pinned),
+   *       throw {@link StorageException} — remaining entries in the batch are left out of the
+   *       map and not yet processed, matching the pre-existing semantics of {@link #clearFile}.
    * </ol>
    *
    * <p>This replaces the per-file {@link #clearFile} loop used by {@code closeStorage} and
    * {@code deleteStorage} before. That loop was O(files × total capacity) because every
    * {@code removeByFileId} call linearly swept all 16 sections and same-capacity rehashed any
    * section with a match — on a storage with thousands of files and a warm cache it pegged a
-   * close thread at 100 % CPU inside {@code removeByFileId} for 30+ minutes.
+   * close thread at 100 % CPU inside {@code removeByFileId} for 30+ minutes. The new
+   * {@code removeByStorageId} collapses that to a single O(total capacity) sweep per close.
    *
    * <p>The method acquires {@link #evictionLock} once for the whole drain rather than per entry
    * as {@link #clearFile} does; close has no progress obligation to other threads. The per-entry
@@ -682,15 +684,34 @@ public final class LockFreeReadCache implements ReadCache {
    * {@code writeCache.close()}/{@code writeCache.delete()} triggers a full flush, making the
    * per-entry overflow check redundant and also avoiding its latch wait (see WOWCache#1198).
    *
+   * <p><b>Critical ordering — remove from map first, freeze after:</b> freezing an entry while
+   * it is still in the map would make concurrent {@code doLoad} callers (for this OR any other
+   * live storage sharing the cache) spin forever in their {@code while (true)} loop, because
+   * {@code data.get()} would keep returning the frozen entry and {@code acquireEntry()} would
+   * keep failing. By removing entries from the map <em>before</em> freezing, concurrent loads
+   * either find nothing (and re-load fresh) or find a fresh entry inserted after us — neither
+   * can spin.
+   *
+   * <p><b>Storage-scoped filter:</b> {@link LockFreeReadCache} is a JVM singleton shared by
+   * every open storage. A bulk drain that iterates ALL entries (e.g., {@link #clear()}) would
+   * freeze entries belonging to other live storages and cause their in-flight {@code doLoad}
+   * calls to spin. {@code removeByStorageId} restricts the sweep to entries whose fileId
+   * encodes this {@code writeCache}'s id, leaving other storages untouched.
+   *
+   * <p><b>Freeze-failure handling — re-insert un-frozen entries:</b> freeze only fails when an
+   * entry is still pinned (its refcount is {@code > 0}, i.e. some caller is holding it). If we
+   * simply threw on the first failure, every already-removed entry AFTER the pinned one would
+   * leak — they would be out of the map (retry can't find them), unfrozen (never released from
+   * the policy), and their {@link CachePointer}s would never have their referrer counts
+   * decremented (pinning the direct memory until JVM exit). To avoid this, we continue the
+   * loop on failure, collect un-frozen entries, and re-insert them in the map before throwing.
+   * A subsequent retry by the caller (after the pin is released) sees a fresh map containing
+   * only the formerly-pinned pages and drains them correctly.
+   *
    * <p><b>Durability note:</b> this drain only releases the read-cache's reference on each
    * cache entry. Dirty-page memory is still held by {@link WriteCache} via its own reference
    * count and is flushed/discarded only by {@code writeCache.close()}/{@code delete()}. Do not
    * move the {@code writeCache.close()}/{@code delete()} call ahead of this drain.
-   *
-   * <p><b>Precondition:</b> no concurrent {@code doLoad} during close (same as
-   * {@code clearFile}). A concurrent load landing on the map after phase 1 would be drained in
-   * phase 3 without being frozen or counted out of {@code cacheSize} — storage lifecycle must
-   * quiesce readers at a higher level.
    */
   private void drainAllEntries(final WriteCache writeCache) {
     flushCurrentThreadReadBatch();
@@ -698,28 +719,35 @@ public final class LockFreeReadCache implements ReadCache {
     try {
       emptyBuffers();
 
-      final var currentCacheSize = cacheSize.get();
-      final var entries = new ArrayList<CacheEntry>(Math.max(0, currentCacheSize));
-      data.forEachValue(entries::add);
+      final var removedEntries = data.removeByStorageId(writeCache.getId());
 
-      for (final var entry : entries) {
-        if (!entry.freeze()) {
-          throw new StorageException(writeCache.getStorageName(),
-              "Page with index "
-                  + entry.getPageIndex()
-                  + " for file id "
-                  + entry.getFileId()
-                  + " is used and cannot be removed");
+      // First entry that freeze() rejected (still pinned). We use it to build the exception
+      // message after re-inserting every un-frozen entry. Null means every entry was frozen.
+      CacheEntry firstUnfrozen = null;
+      for (final var cacheEntry : removedEntries) {
+        if (cacheEntry.freeze()) {
+          policy.onRemove(cacheEntry);
+          cacheSize.decrementAndGet();
+        } else {
+          if (firstUnfrozen == null) {
+            firstUnfrozen = cacheEntry;
+          }
+          // Re-insert so a retry after the caller releases the pin can drain this entry
+          // through the normal path. Without this, a single pinned page would leak every
+          // remaining cache entry for the whole storage (policy zombies + direct-memory
+          // reference leak). Close holds the storage's exclusive lock at the caller level,
+          // so no concurrent doLoad is racing us on this storage's pages here.
+          data.put(cacheEntry.getFileId(), cacheEntry.getPageIndex(), cacheEntry);
         }
-        policy.onRemove(entry);
       }
-
-      // Phase 3: shrink each section back to its constructor-time capacity. Every entry was
-      // already handled above, so we use the no-collect variant — drainAll(Consumer) would
-      // allocate a temporary ArrayList per section and scan each array to collect values we do
-      // not need.
-      data.clearAndShrink();
-      cacheSize.set(0);
+      if (firstUnfrozen != null) {
+        throw new StorageException(writeCache.getStorageName(),
+            "Page with index "
+                + firstUnfrozen.getPageIndex()
+                + " for file id "
+                + firstUnfrozen.getFileId()
+                + " is used and cannot be removed");
+      }
     } finally {
       evictionLock.unlock();
     }
