@@ -106,8 +106,9 @@ final class LazyRecursiveTraversalStream implements ExecutionStream {
     this.dedupVisited = dedupVisited;
     this.session = ctx.getDatabaseSession();
 
-    // Push the root slot
-    pushFrame(startingPoint, depth, pathToHere);
+    // Push the root slot. alreadyMarked=false because this is the root —
+    // no caller has added it to dedupVisited yet.
+    pushFrame(startingPoint, depth, pathToHere, false);
   }
 
   @Override
@@ -201,6 +202,12 @@ final class LazyRecursiveTraversalStream implements ExecutionStream {
    * Tries to find the next valid (non-null, non-deduped) neighbor from the
    * given slot's neighborStream and pushes a new slot for it.
    *
+   * <p>Dedup is performed here via {@code RidSet.add} (returns {@code false} if
+   * already present) so a single hash lookup replaces the previous pair of
+   * {@code contains} + {@code add}. This matters at scale — IC1 at SF1 visits
+   * ~125K neighbors (50 friends × 3 hops) — one hash probe per neighbor
+   * instead of two.
+   *
    * @return true if a new slot was pushed, false if no more neighbors
    */
   private boolean pushNextNeighbor(int parentIdx, ExecutionStream neighborStream) {
@@ -212,11 +219,18 @@ final class LazyRecursiveTraversalStream implements ExecutionStream {
         continue;
       }
 
-      // Dedup check
+      // Dedup via add() return value: true = newly added (push it), false =
+      // already visited (skip). Guaranteed to have been marked before any
+      // later visitor sees this RID, so boundary-depth vertices are deduped
+      // consistently with the explicit add in pushFrame() for the root.
+      var alreadyMarked = false;
       if (dedupVisited != null) {
         var neighborRid = origin.getIdentity();
-        if (neighborRid != null && dedupVisited.contains(neighborRid)) {
-          continue;
+        if (neighborRid != null) {
+          if (!dedupVisited.add(neighborRid)) {
+            continue;
+          }
+          alreadyMarked = true;
         }
       }
 
@@ -224,7 +238,7 @@ final class LazyRecursiveTraversalStream implements ExecutionStream {
       var newPath =
           hasPathAlias ? new PathNode(origin, parentPath, parentDepth) : null;
 
-      pushFrame(origin, parentDepth + 1, newPath);
+      pushFrame(origin, parentDepth + 1, newPath, alreadyMarked);
       return true;
     }
     return false;
@@ -233,9 +247,14 @@ final class LazyRecursiveTraversalStream implements ExecutionStream {
   /**
    * Creates a new slot for the given node, evaluates it against filters, sets
    * context variables, and pushes it onto the stack.
+   *
+   * @param alreadyMarked if {@code true}, the caller has already added the
+   *     RID to {@code dedupVisited} — we skip the redundant add. This is the
+   *     common case from {@link #pushNextNeighbor}, which uses the {@code add}
+   *     return value to perform dedup and marking in one hash probe.
    */
   private void pushFrame(Result startingPoint, int depth,
-      @Nullable PathNode pathToHere) {
+      @Nullable PathNode pathToHere, boolean alreadyMarked) {
     // Save current context and set for this depth. If filter evaluation or
     // path materialization throws, restore the context to avoid leaving it
     // in an inconsistent state.
@@ -256,7 +275,9 @@ final class LazyRecursiveTraversalStream implements ExecutionStream {
 
       // Mark visited immediately — not deferred to expansion — so boundary
       // depth vertices (where shouldExpand returns false) are still deduped.
-      if (dedupVisited != null && startingPoint != null) {
+      // Skipped when the caller (pushNextNeighbor) already added via its
+      // combined contains-or-add probe.
+      if (!alreadyMarked && dedupVisited != null && startingPoint != null) {
         var rid = startingPoint.getIdentity();
         if (rid != null) {
           dedupVisited.add(rid);
