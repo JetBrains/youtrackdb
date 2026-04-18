@@ -5,6 +5,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
@@ -27,6 +28,7 @@ import java.util.Set;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Unit tests for the static helper methods in {@link MatchExecutionPlanner} that support
@@ -36,28 +38,44 @@ import org.junit.Test;
  * <p>These helpers inspect NOT match expressions to determine whether they can be
  * independently materialized (no {@code $matched}/{@code $parent} dependency) and which
  * aliases are shared with the positive pattern (forming the join key).
+ *
+ * <p>Runs sequentially because it pins JVM-wide {@link GlobalConfiguration}
+ * entries in {@code @Before}/{@code @After} — {@code QUERY_STATS_DEFAULT_FAN_OUT},
+ * {@code QUERY_STATS_DEFAULT_SELECTIVITY}, and {@code QUERY_MATCH_HASH_JOIN_THRESHOLD}.
+ * The last entry is also mutated by other MATCH test classes
+ * ({@code MatchStepUnitTest}, {@code HashJoinPlannerIntegrationTest},
+ * {@code InvertedWhileHashJoinTest}), so running in the parallel-classes pool
+ * would race with those classes.
  */
+@Category(SequentialTest.class)
 public class MatchPlannerHelpersTest {
 
   // Pin config values so tests don't break if defaults change
   private static final double TEST_FAN_OUT = 10.0;
   private static final double TEST_SELECTIVITY = 0.1;
+  private static final long TEST_HASH_JOIN_THRESHOLD = 10_000L;
 
   private Object savedFanOut;
   private Object savedSelectivity;
+  private Object savedHashJoinThreshold;
 
   @Before
   public void pinConfig() {
     savedFanOut = GlobalConfiguration.QUERY_STATS_DEFAULT_FAN_OUT.getValue();
     savedSelectivity = GlobalConfiguration.QUERY_STATS_DEFAULT_SELECTIVITY.getValue();
+    savedHashJoinThreshold = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
     GlobalConfiguration.QUERY_STATS_DEFAULT_FAN_OUT.setValue(TEST_FAN_OUT);
     GlobalConfiguration.QUERY_STATS_DEFAULT_SELECTIVITY.setValue(TEST_SELECTIVITY);
+    // Pin the hash-join threshold too so canUseHashJoin_* assertions are independent of
+    // sibling test classes that also mutate this config entry.
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(TEST_HASH_JOIN_THRESHOLD);
   }
 
   @After
   public void restoreConfig() {
     GlobalConfiguration.QUERY_STATS_DEFAULT_FAN_OUT.setValue(savedFanOut);
     GlobalConfiguration.QUERY_STATS_DEFAULT_SELECTIVITY.setValue(savedSelectivity);
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(savedHashJoinThreshold);
   }
 
   // ── notPatternDependsOnMatched ──────────────────────────────────────────
