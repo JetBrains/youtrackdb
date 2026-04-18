@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.chm;
 
+import com.jetbrains.youtrackdb.internal.common.collection.ConcurrentLongIntHashMap;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
@@ -7,6 +8,7 @@ import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Ratio;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
+import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageDataVerificationError;
@@ -47,7 +49,7 @@ public class LockFreeReadCacheBatchingTest {
   private DirectMemoryAllocator allocator;
   private ByteBufferPool bufferPool;
   private LockFreeReadCache readCache;
-  private WriteCache writeCache;
+  private MockedWriteCache writeCache;
 
   @Before
   public void setUp() {
@@ -61,7 +63,14 @@ public class LockFreeReadCacheBatchingTest {
 
   @After
   public void tearDown() {
-    readCache.clear();
+    // Tolerant of a cache that was already drained by closeStorage/deleteStorage, or left in
+    // an un-clearable state by a freeze()-failure test (pinned/frozen entries). The direct
+    // memory is reclaimed on GC or on process exit; individual tests are self-isolating.
+    try {
+      readCache.clear();
+    } catch (Exception ignored) {
+      // Expected when drainAllEntries aborted mid-way or the cache was already closed.
+    }
   }
 
   /**
@@ -500,6 +509,268 @@ public class LockFreeReadCacheBatchingTest {
     Assert.assertEquals("Used memory must be 0 after clear()", 0, readCache.getUsedMemory());
   }
 
+  // --- drainAllEntries / closeStorage / deleteStorage tests ---
+
+  /**
+   * Happy-path: {@code closeStorage} populates the read cache, then drains every entry in one
+   * pass, resets {@code cacheSize} to zero, and closes the underlying write cache exactly once.
+   * This covers the sequencing {@code flushCurrentThreadReadBatch → evictionLock → emptyBuffers
+   * → forEachValue → freeze → policy.onRemove → drainAll → cacheSize.set(0) → writeCache.close()}
+   * that motivates the whole branch.
+   */
+  @Test
+  public void testCloseStorageDrainsAllEntriesAndClosesWriteCacheExactlyOnce() throws Exception {
+    int fileCount = 3;
+    int pagesPerFile = 10;
+    for (int fileId = 0; fileId < fileCount; fileId++) {
+      for (int pageIdx = 0; pageIdx < pagesPerFile; pageIdx++) {
+        var entry = readCache.loadForRead(fileId, pageIdx, writeCache, false);
+        readCache.releaseFromRead(entry);
+      }
+    }
+
+    Assert.assertEquals(
+        "sanity: cache must be populated before closeStorage",
+        (long) fileCount * pagesPerFile * PAGE_SIZE, readCache.getUsedMemory());
+    Assert.assertEquals(
+        "sanity: writeCache must not be closed before closeStorage",
+        0, writeCache.closeCount.get());
+
+    readCache.closeStorage(writeCache);
+
+    Assert.assertEquals(
+        "closeStorage must reset used memory", 0, readCache.getUsedMemory());
+    Assert.assertEquals(
+        "closeStorage must reset the internal cacheSize counter",
+        0, getCacheSizeCounter());
+    Assert.assertEquals(
+        "closeStorage must drain the internal map", 0L, getDataMap().size());
+    Assert.assertEquals(
+        "closeStorage must close writeCache exactly once",
+        1, writeCache.closeCount.get());
+    Assert.assertEquals(
+        "closeStorage must not invoke writeCache.delete()",
+        0, writeCache.deleteCount.get());
+  }
+
+  /**
+   * Happy-path: {@code deleteStorage} follows the same drain sequencing as closeStorage but
+   * invokes {@code writeCache.delete()} rather than {@code close()}.
+   */
+  @Test
+  public void testDeleteStorageDrainsAllEntriesAndDeletesWriteCacheExactlyOnce() throws Exception {
+    for (int i = 0; i < 16; i++) {
+      var entry = readCache.loadForRead(0, i, writeCache, false);
+      readCache.releaseFromRead(entry);
+    }
+
+    Assert.assertEquals(
+        "sanity: cache populated", 16L * PAGE_SIZE, readCache.getUsedMemory());
+
+    readCache.deleteStorage(writeCache);
+
+    Assert.assertEquals(
+        "deleteStorage must reset used memory", 0, readCache.getUsedMemory());
+    Assert.assertEquals(
+        "deleteStorage must reset cacheSize", 0, getCacheSizeCounter());
+    Assert.assertEquals(
+        "deleteStorage must drain the map", 0L, getDataMap().size());
+    Assert.assertEquals(
+        "deleteStorage must call writeCache.delete() exactly once",
+        1, writeCache.deleteCount.get());
+    Assert.assertEquals(
+        "deleteStorage must not invoke writeCache.close()",
+        0, writeCache.closeCount.get());
+  }
+
+  /**
+   * The third drainAllEntries phase ({@code data.drainAll}) shrinks each section back to its
+   * constructor-time capacity. After loading many more pages than the initial per-section
+   * capacity, the map total capacity grows; closeStorage must then shrink it back, freeing the
+   * retained Entry[] arrays. Without this phase, a long-lived storage that is closed and reopened
+   * would leak the large arrays accumulated during normal operation.
+   */
+  @Test
+  public void testCloseStorageShrinksMapCapacityAfterDrain() throws Exception {
+    // Load enough distinct pages to force sections to grow beyond their initial capacity.
+    int pageCount = 2000;
+    for (int i = 0; i < pageCount; i++) {
+      var entry = readCache.loadForRead(0, i, writeCache, false);
+      readCache.releaseFromRead(entry);
+    }
+
+    long preCloseCapacity = getDataMap().capacity();
+    Assert.assertTrue(
+        "sanity: sections must have grown beyond initial capacity (pre=" + preCloseCapacity + ")",
+        preCloseCapacity > 0);
+
+    readCache.closeStorage(writeCache);
+
+    long postCloseCapacity = getDataMap().capacity();
+    Assert.assertTrue(
+        "closeStorage must shrink map capacity (pre=" + preCloseCapacity
+            + ", post=" + postCloseCapacity + ")",
+        postCloseCapacity < preCloseCapacity);
+    Assert.assertEquals(
+        "map must be empty after closeStorage", 0L, getDataMap().size());
+  }
+
+  /**
+   * Freeze-failure contract: when {@code freeze()} fails on a pinned entry during
+   * drainAllEntries, the method throws {@link StorageException} <em>before</em> the map is
+   * mutated, so the caller can retry close on a fresh attempt. Verified end-to-end by:
+   * <ol>
+   *   <li>Loading a single entry and holding its read lock (pin).</li>
+   *   <li>Asserting {@code closeStorage} throws StorageException.</li>
+   *   <li>Asserting the map still contains the entry, {@code cacheSize} is unchanged, and
+   *       {@code writeCache.close()} was not invoked.</li>
+   *   <li>Releasing the pin and re-invoking {@code closeStorage} — the retry must succeed and
+   *       must close the write cache exactly once (not twice across both attempts).</li>
+   * </ol>
+   * Using a single entry guarantees the only iterated entry is the pinned one, so no other entry
+   * is frozen before the abort — the retry therefore reaches a clean state.
+   */
+  @Test
+  public void testCloseStorageAbortsOnFreezeFailureAndIsRetryable() throws Exception {
+    var pinnedEntry = readCache.loadForRead(0, 0, writeCache, false);
+    // Do NOT release — the entry's use count stays at 1, so freeze() returns false.
+
+    long preCacheSize = getCacheSizeCounter();
+    long preMapSize = getDataMap().size();
+    Assert.assertEquals("sanity: exactly one entry in the map", 1L, preMapSize);
+
+    try {
+      readCache.closeStorage(writeCache);
+      Assert.fail("closeStorage must throw StorageException when an entry cannot be frozen");
+    } catch (StorageException expected) {
+      // The exception message must name the entry that blocked the close so operators can
+      // identify the leaking caller.
+      Assert.assertTrue(
+          "exception message must reference the blocking page: " + expected.getMessage(),
+          expected.getMessage() != null
+              && expected.getMessage().contains("Page with index"));
+    }
+
+    Assert.assertEquals(
+        "cacheSize must be unchanged after aborted close",
+        preCacheSize, getCacheSizeCounter());
+    Assert.assertEquals(
+        "map must still contain the entry after aborted close",
+        preMapSize, getDataMap().size());
+    Assert.assertEquals(
+        "writeCache.close() must NOT be called when drainAllEntries aborts",
+        0, writeCache.closeCount.get());
+    Assert.assertFalse(
+        "pinned entry must NOT be frozen when drainAllEntries aborts on it",
+        pinnedEntry.isFrozen());
+
+    // Retry: once the pin is released, closeStorage must succeed on a fresh attempt.
+    readCache.releaseFromRead(pinnedEntry);
+    readCache.closeStorage(writeCache);
+
+    Assert.assertEquals(
+        "retry must reset cacheSize", 0, getCacheSizeCounter());
+    Assert.assertEquals(
+        "retry must drain the map", 0L, getDataMap().size());
+    Assert.assertEquals(
+        "retry must close writeCache exactly once across both attempts",
+        1, writeCache.closeCount.get());
+  }
+
+  /**
+   * Concurrency contract: the drainAllEntries precondition says "no concurrent doLoad during
+   * close" — but the method must still handle the state left behind by concurrent reads that
+   * <em>have already quiesced</em>. Multiple reader threads accumulate per-thread ReadBatch
+   * state and outstanding write-buffer entries; once they finish, {@code closeStorage} from a
+   * different thread must flush the batches of all threads (via emptyBuffers on the write buffer
+   * + drainReadBuffers on the striped read buffer), drain every entry, and close the write cache
+   * exactly once. Without the {@code flushCurrentThreadReadBatch → emptyBuffers} sequencing,
+   * pending read events would reference cache entries after drainAll freed them.
+   */
+  @Test
+  public void testCloseStorageAfterConcurrentReadsDrainsEverything() throws Exception {
+    int fileCount = 4;
+    int pageLimit = 200;
+    int threadCount = 4;
+    int readsPerThread = 5_000;
+
+    // Pre-load pages single-threaded so readers see cache hits.
+    for (int f = 0; f < fileCount; f++) {
+      for (int p = 0; p < pageLimit; p++) {
+        var entry = readCache.loadForRead(f, p, writeCache, false);
+        readCache.releaseFromRead(entry);
+      }
+    }
+
+    var executor = Executors.newFixedThreadPool(threadCount);
+    List<Future<Void>> futures = new ArrayList<>();
+    try {
+      for (int t = 0; t < threadCount; t++) {
+        futures.add(executor.submit(() -> {
+          var rng = ThreadLocalRandom.current();
+          for (int i = 0; i < readsPerThread; i++) {
+            int fileId = rng.nextInt(fileCount);
+            int pageIndex = rng.nextInt(pageLimit);
+            var entry = readCache.loadForRead(fileId, pageIndex, writeCache, false);
+            readCache.releaseFromRead(entry);
+          }
+          return null;
+        }));
+      }
+      for (var future : futures) {
+        future.get();
+      }
+    } finally {
+      executor.shutdown();
+    }
+
+    // Pre-close sanity: cache has entries, writeCache has not been closed.
+    Assert.assertTrue(
+        "sanity: cache must be populated after concurrent reads",
+        readCache.getUsedMemory() > 0);
+    Assert.assertEquals(
+        "sanity: writeCache.close() must not have run yet",
+        0, writeCache.closeCount.get());
+
+    // closeStorage from the main thread — a different thread than the readers. It must flush the
+    // entries accumulated in every thread's ReadBatch and every pending write-buffer entry.
+    readCache.closeStorage(writeCache);
+
+    Assert.assertEquals(
+        "closeStorage must reset used memory to zero after concurrent reads",
+        0, readCache.getUsedMemory());
+    Assert.assertEquals(
+        "closeStorage must reset cacheSize after concurrent reads",
+        0, getCacheSizeCounter());
+    Assert.assertEquals(
+        "closeStorage must drain the map after concurrent reads",
+        0L, getDataMap().size());
+    Assert.assertEquals(
+        "closeStorage must invoke writeCache.close() exactly once",
+        1, writeCache.closeCount.get());
+  }
+
+  /**
+   * Reflection helper: returns the current value of {@code LockFreeReadCache.cacheSize}, used
+   * to assert that drainAllEntries resets the counter (and, on abort, does not).
+   */
+  private int getCacheSizeCounter() throws Exception {
+    var cacheSizeField = LockFreeReadCache.class.getDeclaredField("cacheSize");
+    cacheSizeField.setAccessible(true);
+    return ((AtomicInteger) cacheSizeField.get(readCache)).get();
+  }
+
+  /**
+   * Reflection helper: returns the internal {@link ConcurrentLongIntHashMap} backing the cache,
+   * so tests can observe map size and capacity directly (both public methods on the map).
+   */
+  @SuppressWarnings("unchecked")
+  private ConcurrentLongIntHashMap<CacheEntry> getDataMap() throws Exception {
+    var dataField = LockFreeReadCache.class.getDeclaredField("data");
+    dataField.setAccessible(true);
+    return (ConcurrentLongIntHashMap<CacheEntry>) dataField.get(readCache);
+  }
+
   // --- resolveCacheHitRatio tests ---
 
   /**
@@ -562,8 +833,24 @@ public class LockFreeReadCacheBatchingTest {
   }
 
   // --- MockedWriteCache (same pattern as AsyncReadCacheTestIT) ---
+  //
+  // Non-record class so the `close()` / `delete()` / `closeFile()` call counts are visible to
+  // tests that verify drainAllEntries sequencing (closeStorage/deleteStorage must only close the
+  // write cache after the read-cache drain succeeds).
 
-  private record MockedWriteCache(ByteBufferPool byteBufferPool) implements WriteCache {
+  private static final class MockedWriteCache implements WriteCache {
+
+    private final ByteBufferPool byteBufferPool;
+    final AtomicInteger closeCount = new AtomicInteger();
+    final AtomicInteger deleteCount = new AtomicInteger();
+
+    MockedWriteCache(final ByteBufferPool byteBufferPool) {
+      this.byteBufferPool = byteBufferPool;
+    }
+
+    ByteBufferPool byteBufferPool() {
+      return byteBufferPool;
+    }
 
     @Override
     public void addPageIsBrokenListener(final PageIsBrokenListener listener) {
@@ -688,6 +975,7 @@ public class LockFreeReadCacheBatchingTest {
 
     @Override
     public long[] close() {
+      closeCount.incrementAndGet();
       return new long[0];
     }
 
@@ -703,6 +991,7 @@ public class LockFreeReadCacheBatchingTest {
 
     @Override
     public long[] delete() {
+      deleteCount.incrementAndGet();
       return new long[0];
     }
 
