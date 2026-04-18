@@ -273,6 +273,21 @@ public class ConcurrentLongIntHashMap<V> {
     }
   }
 
+  /**
+   * Like {@link #drainAll(Consumer)} but without the per-value callback — each section is cleared
+   * and shrunk back to its constructor-time capacity without allocating a temporary list or
+   * scanning to collect values. Intended for callers that have already processed every entry via
+   * {@link #forEachValue} and only need the backing arrays released.
+   *
+   * <p>Same cross-section atomicity caveat as {@link #drainAll(Consumer)} and {@link #clear()} —
+   * a concurrent {@code put} on a not-yet-cleared section may survive the call.
+   */
+  public void clearAndShrink() {
+    for (Section<V> s : sections) {
+      s.clearAndShrink();
+    }
+  }
+
   /** Iterates all entries, passing (fileId, pageIndex, value) to the consumer. */
   public void forEach(LongIntObjConsumer<V> consumer) {
     for (Section<V> s : sections) {
@@ -834,12 +849,21 @@ public class ConcurrentLongIntHashMap<V> {
      * invoke {@code consumer} for each collected value outside the lock. The list is sized from
      * {@code size} only as a hint — an {@link ArrayList} is used so the code stays bounds-safe
      * even if a future change lets the non-null slot count diverge from the volatile counter.
+     *
+     * <p>When {@code size == 0} the scan and list allocation are skipped; the section is still
+     * shrunk to {@link #initialCapacity} if it has grown past it, so repeated drains eventually
+     * release the retained array.
      */
     @SuppressWarnings("unchecked")
     void drain(Consumer<V> consumer) {
-      ArrayList<V> collected;
+      final ArrayList<V> collected;
       long stamp = lock.writeLock();
       try {
+        if (size == 0) {
+          shrinkIfGrown();
+          return;
+        }
+
         collected = new ArrayList<>(size);
         for (int i = 0; i < capacity; i++) {
           Entry<V> e = entries[i];
@@ -850,14 +874,7 @@ public class ConcurrentLongIntHashMap<V> {
         assert collected.size() == size
             : "collected.size() (" + collected.size() + ") != size (" + size + ")";
 
-        // Reset to the constructor's initial capacity — releases the large array accumulated
-        // during normal operation while keeping enough headroom to avoid an immediate rehash
-        // chain if the map is refilled after drain.
-        entries = new Entry[initialCapacity];
-        capacity = initialCapacity;
-        resizeThreshold = (int) (initialCapacity * FILL_FACTOR);
-        size = 0;
-        usedBuckets = 0;
+        resetToInitialCapacity();
       } finally {
         lock.unlockWrite(stamp);
       }
@@ -866,6 +883,51 @@ public class ConcurrentLongIntHashMap<V> {
       // callbacks may safely re-enter the map.
       for (V v : collected) {
         consumer.accept(v);
+      }
+    }
+
+    /**
+     * Drain variant that skips the value-collection pass. Equivalent to {@link #drain(Consumer)}
+     * with a no-op consumer, but avoids the per-section {@link ArrayList} allocation and the
+     * linear scan that populates it. Intended for callers that have already processed every
+     * entry via {@link #forEachValue} and only need the section reset to its initial capacity.
+     */
+    @SuppressWarnings("unchecked")
+    void clearAndShrink() {
+      long stamp = lock.writeLock();
+      try {
+        if (size == 0) {
+          shrinkIfGrown();
+          return;
+        }
+        resetToInitialCapacity();
+      } finally {
+        lock.unlockWrite(stamp);
+      }
+    }
+
+    /**
+     * Reset to the constructor's initial capacity — releases the large array accumulated during
+     * normal operation while keeping enough headroom to avoid an immediate rehash chain if the
+     * map is refilled after drain. Must be called under the section write lock.
+     */
+    @SuppressWarnings("unchecked")
+    private void resetToInitialCapacity() {
+      entries = new Entry[initialCapacity];
+      capacity = initialCapacity;
+      resizeThreshold = (int) (initialCapacity * FILL_FACTOR);
+      size = 0;
+      usedBuckets = 0;
+    }
+
+    /**
+     * If the section has grown past {@link #initialCapacity}, reset it; otherwise it's already
+     * at minimum size and re-allocating the array would be pure waste. Must be called under the
+     * section write lock with {@code size == 0}.
+     */
+    private void shrinkIfGrown() {
+      if (capacity != initialCapacity) {
+        resetToInitialCapacity();
       }
     }
 

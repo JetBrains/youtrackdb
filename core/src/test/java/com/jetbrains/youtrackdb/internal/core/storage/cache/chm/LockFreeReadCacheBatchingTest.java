@@ -515,7 +515,7 @@ public class LockFreeReadCacheBatchingTest {
    * Happy-path: {@code closeStorage} populates the read cache, then drains every entry in one
    * pass, resets {@code cacheSize} to zero, and closes the underlying write cache exactly once.
    * This covers the sequencing {@code flushCurrentThreadReadBatch → evictionLock → emptyBuffers
-   * → forEachValue → freeze → policy.onRemove → drainAll → cacheSize.set(0) → writeCache.close()}
+   * → forEachValue → freeze → policy.onRemove → clearAndShrink → cacheSize.set(0) → writeCache.close()}
    * that motivates the whole branch.
    */
   @Test
@@ -584,7 +584,7 @@ public class LockFreeReadCacheBatchingTest {
   }
 
   /**
-   * The third drainAllEntries phase ({@code data.drainAll}) shrinks each section back to its
+   * The third drainAllEntries phase ({@code data.clearAndShrink}) shrinks each section back to its
    * constructor-time capacity. After loading many more pages than the initial per-section
    * capacity, the map total capacity grows; closeStorage must then shrink it back, freeing the
    * retained Entry[] arrays. Without this phase, a long-lived storage that is closed and reopened

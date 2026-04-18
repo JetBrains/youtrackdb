@@ -666,8 +666,8 @@ public final class LockFreeReadCache implements ReadCache {
    *   <li>{@code freeze()} + {@code policy.onRemove()} each entry. A {@code freeze()} failure
    *       aborts before the map is modified, matching {@link #clear()} — the caller may retry
    *       close on a fresh attempt.
-   *   <li>{@code drainAll} sweeps the map in one O(total capacity) pass and shrinks each
-   *       section back to its initial capacity.
+   *   <li>{@code clearAndShrink} sweeps the map in one O(section count) pass and shrinks each
+   *       section back to its initial capacity without re-collecting values.
    * </ol>
    *
    * <p>This replaces the per-file {@link #clearFile} loop used by {@code closeStorage} and
@@ -714,10 +714,11 @@ public final class LockFreeReadCache implements ReadCache {
         policy.onRemove(entry);
       }
 
-      // Phase 3: drain the map and shrink each section back to its constructor-time capacity.
-      // Consumer is a no-op because every entry was already handled above.
-      data.drainAll(e -> {
-      });
+      // Phase 3: shrink each section back to its constructor-time capacity. Every entry was
+      // already handled above, so we use the no-collect variant — drainAll(Consumer) would
+      // allocate a temporary ArrayList per section and scan each array to collect values we do
+      // not need.
+      data.clearAndShrink();
       cacheSize.set(0);
     } finally {
       evictionLock.unlock();

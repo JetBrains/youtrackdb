@@ -2054,4 +2054,129 @@ public class ConcurrentLongIntHashMapTest {
     assertThat(collected).containsExactlyInAnyOrder("a", "b", "c");
     assertThat(map.size()).isEqualTo(0);
   }
+
+  // ---- clearAndShrink ----
+
+  /**
+   * clearAndShrink on a populated map must drop every entry and shrink capacity back to the
+   * constructor-time value — the same post-state as drainAll but without invoking any consumer.
+   * Use a small per-section expected-items value so repeated puts force a resize we can observe.
+   */
+  @Test
+  public void clearAndShrinkEmptiesMapAndShrinksCapacityToInitialValue() {
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    long initialCapacity = map.capacity();
+
+    for (int i = 0; i < 200; i++) {
+      map.put(1L, i, "v" + i);
+    }
+    assertThat(map.capacity())
+        .as("sanity: inserts must have grown the section past initial capacity")
+        .isGreaterThan(initialCapacity);
+
+    map.clearAndShrink();
+
+    assertThat(map.size()).isEqualTo(0);
+    assertThat(map.isEmpty()).isTrue();
+    assertThat(map.capacity())
+        .as("clearAndShrink must reset capacity back to the constructor-time value")
+        .isEqualTo(initialCapacity);
+  }
+
+  /**
+   * clearAndShrink on an empty map whose sections are at their initial capacity must be a true
+   * no-op — size stays 0, capacity does not change. Guards the size==0 + capacity==initial fast
+   * path that skips array reallocation for repeated close calls.
+   */
+  @Test
+  public void clearAndShrinkOnEmptyMapAtInitialCapacityIsNoOp() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    long initialCapacity = map.capacity();
+
+    map.clearAndShrink();
+
+    assertThat(map.size()).isEqualTo(0);
+    assertThat(map.capacity())
+        .as("clearAndShrink on empty map must not change capacity")
+        .isEqualTo(initialCapacity);
+  }
+
+  /**
+   * After clearAndShrink the map must be usable — a refill populates a fresh table without
+   * surfacing stale entries from before the clear.
+   */
+  @Test
+  public void clearAndShrinkLeavesMapUsableForSubsequentPutAndGet() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    for (int i = 0; i < 50; i++) {
+      map.put(1L, i, "old-" + i);
+    }
+
+    map.clearAndShrink();
+
+    for (int i = 0; i < 50; i++) {
+      map.put(1L, i, "new-" + i);
+    }
+    assertThat(map.size()).isEqualTo(50);
+    for (int i = 0; i < 50; i++) {
+      assertThat(map.get(1L, i)).isEqualTo("new-" + i);
+    }
+  }
+
+  /**
+   * clearAndShrink must return the map to a state where get returns null for every previously
+   * present key. Guards against a bug that resets counters but leaves a stale Entry in the array
+   * (which get would still surface).
+   */
+  @Test
+  public void clearAndShrinkClearsEveryEntryFromGet() {
+    var map = new ConcurrentLongIntHashMap<String>(16, 4);
+    for (long fid = 0; fid < 8; fid++) {
+      for (int page = 0; page < 16; page++) {
+        map.put(fid, page, "v-" + fid + "-" + page);
+      }
+    }
+
+    map.clearAndShrink();
+
+    for (long fid = 0; fid < 8; fid++) {
+      for (int page = 0; page < 16; page++) {
+        assertThat(map.get(fid, page))
+            .as("Entry (%d, %d) must be null after clearAndShrink", fid, page)
+            .isNull();
+      }
+    }
+  }
+
+  /**
+   * clearAndShrink on a map that has grown but was drained back to empty must still release the
+   * large arrays. Verifies the size==0 path shrinks when capacity has diverged from initial —
+   * without this, a drained map that is drained again would leak the large arrays forever.
+   */
+  @Test
+  public void clearAndShrinkReleasesGrownArraysOnAlreadyEmptyMap() {
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    long initialCapacity = map.capacity();
+
+    for (int i = 0; i < 500; i++) {
+      map.put(1L, i, "v" + i);
+    }
+    long grownCapacity = map.capacity();
+    assertThat(grownCapacity).isGreaterThan(initialCapacity);
+
+    // Manually remove every entry (does not shrink — matching real-world wear patterns).
+    for (int i = 0; i < 500; i++) {
+      map.remove(1L, i);
+    }
+    assertThat(map.size()).isEqualTo(0);
+    assertThat(map.capacity())
+        .as("sanity: remove does not shrink the section")
+        .isEqualTo(grownCapacity);
+
+    map.clearAndShrink();
+
+    assertThat(map.capacity())
+        .as("clearAndShrink must shrink an empty-but-grown section")
+        .isEqualTo(initialCapacity);
+  }
 }
