@@ -242,10 +242,75 @@ public class ConcurrentLongIntHashMap<V> {
     return result;
   }
 
+  /**
+   * Removes all entries whose {@code fileId} high 32 bits match {@code storageId} — i.e., every
+   * entry belonging to the storage whose {@code WriteCache.getId() == storageId}.
+   *
+   * <p>One write-locked sweep per section, matching the contract of {@link #removeByFileId(long)}:
+   * matching entries are collected into the returned list and nullified in place, then the section
+   * is rehashed at the same capacity to repair probe chains. The returned list is safe to iterate
+   * outside any segment lock.
+   *
+   * <p>Cost is {@code O(total capacity)} regardless of the number of files in the storage —
+   * intended for {@code closeStorage}/{@code deleteStorage} callers that would otherwise iterate
+   * {@link #removeByFileId(long)} once per file ({@code O(files * total capacity)}) AND must not
+   * touch entries belonging to other storages sharing the same JVM-level cache.
+   *
+   * <p>Cross-section removal is not collectively atomic, matching {@link #removeByFileId(long)}.
+   *
+   * @return a list of removed values (may be empty, never null)
+   */
+  public List<V> removeByStorageId(int storageId) {
+    var result = new ArrayList<V>();
+    for (Section<V> section : sections) {
+      section.removeByStorageId(storageId, result);
+    }
+    return result;
+  }
+
   /** Removes all entries from all sections. */
   public void clear() {
     for (Section<V> s : sections) {
       s.clear();
+    }
+  }
+
+  /**
+   * Drains every entry from the map, invoking {@code consumer} for each removed value. After this
+   * method returns, the map is empty and each section's capacity has been reset to the capacity
+   * it was originally constructed with — releasing the large arrays accumulated during normal
+   * operation without forcing a rehash chain if the map is refilled later.
+   *
+   * <p>Each section is drained under its own write lock, with collected values copied into a
+   * temporary list. The lock is released <b>before</b> the consumer is invoked, so callbacks may
+   * re-enter the map (matching the reentrancy contract of {@link #removeByFileId(long)}).
+   *
+   * <p>Cost is {@code O(total capacity)} regardless of how many distinct {@code fileId} values are
+   * present — intended for storage close/delete, where the caller would otherwise iterate files
+   * and call {@link #removeByFileId(long)} once per file (which is
+   * {@code O(files * total capacity)}).
+   *
+   * <p>Cross-section iteration is not collectively atomic — matching {@link #clear()} — so a
+   * concurrent {@code put} on a not-yet-drained section may survive the call.
+   */
+  public void drainAll(Consumer<V> consumer) {
+    for (Section<V> s : sections) {
+      s.drain(consumer);
+    }
+  }
+
+  /**
+   * Like {@link #drainAll(Consumer)} but without the per-value callback — each section is cleared
+   * and shrunk back to its constructor-time capacity without allocating a temporary list or
+   * scanning to collect values. Intended for callers that have already processed every entry via
+   * {@link #forEachValue} and only need the backing arrays released.
+   *
+   * <p>Same cross-section atomicity caveat as {@link #drainAll(Consumer)} and {@link #clear()} —
+   * a concurrent {@code put} on a not-yet-cleared section may survive the call.
+   */
+  public void clearAndShrink() {
+    for (Section<V> s : sections) {
+      s.clearAndShrink();
     }
   }
 
@@ -385,9 +450,17 @@ public class ConcurrentLongIntHashMap<V> {
     /** Resize when usedBuckets exceeds this. */
     private int resizeThreshold;
 
+    /**
+     * Capacity the section was originally constructed with. {@link #drain} resets to this value
+     * rather than the absolute minimum (2) so a map that is refilled after a drain does not pay
+     * a rehash chain (2 → 4 → 8 → … → working-set size) on the way back up.
+     */
+    private final int initialCapacity;
+
     @SuppressWarnings("unchecked")
     Section(int capacity) {
       this.capacity = alignToPowerOfTwo(Math.max(2, capacity));
+      this.initialCapacity = this.capacity;
       this.entries = new Entry[this.capacity];
       this.size = 0;
       this.usedBuckets = 0;
@@ -642,6 +715,49 @@ public class ConcurrentLongIntHashMap<V> {
       }
     }
 
+    /**
+     * Remove all entries whose {@code fileId} high 32 bits equal {@code storageId}. Same
+     * single-pass-per-section + same-capacity-rehash strategy as {@link #removeByFileId(long,
+     * List)}; only the match predicate differs.
+     *
+     * <p>If the section ends up empty after the sweep, additionally shrinks back to
+     * {@link #initialCapacity} to release the large backing array accumulated during normal
+     * operation. This matches the memory-return behavior of {@link #drain(Consumer)} — important
+     * for long-lived JVMs that repeatedly close storages.
+     */
+    void removeByStorageId(int storageId, List<V> removedEntries) {
+      long stamp = lock.writeLock();
+      try {
+        int removed = 0;
+        for (int i = 0; i < capacity; i++) {
+          Entry<V> e = entries[i];
+          if (e != null && ((int) (e.fileId >>> 32)) == storageId) {
+            removedEntries.add(e.value);
+            entries[i] = null;
+            removed++;
+          }
+        }
+
+        if (removed == 0) {
+          return;
+        }
+
+        size -= removed;
+        usedBuckets -= removed;
+        assert size >= 0 : "size went negative after removeByStorageId: " + size;
+        assert usedBuckets >= 0
+            : "usedBuckets went negative after removeByStorageId: " + usedBuckets;
+
+        if (size == 0) {
+          shrinkIfGrown();
+        } else {
+          rehashSameCapacity();
+        }
+      } finally {
+        lock.unlockWrite(stamp);
+      }
+    }
+
     /** Same-capacity rehash to compact gaps from bulk removal. Must be called under write lock. */
     private void rehashSameCapacity() {
       rehashTo(capacity);
@@ -794,6 +910,93 @@ public class ConcurrentLongIntHashMap<V> {
         usedBuckets = 0;
       } finally {
         lock.unlockWrite(stamp);
+      }
+    }
+
+    /**
+     * Drain all live entries into a list, reset the section to its {@link #initialCapacity}, then
+     * invoke {@code consumer} for each collected value outside the lock. The list is sized from
+     * {@code size} only as a hint — an {@link ArrayList} is used so the code stays bounds-safe
+     * even if a future change lets the non-null slot count diverge from the volatile counter.
+     *
+     * <p>When {@code size == 0} the scan and list allocation are skipped; the section is still
+     * shrunk to {@link #initialCapacity} if it has grown past it, so repeated drains eventually
+     * release the retained array.
+     */
+    @SuppressWarnings("unchecked")
+    void drain(Consumer<V> consumer) {
+      final ArrayList<V> collected;
+      long stamp = lock.writeLock();
+      try {
+        if (size == 0) {
+          shrinkIfGrown();
+          return;
+        }
+
+        collected = new ArrayList<>(size);
+        for (int i = 0; i < capacity; i++) {
+          Entry<V> e = entries[i];
+          if (e != null) {
+            collected.add(e.value);
+          }
+        }
+        assert collected.size() == size
+            : "collected.size() (" + collected.size() + ") != size (" + size + ")";
+
+        resetToInitialCapacity();
+      } finally {
+        lock.unlockWrite(stamp);
+      }
+
+      // Invoke consumer outside the section's write lock. Matches removeByFileId's contract so
+      // callbacks may safely re-enter the map.
+      for (V v : collected) {
+        consumer.accept(v);
+      }
+    }
+
+    /**
+     * Drain variant that skips the value-collection pass. Equivalent to {@link #drain(Consumer)}
+     * with a no-op consumer, but avoids the per-section {@link ArrayList} allocation and the
+     * linear scan that populates it. Intended for callers that have already processed every
+     * entry via {@link #forEachValue} and only need the section reset to its initial capacity.
+     */
+    @SuppressWarnings("unchecked")
+    void clearAndShrink() {
+      long stamp = lock.writeLock();
+      try {
+        if (size == 0) {
+          shrinkIfGrown();
+          return;
+        }
+        resetToInitialCapacity();
+      } finally {
+        lock.unlockWrite(stamp);
+      }
+    }
+
+    /**
+     * Reset to the constructor's initial capacity — releases the large array accumulated during
+     * normal operation while keeping enough headroom to avoid an immediate rehash chain if the
+     * map is refilled after drain. Must be called under the section write lock.
+     */
+    @SuppressWarnings("unchecked")
+    private void resetToInitialCapacity() {
+      entries = new Entry[initialCapacity];
+      capacity = initialCapacity;
+      resizeThreshold = (int) (initialCapacity * FILL_FACTOR);
+      size = 0;
+      usedBuckets = 0;
+    }
+
+    /**
+     * If the section has grown past {@link #initialCapacity}, reset it; otherwise it's already
+     * at minimum size and re-allocating the array would be pure waste. Must be called under the
+     * section write lock with {@code size == 0}.
+     */
+    private void shrinkIfGrown() {
+      if (capacity != initialCapacity) {
+        resetToInitialCapacity();
       }
     }
 

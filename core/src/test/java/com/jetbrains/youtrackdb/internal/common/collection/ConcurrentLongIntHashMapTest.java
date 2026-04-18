@@ -3,7 +3,9 @@ package com.jetbrains.youtrackdb.internal.common.collection;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import org.junit.Test;
 
 /**
@@ -1684,5 +1686,747 @@ public class ConcurrentLongIntHashMapTest {
     // Integer.MIN_VALUE * 31 overflows and wraps to Integer.MIN_VALUE in int arithmetic
     assertThat(ConcurrentLongIntHashMap.hashForFrequencySketch(Long.MAX_VALUE, 0))
         .isEqualTo(-2147483648);
+  }
+
+  // ---- drainAll ----
+
+  /** drainAll on an empty map must not invoke the consumer and must leave size at zero. */
+  @Test
+  public void drainAllOnEmptyMapInvokesConsumerZeroTimes() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    var collected = new ArrayList<String>();
+    map.drainAll(collected::add);
+    assertThat(collected).isEmpty();
+    assertThat(map.size()).isEqualTo(0);
+    assertThat(map.isEmpty()).isTrue();
+  }
+
+  /** drainAll on a single-section map delivers every value exactly once, then empties the map. */
+  @Test
+  public void drainAllOnSingleSectionDeliversEveryValueExactlyOnce() {
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    var expected = new ArrayList<String>();
+    for (int i = 0; i < 10; i++) {
+      var v = "v" + i;
+      map.put(1L, i, v);
+      expected.add(v);
+    }
+    assertThat(map.size()).isEqualTo(10);
+
+    var collected = new ArrayList<String>();
+    map.drainAll(collected::add);
+
+    // containsExactlyInAnyOrderElementsOf verifies both size (10) and distinct-element membership.
+    assertThat(collected).containsExactlyInAnyOrderElementsOf(expected);
+    assertThat(map.size()).isEqualTo(0);
+    assertThat(map.isEmpty()).isTrue();
+  }
+
+  /**
+   * drainAll across many sections collects entries from every section — verifies the iteration
+   * covers all sections, not just the first.
+   */
+  @Test
+  public void drainAllAcrossAllSectionsCollectsEveryEntry() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    int filesCount = 20;
+    int pagesPerFile = 30;
+    var expected = new ArrayList<String>();
+    for (long fid = 0; fid < filesCount; fid++) {
+      for (int page = 0; page < pagesPerFile; page++) {
+        var v = "f" + fid + "-p" + page;
+        map.put(fid, page, v);
+        expected.add(v);
+      }
+    }
+    assertThat(map.size()).isEqualTo(filesCount * pagesPerFile);
+
+    var collected = new ArrayList<String>();
+    map.drainAll(collected::add);
+
+    assertThat(collected).containsExactlyInAnyOrderElementsOf(expected);
+    assertThat(map.size()).isEqualTo(0);
+  }
+
+  /**
+   * drainAll must return the map to a state where get returns null for every previously present
+   * key. Guards against partial drains that leave stale entries.
+   */
+  @Test
+  public void drainAllClearsEveryEntryFromGet() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    for (long fid = 0; fid < 5; fid++) {
+      for (int page = 0; page < 10; page++) {
+        map.put(fid, page, "v-" + fid + "-" + page);
+      }
+    }
+
+    map.drainAll(v -> {
+    });
+
+    for (long fid = 0; fid < 5; fid++) {
+      for (int page = 0; page < 10; page++) {
+        assertThat(map.get(fid, page))
+            .as("Entry (%d, %d) must be null after drainAll", fid, page)
+            .isNull();
+      }
+    }
+  }
+
+  /**
+   * drainAll shrinks each section back to the capacity it was constructed with — releases the
+   * large Entry[] accumulated during growth while keeping enough headroom that a refill does
+   * not pay a rehash chain from the 2-slot absolute minimum.
+   *
+   * <p>Default constructor: expectedItems=256, sectionCount=16 → 16 slots per section × 16
+   * sections = 256 total capacity at construction time. After growth and drainAll, the map
+   * should shrink back to exactly that.
+   */
+  @Test
+  public void drainAllShrinksCapacityToInitialCapacity() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    long initialCapacity = map.capacity();
+    assertThat(initialCapacity)
+        .as("constructor default: 256 expectedItems / 16 sections = 16 per section * 16 = 256")
+        .isEqualTo(256L);
+
+    // Grow the map far past its initial capacity.
+    for (long fid = 0; fid < 100; fid++) {
+      for (int page = 0; page < 100; page++) {
+        map.put(fid, page, "v");
+      }
+    }
+    assertThat(map.capacity()).isGreaterThan(initialCapacity);
+
+    map.drainAll(v -> {
+    });
+
+    assertThat(map.capacity())
+        .as("drainAll must reset capacity back to the constructor-time value")
+        .isEqualTo(initialCapacity);
+    assertThat(map.size()).isEqualTo(0);
+  }
+
+  /**
+   * drainAll shrinks to the ctor-time capacity even when the ctor requested a non-default
+   * {@code expectedItems} that had to be rounded up by {@code alignToPowerOfTwo}. Catches
+   * two distinct regression modes: (a) capturing {@code DEFAULT_EXPECTED_ITEMS} instead of
+   * the ctor argument; (b) storing the raw pre-alignment value instead of the aligned
+   * power-of-two, which would leave {@code bucketMask = capacity - 1} inconsistent with
+   * {@code entries.length} after the drain.
+   *
+   * <p>Arithmetic: 1600 / 16 sections = 100 per section → alignToPowerOfTwo(100) = 128 →
+   * total capacity at construction = 128 × 16 = 2048.
+   */
+  @Test
+  public void drainAllShrinksToAlignedInitialCapacityForCustomExpectedItems() {
+    var map = new ConcurrentLongIntHashMap<String>(1600, 16);
+    long initialCapacity = map.capacity();
+    assertThat(initialCapacity)
+        .as("1600 expectedItems / 16 sections = 100 per section → aligned to 128 → 128*16=2048")
+        .isEqualTo(2048L);
+
+    // Grow every section past its initial 128-slot threshold.
+    for (long fid = 0; fid < 200; fid++) {
+      for (int page = 0; page < 50; page++) {
+        map.put(fid, page, "v");
+      }
+    }
+    assertThat(map.capacity()).isGreaterThan(initialCapacity);
+
+    map.drainAll(v -> {
+    });
+
+    assertThat(map.capacity())
+        .as("drainAll must reset to the aligned 2048, not DEFAULT_EXPECTED_ITEMS (256)")
+        .isEqualTo(2048L);
+    // Each section's length is a power of two, so total capacity / 16 is also a power of two.
+    assertThat(Long.bitCount(map.capacity() / 16))
+        .as("per-section capacity must still be a power of two after drain")
+        .isEqualTo(1);
+  }
+
+  /** After drainAll the map must be usable — puts and gets work as expected on a fresh table. */
+  @Test
+  public void drainAllLeavesMapUsableForSubsequentPutAndGet() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    for (int i = 0; i < 50; i++) {
+      map.put(1L, i, "old-" + i);
+    }
+    map.drainAll(v -> {
+    });
+
+    for (int i = 0; i < 50; i++) {
+      map.put(1L, i, "new-" + i);
+    }
+    for (int i = 0; i < 50; i++) {
+      assertThat(map.get(1L, i)).isEqualTo("new-" + i);
+    }
+    assertThat(map.size()).isEqualTo(50);
+  }
+
+  /**
+   * An exception thrown by the consumer propagates out of drainAll. This test uses a
+   * single-section map so that once the section's write lock releases (with all entries
+   * already removed from the table) the consumer loop runs on that snapshot and the first
+   * throw surfaces — no further sections exist to leave populated. The multi-section case
+   * where later sections survive is exercised by
+   * {@link #drainAllAbortsOnConsumerExceptionLeavingLaterSectionsPopulated}.
+   */
+  @Test
+  public void drainAllPropagatesConsumerExceptionOnSingleSectionMap() {
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    map.put(1L, 0, "first");
+    map.put(1L, 1, "second");
+
+    assertThatThrownBy(
+        () -> map.drainAll(
+            v -> {
+              throw new IllegalStateException("boom on " + v);
+            }))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("boom on");
+
+    // The only section was fully drained under its write lock before any consumer call
+    // fired, so size is 0 even though the first consumer invocation threw.
+    assertThat(map.size()).isEqualTo(0);
+  }
+
+  /**
+   * When the consumer throws mid-iteration, later sections must NOT have been drained. The
+   * throw aborts the outer section loop, so sections with an index greater than the failing
+   * section still hold their entries.
+   *
+   * <p>Uses two sections and picks one key for each by consulting the package-private
+   * {@link ConcurrentLongIntHashMap#hash} helper, so section assignment is deterministic.
+   */
+  @Test
+  public void drainAllAbortsOnConsumerExceptionLeavingLaterSectionsPopulated() {
+    var map = new ConcurrentLongIntHashMap<String>(4, 2);
+
+    // Find two fileIds that fall into different sections — sectionMask = 1, so bit 32 of the
+    // mixed hash picks the section.
+    long keyInSection0 = -1L;
+    long keyInSection1 = -1L;
+    for (long fid = 1L; keyInSection0 == -1L || keyInSection1 == -1L; fid++) {
+      int sectionIdx = (int) (ConcurrentLongIntHashMap.hash(fid, 0) >>> 32) & 1;
+      if (sectionIdx == 0 && keyInSection0 == -1L) {
+        keyInSection0 = fid;
+      } else if (sectionIdx == 1 && keyInSection1 == -1L) {
+        keyInSection1 = fid;
+      }
+    }
+    map.put(keyInSection0, 0, "A");
+    map.put(keyInSection1, 0, "B");
+    assertThat(map.size()).isEqualTo(2);
+
+    assertThatThrownBy(
+        () -> map.drainAll(
+            v -> {
+              throw new IllegalStateException("boom on " + v);
+            }))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("boom on A");
+
+    // drainAll iterates sections in index order. The first consumer call (for the entry in
+    // section 0) threw, so section 1 was never drained — its entry survives.
+    assertThat(map.size()).isEqualTo(1);
+    assertThat(map.get(keyInSection1, 0)).isEqualTo("B");
+    assertThat(map.get(keyInSection0, 0)).isNull();
+  }
+
+  /**
+   * drainAll invokes the consumer outside the section write lock, so a consumer that re-enters
+   * the map (e.g., to insert a new entry) must succeed without deadlock on the non-reentrant
+   * section write lock. Mirrors the close path where {@code freeze()} / policy callbacks may
+   * touch other maps. Uses distinct original values so the test also verifies both drained
+   * entries show up in {@code collected} (and the reentrant value does not, since it is
+   * inserted after the section's drain completed).
+   */
+  @Test
+  public void drainAllConsumerCanReenterMap() {
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    map.put(1L, 0, "original-a");
+    map.put(1L, 1, "original-b");
+
+    var collected = new ArrayList<String>();
+    map.drainAll(
+        v -> {
+          collected.add(v);
+          // Re-entering the map inside the consumer: must not deadlock on the section lock.
+          if (map.get(2L, 0) == null) {
+            map.put(2L, 0, "reentrant");
+          }
+        });
+
+    // Both original entries were drained and seen by the consumer; the reentrant put
+    // inserted from inside the consumer was NOT itself delivered to collected because
+    // the section was already drained before its first consumer call fired.
+    assertThat(collected).containsExactlyInAnyOrder("original-a", "original-b");
+    assertThat(map.get(1L, 0)).isNull();
+    assertThat(map.get(1L, 1)).isNull();
+    // The reentrant put landed after drainAll returned from that section's write lock.
+    assertThat(map.get(2L, 0)).isEqualTo("reentrant");
+    assertThat(map.size()).isEqualTo(1);
+  }
+
+  /**
+   * drainAll resets {@code size}, {@code usedBuckets}, and {@code resizeThreshold} so a
+   * subsequent fill past the shrunken capacity triggers a normal rehash without corruption.
+   * Asserts capacity at three points — after initial construction, after drain, and after
+   * refill — so this test distinguishes drainAll's shrink-then-regrow from what {@code clear()}
+   * would produce (which preserves the current, grown capacity).
+   */
+  @Test
+  public void drainAllResetsInternalCountersSoRefillWorks() {
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    long initialCapacity = map.capacity();
+    assertThat(initialCapacity).isEqualTo(16L);
+
+    // Fill single section to its resize threshold (capacity 16, threshold = 10)
+    for (int i = 0; i < 10; i++) {
+      map.put(1L, i, "a-" + i);
+    }
+    map.drainAll(v -> {
+    });
+    assertThat(map.capacity())
+        .as("capacity must shrink back to initialCapacity, distinguishing drain from clear")
+        .isEqualTo(initialCapacity);
+
+    // Fill again past the (shrunken) capacity — this exercises rehashes on a fresh table.
+    for (int i = 0; i < 100; i++) {
+      map.put(1L, i, "b-" + i);
+    }
+    assertThat(map.capacity())
+        .as("refill past the 16-slot initial capacity must have rehashed the section")
+        .isGreaterThanOrEqualTo(128L);
+    assertThat(map.size()).isEqualTo(100);
+    for (int i = 0; i < 100; i++) {
+      assertThat(map.get(1L, i)).isEqualTo("b-" + i);
+    }
+  }
+
+  /**
+   * A second drainAll on an already-emptied map is a true no-op: consumer zero times, size
+   * stays 0, and capacity does not change from its post-drain value. Guards that drainAll
+   * leaves the sections in a state indistinguishable from a freshly constructed map, so a
+   * pathological caller that drains twice (or the close path being invoked twice) does not
+   * re-allocate arrays or rehash.
+   */
+  @Test
+  public void secondDrainAllOnEmptiedMapIsNoOp() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    for (long fid = 0; fid < 10; fid++) {
+      for (int page = 0; page < 20; page++) {
+        map.put(fid, page, "v-" + fid + "-" + page);
+      }
+    }
+
+    map.drainAll(v -> {
+    });
+    long capacityAfterFirstDrain = map.capacity();
+
+    var collected = new ArrayList<String>();
+    map.drainAll(collected::add);
+
+    assertThat(collected).isEmpty();
+    assertThat(map.size()).isEqualTo(0);
+    assertThat(map.capacity())
+        .as("second drain on empty map must leave capacity untouched")
+        .isEqualTo(capacityAfterFirstDrain);
+  }
+
+  /**
+   * drainAll on a map whose sections have mixed populations (some empty, some nearly full) must
+   * visit only live entries — never an empty slot.
+   */
+  @Test
+  public void drainAllSkipsEmptySlots() {
+    var map = new ConcurrentLongIntHashMap<String>(64, 1);
+    // Insert only 3 entries into a 64-slot section so most slots remain empty.
+    map.put(1L, 0, "a");
+    map.put(1L, 5, "b");
+    map.put(1L, 10, "c");
+
+    List<String> collected = new ArrayList<>();
+    map.drainAll(collected::add);
+
+    assertThat(collected).containsExactlyInAnyOrder("a", "b", "c");
+    assertThat(map.size()).isEqualTo(0);
+  }
+
+  // ---- clearAndShrink ----
+
+  /**
+   * clearAndShrink on a populated map must drop every entry and shrink capacity back to the
+   * constructor-time value — the same post-state as drainAll but without invoking any consumer.
+   * Use a small per-section expected-items value so repeated puts force a resize we can observe.
+   */
+  @Test
+  public void clearAndShrinkEmptiesMapAndShrinksCapacityToInitialValue() {
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    long initialCapacity = map.capacity();
+
+    for (int i = 0; i < 200; i++) {
+      map.put(1L, i, "v" + i);
+    }
+    assertThat(map.capacity())
+        .as("sanity: inserts must have grown the section past initial capacity")
+        .isGreaterThan(initialCapacity);
+
+    map.clearAndShrink();
+
+    assertThat(map.size()).isEqualTo(0);
+    assertThat(map.isEmpty()).isTrue();
+    assertThat(map.capacity())
+        .as("clearAndShrink must reset capacity back to the constructor-time value")
+        .isEqualTo(initialCapacity);
+  }
+
+  /**
+   * clearAndShrink on an empty map whose sections are at their initial capacity must be a true
+   * no-op — size stays 0, capacity does not change. Guards the size==0 + capacity==initial fast
+   * path that skips array reallocation for repeated close calls.
+   */
+  @Test
+  public void clearAndShrinkOnEmptyMapAtInitialCapacityIsNoOp() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    long initialCapacity = map.capacity();
+
+    map.clearAndShrink();
+
+    assertThat(map.size()).isEqualTo(0);
+    assertThat(map.capacity())
+        .as("clearAndShrink on empty map must not change capacity")
+        .isEqualTo(initialCapacity);
+  }
+
+  /**
+   * After clearAndShrink the map must be usable — a refill populates a fresh table without
+   * surfacing stale entries from before the clear.
+   */
+  @Test
+  public void clearAndShrinkLeavesMapUsableForSubsequentPutAndGet() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    for (int i = 0; i < 50; i++) {
+      map.put(1L, i, "old-" + i);
+    }
+
+    map.clearAndShrink();
+
+    for (int i = 0; i < 50; i++) {
+      map.put(1L, i, "new-" + i);
+    }
+    assertThat(map.size()).isEqualTo(50);
+    for (int i = 0; i < 50; i++) {
+      assertThat(map.get(1L, i)).isEqualTo("new-" + i);
+    }
+  }
+
+  /**
+   * clearAndShrink must return the map to a state where get returns null for every previously
+   * present key. Guards against a bug that resets counters but leaves a stale Entry in the array
+   * (which get would still surface).
+   */
+  @Test
+  public void clearAndShrinkClearsEveryEntryFromGet() {
+    var map = new ConcurrentLongIntHashMap<String>(16, 4);
+    for (long fid = 0; fid < 8; fid++) {
+      for (int page = 0; page < 16; page++) {
+        map.put(fid, page, "v-" + fid + "-" + page);
+      }
+    }
+
+    map.clearAndShrink();
+
+    for (long fid = 0; fid < 8; fid++) {
+      for (int page = 0; page < 16; page++) {
+        assertThat(map.get(fid, page))
+            .as("Entry (%d, %d) must be null after clearAndShrink", fid, page)
+            .isNull();
+      }
+    }
+  }
+
+  /**
+   * clearAndShrink on a map that has grown but was drained back to empty must still release the
+   * large arrays. Verifies the size==0 path shrinks when capacity has diverged from initial —
+   * without this, a drained map that is drained again would leak the large arrays forever.
+   */
+  @Test
+  public void clearAndShrinkReleasesGrownArraysOnAlreadyEmptyMap() {
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    long initialCapacity = map.capacity();
+
+    for (int i = 0; i < 500; i++) {
+      map.put(1L, i, "v" + i);
+    }
+    long grownCapacity = map.capacity();
+    assertThat(grownCapacity).isGreaterThan(initialCapacity);
+
+    // Manually remove every entry (does not shrink — matching real-world wear patterns).
+    for (int i = 0; i < 500; i++) {
+      map.remove(1L, i);
+    }
+    assertThat(map.size()).isEqualTo(0);
+    assertThat(map.capacity())
+        .as("sanity: remove does not shrink the section")
+        .isEqualTo(grownCapacity);
+
+    map.clearAndShrink();
+
+    assertThat(map.capacity())
+        .as("clearAndShrink must shrink an empty-but-grown section")
+        .isEqualTo(initialCapacity);
+  }
+
+  // ---- removeByStorageId() ----
+
+  /**
+   * {@code removeByStorageId} must drop every entry whose fileId has matching high 32 bits and
+   * leave other storages' entries untouched. This is the invariant that protects the JVM-shared
+   * {@code LockFreeReadCache} from cross-storage damage when one storage closes — without it, a
+   * bulk drain would freeze entries from live storages and cause concurrent {@code doLoad}
+   * callers to spin forever.
+   */
+  @Test
+  public void removeByStorageIdRemovesOnlyTargetStorageEntries() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    int storageA = 1;
+    int storageB = 2;
+    int pagesPerFile = 5;
+
+    // 3 files per storage, each with 5 pages. File ids differ between storages.
+    for (int localFid = 0; localFid < 3; localFid++) {
+      long fidA = (((long) storageA) << 32) | localFid;
+      long fidB = (((long) storageB) << 32) | (10 + localFid);
+      for (int p = 0; p < pagesPerFile; p++) {
+        map.put(fidA, p, "A-f" + localFid + "-p" + p);
+        map.put(fidB, p, "B-f" + localFid + "-p" + p);
+      }
+    }
+    assertThat(map.size()).isEqualTo(30);
+
+    var removed = map.removeByStorageId(storageA);
+
+    assertThat(removed).as("must collect exactly storage A's 15 entries").hasSize(15);
+    assertThat(removed).allMatch(v -> v.startsWith("A-"));
+    assertThat(map.size()).as("only storage B's 15 entries remain").isEqualTo(15);
+
+    // Every storage A entry is gone; every storage B entry is still findable.
+    for (int localFid = 0; localFid < 3; localFid++) {
+      long fidA = (((long) storageA) << 32) | localFid;
+      long fidB = (((long) storageB) << 32) | (10 + localFid);
+      for (int p = 0; p < pagesPerFile; p++) {
+        assertThat(map.get(fidA, p))
+            .as("Storage A entry (%d,%d) must be null after removeByStorageId(1)", fidA, p)
+            .isNull();
+        assertThat(map.get(fidB, p))
+            .as("Storage B entry (%d,%d) must survive removeByStorageId(1)", fidB, p)
+            .isEqualTo("B-f" + localFid + "-p" + p);
+      }
+    }
+  }
+
+  /** Empty map and missing-storage paths must both return an empty list without throwing. */
+  @Test
+  public void removeByStorageIdOnEmptyOrMissingStorageReturnsEmpty() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    assertThat(map.removeByStorageId(7))
+        .as("empty map must return empty list")
+        .isEmpty();
+
+    map.put((1L << 32) | 0L, 0, "exists");
+    assertThat(map.removeByStorageId(9))
+        .as("no entries for this storage must return empty list")
+        .isEmpty();
+    assertThat(map.size()).as("map must be unchanged").isEqualTo(1);
+  }
+
+  /**
+   * After bulk removal the section's probe chains are repaired via same-capacity rehash so
+   * surviving entries (possibly from other storages, possibly from the same one in different
+   * files) remain findable. Without the rehash, a long entry that probed past a now-removed
+   * slot would become unreachable.
+   */
+  @Test
+  public void removeByStorageIdCompactsSectionSoSurvivorsRemainFindable() {
+    // Force all entries into a single section so probe chain integrity is meaningfully tested.
+    var map = new ConcurrentLongIntHashMap<String>(32, 1);
+    int storageA = 1;
+    int storageB = 2;
+
+    // Interleave storage A and B entries — removing A may leave gaps that B entries probed past.
+    for (int i = 0; i < 16; i++) {
+      map.put((((long) storageA) << 32) | i, 0, "A" + i);
+      map.put((((long) storageB) << 32) | i, 0, "B" + i);
+    }
+    assertThat(map.size()).isEqualTo(32);
+
+    map.removeByStorageId(storageA);
+    assertThat(map.size()).isEqualTo(16);
+
+    for (int i = 0; i < 16; i++) {
+      assertThat(map.get((((long) storageB) << 32) | i, 0))
+          .as("Storage B entry %d must still be findable after storage A removal", i)
+          .isEqualTo("B" + i);
+    }
+  }
+
+  /**
+   * If the section becomes empty after removing this storage's entries, the backing array must
+   * be shrunk back to {@code initialCapacity}. This matches the memory-return behavior of
+   * {@code drainAll} and is important for long-lived JVMs that repeatedly close storages — a
+   * closed-and-reopened cache must not retain the peak array.
+   */
+  @Test
+  public void removeByStorageIdShrinksSectionThatBecomesEmpty() {
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    long initialCapacity = map.capacity();
+    int storageA = 1;
+
+    for (int i = 0; i < 500; i++) {
+      map.put((((long) storageA) << 32) | i, 0, "A" + i);
+    }
+    long grownCapacity = map.capacity();
+    assertThat(grownCapacity).isGreaterThan(initialCapacity);
+
+    map.removeByStorageId(storageA);
+
+    assertThat(map.size()).isEqualTo(0);
+    assertThat(map.capacity())
+        .as("section that became empty must shrink back to initialCapacity")
+        .isEqualTo(initialCapacity);
+  }
+
+  /**
+   * If a section still has entries from other storages after the removal, it must NOT shrink —
+   * shrinking would either re-rehash the survivors (no perf win over same-capacity rehash) or
+   * drop them entirely (bug). The backing array stays at its grown capacity.
+   */
+  @Test
+  public void removeByStorageIdDoesNotShrinkSectionWithSurvivingEntries() {
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    long initialCapacity = map.capacity();
+    int storageA = 1;
+    int storageB = 2;
+
+    for (int i = 0; i < 300; i++) {
+      map.put((((long) storageA) << 32) | i, 0, "A" + i);
+    }
+    // Pin a couple of storage B entries so the section keeps a non-empty size after removing A.
+    for (int i = 0; i < 5; i++) {
+      map.put((((long) storageB) << 32) | i, 0, "B" + i);
+    }
+    long grownCapacity = map.capacity();
+    assertThat(grownCapacity).isGreaterThan(initialCapacity);
+
+    map.removeByStorageId(storageA);
+
+    assertThat(map.size()).isEqualTo(5);
+    assertThat(map.capacity())
+        .as("section with survivors must keep its grown capacity, not shrink")
+        .isEqualTo(grownCapacity);
+    for (int i = 0; i < 5; i++) {
+      assertThat(map.get((((long) storageB) << 32) | i, 0)).isEqualTo("B" + i);
+    }
+  }
+
+  /**
+   * After a multi-section {@code removeByStorageId} sweep, every survivor in every section
+   * must still be findable via {@code get()} (which follows probe chains). This is the actual
+   * production configuration — a single-section test does not catch a bug where one section's
+   * probe chain repair interacts wrongly with another's. Uses 2000 entries per storage spread
+   * across the default 16 sections so each section exercises both "has matches" and "has
+   * survivors".
+   */
+  @Test
+  public void removeByStorageIdRepairsProbeChainsAcrossAllSections() {
+    var map = new ConcurrentLongIntHashMap<String>(4096, 16);
+    int storageA = 1;
+    int storageB = 2;
+
+    for (int i = 0; i < 2000; i++) {
+      map.put((((long) storageA) << 32) | i, 0, "A" + i);
+      map.put((((long) storageB) << 32) | i, 0, "B" + i);
+    }
+
+    map.removeByStorageId(storageA);
+
+    assertThat(map.size()).isEqualTo(2000);
+    // Every surviving B entry must remain reachable via get() — a broken probe chain
+    // somewhere would surface as a null here for the affected entries.
+    for (int i = 0; i < 2000; i++) {
+      assertThat(map.get((((long) storageB) << 32) | i, 0))
+          .as("Storage B entry %d must still be findable across multi-section sweep", i)
+          .isEqualTo("B" + i);
+    }
+  }
+
+  /**
+   * Calling {@code removeByStorageId} again on the same storage after a successful drain must
+   * be a no-op: no entries to remove, no allocations, no capacity change. The remove path's
+   * early return at {@code if (removed == 0)} guarantees this, but an explicit regression
+   * test prevents a future "optimization" from accidentally re-allocating on empty sections.
+   */
+  @Test
+  public void removeByStorageIdSecondCallOnSameStorageIsNoOp() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    for (int i = 0; i < 20; i++) {
+      map.put((1L << 32) | i, 0, "v" + i);
+    }
+    map.removeByStorageId(1);
+    long capacityAfterFirst = map.capacity();
+
+    var removed = map.removeByStorageId(1);
+
+    assertThat(removed).as("second call must return empty").isEmpty();
+    assertThat(map.size()).isZero();
+    assertThat(map.capacity())
+        .as("second call must not re-allocate the backing arrays")
+        .isEqualTo(capacityAfterFirst);
+  }
+
+  /**
+   * Boundary storage ids: {@code Integer.MAX_VALUE}, {@code Integer.MIN_VALUE}, and {@code -1}
+   * must work correctly. Storage id is an {@code int}; the predicate at
+   * {@code Section.removeByStorageId} uses {@code (int) (fileId >>> 32)} (unsigned shift then
+   * narrowing cast) to match the composition used by {@code AbstractWriteCache.composeFileId}.
+   * A regression that changed the encoding (e.g. to a signed shift) would silently break
+   * storages whose id has the sign bit set.
+   */
+  @Test
+  public void removeByStorageIdWithNegativeAndMaxBoundaries() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    map.put((((long) -1) << 32) | 7L, 0, "s-neg1");
+    map.put((((long) Integer.MAX_VALUE) << 32) | 7L, 0, "s-max");
+    map.put((((long) Integer.MIN_VALUE) << 32) | 7L, 0, "s-min");
+    map.put(7L, 0, "s-zero"); // storageId = 0, kept as control
+
+    assertThat(map.removeByStorageId(-1)).containsExactly("s-neg1");
+    assertThat(map.removeByStorageId(Integer.MAX_VALUE)).containsExactly("s-max");
+    assertThat(map.removeByStorageId(Integer.MIN_VALUE)).containsExactly("s-min");
+    assertThat(map.size()).as("only storage 0 survives").isEqualTo(1);
+    assertThat(map.get(7L, 0)).isEqualTo("s-zero");
+  }
+
+  /**
+   * Storage id 0 is a valid storage id (it's what {@code MockedWriteCache} uses by default and
+   * what the first-opened storage receives). It must not be confused with empty slots whose
+   * default fileId is 0.
+   */
+  @Test
+  public void removeByStorageIdWithStorageIdZero() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    // storageId=0: composed fileId == localFid, so the entry's high 32 bits are zero.
+    map.put(0L, 0, "s0-f0-p0");
+    map.put(0L, 1, "s0-f0-p1");
+    // storageId=5: high 32 bits are 5.
+    map.put((5L << 32) | 3L, 0, "s5-f3-p0");
+
+    var removed = map.removeByStorageId(0);
+    assertThat(removed).containsExactlyInAnyOrder("s0-f0-p0", "s0-f0-p1");
+    assertThat(map.size()).as("storage 5 entry must survive").isEqualTo(1);
+    assertThat(map.get((5L << 32) | 3L, 0)).isEqualTo("s5-f3-p0");
   }
 }

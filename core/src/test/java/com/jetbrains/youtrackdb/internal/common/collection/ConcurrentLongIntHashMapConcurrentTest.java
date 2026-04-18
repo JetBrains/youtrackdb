@@ -8,6 +8,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.Test;
 
@@ -764,5 +766,236 @@ public class ConcurrentLongIntHashMapConcurrentTest {
     // All files removed concurrently — map should be empty
     assertThat(map.size()).as("map should be empty after all files removed").isEqualTo(0);
     assertThat(map.isEmpty()).isTrue();
+  }
+
+  // ---- drainAll concurrent tests ----
+
+  /**
+   * drainAll running concurrently with readers and writers on other sections. drainAll takes
+   * each section's write lock sequentially, swapping {@code entries} to a smaller initial-capacity
+   * array while optimistic readers are in flight on the same section — this is the symmetric hazard
+   * to {@link #rehashFromMinimumCapacityUnderConcurrentAccessIsCorrect}, but with the array shrinking
+   * rather than growing.
+   *
+   * <p>Verifies: no {@link ArrayIndexOutOfBoundsException} from any reader, no torn values (every
+   * non-null result matches the canonical form for its key), and that drainAll completes all its
+   * cycles. Uses a short 2-second window per run to keep CI time bounded.
+   */
+  @Test
+  public void drainAllConcurrentWithPutsAndReadsIsSafe() throws Exception {
+    var map = new ConcurrentLongIntHashMap<String>(1024);
+    int fileCount = 200;
+    int pageCount = 50;
+
+    // Prefill so the first few drains have substantial work to do
+    for (long fId = 0; fId < fileCount; fId++) {
+      for (int pIdx = 0; pIdx < pageCount; pIdx++) {
+        map.put(fId, pIdx, fId + ":" + pIdx);
+      }
+    }
+
+    int readerCount = 4;
+    int writerCount = 2;
+    int drainerCount = 1;
+    int totalThreads = readerCount + writerCount + drainerCount;
+    var executor = Executors.newFixedThreadPool(totalThreads);
+    var futures = new ArrayList<Future<Void>>();
+    var startBarrier = new CyclicBarrier(totalThreads);
+    var stop = new java.util.concurrent.atomic.AtomicBoolean(false);
+    int drainCycles = 50;
+
+    try {
+      // Readers: every non-null value must match its key's canonical form — catches any torn
+      // read during a section's array swap in drain().
+      for (int t = 0; t < readerCount; t++) {
+        futures.add(
+            executor.submit(
+                () -> {
+                  startBarrier.await();
+                  var rng = ThreadLocalRandom.current();
+                  while (!stop.get()) {
+                    long fId = rng.nextInt(fileCount);
+                    int pIdx = rng.nextInt(pageCount);
+                    String result = map.get(fId, pIdx);
+                    if (result != null) {
+                      assertThat(result)
+                          .as("get(%d, %d) torn read during drainAll", fId, pIdx)
+                          .isEqualTo(fId + ":" + pIdx);
+                    }
+                  }
+                  return null;
+                }));
+      }
+
+      // Writers: re-populate entries so some sections are always occupied during drain.
+      for (int t = 0; t < writerCount; t++) {
+        futures.add(
+            executor.submit(
+                () -> {
+                  startBarrier.await();
+                  var rng = ThreadLocalRandom.current();
+                  while (!stop.get()) {
+                    long fId = rng.nextInt(fileCount);
+                    int pIdx = rng.nextInt(pageCount);
+                    map.put(fId, pIdx, fId + ":" + pIdx);
+                  }
+                  return null;
+                }));
+      }
+
+      // Drainer: loops through many drain cycles during contention. Uses a plain int[]-wrapped
+      // counter to verify the loop completed its target rather than returning early.
+      var completedCycles = new java.util.concurrent.atomic.AtomicInteger();
+      futures.add(
+          executor.submit(
+              () -> {
+                startBarrier.await();
+                for (int i = 0; i < drainCycles; i++) {
+                  map.drainAll(v -> {
+                  });
+                  completedCycles.incrementAndGet();
+                  Thread.yield();
+                }
+                stop.set(true);
+                return null;
+              }));
+
+      for (var future : futures) {
+        future.get(60, TimeUnit.SECONDS);
+      }
+      assertThat(completedCycles.get())
+          .as("drainer must have finished all its cycles")
+          .isEqualTo(drainCycles);
+    } finally {
+      stop.set(true);
+      executor.shutdownNow();
+      executor.awaitTermination(5, TimeUnit.SECONDS);
+    }
+
+    // Final state: map is consistent. size() equals the number of entries visible via forEach,
+    // and every such entry is retrievable and matches its key's canonical form.
+    var entryCount = new AtomicLong();
+    map.forEach(
+        (fId, pIdx, value) -> {
+          assertThat(value).isNotNull();
+          assertThat(value)
+              .as("value at (%d, %d) matches canonical form", fId, pIdx)
+              .isEqualTo(fId + ":" + pIdx);
+          assertThat(map.get(fId, pIdx))
+              .as("get(%d, %d) after drainAll stress", fId, pIdx)
+              .isSameAs(value);
+          entryCount.incrementAndGet();
+        });
+    assertThat(map.size())
+        .as("size() matches forEach entry count after drainAll stress")
+        .isEqualTo(entryCount.get());
+  }
+
+  /**
+   * {@code removeByStorageId} contention with concurrent readers and writers on ANOTHER
+   * storage. The remover sweeps the target storage's entries in write-locked section passes;
+   * meanwhile readers and writers hit the other storage's entries. The other storage's entries
+   * must (a) always be findable via {@code get} with their canonical value (no torn reads from
+   * a concurrent same-capacity rehash or {@code shrinkIfGrown} array swap), and (b) fully
+   * survive every removal cycle. This mirrors the production scenario where one storage closes
+   * while other storages continue to serve reads.
+   */
+  @Test
+  public void removeByStorageIdConcurrentWithPutsAndReadsOnOtherStorageIsSafe() throws Exception {
+    var map = new ConcurrentLongIntHashMap<String>(1024);
+    int targetStorage = 1;
+    int otherStorage = 2;
+    int fileCount = 100;
+    int pageCount = 50;
+
+    // Pre-populate both storages. The remover cycles the target storage; writers re-add
+    // target-storage entries so every cycle has real work.
+    for (int lf = 0; lf < fileCount; lf++) {
+      long targetFid = (((long) targetStorage) << 32) | lf;
+      long otherFid = (((long) otherStorage) << 32) | lf;
+      for (int p = 0; p < pageCount; p++) {
+        map.put(targetFid, p, "T:" + lf + ":" + p);
+        map.put(otherFid, p, "O:" + lf + ":" + p);
+      }
+    }
+
+    int readerCount = 4;
+    int writerCount = 2;
+    int totalThreads = readerCount + writerCount + 1;
+    var exec = Executors.newFixedThreadPool(totalThreads);
+    var barrier = new CyclicBarrier(totalThreads);
+    var stop = new AtomicBoolean(false);
+    var removeCycles = new AtomicInteger();
+    int targetCycles = 50;
+    var futures = new ArrayList<Future<Void>>();
+
+    try {
+      // Readers: every non-null result for other-storage MUST match the canonical value. A
+      // torn read would return a wrong string.
+      for (int t = 0; t < readerCount; t++) {
+        futures.add(exec.submit(() -> {
+          barrier.await();
+          var rng = ThreadLocalRandom.current();
+          while (!stop.get()) {
+            int lf = rng.nextInt(fileCount);
+            int p = rng.nextInt(pageCount);
+            long otherFid = (((long) otherStorage) << 32) | lf;
+            String v = map.get(otherFid, p);
+            if (v != null) {
+              assertThat(v).isEqualTo("O:" + lf + ":" + p);
+            }
+          }
+          return null;
+        }));
+      }
+
+      // Writers: re-insert target-storage entries so removeByStorageId has matches every cycle.
+      for (int t = 0; t < writerCount; t++) {
+        futures.add(exec.submit(() -> {
+          barrier.await();
+          var rng = ThreadLocalRandom.current();
+          while (!stop.get()) {
+            int lf = rng.nextInt(fileCount);
+            int p = rng.nextInt(pageCount);
+            long targetFid = (((long) targetStorage) << 32) | lf;
+            map.put(targetFid, p, "T:" + lf + ":" + p);
+          }
+          return null;
+        }));
+      }
+
+      // Remover: repeated sweeps of the target storage.
+      futures.add(exec.submit(() -> {
+        barrier.await();
+        for (int i = 0; i < targetCycles; i++) {
+          map.removeByStorageId(targetStorage);
+          removeCycles.incrementAndGet();
+          Thread.yield();
+        }
+        stop.set(true);
+        return null;
+      }));
+
+      for (var f : futures) {
+        f.get(60, TimeUnit.SECONDS);
+      }
+      assertThat(removeCycles.get()).isEqualTo(targetCycles);
+    } finally {
+      stop.set(true);
+      exec.shutdownNow();
+      exec.awaitTermination(5, TimeUnit.SECONDS);
+    }
+
+    // Final invariant: every other-storage entry still has its canonical value. A missing or
+    // torn entry here indicates cross-storage damage from the concurrent removeByStorageId.
+    for (int lf = 0; lf < fileCount; lf++) {
+      long otherFid = (((long) otherStorage) << 32) | lf;
+      for (int p = 0; p < pageCount; p++) {
+        assertThat(map.get(otherFid, p))
+            .as("other storage entry (%d,%d) must survive concurrent removeByStorageId",
+                lf, p)
+            .isEqualTo("O:" + lf + ":" + p);
+      }
+    }
   }
 }
