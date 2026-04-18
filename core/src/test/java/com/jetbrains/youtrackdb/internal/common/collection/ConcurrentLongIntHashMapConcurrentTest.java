@@ -765,4 +765,127 @@ public class ConcurrentLongIntHashMapConcurrentTest {
     assertThat(map.size()).as("map should be empty after all files removed").isEqualTo(0);
     assertThat(map.isEmpty()).isTrue();
   }
+
+  // ---- drainAll concurrent tests ----
+
+  /**
+   * drainAll running concurrently with readers and writers on other sections. drainAll takes
+   * each section's write lock sequentially, swapping {@code entries} to a smaller initial-capacity
+   * array while optimistic readers are in flight on the same section — this is the symmetric hazard
+   * to {@link #rehashFromMinimumCapacityUnderConcurrentAccessIsCorrect}, but with the array shrinking
+   * rather than growing.
+   *
+   * <p>Verifies: no {@link ArrayIndexOutOfBoundsException} from any reader, no torn values (every
+   * non-null result matches the canonical form for its key), and that drainAll completes all its
+   * cycles. Uses a short 2-second window per run to keep CI time bounded.
+   */
+  @Test
+  public void drainAllConcurrentWithPutsAndReadsIsSafe() throws Exception {
+    var map = new ConcurrentLongIntHashMap<String>(1024);
+    int fileCount = 200;
+    int pageCount = 50;
+
+    // Prefill so the first few drains have substantial work to do
+    for (long fId = 0; fId < fileCount; fId++) {
+      for (int pIdx = 0; pIdx < pageCount; pIdx++) {
+        map.put(fId, pIdx, fId + ":" + pIdx);
+      }
+    }
+
+    int readerCount = 4;
+    int writerCount = 2;
+    int drainerCount = 1;
+    int totalThreads = readerCount + writerCount + drainerCount;
+    var executor = Executors.newFixedThreadPool(totalThreads);
+    var futures = new ArrayList<Future<Void>>();
+    var startBarrier = new CyclicBarrier(totalThreads);
+    var stop = new java.util.concurrent.atomic.AtomicBoolean(false);
+    int drainCycles = 50;
+
+    try {
+      // Readers: every non-null value must match its key's canonical form — catches any torn
+      // read during a section's array swap in drain().
+      for (int t = 0; t < readerCount; t++) {
+        futures.add(
+            executor.submit(
+                () -> {
+                  startBarrier.await();
+                  var rng = ThreadLocalRandom.current();
+                  while (!stop.get()) {
+                    long fId = rng.nextInt(fileCount);
+                    int pIdx = rng.nextInt(pageCount);
+                    String result = map.get(fId, pIdx);
+                    if (result != null) {
+                      assertThat(result)
+                          .as("get(%d, %d) torn read during drainAll", fId, pIdx)
+                          .isEqualTo(fId + ":" + pIdx);
+                    }
+                  }
+                  return null;
+                }));
+      }
+
+      // Writers: re-populate entries so some sections are always occupied during drain.
+      for (int t = 0; t < writerCount; t++) {
+        futures.add(
+            executor.submit(
+                () -> {
+                  startBarrier.await();
+                  var rng = ThreadLocalRandom.current();
+                  while (!stop.get()) {
+                    long fId = rng.nextInt(fileCount);
+                    int pIdx = rng.nextInt(pageCount);
+                    map.put(fId, pIdx, fId + ":" + pIdx);
+                  }
+                  return null;
+                }));
+      }
+
+      // Drainer: loops through many drain cycles during contention. Uses a plain int[]-wrapped
+      // counter to verify the loop completed its target rather than returning early.
+      var completedCycles = new java.util.concurrent.atomic.AtomicInteger();
+      futures.add(
+          executor.submit(
+              () -> {
+                startBarrier.await();
+                for (int i = 0; i < drainCycles; i++) {
+                  map.drainAll(v -> {
+                  });
+                  completedCycles.incrementAndGet();
+                  Thread.yield();
+                }
+                stop.set(true);
+                return null;
+              }));
+
+      for (var future : futures) {
+        future.get(60, TimeUnit.SECONDS);
+      }
+      assertThat(completedCycles.get())
+          .as("drainer must have finished all its cycles")
+          .isEqualTo(drainCycles);
+    } finally {
+      stop.set(true);
+      executor.shutdownNow();
+      executor.awaitTermination(5, TimeUnit.SECONDS);
+    }
+
+    // Final state: map is consistent. size() equals the number of entries visible via forEach,
+    // and every such entry is retrievable and matches its key's canonical form.
+    var entryCount = new AtomicLong();
+    map.forEach(
+        (fId, pIdx, value) -> {
+          assertThat(value).isNotNull();
+          assertThat(value)
+              .as("value at (%d, %d) matches canonical form", fId, pIdx)
+              .isEqualTo(fId + ":" + pIdx);
+          assertThat(map.get(fId, pIdx))
+              .as("get(%d, %d) after drainAll stress", fId, pIdx)
+              .isSameAs(value);
+          entryCount.incrementAndGet();
+        });
+    assertThat(map.size())
+        .as("size() matches forEach entry count after drainAll stress")
+        .isEqualTo(entryCount.get());
+  }
 }
