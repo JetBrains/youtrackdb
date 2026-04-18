@@ -73,7 +73,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   private final long limit;
 
   /** Multi-source execution mode, or null for single-source. */
-  @Nullable private final MatchExecutionPlanner.MultiSourceMode multiSourceMode;
+  @Nullable private final IndexOrderedPlanner.MultiSourceMode multiSourceMode;
 
   /** Reverse LinkBag field on target for reverse edge lookup (multi-source). */
   @Nullable private final String reverseFieldName;
@@ -110,7 +110,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       boolean orderAsc,
       EdgeTraversal edge,
       long limit,
-      @Nullable MatchExecutionPlanner.MultiSourceMode multiSourceMode,
+      @Nullable IndexOrderedPlanner.MultiSourceMode multiSourceMode,
       @Nullable String reverseFieldName,
       @Nullable String sourceClassName,
       @Nullable SQLWhereClause targetFilter,
