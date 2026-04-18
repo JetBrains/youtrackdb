@@ -154,8 +154,12 @@ public class SQLSuffixIdentifier extends SimpleNode {
         return result;
       }
       if (iCurrentRecord != null) {
-        if (iCurrentRecord.hasProperty(varName)) {
-          return iCurrentRecord.getProperty(varName);
+        // Call getProperty first — this loads lazy-RID entities in one step.
+        // After getProperty, hasProperty (used to disambiguate "absent" from "present-but-null")
+        // runs on the hot path because the entity is now materialized in the Result.
+        var propValue = iCurrentRecord.getProperty(varName);
+        if (propValue != null || iCurrentRecord.hasProperty(varName)) {
+          return propValue;
         }
 
         if (iCurrentRecord instanceof ResultInternal resultInternal
