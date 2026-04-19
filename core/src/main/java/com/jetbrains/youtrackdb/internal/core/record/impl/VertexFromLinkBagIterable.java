@@ -1,10 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.record.impl;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import java.util.Iterator;
@@ -90,18 +90,22 @@ public class VertexFromLinkBagIterable
   }
 
   /**
-   * Returns an iterator that yields {@link Identifiable} (RecordId) objects
-   * directly from the LinkBag's secondary RIDs without calling
+   * Returns an iterator that yields {@link ResultInternal} objects wrapping
+   * bare RIDs from the LinkBag's secondary RIDs, without calling
    * {@code loadEntity()}. Class filter and RID filter are applied on the
-   * RID (no disk I/O) — only matching RIDs are yielded.
+   * RID (no disk I/O) — only matching RIDs produce Results.
    *
-   * <p>Used by the MATCH engine to defer entity loading to first property
-   * access via {@code ResultInternal}'s built-in lazy loading.
+   * <p>Used by the MATCH engine: the caller plugs this directly into
+   * {@link com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ResultIteratorExecutionStream}
+   * to skip the per-row {@code ctx.getDatabaseSession()} + {@code toResult(...)}
+   * dispatch that a generic {@code IteratorExecutionStream} would perform.
+   * Entity loading is deferred to first property access via
+   * {@code ResultInternal}'s built-in lazy loading.
    */
   @Nonnull
-  public Iterator<Identifiable> ridIterator() {
+  public Iterator<ResultInternal> ridIterator() {
     return new RidOnlyIterator(
-        linkBag.iterator(), acceptedCollectionIds, acceptedRids);
+        linkBag.iterator(), session, acceptedCollectionIds, acceptedRids);
   }
 
   @Override
@@ -115,21 +119,30 @@ public class VertexFromLinkBagIterable
   }
 
   /**
-   * Iterator that yields RecordId objects from LinkBag secondary RIDs,
-   * applying class and RID filters without loading entities from storage.
+   * Iterator that yields {@link ResultInternal} objects wrapping RIDs from
+   * LinkBag secondary RIDs, applying class and RID filters without loading
+   * entities from storage. The session is captured once at construction so
+   * each yielded Result can be consumed directly by a
+   * {@code ResultIteratorExecutionStream} — eliminating the per-row
+   * {@code ctx.getDatabaseSession()} + {@code toResult(...)} dispatch that a
+   * generic {@code IteratorExecutionStream} would incur.
    */
-  private static final class RidOnlyIterator implements Iterator<Identifiable> {
+  private static final class RidOnlyIterator implements Iterator<ResultInternal> {
 
     private final Iterator<RidPair> ridPairIterator;
+    @Nonnull
+    private final DatabaseSessionEmbedded session;
     @Nullable private final IntSet acceptedCollectionIds;
     @Nullable private final Set<RID> acceptedRids;
-    @Nullable private Identifiable nextRid;
+    @Nullable private RID nextRid;
 
     RidOnlyIterator(
         Iterator<RidPair> ridPairIterator,
+        @Nonnull DatabaseSessionEmbedded session,
         @Nullable IntSet acceptedCollectionIds,
         @Nullable Set<RID> acceptedRids) {
       this.ridPairIterator = ridPairIterator;
+      this.session = session;
       this.acceptedCollectionIds = acceptedCollectionIds;
       this.acceptedRids = acceptedRids;
     }
@@ -143,16 +156,16 @@ public class VertexFromLinkBagIterable
     }
 
     @Override
-    public Identifiable next() {
+    public ResultInternal next() {
       if (!hasNext()) {
         throw new NoSuchElementException();
       }
       var current = nextRid;
       nextRid = null;
-      return current;
+      return new ResultInternal(session, current);
     }
 
-    @Nullable private Identifiable filterRid(RidPair ridPair) {
+    @Nullable private RID filterRid(RidPair ridPair) {
       ridPair.validateEdgePair();
       var rid = ridPair.secondaryRid();
 

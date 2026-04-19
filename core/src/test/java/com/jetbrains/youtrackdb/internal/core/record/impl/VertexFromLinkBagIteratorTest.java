@@ -45,6 +45,9 @@ public class VertexFromLinkBagIteratorTest {
     session = mock(DatabaseSessionEmbedded.class);
     transaction = mock(FrontendTransactionImpl.class);
     when(session.getActiveTransaction()).thenReturn(transaction);
+    // ResultInternal.checkSession asserts session.assertIfNotActive() — mock it so
+    // ridIterator tests (which wrap bare RIDs in ResultInternal) pass the session guard.
+    when(session.assertIfNotActive()).thenReturn(true);
   }
 
   /**
@@ -557,7 +560,7 @@ public class VertexFromLinkBagIteratorTest {
 
   /**
    * ridIterator() returns RID objects (not loaded entities). Verifies the
-   * returned Identifiable is a RecordId instance, not a Vertex or Entity.
+   * returned ResultInternal wraps a bare RecordId (no loaded entity).
    */
   @Test
   public void ridIterator_returnsRecordIdNotEntity() {
@@ -568,9 +571,10 @@ public class VertexFromLinkBagIteratorTest {
         .ridIterator().next();
 
     assertTrue(
-        "ridIterator should yield RecordId, not a loaded entity",
-        result instanceof RecordId);
+        "ridIterator ResultInternal should wrap a bare RecordId, not a loaded entity",
+        result.asIdentifiableOrNull() instanceof RecordId);
     assertEquals(rid, result.getIdentity());
+    verifyNoInteractions(transaction);
   }
 
   private com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag mockLinkBag(

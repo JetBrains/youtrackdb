@@ -612,12 +612,12 @@ public class MatchEdgeTraverser implements ExecutionStream {
       case ResultInternal resultInternal -> ExecutionStream.singleton(resultInternal);
       case Identifiable identifiable -> ExecutionStream.singleton(
           new ResultInternal(session, identifiable));
-      // RID-only path: yield RecordIds without loading entities from storage.
-      // ResultInternal wraps each RecordId and defers loadEntity() to first
-      // property access — intermediate MATCH steps that only traverse by RID
-      // skip disk I/O entirely.
+      // RID-only path: yield ResultInternals wrapping bare RIDs without loading
+      // entities from storage. Consumed via resultIterator to skip per-row
+      // ctx.getDatabaseSession() + toResult(...) dispatch. Entity loading is
+      // deferred to first property access via ResultInternal's lazy loading.
       case VertexFromLinkBagIterable vfli ->
-          ExecutionStream.iterator(vfli.ridIterator());
+          ExecutionStream.resultIterator(vfli.ridIterator());
       case Iterable<?> iterable -> ExecutionStream.iterator(iterable.iterator());
       default -> ExecutionStream.empty();
     };
