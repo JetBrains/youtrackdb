@@ -4355,6 +4355,80 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     }
   }
 
+  // Single-source query without LIMIT must not use IndexOrderedEdgeStep.
+  // Without LIMIT the saving is just sort elision, which is dwarfed by the
+  // planner + per-source RidSet/cursor setup overhead for typical linkBags
+  // (reproduces the IS7 -6.9% regression observed on LDBC SF 1).
+  @Test
+  public void testIndexOrderedMatchSingleSourceNoLimitSkipsOptimization() throws Exception {
+    initIndexOrderedMatchData(false);
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      // Single-source (p uniquely identified via 'name = person1'),
+      // ORDER BY on indexed field, NO LIMIT → should fall back to normal path.
+      var query =
+          "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
+              + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+              + "RETURN m.creationDate as cd ORDER BY cd DESC";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertFalse(
+            "Single-source without LIMIT should NOT use INDEX ORDERED MATCH,"
+                + " but plan was:\n" + plan,
+            plan.contains("INDEX ORDERED MATCH"));
+
+        // Results must still be correct via fallback path.
+        var days = new java.util.ArrayList<Integer>();
+        while (result.hasNext()) {
+          days.add(dayOfMonth(result.next().getProperty("cd")));
+        }
+        Assert.assertFalse("Should have results", days.isEmpty());
+        for (var i = 0; i < days.size() - 1; i++) {
+          Assert.assertTrue(
+              "Results should be in DESC order: " + days,
+              days.get(i) >= days.get(i + 1));
+        }
+      }
+      session.commit();
+    }
+  }
+
+  // FILTERED multi-source without LIMIT also skips the optimization: all source
+  // rows' edges must be scanned regardless of index order, so sort elision
+  // alone cannot recoup the sourceMap/RidSet materialization cost.
+  @Test
+  public void testIndexOrderedMatchFilteredMultiSourceNoLimitSkipsOptimization() throws Exception {
+    initIndexOrderedMatchMultiSourceData();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      // Multi-source FILTERED (WHERE on p with LIKE matches multiple rows),
+      // ORDER BY on indexed field, NO LIMIT → should fall back to normal path.
+      var query =
+          "MATCH {class: TestPerson, as: p, where: (name LIKE 'person%')}"
+              + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+              + "RETURN p.name as pname, m.creationDate as cd"
+              + " ORDER BY cd DESC";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertFalse(
+            "FILTERED multi-source without LIMIT should NOT use"
+                + " INDEX ORDERED MATCH, but plan was:\n" + plan,
+            plan.contains("INDEX ORDERED MATCH"));
+
+        // Results must still be correct via fallback path.
+        int count = 0;
+        while (result.hasNext()) {
+          result.next();
+          count++;
+        }
+        Assert.assertTrue("Should have results", count > 0);
+      }
+      session.commit();
+    }
+  }
+
   // Downstream $matched.<alias> reference in a later edge forces BOUND mode to preserve the earlier alias.
   @Test
   public void testIndexOrderedMatchDownstreamMatchedForcesBound() {
