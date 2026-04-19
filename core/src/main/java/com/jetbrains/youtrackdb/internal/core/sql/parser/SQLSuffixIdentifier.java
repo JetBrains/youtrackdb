@@ -154,6 +154,22 @@ public class SQLSuffixIdentifier extends SimpleNode {
         return result;
       }
       if (iCurrentRecord != null) {
+        // $-prefixed names are LET variable references (per-record or temporary),
+        // never real entity properties. EntityImpl.getProperty would throw
+        // DatabaseException via validatePropertyName, so skip the record property
+        // path and resolve from Result metadata / temporary properties directly.
+        if (varName.startsWith("$")) {
+          if (iCurrentRecord instanceof ResultInternal resultInternal
+              && resultInternal.getMetadataKeys().contains(varName)) {
+            return resultInternal.getMetadata(varName);
+          }
+          if (iCurrentRecord instanceof ResultInternal resultInternal
+              && resultInternal.getTemporaryProperties().contains(varName)) {
+            return resultInternal.getTemporaryProperty(varName);
+          }
+          return null;
+        }
+
         // Call getProperty first — this loads lazy-RID entities in one step.
         // After getProperty, hasProperty (used to disambiguate "absent" from "present-but-null")
         // runs on the hot path because the entity is now materialized in the Result.
