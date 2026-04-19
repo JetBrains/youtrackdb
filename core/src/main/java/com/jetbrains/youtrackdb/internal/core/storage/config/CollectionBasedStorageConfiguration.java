@@ -138,6 +138,13 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
   private final HashMap<String, Object> cache = new HashMap<>();
 
+  // Cache resolved TimeZone to avoid lock + property-map + TimeZone.getTimeZone
+  // allocation on every date comparison. Hot path: SQL WHERE date predicates
+  // hit this once per row via compareFromPageFrameOrdering → DateHelper. Invalidated
+  // on setTimeZone (write lock). volatile for publication across threads; the happens-before
+  // from write-lock release/read-lock acquire in setTimeZone/getTimeZone guarantees visibility.
+  private volatile TimeZone cachedTimeZone;
+
   private StorageConfigurationUpdateListener updateListener;
 
   private final ThreadLocal<PausedNotificationsState> pauseNotifications =
@@ -786,6 +793,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     lock.writeLock().lock();
     try {
       updateStringProperty(atomicOperation, TIME_ZONE_PROPERTY, timeZone.getID(), true);
+      cachedTimeZone = null;
     } finally {
       lock.writeLock().unlock();
     }
@@ -793,14 +801,23 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
   @Override
   @Nullable public TimeZone getTimeZone() {
+    var cached = cachedTimeZone;
+    if (cached != null) {
+      return cached;
+    }
     lock.readLock().lock();
     try {
+      cached = cachedTimeZone;
+      if (cached != null) {
+        return cached;
+      }
       final var timeZone = readStringProperty(TIME_ZONE_PROPERTY);
       if (timeZone == null) {
         return null;
       }
-
-      return TimeZone.getTimeZone(timeZone);
+      cached = TimeZone.getTimeZone(timeZone);
+      cachedTimeZone = cached;
+      return cached;
     } finally {
       lock.readLock().unlock();
     }
