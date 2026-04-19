@@ -373,6 +373,22 @@ final class IndexOrderedPlanner {
         ? limit.getValue(context) : -1;
     long queryLimit = limitSize >= 0 ? skipSize + limitSize : -1;
 
+    // 10b. Require LIMIT for single-source and FILTERED multi-source modes.
+    // Without LIMIT, all source rows' edges must be scanned regardless of
+    // order, so the only saving is sort elision — which for small linkBags
+    // is negligible compared to the planner setup + per-source RidSet build
+    // + index cursor init overhead (measured ~5-7% CPU regression on IS7
+    // where msg is unique-indexed, linkBag ≈ a few replies, no LIMIT).
+    // UNFILTERED modes scan the whole index anyway — they stay enabled
+    // without LIMIT (see testIndexOrderedMatchNoLimitAllResults,
+    // testIndexOrderedMatchUnfilteredBoundNoLimit).
+    if (queryLimit < 0
+        && (multiSourceMode == null
+            || multiSourceMode == MultiSourceMode.FILTERED_BOUND
+            || multiSourceMode == MultiSourceMode.FILTERED_UNBOUND)) {
+      return null;
+    }
+
     var multiFieldOrderBy = orderBy.getItems().size() > 1;
 
     // Extract target WHERE filter from the edge's path item filter.
