@@ -154,28 +154,15 @@ public class SQLSuffixIdentifier extends SimpleNode {
         return result;
       }
       if (iCurrentRecord != null) {
-        // $-prefixed names are LET variable references (per-record or temporary),
-        // never real entity properties. EntityImpl.getProperty would throw
-        // DatabaseException via validatePropertyName, so skip the record property
-        // path and resolve from Result metadata / temporary properties directly.
-        if (varName.startsWith("$")) {
-          if (iCurrentRecord instanceof ResultInternal resultInternal
-              && resultInternal.getMetadataKeys().contains(varName)) {
-            return resultInternal.getMetadata(varName);
-          }
-          if (iCurrentRecord instanceof ResultInternal resultInternal
-              && resultInternal.getTemporaryProperties().contains(varName)) {
-            return resultInternal.getTemporaryProperty(varName);
-          }
-          return null;
-        }
-
-        // Call getProperty first — this loads lazy-RID entities in one step.
-        // After getProperty, hasProperty (used to disambiguate "absent" from "present-but-null")
-        // runs on the hot path because the entity is now materialized in the Result.
-        var propValue = iCurrentRecord.getProperty(varName);
-        if (propValue != null || iCurrentRecord.hasProperty(varName)) {
-          return propValue;
+        // Probe with hasProperty first — unlike getProperty, it does not run
+        // validatePropertyName and so handles names that look invalid to the
+        // entity schema (e.g. "$let", "out_edge", "in_edge") by returning
+        // false instead of throwing. hasProperty on a lazy bare-RID Result
+        // materializes the entity (loadLazyAndHasProperty caches it in
+        // this.identifiable), so the subsequent getProperty hits the hot
+        // path without reloading.
+        if (iCurrentRecord.hasProperty(varName)) {
+          return iCurrentRecord.getProperty(varName);
         }
 
         if (iCurrentRecord instanceof ResultInternal resultInternal
