@@ -38,6 +38,12 @@ import org.junit.experimental.categories.Category;
 @Category(SequentialTest.class)
 public class CASDiskWriteAheadLogIT {
 
+  // Must satisfy [PAGE_OPERATION_ID_BASE, ID_TABLE_SIZE) in WALRecordsFactory:
+  // currently [200, 512). 511 is picked at the top of the range to stay clear
+  // of production PageOperation IDs (200..296 today) and of the 500 used by
+  // the sibling test CASDiskWriteAheadLogCloseTest.
+  private static final int TEST_RECORD_ID = 511;
+
   private static Path testDirectory;
 
   @BeforeClass
@@ -48,7 +54,7 @@ public class CASDiskWriteAheadLogIT {
                 "buildDirectory" + File.separator + "casWALTest",
                 "." + File.separator + "target" + File.separator + "casWALTest"));
 
-    WALRecordsFactory.INSTANCE.registerNewRecord(1024, TestRecord.class);
+    WALRecordsFactory.INSTANCE.registerNewRecord(TEST_RECORD_ID, TestRecord.class);
   }
 
   @Before
@@ -5283,7 +5289,7 @@ public class CASDiskWriteAheadLogIT {
 
     @Override
     public int getId() {
-      return 1024;
+      return TEST_RECORD_ID;
     }
   }
 }
