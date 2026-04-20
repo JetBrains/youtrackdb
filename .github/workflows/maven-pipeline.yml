@@ -151,11 +151,7 @@ jobs:
     name: Linux ${{ matrix.arch }} - JDK ${{ matrix.java }} - ${{ matrix.distribution }}
     needs: [ detect-changes ]
     if: needs.detect-changes.outputs.should_build == 'true'
-    runs-on:
-      - self-hosted
-      - "${{ matrix.arch == 'x86' && 'type-cpx42' || 'type-cax31-cax21' }}"
-      - "image-${{ matrix.arch == 'x86' && 'x86-system' || 'arm-system' }}-ubuntu-24.04"
-      - in-nbg1-fsn1-hel1
+    runs-on: ${{ matrix.runs_on }}
     strategy:
       fail-fast: false
       matrix:
@@ -164,13 +160,18 @@ jobs:
         arch: [ 'x86', 'arm' ]
         include:
           - arch: x86
+            runs_on: [ self-hosted, type-cpx42, image-x86-system-ubuntu-24.04, in-nbg1-fsn1-hel1 ]
             java_arch: x64
             docker_platform: 'linux/amd64'
             mvn_opts: '-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci -P docker-images,coverage -Ddocker.platforms=linux/amd64'
           - arch: arm
+            # GitHub-hosted runner (Hetzner ARM capacity is scarce). Less potent
+            # than Hetzner CAX nodes, so use the same reduced option set as the
+            # Windows matrix; keep docker-images for the arm64 image build.
+            runs_on: ubuntu-24.04-arm
             java_arch: aarch64
             docker_platform: 'linux/arm64/v8'
-            mvn_opts: '-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci -P docker-images -Ddocker.platforms=linux/arm64/v8'
+            mvn_opts: '-Dmaven.test.failure.ignore=true -P docker-images -Ddocker.platforms=linux/arm64/v8'
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v6
