@@ -18,13 +18,16 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.parser.BaseParser;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.filter.SQLFilterItemField;
 import com.jetbrains.youtrackdb.internal.core.sql.filter.SQLFilterItemVariable;
@@ -73,9 +76,11 @@ import org.junit.Test;
  *   <li>{@link SQLFunctionRuntime#setParameters(CommandContext, Object[], boolean)}:
  *       null element storage, single/double-quoted quote stripping, numeric / {@code true} /
  *       {@code false} / {@code null} literal conversion, non-String pass-through,
- *       bracket-prefixed-raw pass-through, unparseable-identifier → SQLFilterItemField
- *       promotion, {@code iEvaluate=false} short-circuit, runtimeParameters allocation
- *       mirroring configuredParameters length, and the "live type" skip rule (SQLFilterItemField
+ *       unparseable-identifier → SQLFilterItemField promotion, MultiValue-with-VALUE_NOT_PARSED
+ *       {@code continue} guard (bracketed literal containing an unparseable element retains
+ *       the raw input String rather than leaking the internal sentinel downstream),
+ *       {@code iEvaluate=false} short-circuit, runtimeParameters allocation mirroring
+ *       configuredParameters length, and the "live type" skip rule (SQLFilterItemField
  *       and SQLFunctionRuntime slots are NOT seeded into runtimeParameters at setParameters
  *       time — execute() resolves them).</li>
  *   <li>{@link SQLFunctionRuntime#execute(Object, Result, Object, CommandContext)} resolver
@@ -97,15 +102,22 @@ import org.junit.Test;
  *       / {@link SQLFunctionRuntime#getRuntimeParameters()} — simple getters.</li>
  * </ul>
  *
- * <p>Latent-bug pins documented below with {@code // WHEN-FIXED:} markers are deferred to
- * Track 22.
+ * <p>No test in this class opens a transaction or mutates persistent database state —
+ * {@link DbTestBase}'s per-test database lifecycle is sufficient and no
+ * {@code @After rollbackIfLeftOpen} is required.
+ *
+ * <p>Latent-bug pin: the {@code // WHEN-FIXED:} marker on
+ * {@link #executeSQLPredicateBranchTypePunsResultAndEntityImplArgs()} is deferred to Track 22
+ * (SQLFunctionRuntime.execute line 104 — the instanceof check tests {@code iCurrentRecord} but
+ * casts {@code iCurrentResult}, a type-punning bug that throws {@code ClassCastException} when
+ * {@code iCurrentRecord} IS an EntityImpl and {@code iCurrentResult} is a non-null non-EntityImpl).
  */
 public class SQLFunctionRuntimeTest extends DbTestBase {
 
   private BasicCommandContext ctx;
 
   @Before
-  public void setUpCtx() {
+  public void setUp() {
     ctx = new BasicCommandContext(session);
   }
 
@@ -242,14 +254,44 @@ public class SQLFunctionRuntimeTest extends DbTestBase {
   @Test
   public void setParametersEvaluateFalseSkipsLiteralConversion() {
     // iEvaluate=false bypasses the parseValue routing entirely. The raw inputs flow into
-    // configuredParameters unchanged — Strings stay as Strings, not promoted to
-    // SQLFilterItemField / Boolean / Integer / null.
+    // configuredParameters unchanged — Strings stay as Strings (not promoted to
+    // SQLFilterItemField / Boolean / Integer / null), and null elements flow through to the
+    // first-line assignment `configuredParameters[i] = iParameters[i]` without taking the
+    // iEvaluate=true null-store branch.
     var runtime = new SQLFunctionRuntime(new RecordingFunction("fn"));
-    runtime.setParameters(ctx, new Object[] {"true", "null", "7", "someField"}, false);
+    runtime.setParameters(ctx, new Object[] {"true", null, "7", "someField"}, false);
     assertArrayEquals(
-        new Object[] {"true", "null", "7", "someField"}, runtime.getConfiguredParameters());
+        new Object[] {"true", null, "7", "someField"}, runtime.getConfiguredParameters());
     assertArrayEquals(
-        new Object[] {"true", "null", "7", "someField"}, runtime.getRuntimeParameters());
+        new Object[] {"true", null, "7", "someField"}, runtime.getRuntimeParameters());
+  }
+
+  @Test
+  public void setParametersBracketInputWithUnparseableItemKeepsRawString() {
+    // SQLHelper.parseValue routes a "[...]" input to its LIST_BEGIN branch, which recursively
+    // parses each comma-separated item. When an item is unparseable (e.g., a bareword that
+    // isn't recognized as a literal/number/RID/boolean), the recursive call stores
+    // SQLHelper.VALUE_NOT_PARSED into the resulting list. SQLFunctionRuntime.setParameters
+    // detects this via the (MultiValue.isMultiValue(v) && MultiValue.getFirstValue(v) ==
+    // VALUE_NOT_PARSED) guard at line 179-182 of SQLFunctionRuntime.java, takes the
+    // `continue` branch, and LEAVES configuredParameters[i] as the raw input String
+    // (assigned at the top of the loop, line 173). A regression that removed the guard would
+    // leak a List containing the internal sentinel downstream into function.execute — a
+    // toxic value for any function that inspects list elements.
+    //
+    // Note: the bareword token inside the brackets must itself be unparseable. Using a
+    // well-formed identifier-like token avoids promotion to SQLFilterItemField (which only
+    // happens in the scalar path, not the LIST_BEGIN recursive path which emits
+    // VALUE_NOT_PARSED instead).
+    var fn = new RecordingFunction("fn");
+    var runtime = new SQLFunctionRuntime(fn);
+    runtime.setParameters(ctx, new Object[] {"[unparseableToken]"}, true);
+    // Guard fired — raw bracketed string retained; configuredParameters[i] is NOT a List and
+    // contains NO VALUE_NOT_PARSED sentinel.
+    assertEquals("[unparseableToken]", runtime.getConfiguredParameters()[0]);
+    // runtimeParameters mirrors via the copy-static-values loop (String is not a live
+    // SQLFilterItemField / SQLFunctionRuntime type).
+    assertEquals("[unparseableToken]", runtime.getRuntimeParameters()[0]);
   }
 
   @Test
@@ -297,6 +339,11 @@ public class SQLFunctionRuntimeTest extends DbTestBase {
     runtime.setParameters(ctx, new Object[] {"'x'", 2}, true);
     assertEquals(1, fn.configCallCount);
     assertSame(runtime.getConfiguredParameters(), fn.lastConfigArgs);
+    // Also pin that config receives POST-parsed values (quotes stripped, numeric pass-through),
+    // not the raw iParameters input. A regression that moved function.config to BEFORE the
+    // parseValue loop would keep the reference equality (same field) but fail this content
+    // assertion.
+    assertArrayEquals(new Object[] {"x", 2}, fn.lastConfigArgs);
   }
 
   // ---------------------------------------------------------------------------
@@ -407,26 +454,24 @@ public class SQLFunctionRuntimeTest extends DbTestBase {
   }
 
   @Test
-  public void executeSQLPredicateEntityImplBranchIsDeadCodeAgainstResultTypedParam() {
-    // WHEN-FIXED: in SQLFunctionRuntime.execute, the SQLPredicate branch passes
+  public void executeSQLPredicateBranchTypePunsResultAndEntityImplArgs() {
+    // WHEN-FIXED: in SQLFunctionRuntime.execute, the SQLPredicate branch is:
     //   (iCurrentRecord instanceof EntityImpl ? (EntityImpl) iCurrentResult : null)
-    // as the iCurrentResult argument to SQLPredicate.evaluate. But iCurrentRecord is typed as
-    // Result — a Result is NEVER an EntityImpl, so the ternary's true branch is unreachable,
-    // and iCurrentResult is always passed as null. Author likely meant
+    // This type-puns: the instanceof check tests iCurrentRecord but the cast applies to
+    // iCurrentResult (a different variable). Because EntityImpl IS-A Result (EntityImpl
+    // extends RecordAbstract implements Entity, and Entity extends Result), the true branch
+    // IS reachable whenever iCurrentRecord is entity-backed. When that happens AND
+    // iCurrentResult is a non-null, non-EntityImpl object, the cast throws
+    // ClassCastException. Author likely meant a self-consistent cast on the checked variable:
     //   (iCurrentResult instanceof EntityImpl ? (EntityImpl) iCurrentResult : null)
-    // which would forward the explicit iCurrentResult argument when the caller provided an
-    // entity. Track 22 action: swap iCurrentRecord → iCurrentResult in the instanceof check.
     //
-    // This test pins the current (buggy) behaviour by constructing a predicate that evaluates
-    // to its own unmodified right side regardless of record/result input — any regression that
-    // starts passing iCurrentResult through would be caught by the predicate seeing a non-null
-    // entity. We verify indirectly by asserting the current false branch is exercised: pass a
-    // Result (not EntityImpl) as iCurrentRecord and a mock EntityImpl as iCurrentResult; the
-    // predicate still evaluates because its body is type-independent.
+    // Track 22 fix: change the instanceof check to inspect iCurrentResult (same as the cast).
     //
-    // Keep the pin light — the production code works for its callers because SQLPredicate.
-    // evaluate tolerates a null iCurrentResult. The bug is latent unless a future predicate
-    // depends on the iCurrentResult argument.
+    // This test is falsifiable: it pins the current (buggy) ClassCastException by passing an
+    // EntityImpl as iCurrentRecord and a non-EntityImpl String as iCurrentResult. After the
+    // fix, the ternary would short-circuit to null (because the String iCurrentResult is not
+    // an EntityImpl), evaluate() would be called with null, and the predicate would return
+    // TRUE — flipping this test from expecting ClassCastException to asserting success.
     var pred = new SQLPredicate(ctx, "1=1");
 
     var fn = new RecordingFunction("fn");
@@ -434,9 +479,54 @@ public class SQLFunctionRuntimeTest extends DbTestBase {
     runtime.configuredParameters = new Object[] {pred};
     runtime.runtimeParameters = new Object[1];
 
-    // Real ResultInternal as iCurrentRecord — it is NOT an EntityImpl, so the bug path fires.
+    // Need an EntityImpl to enter the ternary's true branch. session.newEntity() requires
+    // an open transaction to mutate record state — wrap in begin/rollback so the test leaves
+    // no persistent side effects.
+    var tx = session.begin();
+    try {
+      var entityRecord = (EntityImpl) session.newEntity();
+      try {
+        runtime.execute("iThis", entityRecord, "non-entity-iCurrentResult", ctx);
+        fail(
+            "expected ClassCastException from the type-punned branch: "
+                + "iCurrentRecord is EntityImpl so the ternary enters its true branch, "
+                + "which hard-casts iCurrentResult (a String) to EntityImpl.");
+      } catch (ClassCastException expected) {
+        // Pin the cast-target: the message names EntityImpl and the offending type (String).
+        var msg = expected.getMessage();
+        assertNotNull(msg);
+        assertTrue(
+            "CCE message should mention EntityImpl: " + msg,
+            msg.contains("EntityImpl"));
+        assertTrue(
+            "CCE message should mention String: " + msg,
+            msg.contains("String"));
+      }
+    } finally {
+      tx.rollback();
+    }
+    // Function MUST NOT have been invoked — the exception fires inside the resolver loop,
+    // before function.execute dispatch. Pin this short-circuit.
+    assertFalse(
+        "function.execute must NOT be called when the resolver throws CCE",
+        fn.invoked);
+  }
+
+  @Test
+  public void executeSQLPredicateBranchPassesNullIcurrentResultForNonEntityRecord() {
+    // Companion to executeSQLPredicateBranchTypePunsResultAndEntityImplArgs: the non-buggy
+    // path — iCurrentRecord is NOT an EntityImpl (a plain ResultInternal), so the ternary
+    // short-circuits to null regardless of iCurrentResult's type. SQLPredicate.evaluate
+    // tolerates a null iCurrentResult and returns Boolean.TRUE for the trivial 1=1 body.
+    var pred = new SQLPredicate(ctx, "1=1");
+
+    var fn = new RecordingFunction("fn");
+    var runtime = new SQLFunctionRuntime(fn);
+    runtime.configuredParameters = new Object[] {pred};
+    runtime.runtimeParameters = new Object[1];
+
     var record = new ResultInternal(session);
-    runtime.execute("iThis", record, "someIrrelevantCurrentResult", ctx);
+    runtime.execute("iThis", record, "iCurrentResult-is-a-String", ctx);
     assertArrayEquals(new Object[] {Boolean.TRUE}, fn.lastParams);
   }
 
@@ -503,7 +593,7 @@ public class SQLFunctionRuntimeTest extends DbTestBase {
   }
 
   @Test
-  public void executeWithNestedSQLMethodRuntimeParameterIsStoredAsIs() {
+  public void executeWithNestedSQLMethodRuntimeParameterIsNotRecursed() {
     // Important asymmetry with SQLMethodRuntime: SQLFunctionRuntime.execute's resolver loop
     // does NOT recurse into nested SQLMethodRuntime configured parameters (only
     // SQLFunctionRuntime is recursed). The pre-resolver seed `runtimeParameters[i] =
@@ -631,6 +721,39 @@ public class SQLFunctionRuntimeTest extends DbTestBase {
   }
 
   @Test
+  public void executeArityCheckShortCircuitsBeforeFunctionDispatch() {
+    // Invariant: arity validation must fire BEFORE function.execute dispatch. A regression
+    // that moved the arity check AFTER dispatch would be missed by the SQLFunctionIfNull /
+    // SQLFunctionCount arity tests above (those only verify the throw, not that the wrapped
+    // function was never invoked). Pin using a RecordingFunction with its invoked flag.
+    var fn = new RecordingFunction("needs-two", 2, 2);
+    var runtime = new SQLFunctionRuntime(fn);
+    runtime.setParameters(ctx, new Object[] {1}, true); // only 1 param, min=2 — too few.
+    try {
+      runtime.execute("iThis", null, null, ctx);
+      fail("expected CommandExecutionException for too few");
+    } catch (CommandExecutionException expected) {
+      assertTrue(expected.getMessage().contains("'needs-two'"));
+    }
+    assertFalse(
+        "function.execute must NOT be called when arity check fails (too-few)", fn.invoked);
+
+    // Symmetric: too-many must short-circuit the same way. Fresh fn + runtime so a prior
+    // invocation (which didn't happen here, but a regression might have set it) doesn't alias.
+    var fn2 = new RecordingFunction("needs-one", 1, 1);
+    var runtime2 = new SQLFunctionRuntime(fn2);
+    runtime2.setParameters(ctx, new Object[] {1, 2}, true);
+    try {
+      runtime2.execute("iThis", null, null, ctx);
+      fail("expected CommandExecutionException for too many");
+    } catch (CommandExecutionException expected) {
+      assertTrue(expected.getMessage().contains("'needs-one'"));
+    }
+    assertFalse(
+        "function.execute must NOT be called when arity check fails (too-many)", fn2.invoked);
+  }
+
+  @Test
   public void executeExactlyAtLowerBoundInvokesFunction() {
     // Boundary: runtimeParameters.length == minParams. The inequality `<` is strict, so an
     // exact-match length must NOT throw.
@@ -682,6 +805,15 @@ public class SQLFunctionRuntimeTest extends DbTestBase {
 
     var result = runtime.getResult(session);
     assertEquals(4L, result);
+  }
+
+  @Test
+  public void getResultOnFreshAggregatorReturnsInitialValue() {
+    // Pin: on a pristine SQLFunctionCount (no execute called, no setResult), getResult returns
+    // the function's initial `total=0` sentinel. Guards against a refactor where transformValue
+    // accidentally swallows valid zero / returns null due to an ioResult null-check.
+    var runtime = new SQLFunctionRuntime(new SQLFunctionCount());
+    assertEquals(0L, runtime.getResult(session));
   }
 
   @Test
@@ -782,8 +914,7 @@ public class SQLFunctionRuntimeTest extends DbTestBase {
       this.lastIThis = iThis;
       this.lastParams = iParams;
       if (throwRNF) {
-        throw new com.jetbrains.youtrackdb.api.exception.RecordNotFoundException(
-            "synthetic", new com.jetbrains.youtrackdb.internal.core.id.RecordId(-1, -1));
+        throw new RecordNotFoundException("synthetic", new RecordId(-1, -1));
       }
       return returnValue;
     }
