@@ -11,9 +11,9 @@
 package com.jetbrains.youtrackdb.internal.core.sql.method.misc;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -135,6 +135,16 @@ public class AbstractSQLMethodTest {
         "<field>.foo(param1[, param2, param3])", new FixtureMethod("foo", 1, 3).getSyntax());
   }
 
+  @Test
+  public void getSyntaxSingleOptionalParamRendersOneOptionalEntry() {
+    // min=1, max=2 → one required, one optional. Pins the inner `for (i = min; i < max; i++)`
+    // loop executing EXACTLY once — neither zero (caught by equal-bounds tests) nor multiple
+    // (caught by the min=0/max=2 and min=1/max=3 tests). Without this, the single-optional
+    // branch is structurally untested.
+    assertEquals(
+        "<field>.foo(param1[, param2])", new FixtureMethod("foo", 1, 2).getSyntax());
+  }
+
   // ---------------------------------------------------------------------------
   // toString / compareTo / evaluateParameters
   // ---------------------------------------------------------------------------
@@ -222,18 +232,62 @@ public class AbstractSQLMethodTest {
   }
 
   @Test
+  public void getParameterValueEmptyStringThrowsIndexOutOfBounds() {
+    // WHEN-FIXED: AbstractSQLMethod.getParameterValue dispatches on `iValue.charAt(0)` without
+    // a length check; empty input crashes with StringIndexOutOfBoundsException. If production
+    // adds an isEmpty() guard (likely returning null or the empty string), flip this test to
+    // `assertNull(AbstractSQLMethod.getParameterValue(null, null, ""));` — the empty-input
+    // contract needs an explicit production decision.
+    try {
+      AbstractSQLMethod.getParameterValue(null, null, "");
+      fail("WHEN-FIXED: expected StringIndexOutOfBoundsException on empty input");
+    } catch (StringIndexOutOfBoundsException expected) {
+      // Observable behaviour pinned; WHEN-FIXED marker above describes the remediation.
+    }
+  }
+
+  @Test
+  public void getParameterValueSingleQuoteCrashesOnSubstringUnderflow() {
+    // WHEN-FIXED: a single-char `"'"` passes the `charAt(0) == '\''` guard but then calls
+    // `substring(1, 0)` — endIndex (0) < beginIndex (1) triggers
+    // StringIndexOutOfBoundsException. If production adds a length-2 guard, flip this test
+    // accordingly.
+    try {
+      AbstractSQLMethod.getParameterValue(null, null, "'");
+      fail("WHEN-FIXED: expected StringIndexOutOfBoundsException on unterminated quote");
+    } catch (StringIndexOutOfBoundsException expected) {
+      // Pinned.
+    }
+  }
+
+  @Test
   public void getParameterValueUnquotedPropertyGetterThrowingReturnsNull() {
     // If getProperty throws (e.g. the iValue isn't a valid property name like a format string
     // "%-011d"), the catch block swallows the exception and returns null so callers fall through
     // to the static-value path.
+    //
+    // The `thrown` flag rules out "the overridden getProperty was never invoked" as an
+    // alternative explanation for the null return.
+    var thrown = new java.util.concurrent.atomic.AtomicBoolean(false);
     var record =
         new ResultInternal((DatabaseSessionEmbedded) null) {
           @Override
           public Object getProperty(String name) {
+            thrown.set(true);
             throw new IllegalStateException("mock exception for test");
           }
         };
     assertNull(AbstractSQLMethod.getParameterValue(null, record, "anyName"));
+    assertTrue("the overridden getProperty must have been invoked", thrown.get());
+  }
+
+  @Test
+  public void fixtureIsInstanceOfSQLMethodInterface() {
+    // Pins the `implements SQLMethod` linkage on AbstractSQLMethod. Previously kept as a
+    // tautological class-literal assertion; reworked here to an instanceof check on a real
+    // fixture so the assertion actually falsifies if AbstractSQLMethod stopped implementing
+    // SQLMethod (compile error would trip first, but this also documents the contract).
+    assertTrue(new FixtureMethod("iface") instanceof SQLMethod);
   }
 
   // ---------------------------------------------------------------------------
@@ -270,16 +324,4 @@ public class AbstractSQLMethodTest {
     }
   }
 
-  // Unused import suppression — keep the symbol referenced so a future refactor that removes
-  // the interface link causes a visible compile break here rather than silent coverage drift.
-  @SuppressWarnings("unused")
-  private static final Class<SQLMethod> INTERFACE_REFERENCE = SQLMethod.class;
-
-  @Test
-  public void assertNotNullInterfaceLinkage() {
-    // Trivial reachability test for the marker reference above. This is deliberate: if a refactor
-    // ever dropped the `implements SQLMethod` line, the import would become unused, Spotless
-    // would flag it, and this test would surface the change.
-    assertNotNull(INTERFACE_REFERENCE);
-  }
 }
