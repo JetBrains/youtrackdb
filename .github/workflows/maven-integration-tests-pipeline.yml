@@ -72,20 +72,21 @@ jobs:
     name: Linux ${{ matrix.arch }} - JDK ${{ matrix.java }} - ${{ matrix.distribution }}
     needs: check-changes
     if: needs.check-changes.outputs.should_run == 'true'
-    runs-on: [ self-hosted, '${{ matrix.arch == ''x86'' && ''type-cpx42'' || ''type-cax31-cax21'' }}',
-               'image-${{ matrix.arch == ''x86'' && ''x86-system'' || ''arm-system'' }}-ubuntu-24.04',
-               in-nbg1-fsn1-hel1 ]
+    runs-on: ${{ matrix.runs_on }}
     strategy:
       fail-fast: false
       matrix:
         java: [ '21', '25' ]
-        distribution: [ 'temurin', 'oracle' ]
+        distribution: [ 'temurin' ]
         arch: [ 'x86', 'arm' ]
         include:
           - arch: x86
+            runs_on: [ self-hosted, type-cpx42, image-x86-system-ubuntu-24.04, in-nbg1-fsn1-hel1 ]
             mvn_opts: '-Dmaven.test.failure.ignore=true -P ci-integration-tests -P docker-images -Ddocker.platforms=linux/amd64'
             java_arch: x64
           - arch: arm
+            # GitHub-hosted runner — Hetzner ARM capacity is scarce.
+            runs_on: ubuntu-24.04-arm
             mvn_opts: '-Dmaven.test.failure.ignore=true -P ci-integration-tests -P docker-images -Ddocker.platforms=linux/arm64/v8'
             java_arch: aarch64
     steps:
@@ -171,7 +172,7 @@ jobs:
       fail-fast: false
       matrix:
         java: [ '21', '25' ]
-        distribution: [ 'temurin', 'oracle' ]
+        distribution: [ 'temurin' ]
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v6
@@ -219,8 +220,76 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+  test-macos:
+    name: macOS arm - JDK ${{ matrix.java }} - ${{ matrix.distribution }}
+    needs: check-changes
+    if: needs.check-changes.outputs.should_run == 'true'
+    # GitHub-hosted Apple Silicon runner. The docker-images profile is
+    # intentionally omitted — it builds linux/amd64 and linux/arm64
+    # images, which don't belong on a macOS runner.
+    #
+    # Non-blocking during soak period: this job is excluded from the
+    # needs: of merge-to-main (so a macOS failure does not block the
+    # develop→main promotion) and from notify-fixed (so "build fixed"
+    # still fires when Linux/Windows/merge recover). notify-failure
+    # still observes macOS so the team sees regressions, but the
+    # CI Fix Agent is not auto-dispatched for macOS-only failures.
+    # Promote to blocking once the leg is proven stable on develop.
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [ '21', '25' ]
+        distribution: [ 'temurin' ]
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || 'develop' }}
+          fetch-depth: 0
+
+      - name: Set up JDK ${{ matrix.java }}
+        uses: actions/setup-java@v5
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: ${{ matrix.distribution }}
+          architecture: aarch64
+          cache: 'maven'
+          overwrite-settings: false
+
+      - name: Run Maven Test
+        id: tests
+        run: ./mvnw -s .github/workflows/settings.xml clean verify -B -Dmaven.test.failure.ignore=true -P ci-integration-tests
+        env:
+          MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
+          MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
+
+      - name: Publish Test Results
+        uses: EnricoMi/publish-unit-test-result-action/macos@v2
+        if: always()
+        with:
+          files: |
+            **/target/surefire-reports/TEST-*.xml
+            **/target/failsafe-reports/TEST-*.xml
+          action_fail: true
+          large_files: true
+          comment_mode: off
+          check_name: Integration Tests Results (macOS arm, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
+      - name: Upload Test Diagnostics
+        uses: actions/upload-artifact@v7
+        if: "!cancelled()"
+        with:
+          name: test-diagnostics-integration-macos-jdk${{ matrix.java }}-${{ matrix.distribution }}
+          path: |
+            **/target/deadlock-report.txt
+            **/target/surefire-reports/*.dumpstream
+            **/target/surefire-reports/*.dump
+          retention-days: 7
+          if-no-files-found: ignore
+
   merge-to-main:
     name: Merge develop into main
+    # test-macos intentionally excluded: non-blocking during soak period.
     needs: [ test-linux, test-windows ]
     if: success() && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -260,12 +329,24 @@ jobs:
 
   notify-failure:
     name: Notify build failure on Zulip
-    needs: [ test-linux, test-windows, merge-to-main ]
-    if: always() && github.event_name != 'workflow_dispatch' && (needs.test-linux.result == 'failure' || needs.test-windows.result == 'failure' || needs.merge-to-main.result == 'failure')
+    needs: [ test-linux, test-windows, test-macos, merge-to-main ]
+    if: >-
+      always() &&
+      github.event_name != 'workflow_dispatch' &&
+      (
+        needs.test-linux.result == 'failure' ||
+        needs.test-windows.result == 'failure' ||
+        needs.test-macos.result == 'failure' ||
+        needs.merge-to-main.result == 'failure'
+      )
     runs-on: ubuntu-latest
     steps:
       - name: Dispatch CI Fix Agent
-        if: needs.test-linux.result == 'failure' || needs.test-windows.result == 'failure'
+        # test-macos intentionally excluded during soak: don't auto-dispatch
+        # the agent for macOS-only failures while the leg is still proving out.
+        if: >-
+          needs.test-linux.result == 'failure' ||
+          needs.test-windows.result == 'failure'
         env:
           GH_TOKEN: ${{ secrets.CI_FIX_AGENT_TOKEN }}
         run: |
@@ -291,6 +372,8 @@ jobs:
 
   notify-fixed:
     name: Notify build fixed on Zulip
+    # test-macos intentionally excluded during soak: a "fixed" signal should
+    # fire when Linux/Windows/merge recover even if macOS is still flaky.
     needs: [ test-linux, test-windows, merge-to-main ]
     if: success() && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
