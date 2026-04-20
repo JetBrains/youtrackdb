@@ -14,6 +14,13 @@ on:
         required: false
         type: string
         default: ''
+      base_branch:
+        description: >
+          Base branch to compare against (fork-point is computed with
+          `git merge-base HEAD origin/<base_branch>`).
+        required: false
+        type: string
+        default: 'develop'
 
 # Prevent duplicate runs for the same branch; different branches run in parallel
 # on separate ephemeral runners provisioned by TestFlows.
@@ -55,16 +62,18 @@ jobs:
 
       - name: Resolve commits
         id: commits
+        env:
+          BASE_BRANCH: ${{ inputs.base_branch }}
         run: |
           set -euo pipefail
 
           HEAD_SHA=$(git rev-parse HEAD)
           BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
-          # Ensure we have the develop branch ref for merge-base
-          git fetch origin develop:refs/remotes/origin/develop --no-tags
+          # Ensure we have the base branch ref for merge-base
+          git fetch origin "$BASE_BRANCH:refs/remotes/origin/$BASE_BRANCH" --no-tags
 
-          FORK_POINT=$(git merge-base HEAD origin/develop)
+          FORK_POINT=$(git merge-base HEAD "origin/$BASE_BRANCH")
 
           if [ "$HEAD_SHA" = "$FORK_POINT" ]; then
             echo "::error::Fork-point equals HEAD — nothing to compare."
@@ -74,12 +83,14 @@ jobs:
           echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
           echo "head_short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           echo "fork_point=$FORK_POINT" >> "$GITHUB_OUTPUT"
-          echo "fork_short=$(git rev-parse --short $FORK_POINT)" >> "$GITHUB_OUTPUT"
+          echo "fork_short=$(git rev-parse --short "$FORK_POINT")" >> "$GITHUB_OUTPUT"
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          echo "base_branch=$BASE_BRANCH" >> "$GITHUB_OUTPUT"
 
-          echo "Branch:     $BRANCH"
-          echo "HEAD:       $HEAD_SHA"
-          echo "Fork-point: $FORK_POINT"
+          echo "Base branch: $BASE_BRANCH"
+          echo "Branch:      $BRANCH"
+          echo "HEAD:        $HEAD_SHA"
+          echo "Fork-point:  $FORK_POINT"
 
       - name: Build JMH filter from query list
         id: filter
@@ -392,6 +403,7 @@ jobs:
             --head "/tmp/jmh-head-${{ github.run_id }}.json" \
             --base-sha "${{ steps.commits.outputs.fork_point }}" \
             --head-sha "${{ steps.commits.outputs.head_sha }}" \
+            --base-branch "${{ steps.commits.outputs.base_branch }}" \
             --repo-url "${{ github.server_url }}/${{ github.repository }}" \
             --base-load-time "${{ steps.base_load.outputs.load_time }}" \
             --head-load-time "${{ steps.head_load.outputs.load_time }}" \
@@ -437,36 +449,20 @@ jobs:
               return;
             }
 
+            // Marker kept so future tooling can locate prior benchmark
+            // comments (e.g. to collapse them into <details> blocks).
             const HEADER = '<!-- jmh-ldbc-compare -->';
             const fullBody = `${HEADER}\n${body}`;
 
             for (const pr of prs) {
-              // Look for an existing benchmark comment to update
-              const { data: comments } = await github.rest.issues.listComments({
+              const { data: created } = await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: pr.number,
+                body: fullBody,
               });
-
-              const existing = comments.find(c => c.body.startsWith(HEADER));
-
-              if (existing) {
-                await github.rest.issues.updateComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  comment_id: existing.id,
-                  body: fullBody,
-                });
-                console.log(`Updated benchmark comment on PR #${pr.number}`);
-              } else {
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: pr.number,
-                  body: fullBody,
-                });
-                console.log(`Created benchmark comment on PR #${pr.number}`);
-              }
+              console.log(
+                `Posted benchmark comment #${created.id} on PR #${pr.number}`);
             }
 
       # ── Cleanup temp files ──────────────────────────────────────────────
