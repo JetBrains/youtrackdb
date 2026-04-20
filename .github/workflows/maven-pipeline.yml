@@ -165,9 +165,13 @@ jobs:
             docker_platform: 'linux/amd64'
             mvn_opts: '-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci -P docker-images,coverage -Ddocker.platforms=linux/amd64'
           - arch: arm
-            # GitHub-hosted runner (Hetzner ARM capacity is scarce). Less potent
-            # than Hetzner CAX nodes, so use the same reduced option set as the
-            # Windows matrix; keep docker-images for the arm64 image build.
+            # GitHub-hosted runner (Hetzner ARM capacity is scarce). This runner
+            # is less potent than the Hetzner CAX nodes previously used, so two
+            # options from the old ARM command are intentionally dropped:
+            #   * -Dyoutrackdb.test.env=ci (disk-storage mode) — already
+            #     exercised on the x86 leg; disk-IO-heavy suites time out here.
+            #   * coverage profile — coverage is collected on x86 only.
+            # docker-images is kept for the arm64 image build.
             runs_on: ubuntu-24.04-arm
             java_arch: aarch64
             docker_platform: 'linux/arm64/v8'
@@ -317,10 +321,18 @@ jobs:
     name: macOS arm - JDK ${{ matrix.java }} - ${{ matrix.distribution }}
     needs: [ detect-changes ]
     if: needs.detect-changes.outputs.should_build == 'true'
-    # GitHub-hosted Apple Silicon runner. No Docker available, so the
-    # docker-images profile is intentionally omitted; otherwise options
+    # GitHub-hosted Apple Silicon runner. The docker-images profile is
+    # intentionally omitted — it builds linux/amd64 and linux/arm64
+    # images, which don't belong on a macOS runner. Otherwise options
     # mirror the Windows leg (reduced, since the runner is less potent
     # than the Hetzner CPX42 nodes).
+    #
+    # Non-blocking during soak period: this job is excluded from the
+    # needs: of deploy, save-test-counts, and the ci-status blocking
+    # check, so a macOS failure does not block merge or deploy. The
+    # notify-failure/notify-fixed jobs still observe it so the team
+    # sees macOS regressions. Promote to blocking once the leg is
+    # proven stable on develop.
     runs-on: macos-latest
     strategy:
       fail-fast: false
@@ -659,7 +671,8 @@ jobs:
   # ------------------------------------------------------------------
   save-test-counts:
     name: Save Test Count Baseline
-    needs: [ detect-changes, test-linux, test-windows, test-macos ]
+    # test-macos intentionally excluded: non-blocking during soak period.
+    needs: [ detect-changes, test-linux, test-windows ]
     if: >-
       github.event_name == 'push' &&
       github.ref == 'refs/heads/develop' &&
@@ -697,7 +710,8 @@ jobs:
   # Runs only if all Test jobs pass. Uses JDK 21
   # ------------------------------------------------------------------
   deploy:
-    needs: [ detect-changes, test-linux, test-windows, test-macos ]
+    # test-macos intentionally excluded: non-blocking during soak period.
+    needs: [ detect-changes, test-linux, test-windows ]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && needs.detect-changes.outputs.should_build == 'true'
 
@@ -776,11 +790,15 @@ jobs:
             echo "Build skipped — no relevant changes"
             exit 0
           fi
+          # macOS is non-blocking during soak period: we wait for it
+          # (it's in needs:) and log its result, but do not fail
+          # ci-status on a macOS-only regression. The notify-failure
+          # job observes test-macos separately and still alerts.
+          echo "macOS result (non-blocking during soak): $MACOS_RESULT"
           if [[ "$LINUX_RESULT" != "success" ]] || \
-             [[ "$WINDOWS_RESULT" != "success" ]] || \
-             [[ "$MACOS_RESULT" != "success" ]]; then
+             [[ "$WINDOWS_RESULT" != "success" ]]; then
             echo "Not all required jobs succeeded" \
-              "(linux=$LINUX_RESULT, windows=$WINDOWS_RESULT, macos=$MACOS_RESULT)"
+              "(linux=$LINUX_RESULT, windows=$WINDOWS_RESULT)"
             exit 1
           fi
           # coverage-gate and test-count-gate only run on PRs;
@@ -834,7 +852,9 @@ jobs:
             :robot: Automated fix agent has been dispatched and is investigating...
   notify-fixed:
     name: Notify build fixed on Zulip
-    needs: [ detect-changes, test-linux, test-windows, test-macos, deploy ]
+    # test-macos intentionally excluded during soak: a "fixed" signal should
+    # fire when Linux/Windows/deploy recover even if macOS is still flaky.
+    needs: [ detect-changes, test-linux, test-windows, deploy ]
     if: >-
       always() &&
       needs.detect-changes.outputs.should_build == 'true' &&

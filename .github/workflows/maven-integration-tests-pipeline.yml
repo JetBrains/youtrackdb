@@ -224,8 +224,17 @@ jobs:
     name: macOS arm - JDK ${{ matrix.java }} - ${{ matrix.distribution }}
     needs: check-changes
     if: needs.check-changes.outputs.should_run == 'true'
-    # GitHub-hosted Apple Silicon runner. No Docker available, so the
-    # docker-images profile is intentionally omitted.
+    # GitHub-hosted Apple Silicon runner. The docker-images profile is
+    # intentionally omitted — it builds linux/amd64 and linux/arm64
+    # images, which don't belong on a macOS runner.
+    #
+    # Non-blocking during soak period: this job is excluded from the
+    # needs: of merge-to-main (so a macOS failure does not block the
+    # develop→main promotion) and from notify-fixed (so "build fixed"
+    # still fires when Linux/Windows/merge recover). notify-failure
+    # still observes macOS so the team sees regressions, but the
+    # CI Fix Agent is not auto-dispatched for macOS-only failures.
+    # Promote to blocking once the leg is proven stable on develop.
     runs-on: macos-latest
     strategy:
       fail-fast: false
@@ -280,7 +289,8 @@ jobs:
 
   merge-to-main:
     name: Merge develop into main
-    needs: [ test-linux, test-windows, test-macos ]
+    # test-macos intentionally excluded: non-blocking during soak period.
+    needs: [ test-linux, test-windows ]
     if: success() && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
@@ -320,11 +330,23 @@ jobs:
   notify-failure:
     name: Notify build failure on Zulip
     needs: [ test-linux, test-windows, test-macos, merge-to-main ]
-    if: always() && github.event_name != 'workflow_dispatch' && (needs.test-linux.result == 'failure' || needs.test-windows.result == 'failure' || needs.test-macos.result == 'failure' || needs.merge-to-main.result == 'failure')
+    if: >-
+      always() &&
+      github.event_name != 'workflow_dispatch' &&
+      (
+        needs.test-linux.result == 'failure' ||
+        needs.test-windows.result == 'failure' ||
+        needs.test-macos.result == 'failure' ||
+        needs.merge-to-main.result == 'failure'
+      )
     runs-on: ubuntu-latest
     steps:
       - name: Dispatch CI Fix Agent
-        if: needs.test-linux.result == 'failure' || needs.test-windows.result == 'failure' || needs.test-macos.result == 'failure'
+        # test-macos intentionally excluded during soak: don't auto-dispatch
+        # the agent for macOS-only failures while the leg is still proving out.
+        if: >-
+          needs.test-linux.result == 'failure' ||
+          needs.test-windows.result == 'failure'
         env:
           GH_TOKEN: ${{ secrets.CI_FIX_AGENT_TOKEN }}
         run: |
@@ -350,7 +372,9 @@ jobs:
 
   notify-fixed:
     name: Notify build fixed on Zulip
-    needs: [ test-linux, test-windows, test-macos, merge-to-main ]
+    # test-macos intentionally excluded during soak: a "fixed" signal should
+    # fire when Linux/Windows/merge recover even if macOS is still flaky.
+    needs: [ test-linux, test-windows, merge-to-main ]
     if: success() && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
