@@ -33,6 +33,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -46,6 +47,20 @@ public class EntitySchemaOperatorsTest extends DbTestBase {
 
   private static final EntitySerializer SERIALIZER =
       RecordSerializerBinary.INSTANCE.getCurrentSerializer();
+
+  /**
+   * Safety net: roll back any transaction left open by a test that threw before reaching
+   * commit/rollback. Without this, a leaked tx would cascade-fail every subsequent method in this
+   * 67-test class. Uses getActiveTransactionOrNull() to avoid the DatabaseException that
+   * getActiveTransaction() throws when no tx is active.
+   */
+  @After
+  public void rollbackIfLeftOpen() {
+    var tx = session.getActiveTransactionOrNull();
+    if (tx != null && tx.isActive()) {
+      session.rollback();
+    }
+  }
 
   private BasicCommandContext newCommandContext() {
     var ctx = new BasicCommandContext();

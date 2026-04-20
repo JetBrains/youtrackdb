@@ -310,6 +310,48 @@ public class SQLMethodFieldTest extends DbTestBase {
   }
 
   @Test
+  public void singleElementCollectionReturnsListOfOne() {
+    // TC4 fill: boundary between the empty and multi-element Collection cases. The production
+    // pre-sizes ArrayList via (int) MultiValue.getSize(ioResult) — an off-by-one in the pre-size
+    // calculation would waste memory for single-element inputs but not fail for multi-element.
+    // Pin the behaviour so a regression that forgot the 1-element case is caught.
+    var a = session.newInstance("Person");
+    a.setProperty("name", "Solo");
+
+    @SuppressWarnings("unchecked")
+    var out = (Collection<Object>) method.execute(
+        null, null, ctx, java.util.Collections.singletonList(a), new Object[] {"name"});
+
+    assertNotNull(out);
+    assertEquals(1, out.size());
+    assertEquals(Arrays.asList("Solo"), new ArrayList<>(out));
+  }
+
+  @Test
+  public void customIterableCandidateIsConsumed() {
+    // TC4 fill: production accepts a pure Iterable that is neither a Collection nor an Iterator
+    // (the branch at SQLMethodField:80-82). Use a lambda-based Iterable whose iterator() is
+    // freshly allocated each call — this cannot be a Collection. A regression that narrowed the
+    // dispatch to `Collection || array` would skip this input and fall through to the default
+    // EntityHelper.getFieldValue path, returning null instead of the collected list.
+    var a = session.newInstance("Person");
+    a.setProperty("name", "Alice");
+    var b = session.newInstance("Person");
+    b.setProperty("name", "Bob");
+    final List<Object> backing = Arrays.asList(a, b);
+    // Anonymous-class Iterable that is NOT a Collection, NOT an Iterator itself, and allocates
+    // a fresh iterator on each call — isolates the production dispatch at line 80-82.
+    Iterable<Object> iterable = backing::iterator;
+
+    @SuppressWarnings("unchecked")
+    var out = (Collection<Object>) method.execute(
+        null, null, ctx, iterable, new Object[] {"name"});
+
+    assertNotNull("pure Iterable dispatch must not return null", out);
+    assertEquals(Arrays.asList("Alice", "Bob"), new ArrayList<>(out));
+  }
+
+  @Test
   public void arrayCandidateReturnsListOfFieldValuesInOrder() {
     // The multi-value expansion branch accepts Collection || Iterator || array. Arrays take
     // a separate `ioResult.getClass().isArray()` branch that is NOT covered by the Collection
@@ -440,9 +482,15 @@ public class SQLMethodFieldTest extends DbTestBase {
     } catch (NullPointerException expected) {
       // Pin: production nulls ioResult in catch(RecordNotFoundException) then immediately
       // dereferences ioResult on the unguarded isArray() check. When fixed, method returns null.
+      // JDK 21+ always produces a helpful NPE message naming the null receiver — the "getClass()"
+      // substring is the compiler-synthesized description for the `ioResult.getClass()` call
+      // site. Pin non-null AND a specific substring; the prior "null OR contains ioResult"
+      // disjunction accepted a vacuously-null message and weakened falsifiability.
+      var msg = expected.getMessage();
+      assertNotNull("JDK 21 NPE must carry a helpful message", msg);
       assertTrue(
-          "NPE message should blame ioResult, saw: " + expected.getMessage(),
-          expected.getMessage() == null || expected.getMessage().contains("ioResult"));
+          "NPE message should blame the ioResult.getClass() dereference, saw: " + msg,
+          msg.contains("getClass()") || msg.contains("ioResult"));
     }
   }
 

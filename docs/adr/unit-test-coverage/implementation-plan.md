@@ -61,6 +61,22 @@ measurement infrastructure).
    (Track 1) to measure and report per-package totals.
 10. **Test descriptions** — Every test must have a descriptive method name
     or comment explaining the scenario and expected outcome.
+11. **Rebase on `origin/develop` at the start of every track** — This plan
+    is very large and long-lived; staying in sync with the remote is
+    mandatory to avoid drift and painful late-stage merge conflicts. At the
+    beginning of each track (before Phase A):
+    1. `git fetch origin` and `git rebase origin/develop`.
+    2. Resolve any conflicts in source, tests, or formatting.
+    3. Run the full `core` unit-test suite
+       (`./mvnw -pl core clean test`) and fix any new failures introduced
+       by the rebase — do NOT proceed to Phase A until the suite is green.
+    4. If the rebase touches areas covered by integration tests, also run
+       `./mvnw -pl core clean verify -P ci-integration-tests`.
+    5. Re-run `./mvnw -pl core spotless:apply` to pick up any formatter
+       changes on develop.
+    Record the pre-rebase and post-rebase SHAs in the track's step file so
+    the rebase is auditable. If conflicts force non-trivial rework of
+    already-committed steps, ESCALATE — the plan may need adjustment.
 
 ### Architecture Notes
 
@@ -330,7 +346,7 @@ flowchart TD
   > discoveries localized to `common` package (parser bugs, I/O vacuous-truth
   > bugs, logging details). Track 4 targets independent subsystems.
 
-- [ ] Track 4: Common Concurrency & Memory
+- [x] Track 4: Common Concurrency & Memory
   > Write tests for concurrency primitives and direct memory management.
   > These require careful testing with thread synchronization.
   >
@@ -347,8 +363,26 @@ flowchart TD
   > **Scope:** ~5 steps covering lock utilities, resource management,
   > thread utilities, direct memory, and verification
   > **Depends on:** Track 1 (for coverage measurement)
+  >
+  > **Track episode:**
+  > Added ~250 unit tests across 22 test files (19 new, 3 extended) for all
+  > 4 target packages. Found and fixed 2 production bugs in
+  > PartitionedLockManager: `releaseSLock()` called `sharedLock()` instead of
+  > `sharedUnlock()`, and `acquireExclusiveLocksInBatch(int[])` allocated a
+  > zero-filled array instead of copying input values. Documented pre-existing
+  > behaviors: ReadersWriterSpinLock no read→write upgrade, NonDaemonThreadFactory
+  > inherits daemon flag, SourceTraceExecutorService bypasses checked exceptions.
+  > Coverage: lock 87.0%/71.7% PASS, resource 84.5%/77.8% (0.5% below line),
+  > thread 95.6%/92.5% PASS, directmemory 70.1%/59.7% (PROFILE_MEMORY paths).
+  > No cross-track impact — only common package tests and 2 production bug fixes.
+  >
+  > **Step file:** `tracks/track-4.md` (5 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact detected. All
+  > discoveries localized to `common` package; directmemory/resource
+  > coverage shortfalls accepted (PROFILE_MEMORY paths, 0.5% margin).
 
-- [ ] Track 5: SQL Operators & Filters
+- [x] Track 5: SQL Operators & Filters
   > Write tests for SQL operator and filter classes — the lowest-coverage
   > area in the SQL layer (sql/operator at 20.9%, sql/filter at 39.9%).
   >
@@ -369,8 +403,42 @@ flowchart TD
   > SQLFilter/SQLFilterCondition, FilterOptimizer, remaining filters,
   > and verification
   > **Depends on:** Track 1
+  >
+  > **Track episode:**
+  > Added ~560 unit tests across 10 test files (8 new, 2 extended) covering
+  > sql/operator, sql/operator/math, and sql/filter. Rewrote Plus/Minus/
+  > Multiply/Divide math tests from monolithic to focused. Final coverage:
+  > sql/operator 83.0%/75.3% (+17%/+19%), sql/operator/math 91.1%/90.2%,
+  > sql/filter 78.0%/64.8%. sql/operator is 2% below line target and
+  > sql/filter is 7% below — remaining uncovered paths are BinaryField/
+  > EntitySerializer comparator paths and full SQL-execution contexts
+  > covered by integration tests. Fixed 2 production bugs with falsifiable
+  > regression tests: QueryOperatorContainsValue early-return in condition
+  > loop; QueryOperatorTraverse FieldAny.FULL_NAME copy-paste where FieldAll
+  > was intended. Documented 9 pre-existing bugs/inconsistencies with
+  > WHEN-FIXED markers: And/Or null-right NPE asymmetry; ContainsText
+  > ignoreCase never consulted; QueryOperatorEquals dead-code branch;
+  > In operator Set.contains() bypasses type coercion; ContainsAll
+  > over-counting with duplicate left elements; Instanceof left/right
+  > asymmetry; Mod dispatches on left type only (silent truncation);
+  > tryDownscaleToInt exclusive-boundary off-by-one; IS DEFINED
+  > SQLFilterItemField branch uses Object.toString identity as field-name
+  > key. Track-level code review (1 iteration, PASS): applied 13 should-fix
+  > improvements — strengthened assertions in SQLFilterClassesTest; added
+  > LIKE regex-escape tests for 8 untested chars; MATCHES malformed-regex
+  > and null-context tests; IS DEFINED sentinel tests;
+  > DefaultQueryOperatorFactoryTest exactly-one-of-class; removed duplicate
+  > isSupportingBinaryEvaluate tests and dead createClass setup; added
+  > WHEN-FIXED markers to bug-pinning tests. No cross-track impact.
+  >
+  > **Step file:** `tracks/track-5.md` (6 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact detected. Track 6
+  > (SQL Functions) uses independent SQLFunctionFactory dispatch path; all
+  > Track 5 discoveries localized to operator/filter subsystem. Carry forward
+  > falsifiable-regression + WHEN-FIXED-marker convention.
 
-- [ ] Track 6: SQL Functions
+- [x] Track 6: SQL Functions
   > Write tests for SQL function implementations. Functions are
   > self-contained with clear `execute()` contracts, making them highly
   > testable.
@@ -396,6 +464,66 @@ flowchart TD
   > misc functions, math/text/conversion, remaining functions, and
   > verification
   > **Depends on:** Track 1
+  >
+  > **Track episode:**
+  > Added 940 `@Test` methods across 83 test files under
+  > `core/src/test/java/.../sql/functions/**` covering all nine target
+  > subpackages (graph, coll, misc, math, stat, text, conversion, geo,
+  > result) plus factory infrastructure. No production code was modified
+  > — Track 6 is purely test-additive. All latent bugs and inconsistencies
+  > discovered were pinned as falsifiable regressions with `// WHEN-FIXED:`
+  > markers (~20 markers total) for Track 22's production-side fixes.
+  >
+  > Key discoveries with cross-track impact:
+  > `CustomSQLFunctionFactory` uses a process-wide `HashMap` mutated
+  > without synchronization — latent flakiness under parallel surefire.
+  > Mitigated in Track 6 via `@Category(SequentialTest)` + UUID-qualified
+  > prefix + alphabetical `@FixMethodOrder`. Production-side fix
+  > (`HashMap → ConcurrentHashMap` or `Collections.synchronizedMap` +
+  > defensive copy in `getFunctionNames`) deferred to Track 22 along with
+  > a concurrent register/lookup contract test (TX2, BC10, TX5).
+  > `SQLFunctionRuntime` is coupled to the SQL parser and not unit-testable
+  > — explicitly deferred to Tracks 7/8. `misc.SQLFunctionFormat` is dead
+  > code (not registered in `DefaultSQLFunctionFactory`) — pinned via
+  > `SQLFunctionFormatMiscDeadTest` with a WHEN-FIXED marker flagging it
+  > for removal in Track 22. `session.commit()` detaches returned
+  > `Iterable<Vertex>` wrappers — graph-dispatcher tests must collect
+  > identities into a local `List` before committing (pattern for Tracks
+  > 7, 8, 14, 22). `DbTestBase` shares one session across test methods in
+  > a class; a test that leaks an open transaction cascade-fails the whole
+  > class — established `@After rollbackIfLeftOpen` safety-net idiom
+  > (itself a DRY candidate for Track 22, CQ2).
+  >
+  > Plan deviations: track grew from ~6 scope-indicator steps to 8 actual
+  > steps because track-review flagged `SQLMethod*` classes physically
+  > under `sql/functions/` (text/, conversion/, coll/, misc/) that JaCoCo
+  > attributes to Track 6. Absorbed into steps 4, 6, 8 with the corrected
+  > `execute(iThis, record, context, ioResult, params)` signature
+  > (different from `SQLFunction.execute` order).
+  >
+  > Track-level code review ran 3 iterations: iter-1 surfaced 1 blocker
+  > (BC1/TX1 — `CustomSQLFunctionFactory` race) + 18 should-fix + 22
+  > suggestions, all in-scope resolved across commits `4aad8dd..7e32145`.
+  > Iter-2 gate check found one should-fix regression **introduced by
+  > iter-1's own fix**: PM-window WHEN-FIXED sentinel's `Assume.assumeTrue`
+  > gated on production-mutated result's `AM_PM`, causing silent SKIP on
+  > every runner once the bug is fixed. Fixed in `14c72eb` by reading
+  > `AM_PM` from the raw input instant; also tightened Astar
+  > Identifiable-options test (TB14) to pin the middle hop. Iter-3 final
+  > gate (BC+TB dimensions only) PASS with 1 suggestion. Zero open
+  > blockers, zero should-fix at track end; ~15 suggestion-grade items
+  > legitimately deferred (most map to Track 22's scope).
+  >
+  > **Step file:** `tracks/track-6.md` (8 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — all cross-track discoveries are deferred
+  > cleanly to Track 22 (CustomSQLFunctionFactory race, SQLFunctionFormat
+  > dead code, MultiValue gaps, rollbackIfLeftOpen DRY) or are patterns to
+  > carry forward (falsifiable-regression + WHEN-FIXED marker, Iterable.
+  > commit() detach pattern, SQLMethod.execute signature awareness).
+  > SQLFunctionRuntime coverage naturally falls out of Tracks 7/8 SQL
+  > execution. No Component Map changes; Track 7's `sql/method/*` scope is
+  > disjoint from Track 6's absorbed `sql/functions/*` SQLMethod classes.
 
 - [ ] Track 7: SQL Methods & SQL Core
   > Write tests for SQL method implementations and the SQL root/query
@@ -772,9 +900,43 @@ flowchart TD
   > verify engine registration via SPI. Remaining packages are a mix
   > of standalone and DB-dependent tests.
   >
+  > **Additional DRY / cleanup scope inherited from earlier tracks:**
+  > - **From Track 7 iter-1 (CQ3, TS5):** Extract shared test fixtures to
+  >   `test-commons` (or a package-private `SqlTestFixtures` helper in
+  >   `core.sql`): `RecordingFunction` (currently duplicated across
+  >   SQLMethodRuntimeTest, SQLFunctionRuntimeTest, RuntimeResultTest,
+  >   SQLMethodFunctionDelegateTest), `StubParser` (duplicated in
+  >   SQLMethodRuntimeTest and SQLFunctionRuntimeTest), and
+  >   `StubMethod`/`ProbeMethod` (DefaultSQLMethodFactoryTest and
+  >   SQLMethodRuntimeTest). Consider a builder-pattern `RecordingFunctionBuilder`.
+  > - **From Track 7 iter-1 (TS3, TS6):** Split oversized test classes:
+  >   `SQLFunctionRuntimeTest` (997 lines) and `SQLMethodRuntimeTest`
+  >   (834 lines) each into 3 focused suites (setParameters / execute /
+  >   arity+lifecycle); `SQLEngineSpiCacheTest` (903 lines) into
+  >   factory-caching / dispatch / registration suites sharing the
+  >   `@After verifyNoStaticStateLeak` base.
+  > - **From Track 7 iter-1 (TS4, TS7, TS9):** Convert repetitive test
+  >   groups to `@Parameterized`: six `SQLMethodAs*Test` classes; 8
+  >   `concurrentLegacyResultSet*ThrowsUnsupported` methods in
+  >   `SqlQueryDeadCodeTest`; three sequence tests
+  >   (SQLMethodCurrent/Next/Reset) via shared abstract base.
+  > - **From Track 7 iter-1 (TX5):** Stage multi-threaded race-exercising
+  >   tests (CyclicBarrier + CountDownLatch + ConcurrentLinkedQueue) paired
+  >   with each WHEN-FIXED production-side race fix: CustomSQLFunctionFactory
+  >   HashMap, DefaultSQLMethodFactory HashMap, SQLEngine.registerOperator
+  >   non-atomic SORTED_OPERATORS clear, SQLEngine.scanForPlugins partial
+  >   cache clear.
+  > - **From Track 7 iter-1 (CQ1, TC3):** Normalize malformed nested-asterisk
+  >   Apache-2 license banner across 10 `sql/*Test.java` + `sql/query/*Test.java`
+  >   files to match the canonical single-asterisk banner. Add unicode /
+  >   surrogate-pair / Turkish-locale coverage to the string-method tests
+  >   (SQLMethodToLowerCase/ToUpperCase/Trim/Split/CharAt) so a regression
+  >   from `Locale.ENGLISH` pinning would be caught.
+  >
   > **Scope:** ~6 steps covering transaction management, Gremlin
   > integration, engine lifecycle, exception/compression/config, remaining
-  > small packages, and verification
+  > small packages, and verification; plus ~1-2 steps absorbing the
+  > inherited DRY / cleanup scope above
   > **Depends on:** Track 1
 
 ## Final Artifacts

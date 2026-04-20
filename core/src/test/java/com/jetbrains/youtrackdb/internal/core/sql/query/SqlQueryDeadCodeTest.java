@@ -439,10 +439,20 @@ public class SqlQueryDeadCodeTest {
               }
             });
     helper.start();
-    helper.join(5000);
-    assertFalse("helper thread must complete without hanging", helper.isAlive());
-    assertEquals("interrupt branch returned null exactly once", 1, returnedNull.get());
-    assertEquals("interrupt branch re-raised the interrupt flag", 1, interruptReRaised.get());
+    try {
+      helper.join(5000);
+      assertFalse("helper thread must complete without hanging", helper.isAlive());
+      assertEquals("interrupt branch returned null exactly once", 1, returnedNull.get());
+      assertEquals("interrupt branch re-raised the interrupt flag", 1, interruptReRaised.get());
+    } finally {
+      // Defense in depth: if anything above failed (hang, assertion error) the helper could
+      // still be alive and holding a reference to LiveLegacyResultSet into the surefire fork.
+      // Interrupt + short join to reclaim the thread before the test method returns.
+      if (helper.isAlive()) {
+        helper.interrupt();
+        helper.join(1000);
+      }
+    }
   }
 
   @Test
@@ -776,8 +786,14 @@ public class SqlQueryDeadCodeTest {
     // CommandResultListener.result(session, record) is hardcoded to return false. Passing
     // null for the @Nonnull session is intentional — the stub ignores the argument.
     assertFalse("result() is a hardcoded stub returning false", adapter.result(null, new Object()));
-    // end(session) is a no-op — simply proving it does not throw pins the contract.
-    adapter.end(null);
+    // end(session) is documented no-op. Pin "must not throw" explicitly — a regression that adds
+    // any side effect along the dead path would be caught here and by the delegate-counter
+    // assertions below.
+    try {
+      adapter.end(null);
+    } catch (RuntimeException unexpected) {
+      fail("end() must be a no-op and must not throw, but threw: " + unexpected);
+    }
     // getResult() is hardcoded to return null.
     assertNull("getResult() is a hardcoded stub returning null", adapter.getResult());
     // Crucially — none of the three CommandResultListener methods are allowed to forward to

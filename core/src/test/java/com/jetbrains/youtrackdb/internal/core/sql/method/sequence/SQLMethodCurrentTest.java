@@ -22,6 +22,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionExceptio
 import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.metadata.sequence.DBSequence;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -66,6 +67,21 @@ public class SQLMethodCurrentTest extends DbTestBase {
     session.getMetadata().getSequenceLibrary().createSequence(
         SEQ_NAME, DBSequence.SEQUENCE_TYPE.ORDERED,
         new DBSequence.CreateParams().setDefaults());
+  }
+
+  /**
+   * Safety net: {@code SQLMethodCurrent.execute} does not itself open a transaction, but the
+   * underlying {@link DBSequence} entity load may leak a transaction if a test fails mid-path.
+   * Roll back any leaked tx to prevent cascade-failures across sibling methods. Uses
+   * {@code getActiveTransactionOrNull()} because the non-or-null variant throws when no tx is
+   * active.
+   */
+  @After
+  public void rollbackIfLeftOpen() {
+    var tx = session.getActiveTransactionOrNull();
+    if (tx != null && tx.isActive()) {
+      session.rollback();
+    }
   }
 
   // ---------------------------------------------------------------------------
