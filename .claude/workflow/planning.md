@@ -141,7 +141,7 @@ SPIs, callbacks, event flows.
 ```markdown
 ### Integration Points
 - Query optimizer reads histograms via `IndexStatistics.getHistogram(indexName)`
-- Histogram refresh triggered by `DurableComponent.onOpen()`
+- Histogram refresh triggered during storage open (via `AbstractStorage#open`)
 ```
 
 **5. Non-Goals** — Explicitly state what this plan does NOT attempt. Prevents

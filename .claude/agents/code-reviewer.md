@@ -94,7 +94,7 @@ For each modified file, examine:
 - DRY principle violations
 - Function/method length and complexity
 - Proper error handling patterns
-- Test coverage for new functionality (JUnit 4 for core/server, TestNG for tests module - don't mix)
+- Test coverage for new functionality (JUnit 4 for core/server, JUnit 5 with JUnit Platform Suite for tests module - don't mix)
 - Consistency with existing codebase patterns
 
 **Potential Bugs & Concurrency Issues:**
@@ -111,7 +111,7 @@ For each modified file, examine:
 
 **Crash Safety & Durability:**
 - WAL correctness: Are all mutations properly logged before being applied?
-- `DurableComponent` contract: Do new data structures properly implement crash recovery?
+- `StorageComponent` contract: Do new data structures (extending `StorageComponent` with `durable=true`) properly implement crash recovery?
 - Atomicity: Can a crash mid-operation leave data in an inconsistent state?
 - Page-level consistency: Are page reads/writes properly synchronized with the cache?
 - `LogSequenceNumber` handling: Correct ordering and comparison

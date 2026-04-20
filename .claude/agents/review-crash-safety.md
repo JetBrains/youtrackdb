@@ -13,7 +13,7 @@ YouTrackDB is a Java 21+ object-oriented graph database with:
 - **Two engine types**: `EngineLocalPaginated` (disk with WAL) and `EngineMemory` (in-memory)
 - **Two-tier cache**: `ReadCache` (LockFreeReadCache) + `WriteCache` (WOWCache)
 - **Write-Ahead Logging**: `LogSequenceNumber` (segment, position) pairs, atomic operations logged before page mutations
-- **DurableComponent**: Base class for all crash-recoverable data structures — new durable structures must implement recovery
+- **StorageComponent**: Base class for all storage-backed data structures; instances constructed with `durable=true` participate in WAL crash recovery — new durable structures must implement recovery
 - **Double-write log**: Prevents torn page writes on disk
 - **Transaction lifecycle**: Begin, log mutations to WAL, apply to pages in cache, commit (flush WAL), checkpoint (flush dirty pages)
 
@@ -38,9 +38,9 @@ You will receive:
 - Are WAL records written atomically (single log entry per logical operation)?
 - Is the WAL flushed (fsync) at the correct points (commit, checkpoint)?
 
-### DurableComponent Contract
-- Do new data structures that persist to disk extend `DurableComponent`?
-- Is the `startOperation()` / `completeOperation()` contract followed?
+### StorageComponent Contract
+- Do new data structures that persist to disk extend `StorageComponent` with `durable=true`?
+- Is the `startAtomicOperation()` / `endAtomicOperation()` contract (via `AtomicOperationsManager`) followed?
 - Does the component implement `redo()` for WAL replay during recovery?
 - Are all persistent state changes covered by WAL records?
 

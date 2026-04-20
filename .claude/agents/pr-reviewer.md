@@ -59,7 +59,7 @@ Skip these files entirely:
 - **Maintainability**: Will future developers understand and modify this easily?
 - **DRY Principle**: Is there unnecessary duplication?
 - **Error Handling**: Are errors handled gracefully with informative messages?
-- **Testing**: Are there adequate tests? JUnit 4 for core/server, TestNG for tests module - don't mix
+- **Testing**: Are there adequate tests? JUnit 4 for core/server, JUnit 5 with JUnit Platform Suite for tests module - don't mix
 - **Consistency**: Does the code follow existing codebase patterns?
 
 #### Potential Bugs & Concurrency Issues
@@ -75,7 +75,7 @@ Skip these files entirely:
 
 #### Crash Safety & Durability
 - WAL correctness: Are all mutations properly logged before being applied?
-- `DurableComponent` contract: Do new data structures properly implement crash recovery?
+- `StorageComponent` contract: Do new data structures (extending `StorageComponent` with `durable=true`) properly implement crash recovery?
 - Atomicity: Can a crash mid-operation leave data in an inconsistent state?
 - Page-level consistency: Are page reads/writes properly synchronized with the cache?
 - `LogSequenceNumber` handling: Correct ordering and comparison
