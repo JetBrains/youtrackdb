@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (4/8 complete)
+- [ ] Step implementation (5/8 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -761,8 +761,149 @@ LiveResultListener, LocalLiveResultListener.
   > documented above are either deferred with rationale or absorbed into
   > the commit diff.
 
-- [ ] Step 5: `sql` root — live classes (scalar SQLHelper + pure utils)
+- [x] Step 5: `sql` root — live classes (scalar SQLHelper + pure utils)
   + dead-code pin
+  - [x] Context: critical
+  > **What was done:** Added 153 `@Test` methods across 6 new test files
+  > under `core/src/test/java/.../sql/`:
+  > - `SQLHelperParseValueScalarTest` (42 tests, DbTestBase): scalar
+  >   parseValue dispatch — sentinels, booleans, quoted strings, RID,
+  >   numeric classification, $variable resolution, sub-command UOE branch
+  >   with boundary-char pin, Integer.MAX/MIN/Long.MAX boundary
+  >   classification, parseStringNumber direct coverage.
+  > - `SQLHelperMiscTest` (27 tests, DbTestBase): getValue 1-arg/3-arg
+  >   overloads including the live Entity-backed field-resolution path
+  >   (wrapped with `session.begin()/rollback()`), getFunction no-match
+  >   branches plus underscore-prefix positive branch (pinned via
+  >   CommandSQLParsingException which proves the `_` branch dispatched to
+  >   construction), BaseParser overload dispatch, SQLPredicate overload
+  >   positional/named parameter wrapping.
+  > - `CommandParametersTest` (19 tests, standalone): ctor variants with
+  >   adopt-by-reference pin, set/getByName including null-key and
+  >   null-value, getNext counter semantics with full message substring
+  >   pins ("Parameter N", "Total parameters received: N"), reset
+  >   preserves entries, mixed positional+named storage, iterator
+  >   coverage, null-keyed retrieval.
+  > - `IndexSearchResultTest` (33 tests, DbTestBase): canBeMerged
+  >   isLong-guard (both sides via parsed `a.b` chain using SQLMethodField
+  >   op), four-branch merge() dispatch pins (promotions between Equals,
+  >   range, ContainsKey/Value/Contains), equals/hashCode including
+  >   FieldChain distinct-instance inequality, two equals-NPE
+  >   bug pins (null lastValue dereference + missing-key in
+  >   fieldValuePairs), containsNullValues branch-2 bug pin
+  >   (mergeFields uses `this.containsNullValues` = left's, dropping
+  >   right's null flag), accumulator carry-over semantics.
+  > - `RuntimeResultTest` (14 tests, DbTestBase): instance
+  >   applyValue/getResult round-trip, static getResult null-input
+  >   short-circuit, already-set-property skip with RecordingFunction
+  >   invocation pin, SQLFunctionRuntime evaluation, filterResult exclusion
+  >   matrix, canExcludeResult overwrite bug pin (two projections where
+  >   first flips filterResult=true and second flips it back → flag lost),
+  >   entriesPersistent dead-code reflection pin.
+  > - `SqlRootDeadCodeTest` (13 tests, standalone): non-vacuous pins for
+  >   CommandExecutorSQLAbstract constants, DefaultCommandExecutorSQLFactory
+  >   empty-map + "Unknowned" typo literal pin, DynamicSQLElementFactory
+  >   UUID-qualified marker assertion (robust against process-wide state
+  >   mutation), Original/Updated RecordsReturnHandler asymmetric
+  >   before/after storage (calls BOTH hooks and verifies only ONE stores),
+  >   RecordCountHandler increment + reset.
+  >
+  > All 153 tests pass. Full core test suite clean.
+  >
+  > **What was discovered:**
+  > - `SQLHelper.parseStringNumber` **suffix-strip bug**: classifies 'l',
+  >   's', 'b', 'c', 'a', 't' suffixes correctly via `RecordSerializerStringAbstract.getType`,
+  >   but then passes the raw string (suffix included) to
+  >   `Long.parseLong`/`Short.parseShort`/`Byte.parseByte`/`BigDecimal(new)`/
+  >   `Long.parseLong(date)` — all throw NumberFormatException instead of
+  >   returning the typed value. Only 'f' and 'd' work end-to-end because
+  >   `Float.parseFloat` / `Double.parseDouble` accept the trailing
+  >   suffix. Pinned with classifier-type-AND-NFE double assertions.
+  > - `SQLHelper.parseValue` eagerly calls `context.getDatabaseSession()`
+  >   before any branch is taken — a bare `BasicCommandContext()`
+  >   (no session) raises `DatabaseException("No database session
+  >   found in SQL context")`. This forced `SQLHelperParseValueScalarTest`
+  >   and `SQLHelperMiscTest` onto DbTestBase. Plan said "standalone"
+  >   for those tests (per D2's "check dependencies" guidance); the
+  >   execution agent decided per-class. Same pattern as Track 5/6 "some
+  >   classes appear standalone but need a session".
+  > - `Integer.MIN_VALUE` (`-2147483648`) is 11 characters including the
+  >   sign. `RecordSerializerStringAbstract.getType` uses character-count
+  >   (not digit-count) against `MAX_INTEGER_DIGITS=10`, so it's classified
+  >   LONG. Value fits in int but type is Long. Minor quirk; pinned as
+  >   WHEN-FIXED for Track 22.
+  > - `IndexSearchResult.equals` has two latent NPEs: (1) line 161
+  >   `lastValue.equals(that.lastValue)` NPEs when lastValue is null;
+  >   (2) line 150 `that.fieldValuePairs.get(entry.getKey()).equals(entry.getValue())`
+  >   NPEs when `that` is missing the key. Query-planner dedup relies on
+  >   equals; these NPEs could cause non-deterministic plan collapse.
+  >   Pinned for Track 22 via dedicated regression tests.
+  > - `IndexSearchResult.mergeFields` uses `this.containsNullValues`
+  >   (outer enclosing-class reference = left, the merge receiver) instead
+  >   of `mainSearchResult.containsNullValues`. In branch 2 (this IS
+  >   Equals, searchResult IS NOT), main = right (the range side) but
+  >   the OR reads `left.containsNullValues || left.containsNullValues`
+  >   — right's null flag is silently dropped. Pinned with a test where
+  >   left is non-null and right carries null, observing the bug.
+  > - `RuntimeResult.getResult` static line 73:
+  >   `canExcludeResult = f.filterResult()` (assignment, not OR-assignment)
+  >   overwrites the flag each iteration. If two SQLFunctionRuntime
+  >   projections are iterated in LinkedHashMap order where the first has
+  >   `filterResult=true` and the second has `filterResult=false`, the
+  >   flag is clobbered and the empty-record-exclusion never fires.
+  > - `RuntimeResult.entriesPersistent(Collection<Identifiable>)` has
+  >   zero callers in `core/src/main`. Pinned via reflection so Track 22
+  >   deletion flips the test red.
+  > - `DynamicSQLElementFactory.FUNCTIONS/COMMANDS/OPERATORS` are
+  >   process-wide static maps. COMMANDS is never mutated in production.
+  >   Tests use UUID-qualified marker names for robust assertions in case
+  >   future tests register entries. FUNCTIONS snapshot test uses
+  >   `Map.copyOf(...)` for full key+value equality (keys-only snapshot
+  >   was insufficient).
+  > - `DefaultCommandExecutorSQLFactory.createCommand` error message has
+  >   an "Unknowned" typo pinned literally so Track 22's typo fix flips
+  >   the test red.
+  > - `ReturnHandler` family contract asymmetry:
+  >   `OriginalRecordsReturnHandler` stores on `beforeUpdate` and no-ops
+  >   on `afterUpdate`; `UpdatedRecordsReturnHandler` does the inverse.
+  >   Previous vacuous tests that only checked `reset()` → empty list
+  >   were replaced with non-vacuous pins that call BOTH hooks and
+  >   verify only ONE stores.
+  >
+  > **What changed from the plan:**
+  > - Step 5 scope-indicator said "~50 test methods across 6 new test
+  >   classes"; actual count is 153 test methods because review iteration
+  >   added: TC1 Entity-Result resolution (3 tests), TC2 equals NPE pins
+  >   (2), TC3 underscore-prefix positive (1), TC4 entriesPersistent pin
+  >   (1), TC5 Long boundaries (2), TC6 null-key (1), BC2 branch-2
+  >   null-propagation pins (2). No cross-track impact — Track 8's
+  >   executor tests are independent of these additions.
+  > - Both `SQLHelperParseValueScalarTest` and `SQLHelperMiscTest` became
+  >   DbTestBase-backed (plan said "standalone"). Plan acknowledged per
+  >   D2 that some classes need a session — documented in each file's
+  >   Javadoc.
+  > - Test run length increases by ~1–2 minutes due to DbTestBase lifecycle
+  >   on ~70 additional tests using per-method in-memory DB. Acceptable
+  >   given the coverage benefit; Track 22 could consolidate some suites
+  >   into `@FixMethodOrder(NAME_ASCENDING)` single-DB patterns if
+  >   flakiness emerges.
+  >
+  > **Key files:**
+  > - `core/src/test/java/.../sql/SQLHelperParseValueScalarTest.java` (new, 42 tests)
+  > - `core/src/test/java/.../sql/SQLHelperMiscTest.java` (new, 27 tests)
+  > - `core/src/test/java/.../sql/CommandParametersTest.java` (new, 19 tests)
+  > - `core/src/test/java/.../sql/IndexSearchResultTest.java` (new, 33 tests)
+  > - `core/src/test/java/.../sql/RuntimeResultTest.java` (new, 14 tests)
+  > - `core/src/test/java/.../sql/SqlRootDeadCodeTest.java` (new, 13 tests)
+  >
+  > **Critical context:** Step-level code review iter-1 PASS across all
+  > 5 dimensions (code-quality, bugs-concurrency, test-behavior,
+  > test-completeness, test-structure) with 14 should-fix items, all
+  > addressed in the review-fix commit. Iter-2 gate check deferred due
+  > to critical context consumption (40% at end of iter-1). The iter-1
+  > commit (`d318916cd`) tightens all 14 items with test verification;
+  > a subsequent Phase C track-level review will provide a fresh-eyes
+  > gate check on the accumulated Track 7 diff.
   - Scope: 5 test classes + 1 dead-code pin class.
     - `SQLHelperParseValueScalarTest` (standalone, BasicCommandContext):
       * Prefix-dispatch per A6 guidance: null/"null"/"not null"/"defined",
