@@ -116,4 +116,28 @@ public class LdbcSingleThreadBothEBenchmark {
         "minDate", state.forumHubMinJoinDate(i),
         "limit", LIMIT);
   }
+
+  /**
+   * BothE-HAS_MEMBER count-only: maximises the visible speedup of the
+   * pre-filter by eliminating everything except the edge scan/filter.
+   * No {@code .inV()} vertex loads, no ORDER BY materialization, no
+   * attribute projection — the only remaining cost is
+   * "how many edges from the bag pass the joinDate filter", which maps
+   * directly to the edge-load count reduction delivered by
+   * {@code PreFilterableChainedIterable}.
+   *
+   * <p>Uses the 99th-percentile lower-bound date so selectivity is ~1%:
+   * hub Forum with thousands of members → dozens of survivors →
+   * the ratio "edges loaded without pre-filter / edges loaded with
+   * pre-filter" is maximal.
+   */
+  @Benchmark
+  public List<Map<String, Object>> bothEHasMember_joinerCount(
+      LdbcBenchmarkState state) {
+    long i = state.nextIndex();
+    return state.executeSql(
+        LdbcQuerySql.FORUM_JOINER_COUNT,
+        "forumId", state.forumHubId(i),
+        "minDate", state.forumHubVeryNarrowJoinDate(i));
+  }
 }
