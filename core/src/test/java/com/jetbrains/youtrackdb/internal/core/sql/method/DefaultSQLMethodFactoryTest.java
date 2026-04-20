@@ -339,13 +339,13 @@ public class DefaultSQLMethodFactoryTest {
 
   @Test
   public void createMethodReturnsExpectedConcreteType() {
-    // Spot check: the production map must deliver the exact concrete class advertised by the
-    // registration line. A regression that wired `SQLMethodLeft.class` into the "size" slot
-    // would still satisfy the "non-null" gate of allRegisteredNamesCreatableViaCreateMethod but
-    // would fail this instanceof assertion.
-    assertTrue(factory.createMethod(SQLMethodSize.NAME) instanceof SQLMethodSize);
-    assertTrue(factory.createMethod(SQLMethodLeft.NAME) instanceof SQLMethodLeft);
-    assertTrue(factory.createMethod(SQLMethodTrim.NAME) instanceof SQLMethodTrim);
+    // Spot check: the production map must deliver the EXACT concrete class advertised by the
+    // registration line. Compare `getClass()` directly (not `instanceof`) so a regression that
+    // wired a subclass of SQLMethodSize into the slot would fail — an `instanceof` check is
+    // too lenient for identity pinning.
+    assertEquals(SQLMethodSize.class, factory.createMethod(SQLMethodSize.NAME).getClass());
+    assertEquals(SQLMethodLeft.class, factory.createMethod(SQLMethodLeft.NAME).getClass());
+    assertEquals(SQLMethodTrim.class, factory.createMethod(SQLMethodTrim.NAME).getClass());
   }
 
   // ---------------------------------------------------------------------------
@@ -401,16 +401,26 @@ public class DefaultSQLMethodFactoryTest {
 
   @Test
   public void zzzRegisterOverwritesExistingEntryForSameKey() {
-    // Test runs last (zzz-prefix + FixMethodOrder) — it mutates a built-in entry and then uses
-    // the ALREADY-BUILT factory field; FakeNameTest's fresh factory in @Before shields peer
-    // tests from leaking state via the `methods` field. The JVM-wide SPI cache is ALSO immune
-    // because DefaultSQLMethodFactory instances don't share state.
+    // Test runs last (zzz-prefix + FixMethodOrder) — precaution consistent with Track 6's
+    // CustomSQLFunctionFactoryTest, though each @Before builds a fresh factory so no
+    // cross-test leakage is actually possible. Kept for the readability of "mutating tests
+    // run at the tail" even if the safety it provides is redundant here.
     //
     // Behavioural contract: register() calls Map.put(), which overwrites. Pinning this is the
     // only way to detect a regression that silently converts register() into "first-wins" or
     // "no-op if exists" semantics — either of which would break the SPI late-binder pattern
     // used by CustomSQLFunctionFactory and co.
+    //
+    // Pre-mutation assertion rules out "replacement was already identity-equal to the default"
+    // as an alternative explanation for the post-mutation assertSame.
+    var original = factory.createMethod(SQLMethodSize.NAME);
+    assertTrue(
+        "pre-mutation: the default registration must be an SQLMethodSize",
+        original instanceof SQLMethodSize);
     var replacement = new StubMethod();
+    assertFalse(
+        "pre-mutation: replacement must be distinct from the default",
+        original == replacement);
     factory.register(SQLMethodSize.NAME, replacement);
     assertSame(
         "register() must overwrite existing entries (not first-wins)",

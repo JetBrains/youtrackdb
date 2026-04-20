@@ -119,8 +119,10 @@ public class SQLMethodRuntimeTest extends DbTestBase {
     // instances of the same logical method.
     var sizeRuntime = new SQLMethodRuntime(new SQLMethodSize());
     var trimRuntime = new SQLMethodRuntime(new SQLMethodTrim());
-    assertTrue(sizeRuntime.compareTo(trimRuntime) < 0); // "size" < "trim"
-    assertTrue(trimRuntime.compareTo(sizeRuntime) > 0);
+    // Pin the exact deterministic value — stricter than a sign check. A regression that returns
+    // -1 / +1 instead of the String.compareTo value would fail here but pass a sign assertion.
+    assertEquals("size".compareTo("trim"), sizeRuntime.compareTo(trimRuntime));
+    assertEquals("trim".compareTo("size"), trimRuntime.compareTo(sizeRuntime));
     assertEquals(0, sizeRuntime.compareTo(new SQLMethodRuntime(new SQLMethodSize())));
   }
 
@@ -195,9 +197,14 @@ public class SQLMethodRuntimeTest extends DbTestBase {
     // routed through SQLHelper.parseValue. They are expected to be resolved by the method
     // itself (e.g., collection accessors). Pin the raw pass-through so a regression that drops
     // the guard — causing parseValue to recursively walk "[a,b]" — is caught.
+    //
+    // Assert BOTH sides of the invariant: configured stays raw, AND the copy-static-values
+    // loop (SQLMethodRuntime.java:220-226) propagates it to runtime. Missing the runtime half
+    // would let a regression that drops the copy loop pass undetected.
     var runtime = new SQLMethodRuntime(new SQLMethodTrim());
     runtime.setParameters(session, new Object[] {"[a,b]"}, true);
     assertEquals("[a,b]", runtime.getConfiguredParameters()[0]);
+    assertArrayEquals(new Object[] {"[a,b]"}, runtime.getRuntimeParameters());
   }
 
   @Test
@@ -255,20 +262,30 @@ public class SQLMethodRuntimeTest extends DbTestBase {
   @Test
   public void executeWithIThisNullReturnsNull() {
     // The `if (iThis == null) return null` guard must fire BEFORE any resolver or arity check.
-    var m = new SQLMethodSize();
-    var runtime = new SQLMethodRuntime(m);
+    // Using a ProbeMethod lets us also pin non-invocation — a regression that inlined the
+    // null-check AFTER method.execute would still return null via the probe's default
+    // returnValue, and would be invisible without the invoked-flag check.
+    var probe = new ProbeMethod("size", 0, 0);
+    var runtime = new SQLMethodRuntime(probe);
     assertNull(runtime.execute(null, null, null, ctx));
+    assertFalse("early-return must skip method.execute entirely", probe.invoked);
   }
 
   @Test
   public void executeWithNullConfiguredParametersSkipsResolverAndCallsMethod() {
     // Programmatic path — no setParameters invoked. configuredParameters remains null and the
     // method sees a null iParams array. SQLMethodSize tolerates null params (it ignores them).
+    //
+    // Pass a real collection as ioResult (4th execute arg) so SQLMethodSize reaches the
+    // MultiValue.getSize(Collection) branch and returns its size. This pins both that (a) the
+    // resolver was skipped (no NPE on null configuredParameters) AND (b) the wrapped method's
+    // return flows back unchanged — a stronger behavioural assertion than just returning 0
+    // from the null-ioResult fallback.
     var runtime = new SQLMethodRuntime(new SQLMethodSize());
-    // Size of a plain String "abc" is 0 (per SQLMethodSize: non-Identifiable non-MultiValue →
-    // MultiValue.getSize returns 0). Pin reachability of the no-arity-check branch.
-    var out = runtime.execute("abc", null, null, ctx);
-    assertEquals(0, out);
+    var out = runtime.execute("iThisIgnored", null, java.util.List.of("a", "b", "c"), ctx);
+    // MultiValue.getSize returns Long for Collection inputs; cast via intValue() to make the
+    // assertion robust against int-vs-long widening without losing the behavioural signal.
+    assertEquals(3, ((Number) out).intValue());
   }
 
   // ---------------------------------------------------------------------------
@@ -313,6 +330,12 @@ public class SQLMethodRuntimeTest extends DbTestBase {
     outerRuntime.setParameters(session, new Object[] {innerRuntime}, true);
 
     outerRuntime.execute("outer-this", null, null, ctx);
+    // The inner probe MUST have been invoked — an invoked flag on top of the lastIThis
+    // assertion is important because `lastIThis` is initialised to null (matching a legitimate
+    // null iThis). Without the flag, a regression that stashed the nested method's
+    // returnValue via some other channel would pass the assertArrayEquals without ever
+    // calling inner.execute.
+    assertTrue("nested SQLMethodRuntime.execute must be invoked", inner.invoked);
     assertArrayEquals(new Object[] {"inner-out"}, outer.lastParams);
     // Inner probe must have been called with the outer's iThis — the nested-SQLMethodRuntime
     // branch propagates iThis downward.
@@ -369,6 +392,11 @@ public class SQLMethodRuntimeTest extends DbTestBase {
 
     runtime.execute("iThis", null, null, ctx);
     assertArrayEquals(new Object[] {"quoted-payload"}, probe.lastParams);
+    // Also assert the runtime-side mutation — the branch updates runtimeParameters[i] in
+    // place. A regression that wrote the stripped value to a local variable without mutating
+    // the runtime array would still hand the right iParams to method.execute but leave
+    // runtime.runtimeParameters stale.
+    assertArrayEquals(new Object[] {"quoted-payload"}, runtime.getRuntimeParameters());
   }
 
   @Test
@@ -381,6 +409,7 @@ public class SQLMethodRuntimeTest extends DbTestBase {
 
     runtime.execute("iThis", null, null, ctx);
     assertArrayEquals(new Object[] {"single"}, probe.lastParams);
+    assertArrayEquals(new Object[] {"single"}, runtime.getRuntimeParameters());
   }
 
   @Test
@@ -431,6 +460,9 @@ public class SQLMethodRuntimeTest extends DbTestBase {
       assertTrue("message should show range 2-3: " + msg, msg.contains("2-3"));
       assertTrue("message should report received count 1: " + msg, msg.contains("received 1"));
     }
+    // Arity check must fire BEFORE method dispatch — otherwise a too-few-args call could have
+    // side effects on the wrapped method. Pin non-invocation.
+    assertFalse("arity check must short-circuit before method.execute", probe.invoked);
   }
 
   @Test
@@ -448,6 +480,29 @@ public class SQLMethodRuntimeTest extends DbTestBase {
       assertTrue("range 1-2: " + msg, msg.contains("1-2"));
       assertTrue("received 3: " + msg, msg.contains("received 3"));
     }
+    assertFalse("arity check must short-circuit before method.execute", probe.invoked);
+  }
+
+  @Test
+  public void executeUpperBoundOnlyEnforcedWhenMinIsZero() {
+    // Arity case (min=0, max=3) with 4 params: lower bound is trivially satisfied (0 <= 4);
+    // upper bound is violated (4 > 3) so the CEE message must still fire. Pins the "min=0 is
+    // not synonymous with no-check" branch — a regression that conflated min=0 with
+    // maxParams=0 (which DOES skip the check) would pass an excess call silently.
+    var probe = new ProbeMethod("upper", 0, 3);
+    var runtime = new SQLMethodRuntime(probe);
+    runtime.setParameters(session, new Object[] {1, 2, 3, 4}, true);
+
+    try {
+      runtime.execute("iThis", null, null, ctx);
+      fail("expected CommandExecutionException for exceeding upper bound");
+    } catch (CommandExecutionException e) {
+      var msg = e.getMessage();
+      assertTrue("should name: " + msg, msg.contains("'upper'"));
+      assertTrue("range 0-3: " + msg, msg.contains("0-3"));
+      assertTrue("received 4: " + msg, msg.contains("received 4"));
+    }
+    assertFalse("arity check must short-circuit before method.execute", probe.invoked);
   }
 
   @Test
@@ -481,8 +536,14 @@ public class SQLMethodRuntimeTest extends DbTestBase {
     var runtime = new SQLMethodRuntime(probe);
     runtime.setParameters(session, new Object[] {1, 2}, true);
 
-    // No exception is raised; extra params are forwarded to the method.
-    runtime.execute("iThis", null, null, ctx);
+    // No exception is raised; extra params are forwarded to the method AND execute() returns
+    // whatever the method produced. Setting probe.returnValue to a distinct sentinel + asserting
+    // both invocation and return pins: (a) no arity throw, (b) method.execute was reached,
+    // (c) the return threads back through transformValue unchanged.
+    probe.returnValue = "sentinel";
+    var out = runtime.execute("iThis", null, null, ctx);
+    assertEquals("sentinel", out);
+    assertTrue("method must be invoked when arity check is skipped", probe.invoked);
     assertArrayEquals(new Object[] {1, 2}, probe.lastParams);
   }
 
@@ -503,12 +564,17 @@ public class SQLMethodRuntimeTest extends DbTestBase {
       assertTrue(expected.getMessage().contains("'variadic'"));
     }
 
-    // Many — passes (max=-1, unbounded). Use a fresh runtime because the first setParameters
-    // seeded an empty configured array.
-    var manyRuntime = new SQLMethodRuntime(probe);
+    // Many — passes (max=-1, unbounded). Use a fresh probe AND runtime so stale lastParams
+    // from the prior failed call cannot alias with a regression that silently short-circuits
+    // without invoking the method.
+    var manyProbe = new ProbeMethod("variadic", 1, -1);
+    manyProbe.returnValue = "many-ok";
+    var manyRuntime = new SQLMethodRuntime(manyProbe);
     manyRuntime.setParameters(session, new Object[] {1, 2, 3, 4, 5, 6, 7}, true);
-    manyRuntime.execute("iThis", null, null, ctx);
-    assertEquals(7, probe.lastParams.length);
+    var out = manyRuntime.execute("iThis", null, null, ctx);
+    assertEquals("many-ok", out);
+    assertTrue("method must be invoked when upper-bound check is skipped", manyProbe.invoked);
+    assertArrayEquals(new Object[] {1, 2, 3, 4, 5, 6, 7}, manyProbe.lastParams);
   }
 
   // ---------------------------------------------------------------------------
@@ -545,6 +611,7 @@ public class SQLMethodRuntimeTest extends DbTestBase {
               CommandContext iContext,
               Object ioResult,
               Object[] iParams) {
+            this.invoked = true;
             // RecordNotFoundException's public ctors all require a RID argument; use the
             // message-accepting ctor with a null RID to produce a throwable that still carries
             // a descriptive message but does not require an actual record.
@@ -554,6 +621,11 @@ public class SQLMethodRuntimeTest extends DbTestBase {
     var runtime = new SQLMethodRuntime(throwingProbe);
     var record = new ResultInternal(session);
     assertNull(runtime.getValue(record, null, ctx));
+    // Pin the catch block is only reachable by actually invoking the wrapped method —
+    // a regression with an early null-guard before execute would return null AND skip the
+    // probe, producing a false positive.
+    assertTrue("getValue must reach the wrapped method before the catch fires",
+        throwingProbe.invoked);
   }
 
   @Test
@@ -597,11 +669,14 @@ public class SQLMethodRuntimeTest extends DbTestBase {
     final int minParams;
     final int maxParams;
 
+    // Tuning knobs (set by the test before invoking SQLMethodRuntime):
     Object returnValue;
     boolean evaluateParameters = true;
 
+    // Recorded observations (assert after invocation):
     Object lastIThis;
     Object[] lastParams;
+    boolean invoked; // set true when execute() is actually entered
 
     ProbeMethod(String name) {
       this(name, 0, 0);
@@ -640,6 +715,7 @@ public class SQLMethodRuntimeTest extends DbTestBase {
         CommandContext iContext,
         Object ioResult,
         Object[] iParams) {
+      this.invoked = true;
       this.lastIThis = iThis;
       this.lastParams = iParams;
       return returnValue;
@@ -737,7 +813,9 @@ public class SQLMethodRuntimeTest extends DbTestBase {
 
     StubParser(String text) {
       this.parserText = text;
-      this.parserTextUpperCase = text.toUpperCase();
+      // Locale.ENGLISH pinning avoids the Turkish-locale trap where "i".toUpperCase() →
+      // "İ" (U+0130). Matches the Locale.ENGLISH convention used throughout SQL dispatch.
+      this.parserTextUpperCase = text.toUpperCase(java.util.Locale.ENGLISH);
     }
 
     @Override
