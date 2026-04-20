@@ -441,32 +441,13 @@ jobs:
             const fullBody = `${HEADER}\n${body}`;
 
             for (const pr of prs) {
-              // Look for an existing benchmark comment to update
-              const { data: comments } = await github.rest.issues.listComments({
+              await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: pr.number,
+                body: fullBody,
               });
-
-              const existing = comments.find(c => c.body.startsWith(HEADER));
-
-              if (existing) {
-                await github.rest.issues.updateComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  comment_id: existing.id,
-                  body: fullBody,
-                });
-                console.log(`Updated benchmark comment on PR #${pr.number}`);
-              } else {
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: pr.number,
-                  body: fullBody,
-                });
-                console.log(`Created benchmark comment on PR #${pr.number}`);
-              }
+              console.log(`Created benchmark comment on PR #${pr.number}`);
             }
 
       # ── Cleanup temp files ──────────────────────────────────────────────
