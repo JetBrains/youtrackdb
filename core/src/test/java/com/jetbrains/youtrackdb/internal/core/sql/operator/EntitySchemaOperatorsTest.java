@@ -1287,6 +1287,42 @@ public class EntitySchemaOperatorsTest extends DbTestBase {
   }
 
   @Test
+  public void testTraverseSpecificFieldBranchReachedViaElse() {
+    // Covers the else branch in QueryOperatorTraverse.traverse() that handles a
+    // concrete field name (neither any() nor all()). We must enter the
+    // cfgFields loop, which requires startDeepLevel=1 so the level-0 condition
+    // check at line 117 is bypassed (iLevel < startDeepLevel). A specific
+    // field name ("child") then misses both any() and all() and reaches the
+    // else branch that calls traverse(target.getProperty(cfgField), …).
+    var specific = session.getMetadata().getSchema().createClass("TraverseSpecificField");
+    specific.createProperty("child", PropertyType.LINK, specific);
+
+    session.begin();
+    var child = session.newInstance("TraverseSpecificField");
+    child.setProperty("name", "leaf");
+
+    var root = session.newInstance("TraverseSpecificField");
+    root.setProperty("child", child.getIdentity());
+    session.commit();
+
+    // startDeepLevel=1 → cfgFields loop runs at level 0 with cfgField="child",
+    // falling through any()/all() into the else branch.
+    var traverse = new QueryOperatorTraverse(1, -1, new String[] {"child"});
+    var ctx = newCommandContext();
+    var subCond = alwaysTrueCondition();
+    var outerCond = new SQLFilterCondition("field", traverse, subCond);
+
+    session.begin();
+    Object result =
+        traverse.evaluateRecord(
+            null, null, outerCond, root.getIdentity(), subCond, ctx, SERIALIZER);
+    session.commit();
+    // else branch recurses into getProperty("child") → child entity matches
+    // alwaysTrueCondition at level 1 → returns true.
+    Assert.assertEquals(true, result);
+  }
+
+  @Test
   public void testTraverseMapValues() {
     // Traverse through a Map target — iterates map values
     var traverse = new QueryOperatorTraverse(0, -1, new String[] {"any()"});
