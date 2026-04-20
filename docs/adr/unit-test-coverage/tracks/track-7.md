@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/8 complete)
+- [ ] Step implementation (3/8 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -375,8 +375,9 @@ LiveResultListener, LocalLiveResultListener.
   > the first production bug surfaced in Track 7 and is pinned but not
   > fixed. Track 22's production-side cleanup scope grows by one entry.
 
-- [ ] Step 3: `sql/method` infrastructure — DefaultSQLMethodFactory,
+- [x] Step 3: `sql/method` infrastructure — DefaultSQLMethodFactory,
   SQLMethodRuntime, AbstractSQLMethod helpers
+  - [x] Context: warning
   - Scope: 3 test classes.
     - `DefaultSQLMethodFactoryTest` (SequentialTest + FixMethodOrder
       NAME_ASCENDING):
@@ -402,6 +403,154 @@ LiveResultListener, LocalLiveResultListener.
       contract). Standalone.
   - Verify: `./mvnw -pl core -Dtest='DefaultSQLMethodFactoryTest,SQLMethodRuntimeTest,AbstractSQLMethodTest' clean test` green.
   - Expected: ~30 test methods across 3 new test classes.
+
+  > **What was done:** Added 74 tests across 3 new standalone/DbTestBase test
+  > classes under `core/src/test/java/.../sql/method/`: AbstractSQLMethodTest
+  > (26 tests, standalone), DefaultSQLMethodFactoryTest (15 tests,
+  > `@Category(SequentialTest)` + `@FixMethodOrder(NAME_ASCENDING)`),
+  > SQLMethodRuntimeTest (33 tests, DbTestBase). First commit (`b4fa3ed9`)
+  > produced 70 tests; the step-level dimensional review drove a follow-up
+  > commit (`fe3e4cab`) that added 4 corner-case tests (empty-input AIOBE,
+  > single-quote AIOBE, single-optional `getSyntax`, upper-bound-only arity
+  > enforcement) and strengthened assertions across ~15 tests (invoked
+  > flags, runtime-params pins, pre-mutation state, exact class equality,
+  > `String.compareTo` exact-value assertions).
+  >
+  > **What was discovered:**
+  > - **Latent production bug #1 — `DefaultSQLMethodFactory.createMethod` is
+  >   case-sensitive while `register` / `hasMethod` are case-insensitive**
+  >   (T6 pin from track review, now verified): `hasMethod("SIZE")` returns
+  >   true but `createMethod("SIZE")` throws `CommandExecutionException`.
+  >   Masked in production by `SQLEngine.getMethod` lowercasing the name
+  >   first — but any direct factory caller (or a future factory) hits the
+  >   inconsistency. Pinned in
+  >   `createMethodIsCaseSensitiveWhileHasMethodIsCaseInsensitive` with a
+  >   WHEN-FIXED marker for Track 22.
+  > - **Latent production bug #2 — `SQLMethodFunctionDelegate` is registered
+  >   as `Class<?>` but has no no-arg constructor**: its only ctor takes
+  >   `(SQLFunction f)`. `DefaultSQLMethodFactory.createMethod("function")`
+  >   therefore ALWAYS throws on the reflective `newInstance()` path. The
+  >   class-registered branch is effectively dead for this one entry.
+  >   Production `SQLMethodFunctionDelegate` is instantiated only directly
+  >   (`new SQLMethodFunctionDelegate(f)` in `SQLFilterItemAbstract:152`).
+  >   Pinned in `allRegisteredNamesCreatableViaCreateMethodExceptFunction`
+  >   with WHEN-FIXED marker. Discovered via the first test failure — a real
+  >   "tests find a bug" outcome. Track 22 should either add a no-arg ctor
+  >   + post-hoc setFunction() or remove the factory registration.
+  > - **Latent production bugs #3 and #4 — `AbstractSQLMethod.getParameterValue`
+  >   has two unguarded AIOBE paths**: empty string `""` crashes at
+  >   `charAt(0)`, and single-char `"'"` crashes at `substring(1, 0)` (endIndex
+  >   < beginIndex). Both pinned as falsifiable WHEN-FIXED regressions in
+  >   `getParameterValueEmptyStringThrowsIndexOutOfBounds` and
+  >   `getParameterValueSingleQuoteCrashesOnSubstringUnderflow`. If
+  >   production adds length-2 guards, flip the tests to assert the chosen
+  >   return value (likely null or empty string).
+  > - **HashMap race pattern** (T4/T10 from track review): the factory's
+  >   `methods` field is a plain `HashMap<String, Object>` mutated via
+  >   `register()` without synchronization. Pinned structurally in
+  >   `methodsBackingMapIsPlainHashMapWhenFixedConvertToConcurrent` via
+  >   reflection on the field type. Twin of Track 6's CustomSQLFunctionFactory
+  >   pin. Track 22 should convert both factories to ConcurrentHashMap in a
+  >   single commit along with a concurrent register/lookup contract test.
+  > - **`SQLHelper.parseValue` promotes unparseable unquoted strings to
+  >   `SQLFilterItemField`** (not `VALUE_NOT_PARSED` as my initial test
+  >   assumed): the 4-arg overload delegates to
+  >   `parseValue(BaseParser, String, CommandContext)` which, after trying
+  >   literals/numbers/RIDs/functions/variables, falls through to
+  >   `new SQLFilterItemField(session, iCommand, iWord, null)`. This means
+  >   `setParameters`' `continue` branch (meant to keep raw strings when
+  >   VALUE_NOT_PARSED is returned) is effectively dead for the 4-arg path.
+  >   Corrected the corresponding test
+  >   (`setParametersUnparseableIdentifierBecomesFilterItemField`) to assert
+  >   the actual `instanceof SQLFilterItemField` result.
+  > - **Arity-test gotcha**: passing bare String identifiers ("only", "a")
+  >   as arity-test params causes SQLHelper to promote them to
+  >   SQLFilterItemField, which then fails to resolve against a null record
+  >   ("expression item cannot be resolved because current record is NULL")
+  >   BEFORE the arity check fires — masking the arity message. All arity
+  >   tests switched to numeric (Integer) params to bypass field promotion.
+  >   Carry-forward pattern for Step 4 and beyond: when exercising
+  >   SQLMethodRuntime arity branches, always use non-String params.
+  > - **`SQLMethodRuntime` public-field contract**: `configuredParameters`
+  >   and `runtimeParameters` are public mutable fields used by the parser
+  >   and by test code. Tests that want to exercise rare execute-side
+  >   branches (e.g., the String-starts-with-quote path that `setParameters`
+  >   already strips) can bypass `setParameters` and write the fields
+  >   directly. Legal per the public contract but brittle — a regression
+  >   that encapsulates these fields would break the tests. Documented
+  >   in-test.
+  > - **`BaseParser` has one abstract method** (`throwSyntaxErrorException`)
+  >   that a subclass needs to override. The `StubParser` helper in
+  >   SQLMethodRuntimeTest overrides it with a loud `IllegalStateException`
+  >   so a future refactor that starts calling it during test construction
+  >   fails loudly rather than silently no-op'ing.
+  > - **`BaseParser.parserTextUpperCase` must be set with
+  >   `Locale.ENGLISH`** (review-fix finding, now applied): using default
+  >   locale risks the Turkish-locale trap where lowercase `i` becomes
+  >   `İ` (U+0130), breaking case comparisons in downstream parser helpers.
+  > - **`MultiValue.getSize(Collection)` returns `Long`, not `Integer`**:
+  >   discovered via an assertion failure. Use `Number` + `intValue()` when
+  >   asserting sizes across MultiValue returns. (Track 7 Step 1 already
+  >   documented that `MultiValue.getSize` on a non-multi-value returns 0
+  >   — this is the companion fact for the multi-value branch.)
+  >
+  > **What changed from the plan:** Scope said ~30 test methods across 3
+  > classes; actual is 74 tests. The extra count is attributable to (a) the
+  > `register/hasMethod/createMethod` inconsistency pin requiring more
+  > granular enumerated checks, (b) the full 46-method ALL_NAMES enumeration
+  > (vs spot-check in the scope), (c) four review-driven corner-case tests
+  > (AIOBEs + single-optional getSyntax + upper-bound arity), and (d) five
+  > review-driven assertion-strengthening tests added during iter-1 fix.
+  > The test-count estimate is systematically low for test-additive tracks
+  > under dimensional review — same pattern as Steps 1-2.
+  >
+  > **Cross-track impact:**
+  > - **Track 22 scope expands by three entries**: (1) `createMethod`
+  >   case-sensitivity inconsistency, (2) `SQLMethodFunctionDelegate`
+  >   no-no-arg-ctor dead Class<?> registration, (3) two AIOBE paths in
+  >   `AbstractSQLMethod.getParameterValue`. All pinned as falsifiable
+  >   WHEN-FIXED regressions alongside the existing HashMap-race bucket.
+  > - **Step 4 (SQLFunctionRuntime absorption)** uses the same
+  >   programmatic-constructor + setParameters + execute pattern as
+  >   SQLMethodRuntimeTest. Carry forward: invoked-flag + return-sentinel
+  >   assertion style; numeric (non-String) arity params; Locale.ENGLISH in
+  >   any BaseParser stubs; the `StringBuilder` Test structure pattern.
+  > - **Step 6 (SQLEngineSpiCacheTest)** will pin another static-cache race
+  >   (SQLEngine.FUNCTION_FACTORIES / METHOD_FACTORIES / OPERATOR_FACTORIES
+  >   / COLLATE_FACTORIES / SORTED_OPERATORS). The structural pin pattern
+  >   from
+  >   `methodsBackingMapIsPlainHashMapWhenFixedConvertToConcurrent` is
+  >   directly applicable.
+  > - No Component Map or Decision Record changes.
+  >
+  > **Step-level review iterations:** Ran iter-1 with 6 dimensions (CQ, BC,
+  > TB, TC, TS, TX). 0 blockers + ~25 should-fix + ~15 suggestions.
+  > Applied the 14 highest-impact should-fix items (invoked flags,
+  > stronger-precision assertions, AIOBE pins, single-optional getSyntax,
+  > upper-bound-only arity test, pre-mutation state assertion, exact class
+  > equality, Locale.ENGLISH, deleted tautology test).
+  > Iter-2 gate check deferred: context hit warning level (29-32%) during
+  > iter-1 fix-apply cycle. Per workflow protocol, end session before next
+  > review iteration. Deferred suggestions include DRY refactor of
+  > ProbeMethod/StubMethod/RecordingFunction across files (better handled
+  > in Track 22 with rollbackIfLeftOpen DRY), concurrent smoke test for
+  > HashMap race (WHEN-FIXED pin already flags the production fix), FQN
+  > types in helper signatures (cosmetic), additional corner cases
+  > (TC3/TC4/TC8 Identifiable-secondary-lookup, null-arg register,
+  > uppercase class-registered). All deferred items documented in commit
+  > `fe3e4cab` and reviewable for iter-2 if Track 22 doesn't absorb them.
+  >
+  > **Key files:**
+  > - `core/src/test/java/.../sql/method/DefaultSQLMethodFactoryTest.java` (new, 15 tests)
+  > - `core/src/test/java/.../sql/method/SQLMethodRuntimeTest.java` (new, 33 tests)
+  > - `core/src/test/java/.../sql/method/misc/AbstractSQLMethodTest.java` (new, 26 tests)
+  >
+  > **Critical context:** Four production bugs surfaced in Step 3 (case
+  > sensitivity, no-no-arg-ctor, two AIOBEs) — Track 22's production-side
+  > cleanup queue now has Steps 1 (SQLMethodContains, SQLMethodNormalize,
+  > SQLMethodLastIndexOf/IndexOf/Prefix/CharAt null-guard asymmetries), 2
+  > (SQLMethodField null-unguarded isArray NPE), and 3 (case sensitivity,
+  > function Class<?>-ctor, getParameterValue AIOBEs) queued.
 
 - [ ] Step 4: `sql/functions` SQLFunctionRuntime absorption (Track 6 deferral)
   - Scope: 1 test class. Lives physically under `sql/functions/` but
