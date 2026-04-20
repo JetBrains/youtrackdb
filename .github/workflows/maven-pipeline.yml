@@ -313,6 +313,62 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+  test-macos:
+    name: macOS arm - JDK ${{ matrix.java }} - ${{ matrix.distribution }}
+    needs: [ detect-changes ]
+    if: needs.detect-changes.outputs.should_build == 'true'
+    # GitHub-hosted Apple Silicon runner. No Docker available, so the
+    # docker-images profile is intentionally omitted; otherwise options
+    # mirror the Windows leg (reduced, since the runner is less potent
+    # than the Hetzner CPX42 nodes).
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [ '21', '25' ]
+        distribution: [ 'temurin' ]
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Set up JDK ${{ matrix.java }}
+        uses: actions/setup-java@v5
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: ${{ matrix.distribution }}
+          architecture: aarch64
+          cache: 'maven'
+          overwrite-settings: false
+      - name: Run Unit Tests
+        id: tests
+        run: ./mvnw -s .github/workflows/settings.xml clean package -B -Dmaven.test.failure.ignore=true
+        env:
+          MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
+          MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
+      - name: Publish Test Results
+        uses: EnricoMi/publish-unit-test-result-action/macos@v2
+        if: always()
+        with:
+          files: |
+            **/target/surefire-reports/TEST-*.xml
+            **/target/failsafe-reports/TEST-*.xml
+          action_fail: true
+          large_files: true
+          comment_mode: off
+          check_name: Tests Results (macOS arm, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
+      - name: Upload Test Diagnostics
+        uses: actions/upload-artifact@v7
+        if: "!cancelled()"
+        with:
+          name: test-diagnostics-macos-jdk${{ matrix.java }}-${{ matrix.distribution }}
+          path: |
+            **/target/deadlock-report.txt
+            **/target/surefire-reports/*.dumpstream
+            **/target/surefire-reports/*.dump
+          retention-days: 7
+          if-no-files-found: ignore
+
   # ------------------------------------------------------------------
   # JOB: SMALL CACHE INTEGRATION TESTS (advisory, not in ci-status gate)
   # Runs StorageComponent ITs with 4 MB disk cache to exercise
@@ -603,7 +659,7 @@ jobs:
   # ------------------------------------------------------------------
   save-test-counts:
     name: Save Test Count Baseline
-    needs: [ detect-changes, test-linux, test-windows ]
+    needs: [ detect-changes, test-linux, test-windows, test-macos ]
     if: >-
       github.event_name == 'push' &&
       github.ref == 'refs/heads/develop' &&
@@ -641,7 +697,7 @@ jobs:
   # Runs only if all Test jobs pass. Uses JDK 21
   # ------------------------------------------------------------------
   deploy:
-    needs: [ detect-changes, test-linux, test-windows ]
+    needs: [ detect-changes, test-linux, test-windows, test-macos ]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && needs.detect-changes.outputs.should_build == 'true'
 
@@ -693,7 +749,7 @@ jobs:
   ci-status:
     name: CI Status
     if: always() && github.event.pull_request.draft != true
-    needs: [ detect-changes, test-linux, test-windows, coverage-gate, test-count-gate ]
+    needs: [ detect-changes, test-linux, test-windows, test-macos, coverage-gate, test-count-gate ]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source Code
@@ -708,6 +764,7 @@ jobs:
           SHOULD_BUILD: ${{ needs.detect-changes.outputs.should_build }}
           LINUX_RESULT: ${{ needs.test-linux.result }}
           WINDOWS_RESULT: ${{ needs.test-windows.result }}
+          MACOS_RESULT: ${{ needs.test-macos.result }}
           COVERAGE_RESULT: ${{ needs.coverage-gate.result }}
           TEST_COUNT_RESULT: ${{ needs.test-count-gate.result }}
         run: |
@@ -720,9 +777,10 @@ jobs:
             exit 0
           fi
           if [[ "$LINUX_RESULT" != "success" ]] || \
-             [[ "$WINDOWS_RESULT" != "success" ]]; then
+             [[ "$WINDOWS_RESULT" != "success" ]] || \
+             [[ "$MACOS_RESULT" != "success" ]]; then
             echo "Not all required jobs succeeded" \
-              "(linux=$LINUX_RESULT, windows=$WINDOWS_RESULT)"
+              "(linux=$LINUX_RESULT, windows=$WINDOWS_RESULT, macos=$MACOS_RESULT)"
             exit 1
           fi
           # coverage-gate and test-count-gate only run on PRs;
@@ -739,7 +797,7 @@ jobs:
 
   notify-failure:
     name: Notify build failure on Zulip
-    needs: [ detect-changes, test-linux, test-windows, deploy ]
+    needs: [ detect-changes, test-linux, test-windows, test-macos, deploy ]
     if: >-
       failure() &&
       needs.detect-changes.outputs.should_build == 'true' &&
@@ -776,7 +834,7 @@ jobs:
             :robot: Automated fix agent has been dispatched and is investigating...
   notify-fixed:
     name: Notify build fixed on Zulip
-    needs: [ detect-changes, test-linux, test-windows, deploy ]
+    needs: [ detect-changes, test-linux, test-windows, test-macos, deploy ]
     if: >-
       always() &&
       needs.detect-changes.outputs.should_build == 'true' &&
