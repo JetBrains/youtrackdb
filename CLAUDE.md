@@ -10,7 +10,7 @@ YouTrackDB is a general-purpose object-oriented graph database developed by JetB
 - **Group ID**: `io.youtrackdb`
 - **Version**: `0.5.0-SNAPSHOT` (CI-friendly: `${revision}${sha1}${changelist}`)
 - **Issue tracker**: https://youtrack.jetbrains.com/issues/YTDB
-- **Repository**: https://github.com/youtrackdb/youtrackdb
+- **Repository**: https://github.com/JetBrains/youtrackdb
 
 ## Build Commands
 

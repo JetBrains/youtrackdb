@@ -11,7 +11,7 @@ You are an expert crash safety test reviewer specializing in database storage sy
 YouTrackDB is a Java 21+ object-oriented graph database with:
 - **Page-based storage**: Default 8 KB pages, two-tier cache (ReadCache + WriteCache)
 - **WAL**: LogSequenceNumber (segment, position) pairs, atomic operations logged before page mutations
-- **DurableComponent**: Base class for crash-recoverable data structures
+- **StorageComponent**: Base class for storage-backed data structures; instances constructed with `durable=true` participate in WAL crash recovery
 - **Double-write log**: Prevents torn page writes on disk
 - **Transaction lifecycle**: Begin → log mutations to WAL → apply to pages → commit (flush WAL) → checkpoint (flush dirty pages)
 - Core and server tests use JUnit 4; the `tests` module uses JUnit 5
