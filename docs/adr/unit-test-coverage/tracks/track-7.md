@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (5/8 complete)
+- [ ] Step implementation (6/8 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -949,7 +949,125 @@ LiveResultListener, LocalLiveResultListener.
   - Verify: `./mvnw -pl core -Dtest='SQLHelper*Test,CommandParametersTest,IndexSearchResultTest,RuntimeResultTest,SqlRootDeadCodeTest' clean test` green.
   - Expected: ~50 test methods across 6 new test classes.
 
-- [ ] Step 6: `sql` root — SQLHelper collection paths + SQLEngine SPI cache
+- [x] Step 6: `sql` root — SQLHelper collection paths + SQLEngine SPI cache
+  - [x] Context: warning
+  > **What was done:** Added 66 `@Test` methods across 2 new test files
+  > (after iter-1 review fixes; 63 on the initial commit + 3 TC-fill tests).
+  > - `SQLHelperParseValueCollectionTest` (29 tests, DbTestBase): LIST_BEGIN
+  >   and MAP_BEGIN recursive dispatch of the 7-arg parseValue overload.
+  >   Covers every propertyType × isMultiValue × isLink allocator branch
+  >   (newEmbeddedList, newLinkList, newEmbeddedMap, newLinkMap), scalar-
+  >   propertyType IllegalArgument defensive checks for both list and map,
+  >   malformed-entry CommandSQLParsingException, @type-keyed map →
+  >   entity promotion (null/embedded/link/scalar parentProperty),
+  >   schemaClass-driven JSONSerializerJackson path (null/embedded/link/
+  >   scalar parentProperty), schemaProperty-driven recursion (list via
+  >   LINKLIST+linkedClass discriminator, map via linkedType), VALUE_NOT_PARSED
+  >   sentinel leak in list branch, SQLPredicate retry in map branch,
+  >   StringSerializerHelper.decode on map String values, nested list-of-
+  >   maps/list-of-lists/map-of-list. `@After rollbackIfLeftOpen` idiom
+  >   applied per Track 7 convention.
+  > - `SQLEngineSpiCacheTest` (37 tests, SequentialTest + FixMethodOrder
+  >   NAME_ASCENDING, DbTestBase): every SPI factory getter's lazy init +
+  >   cache hit (with TB-3 reflection-verified container identity on
+  >   FUNCTION_FACTORIES), aggregated-name queries (getFunctionNames,
+  >   getMethodNames, getCollateNames), SORTED_OPERATORS identity-cached
+  >   and rebuilt after registerOperator, getFunction/getFunctionOrNull
+  >   happy path / case-insensitive / "any"-"all" short-circuit / unknown
+  >   exception with quoted-name + available-names clause, getMethod
+  >   case-insensitive masking DefaultSQLMethodFactory bug, getCollate
+  >   known/unknown, getCommand empty-registry WHEN-FIXED pin and dynamic
+  >   dispatch via TestDynamicCommand fixture (instanceof checks on exact/
+  >   trim/prefix paths), registerFunction/unregisterFunction lowercasing
+  >   + overwrite semantics, registerOperator ordering pin (add-then-clear
+  >   contract + next-call rebuild), scanForPlugins WHEN-FIXED bug pin
+  >   (only FUNCTION_FACTORIES cleared; 5 other caches stay stale).
+  >   Snapshot-equality @After guards FUNCTIONS/COMMANDS/OPERATORS against
+  >   static-state leak. Operator-set snapshots held under
+  >   `synchronized (OPERATORS)` for robustness to SequentialTest-category
+  >   removal. UUID-qualified prefix with lowercase-invariant assertion.
+  >
+  > **What was discovered:**
+  > - Empty list `[]` returns an empty `EmbeddedList` (not a singleton
+  >   containing `""`). Initial assumption — that smartSplit("") yields a
+  >   singleton empty-string — was wrong; pinned as
+  >   `parseEmptyListReturnsEmptyEmbeddedList`.
+  > - `newEntity()` (no-arg, schemaClass=null, @type-promoted path)
+  >   requires an active transaction because `newInstance` touches
+  >   `FrontendTransactionNoTx.addRecordOperation`. `newEmbeddedEntity()`
+  >   does NOT — embedded entities have no cluster. Three @type-promotion
+  >   tests open a tx; rollback is handled by the `@After
+  >   rollbackIfLeftOpen` safety net rather than inline try/finally.
+  > - `newEmbeddedEntity(schemaClass)` rejects non-abstract classes with
+  >   `DatabaseException("Embedded entities can be only of abstract
+  >   classes")`. Tests that need a schemaClass for the embedded path
+  >   must use `createAbstractClass`. Pattern worth flagging for future
+  >   tracks that exercise embedded-entity allocation.
+  > - `DefaultCommandExecutorSQLFactory` registers an empty `COMMANDS`
+  >   map (hardcoded emptyMap) and `DynamicSQLElementFactory.COMMANDS`
+  >   has no production writers. `SQLEngine.getCommandNames()` therefore
+  >   returns an empty set in production; the entire `SQLEngine.getCommand`
+  >   dispatch path is effectively dead code (consistent with Step 5's
+  >   SqlRootDeadCodeTest pins on both factory classes). Pinned as
+  >   `getCommandNamesMatchesSetupSnapshotBecauseProductionFactoriesRegisterNothingBugPin`
+  >   comparing against `commandsBefore` snapshot rather than absolute
+  >   `isEmpty()` — robust to prior-class leak.
+  > - `SQLEngine.scanForPlugins()` only clears `FUNCTION_FACTORIES`,
+  >   leaving `METHOD_FACTORIES`, `OPERATOR_FACTORIES`, `COLLATE_FACTORIES`,
+  >   `EXECUTOR_FACTORIES`, `SORTED_OPERATORS` stale. Pinned with 6
+  >   assertNotNull WHEN-FIXED markers for Track 22 to flip to assertNull.
+  > - `SQLEngine.registerOperator` is non-atomic with respect to
+  >   `SORTED_OPERATORS` rebuild. The OPERATORS.add and `SORTED_OPERATORS
+  >   = null` writes happen outside `LOCK`. Single-threaded pin asserts
+  >   add-happens-before-clear AND next-call rebuild contains the op; the
+  >   actual multi-threaded stale-read race is explicitly deferred to
+  >   Track 22's twin-fix with CustomSQLFunctionFactory +
+  >   DefaultSQLMethodFactory ConcurrentHashMap conversion (same pattern
+  >   as Track 6's BC1/TX1).
+  > - Map-branch value-retry via SQLPredicate (SQLHelper line 240-242):
+  >   a bareword like `foo` as a map value reaches `new SQLPredicate(ctx,
+  >   "foo").evaluate(ctx)`, which promotes to SQLFilterItemField and
+  >   raises `CommandExecutionException("expression item 'foo' cannot be
+  >   resolved because current record is NULL")`. The exception itself
+  >   is the observable proof that the retry fired — a regression that
+  >   dropped the retry would leak VALUE_NOT_PARSED into the map instead.
+  > - StringSerializerHelper.decode on map String values collapses `\\`
+  >   → `\` as expected. Pinned with escaped-backslash literal.
+  > - `SQLHelper.parseValue` with `propertyType != null && !isMultiValue()`
+  >   and a bracketed/braced literal throws `IllegalArgumentException` with
+  >   a message including the input and "property is not a collection"
+  >   phrase. Two defensive-check branches (list + map) pinned.
+  >
+  > **What changed from the plan:** Step 6 scope-indicator said ~35 test
+  > methods; final count is 66 because iter-1 review surfaced 3 missing
+  > branch tests (TC-1 SQLPredicate retry, TC-2 decode, TC-3
+  > schemaProperty map recursion) and because both scoped classes had
+  > ~28 and ~35 tests after completing each branch enumeration. Two
+  > tests from the original Step 6 commit (parseEmptyListReturnsEmbeddedListWithOneEmptyStringElement,
+  > parseListWithSchemaPropertyRecursesWithLinkedTypeAndLinkedClass)
+  > were revised during iter-1: the first because initial assumption
+  > about smartSplit("") was wrong, the second because the original
+  > EMBEDDEDLIST+INTEGER setup was indistinguishable from the
+  > no-schemaProperty branch (fixed to LINKLIST+linkedClass
+  > discriminator). No cross-track impact.
+  >
+  > **Key files:**
+  > - `core/src/test/java/.../sql/SQLHelperParseValueCollectionTest.java` (new, 29 tests)
+  > - `core/src/test/java/.../sql/SQLEngineSpiCacheTest.java` (new, 37 tests)
+  >
+  > **Critical context:** Step-level code review iter-1 ran 6 dimensional
+  > sub-agents in parallel (code-quality, bugs-concurrency, test-behavior,
+  > test-completeness, test-structure, test-concurrency): 0 blocker / 15
+  > should-fix / 20 suggestion. Review-fix commit (`e9882bd51c`) applied
+  > 11 should-fix items across all 6 dimensions (TB-1/2/3/4/5, TC-1/2/3,
+  > CQ1, BC-1, TS-1, TX-3, `uuidPrefix` lowercase invariant). 4 should-fix
+  > deferred: CQ2 (assertThrows helper), CQ3 (cache-hit helper method),
+  > CQ8 (unqualify inner-class FQCNs), TS-2 (case-insensitive removeIf
+  > predicate — resolved alternatively via setup-time lowercase-invariant
+  > assert). 20 suggestion-grade items legitimately deferred for Track 22
+  > or future iteration. Iter-2 gate check deferred due to context
+  > consumption hitting warning level (30% → 33% after fixes); Phase C
+  > track-level review will provide a fresh-eyes gate.
   - Scope: 2 test classes.
     - `SQLHelperParseValueCollectionTest` (DbTestBase):
       * Embedded list `[a, b, c]`, embedded map `{k: v}`, link list,
