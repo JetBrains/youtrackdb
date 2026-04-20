@@ -1,0 +1,491 @@
+/*
+ *
+ *
+ *  *
+ *  *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  *  you may not use this file except in compliance with the License.
+ *  *  You may obtain a copy of the License at
+ *  *
+ *  *       http://www.apache.org/licenses/LICENSE-2.0
+ *  *
+ *  *  Unless required by applicable law or agreed to in writing, software
+ *  *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  *  See the License for the specific language governing permissions and
+ *  *  limitations under the License.
+ *  *
+ *
+ *
+ */
+package com.jetbrains.youtrackdb.internal.core.sql;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+
+import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaProperty;
+import com.jetbrains.youtrackdb.internal.core.query.collection.embedded.EmbeddedList;
+import com.jetbrains.youtrackdb.internal.core.query.collection.embedded.EmbeddedMap;
+import com.jetbrains.youtrackdb.internal.core.query.collection.links.LinkList;
+import com.jetbrains.youtrackdb.internal.core.query.collection.links.LinkMap;
+import java.util.List;
+import java.util.Map;
+import org.junit.Before;
+import org.junit.Test;
+
+/**
+ * Tests the LIST_BEGIN ({@code '['…']'}) and MAP_BEGIN ({@code '{'…'}'}) recursive dispatch of
+ * {@link SQLHelper#parseValue(String, com.jetbrains.youtrackdb.internal.core.command.CommandContext,
+ * boolean, SchemaClass, SchemaProperty, PropertyTypeInternal, PropertyTypeInternal)}.
+ *
+ * <p>Scalar value-dispatch paths (null/not null/defined, booleans, quoted strings, RIDs, numerics)
+ * are covered in depth by {@link SQLHelperParseValueScalarTest}; this suite deliberately focuses
+ * on the session-backed collection allocation branches — the ones that call
+ * {@code newEmbeddedList}, {@code newEmbeddedMap}, {@code newLinkList}, {@code newLinkMap} and the
+ * entity-from-{@code @type} promotion.
+ *
+ * <p>All tests use the 7-argument overload directly so each branch's input variables
+ * ({@code propertyType}, {@code schemaProperty}, {@code schemaClass}, {@code parentProperty}) are
+ * independently controllable. Bug-pin tests carry {@code // WHEN-FIXED:} markers so the regression
+ * flips red when the underlying behaviour is corrected.
+ *
+ * <p>Coverage targets (per track-7 step 6):
+ *
+ * <ul>
+ *   <li>Embedded list with no propertyType — default {@code newEmbeddedList}.</li>
+ *   <li>Typed embedded list ({@code EMBEDDEDLIST}) + typed link list ({@code LINKLIST}).</li>
+ *   <li>Rejecting a list literal when propertyType is scalar (IllegalArgumentException).</li>
+ *   <li>Embedded map with no propertyType — default {@code newEmbeddedMap}.</li>
+ *   <li>Typed embedded map ({@code EMBEDDEDMAP}) + typed link map ({@code LINKMAP}).</li>
+ *   <li>Rejecting a map literal when propertyType is scalar (IllegalArgumentException).</li>
+ *   <li>Malformed map entry (missing colon) — CommandSQLParsingException.</li>
+ *   <li>{@code @type}-keyed map promoted to an entity ({@code newEntity} branch).</li>
+ *   <li>{@code parentProperty.isEmbedded()} promotes to {@code newEmbeddedEntity}; {@code isLink()}
+ *       promotes to {@code newEntity}; scalar parentProperty rejected with IllegalArgumentException.
+ *       </li>
+ *   <li>schemaClass-driven JSON parsing path (both parentProperty=null and embedded/link branches).
+ *       </li>
+ *   <li>Nested list-of-maps and list-of-lists.</li>
+ *   <li>Edge cases: empty list, single-element list, trailing comma (empty trailing slot).</li>
+ * </ul>
+ *
+ * <p>Extends {@link DbTestBase} because {@link SQLHelper#parseValue} eagerly calls
+ * {@link com.jetbrains.youtrackdb.internal.core.command.CommandContext#getDatabaseSession()} — and
+ * the collection branches additionally require the session to allocate the backing collection.
+ */
+public class SQLHelperParseValueCollectionTest extends DbTestBase {
+
+  private BasicCommandContext ctx;
+
+  @Before
+  public void setUpContext() {
+    ctx = new BasicCommandContext(session);
+  }
+
+  // ---------------------------------------------------------------------------
+  // List branch — LIST_BEGIN '[' … LIST_END ']'
+  // ---------------------------------------------------------------------------
+
+  @Test
+  public void parseEmbeddedListWithoutPropertyTypeReturnsEmbeddedList() {
+    // No propertyType, no schemaProperty → falls into the unconditional newEmbeddedList() branch
+    // at line 151-152. Items are recursed without any linked-type or linked-class hint.
+    var out = SQLHelper.parseValue("[1, 2, 3]", ctx, false, null, null, null, null);
+    assertTrue("expected EmbeddedList, got " + out.getClass(), out instanceof EmbeddedList);
+    var list = (List<?>) out;
+    assertEquals(3, list.size());
+    // Recursive items should be classified as Integer via the scalar parseStringNumber path.
+    assertEquals(1, list.get(0));
+    assertEquals(2, list.get(1));
+    assertEquals(3, list.get(2));
+  }
+
+  @Test
+  public void parseEmbeddedListWithEmbeddedListPropertyTypeUsesEmbeddedListAllocator() {
+    // propertyType=EMBEDDEDLIST — isMultiValue()=true, isLink()=false → newEmbeddedList() branch at
+    // line 145-146. Distinct from the no-propertyType branch (line 151-152) even though both
+    // allocate embedded; the branch coverage requires both paths to be visited.
+    var out = SQLHelper.parseValue("['a', 'b']", ctx, false, null, null,
+        PropertyTypeInternal.EMBEDDEDLIST, null);
+    assertTrue("expected EmbeddedList, got " + out.getClass(), out instanceof EmbeddedList);
+    assertEquals(List.of("a", "b"), out);
+  }
+
+  @Test
+  public void parseLinkListWithLinkListPropertyTypeUsesLinkListAllocator() {
+    // propertyType=LINKLIST — isMultiValue()=true, isLink()=true → newLinkList() branch at line
+    // 141-144, cast back to List.
+    var out = SQLHelper.parseValue("[#1:0, #1:1]", ctx, false, null, null,
+        PropertyTypeInternal.LINKLIST, null);
+    assertTrue("expected LinkList, got " + out.getClass(), out instanceof LinkList);
+    var list = (List<?>) out;
+    assertEquals(2, list.size());
+    assertEquals(RecordIdInternal.fromString("#1:0", false), list.get(0));
+    assertEquals(RecordIdInternal.fromString("#1:1", false), list.get(1));
+  }
+
+  @Test
+  public void parseListWithScalarPropertyTypeThrowsIllegalArgument() {
+    // propertyType=INTEGER — isMultiValue()=false → throws IllegalArgumentException from line
+    // 148-149. Pins the defensive check that catches a misconfigured property where the schema
+    // says scalar but the literal is a bracketed list.
+    try {
+      SQLHelper.parseValue("[1, 2]", ctx, false, null, null, PropertyTypeInternal.INTEGER,
+          null);
+      fail("expected IllegalArgumentException for list value with scalar propertyType");
+    } catch (IllegalArgumentException e) {
+      assertNotNull(e.getMessage());
+      assertTrue(
+          "message must echo the input: " + e.getMessage(),
+          e.getMessage().contains("[1, 2]"));
+      assertTrue(
+          "message must flag the mismatch: " + e.getMessage(),
+          e.getMessage().contains("property is not a collection"));
+    }
+  }
+
+  @Test
+  public void parseEmptyListReturnsEmptyEmbeddedList() {
+    // smartSplit on an empty input returns an empty list — "[]" round-trips to an empty
+    // EmbeddedList. Pin this so a future refactor that accidentally inserts a synthetic empty
+    // element (a common "smartSplit edge case" mistake) surfaces immediately.
+    var out = SQLHelper.parseValue("[]", ctx, false, null, null, null, null);
+    assertTrue("expected EmbeddedList, got " + out.getClass(), out instanceof EmbeddedList);
+    var list = (List<?>) out;
+    assertTrue("expected empty list, got size=" + list.size(), list.isEmpty());
+  }
+
+  @Test
+  public void parseSingleElementListReturnsEmbeddedListWithOneElement() {
+    // Single element, no trailing comma — smartSplit returns a list of one, recursion classifies
+    // "42" as Integer.
+    var out = SQLHelper.parseValue("[42]", ctx, false, null, null, null, null);
+    assertTrue(out instanceof EmbeddedList);
+    assertEquals(List.of(42), out);
+  }
+
+  @Test
+  public void parseListWithTrailingCommaTrailingSlotIsEmptyString() {
+    // "[1,2,]" splits to ["1", "2", ""] — the empty third slot takes the iValue.isEmpty()
+    // short-circuit and is preserved as "". Pin the observable "trailing-comma produces trailing
+    // empty string" semantics so a CSV-strict refactor would surface here.
+    var out = SQLHelper.parseValue("[1,2,]", ctx, false, null, null, null, null);
+    assertTrue(out instanceof EmbeddedList);
+    var list = (List<?>) out;
+    assertEquals(3, list.size());
+    assertEquals(1, list.get(0));
+    assertEquals(2, list.get(1));
+    assertEquals("", list.get(2));
+  }
+
+  @Test
+  public void parseListWithUnparseableElementStoresValueNotParsedSentinel() {
+    // A bareword inside the bracketed input is not a literal/number/RID — the recursive scalar
+    // parseValue returns VALUE_NOT_PARSED, which is stored verbatim in the list. This pins the
+    // observable sentinel-leak behaviour; SQLFunctionRuntime.setParameters treats it as a signal
+    // to bail out (see Track 6's SQLFunctionRuntimeTest#setParametersBracketInputWith...).
+    var out = SQLHelper.parseValue("[unparseableToken]", ctx, false, null, null, null,
+        null);
+    assertTrue(out instanceof EmbeddedList);
+    var list = (List<?>) out;
+    assertEquals(1, list.size());
+    assertSame(SQLHelper.VALUE_NOT_PARSED, list.get(0));
+  }
+
+  @Test
+  public void parseListWithSchemaPropertyRecursesWithLinkedTypeAndLinkedClass() {
+    // Verify the recursion path uses the schemaProperty's linkedType/linkedClass instead of null.
+    // Creates an EMBEDDEDLIST property linked to INTEGER, then parses a bracketed literal. The
+    // recursive call sets linkedType=INTEGER on the child — which flows through as propertyType
+    // but the integer recursion doesn't actually hit a type-sensitive branch, so we can only
+    // directly verify via the inserted schemaProperty argument.
+    var clazz = session.getMetadata().getSchema().createClass("TestListClass");
+    var prop = clazz.createProperty("items", PropertyType.EMBEDDEDLIST);
+    prop.setLinkedType(PropertyType.INTEGER);
+    var schemaProp = (SchemaProperty) clazz.getProperty("items");
+    var out = SQLHelper.parseValue("[7, 8, 9]", ctx, false, null, schemaProp,
+        PropertyTypeInternal.EMBEDDEDLIST, null);
+    assertTrue(out instanceof EmbeddedList);
+    assertEquals(List.of(7, 8, 9), out);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Map branch — MAP_BEGIN '{' … MAP_END '}'
+  // ---------------------------------------------------------------------------
+
+  @Test
+  public void parseEmbeddedMapWithoutPropertyTypeReturnsEmbeddedMap() {
+    // propertyType=null, schemaClass=null → newEmbeddedMap() at line 208-210.
+    var out = SQLHelper.parseValue("{'k1': 'v1', 'k2': 'v2'}", ctx, false, null, null,
+        null, null);
+    assertTrue("expected EmbeddedMap, got " + out.getClass(), out instanceof EmbeddedMap);
+    var map = (Map<?, ?>) out;
+    assertEquals(2, map.size());
+    assertEquals("v1", map.get("k1"));
+    assertEquals("v2", map.get("k2"));
+  }
+
+  @Test
+  public void parseEmbeddedMapWithEmbeddedMapPropertyTypeUsesEmbeddedMapAllocator() {
+    // propertyType=EMBEDDEDMAP — isMultiValue()=true, isLink()=false → newEmbeddedMap() at line
+    // 201-203.
+    var out = SQLHelper.parseValue("{'k': 'v'}", ctx, false, null, null,
+        PropertyTypeInternal.EMBEDDEDMAP, null);
+    assertTrue("expected EmbeddedMap, got " + out.getClass(), out instanceof EmbeddedMap);
+    assertEquals(Map.of("k", "v"), out);
+  }
+
+  @Test
+  public void parseLinkMapWithLinkMapPropertyTypeUsesLinkMapAllocator() {
+    // propertyType=LINKMAP — isMultiValue()=true, isLink()=true → newLinkMap() at line 198-200,
+    // cast back to Map.
+    var out = SQLHelper.parseValue("{'k': #1:0}", ctx, false, null, null,
+        PropertyTypeInternal.LINKMAP, null);
+    assertTrue("expected LinkMap, got " + out.getClass(), out instanceof LinkMap);
+    var map = (Map<?, ?>) out;
+    assertEquals(1, map.size());
+    assertEquals(RecordIdInternal.fromString("#1:0", false), map.get("k"));
+  }
+
+  @Test
+  public void parseMapWithScalarPropertyTypeThrowsIllegalArgument() {
+    // propertyType=STRING — isMultiValue()=false → IllegalArgumentException at line 205-206. Pins
+    // the defensive check for a scalar-typed property receiving a map literal.
+    try {
+      SQLHelper.parseValue("{'k':'v'}", ctx, false, null, null, PropertyTypeInternal.STRING,
+          null);
+      fail("expected IllegalArgumentException for map value with scalar propertyType");
+    } catch (IllegalArgumentException e) {
+      assertNotNull(e.getMessage());
+      assertTrue(
+          "message must flag the mismatch: " + e.getMessage(),
+          e.getMessage().contains("property is not a collection"));
+    }
+  }
+
+  @Test
+  public void parseMapWithMissingColonThrowsCommandSqlParsingException() {
+    // "{'k'}" splits to one item "'k'" which has no colon — parts.size()==1, not 2 → throws
+    // CommandSQLParsingException at line 216-218. Pins the error path for malformed map
+    // entries (and indirectly that smartSplit on ENTRY_SEPARATOR is honoured).
+    try {
+      SQLHelper.parseValue("{'k'}", ctx, false, null, null, null, null);
+      fail("expected CommandSQLParsingException for malformed map entry");
+    } catch (CommandSQLParsingException e) {
+      assertNotNull(e.getMessage());
+      assertTrue(
+          "message must describe the <key>:<value> requirement: " + e.getMessage(),
+          e.getMessage().contains("<key>:<value>"));
+    }
+  }
+
+  @Test
+  public void parseMapWithAtTypeKeyPromotesToEntityThroughJsonSerializer() {
+    // A manual map parse that contains the @type key re-routes through JSONSerializerJackson to
+    // produce an Entity (line 249-269). parentProperty=null and schemaClass=null, so the
+    // session.newEntity() no-arg allocator is used. Result type is Entity, not Map.
+    //
+    // newEntity() mutates the transaction, so we wrap the call in a begin()/rollback() pair.
+    session.begin();
+    try {
+      var out = SQLHelper.parseValue("{\"@type\":\"d\",\"name\":\"Alice\"}", ctx, false, null,
+          null, null, null);
+      assertTrue("expected Entity, got " + out.getClass(), out instanceof Entity);
+      var entity = (Entity) out;
+      assertEquals("Alice", entity.getProperty("name"));
+    } finally {
+      session.rollback();
+    }
+  }
+
+  @Test
+  public void parseMapWithAtTypeKeyAndEmbeddedParentPromotesToEmbeddedEntity() {
+    // parentProperty=EMBEDDEDLIST → parentProperty.isEmbedded()=true → newEmbeddedEntity() at line
+    // 254-255. Verifies the embedded entity allocation branch of the @type promotion. Embedded
+    // entities do not require an active transaction.
+    var out = SQLHelper.parseValue("{\"@type\":\"d\",\"name\":\"Bob\"}", ctx, false, null,
+        null, null, PropertyTypeInternal.EMBEDDEDLIST);
+    assertTrue("expected Entity, got " + out.getClass(), out instanceof Entity);
+    var entity = (Entity) out;
+    assertEquals("Bob", entity.getProperty("name"));
+  }
+
+  @Test
+  public void parseMapWithAtTypeKeyAndLinkParentPromotesToEntity() {
+    // parentProperty=LINKLIST → parentProperty.isLink()=true → newEntity() at line 256-257.
+    // Different branch from the embedded path; both produce Entity but via different allocators.
+    // newEntity() mutates the transaction so the call is wrapped in begin()/rollback().
+    session.begin();
+    try {
+      var out = SQLHelper.parseValue("{\"@type\":\"d\",\"name\":\"Carol\"}", ctx, false, null,
+          null, null, PropertyTypeInternal.LINKLIST);
+      assertTrue("expected Entity, got " + out.getClass(), out instanceof Entity);
+      var entity = (Entity) out;
+      assertEquals("Carol", entity.getProperty("name"));
+    } finally {
+      session.rollback();
+    }
+  }
+
+  @Test
+  public void parseMapWithAtTypeKeyAndScalarParentThrowsIllegalArgument() {
+    // parentProperty=INTEGER → neither isEmbedded() nor isLink() → line 259-261
+    // IllegalArgumentException. Pins the @type-promotion defensive check that prevents the caller
+    // from producing an orphan entity when the schema declares a scalar parent.
+    try {
+      SQLHelper.parseValue("{\"@type\":\"d\",\"name\":\"X\"}", ctx, false, null, null, null,
+          PropertyTypeInternal.INTEGER);
+      fail("expected IllegalArgumentException for scalar parentProperty");
+    } catch (IllegalArgumentException e) {
+      assertNotNull(e.getMessage());
+      assertTrue(
+          "message must describe link-or-embedded requirement: " + e.getMessage(),
+          e.getMessage().contains("Property is not a link or embedded"));
+    }
+  }
+
+  @Test
+  public void parseMapWithoutAtTypeKeyKeepsRawMap() {
+    // A plain map without @type stays a Map — the line 249 check is false and the code falls
+    // through to `fieldValue = map;` at line 268. Pin the non-promotion path.
+    var out = SQLHelper.parseValue("{'k1': 'v1', 'k2': 'v2'}", ctx, false, null, null, null,
+        null);
+    assertTrue("expected Map, not Entity, got " + out.getClass(),
+        (out instanceof Map) && !(out instanceof Entity));
+  }
+
+  // ---------------------------------------------------------------------------
+  // schemaClass path — JSON-parsed entity
+  // ---------------------------------------------------------------------------
+
+  @Test
+  public void parseMapWithSchemaClassUsesJsonParserNoParentProperty() {
+    // schemaClass != null, parentProperty == null → newEntity(schemaClass) at line 186-188, then
+    // JSONSerializerJackson populates from the raw input. Verifies the schemaClass-driven path
+    // (distinct from the @type-driven promotion below). The registered class drives the entity
+    // construction; JSON fills the fields.
+    var clazz = session.getMetadata().getSchema().createClass("TestJsonClass");
+    clazz.createProperty("name", PropertyType.STRING);
+
+    session.begin();
+    try {
+      var out = SQLHelper.parseValue("{\"name\":\"Dave\"}", ctx, false, clazz, null,
+          PropertyTypeInternal.EMBEDDEDMAP, null);
+      assertTrue("expected Entity, got " + out.getClass(), out instanceof Entity);
+      var entity = (Entity) out;
+      assertEquals("Dave", entity.getProperty("name"));
+    } finally {
+      session.rollback();
+    }
+  }
+
+  @Test
+  public void parseMapWithSchemaClassAndEmbeddedParentUsesEmbeddedEntity() {
+    // schemaClass != null, parentProperty.isEmbedded()=true → newEmbeddedEntity(schemaClass) at
+    // line 177-179. Exercises the first sub-branch of the schemaClass path. The schema class
+    // must be abstract because newEmbeddedEntity(SchemaClass) rejects non-abstract classes
+    // (embedded entities have no cluster — non-abstract would imply persistence).
+    var clazz = session.getMetadata().getSchema().createAbstractClass("TestEmbClass");
+    clazz.createProperty("val", PropertyType.STRING);
+
+    var out = SQLHelper.parseValue("{\"val\":\"embedded\"}", ctx, false, clazz, null,
+        PropertyTypeInternal.EMBEDDEDMAP, PropertyTypeInternal.EMBEDDEDLIST);
+    assertTrue(out instanceof Entity);
+    var entity = (Entity) out;
+    assertEquals("embedded", entity.getProperty("val"));
+  }
+
+  @Test
+  public void parseMapWithSchemaClassAndLinkParentUsesNewEntity() {
+    // schemaClass != null, parentProperty.isLink()=true → newEntity(schemaClass) at line 180-181.
+    // Separate branch from the embedded path.
+    var clazz = session.getMetadata().getSchema().createClass("TestLinkClass");
+    clazz.createProperty("val", PropertyType.STRING);
+
+    session.begin();
+    try {
+      var out = SQLHelper.parseValue("{\"val\":\"linked\"}", ctx, false, clazz, null,
+          PropertyTypeInternal.EMBEDDEDMAP, PropertyTypeInternal.LINKLIST);
+      assertTrue(out instanceof Entity);
+      var entity = (Entity) out;
+      assertEquals("linked", entity.getProperty("val"));
+    } finally {
+      session.rollback();
+    }
+  }
+
+  @Test
+  public void parseMapWithSchemaClassAndScalarParentThrowsIllegalArgument() {
+    // schemaClass != null, parentProperty=INTEGER (neither link nor embedded) → line 183-184
+    // IllegalArgumentException. Pins the defensive branch parallel to the @type-driven branch's
+    // scalar-parent check.
+    var clazz = session.getMetadata().getSchema().createClass("TestScalarParentClass");
+    clazz.createProperty("val", PropertyType.STRING);
+
+    try {
+      SQLHelper.parseValue("{\"val\":\"x\"}", ctx, false, clazz, null,
+          PropertyTypeInternal.EMBEDDEDMAP, PropertyTypeInternal.INTEGER);
+      fail("expected IllegalArgumentException for scalar parentProperty with schemaClass");
+    } catch (IllegalArgumentException e) {
+      assertNotNull(e.getMessage());
+      assertTrue(
+          "message must flag link-or-embedded requirement: " + e.getMessage(),
+          e.getMessage().contains("Property is not a link or embedded"));
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Nested collection recursion
+  // ---------------------------------------------------------------------------
+
+  @Test
+  public void parseNestedListOfMapsRecursesThroughBothBranches() {
+    // "[{k:v}, {k:w}]" — outer LIST_BEGIN path allocates EmbeddedList; each element recursively
+    // hits the MAP_BEGIN path (no propertyType on recursion from the no-schemaProperty outer
+    // list) → EmbeddedMap. Pin both paths compose cleanly.
+    var out = SQLHelper.parseValue("[{'k':'v'}, {'k':'w'}]", ctx, false, null, null, null,
+        null);
+    assertTrue("outer must be EmbeddedList: " + out.getClass(), out instanceof EmbeddedList);
+    var list = (List<?>) out;
+    assertEquals(2, list.size());
+    // Each element is an EmbeddedMap (smartSplit preserves quoted substrings so this parses).
+    assertTrue("elem 0 must be EmbeddedMap: " + list.get(0).getClass(),
+        list.get(0) instanceof EmbeddedMap);
+    assertEquals("v", ((Map<?, ?>) list.get(0)).get("k"));
+    assertEquals("w", ((Map<?, ?>) list.get(1)).get("k"));
+  }
+
+  @Test
+  public void parseNestedListOfListsRecursesThroughListBranchTwice() {
+    // "[[1,2],[3,4]]" — outer and inner both LIST_BEGIN, separate recursions into embedded-list.
+    var out = SQLHelper.parseValue("[[1,2],[3,4]]", ctx, false, null, null, null, null);
+    assertTrue(out instanceof EmbeddedList);
+    var list = (List<?>) out;
+    assertEquals(2, list.size());
+    assertTrue(list.get(0) instanceof EmbeddedList);
+    assertEquals(List.of(1, 2), list.get(0));
+    assertEquals(List.of(3, 4), list.get(1));
+  }
+
+  @Test
+  public void parseNestedMapWithListValueRecursesIntoListBranchFromMapValue() {
+    // "{'items': [1, 2]}" — outer MAP_BEGIN, inner value is LIST_BEGIN. Pin that recursion from
+    // the map branch correctly re-enters parseValue for the value part.
+    var out = SQLHelper.parseValue("{'items': [1, 2]}", ctx, false, null, null, null, null);
+    assertTrue(out instanceof EmbeddedMap);
+    var map = (Map<?, ?>) out;
+    assertTrue("value must be EmbeddedList: " + map.get("items").getClass(),
+        map.get("items") instanceof EmbeddedList);
+    assertEquals(List.of(1, 2), map.get("items"));
+  }
+}
