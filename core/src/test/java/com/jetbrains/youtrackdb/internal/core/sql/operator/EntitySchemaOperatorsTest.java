@@ -1291,11 +1291,27 @@ public class EntitySchemaOperatorsTest extends DbTestBase {
     // Covers the else branch in QueryOperatorTraverse.traverse() that handles a
     // concrete field name (neither any() nor all()). We must enter the
     // cfgFields loop, which requires startDeepLevel=1 so the level-0 condition
-    // check at line 117 is bypassed (iLevel < startDeepLevel). A specific
-    // field name ("child") then misses both any() and all() and reaches the
-    // else branch that calls traverse(target.getProperty(cfgField), …).
+    // check (iLevel >= startDeepLevel) is bypassed. A specific field name
+    // ("child") then misses both any() and all() and reaches the else branch
+    // that calls traverse(target.getProperty(cfgField), …).
+    //
+    // Root carries two properties: a traversable link "child" (→ leaf entity
+    // with name="leaf") and a non-traversable decoy "other" (plain string
+    // "decoy", which traverse() cannot recurse into → returns false). The
+    // positive and negative assertions together pin that the else branch
+    // honors cfgField rather than some other property: a regression that
+    // swapped cfgField for a hard-coded field or iterated like any()/all()
+    // would break one of the two assertions.
+    //
+    // With fix at line 149 (else dispatches to target.getProperty(cfgField)):
+    //   cfgField="child"  → recurses into leaf, condition true → true
+    //   cfgField="other"  → recurses into "decoy" string → EntityImpl branch
+    //                       miss → false
+    // With bug (e.g. else hard-coded to traverse(target)):
+    //   both cases return true → negative assertion fails.
     var specific = session.getMetadata().getSchema().createClass("TraverseSpecificField");
     specific.createProperty("child", PropertyType.LINK, specific);
+    specific.createProperty("other", PropertyType.STRING);
 
     session.begin();
     var child = session.newInstance("TraverseSpecificField");
@@ -1303,23 +1319,38 @@ public class EntitySchemaOperatorsTest extends DbTestBase {
 
     var root = session.newInstance("TraverseSpecificField");
     root.setProperty("child", child.getIdentity());
+    root.setProperty("other", "decoy");
     session.commit();
 
-    // startDeepLevel=1 → cfgFields loop runs at level 0 with cfgField="child",
-    // falling through any()/all() into the else branch.
-    var traverse = new QueryOperatorTraverse(1, -1, new String[] {"child"});
     var ctx = newCommandContext();
     var subCond = alwaysTrueCondition();
-    var outerCond = new SQLFilterCondition("field", traverse, subCond);
 
+    // Positive: startDeepLevel=1 → cfgFields loop runs at level 0 with
+    // cfgField="child", falls through any()/all() into the else branch,
+    // recurses into leaf which matches alwaysTrueCondition.
+    var traverseChild = new QueryOperatorTraverse(1, -1, new String[] {"child"});
+    var outerCondChild = new SQLFilterCondition("field", traverseChild, subCond);
     session.begin();
-    Object result =
-        traverse.evaluateRecord(
-            null, null, outerCond, root.getIdentity(), subCond, ctx, SERIALIZER);
+    Object positive =
+        traverseChild.evaluateRecord(
+            null, null, outerCondChild, root.getIdentity(), subCond, ctx, SERIALIZER);
     session.commit();
-    // else branch recurses into getProperty("child") → child entity matches
-    // alwaysTrueCondition at level 1 → returns true.
-    Assert.assertEquals(true, result);
+    Assert.assertEquals(true, positive);
+
+    // Negative pin: same path, but cfgField="other" → else recurses into the
+    // "decoy" string. traverse() only handles Identifiable / EntityImpl /
+    // QueryRuntimeValueMulti / Map / Iterable — a raw String falls through
+    // all four and returns false. A regression that mis-wired the else branch
+    // (hard-coded field, iterated all properties, etc.) would pass this as
+    // true and fail the assertion.
+    var traverseOther = new QueryOperatorTraverse(1, -1, new String[] {"other"});
+    var outerCondOther = new SQLFilterCondition("field", traverseOther, subCond);
+    session.begin();
+    Object negative =
+        traverseOther.evaluateRecord(
+            null, null, outerCondOther, root.getIdentity(), subCond, ctx, SERIALIZER);
+    session.commit();
+    Assert.assertEquals(false, negative);
   }
 
   @Test
