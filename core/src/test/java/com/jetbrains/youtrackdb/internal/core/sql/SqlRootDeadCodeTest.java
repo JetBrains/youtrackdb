@@ -205,9 +205,11 @@ public class SqlRootDeadCodeTest {
   @Test
   public void dynamicSqlElementFactoryCreateCommandUnknownThrows() {
     // With a never-populated COMMANDS map, createCommand for any name throws. Pin BOTH the
-    // argument substring AND the "Unknowned command name" phrase (including the current typo,
-    // mirroring the sibling pin on DefaultCommandExecutorSQLFactory#createCommand) — a bare
-    // argument-substring match would pass even if the message became "accepted: anything".
+    // argument substring AND the "Unknown command name" phrase — a bare argument-substring
+    // match would pass even if the message became "accepted: anything".
+    // NOTE: DynamicSQLElementFactory (this class) emits "Unknown"; the sibling
+    // DefaultCommandExecutorSQLFactory#createCommand emits the typo "Unknowned" and is pinned
+    // separately — do NOT copy this substring literal to that sibling pin.
     var f = new DynamicSQLElementFactory();
     try {
       f.createCommand("anything");

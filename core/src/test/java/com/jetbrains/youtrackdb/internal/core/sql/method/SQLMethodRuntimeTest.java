@@ -433,12 +433,28 @@ public class SQLMethodRuntimeTest extends DbTestBase {
   public void executeSQLFilterItemVariableFallsBackToCurrentResultWhenContextLacksValue() {
     // Mirror of the SQLFilterItemField fallback — production lines 108-114. Same dual-type
     // requirement: iCurrentResult must be BOTH Identifiable AND Result, so we pass an Entity.
-    // SQLFilterItemVariable dispatch: the first getValue reads $-prefixed names via the
-    // CommandContext variable lookup. When that returns null AND iCurrentResult is an
-    // Identifiable (Entity), the fallback re-invokes with iCurrentResult as the "record"
-    // argument, which may resolve from properties on the entity.
+    //
+    // Observability challenge: SQLFilterItemVariable.getValue ignores its `iRecord` parameter
+    // — it reads only from `iContext.getVariable(name)`. So primary-call and fallback-call
+    // produce IDENTICAL output given the same context. Asserting `lastParams[0] == null`
+    // alone is vacuous to mutation testing: a regression that deleted the entire fallback
+    // block (production lines 108-114) would still satisfy `invoked=true` + `lastParams[0]==null`.
+    //
+    // Strengthening: wrap the context in a counter. A correct implementation calls getVariable
+    // TWICE (once from primary, once from fallback because primary returned null). A regression
+    // that removed the fallback calls it ONCE. The counter is the only observable difference.
+    var callCount = new java.util.concurrent.atomic.AtomicInteger();
+    var countingCtx = new BasicCommandContext(session) {
+      @Override
+      public Object getVariable(String iName) {
+        if ("missing".equals(iName)) {
+          callCount.incrementAndGet();
+        }
+        return super.getVariable(iName);
+      }
+    };
     var variable = new SQLFilterItemVariable(session, new StubParser("$missing"), "$missing");
-    // Deliberately DO NOT set "missing" on ctx — the first getValue call returns null.
+    // Deliberately DO NOT set "missing" on countingCtx — both getValue calls return null.
 
     var probe = new ProbeMethod("probe");
     var runtime = new SQLMethodRuntime(probe);
@@ -447,16 +463,17 @@ public class SQLMethodRuntimeTest extends DbTestBase {
     session.begin();
     try {
       var entity = session.newInstance();
-      runtime.execute("iThisIgnored", null, entity, ctx);
-      // The variable isn't defined on either context or entity, so resolution ends up null.
-      // But we MUST pin that the fallback branch actually ran — the invoked flag proves the
-      // wrapped method ran at all; the null param proves the fallback cast didn't throw and
-      // the second getValue also returned null rather than some stale default.
+      runtime.execute("iThisIgnored", null, entity, countingCtx);
       assertTrue("wrapped method must be invoked even when both branches resolve to null",
           probe.invoked);
       assertEquals(1, probe.lastParams.length);
       assertNull("both primary and fallback resolve to null for a missing variable",
           probe.lastParams[0]);
+      // The load-bearing assertion: two invocations prove the fallback branch (production
+      // lines 108-114) ran. Deleting the fallback drops this to 1 and fails the test.
+      assertEquals(
+          "fallback branch must re-invoke SQLFilterItemVariable.getValue (primary + fallback)",
+          2, callCount.get());
     } finally {
       session.rollback();
     }
