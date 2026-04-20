@@ -269,6 +269,8 @@ def main():
     parser.add_argument("--head", required=True, help="Head (branch tip) results JSON")
     parser.add_argument("--base-sha", required=True, help="Base commit SHA")
     parser.add_argument("--head-sha", required=True, help="Head commit SHA")
+    parser.add_argument("--base-branch", default="develop",
+                        help="Name of the base branch the fork-point was taken from")
     parser.add_argument("--repo-url", default="",
                         help="Repository URL for commit links (e.g. https://github.com/owner/repo)")
     parser.add_argument("--base-load-time", type=float, default=None,
@@ -303,7 +305,7 @@ def main():
     lines.append("## JMH LDBC Benchmark Comparison")
     lines.append("")
     lines.append(
-        f"**Base:** {fmt_sha(args.base_sha)} (fork-point with develop) "
+        f"**Base:** {fmt_sha(args.base_sha)} (fork-point with `{args.base_branch}`) "
         f"| **Head:** {fmt_sha(args.head_sha)}"
     )
     has_throughput = regressions > 0 or improvements > 0 or suppressed > 0

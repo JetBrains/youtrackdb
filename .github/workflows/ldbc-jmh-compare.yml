@@ -83,7 +83,7 @@ jobs:
           echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
           echo "head_short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           echo "fork_point=$FORK_POINT" >> "$GITHUB_OUTPUT"
-          echo "fork_short=$(git rev-parse --short $FORK_POINT)" >> "$GITHUB_OUTPUT"
+          echo "fork_short=$(git rev-parse --short "$FORK_POINT")" >> "$GITHUB_OUTPUT"
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
           echo "base_branch=$BASE_BRANCH" >> "$GITHUB_OUTPUT"
 
@@ -403,6 +403,7 @@ jobs:
             --head "/tmp/jmh-head-${{ github.run_id }}.json" \
             --base-sha "${{ steps.commits.outputs.fork_point }}" \
             --head-sha "${{ steps.commits.outputs.head_sha }}" \
+            --base-branch "${{ steps.commits.outputs.base_branch }}" \
             --repo-url "${{ github.server_url }}/${{ github.repository }}" \
             --base-load-time "${{ steps.base_load.outputs.load_time }}" \
             --head-load-time "${{ steps.head_load.outputs.load_time }}" \
