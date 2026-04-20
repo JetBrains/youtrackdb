@@ -22,17 +22,23 @@ package com.jetbrains.youtrackdb.internal.core.sql.query;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.Timeout;
 
 /**
  * Dead-code pin tests for the {@code core/sql/query} package.
@@ -69,8 +75,42 @@ import org.junit.Test;
  *
  * <p>Package aggregate coverage will stay well below the 85% target until Track 22 deletes
  * these classes — accepted per Track 7 plan (scope line 1126–1128).
+ *
+ * <p><strong>Single-thread by design.</strong> These tests do NOT exercise the producer-
+ * consumer {@code notifyNewItem}/{@code waitForNewItemOrCompleted}/volatile {@code completed}
+ * contract across threads. Every blocking call ({@code size}, {@code contains},
+ * {@code toArray}, {@code iterator.hasNext/next}, {@code queue.take}) is preceded by a
+ * {@code setCompleted()} call or enough pre-queued items to make it non-blocking. The
+ * {@link Timeout} {@code @Rule} below is a defensive net: if a future edit drops a
+ * {@code setCompleted()} call, surefire will report a bounded test failure instead of
+ * hanging the CI fork indefinitely (there is no {@code forkedProcessTimeoutInSeconds} on
+ * the core module's surefire plugin, so accidental hangs would otherwise block the entire
+ * build until the outer CI job times out).
  */
 public class SqlQueryDeadCodeTest {
+
+  @Rule
+  public Timeout globalTimeout = Timeout.seconds(10);
+
+  // ---------------------------------------------------------------------------
+  // UOE helper — used by the UnsupportedOperationException surface-coverage tests below.
+  // Replaces a previous monolithic try/catch ladder that hid per-branch failures.
+  // ---------------------------------------------------------------------------
+
+  private interface ThrowingRunnable {
+    void run() throws Exception;
+  }
+
+  private static void assertUoe(String label, ThrowingRunnable op) {
+    try {
+      op.run();
+      fail(label + " must throw UnsupportedOperationException");
+    } catch (UnsupportedOperationException expected) {
+      // ok
+    } catch (Exception unexpected) {
+      fail(label + " threw " + unexpected.getClass().getName() + ": " + unexpected.getMessage());
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // ConcurrentLegacyResultSet — zero-caller evidence: grep for
@@ -108,6 +148,33 @@ public class SqlQueryDeadCodeTest {
   }
 
   @Test
+  public void concurrentLegacyResultSetIteratorNextAfterExhaustionThrowsIndexOutOfBounds() {
+    // WHEN-FIXED: Track 22 — ConcurrentLegacyResultSet's anonymous iterator has the same
+    // strict-`>` guard bug as BasicLegacyResultSet.iterator (see
+    // BasicLegacyResultSetTest#iteratorNextOnExhaustedIteratorThrowsIndexOutOfBoundsNotNoSuchElement).
+    // The guard at production line 225 is `if (index > size || size == 0)` but after a single
+    // next() returning the only element, `index == size == 1`, so the guard is false and the
+    // method falls through to `wrapped.get(index++)` — yielding IOOBE from the underlying
+    // ArrayList rather than the intended NoSuchElementException. Pin this here explicitly
+    // so Track 22 knows the fix has to land in BOTH classes' iterator guards (strict > → >=).
+    var rs = new ConcurrentLegacyResultSet<String>();
+    rs.add("only");
+    rs.setCompleted();
+    var it = rs.iterator();
+    assertEquals("only", it.next());
+    try {
+      it.next();
+      fail("expected IndexOutOfBoundsException from the buggy strict > guard");
+    } catch (IndexOutOfBoundsException expected) {
+      // ok — pinned
+    } catch (java.util.NoSuchElementException unexpected) {
+      fail(
+          "NoSuchElementException means the CRS strict > guard was already fixed — update"
+              + " this test (and BasicLegacyResultSetTest's sibling) to expect NSE instead");
+    }
+  }
+
+  @Test
   public void concurrentLegacyResultSetCopyIsCompletedAndIndependent() {
     // WHEN-FIXED: Track 22 — the copy() path wraps the inner BasicLegacyResultSet.copy() in a
     // fresh ConcurrentLegacyResultSet and forces completed=true. Pin independence: mutating
@@ -118,6 +185,7 @@ public class SqlQueryDeadCodeTest {
     var copy = rs.copy();
     rs.setCompleted();
     assertNotNull(copy);
+    assertNotSame("copy must be a fresh ConcurrentLegacyResultSet instance", rs, copy);
     // Copy is already completed internally — size() must not block.
     assertEquals(2, copy.size());
     // Independence: add more to source; copy stays at 2.
@@ -153,48 +221,50 @@ public class SqlQueryDeadCodeTest {
     assertEquals("A", rs.get(0));
   }
 
+  // ---------------------------------------------------------------------------
+  // ConcurrentLegacyResultSet — one-test-per-method UOE coverage.
+  // Production throws UnsupportedOperationException with NO message for these branches, so
+  // the tests pin only the exception type; the sibling liveLegacyResultSet* tests below are
+  // structurally identical.
+  // ---------------------------------------------------------------------------
+
   @Test
-  public void concurrentLegacyResultSetMutatingRemoveOperationsThrowUnsupported() {
-    // The legacy resultset never supported removal semantics. Cover the four UOE branches
-    // in a single test (they share the rationale).
+  public void concurrentLegacyResultSetRemoveByIndexThrowsUnsupported() {
     var rs = new ConcurrentLegacyResultSet<String>();
     rs.add("a");
-    try {
-      rs.remove(0);
-      fail("remove(int) must be unsupported");
-    } catch (UnsupportedOperationException expected) {
-      // ok
-    }
-    try {
-      rs.remove((Object) "a");
-      fail("remove(Object) must be unsupported");
-    } catch (UnsupportedOperationException expected) {
-      // ok
-    }
-    try {
-      rs.removeAll(Arrays.asList("a"));
-      fail("removeAll must be unsupported");
-    } catch (UnsupportedOperationException expected) {
-      // ok
-    }
-    try {
-      rs.retainAll(Arrays.asList("a"));
-      fail("retainAll must be unsupported");
-    } catch (UnsupportedOperationException expected) {
-      // ok
-    }
-    try {
-      rs.containsAll(Arrays.asList("a"));
-      fail("containsAll must be unsupported");
-    } catch (UnsupportedOperationException expected) {
-      // ok
-    }
-    try {
-      rs.indexOf("a");
-      fail("indexOf must be unsupported");
-    } catch (UnsupportedOperationException expected) {
-      // ok
-    }
+    assertUoe("remove(int)", () -> rs.remove(0));
+  }
+
+  @Test
+  public void concurrentLegacyResultSetRemoveByObjectThrowsUnsupported() {
+    var rs = new ConcurrentLegacyResultSet<String>();
+    rs.add("a");
+    assertUoe("remove(Object)", () -> rs.remove((Object) "a"));
+  }
+
+  @Test
+  public void concurrentLegacyResultSetRemoveAllThrowsUnsupported() {
+    var rs = new ConcurrentLegacyResultSet<String>();
+    assertUoe("removeAll", () -> rs.removeAll(Arrays.asList("a")));
+  }
+
+  @Test
+  public void concurrentLegacyResultSetRetainAllThrowsUnsupported() {
+    var rs = new ConcurrentLegacyResultSet<String>();
+    assertUoe("retainAll", () -> rs.retainAll(Arrays.asList("a")));
+  }
+
+  @Test
+  public void concurrentLegacyResultSetContainsAllThrowsUnsupported() {
+    var rs = new ConcurrentLegacyResultSet<String>();
+    assertUoe("containsAll", () -> rs.containsAll(Arrays.asList("a")));
+  }
+
+  @Test
+  public void concurrentLegacyResultSetIndexOfThrowsUnsupported() {
+    var rs = new ConcurrentLegacyResultSet<String>();
+    rs.add("a");
+    assertUoe("indexOf", () -> rs.indexOf("a"));
   }
 
   @Test
@@ -249,13 +319,12 @@ public class SqlQueryDeadCodeTest {
     rs.add("x");
     rs.add("y");
     rs.setCompleted();
-    var bout = new java.io.ByteArrayOutputStream();
-    try (var oos = new java.io.ObjectOutputStream(bout)) {
+    var bout = new ByteArrayOutputStream();
+    try (var oos = new ObjectOutputStream(bout)) {
       rs.writeExternal(oos);
     }
     var restored = new ConcurrentLegacyResultSet<String>();
-    try (var ois =
-        new java.io.ObjectInputStream(new java.io.ByteArrayInputStream(bout.toByteArray()))) {
+    try (var ois = new ObjectInputStream(new ByteArrayInputStream(bout.toByteArray()))) {
       restored.readExternal(ois);
     }
     // readExternal sets completed=true — size() must not block.
@@ -273,7 +342,8 @@ public class SqlQueryDeadCodeTest {
     // ArrayList.equals calls `other.iterator().hasNext()` after iterating; the concurrent
     // iterator's hasNext blocks on `waitForNewItemOrCompleted` when completed is false. So we
     // must setCompleted BEFORE calling equals, not after. Pin this subtle requirement here —
-    // a future reader who removes setCompleted() will re-hit the hang.
+    // a future reader who removes setCompleted() will re-hit the hang (bounded now by the
+    // class-level @Rule Timeout, which will surface a 10s failure instead of a silent hang).
     var rs1 = new ConcurrentLegacyResultSet<String>();
     rs1.add("a");
     rs1.add("b");
@@ -296,7 +366,7 @@ public class SqlQueryDeadCodeTest {
   public void concurrentLegacyResultSetIsEmptyNoWaitDoesNotBlock() {
     // isEmptyNoWait must return immediately even when completed is false (that's its whole
     // purpose vs isEmpty). Pin by reading it on a non-completed resultset — a block here would
-    // hang the test.
+    // hang the test (the class-level Timeout rule would then convert it to a failure).
     var rs = new ConcurrentLegacyResultSet<String>();
     // NOT calling setCompleted.
     assertTrue("isEmptyNoWait must return immediately without blocking", rs.isEmptyNoWait());
@@ -315,12 +385,7 @@ public class SqlQueryDeadCodeTest {
     // WHEN-FIXED: Track 22 — delete LiveLegacyResultSet. Its size() throws UOE, making it an
     // intentionally-crippled queue wrapper. Pin the UOE.
     var rs = new LiveLegacyResultSet<String>();
-    try {
-      rs.size();
-      fail("size() must throw UnsupportedOperationException");
-    } catch (UnsupportedOperationException expected) {
-      // ok
-    }
+    assertUoe("size()", rs::size);
   }
 
   @Test
@@ -346,6 +411,38 @@ public class SqlQueryDeadCodeTest {
     // But next() still pulls from the queue regardless of hasNext.
     assertEquals("first", it.next());
     assertEquals("second", it.next());
+  }
+
+  @Test
+  public void liveLegacyResultSetIteratorNextPropagatesInterrupt() throws Exception {
+    // WHEN-FIXED: Track 22 — LiveLegacyResultSet.iterator().next() catches
+    // InterruptedException, calls setCompleted(), re-interrupts the thread, and returns null.
+    // Without this test the `catch (InterruptedException)` branch at production lines 83–87 is
+    // entirely unexercised. Pin the branch on a helper thread so the main test thread keeps
+    // its own interrupt state clean.
+    var rs = new LiveLegacyResultSet<String>();
+    var it = rs.iterator();
+    var interruptReRaised = new AtomicInteger();
+    var returnedNull = new AtomicInteger();
+    var helper =
+        new Thread(
+            () -> {
+              // Pre-interrupt so queue.take() throws InterruptedException immediately on the
+              // first next() call.
+              Thread.currentThread().interrupt();
+              var result = it.next();
+              if (result == null) {
+                returnedNull.incrementAndGet();
+              }
+              if (Thread.currentThread().isInterrupted()) {
+                interruptReRaised.incrementAndGet();
+              }
+            });
+    helper.start();
+    helper.join(5000);
+    assertFalse("helper thread must complete without hanging", helper.isAlive());
+    assertEquals("interrupt branch returned null exactly once", 1, returnedNull.get());
+    assertEquals("interrupt branch re-raised the interrupt flag", 1, interruptReRaised.get());
   }
 
   @Test
@@ -375,155 +472,167 @@ public class SqlQueryDeadCodeTest {
   }
 
   @Test
-  public void liveLegacyResultSetCompleteSetsCompletedFlagAndSetCompletedDoesNot() {
+  public void liveLegacyResultSetSetCompletedDoesNotFlipCompletedFlagButCompleteDoes()
+      throws Exception {
     // WHEN-FIXED: Track 22 — the override setCompleted() on LiveLegacyResultSet has its
-    // assignment commented out (`// completed = true;`). The public complete() method is the
-    // one that actually sets the flag. Pin this divergence from the parent's contract.
+    // `completed = true;` line commented out. The public complete() method is the one that
+    // actually sets the flag. The `completed` field is declared protected volatile on the
+    // parent, and LiveLegacyResultSet is in the same package as this test — BUT `completed`
+    // is a field of ConcurrentLegacyResultSet, so direct access works only from that
+    // package. We use reflection to read the parent's field for a falsifiable pin.
+    var field = ConcurrentLegacyResultSet.class.getDeclaredField("completed");
+    field.setAccessible(true);
     var rs = new LiveLegacyResultSet<String>();
-    // Before complete(): live is still running — isEmptyNoWait pinned below.
+    assertFalse("fresh resultset — completed is false", field.getBoolean(rs));
     rs.setCompleted();
-    // After setCompleted the parent's completed flag remains false because the override
-    // commented out that assignment; we prove this by calling complete() and observing that
-    // it does something (no exception, and subsequent complete() is idempotent).
+    assertFalse(
+        "setCompleted override has its assignment commented out — completed stays false."
+            + " Track 22 fix (uncomment the assignment) must flip this assertion to true.",
+        field.getBoolean(rs));
     rs.complete();
-    // Idempotent: second complete must not throw.
+    assertTrue("complete() actually sets completed=true", field.getBoolean(rs));
+    // Idempotent: a second complete() must not throw and must leave the flag true.
     rs.complete();
+    assertTrue("complete() is idempotent", field.getBoolean(rs));
   }
 
   @Test
-  public void liveLegacyResultSetCopyProducesEmptyInstance() {
-    // LiveLegacyResultSet.copy returns a fresh instance that does not carry over the queue.
-    // Pin this "shallow new" behaviour.
+  public void liveLegacyResultSetCopyProducesFreshEmptyInstance() throws Exception {
+    // LiveLegacyResultSet.copy returns a fresh instance with an empty queue AND an empty
+    // wrapped BasicLegacyResultSet inherited from the parent. Pin independence by reading
+    // the inherited wrapped.currentSize() — the overriding public size() throws UOE, so we
+    // use the non-blocking BasicLegacyResultSet accessor directly.
     var rs = new LiveLegacyResultSet<String>();
     rs.add("a");
     rs.add("b");
     var copy = rs.copy();
     assertNotNull(copy);
-    assertNotNull("copy is a new LiveLegacyResultSet instance", copy);
-    assertFalse("copy has its own queue and is treated as live (isEmpty hardcoded false)",
-        copy.isEmpty());
-    // Copy's queue is empty — next() would block forever if called without add, so we don't
-    // call it. We only pin that size() on the copy still throws UOE.
-    try {
-      copy.size();
-      fail("size() on copy must also throw UOE");
-    } catch (UnsupportedOperationException expected) {
-      // ok
-    }
+    assertNotSame("copy must be a fresh LiveLegacyResultSet instance", rs, copy);
+    var wrappedField = ConcurrentLegacyResultSet.class.getDeclaredField("wrapped");
+    wrappedField.setAccessible(true);
+    @SuppressWarnings("unchecked")
+    var copyWrapped = (BasicLegacyResultSet<String>) wrappedField.get(copy);
+    assertEquals(
+        "copy's inherited wrapped resultset must start empty — no carry-over from source",
+        0,
+        copyWrapped.currentSize());
+    // size() on the copy still throws UOE (the override is class-wide, not per-instance).
+    assertUoe("size() on copy", copy::size);
+  }
+
+  // ---------------------------------------------------------------------------
+  // LiveLegacyResultSet — one-test-per-method UOE coverage for the many
+  // UnsupportedOperationException branches. Splitting them (vs. the previous single
+  // "unsupportedMethods" ladder) lets surefire pinpoint the exact regression if Track 22
+  // accidentally lifts a UOE while refactoring.
+  // ---------------------------------------------------------------------------
+
+  @Test
+  public void liveLegacyResultSetSetThrowsUnsupported() {
+    var rs = new LiveLegacyResultSet<String>();
+    assertUoe("set(int, T)", () -> rs.set(0, "a"));
   }
 
   @Test
-  public void liveLegacyResultSetUnsupportedMethods() throws Exception {
-    // The class disables most List mutators + readers. Cover them in one test.
+  public void liveLegacyResultSetContainsThrowsUnsupported() {
     var rs = new LiveLegacyResultSet<String>();
-    try {
-      rs.set(0, "a");
-      fail("set must be unsupported");
-    } catch (UnsupportedOperationException expected) {
-      // ok
-    }
-    try {
-      rs.contains("a");
-      fail("contains must be unsupported");
-    } catch (UnsupportedOperationException expected) {
-      // ok
-    }
-    try {
-      rs.toArray();
-      fail("toArray must be unsupported");
-    } catch (UnsupportedOperationException expected) {
-      // ok
-    }
-    try {
-      rs.toArray(new String[0]);
-      fail("toArray(T[]) must be unsupported");
-    } catch (UnsupportedOperationException expected) {
-      // ok
-    }
-    try {
-      rs.clear();
-      fail("clear must be unsupported");
-    } catch (UnsupportedOperationException expected) {
-      // ok
-    }
-    try {
-      rs.get(0);
-      fail("get(int) must be unsupported");
-    } catch (UnsupportedOperationException expected) {
-      // ok
-    }
-    try {
-      rs.indexOf("a");
-      fail("indexOf must be unsupported");
-    } catch (UnsupportedOperationException expected) {
-      // ok
-    }
-    try {
-      rs.lastIndexOf("a");
-      fail("lastIndexOf must be unsupported");
-    } catch (UnsupportedOperationException expected) {
-      // ok
-    }
-    try {
-      rs.listIterator();
-      fail("listIterator must be unsupported");
-    } catch (UnsupportedOperationException expected) {
-      // ok
-    }
-    try {
-      rs.listIterator(0);
-      fail("listIterator(int) must be unsupported");
-    } catch (UnsupportedOperationException expected) {
-      // ok
-    }
-    try {
-      rs.subList(0, 0);
-      fail("subList must be unsupported");
-    } catch (UnsupportedOperationException expected) {
-      // ok
-    }
-    try {
-      rs.remove(0);
-      fail("remove(int) must be unsupported");
-    } catch (UnsupportedOperationException expected) {
-      // ok
-    }
-    try {
-      rs.remove((Object) "a");
-      fail("remove(Object) must be unsupported");
-    } catch (UnsupportedOperationException expected) {
-      // ok
-    }
-    try {
-      rs.removeAll(Arrays.asList("a"));
-      fail("removeAll must be unsupported");
-    } catch (UnsupportedOperationException expected) {
-      // ok
-    }
-    try {
-      rs.retainAll(Arrays.asList("a"));
-      fail("retainAll must be unsupported");
-    } catch (UnsupportedOperationException expected) {
-      // ok
-    }
-    try {
-      rs.containsAll(Arrays.asList("a"));
-      fail("containsAll must be unsupported");
-    } catch (UnsupportedOperationException expected) {
-      // ok
-    }
-    try {
-      rs.writeExternal(null);
-      fail("writeExternal must be unsupported");
-    } catch (UnsupportedOperationException expected) {
-      // ok
-    }
-    try {
-      rs.readExternal(null);
-      fail("readExternal must be unsupported");
-    } catch (UnsupportedOperationException expected) {
-      // ok
-    }
+    assertUoe("contains", () -> rs.contains("a"));
+  }
+
+  @Test
+  public void liveLegacyResultSetToArrayThrowsUnsupported() {
+    var rs = new LiveLegacyResultSet<String>();
+    assertUoe("toArray()", rs::toArray);
+  }
+
+  @Test
+  public void liveLegacyResultSetToArrayTypedThrowsUnsupported() {
+    var rs = new LiveLegacyResultSet<String>();
+    assertUoe("toArray(T[])", () -> rs.toArray(new String[0]));
+  }
+
+  @Test
+  public void liveLegacyResultSetClearThrowsUnsupported() {
+    var rs = new LiveLegacyResultSet<String>();
+    assertUoe("clear", rs::clear);
+  }
+
+  @Test
+  public void liveLegacyResultSetGetThrowsUnsupported() {
+    var rs = new LiveLegacyResultSet<String>();
+    assertUoe("get(int)", () -> rs.get(0));
+  }
+
+  @Test
+  public void liveLegacyResultSetIndexOfThrowsUnsupported() {
+    var rs = new LiveLegacyResultSet<String>();
+    assertUoe("indexOf", () -> rs.indexOf("a"));
+  }
+
+  @Test
+  public void liveLegacyResultSetLastIndexOfThrowsUnsupported() {
+    var rs = new LiveLegacyResultSet<String>();
+    assertUoe("lastIndexOf", () -> rs.lastIndexOf("a"));
+  }
+
+  @Test
+  public void liveLegacyResultSetListIteratorThrowsUnsupported() {
+    var rs = new LiveLegacyResultSet<String>();
+    assertUoe("listIterator()", rs::listIterator);
+  }
+
+  @Test
+  public void liveLegacyResultSetListIteratorWithIndexThrowsUnsupported() {
+    var rs = new LiveLegacyResultSet<String>();
+    assertUoe("listIterator(int)", () -> rs.listIterator(0));
+  }
+
+  @Test
+  public void liveLegacyResultSetSubListThrowsUnsupported() {
+    var rs = new LiveLegacyResultSet<String>();
+    assertUoe("subList", () -> rs.subList(0, 0));
+  }
+
+  @Test
+  public void liveLegacyResultSetRemoveByIndexThrowsUnsupported() {
+    var rs = new LiveLegacyResultSet<String>();
+    assertUoe("remove(int)", () -> rs.remove(0));
+  }
+
+  @Test
+  public void liveLegacyResultSetRemoveByObjectThrowsUnsupported() {
+    var rs = new LiveLegacyResultSet<String>();
+    assertUoe("remove(Object)", () -> rs.remove((Object) "a"));
+  }
+
+  @Test
+  public void liveLegacyResultSetRemoveAllThrowsUnsupported() {
+    var rs = new LiveLegacyResultSet<String>();
+    assertUoe("removeAll", () -> rs.removeAll(Arrays.asList("a")));
+  }
+
+  @Test
+  public void liveLegacyResultSetRetainAllThrowsUnsupported() {
+    var rs = new LiveLegacyResultSet<String>();
+    assertUoe("retainAll", () -> rs.retainAll(Arrays.asList("a")));
+  }
+
+  @Test
+  public void liveLegacyResultSetContainsAllThrowsUnsupported() {
+    var rs = new LiveLegacyResultSet<String>();
+    assertUoe("containsAll", () -> rs.containsAll(Arrays.asList("a")));
+  }
+
+  @Test
+  public void liveLegacyResultSetWriteExternalThrowsUnsupported() {
+    var rs = new LiveLegacyResultSet<String>();
+    assertUoe("writeExternal", () -> rs.writeExternal(null));
+  }
+
+  @Test
+  public void liveLegacyResultSetReadExternalThrowsUnsupported() {
+    var rs = new LiveLegacyResultSet<String>();
+    assertUoe("readExternal", () -> rs.readExternal(null));
   }
 
   @Test
@@ -533,10 +642,10 @@ public class SqlQueryDeadCodeTest {
     // the divergence so removal is explicit.
     var rs = new LiveLegacyResultSet<String>();
     var returned = rs.setLimit(5);
-    assertNull("LiveLegacyResultSet.setLimit deviates from fluent contract (returns null)",
-        returned);
-    assertEquals("the limit still propagates to the wrapped BasicLegacyResultSet", 5,
-        rs.getLimit());
+    assertNull(
+        "LiveLegacyResultSet.setLimit deviates from fluent contract (returns null)", returned);
+    assertEquals(
+        "the limit still propagates to the wrapped BasicLegacyResultSet", 5, rs.getLimit());
   }
 
   @Test
@@ -548,7 +657,11 @@ public class SqlQueryDeadCodeTest {
       it.remove();
       fail("iterator.remove must be unsupported");
     } catch (UnsupportedOperationException expected) {
-      assertTrue(expected.getMessage().contains("LegacyResultSet.iterator.remove()"));
+      assertTrue(
+          "iterator.remove message pins the full LegacyResultSet.iterator.remove() identifier,"
+              + " got: "
+              + expected.getMessage(),
+          expected.getMessage().contains("LegacyResultSet.iterator.remove()"));
     }
   }
 
@@ -566,23 +679,24 @@ public class SqlQueryDeadCodeTest {
     var liveCount = new AtomicInteger();
     var errCount = new AtomicInteger();
     var unsubCount = new AtomicInteger();
-    LiveResultListener l = new LiveResultListener() {
-      @Override
-      public void onLiveResult(DatabaseSessionEmbedded db, int iLiveToken, RecordOperation iOp)
-          throws BaseException {
-        liveCount.incrementAndGet();
-      }
+    LiveResultListener l =
+        new LiveResultListener() {
+          @Override
+          public void onLiveResult(DatabaseSessionEmbedded db, int iLiveToken, RecordOperation iOp)
+              throws BaseException {
+            liveCount.incrementAndGet();
+          }
 
-      @Override
-      public void onError(int iLiveToken) {
-        errCount.incrementAndGet();
-      }
+          @Override
+          public void onError(int iLiveToken) {
+            errCount.incrementAndGet();
+          }
 
-      @Override
-      public void onUnsubscribe(int iLiveToken) {
-        unsubCount.incrementAndGet();
-      }
-    };
+          @Override
+          public void onUnsubscribe(int iLiveToken) {
+            unsubCount.incrementAndGet();
+          }
+        };
     l.onLiveResult(null, 42, null);
     l.onError(42);
     l.onUnsubscribe(42);
@@ -604,23 +718,24 @@ public class SqlQueryDeadCodeTest {
     var delegateLive = new AtomicInteger();
     var delegateErr = new AtomicInteger();
     var delegateUnsub = new AtomicInteger();
-    LiveResultListener delegate = new LiveResultListener() {
-      @Override
-      public void onLiveResult(DatabaseSessionEmbedded db, int iLiveToken, RecordOperation iOp)
-          throws BaseException {
-        delegateLive.incrementAndGet();
-      }
+    LiveResultListener delegate =
+        new LiveResultListener() {
+          @Override
+          public void onLiveResult(DatabaseSessionEmbedded db, int iLiveToken, RecordOperation iOp)
+              throws BaseException {
+            delegateLive.incrementAndGet();
+          }
 
-      @Override
-      public void onError(int iLiveToken) {
-        delegateErr.incrementAndGet();
-      }
+          @Override
+          public void onError(int iLiveToken) {
+            delegateErr.incrementAndGet();
+          }
 
-      @Override
-      public void onUnsubscribe(int iLiveToken) {
-        delegateUnsub.incrementAndGet();
-      }
-    };
+          @Override
+          public void onUnsubscribe(int iLiveToken) {
+            delegateUnsub.incrementAndGet();
+          }
+        };
     var adapter = new LocalLiveResultListener(delegate);
     adapter.onLiveResult(null, 7, null);
     adapter.onError(7);
@@ -634,30 +749,44 @@ public class SqlQueryDeadCodeTest {
   public void localLiveResultListenerCommandResultListenerStubsReturnEmpty() {
     // WHEN-FIXED: Track 22 — the CommandResultListener half of LocalLiveResultListener is
     // stubbed: result() returns false, end() is a no-op, getResult() returns null. Pin all
-    // three so deletion is an explicit contract change.
-    LiveResultListener noop = new LiveResultListener() {
-      @Override
-      public void onLiveResult(DatabaseSessionEmbedded db, int iLiveToken, RecordOperation iOp) {
-        // no-op
-      }
+    // three so deletion is an explicit contract change. The delegate counts every
+    // LiveResultListener callback — result() and end() must NOT forward to any of them.
+    var delegateLive = new AtomicInteger();
+    var delegateErr = new AtomicInteger();
+    var delegateUnsub = new AtomicInteger();
+    LiveResultListener delegate =
+        new LiveResultListener() {
+          @Override
+          public void onLiveResult(DatabaseSessionEmbedded db, int iLiveToken,
+              RecordOperation iOp) {
+            delegateLive.incrementAndGet();
+          }
 
-      @Override
-      public void onError(int iLiveToken) {
-        // no-op
-      }
+          @Override
+          public void onError(int iLiveToken) {
+            delegateErr.incrementAndGet();
+          }
 
-      @Override
-      public void onUnsubscribe(int iLiveToken) {
-        // no-op
-      }
-    };
-    var adapter = new LocalLiveResultListener(noop);
-    // CommandResultListener.result(session, record) is hardcoded to return false.
+          @Override
+          public void onUnsubscribe(int iLiveToken) {
+            delegateUnsub.incrementAndGet();
+          }
+        };
+    var adapter = new LocalLiveResultListener(delegate);
+    // CommandResultListener.result(session, record) is hardcoded to return false. Passing
+    // null for the @Nonnull session is intentional — the stub ignores the argument.
     assertFalse("result() is a hardcoded stub returning false", adapter.result(null, new Object()));
     // end(session) is a no-op — simply proving it does not throw pins the contract.
     adapter.end(null);
     // getResult() is hardcoded to return null.
     assertNull("getResult() is a hardcoded stub returning null", adapter.getResult());
+    // Crucially — none of the three CommandResultListener methods are allowed to forward to
+    // the LiveResultListener delegate. Verify the delegate's callback counters stayed at 0.
+    assertEquals(
+        "result() must NOT forward to LiveResultListener.onLiveResult", 0, delegateLive.get());
+    assertEquals("end() must NOT forward to LiveResultListener.onError", 0, delegateErr.get());
+    assertEquals(
+        "result()/end()/getResult() must NOT forward to onUnsubscribe", 0, delegateUnsub.get());
   }
 
   @Test
@@ -665,29 +794,35 @@ public class SqlQueryDeadCodeTest {
     // Pin that ALL forwarding calls use the same delegate identity — a defensive check against
     // a regression where one of the three overrides silently swaps the target.
     var seen = new AtomicInteger();
-    final LiveResultListener sentinel = new LiveResultListener() {
-      @Override
-      public void onLiveResult(DatabaseSessionEmbedded db, int iLiveToken, RecordOperation iOp) {
-        // Token acts as a breadcrumb — if a future refactor drops the token during forwarding,
-        // this assertion catches it.
-        assertEquals("delegate must receive the exact token passed to the adapter", 123,
-            iLiveToken);
-        seen.incrementAndGet();
-      }
+    final LiveResultListener sentinel =
+        new LiveResultListener() {
+          @Override
+          public void onLiveResult(DatabaseSessionEmbedded db, int iLiveToken,
+              RecordOperation iOp) {
+            // Token acts as a breadcrumb — if a future refactor drops the token during
+            // forwarding, this assertion catches it.
+            assertEquals(
+                "delegate must receive the exact token passed to the adapter", 123, iLiveToken);
+            seen.incrementAndGet();
+          }
 
-      @Override
-      public void onError(int iLiveToken) {
-        assertEquals("delegate must receive the exact error token", 456, iLiveToken);
-        seen.incrementAndGet();
-      }
+          @Override
+          public void onError(int iLiveToken) {
+            assertEquals("delegate must receive the exact error token", 456, iLiveToken);
+            seen.incrementAndGet();
+          }
 
-      @Override
-      public void onUnsubscribe(int iLiveToken) {
-        assertEquals("delegate must receive the exact unsub token", 789, iLiveToken);
-        seen.incrementAndGet();
-      }
-    };
+          @Override
+          public void onUnsubscribe(int iLiveToken) {
+            assertEquals("delegate must receive the exact unsub token", 789, iLiveToken);
+            seen.incrementAndGet();
+          }
+        };
     var adapter = new LocalLiveResultListener(sentinel);
+    // Pin the declared interface list via assertTrue(instanceof) rather than a tautological
+    // self-cast assertSame.
+    assertTrue(
+        "adapter must implement LiveResultListener", adapter instanceof LiveResultListener);
     adapter.onLiveResult(null, 123, null);
     adapter.onError(456);
     adapter.onUnsubscribe(789);
@@ -695,8 +830,6 @@ public class SqlQueryDeadCodeTest {
     // Identity pin: since LocalLiveResultListener stores its delegate in a final field, the
     // same adapter must keep forwarding to the same delegate across many invocations.
     adapter.onLiveResult(null, 123, null);
-    assertSame("adapter IS-A LiveResultListener; identity pin for isinstanceof checks", adapter,
-        (LiveResultListener) adapter);
     assertEquals("repeat forwarding observes same delegate", 4, seen.get());
   }
 }
