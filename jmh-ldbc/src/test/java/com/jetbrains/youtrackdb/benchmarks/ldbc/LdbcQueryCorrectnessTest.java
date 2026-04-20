@@ -738,6 +738,37 @@ public class LdbcQueryCorrectnessTest {
     assertEquals("No KNOWS edges should match a future date", 0, rows.size());
   }
 
+  // ==================== Forum count / exists extension queries ====================
+
+  /**
+   * FORUM_JOINER_COUNT: counts members of the Alice's-Wall Forum who joined
+   * on or after a given date. Test graph (created in loadTestData):
+   *   FORUM_ALICE_WALL HAS_MEMBER Bob   joinDate = 2012-01-01
+   *   FORUM_ALICE_WALL HAS_MEMBER Carol joinDate = 2011-01-01
+   * Verifies both a permissive and a restrictive filter, plus a future date
+   * that excludes everything.
+   */
+  @Test
+  public void testForumJoinerCount_variousDates() {
+    // minDate = 2011-01-01 (inclusive lower bound): both Bob and Carol qualify
+    var all = sql(LdbcQuerySql.FORUM_JOINER_COUNT,
+        "forumId", FORUM_ALICE_WALL, "minDate", new Date(DATE_2011_01_01));
+    assertEquals(1, all.size());
+    assertEquals(2L, toLong(all.get(0).get("joinerCount")));
+
+    // minDate = 2012-01-01: only Bob qualifies
+    var recent = sql(LdbcQuerySql.FORUM_JOINER_COUNT,
+        "forumId", FORUM_ALICE_WALL, "minDate", new Date(DATE_2012_01_01));
+    assertEquals(1, recent.size());
+    assertEquals(1L, toLong(recent.get(0).get("joinerCount")));
+
+    // minDate = future: nobody qualifies, count is 0
+    var future = sql(LdbcQuerySql.FORUM_JOINER_COUNT,
+        "forumId", FORUM_ALICE_WALL, "minDate", new Date(DATE_2012_09_01));
+    assertEquals(1, future.size());
+    assertEquals(0L, toLong(future.get(0).get("joinerCount")));
+  }
+
   /** Verifies that all 20 SQL query constants are loaded and non-empty. */
   @Test
   public void testAllQuerySqlConstantsLoaded() {
@@ -762,6 +793,8 @@ public class LdbcQueryCorrectnessTest {
     assertNotNull(LdbcQuerySql.IC12);
     assertNotNull(LdbcQuerySql.IC13);
     assertNotNull(LdbcQuerySql.BOTH_E_KNOWS);
+    assertNotNull(LdbcQuerySql.FORUM_RECENT_JOINERS);
+    assertNotNull(LdbcQuerySql.FORUM_JOINER_COUNT);
     assertTrue("IS1 should contain SQL", LdbcQuerySql.IS1.length() > 10);
   }
 

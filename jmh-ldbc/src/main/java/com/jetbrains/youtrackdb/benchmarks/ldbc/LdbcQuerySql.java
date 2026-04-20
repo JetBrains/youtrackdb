@@ -53,6 +53,16 @@ final class LdbcQuerySql {
   static final String FORUM_RECENT_JOINERS =
       loadResource("ldbc-queries/forum-recent-joiners.sql");
 
+  /**
+   * Forum joiner-count via bothE(HAS_MEMBER) — count-only variant designed to
+   * maximise the visible speedup from the bothE pre-filter: no .inV() loads,
+   * no ORDER BY materialization, no attribute projection. The only cost is
+   * the edge scan/filter itself. Uses a narrow 99th-percentile lower-bound
+   * date so ~1% of edges survive.
+   */
+  static final String FORUM_JOINER_COUNT =
+      loadResource("ldbc-queries/forum-joiner-count.sql");
+
   private LdbcQuerySql() {
   }
 

@@ -74,6 +74,11 @@ public class LdbcBenchmarkState {
   // accessor avoids re-sorting curated dates on every benchmark invocation.
   private Date cachedSelectiveDate;
 
+  // Narrower selective date (99th percentile) used by the count/exists hub
+  // benches where a ~1% selectivity makes the PreFilter savings maximally
+  // visible (more edges to skip per successful lookup).
+  private Date cachedVerySelectiveDate;
+
   private final AtomicLong counter = new AtomicLong();
 
   /**
@@ -267,6 +272,17 @@ public class LdbcBenchmarkState {
     return cachedSelectiveDate;
   }
 
+  /**
+   * Very narrow (~1% selective) lower-bound date used by the count/exists
+   * benches. At this selectivity, a hub Forum with thousands of members
+   * yields only dozens of surviving edges — the gap between "load all edges"
+   * (no pre-filter) and "load ~1% of edges via index intersection" (with
+   * pre-filter) is the dominant cost, making the optimization visible.
+   */
+  public Date forumHubVeryNarrowJoinDate(long idx) {
+    return cachedVerySelectiveDate;
+  }
+
   /** IC13: two distinct person IDs. */
   public long ic13Person1Id(long idx) {
     return curatedParams.ic13PersonIds1()[(int) (idx
@@ -338,10 +354,14 @@ public class LdbcBenchmarkState {
     // Pre-compute a selective (95th-percentile) date once — used as a fixed
     // lower bound by the hub bench so the filter is narrow enough for the
     // pre-filter set to meaningfully reduce edge loads.
+    // Also pre-compute a narrower 99th-percentile date for the count/exists
+    // benches where maximally narrow selectivity exposes the pre-filter gap.
     Date[] sortedDates = curatedParams.dates().clone();
     Arrays.sort(sortedDates);
     cachedSelectiveDate =
         sortedDates[Math.min(sortedDates.length - 1, (int) (sortedDates.length * 0.95))];
+    cachedVerySelectiveDate =
+        sortedDates[Math.min(sortedDates.length - 1, (int) (sortedDates.length * 0.99))];
 
     // Pre-compute top-100 Forums by HAS_MEMBER bag size. These are the hub
     // vertices used by bothEHasMember_recentJoiners — ordinary Forums have
