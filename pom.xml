@@ -226,7 +226,7 @@
       <dependency>
         <groupId>com.palantir.javapoet</groupId>
         <artifactId>javapoet</artifactId>
-        <version>0.12.0</version>
+        <version>0.14.0</version>
       </dependency>
       <dependency>
         <groupId>com.google.testing.compile</groupId>
