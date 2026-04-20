@@ -437,17 +437,20 @@ jobs:
               return;
             }
 
+            // Marker kept so future tooling can locate prior benchmark
+            // comments (e.g. to collapse them into <details> blocks).
             const HEADER = '<!-- jmh-ldbc-compare -->';
             const fullBody = `${HEADER}\n${body}`;
 
             for (const pr of prs) {
-              await github.rest.issues.createComment({
+              const { data: created } = await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: pr.number,
                 body: fullBody,
               });
-              console.log(`Created benchmark comment on PR #${pr.number}`);
+              console.log(
+                `Posted benchmark comment #${created.id} on PR #${pr.number}`);
             }
 
       # ── Cleanup temp files ──────────────────────────────────────────────
