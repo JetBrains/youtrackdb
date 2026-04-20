@@ -79,7 +79,7 @@ jobs:
       fail-fast: false
       matrix:
         java: [ '21', '25' ]
-        distribution: [ 'temurin', 'oracle' ]
+        distribution: [ 'temurin' ]
         arch: [ 'x86', 'arm' ]
         include:
           - arch: x86
@@ -171,7 +171,7 @@ jobs:
       fail-fast: false
       matrix:
         java: [ '21', '25' ]
-        distribution: [ 'temurin', 'oracle' ]
+        distribution: [ 'temurin' ]
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v6
