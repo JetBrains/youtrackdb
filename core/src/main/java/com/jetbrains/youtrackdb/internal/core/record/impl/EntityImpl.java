@@ -508,6 +508,19 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   /**
+   * Returns {@code true} if the named property is already present in the deserialized
+   * properties map. Callers use this to decide whether the {@link #isPropertyEqualTo} /
+   * {@link #comparePropertyTo} fast paths will hit the cheap {@code compareDeserialized}
+   * branch (true) or fall back to byte-scanning the serialized record (false). The
+   * byte-scan branch costs roughly the same as full deserialization for records with many
+   * fields and does not populate the cache, so callers typically skip the in-place path
+   * when this returns false and rely on {@code getProperty} to lazily deserialize instead.
+   */
+  public boolean hasDeserializedProperty(String name) {
+    return properties != null && properties.containsKey(name);
+  }
+
+  /**
    * Compares a property's value to the given object without triggering full deserialization.
    * Checks the in-memory properties map first; if the property is not yet deserialized, compares
    * directly against the serialized bytes in {@code source}.

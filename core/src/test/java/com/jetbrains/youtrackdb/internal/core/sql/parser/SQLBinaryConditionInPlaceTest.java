@@ -4,8 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
+import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.junit.Test;
@@ -857,5 +861,122 @@ public class SQLBinaryConditionInPlaceTest extends DbTestBase {
       assertThat(rs.stream().collect(Collectors.toList())).isEmpty();
     }
     session.commit();
+  }
+
+  // ----- Regression tests for lazy-MATCH path (YTDB-604) -----
+
+  @Test
+  public void testEvaluateResult_bareRidFallsThroughToGetProperty() {
+    // Regression test for the YTDB-604 IC1/IC4 regression: when evaluate(Result, ctx)
+    // is called with a bare-RID ResultInternal (the shape produced by the lazy-MATCH
+    // ridIterator path), the fast-path guard must NOT run the byte-scan in-place
+    // comparison. Instead, the code must fall through to left.execute() which invokes
+    // ResultInternal.getProperty — that path lazily loads AND deserializes the
+    // property into the properties map, so a subsequent predicate on the same Result
+    // hits the cheap compareDeserialized branch.
+    //
+    // Before this fix (commit e131e7a268), the guard called ri.asEntityOrNull()
+    // which force-loaded the entity but left the properties map unpopulated, forcing
+    // byte-scans of the serialized record on every WHERE predicate. For records with
+    // many fields (LDBC Post, Person), that byte-scan was not cheaper than full
+    // deserialization, and the overhead compounded to -16% (ic1) / -17% (ic4).
+    //
+    // We verify the fix via two observable effects:
+    //   1. evaluate produces the correct boolean (behavioral correctness)
+    //   2. after evaluate, the property is in the deserialized map — proving
+    //      getProperty was invoked (not byte-scan). Byte-scan leaves the map empty.
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("LazyRidEval");
+    clazz.createProperty("age", PropertyType.INTEGER);
+
+    session.begin();
+    var e = session.newEntity("LazyRidEval");
+    e.setProperty("age", 25);
+    session.commit();
+    var rid = e.getIdentity();
+
+    // Simulate the lazy-MATCH path: ResultInternal wrapping only the RID.
+    var ri = new ResultInternal(session, (RID) rid);
+
+    var bc = parseBinaryCondition("age = 25");
+    var ctx = new BasicCommandContext();
+    ctx.setDatabaseSession(session);
+
+    session.begin();
+    var outcome = bc.evaluate(ri, ctx);
+
+    assertThat(outcome).isTrue();
+    // The standard fall-through path went through getProperty — the property is
+    // now deserialized. The broken pre-fix path would have either (a) returned
+    // via byte-scan without populating the map, or (b) fallen through after a
+    // wasted byte-scan + force-load. Either way, this assertion acts as a canary.
+    var loaded = (EntityImpl) ri.asIdentifiableOrNull();
+    assertThat(loaded).isNotNull();
+    assertThat(loaded.hasDeserializedProperty("age")).isTrue();
+    session.rollback();
+  }
+
+  @Test
+  public void testEvaluateResult_secondPredicateTakesFastPath() {
+    // After the first WHERE predicate evaluated on a bare-RID Result has populated
+    // the properties map via the standard getProperty path, subsequent predicates
+    // on the SAME Result must take the in-place fast path. This preserves the
+    // original intent of the in-place optimization (avoid SuffixIdentifier→Result→
+    // Entity dispatch for simple property-vs-constant comparisons) without
+    // regressing the lazy-MATCH case.
+    //
+    // Observable check: before the second predicate runs, hasDeserializedProperty
+    // returns true — the guard condition is satisfied, so tryInPlaceComparison
+    // will hit the cheap compareDeserialized branch.
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("LazyRidEval2");
+    clazz.createProperty("age", PropertyType.INTEGER);
+    clazz.createProperty("score", PropertyType.INTEGER);
+
+    session.begin();
+    var e = session.newEntity("LazyRidEval2");
+    e.setProperty("age", 25);
+    e.setProperty("score", 100);
+    session.commit();
+    var rid = e.getIdentity();
+
+    var ri = new ResultInternal(session, (RID) rid);
+    var bcAge = parseBinaryCondition("age = 25");
+    var bcScore = parseBinaryCondition("score = 100");
+    var ctx = new BasicCommandContext();
+    ctx.setDatabaseSession(session);
+
+    session.begin();
+    // First predicate: bare RID → guard fails → fall through populates age.
+    assertThat(bcAge.evaluate(ri, ctx)).isTrue();
+    var loaded = (EntityImpl) ri.asIdentifiableOrNull();
+    assertThat(loaded.hasDeserializedProperty("age")).isTrue();
+
+    // Second predicate on a DIFFERENT property that has not yet been read —
+    // hasDeserializedProperty is still false for "score", so the second predicate
+    // also falls through to getProperty, which then caches it.
+    assertThat(loaded.hasDeserializedProperty("score")).isFalse();
+    assertThat(bcScore.evaluate(ri, ctx)).isTrue();
+    assertThat(loaded.hasDeserializedProperty("score")).isTrue();
+
+    // Third predicate on age — now cached — must still evaluate correctly. The
+    // guard condition is satisfied and tryInPlaceComparison hits compareDeserialized.
+    assertThat(bcAge.evaluate(ri, ctx)).isTrue();
+    session.rollback();
+  }
+
+  private SQLBinaryCondition parseBinaryCondition(String booleanExpr) {
+    try {
+      var parser = new YouTrackDBSql(
+          new java.io.ByteArrayInputStream(booleanExpr.getBytes()));
+      var orBlock = parser.OrBlock();
+      // "age = 25" parses to: OrBlock -> [AndBlock] -> [NotBlock(negate=false)]
+      //                                             -> [SQLBinaryCondition]
+      var andBlock = (SQLAndBlock) orBlock.subBlocks.get(0);
+      var notBlock = (SQLNotBlock) andBlock.subBlocks.get(0);
+      return (SQLBinaryCondition) notBlock.sub;
+    } catch (ParseException e) {
+      throw new AssertionError("Failed to parse expression: " + booleanExpr, e);
+    }
   }
 }
