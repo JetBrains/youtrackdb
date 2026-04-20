@@ -72,11 +72,14 @@ public class SQLMethodAsFloatTest {
 
   @Test
   public void bigDecimalCoercedViaFloatValue() {
-    // BigDecimal is a Number — floatValue() loses precision but stays finite for reasonable
-    // magnitudes. Delta reflects unavoidable float representation error.
+    // BigDecimal is a Number — floatValue() is a pure function, so the result is exactly
+    // determined by BigDecimal.floatValue's documented IEEE-754 single-precision rounding.
+    // Pin with delta=0.0f (exact-match): anything looser would accept any nearby float and
+    // weaken falsifiability. The previous 1e-6f delta was ~100× larger than any plausible
+    // implementation drift.
     var bd = new BigDecimal("3.14159265358979323846");
-    assertEquals(3.14159265f,
-        (Float) method.execute(null, null, null, bd, null), 1e-6f);
+    assertEquals(
+        bd.floatValue(), (Float) method.execute(null, null, null, bd, null), 0.0f);
   }
 
   @Test

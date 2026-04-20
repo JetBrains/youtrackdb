@@ -23,6 +23,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingExcepti
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.SequenceLimitReachedException;
 import com.jetbrains.youtrackdb.internal.core.metadata.sequence.DBSequence;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -64,6 +65,19 @@ public class SQLMethodNextTest extends DbTestBase {
     session.getMetadata().getSequenceLibrary().createSequence(
         SEQ_NAME, DBSequence.SEQUENCE_TYPE.ORDERED,
         new DBSequence.CreateParams().setDefaults());
+  }
+
+  /**
+   * Safety net: {@code SQLMethodNext} relies on {@link DBSequence#next} which opens its own
+   * transaction via {@code callRetry}. A test-level exception before retry commits would leak
+   * that tx and cascade-fail subsequent methods. Roll back any left-open tx.
+   */
+  @After
+  public void rollbackIfLeftOpen() {
+    var tx = session.getActiveTransactionOrNull();
+    if (tx != null && tx.isActive()) {
+      session.rollback();
+    }
   }
 
   // ---------------------------------------------------------------------------

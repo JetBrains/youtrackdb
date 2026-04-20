@@ -26,10 +26,19 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.sql.operator.QueryOperator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.FixMethodOrder;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
+import org.junit.runners.MethodSorters;
 
 /**
  * Dead-code pin tests for the {@code core/sql} root package.
@@ -69,8 +78,51 @@ import org.junit.Test;
  *
  * <p>The {@code IterableRecordSource} interface and {@code TemporaryRidGenerator} are also NOT
  * dead — they are implemented by several executor steps. Not included here.
+ *
+ * <p>This test is {@link SequentialTest} because two methods snapshot process-wide static state:
+ * {@code DynamicSQLElementFactory.FUNCTIONS} and {@code DynamicSQLElementFactory.OPERATORS}. The
+ * core module's surefire config uses {@code <parallel>classes</parallel>} — same JVM, different
+ * threads — so a concurrent test class that calls {@code SQLEngine.register/unregisterFunction}
+ * between this class's {@code @Before} snapshot and the method under test could observe a racing
+ * mutation. {@code @Category(SequentialTest)} serializes this class against other
+ * {@code SequentialTest} classes at the surefire level; the {@code @Before}/{@code @After}
+ * snapshot idiom (mirroring {@link SQLEngineSpiCacheTest#snapshotStaticState}) provides
+ * defence-in-depth leak detection.
  */
+@Category(SequentialTest.class)
+@FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public class SqlRootDeadCodeTest {
+
+  private Map<String, Object> functionsBefore;
+  private Set<QueryOperator> operatorsBefore;
+
+  @Before
+  public void snapshotStaticState() {
+    functionsBefore = Map.copyOf(DynamicSQLElementFactory.FUNCTIONS);
+    // Hold the monitor on the synchronized set to avoid a CME if any parallel class mutates
+    // OPERATORS concurrently. (SequentialTest protects against concurrent in-class and
+    // cross-SequentialTest-class writes; the lock keeps the test robust against a future
+    // SequentialTest-category removal.)
+    synchronized (DynamicSQLElementFactory.OPERATORS) {
+      operatorsBefore = new HashSet<>(DynamicSQLElementFactory.OPERATORS);
+    }
+  }
+
+  @After
+  public void verifyNoStaticStateLeak() {
+    // Snapshot assertion: this class is read-only with respect to static state, so the snapshots
+    // must be byte-for-byte identical at teardown. Any drift indicates that either (a) a method
+    // in this class accidentally wrote, or (b) a parallel test (escaping SequentialTest
+    // serialization) wrote — both of which we want to surface loudly.
+    assertEquals(
+        "FUNCTIONS map leaked static state between tests",
+        functionsBefore, Map.copyOf(DynamicSQLElementFactory.FUNCTIONS));
+    Set<QueryOperator> operatorsNow;
+    synchronized (DynamicSQLElementFactory.OPERATORS) {
+      operatorsNow = new HashSet<>(DynamicSQLElementFactory.OPERATORS);
+    }
+    assertEquals("OPERATORS set leaked static state between tests", operatorsBefore, operatorsNow);
+  }
 
   // ---------------------------------------------------------------------------
   // CommandExecutorSQLAbstract — abstract scaffold with no subclasses
@@ -152,13 +204,19 @@ public class SqlRootDeadCodeTest {
 
   @Test
   public void dynamicSqlElementFactoryCreateCommandUnknownThrows() {
-    // With a never-populated COMMANDS map, createCommand for any name throws.
+    // With a never-populated COMMANDS map, createCommand for any name throws. Pin BOTH the
+    // argument substring AND the "Unknowned command name" phrase (including the current typo,
+    // mirroring the sibling pin on DefaultCommandExecutorSQLFactory#createCommand) — a bare
+    // argument-substring match would pass even if the message became "accepted: anything".
     var f = new DynamicSQLElementFactory();
     try {
       f.createCommand("anything");
       fail("expected CommandExecutionException");
     } catch (CommandExecutionException expected) {
-      assertTrue(expected.getMessage().contains("anything"));
+      var msg = expected.getMessage();
+      assertTrue("message should mention the argument, got: " + msg, msg.contains("anything"));
+      assertTrue("message should pin 'Unknown command name', got: " + msg,
+          msg.contains("Unknown command name"));
     }
   }
 
@@ -169,11 +227,11 @@ public class SqlRootDeadCodeTest {
     // catch a hypothetical mutation that overwrites an entry with the same key but different
     // class — a key-only snapshot would miss that.
     //
-    // Note: FUNCTIONS is process-wide static state. surefire fork isolation protects this
-    // snapshot from concurrent test mutation, but a parallel test inside the same fork that
-    // calls SQLEngine.registerFunction between the two snapshots would flake this test. The
-    // core module's surefire config uses parallel classes with forked VMs, so this is safe
-    // in practice.
+    // Note: FUNCTIONS is process-wide static state. surefire uses <parallel>classes</parallel>
+    // (same JVM, different threads), so a concurrent class that calls SQLEngine.registerFunction
+    // could race the before/after snapshots. The class-level @Category(SequentialTest) tag
+    // serializes this class against any other SequentialTest class; the @Before/@After
+    // snapshot in this class adds defence-in-depth.
     var f = new DynamicSQLElementFactory();
     var before = Map.copyOf(DynamicSQLElementFactory.FUNCTIONS);
     f.registerDefaultFunctions(null);

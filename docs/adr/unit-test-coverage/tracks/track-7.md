@@ -3,7 +3,7 @@
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation (8/8 complete)
-- [ ] Track-level code review
+- [ ] Track-level code review (1/3 iterations — iter-1 complete, iter-2 gate pending)
 
 ## Base commit
 `a452c0539d859f9601f64de9c1dd30d0295deacd`
@@ -24,6 +24,22 @@ up (physiological WAL logging, unrelated to Track 7 scope).
 
 **Risk review intentionally skipped**: Track 7 is purely test-additive with
 no performance, crash-safety, or critical-path concerns.
+
+## Phase C — Track-level code review
+- [x] Iter 1 → `reviews/track-7-code-review-iter1.md` + 6 dimension reports
+  - 6 sub-agents (4 baseline + test-concurrency + test-structure): 0 blocker,
+    17 should-fix (after dedup), 39 suggestion.
+  - Applied 13 should-fix fixes (TS1/TS2 rollbackIfLeftOpen, BC1/TX1
+    SequentialTest category + snapshot idiom, BC2/TX3 helper-thread
+    cleanup, TB1/TB2/TB3/TB4 assertion tightening, TC1 Identifiable
+    fallback tests, TC2 dead-flag pin, TC4 SQLMethodField corner cases,
+    TC5 null-element tests, CQ2 copyright attribution).
+  - Deferred to iter-2 (optional): CQ1 license banner cleanup (10 files,
+    mechanical), TC3 unicode/locale string-method coverage.
+  - Deferred to Track 22 (plan updated): CQ3/TS5 RecordingFunction DRY,
+    TS3/TS6 large-test-class splits, TS4/TS7/TS9 parameterized tests,
+    TX5 multi-threaded race-exercising tests paired with production fixes.
+- [ ] Iter 2 (gate check) — pending next session
 
 ## Review Response Summary
 

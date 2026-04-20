@@ -22,6 +22,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionExceptio
 import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.metadata.sequence.DBSequence;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -62,6 +63,19 @@ public class SQLMethodResetTest extends DbTestBase {
     session.getMetadata().getSequenceLibrary().createSequence(
         SEQ_NAME, DBSequence.SEQUENCE_TYPE.ORDERED,
         new DBSequence.CreateParams().setDefaults());
+  }
+
+  /**
+   * Safety net: {@code SQLMethodReset} relies on {@link DBSequence#reset} which writes the entity
+   * via its own transactional retry. Roll back any leaked tx so a mid-test failure does not
+   * cascade into subsequent methods.
+   */
+  @After
+  public void rollbackIfLeftOpen() {
+    var tx = session.getActiveTransactionOrNull();
+    if (tx != null && tx.isActive()) {
+      session.rollback();
+    }
   }
 
   // ---------------------------------------------------------------------------

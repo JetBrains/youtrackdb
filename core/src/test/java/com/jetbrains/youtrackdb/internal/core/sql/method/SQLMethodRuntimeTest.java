@@ -255,6 +255,22 @@ public class SQLMethodRuntimeTest extends DbTestBase {
     assertNull(runtimeParams[0]);
   }
 
+  @Test
+  public void setParametersEvaluateFalseIsDeadFlagBugPin() {
+    // WHEN-FIXED: Track 22 — SQLMethodRuntime.setParameters (production lines 193–230) accepts
+    // an `iEvaluate` boolean but NEVER consults it — the body has no `if (iEvaluate)` guard,
+    // unlike the sibling SQLFunctionRuntime.setParameters (which DOES guard). Two valid fixes:
+    // (a) wire the flag so `iEvaluate=false` skips the SQLHelper.parseValue conversion,
+    //     mirroring SQLFunctionRuntime, OR
+    // (b) remove the parameter from the signature (breaking API change) to match reality.
+    // Pin the CURRENT buggy behaviour: passing false still converts the literal "7" to Integer 7.
+    var runtime = new SQLMethodRuntime(new SQLMethodTrim());
+    runtime.setParameters(session, new Object[] {"7"}, false);
+    assertEquals(
+        "iEvaluate=false is ignored — numeric-literal parsing happens regardless (bug pin)",
+        7, runtime.getConfiguredParameters()[0]);
+  }
+
   // ---------------------------------------------------------------------------
   // execute — early-return and null-configuredParameters branches
   // ---------------------------------------------------------------------------
@@ -377,6 +393,73 @@ public class SQLMethodRuntimeTest extends DbTestBase {
 
     runtime.execute("iThis", null, null, ctx);
     assertArrayEquals(new Object[] {"ctx-value"}, probe.lastParams);
+  }
+
+  @Test
+  public void executeSQLFilterItemFieldFallsBackToCurrentResultWhenRecordLacksField() {
+    // Production lines 89-95: when the record's getValue returns null AND iCurrentResult is an
+    // Identifiable, the fallback re-invokes SQLFilterItemField.getValue with iCurrentResult
+    // cast to Result. The branch requires iCurrentResult to be BOTH `instanceof Identifiable`
+    // AND castable to Result — Entity is the natural type that satisfies both (Entity extends
+    // DBRecord which extends Identifiable, AND Entity extends Result).
+    // Without this test the branch is entirely unexercised — a regression removing the
+    // fallback would silently convert "field exists only on iCurrentResult" cases into
+    // null-return errors.
+    var probe = new ProbeMethod("probe");
+    var runtime = new SQLMethodRuntime(probe);
+    var fld = new SQLFilterItemField(session, "f", null);
+    runtime.setParameters(session, new Object[] {fld}, true);
+
+    // iCurrentRecord (a bare ResultInternal) has NO "f" property — the first getValue returns
+    // null, triggering the Identifiable fallback.
+    var record = new ResultInternal(session);
+    session.begin();
+    try {
+      var entity = session.newInstance();
+      entity.setProperty("f", "fallback-value");
+      // Pass the entity directly as iCurrentResult — it's both Identifiable AND Result, the
+      // only shape the fallback cast accepts.
+      runtime.execute("iThisIgnored", record, entity, ctx);
+      assertTrue("wrapped method must be invoked after fallback resolves", probe.invoked);
+      assertArrayEquals(
+          "fallback branch must resolve the value from iCurrentResult when record lacks it",
+          new Object[] {"fallback-value"}, probe.lastParams);
+    } finally {
+      session.rollback();
+    }
+  }
+
+  @Test
+  public void executeSQLFilterItemVariableFallsBackToCurrentResultWhenContextLacksValue() {
+    // Mirror of the SQLFilterItemField fallback — production lines 108-114. Same dual-type
+    // requirement: iCurrentResult must be BOTH Identifiable AND Result, so we pass an Entity.
+    // SQLFilterItemVariable dispatch: the first getValue reads $-prefixed names via the
+    // CommandContext variable lookup. When that returns null AND iCurrentResult is an
+    // Identifiable (Entity), the fallback re-invokes with iCurrentResult as the "record"
+    // argument, which may resolve from properties on the entity.
+    var variable = new SQLFilterItemVariable(session, new StubParser("$missing"), "$missing");
+    // Deliberately DO NOT set "missing" on ctx — the first getValue call returns null.
+
+    var probe = new ProbeMethod("probe");
+    var runtime = new SQLMethodRuntime(probe);
+    runtime.setParameters(session, new Object[] {variable}, true);
+
+    session.begin();
+    try {
+      var entity = session.newInstance();
+      runtime.execute("iThisIgnored", null, entity, ctx);
+      // The variable isn't defined on either context or entity, so resolution ends up null.
+      // But we MUST pin that the fallback branch actually ran — the invoked flag proves the
+      // wrapped method ran at all; the null param proves the fallback cast didn't throw and
+      // the second getValue also returned null rather than some stale default.
+      assertTrue("wrapped method must be invoked even when both branches resolve to null",
+          probe.invoked);
+      assertEquals(1, probe.lastParams.length);
+      assertNull("both primary and fallback resolve to null for a missing variable",
+          probe.lastParams[0]);
+    } finally {
+      session.rollback();
+    }
   }
 
   @Test

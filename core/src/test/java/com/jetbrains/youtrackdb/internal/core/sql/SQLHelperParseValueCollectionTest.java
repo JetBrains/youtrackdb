@@ -21,6 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.sql;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -123,6 +124,20 @@ public class SQLHelperParseValueCollectionTest extends DbTestBase {
     assertEquals(1, list.get(0));
     assertEquals(2, list.get(1));
     assertEquals(3, list.get(2));
+  }
+
+  @Test
+  public void parseListWithExplicitNullElementsPreservesNullSlots() {
+    // Realistic SQL-generated input like "[null, 1, null]" — the LIST_BEGIN recursion must
+    // parse the bareword "null" as Java null and keep the resulting list slots null.
+    // No prior test covered null elements explicitly.
+    var out = SQLHelper.parseValue("[null, 1, null]", ctx, false, null, null, null, null);
+    assertTrue("expected EmbeddedList, got " + out.getClass(), out instanceof EmbeddedList);
+    var list = (List<?>) out;
+    assertEquals(3, list.size());
+    assertNull("first element should be Java null", list.get(0));
+    assertEquals(1, list.get(1));
+    assertNull("third element should be Java null", list.get(2));
   }
 
   @Test
@@ -248,6 +263,19 @@ public class SQLHelperParseValueCollectionTest extends DbTestBase {
     assertEquals(RecordIdInternal.fromString("#1:0", false), list.get(0));
     // Cross-check: schemaProperty's linkedClass is surfaced via getLinkedClass on the property.
     assertEquals(linkedClass.getName(), schemaProp.getLinkedClass().getName());
+  }
+
+  @Test
+  public void parseMapWithExplicitNullValuePreservesNullSlot() {
+    // TC5 fill: "{'k': null}" — the MAP_BEGIN recursion must parse the bareword "null" as Java
+    // null and store it under the string key "k". Prior tests covered every property/schema
+    // branch but none asserted that a literal null value survives the recursion.
+    var out = SQLHelper.parseValue("{'k': null}", ctx, false, null, null, null, null);
+    assertTrue("expected EmbeddedMap, got " + out.getClass(), out instanceof EmbeddedMap);
+    var map = (Map<?, ?>) out;
+    assertEquals(1, map.size());
+    assertTrue("key must be 'k'", map.containsKey("k"));
+    assertNull("value must be Java null (not the string \"null\")", map.get("k"));
   }
 
   @Test
