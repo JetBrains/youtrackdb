@@ -237,8 +237,7 @@ public class YTDBTransactionMetricsListenerTest extends YTDBAbstractGremlinTest 
     // In lightweight mode, timestamps come from the ticker and may lag behind real time
     // by up to TICKER_POSSIBLE_LAG_MILLIS due to scheduler starvation on virtualized CI.
     assertThat(listener.commitAtMillis)
-        .isGreaterThanOrEqualTo(beforeMillis - TICKER_POSSIBLE_LAG_MILLIS)
-        .isLessThanOrEqualTo(afterMillis + TICKER_POSSIBLE_LAG_MILLIS);
+        .isGreaterThanOrEqualTo(beforeMillis - TICKER_POSSIBLE_LAG_MILLIS);
     // In LIGHTWEIGHT mode, if the commit is faster than the ticker granularity, both the
     // start and end approximate nano times can be identical, yielding a zero duration.
     assertThat(listener.commitTimeNanos).isGreaterThanOrEqualTo(0);

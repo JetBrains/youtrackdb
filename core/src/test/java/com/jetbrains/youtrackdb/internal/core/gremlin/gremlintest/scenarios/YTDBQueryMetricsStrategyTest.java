@@ -38,7 +38,6 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
   private static final long ALLOWED_TICKER_JITTER_MS = 1;
 
   private static long TICKER_POSSIBLE_LAG_NANOS;
-  private static long TICKER_POSSIBLE_LAG_MILLIS;
   private static long TICKER_GRANULARITY_MILLIS;
 
   @BeforeClass
@@ -47,20 +46,23 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
         YouTrackDBEnginesManager.instance().getTicker().getGranularity();
     TICKER_GRANULARITY_MILLIS = granularity / 1_000_000;
 
-    // The ticker background thread fires at fixed-rate intervals of `granularity`, but actual
-    // scheduling jitter can be significant on virtualized CI environments:
-    //   * Windows: the OS timer resolution is ~15.6 ms, so scheduleAtFixedRate(10 ms) actually
-    //     fires at ~15.6 ms intervals; under CPU contention a tick can be delayed by another
-    //     timer quantum, pushing worst-case staleness to ~31 ms for a 10 ms granularity.
-    //   * GitHub-hosted macOS arm (virtualized Apple Silicon): per-fire ticker lag up to
-    //     ~75 ms observed for a 10 ms granularity. The scheduler is noticeably less
-    //     predictable than the Hetzner bare-metal nodes the Linux legs run on.
-    // A 10x multiplier (100 ms for a 10 ms granularity) covers both worst cases with some
-    // headroom, while still being a meaningful upper bound on ticker staleness — the tight
-    // "ticker never runs ahead of wall-clock" direction is guarded independently below by
-    // a bound at one granularity + ALLOWED_TICKER_JITTER_MS, which is not relaxed.
+    // Used as the upper bound on `executionTimeNanos = endNano - nano`, i.e., the
+    // allowance for how much more than the real elapsed time the ticker-measured
+    // duration can be. Both `endNano` and `nano` are past `System.nanoTime()` samples
+    // captured by the ticker's scheduled thread, so the ticker-measured duration can
+    // exceed real time by at most one scheduler period. On virtualized CI that period
+    // can stretch well beyond the configured granularity:
+    //   * Windows: ~15.6 ms OS timer quantum; scheduleAtFixedRate(10 ms) actually fires
+    //     at ~15.6 ms intervals, plus CPU contention adds another quantum — worst-case
+    //     staleness ~31 ms for a 10 ms granularity.
+    //   * GitHub-hosted macOS arm (virtualized Apple Silicon): per-fire ticker lag up
+    //     to ~75 ms observed for a 10 ms granularity. Less predictable than the
+    //     Hetzner bare-metal nodes the Linux legs run on.
+    // A 10x multiplier (100 ms for a 10 ms granularity) covers both worst cases with
+    // headroom while still catching a ticker that drifts much further behind real time.
+    // The tight "ticker never runs ahead of wall-clock" direction on `startedAtMillis`
+    // is guarded independently by a bound at one granularity + ALLOWED_TICKER_JITTER_MS.
     TICKER_POSSIBLE_LAG_NANOS = granularity * 10;
-    TICKER_POSSIBLE_LAG_MILLIS = TICKER_POSSIBLE_LAG_NANOS / 1_000_000;
   }
 
   @Before
@@ -997,13 +999,10 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
         assertThat(listener.startedAtMillis)
             .as("ticker must not run ahead of wall clock")
             .isLessThanOrEqualTo(
-                afterMillis + TICKER_GRANULARITY_MILLIS + ALLOWED_TICKER_JITTER_MS);
-        assertThat(listener.startedAtMillis)
-            // The lag-behind upper bound (reused from TICKER_POSSIBLE_LAG_MILLIS) absorbs
-            // scheduler starvation, which can push staleness well beyond one granularity
-            // on noisy CI. Approximate monotonicity allows the ≤1 ms dip that can come
-            // from independent recalibration of volatile fields and integer truncation.
-            .isLessThanOrEqualTo(afterMillis + TICKER_POSSIBLE_LAG_MILLIS)
+                afterMillis + TICKER_GRANULARITY_MILLIS + ALLOWED_TICKER_JITTER_MS)
+            // Approximate monotonicity allows the ≤1 ms dip that can come from
+            // independent recalibration of the two volatile fields plus integer
+            // truncation in nanoTime / 1_000_000.
             .isGreaterThanOrEqualTo(prevStartedAtMillis - ALLOWED_TICKER_JITTER_MS);
         // The ticker-measured window [nano, endNano] sits inside the System.nanoTime
         // window [beforeNanos, afterNanos], so the measured duration is at most the real
