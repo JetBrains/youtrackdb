@@ -60,13 +60,21 @@ public class GranularTickerTest {
         prevApproxMillis = approxMillis;
       }
 
-      // The ticker can lag behind real time by at most one granularity tick
-      // at any point, so its total advancement should be close to real elapsed time.
+      // The ticker's background sampler fires at fixed-rate intervals of `granularityNanos`,
+      // but the scheduler can delay a single fire significantly. On virtualized CI
+      // environments the worst-case per-fire lag goes well beyond one granularity tick:
+      // GitHub-hosted macOS arm (virtualized Apple Silicon) has shown per-fire ticker lag
+      // up to ~75 ms for a 10 ms granularity across the tests in this package, and Windows
+      // CI has a ~15.6 ms OS timer quantum that can stack with CPU contention. A 10x
+      // multiplier (100 ms for a 10 ms granularity) covers both with some headroom while
+      // still being a meaningful lower bound on cumulative ticker advancement over 20
+      // iterations — a ticker that silently stopped advancing would still fail since
+      // totalTickerNanos would stay at zero while totalRealNanos exceeds 100 ms.
       final var totalRealNanos = System.nanoTime() - startRealNano;
       final var totalTickerNanos = prevApproxNano - startApproxNano;
       assertThat(totalTickerNanos)
           .as("ticker should advance over 20 iterations")
-          .isGreaterThanOrEqualTo(totalRealNanos - 2 * granularityNanos);
+          .isGreaterThanOrEqualTo(totalRealNanos - 10 * granularityNanos);
     } finally {
       scheduler.shutdownNow();
     }

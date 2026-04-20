@@ -24,13 +24,30 @@ import org.junit.runner.RunWith;
 @RunWith(GremlinProcessRunner.class)
 public class YTDBTransactionMetricsListenerTest extends YTDBAbstractGremlinTest {
 
+  // The ticker-based millis timestamp is derived from two independently-refreshed volatile
+  // fields (nanoTime and nanoTimeDifference). When nanoTimeDifference is recalibrated,
+  // integer truncation in nanoTime/1_000_000 can cause the result to dip by up to 1 ms.
+  private static final long ALLOWED_TICKER_JITTER_MS = 1;
+
   private static long TICKER_POSSIBLE_LAG_MILLIS;
+  private static long TICKER_GRANULARITY_MILLIS;
 
   @BeforeClass
   public static void beforeClass() throws InterruptedException {
     var granularity =
         YouTrackDBEnginesManager.instance().getTicker().getGranularity();
-    TICKER_POSSIBLE_LAG_MILLIS = granularity * 3 / 1_000_000;
+    TICKER_GRANULARITY_MILLIS = granularity / 1_000_000;
+    // The ticker's background sampler fires at fixed-rate intervals of `granularity`, but
+    // on virtualized CI the scheduler can delay a fire far beyond one granularity — Windows
+    // has a ~15.6 ms OS timer quantum, and GitHub-hosted macOS arm (virtualized Apple
+    // Silicon) has shown per-fire ticker lag up to ~75 ms for a 10 ms granularity across
+    // the tests in this package. A 10x multiplier (100 ms for a 10 ms granularity) covers
+    // both environments with headroom while still catching a ticker that drifts much
+    // farther behind real wall-clock time. The tight "ticker never runs ahead of
+    // wall-clock" direction is guarded independently in the assertion below at one
+    // granularity + ALLOWED_TICKER_JITTER_MS, which is not relaxed.
+    var tickerPossibleLagNanos = granularity * 10;
+    TICKER_POSSIBLE_LAG_MILLIS = tickerPossibleLagNanos / 1_000_000;
 
     // Ensure ticker has had time to stabilize after graph setup.
     Thread.sleep(100);
@@ -209,11 +226,18 @@ public class YTDBTransactionMetricsListenerTest extends YTDBAbstractGremlinTest 
     var afterMillis = System.currentTimeMillis();
 
     assertThat(listener.callCount).isEqualTo(1);
-    // In lightweight mode, timestamps come from the ticker and may lag by up to
-    // TICKER_POSSIBLE_LAG_MILLIS.
+    // Ticker must never run ahead of real wall-clock time. The ticker exposes a past
+    // nanoTime sample, so forward drift can only come from nanoTimeDifference
+    // recalibration and integer truncation — one granularity plus ALLOWED_TICKER_JITTER_MS
+    // covers both. This tight bound is independent of scheduler noise on virtualized CI.
     assertThat(listener.commitAtMillis)
-        .isGreaterThanOrEqualTo(beforeMillis - TICKER_POSSIBLE_LAG_MILLIS)
-        .isLessThanOrEqualTo(afterMillis + TICKER_POSSIBLE_LAG_MILLIS);
+        .as("ticker must not run ahead of wall clock")
+        .isLessThanOrEqualTo(
+            afterMillis + TICKER_GRANULARITY_MILLIS + ALLOWED_TICKER_JITTER_MS);
+    // In lightweight mode, timestamps come from the ticker and may lag behind real time
+    // by up to TICKER_POSSIBLE_LAG_MILLIS due to scheduler starvation on virtualized CI.
+    assertThat(listener.commitAtMillis)
+        .isGreaterThanOrEqualTo(beforeMillis - TICKER_POSSIBLE_LAG_MILLIS);
     // In LIGHTWEIGHT mode, if the commit is faster than the ticker granularity, both the
     // start and end approximate nano times can be identical, yielding a zero duration.
     assertThat(listener.commitTimeNanos).isGreaterThanOrEqualTo(0);
