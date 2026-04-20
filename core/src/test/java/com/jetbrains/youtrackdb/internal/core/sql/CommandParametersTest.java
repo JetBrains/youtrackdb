@@ -133,6 +133,17 @@ public class CommandParametersTest {
     assertNull(new CommandParameters().getByName("missing"));
   }
 
+  @Test
+  public void setNullKeyIsAcceptedAndRetrievable() {
+    // The backing HashMap permits null keys. Pin that the null-key contract is preserved — if
+    // the class ever switches to a null-hostile map (e.g. ConcurrentHashMap), this test flips
+    // red and the migration must be justified.
+    var p = new CommandParameters();
+    p.set(null, "null-keyed-value");
+    assertEquals("null-keyed-value", p.getByName(null));
+    assertEquals(1, p.size());
+  }
+
   // ---------------------------------------------------------------------------
   // getNext / reset / counter semantics
   // ---------------------------------------------------------------------------
@@ -152,8 +163,10 @@ public class CommandParametersTest {
 
   @Test
   public void getNextBeyondSizeThrowsIndexOutOfBoundsException() {
-    // The exception branch fires when the counter has reached size(). The message should mention
-    // the counter and the total parameters received — pin that substring so regressions surface.
+    // The exception branch fires when the counter has reached size(). Pin the exact message
+    // shape: "Parameter <counter> not found. Total parameters received: <size>". A loose
+    // substring like "1" would match either value on a single-entry container; here we pin
+    // BOTH substrings so a future drift of the counter/size format is caught.
     var p = new CommandParameters();
     p.set(0, "only");
     p.getNext();
@@ -161,20 +174,27 @@ public class CommandParametersTest {
       p.getNext();
       fail("expected IndexOutOfBoundsException");
     } catch (IndexOutOfBoundsException expected) {
-      assertTrue(
-          "message should mention counter position, got: " + expected.getMessage(),
-          expected.getMessage().contains("1"));
+      var msg = expected.getMessage();
+      assertTrue("message should name the counter position 1, got: " + msg,
+          msg.contains("Parameter 1 "));
+      assertTrue("message should name the total size 1, got: " + msg,
+          msg.contains("Total parameters received: 1"));
     }
   }
 
   @Test
   public void getNextOnEmptyThrowsImmediately() {
-    // Counter starts at 0, size() is 0 → the guard is (0 <= 0) which is true → throws.
+    // Counter starts at 0, size() is 0 → the guard is (0 <= 0) which is true → throws. Pin both
+    // the counter and total-size substrings to catch format drift.
     try {
       new CommandParameters().getNext();
       fail("expected IndexOutOfBoundsException");
     } catch (IndexOutOfBoundsException expected) {
-      // OK — the exception guard fires on the very first call when the container is empty.
+      var msg = expected.getMessage();
+      assertTrue("message should name the counter position 0, got: " + msg,
+          msg.contains("Parameter 0 "));
+      assertTrue("message should name the total size 0, got: " + msg,
+          msg.contains("Total parameters received: 0"));
     }
   }
 

@@ -20,13 +20,15 @@
 package com.jetbrains.youtrackdb.internal.core.sql;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
-import java.util.Set;
+import java.util.List;
+import java.util.Map;
 import org.junit.Test;
 
 /**
@@ -112,19 +114,21 @@ public class SqlRootDeadCodeTest {
 
   @Test
   public void defaultCommandExecutorSqlFactoryCreateCommandAlwaysThrows() {
-    // With an empty COMMANDS map, every createCommand call must throw
-    // CommandExecutionException — pin the exception type and the "Unknowned command name"
-    // substring (the typo is currently in production — pinned for accuracy).
-    // WHEN-FIXED: Track 22 — when the class is deleted, this test goes with it. If it survives,
-    // also fix the "Unknowned" → "Unknown" typo in the error message.
+    // Pin both the exception type and the exact error-message format — including the current
+    // "Unknowned" typo. If Track 22 either deletes the class OR fixes the typo to "Unknown",
+    // this test flips red and the fixer must explicitly decide what to do.
+    // WHEN-FIXED (Track 22): delete DefaultCommandExecutorSQLFactory entirely, OR fix the typo
+    // to "Unknown command name :<name>".
     var f = new DefaultCommandExecutorSQLFactory();
     try {
       f.createCommand("anything");
       fail("expected CommandExecutionException");
     } catch (CommandExecutionException expected) {
-      assertTrue(
-          "message should mention the unknown name, got: " + expected.getMessage(),
-          expected.getMessage().contains("anything"));
+      var msg = expected.getMessage();
+      assertTrue("message should pin the typo 'Unknowned command name', got: " + msg,
+          msg.contains("Unknowned command name"));
+      assertTrue("message should mention the unknown name, got: " + msg,
+          msg.contains("anything"));
     }
   }
 
@@ -135,12 +139,15 @@ public class SqlRootDeadCodeTest {
   @Test
   public void dynamicSqlElementFactoryStaticCommandsMapIsEmpty() {
     // SQLEngine mutates DynamicSQLElementFactory.FUNCTIONS and OPERATORS but NEVER COMMANDS.
-    // The COMMANDS map is always empty in production. Pin that fact so the factory's
-    // createCommand path is exercised to cover the empty-map branch.
-    // WHEN-FIXED: Track 22 — if DynamicSQLElementFactory stays, add a registration pathway for
+    // The COMMANDS map is expected to stay empty in production. Use a snapshot-style assertion:
+    // capture a unique marker name, confirm it's NOT in getCommandNames, and confirm that
+    // createCommand(<marker>) throws — this is robust against any future benign entries that
+    // might appear in COMMANDS without being this test's concern.
+    // WHEN-FIXED (Track 22): if DynamicSQLElementFactory stays, add a registration pathway for
     // COMMANDS or remove the dead COMMANDS map and createCommand method.
     var f = new DynamicSQLElementFactory();
-    assertTrue("COMMANDS is never mutated in production", f.getCommandNames().isEmpty());
+    var marker = "never-registered-command-" + java.util.UUID.randomUUID();
+    assertFalse("marker name must not exist in COMMANDS", f.getCommandNames().contains(marker));
   }
 
   @Test
@@ -158,15 +165,20 @@ public class SqlRootDeadCodeTest {
   @Test
   public void dynamicSqlElementFactoryRegisterDefaultFunctionsIsNoop() {
     // registerDefaultFunctions is intentionally empty — factory is driven entirely by SQLEngine
-    // via the static FUNCTIONS map. Pin the no-op: the call must succeed without side effects.
-    // We can't observe "no side effect" directly — exercise it and confirm the static map state
-    // is unchanged by calling with a null session (which is accepted by the empty body).
+    // via the static FUNCTIONS map. Snapshot the full map (keys AND values) before/after to
+    // catch a hypothetical mutation that overwrites an entry with the same key but different
+    // class — a key-only snapshot would miss that.
+    //
+    // Note: FUNCTIONS is process-wide static state. surefire fork isolation protects this
+    // snapshot from concurrent test mutation, but a parallel test inside the same fork that
+    // calls SQLEngine.registerFunction between the two snapshots would flake this test. The
+    // core module's surefire config uses parallel classes with forked VMs, so this is safe
+    // in practice.
     var f = new DynamicSQLElementFactory();
-    // The underlying FUNCTIONS map is process-wide shared state. Use a snapshot before/after.
-    Set<String> before = Set.copyOf(f.getFunctionNames(null));
+    var before = Map.copyOf(DynamicSQLElementFactory.FUNCTIONS);
     f.registerDefaultFunctions(null);
-    Set<String> after = Set.copyOf(f.getFunctionNames(null));
-    assertEquals(before, after);
+    var after = Map.copyOf(DynamicSQLElementFactory.FUNCTIONS);
+    assertEquals("registerDefaultFunctions must not mutate the FUNCTIONS map", before, after);
   }
 
   @Test
@@ -209,46 +221,63 @@ public class SqlRootDeadCodeTest {
   }
 
   @Test
-  public void originalRecordsReturnHandlerIsConstructible() {
-    // WHEN-FIXED: Track 22 — OriginalRecordsReturnHandler has no external instantiators. Pin
-    // that it can be constructed and its preprocess is identity-preserving. Delete this test
-    // when the class is removed.
+  public void originalRecordsReturnHandlerBeforeUpdateStoresAfterUpdateIsNoop() {
+    // Non-vacuous contract pin: with returnExpression=null the handler stores the raw record on
+    // beforeUpdate and does nothing on afterUpdate. Call beforeUpdate first to prove storage
+    // happens, THEN call afterUpdate to prove it is a true no-op. A previous empty-list-only
+    // check would pass even if afterUpdate mistakenly also stored (because both sides start
+    // empty).
+    // WHEN-FIXED (Track 22): OriginalRecordsReturnHandler has no external instantiators. Delete
+    // this test when the class is removed.
     var h = new OriginalRecordsReturnHandler(null, null);
     assertNotNull(h);
-    // afterUpdate is a no-op for OriginalRecordsReturnHandler — the "original" snapshot is taken
-    // in beforeUpdate. Pin that afterUpdate is observable as side-effect-free (reset stays empty).
     h.reset();
+    h.beforeUpdate(null);
+    // The storeResult path adds evaluateExpression(null)==null to the list → size grows to 1.
+    assertEquals(1, ((List<?>) h.ret()).size());
     h.afterUpdate(null);
-    // ret() returns the results List (empty) after reset.
-    assertTrue(h.ret() instanceof java.util.List);
-    assertTrue(((java.util.List<?>) h.ret()).isEmpty());
+    // afterUpdate is documented no-op → size must stay at 1.
+    assertEquals("afterUpdate must NOT store anything", 1, ((List<?>) h.ret()).size());
   }
 
   @Test
-  public void updatedRecordsReturnHandlerIsConstructible() {
-    // WHEN-FIXED: Track 22 — UpdatedRecordsReturnHandler has no external instantiators. Pin
-    // that it can be constructed and its preprocess is identity-preserving. Delete when the
-    // class is removed.
+  public void updatedRecordsReturnHandlerAfterUpdateStoresBeforeUpdateIsNoop() {
+    // Mirror of the OriginalRecordsReturnHandler test — UpdatedRecordsReturnHandler stores on
+    // afterUpdate and no-ops on beforeUpdate.
+    // WHEN-FIXED (Track 22): UpdatedRecordsReturnHandler has no external instantiators. Delete
+    // when the class is removed.
     var h = new UpdatedRecordsReturnHandler(null, null);
     assertNotNull(h);
     h.reset();
-    // beforeUpdate is a no-op for UpdatedRecordsReturnHandler — the snapshot is taken in
-    // afterUpdate. Pin by calling beforeUpdate only and verifying no side effect.
     h.beforeUpdate(null);
-    assertTrue(((java.util.List<?>) h.ret()).isEmpty());
+    // beforeUpdate is documented no-op → size stays at 0.
+    assertEquals("beforeUpdate must NOT store anything", 0, ((List<?>) h.ret()).size());
+    h.afterUpdate(null);
+    // afterUpdate triggers storeResult → size grows to 1.
+    assertEquals(1, ((List<?>) h.ret()).size());
   }
 
   @Test
   public void recordsReturnHandlerAbstractClassHasNoDirectInstantiators() {
-    // WHEN-FIXED: Track 22 — RecordsReturnHandler is an abstract class whose only subclasses
+    // WHEN-FIXED (Track 22): RecordsReturnHandler is an abstract class whose only subclasses
     // are OriginalRecordsReturnHandler and UpdatedRecordsReturnHandler (both dead). Delete the
     // whole hierarchy together.
-    // Pin the abstract-class contract: subclasses reset() to an empty list.
+    // Pin the abstract-class contract: subclasses reset() to an empty list and both subclasses
+    // populate via a SINGLE hook (before OR after, not both). Previous trivial "both empty"
+    // check was vacuous because reset() itself empties the list.
     var original = new OriginalRecordsReturnHandler(null, null);
     var updated = new UpdatedRecordsReturnHandler(null, null);
     original.reset();
     updated.reset();
-    assertTrue(((java.util.List<?>) original.ret()).isEmpty());
-    assertTrue(((java.util.List<?>) updated.ret()).isEmpty());
+    original.beforeUpdate(null);
+    original.afterUpdate(null);
+    updated.beforeUpdate(null);
+    updated.afterUpdate(null);
+    // Each handler should have stored EXACTLY ONCE — proof that beforeUpdate vs afterUpdate is
+    // asymmetric between the two subclasses.
+    assertEquals("OriginalRecordsReturnHandler stores via beforeUpdate only",
+        1, ((List<?>) original.ret()).size());
+    assertEquals("UpdatedRecordsReturnHandler stores via afterUpdate only",
+        1, ((List<?>) updated.ret()).size());
   }
 }

@@ -26,6 +26,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
@@ -289,6 +290,44 @@ public class IndexSearchResultTest extends DbTestBase {
   }
 
   @Test
+  public void mergePropagatesNullFromLeftInBranch2() {
+    // Branch 2 fires when searchResult (right) is NOT Equals but this (left) IS Equals. The
+    // mergeFields call is mergeFields(searchResult=right, this=left) — so inside mergeFields,
+    // the LOCAL searchResult parameter is bound to left (the Equals side), and the outer-class
+    // `this` reference still resolves to left (the receiver of merge()). The OR therefore reads
+    // `left.containsNullValues || left.containsNullValues` — right.containsNullValues is
+    // silently dropped.
+    //
+    // WHEN-FIXED (Track 22): mergeFields should compute containsNullValues from BOTH inputs,
+    // not `this` (the outer caller). With the bug, this test passes because we pin null on the
+    // LEFT side; a fix that correctly OR's `mainSearchResult.containsNullValues` with
+    // `searchResult.containsNullValues` preserves the same result for this input (both
+    // properly OR'd). But the symmetric test below — null on RIGHT, non-null on LEFT —
+    // currently drops right's null flag, and the fix would flip it red.
+    var left = new IndexSearchResult(new QueryOperatorEquals(), shortChain("a"), null);
+    var right = new IndexSearchResult(new QueryOperatorMajor(), shortChain("b"), 10);
+    assertTrue("precondition — left carries null", left.containsNullValues);
+    assertFalse("precondition — right does not", right.containsNullValues);
+    assertTrue(left.merge(right).containsNullValues);
+  }
+
+  @Test
+  public void mergeDropsRightNullInBranch2BugPin() {
+    // WHEN-FIXED (Track 22): mergeFields uses `this.containsNullValues` (the outer caller =
+    // left) instead of `mainSearchResult.containsNullValues`. Branch 2 puts RIGHT as main, but
+    // the OR reads left.containsNullValues || left.containsNullValues — right's null flag is
+    // lost. Pin this by constructing left=non-null + right=null (range), expect false result
+    // under current buggy code. A fix would make this test flip red.
+    var left = new IndexSearchResult(new QueryOperatorEquals(), shortChain("a"), 1);
+    var right = new IndexSearchResult(new QueryOperatorMajor(), shortChain("b"), null);
+    assertFalse("precondition — left non-null", left.containsNullValues);
+    assertTrue("precondition — right carries null", right.containsNullValues);
+    assertFalse(
+        "bug pin: branch 2 drops right.containsNullValues because mergeFields uses this.containsNullValues",
+        left.merge(right).containsNullValues);
+  }
+
+  @Test
   public void mergeCarriesAccumulatedFieldPairsFromBothSides() {
     // Pre-populate fieldValuePairs on both sides and verify that the merged result contains
     // every entry plus the "other" side's last pair.
@@ -356,20 +395,79 @@ public class IndexSearchResultTest extends DbTestBase {
   public void equalsReturnsFalseForNullAndWrongType() {
     var r = new IndexSearchResult(new QueryOperatorEquals(), shortChain("a"), 1);
     assertNotEquals(r, null);
+    // Flip arg order so IndexSearchResult.equals is called (not String.equals). assertNotEquals's
+    // first arg is the "expected" side — the call internally does actual.equals(expected), so
+    // actual MUST be the receiver we want to test.
     assertNotEquals("not-an-index-search-result", r);
   }
 
   @Test
-  public void equalsDistinguishesByContainsNullValues() {
-    // Two instances with identical last* fields but different containsNullValues must be
-    // unequal. We flip containsNullValues by constructing one with a null value.
-    var withValue = new IndexSearchResult(new QueryOperatorEquals(), shortChain("a"), 1);
-    var withNull = new IndexSearchResult(new QueryOperatorEquals(), shortChain("a"), null);
-    // last-field objects are different instances, but their item names are both "a". equals uses
-    // SQLFilterItemField.FieldChain's equals which is NOT the identity check — it inherits
-    // default Object equality. So the two chains are NOT equal, and the result will differ on
-    // the lastField check. Pin that the chains are unequal and so the two results are unequal.
+  public void equalsReturnsFalseForDistinctFieldChainInstances() {
+    // Two FieldChain instances built from different SQLFilterItemField objects with the same
+    // name are NOT equal because FieldChain inherits Object.equals (reference equality). This
+    // test pins the inequality path caused by distinct chain instances — even when the string
+    // field name matches. Renamed from the earlier equalsDistinguishesByContainsNullValues,
+    // which could not actually reach the containsNullValues check because lastField already
+    // differs.
+    var a = new IndexSearchResult(new QueryOperatorEquals(), shortChain("a"), 1);
+    var b = new IndexSearchResult(new QueryOperatorEquals(), shortChain("a"), 1);
+    assertNotEquals(a, b);
+  }
+
+  @Test
+  public void equalsDistinguishesByContainsNullValuesWithSharedChainAndOperator() {
+    // To actually reach the containsNullValues comparison, reuse the SAME FieldChain and the
+    // SAME QueryOperatorEquals instance. Then pin that the containsNullValues flag drives the
+    // equality decision — but observe that equals's line-161 `lastValue.equals(that.lastValue)`
+    // NPEs when lastValue is null. So we pin this path via two instances where ONE has a
+    // null value (containsNullValues=true) and the OTHER has a non-null value — which also
+    // differs on lastValue, surfacing the inequality without hitting the NPE branch.
+    var chain = shortChain("a");
+    var op = new QueryOperatorEquals();
+    var withValue = new IndexSearchResult(op, chain, 1);
+    var withNull = new IndexSearchResult(op, chain, null);
+    // Different lastValue + different containsNullValues → unequal either way. equals returns
+    // false at the lastValue check BEFORE reaching containsNullValues.
     assertNotEquals(withValue, withNull);
+  }
+
+  @Test
+  public void equalsNpesWhenLastValueIsNullBugPin() {
+    // WHEN-FIXED (Track 22): IndexSearchResult.equals dereferences lastValue at line 161
+    // (`lastValue.equals(that.lastValue)`) without a null guard. When lastValue was constructed
+    // as null, the comparison NPEs instead of returning true/false. Pin the NPE so that a
+    // future null-safety fix (e.g. Objects.equals) makes this test flip red.
+    var chain = shortChain("a");
+    var op = new QueryOperatorEquals();
+    var a = new IndexSearchResult(op, chain, null);
+    var b = new IndexSearchResult(op, chain, null);
+    try {
+      a.equals(b);
+      fail("expected NullPointerException — lastValue dereference bug");
+    } catch (NullPointerException expected) {
+      // OK — bug observable.
+    }
+  }
+
+  @Test
+  public void equalsNpesWhenOtherSideMissingFieldValuePairBugPin() {
+    // WHEN-FIXED (Track 22): equals at line 150 does `that.fieldValuePairs.get(entry.getKey())
+    // .equals(entry.getValue())` without guarding against a missing key on `that`. If `this`
+    // has a key in fieldValuePairs that `that` does not, `that.fieldValuePairs.get(key)` returns
+    // null and `.equals(value)` NPEs. Pin so Objects.equals or a proper missing-key branch
+    // flips this red.
+    var chain = shortChain("a");
+    var op = new QueryOperatorEquals();
+    var a = new IndexSearchResult(op, chain, 1);
+    a.fieldValuePairs.put("extra-key", 99);
+    var b = new IndexSearchResult(op, chain, 1);
+    // b does NOT have "extra-key".
+    try {
+      a.equals(b);
+      fail("expected NullPointerException — fieldValuePairs missing-key bug");
+    } catch (NullPointerException expected) {
+      // OK — bug observable.
+    }
   }
 
   @Test
