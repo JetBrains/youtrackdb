@@ -525,7 +525,7 @@ flowchart TD
   > execution. No Component Map changes; Track 7's `sql/method/*` scope is
   > disjoint from Track 6's absorbed `sql/functions/*` SQLMethod classes.
 
-- [ ] Track 7: SQL Methods & SQL Core
+- [x] Track 7: SQL Methods & SQL Core
   > Write tests for SQL method implementations and the SQL root/query
   > packages.
   >
@@ -548,6 +548,71 @@ flowchart TD
   > **Scope:** ~5 steps covering method/misc, method/sequence, sql root,
   > sql/query, and verification
   > **Depends on:** Track 1
+  >
+  > **Track episode:**
+  > Added ~1,200 unit tests across 41 test files (40 new, 1 extended) covering
+  > all Track 7 scope packages. Coverage deltas: `sql/method/misc` 58.6%/41.6%
+  > → **92.2%/88.0%**; `sql/method` 62.0%/36.2% → **87.1%/81.2%**;
+  > `sql/method/sequence` 23.1%/16.7% → **100%/100%**; `sql` (live)
+  > 39.7%/34.7% → **80.1%/76.9%** (aggregate capped by pinned dead code for
+  > Track 22 deletion); `sql/query` 2.9%/2.6% → **79.1%/57.9%** (exceeded
+  > the 30-40% decomposition expectation). Aggregate module coverage
+  > 63.6%/53.3% → **70.6%/61.0%** (+7.0pp line / +7.7pp branch).
+  >
+  > **Production bugs pinned as WHEN-FIXED regressions (~16 entries for
+  > Track 22 queue)**: SQLMethodContains `&&→||` guard, SQLMethodNormalize
+  > iParams[0↔1] mix-up, SQLMethodLastIndexOf/IndexOf/Prefix/CharAt null-
+  > guard asymmetries, SQLMethodField null-unguarded isArray NPE,
+  > DefaultSQLMethodFactory.createMethod case-sensitivity mismatch,
+  > SQLMethodFunctionDelegate no-no-arg-ctor dead Class<?> registration,
+  > AbstractSQLMethod.getParameterValue AIOBEs (empty string, single quote),
+  > SQLFunctionRuntime.java:104 type-pun (instanceof checks iCurrentRecord
+  > but casts iCurrentResult — CCE hazard), SQLMethodRuntime iEvaluate dead
+  > flag, IndexSearchResult.equals two latent NPEs, IndexSearchResult.mergeFields
+  > branch-2 drops right's containsNullValues, RuntimeResult.getResult line 73
+  > overwrites canExcludeResult, BasicLegacyResultSet + ConcurrentLegacyResultSet
+  > iterator strict-`>` guard, BasicLegacyResultSet UOE message copy-paste
+  > drift, LiveLegacyResultSet.setCompleted commented-out body,
+  > SQLHelper.parseStringNumber suffix-strip bug. Plus 3 concurrency pins
+  > (DefaultSQLMethodFactory HashMap race, SQLEngine.registerOperator
+  > non-atomic SORTED_OPERATORS clear, SQLEngine.scanForPlugins partial
+  > cache clear).
+  >
+  > **Plan corrections absorbed into Track 22** (via iter-1 update to this
+  > file): CQ3/TS5 shared test-fixture extraction; TS3/TS6 oversized-test-
+  > class splits; TS4/TS7/TS9 @Parameterized conversions; TX5 multi-threaded
+  > race-exercising tests paired with WHEN-FIXED production-side fixes;
+  > CQ1/TC3 license-banner cleanup + unicode/Turkish-locale string-method
+  > coverage.
+  >
+  > **Patterns carried forward**: falsifiable regression + WHEN-FIXED marker
+  > convention; `@After rollbackIfLeftOpen` safety-net idiom using
+  > `getActiveTransactionOrNull() + tx.isActive()`; `session.begin()` +
+  > `tx.rollback()` in finally for entity-populating tests; SequentialTest +
+  > FixMethodOrder + UUID-qualified marker + snapshot-and-assert for tests
+  > that mutate process-wide static state; counting CommandContext wrapper
+  > (introduced in iter-2) for fallback-branch mutation-testing where both
+  > primary and fallback resolve to identical values.
+  >
+  > **Cross-track impact**: Minor-to-moderate. No Component Map or Decision
+  > Record changes. Track 22's scope expands by ~16 production-fix queue
+  > entries + DRY cleanup items (cataloged above). Step 4 bridged Track 6's
+  > `sql/functions` package for SQLFunctionRuntime — no artifact duplication.
+  > Track 8 (executor) inherits SQLScriptEngine + CommandExecutorSQLAbstract
+  > indirect-coverage expectation (deferred from Track 7). Plan grew from
+  > ~5 scope-indicator steps to 8 actual steps (matches Track 6 precedent
+  > under dimensional review).
+  >
+  > **Track-level code review**: 2 iterations, 6 dimensions (CQ, BC, TB, TC,
+  > TX, TS). Iter-1: 0 blockers / 17 should-fix / 39 suggestions; applied
+  > 13 should-fix fixes, deferred remaining to Track 22. Iter-2 gate-check:
+  > all 13 iter-1 fixes VERIFIED; 1 new should-fix (TB13 — vacuous variable-
+  > fallback test strengthened via counting CommandContext) + 1 suggestion
+  > (TS13 — misleading comment corrected) fixed in iter-2. Final verdict:
+  > **PASS**. 0 open blockers, 0 open should-fix; ~10 suggestion-grade
+  > items deferred or accepted as merge-ready.
+  >
+  > **Step file:** `tracks/track-7.md` (8 steps, 0 failed)
 
 - [ ] Track 8: SQL Executor & Result Sets
   > Write tests for SQL execution step classes and result set
