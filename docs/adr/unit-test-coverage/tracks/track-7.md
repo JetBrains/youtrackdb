@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (3/8 complete)
+- [ ] Step implementation (4/8 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -552,7 +552,8 @@ LiveResultListener, LocalLiveResultListener.
   > (SQLMethodField null-unguarded isArray NPE), and 3 (case sensitivity,
   > function Class<?>-ctor, getParameterValue AIOBEs) queued.
 
-- [ ] Step 4: `sql/functions` SQLFunctionRuntime absorption (Track 6 deferral)
+- [x] Step 4: `sql/functions` SQLFunctionRuntime absorption (Track 6 deferral)
+  - [x] Context: warning
   - Scope: 1 test class. Lives physically under `sql/functions/` but
     covers a Track 6 hand-off; documented boundary bridge.
     - `SQLFunctionRuntimeTest` (DbTestBase — setParameters needs session):
@@ -577,6 +578,188 @@ LiveResultListener, LocalLiveResultListener.
   - Verify: `./mvnw -pl core -Dtest='SQLFunctionRuntimeTest' clean test`
     green.
   - Expected: ~20-25 test methods in 1 new test class.
+
+  > **What was done:** Added 43 tests in 1 new DbTestBase test class
+  > `SQLFunctionRuntimeTest` under `core/src/test/java/.../sql/functions/`.
+  > First commit (`86a23827`) delivered 39 tests; the step-level dimensional
+  > review (5 agents: CQ, BC, TB, TC, TS) drove a follow-up commit
+  > (`b4204eb4`) that added 4 tests (MultiValue+VALUE_NOT_PARSED guard,
+  > arity short-circuit invariant pin, fresh-aggregator getResult=0,
+  > companion non-buggy SQLPredicate path) and rewrote the SQLPredicate
+  > WHEN-FIXED pin after discovering the original pin's premise was factually
+  > wrong. Final: 43 tests, all green.
+  >
+  > Coverage:
+  > - Constructors and simple delegations (aggregateResults, filterResult,
+  >   getRoot, getFunction/getConfiguredParameters/getRuntimeParameters).
+  > - setParameters literal conversions (single/double-quoted strip, numeric,
+  >   true/false, null literal, null element, non-String pass-through,
+  >   unparseable identifier → SQLFilterItemField promotion, MultiValue +
+  >   VALUE_NOT_PARSED continue guard, iEvaluate=false short-circuit with
+  >   null element).
+  > - setParameters slot allocation (runtimeParameters sized to configured,
+  >   "live type" SQLFilterItemField / SQLFunctionRuntime slots stay null
+  >   until execute).
+  > - setParameters invokes function.config exactly once with the internal
+  >   configuredParameters array reference AND POST-parsed content.
+  > - execute resolver branches: SQLFilterItemField, nested SQLFunctionRuntime
+  >   (recursion + iThis propagation), SQLFilterItemVariable, SQLPredicate
+  >   (buggy + non-buggy paths), double-quote / single-quote strip, unquoted
+  >   pass-through, null pass-through, nested SQLMethodRuntime pass-through
+  >   (NOT recursed — pinned as asymmetry with SQLMethodRuntime.execute).
+  > - Arity validation: too-few, too-many, equal-min-max single-number
+  >   message, unequal-range format, maxParams==0 skip-all branch,
+  >   maxParams==-1 upper-bound-skip variadic, exact lower/upper bound
+  >   pass-through, AND a dedicated `executeArityCheckShortCircuitsBefore
+  >   FunctionDispatch` using RecordingFunction.invoked to pin the
+  >   BEFORE-dispatch invariant.
+  > - getResult on fresh aggregator returns 0L, getResult after aggregate
+  >   executes returns running total, setResult delegation, getValue threads
+  >   record as iThis AND swallows RecordNotFoundException → null.
+  >
+  > **What was discovered:**
+  > - **Latent production bug — SQLPredicate branch type-punning
+  >   (ClassCastException)**: SQLFunctionRuntime.java:104 has
+  >   `(iCurrentRecord instanceof EntityImpl ? (EntityImpl) iCurrentResult
+  >   : null)`. The instanceof check tests `iCurrentRecord` but the cast
+  >   applies to `iCurrentResult`. Because EntityImpl IS-A Result (via
+  >   `EntityImpl extends RecordAbstract implements Entity`, and
+  >   `Entity extends Result`), the true branch IS reachable whenever
+  >   `iCurrentRecord` is entity-backed. When that happens AND
+  >   `iCurrentResult` is a non-null, non-EntityImpl object, the cast
+  >   throws ClassCastException. Author likely meant a self-consistent
+  >   `(iCurrentResult instanceof EntityImpl ? (EntityImpl) iCurrentResult
+  >   : null)` pattern. Pinned as falsifiable regression in
+  >   `executeSQLPredicateBranchTypePunsResultAndEntityImplArgs` — passes
+  >   an EntityImpl as iCurrentRecord and a String as iCurrentResult,
+  >   asserts CCE + non-invocation of function.execute. After the Track 22
+  >   fix the ternary would short-circuit to null and the test must flip
+  >   from CCE-expected to success-expected.
+  > - **Initial WHEN-FIXED pin premise was wrong (caught by review)**:
+  >   the first commit's pin claimed `EntityImpl` was never a `Result`,
+  >   making the true branch "dead code" — that's false (EntityImpl
+  >   implements Entity which extends Result). The review agents
+  >   (BC1 / CQ2 / TB1 / TS4 — four independent flags) corrected this.
+  >   Carry-forward lesson: when a pin describes a latent bug, validate
+  >   the type hierarchy with a grep before writing the comment. A
+  >   "factually wrong but falsifiable-looking" pin can mislead future
+  >   maintainers into incorrect fixes.
+  > - **MultiValue+VALUE_NOT_PARSED continue guard**: the
+  >   `(MultiValue.isMultiValue(v) && MultiValue.getFirstValue(v) ==
+  >   VALUE_NOT_PARSED) continue;` branch at SQLFunctionRuntime.java:179-182
+  >   is live and non-obvious. Triggered by passing `"[unparseableToken]"`
+  >   through setParameters: SQLHelper.parseValue routes through LIST_BEGIN,
+  >   the recursive call stores VALUE_NOT_PARSED into the list, and the
+  >   guard detects this and skips the overwrite, leaving the raw string
+  >   in configuredParameters. A regression removing the guard would leak
+  >   a toxic List-with-sentinel downstream to function.execute.
+  > - **Arity check non-dispatch invariant** was implicitly tested (throw
+  >   observed) but not structurally pinned. Track 6/7 convention from
+  >   Step 3 (RecordingFunction.invoked flag + assertFalse) was missing
+  >   from the first commit — review TB2 flagged it. Added explicit test
+  >   `executeArityCheckShortCircuitsBeforeFunctionDispatch` for both
+  >   too-few and too-many cases with fresh RecordingFunctions to avoid
+  >   state aliasing.
+  > - **SQLFunctionRuntime has no iThis-null guard** (unlike
+  >   SQLMethodRuntime). A null iThis propagates through execute without
+  >   NPE because the resolver loop only iterates configuredParameters,
+  >   not iThis. Noted but not pinned as a bug — this is a legitimate
+  >   API difference (function.execute may not dereference iThis the
+  >   same way method.execute does).
+  > - **SQLFunctionRuntime.execute resolver is asymmetric with
+  >   SQLMethodRuntime.execute** in ONE way: SQLMethodRuntime recurses
+  >   into nested SQLMethodRuntime params; SQLFunctionRuntime does NOT
+  >   recurse into nested SQLMethodRuntime params (it only recurses into
+  >   nested SQLFunctionRuntime). The nested SQLMethodRuntime slot flows
+  >   through unchanged via the pre-resolver seed. Pinned in
+  >   `executeWithNestedSQLMethodRuntimeParameterIsNotRecursed`. Track 22
+  >   should either align the two resolvers or document the intentional
+  >   difference (MATCH / WITHIN / nested method chains don't appear in
+  >   the SQLFunctionRuntime caller path, so the asymmetry may be
+  >   deliberate — verify before changing).
+  > - **session.newEntity() requires an open transaction**: needed for the
+  >   type-pun CCE test. Pattern: `session.begin()` → test body →
+  >   `tx.rollback()` in a finally. Carry-forward for Step 5/6 when
+  >   populating entities for SQLHelper.parseDefaultValue /
+  >   IndexSearchResult.merge contract tests that need non-trivial
+  >   entity fixtures.
+  > - **Review synthesis value**: five review agents flagged the same
+  >   SQLPredicate-pin correctness issue with different specific details
+  >   (BC1: type-hierarchy fact; TB1: falsifiability failure; CQ2: test
+  >   name/comment inconsistency; TS4: pin quality). Synthesis avoided
+  >   duplicate fixes — one rewrite addressed all four. This is the
+  >   expected payoff from running multiple dimensions in parallel on a
+  >   single diff.
+  >
+  > **What changed from the plan:** Scope said ~20-25 tests; actual is
+  > 43 tests. The extra count is attributable to (a) dimensional-review-
+  > driven regression pins for the SQLPredicate type-pun bug (3 new tests
+  > total including companion + non-buggy-path control), (b) MultiValue
+  > guard pin (TC1, 1 new test), (c) arity short-circuit invariant pin
+  > (TB2, 1 new test combining too-few and too-many), (d) fresh-aggregator
+  > getResult=0 (TC3, 1 new test), (e) null element in iEvaluate=false
+  > (TC4, extended an existing test), plus the original resolver-branch
+  > enumeration which was richer than the scope's bullet list anticipated
+  > (each resolver type got a dedicated test rather than a single
+  > combined case). The scope-indicator test count estimate is
+  > systematically low for test-additive tracks under dimensional review —
+  > same pattern as Steps 1-3.
+  >
+  > **Cross-track impact:**
+  > - **Track 22 scope expands by one entry**: SQLPredicate type-pun
+  >   (SQLFunctionRuntime.java:104). Joins the existing Track 22
+  >   production-fix queue alongside the HashMap-race bucket
+  >   (CustomSQLFunctionFactory, DefaultSQLMethodFactory),
+  >   SQLMethodContains `&&→||` guard, SQLMethodNormalize iParams[0-vs-1]
+  >   mix-up, SQLMethodField null-unguarded isArray NPE,
+  >   DefaultSQLMethodFactory createMethod case-sensitivity,
+  >   SQLMethodFunctionDelegate no-no-arg-ctor, AbstractSQLMethod
+  >   getParameterValue AIOBEs.
+  > - **Step 5 (sql root — SQLHelper scalar + dead-code pin)** gains
+  >   a DbTestBase pattern note: tests that exercise SQLHelper.parseValue
+  >   on inputs like `"[unparseableToken]"` should expect the raw string
+  >   to flow through unchanged (due to the VALUE_NOT_PARSED guard).
+  >   SQLHelper.parseDefaultValue and getValue need the same MultiValue
+  >   awareness. Carry-forward: when a test needs an EntityImpl as
+  >   iCurrentRecord / iCurrentResult, wrap in session.begin() +
+  >   tx.rollback() pattern.
+  > - **Step 6 (SQLHelper collection paths + SQLEngineSpiCache)** is
+  >   the natural home for the LIST_BEGIN / MAP_BEGIN happy-path tests
+  >   (where the recursive parse succeeds) — complementary to the
+  >   VALUE_NOT_PARSED sad-path pinned here.
+  > - No Component Map or Decision Record changes.
+  >
+  > **Step-level review iterations:** Ran iter-1 with 5 dimensions
+  > (CQ, BC, TB, TC, TS) in parallel; 0 blockers + ~7 should-fix + ~15
+  > suggestions. Applied all 7 should-fix items (including the
+  > 4-agent-convergent SQLPredicate pin rewrite) plus 7 high-value
+  > suggestions (TS2/CQ4 rename, TS7 rename, TB3 Javadoc sync, TB5
+  > content assertion, TC3 fresh getResult, TC4 null+evaluate=false,
+  > TS5/TS6/TS8 Javadoc tweaks). Deferred as suggestion-level:
+  > TS1/CQ3/CQ5 (cross-file DRY for RecordingFunction/StubParser —
+  > Track 22 DRY sweep), TB4 (non-RNF exception propagation — would
+  > require non-final RecordingFunction), TC2 (variadic "1--1" ugly
+  > message format pin — low-value WHEN-FIXED). Iter-2 gate check
+  > deferred: context hit warning level (26%) after iter-1 fix-apply
+  > cycle. Per workflow protocol, end session before next review
+  > iteration. All fixes verified: 43 tests green, full
+  > `./mvnw -pl core clean test` BUILD SUCCESS.
+  >
+  > **Key files:**
+  > - `core/src/test/java/.../sql/functions/SQLFunctionRuntimeTest.java`
+  >   (new, 43 tests — 996 lines after review fix)
+  >
+  > **Critical context:** The SQLPredicate type-pun is the FIRST production
+  > bug surfaced by Track 7 Step 4, and it's a ClassCastException waiting
+  > for a predicate-caller that sets iCurrentResult to a non-null
+  > non-EntityImpl. Because EntityImpl extends RecordAbstract implements
+  > Entity extends Result (NOT the other way around — the review agents
+  > caught a fundamental misreading of the hierarchy in the first commit),
+  > this is a latent runtime hazard rather than dead code. Track 22's
+  > production-side fix queue now includes this as a one-line instanceof
+  > swap. Iter-2 gate check deferred — remaining review findings
+  > documented above are either deferred with rationale or absorbed into
+  > the commit diff.
 
 - [ ] Step 5: `sql` root — live classes (scalar SQLHelper + pure utils)
   + dead-code pin
