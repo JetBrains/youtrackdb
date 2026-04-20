@@ -25,8 +25,13 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.common.parser.BaseParser;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseExportException;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.sql.filter.SQLFilterItem;
+import com.jetbrains.youtrackdb.internal.core.sql.filter.SQLFilterItemParameter;
 import java.util.ArrayList;
 import org.junit.Before;
 import org.junit.Test;
@@ -37,28 +42,25 @@ import org.junit.Test;
  *
  * <ul>
  *   <li>{@link SQLHelper#getValue(Object)} — the single-argument helper that unwraps
- *       {@link com.jetbrains.youtrackdb.internal.core.sql.filter.SQLFilterItem} values. For a non
- *       filter-item input the input is returned as-is.</li>
- *   <li>{@link SQLHelper#getValue(Object, com.jetbrains.youtrackdb.internal.core.query.Result,
- *       com.jetbrains.youtrackdb.internal.core.command.CommandContext)} — the three-argument
- *       variant, covering the null, numeric-string, quoted-string, and throw branches reachable
- *       without a real Entity.</li>
+ *       {@link SQLFilterItem} values. For a non filter-item input the input is returned as-is.
+ *       </li>
+ *   <li>{@link SQLHelper#getValue(Object, Result, CommandContext)} — the three-argument variant,
+ *       covering the null, filter-item (throws on non-Entity), numeric-string, quoted-string,
+ *       and field-resolution branches.</li>
  *   <li>{@link SQLHelper#getFunction(
- *       com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded,
- *       com.jetbrains.youtrackdb.internal.common.parser.BaseParser, String)} — function-syntax
- *       detection (the positive construction path needs a parser + session and is covered by
- *       Track 6's {@code SQLFunctionRuntimeTest}). Here we pin the no-match returns-null
- *       branches.</li>
- *   <li>The {@link SQLHelper#parseValue(com.jetbrains.youtrackdb.internal.common.parser.BaseParser,
- *       String, com.jetbrains.youtrackdb.internal.core.command.CommandContext)} BaseParser
- *       overloads — the "*" short-circuit, scalar literal dispatch, and positional/named
- *       parameter wrapping. Behaviour that requires an SQLFilterItemField/function is covered in
+ *       com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded, BaseParser, String)} —
+ *       function-syntax detection. The positive construction path is covered by Track 6's
+ *       {@code SQLFunctionRuntimeTest}; here we pin both the no-match branches and the
+ *       underscore-prefix positive branch.</li>
+ *   <li>The {@link SQLHelper#parseValue(BaseParser, String, CommandContext)} BaseParser overloads
+ *       — the "*" short-circuit, scalar literal dispatch, and positional/named parameter
+ *       wrapping. Behaviour that requires an SQLFilterItemField/function is covered in
  *       {@code SQLHelperParseValueCollectionTest} (step 6, DB-backed).</li>
  * </ul>
  *
  * <p>Extends {@link DbTestBase} because {@link SQLHelper#parseValue} eagerly fetches the context's
  * database session. The session is available but none of the tests in this suite construct
- * collections, maps, or embedded entities.
+ * collections, maps, or embedded entities (those are in step 6's companion suite).
  *
  * <p>The scalar value-dispatch paths (null/not null/defined, booleans, quoted strings, RIDs, and
  * numerics) are covered in depth by {@link SQLHelperParseValueScalarTest}. This suite deliberately
@@ -70,10 +72,9 @@ public class SQLHelperMiscTest extends DbTestBase {
 
   @Before
   public void setUpContext() {
-    // A session is required because SQLHelper.getValue's String branch consults
-    // iContext.getDatabaseSession() for the EntityHelper.getFieldValue call when iRecord is
-    // non-null. The tests that exercise the session-less branches still work fine with the
-    // non-null session because those branches short-circuit before the session is touched.
+    // A session is required because SQLHelper.parseValue eagerly calls getDatabaseSession(). The
+    // tests that exercise the session-less branches still work with the non-null session because
+    // those branches short-circuit before the session is consulted.
     ctx = new BasicCommandContext(session);
   }
 
@@ -122,19 +123,19 @@ public class SQLHelperMiscTest extends DbTestBase {
   @Test
   public void getValueThreeArgStringWithNullRecordFallsThrough() {
     // The String case requires (iRecord != null). With a null record, the body is skipped and
-    // the outer return iObject delivers the original string.
+    // the outer return iObject delivers the original string identity-preserving.
     var in = "some-field";
     assertSame(in, SQLHelper.getValue(in, null, ctx));
   }
 
   @Test
   public void getValueThreeArgEmptyStringWithNullRecordFallsThrough() {
-    // Empty string likewise skips the body (no iRecord) — pinned because the String branch's
-    // condition uses a bitwise "&" instead of the logical "&&", which is a suggestion-severity
-    // code smell but here with iRecord=null the behaviour is identical.
-    // WHEN-FIXED: replace `iRecord != null & !s.isEmpty()` with `&&` for clarity.
+    // Empty string likewise skips the body (no iRecord). Pin with assertSame — the empty String
+    // literal must be returned identity-preserving.
+    // WHEN-FIXED (Track 22): replace `iRecord != null & !s.isEmpty()` with `&&` for clarity.
     // Track 22: SQLHelper.getValue three-arg String branch short-circuit.
-    assertEquals("", SQLHelper.getValue("", null, ctx));
+    var empty = "";
+    assertSame(empty, SQLHelper.getValue(empty, null, ctx));
   }
 
   @Test
@@ -153,21 +154,70 @@ public class SQLHelperMiscTest extends DbTestBase {
   @Test
   public void getValueThreeArgFilterItemWithNonEntityThrows() {
     // When the object IS an SQLFilterItem but iRecord is NOT an Entity, SQLHelper throws
-    // DatabaseExportException. Pin the exception type — callers (e.g. RecordsReturnHandler)
+    // DatabaseExportException with the exact contract message. Callers (e.g. RecordsReturnHandler)
     // depend on this contract.
-    // We pass a non-Entity Result stub (null is also non-Entity, so null works — the pattern
-    // match `iRecord instanceof Entity` is false for null).
-    var filterItem = new ThrowingSQLFilterItem();
+    var filterItem = new NonEntityTriggeringFilterItem();
     try {
       SQLHelper.getValue(filterItem, null, ctx);
       fail("expected DatabaseExportException");
     } catch (DatabaseExportException expected) {
-      // OK — message content is not contractual so we only check the type.
+      assertEquals("Record is not an entity", expected.getMessage());
+    }
+  }
+
+  @Test
+  public void getValueThreeArgFieldNameResolvesAgainstEntityResult() {
+    // The 3-arg getValue's String branch is the live field-resolution path: when iRecord is an
+    // Entity and the String is a plain identifier (not quoted, not digit-leading), it routes
+    // through EntityHelper.getFieldValue to look up the named property. session.newEntity /
+    // setProperty require an active transaction — wrap with begin/rollback.
+    session.begin();
+    try {
+      var entity = session.newEntity();
+      entity.setProperty("foo", "bar");
+      assertEquals("bar", SQLHelper.getValue("foo", entity, ctx));
+    } finally {
+      session.rollback();
+    }
+  }
+
+  @Test
+  public void getValueThreeArgQuotedStringFallsThroughEvenWithEntity() {
+    // With iRecord present but the String is quoted ('x' or "x"), IOUtils.isStringContent returns
+    // true → the body is skipped and the raw quoted string is returned. This pins that quoted
+    // literals bypass field resolution.
+    session.begin();
+    try {
+      var entity = session.newEntity();
+      entity.setProperty("foo", "bar");
+      var quoted = "'foo'";
+      assertSame(quoted, SQLHelper.getValue(quoted, entity, ctx));
+    } finally {
+      session.rollback();
+    }
+  }
+
+  @Test
+  public void getValueThreeArgDigitLeadingStringFallsThroughEvenWithEntity() {
+    // Strings that start with a digit are treated as numeric literals (not field names) and the
+    // body skips field resolution. YouTrackDB rejects property names starting with a digit, so
+    // we cannot actually set a "7field" property on the entity — but the getValue code path
+    // SHOULD bypass any property lookup attempt entirely because of the digit-check at
+    // Character.isDigit(s.charAt(0)). The test is a pure dispatch pin: assertSame confirms the
+    // input string is returned identity-preserving WITHOUT any property-access attempt.
+    session.begin();
+    try {
+      var entity = session.newEntity();
+      entity.setProperty("foo", "unused");
+      var digit = "7field";
+      assertSame(digit, SQLHelper.getValue(digit, entity, ctx));
+    } finally {
+      session.rollback();
     }
   }
 
   // ---------------------------------------------------------------------------
-  // getFunction — no-match branches
+  // getFunction — no-match branches + underscore-prefix positive
   // ---------------------------------------------------------------------------
 
   @Test
@@ -209,6 +259,25 @@ public class SQLHelperMiscTest extends DbTestBase {
     assertNull(SQLHelper.getFunction(null, null, "(foo)"));
   }
 
+  @Test
+  public void getFunctionUnderscorePrefixedNameEntersConstructionBranch() {
+    // Positive path for the `'_' || isLetter` OR expression: underscore-prefixed identifiers are
+    // recognised as function calls. The SQLFunctionRuntime ctor then attempts to resolve the
+    // function by name via SQLEngine — since "_nonexistent" is not registered, construction
+    // throws a CommandSQLParsingException. Symbol-prefixed names (e.g. "@foo()") are rejected
+    // BEFORE construction and return null silently; the throw is evidence that the '_' branch
+    // fired and construction was attempted.
+    var name = "_nonexistent_function_" + java.util.UUID.randomUUID().toString().replace("-", "");
+    try {
+      SQLHelper.getFunction(session, null, name + "()");
+      fail("expected CommandSQLParsingException because the function name is not registered");
+    } catch (com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException expected) {
+      // OK — the '_' branch dispatched to SQLFunctionRuntime construction, which then failed
+      // because the function is unknown. If getFunction had instead returned null (i.e. the
+      // '_' branch was broken), this fail() would execute.
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // parseValue(BaseParser, String, CommandContext) — overloads
   // ---------------------------------------------------------------------------
@@ -217,37 +286,32 @@ public class SQLHelperMiscTest extends DbTestBase {
   public void parseValueBaseParserStarWildcardShortCircuits() {
     // "*" is returned as the literal String "*" regardless of iCommand or context. BaseParser
     // can be null because the wildcard branch fires before any parser access.
-    assertEquals("*", SQLHelper.parseValue(
-        (com.jetbrains.youtrackdb.internal.common.parser.BaseParser) null, "*", ctx));
+    assertEquals("*", SQLHelper.parseValue((BaseParser) null, "*", ctx));
   }
 
   @Test
   public void parseValueBaseParserIntegerLiteralReturnsInt() {
     // Integer literals flow through the scalar parseValue path and bypass both function lookup
     // and field resolution.
-    assertEquals(42, SQLHelper.parseValue(
-        (com.jetbrains.youtrackdb.internal.common.parser.BaseParser) null, "42", ctx));
+    assertEquals(42, SQLHelper.parseValue((BaseParser) null, "42", ctx));
   }
 
   @Test
   public void parseValueBaseParserBooleanLiteralReturnsBoolean() {
-    assertEquals(Boolean.TRUE, SQLHelper.parseValue(
-        (com.jetbrains.youtrackdb.internal.common.parser.BaseParser) null, "true", ctx));
+    assertEquals(Boolean.TRUE, SQLHelper.parseValue((BaseParser) null, "true", ctx));
   }
 
   @Test
   public void parseValueBaseParserQuotedStringReturnsStripped() {
     // Single-quoted literal is handled by the scalar dispatch — the BaseParser overload never
     // reaches the field-resolution branch that would require a session.
-    assertEquals("abc", SQLHelper.parseValue(
-        (com.jetbrains.youtrackdb.internal.common.parser.BaseParser) null, "'abc'", ctx));
+    assertEquals("abc", SQLHelper.parseValue((BaseParser) null, "'abc'", ctx));
   }
 
   @Test
   public void parseValueBaseParserNullLiteralReturnsNull() {
     // "null" keyword routes to the scalar parser which returns a real null reference.
-    assertNull(SQLHelper.parseValue(
-        (com.jetbrains.youtrackdb.internal.common.parser.BaseParser) null, "null", ctx));
+    assertNull(SQLHelper.parseValue((BaseParser) null, "null", ctx));
   }
 
   @Test
@@ -256,9 +320,7 @@ public class SQLHelperMiscTest extends DbTestBase {
     // parameters. With a null SQLPredicate, a positional "?" is wrapped in an
     // SQLFilterItemParameter (no session needed).
     var out = SQLHelper.parseValue(null, null, "?", ctx);
-    assertEquals(
-        com.jetbrains.youtrackdb.internal.core.sql.filter.SQLFilterItemParameter.class,
-        out.getClass());
+    assertEquals(SQLFilterItemParameter.class, out.getClass());
   }
 
   @Test
@@ -266,9 +328,7 @@ public class SQLHelperMiscTest extends DbTestBase {
     // ':name' is a named parameter — wrapped in the same SQLFilterItemParameter type. The
     // constructor only records the parameter name and does not call back into any session.
     var out = SQLHelper.parseValue(null, null, ":name", ctx);
-    assertEquals(
-        com.jetbrains.youtrackdb.internal.core.sql.filter.SQLFilterItemParameter.class,
-        out.getClass());
+    assertEquals(SQLFilterItemParameter.class, out.getClass());
   }
 
   // ---------------------------------------------------------------------------
@@ -276,23 +336,21 @@ public class SQLHelperMiscTest extends DbTestBase {
   // ---------------------------------------------------------------------------
 
   /**
-   * Minimal {@link com.jetbrains.youtrackdb.internal.core.sql.filter.SQLFilterItem}-like stub used
-   * to trigger the {@code DatabaseExportException} branch in
-   * {@link SQLHelper#getValue(Object, com.jetbrains.youtrackdb.internal.core.query.Result,
-   * com.jetbrains.youtrackdb.internal.core.command.CommandContext)}. The type assertion inside
-   * that helper uses {@code instanceof SQLFilterItem} — so this no-op stub is sufficient; the
-   * filter logic is never reached because iRecord is non-Entity (null here).
+   * Minimal {@link SQLFilterItem} implementation used to trigger the {@code DatabaseExportException}
+   * branch in {@link SQLHelper#getValue(Object, Result, CommandContext)}. The helper throws
+   * BEFORE calling this stub's {@code getValue} because iRecord is non-Entity (null) — so the
+   * stub method body is unreachable. Named "NonEntityTriggering" because the stub itself does
+   * nothing; the exception comes from the helper's type-check failing.
+   *
+   * <p>Kept as a separate inner class (rather than shared across the test module) because
+   * {@link RuntimeResultTest}'s {@code RecordingFunction} stub covers a different contract
+   * (SQLFunction, not SQLFilterItem) and merging them would obscure each test's intent.
    */
-  private static final class ThrowingSQLFilterItem
-      implements com.jetbrains.youtrackdb.internal.core.sql.filter.SQLFilterItem {
+  private static final class NonEntityTriggeringFilterItem implements SQLFilterItem {
 
     @Override
-    public Object getValue(
-        com.jetbrains.youtrackdb.internal.core.query.Result iRecord,
-        Object iCurrentResult,
-        com.jetbrains.youtrackdb.internal.core.command.CommandContext iContext) {
-      // Unreachable from the DatabaseExportException branch — the helper throws before it gets
-      // here. Returning a marker keeps the stub complete.
+    public Object getValue(Result iRecord, Object iCurrentResult, CommandContext iContext) {
+      // Unreachable — the caller throws DatabaseExportException before this is invoked.
       return "unreachable";
     }
   }

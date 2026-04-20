@@ -28,9 +28,12 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.common.parser.BaseParser;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.RecordSerializerStringAbstract;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -222,11 +225,36 @@ public class SQLHelperParseValueScalarTest extends DbTestBase {
     // length check counts characters (not digits), so a leading minus pushes it over the
     // 10-digit threshold and it's classified LONG. The value still fits in a 32-bit int, so
     // callers that need strict Integer typing must special-case negative boundaries.
-    // WHEN-FIXED: the sign-inclusive length comparison is a minor quirk; if the classifier is
-    // refined to exclude the sign, this test should assert Integer instead. Track 22 candidate.
+    // WHEN-FIXED (Track 22): the sign-inclusive length comparison is a minor quirk; if the
+    // classifier is refined to exclude the sign, this test should assert Integer instead.
     var out = SQLHelper.parseValue(Integer.toString(Integer.MIN_VALUE), ctx, null);
     assertTrue("expected Long classification, got " + out.getClass(), out instanceof Long);
     assertEquals((long) Integer.MIN_VALUE, (long) (Long) out);
+  }
+
+  @Test
+  public void parseLongMaxValueClassifiesAsLong() {
+    // Long.MAX_VALUE ("9223372036854775807") is 19 digits — above MAX_INTEGER_DIGITS (10) → LONG
+    // path. Long.parseLong accepts it → the parseValue result is the expected Long.
+    var out = SQLHelper.parseValue(Long.toString(Long.MAX_VALUE), ctx, null);
+    assertTrue("expected Long, got " + out.getClass(), out instanceof Long);
+    assertEquals(Long.MAX_VALUE, (long) (Long) out);
+  }
+
+  @Test
+  public void parseAboveLongMaxValueClassifiesAsDecimal() {
+    // 20-digit input exceeds Long.MAX_VALUE and Integer.MAX_VALUE. The classifier routes through
+    // integer-length check which caps at MAX_INTEGER_DIGITS=10 → LONG promotion, but 20 digits
+    // overflows Long.parseLong, surfacing a NumberFormatException. Pin this boundary so a future
+    // classifier that promotes such values to DECIMAL (a more forgiving choice) can be detected.
+    // WHEN-FIXED (Track 22): promote to DECIMAL for >19-digit integer inputs to preserve the
+    // value; current behaviour is NFE.
+    try {
+      SQLHelper.parseValue("99999999999999999999", ctx, null);
+      fail("expected NumberFormatException for above-Long-max input");
+    } catch (NumberFormatException expected) {
+      // OK — bug observable.
+    }
   }
 
   @Test
@@ -385,14 +413,21 @@ public class SQLHelperParseValueScalarTest extends DbTestBase {
 
   @Test
   public void parseSubCommandParenLiteralThrowsUnsupportedOperation() {
-    // Any input wrapped in parentheses goes through a branch that throws
-    // UnsupportedOperationException — this pins the current behaviour. If the sub-command support
-    // is added later, this test will fail and flag the behavioural change.
+    // Input wrapped in parentheses starts/ends with StringSerializerHelper.EMBEDDED_BEGIN/END
+    // → the sub-command branch fires and throws UnsupportedOperationException. Pin:
+    // (1) the exception type, and
+    // (2) that the input actually entered the sub-command branch by checking the boundary
+    //     characters — a refactor that moved the UOE to a different dispatch (e.g. an RID or
+    //     numeric branch) would not satisfy the boundary check on this input.
+    var input = "(select from foo)";
+    assertTrue(
+        "input must start and end with '(' and ')' to reach the sub-command branch",
+        input.charAt(0) == '(' && input.charAt(input.length() - 1) == ')');
     try {
-      SQLHelper.parseValue("(select from foo)", ctx, null);
+      SQLHelper.parseValue(input, ctx, null);
       fail("expected UnsupportedOperationException");
     } catch (UnsupportedOperationException expected) {
-      // Acceptable — any UOE from this branch is fine; message content is not contractual.
+      // Acceptable — sub-command support is explicitly TODO in SQLHelper.
     }
   }
 
@@ -418,12 +453,27 @@ public class SQLHelperParseValueScalarTest extends DbTestBase {
 
   @Test
   public void parseStringNumberSuffixedIntegralLiteralsThrowBugPin() {
-    // WHEN-FIXED: the other integer-family suffixes (l, s, b) and decimal (c), date (a, t) ALL
-    // reach their respective parse methods with the suffix still attached → NFE. Track 22.
-    for (var input : new String[] {"2l", "3s", "4b", "7.7c", "8a", "9t"}) {
+    // WHEN-FIXED (Track 22): the other integer-family suffixes (l, s, b) and decimal (c),
+    // date (a, t) ALL reach their respective parse methods with the suffix still attached → NFE.
+    // Pin BOTH: (a) the classifier correctly types the suffix (non-null, expected type) AND
+    // (b) the parse step crashes. This locks the classifier so a future refactor that
+    // mis-classifies suffixed input as STRING (silently returning null instead of NFE) would be
+    // caught — the test must see both a correct classification AND the NFE.
+    var expectedTypes = new java.util.LinkedHashMap<String, PropertyTypeInternal>();
+    expectedTypes.put("2l", PropertyTypeInternal.LONG);
+    expectedTypes.put("3s", PropertyTypeInternal.SHORT);
+    expectedTypes.put("4b", PropertyTypeInternal.BYTE);
+    expectedTypes.put("7.7c", PropertyTypeInternal.DECIMAL);
+    expectedTypes.put("8a", PropertyTypeInternal.DATE);
+    expectedTypes.put("9t", PropertyTypeInternal.DATETIME);
+    for (var entry : expectedTypes.entrySet()) {
+      assertEquals(
+          "classifier should type '" + entry.getKey() + "' as " + entry.getValue(),
+          entry.getValue(),
+          RecordSerializerStringAbstract.getType(entry.getKey()));
       try {
-        SQLHelper.parseStringNumber(input);
-        fail("expected NumberFormatException for '" + input + "'");
+        SQLHelper.parseStringNumber(entry.getKey());
+        fail("expected NumberFormatException for '" + entry.getKey() + "'");
       } catch (NumberFormatException expected) {
         // OK — bug observable.
       }
@@ -476,10 +526,8 @@ public class SQLHelperParseValueScalarTest extends DbTestBase {
   public void parseValueWithBaseParserReturnsStarWildcardAsIs() {
     // The BaseParser-overload of parseValue short-circuits "*" to return the literal string "*"
     // (used by SELECT *). The overload requires a BaseParser argument but that argument is never
-    // consulted for the wildcard path, so null is safe.
-    var out =
-        SQLHelper.parseValue((com.jetbrains.youtrackdb.internal.common.parser.BaseParser) null,
-            "*", ctx);
-    assertEquals("*", out);
+    // consulted for the wildcard path, so null is safe. Cast to BaseParser to disambiguate from
+    // the SQLPredicate overload.
+    assertEquals("*", SQLHelper.parseValue((BaseParser) null, "*", ctx));
   }
 }

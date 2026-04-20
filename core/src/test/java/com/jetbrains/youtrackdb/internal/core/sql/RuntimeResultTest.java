@@ -127,8 +127,10 @@ public class RuntimeResultTest extends DbTestBase {
 
   @Test
   public void staticGetResultWithNullInputReturnsNull() {
-    // iValue == null short-circuits the entire method. Projections are not consulted at all.
-    assertNull(RuntimeResult.getResult(session, null, Map.of("x", new Object())));
+    // iValue == null short-circuits the entire method. Projections are not consulted. Use an
+    // empty projection map to make intent unambiguous — a non-empty map with arbitrary values
+    // would obscure whether the null-input check or the instanceof-guard is being tested.
+    assertNull(RuntimeResult.getResult(session, null, Map.of()));
   }
 
   // ---------------------------------------------------------------------------
@@ -266,6 +268,51 @@ public class RuntimeResultTest extends DbTestBase {
     var out = RuntimeResult.getResult(session, iv, Map.of());
     assertSame(iv, out);
     assertEquals("untouched", out.getProperty("field"));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Bug pins — canExcludeResult overwrite and dead entriesPersistent
+  // ---------------------------------------------------------------------------
+
+  @Test
+  public void staticGetResultCanExcludeResultOverwriteBugPin() {
+    // WHEN-FIXED (Track 22): RuntimeResult.getResult line 73 uses `canExcludeResult =
+    // f.filterResult()` (assignment) instead of `canExcludeResult |= f.filterResult()`. With two
+    // projections where the FIRST has filterResult=true and the SECOND has filterResult=false,
+    // the flag is overwritten to false and the empty-result short-circuit never fires.
+    //
+    // Construct this scenario: LinkedHashMap ensures deterministic iteration order ("a" first,
+    // then "b"). Both RecordingFunctions produce null → no property is set on iv → iv stays
+    // empty. With the bug, canExcludeResult ends as false → iv (empty) is returned (non-null).
+    // A fix that uses OR-assignment would return null instead. Pin the bug.
+    var iv = new ResultInternal(session);
+    var filtering = new RecordingFunction("a");
+    filtering.result = null;
+    filtering.filterResult = true;
+    var nonFiltering = new RecordingFunction("b");
+    nonFiltering.result = null;
+    nonFiltering.filterResult = false;
+    Map<String, Object> proj = new LinkedHashMap<>();
+    proj.put("a", new SQLFunctionRuntime(filtering));
+    proj.put("b", new SQLFunctionRuntime(nonFiltering));
+    var out = RuntimeResult.getResult(session, iv, proj);
+    assertSame("bug pin: canExcludeResult is overwritten by the last iteration, so the empty"
+        + " short-circuit never fires and iv is returned verbatim",
+        iv, out);
+  }
+
+  @Test
+  public void entriesPersistentIsDeadCodeBugPin() {
+    // WHEN-FIXED (Track 22): `RuntimeResult.entriesPersistent(Collection<Identifiable>)` (line
+    // 51) has zero callers in core/src/main. Pin via reflection so that if Track 22 deletes the
+    // method, this test flips red and the marker is removed. Keeps the dead method on Track
+    // 22's radar without inflating RuntimeResult's JaCoCo uncovered-line count surreptitiously.
+    var declared = java.util.Arrays.stream(RuntimeResult.class.getDeclaredMethods())
+        .filter(m -> m.getName().equals("entriesPersistent"))
+        .findFirst();
+    assertTrue(
+        "entriesPersistent still exists — Track 22 has not yet removed it",
+        declared.isPresent());
   }
 
   // ---------------------------------------------------------------------------
