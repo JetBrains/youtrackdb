@@ -38,7 +38,9 @@ import java.util.Collections;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.NoSuchElementException;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.Timeout;
 
 /**
  * Standalone unit tests for {@link BasicLegacyResultSet}, the live List-implementing
@@ -52,25 +54,39 @@ import org.junit.Test;
  * {@code LocalLiveResultListener}) that have zero production call sites. Together they cover
  * the live slice of the package (BasicLegacyResultSet + the interface) for Track 7.
  *
- * <p>Two behaviors are intentionally pinned as latent bugs via {@code // WHEN-FIXED:} markers:
+ * <p>Two production quirks are pinned as latent bugs via {@code // WHEN-FIXED:} markers:
  *
  * <ul>
- *   <li>The {@link BasicLegacyResultSet#isEmpty()} method re-checks {@code underlying.isEmpty()}
- *       a second time inside an {@code if (empty)} branch — this is a no-op idiom (the first
- *       check already returned {@code true}). Pin that the current behaviour matches the
- *       single-check semantics so a cleanup in Track 22 will not change it silently.</li>
- *   <li>{@link BasicLegacyResultSet#equals(Object)} forwards to {@code underlying.equals(o)}.
- *       This creates an asymmetric contract with {@link List#equals(Object)}: the resultset
- *       equals an {@link java.util.ArrayList} holding the same elements, but the reverse may
- *       or may not — because {@code ArrayList.equals} only compares to other {@link List}
- *       instances, and our resultset IS a {@code List} → both directions happen to be true.
- *       The asymmetry to pin is vs. an arbitrary {@code Object} that is not a List: the
- *       resultset returns {@code false}, but — because {@code underlying.equals} is what runs
- *       — a synchronizedList wrapper can equal a plain {@code ArrayList}, meaning the
- *       resultset's identity leaks into its equality.</li>
+ *   <li><strong>Iterator exhaustion guard is off-by-one.</strong>
+ *       {@link BasicLegacyResultSet#iterator()} returns an Iterator whose {@code next()}
+ *       guard is {@code if (index > size() || size() == 0)} — strict {@code >} rather than
+ *       {@code >=}. After exhausting a single-element resultset, {@code index == size == 1},
+ *       the guard is false, and the method falls through to {@code underlying.get(1)} —
+ *       yielding {@link IndexOutOfBoundsException} from the underlying ArrayList instead of
+ *       the intended {@link NoSuchElementException}. Pinned by
+ *       {@link #iteratorNextOnExhaustedIteratorThrowsIndexOutOfBoundsNotNoSuchElement()}.</li>
+ *   <li><strong>equals delegates to synchronizedList.</strong>
+ *       {@link BasicLegacyResultSet#equals(Object)} returns {@code underlying.equals(o)}.
+ *       The underlying is a {@code Collections.synchronizedList} wrapping an
+ *       {@link java.util.ArrayList}, so we inherit the standard {@link List#equals(Object)}
+ *       contract: reflexive across resultset instances, symmetric against any {@link List}
+ *       with the same elements (including empty {@link Collections#emptyList()}). Pinned by
+ *       {@link #equalsDelegatesToUnderlyingListContract()} so a future tightening to
+ *       {@code o instanceof BasicLegacyResultSet} becomes an explicit contract change.</li>
  * </ul>
+ *
+ * <p>The production method {@link BasicLegacyResultSet#isEmpty()} has a redundant second
+ * {@code underlying.isEmpty()} call inside an {@code if (empty)} branch — a copy-paste from
+ * {@link ConcurrentLegacyResultSet}'s wait-for-items path. The idiom is a no-op and cannot
+ * be made falsifiable from outside the class without a Mockito-style spy on {@code underlying},
+ * so no dedicated test pins it; the regular {@link #isEmptyReturnsTrueWhenNothingAdded()} /
+ * {@link #isEmptyReturnsFalseAfterAdd()} coverage suffices and Track 22's cleanup can
+ * collapse the idiom freely.
  */
 public class BasicLegacyResultSetTest {
+
+  @Rule
+  public Timeout globalTimeout = Timeout.seconds(10);
 
   // ---------------------------------------------------------------------------
   // Construction
@@ -123,22 +139,6 @@ public class BasicLegacyResultSetTest {
     var rs = new BasicLegacyResultSet<String>();
     rs.add("x");
     assertFalse(rs.isEmpty());
-  }
-
-  @Test
-  public void isEmptyDoubleCheckIdiomIsNoopForBasicResultSet() {
-    // WHEN-FIXED: Track 22 — BasicLegacyResultSet.isEmpty() contains a redundant second
-    // isEmpty() call:
-    //   var empty = underlying.isEmpty();
-    //   if (empty) { empty = underlying.isEmpty(); }
-    // This is a no-op idiom (likely copy-pasted from ConcurrentLegacyResultSet's wait-for-items
-    // path). Pin the outcome so that cleanup in Track 22 collapses it to a single check without
-    // behavioural drift. If the method is ever changed to actually block or wait, this test
-    // must be rewritten.
-    var rs = new BasicLegacyResultSet<String>();
-    assertTrue("double-check idiom still returns true when empty", rs.isEmpty());
-    rs.add("x");
-    assertFalse("double-check idiom still returns false once non-empty", rs.isEmpty());
   }
 
   @Test
@@ -458,87 +458,101 @@ public class BasicLegacyResultSetTest {
   }
 
   // ---------------------------------------------------------------------------
-  // UOE methods — one test per method per step T7
+  // UOE methods — one test per method per step T7.
+  // Production uses inconsistent exception messages: remove(Object), remove(int),
+  // containsAll, removeAll, retainAll ALL throw UOE("remove") (copy-paste drift — the
+  // container/search methods carry the mutator's message). indexOf/lastIndexOf get their
+  // own method name. Pin the exact messages so a Track 22 cleanup that "harmonizes" them
+  // is an explicit, reviewed contract change.
   // ---------------------------------------------------------------------------
 
   @Test
-  public void removeObjectThrowsUnsupported() {
+  public void removeObjectThrowsUnsupportedWithRemoveMessage() {
     var rs = new BasicLegacyResultSet<String>();
     rs.add("a");
     try {
       rs.remove((Object) "a");
       fail("remove(Object) must be unsupported");
     } catch (UnsupportedOperationException expected) {
-      // ok
+      assertEquals("message pins the 'remove' literal", "remove", expected.getMessage());
     }
   }
 
   @Test
-  public void removeIndexThrowsUnsupported() {
+  public void removeIndexThrowsUnsupportedWithRemoveMessage() {
     var rs = new BasicLegacyResultSet<String>();
     rs.add("a");
     try {
       rs.remove(0);
       fail("remove(int) must be unsupported");
     } catch (UnsupportedOperationException expected) {
-      // ok
+      assertEquals("remove", expected.getMessage());
     }
   }
 
   @Test
-  public void containsAllThrowsUnsupported() {
+  public void containsAllThrowsUnsupportedWithRemoveMessage() {
+    // WHEN-FIXED: Track 22 — containsAll uses the literal "remove" as its exception message
+    // (copy-paste of the remove(Object) impl). Pin so any harmonization is explicit.
     var rs = new BasicLegacyResultSet<String>();
     try {
       rs.containsAll(Arrays.asList("a"));
       fail("containsAll must be unsupported");
     } catch (UnsupportedOperationException expected) {
-      // ok
+      assertEquals(
+          "containsAll carries the copy-paste 'remove' message", "remove", expected.getMessage());
     }
   }
 
   @Test
-  public void removeAllThrowsUnsupported() {
+  public void removeAllThrowsUnsupportedWithRemoveMessage() {
     var rs = new BasicLegacyResultSet<String>();
     try {
       rs.removeAll(Arrays.asList("a"));
       fail("removeAll must be unsupported");
     } catch (UnsupportedOperationException expected) {
-      // ok
+      assertEquals("remove", expected.getMessage());
     }
   }
 
   @Test
-  public void retainAllThrowsUnsupported() {
+  public void retainAllThrowsUnsupportedWithRemoveMessage() {
+    // WHEN-FIXED: Track 22 — retainAll also carries the copy-paste "remove" message rather
+    // than its own method name. Pin explicitly.
     var rs = new BasicLegacyResultSet<String>();
     try {
       rs.retainAll(Arrays.asList("a"));
       fail("retainAll must be unsupported");
     } catch (UnsupportedOperationException expected) {
-      // ok
+      assertEquals(
+          "retainAll carries the copy-paste 'remove' message", "remove", expected.getMessage());
     }
   }
 
   @Test
-  public void indexOfThrowsUnsupported() {
+  public void indexOfThrowsUnsupportedWithIndexOfMessage() {
     var rs = new BasicLegacyResultSet<String>();
     rs.add("a");
     try {
       rs.indexOf("a");
       fail("indexOf must be unsupported");
     } catch (UnsupportedOperationException expected) {
-      // ok
+      assertEquals(
+          "indexOf carries its own method name (unlike remove/containsAll)",
+          "indexOf",
+          expected.getMessage());
     }
   }
 
   @Test
-  public void lastIndexOfThrowsUnsupported() {
+  public void lastIndexOfThrowsUnsupportedWithLastIndexOfMessage() {
     var rs = new BasicLegacyResultSet<String>();
     rs.add("a");
     try {
       rs.lastIndexOf("a");
       fail("lastIndexOf must be unsupported");
     } catch (UnsupportedOperationException expected) {
-      // ok
+      assertEquals("lastIndexOf", expected.getMessage());
     }
   }
 
@@ -621,32 +635,25 @@ public class BasicLegacyResultSetTest {
   }
 
   @Test
-  public void equalsAsymmetryLeaksThroughSynchronizedListWrapper() {
-    // WHEN-FIXED: Track 22 — BasicLegacyResultSet.equals forwards to underlying.equals. The
-    // underlying list is a Collections.synchronizedList wrapper, and synchronizedList.equals
-    // compares its inner ArrayList to the argument. This creates a subtle asymmetry with the
-    // general List.equals contract: an arbitrary List (including ArrayList and another
-    // BasicLegacyResultSet) equals this resultset, but the reverse may not hold unless the
-    // OTHER side is also a List.
-    //
-    // Pin: two empty BasicLegacyResultSets are NOT equal to each other via our equals() path,
-    // because underlying.equals(otherResultSet) compares a List to a non-List object (the
-    // BasicLegacyResultSet itself is the argument — the List.equals contract asks "is this
-    // argument a List with the same elements?", and BasicLegacyResultSet IS a List, so the
-    // comparison delegates back). In fact both ARE Lists, so underlying.equals(otherResultSet)
-    // DOES return true — meaning our equals() is REFLEXIVE across resultset instances.
-    // Pin this reflexive pair so a future tightening of equals to `o instanceof
-    // BasicLegacyResultSet` does not silently break List-contract callers.
+  public void equalsDelegatesToUnderlyingListContract() {
+    // WHEN-FIXED: Track 22 — BasicLegacyResultSet.equals forwards to `underlying.equals(o)`.
+    // The underlying is a Collections.synchronizedList wrapping an ArrayList, so the
+    // effective equality follows the standard List.equals contract: reflexive across
+    // resultset instances, and symmetric against any other List (including
+    // Collections.emptyList()) with the same elements. Pin the four corners of that
+    // contract so a tightening to `o instanceof BasicLegacyResultSet` becomes an explicit
+    // contract break rather than a silent behaviour drift.
     var empty1 = new BasicLegacyResultSet<String>();
     var empty2 = new BasicLegacyResultSet<String>();
-    assertTrue("empty BasicLegacyResultSet must equal another empty one via List contract",
+    assertTrue(
+        "resultset.equals(anotherResultSet) — reflexive across instances via List contract",
         empty1.equals(empty2));
-    assertTrue("reverse: empty2 must equal empty1 too", empty2.equals(empty1));
-    // Now cross-check: our resultset equals an empty ArrayList AND the empty ArrayList equals
-    // our resultset — symmetric via the List contract.
-    assertTrue("resultset.equals(emptyList) must be true",
+    assertTrue("reverse: symmetric", empty2.equals(empty1));
+    assertTrue(
+        "resultset.equals(Collections.emptyList()) — symmetric with any empty List",
         empty1.equals(Collections.emptyList()));
-    assertTrue("reverse: emptyList.equals(resultset) must be true",
+    assertTrue(
+        "Collections.emptyList().equals(resultset) — contract holds in the reverse direction",
         Collections.emptyList().equals(empty1));
   }
 
@@ -672,11 +679,16 @@ public class BasicLegacyResultSetTest {
   }
 
   @Test
-  public void copyOfEmptyResultSetYieldsEmptyResultSet() {
+  public void copyOfEmptyResultSetYieldsIndependentEmptyResultSet() {
     var rs = new BasicLegacyResultSet<String>();
     var copy = rs.copy();
     assertNotNull(copy);
+    assertNotSame("copy of empty must still be a fresh instance", rs, copy);
     assertTrue("copy of empty must also be empty", copy.isEmpty());
+    // Prove the underlying lists are distinct: mutating the source must not grow the copy.
+    rs.add("post-copy");
+    assertEquals(1, rs.size());
+    assertEquals("copy's underlying list is independent", 0, copy.size());
   }
 
   @Test
@@ -733,5 +745,165 @@ public class BasicLegacyResultSetTest {
     assertSame("setCompleted must return this", rs, returned);
     // Calling it a second time must remain idempotent — there is no state to change.
     assertSame(rs, rs.setCompleted());
+  }
+
+  // ---------------------------------------------------------------------------
+  // Boundary-condition coverage gaps surfaced by Step 7 review
+  // ---------------------------------------------------------------------------
+
+  @Test
+  public void addAllBypassesLimitCheckAndGrowsPastLimit() {
+    // WHEN-FIXED: Track 22 — BasicLegacyResultSet.add(T) enforces `size >= limit` and drops
+    // over-limit elements, but addAll(Collection) delegates directly to underlying.addAll
+    // without consulting the limit. This is a contract asymmetry worth pinning:
+    // setLimit(2) + addAll([1,2,3,4]) ends with size==4, not 2.
+    var rs = new BasicLegacyResultSet<Integer>();
+    rs.setLimit(2);
+    assertTrue(rs.addAll(Arrays.asList(1, 2, 3, 4)));
+    assertEquals("addAll ignores the limit — size grows past 2", 4, rs.size());
+    assertTrue("all four elements are actually stored", rs.contains(4));
+  }
+
+  @Test
+  public void addAllAtIndexBypassesLimitCheckToo() {
+    // Same asymmetry for the indexed addAll overload — pin it independently so a partial
+    // Track 22 fix that only touches one of the two addAll overloads leaves a test red.
+    var rs = new BasicLegacyResultSet<Integer>();
+    rs.add(0);
+    rs.setLimit(1);
+    assertTrue(rs.addAll(0, Arrays.asList(10, 20, 30)));
+    assertEquals("indexed addAll also ignores the limit", 4, rs.size());
+  }
+
+  @Test
+  public void loweringLimitBelowCurrentSizeDoesNotEvictExistingElements() {
+    // setLimit only gates future add() calls; it never truncates existing elements. Pin
+    // this so Track 22 knows a proposed "evict on lower" refactor is a real contract break.
+    var rs = new BasicLegacyResultSet<Integer>();
+    rs.add(1);
+    rs.add(2);
+    rs.add(3);
+    rs.setLimit(1);
+    assertEquals("existing elements survive a lowered limit", 3, rs.size());
+    assertFalse("but further adds are rejected since size >= limit", rs.add(4));
+    assertEquals(3, rs.size());
+  }
+
+  @Test
+  public void zeroCapacityConstructorSucceedsAndStartsEmpty() {
+    // Boundary: capacity=0 is a valid ArrayList arg and must not throw.
+    var rs = new BasicLegacyResultSet<String>(0);
+    assertTrue(rs.isEmpty());
+    assertEquals(0, rs.size());
+    assertTrue("still growable after zero-capacity construction", rs.add("a"));
+    assertEquals(1, rs.size());
+  }
+
+  @Test
+  public void negativeCapacityConstructorPropagatesIllegalArgumentException() {
+    // Boundary: ArrayList(-1) throws IAE; BasicLegacyResultSet must propagate rather than
+    // silently clamp to 0.
+    try {
+      new BasicLegacyResultSet<String>(-1);
+      fail("negative capacity must propagate IllegalArgumentException from ArrayList");
+    } catch (IllegalArgumentException expected) {
+      // ok
+    }
+  }
+
+  @Test
+  public void getNegativeIndexPropagatesIndexOutOfBounds() {
+    // get(-1) covers the under-flow side of the OOB contract (the existing over-flow test
+    // uses index 5 on a 1-element list).
+    var rs = new BasicLegacyResultSet<String>();
+    rs.add("a");
+    try {
+      rs.get(-1);
+      fail("expected IndexOutOfBoundsException for negative index");
+    } catch (IndexOutOfBoundsException expected) {
+      // ok
+    }
+  }
+
+  @Test
+  public void addByIndexAtZeroAndAtSizePlacesElementCorrectly() {
+    // Insertion boundaries — index=0 (prepend) and index=size (append).
+    var rs = new BasicLegacyResultSet<String>();
+    rs.add("b");
+    rs.add("c");
+    rs.add(0, "a");
+    rs.add(rs.size(), "d");
+    assertEquals(4, rs.size());
+    assertEquals("a", rs.get(0));
+    assertEquals("b", rs.get(1));
+    assertEquals("c", rs.get(2));
+    assertEquals("d", rs.get(3));
+  }
+
+  @Test
+  public void addAllAtIndexZeroPrependsAndAtSizeAppends() {
+    // addAll insertion boundaries — fromIndex=0 (prepend) and fromIndex=size (append).
+    var rs = new BasicLegacyResultSet<String>();
+    rs.add("c");
+    rs.add("d");
+    assertTrue(rs.addAll(0, Arrays.asList("a", "b")));
+    assertTrue(rs.addAll(rs.size(), Arrays.asList("e", "f")));
+    assertEquals(6, rs.size());
+    assertEquals("a", rs.get(0));
+    assertEquals("b", rs.get(1));
+    assertEquals("c", rs.get(2));
+    assertEquals("d", rs.get(3));
+    assertEquals("e", rs.get(4));
+    assertEquals("f", rs.get(5));
+  }
+
+  @Test
+  public void listIteratorAtEndIndexHasNoNextButHasPrevious() {
+    // ListIterator boundary at index=size — no next, previous steps back.
+    var rs = new BasicLegacyResultSet<String>();
+    rs.add("a");
+    rs.add("b");
+    var lit = rs.listIterator(2);
+    assertFalse("at index==size, hasNext must be false", lit.hasNext());
+    assertTrue("at index==size, hasPrevious must be true", lit.hasPrevious());
+    assertEquals("b", lit.previous());
+    assertEquals("a", lit.previous());
+    assertFalse("at index==0, hasPrevious must be false", lit.hasPrevious());
+  }
+
+  @Test
+  public void subListAtZeroZeroAndSizeSizeYieldsEmptyView() {
+    // subList boundaries from==to at both extremes.
+    var rs = new BasicLegacyResultSet<String>();
+    rs.add("a");
+    rs.add("b");
+    assertTrue("subList(0,0) is empty", rs.subList(0, 0).isEmpty());
+    assertTrue(
+        "subList(size,size) is empty", rs.subList(rs.size(), rs.size()).isEmpty());
+  }
+
+  @Test
+  public void externalizableRoundTripPreservesNullElements() throws Exception {
+    // Serialization boundary — a null element must survive the round-trip at its original
+    // index (not dropped, not shifted).
+    var original = new BasicLegacyResultSet<String>();
+    original.add("a");
+    original.add(null);
+    original.add("c");
+
+    var bout = new ByteArrayOutputStream();
+    try (var oos = new ObjectOutputStream(bout)) {
+      original.writeExternal(oos);
+    }
+
+    var restored = new BasicLegacyResultSet<String>();
+    try (var ois = new ObjectInputStream(new ByteArrayInputStream(bout.toByteArray()))) {
+      restored.readExternal(ois);
+    }
+
+    assertEquals(3, restored.size());
+    assertEquals("a", restored.get(0));
+    assertNull("null slot must survive Externalizable round-trip", restored.get(1));
+    assertEquals("c", restored.get(2));
   }
 }
