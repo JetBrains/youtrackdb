@@ -202,7 +202,7 @@ Sorted by uncovered lines descending.
 
 ## Post-Track-7 Measurement
 
-**Commit:** `6fed5ac147` (`HEAD` at Track 7 Step 8, 2026-04-20)
+**Measured at:** Track 7 Step 8 HEAD (2026-04-20)
 **Report:** `.coverage/reports/youtrackdb-core/jacoco.xml`
 
 ### Aggregate Totals
@@ -279,7 +279,8 @@ to cover the previously-missed `else` branch in
 
 Sorted by uncovered lines descending.
 
-
+| Package | Line% | Branch% | Uncovered Lines | Total Lines |
+|---------|-------|---------|-----------------|-------------|
 | com.jetbrains.youtrackdb.internal.core.sql.executor | 75.1% | 65.6% | 1703 | 6833 |
 | com.jetbrains.youtrackdb.internal.core.record.impl | 62.7% | 54.2% | 1410 | 3780 |
 | com.jetbrains.youtrackdb.internal.core.db | 66.4% | 52.4% | 1272 | 3788 |
