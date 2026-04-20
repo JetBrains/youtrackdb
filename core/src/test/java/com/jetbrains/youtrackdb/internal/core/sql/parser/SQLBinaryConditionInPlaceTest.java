@@ -8,7 +8,6 @@ import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -866,103 +865,95 @@ public class SQLBinaryConditionInPlaceTest extends DbTestBase {
   // ----- Regression tests for lazy-MATCH path (YTDB-604) -----
 
   @Test
-  public void testEvaluateResult_bareRidFallsThroughToGetProperty() {
+  public void testEvaluateResult_bareRidDoesNotForceLoadInGuard() {
     // Regression test for the YTDB-604 IC1/IC4 regression: when evaluate(Result, ctx)
     // is called with a bare-RID ResultInternal (the shape produced by the lazy-MATCH
-    // ridIterator path), the fast-path guard must NOT run the byte-scan in-place
-    // comparison. Instead, the code must fall through to left.execute() which invokes
-    // ResultInternal.getProperty — that path lazily loads AND deserializes the
-    // property into the properties map, so a subsequent predicate on the same Result
-    // hits the cheap compareDeserialized branch.
+    // ridIterator path), the fast-path guard must NOT call asEntityOrNull(), which
+    // would trigger loadEntity for every WHERE predicate on an intermediate MATCH hop.
+    // That force-load cost -16%/-17% throughput on ic1/ic4 in PR #863 profiling.
     //
-    // Before this fix (commit e131e7a268), the guard called ri.asEntityOrNull()
-    // which force-loaded the entity but left the properties map unpopulated, forcing
-    // byte-scans of the serialized record on every WHERE predicate. For records with
-    // many fields (LDBC Post, Person), that byte-scan was not cheaper than full
-    // deserialization, and the overhead compounded to -16% (ic1) / -17% (ic4).
+    // The guard must use a non-loading check (asIdentifiableOrNull/getIdentifiable)
+    // so bare-RID Results fail the instanceof EntityImpl test and fall through to
+    // the standard path, which loads lazily via getProperty only when needed.
     //
-    // We verify the fix via two observable effects:
-    //   1. evaluate produces the correct boolean (behavioral correctness)
-    //   2. after evaluate, the property is in the deserialized map — proving
-    //      getProperty was invoked (not byte-scan). Byte-scan leaves the map empty.
+    // We use a CountingResultInternal that records asEntityOrNull() calls: a correct
+    // guard must never invoke it, regardless of the comparison outcome.
     var schema = session.getMetadata().getSchema();
-    var clazz = schema.createClass("LazyRidEval");
+    var clazz = schema.createClass("LazyRidNoForceLoad");
     clazz.createProperty("age", PropertyType.INTEGER);
 
     session.begin();
-    var e = session.newEntity("LazyRidEval");
+    var e = session.newEntity("LazyRidNoForceLoad");
     e.setProperty("age", 25);
     session.commit();
     var rid = e.getIdentity();
-
-    // Simulate the lazy-MATCH path: ResultInternal wrapping only the RID.
-    var ri = new ResultInternal(session, (RID) rid);
 
     var bc = parseBinaryCondition("age = 25");
     var ctx = new BasicCommandContext();
     ctx.setDatabaseSession(session);
 
     session.begin();
+    var ri = new CountingResultInternal(session, (RID) rid);
     var outcome = bc.evaluate(ri, ctx);
 
+    // Behavioral correctness: the comparison still produces the right boolean.
     assertThat(outcome).isTrue();
-    // The standard fall-through path went through getProperty — the property is
-    // now deserialized. The broken pre-fix path would have either (a) returned
-    // via byte-scan without populating the map, or (b) fallen through after a
-    // wasted byte-scan + force-load. Either way, this assertion acts as a canary.
-    var loaded = (EntityImpl) ri.asIdentifiableOrNull();
-    assertThat(loaded).isNotNull();
-    assertThat(loaded.hasDeserializedProperty("age")).isTrue();
+
+    // Perf invariant: the guard did not force-load the entity. Note the fallback
+    // path (left.execute → getProperty) may have materialised the entity via the
+    // non-force-loading lazy path — that is acceptable. The invariant here is
+    // specifically that the GUARD did not invoke asEntityOrNull().
+    assertThat(ri.asEntityOrNullCalls).isZero();
     session.rollback();
   }
 
   @Test
-  public void testEvaluateResult_secondPredicateTakesFastPath() {
-    // After the first WHERE predicate evaluated on a bare-RID Result has populated
-    // the properties map via the standard getProperty path, subsequent predicates
-    // on the SAME Result must take the in-place fast path. This preserves the
-    // original intent of the in-place optimization (avoid SuffixIdentifier→Result→
-    // Entity dispatch for simple property-vs-constant comparisons) without
-    // regressing the lazy-MATCH case.
-    //
-    // Observable check: before the second predicate runs, hasDeserializedProperty
-    // returns true — the guard condition is satisfied, so tryInPlaceComparison
-    // will hit the cheap compareDeserialized branch.
+  public void testEvaluateResult_bareRidNoForceLoadEvenWhenComparisonFalse() {
+    // Same invariant as testEvaluateResult_bareRidDoesNotForceLoadInGuard, but for
+    // the comparison-is-false case: a force-load in the guard is wasteful whether
+    // the row is accepted or rejected. The regression was per-predicate, so the
+    // rejecting branch matters equally.
     var schema = session.getMetadata().getSchema();
-    var clazz = schema.createClass("LazyRidEval2");
+    var clazz = schema.createClass("LazyRidNoForceLoadFalse");
     clazz.createProperty("age", PropertyType.INTEGER);
-    clazz.createProperty("score", PropertyType.INTEGER);
 
     session.begin();
-    var e = session.newEntity("LazyRidEval2");
+    var e = session.newEntity("LazyRidNoForceLoadFalse");
     e.setProperty("age", 25);
-    e.setProperty("score", 100);
     session.commit();
     var rid = e.getIdentity();
 
-    var ri = new ResultInternal(session, (RID) rid);
-    var bcAge = parseBinaryCondition("age = 25");
-    var bcScore = parseBinaryCondition("score = 100");
+    var bc = parseBinaryCondition("age = 99");
     var ctx = new BasicCommandContext();
     ctx.setDatabaseSession(session);
 
     session.begin();
-    // First predicate: bare RID → guard fails → fall through populates age.
-    assertThat(bcAge.evaluate(ri, ctx)).isTrue();
-    var loaded = (EntityImpl) ri.asIdentifiableOrNull();
-    assertThat(loaded.hasDeserializedProperty("age")).isTrue();
+    var ri = new CountingResultInternal(session, (RID) rid);
+    var outcome = bc.evaluate(ri, ctx);
 
-    // Second predicate on a DIFFERENT property that has not yet been read —
-    // hasDeserializedProperty is still false for "score", so the second predicate
-    // also falls through to getProperty, which then caches it.
-    assertThat(loaded.hasDeserializedProperty("score")).isFalse();
-    assertThat(bcScore.evaluate(ri, ctx)).isTrue();
-    assertThat(loaded.hasDeserializedProperty("score")).isTrue();
-
-    // Third predicate on age — now cached — must still evaluate correctly. The
-    // guard condition is satisfied and tryInPlaceComparison hits compareDeserialized.
-    assertThat(bcAge.evaluate(ri, ctx)).isTrue();
+    assertThat(outcome).isFalse();
+    assertThat(ri.asEntityOrNullCalls).isZero();
     session.rollback();
+  }
+
+  /**
+   * Test double that records every {@link ResultInternal#asEntityOrNull()} call so
+   * tests can assert whether the fast-path guard triggered a force-load.
+   */
+  private static final class CountingResultInternal extends ResultInternal {
+    int asEntityOrNullCalls;
+
+    CountingResultInternal(
+        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session,
+        RID rid) {
+      super(session, rid);
+    }
+
+    @Override
+    public com.jetbrains.youtrackdb.internal.core.db.record.record.Entity asEntityOrNull() {
+      asEntityOrNullCalls++;
+      return super.asEntityOrNull();
+    }
   }
 
   private SQLBinaryCondition parseBinaryCondition(String booleanExpr) {
