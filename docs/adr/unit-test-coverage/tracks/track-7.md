@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (6/8 complete)
+- [ ] Step implementation (7/8 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -1098,7 +1098,138 @@ LiveResultListener, LocalLiveResultListener.
   - Verify: `./mvnw -pl core -Dtest='SQLHelperParseValueCollectionTest,SQLEngineSpiCacheTest' clean test` green.
   - Expected: ~35 test methods across 2 new test classes.
 
-- [ ] Step 7: `sql/query` — BasicLegacyResultSet + dead-code pin
+- [x] Step 7: `sql/query` — BasicLegacyResultSet + dead-code pin
+  - [x] Context: warning
+  > **What was done:** Added 109 standalone unit tests across 2 new files
+  > for the `core/sql/query` package — 59 in `BasicLegacyResultSetTest`
+  > (live class) and 50 in `SqlQueryDeadCodeTest` (four zero-caller dead
+  > classes). Commits: `de81ad7419` (Step 7) and `4fd79739e6` (Review fix).
+  >
+  > Live-class coverage (BasicLegacyResultSet + LegacyResultSet interface):
+  > List contract (add/addAll at boundary indices, clear, get, set,
+  > contains, iterator, toArray both overloads, listIterator/subList
+  > including boundary positions, setLimit honoured by add but bypassed
+  > by addAll, copy independence, Externalizable round-trip including
+  > null elements). Latent-bug pins (WHEN-FIXED): iterator exhaustion
+  > guard uses strict `>` instead of `>=` → IOOBE from `underlying.get`
+  > rather than NoSuchElementException; equals delegates to
+  > synchronizedList contract (reflexive + symmetric across Lists);
+  > UOE message copy-paste drift (`containsAll`, `removeAll`, `retainAll`
+  > all throw `new UOE("remove")`).
+  >
+  > Dead-class coverage (ConcurrentLegacyResultSet, LiveLegacyResultSet,
+  > LiveResultListener, LocalLiveResultListener): construction,
+  > add/addAll, setCompleted/complete divergence (pinned via reflection
+  > on the protected `completed` field — `LiveLegacyResultSet.setCompleted`
+  > override has its `completed = true;` line commented out, only
+  > `complete()` sets it), copy producing a fresh independent instance
+  > (verified via reflection on `wrapped`), Externalizable round-trip,
+  > UOE branches (one test per method for surefire diagnosability),
+  > `LiveLegacyResultSet.setLimit` returning null (fluent-contract
+  > break), `ConcurrentLegacyResultSet.lastIndexOf` always returning 0
+  > (stub), iterator exhaustion mirror-pin for the strict-`>` guard in
+  > the concurrent iterator, `LiveLegacyResultSet.iterator.next()`
+  > InterruptedException branch exercised on a helper thread.
+  > `LocalLiveResultListener` delegate forwarding + CommandResultListener
+  > stubs (result→false, end→noop, getResult→null) + non-forwarding
+  > pin (CommandResultListener half must NOT delegate to any
+  > LiveResultListener callback). `LiveResultListener` interface
+  > implemented with all three callbacks.
+  >
+  > **What was discovered:**
+  > 1. **Iterator exhaustion strict-`>` guard bug (both classes).**
+  >    `BasicLegacyResultSet.iterator()` and `ConcurrentLegacyResultSet`'s
+  >    anonymous iterator both have the same guard
+  >    `if (index > size() || size() == 0) throw NSE;`. After
+  >    `next()` returns the only element, `index==size==1`, the guard
+  >    is false, and the method falls through to `underlying.get(1)` /
+  >    `wrapped.get(1)` — yielding IOOBE. Fix is `> → >=`. Pinned as
+  >    WHEN-FIXED in both test classes for Track 22.
+  > 2. **UOE message copy-paste drift on BasicLegacyResultSet.** The
+  >    search-only methods `containsAll`, `removeAll`, `retainAll` all
+  >    throw `new UnsupportedOperationException("remove")` — same
+  >    message as the actual `remove` methods. `indexOf`/`lastIndexOf`
+  >    correctly carry their own method names. Pinned with explicit
+  >    `assertEquals("remove", message)` per branch for Track 22.
+  > 3. **Deadlock hazard: `ArrayList.equals` uses `iterator()`, not
+  >    `listIterator()`.** The JDK's `ArrayList.equalsRange` calls
+  >    `o.iterator()` after iterating — and `ConcurrentLegacyResultSet`'s
+  >    iterator `hasNext()` blocks on `waitForNewItemOrCompleted` when
+  >    `completed==false`. So any `rs1.equals(rs2)` where `rs2` is a
+  >    non-completed ConcurrentLegacyResultSet deadlocks. First run of
+  >    the tests hung for 929s on
+  >    `concurrentLegacyResultSetHashCodeAndEqualsDelegateToWrapped`
+  >    before the deadlock-watchdog tripped. Fix: always call
+  >    `setCompleted()` BEFORE the equals assertion. Added
+  >    `@Rule Timeout.seconds(10)` to both test classes as a defensive
+  >    net against a future edit dropping the setCompleted call
+  >    (core/pom.xml has no `forkedProcessTimeoutInSeconds`, so
+  >    without the @Rule an accidental hang would block the entire
+  >    CI fork indefinitely).
+  > 4. **`LiveLegacyResultSet.setCompleted` override has its
+  >    `completed = true;` line commented out.** The public `complete()`
+  >    method is the only path that sets the flag. Pinned via
+  >    reflection on the parent's protected `completed` field.
+  > 5. **`LiveLegacyResultSet.setLimit` returns null**, breaking the
+  >    fluent LegacyResultSet contract (every other impl returns
+  >    `this`). Annotated `@Nullable` in production. Pinned.
+  > 6. **`ConcurrentLegacyResultSet.lastIndexOf` always returns 0**
+  >    regardless of contents or argument — a stub. The sibling
+  >    `indexOf` throws UOE. Pinned.
+  > 7. **`LiveLegacyResultSet.iterator().next()` InterruptedException
+  >    branch** was entirely unexercised in the first-pass test.
+  >    Added a helper-thread test that pre-interrupts, calls next(),
+  >    and verifies the branch returns null + re-raises the interrupt
+  >    flag.
+  > 8. **`addAll` ignores `setLimit`** while `add(T)` honours it — a
+  >    contract asymmetry. Pinned as WHEN-FIXED.
+  >
+  > **What changed from the plan:** Test count grew from the planned
+  > ~45 to 109 (59 + 50). Excess is driven by (a) one-UOE-per-branch
+  > splitting (17 UOE branches on LiveLegacyResultSet + 6 on
+  > ConcurrentLegacyResultSet + 7 on BasicLegacyResultSet = 30 small
+  > tests) for surefire-diagnosability consistency with Step 6's
+  > methodology, (b) WHEN-FIXED latent-bug pins surfaced during
+  > implementation (8 markers), (c) boundary tests added after
+  > dimensional review (zero/negative capacity, addAll-below-limit,
+  > setLimit-below-current-size, insertion at index 0/size,
+  > listIterator at size, subList 0,0 / size,size, negative-index get,
+  > Externalizable with null, non-forwarding pin on
+  > LocalLiveResultListener.end/result/getResult).
+  >
+  > **Step-level dimensional review** (1 iteration, 6 agents:
+  > code-quality, bugs-concurrency, test-behavior, test-completeness,
+  > test-concurrency, test-structure). Verdicts: all PASS (0 blockers
+  > across all dimensions). 17 should-fix items converged on 7 themes,
+  > all addressed in the Review fix commit: (1) vacuous setCompleted
+  > pin → use reflection on `completed` field; (2) misleading
+  > equals-asymmetry Javadoc → rewrite to match the actual List-
+  > contract pin; (3) bundled UOE ladder tests → split one-per-method;
+  > (4) vacuous isEmpty-double-check pin → delete test, document in
+  > class Javadoc why no pin is possible; (5) vacuous copy pin for
+  > LiveLegacyResultSet → use reflection on `wrapped` to verify
+  > independence; (6) 7 missing boundary tests → added; (7) no
+  > defensive hang protection → `@Rule Timeout.seconds(10)` on both
+  > files. Hygiene suggestions absorbed: java.io imports (dropped
+  > inline package prefixes), tautological `assertSame(adapter,
+  > (Interface) adapter)` removed, duplicate `assertNotNull` in
+  > liveLegacyResultSetCopy removed, UOE message pins tightened on
+  > BasicLegacyResultSet (exposing the copy-paste drift as a TC#2
+  > discovery), LocalLiveResultListener stub test now explicitly pins
+  > "must NOT forward to delegate" via counters.
+  >
+  > **Key files:**
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/query/BasicLegacyResultSetTest.java` (new — 59 tests, ~700 lines)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/query/SqlQueryDeadCodeTest.java` (new — 50 tests, ~720 lines)
+  >
+  > **Critical context:** The `ArrayList.equals` → `iterator()` →
+  > `waitForNewItemOrCompleted` blocking chain is a real hang trap
+  > for any future test in this package that compares
+  > ConcurrentLegacyResultSet instances. The class-level `@Rule
+  > Timeout.seconds(10)` surfaces this as a bounded failure rather
+  > than a silent CI fork hang — keep this rule when Track 22
+  > eventually deletes the dead classes (the rule itself can be
+  > removed at that point along with the tests).
   - Scope: 2 test classes.
     - `BasicLegacyResultSetTest` (standalone — List contract, no DB):
       * All 30+ `List`-delegated methods: size, isEmpty, contains,
