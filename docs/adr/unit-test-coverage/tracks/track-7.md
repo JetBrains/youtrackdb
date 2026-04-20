@@ -3,7 +3,7 @@
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation (8/8 complete)
-- [ ] Track-level code review (1/3 iterations — iter-1 complete, iter-2 gate pending)
+- [x] Track-level code review (2/3 iterations — iter-1 applied 13 should-fix, iter-2 gate PASS across 6 dimensions, applied TB13 fix)
 
 ## Base commit
 `a452c0539d859f9601f64de9c1dd30d0295deacd`
@@ -39,7 +39,29 @@ no performance, crash-safety, or critical-path concerns.
   - Deferred to Track 22 (plan updated): CQ3/TS5 RecordingFunction DRY,
     TS3/TS6 large-test-class splits, TS4/TS7/TS9 parameterized tests,
     TX5 multi-threaded race-exercising tests paired with production fixes.
-- [ ] Iter 2 (gate check) — pending next session
+- [x] Iter 2 → `reviews/track-7-code-review-iter2.md`
+  - 6 sub-agents (same dimensions as iter-1) verified iter-1's 13 fixes and
+    re-scanned the iter-1 fix commit `d95b9aa9ac` for regressions.
+  - All iter-1 should-fix items VERIFIED as correctly applied.
+  - **1 new should-fix found**: TB13 ≡ TC14 — `executeSQLFilterItemVariableFallsBackToCurrentResultWhenContextLacksValue`
+    (added by iter-1's TC1 fix) was vacuous to mutation testing.
+    SQLFilterItemVariable.getValue ignores `iRecord`, so primary and
+    fallback calls produce identical null output given the same context.
+    Strengthened by wrapping ctx in a counting BasicCommandContext subclass
+    and asserting `callCount == 2` — deletion of the fallback branch now
+    drops count to 1 and fails the test.
+  - **1 suggestion promoted**: TS13 — `dynamicSqlElementFactoryCreateCommandUnknownThrows`
+    comment claimed "mirroring sibling pin with current typo" but the two
+    production classes emit different strings (DynamicSQLElementFactory:
+    "Unknown" no typo; DefaultCommandExecutorSQLFactory: "Unknowned" typo).
+    Comment rewritten to clarify the asymmetry.
+  - CQ1 (license banner) downgraded by iter-2 CQ agent from should-fix to
+    suggestion — pre-existing banner form matches SQLEngine.java, Spotless
+    accepts it, not merge-blocking. Defer to Track 22 if absorbed.
+  - Remaining findings (CQ12, CQ13, TC15, TS14, TS15) are suggestion-grade
+    consistency items — defer to Track 22 or accept as merge-ready.
+  - Iter-2 fix commit: `000d255623`. Tests green (48/48 on affected classes).
+  - **Verdict: PASS** — track-level code review complete.
 
 ## Review Response Summary
 
