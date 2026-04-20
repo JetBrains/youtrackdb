@@ -44,28 +44,22 @@ public final class SQLBinaryCondition extends SQLBooleanExpression {
   public boolean evaluate(Identifiable currentRecord, CommandContext ctx) {
     // In-place comparison fast path for the Identifiable overload.
     // No collation guard — the existing overload never applies collation.
-    // The hasDeserializedProperty guard avoids byte-scanning the serialized
-    // record: that scan costs roughly the same as full deserialization for
-    // records with many fields and does not populate the properties cache,
-    // so we only take the fast path when it will hit the cheap
-    // compareDeserialized branch inside tryInPlaceComparison.
     if (left.isBaseIdentifier()
         && left.mathExpression instanceof SQLBaseExpression baseExpr
         && right.isEarlyCalculated(ctx)
         && currentRecord instanceof EntityImpl entityImpl) {
       var propName = baseExpr.getIdentifier().getSuffix()
           .getIdentifier().getStringValue();
-      if (entityImpl.hasDeserializedProperty(propName)) {
-        var rightVal = right.execute(currentRecord, ctx);
-        var inPlaceResult = tryInPlaceComparison(entityImpl, propName, rightVal);
-        if (inPlaceResult != null) {
-          return inPlaceResult;
-        }
+      var rightVal = right.execute(currentRecord, ctx);
 
-        // FALLBACK: rightVal already computed, only need leftVal
-        var leftVal = left.execute(currentRecord, ctx);
-        return operator.execute(ctx.getDatabaseSession(), leftVal, rightVal);
+      var inPlaceResult = tryInPlaceComparison(entityImpl, propName, rightVal);
+      if (inPlaceResult != null) {
+        return inPlaceResult;
       }
+
+      // FALLBACK: rightVal already computed, only need leftVal
+      var leftVal = left.execute(currentRecord, ctx);
+      return operator.execute(ctx.getDatabaseSession(), leftVal, rightVal);
     }
 
     return operator.execute(ctx.getDatabaseSession(), left.execute(currentRecord, ctx),
@@ -82,18 +76,15 @@ public final class SQLBinaryCondition extends SQLBooleanExpression {
       return evaluateAllFunction(currentRecord, ctx);
     }
 
-    // In-place comparison fast path: avoid method dispatch through
-    // SuffixIdentifier/Result/Entity for simple "property <op> constant"
-    // patterns — but only when the property is already in the deserialized
-    // properties map. Uses asIdentifiableOrNull() so bare-RID Results from
-    // the lazy MATCH path do NOT trigger a load here: the standard fall-through
-    // path goes through ResultInternal.getProperty which lazily loads AND
-    // fully deserializes the record (populating the properties map), so the
-    // second+ predicate on the same Result will hit this fast path.
-    // The hasDeserializedProperty guard avoids byte-scanning the serialized
-    // record for a property that is not yet deserialized: such a byte-scan
-    // costs roughly the same as full deserialization for records with many
-    // fields and does not populate the cache for subsequent predicates.
+    // In-place comparison fast path: avoid full deserialization for simple
+    // "property <op> constant" patterns. Uses asIdentifiableOrNull() rather than
+    // asEntityOrNull() so a bare-RID Result from the lazy MATCH path does NOT
+    // trigger loadEntity here — such a Result fails the instanceof check and
+    // falls through to the standard path (left.execute → getProperty), which
+    // lazily loads only if a property is actually read. The fast path remains
+    // active for Results that already wrap a materialized EntityImpl (standard
+    // SELECT path), where the byte-level comparison avoids paying for full
+    // property-map deserialization just to evaluate one predicate.
     if (left.isBaseIdentifier()
         && left.mathExpression instanceof SQLBaseExpression baseExpr
         && right.isEarlyCalculated(ctx)
@@ -101,14 +92,13 @@ public final class SQLBinaryCondition extends SQLBooleanExpression {
         && ri.asIdentifiableOrNull() instanceof EntityImpl entityImpl) {
       var propName = baseExpr.getIdentifier().getSuffix()
           .getIdentifier().getStringValue();
-      if (entityImpl.hasDeserializedProperty(propName)) {
-        var rightVal = right.execute(currentRecord, ctx);
-        var inPlaceResult = tryInPlaceComparison(entityImpl, propName, rightVal);
-        if (inPlaceResult != null) {
-          return inPlaceResult;
-        }
-        // FALLBACK: fall through to standard path which handles collation
+      var rightVal = right.execute(currentRecord, ctx);
+
+      var inPlaceResult = tryInPlaceComparison(entityImpl, propName, rightVal);
+      if (inPlaceResult != null) {
+        return inPlaceResult;
       }
+      // FALLBACK: fall through to standard path which handles collation
     }
 
     var leftVal = left.execute(currentRecord, ctx);
