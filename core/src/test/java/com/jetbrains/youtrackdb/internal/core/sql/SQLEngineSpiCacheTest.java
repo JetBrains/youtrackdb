@@ -92,11 +92,19 @@ import org.junit.runners.MethodSorters;
  * </ul>
  *
  * <p>This test is {@link SequentialTest} because it mutates process-wide static state — the
- * {@code DynamicSQLElementFactory.FUNCTIONS} map and the {@code DynamicSQLElementFactory.OPERATORS}
- * set that back {@link SQLEngine#registerFunction} and {@link SQLEngine#registerOperator}. Tests
- * are ordered alphabetically so the destructive {@code zzz} tests run after the read-only ones;
- * each destructive test restores the static state in {@link #after()}. A final snapshot assertion
- * in {@link #after()} catches any leaked registration.
+ * {@code DynamicSQLElementFactory.FUNCTIONS} and {@code DynamicSQLElementFactory.COMMANDS} maps
+ * and the {@code DynamicSQLElementFactory.OPERATORS} set that back
+ * {@link SQLEngine#registerFunction} and {@link SQLEngine#registerOperator} plus the dynamic
+ * command registration path.
+ *
+ * <p><b>Ordering guarantee — intra-class only.</b>
+ * {@link FixMethodOrder}{@code (NAME_ASCENDING)} orders methods within this one class; it does
+ * NOT order methods across classes. The {@code zzz}-prefixed destructive methods run after the
+ * read-only methods <em>in this class only</em>. The real defence-in-depth against static-state
+ * leakage is the snapshot-equality final assertion in {@link #verifyNoStaticStateLeak()} — any
+ * entry that leaks from this class (or from an unrelated prior class that happened to run in the
+ * same JVM fork) is caught there. The {@code @Category(SequentialTest)} tag additionally
+ * serializes this class against other {@code SequentialTest} classes at the surefire level.
  *
  * <p>UUID-qualified names are used for every dynamic registration so that even if a concurrent
  * test runner (in a different class on another thread) happens to register a name simultaneously,
@@ -118,8 +126,17 @@ public class SQLEngineSpiCacheTest extends DbTestBase {
     functionsBefore = Map.copyOf(DynamicSQLElementFactory.FUNCTIONS);
     commandsBefore = Map.copyOf(DynamicSQLElementFactory.COMMANDS);
     // Snapshot the OPERATORS set (NOT a live view — tests may remove the operator they added).
-    operatorsBefore = new HashSet<>(DynamicSQLElementFactory.OPERATORS);
+    // The HashSet constructor iterates the synchronized set; we must hold the monitor to
+    // avoid a CME if any other fork mutates OPERATORS concurrently. (SequentialTest protects
+    // against concurrent in-class and cross-SequentialTest-class writes; this lock keeps the
+    // test robust against a future SequentialTest-category removal.)
+    synchronized (DynamicSQLElementFactory.OPERATORS) {
+      operatorsBefore = new HashSet<>(DynamicSQLElementFactory.OPERATORS);
+    }
     uuidPrefix = "t7s6_" + UUID.randomUUID().toString().replace("-", "_") + "_";
+    assert uuidPrefix.equals(uuidPrefix.toLowerCase(Locale.ROOT))
+        : "uuidPrefix must be lowercase to keep startsWith-based cleanup correct after"
+            + " lowercasing registrations";
   }
 
   @After
@@ -140,9 +157,12 @@ public class SQLEngineSpiCacheTest extends DbTestBase {
     assertEquals(
         "COMMANDS map leaked static state between tests",
         commandsBefore, Map.copyOf(DynamicSQLElementFactory.COMMANDS));
-    assertEquals(
-        "OPERATORS set leaked static state between tests",
-        operatorsBefore, new HashSet<>(DynamicSQLElementFactory.OPERATORS));
+    // Hold the monitor on iteration to match the setup-time snapshot's contract.
+    Set<QueryOperator> operatorsNow;
+    synchronized (DynamicSQLElementFactory.OPERATORS) {
+      operatorsNow = new HashSet<>(DynamicSQLElementFactory.OPERATORS);
+    }
+    assertEquals("OPERATORS set leaked static state between tests", operatorsBefore, operatorsNow);
   }
 
   // ===========================================================================
@@ -172,10 +192,23 @@ public class SQLEngineSpiCacheTest extends DbTestBase {
   @Test
   public void getFunctionFactoriesReturnsCachedListOnSecondCall() throws Exception {
     // Consumes two iterators back-to-back and verifies the same underlying factory instances are
-    // yielded in the same order — proves the list is cached rather than re-scanned. This covers
-    // the `if (FUNCTION_FACTORIES == null)` short-circuit on the second call.
-    var first = collect(SQLEngine.getFunctionFactories(session));
+    // yielded in the same order — covers the `if (FUNCTION_FACTORIES == null)` short-circuit on
+    // the second call.
+    //
+    // Additionally: ServiceLoader caches singleton instances, so element-identity could pass
+    // even if the short-circuit were removed. Pin the container identity directly via reflection:
+    // the same List<SQLFunctionFactory> reference must be the value of the static field before
+    // and after the second call.
+    SQLEngine.getFunctionFactories(session); // warm
+    var beforeContainer = readStaticField("FUNCTION_FACTORIES");
     var second = collect(SQLEngine.getFunctionFactories(session));
+    var afterContainer = readStaticField("FUNCTION_FACTORIES");
+    assertSame(
+        "FUNCTION_FACTORIES container must not be rebuilt on cache-hit path",
+        beforeContainer, afterContainer);
+
+    // Belt-and-braces element-level identity check (same ServiceLoader singletons).
+    var first = collect(SQLEngine.getFunctionFactories(session));
     assertEquals("cached factory count must match: " + first + " vs " + second,
         first.size(), second.size());
     for (var i = 0; i < first.size(); i++) {
@@ -314,18 +347,22 @@ public class SQLEngineSpiCacheTest extends DbTestBase {
   }
 
   @Test
-  public void getCommandNamesIsEmptyBecauseBothFactoriesRegisterNothingBugPin() {
-    // WHEN-FIXED: Track 22 — both DefaultCommandExecutorSQLFactory (hardcoded emptyMap) and
-    // DynamicSQLElementFactory (never-populated static map, no external writers) contribute zero
-    // commands. SQLEngine.getCommandNames therefore returns an empty set in production, which
-    // makes the entire {@link SQLEngine#getCommand} dispatch path effectively dead (Step 5's
-    // SqlRootDeadCodeTest pins both factory classes separately). Pin the observable aggregate
-    // here so a regression that accidentally re-enables either factory — or someone populating
-    // DynamicSQLElementFactory.COMMANDS from a test fixture and forgetting to clean up — fails
-    // this assertion.
-    assertTrue(
-        "getCommandNames must be empty (both default and dynamic factories register nothing)",
-        SQLEngine.getCommandNames().isEmpty());
+  public void getCommandNamesMatchesSetupSnapshotBecauseProductionFactoriesRegisterNothingBugPin() {
+    // WHEN-FIXED: Track 22 — DefaultCommandExecutorSQLFactory (hardcoded emptyMap) and
+    // DynamicSQLElementFactory (never-populated COMMANDS, no production writers) contribute zero
+    // commands. SQLEngine.getCommandNames therefore aggregates only whatever
+    // DynamicSQLElementFactory.COMMANDS contained at setup time — which Step 5's SqlRootDeadCodeTest
+    // pins as empty in production. Assert equality against the setup-time snapshot rather than
+    // hard-coded isEmpty() so a prior test class in the same JVM fork that injected (and
+    // correctly cleaned up) its own COMMANDS entries does not invalidate this pin: leftover
+    // state from a failed prior test would still surface as non-empty BEFORE this test starts,
+    // not as an inequality here. Conversely, if a production fix ever adds a default command,
+    // the commandsBefore snapshot includes it and this test still passes — the pin catches
+    // production-side additions via the "Step 5 SqlRootDeadCodeTest" dead-code assertions, not
+    // via this aggregate.
+    assertEquals(
+        "getCommandNames must match setup-time snapshot (both default + dynamic register nothing)",
+        commandsBefore.keySet(), SQLEngine.getCommandNames());
   }
 
   // ===========================================================================
@@ -416,8 +453,16 @@ public class SQLEngineSpiCacheTest extends DbTestBase {
       SQLEngine.getFunction(session, "any");
       fail("expected CommandSQLParsingException for 'any'");
     } catch (CommandSQLParsingException expected) {
-      assertTrue("message must reference 'any': " + expected.getMessage(),
-          expected.getMessage().contains("any"));
+      var msg = expected.getMessage();
+      // Match the same contract enforced by getFunctionThrowsForUnknownName: the requested name
+      // (quoted form to avoid false positives from substrings like "many") and "available names"
+      // clause.
+      assertTrue(
+          "message must echo the requested name 'any' (quoted): " + msg,
+          msg.contains("'any'"));
+      assertTrue(
+          "message must include 'available names' clause: " + msg,
+          msg.contains("available names"));
     }
   }
 
@@ -500,14 +545,20 @@ public class SQLEngineSpiCacheTest extends DbTestBase {
       assertTrue(cmd instanceof TestDynamicCommand);
 
       // Leading+trailing whitespace — trim() at entry.
-      assertNotNull(
-          "getCommand must trim whitespace before dispatch",
-          SQLEngine.getCommand("  " + cmdName + "  "));
+      var trimmed = SQLEngine.getCommand("  " + cmdName + "  ");
+      assertNotNull("getCommand must trim whitespace before dispatch", trimmed);
+      assertTrue(
+          "trim path must dispatch to TestDynamicCommand, got "
+              + (trimmed == null ? "null" : trimmed.getClass()),
+          trimmed instanceof TestDynamicCommand);
 
       // Prefix-match — name + trailing arg, split on space until prefix matches.
-      assertNotNull(
-          "getCommand must prefix-match cmd+arg",
-          SQLEngine.getCommand(cmdName + " arg0 arg1"));
+      var prefixed = SQLEngine.getCommand(cmdName + " arg0 arg1");
+      assertNotNull("getCommand must prefix-match cmd+arg", prefixed);
+      assertTrue(
+          "prefix-match path must dispatch to TestDynamicCommand, got "
+              + (prefixed == null ? "null" : prefixed.getClass()),
+          prefixed instanceof TestDynamicCommand);
 
       // Negative: still-unknown prefix returns null even with args.
       assertNull(
@@ -656,37 +707,49 @@ public class SQLEngineSpiCacheTest extends DbTestBase {
   // ===========================================================================
 
   @Test
-  public void zzzRegisterOperatorClearsSortedOperatorsWithoutAtomicSwapRacePinWhenFixed()
+  public void zzzRegisterOperatorOrderingPinAddHappensBeforeClearAndNextCallRebuilds()
       throws Exception {
-    // WHEN-FIXED: registerOperator is NOT atomic with respect to SORTED_OPERATORS rebuild.
+    // CONTRACT: SQLEngine.registerOperator is:
+    //     DynamicSQLElementFactory.OPERATORS.add(iOperator);  // step 1
+    //     SORTED_OPERATORS = null;                             // step 2
+    // Single-threaded pin (this test) verifies:
+    //   (a) After the call OPERATORS contains the new op AND SORTED_OPERATORS is null — i.e. the
+    //       clear-happens-after-add observable contract. A regression that swapped the two steps
+    //       would also leave the post-state identical, so this pin alone is NOT sufficient to
+    //       catch a reordering-only bug. But it IS sufficient to catch a regression that dropped
+    //       the clear step (SORTED_OPERATORS would stay non-null and return the stale array).
+    //   (b) The NEXT call to getRecordOperators rebuilds the array AND the rebuilt array
+    //       contains the newly-registered op. A regression that kept both steps but silently
+    //       replaced clear-then-rebuild with a stale-read path (e.g., held onto the prior
+    //       reference via a shadow field) would fail assertion (b).
     //
-    //   Thread A:  DynamicSQLElementFactory.OPERATORS.add(newOp);   // 1. add
-    //              SORTED_OPERATORS = null;                          // 2. clear
-    //   Thread B:                             <reads SORTED_OPERATORS between 1 and 2>
-    //
-    // Thread B sees a SORTED_OPERATORS array that does NOT include newOp even though OPERATORS
-    // already contains it. Because getRecordOperators only rebuilds when SORTED_OPERATORS is null,
-    // Thread B's stale array is returned until some other call clears the cache.
-    //
-    // Fix: wrap the add + clear in LOCK.lock()/.unlock(), twin-fix with Track 22's
-    // CustomSQLFunctionFactory + DefaultSQLMethodFactory ConcurrentHashMap conversion.
-    //
-    // This test pins the current (non-atomic) contract via a single-threaded observation: call
-    // registerOperator, assert OPERATORS contains the new op AND SORTED_OPERATORS is null (i.e.
-    // the clear step happens AFTER the add step is visible, not vice versa). A regression that
-    // reordered the two steps would surface here.
-    var op = new MarkerQueryOperator(uuidPrefix + "race_marker");
-    SQLEngine.getRecordOperators(); // warm SORTED_OPERATORS
+    // RACE — not pinned here. The hazardous interleaving (Thread B reading SORTED_OPERATORS
+    // between steps 1 and 2 and observing a stale array) requires a multi-threaded exerciser.
+    // Pinning that race is deferred to Track 22's twin-fix with CustomSQLFunctionFactory +
+    // DefaultSQLMethodFactory, which will convert OPERATORS to a concurrent collection AND wrap
+    // the add+clear in LOCK.lock()/.unlock().
+    var op = new MarkerQueryOperator(uuidPrefix + "ordering_marker");
+    SQLEngine.getRecordOperators(); // warm SORTED_OPERATORS so the pre-register state is non-null
     SQLEngine.registerOperator(op);
     try {
       assertTrue("OPERATORS must contain newly registered op",
           DynamicSQLElementFactory.OPERATORS.contains(op));
       assertNull(
-          "WHEN-FIXED: SORTED_OPERATORS must be null immediately after registerOperator (the"
-              + " non-atomic clear-after-add contract; Track 22 should make this atomic under"
-              + " LOCK). If LOCK is introduced and the rebuild happens inside the lock, this"
-              + " assertion needs to change to assertNotNull + identity-neq against pre-register.",
+          "SORTED_OPERATORS must be null immediately after registerOperator — the cache was"
+              + " invalidated so the next getRecordOperators call rebuilds.",
           readStaticField("SORTED_OPERATORS"));
+
+      // (b) Next call rebuilds and surfaces the newly-registered op.
+      var rebuilt = SQLEngine.getRecordOperators();
+      assertNotNull("getRecordOperators must rebuild after a null cache", rebuilt);
+      var found = false;
+      for (var candidate : rebuilt) {
+        if (candidate == op) {
+          found = true;
+          break;
+        }
+      }
+      assertTrue("rebuilt SORTED_OPERATORS must include the newly-registered op", found);
     } finally {
       DynamicSQLElementFactory.OPERATORS.remove(op);
       clearSortedOperators();

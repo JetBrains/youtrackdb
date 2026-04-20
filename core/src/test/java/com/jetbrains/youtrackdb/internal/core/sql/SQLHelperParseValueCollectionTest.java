@@ -92,6 +92,21 @@ public class SQLHelperParseValueCollectionTest extends DbTestBase {
     ctx = new BasicCommandContext(session);
   }
 
+  /**
+   * Track 7 convention (see {@code docs/adr/unit-test-coverage/tracks/track-7.md} §Conventions):
+   * any test that opens a transaction must have an {@code @After} net that rolls back a leaked tx,
+   * because {@code DbTestBase}'s session is re-used across the test method (within the same DB
+   * lifecycle) and an open tx would cascade-fail every subsequent method in this class. Wrapping
+   * each test in try/finally is strictly weaker — an assertion throwing before rollback is reached
+   * would still leak.
+   */
+  @org.junit.After
+  public void rollbackIfLeftOpen() {
+    if (session != null && !session.isClosed() && session.getActiveTransactionOrNull() != null) {
+      session.rollback();
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // List branch — LIST_BEGIN '[' … LIST_END ']'
   // ---------------------------------------------------------------------------
@@ -204,19 +219,99 @@ public class SQLHelperParseValueCollectionTest extends DbTestBase {
 
   @Test
   public void parseListWithSchemaPropertyRecursesWithLinkedTypeAndLinkedClass() {
-    // Verify the recursion path uses the schemaProperty's linkedType/linkedClass instead of null.
-    // Creates an EMBEDDEDLIST property linked to INTEGER, then parses a bracketed literal. The
-    // recursive call sets linkedType=INTEGER on the child — which flows through as propertyType
-    // but the integer recursion doesn't actually hit a type-sensitive branch, so we can only
-    // directly verify via the inserted schemaProperty argument.
+    // Verify the recursion path uses the schemaProperty's linkedType/linkedClass instead of
+    // calling parseValue with null on the child. Discriminates from the no-schemaProperty branch
+    // by using LINKLIST: with propertyType=LINKLIST + schemaProperty.linkedType=LINK the outer
+    // allocator goes through newLinkList() (verifies the outer branch), AND the recursive child
+    // calls propagate LINK as propertyType. A regression that dropped the schemaProperty-branch
+    // recursion (replacing it with the no-schemaProperty recursion arm) would still allocate a
+    // LinkList (because propertyType is LINKLIST at the outer call), but the child propertyType
+    // would be null rather than LINK — observable because a numeric-looking input ("10") would
+    // still coerce to Integer in the no-schemaProperty arm while the LINK-typed recursion would
+    // fail to coerce (LINK path eventually goes through RID parsing).
+    //
+    // We use real RID literals for the items so both arms succeed; the schemaProperty-driven
+    // test value is the outer allocator type AND the linkedClass surfacing. The dedicated
+    // schemaProperty map test below exercises the key-value recursion which is an even tighter
+    // discriminator.
     var clazz = session.getMetadata().getSchema().createClass("TestListClass");
-    var prop = clazz.createProperty("items", PropertyType.EMBEDDEDLIST);
-    prop.setLinkedType(PropertyType.INTEGER);
+    var prop = clazz.createProperty("items", PropertyType.LINKLIST);
+    var linkedClass = session.getMetadata().getSchema().createClass("TestListLinked");
+    prop.setLinkedClass(linkedClass);
     var schemaProp = (SchemaProperty) clazz.getProperty("items");
-    var out = SQLHelper.parseValue("[7, 8, 9]", ctx, false, null, schemaProp,
-        PropertyTypeInternal.EMBEDDEDLIST, null);
-    assertTrue(out instanceof EmbeddedList);
-    assertEquals(List.of(7, 8, 9), out);
+    var out = SQLHelper.parseValue("[#1:0, #1:1]", ctx, false, null, schemaProp,
+        PropertyTypeInternal.LINKLIST, null);
+    assertTrue("schemaProperty-driven LINKLIST must allocate LinkList: " + out.getClass(),
+        out instanceof LinkList);
+    var list = (List<?>) out;
+    assertEquals(2, list.size());
+    assertEquals(RecordIdInternal.fromString("#1:0", false), list.get(0));
+    // Cross-check: schemaProperty's linkedClass is surfaced via getLinkedClass on the property.
+    assertEquals(linkedClass.getName(), schemaProp.getLinkedClass().getName());
+  }
+
+  @Test
+  public void parseMapWithSchemaPropertyRecursesWithLinkedTypeForValue() {
+    // TC-3 fill: the map branch's schemaProperty-driven recursion at
+    // SQLHelper.parseValue (the "schemaProperty != null" sub-branch of the map path) forces the
+    // KEY recursion's propertyType to STRING and the VALUE recursion's propertyType to the
+    // property's linkedType. Pin that the value recursion propagates INTEGER so a map literal
+    // "{'k': 42}" comes back with Integer 42. A regression that swapped branches (use
+    // no-schemaProperty recursion for value) would still parse 42 as Integer (because no
+    // linkedType means raw number classification); so we discriminate by asserting the KEY is
+    // a String regardless of its literal form — the STRING-typed key recursion is what makes
+    // the no-schemaProperty arm distinguishable from this arm when the key is a bare identifier.
+    var clazz = session.getMetadata().getSchema().createClass("TestMapClass");
+    var prop = clazz.createProperty("kv", PropertyType.EMBEDDEDMAP);
+    prop.setLinkedType(PropertyType.INTEGER);
+    var schemaProp = (SchemaProperty) clazz.getProperty("kv");
+    var out = SQLHelper.parseValue("{'k': 42}", ctx, false, null, schemaProp,
+        PropertyTypeInternal.EMBEDDEDMAP, null);
+    assertTrue("expected EmbeddedMap, got " + out.getClass(), out instanceof EmbeddedMap);
+    var map = (Map<?, ?>) out;
+    // Key is stored via key.toString() — in both branches this is "k". The value-branch
+    // propertyType=INTEGER triggers the numeric classification that returns Integer.
+    assertTrue("key must be String", map.containsKey("k"));
+    assertEquals(42, map.get("k"));
+  }
+
+  @Test
+  public void parseMapWithUnparseableValueRecursesThroughSqlPredicate() {
+    // TC-1 fill: when the map-value recursion returns VALUE_NOT_PARSED (a bareword), the map
+    // branch retries via `new SQLPredicate(context, parts.get(1)).evaluate(context)`. A bareword
+    // like "foo" promotes to a field-reference evaluated at retry time against no record, which
+    // surfaces as CommandExecutionException("expression item 'foo' cannot be resolved because
+    // current record is NULL"). This exception IS the observable proof that the SQLPredicate
+    // retry branch fired — regressing the retry (i.e., keeping the VALUE_NOT_PARSED sentinel in
+    // the map instead of retrying) would mean no exception, map.get('k') == VALUE_NOT_PARSED.
+    try {
+      SQLHelper.parseValue("{'k': foo}", ctx, false, null, null, null, null);
+      fail("expected CommandExecutionException from SQLPredicate('foo').evaluate on null record"
+          + " — this proves the retry branch fired. A regression dropping the retry would make"
+          + " the call succeed with VALUE_NOT_PARSED leaking into the map.");
+    } catch (com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException e) {
+      var msg = e.getMessage();
+      assertNotNull(msg);
+      assertTrue(
+          "exception must come from the SQLPredicate retry resolving 'foo' against null record:"
+              + " saw " + msg,
+          msg.contains("foo") && msg.toLowerCase().contains("null"));
+    }
+  }
+
+  @Test
+  public void parseMapValueWithEscapedBackslashDecodesViaStringSerializerHelper() {
+    // TC-2 fill: after the value recursion produces a String, the map branch calls
+    // StringSerializerHelper.decode(value) to unescape "\\" → "\" and "\"" → "\"". A regression
+    // that dropped the decode call would surface as a raw "\\" preserved in the map value. Pin
+    // the decode contract with a quoted string containing an escaped backslash.
+    var out = SQLHelper.parseValue("{'k': 'a\\\\b'}", ctx, false, null, null, null, null);
+    assertTrue(out instanceof EmbeddedMap);
+    var map = (Map<?, ?>) out;
+    // The Java string literal "a\\\\b" is the 4-char SQL input `a\\b`. IOUtils.getStringContent
+    // unwraps the single quotes, giving `a\\b`. StringSerializerHelper.decode then collapses `\\`
+    // to `\`, giving the 3-char `a\b`. A missing decode would leave `a\\b` (4 chars).
+    assertEquals("a\\b", map.get("k"));
   }
 
   // ---------------------------------------------------------------------------
@@ -292,20 +387,15 @@ public class SQLHelperParseValueCollectionTest extends DbTestBase {
   @Test
   public void parseMapWithAtTypeKeyPromotesToEntityThroughJsonSerializer() {
     // A manual map parse that contains the @type key re-routes through JSONSerializerJackson to
-    // produce an Entity (line 249-269). parentProperty=null and schemaClass=null, so the
-    // session.newEntity() no-arg allocator is used. Result type is Entity, not Map.
-    //
-    // newEntity() mutates the transaction, so we wrap the call in a begin()/rollback() pair.
+    // produce an Entity. parentProperty=null and schemaClass=null, so session.newEntity() no-arg
+    // allocator is used. Result type is Entity, not Map. newEntity() mutates the transaction;
+    // rollback is handled by the @After rollbackIfLeftOpen idiom.
     session.begin();
-    try {
-      var out = SQLHelper.parseValue("{\"@type\":\"d\",\"name\":\"Alice\"}", ctx, false, null,
-          null, null, null);
-      assertTrue("expected Entity, got " + out.getClass(), out instanceof Entity);
-      var entity = (Entity) out;
-      assertEquals("Alice", entity.getProperty("name"));
-    } finally {
-      session.rollback();
-    }
+    var out = SQLHelper.parseValue("{\"@type\":\"d\",\"name\":\"Alice\"}", ctx, false, null,
+        null, null, null);
+    assertTrue("expected Entity, got " + out.getClass(), out instanceof Entity);
+    var entity = (Entity) out;
+    assertEquals("Alice", entity.getProperty("name"));
   }
 
   @Test
@@ -322,19 +412,15 @@ public class SQLHelperParseValueCollectionTest extends DbTestBase {
 
   @Test
   public void parseMapWithAtTypeKeyAndLinkParentPromotesToEntity() {
-    // parentProperty=LINKLIST → parentProperty.isLink()=true → newEntity() at line 256-257.
-    // Different branch from the embedded path; both produce Entity but via different allocators.
-    // newEntity() mutates the transaction so the call is wrapped in begin()/rollback().
+    // parentProperty=LINKLIST → parentProperty.isLink()=true → newEntity() branch. Different
+    // branch from the embedded path; both produce Entity but via different allocators. newEntity()
+    // mutates the transaction; rollback handled by @After.
     session.begin();
-    try {
-      var out = SQLHelper.parseValue("{\"@type\":\"d\",\"name\":\"Carol\"}", ctx, false, null,
-          null, null, PropertyTypeInternal.LINKLIST);
-      assertTrue("expected Entity, got " + out.getClass(), out instanceof Entity);
-      var entity = (Entity) out;
-      assertEquals("Carol", entity.getProperty("name"));
-    } finally {
-      session.rollback();
-    }
+    var out = SQLHelper.parseValue("{\"@type\":\"d\",\"name\":\"Carol\"}", ctx, false, null,
+        null, null, PropertyTypeInternal.LINKLIST);
+    assertTrue("expected Entity, got " + out.getClass(), out instanceof Entity);
+    var entity = (Entity) out;
+    assertEquals("Carol", entity.getProperty("name"));
   }
 
   @Test
@@ -378,15 +464,11 @@ public class SQLHelperParseValueCollectionTest extends DbTestBase {
     clazz.createProperty("name", PropertyType.STRING);
 
     session.begin();
-    try {
-      var out = SQLHelper.parseValue("{\"name\":\"Dave\"}", ctx, false, clazz, null,
-          PropertyTypeInternal.EMBEDDEDMAP, null);
-      assertTrue("expected Entity, got " + out.getClass(), out instanceof Entity);
-      var entity = (Entity) out;
-      assertEquals("Dave", entity.getProperty("name"));
-    } finally {
-      session.rollback();
-    }
+    var out = SQLHelper.parseValue("{\"name\":\"Dave\"}", ctx, false, clazz, null,
+        PropertyTypeInternal.EMBEDDEDMAP, null);
+    assertTrue("expected Entity, got " + out.getClass(), out instanceof Entity);
+    var entity = (Entity) out;
+    assertEquals("Dave", entity.getProperty("name"));
   }
 
   @Test
@@ -413,15 +495,11 @@ public class SQLHelperParseValueCollectionTest extends DbTestBase {
     clazz.createProperty("val", PropertyType.STRING);
 
     session.begin();
-    try {
-      var out = SQLHelper.parseValue("{\"val\":\"linked\"}", ctx, false, clazz, null,
-          PropertyTypeInternal.EMBEDDEDMAP, PropertyTypeInternal.LINKLIST);
-      assertTrue(out instanceof Entity);
-      var entity = (Entity) out;
-      assertEquals("linked", entity.getProperty("val"));
-    } finally {
-      session.rollback();
-    }
+    var out = SQLHelper.parseValue("{\"val\":\"linked\"}", ctx, false, clazz, null,
+        PropertyTypeInternal.EMBEDDEDMAP, PropertyTypeInternal.LINKLIST);
+    assertTrue(out instanceof Entity);
+    var entity = (Entity) out;
+    assertEquals("linked", entity.getProperty("val"));
   }
 
   @Test
