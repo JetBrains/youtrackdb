@@ -18,6 +18,12 @@ jobs:
     name: Deploy Maven Artifacts
     runs-on: ubuntu-latest
     timeout-minutes: 270
+    outputs:
+      sha_short: ${{ steps.vars.outputs.sha_short }}
+      timestamp: ${{ steps.vars.outputs.timestamp }}
+      head_sha: ${{ steps.vars.outputs.head_sha }}
+      version_sha: ${{ steps.version.outputs.version_sha }}
+      version_snapshot: ${{ steps.version.outputs.version_snapshot }}
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v6
@@ -27,6 +33,7 @@ jobs:
         run: |
           echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
           echo "timestamp=$(date -u +'%Y%m%d.%H%M%S')" >> $GITHUB_OUTPUT
+          echo "head_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
       - name: Set up JDK 21
         uses: actions/setup-java@v5
@@ -50,11 +57,14 @@ jobs:
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
 
       - name: Annotate deployed versions
+        id: version
         run: |
           VERSION_SNAPSHOT=$(mvn -s .github/workflows/settings.xml help:evaluate -Dexpression=project.version -q -DforceStdout)
           VERSION_SHA=$(mvn -s .github/workflows/settings.xml help:evaluate -Dexpression=project.version -Dsha1=-${{ steps.vars.outputs.timestamp }}-${{ steps.vars.outputs.sha_short }} -q -DforceStdout)
           echo "::notice title=Maven Artifact Deployed::${VERSION_SNAPSHOT}"
           echo "::notice title=Maven Artifact Deployed::${VERSION_SHA}"
+          echo "version_snapshot=${VERSION_SNAPSHOT}" >> $GITHUB_OUTPUT
+          echo "version_sha=${VERSION_SHA}" >> $GITHUB_OUTPUT
         env:
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
@@ -93,10 +103,116 @@ jobs:
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
 
+  create-prerelease:
+    name: Create GitHub pre-release tag
+    needs: [ deploy, deploy-docker ]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      # The tag we'll cut matches the timestamp-suffixed Maven coordinate
+      # that was just published to Maven Central, so every pre-release tag
+      # is 1:1 with a uniquely addressable artifact.
+      RELEASE_TAG: ${{ needs.deploy.outputs.version_sha }}
+      HEAD_SHA: ${{ needs.deploy.outputs.head_sha }}
+      SNAPSHOT_VERSION: ${{ needs.deploy.outputs.version_snapshot }}
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v6
+        with:
+          # Full history so we can diff against the previous pre-release tag.
+          fetch-depth: 0
+
+      - name: Determine previous pre-release base
+        id: prev
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Use the most recent published release (pre-release or full) as
+          # the diff base. On first ever run this is empty, so fall back to
+          # the parent of HEAD — the diff will still be meaningful.
+          PREV_TAG=$(gh release list \
+            --repo "${{ github.repository }}" \
+            --limit 1 \
+            --json tagName \
+            --jq '.[0].tagName // empty')
+
+          if [ -n "$PREV_TAG" ] && git rev-parse --verify "refs/tags/$PREV_TAG" >/dev/null 2>&1; then
+            PREV_REF="$PREV_TAG"
+            SCOPE="since previous pre-release \`$PREV_TAG\`"
+          elif git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+            PREV_REF=$(git rev-parse HEAD^)
+            SCOPE="since parent commit of HEAD (no prior release found)"
+          else
+            PREV_REF=$(git rev-parse HEAD)
+            SCOPE="initial release (no prior history)"
+          fi
+
+          echo "prev_ref=$PREV_REF" >> "$GITHUB_OUTPUT"
+          echo "scope=$SCOPE" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Pre-release diff base::${PREV_REF} (${SCOPE})"
+
+      - name: Generate release notes with Claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            You are writing GitHub release notes for a YouTrackDB pre-release.
+
+            ## Release
+            - Tag / Maven version: `${{ env.RELEASE_TAG }}`
+            - SNAPSHOT coordinate: `${{ env.SNAPSHOT_VERSION }}`
+            - Commit: `${{ env.HEAD_SHA }}`
+            - Scope: ${{ steps.prev.outputs.scope }}
+
+            ## Instructions
+            1. Inspect the range `${{ steps.prev.outputs.prev_ref }}..${{ env.HEAD_SHA }}`:
+               - `git log ${{ steps.prev.outputs.prev_ref }}..${{ env.HEAD_SHA }} --oneline --no-merges`
+               - `git diff ${{ steps.prev.outputs.prev_ref }}..${{ env.HEAD_SHA }} --stat`
+               - `git diff ${{ steps.prev.outputs.prev_ref }}..${{ env.HEAD_SHA }}` (read selectively for large diffs)
+            2. Group the user-visible changes by theme (features, bug fixes,
+               performance, refactors, docs/infra). Omit categories that are empty.
+            3. Preserve YTDB issue IDs (e.g. `YTDB-123`) where they appear in
+               commit messages — link them to
+               `https://youtrack.jetbrains.com/issue/YTDB-123`.
+            4. Keep the notes focused and skimmable. Drop purely internal churn
+               (renames, whitespace, test-only tweaks) unless nothing else
+               changed.
+            5. Write the final Markdown to `/tmp/release-notes.md`. Do not add
+               a top-level heading — GitHub renders the release title
+               separately. Start directly with the section headings.
+            6. If the diff is empty, write a single line:
+               `No source changes since the previous pre-release.`
+          claude_args: "--model claude-sonnet-4-6 --max-turns 25"
+
+      - name: Create GitHub pre-release
+        # Run even if the Claude step failed, so the tag still gets cut and
+        # artifacts remain addressable — the next step falls back to a stub
+        # body when /tmp/release-notes.md is missing or empty.
+        if: always() && needs.deploy.result == 'success' && needs.deploy-docker.result == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          NOTES_FILE=/tmp/release-notes.md
+          if [ ! -s "$NOTES_FILE" ]; then
+            # Fallback body if the agent failed to produce notes — the release
+            # still goes out so the tag is created and artifacts are linked.
+            printf 'Pre-release of YouTrackDB `%s` built from commit `%s`.\n' \
+              "$RELEASE_TAG" "$HEAD_SHA" > "$NOTES_FILE"
+          fi
+
+          gh release create "$RELEASE_TAG" \
+            --repo "${{ github.repository }}" \
+            --target "$HEAD_SHA" \
+            --title "$RELEASE_TAG" \
+            --notes-file "$NOTES_FILE" \
+            --prerelease
+
   notify-failure:
     name: Notify deploy failure on Zulip
-    needs: [ deploy, deploy-docker ]
-    if: always() && (needs.deploy.result == 'failure' || needs.deploy-docker.result == 'failure')
+    needs: [ deploy, deploy-docker, create-prerelease ]
+    if: always() && (needs.deploy.result == 'failure' || needs.deploy-docker.result == 'failure' || needs.create-prerelease.result == 'failure')
     runs-on: ubuntu-latest
     steps:
       - name: Send Zulip Notification
@@ -115,7 +231,7 @@ jobs:
 
   notify-fixed:
     name: Notify deploy fixed on Zulip
-    needs: [ deploy, deploy-docker ]
+    needs: [ deploy, deploy-docker, create-prerelease ]
     if: success()
     runs-on: ubuntu-latest
     steps:
