@@ -39,21 +39,27 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
 
   private static long TICKER_POSSIBLE_LAG_NANOS;
   private static long TICKER_POSSIBLE_LAG_MILLIS;
+  private static long TICKER_GRANULARITY_MILLIS;
 
   @BeforeClass
   public static void beforeClass() {
     var granularity =
         YouTrackDBEnginesManager.instance().getTicker().getGranularity();
+    TICKER_GRANULARITY_MILLIS = granularity / 1_000_000;
 
     // The ticker background thread fires at fixed-rate intervals of `granularity`, but actual
-    // scheduling jitter can be significant — especially on Windows CI where the OS timer
-    // resolution is ~15.6 ms and ScheduledExecutorService.scheduleAtFixedRate(10ms) actually
-    // fires at ~15.6 ms intervals. Under CPU contention a tick can be delayed by an additional
-    // timer quantum, pushing worst-case staleness to ~31 ms for a 10 ms configured granularity.
-    // A 5x multiplier (50 ms) provides enough headroom for two missed Windows timer quanta plus
-    // additional scheduling jitter, while still being a meaningful upper bound on ticker
-    // staleness.
-    TICKER_POSSIBLE_LAG_NANOS = granularity * 5;
+    // scheduling jitter can be significant on virtualized CI environments:
+    //   * Windows: the OS timer resolution is ~15.6 ms, so scheduleAtFixedRate(10 ms) actually
+    //     fires at ~15.6 ms intervals; under CPU contention a tick can be delayed by another
+    //     timer quantum, pushing worst-case staleness to ~31 ms for a 10 ms granularity.
+    //   * GitHub-hosted macOS arm (virtualized Apple Silicon): per-fire ticker lag up to
+    //     ~75 ms observed for a 10 ms granularity. The scheduler is noticeably less
+    //     predictable than the Hetzner bare-metal nodes the Linux legs run on.
+    // A 10x multiplier (100 ms for a 10 ms granularity) covers both worst cases with some
+    // headroom, while still being a meaningful upper bound on ticker staleness — the tight
+    // "ticker never runs ahead of wall-clock" direction is guarded independently below by
+    // a bound at one granularity + ALLOWED_TICKER_JITTER_MS, which is not relaxed.
+    TICKER_POSSIBLE_LAG_NANOS = granularity * 10;
     TICKER_POSSIBLE_LAG_MILLIS = TICKER_POSSIBLE_LAG_NANOS / 1_000_000;
   }
 
@@ -983,11 +989,21 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
       }
 
       if (mode == QueryMonitoringMode.LIGHTWEIGHT) {
-        // Ticker should not run ahead of real time.
+        // Ticker must never run ahead of real wall-clock time. The ticker exposes a past
+        // nanoTime sample, so forward drift can only come from nanoTimeDifference
+        // recalibration and integer truncation — one granularity plus ALLOWED_TICKER_JITTER_MS
+        // covers both. This tight bound is independent of scheduler noise on virtualized
+        // CI and therefore is not multiplied by the TICKER_POSSIBLE_LAG factor.
         assertThat(listener.startedAtMillis)
+            .as("ticker must not run ahead of wall clock")
+            .isLessThanOrEqualTo(
+                afterMillis + TICKER_GRANULARITY_MILLIS + ALLOWED_TICKER_JITTER_MS);
+        assertThat(listener.startedAtMillis)
+            // The lag-behind upper bound (reused from TICKER_POSSIBLE_LAG_MILLIS) absorbs
+            // scheduler starvation, which can push staleness well beyond one granularity
+            // on noisy CI. Approximate monotonicity allows the ≤1 ms dip that can come
+            // from independent recalibration of volatile fields and integer truncation.
             .isLessThanOrEqualTo(afterMillis + TICKER_POSSIBLE_LAG_MILLIS)
-            // Approximate monotonicity: allow for ticker jitter caused by independent
-            // recalibration of volatile fields and integer truncation.
             .isGreaterThanOrEqualTo(prevStartedAtMillis - ALLOWED_TICKER_JITTER_MS);
         // The ticker-measured window [nano, endNano] sits inside the System.nanoTime
         // window [beforeNanos, afterNanos], so the measured duration is at most the real
