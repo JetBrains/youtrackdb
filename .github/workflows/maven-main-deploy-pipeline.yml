@@ -107,9 +107,9 @@ jobs:
     name: Create GitHub pre-release tag
     needs: [ deploy, deploy-docker ]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write
-      id-token: write
     env:
       # The tag we'll cut matches the timestamp-suffixed Maven coordinate
       # that was just published to Maven Central, so every pre-release tag
@@ -184,9 +184,13 @@ jobs:
                separately. Start directly with the section headings.
             6. If the diff is empty, write a single line:
                `No source changes since the previous pre-release.`
-          claude_args: "--model claude-opus-4-1-20250805 --max-turns 25"
+          claude_args: "--model claude-sonnet-4-6 --max-turns 25"
 
       - name: Create GitHub pre-release
+        # Run even if the Claude step failed, so the tag still gets cut and
+        # artifacts remain addressable — the next step falls back to a stub
+        # body when /tmp/release-notes.md is missing or empty.
+        if: always() && needs.deploy.result == 'success' && needs.deploy-docker.result == 'success'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
