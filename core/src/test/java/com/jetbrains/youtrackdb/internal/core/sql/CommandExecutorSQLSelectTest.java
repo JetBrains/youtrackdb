@@ -57,7 +57,10 @@ import org.junit.Test;
 
 public class CommandExecutorSQLSelectTest extends DbTestBase {
 
-  private static final int ORDER_SKIP_LIMIT_ITEMS = 100 * 1000;
+  // ORDER BY + SKIP + LIMIT uses a bounded min-heap of size SKIP+LIMIT
+  // (1005 in the massive-order tests below). 10_000 rows is enough to
+  // exercise the heap eviction path without inflating test setup time.
+  private static final int ORDER_SKIP_LIMIT_ITEMS = 10_000;
 
   @Override
   public void beforeTest() throws Exception {
@@ -76,8 +79,8 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
 
     session.begin();
     session.execute(
-            "insert into foo (name, bar, address) values ('a', 1, {'street':'1st street',"
-                + " 'city':'NY', '@type':'d'})")
+        "insert into foo (name, bar, address) values ('a', 1, {'street':'1st street',"
+            + " 'city':'NY', '@type':'d'})")
         .close();
     session.execute("insert into foo (name, bar) values ('b', 2)").close();
     session.execute("insert into foo (name, bar) values ('c', 3)").close();
@@ -164,16 +167,16 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     session.execute("CREATE class TestParamsEmbedded").close();
     session.begin();
     session.execute(
-            "insert into TestParamsEmbedded set emb = {  \n"
-                + "            \"count\":0,\n"
-                + "            \"testupdate\":\"1441258203385\"\n"
-                + "         }")
+        "insert into TestParamsEmbedded set emb = {  \n"
+            + "            \"count\":0,\n"
+            + "            \"testupdate\":\"1441258203385\"\n"
+            + "         }")
         .close();
     session.execute(
-            "insert into TestParamsEmbedded set emb = {  \n"
-                + "            \"count\":1,\n"
-                + "            \"testupdate\":\"1441258203385\"\n"
-                + "         }")
+        "insert into TestParamsEmbedded set emb = {  \n"
+            + "            \"count\":1,\n"
+            + "            \"testupdate\":\"1441258203385\"\n"
+            + "         }")
         .close();
     session.commit();
 
@@ -211,8 +214,8 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     session.execute("create class OCommandExecutorSQLSelectTest_aggregations").close();
     session.begin();
     session.execute(
-            "insert into OCommandExecutorSQLSelectTest_aggregations set data = [{\"size\": 0},"
-                + " {\"size\": 0}, {\"size\": 30}, {\"size\": 50}, {\"size\": 50}]")
+        "insert into OCommandExecutorSQLSelectTest_aggregations set data = [{\"size\": 0},"
+            + " {\"size\": 0}, {\"size\": 30}, {\"size\": 50}, {\"size\": 50}]")
         .close();
     session.commit();
   }
@@ -265,22 +268,22 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     db.computeScript("sql", "CREATE PROPERTY FilterAndOrderByTest.dc DATETIME").close();
     db.computeScript("sql", "CREATE PROPERTY FilterAndOrderByTest.active BOOLEAN").close();
     db.computeScript("sql",
-            "CREATE INDEX FilterAndOrderByTest.active ON FilterAndOrderByTest (active) NOTUNIQUE")
+        "CREATE INDEX FilterAndOrderByTest.active ON FilterAndOrderByTest (active) NOTUNIQUE")
         .close();
 
     var tx = db.begin();
     tx.execute("insert into FilterAndOrderByTest SET dc = '2010-01-05 12:00:00:000', active = true")
         .close();
     tx.execute(
-            "insert into FilterAndOrderByTest SET dc = '2010-05-05 14:00:00:000', active = false")
+        "insert into FilterAndOrderByTest SET dc = '2010-05-05 14:00:00:000', active = false")
         .close();
     tx.execute("insert into FilterAndOrderByTest SET dc = '2009-05-05 16:00:00:000', active = true")
         .close();
     tx.execute(
-            "insert into FilterAndOrderByTest SET dc = '2008-05-05 12:00:00:000', active = false")
+        "insert into FilterAndOrderByTest SET dc = '2008-05-05 12:00:00:000', active = false")
         .close();
     tx.execute(
-            "insert into FilterAndOrderByTest SET dc = '2014-05-05 14:00:00:000', active = false")
+        "insert into FilterAndOrderByTest SET dc = '2014-05-05 14:00:00:000', active = false")
         .close();
     tx.execute("insert into FilterAndOrderByTest SET dc = '2016-01-05 14:00:00:000', active = true")
         .close();
@@ -310,21 +313,21 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     tx.execute("insert into LinkListSequence set name = '1.2.1'").close();
     tx.execute("insert into LinkListSequence set name = '1.2.2'").close();
     tx.execute(
-            "insert into LinkListSequence set name = '1.1', children = (select from"
-                + " LinkListSequence where name like '1.1.%' order by name asc)")
+        "insert into LinkListSequence set name = '1.1', children = (select from"
+            + " LinkListSequence where name like '1.1.%' order by name asc)")
         .close();
     tx.execute(
-            "insert into LinkListSequence set name = '1.2', children = (select from"
-                + " LinkListSequence where name like '1.2.%' order by name asc)")
+        "insert into LinkListSequence set name = '1.2', children = (select from"
+            + " LinkListSequence where name like '1.2.%' order by name asc)")
         .close();
     tx.execute(
-            "insert into LinkListSequence set name = '1', children = (select from LinkListSequence"
-                + " where name in ['1.1', '1.2'] order by name asc)")
+        "insert into LinkListSequence set name = '1', children = (select from LinkListSequence"
+            + " where name in ['1.1', '1.2'] order by name asc)")
         .close();
     tx.execute("insert into LinkListSequence set name = '2'").close();
     tx.execute(
-            "insert into LinkListSequence set name = 'root', children = (select from"
-                + " LinkListSequence where name in ['1', '2'] order by name asc)")
+        "insert into LinkListSequence set name = 'root', children = (select from"
+            + " LinkListSequence where name in ['1', '2'] order by name asc)")
         .close();
     tx.commit();
   }
@@ -351,7 +354,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   private static void initDatesSet(DatabaseSessionEmbedded db) {
     db.computeScript("sql", "create class OCommandExecutorSQLSelectTest_datesSet").close();
     db.computeScript("sql",
-            "create property OCommandExecutorSQLSelectTest_datesSet.foo embeddedlist date")
+        "create property OCommandExecutorSQLSelectTest_datesSet.foo embeddedlist date")
         .close();
     var tx = db.begin();
     tx.execute("insert into OCommandExecutorSQLSelectTest_datesSet set foo = ['2015-10-21']")
@@ -736,12 +739,10 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     assertEquals(7, descResult.size());
     assertEquals(
         ascResult.reversed(),
-        descResult
-    );
+        descResult);
     assertEquals(
         descResult.stream().sorted(Comparator.reverseOrder()).toList(),
-        descResult
-    );
+        descResult);
 
     var descFilteredResult =
         session.query("select from ridsorttest where name > 3 order by @rid DESC")
@@ -751,8 +752,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     assertEquals(4, descFilteredResult.size());
     assertEquals(
         descFilteredResult.stream().sorted(Comparator.reverseOrder()).toList(),
-        descFilteredResult
-    );
+        descFilteredResult);
   }
 
   @Test
@@ -1021,7 +1021,8 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
         "select data.size as collection_content, data.size() as collection_size, min(data.size)"
             + " as collection_min, max(data.size) as collection_max, sum(data.size) as"
             + " collection_sum, avg(data.size) as collection_avg from"
-            + " OCommandExecutorSQLSelectTest_aggregations").toList();
+            + " OCommandExecutorSQLSelectTest_aggregations")
+        .toList();
     assertEquals(1, results.size());
     var doc = results.getFirst();
 
@@ -1379,21 +1380,21 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     session.execute("create property OCommandExecutorSQLSelectTest_testCollate.name STRING")
         .close();
     session.execute(
-            "create property OCommandExecutorSQLSelectTest_testCollate.categories EMBEDDEDLIST STRING")
+        "create property OCommandExecutorSQLSelectTest_testCollate.categories EMBEDDEDLIST STRING")
         .close();
     session.execute("alter property OCommandExecutorSQLSelectTest_testCollate.name COLLATE ci")
         .close();
     session.execute(
-            "alter property OCommandExecutorSQLSelectTest_testCollate.categories COLLATE ci")
+        "alter property OCommandExecutorSQLSelectTest_testCollate.categories COLLATE ci")
         .close();
 
     session.executeInTx(transaction -> {
       session.execute(
-              "insert into OCommandExecutorSQLSelectTest_testCollate set name = 'FOO', categories = ['BAR']")
+          "insert into OCommandExecutorSQLSelectTest_testCollate set name = 'FOO', categories = ['BAR']")
           .close();
 
       session.execute(
-              "insert into OCommandExecutorSQLSelectTest_testCollate set name = 'BAR', categories = ['FOO']")
+          "insert into OCommandExecutorSQLSelectTest_testCollate set name = 'BAR', categories = ['FOO']")
           .close();
     });
 
@@ -1412,12 +1413,12 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     session.executeInTx(transaction -> {
       final var r1 =
           session.query(
-                  "select from OCommandExecutorSQLSelectTest_testCollate where categories = ['BAR']")
+              "select from OCommandExecutorSQLSelectTest_testCollate where categories = ['BAR']")
               .entityStream().toList();
 
       final var r2 =
           session.query(
-                  "select from OCommandExecutorSQLSelectTest_testCollate where categories = ['bar']")
+              "select from OCommandExecutorSQLSelectTest_testCollate where categories = ['bar']")
               .entityStream().toList();
 
       assertThat(r1.size()).isEqualTo(1);
@@ -1430,29 +1431,29 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     // issue #4851
     session.execute("create class OCommandExecutorSqlSelectTest_collateOnCollections").close();
     session.execute(
-            "create property OCommandExecutorSqlSelectTest_collateOnCollections.categories"
-                + " EMBEDDEDLIST string")
+        "create property OCommandExecutorSqlSelectTest_collateOnCollections.categories"
+            + " EMBEDDEDLIST string")
         .close();
 
     session.executeInTx(transaction -> {
       session.execute(
-              "insert into OCommandExecutorSqlSelectTest_collateOnCollections set"
-                  + " categories=['a','b']")
+          "insert into OCommandExecutorSqlSelectTest_collateOnCollections set"
+              + " categories=['a','b']")
           .close();
     });
 
     session.execute(
-            "alter property OCommandExecutorSqlSelectTest_collateOnCollections.categories COLLATE ci")
+        "alter property OCommandExecutorSqlSelectTest_collateOnCollections.categories COLLATE ci")
         .close();
 
     session.executeInTx(transaction -> {
       session.execute(
-              "insert into OCommandExecutorSqlSelectTest_collateOnCollections set"
-                  + " categories=['Math','English']")
+          "insert into OCommandExecutorSqlSelectTest_collateOnCollections set"
+              + " categories=['Math','English']")
           .close();
       session.execute(
-              "insert into OCommandExecutorSqlSelectTest_collateOnCollections set"
-                  + " categories=['a','b','c']")
+          "insert into OCommandExecutorSqlSelectTest_collateOnCollections set"
+              + " categories=['a','b','c']")
           .close();
     });
 
@@ -1462,8 +1463,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
 
     checkQueryResults(
         "select from OCommandExecutorSqlSelectTest_collateOnCollections where 'math' in categories",
-        1
-    );
+        1);
   }
 
   @Test
@@ -1473,8 +1473,8 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     session.execute("create property OCommandExecutorSqlSelectTest_testCountUniqueIndex.AAA String")
         .close();
     session.execute(
-            "create index OCommandExecutorSqlSelectTest_testCountUniqueIndex.AAA on"
-                + " OCommandExecutorSqlSelectTest_testCountUniqueIndex(AAA) unique")
+        "create index OCommandExecutorSqlSelectTest_testCountUniqueIndex.AAA on"
+            + " OCommandExecutorSqlSelectTest_testCountUniqueIndex(AAA) unique")
         .close();
 
     var results =
@@ -1528,9 +1528,9 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     session.execute("create property CompositeIndexWithoutNullValues.one String").close();
     session.execute("create property CompositeIndexWithoutNullValues.two String").close();
     session.execute(
-            "create index CompositeIndexWithoutNullValues.one_two on"
-                + " CompositeIndexWithoutNullValues (one, two) NOTUNIQUE METADATA"
-                + " {ignoreNullValues: true}")
+        "create index CompositeIndexWithoutNullValues.one_two on"
+            + " CompositeIndexWithoutNullValues (one, two) NOTUNIQUE METADATA"
+            + " {ignoreNullValues: true}")
         .close();
 
     session.begin();
@@ -1555,9 +1555,9 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     session.execute("create property CompositeIndexWithoutNullValues2.one String").close();
     session.execute("create property CompositeIndexWithoutNullValues2.two String").close();
     session.execute(
-            "create index CompositeIndexWithoutNullValues2.one_two on"
-                + " CompositeIndexWithoutNullValues2 (one, two) NOTUNIQUE METADATA"
-                + " {ignoreNullValues: false}")
+        "create index CompositeIndexWithoutNullValues2.one_two on"
+            + " CompositeIndexWithoutNullValues2 (one, two) NOTUNIQUE METADATA"
+            + " {ignoreNullValues: false}")
         .close();
 
     session.begin();
@@ -1569,13 +1569,11 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     checkQueryResults(
         "select from CompositeIndexWithoutNullValues2 where one = ?",
         List.of("foo"),
-        2
-    );
+        2);
     checkQueryResults(
         "select from CompositeIndexWithoutNullValues2 where one = ? and two = ?",
         List.of("foo", "bar"),
-        1
-    );
+        1);
   }
 
   @Test
@@ -1698,26 +1696,26 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     session.execute("create class testCountOnSubclassIndexes_superclass").close();
     session.execute("create property testCountOnSubclassIndexes_superclass.foo boolean").close();
     session.execute(
-            "create index testCountOnSubclassIndexes_superclass.foo on"
-                + " testCountOnSubclassIndexes_superclass (foo) notunique")
+        "create index testCountOnSubclassIndexes_superclass.foo on"
+            + " testCountOnSubclassIndexes_superclass (foo) notunique")
         .close();
 
     session.execute(
-            "create class testCountOnSubclassIndexes_sub1 extends"
-                + " testCountOnSubclassIndexes_superclass")
+        "create class testCountOnSubclassIndexes_sub1 extends"
+            + " testCountOnSubclassIndexes_superclass")
         .close();
     session.execute(
-            "create index testCountOnSubclassIndexes_sub1.foo on testCountOnSubclassIndexes_sub1"
-                + " (foo) notunique")
+        "create index testCountOnSubclassIndexes_sub1.foo on testCountOnSubclassIndexes_sub1"
+            + " (foo) notunique")
         .close();
 
     session.execute(
-            "create class testCountOnSubclassIndexes_sub2 extends"
-                + " testCountOnSubclassIndexes_superclass")
+        "create class testCountOnSubclassIndexes_sub2 extends"
+            + " testCountOnSubclassIndexes_superclass")
         .close();
     session.execute(
-            "create index testCountOnSubclassIndexes_sub2.foo on testCountOnSubclassIndexes_sub2"
-                + " (foo) notunique")
+        "create index testCountOnSubclassIndexes_sub2.foo on testCountOnSubclassIndexes_sub2"
+            + " (foo) notunique")
         .close();
 
     session.begin();
@@ -1795,9 +1793,9 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     session.begin();
     session.execute("insert into " + className + " set tagz = {}").close();
     session.execute(
-            "update "
-                + className
-                + " SET tagz.foo = [{name:'a', surname:'b'}, {name:'c', surname:'d'}]")
+        "update "
+            + className
+            + " SET tagz.foo = [{name:'a', surname:'b'}, {name:'c', surname:'d'}]")
         .close();
     session.commit();
 
@@ -1861,16 +1859,16 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
 
     session.begin();
     session.execute(
-            "INSERT INTO "
-                + className
-                + " SET id = 0, embedded_map = {\"key_2\" : {\"name\" : \"key_2\", \"id\" :"
-                + " \"0\"}}")
+        "INSERT INTO "
+            + className
+            + " SET id = 0, embedded_map = {\"key_2\" : {\"name\" : \"key_2\", \"id\" :"
+            + " \"0\"}}")
         .close();
     session.execute(
-            "INSERT INTO "
-                + className
-                + " SET id = 1, embedded_map = {\"key_1\" : {\"name\" : \"key_1\", \"id\" : \"1\""
-                + " }}")
+        "INSERT INTO "
+            + className
+            + " SET id = 1, embedded_map = {\"key_1\" : {\"name\" : \"key_1\", \"id\" : \"1\""
+            + " }}")
         .close();
     session.commit();
 
