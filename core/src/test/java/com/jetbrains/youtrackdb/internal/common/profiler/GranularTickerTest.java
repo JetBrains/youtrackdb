@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
 
 import com.jetbrains.youtrackdb.internal.SequentialTest;
+import com.jetbrains.youtrackdb.internal.common.profiler.GranularTicker.Snapshot;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
@@ -16,13 +17,13 @@ import java.util.concurrent.TimeUnit;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
-// GranularTicker now reads (nanoTime, nanoTimeDifference) as an atomic snapshot and clamps
-// both approximateNanoTime() and approximateCurrentTimeMillis() through monotonic AtomicLong
-// high-water marks, so correctness no longer depends on sequential execution. The @Category
-// marker is retained because the wall-clock timing assertions in testTimeApproximation are
-// still sensitive to CPU contention on virtualized CI runners (per-fire scheduler lag up to
-// ~75 ms has been observed on GitHub-hosted macOS arm) — this is a stability hint, not a
-// correctness requirement.
+// GranularTicker publishes a single (nanoTime, nanoTimeDifference) Snapshot behind one
+// volatile reference. A single scheduled task is the only writer, and monotonicity of both
+// accessors is enforced at publish time by GranularTicker.nextSnapshot. Readers do a plain
+// volatile read plus field access. The @Category marker is retained because the wall-clock
+// timing assertions in testTimeApproximation are still sensitive to CPU contention on
+// virtualized CI runners (per-fire scheduler lag up to ~75 ms has been observed on
+// GitHub-hosted macOS arm) — a stability hint, not a correctness requirement.
 @Category(SequentialTest.class)
 public class GranularTickerTest {
 
@@ -91,7 +92,7 @@ public class GranularTickerTest {
     try {
       var ticker = new GranularTicker(TimeUnit.MILLISECONDS.toNanos(10),
           TimeUnit.MILLISECONDS.toNanos(50), scheduler);
-      // stop() without start() — the scheduled futures are null, so nothing to cancel.
+      // stop() without start() — the scheduled future is null, so nothing to cancel.
       ticker.stop();
       // No exception means success.
     } finally {
@@ -100,7 +101,7 @@ public class GranularTickerTest {
   }
 
   /**
-   * After starting and then stopping, the ticker's scheduled futures are cancelled and the
+   * After starting and then stopping, the ticker's scheduled future is cancelled and the
    * approximate time no longer advances.
    */
   @Test
@@ -144,17 +145,17 @@ public class GranularTickerTest {
   }
 
   /**
-   * Verifies that the scheduled tasks skip updates when the ticker is stopped.
-   * Uses a very long granularity so the tasks never fire on their own, then
-   * manually invokes the captured runnables before and after stop() to exercise the
-   * {@code if (!stopped)} branches in both scheduled tasks.
+   * Verifies that the single scheduled refresh task advances the snapshot when running, that
+   * wall-clock recalibration happens on the configured cadence, and that the task skips the
+   * update after stop.
    *
-   * <p>The test observes the task effects by comparing the {@code snapshot} reference identity:
-   * while running, each task allocates a new {@code Snapshot} instance and publishes it; after
-   * stop, neither task publishes a new snapshot so the reference is preserved.
+   * <p>Uses a very long granularity so the task never fires on its own, then manually invokes
+   * the captured runnable to exercise the {@code if (!stopped)} branch. With granularity and
+   * timestampRefreshRate both set to 1 hour, the recalibration interval is 1, so every fire
+   * both refreshes nanoTime and recomputes the wall-clock offset.
    */
   @Test
-  public void scheduledTasksSkipUpdateAfterStop() throws Exception {
+  public void scheduledTaskSkipsUpdateAfterStop() throws Exception {
     List<Runnable> capturedTasks = new ArrayList<>();
     // Fake scheduler that only captures the runnables — no threads, no real scheduling.
     ScheduledExecutorService fakeScheduler = new DelegatingScheduledExecutorService(
@@ -171,65 +172,47 @@ public class GranularTickerTest {
       var ticker = new GranularTicker(
           granularityNanos, TimeUnit.HOURS.toNanos(1), fakeScheduler);
       ticker.start();
-      assertThat(capturedTasks).hasSize(2);
+      // The single refresh task is the only scheduling submission.
+      assertThat(capturedTasks).hasSize(1);
 
-      // Verify getGranularity() returns the configured value
       assertThat(ticker.getGranularity()).isEqualTo(granularityNanos);
 
       Field snapshotField = GranularTicker.class.getDeclaredField("snapshot");
       snapshotField.setAccessible(true);
 
-      // Invoke the nanoTime task while ticker is running — nanoTime must advance
-      // because real time has elapsed since start() set it, and a new snapshot must be
-      // published.
+      // First fire while running: nanoTime advances past start() and a new snapshot is
+      // published. Because recalibrationInterval == 1, this fire also recalibrates wall
+      // clock.
       var nanoBefore = ticker.approximateNanoTime();
       var snapshotBefore = snapshotField.get(ticker);
       capturedTasks.get(0).run();
-      var snapshotAfterTask0 = snapshotField.get(ticker);
+      var snapshotAfterFire = snapshotField.get(ticker);
       assertThat(ticker.approximateNanoTime())
-          .as("nanoTime task must update nanoTime when ticker is running")
+          .as("refresh task must advance nanoTime when ticker is running")
           .isGreaterThan(nanoBefore);
-      assertThat(snapshotAfterTask0)
-          .as("nanoTime task must publish a new snapshot when ticker is running")
+      assertThat(snapshotAfterFire)
+          .as("refresh task must publish a new snapshot when ticker is running")
           .isNotSameAs(snapshotBefore);
-
-      // Invoke the nanoTimeDifference task while running — it must publish a new snapshot
-      // with a freshly recalibrated offset so that approximateCurrentTimeMillis() is close
-      // to the real wall-clock time.
-      capturedTasks.get(1).run();
-      var snapshotAfterTask1 = snapshotField.get(ticker);
-      assertThat(snapshotAfterTask1)
-          .as("nanoTimeDifference task must publish a new snapshot when ticker is running")
-          .isNotSameAs(snapshotAfterTask0);
-      var millisAfterRunning = ticker.approximateCurrentTimeMillis();
-      assertThat(millisAfterRunning)
-          .as("nanoTimeDifference task must restore wall-clock offset when running")
+      assertThat(ticker.approximateCurrentTimeMillis())
+          .as("recalibration must keep approximateCurrentTimeMillis close to wall clock")
           .isCloseTo(System.currentTimeMillis(), within(100L));
 
-      // Verify getTick() returns nanoTime / granularity
       var expectedTick = ticker.approximateNanoTime() / granularityNanos;
       assertThat(ticker.getTick()).isEqualTo(expectedTick);
 
-      // Stop the ticker — sets stopped = true
       ticker.stop();
 
-      // Capture values after stop — they should be frozen.
       var nanoAfterStop = ticker.approximateNanoTime();
       var millisAfterStop = ticker.approximateCurrentTimeMillis();
       var snapshotAfterStop = snapshotField.get(ticker);
 
-      // Invoke both tasks after stop — they should see stopped == true and skip the update,
-      // leaving the published snapshot (and therefore both approximations) unchanged.
+      // Fire the task after stop — it must see stopped == true and publish nothing.
       capturedTasks.get(0).run();
-      capturedTasks.get(1).run();
 
-      // The snapshot reference must be identical (no new Snapshot allocated).
       assertThat(snapshotField.get(ticker))
-          .as("scheduled tasks must not publish a new snapshot after stop")
+          .as("refresh task must not publish a new snapshot after stop")
           .isSameAs(snapshotAfterStop);
-      // nanoTime must not have changed (task 0 skipped the update).
       assertThat(ticker.approximateNanoTime()).isEqualTo(nanoAfterStop);
-      // approximateCurrentTimeMillis must not have changed (task 1 skipped the update).
       assertThat(ticker.approximateCurrentTimeMillis()).isEqualTo(millisAfterStop);
     } finally {
       fakeScheduler.shutdownNow();
@@ -283,76 +266,82 @@ public class GranularTickerTest {
   }
 
   /**
-   * Directly verifies the monotonic clamp on {@link GranularTicker#approximateCurrentTimeMillis()}.
-   * Installs a snapshot whose computed value is high, reads it, then installs a snapshot whose
-   * computed value is strictly lower — the reader must continue to observe the previous high.
-   * This guards against a future refactor that removes or weakens the {@code lastApproxMillis}
-   * clamp: without it, sub-millisecond drift between {@code System.nanoTime()} and
-   * {@code System.currentTimeMillis()} at recalibration fires can yield a 1 ms backward jump.
+   * Non-recalibration fires must carry the previous snapshot's {@code nanoTimeDifference}
+   * forward unchanged so readers of {@link GranularTicker#approximateCurrentTimeMillis()}
+   * continue to derive the same wall-clock offset between recalibrations. Only the nanoTime
+   * component of the published pair changes on such fires.
    */
   @Test
-  public void approximateCurrentTimeMillisClampsBackwardSnapshot() throws Exception {
-    var scheduler = Executors.newScheduledThreadPool(1);
-    try (var ticker = new GranularTicker(
-        TimeUnit.HOURS.toNanos(1), TimeUnit.HOURS.toNanos(1), scheduler)) {
-      ticker.start();
-      installSnapshot(ticker, 5_000_000_000L, 5_000L);
-      long high = ticker.approximateCurrentTimeMillis();
-      assertThat(high).as("installed snapshot yields computed=10000").isEqualTo(10_000L);
+  public void nextSnapshotPreservesDiffOnNonRecalibrationTick() {
+    var prev = new Snapshot(1_000_000_000L, 5_000L);
 
-      // Install a snapshot whose computed value is 9_999 ms — a 1 ms backward drift that the
-      // clamp must absorb.
-      installSnapshot(ticker, 5_000_000_000L, 4_999L);
-      assertThat(ticker.approximateCurrentTimeMillis())
-          .as("clamp must absorb sub-ms backward drift")
-          .isEqualTo(high);
-    } finally {
-      scheduler.shutdownNow();
-    }
+    var next = GranularTicker.nextSnapshot(prev, 2_000_000_000L, /*wallMillis*/ 42L, false);
+
+    assertThat(next.nanoTime()).isEqualTo(2_000_000_000L);
+    assertThat(next.nanoTimeDifference())
+        .as("non-recalibration fire must not touch nanoTimeDifference")
+        .isEqualTo(5_000L);
   }
 
   /**
-   * Directly verifies the monotonic clamp on {@link GranularTicker#approximateNanoTime()}.
-   * The nanoTime-refresh task reads the current snapshot then publishes a new one; if the
-   * wall-clock-recalibration task wins the intermediate publish with a later nanoTime sample,
-   * the refresh task's publish carries an earlier sample and the raw {@code snapshot.nanoTime}
-   * regresses. The clamp guarantees no reader observes the regression. Installs a high
-   * nanoTime snapshot, reads it, installs a lower nanoTime snapshot, and verifies the reader
-   * continues to observe the previous high.
+   * A recalibration fire that is not subject to backward drift must compute a fresh
+   * wall-clock offset from the sampled {@code wallMillis} and {@code freshNano}. The derived
+   * wall-clock timestamp after the publish must therefore equal {@code wallMillis} exactly.
    */
   @Test
-  public void approximateNanoTimeClampsBackwardSnapshot() throws Exception {
-    var scheduler = Executors.newScheduledThreadPool(1);
-    try (var ticker = new GranularTicker(
-        TimeUnit.HOURS.toNanos(1), TimeUnit.HOURS.toNanos(1), scheduler)) {
-      ticker.start();
-      installSnapshot(ticker, 1_000_000_000L, 0L);
-      long high = ticker.approximateNanoTime();
-      assertThat(high).isEqualTo(1_000_000_000L);
+  public void nextSnapshotRecomputesDiffOnRecalibration() {
+    // prev published at nano=1_000_000_000 (=> 1000 ms), diff=5000 => derived millis = 6000.
+    var prev = new Snapshot(1_000_000_000L, 5_000L);
+    // Fresh nano=2_000_000_000 (=> 2000 ms), fresh wall clock = 7500 ms => new diff = 5500,
+    // derived millis = 7500 which is strictly greater than prev's 6000 — no clamp needed.
+    var next = GranularTicker.nextSnapshot(prev, 2_000_000_000L, 7_500L, true);
 
-      installSnapshot(ticker, 500_000_000L, 0L);
-      assertThat(ticker.approximateNanoTime())
-          .as("clamp must hold the previously-returned high nanoTime value")
-          .isEqualTo(high);
-    } finally {
-      scheduler.shutdownNow();
-    }
+    assertThat(next.nanoTime()).isEqualTo(2_000_000_000L);
+    assertThat(next.nanoTimeDifference()).isEqualTo(5_500L);
+    assertThat(next.nanoTime() / 1_000_000 + next.nanoTimeDifference())
+        .as("derived wall-clock millis must equal the freshly sampled wallMillis")
+        .isEqualTo(7_500L);
   }
 
   /**
-   * Reflectively publishes a new {@code Snapshot} instance into the ticker's private
-   * {@code snapshot} field. Used to inject known {@code (nanoTime, nanoTimeDifference)}
-   * values for clamp verification without depending on scheduler timing.
+   * Sub-millisecond drift between {@link System#nanoTime()} and
+   * {@link System#currentTimeMillis()} at a recalibration fire can yield a candidate whose
+   * derived wall-clock millis is below the previously published snapshot's derived millis.
+   * {@link GranularTicker#nextSnapshot} must inflate {@code nanoTimeDifference} to absorb the
+   * drift so {@link GranularTicker#approximateCurrentTimeMillis()} remains non-decreasing.
    */
-  private static void installSnapshot(GranularTicker ticker, long nanoTime, long diff)
-      throws Exception {
-    Class<?> snapCls = Class.forName(
-        "com.jetbrains.youtrackdb.internal.common.profiler.GranularTicker$Snapshot");
-    var ctor = snapCls.getDeclaredConstructor(long.class, long.class);
-    ctor.setAccessible(true);
-    Object instance = ctor.newInstance(nanoTime, diff);
-    Field snapshotField = GranularTicker.class.getDeclaredField("snapshot");
-    snapshotField.setAccessible(true);
-    snapshotField.set(ticker, instance);
+  @Test
+  public void nextSnapshotAbsorbsBackwardMillisDrift() {
+    // prev: nano=5_000_000_000 (=> 5000 ms), diff=5000 => derived millis = 10_000.
+    var prev = new Snapshot(5_000_000_000L, 5_000L);
+    // Fresh wall clock = 9_999 ms at nano=5_000_000_000 => candidate diff = 4_999,
+    // candidate derived millis = 9_999 which is 1 ms below prev's 10_000.
+    var next = GranularTicker.nextSnapshot(prev, 5_000_000_000L, 9_999L, true);
+
+    assertThat(next.nanoTime()).isEqualTo(5_000_000_000L);
+    assertThat(next.nanoTimeDifference())
+        .as("diff must be inflated by 1 ms to absorb backward drift")
+        .isEqualTo(5_000L);
+    assertThat(next.nanoTime() / 1_000_000 + next.nanoTimeDifference())
+        .as("derived wall-clock millis must not regress")
+        .isEqualTo(10_000L);
+  }
+
+  /**
+   * On older hardware {@link System#nanoTime()} can appear to regress across CPUs. When the
+   * freshly sampled nanoTime is below the previously published value,
+   * {@link GranularTicker#nextSnapshot} must clamp it to the previous value so the published
+   * pair — and therefore {@link GranularTicker#approximateNanoTime()} — never regresses.
+   */
+  @Test
+  public void nextSnapshotClampsBackwardNanoTime() {
+    var prev = new Snapshot(1_000_000_000L, 0L);
+
+    var next = GranularTicker.nextSnapshot(prev, 500_000_000L, 1_000L, false);
+
+    assertThat(next.nanoTime())
+        .as("clamp must hold the previous high nanoTime when freshNano regresses")
+        .isEqualTo(1_000_000_000L);
+    assertThat(next.nanoTimeDifference()).isEqualTo(0L);
   }
 }
