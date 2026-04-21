@@ -3343,6 +3343,13 @@ public class MatchExecutionPlanner {
       // O(degree) link bag traversal). The stripped condition is stored in
       // the AntiSemiJoin descriptor for runtime fallback: if the hash table
       // build fails, BackRefHashJoinStep evaluates it per row.
+      //
+      // Both sides use independent AST copies: buildWhereWithoutTerm already
+      // deep-copies the sub-blocks it keeps, and we deep-copy {@code sub}
+      // before stashing it in the descriptor. The original andBlock is kept
+      // intact by the planner (rebindFilters, etc.) and cached plans may
+      // re-execute with re-bound parameters — any shared sub-block reference
+      // would let an AST rewrite on one side corrupt the other.
       var strippedFilter =
           SQLWhereClause.buildWhereWithoutTerm(andBlock, i);
       if (strippedFilter != null) {
@@ -3353,7 +3360,7 @@ public class MatchExecutionPlanner {
       }
 
       return new AntiSemiJoin(
-          anchorAlias, edgeClass, direction, targetAlias, sub);
+          anchorAlias, edgeClass, direction, targetAlias, sub.copy());
     }
     return null;
   }
