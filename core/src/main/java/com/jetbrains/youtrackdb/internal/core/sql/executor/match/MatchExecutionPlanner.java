@@ -3446,14 +3446,48 @@ public class MatchExecutionPlanner {
     // Map oute→out, ine→in for the reverse link bag direction
     var direction = prevDirection.startsWith("out") ? "out" : "in";
 
-    // Check for optional index pre-filter on the intermediate edge
+    // If the intermediate edge has a WHERE filter, collapsing the chain is
+    // only safe when every filter term is covered by a single index. The
+    // consumed predecessor's MatchStep is skipped (aliasFilters are
+    // normally evaluated there), and BackRefHashJoinStep evaluates the
+    // filter exclusively via {@code indexRidSet.contains(edgeRid)} — so any
+    // term not present in the index key is silently dropped.
+    //
+    // The planner's {@code remainingCondition} field is not a reliable full-
+    // cover signal here: {@code SelectExecutionPlanner.buildIndexSearchDescriptor}
+    // always stores the original AND block as {@code remainingCondition},
+    // relying on a post-fetch FilterStep to re-evaluate it. BackRefHashJoinStep
+    // has no such post-filter, so we compare block counts directly: the key
+    // covers the whole WHERE only when {@code indexFilter.blockCount()} equals
+    // the original flattened AND's sub-block count.
     var intermediateFilter = aliasFilters.get(intermediateAlias);
     IndexSearchDescriptor indexFilter = null;
     if (intermediateFilter != null) {
       var intermediateClass = aliasClasses.get(intermediateAlias);
-      if (intermediateClass != null) {
-        indexFilter = TraversalPreFilterHelper.findIndexForFilter(
-            intermediateFilter, intermediateClass, ctx);
+      if (intermediateClass == null) {
+        return null;
+      }
+      var session = ctx.getDatabaseSession();
+      if (session == null) {
+        return null;
+      }
+      var schema = session.getMetadata().getImmutableSchemaSnapshot();
+      var schemaClass = schema.getClassInternal(intermediateClass);
+      if (schemaClass == null) {
+        return null;
+      }
+      var flatWhere = intermediateFilter.flatten(ctx, schemaClass);
+      if (flatWhere.size() != 1) {
+        // Multi-branch OR — findIndexForFilter would also reject; bail out
+        // rather than silently apply a partial cover.
+        return null;
+      }
+      var originalBlockCount = flatWhere.getFirst().getSubBlocks().size();
+      indexFilter = TraversalPreFilterHelper.findIndexForFilter(
+          intermediateFilter, intermediateClass, ctx);
+      if (indexFilter == null
+          || indexFilter.blockCount() != originalBlockCount) {
+        return null;
       }
     }
 

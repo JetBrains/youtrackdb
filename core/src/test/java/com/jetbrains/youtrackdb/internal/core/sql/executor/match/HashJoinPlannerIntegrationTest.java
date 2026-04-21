@@ -1871,6 +1871,61 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
     session.commit();
   }
 
+  /**
+   * Regression: Pattern B (outE+inV chain) must reject an intermediate edge
+   * filter that is not fully covered by a single index. Before the fix,
+   * {@code detectChainSemiJoin} produced a ChainSemiJoin whose only filter
+   * evaluator was {@code indexRidSet.contains(edgeRid)} — that covers the
+   * indexable part only. Non-indexable residual terms (e.g.
+   * {@code category='A'} when the index is on {@code score}) were silently
+   * dropped because the consumed predecessor's MatchStep (which would
+   * normally evaluate them) was skipped.
+   *
+   * <p>Graph setup: two Rated5 edges both pass the indexable
+   * {@code score > 5} but differ on {@code category}. A correct plan returns
+   * only the edge matching both terms.
+   */
+  @Test
+  public void backRef_outEInV_partialIndexCover_correctResults() {
+    session.execute("CREATE class Rated5 extends E").close();
+    session.execute("CREATE PROPERTY Rated5.score INTEGER").close();
+    session.execute("CREATE PROPERTY Rated5.category STRING").close();
+    // Deliberately index only score; category is unindexed so
+    // {@code score > 5 AND category = 'A'} produces a partial cover.
+    session.execute("CREATE INDEX Rated5_score ON Rated5 (score) NOTUNIQUE").close();
+
+    session.begin();
+    session.execute(
+        "CREATE EDGE Rated5 from (select from Person where name='n2')"
+            + " to (select from Person where name='n1')"
+            + " set score = 10, category = 'A'")
+        .close();
+    session.execute(
+        "CREATE EDGE Rated5 from (select from Person where name='n3')"
+            + " to (select from Person where name='n1')"
+            + " set score = 20, category = 'B'")
+        .close();
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b}"
+            + ".outE('Rated5'){as:e, where:(score > 5 AND category = 'A')}"
+            + ".inV(){as:check, where:(@rid = $matched.a.@rid)}"
+            + " RETURN b.name as bName, e.category as cat")
+        .toList();
+    session.commit();
+
+    // Only the n2→n1 edge (score=10, category='A') satisfies both terms.
+    // Without the fix, the n3→n1 edge (score=20, category='B') would also
+    // slip through because the index matches score>5 but never checks
+    // category — the chain semi-join would return 2 rows.
+    assertEquals(1, result.size());
+    assertEquals("n2", result.get(0).getProperty("bName"));
+    assertEquals("A", result.get(0).getProperty("cat"));
+  }
+
   // ── $matched publication regression ────────────────────────────────────
 
   /**
