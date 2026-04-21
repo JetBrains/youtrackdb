@@ -167,6 +167,37 @@ public class ForEachStepTest extends TestUtilsFixture {
     assertThat(ctx.getVariable("item")).isEqualTo(9);
   }
 
+  /**
+   * With a body that contains a {@code RETURN} statement, {@code plan.executeFull()} returns a
+   * non-null {@link ExecutionStepInternal} on the FIRST iteration, so {@code internalStart}
+   * short-circuits via {@code return result.start(ctx)} (line 49). The loop variable binds to
+   * the FIRST element — pins the early-return branch that the null-return test cannot reach.
+   * A mutation that swapped {@code result != null} to {@code result == null}, or that dropped
+   * the {@code return} statement, would let the loop run to completion and bind the variable to
+   * the last element instead.
+   */
+  @Test
+  public void internalStartReturnsEarlyWhenBodyPlanReturnsNonNull() {
+    var ctx = newContext();
+    var step = new ForEachStep(
+        new SQLIdentifier("item"),
+        parseExpression("SELECT [7, 8, 9] AS a"),
+        List.of((SQLStatement) new SQLReturnStatement(-1)),
+        ctx,
+        false);
+    step.setPrevious(stubEmptyPredecessor(ctx));
+
+    var stream = step.start(ctx);
+    while (stream.hasNext(ctx)) {
+      stream.next(ctx);
+    }
+    stream.close(ctx);
+
+    assertThat(ctx.getVariable("item"))
+        .as("RETURN in body short-circuits the loop after the first iteration")
+        .isEqualTo(7);
+  }
+
   // =========================================================================
   // containsReturn
   // =========================================================================

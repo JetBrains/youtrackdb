@@ -187,6 +187,33 @@ public class ParallelExecStepTest {
     assertThat(step.canBeCached()).isTrue();
   }
 
+  /**
+   * With an empty sub-plan list, {@code internalStart} returns a {@link
+   * com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.MultipleExecutionStream} whose
+   * producer has no elements — the resulting stream has {@code hasNext=false} and emits no
+   * records. Pins that the empty-list case does not throw.
+   */
+  @Test
+  public void internalStartWithEmptySubPlanListProducesEmptyStream() {
+    var ctx = new BasicCommandContext();
+    var step = new ParallelExecStep(List.of(), ctx, false);
+
+    assertThat(drain(step.start(ctx), ctx)).isEmpty();
+  }
+
+  /**
+   * {@code prettyPrint} with an empty sub-plan list renders only the {@code "+ PARALLEL"}
+   * header, with no block separators. Exercises the empty-for-loop branch at line 94.
+   */
+  @Test
+  public void prettyPrintWithEmptySubPlanListRendersOnlyHeader() {
+    var ctx = new BasicCommandContext();
+    var out = new ParallelExecStep(List.of(), ctx, false).prettyPrint(0, 2);
+
+    assertThat(out).contains("+ PARALLEL");
+    assertThat(out).doesNotContain("+-------------------------");
+  }
+
   // =========================================================================
   // prettyPrint
   // =========================================================================
@@ -234,10 +261,13 @@ public class ParallelExecStepTest {
   }
 
   /**
-   * With five sub-plans, the foot shows five "V" markers. This also exercises the {@code
-   * addArrows} rendering pipeline at a larger scale (more horizontal rows, more junction
-   * positions, more vertical bars) — a non-trivial coverage boost for {@code isHorizontalRow} /
-   * {@code isPlus} / {@code isVerticalRow}.
+   * With five sub-plans, the foot shows five "V" markers. Pins the {@code addArrows} rendering
+   * pipeline: a weaker "contains - + |" check passes even if {@code addArrows} returned its
+   * input unchanged (the block separator {@code +-------------------------} and pipe prefix
+   * {@code "| "} already contain those chars). A genuine {@code addArrows}-produced junction is
+   * a "+" preceded by a space at a non-zero column — that pattern only appears when the arrow
+   * pipeline actually ran. A mutation to {@code addArrows} that returned its input unmodified
+   * would fail this assertion.
    */
   @Test
   public void prettyPrintWithFiveSubPlansRendersFiveFootMarkersAndArrowJunctions() {
@@ -252,8 +282,18 @@ public class ParallelExecStepTest {
     var out = new ParallelExecStep(plans, ctx, false).prettyPrint(0, 2);
 
     assertThat(countOccurrences(out, " V ")).isEqualTo(5);
-    // addArrows produces "-" (horizontal), "+" (junction), and "|" (vertical) characters.
-    assertThat(out).contains("-").contains("+").contains("|");
+
+    var sawJunctionAtNonZeroColumn = out.lines().anyMatch(row -> {
+      for (var col = 1; col < row.length(); col++) {
+        if (row.charAt(col) == '+' && row.charAt(col - 1) == ' ') {
+          return true;
+        }
+      }
+      return false;
+    });
+    assertThat(sawJunctionAtNonZeroColumn)
+        .as("addArrows must render at least one junction '+' at a non-zero column")
+        .isTrue();
   }
 
   /** A non-zero depth prepends indentation to every rendered line. */
@@ -286,8 +326,11 @@ public class ParallelExecStepTest {
   }
 
   /**
-   * {@code copy} produces a distinct step whose sub-plan list is a fresh copy. The new list must
-   * not be the same instance, and it must carry the same number of sub-plans.
+   * {@code copy} produces a distinct step whose sub-plan list is a fresh instance (not an alias)
+   * AND whose sub-plans are each independently copied (via {@code plan.copy(ctx)}). Without the
+   * two {@code isNotSameAs} pins below, a mutation that returned {@code new ParallelExecStep
+   * (this.subExecutionPlans, ctx, profilingEnabled)} (aliasing the list) or that mapped without
+   * calling {@code x.copy(ctx)} (aliasing each element) would silently pass a size-only check.
    */
   @Test
   public void copyProducesIndependentStepWithCopiedSubPlans() {
@@ -301,6 +344,12 @@ public class ParallelExecStepTest {
     var copy = (ParallelExecStep) copied;
     assertThat(copy.isProfilingEnabled()).isTrue();
     assertThat(copy.getSubExecutionPlans()).hasSize(2);
+
+    // List-level independence: the copy's sub-plan list must be a fresh instance.
+    assertThat(copy.getSubExecutionPlans()).isNotSameAs(original.getSubExecutionPlans());
+    // Element-level independence: each sub-plan must have been individually copied.
+    assertThat(copy.getSubExecutionPlans().get(0)).isNotSameAs(plans.get(0));
+    assertThat(copy.getSubExecutionPlans().get(1)).isNotSameAs(plans.get(1));
   }
 
   // =========================================================================

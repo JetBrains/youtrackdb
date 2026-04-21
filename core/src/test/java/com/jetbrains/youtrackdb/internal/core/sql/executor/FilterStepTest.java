@@ -24,6 +24,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionExceptio
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExpireResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
@@ -196,7 +197,7 @@ public class FilterStepTest extends TestUtilsFixture {
 
     var stream = step.start(ctx);
 
-    assertThat(stream.getClass().getSimpleName()).isEqualTo("ExpireResultSet");
+    assertThat(stream).isInstanceOf(ExpireResultSet.class);
     stream.close(ctx);
   }
 
@@ -215,7 +216,7 @@ public class FilterStepTest extends TestUtilsFixture {
 
     var stream = step.start(ctx);
 
-    assertThat(stream.getClass().getSimpleName()).isNotEqualTo("ExpireResultSet");
+    assertThat(stream).isNotInstanceOf(ExpireResultSet.class);
     stream.close(ctx);
   }
 
@@ -232,7 +233,7 @@ public class FilterStepTest extends TestUtilsFixture {
 
     var stream = step.start(ctx);
 
-    assertThat(stream.getClass().getSimpleName()).isNotEqualTo("ExpireResultSet");
+    assertThat(stream).isNotInstanceOf(ExpireResultSet.class);
     stream.close(ctx);
   }
 
@@ -322,16 +323,10 @@ public class FilterStepTest extends TestUtilsFixture {
   }
 
   /**
-   * {@code serialize} omits the {@code "whereClause"} property when the WHERE clause is null
-   * (exercises the null branch at line 95). Constructed via reflection-free path: pass a {@link
-   * SQLWhereClause} with an empty body, then null out the field via package-private access. Since
-   * the field is package-private (default visibility), a subclass in the same package could not
-   * rewrite it — instead use the simpler path: the null branch is only reachable from a
-   * subclass-modified field, so test by reflectively setting it.
-   *
-   * <p>This is simplified: {@code whereClause} is assigned in the constructor so the null branch at
-   * line 95 is only reached via code that overwrites the field. Rather than exercise that
-   * reflection path, this test verifies the non-null branch stores the property.
+   * {@code serialize} stores the {@code whereClause} property when it is non-null. The null
+   * branch of the {@code whereClause != null} guard in {@link FilterStep#serialize} is only
+   * reachable when a subclass nulls out the private field post-construction, so it is
+   * intentionally not covered here.
    */
   @Test
   public void serializeStoresWhereClauseProperty() {
