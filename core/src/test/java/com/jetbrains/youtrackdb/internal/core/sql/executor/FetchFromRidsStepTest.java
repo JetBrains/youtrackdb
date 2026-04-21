@@ -12,6 +12,7 @@ import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -117,6 +118,102 @@ public class FetchFromRidsStepTest extends TestUtilsFixture {
     }
   }
 
+  /**
+   * Contract (TC1): {@code LoaderExecutionStream} catches {@link
+   * com.jetbrains.youtrackdb.internal.core.exception.RecordNotFoundException} with a bare
+   * {@code return}, so an unresolvable RID mid-list silently terminates the stream. Records
+   * after the missing RID are NOT emitted. A future refactor that replaced the {@code return}
+   * with a {@code continue} would surface here.
+   */
+  @Test
+  public void nonExistentRidTerminatesIterationSilently() {
+    var className = createClassInstance().getName();
+
+    session.begin();
+    var realRid = session.newEntity(className).getIdentity();
+    session.commit();
+
+    // Fabricate a RID in the same cluster at a never-allocated position.
+    var missingRid =
+        new RecordId(realRid.getCollectionId(), realRid.getCollectionPosition() + 9999);
+
+    var ctx = newContext();
+    var step = new FetchFromRidsStep(
+        List.of((RecordIdInternal) realRid, missingRid, (RecordIdInternal) realRid),
+        ctx, false);
+
+    session.begin();
+    try {
+      var results = drain(step.start(ctx), ctx);
+      // First realRid loads, missing RID aborts the loop, second realRid is NEVER emitted.
+      assertThat(results.stream().map(Result::getIdentity).toList()).containsExactly(realRid);
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * Contract (TC3): {@code LoaderExecutionStream.fetchNext} skips null entries in the RID list.
+   * Adjacent non-null RIDs on either side of a null gap must still be emitted. Pins the
+   * null-guard so a regression that removed it would throw NPE instead of skipping.
+   */
+  @Test
+  public void nullRidWithinListIsSkippedAndIterationContinues() {
+    var className = createClassInstance().getName();
+
+    session.begin();
+    var rid1 = session.newEntity(className).getIdentity();
+    var rid2 = session.newEntity(className).getIdentity();
+    session.commit();
+
+    // Arrays.asList permits null entries (List.of does not).
+    var rids = Arrays.asList(
+        (RecordIdInternal) rid1,
+        null,
+        (RecordIdInternal) rid2);
+
+    var ctx = newContext();
+    var step = new FetchFromRidsStep(rids, ctx, false);
+
+    session.begin();
+    try {
+      var results = drain(step.start(ctx), ctx);
+      assertThat(results.stream().map(Result::getIdentity).toList())
+          .containsExactly(rid1, rid2);
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * Contract (TC4): duplicate RIDs in the input produce duplicate results — the step does NOT
+   * deduplicate. A planner optimization that collapsed duplicates would be surfaced by this
+   * pin, ensuring the cardinality contract is explicit.
+   */
+  @Test
+  public void duplicateRidsAreNotDeduplicated() {
+    var className = createClassInstance().getName();
+
+    session.begin();
+    var rid = session.newEntity(className).getIdentity();
+    session.commit();
+
+    var ctx = newContext();
+    var step = new FetchFromRidsStep(
+        List.of((RecordIdInternal) rid, (RecordIdInternal) rid, (RecordIdInternal) rid),
+        ctx, false);
+
+    session.begin();
+    try {
+      var results = drain(step.start(ctx), ctx);
+      assertThat(results).hasSize(3);
+      assertThat(results.stream().map(Result::getIdentity).toList())
+          .containsExactly(rid, rid, rid);
+    } finally {
+      session.rollback();
+    }
+  }
+
   // =========================================================================
   // Predecessor draining
   // =========================================================================
@@ -172,7 +269,9 @@ public class FetchFromRidsStepTest extends TestUtilsFixture {
 
   /**
    * {@code prettyPrint} renders the "+ FETCH FROM RIDs" header on the first line and the RID
-   * list on a second line, both respecting the indentation.
+   * list on a second line, both respecting the indentation. TS-M4 tightening: assert the
+   * two-line layout explicitly so a future refactor that collapsed the output to one line
+   * would be caught.
    */
   @Test
   public void prettyPrintRendersHeaderAndRidList() {
@@ -183,12 +282,16 @@ public class FetchFromRidsStepTest extends TestUtilsFixture {
     var output = step.prettyPrint(0, 2);
 
     assertThat(output).contains("+ FETCH FROM RIDs");
-    // The RID list rendering uses the default Collection toString — verify both RIDs appear.
-    assertThat(output).contains("#11:2").contains("#11:5");
+    // Two-line layout: header on line 1, RID list on line 2.
+    var lines = output.split("\n", -1);
+    assertThat(lines.length).isGreaterThanOrEqualTo(2);
+    assertThat(lines[0]).contains("+ FETCH FROM RIDs");
+    assertThat(lines[1]).contains("#11:2").contains("#11:5");
   }
 
   /**
-   * A non-zero depth prepends {@code depth * indent} leading spaces to the first line.
+   * A non-zero depth prepends exactly {@code depth * indent} leading spaces to the first line
+   * (CQ6 tightening: exact-width pin).
    */
   @Test
   public void prettyPrintAppliesIndentation() {
@@ -196,11 +299,23 @@ public class FetchFromRidsStepTest extends TestUtilsFixture {
     var step = new FetchFromRidsStep(
         List.of((RecordIdInternal) new RecordId(1, 1)), ctx, false);
 
-    // depth=1, indent=4 → 4 leading spaces on line 1.
+    // depth=1, indent=4 → exactly 4 leading spaces, then '+'.
     var output = step.prettyPrint(1, 4);
 
-    assertThat(output).startsWith("    ");
+    assertThat(output).startsWith("    +").doesNotStartWith("     +");
     assertThat(output).contains("+ FETCH FROM RIDs");
+  }
+
+  /**
+   * prettyPrint with an empty rids collection renders "[]" after the header, preserving the
+   * observable format (TC7).
+   */
+  @Test
+  public void prettyPrintWithEmptyRidListRendersEmptyBrackets() {
+    var ctx = newContext();
+    var step = new FetchFromRidsStep(Collections.emptyList(), ctx, false);
+
+    assertThat(step.prettyPrint(0, 2)).contains("+ FETCH FROM RIDs").contains("[]");
   }
 
   // =========================================================================
@@ -210,6 +325,9 @@ public class FetchFromRidsStepTest extends TestUtilsFixture {
   /**
    * {@code serialize} stores the RIDs as a {@code List<String>} under the "rids" property. A
    * round-trip through {@code deserialize} restores the same RIDs.
+   *
+   * <p>TB4/CQ4 tightening: assert the exact serialized string list (not just size) so a
+   * mutation like {@code rids.stream().map(r -> "BROKEN").collect(...)} would be caught.
    */
   @Test
   public void serializeDeserializeRoundTripPreservesRids() {
@@ -221,13 +339,16 @@ public class FetchFromRidsStepTest extends TestUtilsFixture {
     var original = new FetchFromRidsStep(rids, ctx, false);
 
     var serialized = original.serialize(session);
-    assertThat((List<?>) serialized.getProperty("rids")).hasSize(3);
+    List<String> serializedList = serialized.getProperty("rids");
+    assertThat(serializedList).containsExactly("#5:1", "#5:2", "#5:3");
 
     var restored = new FetchFromRidsStep(Collections.emptyList(), ctx, false);
     restored.deserialize(serialized, session);
 
-    var output = restored.prettyPrint(0, 2);
-    assertThat(output).contains("#5:1").contains("#5:2").contains("#5:3");
+    // Re-serialize the restored step to verify deserialize reconstructs the same RID set.
+    var restoredSerialized = restored.serialize(session);
+    List<String> restoredList = restoredSerialized.getProperty("rids");
+    assertThat(restoredList).containsExactly("#5:1", "#5:2", "#5:3");
   }
 
   /**
@@ -288,7 +409,9 @@ public class FetchFromRidsStepTest extends TestUtilsFixture {
     badResult.setProperty("subSteps", List.of(badSubStep));
 
     assertThatThrownBy(() -> step.deserialize(badResult, session))
-        .isInstanceOf(CommandExecutionException.class);
+        .isInstanceOf(CommandExecutionException.class)
+        // TB10 cause-chain pin: the wrapped exception identifies the real failure.
+        .hasRootCauseInstanceOf(ClassNotFoundException.class);
   }
 
   // =========================================================================
@@ -312,20 +435,28 @@ public class FetchFromRidsStepTest extends TestUtilsFixture {
   // =========================================================================
 
   /**
-   * {@code copy} preserves the RID reference and profiling flag; the copied step iterates the
-   * same records independently of the original.
+   * {@code copy} preserves the RID list (order, content, and size) plus the profiling flag; the
+   * copied step iterates the same records independently of the original.
+   *
+   * <p>TB3 tightening: use three distinct RIDs so a mutation that truncated or reordered the
+   * list in {@code copy()} would be caught (a single-element test masks both defects).
    */
   @Test
   public void copyPreservesRidsAndProfilingFlag() {
     var className = createClassInstance().getName();
 
     session.begin();
-    var rid = session.newEntity(className).getIdentity();
+    var rid1 = session.newEntity(className).getIdentity();
+    var rid2 = session.newEntity(className).getIdentity();
+    var rid3 = session.newEntity(className).getIdentity();
     session.commit();
 
     var ctx = newContext();
-    var original = new FetchFromRidsStep(
-        List.of((RecordIdInternal) rid), ctx, true);
+    var rids = List.of(
+        (RecordIdInternal) rid1,
+        (RecordIdInternal) rid2,
+        (RecordIdInternal) rid3);
+    var original = new FetchFromRidsStep(rids, ctx, true);
 
     var copy = original.copy(ctx);
 
@@ -337,7 +468,9 @@ public class FetchFromRidsStepTest extends TestUtilsFixture {
     session.begin();
     try {
       var results = drain(copied.start(ctx), ctx);
-      assertThat(results.stream().map(Result::getIdentity).toList()).containsExactly(rid);
+      // Exact match pins order, content, and size — rejects mutations that drop/reorder RIDs.
+      assertThat(results.stream().map(Result::getIdentity).toList())
+          .containsExactly(rid1, rid2, rid3);
     } finally {
       session.rollback();
     }
