@@ -248,6 +248,21 @@ final class IndexOrderedPlanner {
         matchedEdge.out ? matchedEdge.edge.out.alias : matchedEdge.edge.in.alias;
     var linkBagFieldName = linkBagDirection + "_" + edgeClassName;
 
+    // 7a. Early exit: if LIMIT is absent and the source alias has a WHERE
+    //     filter or RID constraint, this query can only land in single-source,
+    //     FILTERED_BOUND, or FILTERED_UNBOUND mode — all of which require LIMIT
+    //     at step 10b. Returning here skips the expensive schema/index lookup
+    //     below (measured ~5-7% CPU regression on IS7, where msg has id= filter
+    //     but the query has no LIMIT). UNFILTERED_* modes still proceed because
+    //     they require source to have no filter and no RID constraint.
+    var earlyLimitSize = limit != null && limit.getValue(context) >= 0
+        ? limit.getValue(context) : -1;
+    if (earlyLimitSize < 0
+        && (aliasFilters.get(sourceAlias) != null
+            || aliasRids.get(sourceAlias) != null)) {
+      return null;
+    }
+
     // 7b. Compute reverse field name (for multi-source reverse edge lookup).
     //     For vertex traversal (.in/.out): reverse field on target vertex is the
     //       opposite direction + edgeClassName (e.g., out_LIKES → in_LIKES).
