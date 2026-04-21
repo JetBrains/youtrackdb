@@ -616,38 +616,108 @@ flowchart TD
   >
   > **Strategy refresh:** CONTINUE — no downstream impact detected. Track 7's
   > legacy result-set pins (`core/sql/query`) are disjoint from Track 8's
-  > modern `core/sql/executor/resultset` scope. Deferred `SQLScriptEngine` /
-  > `CommandExecutorSQLAbstract` coverage expected to fall out of Track 8's
-  > executor steps naturally. Track 22 queue grew by ~16 WHEN-FIXED entries
-  > + DRY items (already documented in plan). Carry forward to Track 8:
+  > modern `core/sql/executor/resultset` scope. **Correction (per Track 8
+  > Phase A reviews):** Track 7's earlier expectation that
+  > `SQLScriptEngine` and `CommandExecutorSQLAbstract` would "fall out of
+  > Track 8's executor steps" is structurally wrong — both classes live in
+  > `core/sql/` (the package Track 7 itself owned), not in
+  > `core/sql/executor/*`. `SQLScriptEngine` (192 LOC, 35.8% coverage) is
+  > best handled by Track 9 (Command & Script) or Track 22; Track 8 will
+  > absorb only `CommandExecutorSQLAbstract`'s trivial 2-method tail
+  > opportunistically. Track 22 queue grew by ~16 WHEN-FIXED entries + DRY
+  > items (already documented in plan). Carry forward to Track 8:
   > falsifiable-regression + WHEN-FIXED convention; `@After rollbackIfLeftOpen`
   > idiom; `Iterable` detach-after-commit pattern; SequentialTest guard for
   > static-state tests; counting CommandContext wrapper for fallback-branch
   > mutation testing.
 
 - [ ] Track 8: SQL Executor & Result Sets
-  > Write tests for SQL execution step classes and result set
-  > implementations. This is the largest coverage gap in the SQL layer
-  > (2,188 uncov lines) but at medium testability since most steps
-  > require a database session.
+  > Write tests for SQL execution step classes, the SELECT planner, the
+  > result-collection wrappers, and the metadata-execution helpers. This is
+  > the largest coverage gap in the SQL layer (~2,109 uncov lines) but at
+  > medium testability since most production classes here require a live
+  > `DatabaseSessionEmbedded` to exercise their uncovered branches.
   >
-  > Target packages:
-  > - `core/sql/executor` (1,735 uncov, 74.6%) — execution steps:
-  >   CRUD steps (CreateRecord, Delete, UpdateSet, Upsert),
-  >   Fetch steps (FetchFromClass, FetchFromIndex, FetchFromRids),
-  >   Control flow (Filter, Limit, Skip, If, ForEach),
-  >   Advanced (Unwind, Retry, Timeout, Let, SubQuery)
-  > - `core/sql/executor/resultset` (313 uncov, 49.2%) — result set
-  >   implementations
-  > - `core/sql/executor/metadata` (61 uncov, 79.9%) — metadata
-  >   execution steps
+  > Target packages (in scope):
+  > - `core/sql/executor` (~1,703 uncov, 75.1%) — execution steps and
+  >   their associated planners/result wrappers:
+  >   - CRUD/write steps: CreateRecord, Delete, UpdateSet, UpdateMerge,
+  >     UpdateRemove, Upsert, CopyRecordContentBeforeUpdate, InsertValues
+  >   - Fetch steps: FetchFromClass, FetchFromCollection, FetchFromRids,
+  >     FetchFromVariable
+  >   - **FetchFromIndexStep** (1001 LOC) — handled separately due to size
+  >     and combinatorial WHERE-condition × index-definition surface
+  >   - Control flow: Filter, Limit, Skip, If, ForEach, ParallelExecStep
+  >   - Advanced: Unwind, Retry, Timeout, Let (Expression/Query, Global),
+  >     Batch
+  >   - **SelectExecutionPlanner** (3,741 LOC, 239 uncov) — exercised
+  >     end-to-end via `session.query(sql)` to drive its handle*/index-
+  >     selection branches; cannot be unit-tested via direct step
+  >     instantiation
+  >   - **Result types**: ResultInternal (282 uncov, single-largest gap),
+  >     UpdatableResult, TraverseResult — record wrappers used by every
+  >     step but classified neither as "step" nor "resultset"
+  > - `core/sql/executor/resultset` (~309 uncov, 49.2%) — split into:
+  >   - ExecutionStream wrappers (Filter/Map/FlatMap/Iterator/Limited/
+  >     Singleton/OnClose/Interrupt/Expire/Multiple/Empty/etc., ~30-70
+  >     LOC each)
+  >   - Result-collection impls (Link{List,Map,Set}ResultImpl + Embedded
+  >     {List,Map,Set}ResultImpl — six pure delegating wrappers,
+  >     ~1,190 LOC combined, instantiated only from
+  >     `ResultInternal.convert*()` paths)
+  > - `core/sql/executor/metadata` (61 uncov, 79.9%) — IndexCandidate /
+  >   IndexFinder helper chain
   >
-  > Each execution step has a clear contract: accept input result set,
-  > produce output result set. Tests should set up minimal schema/data
-  > and verify step behavior through SQL execution.
+  > Out of scope:
+  > - `core/sql/executor/match/**` (93.0%/79.3%, 191 uncov) — already
+  >   above the line target; remaining branches are hash-join internals
+  >   and integration-test territory. Existing 13 match tests cover the
+  >   shape adequately. Defer remaining gap to Track 22 sweep.
+  > - `SubQueryStep` — already has a 706-LOC `SubQueryStepTest` covering
+  >   predecessor draining, canBeCached matrix, copy semantics, and
+  >   prettyPrint indentation. Limit Track 8 to a coverage-delta gap-check.
+  > - `SQLScriptEngine`, `SQLScriptEngineFactory` — live in `core/sql/`
+  >   (Track 7's package), not in `core/sql/executor/*`. Track 7's
+  >   strategy refresh acknowledges this; defer to Track 9 / Track 22.
+  >   `CommandExecutorSQLAbstract`'s 2 trivial methods may be hit
+  >   incidentally; do not target it.
   >
-  > **Scope:** ~7 steps covering CRUD steps, fetch steps, control flow
-  > steps, advanced steps, result sets, metadata steps, and verification
+  > **Test-strategy precedent (locks down ambiguity in original scope):**
+  > - **Default to DbTestBase** for executor step tests — this is a
+  >   per-track override of D2 (which still applies project-wide to
+  >   utility/method/function packages). 76% (72/94) of existing executor
+  >   tests already extend DbTestBase, including Track 7's just-landed
+  >   `ExpandStepTest`. Standalone tests are reserved for: pure pretty-
+  >   print/toString/cacheability tests, the six Link/Embedded collection
+  >   wrappers (which only delegate), and structural classes like
+  >   `IndexSearchDescriptorCost`. **D2 itself is unchanged** — only its
+  >   per-track default is inverted here.
+  > - **Direct-step tests** (stub `AbstractExecutionStep` upstream +
+  >   manually-built `ResultInternal` predecessors, à la `ExpandStepTest`/
+  >   `SubQueryStepTest`/`CartesianProductStepTest`) are the default for
+  >   step-internal branch coverage.
+  > - **SQL round-trip tests** (`session.query(sql)` / `.command(sql)`)
+  >   are reserved for SelectExecutionPlanner branch coverage and for
+  >   integration paths that direct-step tests cannot reach.
+  > - **Dead-code pinning** mirrors Track 7 Step 5: enumerate zero-caller
+  >   classes (`InfoExecutionPlan`, `InfoExecutionStep`, `TraverseResult`,
+  >   `BatchStep` are confirmed candidates), pin via WHEN-FIXED markers
+  >   pointing Track 22 to delete them, recompute the realistic 85% target
+  >   excluding dead LOC.
+  > - **Forward-to convention**: failures attributable to `record/impl`
+  >   (Track 14/15), `metadata/schema` (Track 16), or `core/db` (Track 14)
+  >   are pinned with `// forwards-to: Track NN` and worked around in the
+  >   executor test, mirroring Track 6's `Iterable` detach precedent.
+  >
+  > **Scope:** ~10 steps covering: (1) shared executor test fixture +
+  > dead-code pinning, (2) CRUD/write steps, (3) FetchFromClass /
+  > FetchFromCollection / FetchFromRids / FetchFromVariable, (4)
+  > FetchFromIndexStep (its own step), (5) control-flow steps + Parallel
+  > ExecStep, (6) advanced steps (Retry/Timeout/Let/Unwind/Batch), (7)
+  > Result types (ResultInternal/UpdatableResult/TraverseResult), (8)
+  > resultset ExecutionStream wrappers, (9) resultset Link/Embedded
+  > collection impls + metadata helpers, (10) SelectExecutionPlanner SQL
+  > round-trip + verification.
   > **Depends on:** Track 1
 
 - [ ] Track 9: Command & Script
