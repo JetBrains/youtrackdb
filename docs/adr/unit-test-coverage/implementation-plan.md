@@ -613,6 +613,17 @@ flowchart TD
   > items deferred or accepted as merge-ready.
   >
   > **Step file:** `tracks/track-7.md` (8 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact detected. Track 7's
+  > legacy result-set pins (`core/sql/query`) are disjoint from Track 8's
+  > modern `core/sql/executor/resultset` scope. Deferred `SQLScriptEngine` /
+  > `CommandExecutorSQLAbstract` coverage expected to fall out of Track 8's
+  > executor steps naturally. Track 22 queue grew by ~16 WHEN-FIXED entries
+  > + DRY items (already documented in plan). Carry forward to Track 8:
+  > falsifiable-regression + WHEN-FIXED convention; `@After rollbackIfLeftOpen`
+  > idiom; `Iterable` detach-after-commit pattern; SequentialTest guard for
+  > static-state tests; counting CommandContext wrapper for fallback-branch
+  > mutation testing.
 
 - [ ] Track 8: SQL Executor & Result Sets
   > Write tests for SQL execution step classes and result set
