@@ -154,7 +154,20 @@ jobs:
           echo "::notice title=Pre-release diff base::${PREV_REF} (${SCOPE})"
 
       - name: Generate release notes with Claude
-        uses: anthropics/claude-code-action@v1
+        # claude-code-base-action is the event-agnostic sibling of
+        # claude-code-action. The latter rejects `push` events with
+        # "Unsupported event type: push" because it expects
+        # issue/PR/comment triggers; this job runs after a main-branch
+        # push deploy, so we use the base action which just invokes
+        # Claude Code against a prompt without event validation.
+        # Pinned to an immutable commit SHA (not a tag) to prevent
+        # tag-moving supply-chain attacks; the comment lists the
+        # corresponding upstream revision the pin was taken from.
+        # If the notes step fails for any reason, continue anyway —
+        # the next step falls back to a stub release body so the tag
+        # still gets cut and artifacts remain linked.
+        continue-on-error: true
+        uses: anthropics/claude-code-base-action@c937844d71159a8f6409acb3be0d10ea3cf92042 # main @ 2026-04-20, Claude Code 2.1.116
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: |
