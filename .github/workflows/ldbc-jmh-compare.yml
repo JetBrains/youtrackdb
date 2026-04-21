@@ -30,6 +30,10 @@ concurrency:
 
 env:
   LDBC_SCALE_FACTOR: '1'
+  # Shared marker for the in-progress placeholder comment. Referenced by
+  # both the "Check for in-progress benchmark" and "Remove in-progress
+  # placeholder" steps via `process.env.IN_PROGRESS_MARKER`.
+  IN_PROGRESS_MARKER: '<!-- jmh-ldbc-compare-in-progress -->'
 
 jobs:
   compare:
@@ -97,10 +101,19 @@ jobs:
       # another run is in progress. Cleaned up by "Remove in-progress
       # placeholder" below (runs on success, failure, or cancel). Base/Head
       # are rendered in the same format as the final comparison comment.
+      #
+      # Best-effort belt-and-suspenders guard on top of the job-level
+      # `concurrency:` block: the API check+post is not atomic, so two runs
+      # racing within API latency could both post. In practice the top-level
+      # concurrency block already cancels same-ref duplicates; this PR-scoped
+      # guard covers only the remaining windows (rapid re-dispatch, or
+      # multiple refs pointing at the same PR), which are rare enough that a
+      # strict mutex isn't worth the complexity.
       - name: Check for in-progress benchmark and post placeholder
         id: placeholder
         uses: actions/github-script@v9
         env:
+          BRANCH: ${{ steps.commits.outputs.branch }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           BASE_SHA: ${{ steps.commits.outputs.fork_point }}
           HEAD_SHA: ${{ steps.commits.outputs.head_sha }}
@@ -108,8 +121,8 @@ jobs:
           REPO_URL: ${{ github.server_url }}/${{ github.repository }}
         with:
           script: |
-            const branch = process.env.GITHUB_REF_NAME;
-            const IN_PROGRESS_MARKER = '<!-- jmh-ldbc-compare-in-progress -->';
+            const branch = process.env.BRANCH;
+            const IN_PROGRESS_MARKER = process.env.IN_PROGRESS_MARKER;
 
             const { data: prs } = await github.rest.pulls.list({
               owner: context.repo.owner,
@@ -119,6 +132,8 @@ jobs:
             });
 
             if (prs.length === 0) {
+              // No PR → nothing to guard here; the top-level `concurrency:`
+              // block still prevents same-ref duplicates.
               console.log(`No open PRs for branch ${branch}; skipping placeholder.`);
               core.setOutput('posted', 'false');
               return;
@@ -135,6 +150,9 @@ jobs:
               const existing = comments.find(
                 c => c.body && c.body.includes(IN_PROGRESS_MARKER));
               if (existing) {
+                // Set posted=false BEFORE setFailed so the cleanup step's
+                // `posted == 'true'` guard evaluates to false and we do not
+                // delete the other run's marker.
                 core.setOutput('posted', 'false');
                 core.setFailed(
                   `Another JMH LDBC compare run is already in progress for ` +
@@ -153,10 +171,13 @@ jobs:
               `(fork-point with \`${process.env.BASE_BRANCH}\`) ` +
               `| **Head:** ${fmtSha(process.env.HEAD_SHA)}`;
 
+            // Strip backticks so a branch name containing them cannot break
+            // out of the code span in the rendered markdown body.
+            const branchLabel = branch.replace(/`/g, '');
             const body = `${IN_PROGRESS_MARKER}\n` +
               `## JMH LDBC Benchmark Comparison\n\n` +
               `${commits}\n\n` +
-              `⏳ **Run in progress** on branch \`${branch}\`. ` +
+              `⏳ **Run in progress** on branch \`${branchLabel}\`. ` +
               `Follow the run: ${process.env.RUN_URL}`;
             for (const pr of prs) {
               const { data: created } = await github.rest.issues.createComment({
@@ -549,10 +570,12 @@ jobs:
       - name: Remove in-progress placeholder
         if: always() && steps.placeholder.outputs.posted == 'true'
         uses: actions/github-script@v9
+        env:
+          BRANCH: ${{ steps.commits.outputs.branch }}
         with:
           script: |
-            const branch = process.env.GITHUB_REF_NAME;
-            const IN_PROGRESS_MARKER = '<!-- jmh-ldbc-compare-in-progress -->';
+            const branch = process.env.BRANCH;
+            const IN_PROGRESS_MARKER = process.env.IN_PROGRESS_MARKER;
 
             const { data: prs } = await github.rest.pulls.list({
               owner: context.repo.owner,
@@ -571,13 +594,22 @@ jobs:
                 });
               for (const comment of comments) {
                 if (comment.body && comment.body.includes(IN_PROGRESS_MARKER)) {
-                  await github.rest.issues.deleteComment({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    comment_id: comment.id,
-                  });
-                  console.log(
-                    `Deleted placeholder #${comment.id} on PR #${pr.number}`);
+                  // Catch per-comment delete failures so one transient error
+                  // does not leave stale markers on the remaining PRs (which
+                  // would block all future runs until manually cleaned).
+                  try {
+                    await github.rest.issues.deleteComment({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      comment_id: comment.id,
+                    });
+                    console.log(
+                      `Deleted placeholder #${comment.id} on PR #${pr.number}`);
+                  } catch (err) {
+                    console.warn(
+                      `Failed to delete placeholder #${comment.id} on PR ` +
+                      `#${pr.number}: ${err.message}`);
+                  }
                 }
               }
             }
