@@ -47,7 +47,13 @@ public class AsyncReadCacheTestIT {
 
     final var fileLimit = 10;
     final var pageLimit = (int) (5L * 1024 * 1024 * 1024 / pageSize / fileLimit);
-    final var pageCount = (int) (1024L * 1024 * 1024 * 1024 / pageSize / 8);
+    // 8M ops per worker × 8 workers = 64M total page accesses. Kept an order of
+    // magnitude above what any concurrency bug needs to surface, but sized so the
+    // test fits inside the 60-minute per-test watchdog on the slowest CI runner
+    // (GitHub-hosted Apple Silicon on macOS arm JDK 25 — see JUnitTestListener).
+    // The working set (pageLimit × fileLimit) is unchanged, so eviction pressure
+    // against the 1 GiB cap stays identical — only the number of iterations shrinks.
+    final var pageCount = (int) (1024L * 1024 * 1024 * 1024 / pageSize / 8 / 4);
     final var timer = new Timer();
 
     final var memoryAboveLimit = new AtomicBoolean();
@@ -121,7 +127,13 @@ public class AsyncReadCacheTestIT {
     final List<Future<Void>> futures = new ArrayList<>();
 
     final var pageLimit = (int) (5 * 1024L * 1024 * 1024 / pageSize);
-    final var pageCount = (int) (1024L * 1024 * 1024 * 1024 / pageSize / 8);
+    // 8M ops per worker × 8 workers = 64M total page accesses under a Zipfian
+    // distribution. Reduced by 4× from the pre-existing 32M/worker for the same
+    // reason as testEvenDistribution — the test must fit inside the 60-minute
+    // per-test watchdog on the slowest CI runner (GitHub-hosted Apple Silicon on
+    // macOS arm JDK 25). Skew and working-set size are unchanged, so the Zipfian
+    // access pattern and eviction pressure remain identical.
+    final var pageCount = (int) (1024L * 1024 * 1024 * 1024 / pageSize / 8 / 4);
     final var timer = new Timer();
 
     final var memoryAboveLimit = new AtomicBoolean();
