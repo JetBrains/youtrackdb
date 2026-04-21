@@ -480,6 +480,24 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
       return null;
     }
 
+    // Authoritative residual check on the target vertex. Pattern A's hash
+    // hit implicitly binds targetAlias = back-ref entity, so any WHERE
+    // terms on targetAlias that are NOT the {@code @rid = $matched.X.@rid}
+    // equality must be re-verified here — the target's MatchStep was
+    // replaced by this step, and the hash lookup alone does not evaluate
+    // residual terms. On failure we return an empty hash so subsequent
+    // probes short-circuit (rather than fall back to nested-loop traversal,
+    // which would also reject every row after evaluating the same residual).
+    var targetFilter = single.targetFilter();
+    if (targetFilter != null) {
+      var session = ctx.getDatabaseSession();
+      var targetResult = new ResultInternal(session, targetEntity);
+      if (!targetFilter.matchesFilters(targetResult, ctx)) {
+        return new CachedBuild(
+            new Object2IntOpenHashMap<RID>(), targetEntity);
+      }
+    }
+
     var reversePrefix = "out".equals(single.direction()) ? "in_" : "out_";
     var fieldName = reversePrefix + single.edgeClass();
     var fieldValue = targetEntity.getPropertyInternal(fieldName);

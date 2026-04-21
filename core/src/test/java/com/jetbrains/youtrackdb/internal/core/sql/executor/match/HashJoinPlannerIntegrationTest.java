@@ -1989,6 +1989,85 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
     assertEquals(10, (int) result.get(0).getProperty("score"));
   }
 
+  /**
+   * Regression: Pattern A (single-edge back-ref) must apply residual WHERE
+   * terms on the target alias. Before the fix, {@code probeSingleEdge}
+   * emitted rows based on the hash lookup alone — the hash encodes only
+   * the {@code @rid = $matched.X.@rid} equality — so any additional
+   * constraints on the target vertex (e.g. {@code name != 'n1'}) were
+   * silently dropped because Pattern A replaces the target's MatchStep.
+   *
+   * <p>Graph setup: a self-loop on n1 makes {@code a=n1, b=n1} a valid
+   * back-ref candidate via {@code b.out('Friend')=n1=$matched.a}. The
+   * target residual {@code name != 'n1'} must reject n1, so the correct
+   * result is zero rows. Without the fix, one spurious row leaks through.
+   */
+  @Test
+  public void backRef_patternA_residualTargetFilter_correctResults() {
+    session.begin();
+    // Self-loop so the back-ref @rid = $matched.a.@rid succeeds for b=n1.
+    session.execute(
+        "CREATE EDGE Friend from (select from Person where name='n1')"
+            + " to (select from Person where name='n1')")
+        .close();
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b}"
+            + ".out('Friend'){as:c,"
+            + " where: (@rid = $matched.a.@rid AND name <> 'n1')}"
+            + " RETURN c.name as cName")
+        .toList();
+    session.commit();
+
+    // @rid = $matched.a.@rid picks c=n1, but name<>'n1' must reject it.
+    // Without the residual filter the probe emits one row (c=n1) — wrong.
+    assertEquals(0, result.size());
+  }
+
+  /**
+   * Sanity companion to {@link #backRef_patternA_residualTargetFilter_correctResults}:
+   * when the residual filter is satisfied, Pattern A still fires and the
+   * row is emitted. Confirms the fix does not over-reject.
+   */
+  @Test
+  public void backRef_patternA_residualTargetFilter_passing_correctResults() {
+    session.begin();
+    session.execute(
+        "CREATE EDGE Friend from (select from Person where name='n1')"
+            + " to (select from Person where name='n1')")
+        .close();
+    session.commit();
+
+    session.begin();
+    var explain = session.query(
+        "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b}"
+            + ".out('Friend'){as:c,"
+            + " where: (@rid = $matched.a.@rid AND name = 'n1')}"
+            + " RETURN c.name as cName")
+        .toList();
+    String plan = explain.get(0).getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertTrue(
+        "residual-safe Pattern A should still collapse via hash join, got:\n" + plan,
+        plan.contains("BACK-REF HASH JOIN"));
+
+    var result = session.query(
+        "MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b}"
+            + ".out('Friend'){as:c,"
+            + " where: (@rid = $matched.a.@rid AND name = 'n1')}"
+            + " RETURN c.name as cName")
+        .toList();
+    session.commit();
+
+    assertEquals(1, result.size());
+    assertEquals("n1", result.get(0).getProperty("cName"));
+  }
+
   // ── $matched publication regression ────────────────────────────────────
 
   /**

@@ -3083,14 +3083,26 @@ public class MatchExecutionPlanner {
             // propagated from a preceding outE/inE). When collectEdgeRids
             // is true, the class/direction came from the previous edge —
             // Pattern B detection handles that case below.
+            //
+            // Any residual WHERE terms on the target alias (beyond the
+            // {@code @rid = $matched.X.@rid} equality) are extracted here
+            // and passed to {@link BackRefHashJoinStep} for post-load
+            // evaluation. Pattern A is rejected only when the residual
+            // cannot be extracted safely — either because the RID equality
+            // is nested too deep for the flat-block extractor, or because
+            // the residual references {@code $matched}/{@code $currentMatch}
+            // which build phase cannot resolve.
+            var residualExtraction = extractTargetResidual(targetFilter);
             if (!collectEdgeRids
                 && !edgeJ.edge.in.isOptionalNode()
                 && isSemiJoinCandidate(edgeDirection, involvedAliases,
-                    boundAliases)) {
+                    boundAliases)
+                && residualExtraction.safe()) {
               var backRefAlias = involvedAliases.getFirst();
               var descriptor = new SingleEdgeSemiJoin(
                   edgeClass, edgeDirection, ridExpr,
-                  sourceAliasJ, backRefAlias, targetAliasJ);
+                  sourceAliasJ, backRefAlias, targetAliasJ,
+                  residualExtraction.residual());
               edgeJ.setSemiJoinDescriptor(descriptor);
               logger.debug(
                   "MATCH pre-filter: BackRefHashJoin on edge[{}] "
@@ -3508,6 +3520,124 @@ public class MatchExecutionPlanner {
    */
   private static boolean refersToCurrentMatch(SQLWhereClause filter) {
     return filter.toString().contains("$currentMatch");
+  }
+
+  /**
+   * Result of splitting a Pattern A target WHERE into the hash-joinable
+   * {@code @rid} equality and everything else.
+   *
+   * @param safe     {@code true} when Pattern A may fire — either the target
+   *                 has no residual, or the residual has been cleanly
+   *                 extracted and does not reference any build-phase-unsafe
+   *                 variables
+   * @param residual the residual to re-evaluate on the loaded target entity,
+   *                 or {@code null} when there is nothing to re-evaluate
+   */
+  record ResidualExtraction(boolean safe, @Nullable SQLWhereClause residual) {
+  }
+
+  private static final ResidualExtraction RESIDUAL_SAFE_NONE =
+      new ResidualExtraction(true, null);
+  private static final ResidualExtraction RESIDUAL_UNSAFE =
+      new ResidualExtraction(false, null);
+
+  /**
+   * Extracts the non-{@code @rid} residual of a Pattern A target WHERE clause.
+   * Returns {@link #RESIDUAL_UNSAFE} when the clause cannot be flattened to
+   * a single conjunction (e.g. multi-branch OR) or when the residual
+   * references {@code $matched}/{@code $currentMatch} — those variables have
+   * no defined value at hash-build time, so evaluating them per loaded
+   * target would read stale context state.
+   *
+   * <p>Handles the MATCH planner's typical double-wrapping
+   * ({@code AND[OR[AND[@rid, ...]]]}) by flattening all transparent
+   * single-element OR/AND wrappers before locating the {@code @rid} term,
+   * matching the recursive behavior of {@link SQLWhereClause#findRidEquality}.
+   */
+  private static ResidualExtraction extractTargetResidual(
+      @Nullable SQLWhereClause targetFilter) {
+    if (targetFilter == null) {
+      return RESIDUAL_SAFE_NONE;
+    }
+    var base = targetFilter.getBaseExpression();
+    if (base == null) {
+      return RESIDUAL_SAFE_NONE;
+    }
+    var atoms = new ArrayList<SQLBooleanExpression>();
+    if (!flattenConjunction(base, atoms)) {
+      return RESIDUAL_UNSAFE;
+    }
+    var residualAtoms = new ArrayList<SQLBooleanExpression>(atoms.size());
+    var foundRid = false;
+    for (var atom : atoms) {
+      if (!foundRid && isRidEqualityAtom(atom)) {
+        foundRid = true;
+      } else {
+        residualAtoms.add(atom);
+      }
+    }
+    if (!foundRid) {
+      return RESIDUAL_UNSAFE;
+    }
+    if (residualAtoms.isEmpty()) {
+      return RESIDUAL_SAFE_NONE;
+    }
+    var newAnd = new SQLAndBlock(-1);
+    newAnd.getSubBlocks().addAll(residualAtoms);
+    var newOr = new SQLOrBlock(-1);
+    newOr.getSubBlocks().add(newAnd);
+    var residual = new SQLWhereClause(-1);
+    residual.setBaseExpression(newOr);
+
+    var refs = newAnd.getMatchPatternInvolvedAliases();
+    if (refs != null && !refs.isEmpty()) {
+      return RESIDUAL_UNSAFE;
+    }
+    if (refersToCurrentMatch(residual)) {
+      return RESIDUAL_UNSAFE;
+    }
+    return new ResidualExtraction(true, residual);
+  }
+
+  /**
+   * Flattens a conjunction expression, peeling single-element OR/AND
+   * wrappers recursively and collecting leaf boolean terms into
+   * {@code atoms}. Returns {@code false} when a multi-branch OR is
+   * encountered (not a pure conjunction) or the expression is otherwise
+   * not flattenable.
+   */
+  private static boolean flattenConjunction(
+      SQLBooleanExpression expr, List<SQLBooleanExpression> atoms) {
+    if (expr instanceof SQLOrBlock or) {
+      if (or.getSubBlocks().size() != 1) {
+        return false;
+      }
+      return flattenConjunction(or.getSubBlocks().getFirst(), atoms);
+    }
+    if (expr instanceof SQLAndBlock and) {
+      for (var sub : and.getSubBlocks()) {
+        if (!flattenConjunction(sub, atoms)) {
+          return false;
+        }
+      }
+      return true;
+    }
+    atoms.add(expr);
+    return true;
+  }
+
+  /**
+   * Returns {@code true} if the given already-flattened atomic term is a
+   * {@code @rid = <expr>} equality. Wraps the atom in a single-term WHERE
+   * clause and delegates to {@link SQLWhereClause#findRidEquality} to avoid
+   * duplicating the RID-matching logic.
+   */
+  private static boolean isRidEqualityAtom(SQLBooleanExpression atom) {
+    var tmpAnd = new SQLAndBlock(-1);
+    tmpAnd.getSubBlocks().add(atom);
+    var tmpWhere = new SQLWhereClause(-1);
+    tmpWhere.setBaseExpression(tmpAnd);
+    return tmpWhere.findRidEquality() != null;
   }
 
   /**
