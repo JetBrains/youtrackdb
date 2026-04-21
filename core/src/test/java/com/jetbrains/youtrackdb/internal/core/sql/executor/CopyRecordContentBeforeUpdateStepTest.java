@@ -68,6 +68,10 @@ public class CopyRecordContentBeforeUpdateStepTest extends TestUtilsFixture {
       var updatable = (UpdatableResult) results.get(0);
       var prev = updatable.previousValue;
       assertThat(prev).isNotNull();
+      // Pin the exact property set so a regression that leaked an internal field
+      // (e.g. @fieldTypes) into the RETURN BEFORE snapshot is caught.
+      assertThat(prev.getPropertyNames())
+          .containsExactlyInAnyOrder("@rid", "@version", "@class", "name", "age");
       assertThat((Object) prev.getProperty("@rid")).isEqualTo(rid);
       assertThat((Object) prev.getProperty("@version")).isEqualTo(loaded.getVersion());
       assertThat((Object) prev.getProperty("@class")).isEqualTo(className);

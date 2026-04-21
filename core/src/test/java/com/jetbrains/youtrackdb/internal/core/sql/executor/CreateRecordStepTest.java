@@ -237,18 +237,29 @@ public class CreateRecordStepTest extends TestUtilsFixture {
 
   /**
    * prettyPrint with total==1 uses the singular "1 record" wording; without profiling the cost
-   * suffix is absent.
+   * suffix is absent. We cross-check total=0 — which MUST take the else branch to render
+   * "0 record" — so a mutation that inverts the {@code if (total == 1)} guard would change the
+   * total=0 rendering (else-branch output for total=0 is "0 record", but if the guard were
+   * inverted the singular branch would fire on total=0 and render the literal "1 record").
+   * This bounds the singular/plural dispatch so a trivial guard-inversion mutation is
+   * falsifiable via the total=0 case.
    */
   @Test
   public void prettyPrintSingularWithoutProfiling() {
     var ctx = newContext();
-    var step = new CreateRecordStep(ctx, null, 1, false);
+    var single = new CreateRecordStep(ctx, null, 1, false);
+    var zero = new CreateRecordStep(ctx, null, 0, false);
 
-    var output = step.prettyPrint(0, 2);
+    var singleOut = single.prettyPrint(0, 2);
+    var zeroOut = zero.prettyPrint(0, 2);
 
-    assertThat(output).contains("+ CREATE EMPTY RECORDS");
-    assertThat(output).contains("1 record");
-    assertThat(output).doesNotContain("μs");
+    // Singular branch (total==1) renders literal "1 record".
+    assertThat(singleOut).contains("+ CREATE EMPTY RECORDS").contains("1 record")
+        .doesNotContain("μs");
+    // Else branch (total != 1) renders "<count> record" — total=0 proves the guard is not
+    // vacuously taking the singular branch.
+    assertThat(zeroOut).contains("+ CREATE EMPTY RECORDS").contains("0 record")
+        .doesNotContain("1 record");
   }
 
   /**
