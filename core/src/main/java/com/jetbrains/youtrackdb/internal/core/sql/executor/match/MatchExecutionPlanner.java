@@ -3585,15 +3585,15 @@ public class MatchExecutionPlanner {
     //      loaded edge. Authoritative correctness check; catches any terms
     //      the index didn't cover.
     //
-    // Rejection cases kept at plan time:
+    // Rejection case kept at plan time:
     //   * Filter references $matched / $currentMatch — build phase has no
     //     per-row scope for those variables, so runtime evaluation would
     //     see stale values. Safer to fall back to the standard chain.
-    //   * Multi-branch OR WHERE — findIndexForFilter would reject it too;
-    //     we could handle it without the index, but the non-indexable
-    //     residual path is already handled by edgeFilter alone, so there
-    //     is no functional reason to reject. Kept for now to stay aligned
-    //     with findIndexForFilter's contract.
+    //
+    // Multi-branch OR in the intermediate filter is not rejected here: any
+    // terms findIndexForFilter cannot cover are re-verified post-load by
+    // edgeFilter on every loaded edge, so correctness does not depend on
+    // indexability.
     var intermediateFilter = aliasFilters.get(intermediateAlias);
     IndexSearchDescriptor indexFilter = null;
     SQLWhereClause edgeFilter = null;
@@ -3609,7 +3609,12 @@ public class MatchExecutionPlanner {
       if (refersToCurrentMatch(intermediateFilter)) {
         return null;
       }
-      edgeFilter = intermediateFilter;
+      // Deep-copy the filter so the ChainSemiJoin descriptor owns its own
+      // AST subtree, independent of aliasFilters. The planner may still
+      // rewrite the original (rebindFilters, etc.) and cached plans may
+      // re-execute with re-bound parameters — shared references would let
+      // an AST rewrite on one side corrupt the other.
+      edgeFilter = intermediateFilter.copy();
 
       var intermediateClass = aliasClasses.get(intermediateAlias);
       if (intermediateClass != null) {
@@ -3627,13 +3632,112 @@ public class MatchExecutionPlanner {
   }
 
   /**
-   * Returns {@code true} if the given WHERE clause references
-   * {@code $currentMatch} anywhere in its AST. A simple {@code toString}
-   * check suffices because the parser always emits the dollar-prefixed
-   * form verbatim in the serialized expression.
+   * Returns {@code true} if the given WHERE clause references the
+   * {@code $currentMatch} identifier anywhere in its AST.
+   *
+   * <p>Uses a hybrid strategy: recurse structurally through block types
+   * ({@link SQLOrBlock}, {@link SQLAndBlock}, {@link SQLNotBlock}) and
+   * fall back to a quote-aware token scan for anything else — leaf
+   * condition types (binary / NOT IN / BETWEEN / ...) plus opaque
+   * wrappers whose inner structure is not publicly accessible. The
+   * token scan skips text enclosed in single or double quotes, so a
+   * literal like {@code name = '$currentMatchThing'} no longer
+   * false-positives and forces the Pattern A / B optimization to bail
+   * unnecessarily.
+   *
+   * <p>The identifier check is anchored at a word boundary (the next
+   * character must not be an identifier part), so {@code $currentMatchX}
+   * — a hypothetical unrelated variable — does not match either.
    */
   private static boolean refersToCurrentMatch(SQLWhereClause filter) {
-    return filter.toString().contains("$currentMatch");
+    var base = filter.getBaseExpression();
+    return base != null && refersToCurrentMatch(base);
+  }
+
+  private static boolean refersToCurrentMatch(SQLBooleanExpression expr) {
+    if (expr instanceof SQLOrBlock or) {
+      var subs = or.getSubBlocks();
+      if (subs != null) {
+        for (var sub : subs) {
+          if (refersToCurrentMatch(sub)) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+    if (expr instanceof SQLAndBlock and) {
+      var subs = and.getSubBlocks();
+      if (subs != null) {
+        for (var sub : subs) {
+          if (refersToCurrentMatch(sub)) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+    if (expr instanceof SQLNotBlock not) {
+      return not.getSub() != null && refersToCurrentMatch(not.getSub());
+    }
+    return leafContainsCurrentMatchIdentifier(expr.toString());
+  }
+
+  /**
+   * Returns {@code true} if {@code serialized} contains the token
+   * {@code $currentMatch} outside of any single- or double-quoted string
+   * literal, at a word boundary. The serialized form of a leaf boolean
+   * expression is re-entrant (its toString is a valid YQL fragment), so
+   * string literals use standard SQL quoting and every {@code $}-prefixed
+   * identifier is emitted literally.
+   */
+  private static boolean leafContainsCurrentMatchIdentifier(String serialized) {
+    if (serialized == null) {
+      return false;
+    }
+    var len = serialized.length();
+    var token = "$currentMatch";
+    var inSingle = false;
+    var inDouble = false;
+    for (var i = 0; i < len; i++) {
+      var c = serialized.charAt(i);
+      if (inSingle) {
+        if (c == '\\' && i + 1 < len) {
+          i++;
+        } else if (c == '\'') {
+          inSingle = false;
+        }
+        continue;
+      }
+      if (inDouble) {
+        if (c == '\\' && i + 1 < len) {
+          i++;
+        } else if (c == '"') {
+          inDouble = false;
+        }
+        continue;
+      }
+      if (c == '\'') {
+        inSingle = true;
+        continue;
+      }
+      if (c == '"') {
+        inDouble = true;
+        continue;
+      }
+      if (c == '$' && serialized.regionMatches(i, token, 0, token.length())) {
+        var end = i + token.length();
+        if (end >= len || !isIdentifierPart(serialized.charAt(end))) {
+          return true;
+        }
+        i = end - 1;
+      }
+    }
+    return false;
+  }
+
+  private static boolean isIdentifierPart(char c) {
+    return Character.isLetterOrDigit(c) || c == '_';
   }
 
   /**
@@ -3696,8 +3800,17 @@ public class MatchExecutionPlanner {
     if (residualAtoms.isEmpty()) {
       return RESIDUAL_SAFE_NONE;
     }
+    // Deep-copy each atom so the residual owns its own AST subtree, independent
+    // of the original targetFilter. The original stays in place for other
+    // planner passes (rebindFilters, index detection) and the residual is
+    // stashed on the SingleEdgeSemiJoin descriptor, which may be re-used when
+    // a cached plan re-executes with re-bound parameters — shared references
+    // would let an AST rewrite on one side corrupt the other. Mirrors the
+    // policy applied in SQLWhereClause.buildWhereWithoutTerm.
     var newAnd = new SQLAndBlock(-1);
-    newAnd.getSubBlocks().addAll(residualAtoms);
+    for (var atom : residualAtoms) {
+      newAnd.getSubBlocks().add(atom.copy());
+    }
     var newOr = new SQLOrBlock(-1);
     newOr.getSubBlocks().add(newAnd);
     var residual = new SQLWhereClause(-1);

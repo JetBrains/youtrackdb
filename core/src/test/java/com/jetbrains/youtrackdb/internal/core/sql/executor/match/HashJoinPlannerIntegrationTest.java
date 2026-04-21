@@ -1254,28 +1254,33 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
   // ── Pattern D — in-direction NOT IN ──
 
   /**
-   * Pattern D with "in" direction — NOT IN $matched.X.in('Friend').
-   * Verifies anti-semi-join works for incoming edge traversals.
+   * Pattern D with "in" direction — NOT IN {@code $matched.X.in('Friend')}.
+   * Verifies anti-semi-join works when the NOT IN RHS traverses incoming
+   * edges instead of outgoing ones.
    *
-   * Query: find FoF of n1, excluding vertices that have an incoming
-   * Friend edge from n1 (i.e., direct friends of n1 are excluded).
+   * <p>Graph (reversed): {@code n4 <--Friend-- n2 <--Friend-- n1}. Starting
+   * at {@code n4}, walk back twice via {@code .in('Friend')}:
+   * {@code friend = n2}, then {@code fof = n1}. The NOT IN RHS
+   * {@code $matched.start.in('Friend')} resolves to {@code n4}'s incoming
+   * Friend neighbors = {n2}. Candidate {@code n1 NOT IN {n2}} → accepted.
+   * Expected result: {@code {n1}}.
    */
   @Test
   public void backRef_notIn_inDirection_correctResults() {
     session.begin();
     var result = session.query(
-        "MATCH {class:Person, as:start, where:(name='n1')}"
-            + ".out('Friend'){as:friend}"
-            + ".out('Friend'){as:fof,"
-            + " where: ($currentMatch NOT IN $matched.start.out('Friend'))}"
+        "MATCH {class:Person, as:start, where:(name='n4')}"
+            + ".in('Friend'){as:friend}"
+            + ".in('Friend'){as:fof,"
+            + " where: ($currentMatch NOT IN $matched.start.in('Friend'))}"
             + " RETURN fof.name as fofName")
         .toList();
 
     var names = result.stream()
         .map(r -> (String) r.getProperty("fofName"))
         .collect(Collectors.toSet());
-    // n4, n5 are FoF; neither is a direct friend of n1
-    assertEquals(Set.of("n4", "n5"), names);
+    // n1 is the only FoF via reverse Friend; n2 (direct in-neighbor) excluded
+    assertEquals(Set.of("n1"), names);
     session.commit();
   }
 
@@ -2124,6 +2129,53 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
     // future regressions in the AST rejection.
     assertEquals(1, result.size());
     assertEquals("n1", result.get(0).getProperty("fofName"));
+  }
+
+  /**
+   * Pattern A residual handling when the target WHERE contains a second
+   * {@code @rid = <literal>} equality alongside the back-ref
+   * {@code @rid = $matched.a.@rid}.
+   *
+   * <p>{@code findRidEquality} walks the atoms and returns the first match —
+   * here the {@code $matched.a.@rid} one (atom order in the parser). The
+   * planner enters the Pattern A path; {@code extractTargetResidual} strips
+   * that atom and leaves {@code @rid = <literal>} as residual. The residual
+   * has no {@code $matched}/{@code $currentMatch} reference, so Pattern A
+   * is safe. At probe time, {@code BackRefHashJoinStep} re-evaluates the
+   * residual per loaded target: only entities whose RID also equals the
+   * literal pass.
+   *
+   * <p>Graph: {@code n1 --Friend--> n1} (self-loop), added to the shared
+   * graph. The back-ref {@code @rid = $matched.a.@rid} selects {@code c=n1}.
+   * The literal half {@code @rid = #<impossible>} can never hold, so the
+   * residual filters everything out and the result is empty. Without the
+   * residual, the probe would emit {@code c=n1}.
+   */
+  @Test
+  public void backRef_patternA_compoundRidEquality_residualRejects() {
+    session.begin();
+    session.execute(
+        "CREATE EDGE Friend from (select from Person where name='n1')"
+            + " to (select from Person where name='n1')")
+        .close();
+    session.commit();
+
+    session.begin();
+    // #9999:9999 is a RID that cannot exist in the test database (cluster
+    // 9999 is never created). Using an impossible RID keeps the test
+    // independent of cluster-id assignment across runs.
+    var result = session.query(
+        "MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b}"
+            + ".out('Friend'){as:c,"
+            + " where: (@rid = $matched.a.@rid AND @rid = #9999:9999)}"
+            + " RETURN c.name as cName")
+        .toList();
+    session.commit();
+
+    // Pattern A picks c=n1 via $matched.a.@rid; literal residual
+    // @rid=#9999:9999 rejects it. Correct result: zero rows.
+    assertEquals(0, result.size());
   }
 
   // ── $matched publication regression ────────────────────────────────────
