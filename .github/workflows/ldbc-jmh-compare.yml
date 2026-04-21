@@ -92,6 +92,84 @@ jobs:
           echo "HEAD:        $HEAD_SHA"
           echo "Fork-point:  $FORK_POINT"
 
+      # Post a placeholder comment on every open PR for this branch to signal
+      # that a run is starting. If a placeholder already exists, exit early —
+      # another run is in progress. Cleaned up by "Remove in-progress
+      # placeholder" below (runs on success, failure, or cancel). Base/Head
+      # are rendered in the same format as the final comparison comment.
+      - name: Check for in-progress benchmark and post placeholder
+        id: placeholder
+        uses: actions/github-script@v9
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          BASE_SHA: ${{ steps.commits.outputs.fork_point }}
+          HEAD_SHA: ${{ steps.commits.outputs.head_sha }}
+          BASE_BRANCH: ${{ steps.commits.outputs.base_branch }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        with:
+          script: |
+            const branch = process.env.GITHUB_REF_NAME;
+            const IN_PROGRESS_MARKER = '<!-- jmh-ldbc-compare-in-progress -->';
+
+            const { data: prs } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head: `${context.repo.owner}:${branch}`,
+              state: 'open',
+            });
+
+            if (prs.length === 0) {
+              console.log(`No open PRs for branch ${branch}; skipping placeholder.`);
+              core.setOutput('posted', 'false');
+              return;
+            }
+
+            for (const pr of prs) {
+              const comments = await github.paginate(
+                github.rest.issues.listComments,
+                {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr.number,
+                });
+              const existing = comments.find(
+                c => c.body && c.body.includes(IN_PROGRESS_MARKER));
+              if (existing) {
+                core.setOutput('posted', 'false');
+                core.setFailed(
+                  `Another JMH LDBC compare run is already in progress for ` +
+                  `PR #${pr.number} (comment #${existing.id}: ${existing.html_url}). ` +
+                  `Exiting.`);
+                return;
+              }
+            }
+
+            // Matches the `fmt_sha` helper in jmh-ldbc/jmh-compare.py:
+            // [`<short10>`](<repo>/commit/<sha>)
+            const fmtSha = sha =>
+              `[\`${sha.slice(0, 10)}\`](${process.env.REPO_URL}/commit/${sha})`;
+            const commits =
+              `**Base:** ${fmtSha(process.env.BASE_SHA)} ` +
+              `(fork-point with \`${process.env.BASE_BRANCH}\`) ` +
+              `| **Head:** ${fmtSha(process.env.HEAD_SHA)}`;
+
+            const body = `${IN_PROGRESS_MARKER}\n` +
+              `## JMH LDBC Benchmark Comparison\n\n` +
+              `${commits}\n\n` +
+              `⏳ **Run in progress** on branch \`${branch}\`. ` +
+              `Follow the run: ${process.env.RUN_URL}`;
+            for (const pr of prs) {
+              const { data: created } = await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                body,
+              });
+              console.log(
+                `Posted in-progress placeholder #${created.id} on PR #${pr.number}`);
+            }
+            core.setOutput('posted', 'true');
+
       - name: Build JMH filter from query list
         id: filter
         run: |
@@ -463,6 +541,45 @@ jobs:
               });
               console.log(
                 `Posted benchmark comment #${created.id} on PR #${pr.number}`);
+            }
+
+      # Always remove our in-progress placeholder so the next run is not
+      # blocked. Skipped when the placeholder step itself bailed out (posted=false)
+      # so we never delete another run's placeholder.
+      - name: Remove in-progress placeholder
+        if: always() && steps.placeholder.outputs.posted == 'true'
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const branch = process.env.GITHUB_REF_NAME;
+            const IN_PROGRESS_MARKER = '<!-- jmh-ldbc-compare-in-progress -->';
+
+            const { data: prs } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head: `${context.repo.owner}:${branch}`,
+              state: 'open',
+            });
+
+            for (const pr of prs) {
+              const comments = await github.paginate(
+                github.rest.issues.listComments,
+                {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr.number,
+                });
+              for (const comment of comments) {
+                if (comment.body && comment.body.includes(IN_PROGRESS_MARKER)) {
+                  await github.rest.issues.deleteComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    comment_id: comment.id,
+                  });
+                  console.log(
+                    `Deleted placeholder #${comment.id} on PR #${pr.number}`);
+                }
+              }
             }
 
       # ── Cleanup temp files ──────────────────────────────────────────────
