@@ -1,0 +1,13 @@
+{
+  "modules": {
+    "core": 9392,
+    "docker-tests": 1891,
+    "embedded": 1931,
+    "examples": 6,
+    "gremlin-annotations": 30,
+    "jmh-ldbc": 39,
+    "server": 5504,
+    "tests": 1147
+  },
+  "total": 19940
+}
