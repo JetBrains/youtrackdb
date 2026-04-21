@@ -62,6 +62,11 @@ public class DeleteStepTest extends TestUtilsFixture {
 
       var results = drain(step.start(ctx), ctx);
       assertThat(results).hasSize(2);
+      // DeleteStep.mapResult contracts to re-emit the input result unchanged (for downstream
+      // projection like RETURN BEFORE). Pin the RIDs so a mutation that substituted a new
+      // transient ResultInternal would be caught.
+      assertThat(results.stream().map(r -> r.getIdentity()).toList())
+          .containsExactlyInAnyOrder(rid1, rid2);
       session.commit();
     } catch (Throwable t) {
       if (session.isTxActive()) {

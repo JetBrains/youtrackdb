@@ -139,20 +139,37 @@ public class UpdateSetStepTest extends TestUtilsFixture {
 
   /**
    * {@code copy()} produces a new step with freshly-copied item list (each {@link SQLUpdateItem}
-   * is deep-copied). The clone is independent — it is not the same instance, and its prettyPrint
-   * reflects the same items.
+   * is deep-copied) that still applies its SET assignments when executed. The prettyPrint-only
+   * check would be mutation-trivial (a clone with an empty item list still renders the header
+   * label), so we execute the clone against a live upstream row and assert the assignments land.
    */
   @Test
   public void copyProducesIndependentStepWithCopiedItems() {
-    var ctx = newContext();
-    var items = parseUpdateItems("UPDATE X SET a = 1");
-    var step = new UpdateSetStep(items, ctx, true);
+    var className = createClassInstance().getName();
+    session.begin();
+    try {
+      var ctx = newContext();
+      var items = parseUpdateItems(
+          "UPDATE " + className + " SET name = 'Alice', age = 42");
+      var original = new UpdateSetStep(items, ctx, true);
 
-    var copy = (UpdateSetStep) step.copy(ctx);
+      var copy = (UpdateSetStep) original.copy(ctx);
 
-    assertThat(copy).isNotSameAs(step);
-    assertThat(copy.isProfilingEnabled()).isTrue();
-    assertThat(copy.prettyPrint(0, 2)).contains("+ UPDATE SET");
+      assertThat(copy).isNotSameAs(original);
+      assertThat(copy.isProfilingEnabled()).isTrue();
+
+      // Functional check: the cloned step must apply the SET assignments (pins that
+      // SQLUpdateItem.copy() actually preserved the item list, not an empty one).
+      var entity = (com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl) session
+          .newEntity(className);
+      copy.setPrevious(sourceStep(ctx, List.of(new UpdatableResult(session, entity))));
+      var results = drain(copy.start(ctx), ctx);
+      assertThat(results).hasSize(1);
+      assertThat((Object) results.get(0).getProperty("name")).isEqualTo("Alice");
+      assertThat((Object) results.get(0).getProperty("age")).isEqualTo(42);
+    } finally {
+      session.rollback();
+    }
   }
 
   // =========================================================================
@@ -170,7 +187,7 @@ public class UpdateSetStepTest extends TestUtilsFixture {
    * list from the first operations block. Using the parser avoids reflection and gives us valid,
    * fully-initialized AST nodes that {@link UpdateSetStep#mapResult} accepts without surprises.
    */
-  static List<SQLUpdateItem> parseUpdateItems(String sql) {
+  private static List<SQLUpdateItem> parseUpdateItems(String sql) {
     try {
       var parser = new YouTrackDBSql(new ByteArrayInputStream(sql.getBytes()));
       var stm = (SQLUpdateStatement) parser.parse();
