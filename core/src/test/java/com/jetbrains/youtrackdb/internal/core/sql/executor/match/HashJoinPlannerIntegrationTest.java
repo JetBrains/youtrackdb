@@ -1827,4 +1827,60 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
     session.commit();
   }
 
+  // ── $matched publication regression ────────────────────────────────────
+
+  /**
+   * Regression test: when {@code BackRefHashJoinStep} (Pattern A) binds a
+   * target alias, a downstream MATCH branch whose WHERE references
+   * {@code $matched.<that alias>} must observe the fresh binding.
+   *
+   * <p>Before the fix, {@code probeSingleEdge} emitted rows via
+   * {@code ExecutionStream.flatMap} without republishing
+   * {@link com.jetbrains.youtrackdb.internal.core.command.CommandContext#VAR_MATCHED},
+   * leaving the context with the stale value from the upstream
+   * {@link MatchEdgeTraverser}. {@code MatchEdgeTraverser.filter} patches
+   * only the starting-point alias of the downstream edge onto the stale
+   * $matched object, so any other alias bound by the hash-join step is
+   * invisible to the filter — it resolves {@code $matched.c} to null and
+   * rejects every row, producing zero results.
+   *
+   * <p>Graph augmentation ({@code n2→Friend→n1}, {@code n1→Likes→t1})
+   * lets the query hit Pattern A (only {@code b=n2} back-refs to
+   * {@code a=n1}, so {@code c=n1}) and provides a non-empty branch from
+   * {@code a}. The branch starts from {@code a} — not {@code c} — so
+   * {@code MatchEdgeTraverser.filter}'s auto-patch restores only
+   * {@code a} on any stale $matched object, making the reference to
+   * {@code $matched.c.name} the load-bearing assertion.
+   */
+  @Test
+  public void backRef_patternA_publishesMatchedForDownstreamAliasRef() {
+    session.begin();
+    session.execute(
+        "CREATE EDGE Friend from (select from Person where name='n2')"
+            + " to (select from Person where name='n1')")
+        .close();
+    session.execute(
+        "CREATE EDGE Likes from (select from Person where name='n1')"
+            + " to (select from Tag where name='t1')")
+        .close();
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b}"
+            + ".out('Friend'){as:c, where:(@rid = $matched.a.@rid)},"
+            + " {as:a}.out('Likes'){as:t, where:($matched.c.name = 'n1')}"
+            + " RETURN t.name as tName")
+        .toList();
+    session.commit();
+
+    // Main path: a=n1, b ∈ {n2,n3}, back-ref requires b→n1 — only b=n2
+    // hits (via the added n2→Friend→n1 edge), so c=n1.
+    // Branch: a=n1 has one Likes target (t1). Branch filter requires
+    // $matched.c.name='n1'; with the fix it is true and t=t1 passes.
+    assertEquals(1, result.size());
+    assertEquals("t1", result.get(0).getProperty("tName"));
+  }
+
 }

@@ -143,21 +143,38 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
     var localCache = cache;
     var localDescriptor = descriptor;
 
-    // ChainSemiJoin needs flatMap (fan-out: one source → multiple edges)
+    // ChainSemiJoin needs flatMap (fan-out: one source → multiple edges).
+    // Each emitted row binds new aliases (intermediate + target), so
+    // $matched must be republished to match MatchEdgeTraverser.next()
+    // contract — downstream WHERE clauses resolving $matched.<alias>
+    // depend on it.
     if (localDescriptor instanceof ChainSemiJoin chainDesc) {
-      return upstream.flatMap(
-          (row, c) -> probeChain(row, localCache, chainDesc, session, c));
+      return upstream
+          .flatMap((row, c) -> probeChain(row, localCache, chainDesc, session, c))
+          .map((result, c) -> {
+            c.setSystemVariable(CommandContext.VAR_MATCHED, result);
+            return result;
+          });
     }
 
     // SingleEdgeSemiJoin uses flatMap to preserve duplicate edges between
-    // the same vertex pair (e.g. 3 "Knows" edges from A→B emit 3 rows)
+    // the same vertex pair (e.g. 3 "Knows" edges from A→B emit 3 rows).
+    // The emitted row binds the target alias, so $matched must be
+    // republished (see ChainSemiJoin branch above).
     if (localDescriptor instanceof SingleEdgeSemiJoin semiJoin) {
-      return upstream.flatMap(
-          (row, c) -> probeSingleEdge(
-              row, localCache, semiJoin, session, c));
+      return upstream
+          .flatMap((row, c) -> probeSingleEdge(
+              row, localCache, semiJoin, session, c))
+          .map((result, c) -> {
+            c.setSystemVariable(CommandContext.VAR_MATCHED, result);
+            return result;
+          });
     }
 
-    // AntiSemiJoin uses filter (0 or 1 output per row)
+    // AntiSemiJoin uses filter (0 or 1 output per row). The emitted row is
+    // the unchanged upstream row, so $matched (already published by the
+    // upstream step for this exact row object) remains correct — no
+    // republication needed.
     return upstream.filter(
         (row, c) -> probeAntiJoin(row, localCache, localDescriptor, c));
   }
