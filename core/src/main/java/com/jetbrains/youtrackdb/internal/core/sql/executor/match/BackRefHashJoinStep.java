@@ -547,6 +547,7 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
         : linkBag.size();
     var initialCapacity = hashCapacity(sizeEstimate, maxSize);
     var result = new HashMap<RID, List<Result>>(initialCapacity);
+    var edgeFilter = chain.edgeFilter();
     long count = 0;
     for (var pair : linkBag) {
       var edgeRid = pair.primaryRid();
@@ -562,6 +563,15 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
           continue;
         }
         var edgeResult = new ResultInternal(session, edgeEntity);
+        // Authoritative correctness check: the index may cover only a subset
+        // of the WHERE clause (or none of it), so re-evaluate the full edge
+        // filter on the loaded entity. Without this, non-indexable terms
+        // are silently dropped because the consumed predecessor's MatchStep
+        // is skipped.
+        if (edgeFilter != null
+            && !edgeFilter.matchesFilters(edgeResult, ctx)) {
+          continue;
+        }
         result.computeIfAbsent(sourceVertexRid, k -> new ArrayList<>())
             .add(edgeResult);
         count++;

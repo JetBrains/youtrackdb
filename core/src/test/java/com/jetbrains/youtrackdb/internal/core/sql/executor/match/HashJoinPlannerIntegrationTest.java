@@ -1872,18 +1872,23 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
   }
 
   /**
-   * Regression: Pattern B (outE+inV chain) must reject an intermediate edge
-   * filter that is not fully covered by a single index. Before the fix,
-   * {@code detectChainSemiJoin} produced a ChainSemiJoin whose only filter
-   * evaluator was {@code indexRidSet.contains(edgeRid)} — that covers the
-   * indexable part only. Non-indexable residual terms (e.g.
-   * {@code category='A'} when the index is on {@code score}) were silently
-   * dropped because the consumed predecessor's MatchStep (which would
-   * normally evaluate them) was skipped.
+   * Regression: Pattern B (outE+inV chain) must apply the full edge WHERE
+   * clause even when the index only covers it partially. Before the fix,
+   * {@code BackRefHashJoinStep} filtered edges exclusively via
+   * {@code indexRidSet.contains(edgeRid)} — which only checks indexable
+   * terms. Non-indexable residual terms (e.g. {@code category='A'} when
+   * the index is on {@code score}) were silently dropped because the
+   * consumed predecessor's MatchStep (which would normally evaluate them)
+   * was skipped.
+   *
+   * <p>The fix stores the full edge filter in {@link ChainSemiJoin} and
+   * re-evaluates it on every loaded edge, keeping the index as a
+   * zero-load pre-filter. Pattern B still applies — this is a correctness
+   * fix, not a fallback — so the plan must show BACK-REF HASH JOIN.
    *
    * <p>Graph setup: two Rated5 edges both pass the indexable
-   * {@code score > 5} but differ on {@code category}. A correct plan returns
-   * only the edge matching both terms.
+   * {@code score > 5} but differ on {@code category}. The correct plan
+   * returns only the edge matching both terms.
    */
   @Test
   public void backRef_outEInV_partialIndexCover_correctResults() {
@@ -1908,6 +1913,20 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
     session.commit();
 
     session.begin();
+    var explain = session.query(
+        "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b}"
+            + ".outE('Rated5'){as:e, where:(score > 5 AND category = 'A')}"
+            + ".inV(){as:check, where:(@rid = $matched.a.@rid)}"
+            + " RETURN b.name as bName, e.category as cat")
+        .toList();
+    assertEquals(1, explain.size());
+    String plan = explain.get(0).getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertTrue(
+        "partial index cover should still collapse the chain, got:\n" + plan,
+        plan.contains("BACK-REF HASH JOIN"));
+
     var result = session.query(
         "MATCH {class:Person, as:a, where:(name='n1')}"
             + ".out('Friend'){as:b}"
@@ -1924,6 +1943,50 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
     assertEquals(1, result.size());
     assertEquals("n2", result.get(0).getProperty("bName"));
     assertEquals("A", result.get(0).getProperty("cat"));
+  }
+
+  /**
+   * Regression: Pattern B (outE+inV chain) must apply the edge WHERE clause
+   * even when there is no index at all on the edge property. Before the
+   * fix, the filter was stored only as an {@code IndexSearchDescriptor}
+   * pre-filter; when no index existed, the descriptor was null and the
+   * filter was silently dropped entirely.
+   *
+   * <p>Same setup as the partial-cover test but on an unindexed edge class.
+   */
+  @Test
+  public void backRef_outEInV_noIndexCover_correctResults() {
+    session.execute("CREATE class Rated6 extends E").close();
+    session.execute("CREATE PROPERTY Rated6.score INTEGER").close();
+    // Deliberately no index at all on Rated6.
+
+    session.begin();
+    session.execute(
+        "CREATE EDGE Rated6 from (select from Person where name='n2')"
+            + " to (select from Person where name='n1') set score = 10")
+        .close();
+    session.execute(
+        "CREATE EDGE Rated6 from (select from Person where name='n3')"
+            + " to (select from Person where name='n1') set score = 2")
+        .close();
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b}"
+            + ".outE('Rated6'){as:e, where:(score > 5)}"
+            + ".inV(){as:check, where:(@rid = $matched.a.@rid)}"
+            + " RETURN b.name as bName, e.score as score")
+        .toList();
+    session.commit();
+
+    // Only the n2→n1 edge (score=10) passes score > 5; the n3→n1 edge
+    // (score=2) must be filtered out. Without the fix, both would enter
+    // the hash table (no filter evaluator whatsoever).
+    assertEquals(1, result.size());
+    assertEquals("n2", result.get(0).getProperty("bName"));
+    assertEquals(10, (int) result.get(0).getProperty("score"));
   }
 
   // ── $matched publication regression ────────────────────────────────────

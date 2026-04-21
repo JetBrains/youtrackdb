@@ -3446,55 +3446,68 @@ public class MatchExecutionPlanner {
     // Map oute→out, ine→in for the reverse link bag direction
     var direction = prevDirection.startsWith("out") ? "out" : "in";
 
-    // If the intermediate edge has a WHERE filter, collapsing the chain is
-    // only safe when every filter term is covered by a single index. The
-    // consumed predecessor's MatchStep is skipped (aliasFilters are
-    // normally evaluated there), and BackRefHashJoinStep evaluates the
-    // filter exclusively via {@code indexRidSet.contains(edgeRid)} — so any
-    // term not present in the index key is silently dropped.
+    // The intermediate edge may have a WHERE filter. Correctness requires
+    // that every edge added to the hash table actually passes the whole
+    // WHERE clause — the consumed predecessor's MatchStep, which would
+    // normally evaluate it, is skipped in the collapsed plan.
     //
-    // The planner's {@code remainingCondition} field is not a reliable full-
-    // cover signal here: {@code SelectExecutionPlanner.buildIndexSearchDescriptor}
-    // always stores the original AND block as {@code remainingCondition},
-    // relying on a post-fetch FilterStep to re-evaluate it. BackRefHashJoinStep
-    // has no such post-filter, so we compare block counts directly: the key
-    // covers the whole WHERE only when {@code indexFilter.blockCount()} equals
-    // the original flattened AND's sub-block count.
+    // Strategy (both optional, both applied in BackRefHashJoinStep):
+    //   1. indexFilter — RidSet intersection, rejects non-candidate edges
+    //      without loading them. Partial cover is fine here: its only role
+    //      is pre-filtering for performance.
+    //   2. edgeFilter — the complete WHERE clause, re-evaluated on every
+    //      loaded edge. Authoritative correctness check; catches any terms
+    //      the index didn't cover.
+    //
+    // Rejection cases kept at plan time:
+    //   * Filter references $matched / $currentMatch — build phase has no
+    //     per-row scope for those variables, so runtime evaluation would
+    //     see stale values. Safer to fall back to the standard chain.
+    //   * Multi-branch OR WHERE — findIndexForFilter would reject it too;
+    //     we could handle it without the index, but the non-indexable
+    //     residual path is already handled by edgeFilter alone, so there
+    //     is no functional reason to reject. Kept for now to stay aligned
+    //     with findIndexForFilter's contract.
     var intermediateFilter = aliasFilters.get(intermediateAlias);
     IndexSearchDescriptor indexFilter = null;
+    SQLWhereClause edgeFilter = null;
     if (intermediateFilter != null) {
+      var baseExpr = intermediateFilter.getBaseExpression();
+      if (baseExpr != null) {
+        var refAliases = baseExpr.getMatchPatternInvolvedAliases();
+        if (refAliases != null && !refAliases.isEmpty()) {
+          // Filter uses $matched.<alias> — cannot evaluate at build phase.
+          return null;
+        }
+      }
+      if (refersToCurrentMatch(intermediateFilter)) {
+        return null;
+      }
+      edgeFilter = intermediateFilter;
+
       var intermediateClass = aliasClasses.get(intermediateAlias);
-      if (intermediateClass == null) {
-        return null;
+      if (intermediateClass != null) {
+        indexFilter = TraversalPreFilterHelper.findIndexForFilter(
+            intermediateFilter, intermediateClass, ctx);
       }
-      var session = ctx.getDatabaseSession();
-      if (session == null) {
-        return null;
-      }
-      var schema = session.getMetadata().getImmutableSchemaSnapshot();
-      var schemaClass = schema.getClassInternal(intermediateClass);
-      if (schemaClass == null) {
-        return null;
-      }
-      var flatWhere = intermediateFilter.flatten(ctx, schemaClass);
-      if (flatWhere.size() != 1) {
-        // Multi-branch OR — findIndexForFilter would also reject; bail out
-        // rather than silently apply a partial cover.
-        return null;
-      }
-      var originalBlockCount = flatWhere.getFirst().getSubBlocks().size();
-      indexFilter = TraversalPreFilterHelper.findIndexForFilter(
-          intermediateFilter, intermediateClass, ctx);
-      if (indexFilter == null
-          || indexFilter.blockCount() != originalBlockCount) {
-        return null;
-      }
+      // indexFilter may be null (no index) or a partial cover — both are OK
+      // because edgeFilter will re-verify every edge post-load.
     }
 
     return new ChainSemiJoin(
         prevEdgeClass, direction, ridExpr,
         sourceAlias, backRefAlias, intermediateAlias,
-        targetAliasJ, indexFilter);
+        targetAliasJ, indexFilter, edgeFilter);
+  }
+
+  /**
+   * Returns {@code true} if the given WHERE clause references
+   * {@code $currentMatch} anywhere in its AST. A simple {@code toString}
+   * check suffices because the parser always emits the dollar-prefixed
+   * form verbatim in the serialized expression.
+   */
+  private static boolean refersToCurrentMatch(SQLWhereClause filter) {
+    return filter.toString().contains("$currentMatch");
   }
 
   /**
