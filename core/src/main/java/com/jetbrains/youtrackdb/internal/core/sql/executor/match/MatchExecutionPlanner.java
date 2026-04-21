@@ -3346,24 +3346,17 @@ public class MatchExecutionPlanner {
       return null;
     }
 
-    // Navigate: SQLOrBlock → single SQLAndBlock → subBlocks list
-    SQLAndBlock andBlock;
-    if (baseExpr instanceof SQLOrBlock orBlock) {
-      var orSubs = orBlock.getSubBlocks();
-      if (orSubs == null || orSubs.size() != 1) {
-        return null; // Multiple OR branches — too complex
-      }
-      var firstOr = orSubs.getFirst();
-      if (!(firstOr instanceof SQLAndBlock ab)) {
-        return null;
-      }
-      andBlock = ab;
-    } else if (baseExpr instanceof SQLAndBlock ab) {
-      andBlock = ab;
-    } else {
+    // Descend through the transparent wrappers MATCH adds around filters
+    // (addAliases wraps original WHERE in an outer AND, the grammar in turn
+    // wraps AND blocks in single-element ORs) to the AND block whose
+    // sub-blocks are the user's visible conjuncts. Without this, a compound
+    // WHERE like "NOT IN AND name='n4'" sits two wrappers deep — iterating
+    // the top-level AND's single sub-block (an OR wrapping the inner AND
+    // with two terms) never reaches the NOT IN.
+    var andBlock = findConjunctsAnd(baseExpr);
+    if (andBlock == null) {
       return null;
     }
-
     var andSubBlocks = andBlock.getSubBlocks();
     if (andSubBlocks == null || andSubBlocks.isEmpty()) {
       return null;
@@ -3425,6 +3418,58 @@ public class MatchExecutionPlanner {
           traversal.direction(), targetAlias, sub.copy());
     }
     return null;
+  }
+
+  /**
+   * Descends through single-element {@link SQLOrBlock} and {@link SQLAndBlock}
+   * wrappers to find the AND block whose sub-blocks are the user's top-level
+   * conjuncts.
+   *
+   * <p>The MATCH planner wraps each alias's WHERE clause in at least one
+   * extra AND block (see {@code addAliases}), and the grammar itself wraps
+   * the user's AND inside a single-element OR. For a compound WHERE like
+   * {@code NOT IN AND name='n4'} the resulting structure is
+   * {@code AND[OR[AND[<notIn>, <name='n4'>]]]} — the inner AND holds the
+   * actual conjuncts. Returns {@code null} when a multi-branch OR is
+   * encountered (that would require disjunctive processing) or when no AND
+   * is reachable.
+   */
+  @Nullable private static SQLAndBlock findConjunctsAnd(
+      SQLBooleanExpression expr) {
+    SQLAndBlock lastAnd = null;
+    var current = expr;
+    while (true) {
+      if (current instanceof SQLOrBlock or) {
+        var subs = or.getSubBlocks();
+        if (subs == null || subs.size() != 1) {
+          return null;
+        }
+        current = subs.getFirst();
+        continue;
+      }
+      if (current instanceof SQLAndBlock and) {
+        lastAnd = and;
+        var subs = and.getSubBlocks();
+        if (subs == null || subs.isEmpty()) {
+          return and;
+        }
+        // If this AND already has multiple conjuncts, it IS the user's list.
+        if (subs.size() > 1) {
+          return and;
+        }
+        // Single-element AND may be a wrapper around another AND/OR layer.
+        var only = subs.getFirst();
+        if (only instanceof SQLOrBlock || only instanceof SQLAndBlock) {
+          current = only;
+          continue;
+        }
+        // The lone sub-block is a leaf condition — this AND is the deepest
+        // one reachable and holds that single conjunct.
+        return and;
+      }
+      // Not an AND/OR at the top — return the deepest AND we've seen.
+      return lastAnd;
+    }
   }
 
   /**

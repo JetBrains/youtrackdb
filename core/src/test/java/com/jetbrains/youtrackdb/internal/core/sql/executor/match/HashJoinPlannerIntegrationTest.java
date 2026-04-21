@@ -1034,14 +1034,22 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
   }
 
   /**
-   * EXPLAIN of compound WHERE — when NOT IN is combined with additional AND
-   * conditions, the anti-join optimization does not fire (pre-existing
-   * limitation of toString-based pattern detection). The query falls back
-   * to standard MatchStep WHERE evaluation. Verify the plan uses a regular
-   * MATCH step (no BACK-REF HASH JOIN ANTI) and results are still correct.
+   * EXPLAIN of compound WHERE — a NOT IN combined with additional AND
+   * conditions must now (post-fix) strip only the NOT IN and still fire
+   * the anti-join optimization. The residual conjunct ({@code name='n4'})
+   * stays on the preceding {@link MatchStep}, so the plan has both the
+   * MATCH step (evaluating the residual) and the BACK-REF HASH JOIN ANTI
+   * step (evaluating the NOT IN exclusion).
+   *
+   * <p>Regression: {@code detectNotInAntiJoin} previously iterated only
+   * the top-level AND sub-blocks. With MATCH's double-nesting
+   * ({@code AND[OR[AND[notIn, residual]]]}) the NOT IN sat two wrappers
+   * deep, so compound WHERE fell back to standard MatchStep evaluation.
+   * The fix descends through transparent single-element OR/AND wrappers
+   * to reach the actual conjuncts list.
    */
   @Test
-  public void explainBackRef_notIn_compoundWhere_fallsBackToMatchStep() {
+  public void explainBackRef_notIn_compoundWhere_usesAntiJoinWithResidual() {
     session.begin();
     var result = session.query(
         "EXPLAIN MATCH {class:Person, as:start, where:(name='n1')}"
@@ -1054,11 +1062,14 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
     assertEquals(1, result.size());
     String plan = result.get(0).getProperty("executionPlanAsString");
     assertNotNull(plan);
-    // Compound NOT IN + AND does not trigger anti-join optimization —
-    // falls back to standard MATCH step with full WHERE evaluation
-    assertFalse(
-        "compound WHERE should not use anti-join, got:\n" + plan,
+    assertTrue(
+        "compound WHERE should use anti-join, got:\n" + plan,
         plan.contains("BACK-REF HASH JOIN ANTI"));
+    // Residual evaluation is verified end-to-end by
+    // backRef_notIn_compoundWhere_correctResults — it filters to n4 only,
+    // which only works if the stripped WHERE (name='n4') still runs in
+    // the preceding MatchStep. EXPLAIN does not print per-MatchStep
+    // WHERE clauses, so we can't assert the residual text in the plan.
     session.commit();
   }
 
