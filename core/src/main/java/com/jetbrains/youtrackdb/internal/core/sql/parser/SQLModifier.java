@@ -544,6 +544,27 @@ public class SQLModifier extends SimpleNode {
     return false;
   }
 
+  /** Returns the suffix identifier segment of this modifier (e.g. the
+   * {@code .X} part of {@code $matched.X.out('E')}), or {@code null}. */
+  @Nullable
+  public SQLSuffixIdentifier getSuffix() {
+    return suffix;
+  }
+
+  /** Returns the method call segment of this modifier (e.g. the
+   * {@code .out('E')} part), or {@code null}. */
+  @Nullable
+  public SQLMethodCall getMethodCall() {
+    return methodCall;
+  }
+
+  /** Returns the next modifier in the chain, or {@code null} when this is
+   * the last segment. */
+  @Nullable
+  public SQLModifier getNext() {
+    return next;
+  }
+
   @Nullable
   public IndexMetadataPath getIndexMetadataPath() {
     if (this.suffix != null && this.suffix.isBaseIdentifier()) {

@@ -44,6 +44,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLimit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMathExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMethodCall;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMultiMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNeOperator;
@@ -3240,14 +3241,84 @@ public class MatchExecutionPlanner {
     return threshold > 0;
   }
 
-  // FQN to avoid collision with com.jetbrains.youtrackdb...sql.parser.Pattern
-  // Regex for $matched.X.out('E') or $matched.X.in('E')
-  // Group 1: alias name (X), Group 2: direction (out/in),
-  // Group 3: edge class (E) — with matched quotes or unquoted
-  private static final java.util.regex.Pattern MATCHED_TRAVERSAL_PATTERN =
-      java.util.regex.Pattern.compile(
-          "\\$matched\\.(\\w+)\\.(out|in)\\((?:(['\"])(\\w+)\\3|(\\w+))\\)",
-          java.util.regex.Pattern.CASE_INSENSITIVE);
+  /**
+   * Structural decomposition of a {@code $matched.<alias>.<out|in>('E')}
+   * traversal expression — the RHS shape required by Pattern D anti-joins.
+   */
+  private record MatchedTraversal(
+      String anchorAlias, String direction, String edgeClass) {
+  }
+
+  /**
+   * Extracts {@link MatchedTraversal} from an RHS AST node or returns
+   * {@code null} when the shape does not match. Walks the AST directly
+   * instead of parsing {@link SQLMathExpression#toString}, which would
+   * rely on the generated parser's serialization format staying stable
+   * and would mis-handle back-quoted identifiers, bound parameters, and
+   * edge-direction variants like {@code outE}.
+   */
+  @Nullable private static MatchedTraversal extractMatchedTraversal(
+      @Nullable SQLMathExpression rhs) {
+    if (!(rhs instanceof SQLBaseExpression base)) {
+      return null;
+    }
+    var identifier = base.getIdentifier();
+    if (identifier == null || !"$matched".equals(identifier.toString())) {
+      return null;
+    }
+    var firstMod = base.getModifier();
+    if (firstMod == null) {
+      return null;
+    }
+    // First segment must be `.X` (suffix identifier, no method call).
+    var suffix = firstMod.getSuffix();
+    if (suffix == null || suffix.getIdentifier() == null
+        || firstMod.getMethodCall() != null) {
+      return null;
+    }
+    var anchorAlias = suffix.getIdentifier().getStringValue();
+    if (anchorAlias == null) {
+      return null;
+    }
+    // Second segment must be `.<dir>(<edgeClass>)` — a method call.
+    var secondMod = firstMod.getNext();
+    if (secondMod == null) {
+      return null;
+    }
+    var method = secondMod.getMethodCall();
+    if (method == null) {
+      return null;
+    }
+    // There must not be further modifiers (reject `.out('E').somethingElse`).
+    if (secondMod.getNext() != null) {
+      return null;
+    }
+    var methodName = method.getMethodNameString();
+    if (methodName == null) {
+      return null;
+    }
+    // Vertex-level traversals only: out / in. Reject outE, inE, bothV, etc.
+    var direction = methodName.toLowerCase(Locale.ROOT);
+    if (!"out".equals(direction) && !"in".equals(direction)) {
+      return null;
+    }
+    var params = method.getParams();
+    if (params == null || params.size() != 1) {
+      return null;
+    }
+    var paramMath = params.getFirst().getMathExpression();
+    if (!(paramMath instanceof SQLBaseExpression paramBase)) {
+      return null;
+    }
+    // Only accept a plain string literal for the edge class — reject bound
+    // parameters (:edge), identifiers, and compound expressions whose
+    // value cannot be determined at plan time.
+    var edgeClass = paramBase.getStringLiteralValue();
+    if (edgeClass == null) {
+      return null;
+    }
+    return new MatchedTraversal(anchorAlias, direction, edgeClass);
+  }
 
   /**
    * Detects Pattern D: a {@code $currentMatch NOT IN $matched.X.out('E')}
@@ -3315,26 +3386,16 @@ public class MatchExecutionPlanner {
         continue;
       }
 
-      // Check RHS is $matched.X.out('E') or $matched.X.in('E') via the
-      // AST node, avoiding full-condition toString() parsing
-      var rhs = inner.getRightMathExpression();
-      if (rhs == null) {
+      // Check RHS is $matched.X.out('E') or $matched.X.in('E') by walking
+      // the AST structure directly — immune to toString() format drift,
+      // back-quoted identifiers, and bound parameters for the edge class.
+      var traversal = extractMatchedTraversal(inner.getRightMathExpression());
+      if (traversal == null) {
         continue;
       }
-      var rhsStr = rhs.toString().trim();
-      var matcher = MATCHED_TRAVERSAL_PATTERN.matcher(rhsStr);
-      if (!matcher.matches()) {
-        continue;
-      }
-
-      var anchorAlias = matcher.group(1);
-      var direction = matcher.group(2).toLowerCase(Locale.ROOT);
-      // Edge class is in group 4 (quoted) or group 5 (unquoted)
-      var edgeClass = matcher.group(4) != null
-          ? matcher.group(4) : matcher.group(5);
 
       // Anchor alias must be already bound
-      if (!boundAliases.contains(anchorAlias)) {
+      if (!boundAliases.contains(traversal.anchorAlias())) {
         continue;
       }
 
@@ -3360,7 +3421,8 @@ public class MatchExecutionPlanner {
       }
 
       return new AntiSemiJoin(
-          anchorAlias, edgeClass, direction, targetAlias, sub.copy());
+          traversal.anchorAlias(), traversal.edgeClass(),
+          traversal.direction(), targetAlias, sub.copy());
     }
     return null;
   }
