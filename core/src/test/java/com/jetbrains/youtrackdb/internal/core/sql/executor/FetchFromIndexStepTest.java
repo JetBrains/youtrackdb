@@ -150,6 +150,9 @@ public class FetchFromIndexStepTest extends TestUtilsFixture {
     assertThat(copy.getDesc()).isSameAs(desc);
     assertThat(copy.getIndexName()).isEqualTo(original.getIndexName());
     assertThat(copy.isOrderAsc()).isEqualTo(original.isOrderAsc());
+    // Profiling-enabled contract: copy() carries the flag through, surfaced via prettyPrint's
+    // cost suffix. A mutation hard-coding `false` in the copy would drop the suffix. (TB3.)
+    assertThat(copy.prettyPrint(0, 2)).isEqualTo(original.prettyPrint(0, 2));
   }
 
   /**
@@ -453,6 +456,28 @@ public class FetchFromIndexStepTest extends TestUtilsFixture {
     var results = startAndDrain(step, ctx);
 
     assertThat(keys(results)).containsExactlyInAnyOrder(10, 30);
+  }
+
+  /**
+   * {@code WHERE key IN []} must return zero results. The concerning path is {@code
+   * toBetweenIndexKey} which collapses an empty collection to {@code null} — if the
+   * cartesian-product / null-key branching ever regressed so an empty IN fell through to a full
+   * scan, every indexed record would be returned instead. Pins the TC1 boundary raised by
+   * Step 4 iter-1 test-completeness review.
+   */
+  @Test
+  public void inConditionWithEmptyListReturnsNoMatches() {
+    var fixture = createIndexedClass();
+    seed(fixture.className, 10, 20, 30, 40);
+    var inCondition = new SQLInCondition(-1);
+    inCondition.setLeft(fieldExpr("key"));
+    inCondition.setRightMathExpression(valueMathExpr(List.of()));
+    var ctx = newContext();
+    var step = buildStep(fixture.indexName, andBlockOf(inCondition), ctx);
+
+    var results = startAndDrain(step, ctx);
+
+    assertThat(results).isEmpty();
   }
 
   // =========================================================================
@@ -903,7 +928,10 @@ public class FetchFromIndexStepTest extends TestUtilsFixture {
 
     var rendered = step.prettyPrint(0, 2);
 
-    assertThat(rendered).contains("(").contains(")");
+    // Pin the "+ FETCH FROM INDEX <name> (<cost>)" shape including the cost-marker parens so a
+    // mutation that produces only trailing parens without the cost value, or replaces "ms" with
+    // a different unit, is caught. (TB2 tightening.)
+    assertThat(rendered).containsPattern("\\+ FETCH FROM INDEX [^\\s]+ \\([^)]+\\)");
   }
 
   /**
@@ -1198,30 +1226,43 @@ public class FetchFromIndexStepTest extends TestUtilsFixture {
   }
 
   /**
-   * Executes the step within an active transaction and asserts it produces an observable stream
-   * — either emits records (hasNext returns {@code true}) or empties cleanly without throwing
-   * before reaching {@code indexKeyFromIncluded}/{@code indexKeyToIncluded}. This is used by the
-   * {@code SQLContains*Condition} tests whose job is to traverse the inclusivity branches but
-   * whose value resolution may short-circuit to zero results.
+   * Runs {@code step.start(ctx)} within an active transaction and asserts that the
+   * {@code indexKeyFromIncluded} / {@code indexKeyToIncluded} inclusivity calculators handle the
+   * condition kind under test (i.e. did NOT fall through to the catch-all {@link
+   * UnsupportedOperationException}). Downstream failures during value resolution inside
+   * {@code multipleRange} are expected for some condition kinds (e.g. {@link
+   * com.jetbrains.youtrackdb.internal.core.sql.parser.SQLContainsCondition} against a scalar
+   * index) and are caught here; only {@link UnsupportedOperationException} causes the test to
+   * fail — it uniquely signals "the arm you're testing doesn't exist."
+   *
+   * <p>Mutation-kill intent: removing any of the {@code SQLContains*Condition} arms in
+   * {@code indexKeyFromIncluded}/{@code indexKeyToIncluded} routes the call to the catch-all
+   * that raises {@link UnsupportedOperationException}, which this helper re-surfaces as an
+   * {@link AssertionError} naming the violated contract.
    */
   private void assertThatReachesProcessAndBlock(FetchFromIndexStep step, CommandContext ctx) {
     session.begin();
     try {
-      // start() invokes init() → processAndBlock() → indexKeyFrom/To/Included. The specific
-      // sub-block type under test routes through the target arm inside indexKeyFromIncluded and
-      // indexKeyToIncluded. Any exception other than the UnsupportedOperationException thrown by
-      // the catch-all arm is acceptable — the coverage happens before the failure point.
       try {
         var stream = step.start(ctx);
-        // Drain defensively so resources release; some sub-block kinds evaluate lazily.
         while (stream.hasNext(ctx)) {
           stream.next(ctx);
         }
         stream.close(ctx);
-      } catch (RuntimeException ignored) {
-        // Some condition kinds (e.g. SQLContainsCondition) do not resolve to a concrete value
-        // against a plain scalar index; the failure happens inside multipleRange after the
-        // inclusivity branches have already executed.
+      } catch (UnsupportedOperationException uoe) {
+        throw new AssertionError(
+            "indexKeyFromIncluded/ToIncluded must handle this condition kind — fell through to "
+                + "the catch-all arm: "
+                + uoe.getMessage(),
+            uoe);
+      } catch (RuntimeException downstreamFailure) {
+        // Downstream value resolution inside multipleRange may fail for condition kinds that
+        // don't resolve to a scalar index key — e.g. SQLContainsCondition / SQLContainsAnyCondition
+        // against a plain integer index produce an NPE when the runtime tries to format the
+        // bare condition for an error message. What matters is that control reached the
+        // inclusivity calculator BEFORE failing. The UnsupportedOperationException arm above
+        // is the one that signals "the branch you're testing doesn't exist" — the mutation-kill
+        // intent is preserved by failing specifically on that signal.
       }
     } finally {
       if (session.isTxActive()) {
