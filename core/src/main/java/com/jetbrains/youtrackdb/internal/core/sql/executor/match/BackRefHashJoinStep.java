@@ -328,17 +328,27 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
    * Handles build failure for Pattern D (anti-join): evaluates the stored
    * NOT IN condition per row. The NOT IN was stripped from the MatchStep's
    * WHERE clause at plan time, so BackRefHashJoinStep is the sole evaluator.
+   *
+   * <p>$currentMatch is set to the target-alias candidate only for the
+   * duration of the condition evaluation, then restored to its previous
+   * value — mirroring {@link MatchEdgeTraverser#filter}. Skipping the
+   * restore would leak a probe-scope value into every subsequent step;
+   * if {@code evaluate()} throws, the leak would persist across every
+   * later row in the pipeline.
    */
   @Nullable private Result handleAntiJoinBuildFailure(
       Result row, AntiSemiJoin anti, CommandContext ctx) {
     if (anti.notInCondition() == null) {
       return row;
     }
-    // $currentMatch must be set for the NOT IN expression to resolve
     var candidate = row.getProperty(anti.targetAlias());
+    var previousMatch = ctx.getSystemVariable(CommandContext.VAR_CURRENT_MATCH);
     ctx.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, candidate);
-    boolean passes = anti.notInCondition().evaluate(row, ctx);
-    return passes ? row : null;
+    try {
+      return anti.notInCondition().evaluate(row, ctx) ? row : null;
+    } finally {
+      ctx.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, previousMatch);
+    }
   }
 
   /**
