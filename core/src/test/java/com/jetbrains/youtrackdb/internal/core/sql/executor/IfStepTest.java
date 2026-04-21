@@ -319,6 +319,14 @@ public class IfStepTest extends TestUtilsFixture {
     assertThat(copy.negativeStatements).isNotSameAs(original.negativeStatements).hasSize(1);
     // condition was copied (independent instance)
     assertThat(copy.getCondition()).isNotSameAs(original.getCondition());
+    // Element-level independence: each SQLStatement was individually copied via
+    // statement.copy() (IfStep.copy line 121). A mutation that just reused the original
+    // elements (copy.positiveStatements.add(statement) instead of statement.copy()) would
+    // leave the list instances distinct but the element references aliased.
+    assertThat(copy.positiveStatements.get(0))
+        .isNotSameAs(original.positiveStatements.get(0));
+    assertThat(copy.negativeStatements.get(0))
+        .isNotSameAs(original.negativeStatements.get(0));
 
     // Mutating the original lists must not affect the copy.
     original.positiveStatements.clear();

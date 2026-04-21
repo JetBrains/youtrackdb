@@ -16,6 +16,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
@@ -153,15 +154,14 @@ public class SkipExecutionStepTest extends TestUtilsFixture {
   // sendTimeout / close
   // =========================================================================
 
-  /** {@code sendTimeout} is a no-op. */
+  /** {@code sendTimeout} is a no-op — pinned via {@code doesNotThrowAnyException}. */
   @Test
   public void sendTimeoutIsNoOp() {
     var skip = parseSkip("SELECT FROM OUser SKIP 1");
     var ctx = newContext();
     var step = new SkipExecutionStep(skip, ctx, false);
 
-    step.sendTimeout();
-    assertThat(step.canBeCached()).isTrue();
+    assertThatCode(step::sendTimeout).doesNotThrowAnyException();
   }
 
   /** {@code close} propagates to the predecessor when non-null (line 66 true branch). */
@@ -193,15 +193,14 @@ public class SkipExecutionStepTest extends TestUtilsFixture {
     assertThat(prevClosed).isTrue();
   }
 
-  /** {@code close} without a predecessor is a no-op (line 66 false branch). */
+  /** {@code close} without a predecessor must not NPE — pins the {@code prev == null} branch. */
   @Test
   public void closeWithoutPrevIsNoOp() {
     var skip = parseSkip("SELECT FROM OUser SKIP 1");
     var ctx = newContext();
     var step = new SkipExecutionStep(skip, ctx, false);
 
-    step.close();
-    assertThat(step.canBeCached()).isTrue();
+    assertThatCode(step::close).doesNotThrowAnyException();
   }
 
   // =========================================================================
@@ -248,12 +247,14 @@ public class SkipExecutionStepTest extends TestUtilsFixture {
   }
 
   /**
-   * {@code copy} produces a distinct step. The internal skip AST is copied (no null guard) so
-   * the copy is functionally equivalent: rendering the same body via prettyPrint pins the deep
-   * copy.
+   * {@code copy} produces a distinct step whose internal {@code skip} AST is an independently-
+   * copied instance. Uses reflection to reach the private {@code skip} field and assert {@code
+   * isNotSameAs(original.skip)} — without this a mutation that aliased the same {@code skip}
+   * reference (returning {@code new SkipExecutionStep(this.skip, ctx, profilingEnabled)}) would
+   * pass a prettyPrint-only check because the rendered body would be identical.
    */
   @Test
-  public void copyProducesIndependentStepWithSameSettings() {
+  public void copyProducesIndependentStepWithDeepCopiedSkip() throws Exception {
     var skip = parseSkip("SELECT FROM OUser SKIP 9");
     var ctx = newContext();
     var original = new SkipExecutionStep(skip, ctx, true);
@@ -264,6 +265,12 @@ public class SkipExecutionStepTest extends TestUtilsFixture {
     var copy = (SkipExecutionStep) copied;
     assertThat(copy.isProfilingEnabled()).isTrue();
     assertThat(copy.prettyPrint(0, 2)).contains("9");
+
+    var skipField = SkipExecutionStep.class.getDeclaredField("skip");
+    skipField.setAccessible(true);
+    assertThat(skipField.get(copy))
+        .as("copy's internal skip AST must be an independently-copied instance")
+        .isNotSameAs(skipField.get(original));
   }
 
   // =========================================================================

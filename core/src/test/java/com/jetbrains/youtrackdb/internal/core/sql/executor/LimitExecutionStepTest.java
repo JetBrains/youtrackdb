@@ -16,6 +16,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
@@ -137,16 +138,19 @@ public class LimitExecutionStepTest extends TestUtilsFixture {
   // sendTimeout / close
   // =========================================================================
 
-  /** {@code sendTimeout} is a no-op — called without a predecessor it must not throw. */
+  /**
+   * {@code sendTimeout} is a no-op — called without a predecessor it must not throw, AND must not
+   * propagate the signal to the (null) predecessor. Asserted via {@code assertThatCode(...)
+   * .doesNotThrowAnyException()} so a mutation that delegated to {@code super.sendTimeout()}
+   * (which would walk the chain) would be caught.
+   */
   @Test
   public void sendTimeoutIsNoOp() {
     var limit = parseLimit("SELECT FROM OUser LIMIT 5");
     var ctx = newContext();
     var step = new LimitExecutionStep(limit, ctx, false);
 
-    step.sendTimeout();
-    // Reaching this line means no exception was thrown.
-    assertThat(step.canBeCached()).isTrue();
+    assertThatCode(step::sendTimeout).doesNotThrowAnyException();
   }
 
   /**
@@ -183,7 +187,7 @@ public class LimitExecutionStepTest extends TestUtilsFixture {
 
   /**
    * {@code close} without a predecessor executes the {@code prev == null} branch and does not
-   * throw. Pins the null-guard at line 67.
+   * NPE. Pins the null-guard via {@code assertThatCode(...).doesNotThrowAnyException()}.
    */
   @Test
   public void closeWithoutPrevIsNoOp() {
@@ -191,9 +195,7 @@ public class LimitExecutionStepTest extends TestUtilsFixture {
     var ctx = newContext();
     var step = new LimitExecutionStep(limit, ctx, false);
 
-    step.close();
-    // Reaching this line means no NPE.
-    assertThat(step.canBeCached()).isTrue();
+    assertThatCode(step::close).doesNotThrowAnyException();
   }
 
   // =========================================================================
@@ -267,25 +269,24 @@ public class LimitExecutionStepTest extends TestUtilsFixture {
   }
 
   /**
-   * {@code copy} with a null limit field reaches the null-guard at line 89 and produces a step
-   * with {@code limitCopy == null}. This branch is only reachable by subclassing or reflection —
-   * the constructor rejects no-input but the field declaration permits null. Verified via a
-   * subclass in the same package that overrides the internal field.
-   *
-   * <p>Direct observation: an attempt to render {@code prettyPrint} on a null-limit copy would NPE
-   * at line 74. Instead we construct via the {@link LimitExecutionStep} subclass below that
-   * passes {@code null}, and verify only that {@code copy()} does NOT throw — pinning the
-   * {@code limit != null} branch of the guard.
+   * {@code copy} with a null limit field reaches the null-guard in {@link
+   * LimitExecutionStep#copy}. Pins that the copy's internal {@code limit} stays null (a mutation
+   * that dropped the guard and tried to call {@code null.copy()} would NPE and fail here; a
+   * mutation that constructed a new empty {@link com.jetbrains.youtrackdb.internal.core.sql
+   * .parser.SQLLimit} instead of propagating null would also fail because the reflected field
+   * would be non-null).
    */
   @Test
-  public void copyWithNullLimitReachesNullBranch() {
+  public void copyWithNullLimitPreservesNullLimitField() throws Exception {
     var ctx = newContext();
     var original = new LimitExecutionStep(null, ctx, false);
 
     var copied = original.copy(ctx);
 
-    // The null branch was reached: copy() did not throw, and copied is a fresh step.
     assertThat(copied).isNotSameAs(original).isInstanceOf(LimitExecutionStep.class);
+    var limitField = LimitExecutionStep.class.getDeclaredField("limit");
+    limitField.setAccessible(true);
+    assertThat(limitField.get(copied)).as("null limit must propagate through copy").isNull();
   }
 
   // =========================================================================
