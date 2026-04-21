@@ -5,12 +5,16 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.Test;
 
@@ -58,7 +62,7 @@ public class FetchFromCollectionExecutionStepTest extends TestUtilsFixture {
     var clazz = createClassInstance();
 
     session.begin();
-    var allRids = new ArrayList<com.jetbrains.youtrackdb.internal.core.db.record.record.RID>();
+    var allRids = new ArrayList<RID>();
     // Seed enough records to guarantee at least one collection has 3 insertions across the
     // round-robin distribution.
     for (var i = 0; i < 24; i++) {
@@ -68,6 +72,12 @@ public class FetchFromCollectionExecutionStepTest extends TestUtilsFixture {
 
     // Pick the first collection ID that holds at least 3 of the seeded records.
     var collectionId = pickCollectionWithAtLeast(allRids, 3);
+    // TB5 tightening: compute the exact expected subset so a mutation that silently drops
+    // records (e.g. skips alternating rows) is caught, not just "size >= 3".
+    var expected = allRids.stream()
+        .filter(r -> r.getCollectionId() == collectionId)
+        .sorted(Comparator.comparingLong(RID::getCollectionPosition))
+        .toList();
 
     var ctx = newContext();
     var step = new FetchFromCollectionExecutionStep(collectionId, ctx, false);
@@ -78,14 +88,9 @@ public class FetchFromCollectionExecutionStepTest extends TestUtilsFixture {
       var results = drain(step.start(ctx), ctx);
       var rids = results.stream().map(Result::getIdentity).toList();
 
-      assertThat(rids).isNotEmpty();
-      assertThat(rids).allMatch(r -> r.getCollectionId() == collectionId);
-      // Strictly ascending collection positions.
-      var positions = rids.stream().map(r -> r.getCollectionPosition()).toList();
-      assertThat(positions).isSortedAccordingTo(Long::compareTo);
-      // Must have more than one element so "ascending" is observable (guards against a
-      // mutation that always returns 1 element).
-      assertThat(rids.size()).isGreaterThanOrEqualTo(3);
+      assertThat(rids).containsExactlyElementsOf(expected);
+      assertThat(rids.size()).as("enough records to make ASC observable")
+          .isGreaterThanOrEqualTo(3);
     } finally {
       session.rollback();
     }
@@ -101,13 +106,18 @@ public class FetchFromCollectionExecutionStepTest extends TestUtilsFixture {
     var clazz = createClassInstance();
 
     session.begin();
-    var allRids = new ArrayList<com.jetbrains.youtrackdb.internal.core.db.record.record.RID>();
+    var allRids = new ArrayList<RID>();
     for (var i = 0; i < 24; i++) {
       allRids.add(session.newEntity(clazz.getName()).getIdentity());
     }
     session.commit();
 
     var collectionId = pickCollectionWithAtLeast(allRids, 3);
+    // TB5 tightening: compute the exact expected subset (in reverse position order for DESC).
+    var expectedDesc = allRids.stream()
+        .filter(r -> r.getCollectionId() == collectionId)
+        .sorted(Comparator.comparingLong(RID::getCollectionPosition).reversed())
+        .toList();
 
     var ctx = newContext();
     var step = new FetchFromCollectionExecutionStep(collectionId, ctx, false);
@@ -118,24 +128,22 @@ public class FetchFromCollectionExecutionStepTest extends TestUtilsFixture {
       var results = drain(step.start(ctx), ctx);
       var rids = results.stream().map(Result::getIdentity).toList();
 
-      assertThat(rids).isNotEmpty();
-      assertThat(rids).allMatch(r -> r.getCollectionId() == collectionId);
-      // Strictly descending collection positions — the DESC sentinel's observable effect.
-      var positions = rids.stream().map(r -> r.getCollectionPosition()).toList();
-      assertThat(positions).isSortedAccordingTo((a, b) -> Long.compare(b, a));
-      assertThat(rids.size()).isGreaterThanOrEqualTo(3);
+      assertThat(rids).containsExactlyElementsOf(expectedDesc);
+      assertThat(rids.size()).as("enough records to make DESC observable")
+          .isGreaterThanOrEqualTo(3);
     } finally {
       session.rollback();
     }
   }
 
   /**
-   * The 4-arg constructor (with non-null {@code QueryPlanningInfo}) reaches the same iteration
-   * result as the 2-arg constructor. This pins the constructor delegation path distinct from the
-   * 2-arg shortcut.
+   * The 4-arg constructor (with non-null {@code QueryPlanningInfo}) produces a functional step
+   * that iterates the target collection. (CQ11 rename from prior mismatched name — the test does
+   * not actually compare against a 2-arg step; it pins that the 4-arg path produces a working
+   * step distinct from the 2-arg shortcut.)
    */
   @Test
-  public void fourArgConstructorIteratesSameRecordsAsTwoArg() {
+  public void fourArgConstructorWithPlanningInfoIteratesRecords() {
     var clazz = createClassInstance();
 
     session.begin();
@@ -301,17 +309,18 @@ public class FetchFromCollectionExecutionStepTest extends TestUtilsFixture {
   }
 
   /**
-   * Non-zero depth adds {@code depth * indent} leading spaces to the first line.
+   * Non-zero depth adds exactly {@code depth * indent} leading spaces to the first line
+   * (CQ6 tightening: exact-width pin rejects both under- and over-indent mutations).
    */
   @Test
   public void prettyPrintAppliesIndentation() {
     var ctx = newContext();
     var step = new FetchFromCollectionExecutionStep(5, ctx, false);
 
-    // depth=1, indent=4 → 4 leading spaces
+    // depth=1, indent=4 → exactly 4 leading spaces, then '+'.
     var output = step.prettyPrint(1, 4);
 
-    assertThat(output).startsWith("    ");
+    assertThat(output).startsWith("    +").doesNotStartWith("     +");
     assertThat(output).contains("+ FETCH FROM COLLECTION 5 ASC");
   }
 
@@ -336,6 +345,12 @@ public class FetchFromCollectionExecutionStepTest extends TestUtilsFixture {
 
   /**
    * With ASC order set, serialize/deserialize round-trips the ORDER_ASC sentinel.
+   *
+   * <p>TB2/BC2 tightening: the deserialize branch that distinguishes explicit ORDER_ASC from
+   * null ordering is pinned by re-serializing the restored step and asserting the "order"
+   * property equals ORDER_ASC — prettyPrint alone renders "ASC" for both null and ORDER_ASC,
+   * so a mutation that dropped the sentinel assignment during deserialize would not be
+   * caught by the pretty-print check.
    */
   @Test
   public void serializeDeserializeAscRoundTrip() {
@@ -347,9 +362,15 @@ public class FetchFromCollectionExecutionStepTest extends TestUtilsFixture {
     assertThat((String) serialized.getProperty("order"))
         .isEqualTo(FetchFromCollectionExecutionStep.ORDER_ASC);
 
-    var restored = new FetchFromCollectionExecutionStep(-1, ctx, false);
+    var restored = new FetchFromCollectionExecutionStep(0, ctx, false);
     restored.deserialize(serialized, session);
 
+    // Re-serialize the restored step to observe the actual sentinel (prettyPrint would coalesce
+    // null-order with ORDER_ASC both to "ASC").
+    var restoredSerialized = restored.serialize(session);
+    assertThat((String) restoredSerialized.getProperty("order"))
+        .isEqualTo(FetchFromCollectionExecutionStep.ORDER_ASC);
+    assertThat((Integer) restoredSerialized.getProperty("collectionId")).isEqualTo(77);
     assertThat(restored.prettyPrint(0, 2)).contains("+ FETCH FROM COLLECTION 77 ASC");
   }
 
@@ -365,7 +386,7 @@ public class FetchFromCollectionExecutionStepTest extends TestUtilsFixture {
 
     var serialized = original.serialize(session);
 
-    var restored = new FetchFromCollectionExecutionStep(-1, ctx, false);
+    var restored = new FetchFromCollectionExecutionStep(0, ctx, false);
     restored.deserialize(serialized, session);
 
     assertThat(restored.prettyPrint(0, 2)).contains("+ FETCH FROM COLLECTION 88 DESC");
@@ -381,7 +402,7 @@ public class FetchFromCollectionExecutionStepTest extends TestUtilsFixture {
     var original = new FetchFromCollectionExecutionStep(13, ctx, false);
     var serialized = original.serialize(session);
 
-    var restored = new FetchFromCollectionExecutionStep(-1, ctx, false);
+    var restored = new FetchFromCollectionExecutionStep(0, ctx, false);
     restored.deserialize(serialized, session);
 
     assertThat(restored.prettyPrint(0, 2)).contains("+ FETCH FROM COLLECTION 13 ASC");
@@ -401,7 +422,9 @@ public class FetchFromCollectionExecutionStepTest extends TestUtilsFixture {
     badResult.setProperty("subSteps", List.of(badSubStep));
 
     assertThatThrownBy(() -> step.deserialize(badResult, session))
-        .isInstanceOf(CommandExecutionException.class);
+        .isInstanceOf(CommandExecutionException.class)
+        // TB10 cause-chain pin.
+        .hasRootCauseInstanceOf(ClassNotFoundException.class);
   }
 
   // =========================================================================
@@ -458,12 +481,19 @@ public class FetchFromCollectionExecutionStepTest extends TestUtilsFixture {
   }
 
   /**
-   * {@code copy} with a non-null planning info invokes {@code QueryPlanningInfo.copy()} (distinct
-   * from the null branch above). The resulting step still iterates the same record. This
-   * exercises the ternary branch {@code queryPlanning == null ? null : queryPlanning.copy()}.
+   * {@code copy} with a non-null planning info reaches the non-null branch of the ternary
+   * {@code queryPlanning == null ? null : queryPlanning.copy()}. The resulting step still
+   * iterates the target record.
+   *
+   * <p><b>Caveat (CQ7/TB1):</b> the {@code queryPlanning} field is private, has no getter, and
+   * per production comment is "Not currently consulted during execution." Therefore neither
+   * branch of the ternary produces an observable behavioral difference at the step's public
+   * surface — this test is effectively branch-coverage-only for the non-null path. If the
+   * planning info ever becomes execution-relevant (or a getter is added), this test should
+   * be strengthened to assert the copy carries a deep-copied {@code QueryPlanningInfo}.
    */
   @Test
-  public void copyWithNonNullPlanningInfoInvokesPlanningCopy() {
+  public void copyWithNonNullPlanningInfoReachesNonNullBranch() {
     var clazz = createClassInstance();
 
     session.begin();
@@ -473,7 +503,7 @@ public class FetchFromCollectionExecutionStepTest extends TestUtilsFixture {
     var collectionId = rid.getCollectionId();
     var ctx = newContext();
     var planning = new QueryPlanningInfo();
-    planning.distinct = true; // observable field to verify copy() was invoked (not null-passed)
+    planning.distinct = true; // Set a field so any future getter-based assertion has a hook.
     var original = new FetchFromCollectionExecutionStep(collectionId, planning, ctx, false);
 
     var copied = (FetchFromCollectionExecutionStep) original.copy(ctx);
@@ -511,15 +541,24 @@ public class FetchFromCollectionExecutionStepTest extends TestUtilsFixture {
    * Records are distributed round-robin across polymorphic collections, so this is how a test
    * picks a deterministic target collection with a known population.
    */
-  private static int pickCollectionWithAtLeast(
-      List<com.jetbrains.youtrackdb.internal.core.db.record.record.RID> rids, int minCount) {
-    var counts = new java.util.HashMap<Integer, Integer>();
+  /**
+   * Returns a collection ID that holds at least {@code minCount} elements of {@code rids}.
+   *
+   * <p>YouTrackDB distributes a class's records round-robin across N polymorphic collections
+   * (with some random-jitter within round-robin). With ~24 seeded records and the default
+   * collection count (typically 4–8), at least one collection will reliably receive
+   * {@code >= 3} records by the pigeonhole principle. {@code findFirst} is safe because the
+   * test only needs <em>some</em> collection meeting the threshold — the assertion is then
+   * made strictly within that chosen collection.
+   */
+  private static int pickCollectionWithAtLeast(List<RID> rids, int minCount) {
+    var counts = new HashMap<Integer, Integer>();
     for (var rid : rids) {
       counts.merge(rid.getCollectionId(), 1, Integer::sum);
     }
     return counts.entrySet().stream()
         .filter(e -> e.getValue() >= minCount)
-        .map(java.util.Map.Entry::getKey)
+        .map(Map.Entry::getKey)
         .findFirst()
         .orElseThrow(() -> new AssertionError(
             "No collection received at least " + minCount + " of the seeded records"));

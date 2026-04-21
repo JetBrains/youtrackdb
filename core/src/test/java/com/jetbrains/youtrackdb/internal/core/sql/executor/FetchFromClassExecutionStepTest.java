@@ -51,9 +51,9 @@ public class FetchFromClassExecutionStepTest extends TestUtilsFixture {
   // =========================================================================
 
   /**
-   * With {@code ridOrder=null} the step leaves ordering flags unset. The step must successfully
-   * resolve the class's polymorphic collection IDs even when nothing in the schema is populated
-   * yet (class creation happens in {@link TestUtilsFixture#createClassInstance()}).
+   * With {@code ridOrder=null} the step leaves both ordering flags at their default {@code false}.
+   * Asserted via the serialize probe so a mutation flipping the null branch to set either
+   * {@code orderByRidAsc} or {@code orderByRidDesc} would be caught. (TB8 tightening.)
    */
   @Test
   public void constructorWithoutRidOrderLeavesOrderingFlagsFalse() {
@@ -62,10 +62,10 @@ public class FetchFromClassExecutionStepTest extends TestUtilsFixture {
 
     var step = new FetchFromClassExecutionStep(className, null, ctx, null, false);
 
-    // Render the step to verify the class name was captured; ordering flags are only observable
-    // via copy/serialize — checked in dedicated tests below.
-    var output = step.prettyPrint(0, 2);
-    assertThat(output).contains(className);
+    var serialized = step.serialize(session);
+    assertThat((String) serialized.getProperty("className")).isEqualTo(className);
+    assertThat((Boolean) serialized.getProperty("orderByRidAsc")).isFalse();
+    assertThat((Boolean) serialized.getProperty("orderByRidDesc")).isFalse();
   }
 
   /**
@@ -101,16 +101,19 @@ public class FetchFromClassExecutionStepTest extends TestUtilsFixture {
 
   /**
    * An unknown class name is reported via {@link CommandExecutionException} naming the missing
-   * class — this pins the "null class" branch inside {@code loadClassFromSchema}.
+   * class — this pins the "null class" branch inside {@code loadClassFromSchema}. The missing
+   * class name MUST appear in the message (TB9 tightening) so a mutation that produced a
+   * static "Class not found" text without interpolation would be caught.
    */
   @Test
   public void unknownClassThrowsCommandExecutionException() {
     var ctx = newContext();
+    var missing = "NoSuchClass_" + System.nanoTime();
 
     assertThatThrownBy(
-        () -> new FetchFromClassExecutionStep("NoSuchClass_" + System.nanoTime(), null, ctx,
-            null, false))
+        () -> new FetchFromClassExecutionStep(missing, null, ctx, null, false))
         .isInstanceOf(CommandExecutionException.class)
+        .hasMessageContaining(missing)
         .hasMessageContaining("not found");
   }
 
@@ -228,18 +231,25 @@ public class FetchFromClassExecutionStepTest extends TestUtilsFixture {
   }
 
   /**
-   * A DESC-ordered scan returns records in descending RID order within each collection. Because
-   * collection IDs are also sorted DESC, the overall iteration order is reverse-insertion order
-   * for a single collection class.
+   * A DESC-ordered scan sorts polymorphic collection IDs in descending order AND iterates records
+   * within each collection by descending position. With enough seeded records, one collection
+   * will hold at least three, and those positions must arrive strictly descending.
+   *
+   * <p>Enhanced over an earlier weak {@code first >= last} form (BC1/TB6): that check was a
+   * near-tautology for small seed counts because round-robin distributes few records into
+   * different collections at position 0. Seeding 24 records guarantees at least one collection
+   * has three insertions; the strict descending check then rejects mutations that emit ASC
+   * positions within a collection even when sorted collections are DESC-visited.
    */
   @Test
   public void descendingOrderReturnsRecordsInReverseInsertionOrder() {
     var className = createClassInstance().getName();
 
     session.begin();
-    var rid1 = session.newEntity(className).getIdentity();
-    var rid2 = session.newEntity(className).getIdentity();
-    var rid3 = session.newEntity(className).getIdentity();
+    var allRids = new ArrayList<com.jetbrains.youtrackdb.internal.core.db.record.record.RID>();
+    for (var i = 0; i < 24; i++) {
+      allRids.add(session.newEntity(className).getIdentity());
+    }
     session.commit();
 
     var ctx = newContext();
@@ -249,13 +259,60 @@ public class FetchFromClassExecutionStepTest extends TestUtilsFixture {
     try {
       var results = drain(step.start(ctx), ctx);
       var rids = results.stream().map(Result::getIdentity).toList();
-      // All three RIDs must be present, and the iterator delivered them in non-ascending order
-      // (descending scan). Pin the "first RID > last RID" property — tolerant to multi-
-      // collection polymorphic ordering if the fixture ever introduces subclasses.
-      assertThat(rids).containsExactlyInAnyOrder(rid1, rid2, rid3);
-      assertThat(rids.get(0).getCollectionPosition())
-          .as("DESC scan: first position >= last position")
-          .isGreaterThanOrEqualTo(rids.get(rids.size() - 1).getCollectionPosition());
+      assertThat(rids).containsExactlyInAnyOrderElementsOf(allRids);
+
+      // Within each collection, positions must be strictly descending (the effect of DESC
+      // iteration inside RecordIteratorCollections). Verify for any collection that holds
+      // multiple records from the seeded batch — falsifies a mutation that drops the DESC
+      // pass-through inside the iterator.
+      var byCollection = rids.stream()
+          .collect(java.util.stream.Collectors.groupingBy(
+              com.jetbrains.youtrackdb.internal.core.db.record.record.RID::getCollectionId,
+              java.util.stream.Collectors.mapping(
+                  r -> r.getCollectionPosition(), java.util.stream.Collectors.toList())));
+      byCollection.entrySet().stream()
+          .filter(e -> e.getValue().size() >= 2)
+          .forEach(e -> assertThat(e.getValue())
+              .as("DESC scan of collection %d positions", e.getKey())
+              .isSortedAccordingTo((a, b) -> Long.compare(b, a)));
+
+      // Across collections: the collection IDs appear in DESC order (sorted at construction).
+      var visitedCollections = rids.stream()
+          .map(com.jetbrains.youtrackdb.internal.core.db.record.record.RID::getCollectionId)
+          .distinct()
+          .toList();
+      assertThat(visitedCollections)
+          .as("collection IDs visited in DESC order")
+          .isSortedAccordingTo((a, b) -> Integer.compare(b, a));
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * Polymorphic scan includes subclass collections. A parent-class fetch must return records from
+   * both parent and subclass instances, proving that {@code getPolymorphicCollectionIds()} feeds
+   * the whole subtree into the scan. Pins the defining behavior of
+   * {@code FetchFromClassExecutionStep} vs. {@code FetchFromCollectionExecutionStep} (TC2).
+   */
+  @Test
+  public void scanIncludesSubclassCollectionsByDefault() {
+    var parent = createClassInstance();
+    var child = createChildClassInstance(parent);
+
+    session.begin();
+    var parentRid = session.newEntity(parent.getName()).getIdentity();
+    var childRid = session.newEntity(child.getName()).getIdentity();
+    session.commit();
+
+    var ctx = newContext();
+    var step = new FetchFromClassExecutionStep(parent.getName(), null, ctx, null, false);
+
+    session.begin();
+    try {
+      var results = drain(step.start(ctx), ctx);
+      assertThat(results.stream().map(Result::getIdentity).toList())
+          .containsExactlyInAnyOrder(parentRid, childRid);
     } finally {
       session.rollback();
     }
@@ -335,7 +392,7 @@ public class FetchFromClassExecutionStepTest extends TestUtilsFixture {
     var output = step.prettyPrint(0, 2);
 
     assertThat(output).contains("+ FETCH FROM CLASS ").contains(className);
-    assertThat(output).doesNotContain("μs"); // μs
+    assertThat(output).doesNotContain(" (").doesNotContain("μs");
   }
 
   /**
@@ -354,7 +411,8 @@ public class FetchFromClassExecutionStepTest extends TestUtilsFixture {
   }
 
   /**
-   * A non-zero depth prepends {@code depth * indent} leading spaces to the first line.
+   * A non-zero depth prepends exactly {@code depth * indent} leading spaces to the first line.
+   * Exact-width pin (CQ6): rejects both under-indent and over-indent mutations.
    */
   @Test
   public void prettyPrintAppliesIndentation() {
@@ -362,10 +420,10 @@ public class FetchFromClassExecutionStepTest extends TestUtilsFixture {
     var ctx = newContext();
     var step = new FetchFromClassExecutionStep(className, null, ctx, null, false);
 
-    // depth=1, indent=4 → 4 leading spaces
+    // depth=1, indent=4 → exactly 4 leading spaces, then '+'.
     var output = step.prettyPrint(1, 4);
 
-    assertThat(output).startsWith("    ");
+    assertThat(output).startsWith("    +").doesNotStartWith("     +");
     assertThat(output).contains("+ FETCH FROM CLASS ").contains(className);
   }
 
@@ -385,9 +443,8 @@ public class FetchFromClassExecutionStepTest extends TestUtilsFixture {
 
     var serialized = original.serialize(session);
 
-    // Restore into a bare instance using the protected no-arg ctx-only constructor via
-    // deserialize. FetchFromClassExecutionStep has no public zero-arg ctor; use the one-arg
-    // variant that constructs against a placeholder class, then let deserialize overwrite fields.
+    // FetchFromClassExecutionStep has no zero-arg ctor, so reconstruct via the regular
+    // class-name ctor and let deserialize overwrite fields to prove round-trip fidelity.
     var restored = new FetchFromClassExecutionStep(className, null, ctx, null, false);
     restored.deserialize(serialized, session);
 
@@ -413,7 +470,9 @@ public class FetchFromClassExecutionStepTest extends TestUtilsFixture {
     badResult.setProperty("subSteps", List.of(badSubStep));
 
     assertThatThrownBy(() -> step.deserialize(badResult, session))
-        .isInstanceOf(CommandExecutionException.class);
+        .isInstanceOf(CommandExecutionException.class)
+        // TB10 cause-chain pin: the wrapped exception identifies the real failure.
+        .hasRootCauseInstanceOf(ClassNotFoundException.class);
   }
 
   // =========================================================================
@@ -459,6 +518,14 @@ public class FetchFromClassExecutionStepTest extends TestUtilsFixture {
     var copied = (FetchFromClassExecutionStep) copy;
     assertThat(copied.isProfilingEnabled()).isTrue();
     assertThat(copied.canBeCached()).isTrue();
+
+    // TB2-style pin: verify className, orderByRidAsc, orderByRidDesc survived the copy via the
+    // serialize probe. Without this a mutation that omits any of these field assignments from
+    // copy() would slip past the prettyPrint check alone.
+    var copySerialized = copied.serialize(session);
+    assertThat((String) copySerialized.getProperty("className")).isEqualTo(className);
+    assertThat((Boolean) copySerialized.getProperty("orderByRidAsc")).isTrue();
+    assertThat((Boolean) copySerialized.getProperty("orderByRidDesc")).isFalse();
 
     // Copy renders the same header (proxy check that className was preserved).
     var copyOutput = copied.prettyPrint(0, 2);
