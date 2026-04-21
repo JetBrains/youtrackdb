@@ -3,9 +3,9 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
+import com.jetbrains.youtrackdb.internal.common.concur.NeedRetryException;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -34,6 +34,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.Before;
@@ -54,6 +55,8 @@ public class LocalPaginatedStorageRestoreFromWALIT {
   private DatabaseSessionEmbedded testDocumentTx;
   private DatabaseSessionEmbedded baseDocumentTx;
   private final ExecutorService executorService = Executors.newCachedThreadPool();
+  private final AtomicInteger commits = new AtomicInteger();
+  private final AtomicInteger retries = new AtomicInteger();
 
   private static void copyFile(String from, String to) throws IOException {
     final var fromFile = new File(from);
@@ -126,6 +129,20 @@ public class LocalPaginatedStorageRestoreFromWALIT {
     for (var future : futures) {
       future.get();
     }
+
+    // Sanity gate: ensure the concurrent workload actually produced meaningful
+    // WAL traffic. Without this a regression that made retryable exceptions
+    // fire on every iteration would leave both databases near-empty, and the
+    // downstream DatabaseCompare would trivially pass. Threshold is a small
+    // fraction of the 8 * 5000 = 40000 iterations to stay far from observed
+    // steady-state (~99% commit rate) yet catch pathological runs.
+    var totalCommits = commits.get();
+    var totalRetries = retries.get();
+    Assert.assertTrue(
+        "Expected most iterations to commit; got " + totalCommits + " commits / "
+            + totalRetries + " retries — suggests a regression making retryable "
+            + "exceptions ubiquitous",
+        totalCommits > 20_000);
 
     Thread.sleep(1500);
     WalTestUtils.withWalProtection(
@@ -285,11 +302,20 @@ public class LocalPaginatedStorageRestoreFromWALIT {
                 db.delete(entityToDelete);
               }
             });
-          } catch (ConcurrentModificationException | RecordNotFoundException e) {
-            // Under SI, concurrent transactions may conflict on version checks
-            // or encounter records not visible in the current snapshot during
-            // commit-time link consistency processing.
-            // Restore lists to pre-transaction state since the tx was rolled back.
+            commits.incrementAndGet();
+          } catch (NeedRetryException | RecordNotFoundException e) {
+            // Retryable commit-time exceptions under 8-thread snapshot isolation:
+            //   * NeedRetryException subclasses (ConcurrentModification,
+            //     LinksConsistency, ConcurrentCreate, …) — framework contract
+            //     is to retry, see NeedRetryException javadoc.
+            //   * RecordNotFoundException — a target record is not visible in
+            //     the current snapshot during commit-time link-consistency
+            //     processing; may succeed on re-execution.
+            // The transaction was rolled back by executeInTx's finally block,
+            // so restore the thread-local RID lists to their pre-transaction
+            // state. The outer sanity assertion in testSimpleRestore guards
+            // against a pathological case where every iteration retries.
+            retries.incrementAndGet();
             firstDocs.clear();
             firstDocs.addAll(firstDocsSnapshot);
             testTwoList.clear();
