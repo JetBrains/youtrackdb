@@ -5,7 +5,30 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInterna
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import org.apache.commons.lang3.RandomStringUtils;
+import org.junit.After;
 
+/**
+ * Base fixture for executor-step tests. Extends {@link DbTestBase} with helpers for creating
+ * uniquely-named schema classes plus a transaction-leak guard that runs before
+ * {@link DbTestBase#afterTest()}.
+ *
+ * <p>Why the leak guard:
+ *
+ * <ul>
+ *   <li>{@link DbTestBase} reuses one {@code session} across all test methods in the class.
+ *   <li>If an executor-step test opens a transaction (e.g. {@code session.begin()} to populate
+ *       records, or implicitly via a CRUD step) and the test method throws before reaching its
+ *       own {@code session.rollback()}, the next test method in the same class runs against a
+ *       still-open transaction. Its assertions can cascade-fail or be silently affected by the
+ *       leftover state.
+ *   <li>{@link DbTestBase#afterTest()} only drops the database; it does not roll back. So the
+ *       leak persists across the {@code @After} boundary within the same class.
+ * </ul>
+ *
+ * <p>Track 7 established this {@code @After rollbackIfLeftOpen} idiom for {@code sql/method}
+ * tests. Track 8 adopts it as the default for executor tests via this fixture, so per-class
+ * boilerplate is no longer required.
+ */
 public class TestUtilsFixture extends DbTestBase {
 
   protected SchemaClassInternal createClassInstance() {
@@ -22,5 +45,21 @@ public class TestUtilsFixture extends DbTestBase {
 
   private static String generateClassName() {
     return "Class" + RandomStringUtils.randomNumeric(10);
+  }
+
+  /**
+   * Roll back any transaction left open by a failing test method before
+   * {@link DbTestBase#afterTest()} drops the database. JUnit 4 runs subclass {@code @After}
+   * methods before superclass ones, so this safety net runs ahead of the database teardown.
+   *
+   * <p>This is a no-op for tests that close their transactions cleanly. It only catches the
+   * "test threw mid-transaction" path — exactly the scenario that otherwise cascade-poisons
+   * subsequent tests in the same class.
+   */
+  @After
+  public void rollbackIfLeftOpen() {
+    if (session != null && !session.isClosed() && session.isTxActive()) {
+      session.rollback();
+    }
   }
 }
