@@ -20,6 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
@@ -29,6 +30,7 @@ import static org.junit.Assert.assertTrue;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBatch;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.Test;
@@ -65,7 +67,7 @@ import org.junit.Test;
  * for the {@code // WHEN-FIXED: Track 22 — delete} markers in this file before deleting any
  * class so you don't accidentally remove a reachable one.
  *
- * <p>All tests are standalone (no {@link DbTestBase}); the four classes either ignore their
+ * <p>All tests are standalone (no {@code DbTestBase}); the four classes either ignore their
  * session field, accept {@code @Nullable DatabaseSessionEmbedded} via their parent, or don't
  * touch one at construction time.
  */
@@ -209,18 +211,57 @@ public class SqlExecutorDeadCodeTest {
   @Test
   public void traverseResultDepthSetterAcceptsNumberAndIsCaseInsensitive() {
     // WHEN-FIXED: Track 22 — the $depth setter narrows Number → int via Number.intValue(),
-    // and the property name match is case-insensitive (equalsIgnoreCase). Pin both.
+    // and the property name match is case-insensitive (equalsIgnoreCase). Pin both
+    // directions: mixed-case setter hits the same field as a lowercase getter AND vice
+    // versa.
     var tr = new TraverseResult(null);
     tr.setProperty("$DEPTH", 3);
     assertEquals(
-        "case-insensitive match: $DEPTH is normalized to $depth",
+        "case-insensitive setter: $DEPTH is normalized to $depth",
         Integer.valueOf(3),
         tr.getProperty("$depth"));
     // Long input: also accepted because it's a Number — narrowed via intValue().
     tr.setProperty("$depth", 5L);
     assertEquals(Integer.valueOf(5), tr.getProperty("$depth"));
-    // Lowercase getter also matches the same field.
-    assertEquals(Integer.valueOf(5), tr.getProperty("$depth"));
+    // Case-insensitive getter: $Depth / $DEPTH must return the same field as lowercase.
+    assertEquals(
+        "case-insensitive getter: mixed-case $Depth hits the same field",
+        Integer.valueOf(5),
+        tr.getProperty("$Depth"));
+    assertEquals(
+        "case-insensitive getter: uppercase $DEPTH hits the same field",
+        Integer.valueOf(5),
+        tr.getProperty("$DEPTH"));
+  }
+
+  @Test
+  public void traverseResultDepthSetterNarrowsNonIntegerNumbersViaIntValue() {
+    // WHEN-FIXED: Track 22 — pin Number.intValue() narrowing for non-Integer/Long inputs
+    // a future caller might pass (double from SQL arithmetic, BigDecimal from aggregation,
+    // Long.MAX_VALUE that truncates to -1). This is a silent-data-loss surface a restored
+    // caller would inherit unless Track 22 either deletes the class or validates the input.
+    var tr = new TraverseResult(null);
+    // Double: fractional part is dropped.
+    tr.setProperty("$depth", 3.9);
+    assertEquals(
+        "Double.intValue truncates the fractional part",
+        Integer.valueOf(3),
+        tr.getProperty("$depth"));
+    // BigDecimal: delegated to Number.intValue() → integral part.
+    tr.setProperty("$depth", new BigDecimal("7"));
+    assertEquals(
+        "BigDecimal.intValue returns the integral part",
+        Integer.valueOf(7),
+        tr.getProperty("$depth"));
+    // Long.MAX_VALUE overflow: intValue returns the low-order int bits (-1 in two's
+    // complement). Pin this so the overflow-silent behavior is explicit — a restored caller
+    // that assumed clamping rather than truncation would surface a logic bug Track 22
+    // should fix (or the class simply deleted).
+    tr.setProperty("$depth", Long.MAX_VALUE);
+    assertEquals(
+        "Long.MAX_VALUE.intValue overflows to -1 (low-order bits)",
+        Integer.valueOf(-1),
+        tr.getProperty("$depth"));
   }
 
   @Test
@@ -240,6 +281,15 @@ public class SqlExecutorDeadCodeTest {
         "null values fail the instanceof Number check and are also ignored",
         Integer.valueOf(4),
         tr.getProperty("$depth"));
+    // Also pin that the non-Number branch does NOT fall through to the super.setProperty
+    // storage — the getter's $depth short-circuit would mask any such fall-through by
+    // reading the `depth` field, not the super map. A mutation removing the
+    // `instanceof Number num` guard (so every non-$depth-match still delegates) would
+    // leave "$depth" as a stored key in the ResultInternal property names.
+    assertFalse(
+        "non-Number $depth values must not leak into the super.ResultInternal property"
+            + " map — $depth stays exclusively in the TraverseResult.depth field",
+        tr.getPropertyNames().contains("$depth"));
   }
 
   @Test
