@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
@@ -1312,6 +1313,49 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
         "optional edge should not use back-ref hash join, got:\n" + plan,
         plan.contains("BACK-REF HASH JOIN"));
     session.commit();
+  }
+
+  /**
+   * Regression: Pattern B (outE+inV chain) must reject an optional
+   * {@code .inV()} target. Before the fix, {@code detectChainSemiJoin}
+   * had no optional guard (only Pattern A did), so the predecessor
+   * {@code .outE('E')} got marked {@code consumed=true}; then
+   * {@code addStepsFor} dispatched on the {@code isOptionalNode()} branch
+   * before consulting {@code getSemiJoinDescriptor()}, producing a plan
+   * where the predecessor's {@link MatchStep} was silently dropped and no
+   * {@link BackRefHashJoinStep} was inserted — leaving the intermediate
+   * alias unbound at runtime and collapsing all outE edges into a single
+   * null-filled row.
+   *
+   * <p>Correct semantics: traverse every outE('Friend') from {@code a=n1}
+   * (the graph has n1→n2 and n1→n3), emit one row per edge. The back-ref
+   * filter rejects both targets so {@code check} is null under the
+   * optional pass-through.
+   */
+  @Test
+  public void backRef_optionalInV_patternB_correctResults() {
+    session.begin();
+    var result = session.query(
+        "MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".outE('Friend'){as:e}"
+            + ".inV(){as:check, optional:true,"
+            + " where: (@rid = $matched.a.@rid)}"
+            + " RETURN a.name as aName, e.@rid as eRid,"
+            + " check.name as checkName")
+        .toList();
+    session.commit();
+
+    // Without the fix: outE dropped, only OptionalMatchStep runs, intermediate
+    // alias e is unbound → the plan yields a single degenerate row (or none).
+    // With the fix: two outE edges are each traversed, both have null check.
+    assertEquals(2, result.size());
+    for (var row : result) {
+      assertEquals("n1", row.getProperty("aName"));
+      assertNotNull("edge RID must be bound", row.getProperty("eRid"));
+      assertNull(
+          "check must be null under optional back-ref rejection",
+          row.getProperty("checkName"));
+    }
   }
 
   // ── Pattern B — threshold=1 fallback correctness ──

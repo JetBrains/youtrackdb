@@ -3403,8 +3403,26 @@ public class MatchExecutionPlanner {
       return null;
     }
 
+    var edgeJ = schedule.get(j);
+    // Mirror the Pattern A guard: an optional target node must pass through
+    // rows with nulls when no match is found, which BackRefHashJoinStep does
+    // not implement. Worse, addStepsFor dispatches on the optional branch
+    // before consulting getSemiJoinDescriptor() — so if Pattern B fired here
+    // the predecessor edge would be marked consumed and silently dropped
+    // from the plan, producing wrong results.
+    if (edgeJ.edge.in.isOptionalNode() || edgeJ.edge.out.isOptionalNode()) {
+      return null;
+    }
+
     // Check preceding edge (j-1) is an edge-level traversal (outE/inE)
     var edgePrev = schedule.get(j - 1);
+    // The intermediate alias (edgePrev endpoint) must also be non-optional:
+    // it would otherwise be "skipped" in the traversal yet still bound by
+    // the collapsed BackRefHashJoinStep, diverging from the documented
+    // semantics of optional nodes.
+    if (edgePrev.edge.in.isOptionalNode() || edgePrev.edge.out.isOptionalNode()) {
+      return null;
+    }
     var prevDirection = getEdgeDirection(edgePrev);
     if (prevDirection == null) {
       return null;
