@@ -108,6 +108,9 @@ public class InterruptResultSetTest extends DbTestBase {
     thread.start();
     assertThat(done.await(5, TimeUnit.SECONDS)).isTrue();
     thread.join(1_000);
+    assertThat(thread.isAlive())
+        .as("SoftThread worker must terminate within 1s after sendShutdown")
+        .isFalse();
 
     assertThat(captured.get()).isEqualTo("ok");
     assertThat(reached[0]).isTrue();
@@ -159,6 +162,9 @@ public class InterruptResultSetTest extends DbTestBase {
     thread.start();
     assertThat(done.await(5, TimeUnit.SECONDS)).isTrue();
     thread.join(1_000);
+    assertThat(thread.isAlive())
+        .as("SoftThread worker must terminate within 1s after sendShutdown")
+        .isFalse();
 
     assertThat(thrown.get()).isInstanceOf(CommandInterruptedException.class);
     // Exact message pins the production contract — a regression that changed the text
@@ -211,6 +217,9 @@ public class InterruptResultSetTest extends DbTestBase {
     thread.start();
     assertThat(done.await(5, TimeUnit.SECONDS)).isTrue();
     thread.join(1_000);
+    assertThat(thread.isAlive())
+        .as("SoftThread worker must terminate within 1s after sendShutdown")
+        .isFalse();
 
     assertThat(thrown.get()).isInstanceOf(CommandInterruptedException.class);
     assertThat(((CommandInterruptedException) thrown.get()).getMessage())
@@ -259,6 +268,12 @@ public class InterruptResultSetTest extends DbTestBase {
     RunOnceSoftThread(String name, Runnable action) {
       super(name);
       this.action = action;
+      // Daemon = true so that if a future refactor causes the action to hang (e.g. an uncaught
+      // exception masked by SoftThread's handler, preventing sendShutdown from running), the
+      // leaked worker does not block surefire fork shutdown. The three tests that spawn one
+      // of these threads also assert isAlive()==false after join(1s), so a hang shows up as
+      // an AssertionError rather than a silent timeout, but the daemon flag is belt-and-braces.
+      setDaemon(true);
     }
 
     @Override

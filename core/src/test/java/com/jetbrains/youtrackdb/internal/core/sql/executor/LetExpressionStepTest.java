@@ -190,7 +190,14 @@ public class LetExpressionStepTest extends TestUtilsFixture {
 
     assertThatThrownBy(() -> restored.deserialize(serialized, session))
         .isInstanceOf(CommandExecutionException.class)
-        .hasRootCauseInstanceOf(NoSuchMethodException.class);
+        .hasRootCauseInstanceOf(NoSuchMethodException.class)
+        // Pin the <init>(java.lang.Integer) signature fragment so an unrelated NSME regression
+        // (a different missing ctor surfaced during a refactor) cannot silently pass this
+        // WHEN-FIXED marker. The leading AST class varies with the serialized expression
+        // shape, so we match only the signature fragment that uniquely identifies this
+        // Integer-vs-int ctor bug.
+        .rootCause()
+        .hasMessageEndingWith("<init>(java.lang.Integer)");
   }
 
   /**

@@ -655,17 +655,29 @@ public class SmallPlannerBranchTest extends TestUtilsFixture {
 
   /**
    * {@code CREATE VERTEX} (no target class) — exercises the {@code targetClass == null} default
-   * to {@code "V"}.
+   * to {@code "V"} in {@link CreateVertexExecutionPlanner}. The assertion queries {@code @class}
+   * on the returned RID so a mutation changing the default identifier (e.g. to a sibling vertex
+   * subclass) would be caught instead of silently passing.
    */
   @Test
   public void createVertex_defaultTargetV() {
     session.begin();
+    com.jetbrains.youtrackdb.internal.core.db.record.record.RID rid;
     try (var result = session.execute("create vertex")) {
       Assert.assertTrue(result.hasNext());
       var row = result.next();
-      Assert.assertNotNull(row.getIdentity());
+      rid = row.getIdentity();
+      Assert.assertNotNull(rid);
     }
     session.commit();
+
+    try (var check = session.query("select @class as cls from " + rid)) {
+      Assert.assertTrue(check.hasNext());
+      Assert.assertEquals(
+          "CREATE VERTEX without target class must default to class \"V\"",
+          "V",
+          check.next().getProperty("cls"));
+    }
   }
 
   /**

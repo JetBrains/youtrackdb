@@ -319,7 +319,14 @@ public class FilterStepTest extends TestUtilsFixture {
 
     assertThatThrownBy(() -> restored.deserialize(serialized, session))
         .isInstanceOf(CommandExecutionException.class)
-        .hasRootCauseInstanceOf(NoSuchMethodException.class);
+        .hasRootCauseInstanceOf(NoSuchMethodException.class)
+        // Pin the <init>(java.lang.Integer) signature fragment so an unrelated NSME regression
+        // (a different missing ctor surfaced during a refactor) cannot silently pass this
+        // WHEN-FIXED marker. The leading AST class varies with the serialized expression
+        // shape, so we match only the signature fragment that uniquely identifies this
+        // Integer-vs-int ctor bug.
+        .rootCause()
+        .hasMessageEndingWith("<init>(java.lang.Integer)");
   }
 
   /**
@@ -327,6 +334,13 @@ public class FilterStepTest extends TestUtilsFixture {
    * branch of the {@code whereClause != null} guard in {@link FilterStep#serialize} is only
    * reachable when a subclass nulls out the private field post-construction, so it is
    * intentionally not covered here.
+   *
+   * <p>The assertion pins both (a) the stored property's type (a {@code ResultInternal}
+   * fragment encoding the clause's AST, matching the shape {@code FilterStep#deserialize}
+   * reads back) and (b) that the serialized fragment records the expected AST class tag
+   * ({@code SQLOrBlock}, the root of a typical WHERE clause AST). A mutation that serialized
+   * a stub value or a different property would not carry the {@code __class} tag, so a
+   * non-null-only assertion is too weak.
    */
   @Test
   public void serializeStoresWhereClauseProperty() {
@@ -336,7 +350,18 @@ public class FilterStepTest extends TestUtilsFixture {
 
     var serialized = step.serialize(session);
 
-    assertThat((Object) serialized.getProperty("whereClause")).isNotNull();
+    Object whereProp = serialized.getProperty("whereClause");
+    assertThat(whereProp).isNotNull();
+    assertThat(whereProp)
+        .as("FilterStep.serialize must store the whereClause as a ResultInternal AST fragment")
+        .isInstanceOf(com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal.class);
+    // The serialized WHERE clause stores the AST-class tag under "__class". The WHERE root
+    // for a comparison clause is SQLOrBlock (which wraps the AND chain containing the
+    // equality) — pinning that token catches a mutation that serialized a stub value or
+    // dropped the clause's AST in favor of a primitive string/field reference.
+    assertThat(whereProp.toString())
+        .as("serialized whereClause must carry the SQLOrBlock AST-class tag")
+        .contains("SQLOrBlock");
   }
 
   /**
