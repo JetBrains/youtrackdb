@@ -165,19 +165,28 @@ instead of restating them.
 | Input | Value |
 |---|---|
 | `plan_path` | Absolute path to `docs/adr/<dir-name>/implementation-plan.md` — the strategic context (Goals, Constraints, Architecture Notes, Decision Records, Component Map). |
-| `step_file_path` | Absolute path to `docs/adr/<dir-name>/tracks/track-N.md` — after the description-move in §What You Do sub-step (d), the step file's `## Description` section is the authoritative source for the track's `**What/How/Constraints/Interactions**` subsections and any track-level diagram. |
+| `step_file_path` | Absolute path to `docs/adr/<dir-name>/tracks/track-N.md` — once Phase A has written the step file, its `## Description` section is the authoritative source for the track's `**What/How/Constraints/Interactions**` subsections and any track-level diagram (per the lifecycle table in `conventions-execution.md` §2.1). |
 | `track_name` | The track heading as it appears in the plan file's checklist (e.g., `"Track 2: Execution workflow edits"`). |
 | `codebase_path` | Absolute path to the repository root — the sub-agent may Read any file under this path to validate code references. |
-| `prior_episodes` | Summary of track episodes from already-completed tracks (pre-rendered into the slim plan snapshot read via `plan_path`) — used for cross-track consistency checks. |
+| `prior_episodes` | Summary of track episodes from already-completed tracks. The episodes themselves also appear in the slim plan snapshot pointed at by `plan_path`, but they are passed as a **separate** value so each review prompt's `{prior_episodes}` placeholder resolves without forcing the sub-agent to re-parse the plan. Used for cross-track consistency checks. |
 | `previous_findings` | Findings from earlier iterations of the same review type (empty on iteration 1; populated on iterations 2–3). Used to avoid re-surfacing already-accepted/deferred findings and to verify that review-fix commits resolved prior findings. |
 
-During the transition while the downstream review prompts still read
-the track description from the plan-file entry, Phase A orchestration
-passes both `plan_path` and `step_file_path` to each sub-agent — so
-today's prompts keep working. When the prompts later switch to reading
-description + track-level diagram from the step file, only the prompt
-files are edited; this Inputs block and the per-review mini-sections
-below do not need to change.
+Phase A orchestration always passes both `plan_path` and
+`step_file_path` to each sub-agent. Prompts that read the track
+description from the plan-file entry use `plan_path`; prompts that
+read it from the step file's `## Description` section use
+`step_file_path`. The Inputs block and the per-review mini-sections
+below do not need to change when an individual prompt switches sources
+— only the prompt file itself is edited.
+
+**Gate-verification-specific inputs.** The review gate verification
+sub-agent additionally receives `findings` (the current iteration's
+findings under re-check — semantically distinct from `previous_findings`,
+which carries finalised findings from earlier iterations) and a
+`review_type` value identifying which review produced the findings
+(`technical` / `risk` / `adversarial`). These two are not part of the
+shared set because the track-scoped reviews do not consume them; the
+gate-verification mini-section below notes their role.
 
 ### Track-scoped technical review
 
@@ -205,7 +214,9 @@ above.
 
 After fixes are applied, spawn a sub-agent to verify. Inputs: the
 shared set defined in §Inputs passed to Phase A review sub-agents
-above.
+above, **plus** the gate-verification-specific `findings` (the
+iteration's findings under re-check) and `review_type`
+(`technical` / `risk` / `adversarial`).
 
 **Prompt file:** [`prompts/review-gate-verification.md`](prompts/review-gate-verification.md)
 
