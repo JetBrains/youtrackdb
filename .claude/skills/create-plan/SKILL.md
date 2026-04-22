@@ -128,12 +128,11 @@ backlog to `docs/adr/<dir-name>/implementation-backlog.md` using the
 two structures below. The plan carries strategic context (Goals,
 Constraints, Architecture Notes, Decision Records) plus a thin
 checklist; the backlog carries each track's detailed
-`**What/How/Constraints/Interactions**` subsections and any track-level
-Mermaid diagrams. Splitting keeps `/execute-tracks` startup context
-small — see `.claude/workflow/conventions.md` §1.2 for the full rules,
-including the D4 legacy-compat detection rule and the load-bearing-file
-rule that requires `implementation-backlog.md` to remain on disk for
-the lifetime of the plan.
+`**What/How/Constraints/Interactions**` subsections and any
+track-level Mermaid diagrams. Splitting keeps `/execute-tracks`
+startup context small — see `.claude/workflow/conventions.md` §1.2 for
+the full rules (backlog file shape, D4 legacy-compat detection,
+load-bearing-file rule).
 
 ```
 # <Feature Name>
@@ -209,6 +208,10 @@ Natural cleanup happens when the branch is deleted after PR merge. -->
 > **How**: …
 > **Constraints**: …
 > **Interactions**: …
+
+<!-- The Track 2 above uses a condensed one-line-per-label style as a
+layout exemplar; expand each track section to carry the full
+description content per planning.md §Track descriptions. -->
 ````
 
 Write the design document to `docs/adr/<dir-name>/design.md` using this
