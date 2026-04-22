@@ -242,17 +242,19 @@ picks the resume action from the decision table below.
 The table is **idempotent**: running the indicated action produces the
 steady-state even if the table is re-entered multiple times. The
 **non-re-copy rule** (never overwrite a non-empty `## Description`
-from the plan + backlog) is what protects inline-replanning edits to
-the step file's description from being silently undone on a later
-Phase A resume.
+from the plan + backlog) is what protects any post-Phase-A edits to
+the step file's description — e.g., a later inline-replan that
+revises a mid-execution track — from being silently undone if Phase A
+is re-entered later (most commonly because an earlier Phase A session
+was interrupted and State C resumed here).
 
 | Step file state | Backlog state | Resume action |
 |---|---|---|
-| Missing | `## Track N:` section present | Fresh Phase A: run §What You Do sub-steps (a)-(e) from the top. The atomic write in (d) closes the empty-shell window on the first attempt, so no intermediate state can be on disk here. |
+| Missing | `## Track N:` section present | Fresh Phase A: run §What You Do sub-steps (a)-(e) from the top. Sub-step (d)'s single-Write rule rules out an on-disk step file with an empty `## Description`, so this row cannot represent a partial (d); it only represents an interruption at or before (c). |
 | Missing | No `## Track N:` section (mid-migration) or no backlog file at all (legacy) | Fresh Phase A: read the full description from the plan-file entry per §What You Do branch (ii)/(iii); skip sub-step (e). |
-| Present, `## Description` populated | `## Track N:` section still present | Partial interruption after (d), before (e) completed. Run sub-step (e) only — remove the backlog section using the "Backlog section body extraction rule" in `conventions-execution.md` §2.1. Do NOT re-copy into the step file's `## Description`. |
+| Present, `## Description` populated | `## Track N:` section still present | Partial interruption after (d), before (e) completed. Run sub-step (e) **verbatim** — including its file-exists re-check preamble — and remove the backlog section using the "Backlog section body extraction rule" in `conventions-execution.md` §2.1. Do NOT re-copy into the step file's `## Description`. |
 | Present, `## Description` populated | No `## Track N:` section / no backlog file | Steady state. No description mutation needed. Resume from the next incomplete Phase A activity (reviews not yet run, decomposition not yet written). |
-| Present WITHOUT `## Description` (pre-refactor step file — created by an older worktree whose Phase A ran before the description-move was added) | (any) | Leave the step file's Description state untouched. Phase A review prompts detect the missing `## Description` and fall back to reading the description from the plan-file entry. Resume from the next incomplete Phase A activity. |
+| Present WITHOUT `## Description` section (step file predates the Phase A description-move — it was created by Phase A before sub-steps (b)-(e) were added) | Any of the above — the backlog state is irrelevant for this row | Leave the step file's Description state untouched. Phase A review prompts detect the missing `## Description` and fall back to reading the description from the plan-file entry. Resume from the next incomplete Phase A activity. |
 
 After the resume action completes, Phase A continues normally — the
 §Complexity Assessment, review loop, and §Step Decomposition proceed
