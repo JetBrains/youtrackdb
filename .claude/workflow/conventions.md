@@ -20,6 +20,7 @@ during Phase 3 execution.
 | **Research** | Phase 0 — interactive exploration before planning. The agent answers questions, explores code, and does internet research. Completes only when the user explicitly asks to create the plan. Same session as Phase 1. |
 | **Session** | One invocation of `/execute-tracks`. Handles one sub-phase (A, B, or C) of one track. Sessions are separated by context clearing. Episodes bridge context across sessions. The only exception: strategy refresh + Phase A share a single session. |
 | **Sub-agent** | A spawned agent for self-contained review tasks (technical/risk/adversarial reviews, dimensional code review agents, test quality review). Sub-agents provide fresh perspective; the main agent retains full context. |
+| **Backlog** | `implementation-backlog.md` — the companion file to `implementation-plan.md` that holds the detailed `**What/How/Constraints/Interactions**` subsections and any track-level Mermaid diagrams for pending tracks. Written during Phase 1 alongside the plan; shrinks monotonically as tracks enter Phase A or are skipped; never committed to git. Its presence on disk is the signal that tells consumers the plan is in the new split-file format (see §1.2). |
 
 ---
 
@@ -33,7 +34,14 @@ defaulting to the current git branch name.
 docs/adr/<dir-name>/
   ## Working files (untracked — on disk only, deleted with the branch)
   implementation-plan.md          <- strategic: goals, architecture, tracks,
-                                     track-level episodic summaries
+                                     track-level episodic summaries (thin
+                                     checklist — description detail lives in
+                                     implementation-backlog.md)
+  implementation-backlog.md       <- pending-track details (what/how/
+                                     constraints/interactions + any
+                                     track-level diagrams); shrinks
+                                     monotonically; presence on disk signals
+                                     new-format plan (see subsection below)
   design.md                       <- design-level: class diagrams, workflow
                                      diagrams, complex/opaque part explanations
                                      (created in Phase 1, never modified after)
@@ -78,10 +86,10 @@ Only the two Phase 4 artifacts are committed to git.
 
 ## Checklist
 - [ ] Track 1: <title>
-  > <description: what/how/constraints/interactions>
+  > <intro paragraph — high-level context; detailed description in implementation-backlog.md>
   > **Scope:** ~N steps covering X, Y, Z
 - [ ] Track 2: <title>
-  > <description>
+  > <intro paragraph — high-level context; detailed description in implementation-backlog.md>
   > **Scope:** ~N steps covering X, Y, Z
   > **Depends on:** Track 1 (when applicable)
 
@@ -94,6 +102,84 @@ phasing, split it into separate dependent tracks. Track sequencing and
 episode propagation between dependent tracks is handled by the session
 workflow — this gives the same "informed decomposition" benefit without
 extra complexity.
+
+### Backlog file content (`implementation-backlog.md`)
+
+Companion file to `implementation-plan.md`. It holds the detailed
+`**What/How/Constraints/Interactions**` subsections and any track-level
+Mermaid diagrams for **pending** tracks — the content that used to live
+inside each checklist entry in the plan file. Splitting this detail out of
+the plan keeps `implementation-plan.md` thin so `/execute-tracks` sessions
+read only strategic context at startup; the backlog is read only in Phase A
+of one track per session.
+
+````markdown
+# <Feature Name> — Track Details
+
+<!-- DO NOT DELETE THIS FILE. Its presence on disk signals the new
+split-file plan format (see .claude/workflow/conventions.md §1.2).
+Deleting it flips subsequent workflow operations into legacy mode.
+Natural cleanup happens when the branch is deleted after PR merge. -->
+
+## Track 1: <title>
+
+> **What**:
+> - <bullet list of concrete deliverables>
+>
+> **How**:
+> - <approach notes, ordering constraints, invariants to preserve>
+>
+> **Constraints**:
+> - <in-scope/out-of-scope files, compatibility requirements>
+>
+> **Interactions**:
+> - <how this track depends on or enables other tracks>
+
+```mermaid
+<optional track-level component diagram (≤10 nodes); see planning.md>
+```
+
+## Track 2: <title>
+
+> **What**: …
+> **How**: …
+> **Constraints**: …
+> **Interactions**: …
+
+…
+````
+
+**File shape requirements:**
+- `# <Feature Name> — Track Details` header (the canonical opening content;
+  the file remains in new-format mode as long as the file itself exists
+  on disk, regardless of header content).
+- The `<!-- DO NOT DELETE … -->` HTML comment immediately after the header
+  is **required** in newly-created backlogs as the self-documenting marker
+  of the load-bearing-file rule below. It is informational for human
+  readers and agents; detection does not parse it.
+- One `## Track N: <title>` section per pending track, with bold-label
+  blockquote subsections and an optional fenced `mermaid` block for any
+  track-level diagram.
+- Sections are removed from the backlog as their tracks enter Phase A or
+  are skipped. The backlog therefore shrinks monotonically during normal
+  execution (entries are added only during Phase 1 or inline replanning).
+
+**Load-bearing-file rule:** The backlog file's **presence on disk** — not
+its content — is the signal that tells consumers the plan is in the new
+split-file format. The file must remain on disk throughout execution even
+after the last track section is removed (an empty header-only file still
+signals new-format). The `<!-- DO NOT DELETE -->` HTML comment is the
+self-documenting marker of this rule; natural cleanup happens when the
+branch is deleted after PR merge, like every other working file.
+
+**D4 — Legacy-compat detection rule:** If the file
+`docs/adr/<dir-name>/implementation-backlog.md` exists, the plan is
+new-format and consumers read pending-track detail from the backlog;
+otherwise the plan is legacy and consumers fall back to reading
+`**What/How/Constraints/Interactions**` from the plan file's checklist
+entries as before. Use "file exists" wording in derived documents and
+prompts — the canonical rule is language-neutral; individual orchestrators
+choose whatever tool is convenient (Bash `test`, Glob, Read).
 
 ### Status markers
 
