@@ -66,6 +66,10 @@ groups:
                             / 3600000000000.0,
                   }))
                   |> keep(columns: ["_time", "_value"])
+          # `reduce` collapses refId B's output (one row with the age in hours)
+          # into a single scalar for the threshold step to compare against.
+          # No `conditions:` block here: the firing decision is made by
+          # refId C (the threshold step below), not by this reducer.
           - refId: A
             relativeTimeRange:
               from: 604800
@@ -77,17 +81,6 @@ groups:
               datasource:
                 type: __expr__
                 uid: __expr__
-              conditions:
-                - evaluator:
-                    params: []
-                    type: gt
-                  operator:
-                    type: and
-                  query:
-                    params:
-                      - A
-                  reducer:
-                    type: last
               expression: B
               reducer: last
               settings:

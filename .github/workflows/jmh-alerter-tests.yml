@@ -16,6 +16,9 @@ on:
       - 'jmh-ldbc/jmh-regression-alert.py'
       - 'jmh-ldbc/tests/**'
       - '.github/workflows/jmh-alerter-tests.yml'
+  # Allow manual re-runs (e.g. after a transient GitHub Actions outage)
+  # without having to push an empty commit.
+  workflow_dispatch: {}
 
 permissions:
   contents: read

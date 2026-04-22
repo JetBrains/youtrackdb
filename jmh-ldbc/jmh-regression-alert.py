@@ -14,7 +14,17 @@ def parse_latest_results(data):
     """Parse JMH JSON into {(query, suite): {score, score_error}} dict."""
     results = {}
     for entry in data:
-        parts = entry["benchmark"].rsplit(".", 2)
+        benchmark_name = entry.get("benchmark", "")
+        parts = benchmark_name.rsplit(".", 2)
+        # Defensive: JMH always produces fully-qualified names, but if a
+        # benchmark entry is malformed (fewer than 2 dots) skip it with a
+        # warning rather than raising IndexError on parts[-2].
+        if len(parts) < 2:
+            print(
+                f"WARNING: skipping malformed benchmark name {benchmark_name!r}",
+                file=sys.stderr,
+            )
+            continue
         class_name = parts[-2]
         method_name = parts[-1]
 
@@ -36,19 +46,31 @@ def parse_latest_results(data):
     return results
 
 
+def _flux_escape(s):
+    """Escape a value for safe interpolation into a Flux string literal.
+
+    Flux string literals are double-quoted with backslash escapes. Without
+    escaping, a branch name containing a `"` or `\\` would break the query
+    syntax (and in the wrong hands, would be an injection vector).
+    """
+    return str(s).replace("\\", "\\\\").replace('"', '\\"')
+
+
 def query_influxdb(url, token, org, bucket, suite, branch, limit):
     """Query InfluxDB for the last N scores per query (excluding the latest push)."""
-    # Get historical data: last `limit` runs before the most recent
+    # Get historical data: last `limit` runs before the most recent.
+    # Escape interpolated values so unusual but legal branch names (e.g.
+    # containing `"`) cannot break the Flux syntax.
     flux = f'''
-from(bucket: "{bucket}")
+from(bucket: "{_flux_escape(bucket)}")
   |> range(start: -90d)
   |> filter(fn: (r) => r._measurement == "jmh_benchmark")
-  |> filter(fn: (r) => r.suite == "{suite}")
-  |> filter(fn: (r) => r.branch == "{branch}")
+  |> filter(fn: (r) => r.suite == "{_flux_escape(suite)}")
+  |> filter(fn: (r) => r.branch == "{_flux_escape(branch)}")
   |> filter(fn: (r) => r._field == "score")
   |> group(columns: ["query"])
   |> sort(columns: ["_time"], desc: true)
-  |> limit(n: {limit})
+  |> limit(n: {int(limit)})
   |> sort(columns: ["_time"])
   |> keep(columns: ["_time", "_value", "query"])
 '''
@@ -85,7 +107,6 @@ def parse_influx_csv(csv_data):
       ,_result,0,2026-03-21T03:48:00Z,56216.45,is1_personProfile
     """
     history = {}
-    header_cols = None
     value_idx = None
     query_idx = None
 
@@ -101,7 +122,6 @@ def parse_influx_csv(csv_data):
 
         # Detect header row (contains column names)
         if "_value" in parts and "query" in parts:
-            header_cols = parts
             value_idx = parts.index("_value")
             query_idx = parts.index("query")
             continue
@@ -122,8 +142,15 @@ def parse_influx_csv(csv_data):
 
 
 def check_regressions(latest, history, run_over_run_pct, avg_pct, noise_threshold):
-    """Check for regressions. Returns list of regression dicts."""
+    """Check for regressions. Returns (regressions, skipped_noisy) tuple.
+
+    `regressions` is a list of regression dicts; `skipped_noisy` is a list of
+    (query, suite, noise_pct) tuples for benchmarks excluded due to high
+    score_error. Callers print skipped benchmarks so a permanently-noisy
+    query cannot silently turn into a permanently-unmonitored query.
+    """
     regressions = []
+    skipped_noisy = []
 
     for (query, suite), data in latest.items():
         score = data["score"]
@@ -131,6 +158,7 @@ def check_regressions(latest, history, run_over_run_pct, avg_pct, noise_threshol
 
         # Skip noisy benchmarks (score_error > noise_threshold% of score)
         if score > 0 and (score_error / score) > (noise_threshold / 100.0):
+            skipped_noisy.append((query, suite, score_error / score * 100.0))
             continue
 
         hist = history.get(suite, {}).get(query, [])
@@ -168,7 +196,7 @@ def check_regressions(latest, history, run_over_run_pct, avg_pct, noise_threshol
                         "threshold": -avg_pct,
                     })
 
-    return regressions
+    return regressions, skipped_noisy
 
 
 def format_zulip_message(regressions, branch, commit_sha, dashboard_url):
@@ -313,6 +341,17 @@ def main():
     parser.add_argument(
         "--dry-run", action="store_true", help="Print message without sending"
     )
+    parser.add_argument(
+        "--allow-empty-history",
+        action="store_true",
+        help=(
+            "Do not fail when InfluxDB returns zero historical points. "
+            "Use ONLY for the very first nightly run on a new branch/bucket; "
+            "otherwise an empty response usually means the query filter "
+            "(branch, bucket, org) is wrong, which would silently mask "
+            "every subsequent regression."
+        ),
+    )
     args = parser.parse_args()
 
     with open(args.input) as f:
@@ -323,6 +362,7 @@ def main():
 
     # Query historical data per suite
     history = {}
+    total_points_all_suites = 0
     for suite in ("SingleThread", "MultiThread"):
         hist = query_influxdb(
             args.influxdb_url,
@@ -335,15 +375,45 @@ def main():
         )
         history[suite] = hist
         total_points = sum(len(v) for v in hist.values())
+        total_points_all_suites += total_points
         print(f"Fetched {total_points} historical data points for {suite}")
 
-    regressions = check_regressions(
+    # Empty-history sanity guard. A 200 OK with zero rows looks identical to
+    # "no regressions", which is exactly the silent-drop failure mode the
+    # rewrite was meant to eliminate (cf. the 2026-04-14 Grafana incident).
+    # The most likely causes are a bucket/org typo, a branch-filter mismatch,
+    # or a retention-policy purge — all of which would mask every subsequent
+    # regression until noticed manually.
+    if total_points_all_suites == 0 and not args.allow_empty_history:
+        print(
+            "ERROR: InfluxDB returned zero historical points across all "
+            f"suites (branch={args.branch!r}, bucket={args.influxdb_bucket!r}, "
+            f"org={args.influxdb_org!r}). Refusing to proceed — this is "
+            "almost always a misconfiguration, and treating it as 'no "
+            "regressions' would silently suppress every future alert. "
+            "If this really is the first run on a new branch/bucket, "
+            "re-invoke with --allow-empty-history.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    regressions, skipped_noisy = check_regressions(
         latest,
         history,
         args.run_over_run_threshold,
         args.avg_threshold,
         args.noise_threshold,
     )
+
+    # Surface noisy skips so a permanently-noisy benchmark doesn't silently
+    # turn into a permanently-unmonitored benchmark.
+    if skipped_noisy:
+        print(
+            f"Skipped {len(skipped_noisy)} benchmark(s) with score_error "
+            f"> {args.noise_threshold}% of score:"
+        )
+        for query, suite, noise_pct in sorted(skipped_noisy):
+            print(f"  - {query} ({suite}): {noise_pct:.1f}% noise")
 
     if not regressions:
         print("No regressions detected. All clear.")
