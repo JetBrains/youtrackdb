@@ -629,15 +629,96 @@ public class EdgeTraversal {
 
   /**
    * Result of the IndexLookup amortization check in
-   * {@link #checkIndexLookupAmortization}.
+   * {@link #checkIndexLookupAmortization} and
+   * {@link #evaluateIndexLookupAmortization}.
+   *
+   * <p>Package-private so sibling step classes in this package (e.g.
+   * {@link BackRefHashJoinStep}) can reuse the same decision vocabulary
+   * without depending on EdgeTraversal instance state.
    */
-  private enum AmortizationDecision {
+  enum AmortizationDecision {
     /** Selectivity too high — cache null permanently. */
     REJECT,
     /** Build not yet amortized — return null without caching. */
     DEFER,
     /** Threshold met or unknown selectivity — caller should materialize. */
     PROCEED
+  }
+
+  /**
+   * Stateless, pure-function variant of {@link #checkIndexLookupAmortization}
+   * that computes the decision from inputs only. The caller maintains the
+   * accumulator and cached selectivity; no fields are mutated here.
+   *
+   * <p>Used by {@link BackRefHashJoinStep.buildChainHashTable} to apply
+   * the same amortization logic to its direct call to {@link
+   * TraversalPreFilterHelper#resolveIndexToRidSet} — the MATCH path goes
+   * through {@link #checkIndexLookupAmortization} which owns the
+   * EdgeTraversal-local state.
+   *
+   * @param estimatedSize            estimated index hits; ignored when
+   *                                 {@code < 0} (unknown)
+   * @param selectivity              cached class-level selectivity;
+   *                                 {@code NaN} or {@code < 0} means
+   *                                 unknown (conservative PROCEED)
+   * @param accumulatedLinkBagTotal  running sum of link bag sizes across
+   *                                 vertices/back-refs observed so far
+   *                                 (caller must include current call's
+   *                                 link bag before invoking)
+   * @param loadToScanRatio          cost ratio of random record load vs.
+   *                                 RidSet scan entry
+   */
+  static AmortizationDecision evaluateIndexLookupAmortization(
+      int estimatedSize,
+      double selectivity,
+      long accumulatedLinkBagTotal,
+      double loadToScanRatio) {
+    if (estimatedSize >= 0 && selectivity >= 0
+        && selectivity
+            > TraversalPreFilterHelper.indexLookupMaxSelectivity()) {
+      return AmortizationDecision.REJECT;
+    }
+    if (selectivity >= 0) {
+      double minNeighbors = computeMinNeighborsForBuild(
+          estimatedSize, loadToScanRatio, selectivity);
+      if (accumulatedLinkBagTotal < (long) Math.ceil(minNeighbors)) {
+        return AmortizationDecision.DEFER;
+      }
+    }
+    return AmortizationDecision.PROCEED;
+  }
+
+  /**
+   * Stateless variant of {@link #resolveLoadToScanRatio} for callers that
+   * don't need per-query caching. Resolves the configured override first,
+   * then live metrics from the global registry, falling back to
+   * {@link #DEFAULT_LOAD_TO_SCAN_RATIO} on cold start.
+   *
+   * <p>Each call acquires metric rates fresh — appropriate for callers
+   * that invoke only once per query (e.g., {@code BackRefHashJoinStep}
+   * caches the RidSet after the first successful build, so the ratio is
+   * read at most once per query anyway).
+   */
+  static double currentLoadToScanRatio() {
+    double configured = TraversalPreFilterHelper.configuredLoadToScanRatio();
+    if (configured > 0) {
+      return configured;
+    }
+    MetricsRegistry registry =
+        YouTrackDBEnginesManager.instance().getMetricsRegistry();
+    if (registry == null) {
+      return DEFAULT_LOAD_TO_SCAN_RATIO;
+    }
+    TimeRate scanNanos =
+        registry.globalMetric(CoreMetrics.PREFILTER_SCAN_NANOS);
+    TimeRate scanEntries =
+        registry.globalMetric(CoreMetrics.PREFILTER_SCAN_ENTRIES);
+    Ratio cacheHitRatio =
+        registry.globalMetric(CoreMetrics.CACHE_HIT_RATIO);
+    return computeLiveCostRatio(
+        scanNanos.getRate(), scanEntries.getRate(),
+        cacheHitRatio.getRatio(),
+        coldLoadNanos(), warmLoadNanos());
   }
 
   /**
@@ -657,40 +738,34 @@ public class EdgeTraversal {
       indexLookupSelectivity =
           indexLookup.indexDescriptor().estimateSelectivity(ctx);
     }
-    // Selectivity threshold check (replaces passesSelectivityCheck
-    // for IndexLookup to reuse the cached value).
-    if (estimatedSize >= 0
-        && indexLookupSelectivity >= 0
-        && indexLookupSelectivity
-            > TraversalPreFilterHelper.indexLookupMaxSelectivity()) {
-      // Class-level selectivity too high — cache null permanently.
-      lastSkipReason = PreFilterSkipReason.SELECTIVITY_TOO_LOW;
-      preFilterSkippedCount++;
-      if (key != null && cache != null && cache.size() < CACHE_CAPACITY) {
-        cache.put(key, null);
+    // Accumulate link bag size before evaluating the pure guard — the
+    // stateless helper reads the total and decides based on it.
+    accumulatedLinkBagTotal += linkBagSize;
+    var decision = evaluateIndexLookupAmortization(
+        estimatedSize, indexLookupSelectivity,
+        accumulatedLinkBagTotal, resolveLoadToScanRatio());
+    switch (decision) {
+      case REJECT -> {
+        // Class-level selectivity too high — cache null permanently.
+        lastSkipReason = PreFilterSkipReason.SELECTIVITY_TOO_LOW;
+        preFilterSkippedCount++;
+        if (key != null && cache != null && cache.size() < CACHE_CAPACITY) {
+          cache.put(key, null);
+        }
       }
-      return AmortizationDecision.REJECT;
-    }
-    // Build amortization guard: accumulate link bag sizes across
-    // vertices and defer materialization until the total justifies
-    // the build cost.
-    if (indexLookupSelectivity >= 0) {
-      accumulatedLinkBagTotal += linkBagSize;
-      double minNeighbors = computeMinNeighborsForBuild(
-          estimatedSize, resolveLoadToScanRatio(),
-          indexLookupSelectivity);
-      if (accumulatedLinkBagTotal < (long) Math.ceil(minNeighbors)) {
+      case DEFER -> {
         // Threshold not yet met — return null WITHOUT caching.
         // A later vertex may push the accumulated total over.
         lastSkipReason = PreFilterSkipReason.BUILD_NOT_AMORTIZED;
         preFilterSkippedCount++;
         assert key == null || cache == null || !cache.containsKey(key)
             : "deferred build must not cache null";
-        return AmortizationDecision.DEFER;
+      }
+      case PROCEED -> {
+        /* fall through to caller's materialization step */
       }
     }
-    // Threshold met (or unknown selectivity) — caller should materialize.
-    return AmortizationDecision.PROCEED;
+    return decision;
   }
 
   /**
