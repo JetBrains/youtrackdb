@@ -631,7 +631,7 @@ flowchart TD
   > static-state tests; counting CommandContext wrapper for fallback-branch
   > mutation testing.
 
-- [ ] Track 8: SQL Executor & Result Sets
+- [x] Track 8: SQL Executor & Result Sets
   > Write tests for SQL execution step classes, the SELECT planner, the
   > result-collection wrappers, and the metadata-execution helpers. This is
   > the largest coverage gap in the SQL layer (~2,109 uncov lines) but at
@@ -719,6 +719,69 @@ flowchart TD
   > collection impls + metadata helpers, (10) SelectExecutionPlanner SQL
   > round-trip + verification.
   > **Depends on:** Track 1
+  >
+  > **Track episode:**
+  > Added ~19,971 lines of new tests across 52 files covering `core/sql/executor/*`,
+  > `core/sql/executor/resultset/*`, and `core/sql/executor/metadata/*`. Purely
+  > test-additive except one production change in Step 4 (dead-code removal of five
+  > zero-caller package-private helpers in `FetchFromIndexStep.java`).
+  >
+  > **Key discoveries with cross-track impact:**
+  > - **Global-LET stream-exhaustion behavior** (TB15 via iter-2 gate check): a
+  >   promoted global-LET `$sub = (SELECT FROM className)` is materialized once but
+  >   its stream is consumed by the first outer row's `size()` call, leaving
+  >   subsequent rows with an empty view (`row[0].cnt == 3`, `rows[1..].cnt == 0`).
+  >   Pinned via observed-shape assertion with `WHEN-FIXED: Track 22` marker —
+  >   semantic question (stream-exhaustion vs. per-outer-row resolution) queued
+  >   for Track 22.
+  > - **Four dead/semi-dead classes** pinned with WHEN-FIXED markers for Track 22
+  >   deletion: `InfoExecutionPlan`, `InfoExecutionStep`, `TraverseResult`,
+  >   `BatchStep` (BatchStep's public ctor is zero-callers; the `-1` batchSize
+  >   fallthrough path is reachable but unused; Step 4's iter-1 fix pinned the
+  >   batchSize=0 ArithmeticException under an active tx).
+  > - **Test-strategy precedent codified for later tracks**: DbTestBase-by-default
+  >   for executor-step tests (per-track D2 override); direct-step tests (stubbed
+  >   `AbstractExecutionStep` + manual `ResultInternal` predecessors) for
+  >   step-internal branches; SQL round-trip reserved for `SelectExecutionPlanner`
+  >   branch coverage; falsifiable-regression + WHEN-FIXED markers for latent
+  >   bugs; `@After rollbackIfLeftOpen` safety net on `TestUtilsFixture`;
+  >   `// forwards-to: Track NN` convention for cross-track bug pinning.
+  >
+  > **Plan corrections** (applied via commit `7b9313eb4b`): Track 22 scope expanded
+  > to absorb iter-1 deferrals — CQ1/TS1 (hoist `newContext`/`sourceStep`/`drain`
+  > into `TestUtilsFixture`), CQ2/TS2 (`uniqueSuffix` hoist), CQ3 (extract
+  > `streamOfInts`/`CloseTracker`/`NoOpStep` to shared resultset helper),
+  > CQ4 (inline-FQN replacements in `FetchFromIndexStepTest`,
+  > `ExecutionStreamWrappersTest`, `SmallPlannerBranchTest`), CQ8/TS8 (remove
+  > try/catch/rollback boilerplate where `rollbackIfLeftOpen` covers it), 8
+  > corner-case TC pins (TC3–TC9, TC12 — CreateRecord total<0, Update*Step
+  > non-ResultInternal pass-through, FetchFromCollection unknown/negative ID,
+  > FetchFromClass partial-collections subset, LetExpressionStep subquery-throws,
+  > Skip→Limit composition, UpsertStep multi-row, InsertValuesStep rows<tuples),
+  > and ~37 suggestion-tier items across CQ5–CQ10, BC1–BC2, TB8–TB9, TC13–TC21,
+  > TS3/TS6–TS7/TS9–TS14, TX1/TX3–TX8. Iter-2 additionally surfaced CQ11–CQ13,
+  > TS15–TS17, TB16–TB17 which fold into the existing Track 22 entries without
+  > needing new bullets.
+  >
+  > **Track-level code review (3 iterations, max reached; final PASS):**
+  > - Iter-1 (6 dimensions: CQ/BC/TB/TC/TS/TX): 2 blockers + 25 should-fix + 37
+  >   suggestions. Applied 13 should-fix items in commit `dea1b1a219`
+  >   (TB1/TB2 blockers dropped non-falsifiable `"colleciton"||"collection"` and
+  >   `createVertex_defaultTargetV` identity-only; TB3–TB7 precision tightens;
+  >   TC1, TC2, TC10, TC11 completeness pins; TS4, TS5 javadoc corrections;
+  >   TX2 InterruptResultSet daemon-thread + `isAlive()` gate).
+  > - Iter-2 (6-dimension gate check): BC/CQ/TC/TS/TX PASS; TB FAIL with 5
+  >   new should-fix (TB10–TB14, all siblings of iter-1 patterns the earlier
+  >   sweep missed) + TB15 observed-shape pin + TB16/TB17 suggestions. Applied
+  >   in commit `a4895ac92e`.
+  > - Iter-3 (TB-only gate check): PASS. All iter-2 TB fixes VERIFIED against
+  >   production sources (`SelectExecutionPlanner.java:1585`,
+  >   `UpdateExecutionPlanner.java:193`, `ResultInternal.java:497-557`,
+  >   `SQLMathExpression.java:1353`). Zero new findings.
+  > - Final state: 0 open blockers, 0 open should-fix. All 202 tests in the
+  >   5 iter-2-touched classes pass; Spotless clean.
+  >
+  > **Step file:** `tracks/track-8.md` (10 steps, 0 failed)
 
 - [ ] Track 9: Command & Script
   > Write tests for the command and script execution infrastructure.
