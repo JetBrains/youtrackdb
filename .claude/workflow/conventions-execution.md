@@ -247,8 +247,10 @@ pending, active, and completed tracks. Phase A resume logic (see
 [`track-review.md`](track-review.md)) and inline replanning (see
 [`inline-replanning.md`](inline-replanning.md)) both read the same
 rules from here. Skipped tracks follow a separate retention rule —
-see §"After strategy refresh" above (the plan file keeps the full
-description under the `[~]` entry).
+see §"After strategy refresh" above for the authoritative statement
+(in new-format plans the plan entry keeps only the intro paragraph;
+in legacy plans it keeps the full inline description; either way, the
+`[~]` entry is never collapsed).
 
 | Phase | Authoritative location | Writer | Reader(s) |
 |---|---|---|---|
