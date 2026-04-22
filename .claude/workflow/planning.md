@@ -189,11 +189,13 @@ Each **track** in the checklist is described across two files:
   compact.
 - **`implementation-backlog.md` (detailed description):** a `## Track N:
   <title>` section with bold-label blockquote subsections covering the
-  full detail. The intro paragraph may be duplicated at the top of the
-  backlog section for self-containedness, but everything below is
-  backlog-only. This content is read only in Phase A of one track per
-  session; there is no length cap — make it as long as the execution
-  agent needs.
+  full detail. The intro paragraph lives in the plan entry only — the
+  backlog section carries only the `**What/How/Constraints/Interactions**`
+  subsections and any optional track-level diagram. Phase A assembles
+  the step file's `## Description` section from both sources (intro
+  from the plan; detail from the backlog). This content is read only
+  in Phase A of one track per session; there is no length cap — make
+  it as long as the execution agent needs.
 
 The detailed description in the backlog should cover:
 - **What** the track achieves (concrete deliverables — files to touch,

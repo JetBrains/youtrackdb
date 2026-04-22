@@ -51,7 +51,9 @@ the `**Depends on:**` line.
    case, in addition to `**Scope:**` and `**Depends on:**`. Whether the
    backlog is present does not affect the per-entry decision; the
    presence of the keyword subsections themselves is what triggers the
-   drop.
+   drop. This case arises only from manual hand-migration of a legacy
+   plan; normal workflow operations never leave a new-format plan
+   entry with residual keyword subsections.
 
 Quick reference: always drop `**Scope:**` and `**Depends on:**`; drop
 the four keyword subsections only if present.
@@ -110,8 +112,13 @@ For ADJUST, include a brief summary of what was adjusted:
 ```
 
 For skipped tracks (`[~]`), the strategy refresh line follows the skip
-record. The on-disk form keeps the full track description — skipped
-tracks never go through the Phase C collapse, so nothing trims them:
+record. The on-disk form keeps whatever description was in the plan
+entry: in new-format plans that is the intro paragraph only (the
+`**What/How/Constraints/Interactions**` detail lived in
+`implementation-backlog.md` and track-skip removes that section at the
+same time it marks `[~]` — see `track-skip.md`); in legacy plans that
+is the full inline description. Skipped tracks never go through the
+Phase C collapse, so nothing further trims the plan entry:
 
 ```markdown
 - [~] Track 3: <title>
@@ -140,7 +147,10 @@ detection is used.
 # Track N: <title>
 
 ## Description
-<copied from the backlog at Phase A start — see the "Description lifecycle" subsection at the end of §2.1 for authoritative-location rules and the legacy-plan fallback>
+<assembled at Phase A start — intro paragraph from the plan entry plus
+`**What/How/Constraints/Interactions**` + optional diagram from the
+backlog. See the "Description lifecycle" subsection at the end of §2.1
+for authoritative-location rules and the legacy-plan fallback.>
 
 ## Progress
 - [x] Review + decomposition
@@ -171,18 +181,22 @@ detection is used.
 - [ ] Step: <description>
 ````
 
-The **Description** section carries the track's detailed description —
-intro paragraph, `**What**:` / `**How**:` / `**Constraints**:` /
-`**Interactions**:` subsections, and any track-level Mermaid diagram —
-copied from `implementation-backlog.md` at Phase A start. It is written
-once (during Phase A orchestration) and re-written only if
+The **Description** section carries the track's full description —
+intro paragraph (sourced from the plan-file entry), `**What**:` /
+`**How**:` / `**Constraints**:` / `**Interactions**:` subsections, and
+any track-level Mermaid diagram (both sourced from
+`implementation-backlog.md`). Phase A orchestration writes the section
+once at the start of the track, concatenating the plan-entry intro
+with the backlog-section body; it is re-written only if
 [`inline-replanning.md`](inline-replanning.md) updates a mid-execution
 track's description. Phase B and Phase C sub-agents that already read
 the step file see the description here automatically — see the
 Description lifecycle subsection below for the authoritative-location
 rules across phases. For legacy plans (no `implementation-backlog.md`
-on disk), the section is still written but sourced from the plan-file
-entry instead (see `track-review.md` Phase A legacy fallback).
+on disk), the section is still written at Phase A start but the whole
+description is sourced from the plan-file entry's checklist block —
+legacy plans keep intro + `**What/How/Constraints/Interactions**` all
+inline there (legacy fallback added in Track 2).
 
 The **Progress** section tracks which phase the track is in. The execution
 agent updates it at each phase transition:
@@ -241,7 +255,7 @@ description under the `[~]` entry).
 | Pre-Phase-1 | (none) | — | — |
 | Phase 1 write | `implementation-backlog.md` | Phase 1 agent (via `create-plan/SKILL.md`) | Phase 2 consistency + structural reviews |
 | Phase A start — before step-file write | `implementation-backlog.md` | (inherited from Phase 1) | Phase A orchestration (reads the track's backlog section) |
-| Phase A mid — step file has `## Description`, backlog entry still present | **step file** (Phase A writes the step file first, then removes the backlog entry — single-authority rule) | Phase A orchestration (wrote the step file) | Phase A resume logic (idempotent re-entry); Phase A review sub-agents |
+| Phase A mid — step file has `## Description`, backlog entry still present | **step file** (Phase A writes the step file first, then removes the backlog entry — the step file takes authority the moment it is written, so an interrupted session always resumes against a single source) | Phase A orchestration (wrote the step file) | Phase A resume logic (idempotent re-entry); Phase A review sub-agents |
 | Phase A end | step file | Phase A orchestration (backlog section already removed) | Phase A review sub-agents (Track 3 prompts) |
 | Phase B / Phase C | step file | (stable — only inline replan rewrites) | Phase B/C code-review sub-agents |
 | Phase C after collapse | step file + plan intro paragraph | Phase C collapse (writes intro + episode) | future-track sessions (as strategic context) |
@@ -258,7 +272,8 @@ corresponding description row above.
 description remains in the plan-file entry until Phase C collapse drops
 the keyword subsections. The step file still gets a `## Description`
 section at Phase A start, sourced from the plan-file entry rather than
-the backlog (see `track-review.md` Phase A legacy fallback).
+the backlog (legacy fallback added in Track 2 — `track-review.md`
+Phase A).
 
 **Monotonic shrinkage:** The backlog grows only during Phase 1 or inline
 replanning, and shrinks as tracks enter Phase A or are skipped. Normal

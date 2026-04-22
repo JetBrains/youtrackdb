@@ -20,7 +20,7 @@ during Phase 3 execution.
 | **Research** | Phase 0 — interactive exploration before planning. The agent answers questions, explores code, and does internet research. Completes only when the user explicitly asks to create the plan. Same session as Phase 1. |
 | **Session** | One invocation of `/execute-tracks`. Handles one sub-phase (A, B, or C) of one track. Sessions are separated by context clearing. Episodes bridge context across sessions. The only exception: strategy refresh + Phase A share a single session. |
 | **Sub-agent** | A spawned agent for self-contained review tasks (technical/risk/adversarial reviews, dimensional code review agents, test quality review). Sub-agents provide fresh perspective; the main agent retains full context. |
-| **Backlog** | `implementation-backlog.md` — the companion file to `implementation-plan.md` that holds the detailed `**What/How/Constraints/Interactions**` subsections and any track-level Mermaid diagrams for pending tracks. Written during Phase 1 alongside the plan; shrinks monotonically as tracks enter Phase A or are skipped; never committed to git. Its presence on disk is the signal that tells consumers the plan is in the new split-file format (see §1.2). |
+| **Backlog** | `implementation-backlog.md` — the companion file to `implementation-plan.md` that holds the detailed `**What/How/Constraints/Interactions**` subsections and any track-level Mermaid diagrams for pending tracks. Written during Phase 1 alongside the plan (and extended by inline replanning); shrinks monotonically as tracks enter Phase A or are skipped; never committed to git. Its presence on disk is the signal that tells consumers the plan is in the new split-file format (see §1.2). |
 
 ---
 
