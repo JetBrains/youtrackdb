@@ -136,52 +136,10 @@ Scope indicators serve three purposes:
 
 ## 1.3 Review Iteration Protocol
 
-Shared by structural review (structural-review.md), track pre-execution
-reviews (track-review.md), and track-level code review.
+Shared by structural review, track pre-execution reviews, and track-level
+code review. Severity levels: **blocker** / **should-fix** / **suggestion**
+/ **skip** (track reviews only — recommends skipping the entire track).
 
-- Max 3 iterations per review type
-- Finding IDs are cumulative across iterations:
-  - `CR1, CR2, ...` for consistency review
-  - `S1, S2, ...` for structural review
-  - `T1, T2, ...` for technical review
-  - `R1, R2, ...` for risk review
-  - `A1, A2, ...` for adversarial review
-  - `CQ1, CQ2, ...` for code quality review
-  - `BC1, BC2, ...` for bugs & concurrency review
-  - `CS1, CS2, ...` for crash safety review
-  - `SE1, SE2, ...` for security review
-  - `PF1, PF2, ...` for performance review
-  - `TB1, TB2, ...` for test behavior review
-  - `TC1, TC2, ...` for test completeness review
-  - `TS1, TS2, ...` for test structure review
-  - `TX1, TX2, ...` for test concurrency review
-  - `TY1, TY2, ...` for test crash safety review
-- If blockers persist after 3 iterations, escalate
-- Severity levels: **blocker** / **should-fix** / **suggestion** / **skip** (track reviews only — recommends skipping the entire track)
-
-### Iteration flow
-
-```
-Iteration 1: Full review -> findings -> decisions -> apply fixes
-Iteration 2: Gate check -> verify fixes + catch regressions -> if blockers, loop
-Iteration 3: Gate check -> if still blockers, escalate
-```
-
-If structural fixes significantly restructure the plan (tracks reordered,
-scope indicators changed substantially), re-run the full review instead of
-the gate check to catch cascading issues.
-
-### Finding format
-
-```markdown
-### Finding <PREFIX><N> [blocker|should-fix|suggestion|skip]
-**Location**: <where in the plan or codebase>
-**Issue**: <what's wrong>
-**Proposed fix**: <concrete change>
-```
-
-### Gate verification output
-
-For each previous finding: **VERIFIED**, **STILL OPEN** (with explanation),
-or **REJECTED** (no action needed). New findings (if any) with cumulative
-numbering. Summary: **PASS** or **FAIL**.
+**Full protocol** (iteration limits, finding ID prefixes, finding format,
+gate verification output): [`review-iteration.md`](review-iteration.md) —
+load when running a review loop.

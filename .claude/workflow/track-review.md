@@ -51,8 +51,18 @@ Phase C includes both the track-level code review and track completion
 
 ### Complexity Assessment and Which Reviews to Run
 
-Complexity tiers (see `conventions-execution.md` §2.5 for canonical
-definitions) determine the review pipeline:
+Complexity determines which pre-execution reviews to run, not user
+interaction level — all tracks execute autonomously after review.
+All tracks get both step-level and track-level code review regardless of
+complexity.
+
+| Track complexity | Review pipeline |
+|---|---|
+| Simple (1-2 steps) | Technical review only — even if track characteristics suggest Risk or Adversarial, skip them for 1-2 step tracks. |
+| Moderate (3-5 steps) | Technical review as baseline. Risk and/or Adversarial reviews are added when track characteristics warrant them (see table below). |
+| Complex (6-7 steps, or critical path / high-risk) | Full: Technical + Risk + Adversarial. |
+
+Specific characteristics that upgrade Moderate tracks:
 
 | Track characteristics | Reviews to run |
 |---|---|
@@ -88,9 +98,12 @@ After fixes are applied, spawn a sub-agent to verify.
 
 ### Review iteration protocol
 
-Max 3 iterations per review type, findings cumulative. If blockers persist
-after 3 iterations, note them and proceed with caution — the step
-implementation phase will surface concrete issues if they exist.
+Max 3 iterations per review type, findings cumulative. Full iteration
+limits, finding ID prefixes, finding format, and gate verification output
+are in [`review-iteration.md`](review-iteration.md) — load that file when
+running the review loop. If blockers persist after 3 iterations, note them
+and proceed with caution — the step implementation phase will surface
+concrete issues if they exist.
 
 ### Step Decomposition
 
@@ -107,11 +120,21 @@ full upfront decomposition feasible.
 
 #### Decomposition rules
 
-- Each step = one commit
+- Each step = one commit.
 - Each step = fully tested, self-contained change with 85% line / 70%
-  branch coverage
-- If a step touches more than ~3 files or does unrelated things, split it
-- Cross-cutting concerns are separate steps
+  branch coverage.
+- If a step touches more than ~3 files or does unrelated things, split it.
+- If a step feels trivial (single import, single rename), merge it into
+  a neighbor.
+- Note **cross-cutting concerns** (shared types, refactors) as separate
+  steps rather than embedding them inside feature steps.
+
+#### Parallel step annotation
+
+During decomposition, you may identify independent steps within the
+track — steps that don't depend on each other and don't modify the same
+files. Annotate them with `*(parallel with Step N.M)*` in the step file.
+Must not modify the same files.
 
 #### Output
 

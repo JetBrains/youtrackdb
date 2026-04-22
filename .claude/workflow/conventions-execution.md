@@ -177,88 +177,22 @@ to cross-track impact.
 
 ---
 
-## 2.3 Commit Message Format
+## 2.3 Commit messages, code review, complexity, decomposition
 
-Follow the project's commit message conventions (see `CLAUDE.md`). Only
-**code changes** are committed — workflow working files are never committed
-(see `conventions.md` §1.2). For commit type prefixes used during execution,
-see [`commit-conventions.md`](commit-conventions.md).
+These rules are needed only when their specific phase or action runs — not
+at session startup. Load on demand:
 
----
-
-## 2.4 Two-Tier Dimensional Code Review
-
-Code review happens at two levels — step-level and track-level — using
-review sub-agents selected based on code characteristics (see
-[`review-agent-selection.md`](review-agent-selection.md)). Four baseline
-agents always run; up to six conditional agents are added based on the
-step/track description and changed files. After all selected agents
-complete, findings are deduplicated, severity-assigned (blocker /
-should-fix / suggestion), and attributed to source dimension(s). Max 3
-iterations per level.
-
-**Single-step tracks skip the code review portion of Phase C** — the
-step-level review already covered the identical diff. Phase C still runs
-for track completion (episode, user approval). See `track-code-review.md`
-§Single-Step Track.
-
-- **Step-level:** see `step-implementation.md` §Per-Step Workflow (sub-step 4)
-- **Track-level:** see `track-code-review.md` (includes track completion)
-
----
-
-## 2.5 Complexity Tiers
-
-### Track complexity and review pipeline
-
-| Track complexity | Review pipeline |
-|---|---|
-| Simple (1-2 steps) | Technical review only — even if track characteristics suggest Risk or Adversarial, skip them for 1-2 step tracks. |
-| Moderate (3-5 steps) | Technical review as baseline. Risk and/or Adversarial reviews are added when track characteristics warrant them (see track-review.md "Which reviews to run"). |
-| Complex (6-7 steps, or critical path / high-risk) | Full: Technical + Risk + Adversarial. |
-
-Complexity determines which pre-execution reviews to run, not user
-interaction level — all tracks execute autonomously after review.
-
-All tracks get both step-level and track-level code review regardless of
-complexity.
-
----
-
-## 2.6 Checklist Decomposition Rules
-
-These rules apply to step decomposition during Phase A (review + decomposition).
-
-- Each step = one commit
-- Each step = fully tested, self-contained change with 85% line / 70%
-  branch coverage
-- If a step touches more than ~3 files or does unrelated things, split it
-- If a step feels trivial (single import, single rename), merge it into a
-  neighbor
-- Note **cross-cutting concerns** (shared types, refactors) as separate
-  steps rather than embedding them inside feature steps
-
-**Parallel step annotation:** During step decomposition, the track
-review agent may identify independent steps within the track — steps that
-don't depend on each other and don't modify the same files. These are
-annotated with `*(parallel with Step N.M)*` in the step file. Must not
-modify same files.
-
----
-
-## 2.7 Note on `~/.claude/plans/` vs `adr/`
-
-There are two plan-related directories — don't confuse them:
-
-| | Global `~/.claude/plans/` | Project `docs/adr/<dir-name>/` |
-|---|---|---|
-| **Purpose** | Claude Code session artifacts | Working files during execution; final artifacts after Phase 4 |
-| **Names** | Auto-generated | Working: `implementation-plan.md`, `tracks/track-N.md`; Final: `design-final.md`, `adr.md` |
-| **Version-controlled** | No | Only Phase 4 artifacts (`design-final.md`, `adr.md`) |
-| **Survives context clearing** | Exists on disk but not reliably linked | Yes — on disk, referenced by path |
-| **After feature is complete** | Can be deleted | Working files deleted with branch; artifacts kept |
-
-Claude may internally use plan mode during execution — that's fine.
-But insights must be captured in the **project's track episodes** (plan
-file) and **step episodes** (step files), not left only in
-`~/.claude/plans/`.
+- **Commit message format** — follow the project's `CLAUDE.md` commit
+  conventions. Only code changes are committed; workflow files are never
+  committed (see §1.2 in `conventions.md`). For the execution-specific
+  prefixes (`Review fix:`) used during session resume, see
+  [`commit-conventions.md`](commit-conventions.md).
+- **Two-tier dimensional code review** (step-level and track-level
+  sub-agent reviews, 4 baseline + up to 6 conditional, max 3 iterations):
+  [`code-review-protocol.md`](code-review-protocol.md).
+- **Complexity tiers** (which pre-execution reviews to run for Simple /
+  Moderate / Complex tracks): covered in
+  [`track-review.md`](track-review.md) §Complexity Assessment.
+- **Checklist decomposition rules** (step sizing, cross-cutting concerns,
+  parallel step annotation): covered in
+  [`track-review.md`](track-review.md) §Step Decomposition.

@@ -231,4 +231,4 @@ If a priority level has no findings, omit it entirely.
 - **Do not add your own review findings** — only synthesize what the agents report.
 - **Do not soften or dismiss agent findings** — if an agent flags something as a blocker, keep it as a blocker unless another agent's context clearly contradicts it.
 - **If the diff is very large** (>200 files or >5000 lines), warn the user and offer to review in batches.
-- **Standalone command**: This command uses the same dimensional test review agents as the Phase 3 workflow but with a different context structure (PR description and commit log instead of implementation plan and step file). Severity scale uses the same blocker/should-fix/suggestion levels as the workflow (see `conventions.md` §1.3).
+- **Standalone command**: This command uses the same dimensional test review agents as the Phase 3 workflow but with a different context structure (PR description and commit log instead of implementation plan and step file). Severity scale uses the same blocker/should-fix/suggestion levels as the workflow (see `.claude/workflow/review-iteration.md`).

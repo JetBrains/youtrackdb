@@ -93,7 +93,10 @@ completion**, before moving to the next step:
 3. **Stage and commit** the code changes. You know exactly which files you
    modified, so stage them explicitly (no `git add -A`). Follow the project's
    commit message conventions (see `CLAUDE.md`).
-4. **Dimensional review loop** (up to 3 iterations, within your context):
+4. **Dimensional review loop** (up to 3 iterations, within your context).
+   See [`code-review-protocol.md`](code-review-protocol.md) for the two-tier
+   protocol overview and [`review-iteration.md`](review-iteration.md) for
+   iteration limits, finding ID prefixes, and gate format.
    a. **Select review agents** based on code characteristics (see
       [`review-agent-selection.md`](review-agent-selection.md)), then spawn
       them in parallel (fresh sub-agents each iteration). Baseline agents
@@ -141,16 +144,13 @@ completion**, before moving to the next step:
       **only the dimension(s) with open findings**.
    d. Repeat until approved OR **max 3 iterations** reached.
    e. If max iterations reached, note remaining findings in the episode.
-5. **Cross-track impact check** — quick self-assessment against the plan:
-   - Does this step contradict assumptions in upcoming tracks?
-   - Does it affect the Component Map or Decision Records?
-   - Does it invalidate remaining track dependencies?
+5. **Cross-track impact check** — quick self-assessment against the plan.
+   See §Cross-Track Impact Check below for the full protocol.
    If minor impact is detected (recommendation: **Continue**), note the
    affected tracks and weakened assumptions — these go into the episode's
    **What was discovered** field in the next sub-step.
    If **Pause and ADJUST** or **ESCALATE** is needed, alert the user
-   immediately (see workflow.md §Cross-Track Impact Monitoring for the
-   full escalation process).
+   immediately.
 6. **Context consumption check** (mandatory, including after the last
    step). Always run it:
 
@@ -285,8 +285,56 @@ followed by another `[!]` for the same step (with `(retry:` in the
 description), this is a two-failure situation. Present both failed
 episodes to the user before proceeding.
 
-See workflow.md §Failure Handling for the broader failure handling context
-and track-level escalation rules.
+---
+
+## Track-Level Failure
+
+If a failure undermines the track's overall approach (not just one step —
+e.g., the track's foundational assumption is wrong, or repeated step
+failures trace back to a common root cause the track cannot address):
+
+- Present the situation to the user with full context (affected steps,
+  what was tried, the underlying issue).
+- Recommend **ESCALATE** if the approach is fundamentally wrong
+  (see [`inline-replanning.md`](inline-replanning.md)).
+- The user decides how to proceed.
+
+---
+
+## Cross-Track Impact Check
+
+After each step implementation (sub-step 5 of the per-step workflow), do a
+lightweight assessment — this is a quick check, not a full strategy
+refresh. You have the plan context in your session, so this is a natural
+self-check.
+
+For each completed step, assess:
+
+1. **Assumption validity** — Does this discovery contradict assumptions
+   in any upcoming track's description?
+2. **Architecture impact** — Does this change affect the Component Map
+   or Decision Records in ways that touch other tracks?
+3. **Dependency ordering** — Does this invalidate the dependency ordering
+   of remaining tracks?
+
+### If impact is detected
+
+Alert the user immediately with:
+
+- Which upcoming track(s) are affected.
+- What assumption is weakened or invalidated.
+- What the step discovered that triggered this alert.
+- Recommended action:
+  - **Continue** (minor impact — record in the step episode's **What was
+    discovered** field so strategy refresh and future track reviews can
+    see it; no user notification needed).
+  - **Pause and ADJUST** (remaining steps in current track need revision).
+  - **ESCALATE** (the discovery fundamentally changes the plan — see
+    [`inline-replanning.md`](inline-replanning.md)).
+
+### If no impact is detected
+
+Continue to the next step. No user notification needed.
 
 ---
 

@@ -156,36 +156,11 @@ ESCALATE assessment. Strategy refresh + Phase A share a single session.
 
 ## Cross-Track Impact Monitoring
 
-After each step implementation, do a lightweight assessment — this is a quick
-check, not a full strategy refresh. You have the plan context in your session,
-so this is a natural self-check.
+After each step implementation, the agent performs a lightweight
+self-assessment against the plan. Triggered inside Phase B, not at startup.
 
-For each completed step, assess:
-
-1. **Assumption validity** — Does this discovery contradict assumptions in any
-   upcoming track's description?
-2. **Architecture impact** — Does this change affect the Component Map or
-   Decision Records in ways that touch other tracks?
-3. **Dependency ordering** — Does this invalidate the dependency ordering of
-   remaining tracks?
-
-### If impact is detected
-
-Alert the user immediately with:
-
-- Which upcoming track(s) are affected
-- What assumption is weakened or invalidated
-- What the step discovered that triggered this alert
-- Recommended action:
-  - **Continue** (minor impact — record in the step episode's **What was
-    discovered** field so strategy refresh and future track reviews can
-    see it; no user notification needed)
-  - **Pause and ADJUST** (remaining steps in current track need revision)
-  - **ESCALATE** (the discovery fundamentally changes the plan)
-
-### If no impact is detected
-
-Continue to the next step. No user notification needed.
+**Full protocol:** [`step-implementation.md`](step-implementation.md)
+§Cross-Track Impact Check.
 
 ---
 
@@ -304,32 +279,12 @@ User interaction points:
 
 ## Failure Handling
 
-### Step failure
+Step-level failure handling (revert → failed episode → retry or split),
+the two-failure rule, and track-level failure escalation are all triggered
+inside Phase B.
 
-If a step fails (tests won't pass, coverage can't be met, wrong API
-assumption):
-
-1. Revert uncommitted changes
-2. Produce a failed episode (see conventions-execution.md §2.2)
-3. Write the failed episode to the step file and commit it
-4. Decide: **retry** with a different approach, or **split** the step
-
-### Two-failure rule
-
-If the same step fails twice (original attempt + one retry):
-
-- **Stop and present the situation to the user.** Include both failed
-  episodes, what was tried, and why it failed.
-- The user decides: retry with specific guidance, adjust the approach,
-  skip the step, or escalate.
-
-### Track-level failure
-
-If a failure undermines the track's overall approach (not just one step):
-
-- Present the situation to the user with full context
-- Recommend ESCALATE if the approach is fundamentally wrong
-- The user decides how to proceed
+**Full protocol:** [`step-implementation.md`](step-implementation.md)
+§Step Failure, §Two-Failure Rule, §Track-Level Failure.
 
 ---
 
@@ -366,23 +321,10 @@ Completion.
 
 ## Final Artifacts (Phase 4)
 
-After all tracks are complete, a separate session produces two artifacts
-that are the **only workflow files committed to git**:
-
-1. **`design-final.md`** — post-implementation design reflecting what was
-   actually built (the original `design.md` stays unmodified on disk)
-2. **`adr.md`** — architecture decision record with actual outcomes,
-   aggregating discoveries from both track and step episodic memories
-
-**Tracking in the plan file:** The `## Final Artifacts` section in
-`implementation-plan.md` tracks Phase 4 progress:
-
-```markdown
-## Final Artifacts
-- [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)   ← not started
-- [>] Phase 4: Final artifacts (`design-final.md`, `adr.md`)   ← in progress
-- [x] Phase 4: Final artifacts (`design-final.md`, `adr.md`)   ← complete
-```
+After all tracks are complete, a separate session produces `design-final.md`
+and `adr.md` — the only workflow files committed to git. Tracked in the
+`## Final Artifacts` section of `implementation-plan.md` (see State D
+markers in the Startup Protocol table above).
 
 **Full instructions:** [`prompts/create-final-design.md`](prompts/create-final-design.md)
 
@@ -410,6 +352,8 @@ For other workflow components, see:
 On-demand reference documents (loaded only when their specific situation arises):
 - **`strategy-refresh.md`** — full strategy refresh protocol (State A)
 - **`inline-replanning.md`** — full ESCALATE replanning protocol
+- **`review-iteration.md`** — iteration limits, finding ID prefixes, gate format (loaded when running any review loop)
+- **`code-review-protocol.md`** — two-tier dimensional code review (loaded by step-implementation.md and track-code-review.md)
 - **`episode-format-reference.md`** — detailed episode format, rules, examples
 - **`design-document-rules.md`** — design document rules, examples, structure
 - **`design-decision-escalation.md`** — when/how to escalate design decisions to the user

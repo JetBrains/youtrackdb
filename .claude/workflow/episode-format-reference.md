@@ -85,7 +85,7 @@ The execution agent then decides:
 - **Escalate** if the failure undermines the track's approach
 
 If the same step fails twice, stop and present the situation to the user
-(see workflow.md §Failure Handling).
+(see [`step-implementation.md`](step-implementation.md) §Two-Failure Rule).
 
 Failed episodes are recorded in the step file with the `[!]` marker so
 future sessions and reviews can see what was attempted and why it didn't

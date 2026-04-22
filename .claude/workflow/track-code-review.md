@@ -33,6 +33,9 @@ Select review agents based on code characteristics (see
 [`review-agent-selection.md`](review-agent-selection.md)), then spawn them
 in parallel. Baseline agents (4) always run; conditional agents are added
 based on the track description and changed files across the full diff.
+See [`code-review-protocol.md`](code-review-protocol.md) for the two-tier
+protocol overview and [`review-iteration.md`](review-iteration.md) for
+iteration limits, finding ID prefixes, and gate format.
 
 All selected reviews run against the same diff
 (`git diff {base_commit}..HEAD`) and produce independent findings. Launching

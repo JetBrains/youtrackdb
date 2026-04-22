@@ -232,5 +232,6 @@ produced in Phase 4 as the only git-tracked workflow artifacts.
 
 Step decomposition is deferred to Phase 3 execution (Phase A: review +
 decomposition). The canonical decomposition rules are in
-`conventions-execution.md` §2.6. During planning, focus on track-level
-descriptions and scope indicators — not step-level detail.
+[`track-review.md`](track-review.md) §Step Decomposition. During planning,
+focus on track-level descriptions and scope indicators — not step-level
+detail.
