@@ -228,8 +228,14 @@ public class UpdatableResultTest extends TestUtilsFixture {
       var holder = session.newVertex("UR_GV_V");
       holder.setProperty("ref", vertex);
       var r = new UpdatableResult(session, holder);
+      // Pin the referenced vertex's identity — a mutation returning any non-null Vertex
+      // (e.g., holder itself, or an unrelated vertex) would be caught. Parallels the TB7
+      // fix in getLinkDelegatesToEntityGetLink.
       var fetched = r.getVertex("ref");
       assertThat(fetched).isNotNull();
+      assertThat(fetched.getIdentity())
+          .as("getVertex must return the referenced vertex, not any non-null Vertex")
+          .isEqualTo(vertex.getIdentity());
     } finally {
       session.rollback();
     }
@@ -247,8 +253,14 @@ public class UpdatableResultTest extends TestUtilsFixture {
       var holder = session.newVertex("UR_GED_V");
       holder.setProperty("ref", edge.getIdentity());
       var r = new UpdatableResult(session, holder);
+      // Pin the referenced edge's identity — a mutation returning any non-null Edge
+      // (e.g., an unrelated edge) would be caught. Parallels the TB7 fix in
+      // getLinkDelegatesToEntityGetLink.
       var fetched = r.getEdge("ref");
       assertThat(fetched).isNotNull();
+      assertThat(fetched.getIdentity())
+          .as("getEdge must return the referenced edge, not any non-null Edge")
+          .isEqualTo(edge.getIdentity());
     } finally {
       session.rollback();
     }

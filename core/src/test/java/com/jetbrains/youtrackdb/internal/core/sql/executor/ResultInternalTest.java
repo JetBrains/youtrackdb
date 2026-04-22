@@ -764,7 +764,13 @@ public class ResultInternalTest extends TestUtilsFixture {
     inner.setProperty("k", "v");
     var r = new ResultInternal(session);
     r.setProperty("inner", inner);
-    assertThat(r.getResult("inner")).isNotNull();
+    // Pin the stored Result's content — a mutation returning any non-null Result
+    // (e.g., a fresh empty ResultInternal) would pass an isNotNull-only check.
+    var fetched = r.getResult("inner");
+    assertThat(fetched).isNotNull();
+    assertThat(fetched.<String>getProperty("k"))
+        .as("getResult must return the stored Result, not any non-null Result")
+        .isEqualTo("v");
   }
 
   @Test
@@ -782,7 +788,13 @@ public class ResultInternalTest extends TestUtilsFixture {
       var v = session.newVertex("GV_V");
       var r = new ResultInternal(session);
       r.setProperty("vref", v);
-      assertThat(r.getVertex("vref")).isNotNull();
+      // Pin the resolved vertex's identity — a mutation returning any non-null Vertex
+      // (e.g., delegating to the wrong accessor) would pass an isNotNull-only check.
+      var fetched = r.getVertex("vref");
+      assertThat(fetched).isNotNull();
+      assertThat(fetched.getIdentity())
+          .as("getVertex must resolve the stored RID, not any non-null Vertex")
+          .isEqualTo(v.getIdentity());
     } finally {
       session.rollback();
     }
@@ -812,7 +824,13 @@ public class ResultInternalTest extends TestUtilsFixture {
       var edge = v1.addEdge(v2, "GE_E");
       var r = new ResultInternal(session);
       r.setProperty("eref", edge.getIdentity());
-      assertThat(r.getEdge("eref")).isNotNull();
+      // Pin the resolved edge's identity — a mutation returning any non-null Edge
+      // (e.g., an unrelated edge or a sibling accessor) would pass an isNotNull-only check.
+      var fetched = r.getEdge("eref");
+      assertThat(fetched).isNotNull();
+      assertThat(fetched.getIdentity())
+          .as("getEdge must resolve the stored RID, not any non-null Edge")
+          .isEqualTo(edge.getIdentity());
     } finally {
       session.rollback();
     }
@@ -831,7 +849,13 @@ public class ResultInternalTest extends TestUtilsFixture {
       var blob = session.newBlob(new byte[] {7});
       var r = new ResultInternal(session);
       r.setProperty("bref", blob.getIdentity());
-      assertThat(r.getBlob("bref")).isNotNull();
+      // Pin the resolved blob's identity — a mutation returning any non-null Blob would
+      // pass an isNotNull-only check.
+      var fetched = r.getBlob("bref");
+      assertThat(fetched).isNotNull();
+      assertThat(fetched.getIdentity())
+          .as("getBlob must resolve the stored RID, not any non-null Blob")
+          .isEqualTo(blob.getIdentity());
     } finally {
       session.rollback();
     }
