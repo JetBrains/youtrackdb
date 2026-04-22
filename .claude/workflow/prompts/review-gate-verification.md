@@ -10,11 +10,12 @@ Inputs:
 - Track reviewed: {track_name}
 - Codebase root: {codebase_path}
 - Episodes from completed tracks: {prior_episodes}
-- Previous findings: {previous_findings}
-- Findings under re-check: {findings}
+- Previous findings (context only, finalized in earlier iterations):
+  {previous_findings}
+- Findings under re-check (verify these): {findings}
 - Review type: {technical|risk|adversarial}
 
-For each previous finding:
+For each finding under re-check:
 1. If the finding was ACCEPTED: check if the fix was applied correctly
    and if the fix introduced new issues.
 2. If the finding was REJECTED: verify the rejection reason is sound
@@ -34,8 +35,7 @@ certificate** that re-checks the specific location:
 ```markdown
 #### Verify <PREFIX><N>: <finding title>
 - **Original issue**: <what was wrong>
-- **Fix applied**: <what changed in the step file / track description,
-  plan file, or codebase>
+- **Fix applied**: <what changed in the step file, plan file, or codebase>
 - **Re-check**:
   - Code/plan/step-file location: <where the fix was applied>
   - Current state: <what it now says vs. original issue>
