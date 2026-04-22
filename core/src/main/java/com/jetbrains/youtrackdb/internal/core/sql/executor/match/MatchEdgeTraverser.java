@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.PreFilterableLinkBagIterable;
@@ -122,6 +123,32 @@ public class MatchEdgeTraverser implements ExecutionStream {
 
   /** True when the downstream stream is exhausted and no buffered result remains. */
   private boolean exhausted;
+
+  /**
+   * Per-traverser cached {@link ImmutableSchema} snapshot. The snapshot is stable
+   * for the lifetime of a query, so resolving it once per traverser (instead of
+   * per-hop via {@code getMetadata().getImmutableSchemaSnapshot()}) trims the
+   * hot-path call chain in {@link #matchesClassCached}. Lazy — only populated
+   * when a zero-I/O class check is actually needed.
+   */
+  private ImmutableSchema cachedSchema;
+
+  private boolean schemaResolved;
+
+  /**
+   * Single-slot memo of the most recent {@code (className, collectionId) ->
+   * matches} decision. {@code className} is effectively constant across hops of
+   * one MATCH edge, and target vertices of that edge typically share a cluster
+   * (e.g. every neighbour of {@code .in('HAS_CREATOR'){class: Comment}} lands in
+   * the same Comment cluster). Under that pattern the memo hits on nearly every
+   * call, skipping the HashMap lookup on {@link ImmutableSchema#getClassByCollectionId}
+   * and the superclass walk in {@code isSubClassOf}.
+   */
+  private String memoClassName;
+
+  private int memoCollectionId = RID.COLLECTION_ID_INVALID;
+
+  private boolean memoResult;
 
   /**
    * Constructs a traverser from a scheduled edge traversal (normal use case).
@@ -434,7 +461,7 @@ public class MatchEdgeTraverser implements ExecutionStream {
     }
     iCommandContext.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, next);
     if (matchesFilters(iCommandContext, theFilter, next)
-        && matchesClass(iCommandContext, theClassName, next)
+        && matchesClassCached(iCommandContext, theClassName, next)
         && matchesRid(iCommandContext, theTargetRid, next)) {
       ctx.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, previousMatch);
       return next;
@@ -457,6 +484,88 @@ public class MatchEdgeTraverser implements ExecutionStream {
   /** Returns the RID constraint for the **target** node. Overridden by reverse traversers. */
   protected SQLRid targetRid(SQLMatchPathItem item, CommandContext iCommandContext) {
     return item.getFilter().getRid(iCommandContext);
+  }
+
+  /**
+   * Instance-level wrapper around {@link #matchesClass} that memoises results
+   * across hops of the same MATCH edge.
+   *
+   * <p>Two optimisations on top of the static path:
+   *
+   * <ul>
+   *   <li><b>Schema snapshot cache</b> — {@link #cachedSchema} is resolved on
+   *       first invocation and reused, so subsequent hops skip the
+   *       {@code context.getDatabaseSession().getMetadata().getImmutableSchemaSnapshot()}
+   *       call chain.</li>
+   *   <li><b>Single-slot (className, collectionId) memo</b> — results from one
+   *       edge typically share a cluster (e.g. every {@code Comment} neighbour
+   *       of {@code .in('HAS_CREATOR'){class: Comment}} lives in the Comment
+   *       cluster). The memo hits on consecutive identical lookups and skips
+   *       both the HashMap lookup and the {@code isSubClassOf} superclass walk.</li>
+   * </ul>
+   *
+   * <p>Falls back to the static implementation for already-loaded entities or
+   * when the RID cluster is not owned by a schema class; those paths remain
+   * rare and do not benefit from caching.
+   */
+  boolean matchesClassCached(
+      CommandContext context, String className, Result origin) {
+    if (className == null) {
+      return true;
+    }
+    if (origin == null) {
+      return false;
+    }
+
+    // Fast path: entity already materialised — reuse its cached schema class.
+    // This path cannot be memoised on collectionId alone because an already-
+    // loaded entity carries its exact class; we defer to the static path.
+    var identifiable = origin.asIdentifiableOrNull();
+    if (identifiable instanceof EntityImpl entity) {
+      var session = context.getDatabaseSession();
+      var clazz = entity.getImmutableSchemaClass(session);
+      return clazz != null && clazz.isSubClassOf(className);
+    }
+
+    var rid = origin.getIdentity();
+    if (rid == null) {
+      return false;
+    }
+    var collectionId = rid.getCollectionId();
+
+    // Memo hit: same className and same cluster as the previous call.
+    if (collectionId == memoCollectionId && className.equals(memoClassName)) {
+      return memoResult;
+    }
+
+    // Resolve schema snapshot once per traverser.
+    if (!schemaResolved) {
+      var session = context.getDatabaseSession();
+      cachedSchema = session == null
+          ? null
+          : session.getMetadata().getImmutableSchemaSnapshot();
+      schemaResolved = true;
+    }
+
+    boolean result;
+    if (cachedSchema != null) {
+      var clazz = cachedSchema.getClassByCollectionId(collectionId);
+      if (clazz != null) {
+        result = clazz.isSubClassOf(className);
+      } else {
+        // Cluster not owned by a schema class — fall back to loading the
+        // record so its stored class name can be consulted.
+        result = matchesClass(context, className, origin);
+      }
+    } else {
+      // Session or schema snapshot unavailable — defer to the static path.
+      result = matchesClass(context, className, origin);
+    }
+
+    memoClassName = className;
+    memoCollectionId = collectionId;
+    memoResult = result;
+    return result;
   }
 
   /**
