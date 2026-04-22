@@ -354,6 +354,7 @@ On-demand reference documents (loaded only when their specific situation arises)
 - **`inline-replanning.md`** — full ESCALATE replanning protocol
 - **`review-iteration.md`** — iteration limits, finding ID prefixes, gate format (loaded when running any review loop)
 - **`code-review-protocol.md`** — two-tier dimensional code review (loaded by step-implementation.md and track-code-review.md)
+- **`plan-slim-rendering.md`** — slim plan rendering for sub-agent contexts (loaded when assembling step-level or track-level review sub-agent prompts)
 - **`episode-format-reference.md`** — detailed episode format, rules, examples
 - **`design-document-rules.md`** — design document rules, examples, structure
 - **`design-decision-escalation.md`** — when/how to escalate design decisions to the user

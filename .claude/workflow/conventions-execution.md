@@ -14,11 +14,17 @@ These subsections extend the plan file structure defined in
 ### After track completion (user-approved)
 
 The track episode is written to the plan file **only after the user
-approves** the track results (see workflow.md §Track Completion Protocol):
+approves** the track results, and at the same time the description is
+**collapsed** to remove implementation detail that is now superseded by
+the committed code and step episodes (see workflow.md §Track Completion
+Protocol). Keep the **intro paragraph** (the first paragraph of the
+original description, before any `**What:**` / `**How:**` /
+`**Constraints:**` / `**Interactions:**` subsection). Drop those keyword
+subsections, drop the **Scope** line, and drop the **Depends on** line.
 
 ```markdown
 - [x] Track 2: <title>
-  > <description>
+  > <intro paragraph — first paragraph of the original description>
   >
   > **Track episode:**
   > <strategic summary — length proportional to cross-track impact>
@@ -36,6 +42,15 @@ approves** the track results (see workflow.md §Track Completion Protocol):
 - This is what future track sessions read from the plan file — the step
   file is available for deeper investigation if needed
 
+**Why collapse:** Completed tracks accumulate in the plan file and are
+re-sent to every sub-agent as strategic context. Keeping the full
+implementation detail for completed tracks inflates every code-review
+sub-agent prompt by tens of thousands of tokens. The intro paragraph plus
+track episode is sufficient strategic context for reviewers of later
+tracks. For how sub-agents render the plan (including the same shape
+applied in-memory for legacy un-collapsed entries), see
+[`plan-slim-rendering.md`](plan-slim-rendering.md).
+
 ### After strategy refresh
 
 The strategy refresh result is appended to the same track's block in the
@@ -43,7 +58,7 @@ plan file, after the step file reference:
 
 ```markdown
 - [x] Track 2: <title>
-  > <description>
+  > <intro paragraph>
   >
   > **Track episode:**
   > <strategic summary>
@@ -65,7 +80,7 @@ record:
 
 ```markdown
 - [~] Track 3: <title>
-  > <description>
+  > <intro paragraph>
   >
   > **Skipped:** <reason>
   >

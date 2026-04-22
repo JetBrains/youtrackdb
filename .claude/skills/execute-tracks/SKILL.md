@@ -32,6 +32,7 @@ On-demand reference documents (load only when the situation arises):
 - `inline-replanning.md` — load when ESCALATE triggers
 - `review-iteration.md` — load when running any review loop (Phase A reviews or Phase C code review)
 - `code-review-protocol.md` — load at the start of Phase B sub-step 4 or Phase C code review
+- `plan-slim-rendering.md` — load when assembling any step-level or track-level review sub-agent prompt
 - `episode-format-reference.md` — load when writing your first episode
 - `design-document-rules.md` — not needed during Phase 3
 

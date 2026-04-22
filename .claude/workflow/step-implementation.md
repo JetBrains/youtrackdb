@@ -125,7 +125,10 @@ completion**, before moving to the next step:
       Reviewing: uncommitted changes or last commit (as appropriate)
 
       ## Implementation Plan (strategic context)
-      {contents of implementation-plan.md}
+      {slim rendering of implementation-plan.md — see
+      [`plan-slim-rendering.md`](plan-slim-rendering.md): keep pre-Checklist
+      content, current track full, completed tracks as title + intro +
+      track episode + strategy refresh only}
 
       ## Track Steps (tactical context)
       {contents of tracks/track-N.md — all steps with their episodes}

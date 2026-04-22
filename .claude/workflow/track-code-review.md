@@ -92,7 +92,10 @@ Track {N}: {track title}
 Reviewing commit range: {base_commit}..HEAD
 
 ## Implementation Plan (strategic context)
-{contents of implementation-plan.md}
+{slim rendering of implementation-plan.md — see
+[`plan-slim-rendering.md`](plan-slim-rendering.md): keep pre-Checklist
+content, current track full, completed tracks as title + intro + track
+episode + strategy refresh only}
 
 ## Track Steps (tactical context)
 {contents of tracks/track-N.md — all steps with their episodes}
@@ -232,6 +235,10 @@ proceed directly to track completion **in the same session**.
    - Any unresolved track-level code review findings
    - Plan corrections made (if any) — which findings were deferred and
      where
+   - Note that on approval the track description will be collapsed to its
+     intro paragraph (see step 4) — the detailed implementation
+     subsections are now superseded by the committed code and step
+     episodes
 
 3. **Wait for user response:**
    - **Approved** — proceed to step 4.
@@ -242,18 +249,33 @@ proceed directly to track completion **in the same session**.
    - **Fundamental rework** — trigger ESCALATE (see workflow.md
      §Inline Replanning).
 
-4. **Write the track episode and mark `[x]`** in the plan file on disk
-   (only after user approval):
+4. **Write the track episode, collapse the description, and mark `[x]`**
+   in the plan file on disk (only after user approval):
+
+   **Collapse the description** — the long implementation detail in the
+   track's description is now superseded by the committed code + step
+   episodes + track episode. Reduce the description to its **intro
+   paragraph** (everything in the blockquote before the first
+   `**Keyword:**` marker like `**What:**`, `**How:**`, `**Constraints:**`,
+   `**Interactions:**`). Drop those keyword subsections, drop the
+   **Scope** line, and drop the **Depends on** line. Keep the intro
+   paragraph — it tells readers what the track was about at a glance.
+
+   Final on-disk form:
 
    ```markdown
    - [x] Track N: <title>
-     > <description>
+     > <intro paragraph — first paragraph of the original description>
      >
      > **Track episode:**
      > <strategic summary — length proportional to cross-track impact>
      >
      > **Step file:** `tracks/track-N.md` (M steps, K failed)
    ```
+
+   This shrinks completed-track entries from 100+ lines to ~10–15 lines
+   and keeps the plan file lean as tracks land. The strategy-refresh
+   line is appended by the next session.
 
 5. **Session ends.** Strategy refresh happens next session.
 
