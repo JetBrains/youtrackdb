@@ -17,6 +17,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.CostModel;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.DistinctExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.EmptyStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionStepInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchDescriptor;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.LimitExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.OrderByStep;
@@ -43,11 +44,13 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLimit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMathExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMethodCall;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMultiMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNeOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNestedProjection;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNotBlock;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNotInCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLProjection;
@@ -405,7 +408,9 @@ public class MatchExecutionPlanner {
 
     this.pattern = pattern;
     this.aliasClasses = aliasClasses;
-    this.aliasFilters = aliasFilters;
+    // Defensive copy: aliasFilters may be immutable (e.g. Map.of() from GQL).
+    // detectNotInAntiJoin() mutates this map to strip NOT IN conditions.
+    this.aliasFilters = new HashMap<>(aliasFilters);
     this.aliasRids = Map.of();
   }
 
@@ -1779,9 +1784,18 @@ public class MatchExecutionPlanner {
 
     var first = true;
     if (!sortedEdges.isEmpty()) {
+      optimizeScheduleWithIntersections(sortedEdges, context);
+
+      // Re-bind filters after optimization: detectNotInAntiJoin() may have
+      // stripped NOT IN conditions from aliasFilters, so we must push the
+      // updated filters to the match expression AST nodes. Without this,
+      // the MatchStep would still evaluate the original un-stripped filter.
+      rebindFilters(aliasFilters);
+
+      // Annotate each edge traversal with the source node's class/RID/filter
+      // constraints (post-optimization, so stripped filters are reflected).
+      // MatchReverseEdgeTraverser uses these when traversing in reverse.
       for (var edge : sortedEdges) {
-        // Annotate each edge traversal with the source node's class/RID/filter constraints
-        // so that MatchReverseEdgeTraverser can apply them when traversing in reverse
         if (edge.edge.out.alias != null) {
           edge.setLeftClass(aliasClasses.get(edge.edge.out.alias));
           edge.setLeftRid(aliasRids.get(edge.edge.out.alias));
@@ -1789,7 +1803,6 @@ public class MatchExecutionPlanner {
         }
       }
 
-      optimizeScheduleWithIntersections(sortedEdges, context);
       attachCollectionIdFilters(sortedEdges, context);
 
       // Hash join optimization: detect secondary branches that can be evaluated as
@@ -3006,15 +3019,30 @@ public class MatchExecutionPlanner {
       }
     }
 
+    // Track aliases that are bound (visited) before each edge. Built
+    // incrementally: the source alias is added at the start of each
+    // iteration (it was bound by a preceding edge or is the root), and
+    // the target alias is added at the end (it becomes bound during this
+    // edge's execution). This ensures that semi-join candidacy checks
+    // only see aliases that are actually available at execution time.
+    Set<String> boundAliases = new HashSet<>();
     for (var j = 0; j < schedule.size(); j++) {
       var edgeJ = schedule.get(j);
+      var sourceAliasJ = edgeJ.out ? edgeJ.edge.out.alias : edgeJ.edge.in.alias;
       var targetAliasJ = edgeJ.out ? edgeJ.edge.in.alias : edgeJ.edge.out.alias;
+
+      // Source alias is bound before this edge executes (it is either
+      // the root alias or the target of a preceding edge).
+      if (sourceAliasJ != null) {
+        boundAliases.add(sourceAliasJ);
+      }
       if (targetAliasJ == null) {
         continue;
       }
 
       var targetFilter = aliasFilters.get(targetAliasJ);
       if (targetFilter == null) {
+        boundAliases.add(targetAliasJ);
         continue;
       }
 
@@ -3050,20 +3078,68 @@ public class MatchExecutionPlanner {
           }
 
           if (edgeClass != null && edgeDirection != null) {
-            var sourceAliasJ = edgeJ.out
-                ? edgeJ.edge.out.alias : edgeJ.edge.in.alias;
-            var producingEdgeIdx = targetAliasToEdgeIndex.get(sourceAliasJ);
-            if (producingEdgeIdx != null) {
-              var edgeI = schedule.get(producingEdgeIdx);
-              edgeI.addIntersectionDescriptor(
-                  new RidFilterDescriptor.EdgeRidLookup(
-                      edgeClass, edgeDirection, ridExpr, collectEdgeRids));
+
+            // --- Semi-join candidacy check (Pattern A) ---
+            // Only when the edge class belongs to the current edge (not
+            // propagated from a preceding outE/inE). When collectEdgeRids
+            // is true, the class/direction came from the previous edge —
+            // Pattern B detection handles that case below.
+            //
+            // Any residual WHERE terms on the target alias (beyond the
+            // {@code @rid = $matched.X.@rid} equality) are extracted here
+            // and passed to {@link BackRefHashJoinStep} for post-load
+            // evaluation. Pattern A is rejected only when the residual
+            // cannot be extracted safely — either because the RID equality
+            // is nested too deep for the flat-block extractor, or because
+            // the residual references {@code $matched}/{@code $currentMatch}
+            // which build phase cannot resolve.
+            var residualExtraction = extractTargetResidual(targetFilter);
+            if (!collectEdgeRids
+                && !edgeJ.edge.in.isOptionalNode()
+                && isSemiJoinCandidate(edgeDirection, involvedAliases,
+                    boundAliases)
+                && residualExtraction.safe()) {
+              var backRefAlias = involvedAliases.getFirst();
+              var descriptor = new SingleEdgeSemiJoin(
+                  edgeClass, edgeDirection, ridExpr,
+                  sourceAliasJ, backRefAlias, targetAliasJ,
+                  residualExtraction.residual());
+              edgeJ.setSemiJoinDescriptor(descriptor);
               logger.debug(
-                  "MATCH pre-filter: EdgeRidLookup on edge[{}] "
-                      + "({}({}) back-ref from alias '{}', edgeRids={})",
-                  producingEdgeIdx, edgeDirection, edgeClass, targetAliasJ,
-                  collectEdgeRids);
+                  "MATCH pre-filter: BackRefHashJoin on edge[{}] "
+                      + "({}({}) semi-join via $matched.{})",
+                  j, edgeDirection, edgeClass, backRefAlias);
+            } else {
+              // Fallback: attach EdgeRidLookup on the producing edge
+              var producingEdgeIdx = targetAliasToEdgeIndex.get(sourceAliasJ);
+              if (producingEdgeIdx != null) {
+                var edgeI = schedule.get(producingEdgeIdx);
+                edgeI.addIntersectionDescriptor(
+                    new RidFilterDescriptor.EdgeRidLookup(
+                        edgeClass, edgeDirection, ridExpr, collectEdgeRids));
+                logger.debug(
+                    "MATCH pre-filter: EdgeRidLookup on edge[{}] "
+                        + "({}({}) back-ref from alias '{}', edgeRids={})",
+                    producingEdgeIdx, edgeDirection, edgeClass, targetAliasJ,
+                    collectEdgeRids);
+              }
+              // --- Pattern B: outE('E').inV() chain semi-join ---
+              // When edge class was propagated from the preceding edge, also
+              // try chain semi-join which collapses both edges into one step.
+              if (collectEdgeRids) {
+                tryAttachChainSemiJoin(
+                    schedule, j, edgeJ, involvedAliases, ridExpr,
+                    targetAliasJ, boundAliases, ctx);
+              }
             }
+          } else if (j > 0) {
+            // --- Pattern B: outE('E').inV() chain semi-join ---
+            // edge_j is .inV() (no edge class/direction). Check if the
+            // preceding edge is .outE('E') or .inE('E') with a recognized
+            // edge class. If so, collapse both into a ChainSemiJoin.
+            tryAttachChainSemiJoin(
+                schedule, j, edgeJ, involvedAliases, ridExpr,
+                targetAliasJ, boundAliases, ctx);
           }
         } else {
           // Literal or parameter RID: @rid = #12:0 or @rid = :param
@@ -3075,13 +3151,32 @@ public class MatchExecutionPlanner {
           logger.debug(
               "MATCH pre-filter: DirectRid on edge[{}] for alias '{}'",
               j, targetAliasJ);
+          boundAliases.add(targetAliasJ);
           continue;
+        }
+      }
+
+      // --- Pattern D: NOT IN anti-semi-join detection ---
+      // Check if the target's WHERE clause contains
+      // $currentMatch NOT IN $matched.X.out('E')
+      // Pattern D detection follows below
+      if (edgeJ.getSemiJoinDescriptor() == null) {
+        var antiDesc = detectNotInAntiJoin(
+            targetFilter, targetAliasJ, boundAliases);
+        if (antiDesc != null) {
+          edgeJ.setSemiJoinDescriptor(antiDesc);
+          logger.debug(
+              "MATCH pre-filter: AntiSemiJoin on edge[{}] "
+                  + "(NOT IN $matched.{}.{}('{}'))",
+              j, antiDesc.anchorAlias(),
+              antiDesc.traversalDirection(), antiDesc.traversalEdgeClass());
         }
       }
 
       // --- Index pre-filter detection ---
       var targetClass = aliasClasses.get(targetAliasJ);
       if (targetClass == null) {
+        boundAliases.add(targetAliasJ);
         continue;
       }
 
@@ -3092,6 +3187,7 @@ public class MatchExecutionPlanner {
         indexableFilter = matchedSplit.nonMatchedReferencing();
       }
       if (indexableFilter == null) {
+        boundAliases.add(targetAliasJ);
         continue;
       }
 
@@ -3105,6 +3201,699 @@ public class MatchExecutionPlanner {
                 + "(class '{}' for alias '{}')",
             j, targetClass, targetAliasJ);
       }
+
+      // Target alias becomes bound after this edge executes
+      boundAliases.add(targetAliasJ);
+    }
+  }
+
+  /**
+   * Checks if a back-reference edge qualifies for a semi-join hash table
+   * optimization (Pattern A). The edge must be a vertex-level traversal
+   * ({@code out('E')} or {@code in('E')}, not {@code outE('E')} or
+   * {@code inE('E')}), and the back-referenced alias must be already bound
+   * earlier in the schedule.
+   *
+   * @param edgeDirection    the traversal direction (e.g., "out", "in", "oute")
+   * @param involvedAliases  the aliases referenced by the back-ref expression
+   * @param boundAliases     all aliases bound (visited) in the schedule
+   * @return true if the edge is a semi-join candidate
+   */
+  private static boolean isSemiJoinCandidate(
+      String edgeDirection,
+      List<String> involvedAliases,
+      Set<String> boundAliases) {
+    // Only vertex-level traversals qualify (not outE/inE/bothE/both)
+    if (!"out".equals(edgeDirection) && !"in".equals(edgeDirection)) {
+      return false;
+    }
+    // The back-ref must reference exactly one alias
+    if (involvedAliases.size() != 1) {
+      return false;
+    }
+    // The back-referenced alias must be already bound in the schedule
+    var backRefAlias = involvedAliases.getFirst();
+    if (!boundAliases.contains(backRefAlias)) {
+      return false;
+    }
+    // Check threshold is enabled (0 disables hash join)
+    var threshold = getHashJoinThreshold();
+    return threshold > 0;
+  }
+
+  /**
+   * Structural decomposition of a {@code $matched.<alias>.<out|in>('E')}
+   * traversal expression — the RHS shape required by Pattern D anti-joins.
+   */
+  private record MatchedTraversal(
+      String anchorAlias, String direction, String edgeClass) {
+  }
+
+  /**
+   * Extracts {@link MatchedTraversal} from an RHS AST node or returns
+   * {@code null} when the shape does not match. Walks the AST directly
+   * instead of parsing {@link SQLMathExpression#toString}, which would
+   * rely on the generated parser's serialization format staying stable
+   * and would mis-handle back-quoted identifiers, bound parameters, and
+   * edge-direction variants like {@code outE}.
+   */
+  @Nullable private static MatchedTraversal extractMatchedTraversal(
+      @Nullable SQLMathExpression rhs) {
+    if (!(rhs instanceof SQLBaseExpression base)) {
+      return null;
+    }
+    var identifier = base.getIdentifier();
+    if (identifier == null || !"$matched".equals(identifier.toString())) {
+      return null;
+    }
+    var firstMod = base.getModifier();
+    if (firstMod == null) {
+      return null;
+    }
+    // First segment must be `.X` (suffix identifier, no method call).
+    var suffix = firstMod.getSuffix();
+    if (suffix == null || suffix.getIdentifier() == null
+        || firstMod.getMethodCall() != null) {
+      return null;
+    }
+    var anchorAlias = suffix.getIdentifier().getStringValue();
+    if (anchorAlias == null) {
+      return null;
+    }
+    // Second segment must be `.<dir>(<edgeClass>)` — a method call.
+    var secondMod = firstMod.getNext();
+    if (secondMod == null) {
+      return null;
+    }
+    var method = secondMod.getMethodCall();
+    if (method == null) {
+      return null;
+    }
+    // There must not be further modifiers (reject `.out('E').somethingElse`).
+    if (secondMod.getNext() != null) {
+      return null;
+    }
+    var methodName = method.getMethodNameString();
+    if (methodName == null) {
+      return null;
+    }
+    // Vertex-level traversals only: out / in. Reject outE, inE, bothV, etc.
+    var direction = methodName.toLowerCase(Locale.ROOT);
+    if (!"out".equals(direction) && !"in".equals(direction)) {
+      return null;
+    }
+    var params = method.getParams();
+    if (params == null || params.size() != 1) {
+      return null;
+    }
+    var paramMath = params.getFirst().getMathExpression();
+    if (!(paramMath instanceof SQLBaseExpression paramBase)) {
+      return null;
+    }
+    // Only accept a plain string literal for the edge class — reject bound
+    // parameters (:edge), identifiers, and compound expressions whose
+    // value cannot be determined at plan time.
+    var edgeClass = paramBase.getStringLiteralValue();
+    if (edgeClass == null) {
+      return null;
+    }
+    return new MatchedTraversal(anchorAlias, direction, edgeClass);
+  }
+
+  /**
+   * Detects Pattern D: a {@code $currentMatch NOT IN $matched.X.out('E')}
+   * condition in the target node's WHERE clause. If found, removes the
+   * NOT IN condition from the WHERE clause and returns an
+   * {@link AntiSemiJoin} descriptor. Any remaining conditions in the AND
+   * block stay as residual filter on the {@link MatchEdgeTraverser}.
+   *
+   * @param targetFilter  the WHERE clause on the target node
+   * @param targetAlias   the alias of the target node
+   * @param boundAliases  all aliases bound in the schedule
+   * @return an AntiSemiJoin descriptor, or null if the pattern is not found
+   */
+  @Nullable private AntiSemiJoin detectNotInAntiJoin(
+      SQLWhereClause targetFilter,
+      String targetAlias,
+      Set<String> boundAliases) {
+    var threshold = getHashJoinThreshold();
+    if (threshold <= 0) {
+      return null;
+    }
+
+    var baseExpr = targetFilter.getBaseExpression();
+    if (baseExpr == null) {
+      return null;
+    }
+
+    // Descend through the transparent wrappers MATCH adds around filters
+    // (addAliases wraps original WHERE in an outer AND, the grammar in turn
+    // wraps AND blocks in single-element ORs) to the AND block whose
+    // sub-blocks are the user's visible conjuncts. Without this, a compound
+    // WHERE like "NOT IN AND name='n4'" sits two wrappers deep — iterating
+    // the top-level AND's single sub-block (an OR wrapping the inner AND
+    // with two terms) never reaches the NOT IN.
+    var andBlock = findConjunctsAnd(baseExpr);
+    if (andBlock == null) {
+      return null;
+    }
+    var andSubBlocks = andBlock.getSubBlocks();
+    if (andSubBlocks == null || andSubBlocks.isEmpty()) {
+      return null;
+    }
+    // Scan for SQLNotInCondition nodes whose LHS is $currentMatch and whose
+    // RHS matches $matched.X.out('E') or $matched.X.in('E'). The grammar
+    // wraps conditions in multiple transparent layers (OrBlock → AndBlock →
+    // NotBlock → ConditionBlock). We unwrap single-element wrappers before
+    // checking the inner type, then inspect the LHS/RHS AST nodes directly.
+    for (int i = 0; i < andSubBlocks.size(); i++) {
+      var sub = andSubBlocks.get(i);
+      var inner = unwrapToNotInCondition(sub);
+      if (inner == null) {
+        continue;
+      }
+
+      // Check LHS is $currentMatch via the AST node
+      var lhs = inner.getLeft();
+      if (lhs == null || !"$currentMatch".equals(lhs.toString().trim())) {
+        continue;
+      }
+
+      // Check RHS is $matched.X.out('E') or $matched.X.in('E') by walking
+      // the AST structure directly — immune to toString() format drift,
+      // back-quoted identifiers, and bound parameters for the edge class.
+      var traversal = extractMatchedTraversal(inner.getRightMathExpression());
+      if (traversal == null) {
+        continue;
+      }
+
+      // Anchor alias must be already bound
+      if (!boundAliases.contains(traversal.anchorAlias())) {
+        continue;
+      }
+
+      // Strip the NOT IN from the target alias's WHERE clause so that the
+      // preceding MatchStep does not re-evaluate it per row (the expensive
+      // O(degree) link bag traversal). The stripped condition is stored in
+      // the AntiSemiJoin descriptor for runtime fallback: if the hash table
+      // build fails, BackRefHashJoinStep evaluates it per row.
+      //
+      // Both sides use independent AST copies: buildWhereWithoutTerm already
+      // deep-copies the sub-blocks it keeps, and we deep-copy {@code sub}
+      // before stashing it in the descriptor. The original andBlock is kept
+      // intact by the planner (rebindFilters, etc.) and cached plans may
+      // re-execute with re-bound parameters — any shared sub-block reference
+      // would let an AST rewrite on one side corrupt the other.
+      var strippedFilter =
+          SQLWhereClause.buildWhereWithoutTerm(andBlock, i);
+      if (strippedFilter != null) {
+        aliasFilters.put(targetAlias, strippedFilter);
+      } else {
+        // NOT IN was the only condition — remove the filter entirely
+        aliasFilters.remove(targetAlias);
+      }
+
+      return new AntiSemiJoin(
+          traversal.anchorAlias(), traversal.edgeClass(),
+          traversal.direction(), targetAlias, sub.copy());
+    }
+    return null;
+  }
+
+  /**
+   * Descends through single-element {@link SQLOrBlock} and {@link SQLAndBlock}
+   * wrappers to find the AND block whose sub-blocks are the user's top-level
+   * conjuncts.
+   *
+   * <p>The MATCH planner wraps each alias's WHERE clause in at least one
+   * extra AND block (see {@code addAliases}), and the grammar itself wraps
+   * the user's AND inside a single-element OR. For a compound WHERE like
+   * {@code NOT IN AND name='n4'} the resulting structure is
+   * {@code AND[OR[AND[<notIn>, <name='n4'>]]]} — the inner AND holds the
+   * actual conjuncts. Returns {@code null} when a multi-branch OR is
+   * encountered (that would require disjunctive processing) or when no AND
+   * is reachable.
+   */
+  @Nullable private static SQLAndBlock findConjunctsAnd(
+      SQLBooleanExpression expr) {
+    SQLAndBlock lastAnd = null;
+    var current = expr;
+    while (true) {
+      if (current instanceof SQLOrBlock or) {
+        var subs = or.getSubBlocks();
+        if (subs == null || subs.size() != 1) {
+          return null;
+        }
+        current = subs.getFirst();
+        continue;
+      }
+      if (current instanceof SQLAndBlock and) {
+        lastAnd = and;
+        var subs = and.getSubBlocks();
+        if (subs == null || subs.isEmpty()) {
+          return and;
+        }
+        // If this AND already has multiple conjuncts, it IS the user's list.
+        if (subs.size() > 1) {
+          return and;
+        }
+        // Single-element AND may be a wrapper around another AND/OR layer.
+        var only = subs.getFirst();
+        if (only instanceof SQLOrBlock || only instanceof SQLAndBlock) {
+          current = only;
+          continue;
+        }
+        // The lone sub-block is a leaf condition — this AND is the deepest
+        // one reachable and holds that single conjunct.
+        return and;
+      }
+      // Not an AND/OR at the top — return the deepest AND we've seen.
+      return lastAnd;
+    }
+  }
+
+  /**
+   * Unwraps the transparent AST wrappers the grammar produces around condition
+   * blocks (OrBlock → AndBlock → NotBlock → ConditionBlock) to reach the inner
+   * {@link SQLNotInCondition}, if present. Returns {@code null} if the expression
+   * is not a NOT IN condition or if any wrapper is non-transparent (e.g., OR with
+   * multiple branches, or NOT with {@code negate=true}).
+   */
+  @Nullable private static SQLNotInCondition unwrapToNotInCondition(
+      SQLBooleanExpression expr) {
+    var inner = expr;
+    // Unwrap single-element SQLOrBlock
+    if (inner instanceof SQLOrBlock or && or.getSubBlocks() != null
+        && or.getSubBlocks().size() == 1) {
+      inner = or.getSubBlocks().getFirst();
+    }
+    // Unwrap single-element SQLAndBlock
+    if (inner instanceof SQLAndBlock and && and.getSubBlocks() != null
+        && and.getSubBlocks().size() == 1) {
+      inner = and.getSubBlocks().getFirst();
+    }
+    // Unwrap transparent SQLNotBlock (negate=false)
+    if (inner instanceof SQLNotBlock not && !not.isNegate()) {
+      inner = not.getSub();
+    }
+    return inner instanceof SQLNotInCondition notIn ? notIn : null;
+  }
+
+  /**
+   * Detects Pattern B: an {@code .outE('E').inV()} chain where the
+   * {@code .inV()} target has a back-reference {@code @rid = $matched.X.@rid}.
+   * Returns a {@link ChainSemiJoin} descriptor if the pattern qualifies,
+   * or {@code null} otherwise.
+   *
+   * <p>The edge class and direction are extracted from edge_j-1 (the
+   * {@code .outE('E')} edge), not from edge_j ({@code .inV()}).
+   */
+  @Nullable private ChainSemiJoin detectChainSemiJoin(
+      List<EdgeTraversal> schedule,
+      int j,
+      List<String> involvedAliases,
+      SQLExpression ridExpr,
+      String targetAliasJ,
+      Set<String> boundAliases,
+      CommandContext ctx) {
+    // The back-ref must reference exactly one alias that is already bound
+    if (involvedAliases.size() != 1) {
+      return null;
+    }
+    var backRefAlias = involvedAliases.getFirst();
+    if (!boundAliases.contains(backRefAlias)) {
+      return null;
+    }
+    var threshold = getHashJoinThreshold();
+    if (threshold <= 0) {
+      return null;
+    }
+
+    var edgeJ = schedule.get(j);
+    // Mirror the Pattern A guard: an optional target node must pass through
+    // rows with nulls when no match is found, which BackRefHashJoinStep does
+    // not implement. Worse, addStepsFor dispatches on the optional branch
+    // before consulting getSemiJoinDescriptor() — so if Pattern B fired here
+    // the predecessor edge would be marked consumed and silently dropped
+    // from the plan, producing wrong results.
+    if (edgeJ.edge.in.isOptionalNode() || edgeJ.edge.out.isOptionalNode()) {
+      return null;
+    }
+
+    // Check preceding edge (j-1) is an edge-level traversal (outE/inE)
+    var edgePrev = schedule.get(j - 1);
+    // The intermediate alias (edgePrev endpoint) must also be non-optional:
+    // it would otherwise be "skipped" in the traversal yet still bound by
+    // the collapsed BackRefHashJoinStep, diverging from the documented
+    // semantics of optional nodes.
+    if (edgePrev.edge.in.isOptionalNode() || edgePrev.edge.out.isOptionalNode()) {
+      return null;
+    }
+    var prevDirection = getEdgeDirection(edgePrev);
+    if (prevDirection == null) {
+      return null;
+    }
+    // Must be edge-level: "oute" or "ine"
+    if (!"oute".equals(prevDirection) && !"ine".equals(prevDirection)) {
+      return null;
+    }
+    var prevEdgeClass = getEdgeClassName(edgePrev);
+    if (prevEdgeClass == null) {
+      return null;
+    }
+
+    // Extract aliases. The source alias is the source of edge_j-1 (outE),
+    // not edge_j (inV). The intermediate alias is the target of edge_j-1.
+    var sourceAlias = edgePrev.out
+        ? edgePrev.edge.out.alias : edgePrev.edge.in.alias;
+    var intermediateAlias = edgePrev.out
+        ? edgePrev.edge.in.alias : edgePrev.edge.out.alias;
+
+    // Map oute→out, ine→in for the reverse link bag direction
+    var direction = prevDirection.startsWith("out") ? "out" : "in";
+
+    // The intermediate edge may have a WHERE filter. Correctness requires
+    // that every edge added to the hash table actually passes the whole
+    // WHERE clause — the consumed predecessor's MatchStep, which would
+    // normally evaluate it, is skipped in the collapsed plan.
+    //
+    // Strategy (both optional, both applied in BackRefHashJoinStep):
+    //   1. indexFilter — RidSet intersection, rejects non-candidate edges
+    //      without loading them. Partial cover is fine here: its only role
+    //      is pre-filtering for performance.
+    //   2. edgeFilter — the complete WHERE clause, re-evaluated on every
+    //      loaded edge. Authoritative correctness check; catches any terms
+    //      the index didn't cover.
+    //
+    // Rejection case kept at plan time:
+    //   * Filter references $matched / $currentMatch — build phase has no
+    //     per-row scope for those variables, so runtime evaluation would
+    //     see stale values. Safer to fall back to the standard chain.
+    //
+    // Multi-branch OR in the intermediate filter is not rejected here: any
+    // terms findIndexForFilter cannot cover are re-verified post-load by
+    // edgeFilter on every loaded edge, so correctness does not depend on
+    // indexability.
+    var intermediateFilter = aliasFilters.get(intermediateAlias);
+    IndexSearchDescriptor indexFilter = null;
+    SQLWhereClause edgeFilter = null;
+    if (intermediateFilter != null) {
+      var baseExpr = intermediateFilter.getBaseExpression();
+      if (baseExpr != null) {
+        var refAliases = baseExpr.getMatchPatternInvolvedAliases();
+        if (refAliases != null && !refAliases.isEmpty()) {
+          // Filter uses $matched.<alias> — cannot evaluate at build phase.
+          return null;
+        }
+      }
+      if (refersToCurrentMatch(intermediateFilter)) {
+        return null;
+      }
+      // Deep-copy the filter so the ChainSemiJoin descriptor owns its own
+      // AST subtree, independent of aliasFilters. The planner may still
+      // rewrite the original (rebindFilters, etc.) and cached plans may
+      // re-execute with re-bound parameters — shared references would let
+      // an AST rewrite on one side corrupt the other.
+      edgeFilter = intermediateFilter.copy();
+
+      var intermediateClass = aliasClasses.get(intermediateAlias);
+      if (intermediateClass != null) {
+        indexFilter = TraversalPreFilterHelper.findIndexForFilter(
+            intermediateFilter, intermediateClass, ctx);
+      }
+      // indexFilter may be null (no index) or a partial cover — both are OK
+      // because edgeFilter will re-verify every edge post-load.
+    }
+
+    return new ChainSemiJoin(
+        prevEdgeClass, direction, ridExpr,
+        sourceAlias, backRefAlias, intermediateAlias,
+        targetAliasJ, indexFilter, edgeFilter);
+  }
+
+  /**
+   * Returns {@code true} if the given WHERE clause references the
+   * {@code $currentMatch} identifier anywhere in its AST.
+   *
+   * <p>Uses a hybrid strategy: recurse structurally through block types
+   * ({@link SQLOrBlock}, {@link SQLAndBlock}, {@link SQLNotBlock}) and
+   * fall back to a quote-aware token scan for anything else — leaf
+   * condition types (binary / NOT IN / BETWEEN / ...) plus opaque
+   * wrappers whose inner structure is not publicly accessible. The
+   * token scan skips text enclosed in single or double quotes, so a
+   * literal like {@code name = '$currentMatchThing'} no longer
+   * false-positives and forces the Pattern A / B optimization to bail
+   * unnecessarily.
+   *
+   * <p>The identifier check is anchored at a word boundary (the next
+   * character must not be an identifier part), so {@code $currentMatchX}
+   * — a hypothetical unrelated variable — does not match either.
+   */
+  private static boolean refersToCurrentMatch(SQLWhereClause filter) {
+    var base = filter.getBaseExpression();
+    return base != null && refersToCurrentMatch(base);
+  }
+
+  private static boolean refersToCurrentMatch(SQLBooleanExpression expr) {
+    if (expr instanceof SQLOrBlock or) {
+      var subs = or.getSubBlocks();
+      if (subs != null) {
+        for (var sub : subs) {
+          if (refersToCurrentMatch(sub)) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+    if (expr instanceof SQLAndBlock and) {
+      var subs = and.getSubBlocks();
+      if (subs != null) {
+        for (var sub : subs) {
+          if (refersToCurrentMatch(sub)) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+    if (expr instanceof SQLNotBlock not) {
+      return not.getSub() != null && refersToCurrentMatch(not.getSub());
+    }
+    return leafContainsCurrentMatchIdentifier(expr.toString());
+  }
+
+  /**
+   * Returns {@code true} if {@code serialized} contains the token
+   * {@code $currentMatch} outside of any single- or double-quoted string
+   * literal, at a word boundary. The serialized form of a leaf boolean
+   * expression is re-entrant (its toString is a valid YQL fragment), so
+   * string literals use standard SQL quoting and every {@code $}-prefixed
+   * identifier is emitted literally.
+   */
+  private static boolean leafContainsCurrentMatchIdentifier(String serialized) {
+    if (serialized == null) {
+      return false;
+    }
+    var len = serialized.length();
+    var token = "$currentMatch";
+    var inSingle = false;
+    var inDouble = false;
+    for (var i = 0; i < len; i++) {
+      var c = serialized.charAt(i);
+      if (inSingle) {
+        if (c == '\\' && i + 1 < len) {
+          i++;
+        } else if (c == '\'') {
+          inSingle = false;
+        }
+        continue;
+      }
+      if (inDouble) {
+        if (c == '\\' && i + 1 < len) {
+          i++;
+        } else if (c == '"') {
+          inDouble = false;
+        }
+        continue;
+      }
+      if (c == '\'') {
+        inSingle = true;
+        continue;
+      }
+      if (c == '"') {
+        inDouble = true;
+        continue;
+      }
+      if (c == '$' && serialized.regionMatches(i, token, 0, token.length())) {
+        var end = i + token.length();
+        if (end >= len || !isIdentifierPart(serialized.charAt(end))) {
+          return true;
+        }
+        i = end - 1;
+      }
+    }
+    return false;
+  }
+
+  private static boolean isIdentifierPart(char c) {
+    return Character.isLetterOrDigit(c) || c == '_';
+  }
+
+  /**
+   * Result of splitting a Pattern A target WHERE into the hash-joinable
+   * {@code @rid} equality and everything else.
+   *
+   * @param safe     {@code true} when Pattern A may fire — either the target
+   *                 has no residual, or the residual has been cleanly
+   *                 extracted and does not reference any build-phase-unsafe
+   *                 variables
+   * @param residual the residual to re-evaluate on the loaded target entity,
+   *                 or {@code null} when there is nothing to re-evaluate
+   */
+  record ResidualExtraction(boolean safe, @Nullable SQLWhereClause residual) {
+  }
+
+  private static final ResidualExtraction RESIDUAL_SAFE_NONE =
+      new ResidualExtraction(true, null);
+  private static final ResidualExtraction RESIDUAL_UNSAFE =
+      new ResidualExtraction(false, null);
+
+  /**
+   * Extracts the non-{@code @rid} residual of a Pattern A target WHERE clause.
+   * Returns {@link #RESIDUAL_UNSAFE} when the clause cannot be flattened to
+   * a single conjunction (e.g. multi-branch OR) or when the residual
+   * references {@code $matched}/{@code $currentMatch} — those variables have
+   * no defined value at hash-build time, so evaluating them per loaded
+   * target would read stale context state.
+   *
+   * <p>Handles the MATCH planner's typical double-wrapping
+   * ({@code AND[OR[AND[@rid, ...]]]}) by flattening all transparent
+   * single-element OR/AND wrappers before locating the {@code @rid} term,
+   * matching the recursive behavior of {@link SQLWhereClause#findRidEquality}.
+   */
+  private static ResidualExtraction extractTargetResidual(
+      @Nullable SQLWhereClause targetFilter) {
+    if (targetFilter == null) {
+      return RESIDUAL_SAFE_NONE;
+    }
+    var base = targetFilter.getBaseExpression();
+    if (base == null) {
+      return RESIDUAL_SAFE_NONE;
+    }
+    var atoms = new ArrayList<SQLBooleanExpression>();
+    if (!flattenConjunction(base, atoms)) {
+      return RESIDUAL_UNSAFE;
+    }
+    var residualAtoms = new ArrayList<SQLBooleanExpression>(atoms.size());
+    var foundRid = false;
+    for (var atom : atoms) {
+      if (!foundRid && isRidEqualityAtom(atom)) {
+        foundRid = true;
+      } else {
+        residualAtoms.add(atom);
+      }
+    }
+    if (!foundRid) {
+      return RESIDUAL_UNSAFE;
+    }
+    if (residualAtoms.isEmpty()) {
+      return RESIDUAL_SAFE_NONE;
+    }
+    // Deep-copy each atom so the residual owns its own AST subtree, independent
+    // of the original targetFilter. The original stays in place for other
+    // planner passes (rebindFilters, index detection) and the residual is
+    // stashed on the SingleEdgeSemiJoin descriptor, which may be re-used when
+    // a cached plan re-executes with re-bound parameters — shared references
+    // would let an AST rewrite on one side corrupt the other. Mirrors the
+    // policy applied in SQLWhereClause.buildWhereWithoutTerm.
+    var newAnd = new SQLAndBlock(-1);
+    for (var atom : residualAtoms) {
+      newAnd.getSubBlocks().add(atom.copy());
+    }
+    var newOr = new SQLOrBlock(-1);
+    newOr.getSubBlocks().add(newAnd);
+    var residual = new SQLWhereClause(-1);
+    residual.setBaseExpression(newOr);
+
+    var refs = newAnd.getMatchPatternInvolvedAliases();
+    if (refs != null && !refs.isEmpty()) {
+      return RESIDUAL_UNSAFE;
+    }
+    if (refersToCurrentMatch(residual)) {
+      return RESIDUAL_UNSAFE;
+    }
+    return new ResidualExtraction(true, residual);
+  }
+
+  /**
+   * Flattens a conjunction expression, peeling single-element OR/AND
+   * wrappers recursively and collecting leaf boolean terms into
+   * {@code atoms}. Returns {@code false} when a multi-branch OR is
+   * encountered (not a pure conjunction) or the expression is otherwise
+   * not flattenable.
+   */
+  private static boolean flattenConjunction(
+      SQLBooleanExpression expr, List<SQLBooleanExpression> atoms) {
+    if (expr instanceof SQLOrBlock or) {
+      if (or.getSubBlocks().size() != 1) {
+        return false;
+      }
+      return flattenConjunction(or.getSubBlocks().getFirst(), atoms);
+    }
+    if (expr instanceof SQLAndBlock and) {
+      for (var sub : and.getSubBlocks()) {
+        if (!flattenConjunction(sub, atoms)) {
+          return false;
+        }
+      }
+      return true;
+    }
+    atoms.add(expr);
+    return true;
+  }
+
+  /**
+   * Returns {@code true} if the given already-flattened atomic term is a
+   * {@code @rid = <expr>} equality. Wraps the atom in a single-term WHERE
+   * clause and delegates to {@link SQLWhereClause#findRidEquality} to avoid
+   * duplicating the RID-matching logic.
+   */
+  private static boolean isRidEqualityAtom(SQLBooleanExpression atom) {
+    var tmpAnd = new SQLAndBlock(-1);
+    tmpAnd.getSubBlocks().add(atom);
+    var tmpWhere = new SQLWhereClause(-1);
+    tmpWhere.setBaseExpression(tmpAnd);
+    return tmpWhere.findRidEquality() != null;
+  }
+
+  /**
+   * Attempts to detect and attach a Pattern B (ChainSemiJoin) descriptor on
+   * {@code edgeJ}. If detection succeeds, the predecessor edge is marked as
+   * consumed so {@code addStepsFor()} skips it.
+   */
+  private void tryAttachChainSemiJoin(
+      List<EdgeTraversal> schedule,
+      int j,
+      EdgeTraversal edgeJ,
+      List<String> involvedAliases,
+      SQLExpression ridExpr,
+      String targetAliasJ,
+      Set<String> boundAliases,
+      CommandContext ctx) {
+    var chainDesc = detectChainSemiJoin(
+        schedule, j, involvedAliases, ridExpr, targetAliasJ,
+        boundAliases, ctx);
+    if (chainDesc != null) {
+      var consumed = schedule.get(j - 1);
+      edgeJ.setSemiJoinDescriptor(chainDesc);
+      consumed.setConsumed(true);
+      edgeJ.setConsumedPredecessor(consumed);
+      logger.debug(
+          "MATCH pre-filter: ChainSemiJoin on edge[{},{}] "
+              + "({}({}) chain semi-join via $matched.{})",
+          j - 1, j, chainDesc.direction(), chainDesc.edgeClass(),
+          chainDesc.backRefAlias());
     }
   }
 
@@ -3450,6 +4239,11 @@ public class MatchExecutionPlanner {
               select.createExecutionPlan(subContxt, profilingEnabled),
               profilingEnabled));
     }
+    // Skip edges consumed by a ChainSemiJoin on the next edge — the
+    // BackRefHashJoinStep on the next edge covers both.
+    if (edge.isConsumed()) {
+      return;
+    }
     if (edge.edge.in.isOptionalNode()) {
       // Check if this optional edge can be replaced with a correlated hash lookup
       var correlatedDesc = detectCorrelatedOptionalJoin(edge);
@@ -3496,6 +4290,24 @@ public class MatchExecutionPlanner {
         // to avoid catastrophic full V scan
         plan.chain(new MatchStep(context, edge, profilingEnabled));
       }
+    } else if (edge.getSemiJoinDescriptor() instanceof AntiSemiJoin) {
+      // Pattern D: normal traversal + anti-join filter. The NOT IN condition
+      // was stripped from the WHERE clause at plan time so the MatchStep
+      // traverses without it. The BackRefHashJoinStep filters results against
+      // the exclusion set; on build failure it evaluates the stored NOT IN
+      // condition per row as a correctness fallback.
+      plan.chain(new MatchStep(context, edge, profilingEnabled));
+      plan.chain(new BackRefHashJoinStep(
+          context, edge.getSemiJoinDescriptor(), null, null, profilingEnabled));
+    } else if (edge.getSemiJoinDescriptor() != null) {
+      // Back-reference semi-join (Pattern A/B): replace per-row link bag
+      // traversal with a one-time hash table build + O(1) probe. The
+      // EdgeTraversal is passed for runtime fallback if the build fails.
+      // For Pattern B (ChainSemiJoin), the consumed predecessor edge is
+      // also passed so the fallback can traverse both edges sequentially.
+      plan.chain(new BackRefHashJoinStep(
+          context, edge.getSemiJoinDescriptor(), edge,
+          edge.getConsumedPredecessor(), profilingEnabled));
     } else {
       plan.chain(new MatchStep(context, edge, profilingEnabled));
     }

@@ -70,6 +70,15 @@ public class EdgeTraversal {
   @Nullable private RidFilterDescriptor intersectionDescriptor;
 
   /**
+   * Semi-join descriptor for back-reference hash join optimization. When set,
+   * {@link BackRefHashJoinStep} replaces the normal {@link MatchStep} for this
+   * edge. Mutually exclusive with {@link #intersectionDescriptor} for the same
+   * back-reference — when a semi-join descriptor is attached, no
+   * {@link RidFilterDescriptor.EdgeRidLookup} is created for the back-ref edge.
+   */
+  @Nullable private SemiJoinDescriptor semiJoinDescriptor;
+
+  /**
    * Fixed-capacity cache of resolved RidSets, keyed by
    * {@link RidFilterDescriptor#cacheKey}. Stops accepting new entries
    * at capacity — no eviction, no LRU bookkeeping. Allocated lazily
@@ -85,6 +94,22 @@ public class EdgeTraversal {
    * skipping vertices whose collection ID does not match.
    */
   @Nullable private IntSet acceptedCollectionIds;
+
+  /**
+   * When {@code true}, this edge has been consumed by a {@link ChainSemiJoin}
+   * descriptor on a subsequent edge. {@link MatchExecutionPlanner#addStepsFor}
+   * skips consumed edges — the {@link BackRefHashJoinStep} on the next edge
+   * covers both.
+   */
+  private boolean consumed;
+
+  /**
+   * When this edge has a {@link ChainSemiJoin} descriptor, points to the
+   * consumed predecessor edge (the {@code .outE('E')} part). Used by
+   * {@link BackRefHashJoinStep} to construct the correct two-edge fallback
+   * traversal when the hash table build fails at runtime.
+   */
+  @Nullable private EdgeTraversal consumedPredecessor;
 
   /**
    * @param edge the pattern edge to traverse
@@ -141,6 +166,30 @@ public class EdgeTraversal {
       intersectionDescriptor = new RidFilterDescriptor.Composite(
           List.of(intersectionDescriptor, descriptor));
     }
+  }
+
+  @Nullable public SemiJoinDescriptor getSemiJoinDescriptor() {
+    return semiJoinDescriptor;
+  }
+
+  public void setSemiJoinDescriptor(@Nullable SemiJoinDescriptor semiJoinDescriptor) {
+    this.semiJoinDescriptor = semiJoinDescriptor;
+  }
+
+  public boolean isConsumed() {
+    return consumed;
+  }
+
+  public void setConsumed(boolean consumed) {
+    this.consumed = consumed;
+  }
+
+  @Nullable public EdgeTraversal getConsumedPredecessor() {
+    return consumedPredecessor;
+  }
+
+  public void setConsumedPredecessor(@Nullable EdgeTraversal consumedPredecessor) {
+    this.consumedPredecessor = consumedPredecessor;
   }
 
   @Nullable public IntSet getAcceptedCollectionIds() {
@@ -247,7 +296,10 @@ public class EdgeTraversal {
       copy.leftRid = leftRid.copy();
     }
     copy.intersectionDescriptor = intersectionDescriptor;
+    copy.semiJoinDescriptor = semiJoinDescriptor;
     copy.acceptedCollectionIds = acceptedCollectionIds;
+    copy.consumed = consumed;
+    copy.consumedPredecessor = consumedPredecessor;
     // Cache is intentionally not copied — stale data from a previous
     // execution must not leak into a new plan instance.
     return copy;

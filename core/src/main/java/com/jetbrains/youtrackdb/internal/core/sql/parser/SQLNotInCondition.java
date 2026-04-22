@@ -297,6 +297,14 @@ public class SQLNotInCondition extends SQLBooleanExpression {
     return null;
   }
 
+  public SQLExpression getLeft() {
+    return left;
+  }
+
+  public SQLMathExpression getRightMathExpression() {
+    return rightMathExpression;
+  }
+
   @Override
   public boolean varMightBeInUse(String varName) {
     return left != null && left.varMightBeInUse(varName) ||

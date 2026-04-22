@@ -453,12 +453,11 @@ public class MatchPreFilterComprehensiveTest extends MatchPreFilterTestBase {
     var result = session.query(query).toList();
     assertEquals("No self-loops exist", 0, result.size());
 
-    // The back-ref @rid = $matched.person.@rid is detected by the planner via
-    // findRidEquality(), but 'person' is the scan root alias (no producing edge).
-    // targetAliasToEdgeIndex.get("person") returns null because the scan root has
-    // no link bag to attach an intersection descriptor to.
-    assertPlanHasNoIntersection(query,
-        "Scan root has no producing edge, so EdgeRidLookup cannot attach");
+    // The back-ref @rid = $matched.person.@rid references the scan root alias.
+    // EdgeRidLookup cannot attach (no producing edge), but BackRefHashJoinStep
+    // handles this by building a hash table from the scan root's link bag.
+    assertPlanHasIntersection(query,
+        "Back-ref hash join optimizes self-loop even on scan root alias");
     session.commit();
   }
 

@@ -523,6 +523,27 @@ public final class SQLBaseExpression extends SQLMathExpression {
     return modifier;
   }
 
+  /**
+   * Returns the raw value of a plain string literal expression with its
+   * surrounding quotes stripped and serializer escapes decoded. Returns
+   * {@code null} when this expression is not a string literal (e.g.
+   * identifier, input parameter, number, compound expression). Useful for
+   * callers that need the literal argument of a method call at plan time
+   * without parsing {@link #toString}.
+   */
+  @Nullable
+  public String getStringLiteralValue() {
+    if (string == null || string.length() < 2) {
+      return null;
+    }
+    var first = string.charAt(0);
+    var last = string.charAt(string.length() - 1);
+    if ((first != '\'' && first != '"') || first != last) {
+      return null;
+    }
+    return StringSerializerHelper.decode(string.substring(1, string.length() - 1));
+  }
+
   @Override
   public List<String> getMatchPatternInvolvedAliases() {
     if (this.identifier != null && this.identifier.toString().equals("$matched")) {
