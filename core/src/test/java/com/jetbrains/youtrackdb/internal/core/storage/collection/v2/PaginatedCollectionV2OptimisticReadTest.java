@@ -12,6 +12,7 @@ import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrackdb.internal.core.storage.RawPageBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPage;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
@@ -897,7 +898,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
       long fileId = collection.getFileId();
       // Page 1 is the first data page (page 0 is the state page)
       try (CacheEntry entry = storage.getReadCache().loadForRead(
-          fileId, 1, storage.getWriteCache(), false)) {
+          new FileHandler(fileId), 1, storage.getWriteCache(), false)) {
         var page = new CollectionPage(entry);
 
         // The first record is at position 0 on the page
@@ -948,7 +949,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
       // Load the page and construct a RawPageBuffer
       long fileId = collection.getFileId();
       try (CacheEntry entry = storage.getReadCache().loadForRead(
-          fileId, 1, storage.getWriteCache(), false)) {
+          new FileHandler(fileId), 1, storage.getWriteCache(), false)) {
         var page = new CollectionPage(entry);
         int contentOffset = page.getRecordContentOffset(0);
         int contentLength = page.getRecordContentLength(0);
@@ -994,7 +995,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
 
       long fileId = collection.getFileId();
       try (CacheEntry entry = storage.getReadCache().loadForRead(
-          fileId, 1, storage.getWriteCache(), false)) {
+          new FileHandler(fileId), 1, storage.getWriteCache(), false)) {
         var page = new CollectionPage(entry);
         Assert.assertEquals(0, page.getRecordContentLength(0));
 
@@ -1030,7 +1031,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
 
       long fileId = collection.getFileId();
       try (CacheEntry entry = storage.getReadCache().loadForRead(
-          fileId, 1, storage.getWriteCache(), false)) {
+          new FileHandler(fileId), 1, storage.getWriteCache(), false)) {
         var page = new CollectionPage(entry);
         int offset = page.getRecordContentOffset(1);
         int length = page.getRecordContentLength(1);

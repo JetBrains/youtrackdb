@@ -19,6 +19,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket;
@@ -45,6 +46,7 @@ import org.junit.Test;
 public class CollectionPositionMapV2Test {
 
   private static final long FILE_ID = 1L;
+  private static final FileHandler FILE_HANDLER = new FileHandler(FILE_ID);
   private static final String MAP_NAME = "testCluster";
   private static final String LOCK_NAME = "testCluster.cpm";
   private static final String EXTENSION = ".cpm";
@@ -104,7 +106,7 @@ public class CollectionPositionMapV2Test {
   @Test
   public void createOnNewFileInitialisesEntryPointToZero() throws IOException {
     // Dirty the entry-point page so we can verify create() actually writes 0.
-    try (var entry = atomicOperation.loadPageForWrite(FILE_ID, 0, 1, false)) {
+    try (var entry = atomicOperation.loadPageForWrite(FILE_HANDLER, 0, 1, false)) {
       new MapEntryPoint(entry).setFileSize(42);
     }
     // Re-create should reset to 0.
@@ -128,7 +130,7 @@ public class CollectionPositionMapV2Test {
     pageCount = 2;
 
     // Write a non-zero file size into the entry-point to prove create resets it.
-    try (var entry = op.loadPageForWrite(FILE_ID, 0, 1, false)) {
+    try (var entry = op.loadPageForWrite(FILE_HANDLER, 0, 1, false)) {
       new MapEntryPoint(entry).setFileSize(5);
     }
 
@@ -136,7 +138,7 @@ public class CollectionPositionMapV2Test {
     map2.create(op);
 
     // After create(), the file size stored in the entry point should be 0.
-    try (var entry = op.loadPageForRead(FILE_ID, 0)) {
+    try (var entry = op.loadPageForRead(FILE_HANDLER, 0)) {
       assertThat(new MapEntryPoint(entry).getFileSize()).isEqualTo(0);
     }
   }
@@ -160,14 +162,14 @@ public class CollectionPositionMapV2Test {
   @Test
   public void closeDelegatesToReadCache() {
     positionMap.close(true);
-    verify(mockReadCache).closeFile(FILE_ID, true, mockWriteCache);
+    verify(mockReadCache).closeFile(FILE_HANDLER, true, mockWriteCache);
   }
 
   // Verifies that close(false) passes flush=false.
   @Test
   public void closeWithoutFlush() {
     positionMap.close(false);
-    verify(mockReadCache).closeFile(FILE_ID, false, mockWriteCache);
+    verify(mockReadCache).closeFile(FILE_HANDLER, false, mockWriteCache);
   }
 
   // Verifies that truncate() resets the entry-point file size to 0.
@@ -1149,7 +1151,7 @@ public class CollectionPositionMapV2Test {
    * Reads the lastPage (file size) value from the entry-point page (page 0).
    */
   private int readLastPageFromEntryPoint() throws IOException {
-    try (var entry = atomicOperation.loadPageForRead(FILE_ID, 0)) {
+    try (var entry = atomicOperation.loadPageForRead(FILE_HANDLER, 0)) {
       return new MapEntryPoint(entry).getFileSize();
     }
   }
@@ -1166,7 +1168,7 @@ public class CollectionPositionMapV2Test {
 
     long count = 0;
     for (var pageIndex = 1; pageIndex <= lastPage; pageIndex++) {
-      try (var entry = atomicOperation.loadPageForRead(FILE_ID, pageIndex)) {
+      try (var entry = atomicOperation.loadPageForRead(FILE_HANDLER, pageIndex)) {
         count += new CollectionPositionMapBucket(entry).getSize();
       }
     }
@@ -1194,26 +1196,26 @@ public class CollectionPositionMapV2Test {
   private AtomicOperation createAtomicOperation() throws IOException {
     var op = mock(AtomicOperation.class);
 
-    when(op.addFile(anyString())).thenReturn(FILE_ID);
-    when(op.addFile(anyString(), anyBoolean())).thenReturn(FILE_ID);
+    when(op.addFile(anyString())).thenReturn(FILE_HANDLER);
+    when(op.addFile(anyString(), anyBoolean())).thenReturn(FILE_HANDLER);
 
-    when(op.loadFile(anyString())).thenReturn(FILE_ID);
+    when(op.loadFile(anyString())).thenReturn(FILE_HANDLER);
 
-    when(op.filledUpTo(FILE_ID)).thenAnswer(inv -> (long) pageCount);
+    when(op.filledUpTo(FILE_HANDLER)).thenAnswer(inv -> (long) pageCount);
 
-    when(op.addPage(FILE_ID)).thenAnswer(inv -> {
+    when(op.addPage(FILE_HANDLER)).thenAnswer(inv -> {
       var entry = getOrCreatePage(pageCount);
       pageCount++;
       return entry;
     });
 
-    when(op.loadPageForWrite(eq(FILE_ID), anyLong(), anyInt(), anyBoolean()))
+    when(op.loadPageForWrite(eq(FILE_HANDLER), anyLong(), anyInt(), anyBoolean()))
         .thenAnswer(inv -> {
           int pIdx = ((Long) inv.getArgument(1)).intValue();
           return getOrCreatePage(pIdx);
         });
 
-    when(op.loadPageForRead(eq(FILE_ID), anyLong()))
+    when(op.loadPageForRead(eq(FILE_HANDLER), anyLong()))
         .thenAnswer(inv -> {
           int pIdx = ((Long) inv.getArgument(1)).intValue();
           return getOrCreatePage(pIdx);

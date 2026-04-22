@@ -15,6 +15,7 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocat
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
@@ -35,6 +36,7 @@ import org.junit.Test;
 public class CollectionDirtyPageBitSetTest {
 
   private static final long FILE_ID = 1L;
+  private static final FileHandler FILE_HANDLER = new FileHandler(FILE_ID);
   private static final String NAME = "testCollection";
   private static final String LOCK_NAME = "testCollection.dpb";
   private static final String EXTENSION = ".dpb";
@@ -305,14 +307,14 @@ public class CollectionDirtyPageBitSetTest {
   @Test
   public void closeDelegatesToReadCache() {
     bitSet.close(true);
-    verify(mockReadCache).closeFile(FILE_ID, true, mockWriteCache);
+    verify(mockReadCache).closeFile(FILE_HANDLER, true, mockWriteCache);
   }
 
   // Verifies that close(flush=false) passes false to readCache.closeFile.
   @Test
   public void closeWithoutFlushDelegatesToReadCache() {
     bitSet.close(false);
-    verify(mockReadCache).closeFile(FILE_ID, false, mockWriteCache);
+    verify(mockReadCache).closeFile(FILE_HANDLER, false, mockWriteCache);
   }
 
   // Verifies that rename() delegates to writeCache.renameFile() and updates the internal name.
@@ -365,26 +367,26 @@ public class CollectionDirtyPageBitSetTest {
   private AtomicOperation createAtomicOperation() throws IOException {
     var op = mock(AtomicOperation.class);
 
-    when(op.addFile(anyString())).thenReturn(FILE_ID);
-    when(op.addFile(anyString(), anyBoolean())).thenReturn(FILE_ID);
+    when(op.addFile(anyString())).thenReturn(FILE_HANDLER);
+    when(op.addFile(anyString(), anyBoolean())).thenReturn(FILE_HANDLER);
 
-    when(op.loadFile(anyString())).thenReturn(FILE_ID);
+    when(op.loadFile(anyString())).thenReturn(FILE_HANDLER);
 
-    when(op.filledUpTo(FILE_ID)).thenAnswer(inv -> (long) pageCount);
+    when(op.filledUpTo(FILE_HANDLER)).thenAnswer(inv -> (long) pageCount);
 
-    when(op.addPage(FILE_ID)).thenAnswer(inv -> {
+    when(op.addPage(FILE_HANDLER)).thenAnswer(inv -> {
       var entry = getOrCreatePage(pageCount);
       pageCount++;
       return entry;
     });
 
-    when(op.loadPageForWrite(eq(FILE_ID), anyLong(), anyInt(), anyBoolean()))
+    when(op.loadPageForWrite(eq(FILE_HANDLER), anyLong(), anyInt(), anyBoolean()))
         .thenAnswer(inv -> {
           int pIdx = ((Long) inv.getArgument(1)).intValue();
           return getOrCreatePage(pIdx);
         });
 
-    when(op.loadPageForRead(eq(FILE_ID), anyLong()))
+    when(op.loadPageForRead(eq(FILE_HANDLER), anyLong()))
         .thenAnswer(inv -> {
           int pIdx = ((Long) inv.getArgument(1)).intValue();
           return getOrCreatePage(pIdx);

@@ -66,9 +66,8 @@ public class StorageTestIT {
 
     final var storagePath = storage.getStoragePath();
 
-    var pclFileName = findFileName(wowCache, "pagebreak", ".pcl");
-    var fileId = wowCache.fileIdByName(pclFileName);
-    var nativeFileName = wowCache.nativeFileNameById(fileId);
+    var fileHandler = wowCache.fileHandlerByName("pagebreak.pcl");
+    var nativeFileName = wowCache.nativeFileNameById(fileHandler.fileId());
     youTrackDB.close();
 
     // Corrupt a byte in a data page (skip past metadata page at page 0)
@@ -134,9 +133,8 @@ public class StorageTestIT {
     db.close();
     final var storagePath = storage.getStoragePath();
 
-    var pclFileName = findFileName(wowCache, "pagebreak", ".pcl");
-    var fileId = wowCache.fileIdByName(pclFileName);
-    var nativeFileName = wowCache.nativeFileNameById(fileId);
+    var fileHandler = wowCache.fileHandlerByName("pagebreak.pcl");
+    var nativeFileName = wowCache.nativeFileNameById(fileHandler.fileId());
     youTrackDB.close();
 
     // Corrupt magic number of a data page (skip past metadata page at page 0)
@@ -202,9 +200,8 @@ public class StorageTestIT {
 
     final var storagePath = storage.getStoragePath();
 
-    var pclFileName = findFileName(wowCache, "pagebreak", ".pcl");
-    var fileId = wowCache.fileIdByName(pclFileName);
-    var nativeFileName = wowCache.nativeFileNameById(fileId);
+    var fileHandler = wowCache.fileHandlerByName("pagebreak.pcl");
+    var nativeFileName = wowCache.nativeFileNameById(fileHandler.fileId());
 
     youTrackDB.close();
     var position = File.HEADER_SIZE + DurablePage.MAGIC_NUMBER_OFFSET;
@@ -266,9 +263,8 @@ public class StorageTestIT {
 
     final var storagePath = storage.getStoragePath();
 
-    var pclFileName = findFileName(wowCache, "pagebreak", ".pcl");
-    var fileId = wowCache.fileIdByName(pclFileName);
-    var nativeFileName = wowCache.nativeFileNameById(fileId);
+    var fileHandler = wowCache.fileHandlerByName("pagebreak.pcl");
+    var nativeFileName = wowCache.nativeFileNameById(fileHandler.fileId());
 
     youTrackDB.close();
 

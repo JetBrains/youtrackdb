@@ -44,9 +44,9 @@ public interface ReadCache {
    */
   int MIN_CACHE_SIZE = 256;
 
-  long addFile(String fileName, WriteCache writeCache) throws IOException;
+  FileHandler addFile(String fileName, WriteCache writeCache) throws IOException;
 
-  long addFile(String fileName, long fileId, WriteCache writeCache) throws IOException;
+  FileHandler addFile(String fileName, long fileId, WriteCache writeCache) throws IOException;
 
   /**
    * Registers a file with an explicit non-durability flag. The default implementation
@@ -55,11 +55,11 @@ public interface ReadCache {
    */
   default long addFile(String fileName, long fileId, WriteCache writeCache, boolean nonDurable)
       throws IOException {
-    return addFile(fileName, fileId, writeCache);
+    return addFile(fileName, fileId, writeCache).fileId();
   }
 
   CacheEntry loadForWrite(
-      long fileId,
+      FileHandler fileHandler,
       long pageIndex,
       WriteCache writeCache,
       boolean verifyChecksums,
@@ -67,11 +67,11 @@ public interface ReadCache {
       throws IOException;
 
   CacheEntry loadForRead(
-      long fileId, long pageIndex, WriteCache writeCache, boolean verifyChecksums)
+      FileHandler fileHandler, long pageIndex, WriteCache writeCache, boolean verifyChecksums)
       throws IOException;
 
   CacheEntry silentLoadForRead(
-      final long extFileId,
+      final FileHandler fileHandler,
       final int pageIndex,
       final WriteCache writeCache,
       final boolean verifyChecksums);
@@ -80,7 +80,8 @@ public interface ReadCache {
 
   void releaseFromWrite(CacheEntry cacheEntry, WriteCache writeCache, boolean changed);
 
-  CacheEntry allocateNewPage(long fileId, WriteCache writeCache, LogSequenceNumber startLSN)
+  CacheEntry allocateNewPage(FileHandler fileHandler, WriteCache writeCache,
+      LogSequenceNumber startLSN)
       throws IOException;
 
   long getUsedMemory();
@@ -89,7 +90,7 @@ public interface ReadCache {
 
   void truncateFile(long fileId, WriteCache writeCache) throws IOException;
 
-  void closeFile(long fileId, boolean flush, WriteCache writeCache);
+  void closeFile(FileHandler fileHandler, boolean flush, WriteCache writeCache);
 
   void deleteFile(long fileId, WriteCache writeCache) throws IOException;
 

@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atom
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
@@ -65,10 +66,10 @@ public class RegisterPageOperationTest {
     long fullFileId = composeFileId(nextInternalId, STORAGE_ID);
     when(writeCache.bookFileId(fileName)).thenReturn(fullFileId);
 
-    long fileId = op.addFile(fileName);
+    long fileId = op.addFile(fileName).fileId();
 
     for (int i = 0; i < pageCount; i++) {
-      var page = op.addPage(fileId);
+      var page = op.addPage(new FileHandler(fileId));
       // Make a change so hasChanges() returns true
       page.getChanges().setByteValue(null, (byte) 1, 100);
       page.setInitialLSN(new LogSequenceNumber(-1, -1));
@@ -89,7 +90,7 @@ public class RegisterPageOperationTest {
     op.registerPageOperation(fileId, 0, pageOp);
 
     // Verify the operation was accumulated in CacheEntryChanges
-    var page = (CacheEntryChanges) op.loadPageForWrite(fileId, 0, 1, false);
+    var page = (CacheEntryChanges) op.loadPageForWrite(new FileHandler(fileId), 0, 1, false);
     var pending = page.getPendingOperations();
     Assert.assertEquals(1, pending.size());
     Assert.assertSame(pageOp, pending.get(0));
@@ -115,7 +116,7 @@ public class RegisterPageOperationTest {
     op.registerPageOperation(fileId, 0, op3);
 
     // Verify operations are accumulated in order
-    var page = (CacheEntryChanges) op.loadPageForWrite(fileId, 0, 1, false);
+    var page = (CacheEntryChanges) op.loadPageForWrite(new FileHandler(fileId), 0, 1, false);
     var pending = page.getPendingOperations();
     Assert.assertEquals(3, pending.size());
     Assert.assertSame(op1, pending.get(0));
@@ -140,12 +141,12 @@ public class RegisterPageOperationTest {
     op.registerPageOperation(fileId, 1, pageOp1);
 
     // Verify each page has its own pending operation
-    var page0 = (CacheEntryChanges) op.loadPageForWrite(fileId, 0, 2, false);
+    var page0 = (CacheEntryChanges) op.loadPageForWrite(new FileHandler(fileId), 0, 2, false);
     Assert.assertEquals(1, page0.getPendingOperations().size());
     Assert.assertSame(pageOp0, page0.getPendingOperations().get(0));
     op.releasePageFromWrite(page0);
 
-    var page1 = (CacheEntryChanges) op.loadPageForWrite(fileId, 1, 2, false);
+    var page1 = (CacheEntryChanges) op.loadPageForWrite(new FileHandler(fileId), 1, 2, false);
     Assert.assertEquals(1, page1.getPendingOperations().size());
     Assert.assertSame(pageOp1, page1.getPendingOperations().get(0));
     op.releasePageFromWrite(page1);

@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atom
 import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramDeltaHolder;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexCountDeltaHolder;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadScope;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket.PositionEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.SnapshotKey;
@@ -34,41 +35,42 @@ public interface AtomicOperation {
 
   void startToApplyOperations(long commitTs);
 
-  CacheEntry loadPageForWrite(long fileId, long pageIndex, int pageCount, boolean verifyChecksum)
+  CacheEntry loadPageForWrite(FileHandler fileHandler, long pageIndex, int pageCount,
+      boolean verifyChecksum)
       throws IOException;
 
-  CacheEntry loadPageForRead(long fileId, long pageIndex) throws IOException;
+  CacheEntry loadPageForRead(FileHandler fileHandler, long pageIndex) throws IOException;
 
   void addMetadata(AtomicOperationMetadata<?> metadata);
 
   AtomicOperationMetadata<?> getMetadata(String key);
 
-  CacheEntry addPage(long fileId) throws IOException;
+  CacheEntry addPage(FileHandler fileHandler) throws IOException;
 
   void releasePageFromRead(CacheEntry cacheEntry);
 
   void releasePageFromWrite(CacheEntry cacheEntry) throws IOException;
 
-  long filledUpTo(long fileId);
+  long filledUpTo(FileHandler fileHandler);
 
   /**
    * Registers a new file with an explicit non-durability flag.
    *
    * @param fileName    the file name to register
    * @param nonDurable  if true, the file is non-durable (no WAL, no DWL, no fsync)
-   * @return the file ID assigned to the new file
+   * @return the FileHandler for the new file
    */
-  long addFile(String fileName, boolean nonDurable) throws IOException;
+  FileHandler addFile(String fileName, boolean nonDurable) throws IOException;
 
   /**
    * Registers a new durable file. Delegates to {@link #addFile(String, boolean)} with
    * {@code nonDurable = false}.
    */
-  default long addFile(String fileName) throws IOException {
+  default FileHandler addFile(String fileName) throws IOException {
     return addFile(fileName, false);
   }
 
-  long loadFile(String fileName) throws IOException;
+  FileHandler loadFile(String fileName) throws IOException;
 
   void deleteFile(long fileId) throws IOException;
 
@@ -76,7 +78,7 @@ public interface AtomicOperation {
 
   long fileIdByName(String name);
 
-  void truncateFile(long fileId) throws IOException;
+  void truncateFile(FileHandler fileHandler) throws IOException;
 
   boolean containsInLockedObjects(String lockName);
 

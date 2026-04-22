@@ -14,6 +14,7 @@ import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket.PositionEntry;
@@ -1266,7 +1267,7 @@ public class AtomicOperationSnapshotProxyTest {
     var readCache = mock(ReadCache.class);
     var writeCache = mock(WriteCache.class);
     when(writeCache.getStorageName()).thenReturn("test-storage");
-    when(readCache.loadForRead(anyLong(), anyLong(), any(), anyBoolean()))
+    when(readCache.loadForRead(any(FileHandler.class), anyLong(), any(), anyBoolean()))
         .thenReturn(mockCacheEntry);
 
     var op = new AtomicOperationBinaryTracking(
@@ -1276,7 +1277,7 @@ public class AtomicOperationSnapshotProxyTest {
         sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
 
     // Simulate a write to page 10 — loadPageForWrite creates change tracking
-    op.loadPageForWrite(5, 10, 1, false);
+    op.loadPageForWrite(new FileHandler(5), 10, 1, false);
 
     // hasChangesForPage uses checkFileIdCompatibility internally,
     // so pass the same raw file ID
@@ -1293,7 +1294,7 @@ public class AtomicOperationSnapshotProxyTest {
     when(writeCache.getStorageName()).thenReturn("test-storage");
     // addNewFile returns a composed fileId with storageId in upper 32 bits
     long composedFileId = (1L << 32) | 99;
-    when(writeCache.addFile(anyString())).thenReturn(composedFileId);
+    when(writeCache.addFile(anyString())).thenReturn(new FileHandler(composedFileId));
 
     var op = new AtomicOperationBinaryTracking(
         readCache, writeCache, null, 1,
@@ -1301,11 +1302,11 @@ public class AtomicOperationSnapshotProxyTest {
         sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
         sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
 
-    long fid = op.addFile("test-new.dat");
+    long fid = op.addFile("test-new.dat").fileId();
 
     // Add a page to the new file
     when(writeCache.getFilledUpTo(fid)).thenReturn(0L);
-    op.addPage(fid);
+    op.addPage(new FileHandler(fid));
 
     // Page 0 exists in the new file
     assertThat(op.hasChangesForPage(fid, 0)).isTrue();
@@ -1328,7 +1329,7 @@ public class AtomicOperationSnapshotProxyTest {
     var readCache = mock(ReadCache.class);
     var writeCache = mock(WriteCache.class);
     when(writeCache.getStorageName()).thenReturn("test-storage");
-    when(readCache.loadForRead(anyLong(), anyLong(), any(), anyBoolean()))
+    when(readCache.loadForRead(any(FileHandler.class), anyLong(), any(), anyBoolean()))
         .thenReturn(mockCacheEntry);
 
     var op = new AtomicOperationBinaryTracking(
@@ -1338,11 +1339,11 @@ public class AtomicOperationSnapshotProxyTest {
         sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
 
     // Write a page to establish the file in fileChanges
-    op.loadPageForWrite(5, 10, 1, false);
+    op.loadPageForWrite(new FileHandler(5), 10, 1, false);
     assertThat(op.hasChangesForPage(5, 10)).isTrue();
 
     // Truncate the file
-    op.truncateFile(5);
+    op.truncateFile(new FileHandler(5));
 
     // All page indices should return true after truncation
     assertThat(op.hasChangesForPage(5, 0)).isTrue();
@@ -1379,7 +1380,7 @@ public class AtomicOperationSnapshotProxyTest {
     var writeCache = mock(WriteCache.class);
     when(writeCache.getStorageName()).thenReturn("test-storage");
     long composedFileId = (1L << 32) | 99;
-    when(writeCache.addFile(anyString())).thenReturn(composedFileId);
+    when(writeCache.addFile(anyString())).thenReturn(new FileHandler(composedFileId));
 
     var op = new AtomicOperationBinaryTracking(
         readCache, writeCache, null, 1,
@@ -1387,13 +1388,13 @@ public class AtomicOperationSnapshotProxyTest {
         sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
         sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
 
-    long fid = op.addFile("test-multi.dat");
+    long fid = op.addFile("test-multi.dat").fileId();
 
     // Add two pages
     when(writeCache.getFilledUpTo(fid)).thenReturn(0L);
-    op.addPage(fid);
+    op.addPage(new FileHandler(fid));
     when(writeCache.getFilledUpTo(fid)).thenReturn(1L);
-    op.addPage(fid);
+    op.addPage(new FileHandler(fid));
 
     // Pages 0 and 1 have changes
     assertThat(op.hasChangesForPage(fid, 0)).isTrue();
@@ -1451,7 +1452,7 @@ public class AtomicOperationSnapshotProxyTest {
         sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
 
     AtomicOperation iface = op;
-    long fid = iface.addFile("durable-file.dat");
+    long fid = iface.addFile("durable-file.dat").fileId();
     assertThat(fid).isEqualTo(composedFileId);
     assertThat(op.isFileNonDurable(fid)).isFalse();
   }
@@ -1471,7 +1472,7 @@ public class AtomicOperationSnapshotProxyTest {
         sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
         sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
 
-    long fid = op.addFile("non-durable-file.dat", true);
+    long fid = op.addFile("non-durable-file.dat", true).fileId();
     assertThat(fid).isEqualTo(composedFileId);
     assertThat(op.isFileNonDurable(fid)).isTrue();
   }
@@ -1494,11 +1495,11 @@ public class AtomicOperationSnapshotProxyTest {
         sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
         sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
 
-    long fid1 = op.addFile("reused-file.dat", false);
+    long fid1 = op.addFile("reused-file.dat", false).fileId();
     assertThat(op.isFileNonDurable(fid1)).isFalse();
 
     op.deleteFile(fid1);
-    long fid2 = op.addFile("reused-file.dat", true);
+    long fid2 = op.addFile("reused-file.dat", true).fileId();
 
     assertThat(fid2).isEqualTo(fid1);
     assertThat(op.isFileNonDurable(fid2)).isTrue();
@@ -1519,7 +1520,7 @@ public class AtomicOperationSnapshotProxyTest {
         sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
         sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
 
-    long fid = op.addFile("dup.dat", false);
+    long fid = op.addFile("dup.dat", false).fileId();
     assertThatThrownBy(() -> op.addFile("dup.dat", true))
         .isInstanceOf(StorageException.class)
         .hasMessageContaining("already exists");
@@ -1532,11 +1533,11 @@ public class AtomicOperationSnapshotProxyTest {
     // Verify that the default addFile(String) on the AtomicOperation interface
     // delegates to addFile(String, false) using a mock with CALLS_REAL_METHODS.
     AtomicOperation mockOp = mock(AtomicOperation.class, CALLS_REAL_METHODS);
-    when(mockOp.addFile("test.dat", false)).thenReturn(123L);
+    when(mockOp.addFile("test.dat", false)).thenReturn(new FileHandler(123L));
 
-    long result = mockOp.addFile("test.dat");
+    FileHandler result = mockOp.addFile("test.dat");
 
-    assertThat(result).isEqualTo(123L);
+    assertThat(result.fileId()).isEqualTo(123L);
     verify(mockOp).addFile("test.dat", false);
   }
 
@@ -1619,7 +1620,7 @@ public class AtomicOperationSnapshotProxyTest {
     var writeCache = mock(WriteCache.class);
     when(writeCache.getStorageName()).thenReturn("test-storage");
     long composedFileId = (1L << 32) | 50;
-    when(writeCache.loadFile("existing.dat")).thenReturn(composedFileId);
+    when(writeCache.loadFile("existing.dat")).thenReturn(new FileHandler(composedFileId));
 
     var op = new AtomicOperationBinaryTracking(
         readCache, writeCache, null, 1,

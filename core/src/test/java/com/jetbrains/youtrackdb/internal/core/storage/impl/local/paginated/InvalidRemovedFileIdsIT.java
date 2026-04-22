@@ -11,6 +11,7 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializ
 import com.jetbrains.youtrackdb.internal.common.serialization.types.StringSerializer;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.io.File;
 import java.io.IOException;
@@ -49,7 +50,7 @@ public class InvalidRemovedFileIdsIT {
     Map<String, Integer> filesWithIntIds = new HashMap<>();
 
     for (var file : files.entrySet()) {
-      filesWithIntIds.put(file.getKey(), writeCache.internalFileId(file.getValue()));
+      filesWithIntIds.put(file.getKey(), writeCache.internalFileId(file.getValue().fileId()));
     }
 
     db.close();
@@ -94,56 +95,55 @@ public class InvalidRemovedFileIdsIT {
     files = writeCache.files();
     final Set<Long> ids = new HashSet<>();
 
-    final var c1_cpm_id = findFileId(files, "c1", ".cpm");
-    Assert.assertNotNull("c1 .cpm file must exist", c1_cpm_id);
-    Assert.assertTrue(c1_cpm_id > 0);
-    Assert.assertTrue(ids.add(c1_cpm_id));
+    final var c1_cpm = findFileHandler(files, "c1", ".cpm");
+    Assert.assertNotNull("c1 .cpm file must exist", c1_cpm);
+    Assert.assertTrue(c1_cpm.fileId() > 0);
+    Assert.assertTrue(ids.add(c1_cpm.fileId()));
 
-    final var c1_pcl_id = findFileId(files, "c1", ".pcl");
-    Assert.assertNotNull("c1 .pcl file must exist", c1_pcl_id);
-    Assert.assertTrue(c1_pcl_id > 0);
-    Assert.assertTrue(ids.add(c1_pcl_id));
+    final var c1_pcl = findFileHandler(files, "c1", ".pcl");
+    Assert.assertNotNull("c1 .pcl file must exist", c1_pcl);
+    Assert.assertTrue(c1_pcl.fileId() > 0);
+    Assert.assertTrue(ids.add(c1_pcl.fileId()));
 
-    final var c2_cpm_id = findFileId(files, "c2", ".cpm");
-    Assert.assertNotNull("c2 .cpm file must exist", c2_cpm_id);
-    Assert.assertTrue(c2_cpm_id > 0);
-    Assert.assertTrue(ids.add(c2_cpm_id));
+    final var c2_cpm = findFileHandler(files, "c2", ".cpm");
+    Assert.assertNotNull("c2 .cpm file must exist", c2_cpm);
+    Assert.assertTrue(ids.add(c2_cpm.fileId()));
 
-    final var c2_pcl_id = findFileId(files, "c2", ".pcl");
-    Assert.assertNotNull("c2 .pcl file must exist", c2_pcl_id);
-    Assert.assertTrue(c2_pcl_id > 0);
-    Assert.assertTrue(ids.add(c2_pcl_id));
+    final var c2_pcl = findFileHandler(files, "c2", ".pcl");
+    Assert.assertNotNull("c2 .pcl file must exist", c2_pcl);
+    Assert.assertTrue(ids.add(c2_pcl.fileId()));
 
-    final var c3_cpm_id = findFileId(files, "c3", ".cpm");
-    Assert.assertNotNull("c3 .cpm file must exist", c3_cpm_id);
-    Assert.assertTrue(c3_cpm_id > 0);
-    Assert.assertTrue(ids.add(c3_cpm_id));
+    final var c3_cpm = findFileHandler(files, "c3", ".cpm");
+    Assert.assertNotNull("c3 .cpm file must exist", c3_cpm);
+    Assert.assertTrue(c3_cpm.fileId() > 0);
+    Assert.assertTrue(ids.add(c3_cpm.fileId()));
 
-    final var c3_pcl_id = findFileId(files, "c3", ".pcl");
-    Assert.assertNotNull("c3 .pcl file must exist", c3_pcl_id);
-    Assert.assertTrue(c3_pcl_id > 0);
-    Assert.assertTrue(ids.add(c3_pcl_id));
+    final var c3_pcl = findFileHandler(files, "c3", ".pcl");
+    Assert.assertNotNull("c3 .pcl file must exist", c3_pcl);
+    Assert.assertTrue(c3_pcl.fileId() > 0);
+    Assert.assertTrue(ids.add(c3_pcl.fileId()));
 
-    final var c4_cpm_id = findFileId(files, "c4", ".cpm");
-    Assert.assertNotNull("c4 .cpm file must exist", c4_cpm_id);
-    Assert.assertTrue(c4_cpm_id > 0);
-    Assert.assertTrue(ids.add(c4_cpm_id));
+    final var c4_cpm = findFileHandler(files, "c4", ".cpm");
+    Assert.assertNotNull("c4 .cpm file must exist", c4_cpm);
+    Assert.assertTrue(c4_cpm.fileId() > 0);
+    Assert.assertTrue(ids.add(c4_cpm.fileId()));
 
-    final var c4_pcl_id = findFileId(files, "c4", ".pcl");
-    Assert.assertNotNull("c4 .pcl file must exist", c4_pcl_id);
-    Assert.assertTrue(c4_pcl_id > 0);
-    Assert.assertTrue(ids.add(c4_pcl_id));
+    final var c4_pcl = findFileHandler(files, "c4", ".pcl");
+    Assert.assertNotNull("c4 .pcl file must exist", c4_pcl);
+    Assert.assertTrue(c4_pcl.fileId() > 0);
+    Assert.assertTrue(ids.add(c4_pcl.fileId()));
 
     db.close();
     youTrackDB.close();
   }
 
   /**
-   * Finds the file ID for a class's data or position-map file by prefix match.
+   * Finds the FileHandler for a class's data or position-map file by prefix match.
    * Collection names now include a numeric suffix (e.g., "c1_0.pcl"),
    * so exact lookup by bare class name no longer works.
    */
-  private static Long findFileId(Map<String, Long> files, String classPrefix, String extension) {
+  private static FileHandler findFileHandler(
+      Map<String, FileHandler> files, String classPrefix, String extension) {
     // Match "classPrefix_" to avoid false positives (e.g., "c1_" won't match "c10_")
     return files.entrySet().stream()
         .filter(

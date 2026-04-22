@@ -1,9 +1,11 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.chm;
 
 import com.jetbrains.youtrackdb.internal.common.collection.ConcurrentLongIntHashMap;
+import com.jetbrains.youtrackdb.internal.common.concur.collection.CASObjectArray;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
-import java.util.ArrayList;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import java.util.Iterator;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -15,7 +17,7 @@ public final class WTinyLFUPolicy {
   private static final int PROBATIONARY_PERCENT = 20;
 
   private volatile int maxSize;
-  private final ConcurrentLongIntHashMap<CacheEntry> data;
+  private final ConcurrentHashMap<Long, FileHandler> data;
   private final Admittor admittor;
 
   private final AtomicInteger cacheSize;
@@ -29,7 +31,7 @@ public final class WTinyLFUPolicy {
   private int maxSecondLevelSize;
 
   WTinyLFUPolicy(
-      final ConcurrentLongIntHashMap<CacheEntry> data,
+      final ConcurrentHashMap<Long, FileHandler> data,
       final Admittor admittor,
       final AtomicInteger cacheSize) {
     this.data = data;
@@ -127,8 +129,7 @@ public final class WTinyLFUPolicy {
           probation.moveToTheTail(candidate);
 
           if (victim.freeze()) {
-            final var removed =
-                data.remove(victim.getFileId(), victim.getPageIndex(), victim);
+            final var removed = remove(victim);
             victim.makeDead();
 
             if (removed) {
@@ -141,8 +142,7 @@ public final class WTinyLFUPolicy {
           }
         } else {
           if (candidate.freeze()) {
-            final var removed =
-                data.remove(candidate.getFileId(), candidate.getPageIndex(), candidate);
+            final var removed = remove(candidate);
             candidate.makeDead();
 
             if (removed) {
@@ -158,6 +158,15 @@ public final class WTinyLFUPolicy {
     }
 
     assert protection.size() <= maxProtectedSize;
+  }
+
+  private boolean remove(CacheEntry victim) {
+    final var fileHandler = data.get(victim.getFileId());
+
+    @SuppressWarnings("unchecked")
+    final var casArray = (CASObjectArray<CacheEntry>) fileHandler.casArray();
+    return casArray.compareAndSet(victim.getPageIndex(), victim,
+        LockFreeReadCache.LOCK_FREE_READ_CACHE_CACHE_ENTRY_PLACEHOLDER);
   }
 
   void onRemove(final CacheEntry cacheEntry) {
@@ -212,36 +221,66 @@ public final class WTinyLFUPolicy {
 
   void assertSize() {
     assert eden.size() + probation.size() + protection.size() == cacheSize.get()
-        && data.size() == cacheSize.get()
+        && dataSize(data) == cacheSize.get()
         && cacheSize.get() <= maxSize;
   }
 
-  void assertConsistency() {
-    var allEntries = new ArrayList<CacheEntry>();
-    data.forEachValue(allEntries::add);
+  // ONLY USE IT FOR TESTING
+  private int dataSize(ConcurrentHashMap<Long, FileHandler> data) {
+    var localSum = 0;
+    for (var handler : data.values()) {
+      @SuppressWarnings("unchecked")
+      final var casArray = (CASObjectArray<CacheEntry>) handler.casArray();
+      for (var i = 0; i < casArray.size(); i++) {
+        var element = casArray.get(i);
+        if (element != null
+            && element != LockFreeReadCache.LOCK_FREE_READ_CACHE_CACHE_ENTRY_PLACEHOLDER) {
+          localSum += 1;
+        }
+      }
+    }
+    return localSum;
+  }
 
-    for (final var cacheEntry : allEntries) {
-      assert eden.contains(cacheEntry)
-          || protection.contains(cacheEntry)
-          || probation.contains(cacheEntry);
+  void assertConsistency() {
+    for (final var fileHandler : data.values()) {
+      @SuppressWarnings("unchecked")
+      final var casArray = (CASObjectArray<CacheEntry>) fileHandler.casArray();
+      for (var i = 0; i < casArray.size(); i++) {
+        var cacheEntry = casArray.get(i);
+        if (cacheEntry == null
+            || cacheEntry == LockFreeReadCache.LOCK_FREE_READ_CACHE_CACHE_ENTRY_PLACEHOLDER) {
+          continue;
+        }
+        assert eden.contains(cacheEntry)
+            || protection.contains(cacheEntry)
+            || probation.contains(cacheEntry);
+      }
     }
 
     var counter = 0;
     for (final var cacheEntry : eden) {
-      assert data.get(cacheEntry.getFileId(), cacheEntry.getPageIndex()) == cacheEntry;
+      assert readCacheEntry(cacheEntry.getFileId(), cacheEntry.getPageIndex()) == cacheEntry;
       counter++;
     }
 
     for (final var cacheEntry : probation) {
-      assert data.get(cacheEntry.getFileId(), cacheEntry.getPageIndex()) == cacheEntry;
+      assert readCacheEntry(cacheEntry.getFileId(), cacheEntry.getPageIndex()) == cacheEntry;
       counter++;
     }
 
     for (final var cacheEntry : protection) {
-      assert data.get(cacheEntry.getFileId(), cacheEntry.getPageIndex()) == cacheEntry;
+      assert readCacheEntry(cacheEntry.getFileId(), cacheEntry.getPageIndex()) == cacheEntry;
       counter++;
     }
 
-    assert counter == data.size();
+    assert counter == dataSize(data);
+  }
+
+  private CacheEntry readCacheEntry(long fileId, int pageIndex) {
+    var fileHandler = data.get(fileId);
+    @SuppressWarnings("unchecked")
+    final var casArray = (CASObjectArray<CacheEntry>) fileHandler.casArray();
+    return casArray.get(pageIndex);
   }
 }

@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocat
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageDataVerificationError;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.BackgroundExceptionListener;
@@ -87,7 +88,7 @@ public class LockFreeReadCacheConcurrentTestIT {
                     int fileId = rng.nextInt(fileCount);
                     int pageIndex = rng.nextInt(pageLimit);
                     var cacheEntry =
-                        readCache.loadForRead(fileId, pageIndex, writeCache, true);
+                        readCache.loadForRead(new FileHandler(fileId), pageIndex, writeCache, true);
                     assertThat(cacheEntry).isNotNull();
                     assertThat(cacheEntry.getFileId()).isEqualTo(fileId);
                     assertThat(cacheEntry.getPageIndex()).isEqualTo(pageIndex);
@@ -109,7 +110,8 @@ public class LockFreeReadCacheConcurrentTestIT {
                     int fileId = rng.nextInt(fileCount);
                     int pageIndex = rng.nextInt(pageLimit);
                     var cacheEntry =
-                        readCache.loadForWrite(fileId, pageIndex, writeCache, true, null);
+                        readCache.loadForWrite(new FileHandler(fileId), pageIndex, writeCache, true,
+                            null);
                     assertThat(cacheEntry).isNotNull();
                     assertThat(cacheEntry.getFileId()).isEqualTo(fileId);
                     assertThat(cacheEntry.getPageIndex()).isEqualTo(pageIndex);
@@ -180,7 +182,8 @@ public class LockFreeReadCacheConcurrentTestIT {
                   for (int i = 0; i < opsPerThread; i++) {
                     int fileId = rng.nextInt(fileCount);
                     int pageIndex = rng.nextInt(pageLimit);
-                    var entry = readCache.loadForRead(fileId, pageIndex, writeCache, true);
+                    var entry =
+                        readCache.loadForRead(new FileHandler(fileId), pageIndex, writeCache, true);
                     assertThat(entry).isNotNull();
                     assertThat(entry.getFileId()).isEqualTo(fileId);
                     assertThat(entry.getPageIndex()).isEqualTo(pageIndex);
@@ -263,23 +266,23 @@ public class LockFreeReadCacheConcurrentTestIT {
     }
 
     @Override
-    public long loadFile(final String fileName) {
-      return 0;
+    public FileHandler loadFile(final String fileName) {
+      return new FileHandler(0);
     }
 
     @Override
-    public long addFile(final String fileName) {
-      return 0;
+    public FileHandler addFile(final String fileName) {
+      return new FileHandler(0);
     }
 
     @Override
-    public long addFile(final String fileName, final long fileId) {
-      return 0;
+    public FileHandler addFile(final String fileName, final long fileId) {
+      return new FileHandler(fileId);
     }
 
     @Override
-    public long fileIdByName(final String fileName) {
-      return 0;
+    public FileHandler fileHandlerByName(final String fileName) {
+      return new FileHandler(0);
     }
 
     @Override
@@ -363,7 +366,7 @@ public class LockFreeReadCacheConcurrentTestIT {
     }
 
     @Override
-    public void close(final long fileId, final boolean flush) {
+    public void close(final FileHandler fileHandler, final boolean flush) {
     }
 
     @Override
@@ -393,7 +396,7 @@ public class LockFreeReadCacheConcurrentTestIT {
     }
 
     @Override
-    public Map<String, Long> files() {
+    public Map<String, FileHandler> files() {
       return null;
     }
 

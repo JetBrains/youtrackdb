@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
@@ -105,8 +106,8 @@ public class PageOperationAccumulationLifecycleTest {
     long fullFileId = composeFileId(nextInternalId, STORAGE_ID);
     when(writeCache.bookFileId(fileName)).thenReturn(fullFileId);
 
-    long fileId = op.addFile(fileName);
-    var page = op.addPage(fileId);
+    long fileId = op.addFile(fileName).fileId();
+    var page = op.addPage(new FileHandler(fileId));
     page.getChanges().setByteValue(null, (byte) 1, 100);
     page.setInitialLSN(new LogSequenceNumber(-1, -1));
     return fileId;
@@ -123,7 +124,7 @@ public class PageOperationAccumulationLifecycleTest {
     when(cacheEntry.getFileId()).thenReturn(fileId);
     when(cacheEntry.getCachePointer()).thenReturn(cachePointer);
 
-    when(readCache.allocateNewPage(anyLong(), any(), any()))
+    when(readCache.allocateNewPage(any(FileHandler.class), any(), any()))
         .thenReturn(cacheEntry);
   }
 
@@ -174,13 +175,13 @@ public class PageOperationAccumulationLifecycleTest {
     long nextId = fileIdCounter.getAndIncrement();
     long fullFileId = composeFileId(nextId, STORAGE_ID);
     when(writeCache.bookFileId("test.dat")).thenReturn(fullFileId);
-    long fileId = op.addFile("test.dat");
+    long fileId = op.addFile("test.dat").fileId();
 
     // Add two pages
-    var page0 = op.addPage(fileId);
+    var page0 = op.addPage(new FileHandler(fileId));
     page0.getChanges().setByteValue(null, (byte) 1, 100);
     page0.setInitialLSN(new LogSequenceNumber(-1, -1));
-    var page1 = op.addPage(fileId);
+    var page1 = op.addPage(new FileHandler(fileId));
     page1.getChanges().setByteValue(null, (byte) 1, 100);
     page1.setInitialLSN(new LogSequenceNumber(-1, -1));
 
@@ -229,8 +230,8 @@ public class PageOperationAccumulationLifecycleTest {
     long nextInternalId = fileIdCounter.getAndIncrement();
     long fullFileId = composeFileId(nextInternalId, STORAGE_ID);
     when(writeCache.bookFileId("test.dat")).thenReturn(fullFileId);
-    long fileId = op.addFile("test.dat");
-    var page = (CacheEntryChanges) op.addPage(fileId);
+    long fileId = op.addFile("test.dat").fileId();
+    var page = (CacheEntryChanges) op.addPage(new FileHandler(fileId));
     page.getChanges().setByteValue(null, (byte) 1, 100);
     page.setInitialLSN(new LogSequenceNumber(-1, -1));
 

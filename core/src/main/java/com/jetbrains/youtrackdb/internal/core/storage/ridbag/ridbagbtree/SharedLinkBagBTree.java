@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
@@ -34,7 +35,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
   private static final int ENTRY_POINT_INDEX = 0;
   private static final int ROOT_INDEX = 1;
 
-  private volatile long fileId;
+  private volatile FileHandler fileHandler;
   private final BinarySerializerFactory serializerFactory;
 
   public SharedLinkBagBTree(final AbstractStorage storage, final String name,
@@ -45,7 +46,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
   }
 
   public long getFileId() {
-    return fileId;
+    return fileHandler.fileId();
   }
 
   public void create(final AtomicOperation atomicOperation) {
@@ -54,14 +55,14 @@ public final class SharedLinkBagBTree extends StorageComponent {
         (operation) -> {
           acquireExclusiveLock();
           try {
-            fileId = addFile(atomicOperation, getFullName());
+            fileHandler = addFile(atomicOperation, getFullName());
 
-            try (final var entryPointCacheEntry = addPage(atomicOperation, fileId)) {
+            try (final var entryPointCacheEntry = addPage(atomicOperation, fileHandler)) {
               final var entryPoint = new EntryPoint(entryPointCacheEntry);
               entryPoint.init();
             }
 
-            try (final var rootCacheEntry = addPage(atomicOperation, fileId)) {
+            try (final var rootCacheEntry = addPage(atomicOperation, fileHandler)) {
               final var rootBucket = new Bucket(rootCacheEntry);
               rootBucket.init(true);
             }
@@ -74,7 +75,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
   public void load(AtomicOperation atomicOperation) {
     acquireExclusiveLock();
     try {
-      fileId = openFile(atomicOperation, getFullName());
+      fileHandler = openFile(atomicOperation, getFullName());
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(),
@@ -91,7 +92,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
         operation -> {
           acquireExclusiveLock();
           try {
-            deleteFile(atomicOperation, fileId);
+            deleteFile(atomicOperation, fileHandler.fileId());
           } finally {
             releaseExclusiveLock();
           }
@@ -156,7 +157,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
     }
 
     try (final var cacheEntry =
-        loadPageForRead(atomicOperation, fileId, result.getPageIndex())) {
+        loadPageForRead(atomicOperation, fileHandler, result.getPageIndex())) {
       final var bucket = new Bucket(cacheEntry);
 
       if (candidateIndex < bucket.size()) {
@@ -176,7 +177,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
       }
 
       try (final var siblingCacheEntry =
-          loadPageForRead(atomicOperation, fileId, rightSibling)) {
+          loadPageForRead(atomicOperation, fileHandler, rightSibling)) {
         final var siblingBucket = new Bucket(siblingCacheEntry);
         // Empty leaf buckets should not exist in a well-formed B-tree
         // (only transiently during splits). This is a safety net.
@@ -211,7 +212,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
         throw OptimisticReadFailedException.INSTANCE;
       }
 
-      final var pageView = loadPageOptimistic(atomicOperation, fileId, pageIndex);
+      final var pageView = loadPageOptimistic(atomicOperation, fileHandler, pageIndex);
       final var bucket = new Bucket(pageView);
       final var index = bucket.find(searchKey, serializerFactory);
 
@@ -233,7 +234,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
         }
 
         final var siblingView =
-            loadPageOptimistic(atomicOperation, fileId, rightSibling);
+            loadPageOptimistic(atomicOperation, fileHandler, rightSibling);
         final var siblingBucket = new Bucket(siblingView);
         if (siblingBucket.isEmpty()) {
           return null;
@@ -472,7 +473,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
         throw OptimisticReadFailedException.INSTANCE;
       }
 
-      final var pageView = loadPageOptimistic(atomicOperation, fileId, pageIndex);
+      final var pageView = loadPageOptimistic(atomicOperation, fileHandler, pageIndex);
       final var keyBucket = new Bucket(pageView);
       final var index = keyBucket.find(key, serializerFactory);
 
@@ -512,7 +513,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
     final var pageIndex = bucketSearchResult.getPageIndex();
 
     try (final var keyBucketCacheEntry =
-        loadPageForRead(atomicOperation, fileId, pageIndex)) {
+        loadPageForRead(atomicOperation, fileHandler, pageIndex)) {
       final var keyBucket = new Bucket(keyBucketCacheEntry);
       return keyBucket.getValue(bucketSearchResult.getItemIndex(), serializerFactory);
     }
@@ -561,7 +562,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
 
             var keyBucketCacheEntry =
                 loadPageForWrite(
-                    atomicOperation, fileId, bucketSearchResult.getLastPathItem(), true);
+                    atomicOperation, fileHandler, bucketSearchResult.getLastPathItem(), true);
             var keyBucket = new Bucket(keyBucketCacheEntry);
             final byte[] oldRawValue;
 
@@ -661,7 +662,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
     final var serializedKey =
         EdgeKeySerializer.INSTANCE.serializeNativeAsWhole(serializerFactory, key);
     try (final var cacheEntry =
-        loadPageForWrite(atomicOperation, fileId, searchResult.getPageIndex(), true)) {
+        loadPageForWrite(atomicOperation, fileHandler, searchResult.getPageIndex(), true)) {
       final var bucket = new Bucket(cacheEntry);
       final var rawValue =
           bucket.getRawValue(searchResult.getItemIndex(), serializerFactory);
@@ -694,7 +695,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
     final var result = searchResult.get();
 
     try (final var cacheEntry =
-        loadPageForRead(atomicOperation, fileId, result.getPageIndex())) {
+        loadPageForRead(atomicOperation, fileHandler, result.getPageIndex())) {
       final var bucket = new Bucket(cacheEntry);
       return bucket.getKey(result.getItemIndex(), serializerFactory);
     }
@@ -706,7 +707,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
 
     long bucketIndex = ROOT_INDEX;
 
-    var cacheEntry = loadPageForRead(atomicOperation, fileId, bucketIndex);
+    var cacheEntry = loadPageForRead(atomicOperation, fileHandler, bucketIndex);
     var itemIndex = 0;
     try {
       var bucket = new Bucket(cacheEntry);
@@ -751,7 +752,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
 
         cacheEntry.close();
 
-        cacheEntry = loadPageForRead(atomicOperation, fileId, bucketIndex);
+        cacheEntry = loadPageForRead(atomicOperation, fileHandler, bucketIndex);
         //noinspection ObjectAllocationInLoop
         bucket = new Bucket(cacheEntry);
       }
@@ -783,7 +784,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
     final var result = searchResult.get();
 
     try (final var cacheEntry =
-        loadPageForRead(atomicOperation, fileId, result.getPageIndex())) {
+        loadPageForRead(atomicOperation, fileHandler, result.getPageIndex())) {
       final var bucket = new Bucket(cacheEntry);
       return bucket.getKey(result.getItemIndex(), serializerFactory);
     }
@@ -795,7 +796,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
 
     long bucketIndex = ROOT_INDEX;
 
-    var cacheEntry = loadPageForRead(atomicOperation, fileId, bucketIndex);
+    var cacheEntry = loadPageForRead(atomicOperation, fileHandler, bucketIndex);
 
     var bucket = new Bucket(cacheEntry);
 
@@ -841,7 +842,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
 
         cacheEntry.close();
 
-        cacheEntry = loadPageForRead(atomicOperation, fileId, bucketIndex);
+        cacheEntry = loadPageForRead(atomicOperation, fileHandler, bucketIndex);
 
         //noinspection ObjectAllocationInLoop
         bucket = new Bucket(cacheEntry);
@@ -915,18 +916,18 @@ public final class SharedLinkBagBTree extends StorageComponent {
 
     final CacheEntry rightBucketEntry;
     try (final var entryPointCacheEntry =
-        loadPageForWrite(atomicOperation, fileId, ENTRY_POINT_INDEX, true)) {
+        loadPageForWrite(atomicOperation, fileHandler, ENTRY_POINT_INDEX, true)) {
       final var entryPoint = new EntryPoint(entryPointCacheEntry);
       var pageSize = entryPoint.getPagesSize();
 
-      if (pageSize < getFilledUpTo(atomicOperation, fileId) - 1) {
+      if (pageSize < getFilledUpTo(atomicOperation, fileHandler) - 1) {
         pageSize++;
-        rightBucketEntry = loadPageForWrite(atomicOperation, fileId, pageSize, false);
+        rightBucketEntry = loadPageForWrite(atomicOperation, fileHandler, pageSize, false);
         entryPoint.setPagesSize(pageSize);
       } else {
-        assert pageSize == getFilledUpTo(atomicOperation, fileId) - 1;
+        assert pageSize == getFilledUpTo(atomicOperation, fileHandler) - 1;
 
-        rightBucketEntry = addPage(atomicOperation, fileId);
+        rightBucketEntry = addPage(atomicOperation, fileHandler);
         entryPoint.setPagesSize(rightBucketEntry.getPageIndex());
       }
     }
@@ -949,7 +950,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
         if (rightSiblingPageIndex >= 0) {
 
           try (final var rightSiblingBucketEntry =
-              loadPageForWrite(atomicOperation, fileId, rightSiblingPageIndex, true)) {
+              loadPageForWrite(atomicOperation, fileHandler, rightSiblingPageIndex, true)) {
             final var rightSiblingBucket = new Bucket(rightSiblingBucketEntry);
             rightSiblingBucket.setLeftSibling(rightBucketEntry.getPageIndex());
           }
@@ -957,7 +958,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
       }
 
       long parentIndex = path.getInt(path.size() - 2);
-      var parentCacheEntry = loadPageForWrite(atomicOperation, fileId, parentIndex, true);
+      var parentCacheEntry = loadPageForWrite(atomicOperation, fileHandler, parentIndex, true);
       try {
         var parentBucket = new Bucket(parentCacheEntry);
         var insertionIndex = itemPointers.getInt(itemPointers.size() - 2);
@@ -983,7 +984,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
           if (parentIndex != parentCacheEntry.getPageIndex()) {
             parentCacheEntry.close();
 
-            parentCacheEntry = loadPageForWrite(atomicOperation, fileId, parentIndex, true);
+            parentCacheEntry = loadPageForWrite(atomicOperation, fileHandler, parentIndex, true);
           }
 
           //noinspection ObjectAllocationInLoop
@@ -1043,27 +1044,27 @@ public final class SharedLinkBagBTree extends StorageComponent {
     final CacheEntry rightBucketEntry;
 
     try (final var entryPointCacheEntry =
-        loadPageForWrite(atomicOperation, fileId, ENTRY_POINT_INDEX, true)) {
+        loadPageForWrite(atomicOperation, fileHandler, ENTRY_POINT_INDEX, true)) {
       final var entryPoint = new EntryPoint(entryPointCacheEntry);
       var pageSize = entryPoint.getPagesSize();
 
-      final var filledUpTo = (int) getFilledUpTo(atomicOperation, fileId);
+      final var filledUpTo = (int) getFilledUpTo(atomicOperation, fileHandler);
 
       if (pageSize < filledUpTo - 1) {
         pageSize++;
-        leftBucketEntry = loadPageForWrite(atomicOperation, fileId, pageSize, false);
+        leftBucketEntry = loadPageForWrite(atomicOperation, fileHandler, pageSize, false);
       } else {
         assert pageSize == filledUpTo - 1;
-        leftBucketEntry = addPage(atomicOperation, fileId);
+        leftBucketEntry = addPage(atomicOperation, fileHandler);
         pageSize = leftBucketEntry.getPageIndex();
       }
 
       if (pageSize < filledUpTo) {
         pageSize++;
-        rightBucketEntry = loadPageForWrite(atomicOperation, fileId, pageSize, false);
+        rightBucketEntry = loadPageForWrite(atomicOperation, fileHandler, pageSize, false);
       } else {
         assert pageSize == filledUpTo;
-        rightBucketEntry = addPage(atomicOperation, fileId);
+        rightBucketEntry = addPage(atomicOperation, fileHandler);
         pageSize = rightBucketEntry.getPageIndex();
       }
 
@@ -1137,7 +1138,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
   private void updateSize(final long diffSize, final AtomicOperation atomicOperation)
       throws IOException {
     try (final var entryPointCacheEntry =
-        loadPageForWrite(atomicOperation, fileId, ENTRY_POINT_INDEX, true)) {
+        loadPageForWrite(atomicOperation, fileHandler, ENTRY_POINT_INDEX, true)) {
       final var entryPoint = new EntryPoint(entryPointCacheEntry);
       entryPoint.setTreeSize(entryPoint.getTreeSize() + diffSize);
     }
@@ -1232,7 +1233,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
       if (pageIndex != keyBucketCacheEntry.getPageIndex()) {
         keyBucketCacheEntry.close();
 
-        keyBucketCacheEntry = loadPageForWrite(atomicOperation, fileId, pageIndex, true);
+        keyBucketCacheEntry = loadPageForWrite(atomicOperation, fileHandler, pageIndex, true);
       }
 
       //noinspection ObjectAllocationInLoop
@@ -1314,8 +1315,8 @@ public final class SharedLinkBagBTree extends StorageComponent {
       final long lwm,
       final int componentId,
       final AtomicOperation atomicOp) {
-    assert AbstractWriteCache.extractFileId(fileId) != 0
-        : "fileId must be assigned before GC (fileId=" + fileId + ")";
+    assert AbstractWriteCache.extractFileId(fileHandler.fileId()) != 0
+        : "fileId must be assigned before GC (fileId=" + fileHandler.fileId() + ")";
     assert keyBucket.isLeaf()
         : "filterAndRebuildBucket must only be called on leaf buckets";
 
@@ -1370,7 +1371,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
 
       path.add(pageIndex);
 
-      try (final var bucketEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
+      try (final var bucketEntry = loadPageForRead(atomicOperation, fileHandler, pageIndex)) {
         final var keyBucket = new Bucket(bucketEntry);
         final var index = keyBucket.find(key, serializerFactory);
 
@@ -1410,7 +1411,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
                 + " corrupted state. You should rebuild index related to given query.");
       }
 
-      try (final var bucketEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
+      try (final var bucketEntry = loadPageForRead(atomicOperation, fileHandler, pageIndex)) {
         final var keyBucket = new Bucket(bucketEntry);
         final var index = keyBucket.find(key, serializerFactory);
 
@@ -1503,7 +1504,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
 
               var keyBucketCacheEntry =
                   loadPageForWrite(
-                      atomicOperation, fileId, bucketSearchResult.getLastPathItem(), true);
+                      atomicOperation, fileHandler, bucketSearchResult.getLastPathItem(), true);
               var keyBucket = new Bucket(keyBucketCacheEntry);
 
               int insertionIndex = -bucketSearchResult.getItemIndex() - 1;
@@ -1767,7 +1768,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
 
   private boolean readKeysFromBucketsForward(
       SpliteratorForward iter, AtomicOperation atomicOperation) throws IOException {
-    var cacheEntry = loadPageForRead(atomicOperation, fileId, iter.getPageIndex());
+    var cacheEntry = loadPageForRead(atomicOperation, fileHandler, iter.getPageIndex());
     try {
       var bucket = new Bucket(cacheEntry);
       if (iter.getLastLSN() == null
@@ -1784,7 +1785,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
             iter.setItemIndex(0);
             cacheEntry.close();
 
-            cacheEntry = loadPageForRead(atomicOperation, fileId, iter.getPageIndex());
+            cacheEntry = loadPageForRead(atomicOperation, fileHandler, iter.getPageIndex());
             bucket = new Bucket(cacheEntry);
 
             bucketSize = bucket.size();
@@ -1918,7 +1919,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
 
   private boolean readKeysFromBucketsBackward(
       SpliteratorBackward iter, AtomicOperation atomicOperation) throws IOException {
-    var cacheEntry = loadPageForRead(atomicOperation, fileId, iter.getPageIndex());
+    var cacheEntry = loadPageForRead(atomicOperation, fileHandler, iter.getPageIndex());
     try {
       var bucket = new Bucket(cacheEntry);
       if (iter.getLastLSN() == null
@@ -1933,7 +1934,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
 
             cacheEntry.close();
 
-            cacheEntry = loadPageForRead(atomicOperation, fileId, iter.getPageIndex());
+            cacheEntry = loadPageForRead(atomicOperation, fileHandler, iter.getPageIndex());
             bucket = new Bucket(cacheEntry);
             final var bucketSize = bucket.size();
             iter.setItemIndex(bucketSize - 1);

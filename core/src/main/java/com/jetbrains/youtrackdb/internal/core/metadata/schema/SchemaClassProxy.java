@@ -111,8 +111,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
     return delegate.approximateCount(this.session, isPolymorphic);
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public SchemaPropertyInternal getPropertyInternal(String propertyName) {
     assert this.session.assertIfNotActive();
     var result = delegate.getPropertyInternal(propertyName);
@@ -358,8 +357,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
     return resultProxy;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public SchemaProperty getProperty(String iPropertyName) {
     assert session.assertIfNotActive();
     var result = delegate.getProperty(iPropertyName);
@@ -580,8 +578,8 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
     }
 
     if (obj instanceof SchemaClassInternal schemaClass) {
-      return session == schemaClass.getBoundToSession() && delegate.getName().
-          equals(schemaClass.getName());
+      return session == schemaClass.getBoundToSession()
+          && delegate.getName().equals(schemaClass.getName());
     }
 
     return false;

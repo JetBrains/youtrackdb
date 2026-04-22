@@ -8,6 +8,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
@@ -99,9 +100,9 @@ public class FlushPendingOperationsTest {
     long fullFileId = composeFileId(nextInternalId, STORAGE_ID);
     when(writeCache.bookFileId(fileName)).thenReturn(fullFileId);
 
-    long fileId = op.addFile(fileName);
+    long fileId = op.addFile(fileName).fileId();
 
-    var page = op.addPage(fileId);
+    var page = op.addPage(new FileHandler(fileId));
     page.getChanges().setByteValue(null, (byte) 1, 100);
     page.setInitialLSN(new LogSequenceNumber(-1, -1));
     return fileId;
@@ -200,13 +201,13 @@ public class FlushPendingOperationsTest {
     long nextInternalId = fileIdCounter.getAndIncrement();
     long fullFileId = composeFileId(nextInternalId, STORAGE_ID);
     when(writeCache.bookFileId("test.dat")).thenReturn(fullFileId);
-    long fileId = op.addFile("test.dat");
+    long fileId = op.addFile("test.dat").fileId();
 
     // Add two pages
-    var page0 = op.addPage(fileId);
+    var page0 = op.addPage(new FileHandler(fileId));
     page0.getChanges().setByteValue(null, (byte) 1, 100);
     page0.setInitialLSN(new LogSequenceNumber(-1, -1));
-    var page1 = op.addPage(fileId);
+    var page1 = op.addPage(new FileHandler(fileId));
     page1.getChanges().setByteValue(null, (byte) 1, 100);
     page1.setInitialLSN(new LogSequenceNumber(-1, -1));
 
@@ -254,7 +255,7 @@ public class FlushPendingOperationsTest {
     when(mockCacheEntry.getCachePointer()).thenReturn(mockPointer);
     when(mockCacheEntry.getPageIndex()).thenReturn(0);
     when(mockCacheEntry.getFileId()).thenReturn(fileId);
-    when(readCache.allocateNewPage(anyLong(), any(), any()))
+    when(readCache.allocateNewPage(any(FileHandler.class), any(), any()))
         .thenReturn(mockCacheEntry);
 
     var txEndLsn = op.commitChanges(42L, wal);
@@ -281,9 +282,9 @@ public class FlushPendingOperationsTest {
     long nextId = fileIdCounter.getAndIncrement();
     long fullFileId = composeFileId(nextId, STORAGE_ID);
     when(writeCache.bookFileId("nd-file.dat")).thenReturn(fullFileId);
-    long fileId = op.addFile("nd-file.dat", true);
+    long fileId = op.addFile("nd-file.dat", true).fileId();
 
-    var page = op.addPage(fileId);
+    var page = op.addPage(new FileHandler(fileId));
     page.getChanges().setByteValue(null, (byte) 1, 100);
     page.setInitialLSN(new LogSequenceNumber(-1, -1));
 

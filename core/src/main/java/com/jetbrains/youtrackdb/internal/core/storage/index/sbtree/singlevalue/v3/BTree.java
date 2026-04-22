@@ -39,6 +39,7 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
@@ -113,8 +114,8 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
   final Comparator<? super K> comparator = DefaultComparator.INSTANCE;
 
   private final String nullFileExtension;
-  private volatile long fileId;
-  private volatile long nullBucketFileId = -1;
+  private volatile FileHandler fileHandler;
+  private volatile FileHandler nullBucketFileHandler;
   private volatile int keySize;
   private volatile BinarySerializer<K> keySerializer;
   private final BinarySerializerFactory serializerFactory;
@@ -189,23 +190,23 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
             }
 
             this.keySerializer = keySerializer;
-            fileId = addFile(atomicOperation, getFullName());
-            nullBucketFileId = addFile(atomicOperation, getName() + nullFileExtension);
+            fileHandler = addFile(atomicOperation, getFullName());
+            nullBucketFileHandler = addFile(atomicOperation, getName() + nullFileExtension);
 
-            try (final var entryPointCacheEntry = addPage(atomicOperation, fileId)) {
+            try (final var entryPointCacheEntry = addPage(atomicOperation, fileHandler)) {
               final var entryPoint =
                   new CellBTreeSingleValueEntryPointV3<K>(entryPointCacheEntry);
               entryPoint.init();
             }
 
-            try (final var rootCacheEntry = addPage(atomicOperation, fileId)) {
+            try (final var rootCacheEntry = addPage(atomicOperation, fileHandler)) {
               @SuppressWarnings("unused")
               final var rootBucket =
                   new CellBTreeSingleValueBucketV3<K>(rootCacheEntry);
               rootBucket.init(true);
             }
 
-            try (final var nullCacheEntry = addPage(atomicOperation, nullBucketFileId)) {
+            try (final var nullCacheEntry = addPage(atomicOperation, nullBucketFileHandler)) {
               @SuppressWarnings("unused")
               final var nullBucket =
                   new CellBTreeSingleValueV3NullBucket(nullCacheEntry);
@@ -265,7 +266,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
         throw OptimisticReadFailedException.INSTANCE;
       }
 
-      final var pageView = loadPageOptimistic(atomicOperation, fileId, pageIndex);
+      final var pageView = loadPageOptimistic(atomicOperation, fileHandler, pageIndex);
       final var bucket = new CellBTreeSingleValueBucketV3<K>(pageView);
       final var index = bucket.find(serializedKey, keySerializer, serializerFactory);
 
@@ -308,7 +309,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
     final var pageIndex = bucketSearchResult.getPageIndex();
 
     try (final var keyBucketCacheEntry =
-        loadPageForRead(atomicOperation, fileId, pageIndex)) {
+        loadPageForRead(atomicOperation, fileHandler, pageIndex)) {
       final var keyBucket =
           new CellBTreeSingleValueBucketV3<K>(keyBucketCacheEntry);
       return keyBucket.getValue(bucketSearchResult.getItemIndex(), keySerializer,
@@ -318,7 +319,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
 
   /** Optimistic path for null-key get. */
   @Nullable private RID getNullKeyOptimistic(final AtomicOperation atomicOperation) {
-    final var pageView = loadPageOptimistic(atomicOperation, nullBucketFileId, 0);
+    final var pageView = loadPageOptimistic(atomicOperation, nullBucketFileHandler, 0);
     final var nullBucket = new CellBTreeSingleValueV3NullBucket(pageView);
     return nullBucket.getValue();
   }
@@ -327,7 +328,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
   @Nullable private RID getNullKeyPinned(
       final AtomicOperation atomicOperation) throws IOException {
     try (final var nullBucketCacheEntry =
-        loadPageForRead(atomicOperation, nullBucketFileId, 0)) {
+        loadPageForRead(atomicOperation, nullBucketFileHandler, 0)) {
       final var nullBucket =
           new CellBTreeSingleValueV3NullBucket(nullBucketCacheEntry);
       return nullBucket.getValue();
@@ -424,7 +425,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
         throw OptimisticReadFailedException.INSTANCE;
       }
 
-      final var pageView = loadPageOptimistic(atomicOperation, fileId, pageIndex);
+      final var pageView = loadPageOptimistic(atomicOperation, fileHandler, pageIndex);
       final var bucket = new CellBTreeSingleValueBucketV3<K>(pageView);
       final var index = bucket.find(serializedKey, keySerializer, serializerFactory);
 
@@ -466,7 +467,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
 
     while (true) {
       try (final var cacheEntry =
-          loadPageForRead(atomicOperation, fileId, pageIndex)) {
+          loadPageForRead(atomicOperation, fileHandler, pageIndex)) {
         final var bucket = new CellBTreeSingleValueBucketV3<K>(cacheEntry);
 
         final var result = scanLeafForVisible(
@@ -674,7 +675,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
 
               var keyBucketCacheEntry =
                   loadPageForWrite(
-                      atomicOperation, fileId, bucketSearchResult.getLastPathItem(), true);
+                      atomicOperation, fileHandler, bucketSearchResult.getLastPathItem(), true);
               var keyBucket =
                   new CellBTreeSingleValueBucketV3<K>(keyBucketCacheEntry);
               final byte[] oldRawValue;
@@ -787,7 +788,8 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
                 if (pageIndex != keyBucketCacheEntry.getPageIndex()) {
                   keyBucketCacheEntry.close();
 
-                  keyBucketCacheEntry = loadPageForWrite(atomicOperation, fileId, pageIndex, true);
+                  keyBucketCacheEntry =
+                      loadPageForWrite(atomicOperation, fileHandler, pageIndex, true);
                 }
 
                 //noinspection ObjectAllocationInLoop
@@ -806,7 +808,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
               var sizeDiff = 0;
               final RID oldValue;
               try (final var cacheEntry =
-                  loadPageForWrite(atomicOperation, nullBucketFileId, 0, true)) {
+                  loadPageForWrite(atomicOperation, nullBucketFileHandler, 0, true)) {
                 final var nullBucket =
                     new CellBTreeSingleValueV3NullBucket(cacheEntry);
                 oldValue = nullBucket.getValue();
@@ -838,8 +840,8 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
   public void close() {
     acquireExclusiveLock();
     try {
-      readCache.closeFile(fileId, true, writeCache);
-      readCache.closeFile(nullBucketFileId, true, writeCache);
+      readCache.closeFile(fileHandler, true, writeCache);
+      readCache.closeFile(nullBucketFileHandler, true, writeCache);
     } finally {
       releaseExclusiveLock();
     }
@@ -852,8 +854,8 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
         operation -> {
           acquireExclusiveLock();
           try {
-            deleteFile(atomicOperation, fileId);
-            deleteFile(atomicOperation, nullBucketFileId);
+            deleteFile(atomicOperation, fileHandler.fileId());
+            deleteFile(atomicOperation, nullBucketFileHandler.fileId());
           } finally {
             releaseExclusiveLock();
           }
@@ -868,8 +870,8 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
       final BinarySerializer<K> keySerializer, @Nonnull AtomicOperation atomicOperation) {
     acquireExclusiveLock();
     try {
-      fileId = openFile(atomicOperation, getFullName());
-      nullBucketFileId = openFile(atomicOperation, name + nullFileExtension);
+      fileHandler = openFile(atomicOperation, getFullName());
+      nullBucketFileHandler = openFile(atomicOperation, name + nullFileExtension);
 
       this.keySize = keySize;
       this.maxKeySize =
@@ -892,14 +894,14 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
           atomicOperation,
           () -> {
             final var pageView =
-                loadPageOptimistic(atomicOperation, fileId, ENTRY_POINT_INDEX);
+                loadPageOptimistic(atomicOperation, fileHandler, ENTRY_POINT_INDEX);
             final var entryPoint =
                 new CellBTreeSingleValueEntryPointV3<K>(pageView);
             return entryPoint.getTreeSize();
           },
           () -> {
             try (final var entryPointCacheEntry =
-                loadPageForRead(atomicOperation, fileId, ENTRY_POINT_INDEX)) {
+                loadPageForRead(atomicOperation, fileHandler, ENTRY_POINT_INDEX)) {
               final var entryPoint =
                   new CellBTreeSingleValueEntryPointV3<K>(entryPointCacheEntry);
               return entryPoint.getTreeSize();
@@ -920,14 +922,14 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
           atomicOperation,
           () -> {
             final var pageView =
-                loadPageOptimistic(atomicOperation, fileId, ENTRY_POINT_INDEX);
+                loadPageOptimistic(atomicOperation, fileHandler, ENTRY_POINT_INDEX);
             final var entryPoint =
                 new CellBTreeSingleValueEntryPointV3<K>(pageView);
             return entryPoint.getApproximateEntriesCount();
           },
           () -> {
             try (final var entryPointCacheEntry =
-                loadPageForRead(atomicOperation, fileId, ENTRY_POINT_INDEX)) {
+                loadPageForRead(atomicOperation, fileHandler, ENTRY_POINT_INDEX)) {
               final var entryPoint =
                   new CellBTreeSingleValueEntryPointV3<K>(entryPointCacheEntry);
               return entryPoint.getApproximateEntriesCount();
@@ -953,7 +955,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
         operation -> {
           try (final var entryPointCacheEntry =
               loadPageForWrite(
-                  atomicOperation, fileId, ENTRY_POINT_INDEX, true)) {
+                  atomicOperation, fileHandler, ENTRY_POINT_INDEX, true)) {
             final var entryPoint =
                 new CellBTreeSingleValueEntryPointV3<K>(entryPointCacheEntry);
             entryPoint.setApproximateEntriesCount(count);
@@ -969,7 +971,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
         operation -> {
           try (final var entryPointCacheEntry =
               loadPageForWrite(
-                  atomicOperation, fileId, ENTRY_POINT_INDEX, true)) {
+                  atomicOperation, fileHandler, ENTRY_POINT_INDEX, true)) {
             final var entryPoint =
                 new CellBTreeSingleValueEntryPointV3<K>(entryPointCacheEntry);
             long updated = entryPoint.getApproximateEntriesCount() + delta;
@@ -1000,7 +1002,8 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
                 final byte[] rawValue;
                 try (final var keyBucketCacheEntry =
                     loadPageForWrite(
-                        atomicOperation, fileId, removeSearchResult.getLeafPageIndex(), true)) {
+                        atomicOperation, fileHandler, removeSearchResult.getLeafPageIndex(),
+                        true)) {
                   final var keyBucket =
                       new CellBTreeSingleValueBucketV3<K>(keyBucketCacheEntry);
                   rawValue =
@@ -1052,7 +1055,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
         removeSearchResult.getPath().getLast();
 
     try (final var parentCacheEntry =
-        loadPageForWrite(atomicOperation, fileId, parentItem.getPageIndex(), true)) {
+        loadPageForWrite(atomicOperation, fileHandler, parentItem.getPageIndex(), true)) {
       final var parentBucket =
           new CellBTreeSingleValueBucketV3<K>(parentCacheEntry);
 
@@ -1061,7 +1064,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
 
         // merge with left sibling
         try (final var rightSiblingEntry =
-            loadPageForWrite(atomicOperation, fileId, rightSiblingPageIndex, true)) {
+            loadPageForWrite(atomicOperation, fileHandler, rightSiblingPageIndex, true)) {
           final var rightSiblingBucket =
               new CellBTreeSingleValueBucketV3<K>(rightSiblingEntry);
           final var success =
@@ -1075,7 +1078,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
 
             if (leftSiblingIndex > 0) {
               try (final var leftSiblingEntry =
-                  loadPageForWrite(atomicOperation, fileId, leftSiblingIndex, true)) {
+                  loadPageForWrite(atomicOperation, fileHandler, leftSiblingIndex, true)) {
                 final var leftSiblingBucket =
                     new CellBTreeSingleValueBucketV3<K>(leftSiblingEntry);
 
@@ -1092,7 +1095,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
 
       final var leftSiblingPageIndex = parentBucket.getLeft(parentItem.getIndexInsidePage());
       try (final var leftSiblingEntry =
-          loadPageForWrite(atomicOperation, fileId, leftSiblingPageIndex, true)) {
+          loadPageForWrite(atomicOperation, fileHandler, leftSiblingPageIndex, true)) {
         // merge with right sibling
         final var leftSiblingBucket =
             new CellBTreeSingleValueBucketV3<K>(leftSiblingEntry);
@@ -1107,7 +1110,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
 
           if (rightSiblingIndex > 0) {
             try (final var rightSiblingEntry =
-                loadPageForWrite(atomicOperation, fileId, rightSiblingIndex, true)) {
+                loadPageForWrite(atomicOperation, fileHandler, rightSiblingIndex, true)) {
               final var rightSibling =
                   new CellBTreeSingleValueBucketV3<K>(rightSiblingEntry);
               rightSibling.setLeftSibling(leftSiblingPageIndex);
@@ -1150,7 +1153,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
     final var parentItem = path.get(path.size() - 2);
 
     try (final var parentCacheEntry =
-        loadPageForWrite(atomicOperation, fileId, parentItem.getPageIndex(), true)) {
+        loadPageForWrite(atomicOperation, fileHandler, parentItem.getPageIndex(), true)) {
       final var parentBucket =
           new CellBTreeSingleValueBucketV3<K>(parentCacheEntry);
 
@@ -1164,7 +1167,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
       if (parentItem.isLeftChild()) {
         final var rightSiblingPageIndex = parentBucket.getRight(parentItem.getIndexInsidePage());
         try (final var rightSiblingEntry =
-            loadPageForWrite(atomicOperation, fileId, rightSiblingPageIndex, true)) {
+            loadPageForWrite(atomicOperation, fileHandler, rightSiblingPageIndex, true)) {
           final var rightSiblingBucket =
               new CellBTreeSingleValueBucketV3<K>(rightSiblingEntry);
 
@@ -1188,7 +1191,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
       } else {
         final var leftSiblingPageIndex = parentBucket.getLeft(parentItem.getIndexInsidePage());
         try (final var leftSiblingEntry =
-            loadPageForWrite(atomicOperation, fileId, leftSiblingPageIndex, true)) {
+            loadPageForWrite(atomicOperation, fileHandler, leftSiblingPageIndex, true)) {
           final var leftSiblingBucket =
               new CellBTreeSingleValueBucketV3<K>(leftSiblingEntry);
           assert !leftSiblingBucket.isEmpty();
@@ -1350,7 +1353,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
     final int freeListHead;
 
     try (final var entryCacheEntry =
-        loadPageForRead(atomicOperation, fileId, ENTRY_POINT_INDEX)) {
+        loadPageForRead(atomicOperation, fileHandler, ENTRY_POINT_INDEX)) {
       final var entryPoint =
           new CellBTreeSingleValueEntryPointV3<K>(entryCacheEntry);
       assert entryPoint.getPagesSize() == filledUpTo - 1;
@@ -1361,7 +1364,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
     while (freePageIndex >= 0) {
       pages.remove(freePageIndex);
 
-      try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, freePageIndex)) {
+      try (final var cacheEntry = loadPageForRead(atomicOperation, fileHandler, freePageIndex)) {
         final var bucket =
             new CellBTreeSingleValueBucketV3<K>(cacheEntry);
         freePageIndex = bucket.getNextFreeListPage();
@@ -1386,7 +1389,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
 
   private void doAssertFreePages(AtomicOperation atomicOperation) throws IOException {
     final var pages = new IntOpenHashSet();
-    final var filledUpTo = (int) getFilledUpTo(atomicOperation, fileId);
+    final var filledUpTo = (int) getFilledUpTo(atomicOperation, fileHandler);
 
     for (var i = 2; i < filledUpTo; i++) {
       pages.add(i);
@@ -1402,7 +1405,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
       final int pageIndex, final IntOpenHashSet pages, final AtomicOperation atomicOperation)
       throws IOException {
 
-    try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
+    try (final var cacheEntry = loadPageForRead(atomicOperation, fileHandler, pageIndex)) {
       final var bucket = new CellBTreeSingleValueBucketV3<K>(cacheEntry);
       if (bucket.isLeaf()) {
         return;
@@ -1432,11 +1435,11 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
 
   private void addToFreeList(AtomicOperation atomicOperation, int pageIndex) throws IOException {
     try (final var cacheEntry =
-        loadPageForWrite(atomicOperation, fileId, pageIndex, true)) {
+        loadPageForWrite(atomicOperation, fileHandler, pageIndex, true)) {
       final var bucket = new CellBTreeSingleValueBucketV3<K>(cacheEntry);
 
       try (final var entryPointEntry =
-          loadPageForWrite(atomicOperation, fileId, ENTRY_POINT_INDEX, true)) {
+          loadPageForWrite(atomicOperation, fileHandler, ENTRY_POINT_INDEX, true)) {
 
         final var entryPoint =
             new CellBTreeSingleValueEntryPointV3<K>(entryPointEntry);
@@ -1451,7 +1454,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
   private RID removeNullBucket(final AtomicOperation atomicOperation) throws IOException {
     RID removedValue;
     try (final var nullCacheEntry =
-        loadPageForWrite(atomicOperation, nullBucketFileId, 0, true)) {
+        loadPageForWrite(atomicOperation, nullBucketFileHandler, 0, true)) {
       final var nullBucket =
           new CellBTreeSingleValueV3NullBucket(nullCacheEntry);
       removedValue = nullBucket.getValue();
@@ -1547,7 +1550,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
     final var result = searchResult.get();
 
     try (final var cacheEntry =
-        loadPageForRead(atomicOperation, fileId, result.getPageIndex())) {
+        loadPageForRead(atomicOperation, fileHandler, result.getPageIndex())) {
       final var bucket =
           new CellBTreeSingleValueBucketV3<K>(cacheEntry);
       return bucket.getKey(
@@ -1578,7 +1581,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
 
     final var result = searchResult.get();
     try (final var cacheEntry =
-        loadPageForRead(atomicOperation, fileId, result.getPageIndex())) {
+        loadPageForRead(atomicOperation, fileHandler, result.getPageIndex())) {
       final var bucket =
           new CellBTreeSingleValueBucketV3<K>(cacheEntry);
       return bucket.getKey(
@@ -1682,7 +1685,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
   private void updateSize(final long diffSize, final AtomicOperation atomicOperation)
       throws IOException {
     try (final var entryPointCacheEntry =
-        loadPageForWrite(atomicOperation, fileId, ENTRY_POINT_INDEX, true)) {
+        loadPageForWrite(atomicOperation, fileHandler, ENTRY_POINT_INDEX, true)) {
       final var entryPoint =
           new CellBTreeSingleValueEntryPointV3<K>(entryPointCacheEntry);
       entryPoint.setTreeSize(entryPoint.getTreeSize() + diffSize);
@@ -1778,7 +1781,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
 
     var bucketIndex = ROOT_INDEX;
 
-    var cacheEntry = loadPageForRead(atomicOperation, fileId, bucketIndex);
+    var cacheEntry = loadPageForRead(atomicOperation, fileHandler, bucketIndex);
     var itemIndex = 0;
     try {
       var bucket = new CellBTreeSingleValueBucketV3<K>(cacheEntry);
@@ -1823,7 +1826,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
 
         cacheEntry.close();
 
-        cacheEntry = loadPageForRead(atomicOperation, fileId, bucketIndex);
+        cacheEntry = loadPageForRead(atomicOperation, fileHandler, bucketIndex);
         //noinspection ObjectAllocationInLoop
         bucket = new CellBTreeSingleValueBucketV3<>(cacheEntry);
       }
@@ -1838,7 +1841,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
 
     var bucketIndex = ROOT_INDEX;
 
-    var cacheEntry = loadPageForRead(atomicOperation, fileId, bucketIndex);
+    var cacheEntry = loadPageForRead(atomicOperation, fileHandler, bucketIndex);
 
     var bucket = new CellBTreeSingleValueBucketV3<K>(cacheEntry);
 
@@ -1884,7 +1887,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
 
         cacheEntry.close();
 
-        cacheEntry = loadPageForRead(atomicOperation, fileId, bucketIndex);
+        cacheEntry = loadPageForRead(atomicOperation, fileHandler, bucketIndex);
 
         //noinspection ObjectAllocationInLoop
         bucket = new CellBTreeSingleValueBucketV3<>(cacheEntry);
@@ -2056,7 +2059,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
 
         if (rightSiblingPageIndex >= 0) {
           try (final var rightSiblingBucketEntry =
-              loadPageForWrite(atomicOperation, fileId, rightSiblingPageIndex, true)) {
+              loadPageForWrite(atomicOperation, fileHandler, rightSiblingPageIndex, true)) {
             final var rightSiblingBucket =
                 new CellBTreeSingleValueBucketV3<K>(rightSiblingBucketEntry);
             rightSiblingBucket.setLeftSibling(rightBucketEntry.getPageIndex());
@@ -2064,7 +2067,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
         }
       }
       var parentIndex = path.getLong(path.size() - 2);
-      var parentCacheEntry = loadPageForWrite(atomicOperation, fileId, parentIndex, true);
+      var parentCacheEntry = loadPageForWrite(atomicOperation, fileHandler, parentIndex, true);
       try {
         var parentBucket =
             new CellBTreeSingleValueBucketV3<K>(parentCacheEntry);
@@ -2094,7 +2097,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
           if (parentIndex != parentCacheEntry.getPageIndex()) {
             parentCacheEntry.close();
 
-            parentCacheEntry = loadPageForWrite(atomicOperation, fileId, parentIndex, true);
+            parentCacheEntry = loadPageForWrite(atomicOperation, fileHandler, parentIndex, true);
           }
 
           //noinspection ObjectAllocationInLoop
@@ -2134,17 +2137,17 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
   private CacheEntry allocateNewPage(AtomicOperation atomicOperation) throws IOException {
     final CacheEntry rightBucketEntry;
     try (final var entryPointCacheEntry =
-        loadPageForWrite(atomicOperation, fileId, ENTRY_POINT_INDEX, true)) {
+        loadPageForWrite(atomicOperation, fileHandler, ENTRY_POINT_INDEX, true)) {
       final var entryPoint =
           new CellBTreeSingleValueEntryPointV3<K>(entryPointCacheEntry);
       final var freeListHead = entryPoint.getFreeListHead();
       if (freeListHead > -1) {
-        rightBucketEntry = loadPageForWrite(atomicOperation, fileId, freeListHead, false);
+        rightBucketEntry = loadPageForWrite(atomicOperation, fileHandler, freeListHead, false);
 
         if (rightBucketEntry == null) {
           throw new CellBTreeSingleValueV3Exception(
               "Page that supposed to be in free list of BTree was not found. Page index : "
-                  + freeListHead + ", file id : " + fileId,
+                  + freeListHead + ", file id : " + fileHandler.fileId(),
               this);
         }
 
@@ -2153,14 +2156,14 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
         entryPoint.setFreeListHead(bucket.getNextFreeListPage());
       } else {
         var pageSize = entryPoint.getPagesSize();
-        if (pageSize < getFilledUpTo(atomicOperation, fileId) - 1) {
+        if (pageSize < getFilledUpTo(atomicOperation, fileHandler) - 1) {
           pageSize++;
-          rightBucketEntry = loadPageForWrite(atomicOperation, fileId, pageSize, false);
+          rightBucketEntry = loadPageForWrite(atomicOperation, fileHandler, pageSize, false);
           entryPoint.setPagesSize(pageSize);
         } else {
-          assert pageSize == getFilledUpTo(atomicOperation, fileId) - 1;
+          assert pageSize == getFilledUpTo(atomicOperation, fileHandler) - 1;
 
-          rightBucketEntry = addPage(atomicOperation, fileId);
+          rightBucketEntry = addPage(atomicOperation, fileHandler);
           entryPoint.setPagesSize(rightBucketEntry.getPageIndex());
         }
       }
@@ -2276,7 +2279,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
             this);
       }
 
-      try (final var bucketEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
+      try (final var bucketEntry = loadPageForRead(atomicOperation, fileHandler, pageIndex)) {
         @SuppressWarnings("ObjectAllocationInLoop")
         final var bucket =
             new CellBTreeSingleValueBucketV3<K>(bucketEntry);
@@ -2326,7 +2329,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
             this);
       }
 
-      try (final var bucketEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
+      try (final var bucketEntry = loadPageForRead(atomicOperation, fileHandler, pageIndex)) {
         @SuppressWarnings("ObjectAllocationInLoop")
         final var keyBucket =
             new CellBTreeSingleValueBucketV3<K>(bucketEntry);
@@ -2370,7 +2373,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
             this);
       }
 
-      try (final var bucketEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
+      try (final var bucketEntry = loadPageForRead(atomicOperation, fileHandler, pageIndex)) {
         @SuppressWarnings("ObjectAllocationInLoop")
         final var keyBucket =
             new CellBTreeSingleValueBucketV3<K>(bucketEntry);
@@ -2412,7 +2415,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
       }
 
       path.add(pageIndex);
-      try (final var bucketEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
+      try (final var bucketEntry = loadPageForRead(atomicOperation, fileHandler, pageIndex)) {
         @SuppressWarnings("ObjectAllocationInLoop")
         final var keyBucket =
             new CellBTreeSingleValueBucketV3<K>(bucketEntry);
@@ -2660,7 +2663,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
 
   private boolean readKeysFromBucketsForward(
       AtomicOperation atomicOperation, SpliteratorForward<K> iter) throws IOException {
-    var cacheEntry = loadPageForRead(atomicOperation, fileId, iter.getPageIndex());
+    var cacheEntry = loadPageForRead(atomicOperation, fileHandler, iter.getPageIndex());
     try {
       var bucket = new CellBTreeSingleValueBucketV3<K>(cacheEntry);
       if (iter.getLastLSN() == null || bucket.getLsn().equals(iter.getLastLSN())) {
@@ -2676,7 +2679,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
             iter.setItemIndex(0);
             cacheEntry.close();
 
-            cacheEntry = loadPageForRead(atomicOperation, fileId, iter.getPageIndex());
+            cacheEntry = loadPageForRead(atomicOperation, fileHandler, iter.getPageIndex());
             bucket = new CellBTreeSingleValueBucketV3<>(cacheEntry);
 
             bucketSize = bucket.size();
@@ -2720,7 +2723,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
 
   private boolean readKeysFromBucketsBackward(
       AtomicOperation atomicOperation, SpliteratorBackward<K> iter) throws IOException {
-    var cacheEntry = loadPageForRead(atomicOperation, fileId, iter.getPageIndex());
+    var cacheEntry = loadPageForRead(atomicOperation, fileHandler, iter.getPageIndex());
     try {
       var bucket = new CellBTreeSingleValueBucketV3<K>(cacheEntry);
       if (iter.getLastLSN() == null || bucket.getLsn().equals(iter.getLastLSN())) {
@@ -2734,7 +2737,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
 
             cacheEntry.close();
 
-            cacheEntry = loadPageForRead(atomicOperation, fileId, iter.getPageIndex());
+            cacheEntry = loadPageForRead(atomicOperation, fileHandler, iter.getPageIndex());
             bucket = new CellBTreeSingleValueBucketV3<>(cacheEntry);
             final var bucketSize = bucket.size();
             iter.setItemIndex(bucketSize - 1);

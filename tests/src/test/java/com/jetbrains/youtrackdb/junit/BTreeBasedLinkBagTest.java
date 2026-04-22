@@ -83,12 +83,12 @@ public class BTreeBasedLinkBagTest extends LinkBagJUnit5Test {
     final var wowCache =
         (WOWCache) ((DiskStorage) session.getStorage()).getWriteCache();
 
-    final var fileId =
-        wowCache.fileIdByName(
+    final var fileHandler =
+        wowCache.fileHandlerByName(
             LinkCollectionsBTreeManagerShared.FILE_NAME_PREFIX
                 + collectionIdOne
                 + LinkCollectionsBTreeManagerShared.FILE_EXTENSION);
-    final var fileName = wowCache.nativeFileNameById(fileId);
+    final var fileName = wowCache.nativeFileNameById(fileHandler.fileId());
     assert fileName != null;
     final var ridBagOneFile = new File(directory, fileName);
     assertTrue(ridBagOneFile.exists());

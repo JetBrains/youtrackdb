@@ -11,6 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageDataVerificationError;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.BackgroundExceptionListener;
@@ -55,6 +56,7 @@ public class LockFreeReadCacheBatchingTest {
   private ByteBufferPool bufferPool;
   private LockFreeReadCache readCache;
   private MockedWriteCache writeCache;
+  private FileHandler fileHandler;
 
   @Before
   public void setUp() {
@@ -64,6 +66,7 @@ public class LockFreeReadCacheBatchingTest {
     long maxMemory = 1024L * PAGE_SIZE;
     readCache = new LockFreeReadCache(bufferPool, maxMemory, PAGE_SIZE);
     writeCache = new MockedWriteCache(bufferPool);
+    fileHandler = new FileHandler(0);
   }
 
   @After
@@ -89,11 +92,11 @@ public class LockFreeReadCacheBatchingTest {
   @Test
   public void testCacheHitAccumulatesInBatch() throws Exception {
     // Load page 0 for the first time (cache miss, goes through afterAdd)
-    var entry = readCache.loadForRead(0, 0, writeCache, false);
+    var entry = readCache.loadForRead(fileHandler, 0, writeCache, false);
     readCache.releaseFromRead(entry);
 
     // Re-load page 0 (cache hit, goes through afterRead)
-    entry = readCache.loadForRead(0, 0, writeCache, false);
+    entry = readCache.loadForRead(fileHandler, 0, writeCache, false);
     readCache.releaseFromRead(entry);
 
     // The afterRead entry should still be in the thread-local batch
@@ -113,13 +116,13 @@ public class LockFreeReadCacheBatchingTest {
     // Load several distinct pages (cache misses)
     var pageCount = 8;
     for (int i = 0; i < pageCount; i++) {
-      var entry = readCache.loadForRead(0, i, writeCache, false);
+      var entry = readCache.loadForRead(fileHandler, i, writeCache, false);
       readCache.releaseFromRead(entry);
     }
 
     // Re-read all pages (cache hits) — each afterRead adds to batch
     for (int i = 0; i < pageCount; i++) {
-      var entry = readCache.loadForRead(0, i, writeCache, false);
+      var entry = readCache.loadForRead(fileHandler, i, writeCache, false);
       readCache.releaseFromRead(entry);
     }
 
@@ -140,13 +143,13 @@ public class LockFreeReadCacheBatchingTest {
     // READ_BATCH_SIZE = 16. Load 16 distinct pages (misses).
     var batchCapacity = 16;
     for (int i = 0; i < batchCapacity; i++) {
-      var entry = readCache.loadForRead(0, i, writeCache, false);
+      var entry = readCache.loadForRead(fileHandler, i, writeCache, false);
       readCache.releaseFromRead(entry);
     }
 
     // Re-read all 16 pages (cache hits). The 16th afterRead triggers flushReadBatch.
     for (int i = 0; i < batchCapacity; i++) {
-      var entry = readCache.loadForRead(0, i, writeCache, false);
+      var entry = readCache.loadForRead(fileHandler, i, writeCache, false);
       readCache.releaseFromRead(entry);
     }
 
@@ -170,14 +173,14 @@ public class LockFreeReadCacheBatchingTest {
     var batchCapacity = 16;
     // Load 20 distinct pages (misses)
     for (int i = 0; i < 20; i++) {
-      var entry = readCache.loadForRead(0, i, writeCache, false);
+      var entry = readCache.loadForRead(fileHandler, i, writeCache, false);
       readCache.releaseFromRead(entry);
     }
 
     // Re-read 20 pages: first 16 hits fill and flush the batch,
     // next 4 hits start accumulating in the fresh batch
     for (int i = 0; i < 20; i++) {
-      var entry = readCache.loadForRead(0, i, writeCache, false);
+      var entry = readCache.loadForRead(fileHandler, i, writeCache, false);
       readCache.releaseFromRead(entry);
     }
 
@@ -207,14 +210,14 @@ public class LockFreeReadCacheBatchingTest {
 
     // Load pages (all cache misses)
     for (int i = 0; i < pageCount; i++) {
-      var entry = readCache.loadForRead(0, i, writeCache, false);
+      var entry = readCache.loadForRead(fileHandler, i, writeCache, false);
       readCache.releaseFromRead(entry);
     }
 
     // Re-read each page 4 times (all cache hits, go through afterRead → batch)
     for (int round = 0; round < 4; round++) {
       for (int i = 0; i < pageCount; i++) {
-        var entry = readCache.loadForRead(0, i, writeCache, false);
+        var entry = readCache.loadForRead(fileHandler, i, writeCache, false);
         readCache.releaseFromRead(entry);
       }
     }
@@ -234,7 +237,7 @@ public class LockFreeReadCacheBatchingTest {
     var pageCount = 1100;
 
     for (int i = 0; i < pageCount; i++) {
-      var entry = readCache.loadForRead(0, i, writeCache, false);
+      var entry = readCache.loadForRead(fileHandler, i, writeCache, false);
       readCache.releaseFromRead(entry);
     }
 
@@ -257,13 +260,13 @@ public class LockFreeReadCacheBatchingTest {
   public void testClearFlushesPendingBatchEntries() throws Exception {
     // Load several pages (misses)
     for (int i = 0; i < 5; i++) {
-      var entry = readCache.loadForRead(0, i, writeCache, false);
+      var entry = readCache.loadForRead(fileHandler, i, writeCache, false);
       readCache.releaseFromRead(entry);
     }
 
     // Cache hits → afterRead accumulates 5 entries in batch
     for (int i = 0; i < 5; i++) {
-      var entry = readCache.loadForRead(0, i, writeCache, false);
+      var entry = readCache.loadForRead(fileHandler, i, writeCache, false);
       readCache.releaseFromRead(entry);
     }
 
@@ -278,8 +281,10 @@ public class LockFreeReadCacheBatchingTest {
     Assert.assertEquals("Cache should be empty after clear",
         0, readCache.getUsedMemory());
 
-    // Cache should still work after clear
-    var entry = readCache.loadForRead(0, 0, writeCache, false);
+    // Cache should still work after clear — use a fresh FileHandler because the old
+    // one's CASObjectArray still contains frozen entries from the cleared cache.
+    var freshHandler = new FileHandler(0);
+    var entry = readCache.loadForRead(freshHandler, 0, writeCache, false);
     Assert.assertNotNull("Should be able to load pages after clear", entry);
     readCache.releaseFromRead(entry);
 
@@ -297,14 +302,14 @@ public class LockFreeReadCacheBatchingTest {
 
     // Load pages
     for (int i = 0; i < pageCount; i++) {
-      var entry = readCache.loadForRead(0, i, writeCache, false);
+      var entry = readCache.loadForRead(fileHandler, i, writeCache, false);
       readCache.releaseFromRead(entry);
     }
 
     // Re-read to generate afterRead events
     for (int round = 0; round < 3; round++) {
       for (int i = 0; i < pageCount; i++) {
-        var entry = readCache.loadForRead(0, i, writeCache, false);
+        var entry = readCache.loadForRead(fileHandler, i, writeCache, false);
         readCache.releaseFromRead(entry);
       }
     }
@@ -337,7 +342,7 @@ public class LockFreeReadCacheBatchingTest {
 
     // Pre-load pages
     for (int i = 0; i < pageCount; i++) {
-      var entry = readCache.loadForRead(0, i, writeCache, false);
+      var entry = readCache.loadForRead(fileHandler, i, writeCache, false);
       readCache.releaseFromRead(entry);
     }
 
@@ -349,7 +354,7 @@ public class LockFreeReadCacheBatchingTest {
         var rng = ThreadLocalRandom.current();
         for (int i = 0; i < readsPerThread; i++) {
           var pageIndex = rng.nextInt(pageCount);
-          var entry = readCache.loadForRead(0, pageIndex, writeCache, false);
+          var entry = readCache.loadForRead(fileHandler, pageIndex, writeCache, false);
           readCache.releaseFromRead(entry);
         }
         return null;
@@ -373,15 +378,15 @@ public class LockFreeReadCacheBatchingTest {
   @Test
   public void testLoadForWriteWithBatching() {
     // Load page (miss)
-    var entry = readCache.loadForRead(0, 0, writeCache, false);
+    var entry = readCache.loadForRead(fileHandler, 0, writeCache, false);
     readCache.releaseFromRead(entry);
 
     // Write-load the same page (cache hit, goes through afterRead)
-    entry = readCache.loadForWrite(0, 0, writeCache, false, null);
+    entry = readCache.loadForWrite(fileHandler, 0, writeCache, false, null);
     readCache.releaseFromWrite(entry, writeCache, false);
 
     // Read-load again (cache hit)
-    entry = readCache.loadForRead(0, 0, writeCache, false);
+    entry = readCache.loadForRead(fileHandler, 0, writeCache, false);
     readCache.releaseFromRead(entry);
 
     readCache.assertSize();
@@ -396,7 +401,7 @@ public class LockFreeReadCacheBatchingTest {
   public void testHighChurnEvictionWithBatching() {
     // Cache holds 1024 pages; load 3000 distinct pages.
     for (int i = 0; i < 3000; i++) {
-      var entry = readCache.loadForRead(0, i, writeCache, false);
+      var entry = readCache.loadForRead(fileHandler, i, writeCache, false);
       readCache.releaseFromRead(entry);
     }
 
@@ -422,18 +427,18 @@ public class LockFreeReadCacheBatchingTest {
   public void testInterleavedHitsAndMissesMaintainConsistency() {
     // Load 10 pages initially
     for (int i = 0; i < 10; i++) {
-      var entry = readCache.loadForRead(0, i, writeCache, false);
+      var entry = readCache.loadForRead(fileHandler, i, writeCache, false);
       readCache.releaseFromRead(entry);
     }
 
     // Interleave: re-read existing page (hit, afterRead), then load new page (miss, afterAdd)
     for (int i = 10; i < 100; i++) {
       // Cache hit on an existing page
-      var hitEntry = readCache.loadForRead(0, i % 10, writeCache, false);
+      var hitEntry = readCache.loadForRead(fileHandler, i % 10, writeCache, false);
       readCache.releaseFromRead(hitEntry);
 
       // Cache miss on a new page
-      var missEntry = readCache.loadForRead(0, i, writeCache, false);
+      var missEntry = readCache.loadForRead(fileHandler, i, writeCache, false);
       readCache.releaseFromRead(missEntry);
     }
 
@@ -454,7 +459,7 @@ public class LockFreeReadCacheBatchingTest {
   public void testAllocateNewPageIncrementsCacheSize() throws Exception {
     long initialMemory = readCache.getUsedMemory();
 
-    var entry = readCache.allocateNewPage(0, writeCache, new LogSequenceNumber(-1, -1));
+    var entry = readCache.allocateNewPage(fileHandler, writeCache, new LogSequenceNumber(-1, -1));
     readCache.releaseFromWrite(entry, writeCache, false);
 
     // cacheSize must have been incremented: memory should increase by exactly one page.
@@ -476,7 +481,7 @@ public class LockFreeReadCacheBatchingTest {
     int allocCount = 5;
     var entries = new ArrayList<CacheEntry>();
     for (int fileId = 0; fileId < allocCount; fileId++) {
-      var entry = readCache.allocateNewPage(fileId, writeCache,
+      var entry = readCache.allocateNewPage(new FileHandler(fileId), writeCache,
           new LogSequenceNumber(-1, -1));
       entries.add(entry);
     }
@@ -534,7 +539,7 @@ public class LockFreeReadCacheBatchingTest {
     int pagesPerFile = 10;
     for (int fileId = 0; fileId < fileCount; fileId++) {
       for (int pageIdx = 0; pageIdx < pagesPerFile; pageIdx++) {
-        var entry = readCache.loadForRead(fileId, pageIdx, writeCache, false);
+        var entry = readCache.loadForRead(new FileHandler(fileId), pageIdx, writeCache, false);
         readCache.releaseFromRead(entry);
       }
     }
@@ -570,7 +575,7 @@ public class LockFreeReadCacheBatchingTest {
   @Test
   public void testDeleteStorageDrainsAllEntriesAndDeletesWriteCacheExactlyOnce() throws Exception {
     for (int i = 0; i < 16; i++) {
-      var entry = readCache.loadForRead(0, i, writeCache, false);
+      var entry = readCache.loadForRead(new FileHandler(0), i, writeCache, false);
       readCache.releaseFromRead(entry);
     }
 
@@ -608,7 +613,7 @@ public class LockFreeReadCacheBatchingTest {
     // Load enough distinct pages to force sections to grow beyond their initial capacity.
     int pageCount = 2000;
     for (int i = 0; i < pageCount; i++) {
-      var entry = readCache.loadForRead(0, i, writeCache, false);
+      var entry = readCache.loadForRead(new FileHandler(0), i, writeCache, false);
       readCache.releaseFromRead(entry);
     }
 
@@ -650,7 +655,7 @@ public class LockFreeReadCacheBatchingTest {
    */
   @Test
   public void testCloseStorageAbortsOnFreezeFailureAndIsRetryable() throws Exception {
-    var pinnedEntry = readCache.loadForRead(0, 0, writeCache, false);
+    var pinnedEntry = readCache.loadForRead(new FileHandler(0), 0, writeCache, false);
     // Do NOT release — the entry's use count stays at 1, so freeze() returns false.
 
     int preCacheSize = getCacheSizeCounter();
@@ -719,8 +724,9 @@ public class LockFreeReadCacheBatchingTest {
     // Populate: 5 pages in this writeCache (storageId=0), 5 pages in otherWriteCache.
     int pages = 5;
     for (int p = 0; p < pages; p++) {
-      readCache.releaseFromRead(readCache.loadForRead(0, p, writeCache, false));
-      readCache.releaseFromRead(readCache.loadForRead(0, p, otherWriteCache, false));
+      readCache.releaseFromRead(readCache.loadForRead(new FileHandler(0), p, writeCache, false));
+      readCache
+          .releaseFromRead(readCache.loadForRead(new FileHandler(0), p, otherWriteCache, false));
     }
 
     Assert.assertEquals(
@@ -742,7 +748,7 @@ public class LockFreeReadCacheBatchingTest {
     // storages' entries would turn this into a cache miss and bump cacheSize.
     int cacheSizeBeforeReloads = getCacheSizeCounter();
     for (int p = 0; p < pages; p++) {
-      var entry = readCache.loadForRead(0, p, otherWriteCache, false);
+      var entry = readCache.loadForRead(new FileHandler(0), p, otherWriteCache, false);
       Assert.assertFalse(
           "entry for other storage's page " + p + " must not be frozen by the other close",
           entry.isFrozen());
@@ -769,10 +775,11 @@ public class LockFreeReadCacheBatchingTest {
     var otherWriteCache = new MockedWriteCache(bufferPool, 99);
 
     // One pinned page in storageId=0.
-    var pinnedEntry = readCache.loadForRead(0, 0, writeCache, false);
+    var pinnedEntry = readCache.loadForRead(new FileHandler(0), 0, writeCache, false);
     // Three clean pages in storageId=99 (otherWriteCache).
     for (int p = 0; p < 3; p++) {
-      readCache.releaseFromRead(readCache.loadForRead(0, p, otherWriteCache, false));
+      readCache
+          .releaseFromRead(readCache.loadForRead(new FileHandler(0), p, otherWriteCache, false));
     }
 
     try {
@@ -799,7 +806,7 @@ public class LockFreeReadCacheBatchingTest {
       // Other storage's entries must still be loadable (cache-hit, not re-inserted).
       int cacheSizeBeforeReloads = getCacheSizeCounter();
       for (int p = 0; p < 3; p++) {
-        var entry = readCache.loadForRead(0, p, otherWriteCache, false);
+        var entry = readCache.loadForRead(new FileHandler(0), p, otherWriteCache, false);
         Assert.assertFalse(
             "other storage's entry " + p + " must not be frozen",
             entry.isFrozen());
@@ -863,10 +870,10 @@ public class LockFreeReadCacheBatchingTest {
   public void testCloseStoragePartialFreezeFailureProcessesAllNonPinnedEntries() throws Exception {
     int cleanPages = 5;
     for (int p = 0; p < cleanPages; p++) {
-      readCache.releaseFromRead(readCache.loadForRead(0, p, writeCache, false));
+      readCache.releaseFromRead(readCache.loadForRead(new FileHandler(0), p, writeCache, false));
     }
     // Pin the 6th page. Freeze will fail on it.
-    var pinnedEntry = readCache.loadForRead(0, cleanPages, writeCache, false);
+    var pinnedEntry = readCache.loadForRead(new FileHandler(0), cleanPages, writeCache, false);
 
     Assert.assertEquals(
         "sanity: 6 entries in the map before close",
@@ -932,8 +939,9 @@ public class LockFreeReadCacheBatchingTest {
     var otherWriteCache = new MockedWriteCache(bufferPool, 42);
     int pages = 50;
     for (int p = 0; p < pages; p++) {
-      readCache.releaseFromRead(readCache.loadForRead(0, p, writeCache, false));
-      readCache.releaseFromRead(readCache.loadForRead(0, p, otherWriteCache, false));
+      readCache.releaseFromRead(readCache.loadForRead(new FileHandler(0), p, writeCache, false));
+      readCache
+          .releaseFromRead(readCache.loadForRead(new FileHandler(0), p, otherWriteCache, false));
     }
 
     var readerStarted = new CountDownLatch(1);
@@ -947,7 +955,7 @@ public class LockFreeReadCacheBatchingTest {
         readerStarted.countDown();
         while (!stopReader.get()) {
           int p = rng.nextInt(pages);
-          var entry = readCache.loadForRead(0, p, otherWriteCache, false);
+          var entry = readCache.loadForRead(new FileHandler(0), p, otherWriteCache, false);
           Assert.assertFalse(
               "other storage's entry " + p + " must never be frozen during unrelated close",
               entry.isFrozen());
@@ -1012,7 +1020,7 @@ public class LockFreeReadCacheBatchingTest {
     // Pre-load pages single-threaded so readers see cache hits.
     for (int f = 0; f < fileCount; f++) {
       for (int p = 0; p < pageLimit; p++) {
-        var entry = readCache.loadForRead(f, p, writeCache, false);
+        var entry = readCache.loadForRead(new FileHandler(f), p, writeCache, false);
         readCache.releaseFromRead(entry);
       }
     }
@@ -1026,7 +1034,8 @@ public class LockFreeReadCacheBatchingTest {
           for (int i = 0; i < readsPerThread; i++) {
             int fileId = rng.nextInt(fileCount);
             int pageIndex = rng.nextInt(pageLimit);
-            var entry = readCache.loadForRead(fileId, pageIndex, writeCache, false);
+            var entry =
+                readCache.loadForRead(new FileHandler(fileId), pageIndex, writeCache, false);
             readCache.releaseFromRead(entry);
           }
           return null;
@@ -1190,23 +1199,23 @@ public class LockFreeReadCacheBatchingTest {
     }
 
     @Override
-    public long loadFile(final String fileName) {
-      return 0;
+    public FileHandler loadFile(final String fileName) {
+      return new FileHandler(0);
     }
 
     @Override
-    public long addFile(final String fileName) {
-      return 0;
+    public FileHandler addFile(final String fileName) {
+      return new FileHandler(0);
     }
 
     @Override
-    public long addFile(final String fileName, final long fileId) {
-      return 0;
+    public FileHandler addFile(final String fileName, final long fileId) {
+      return new FileHandler(fileId);
     }
 
     @Override
-    public long fileIdByName(final String fileName) {
-      return 0;
+    public FileHandler fileHandlerByName(final String fileName) {
+      return new FileHandler(0);
     }
 
     @Override
@@ -1304,7 +1313,7 @@ public class LockFreeReadCacheBatchingTest {
     }
 
     @Override
-    public void close(final long fileId, final boolean flush) {
+    public void close(final FileHandler fileHandler, final boolean flush) {
     }
 
     @Override
@@ -1335,7 +1344,7 @@ public class LockFreeReadCacheBatchingTest {
     }
 
     @Override
-    public Map<String, Long> files() {
+    public Map<String, FileHandler> files() {
       return null;
     }
 

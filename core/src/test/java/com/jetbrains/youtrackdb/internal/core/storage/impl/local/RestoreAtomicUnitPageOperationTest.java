@@ -16,6 +16,7 @@ import static org.mockito.Mockito.when;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
@@ -106,7 +107,7 @@ public class RestoreAtomicUnitPageOperationTest {
 
     var cacheEntry = createCacheEntryWithLsn(DURABLE_EXTERNAL_ID, 0, pageLsn);
     when(readCache.loadForWrite(
-        eq(DURABLE_EXTERNAL_ID), eq(0L), eq(writeCache), eq(true), any()))
+        any(FileHandler.class), eq(0L), eq(writeCache), eq(true), any()))
         .thenReturn(cacheEntry);
 
     var atomicUnit = new ArrayList<WALRecord>();
@@ -146,7 +147,7 @@ public class RestoreAtomicUnitPageOperationTest {
 
     var cacheEntry = createCacheEntryWithLsn(DURABLE_EXTERNAL_ID, 0, pageLsn);
     when(readCache.loadForWrite(
-        eq(DURABLE_EXTERNAL_ID), eq(0L), eq(writeCache), eq(true), any()))
+        any(FileHandler.class), eq(0L), eq(writeCache), eq(true), any()))
         .thenReturn(cacheEntry);
 
     var atomicUnit = new ArrayList<WALRecord>();
@@ -197,7 +198,7 @@ public class RestoreAtomicUnitPageOperationTest {
 
     // No cache operations should occur
     verify(readCache, never()).loadForWrite(
-        eq(ND_EXTERNAL_ID), anyLong(), any(), anyBoolean(), any());
+        any(FileHandler.class), anyLong(), any(), anyBoolean(), any());
     verify(pageOp, never()).redo(any(DurablePage.class));
 
     assertFalse("No page update for non-durable file only",
@@ -222,7 +223,7 @@ public class RestoreAtomicUnitPageOperationTest {
 
     var cacheEntry = createCacheEntryWithLsn(DURABLE_EXTERNAL_ID, 0, pageLsn);
     when(readCache.loadForWrite(
-        eq(DURABLE_EXTERNAL_ID), eq(0L), eq(writeCache), eq(true), any()))
+        any(FileHandler.class), eq(0L), eq(writeCache), eq(true), any()))
         .thenReturn(cacheEntry);
 
     var atomicUnit = new ArrayList<WALRecord>();

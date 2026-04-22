@@ -390,12 +390,12 @@ public class FreeSpaceMapTestIT {
 
     // Try current name first; if the test renamed the file and then failed before
     // renaming back, fall back to the known alternative name.
-    var id = writeCache.fileIdByName(freeSpaceMap.getFullName());
-    if (id < 0) {
-      id = writeCache.fileIdByName("renamedFreeSpaceMap.fsm");
+    var handler = writeCache.fileHandlerByName(freeSpaceMap.getFullName());
+    if (handler.fileId() < 0) {
+      handler = writeCache.fileHandlerByName("renamedFreeSpaceMap.fsm");
     }
-    if (id >= 0) {
-      storage.getReadCache().deleteFile(id, writeCache);
+    if (handler.fileId() >= 0) {
+      storage.getReadCache().deleteFile(handler.fileId(), writeCache);
     }
   }
 }

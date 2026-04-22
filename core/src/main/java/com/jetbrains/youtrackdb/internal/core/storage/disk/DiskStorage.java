@@ -47,6 +47,7 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
@@ -1398,9 +1399,8 @@ public class DiskStorage extends AbstractStorage {
     for (var entry : files.entrySet()) {
       final var fileName = entry.getKey();
 
-      long fileId = entry.getValue();
-      fileId = writeCache.externalFileId(writeCache.internalFileId(fileId));
-
+      final long fileId = writeCache.externalFileId(
+          writeCache.internalFileId(entry.getValue().fileId()));
       final var filledUpTo = writeCache.getFilledUpTo(fileId);
       final var zipEntry = new ZipEntry(fileName);
 
@@ -1412,7 +1412,7 @@ public class DiskStorage extends AbstractStorage {
 
       for (var pageIndex = 0; pageIndex < filledUpTo; pageIndex++) {
         final var cacheEntry =
-            readCache.silentLoadForRead(fileId, pageIndex, writeCache, true);
+            readCache.silentLoadForRead(new FileHandler(fileId), pageIndex, writeCache, true);
         long sharedStamp = cacheEntry.acquireSharedLock();
         try {
           var cachePointer = cacheEntry.getCachePointer();
@@ -1696,9 +1696,7 @@ public class DiskStorage extends AbstractStorage {
     if (isFull) {
       final var files = writeCache.files();
       for (var entry : files.entrySet()) {
-        final var fileId = writeCache.fileIdByName(entry.getKey());
-
-        assert entry.getValue().equals(fileId);
+        final var fileId = entry.getValue().fileId();
         readCache.deleteFile(fileId, writeCache);
       }
     }
@@ -1763,7 +1761,7 @@ public class DiskStorage extends AbstractStorage {
       IOUtils.readFully(zipInputStream, binaryFileId, 0, binaryFileId.length);
 
       final var expectedFileId = LongSerializer.deserializeLiteral(binaryFileId, 0);
-      long fileId;
+      FileHandler fileHandlerForRestore;
 
       var rootDirectory = storagePath;
       var zipEntryPath = rootDirectory.resolve(zipEntry.getName()).normalize();
@@ -1777,10 +1775,12 @@ public class DiskStorage extends AbstractStorage {
 
       var fileName = zipEntryPath.getFileName().toString();
       if (!writeCache.exists(fileName)) {
-        fileId = readCache.addFile(fileName, expectedFileId, writeCache);
+        fileHandlerForRestore = readCache.addFile(fileName, expectedFileId, writeCache);
       } else {
-        fileId = writeCache.fileIdByName(fileName);
+        fileHandlerForRestore = writeCache.fileHandlerByName(fileName);
       }
+
+      final long fileId = fileHandlerForRestore.fileId();
 
       if (!writeCache.fileIdsAreEqual(expectedFileId, fileId)) {
         throw new StorageException(name,
@@ -1815,7 +1815,8 @@ public class DiskStorage extends AbstractStorage {
               Cipher.DECRYPT_MODE, aesKey, expectedFileId, pageIndex, data, encryptionIv);
         }
 
-        var cacheEntry = readCache.loadForWrite(fileId, pageIndex, writeCache, true, null);
+        var cacheEntry = readCache.loadForWrite(fileHandlerForRestore, pageIndex, writeCache, true,
+            null);
 
         if (cacheEntry == null) {
           do {
@@ -1823,7 +1824,7 @@ public class DiskStorage extends AbstractStorage {
               readCache.releaseFromWrite(cacheEntry, writeCache, true);
             }
 
-            cacheEntry = readCache.allocateNewPage(fileId, writeCache, null);
+            cacheEntry = readCache.allocateNewPage(fileHandlerForRestore, writeCache, null);
           } while (cacheEntry.getPageIndex() != pageIndex);
         }
 
@@ -1862,7 +1863,7 @@ public class DiskStorage extends AbstractStorage {
 
     for (var file : currentFiles) {
       if (writeCache.exists(file)) {
-        final var fileId = writeCache.fileIdByName(file);
+        final var fileId = writeCache.fileHandlerByName(file).fileId();
         readCache.deleteFile(fileId, writeCache);
       }
     }

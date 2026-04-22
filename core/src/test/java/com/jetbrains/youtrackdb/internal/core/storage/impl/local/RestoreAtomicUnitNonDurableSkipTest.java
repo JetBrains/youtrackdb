@@ -5,6 +5,7 @@ import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -12,6 +13,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitEndRecord;
@@ -122,7 +124,7 @@ public class RestoreAtomicUnitNonDurableSkipTest {
     // Non-durable file should NOT trigger restoreFileById or loadForWrite
     verify(writeCache, never()).restoreFileById(ND_EXTERNAL_ID);
     verify(readCache, never()).loadForWrite(
-        eq(ND_EXTERNAL_ID), anyLong(), any(), anyBoolean(), any());
+        any(FileHandler.class), anyLong(), any(), anyBoolean(), any());
 
     assertFalse("No page update should occur for non-durable file only",
         atLeastOnePageUpdate.getValue());
@@ -231,7 +233,7 @@ public class RestoreAtomicUnitNonDurableSkipTest {
     when(cacheEntry.getCachePointer()).thenReturn(cachePointer);
     when(cachePointer.getBuffer()).thenReturn(buffer);
     when(readCache.loadForWrite(
-        eq(DURABLE_EXTERNAL_ID), eq(0L), eq(writeCache), anyBoolean(), any()))
+        any(FileHandler.class), eq(0L), eq(writeCache), anyBoolean(), any()))
         .thenReturn(cacheEntry);
 
     final var atomicUnit = new ArrayList<WALRecord>();
@@ -246,11 +248,13 @@ public class RestoreAtomicUnitNonDurableSkipTest {
     // Non-durable file must not trigger any cache operations
     verify(writeCache, never()).restoreFileById(ND_EXTERNAL_ID);
     verify(readCache, never()).loadForWrite(
-        eq(ND_EXTERNAL_ID), anyLong(), any(), anyBoolean(), any());
+        argThat(h -> h != null && h.fileId() == ND_EXTERNAL_ID),
+        anyLong(), any(), anyBoolean(), any());
 
     // Durable file must be processed
     verify(readCache).loadForWrite(
-        eq(DURABLE_EXTERNAL_ID), eq(0L), eq(writeCache), eq(true), any());
+        argThat(h -> h != null && h.fileId() == DURABLE_EXTERNAL_ID),
+        eq(0L), eq(writeCache), eq(true), any());
 
     assertTrue("Durable page update should set atLeastOnePageUpdate",
         atLeastOnePageUpdate.getValue());

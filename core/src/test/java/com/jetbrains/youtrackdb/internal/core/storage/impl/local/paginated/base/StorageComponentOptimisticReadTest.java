@@ -13,6 +13,7 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocat
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
 import com.jetbrains.youtrackdb.internal.common.directmemory.PageFramePool;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadScope;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
@@ -78,7 +79,8 @@ public class StorageComponentOptimisticReadTest {
     var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
     when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(frame);
 
-    PageView view = component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX);
+    PageView view =
+        component.testLoadPageOptimistic(mockAtomicOp, new FileHandler(FILE_ID), PAGE_INDEX);
 
     assertNotNull(view);
     assertEquals(PAGE_INDEX, view.pageFrame().getPageIndex());
@@ -96,7 +98,7 @@ public class StorageComponentOptimisticReadTest {
     String result = component.testExecuteOptimisticStorageRead(
         mockAtomicOp,
         () -> {
-          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX);
+          component.testLoadPageOptimistic(mockAtomicOp, new FileHandler(FILE_ID), PAGE_INDEX);
           return "optimistic-result";
         },
         () -> "pinned-result");
@@ -116,7 +118,7 @@ public class StorageComponentOptimisticReadTest {
     String result = component.testExecuteOptimisticStorageRead(
         mockAtomicOp,
         () -> {
-          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX);
+          component.testLoadPageOptimistic(mockAtomicOp, new FileHandler(FILE_ID), PAGE_INDEX);
           return "optimistic-result";
         },
         () -> "pinned-result");
@@ -134,7 +136,7 @@ public class StorageComponentOptimisticReadTest {
     String result = component.testExecuteOptimisticStorageRead(
         mockAtomicOp,
         () -> {
-          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX);
+          component.testLoadPageOptimistic(mockAtomicOp, new FileHandler(FILE_ID), PAGE_INDEX);
 
           // Invalidate the stamp from another thread before validation
           var latch = new CountDownLatch(1);
@@ -176,7 +178,7 @@ public class StorageComponentOptimisticReadTest {
     String result = component.testExecuteOptimisticStorageRead(
         mockAtomicOp,
         () -> {
-          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX);
+          component.testLoadPageOptimistic(mockAtomicOp, new FileHandler(FILE_ID), PAGE_INDEX);
           return "optimistic-result";
         },
         () -> "pinned-result");
@@ -200,7 +202,7 @@ public class StorageComponentOptimisticReadTest {
     String result1 = component.testExecuteOptimisticStorageRead(
         mockAtomicOp,
         () -> {
-          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX);
+          component.testLoadPageOptimistic(mockAtomicOp, new FileHandler(FILE_ID), PAGE_INDEX);
           return "result1";
         },
         () -> "fallback1");
@@ -224,7 +226,7 @@ public class StorageComponentOptimisticReadTest {
     String result2 = component.testExecuteOptimisticStorageRead(
         mockAtomicOp,
         () -> {
-          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX + 1);
+          component.testLoadPageOptimistic(mockAtomicOp, new FileHandler(FILE_ID), PAGE_INDEX + 1);
           return "result2";
         },
         () -> "fallback2");
@@ -247,7 +249,7 @@ public class StorageComponentOptimisticReadTest {
       String result = component.testExecuteOptimisticStorageRead(
           mockAtomicOp,
           () -> {
-            component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX);
+            component.testLoadPageOptimistic(mockAtomicOp, new FileHandler(FILE_ID), PAGE_INDEX);
             return "optimistic-result";
           },
           () -> "pinned-result");
@@ -270,7 +272,7 @@ public class StorageComponentOptimisticReadTest {
     component.testExecuteOptimisticStorageReadVoid(
         mockAtomicOp,
         () -> {
-          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX);
+          component.testLoadPageOptimistic(mockAtomicOp, new FileHandler(FILE_ID), PAGE_INDEX);
           optimisticRan[0] = true;
         },
         () -> {
@@ -293,7 +295,7 @@ public class StorageComponentOptimisticReadTest {
     String result = component.testExecuteOptimisticStorageRead(
         mockAtomicOp,
         () -> {
-          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX);
+          component.testLoadPageOptimistic(mockAtomicOp, new FileHandler(FILE_ID), PAGE_INDEX);
           return "optimistic-result";
         },
         () -> "pinned-result");
@@ -316,7 +318,7 @@ public class StorageComponentOptimisticReadTest {
     String result = component.testExecuteOptimisticStorageRead(
         mockAtomicOp,
         () -> {
-          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX);
+          component.testLoadPageOptimistic(mockAtomicOp, new FileHandler(FILE_ID), PAGE_INDEX);
           return "optimistic-result";
         },
         () -> "pinned-result");
@@ -338,7 +340,7 @@ public class StorageComponentOptimisticReadTest {
     String result = component.testExecuteOptimisticStorageRead(
         mockAtomicOp,
         () -> {
-          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX);
+          component.testLoadPageOptimistic(mockAtomicOp, new FileHandler(FILE_ID), PAGE_INDEX);
           return "optimistic-result";
         },
         () -> "pinned-result");
@@ -356,7 +358,7 @@ public class StorageComponentOptimisticReadTest {
     component.testExecuteOptimisticStorageReadVoid(
         mockAtomicOp,
         () -> {
-          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX);
+          component.testLoadPageOptimistic(mockAtomicOp, new FileHandler(FILE_ID), PAGE_INDEX);
         },
         () -> {
           pinnedRan[0] = true;
@@ -439,9 +441,9 @@ public class StorageComponentOptimisticReadTest {
     String result = component.testExecuteOptimisticStorageRead(
         mockAtomicOp,
         () -> {
-          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, 0);
-          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, 1);
-          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, 2);
+          component.testLoadPageOptimistic(mockAtomicOp, new FileHandler(FILE_ID), 0);
+          component.testLoadPageOptimistic(mockAtomicOp, new FileHandler(FILE_ID), 1);
+          component.testLoadPageOptimistic(mockAtomicOp, new FileHandler(FILE_ID), 2);
           return "multi-page-result";
         },
         () -> "pinned-result");
@@ -477,11 +479,11 @@ public class StorageComponentOptimisticReadTest {
     var nonDurableComponent = new TestStorageComponent(
         component.storage, false);
     var op = mock(AtomicOperation.class);
-    when(op.addFile("test-file.dat", true)).thenReturn(42L);
+    when(op.addFile("test-file.dat", true)).thenReturn(new FileHandler(42L));
 
-    long fileId = nonDurableComponent.testAddFile(op, "test-file.dat");
+    FileHandler fileHandler = nonDurableComponent.testAddFile(op, "test-file.dat");
 
-    assertEquals(42L, fileId);
+    assertEquals(42L, fileHandler.fileId());
     verify(op).addFile("test-file.dat", true);
     // Ensure the 1-arg overload was NOT called (would silently pass false via default)
     verify(op, never()).addFile("test-file.dat");
@@ -492,11 +494,11 @@ public class StorageComponentOptimisticReadTest {
     // When a durable StorageComponent (default) calls addFile(), it should pass
     // nonDurable=false to the atomic operation.
     var op = mock(AtomicOperation.class);
-    when(op.addFile("test-file.dat", false)).thenReturn(99L);
+    when(op.addFile("test-file.dat", false)).thenReturn(new FileHandler(99L));
 
-    long fileId = component.testAddFile(op, "test-file.dat");
+    FileHandler fileHandler = component.testAddFile(op, "test-file.dat");
 
-    assertEquals(99L, fileId);
+    assertEquals(99L, fileHandler.fileId());
     verify(op).addFile("test-file.dat", false);
   }
 
@@ -527,8 +529,8 @@ public class StorageComponentOptimisticReadTest {
       super(storage, "test", ".tst", "test.lock", durable);
     }
 
-    PageView testLoadPageOptimistic(AtomicOperation op, long fileId, long pageIndex) {
-      return loadPageOptimistic(op, fileId, pageIndex);
+    PageView testLoadPageOptimistic(AtomicOperation op, FileHandler fileHandler, long pageIndex) {
+      return loadPageOptimistic(op, fileHandler, pageIndex);
     }
 
     <T> T testExecuteOptimisticStorageRead(
@@ -545,7 +547,7 @@ public class StorageComponentOptimisticReadTest {
       executeOptimisticStorageRead(op, optimistic, pinned);
     }
 
-    long testAddFile(AtomicOperation op, String fileName) throws IOException {
+    FileHandler testAddFile(AtomicOperation op, String fileName) throws IOException {
       return addFile(op, fileName);
     }
   }

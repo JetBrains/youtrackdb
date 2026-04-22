@@ -25,6 +25,7 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
 import com.jetbrains.youtrackdb.internal.common.function.TxConsumer;
 import com.jetbrains.youtrackdb.internal.common.function.TxFunction;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadScope;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
@@ -131,43 +132,47 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     atomicOperationsManager.executeInsideComponentOperation(operation, this, consumer);
   }
 
-  protected long getFilledUpTo(@Nonnull final AtomicOperation atomicOperation, final long fileId) {
+  protected long getFilledUpTo(
+      @Nonnull final AtomicOperation atomicOperation, final FileHandler fileHandler) {
     assert atomicOperation != null;
-    return atomicOperation.filledUpTo(fileId);
+    return atomicOperation.filledUpTo(fileHandler);
   }
 
   protected static CacheEntry loadPageForWrite(
       @Nonnull final AtomicOperation atomicOperation,
-      final long fileId,
+      final FileHandler fileHandler,
       final long pageIndex,
       final boolean verifyCheckSum)
       throws IOException {
     assert atomicOperation != null;
-    return atomicOperation.loadPageForWrite(fileId, pageIndex, 1, verifyCheckSum);
+    return atomicOperation.loadPageForWrite(fileHandler, pageIndex, 1, verifyCheckSum);
   }
 
   protected CacheEntry loadOrAddPageForWrite(
-      @Nonnull final AtomicOperation atomicOperation, final long fileId, final long pageIndex)
+      @Nonnull final AtomicOperation atomicOperation, final FileHandler fileHandler,
+      final long pageIndex)
       throws IOException {
     assert atomicOperation != null;
-    var entry = atomicOperation.loadPageForWrite(fileId, pageIndex, 1, true);
+    var entry = atomicOperation.loadPageForWrite(fileHandler, pageIndex, 1, true);
     if (entry == null) {
-      entry = addPage(atomicOperation, fileId);
+      entry = addPage(atomicOperation, fileHandler);
     }
     return entry;
   }
 
   protected CacheEntry loadPageForRead(
-      @Nonnull final AtomicOperation atomicOperation, final long fileId, final long pageIndex)
+      @Nonnull final AtomicOperation atomicOperation, final FileHandler fileHandler,
+      final long pageIndex)
       throws IOException {
     assert atomicOperation != null;
-    return atomicOperation.loadPageForRead(fileId, pageIndex);
+    return atomicOperation.loadPageForRead(fileHandler, pageIndex);
   }
 
-  protected CacheEntry addPage(@Nonnull final AtomicOperation atomicOperation, final long fileId)
+  protected CacheEntry addPage(
+      @Nonnull final AtomicOperation atomicOperation, final FileHandler fileHandler)
       throws IOException {
     assert atomicOperation != null;
-    return atomicOperation.addPage(fileId);
+    return atomicOperation.addPage(fileHandler);
   }
 
   protected void releasePageFromWrite(
@@ -183,13 +188,15 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     atomicOperation.releasePageFromRead(cacheEntry);
   }
 
-  protected long addFile(@Nonnull final AtomicOperation atomicOperation, final String fileName)
+  protected FileHandler addFile(
+      @Nonnull final AtomicOperation atomicOperation, final String fileName)
       throws IOException {
     assert atomicOperation != null;
     return atomicOperation.addFile(fileName, !durable);
   }
 
-  protected long openFile(@Nonnull final AtomicOperation atomicOperation, final String fileName)
+  protected FileHandler openFile(
+      @Nonnull final AtomicOperation atomicOperation, final String fileName)
       throws IOException {
     assert atomicOperation != null;
     return atomicOperation.loadFile(fileName);
@@ -207,10 +214,11 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     return atomicOperation.isFileExists(fileName);
   }
 
-  protected void truncateFile(@Nonnull final AtomicOperation atomicOperation, final long filedId)
+  protected void truncateFile(
+      @Nonnull final AtomicOperation atomicOperation, final FileHandler fileHandler)
       throws IOException {
     assert atomicOperation != null;
-    atomicOperation.truncateFile(filedId);
+    atomicOperation.truncateFile(fileHandler);
   }
 
   // --- Optimistic read infrastructure ---
@@ -257,18 +265,20 @@ public abstract class StorageComponent extends SharedResourceAbstract {
    * lock held), or coordinate mismatch (frame reused for a different page).
    *
    * @param atomicOperation the current atomic operation (provides the scope)
-   * @param fileId          the file ID of the page
+   * @param fileHandler     the file handler of the page
    * @param pageIndex       the page index within the file
    * @return a PageView with the speculative buffer, frame, and stamp
    * @throws OptimisticReadFailedException if the page cannot be read optimistically
    */
   protected PageView loadPageOptimistic(
       @Nonnull final AtomicOperation atomicOperation,
-      final long fileId,
+      final FileHandler fileHandler,
       final long pageIndex) {
     assert atomicOperation != null;
     assert pageIndex >= 0 && pageIndex <= Integer.MAX_VALUE
         : "pageIndex out of int range: " + pageIndex;
+
+    final long fileId = fileHandler.fileId();
 
     // If the current transaction has uncommitted WAL changes for this page,
     // the optimistic path would return stale committed data. Force fallback.

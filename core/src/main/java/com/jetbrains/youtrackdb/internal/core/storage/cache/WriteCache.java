@@ -62,11 +62,11 @@ public interface WriteCache {
    * @param fileName Name of file to register inside storage.
    * @return Id of registered file
    */
-  long loadFile(String fileName) throws IOException;
+  FileHandler loadFile(String fileName) throws IOException;
 
-  long addFile(String fileName) throws IOException;
+  FileHandler addFile(String fileName) throws IOException;
 
-  long addFile(String fileName, long fileId) throws IOException;
+  FileHandler addFile(String fileName, long fileId) throws IOException;
 
   /**
    * Registers a new file in the write cache with an explicit non-durability flag.
@@ -81,7 +81,7 @@ public interface WriteCache {
    * @return Id of registered file
    */
   default long addFile(String fileName, long fileId, boolean nonDurable) throws IOException {
-    return addFile(fileName, fileId);
+    return addFile(fileName, fileId).fileId();
   }
 
   /**
@@ -97,12 +97,12 @@ public interface WriteCache {
   }
 
   /**
-   * Returns id associated with given file or value &lt; 0 if such file does not exist.
+   * Returns handler associated with given file or a sentinel value if the file does not exist.
    *
    * @param fileName File name id of which has to be returned.
-   * @return id associated with given file or value &lt; 0 if such file does not exist.
+   * @return handler associated with given file or a sentinel if such file does not exist.
    */
-  long fileIdByName(String fileName);
+  FileHandler fileHandlerByName(String fileName);
 
   boolean checkLowDiskSpace() throws IOException;
 
@@ -132,7 +132,7 @@ public interface WriteCache {
 
   void flush();
 
-  long getFilledUpTo(long fileId);
+  long getFilledUpTo(final long fileId);
 
   long getExclusiveWriteCachePagesSize();
 
@@ -144,7 +144,7 @@ public interface WriteCache {
 
   long[] close() throws IOException;
 
-  void close(long fileId, boolean flush);
+  void close(FileHandler fileHandler, boolean flush);
 
   PageDataVerificationError[] checkStoredPages(CommandOutputListener commandOutputListener);
 
@@ -166,7 +166,7 @@ public interface WriteCache {
 
   int getId();
 
-  Map<String, Long> files();
+  Map<String, FileHandler> files();
 
   /**
    * DO NOT DELETE THIS METHOD IT IS USED IN ENTERPRISE STORAGE

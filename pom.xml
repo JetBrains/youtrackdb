@@ -796,7 +796,7 @@
     <profile>
       <id>java17</id>
       <activation>
-        <jdk>[17,23)</jdk>
+        <jdk>[17,22)</jdk>
       </activation>
       <properties>
         <graalvm.version>22.0.0.2</graalvm.version>
@@ -812,9 +812,9 @@
     </profile>
 
     <profile>
-      <id>java23+</id>
+      <id>java22+</id>
       <activation>
-        <jdk>[23,)</jdk>
+        <jdk>[22,)</jdk>
       </activation>
       <properties>
         <graalvm.version>25.0.0</graalvm.version>

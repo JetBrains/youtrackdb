@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.collection.v2;
 
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
@@ -34,7 +35,7 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
   public static final String DEF_EXTENSION = ".dpb";
 
   /** Internal file ID assigned by the disk cache when the .dpb file is opened/created. */
-  private long fileId;
+  private FileHandler fileHandler;
 
   public CollectionDirtyPageBitSet(
       @Nonnull AbstractStorage storage,
@@ -55,9 +56,9 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
    * Creates a new dirty page bit set file and initializes the first page to all zeros.
    */
   public void create(final AtomicOperation atomicOperation) throws IOException {
-    fileId = addFile(atomicOperation, getFullName());
+    fileHandler = addFile(atomicOperation, getFullName());
 
-    try (final var cacheEntry = addPage(atomicOperation, fileId)) {
+    try (final var cacheEntry = addPage(atomicOperation, fileHandler)) {
       final var page = new DirtyPageBitSetPage(cacheEntry);
       page.init();
     }
@@ -67,14 +68,14 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
    * Opens an existing dirty page bit set file.
    */
   public void open(final AtomicOperation atomicOperation) throws IOException {
-    fileId = openFile(atomicOperation, getFullName());
+    fileHandler = openFile(atomicOperation, getFullName());
   }
 
   /**
    * Flushes pending writes for this dirty page bit set file to disk.
    */
   public void flush() {
-    writeCache.flush(fileId);
+    writeCache.flush(fileHandler.fileId());
   }
 
   /**
@@ -83,21 +84,21 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
    * @param flush if {@code true}, pending writes are flushed to disk before closing
    */
   public void close(final boolean flush) {
-    readCache.closeFile(fileId, flush, writeCache);
+    readCache.closeFile(fileHandler, flush, writeCache);
   }
 
   /**
    * Deletes the dirty page bit set file.
    */
   public void delete(final AtomicOperation atomicOperation) throws IOException {
-    deleteFile(atomicOperation, fileId);
+    deleteFile(atomicOperation, fileHandler.fileId());
   }
 
   /**
    * Renames the dirty page bit set file to match a new collection name.
    */
   void rename(final String newName) throws IOException {
-    writeCache.renameFile(fileId, newName + getExtension());
+    writeCache.renameFile(fileHandler.fileId(), newName + getExtension());
     setName(newName);
   }
 
@@ -120,7 +121,7 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
     ensureCapacity(bitSetPageIndex, atomicOperation);
 
     try (final var cacheEntry =
-        loadPageForWrite(atomicOperation, fileId, bitSetPageIndex, true)) {
+        loadPageForWrite(atomicOperation, fileHandler, bitSetPageIndex, true)) {
       final var page = new DirtyPageBitSetPage(cacheEntry);
       page.setBit(bitIndex);
     }
@@ -138,14 +139,14 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
     long bitSetPageIndex = dataPageIndex / DirtyPageBitSetPage.BITS_PER_PAGE;
 
     // If the bit set file doesn't cover this page index, the bit is already clear.
-    if (bitSetPageIndex >= getFilledUpTo(atomicOperation, fileId)) {
+    if (bitSetPageIndex >= getFilledUpTo(atomicOperation, fileHandler)) {
       return;
     }
 
     var bitIndex = dataPageIndex % DirtyPageBitSetPage.BITS_PER_PAGE;
 
     try (final var cacheEntry =
-        loadPageForWrite(atomicOperation, fileId, bitSetPageIndex, true)) {
+        loadPageForWrite(atomicOperation, fileHandler, bitSetPageIndex, true)) {
       final var page = new DirtyPageBitSetPage(cacheEntry);
       page.clearBit(bitIndex);
     }
@@ -165,11 +166,11 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
 
     long bitSetPageIndex = fromDataPageIndex / DirtyPageBitSetPage.BITS_PER_PAGE;
     var bitIndex = fromDataPageIndex % DirtyPageBitSetPage.BITS_PER_PAGE;
-    var totalPages = getFilledUpTo(atomicOperation, fileId);
+    var totalPages = getFilledUpTo(atomicOperation, fileHandler);
 
     while (bitSetPageIndex < totalPages) {
       try (final var cacheEntry =
-          loadPageForRead(atomicOperation, fileId, bitSetPageIndex)) {
+          loadPageForRead(atomicOperation, fileHandler, bitSetPageIndex)) {
         final var page = new DirtyPageBitSetPage(cacheEntry);
         var found = page.nextSetBit(bitIndex);
         if (found >= 0) {
@@ -191,10 +192,10 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
    */
   private void ensureCapacity(long requiredPageIndex, AtomicOperation atomicOperation)
       throws IOException {
-    var filledUpTo = getFilledUpTo(atomicOperation, fileId);
+    var filledUpTo = getFilledUpTo(atomicOperation, fileHandler);
 
     for (var i = filledUpTo; i <= requiredPageIndex; i++) {
-      try (final var cacheEntry = addPage(atomicOperation, fileId)) {
+      try (final var cacheEntry = addPage(atomicOperation, fileHandler)) {
         final var page = new DirtyPageBitSetPage(cacheEntry);
         page.init();
       }

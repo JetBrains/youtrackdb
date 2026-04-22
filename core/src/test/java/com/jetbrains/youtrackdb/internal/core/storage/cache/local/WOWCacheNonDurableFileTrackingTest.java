@@ -20,6 +20,7 @@ import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.LockFreeReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogNoOP;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
@@ -164,7 +165,7 @@ public class WOWCacheNonDurableFileTrackingTest {
   @Test
   public void testAddFileWithNonDurableFlag() throws IOException {
     // Add a durable file via the standard 2-arg addFile
-    final var durableFileId = wowCache.addFile("durable.tst");
+    final var durableFileId = wowCache.addFile("durable.tst").fileId();
     assertFalse(
         "File added via 2-arg addFile should be durable",
         wowCache.isNonDurable(durableFileId));
@@ -226,7 +227,7 @@ public class WOWCacheNonDurableFileTrackingTest {
    */
   @Test
   public void testDeleteDurableFileDoesNotAffectNonDurableRegistry() throws IOException {
-    final var durableId = wowCache.addFile("durableToDelete.tst");
+    final var durableId = wowCache.addFile("durableToDelete.tst").fileId();
     final var bookedNdId = wowCache.bookFileId("ndFile.tst");
     final var ndFileId = wowCache.addFile("ndFile.tst", bookedNdId, true);
 
@@ -247,7 +248,7 @@ public class WOWCacheNonDurableFileTrackingTest {
   @Test
   public void testReplaceFileIdRemovesReplacedNonDurableEntry() throws IOException {
     // Create original durable file
-    final var originalId = wowCache.addFile("original.tst");
+    final var originalId = wowCache.addFile("original.tst").fileId();
 
     // Create a non-durable replacement file
     final var replacementBookedId = wowCache.bookFileId("replacement.tst");
@@ -285,7 +286,7 @@ public class WOWCacheNonDurableFileTrackingTest {
     assertTrue(wowCache.isNonDurable(originalId));
 
     // Create a durable replacement file
-    final var replacementId = wowCache.addFile("replacementDurable.tst");
+    final var replacementId = wowCache.addFile("replacementDurable.tst").fileId();
     assertFalse(wowCache.isNonDurable(replacementId));
 
     // Replace: originalId's internal ID is kept; it should remain non-durable
@@ -364,7 +365,7 @@ public class WOWCacheNonDurableFileTrackingTest {
     final var booked2 = wowCache.bookFileId("nd2.tst");
     final var nd2 = wowCache.addFile("nd2.tst", booked2, true);
 
-    final var durableId = wowCache.addFile("durable.tst");
+    final var durableId = wowCache.addFile("durable.tst").fileId();
 
     assertTrue(wowCache.isNonDurable(nd1));
     assertTrue(wowCache.isNonDurable(nd2));
@@ -402,7 +403,7 @@ public class WOWCacheNonDurableFileTrackingTest {
   @Test
   public void testAddFileFailureDoesNotPoisonNonDurableRegistry() throws IOException {
     // Register a file name so the second addFile call will fail
-    final var existingId = wowCache.addFile("conflict.tst");
+    final var existingId = wowCache.addFile("conflict.tst").fileId();
     assertFalse(wowCache.isNonDurable(existingId));
 
     // Attempt to add the same name as non-durable with a different booked ID
@@ -495,20 +496,20 @@ public class WOWCacheNonDurableFileTrackingTest {
     assertTrue(wowCache.isNonDurable(fileId));
 
     // Also add a durable file to verify it remains durable
-    final var durableId = wowCache.addFile("durablePersist.tst");
+    final var durableId = wowCache.addFile("durablePersist.tst").fileId();
     assertFalse(wowCache.isNonDurable(durableId));
 
     reopenCache();
 
     // After reopen, non-durable file should still be non-durable
-    final var restoredNdId = wowCache.fileIdByName("ndPersist.tst");
+    final var restoredNdId = wowCache.fileHandlerByName("ndPersist.tst").fileId();
     assertTrue("Non-durable file must be findable by name after reopen", restoredNdId >= 0);
     assertTrue(
         "Non-durable status must survive close/reopen via side file persistence",
         wowCache.isNonDurable(restoredNdId));
 
     // Durable file should still be durable
-    final var restoredDurableId = wowCache.fileIdByName("durablePersist.tst");
+    final var restoredDurableId = wowCache.fileHandlerByName("durablePersist.tst").fileId();
     assertTrue("Durable file must be findable by name after reopen", restoredDurableId >= 0);
     assertFalse(
         "Durable file should remain durable after close/reopen",
@@ -538,7 +539,7 @@ public class WOWCacheNonDurableFileTrackingTest {
     // Reopen — should fall back to shadow
     createNewCache();
 
-    final var restoredId = wowCache.fileIdByName("ndCorrupt.tst");
+    final var restoredId = wowCache.fileHandlerByName("ndCorrupt.tst").fileId();
     assertTrue(restoredId >= 0);
     assertTrue(
         "Non-durable status must be recovered from shadow when primary is corrupt",
@@ -564,7 +565,7 @@ public class WOWCacheNonDurableFileTrackingTest {
     // Reopen — should treat all files as durable
     createNewCache();
 
-    final var restoredId = wowCache.fileIdByName("ndBothCorrupt.tst");
+    final var restoredId = wowCache.fileHandlerByName("ndBothCorrupt.tst").fileId();
     assertTrue(restoredId >= 0);
     assertFalse(
         "With both side files missing, all files should be treated as durable",
@@ -595,7 +596,7 @@ public class WOWCacheNonDurableFileTrackingTest {
     // Reopen — should fall back to shadow
     createNewCache();
 
-    final var restoredId = wowCache.fileIdByName("ndChecksum.tst");
+    final var restoredId = wowCache.fileHandlerByName("ndChecksum.tst").fileId();
     assertTrue(restoredId >= 0);
     assertTrue(
         "Non-durable status must be recovered from shadow when primary has bad checksum",
@@ -625,7 +626,7 @@ public class WOWCacheNonDurableFileTrackingTest {
 
     createNewCache();
 
-    final var restoredId = wowCache.fileIdByName("ndBothBad.tst");
+    final var restoredId = wowCache.fileHandlerByName("ndBothBad.tst").fileId();
     assertTrue(restoredId >= 0);
     assertFalse(
         "With both checksums corrupt, all files should be treated as durable",
@@ -657,7 +658,7 @@ public class WOWCacheNonDurableFileTrackingTest {
 
     createNewCache();
 
-    final var restoredId = wowCache.fileIdByName("ndVersion.tst");
+    final var restoredId = wowCache.fileHandlerByName("ndVersion.tst").fileId();
     assertTrue(restoredId >= 0);
     assertFalse(
         "With unsupported version, all files should be treated as durable",
@@ -702,7 +703,7 @@ public class WOWCacheNonDurableFileTrackingTest {
 
     createNewCache();
 
-    final var restoredId = wowCache.fileIdByName("ndShadowOnly.tst");
+    final var restoredId = wowCache.fileHandlerByName("ndShadowOnly.tst").fileId();
     assertTrue(restoredId >= 0);
     assertTrue(
         "Non-durable status must be recovered from shadow when primary is absent",
@@ -767,7 +768,7 @@ public class WOWCacheNonDurableFileTrackingTest {
     final var id2 = wowCache.addFile("ndMulti2.tst", booked2, true);
     final var booked3 = wowCache.bookFileId("ndMulti3.tst");
     final var id3 = wowCache.addFile("ndMulti3.tst", booked3, true);
-    final var durableId = wowCache.addFile("durableMulti.tst");
+    final var durableId = wowCache.addFile("durableMulti.tst").fileId();
 
     assertTrue(wowCache.isNonDurable(id1));
     assertTrue(wowCache.isNonDurable(id2));
@@ -778,16 +779,16 @@ public class WOWCacheNonDurableFileTrackingTest {
 
     assertTrue(
         "First non-durable file must survive reopen",
-        wowCache.isNonDurable(wowCache.fileIdByName("ndMulti1.tst")));
+        wowCache.isNonDurable(wowCache.fileHandlerByName("ndMulti1.tst").fileId()));
     assertTrue(
         "Second non-durable file must survive reopen",
-        wowCache.isNonDurable(wowCache.fileIdByName("ndMulti2.tst")));
+        wowCache.isNonDurable(wowCache.fileHandlerByName("ndMulti2.tst").fileId()));
     assertTrue(
         "Third non-durable file must survive reopen",
-        wowCache.isNonDurable(wowCache.fileIdByName("ndMulti3.tst")));
+        wowCache.isNonDurable(wowCache.fileHandlerByName("ndMulti3.tst").fileId()));
     assertFalse(
         "Durable file must remain durable after reopen",
-        wowCache.isNonDurable(wowCache.fileIdByName("durableMulti.tst")));
+        wowCache.isNonDurable(wowCache.fileHandlerByName("durableMulti.tst").fileId()));
   }
 
   // --- Dirty pages table tests ---
@@ -809,7 +810,7 @@ public class WOWCacheNonDurableFileTrackingTest {
     assertTrue(wowCache.isNonDurable(ndFileId));
 
     // Add a durable file for comparison
-    final var durableFileId = wowCache.addFile("durableDirty.tst");
+    final var durableFileId = wowCache.addFile("durableDirty.tst").fileId();
     assertFalse(wowCache.isNonDurable(durableFileId));
 
     // Create sentinel CachePointers (null pointer/frame is fine — updateDirtyPagesTable
@@ -941,7 +942,7 @@ public class WOWCacheNonDurableFileTrackingTest {
     wowCache.loadRegisteredFiles();
 
     // Create a durable file
-    final var durableFileId = wowCache.addFile("durableSync.tst");
+    final var durableFileId = wowCache.addFile("durableSync.tst").fileId();
     assertFalse(wowCache.isNonDurable(durableFileId));
 
     // Create a non-durable file
@@ -1011,7 +1012,7 @@ public class WOWCacheNonDurableFileTrackingTest {
         "Stale file ID should be filtered out on reload",
         wowCache.isNonDurable(nd1));
     // nd2 still exists, so it should be preserved
-    final var restoredNd2 = wowCache.fileIdByName("ndStale2.tst");
+    final var restoredNd2 = wowCache.fileHandlerByName("ndStale2.tst").fileId();
     assertTrue(restoredNd2 >= 0);
     assertTrue(
         "Valid non-durable file should survive reload with stale entries",
@@ -1036,7 +1037,7 @@ public class WOWCacheNonDurableFileTrackingTest {
   @Test
   public void testDeleteNonDurableFilesOnRecovery() throws Exception {
     // Register a durable and a non-durable file
-    final var durableId = wowCache.addFile("recoverDurable.tst");
+    final var durableId = wowCache.addFile("recoverDurable.tst").fileId();
     final var bookedNdId = wowCache.bookFileId("recoverNd.tst");
     final var ndFileId = wowCache.addFile("recoverNd.tst", bookedNdId, true);
 
@@ -1091,7 +1092,7 @@ public class WOWCacheNonDurableFileTrackingTest {
    */
   @Test
   public void testDeleteMultipleNonDurableFilesOnRecovery() throws Exception {
-    final var durableId = wowCache.addFile("multiRecoverDurable.tst");
+    final var durableId = wowCache.addFile("multiRecoverDurable.tst").fileId();
 
     final var booked1 = wowCache.bookFileId("multiRecoverNd1.tst");
     final var nd1 = wowCache.addFile("multiRecoverNd1.tst", booked1, true);
@@ -1123,7 +1124,7 @@ public class WOWCacheNonDurableFileTrackingTest {
   @Test
   public void testDeleteNonDurableFilesOnRecoveryWithEmptyRegistry() throws Exception {
     // Only durable files
-    final var durableId = wowCache.addFile("emptyRecoverDurable.tst");
+    final var durableId = wowCache.addFile("emptyRecoverDurable.tst").fileId();
 
     final var readCache = createReadCache();
     try {
@@ -1148,13 +1149,13 @@ public class WOWCacheNonDurableFileTrackingTest {
     // Register a non-durable file and a durable file
     final var bookedNdId = wowCache.bookFileId("reopenRecoverNd.tst");
     final var ndFileId = wowCache.addFile("reopenRecoverNd.tst", bookedNdId, true);
-    final var durableId = wowCache.addFile("reopenRecoverDurable.tst");
+    final var durableId = wowCache.addFile("reopenRecoverDurable.tst").fileId();
 
     // Simulate restart by closing and reopening
     reopenCache();
 
     // Verify non-durable status was restored from side file
-    final var restoredNdId = wowCache.fileIdByName("reopenRecoverNd.tst");
+    final var restoredNdId = wowCache.fileHandlerByName("reopenRecoverNd.tst").fileId();
     assertTrue(restoredNdId >= 0);
     assertTrue(wowCache.isNonDurable(restoredNdId));
 
@@ -1169,7 +1170,7 @@ public class WOWCacheNonDurableFileTrackingTest {
           wowCache.exists(restoredNdId));
 
       // Durable file must remain
-      final var restoredDurableId = wowCache.fileIdByName("reopenRecoverDurable.tst");
+      final var restoredDurableId = wowCache.fileHandlerByName("reopenRecoverDurable.tst").fileId();
       assertTrue(restoredDurableId >= 0);
       assertTrue(wowCache.exists(restoredDurableId));
     } finally {
@@ -1258,7 +1259,7 @@ public class WOWCacheNonDurableFileTrackingTest {
   public void testCleanShutdownPreservesSideFilesForCrashRecovery() throws Exception {
     final var bookedNdId = wowCache.bookFileId("ndShutdown.tst");
     wowCache.addFile("ndShutdown.tst", bookedNdId, true);
-    final var durableId = wowCache.addFile("durableShutdown.tst");
+    final var durableId = wowCache.addFile("durableShutdown.tst").fileId();
 
     // Side files should exist while cache is open
     assertTrue(
@@ -1281,7 +1282,7 @@ public class WOWCacheNonDurableFileTrackingTest {
 
     // Reopen and verify non-durable file is still present (not deleted on clean open)
     createNewCache();
-    final var restoredNdId = wowCache.fileIdByName("ndShutdown.tst");
+    final var restoredNdId = wowCache.fileHandlerByName("ndShutdown.tst").fileId();
     assertTrue(restoredNdId >= 0);
     assertTrue(
         "Non-durable file should be present after clean reopen (not crash recovery)",
@@ -1301,7 +1302,7 @@ public class WOWCacheNonDurableFileTrackingTest {
           wowCache.exists(restoredNdId));
 
       // Durable file must still exist
-      final var restoredDurableId = wowCache.fileIdByName("durableShutdown.tst");
+      final var restoredDurableId = wowCache.fileHandlerByName("durableShutdown.tst").fileId();
       assertTrue(restoredDurableId >= 0);
       assertTrue(wowCache.exists(restoredDurableId));
 
@@ -1327,7 +1328,7 @@ public class WOWCacheNonDurableFileTrackingTest {
   @Test
   public void testDeleteNonDurableFilesOnRecoveryPartialFailure() throws Exception {
     // Register two non-durable files and one durable file
-    final var durableId = wowCache.addFile("partialRecoverDurable.tst");
+    final var durableId = wowCache.addFile("partialRecoverDurable.tst").fileId();
 
     final var booked1 = wowCache.bookFileId("partialRecoverNd1.tst");
     final var nd1 = wowCache.addFile("partialRecoverNd1.tst", booked1, true);
@@ -1450,7 +1451,7 @@ public class WOWCacheNonDurableFileTrackingTest {
   @Test
   public void testFlushMixedDurableAndNonDurablePages() throws Exception {
     // Create one durable and one non-durable file
-    final var durableFileId = wowCache.addFile("flushDurable.tst");
+    final var durableFileId = wowCache.addFile("flushDurable.tst").fileId();
     assertFalse(wowCache.isNonDurable(durableFileId));
 
     final var bookedNdId = wowCache.bookFileId("flushNonDurable.tst");
@@ -1466,8 +1467,8 @@ public class WOWCacheNonDurableFileTrackingTest {
 
     // Per-file flush goes through executeFileFlush → partitionAndFlushChunks,
     // which routes durable chunks to flushPages and non-durable to flushNonDurablePages.
-    wowCache.close(durableFileId, true);
-    wowCache.close(ndFileId, true);
+    wowCache.close(new FileHandler(durableFileId), true);
+    wowCache.close(new FileHandler(ndFileId), true);
 
     // Re-load from disk to verify data was written correctly.
     // After close(fileId, true), the pages are flushed and removed from write cache,
@@ -1509,7 +1510,7 @@ public class WOWCacheNonDurableFileTrackingTest {
 
     // Per-file flush for non-durable-only: executeFileFlush → partitionAndFlushChunks
     // → flushNonDurablePages (all chunks are non-durable, WAL flush is skipped)
-    wowCache.close(ndFileId, true);
+    wowCache.close(new FileHandler(ndFileId), true);
 
     // Re-load from disk (file was closed, but WOWCache still manages the name-id map)
     var check = wowCache.load(ndFileId, 0, new ModifiableBoolean(), false);
@@ -1530,7 +1531,7 @@ public class WOWCacheNonDurableFileTrackingTest {
    */
   @Test
   public void testFlushMultiplePagesPartitioned() throws Exception {
-    final var durableFileId = wowCache.addFile("flushMultiDurable.tst");
+    final var durableFileId = wowCache.addFile("flushMultiDurable.tst").fileId();
     final var bookedNdId = wowCache.bookFileId("flushMultiNd.tst");
     final var ndFileId = wowCache.addFile("flushMultiNd.tst", bookedNdId, true);
 
@@ -1541,8 +1542,8 @@ public class WOWCacheNonDurableFileTrackingTest {
     }
 
     // Per-file flush goes through partitionAndFlushChunks for each file
-    wowCache.close(durableFileId, true);
-    wowCache.close(ndFileId, true);
+    wowCache.close(new FileHandler(durableFileId), true);
+    wowCache.close(new FileHandler(ndFileId), true);
 
     // Verify all durable pages
     for (int p = 0; p < 5; p++) {

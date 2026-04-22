@@ -14,6 +14,7 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.PageFramePool;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageDataVerificationError;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.BackgroundExceptionListener;
@@ -60,7 +61,7 @@ public class LockFreeReadCacheOptimisticTest {
   @Test
   public void testCacheHitReturnsPageFrame() {
     // Load a page via the normal CAS path, then look it up optimistically.
-    var entry = readCache.loadForRead(0, 0, writeCache, false);
+    var entry = readCache.loadForRead(new FileHandler(0), 0, writeCache, false);
     readCache.releaseFromRead(entry);
 
     PageFrame frame = readCache.getPageFrameOptimistic(0, 0);
@@ -82,7 +83,7 @@ public class LockFreeReadCacheOptimisticTest {
     int minEvicted = totalPages - capacity;
 
     for (int i = 0; i < totalPages; i++) {
-      var entry = readCache.loadForRead(0, i, writeCache, false);
+      var entry = readCache.loadForRead(new FileHandler(0), i, writeCache, false);
       readCache.releaseFromRead(entry);
     }
 
@@ -115,7 +116,7 @@ public class LockFreeReadCacheOptimisticTest {
   @Test
   public void testReturnedFrameHasValidStamp() {
     // The returned PageFrame should yield a valid optimistic stamp.
-    var entry = readCache.loadForRead(0, 0, writeCache, false);
+    var entry = readCache.loadForRead(new FileHandler(0), 0, writeCache, false);
     readCache.releaseFromRead(entry);
 
     PageFrame frame = readCache.getPageFrameOptimistic(0, 0);
@@ -129,7 +130,7 @@ public class LockFreeReadCacheOptimisticTest {
   @Test
   public void testReturnedFrameIsSameAsCacheEntryFrame() {
     // The optimistic lookup should return the same PageFrame as the CAS-pinned path.
-    var entry = readCache.loadForRead(0, 0, writeCache, false);
+    var entry = readCache.loadForRead(new FileHandler(0), 0, writeCache, false);
     PageFrame pinnedFrame = entry.getCachePointer().getPageFrame();
     readCache.releaseFromRead(entry);
 
@@ -141,7 +142,7 @@ public class LockFreeReadCacheOptimisticTest {
   @Test
   public void testRecordOptimisticAccessDoesNotThrow() {
     // After a successful optimistic read, recording the access should not throw.
-    var entry = readCache.loadForRead(0, 0, writeCache, false);
+    var entry = readCache.loadForRead(new FileHandler(0), 0, writeCache, false);
     readCache.releaseFromRead(entry);
 
     // Should not throw, even if called multiple times
@@ -160,7 +161,7 @@ public class LockFreeReadCacheOptimisticTest {
   public void testOptimisticLookupMultiplePages() {
     // Load several pages and verify all can be looked up optimistically.
     for (int i = 0; i < 10; i++) {
-      var entry = readCache.loadForRead(0, i, writeCache, false);
+      var entry = readCache.loadForRead(new FileHandler(0), i, writeCache, false);
       readCache.releaseFromRead(entry);
     }
 
@@ -181,7 +182,7 @@ public class LockFreeReadCacheOptimisticTest {
     int targetPage = 0;
 
     // Pre-load the target page
-    var entry = readCache.loadForRead(fileId, targetPage, writeCache, false);
+    var entry = readCache.loadForRead(new FileHandler(fileId), targetPage, writeCache, false);
     readCache.releaseFromRead(entry);
 
     var errors = new java.util.concurrent.atomic.AtomicReference<Throwable>();
@@ -191,7 +192,7 @@ public class LockFreeReadCacheOptimisticTest {
     Thread evictor = new Thread(() -> {
       try {
         for (int i = 1; running.get() && i < 2000; i++) {
-          var e = readCache.loadForRead(fileId, i, writeCache, false);
+          var e = readCache.loadForRead(new FileHandler(fileId), i, writeCache, false);
           readCache.releaseFromRead(e);
         }
       } catch (Throwable t) {
@@ -258,23 +259,23 @@ public class LockFreeReadCacheOptimisticTest {
     }
 
     @Override
-    public long loadFile(String fileName) {
-      return 0;
+    public FileHandler loadFile(String fileName) {
+      return new FileHandler(0);
     }
 
     @Override
-    public long addFile(String fileName) {
-      return 0;
+    public FileHandler addFile(String fileName) {
+      return new FileHandler(0);
     }
 
     @Override
-    public long addFile(String fileName, long fileId) {
-      return 0;
+    public FileHandler addFile(String fileName, long fileId) {
+      return new FileHandler(fileId);
     }
 
     @Override
-    public long fileIdByName(String fileName) {
-      return 0;
+    public FileHandler fileHandlerByName(String fileName) {
+      return new FileHandler(0);
     }
 
     @Override
@@ -357,7 +358,7 @@ public class LockFreeReadCacheOptimisticTest {
     }
 
     @Override
-    public void close(long fileId, boolean flush) {
+    public void close(FileHandler fileHandler, boolean flush) {
     }
 
     @Override
@@ -387,7 +388,7 @@ public class LockFreeReadCacheOptimisticTest {
     }
 
     @Override
-    public Map<String, Long> files() {
+    public Map<String, FileHandler> files() {
       return null;
     }
 
