@@ -228,6 +228,38 @@ The scope indicators serve as a starting point, not a binding contract. You
 may produce more or fewer steps than the indicator suggested, or cover
 different aspects, based on what is actually needed.
 
+### Phase A Resume — Description-move recovery
+
+The description-move in §What You Do sub-steps (b)-(e) performs two
+on-disk mutations: the atomic step-file write in (d) and the
+backlog-section removal in (e). Either operation may be interrupted by
+a session termination. When `/execute-tracks` auto-resumes into Phase A
+(the Startup Protocol's State C `Review + decomposition is [ ]` row
+routes here), the main agent observes two states — the step file's
+`## Description` section and the backlog's `## Track N:` section — and
+picks the resume action from the decision table below.
+
+The table is **idempotent**: running the indicated action produces the
+steady-state even if the table is re-entered multiple times. The
+**non-re-copy rule** (never overwrite a non-empty `## Description`
+from the plan + backlog) is what protects inline-replanning edits to
+the step file's description from being silently undone on a later
+Phase A resume.
+
+| Step file state | Backlog state | Resume action |
+|---|---|---|
+| Missing | `## Track N:` section present | Fresh Phase A: run §What You Do sub-steps (a)-(e) from the top. The atomic write in (d) closes the empty-shell window on the first attempt, so no intermediate state can be on disk here. |
+| Missing | No `## Track N:` section (mid-migration) or no backlog file at all (legacy) | Fresh Phase A: read the full description from the plan-file entry per §What You Do branch (ii)/(iii); skip sub-step (e). |
+| Present, `## Description` populated | `## Track N:` section still present | Partial interruption after (d), before (e) completed. Run sub-step (e) only — remove the backlog section using the "Backlog section body extraction rule" in `conventions-execution.md` §2.1. Do NOT re-copy into the step file's `## Description`. |
+| Present, `## Description` populated | No `## Track N:` section / no backlog file | Steady state. No description mutation needed. Resume from the next incomplete Phase A activity (reviews not yet run, decomposition not yet written). |
+| Present WITHOUT `## Description` (pre-refactor step file — created by an older worktree whose Phase A ran before the description-move was added) | (any) | Leave the step file's Description state untouched. Phase A review prompts detect the missing `## Description` and fall back to reading the description from the plan-file entry. Resume from the next incomplete Phase A activity. |
+
+After the resume action completes, Phase A continues normally — the
+§Complexity Assessment, review loop, and §Step Decomposition proceed
+exactly as on a fresh start (skipping any reviews already recorded in
+the step file's `## Reviews completed` section, and reusing already-
+decomposed steps if the `## Steps` section is non-empty).
+
 ---
 
 ## Phase A Completion — MANDATORY SESSION BOUNDARY
