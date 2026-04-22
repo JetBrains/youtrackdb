@@ -11,6 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Test;
 
@@ -105,7 +106,7 @@ public class InterruptResultSetTest extends DbTestBase {
     });
 
     thread.start();
-    assertThat(done.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+    assertThat(done.await(5, TimeUnit.SECONDS)).isTrue();
     thread.join(1_000);
 
     assertThat(captured.get()).isEqualTo("ok");
@@ -156,12 +157,14 @@ public class InterruptResultSetTest extends DbTestBase {
     });
 
     thread.start();
-    assertThat(done.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+    assertThat(done.await(5, TimeUnit.SECONDS)).isTrue();
     thread.join(1_000);
 
     assertThat(thrown.get()).isInstanceOf(CommandInterruptedException.class);
+    // Exact message pins the production contract — a regression that changed the text
+    // would silently pass a `.contains("interrupted")` check.
     assertThat(((CommandInterruptedException) thrown.get()).getMessage())
-        .contains("interrupted");
+        .startsWith("The command has been interrupted");
     assertThat(consulted[0]).isFalse();
   }
 
@@ -206,10 +209,12 @@ public class InterruptResultSetTest extends DbTestBase {
     });
 
     thread.start();
-    assertThat(done.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+    assertThat(done.await(5, TimeUnit.SECONDS)).isTrue();
     thread.join(1_000);
 
     assertThat(thrown.get()).isInstanceOf(CommandInterruptedException.class);
+    assertThat(((CommandInterruptedException) thrown.get()).getMessage())
+        .startsWith("The command has been interrupted");
     assertThat(consulted[0]).isFalse();
   }
 
@@ -242,15 +247,14 @@ public class InterruptResultSetTest extends DbTestBase {
   }
 
   /**
-   * A {@link SoftThread} that runs a single {@link Runnable} once and exits. Unlike the
-   * production SoftThread.run() loop, this override avoids re-invoking execute in a
-   * spin loop so tests terminate deterministically. We cannot override the final
-   * {@code run()} — but we can make {@code execute()} set the shutdown flag itself after
-   * running once, which breaks the loop at the top of the next iteration.
+   * A {@link SoftThread} that runs a single {@link Runnable} once and exits. The body
+   * flips the shutdown flag itself via {@code sendShutdown()} in a {@code finally} block,
+   * so the next iteration of {@link SoftThread}'s while-loop (which re-checks the flag at
+   * the top) exits without re-invoking {@code execute()}. Tests thus terminate
+   * deterministically without relying on external signalling.
    */
   private static final class RunOnceSoftThread extends SoftThread {
     private final Runnable action;
-    private boolean alreadyRan;
 
     RunOnceSoftThread(String name, Runnable action) {
       super(name);
@@ -259,13 +263,6 @@ public class InterruptResultSetTest extends DbTestBase {
 
     @Override
     protected void execute() {
-      if (alreadyRan) {
-        // Defensive: SoftThread.run loop invokes execute again before checking the
-        // shutdown flag, so we may re-enter here once — guard and yield out.
-        sendShutdown();
-        return;
-      }
-      alreadyRan = true;
       try {
         action.run();
       } finally {

@@ -156,6 +156,36 @@ public class ExecutionResultSetTest extends DbTestBase {
     assertThat(rs.getBoundToSession()).isNull();
   }
 
+  /**
+   * {@code tryAdvance} after close short-circuits to false without invoking the action —
+   * this follows from hasNext returning false post-close.
+   */
+  @Test
+  public void tryAdvanceAfterCloseReturnsFalseWithoutInvokingAction() {
+    var ctx = newContext();
+    var r = new ResultInternal(session);
+    var stream = ExecutionStream.resultIterator(List.of((Result) r).iterator());
+    var rs = new ExecutionResultSet(stream, ctx, null);
+    rs.close();
+    var invoked = new int[1];
+    assertThat(rs.tryAdvance(x -> invoked[0]++)).isFalse();
+    assertThat(invoked[0]).isZero();
+  }
+
+  /**
+   * {@code getExecutionPlan} still surfaces the plan after close — the plan reference is
+   * not cleared by close. Pins current behavior; a future change could nullify on close
+   * (in which case this assertion would flip).
+   */
+  @Test
+  public void getExecutionPlanStillAccessibleAfterClose() {
+    var ctx = newContext();
+    var plan = new StubPlan();
+    var rs = new ExecutionResultSet(ExecutionStream.empty(), ctx, plan);
+    rs.close();
+    assertThat(rs.getExecutionPlan()).isSameAs(plan);
+  }
+
   /** {@code trySplit} is null and {@code estimateSize} is unknown (Long.MAX_VALUE). */
   @Test
   public void spliteratorReportsUnknownSizeAndOrdered() {
