@@ -196,9 +196,13 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
       session.query("select from :target", params).close();
       Assert.fail("Expected CommandExecutionException for invalid param type");
     } catch (CommandExecutionException e) {
+      // Falsifiable AND-assertion: the production message format is
+      // "Invalid target: " + paramValue, so both tokens appear simultaneously.
+      // An OR here would mask a regression that dropped either half.
       Assert.assertTrue(
-          "message must contain 'Invalid target' or the bad value, got: " + e.getMessage(),
-          e.getMessage().contains("Invalid target") || e.getMessage().contains("42"));
+          "message must contain both the 'Invalid target' prefix and the bad value, got: "
+              + e.getMessage(),
+          e.getMessage().contains("Invalid target") && e.getMessage().contains("42"));
     }
   }
 
@@ -380,13 +384,35 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
     try (var result = session.query(sql)) {
       var rows = result.stream().toList();
       Assert.assertEquals(3, rows.size());
-      // Every outer row must see a non-null $sub binding — the global LET subquery resolves
-      // into the context and is available to the projection at evaluation time.
+      // Every outer row must see the same non-null $sub.size() == 3 — the global LET subquery
+      // resolves ONCE against the full source (all 3 rows). If the promotion were a no-op and
+      // $sub resolved per-record, size() would collapse to 1 per outer row; pinning the exact
+      // count catches that regression.
+      // Observed behavior (pinned as a falsifiable regression): the global-LET subquery is
+      // resolved once and the resulting stream is consumed by the first outer row's
+      // $sub.size() projection — so row[0].cnt == 3 (matches the outer-class row count),
+      // but rows[1..2].cnt == 0 because the materialized stream has already been drained.
+      // This pins the currently observed shape deterministically; a regression that (a)
+      // failed to promote the LET to global (per-record resolution would produce cnt==1 for
+      // every row), (b) duplicated the stream per row (all cnt==3), or (c) lost the
+      // first-row materialization (all cnt==0) would be caught.
+      //
+      // WHEN-FIXED: Track 22 — evaluate whether the stream-exhaustion behavior is a bug
+      // (semantically, a global-LET reference should see the same size() across rows) or
+      // an accepted quirk. If fixed to return 3 per row, delete this pin and replace with
+      // `assertEquals(3L, cnt)` per row.
       var names = new java.util.HashSet<String>();
-      for (var row : rows) {
+      for (var i = 0; i < rows.size(); i++) {
+        var row = rows.get(i);
+        Object cnt = row.getProperty("cnt");
         Assert.assertNotNull(
-            "global-LET subquery must be visible in projection of every outer row",
-            row.getProperty("cnt"));
+            "global-LET subquery must be visible in projection of every outer row", cnt);
+        long expected = (i == 0) ? 3L : 0L;
+        Assert.assertEquals(
+            "row[" + i + "].cnt must match the observed stream-exhaustion shape "
+                + "(first=3, subsequent=0)",
+            expected,
+            ((Number) cnt).longValue());
         names.add(row.<String>getProperty("name"));
       }
       Assert.assertEquals(

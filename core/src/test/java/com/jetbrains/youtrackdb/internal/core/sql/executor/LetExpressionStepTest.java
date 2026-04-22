@@ -162,8 +162,26 @@ public class LetExpressionStepTest extends TestUtilsFixture {
 
     var serialized = step.serialize(session);
 
-    assertThat((Object) serialized.getProperty("varname")).isNotNull();
-    assertThat((Object) serialized.getProperty("expression")).isNotNull();
+    // Pin observable content so a mutation that stored any non-null stub (e.g., a hardcoded
+    // empty Result or a swapped property order) would be caught. Mirrors the TB6 tightening
+    // applied to FilterStepTest.serializeStoresWhereClauseProperty.
+    Object varname = serialized.getProperty("varname");
+    Object expression = serialized.getProperty("expression");
+    assertThat(varname).isNotNull();
+    assertThat(expression).isNotNull();
+    assertThat(varname.toString())
+        .as("serialized varname must encode the identifier 'x'")
+        .contains("x");
+    // The serialized expression is a nested Result carrying the parsed expression AST —
+    // `parseExpression` returns an SQLBaseExpression whose `__class` tag is embedded in
+    // the serialized form. A regression that stored a stub (empty Result) would omit the
+    // tag; a regression that stored the wrong AST kind would carry a different tag.
+    assertThat(expression.toString())
+        .as("serialized expression must carry an SQLBaseExpression AST tag")
+        .contains("SQLBaseExpression");
+    assertThat(expression.toString())
+        .as("serialized expression must carry the literal value 42")
+        .contains("42");
   }
 
   /**

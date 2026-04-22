@@ -145,11 +145,14 @@ public class SmallPlannerBranchTest extends TestUtilsFixture {
       session.execute("update " + className + " put m = 'k', 'v'").close();
       Assert.fail("Expected CommandExecutionException for UPDATE PUT (unsupported)");
     } catch (CommandExecutionException e) {
+      // Falsifiable assertion: the production message is
+      // "Cannot execute with UPDATE PUT/ADD/INCREMENT new executor: " + op — all three
+      // tokens appear simultaneously, so the prior OR-check was always true. Pin the
+      // concatenated "PUT/ADD/INCREMENT" fragment so a regression that dropped any part
+      // of the message would be caught.
       Assert.assertTrue(
-          "message must reference PUT/ADD/INCREMENT: " + e.getMessage(),
-          e.getMessage().contains("PUT")
-              || e.getMessage().contains("ADD")
-              || e.getMessage().contains("INCREMENT"));
+          "message must reference the 'PUT/ADD/INCREMENT' operator family: " + e.getMessage(),
+          e.getMessage().contains("PUT/ADD/INCREMENT"));
     } finally {
       session.rollback();
     }
