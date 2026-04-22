@@ -9,15 +9,21 @@ steps and review findings.
 
 ## Phase B Startup
 
-Before implementing the first step, record the current `HEAD` as the base
-commit for Phase C's track-level code review:
+Before implementing the first step:
 
-1. Run `git rev-parse HEAD` to get the current SHA.
-2. Write it to the step file's `## Base commit` section (creating the
-   section if it doesn't exist).
-
-This only needs to happen once per track — skip if `## Base commit` already
-has a SHA (e.g., when resuming Phase B after a mid-phase checkpoint).
+1. **Record the base commit.** Run `git rev-parse HEAD` to get the
+   current SHA, then write it to the step file's `## Base commit`
+   section (creating the section if it doesn't exist). Skip if
+   `## Base commit` already has a SHA (e.g., when resuming Phase B
+   after a mid-phase checkpoint).
+2. **Generate the slim plan snapshot** at
+   `/tmp/claude-code-plan-slim-$PPID.md`. Read the plan, apply the
+   rendering rule in [`plan-slim-rendering.md`](plan-slim-rendering.md),
+   and write the result. Sub-agents spawned for step-level code review
+   will read this snapshot by path — this keeps the main agent's
+   tool-call history from accumulating a plan copy per spawn.
+   Regenerate the snapshot whenever the plan is modified during the
+   session (plan corrections, strategy-refresh writes).
 
 ---
 
@@ -125,20 +131,36 @@ completion**, before moving to the next step:
       Reviewing: uncommitted changes or last commit (as appropriate)
 
       ## Implementation Plan (strategic context)
-      {slim rendering of implementation-plan.md — see
-      [`plan-slim-rendering.md`](plan-slim-rendering.md): keep pre-Checklist
-      content, current track full, completed tracks as title + intro +
-      track episode + strategy refresh only}
+      Read the slim plan snapshot at:
+        /tmp/claude-code-plan-slim-{PPID}.md
+      Filtered view of the plan — completed tracks show title + intro +
+      track episode + strategy refresh only; the current track and
+      other not-started tracks are shown in full. If the snapshot is
+      missing, fall back to docs/adr/{dir-name}/implementation-plan.md.
 
       ## Track Steps (tactical context)
-      {contents of tracks/track-N.md — all steps with their episodes}
+      Read the step file at:
+        docs/adr/{dir-name}/tracks/track-{N}.md
+      Contains all steps for this track with their episodes.
 
       ## Skip These Files (generated code)
       - core/.../sql/parser/*, generated-sources/*, Gremlin DSL
 
       ## Diff
-      {the step's diff}
+      {the step's diff — passed inline since it is the review target}
       ```
+
+      **Why paths, not inline contents.** Inlining `{contents}` for each
+      of the plan and track file places a copy of those files in the
+      main agent's tool-call history for every sub-agent spawn. Across
+      a Phase B session this dominates main-agent context. Paths keep
+      the main agent lean; sub-agents Read the files themselves so the
+      contents land only in sub-agent context. The diff is the one
+      exception — it is the review target, small, and step-specific, so
+      it is passed inline.
+
+      The main agent substitutes `{PPID}`, `{dir-name}`, and `{N}` with
+      concrete values when composing each prompt.
    b. **Synthesize**: After all selected agents complete, deduplicate findings across
       dimensions and prioritize (blocker > should-fix > suggestion). Merge
       findings that multiple agents flagged for the same code location.

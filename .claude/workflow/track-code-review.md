@@ -53,7 +53,15 @@ of the changes.
    records, track episodes from completed tracks).
 3. Read the **step file** (`docs/adr/<dir-name>/tracks/track-N.md`) — this
    provides the step descriptions and episodes.
-4. Use `{base_commit}` when spawning all review sub-agents.
+4. **Generate the slim plan snapshot** at
+   `/tmp/claude-code-plan-slim-$PPID.md`. Apply the rendering rule in
+   [`plan-slim-rendering.md`](plan-slim-rendering.md) to the plan read in
+   step 2, then write the snapshot. Sub-agents spawned for track-level
+   review will read this snapshot by path — this keeps the main agent's
+   tool-call history from accumulating a plan copy per sub-agent spawn.
+   Regenerate the snapshot if plan corrections are applied during the
+   review loop (before the next spawn batch).
+5. Use `{base_commit}` when spawning all review sub-agents.
    All sub-agents review `git diff {base_commit}..HEAD`.
 
 If `## Base commit` is missing (e.g., older step file format), fall back to
@@ -92,16 +100,21 @@ Track {N}: {track title}
 Reviewing commit range: {base_commit}..HEAD
 
 ## Implementation Plan (strategic context)
-{slim rendering of implementation-plan.md — see
-[`plan-slim-rendering.md`](plan-slim-rendering.md): keep pre-Checklist
-content, current track full, completed tracks as title + intro + track
-episode + strategy refresh only}
+Read the slim plan snapshot at:
+  /tmp/claude-code-plan-slim-{PPID}.md
+Filtered view of the plan — completed tracks show title + intro +
+track episode + strategy refresh only; the current track and other
+not-started tracks are shown in full. If the snapshot is missing, fall
+back to docs/adr/{dir-name}/implementation-plan.md.
 
 ## Track Steps (tactical context)
-{contents of tracks/track-N.md — all steps with their episodes}
+Read the step file at:
+  docs/adr/{dir-name}/tracks/track-{N}.md
+Contains all steps for this track with their episodes.
 
 ## Changed Files
-{output of git diff {base_commit}..HEAD --name-only}
+{output of git diff {base_commit}..HEAD --name-only — passed inline,
+small}
 
 ## Skip These Files (generated code)
 - core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/*
@@ -109,8 +122,18 @@ episode + strategy refresh only}
 - Generated Gremlin DSL classes
 
 ## Diff
-{output of git diff {base_commit}..HEAD}
+{output of git diff {base_commit}..HEAD — passed inline since it is the
+review target}
 ```
+
+**Why paths, not inline contents.** Inlining the plan and track file
+into every track-level sub-agent spawn embeds copies in the main
+agent's tool-call history — up to ~10 agents × 3 iterations per track.
+Paths keep the main agent lean; sub-agents Read the files themselves.
+The diff stays inline because it is the review target.
+
+The main agent substitutes `{PPID}`, `{dir-name}`, `{N}`, and
+`{base_commit}` when composing each prompt.
 
 ### Agent selection and launching
 
