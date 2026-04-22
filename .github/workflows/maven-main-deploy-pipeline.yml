@@ -197,7 +197,15 @@ jobs:
                separately. Start directly with the section headings.
             6. If the diff is empty, write a single line:
                `No source changes since the previous pre-release.`
-          claude_args: "--model claude-sonnet-4-6 --max-turns 25"
+          # The base-action doesn't grant any tool permissions by default;
+          # without `--allowed-tools` Claude can't run `git log`/`git diff` or
+          # write `/tmp/release-notes.md`, and the next step silently falls
+          # back to the stub body. Scope Bash to the git subcommands the
+          # prompt actually uses, and allow writing only to the notes file.
+          claude_args: >-
+            --model claude-sonnet-4-6
+            --max-turns 25
+            --allowed-tools "Bash(git log:*),Bash(git diff:*),Bash(git rev-parse:*),Bash(git show:*),Read,Write(/tmp/release-notes.md)"
 
       - name: Create GitHub pre-release
         # Run even if the Claude step failed, so the tag still gets cut and
