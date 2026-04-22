@@ -136,8 +136,11 @@ detection is used.
 
 ### Step file content (`tracks/track-N.md`)
 
-```markdown
+````markdown
 # Track N: <title>
+
+## Description
+<intro paragraph + **What** + **How** + **Constraints** + **Interactions** + optional track-level Mermaid diagram, copied from the backlog at Phase A start>
 
 ## Progress
 - [x] Review + decomposition
@@ -166,7 +169,20 @@ detection is used.
 - [ ] Step: <description>
 - [ ] Step: <description>
 - [ ] Step: <description>
-```
+````
+
+The **Description** section carries the track's detailed description —
+intro paragraph, `**What**:` / `**How**:` / `**Constraints**:` /
+`**Interactions**:` subsections, and any track-level Mermaid diagram —
+copied from `implementation-backlog.md` at Phase A start. It is written
+once (during Phase A orchestration) and re-written only if
+[`inline-replanning.md`](inline-replanning.md) updates a mid-execution
+track's description. Phase B and Phase C sub-agents that already read
+the step file see the description here automatically — see the
+description-lifecycle table below for the authoritative-location rules
+across phases. For legacy plans (no `implementation-backlog.md` on
+disk), the section is still written but sourced from the plan-file
+entry instead (see `track-review.md` Phase A legacy fallback).
 
 The **Progress** section tracks which phase the track is in. The execution
 agent updates it at each phase transition:
@@ -206,6 +222,47 @@ just-in-time during execution when the agent has maximum codebase
 context. Phase A always has freedom to adapt step-level decomposition
 without formal replanning — only track-level or decision-level changes
 require escalation.
+
+### Description lifecycle
+
+A track's detailed description (the `**What/How/Constraints/Interactions**`
+subsections plus any track-level Mermaid diagram) travels between files
+as the track moves through the workflow. The table below is the **single
+canonical reference** for where that content lives at each phase — Phase
+A resume logic (see [`track-review.md`](track-review.md)) and inline
+replanning (see [`inline-replanning.md`](inline-replanning.md)) both
+read the same rules from here.
+
+| Phase | Authoritative location | Writer | Reader(s) |
+|---|---|---|---|
+| Pre-Phase-1 | (none) | — | — |
+| Phase 1 write | `implementation-backlog.md` | Phase 1 agent (via `create-plan/SKILL.md`) | Phase 2 consistency + structural reviews |
+| Phase A start — before step-file write | `implementation-backlog.md` | (inherited from Phase 1) | Phase A orchestration (reads the track's backlog section) |
+| Phase A mid — step file has `## Description`, backlog entry still present | **step file** (per D3) | Phase A orchestration (wrote the step file) | Phase A resume logic (idempotent re-entry); Phase A review sub-agents |
+| Phase A end | step file | Phase A orchestration (backlog section already removed) | Phase A review sub-agents (Track 3 prompts) |
+| Phase B / Phase C | step file | (stable — only inline replan rewrites) | Phase B/C code-review sub-agents |
+| Phase C after collapse | step file + plan intro paragraph | Phase C collapse (writes intro + episode) | future-track sessions (as strategic context) |
+| Skipped at or before Phase A | (none — removed from backlog; step file never created) | `track-skip` | — |
+| Skipped after Phase A (rare) | step file (retained so the skip is traceable) | `track-skip` | — |
+| Inline replan | per authoritative-location rule in [`inline-replanning.md`](inline-replanning.md) | inline-replanning orchestration | — |
+| **Track-level Mermaid diagram** (parallel row) | Same trajectory as the description: backlog → step file at Phase A; never rendered in the plan file. Written by the same writer, read by the same readers at each phase. | (same) | (same) |
+
+**Legacy plans** (no `implementation-backlog.md` on disk, per D4): the
+description remains in the plan-file entry until Phase C collapse drops
+the keyword subsections. The step file still gets a `## Description`
+section at Phase A start, sourced from the plan-file entry rather than
+the backlog (see `track-review.md` Phase A legacy fallback).
+
+**Monotonic shrinkage:** The backlog grows only during Phase 1 or inline
+replanning, and shrinks as tracks enter Phase A or are skipped. Normal
+Phase A / B / C execution never adds entries. The file itself is never
+committed to git — it is a working file that persists on disk between
+sessions and is cleaned up when the branch is deleted after PR merge,
+per the Untracked-file invariant in `conventions.md` §1.2. The
+load-bearing-file rule in the same section requires the file to remain
+on disk for the lifetime of the plan, even after the last track section
+is removed (an empty header-only file still signals the new-format
+plan).
 
 ---
 
