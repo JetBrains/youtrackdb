@@ -225,6 +225,42 @@ public class BatchStepTest extends TestUtilsFixture {
     assertThat(copy.prettyPrint(0, 2)).isEqualTo(original.prettyPrint(0, 2));
   }
 
+  /**
+   * {@code batchSize == 0} is accepted by {@link SQLBatch} (and therefore by the public
+   * constructor), but {@code mapResult} unconditionally executes {@code entryCount % batchSize}
+   * on the first record — which throws {@link ArithmeticException} at iteration time. Pinning
+   * the current "silent accept, runtime crash" behavior as a falsifiable regression so that a
+   * future hardening (reject 0 in the constructor, or treat 0 as "no commit") forces updating
+   * this test.
+   *
+   * <p>WHEN-FIXED: Track 22 — either reject {@code batchSize == 0} at constructor time with a
+   * descriptive {@link IllegalArgumentException}, or re-interpret 0 as "never commit" (matching
+   * the dead-code "no batch" semantics in {@code SQLBatch.evaluate}).
+   */
+  @Test
+  public void batchSizeZeroThrowsArithmeticExceptionOnFirstRecord() {
+    var ctx = newContext();
+    var r1 = new ResultInternal(session);
+    var step = new BatchStep(batchOf(0), ctx, false);
+    step.setPrevious(sourceStep(ctx, List.of(r1)));
+
+    // mapResult's entryCount % batchSize is only reached when a transaction is active
+    // (the outer `if (db.getTransactionInternal().isActive())` guard). Start a tx so the
+    // bug surfaces — which is the production shape any real "BATCH 0" usage would have,
+    // since the step is only scheduled under an active tx in practice.
+    session.begin();
+    try {
+      var stream = step.start(ctx);
+      org.assertj.core.api.Assertions.assertThatThrownBy(() -> drain(stream, ctx))
+          .as("batchSize=0 must crash on the first record via entryCount %% batchSize")
+          .isInstanceOf(ArithmeticException.class);
+    } finally {
+      if (session.isTxActive()) {
+        session.rollback();
+      }
+    }
+  }
+
   // =========================================================================
   // Helpers
   // =========================================================================

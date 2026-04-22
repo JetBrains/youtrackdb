@@ -170,10 +170,15 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
       Assert.fail("Expected CommandExecutionException for non-Identifiable in iterable");
     } catch (CommandExecutionException e) {
       // WHEN-FIXED: Track 22 — fix typo "colleciton" → "collection" in
-      // SelectExecutionPlanner.handleInputParamAsTarget error message.
+      // SelectExecutionPlanner.handleInputParamAsTarget error message. This assertion
+      // must fail once the production message is corrected, so the Track 22 fix forces
+      // updating this test to assert the correctly spelled "collection" (and to drop
+      // this WHEN-FIXED marker).
       Assert.assertTrue(
-          "message must reference the bad iterable element, got: " + e.getMessage(),
-          e.getMessage().contains("colleciton") || e.getMessage().contains("collection"));
+          "message must reference the bad iterable element with the pinned 'colleciton' typo,"
+              + " got: "
+              + e.getMessage(),
+          e.getMessage().contains("colleciton"));
     }
   }
 
@@ -638,10 +643,13 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
       session.query("select from :target", params).close();
       Assert.fail("Expected CommandExecutionException when mid-iteration element is bad");
     } catch (CommandExecutionException e) {
-      // WHEN-FIXED: Track 22 — fix typo "colleciton" → "collection".
+      // WHEN-FIXED: Track 22 — fix typo "colleciton" → "collection". This assertion
+      // must fail once production is corrected, forcing the Track 22 fix to update the
+      // test to assert the correctly spelled "collection".
       Assert.assertTrue(
-          "message must flag the bad element, got: " + e.getMessage(),
-          e.getMessage().contains("colleciton") || e.getMessage().contains("collection"));
+          "message must flag the bad element with the pinned 'colleciton' typo, got: "
+              + e.getMessage(),
+          e.getMessage().contains("colleciton"));
     }
   }
 
@@ -693,6 +701,34 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
     try (var result = session.query("select from :target", params)) {
       Assert.assertTrue(result.hasNext());
       Assert.assertEquals(Integer.valueOf(1), result.next().getProperty("k"));
+    }
+  }
+
+  /**
+   * {@code SELECT FROM [#c:p]} — literal single-RID list. Drives the N == 1 boundary of the
+   * {@code for (var rid : rids)} loop in {@code handleRidsAsTarget}. Pins alongside the N > 1
+   * case below so a mutation that silently swapped {@code if (rids.size() > 1)} for
+   * {@code if (!rids.isEmpty())} (or vice versa) — affecting only the single-RID boundary —
+   * would be caught.
+   */
+  @Test
+  public void fetchFromLiteralRidList_singleRid() {
+    var className = "SingleRidTarget_" + uniqueSuffix();
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    var d = session.newInstance(className);
+    d.setProperty("i", 42);
+    var rid = d.getIdentity();
+    session.commit();
+
+    try (var result = session.query("select i from [" + rid + "]")) {
+      Assert.assertTrue("single-RID list must yield one row", result.hasNext());
+      Assert.assertEquals(
+          "fetched row must carry the targeted RID's content",
+          Integer.valueOf(42),
+          result.next().getProperty("i"));
+      Assert.assertFalse("single-RID list must not yield additional rows", result.hasNext());
     }
   }
 

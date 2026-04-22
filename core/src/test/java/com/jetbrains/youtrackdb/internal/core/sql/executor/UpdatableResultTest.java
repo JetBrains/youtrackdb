@@ -262,7 +262,14 @@ public class UpdatableResultTest extends TestUtilsFixture {
       var holder = session.newEntity("UR_GL");
       holder.setProperty("link", target);
       var r = new UpdatableResult(session, holder);
-      assertThat(r.getLink("link")).isNotNull();
+      // Pin the exact identity so a mutation that returned any non-null Identifiable (e.g.
+      // holder itself, or an unrelated RID) would be caught — an isNotNull assertion alone
+      // accepts both correct delegation and a wrong-but-present return.
+      var link = r.getLink("link");
+      assertThat(link).isNotNull();
+      assertThat(link.getIdentity())
+          .as("getLink must return the linked target's RID, not any non-null Identifiable")
+          .isEqualTo(target.getIdentity());
     } finally {
       session.rollback();
     }

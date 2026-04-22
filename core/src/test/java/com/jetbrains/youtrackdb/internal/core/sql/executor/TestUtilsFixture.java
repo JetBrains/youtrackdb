@@ -15,14 +15,16 @@ import org.junit.After;
  * <p>Why the leak guard:
  *
  * <ul>
- *   <li>{@link DbTestBase} reuses one {@code session} across all test methods in the class.
- *   <li>If an executor-step test opens a transaction (e.g. {@code session.begin()} to populate
- *       records, or implicitly via a CRUD step) and the test method throws before reaching its
- *       own {@code session.rollback()}, the next test method in the same class runs against a
- *       still-open transaction. Its assertions can cascade-fail or be silently affected by the
- *       leftover state.
- *   <li>{@link DbTestBase#afterTest()} only drops the database; it does not roll back. So the
- *       leak persists across the {@code @After} boundary within the same class.
+ *   <li>{@link DbTestBase#beforeTest()} creates a fresh database (and session) per {@code @Test}
+ *       method — so leaks do not cascade across methods within a class — but a test that throws
+ *       mid-transaction still leaves {@code session.isTxActive() == true} when
+ *       {@link DbTestBase#afterTest()} runs.
+ *   <li>{@link DbTestBase#afterTest()} calls {@code session.close()} on an active transaction,
+ *       which logs a warning and may mask the original failure (the close-path exception can
+ *       propagate in place of the test's real AssertionError).
+ *   <li>The rollback guard runs before {@link DbTestBase#afterTest()} (JUnit 4 runs subclass
+ *       {@code @After} methods first), cleans up silently, and preserves the test's original
+ *       failure for the test runner.
  * </ul>
  *
  * <p>Track 7 established this {@code @After rollbackIfLeftOpen} idiom for {@code sql/method}

@@ -333,19 +333,18 @@ public class SqlExecutorDeadCodeTest {
   public void batchStepPrettyPrintRespectsDepthAndIndent() {
     // WHEN-FIXED: Track 22 — pin the prettyPrint indent rendering (uses
     // ExecutionStepInternal.getIndent under the hood) so a whitespace regression in the
-    // shared helper is caught here too.
+    // shared helper is caught here too. The indent is depth * indent spaces followed by the
+    // base segment — exact-equals pins both the whitespace count and the segment content so
+    // a regression that added/dropped leading characters is caught.
     var ctx = new BasicCommandContext();
     var batch = new SQLBatch(-1);
     var step = new BatchStep(batch, ctx, false);
     var indented = step.prettyPrint(2, 3);
-    assertTrue(
-        "indented prettyPrint must end with the BATCH COMMIT EVERY -1 segment, got: " + indented,
-        indented.endsWith("+ BATCH COMMIT EVERY -1"));
-    // The leading whitespace must be longer than the depth=0 case — pin "indent applied".
-    assertTrue(
-        "depth=2 indent=3 prettyPrint must be longer than the depth=0 prettyPrint, got: "
-            + indented,
-        indented.length() > "+ BATCH COMMIT EVERY -1".length());
+    // depth=2 * indent=3 = 6 leading spaces, followed by "+ BATCH COMMIT EVERY -1".
+    assertEquals(
+        "depth=2 indent=3 prettyPrint must render as 6 leading spaces + base segment",
+        "      + BATCH COMMIT EVERY -1",
+        indented);
   }
 
   @Test

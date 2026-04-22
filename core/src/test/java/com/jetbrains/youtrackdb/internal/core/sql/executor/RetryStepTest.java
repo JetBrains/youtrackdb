@@ -116,6 +116,58 @@ public class RetryStepTest extends TestUtilsFixture {
   }
 
   // =========================================================================
+  // internalStart: retries boundary (0 / negative)
+  // =========================================================================
+
+  /**
+   * {@code retries == 0} makes the {@code for (i = 0; i < retries; i++)} loop body never execute
+   * — the step falls through to the terminal {@code new EmptyStep(ctx).start(ctx)} and returns
+   * an empty stream without ever invoking the body. Pins the loop boundary: a mutation replacing
+   * {@code i < retries} with {@code i <= retries} would run the body once for retries=0 and be
+   * caught here.
+   */
+  @Test
+  public void zeroRetriesYieldsEmptyStreamWithoutInvokingBody() {
+    var ctx = newContext();
+    var attempts = new AtomicInteger();
+    var body = List.of((SQLStatement) new StubStatement(() -> {
+      attempts.incrementAndGet();
+      return ExecutionStream.empty();
+    }));
+
+    var step = new RetryStep(body, 0, null, Boolean.TRUE, ctx, false);
+    var stream = step.start(ctx);
+
+    assertThat(stream.hasNext(ctx)).isFalse();
+    assertThat(attempts)
+        .as("retries=0 must skip the body entirely")
+        .hasValue(0);
+  }
+
+  /**
+   * Negative {@code retries} behaves like 0 — the {@code for} condition fails immediately and the
+   * body is not invoked. Pins the negative-boundary so a mutation to {@code Math.abs(retries)}
+   * or similar would be caught.
+   */
+  @Test
+  public void negativeRetriesYieldsEmptyStreamWithoutInvokingBody() {
+    var ctx = newContext();
+    var attempts = new AtomicInteger();
+    var body = List.of((SQLStatement) new StubStatement(() -> {
+      attempts.incrementAndGet();
+      return ExecutionStream.empty();
+    }));
+
+    var step = new RetryStep(body, -1, null, Boolean.TRUE, ctx, false);
+    var stream = step.start(ctx);
+
+    assertThat(stream.hasNext(ctx)).isFalse();
+    assertThat(attempts)
+        .as("negative retries must skip the body entirely")
+        .hasValue(0);
+  }
+
+  // =========================================================================
   // internalStart: success paths
   // =========================================================================
 

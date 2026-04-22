@@ -152,7 +152,10 @@ public class IfStepTest extends TestUtilsFixture {
 
   /**
    * {@code initPositivePlan} chains every positive statement and returns a non-null plan even
-   * for a one-element list.
+   * for a one-element list. Pins the per-statement content via {@code prettyPrint} — a mutation
+   * that silently dropped {@code positiveStatements[1]} would only reduce step count but keep
+   * the plan non-empty, so a size-only assertion is too weak. Asserting both constants appear
+   * in the chained plan detects both "second statement dropped" and "statements swapped" bugs.
    */
   @Test
   public void initPositivePlanChainsAllStatements() {
@@ -165,6 +168,11 @@ public class IfStepTest extends TestUtilsFixture {
 
     assertThat(plan).isNotNull();
     assertThat(plan.getSteps()).hasSizeGreaterThanOrEqualTo(2);
+    var rendered = plan.prettyPrint(0, 0);
+    assertThat(rendered)
+        .as("both statements' projected constants must appear in the chained plan")
+        .contains("\"a\" AS x")
+        .contains("\"b\" AS x");
   }
 
   /**
@@ -193,7 +201,11 @@ public class IfStepTest extends TestUtilsFixture {
     assertThat(step.initNegativePlan(ctx)).isNull();
   }
 
-  /** {@code initNegativePlan} chains every negative statement for a non-empty list. */
+  /**
+   * {@code initNegativePlan} chains every negative statement for a non-empty list. Pins the
+   * per-statement content via {@code prettyPrint} so a mutation returning any non-empty fallback
+   * plan (unrelated to the input statements) would still fail the test.
+   */
   @Test
   public void initNegativePlanChainsAllStatementsForNonEmptyList() {
     var ctx = newContext();
@@ -204,6 +216,9 @@ public class IfStepTest extends TestUtilsFixture {
 
     assertThat(plan).isNotNull();
     assertThat(plan.getSteps()).isNotEmpty();
+    assertThat(plan.prettyPrint(0, 0))
+        .as("the statement's projected constant must appear in the chained plan")
+        .contains("1");
   }
 
   // =========================================================================
