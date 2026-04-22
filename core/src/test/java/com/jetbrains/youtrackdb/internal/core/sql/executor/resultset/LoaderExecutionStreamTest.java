@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.resultset;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
@@ -11,6 +10,8 @@ import com.jetbrains.youtrackdb.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.TestUtilsFixture;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -30,16 +31,25 @@ import org.junit.Test;
  * </ul>
  *
  * <p>It also skips null iterator values and swallows {@code RecordNotFoundException} by
- * stopping the scan (breaks out of the current hasNext with an unset nextResult, which the
- * next hasNext call re-examines).
+ * aborting the scan — the loader does NOT continue past a missing record, it terminates.
+ * This is exercised explicitly via the mid-stream-missing test.
+ *
+ * <p>Extends {@link TestUtilsFixture} (not {@link com.jetbrains.youtrackdb.internal.DbTestBase}
+ * directly) so Track 8 Step 1's {@code @After rollbackIfLeftOpen()} safety net catches
+ * mid-transaction failures in this test class.
  */
-public class LoaderExecutionStreamTest extends DbTestBase {
+public class LoaderExecutionStreamTest extends TestUtilsFixture {
 
   private BasicCommandContext newContext() {
     return new BasicCommandContext(session);
   }
 
-  private EntityImpl createAndSave() {
+  /**
+   * Creates and commits a new entity. Persistence happens at {@code commit()} — the helper
+   * deliberately does not call {@code save()} directly since {@code session.newEntity()} +
+   * {@code commit()} is the idiomatic persistence path.
+   */
+  private EntityImpl createAndCommit() {
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     session.commit();
@@ -53,7 +63,7 @@ public class LoaderExecutionStreamTest extends DbTestBase {
   @Test
   public void loaderWrapsDBRecordDirectly() {
     var ctx = newContext();
-    var entity = createAndSave();
+    var entity = createAndCommit();
     var stream = new LoaderExecutionStream(List.<Identifiable>of(entity).iterator());
 
     assertThat(stream.hasNext(ctx)).isTrue();
@@ -72,7 +82,7 @@ public class LoaderExecutionStreamTest extends DbTestBase {
   @Test
   public void loaderResolvesBareRidByLoading() {
     var ctx = newContext();
-    var entity = createAndSave();
+    var entity = createAndCommit();
     var rid = entity.getIdentity();
 
     session.begin();
@@ -94,7 +104,7 @@ public class LoaderExecutionStreamTest extends DbTestBase {
   @Test
   public void loaderAttachesMetadataForContextualRecordId() {
     var ctx = newContext();
-    var entity = createAndSave();
+    var entity = createAndCommit();
 
     var contextual = new ContextualRecordId(entity.getIdentity().toString());
     var metadata = new HashMap<String, Object>();
@@ -119,9 +129,9 @@ public class LoaderExecutionStreamTest extends DbTestBase {
   @Test
   public void loaderSkipsNullIteratorEntries() {
     var ctx = newContext();
-    var entity = createAndSave();
+    var entity = createAndCommit();
 
-    var list = new java.util.ArrayList<Identifiable>();
+    var list = new ArrayList<Identifiable>();
     list.add(null);
     list.add(entity);
     var stream = new LoaderExecutionStream(list.iterator());
@@ -134,17 +144,48 @@ public class LoaderExecutionStreamTest extends DbTestBase {
   /**
    * A RID that does not resolve to an existing record causes the loader to stop the scan
    * without throwing: {@code RecordNotFoundException} is swallowed and {@code nextResult}
-   * stays null, so the next hasNext returns false. Uses a cluster id of 1 (admin/default)
-   * with an impossible position so {@code session.load} reaches the not-found path.
+   * stays null, so the next hasNext returns false. Uses an existing user cluster id with an
+   * impossible position so {@code session.load} reaches the not-found path (not a
+   * missing-cluster path, which would surface a different exception).
    */
   @Test
   public void loaderStopsOnRecordNotFoundException() {
     var ctx = newContext();
-    // cluster 0 (internal) position 999_999_999 is guaranteed not to exist.
-    var missingRid = new RecordId(0, 999_999_999L);
+    var entity = createAndCommit();
+    var missingRid = new RecordId(entity.getIdentity().getCollectionId(), 999_999_999L);
     session.begin();
     try {
       var stream = new LoaderExecutionStream(List.<Identifiable>of(missingRid).iterator());
+      assertThat(stream.hasNext(ctx)).isFalse();
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * A mid-stream missing record aborts the scan — the loader does NOT skip the bad record
+   * and continue; it terminates on the first {@code RecordNotFoundException}. This pins the
+   * observable contract, because both "abort" and "skip-and-continue" would satisfy the
+   * simpler single-element test above. If Track 22 ever adopts skip-and-continue semantics,
+   * this assertion flips (and should be re-pinned as a {@code WHEN-FIXED} marker).
+   */
+  @Test
+  public void loaderAbortsScanOnFirstRecordNotFoundAndDropsTail() {
+    var ctx = newContext();
+    var first = createAndCommit();
+    var tail = createAndCommit();
+    var missingRid =
+        new RecordId(first.getIdentity().getCollectionId(), 999_999_999L);
+
+    session.begin();
+    try {
+      // Iterator order: good → missing → good-tail. The loader must deliver the first
+      // record, then hit the missing one and terminate before reaching `tail`.
+      var it = List.of(first.getIdentity(), missingRid, tail.getIdentity()).iterator();
+      var stream = new LoaderExecutionStream(it);
+      assertThat(stream.hasNext(ctx)).isTrue();
+      assertThat(stream.next(ctx).getIdentity()).isEqualTo(first.getIdentity());
+      // Missing record aborts the scan — tail is not reached.
       assertThat(stream.hasNext(ctx)).isFalse();
     } finally {
       session.rollback();

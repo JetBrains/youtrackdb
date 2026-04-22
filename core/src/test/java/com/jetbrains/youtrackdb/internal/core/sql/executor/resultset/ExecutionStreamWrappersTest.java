@@ -8,7 +8,6 @@ import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -16,7 +15,6 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import org.junit.Test;
@@ -130,6 +128,10 @@ public class ExecutionStreamWrappersTest extends DbTestBase {
 
   /**
    * An empty underlying iterator produces an empty stream and {@code close()} is a no-op.
+   * IteratorExecutionStream does not defensively gate {@code next()} on hasNext, so calling
+   * next() on an empty iterator propagates the JDK {@link NoSuchElementException} straight
+   * through (NOT IllegalStateException, unlike the other stream wrappers — an asymmetry
+   * worth pinning).
    */
   @Test
   public void iteratorStreamWithEmptyIteratorProducesNothing() {
@@ -137,6 +139,7 @@ public class ExecutionStreamWrappersTest extends DbTestBase {
     var stream = ExecutionStream.iterator(Collections.emptyIterator());
 
     assertThat(stream.hasNext(ctx)).isFalse();
+    assertThatThrownBy(() -> stream.next(ctx)).isInstanceOf(NoSuchElementException.class);
     stream.close(ctx);
   }
 
@@ -228,6 +231,51 @@ public class ExecutionStreamWrappersTest extends DbTestBase {
 
     filtered.close(ctx);
     assertThat(upstream.closeCount()).isEqualTo(1);
+  }
+
+  /**
+   * WHEN-FIXED: Track 22 — When the filter predicate throws, the exception propagates but
+   * the internal {@code nextItem} is left holding the unfiltered upstream value (because
+   * {@code fetchNextItem} assigns to {@code nextItem} BEFORE calling the mapper, and the
+   * re-assignment from the mapper never happens on throw). Consequently the next
+   * {@code next()} call leaks the unfiltered Result downstream — a latent bug. A fix would
+   * either reset nextItem before the mapper call or wrap the mapper in a try-reset. Pinned
+   * here so Track 22 can flip the assertion after the fix.
+   */
+  @Test
+  public void filterExceptionLeaksUnfilteredItemOnNextCall() {
+    var ctx = newContext();
+    var upstream = streamOfInts(1, 2, 3);
+    var filtered = upstream.filter((r, c) -> {
+      if (r.<Integer>getProperty("value") == 1) {
+        throw new RuntimeException("boom");
+      }
+      return r;
+    });
+
+    assertThatThrownBy(() -> filtered.hasNext(ctx))
+        .isInstanceOf(RuntimeException.class)
+        .hasMessage("boom");
+    // Subsequent next() returns the UNFILTERED upstream value (1) even though the filter
+    // would reject it if re-invoked. After the fix, this should return 2 (next upstream).
+    assertThat(filtered.hasNext(ctx)).isTrue();
+    assertThat(filtered.next(ctx).<Integer>getProperty("value")).isEqualTo(1);
+    // Subsequent elements filter normally.
+    assertThat(filtered.next(ctx).<Integer>getProperty("value")).isEqualTo(2);
+  }
+
+  /**
+   * Once a FilterExecutionStream is exhausted, repeated {@code hasNext()} calls remain
+   * false without re-draining the already-exhausted upstream (idempotent terminal state).
+   */
+  @Test
+  public void filterHasNextIsIdempotentAfterExhaustion() {
+    var ctx = newContext();
+    var filtered = streamOfInts(1).filter((r, c) -> null);
+
+    assertThat(filtered.hasNext(ctx)).isFalse();
+    assertThat(filtered.hasNext(ctx)).isFalse();
+    assertThat(filtered.hasNext(ctx)).isFalse();
   }
 
   // =========================================================================
@@ -348,7 +396,7 @@ public class ExecutionStreamWrappersTest extends DbTestBase {
     assertThat(flat.next(ctx).<Integer>getProperty("value")).isEqualTo(10);
     flat.close(ctx);
 
-    assertThat(sub1.closeCount()).isGreaterThanOrEqualTo(1);
+    assertThat(sub1.closeCount()).isEqualTo(1);
     assertThat(base.closeCount()).isEqualTo(1);
   }
 
@@ -364,6 +412,35 @@ public class ExecutionStreamWrappersTest extends DbTestBase {
 
     flat.close(ctx);
     assertThat(base.closeCount()).isEqualTo(1);
+  }
+
+  /**
+   * When the flatMap mapper returns a null sub-stream, the while-loop in {@code hasNext}
+   * transparently advances to the next base element (the null check at the top of the
+   * loop treats null as "no current stream, fetch next base"). Thus a mapper that always
+   * returns null yields an empty flattened stream, not an NPE — contrary to intuition.
+   * Pins current behavior; a stricter null-rejects-at-source fix would flip to NPE.
+   */
+  @Test
+  public void flatMapNullSubStreamIsTransparentlySkipped() {
+    var ctx = newContext();
+    var flat = streamOfInts(1, 2).flatMap((next, c) -> null);
+    assertThat(flat.hasNext(ctx)).isFalse();
+    assertThatThrownBy(() -> flat.next(ctx)).isInstanceOf(IllegalStateException.class);
+  }
+
+  /**
+   * When the flatMap mapper throws, the exception propagates unchanged.
+   */
+  @Test
+  public void flatMapMapperExceptionPropagates() {
+    var ctx = newContext();
+    var flat = streamOfInts(1).flatMap((next, c) -> {
+      throw new RuntimeException("boom");
+    });
+    assertThatThrownBy(() -> flat.hasNext(ctx))
+        .isInstanceOf(RuntimeException.class)
+        .hasMessage("boom");
   }
 
   // =========================================================================
@@ -438,6 +515,38 @@ public class ExecutionStreamWrappersTest extends DbTestBase {
     assertThat(upstream.closeCount()).isEqualTo(1);
   }
 
+  /**
+   * A negative limit causes {@code count >= limit} to be true from the start; the stream is
+   * empty without ever consulting the upstream. Some SQL dialects interpret {@code LIMIT -1}
+   * as "no limit", so this behavior is a trap for translators — pin it.
+   */
+  @Test
+  public void limitNegativeProducesEmpty() {
+    var ctx = newContext();
+    var upstream = new CloseTracker(streamOfInts(1, 2));
+    var limited = upstream.limit(-1);
+
+    assertThat(limited.hasNext(ctx)).isFalse();
+    assertThatThrownBy(() -> limited.next(ctx)).isInstanceOf(IllegalStateException.class);
+    // Upstream is not consulted: no close yet.
+    assertThat(upstream.closeCount()).isZero();
+  }
+
+  /**
+   * When limit equals the upstream size exactly, the final hasNext after the last element
+   * must short-circuit via the {@code count >= limit} path without consulting the (now
+   * exhausted) upstream — this pins the off-by-one between {@code >=} and {@code >}.
+   */
+  @Test
+  public void limitEqualToUpstreamSizeDoesNotOverconsume() {
+    var ctx = newContext();
+    var upstream = streamOfInts(1, 2, 3);
+    var limited = upstream.limit(3);
+
+    assertThat(drain(limited, ctx)).hasSize(3);
+    assertThat(limited.hasNext(ctx)).isFalse();
+  }
+
   // =========================================================================
   // ProduceExecutionStream
   // =========================================================================
@@ -478,23 +587,45 @@ public class ExecutionStreamWrappersTest extends DbTestBase {
   // =========================================================================
 
   /**
-   * {@code onClose} wraps an existing stream and runs the supplied callback exactly once
-   * before delegating close to the underlying source.
+   * {@code onClose} wraps an existing stream, delegates hasNext/next, and on close invokes
+   * the supplied callback BEFORE the underlying source's close. Note: the wrapper does NOT
+   * guard against double-invocation — a second {@code close()} call fires the callback and
+   * source.close a second time (pinned by the idempotency test below).
    */
   @Test
   public void onCloseRunsCallbackBeforeSourceClose() {
     var ctx = newContext();
-    var callbackInvoked = new AtomicBoolean(false);
+    var callbackCalls = new AtomicInteger();
     var source = new CloseTracker(streamOfInts(1));
-    var onClose = source.onClose(c -> callbackInvoked.set(true));
+    var onClose = source.onClose(c -> callbackCalls.incrementAndGet());
 
     // hasNext/next pass-through
     assertThat(onClose.hasNext(ctx)).isTrue();
     assertThat(onClose.next(ctx).<Integer>getProperty("value")).isEqualTo(1);
 
     onClose.close(ctx);
-    assertThat(callbackInvoked.get()).isTrue();
+    assertThat(callbackCalls.get()).isEqualTo(1);
     assertThat(source.closeCount()).isEqualTo(1);
+  }
+
+  /**
+   * OnCloseExecutionStream is NOT idempotent on close: a second close fires the callback
+   * and the source-close a second time. Pin current behavior as a falsifiable regression —
+   * if a future fix adds an "already closed" guard, this assertion flips to 1 and should
+   * be re-pinned as a {@code WHEN-FIXED} marker.
+   */
+  @Test
+  public void onCloseIsNotIdempotentOnRepeatedClose() {
+    var ctx = newContext();
+    var callbackCalls = new AtomicInteger();
+    var source = new CloseTracker(streamOfInts(1));
+    var onClose = source.onClose(c -> callbackCalls.incrementAndGet());
+
+    onClose.close(ctx);
+    onClose.close(ctx);
+
+    assertThat(callbackCalls.get()).isEqualTo(2);
+    assertThat(source.closeCount()).isEqualTo(2);
   }
 
   // =========================================================================
@@ -546,8 +677,8 @@ public class ExecutionStreamWrappersTest extends DbTestBase {
 
     assertThat(stream.hasNext(ctx)).isTrue();
     stream.close(ctx);
-    // Current sub-stream closed at least once (hasNext may also close on drain).
-    assertThat(sub.closeCount()).isGreaterThanOrEqualTo(1);
+    // hasNext does not close the sub-stream; close() itself is the single close invocation.
+    assertThat(sub.closeCount()).isEqualTo(1);
     assertThat(producer.closed).isTrue();
   }
 
@@ -571,7 +702,8 @@ public class ExecutionStreamWrappersTest extends DbTestBase {
 
   /**
    * CostMeasureExecutionStream delegates hasNext/next/close and accumulates elapsed nanos
-   * (monotonically non-decreasing) into its {@code cost} counter for each invocation.
+   * (strictly positive — System.nanoTime() resolution guarantees a non-zero delta inside
+   * the try-finally block) into its {@code cost} counter for each invocation.
    */
   @Test
   public void costMeasureAccumulatesCostAndDelegatesDelivery() {
@@ -585,14 +717,54 @@ public class ExecutionStreamWrappersTest extends DbTestBase {
 
     assertThat(profiled.hasNext(ctx)).isTrue();
     var costAfterHasNext = profiled.getCost();
-    assertThat(costAfterHasNext).isGreaterThanOrEqualTo(0);
+    // Strictly positive: a regression that removed the `cost += ...` accumulation would
+    // leave cost at 0 and this assertion would flip.
+    assertThat(costAfterHasNext).isPositive();
 
     assertThat(profiled.next(ctx).<Integer>getProperty("value")).isEqualTo(1);
     var costAfterNext = profiled.getCost();
-    assertThat(costAfterNext).isGreaterThanOrEqualTo(costAfterHasNext);
+    // Strictly greater: next() goes through its own try-finally accumulator.
+    assertThat(costAfterNext).isGreaterThan(costAfterHasNext);
 
     profiled.close(ctx);
     assertThat(source.closeCount()).isEqualTo(1);
+  }
+
+  /**
+   * CostMeasureExecutionStream uses try-finally to run {@code endProfiling} and accumulate
+   * cost even when the source throws. Verifies that (a) the exception propagates
+   * unchanged, (b) cost still accumulates, (c) the profiling stack is popped so a following
+   * startProfiling/endProfiling pair works. A regression that skipped the finally block
+   * would leave the stats stack corrupted and break later profiling.
+   */
+  @Test
+  public void costMeasureRecordsCostAndEndsProfilingEvenOnSourceException() {
+    var ctx = newContext();
+    var step = new NoOpStep();
+    var source = new ExecutionStream() {
+      @Override
+      public boolean hasNext(CommandContext c) {
+        throw new RuntimeException("boom");
+      }
+
+      @Override
+      public Result next(CommandContext c) {
+        throw new IllegalStateException();
+      }
+
+      @Override
+      public void close(CommandContext c) {
+      }
+    };
+    var profiled = source.profile(step);
+
+    assertThatThrownBy(() -> profiled.hasNext(ctx))
+        .isInstanceOf(RuntimeException.class)
+        .hasMessage("boom");
+    assertThat(profiled.getCost()).isPositive();
+    // endProfiling must have popped the stack — a following start/end pair must work.
+    ctx.startProfiling(step);
+    ctx.endProfiling(step);
   }
 
   // =========================================================================
@@ -790,27 +962,6 @@ public class ExecutionStreamWrappersTest extends DbTestBase {
     @Override
     public List<ExecutionStep> getSubSteps() {
       return List.of();
-    }
-  }
-
-  /**
-   * Minimal {@link AbstractExecutionStep} unused but kept here for completeness — the
-   * ExecutionStream wrapper tests never need a real step.
-   */
-  @SuppressWarnings("unused")
-  private static class UnusedStep extends AbstractExecutionStep {
-    UnusedStep(CommandContext ctx) {
-      super(ctx, false);
-    }
-
-    @Override
-    public ExecutionStream internalStart(CommandContext ctx) {
-      return ExecutionStream.empty();
-    }
-
-    @Override
-    public ExecutionStep copy(CommandContext ctx) {
-      return this;
     }
   }
 }

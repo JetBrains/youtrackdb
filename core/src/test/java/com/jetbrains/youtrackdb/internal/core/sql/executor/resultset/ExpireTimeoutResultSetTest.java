@@ -193,9 +193,30 @@ public class ExpireTimeoutResultSetTest extends DbTestBase {
   }
 
   /**
+   * WHEN-FIXED: Track 22 — {@link TimeoutResultSet#next} re-fires the timeout callback
+   * on every next() call after the threshold, because the totalTime check runs before the
+   * timedOut guard. If a caller ignores hasNext and invokes next repeatedly, the callback
+   * is called once per call. Mirrors the ExpireResultSet repeat-fire WHEN-FIXED pin. The
+   * fix would guard with `if (!timedOut)` around the `if (totalTime/1_000_000 > timeoutMillis)`
+   * block.
+   */
+  @Test
+  public void timeoutRepeatedNextFiresCallbackEachTime() {
+    var ctx = newContext();
+    var calls = new int[1];
+    var stream = new TimeoutResultSet(streamOfInts(1, 2), -1, () -> calls[0]++);
+
+    stream.hasNext(ctx); // accumulate some nanos so the ratio can be computed
+    stream.next(ctx); // first fire
+    stream.next(ctx); // still-past-threshold — fires again (Track 22 fix would stop this)
+    assertThat(calls[0]).isEqualTo(2);
+  }
+
+  /**
    * After timing out once (via a negative timeout), subsequent hasNext calls continue to
    * report false even when the underlying source would still have data — the timedOut
-   * flag is sticky.
+   * flag is sticky. Note: the {@code -1} timeoutMillis is load-bearing; using {@code 0}
+   * would be flaky because the accumulator must first cross the 1-millisecond boundary.
    */
   @Test
   public void timeoutFlagIsSticky() {
