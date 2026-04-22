@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.metadata.IndexFinder.Operation;
 import java.util.List;
@@ -108,6 +109,11 @@ public class IndexCandidatesTest {
 
   // ------------------------------------------------------------------------- IndexCandidateChain
 
+  /**
+   * Pins the current trailing-arrow concatenation. If a future refactor (candidate for Track 22)
+   * joins with {@code ->} as a proper separator (no trailing arrow, e.g., {@code
+   * first->second->third}), this assertion flips.
+   */
   @Test
   public void chainNameIsArrowJoinedWithTrailingArrow() {
     var chain = new IndexCandidateChain("first");
@@ -122,37 +128,70 @@ public class IndexCandidatesTest {
     assertThat(chain.getName()).isEqualTo("only->");
   }
 
+  /** Edge case — empty-string name still renders with the trailing arrow separator. */
   @Test
-  public void chainInvertFlipsRangeOperations() {
-    var chain = new IndexCandidateChain("i");
-    chain.setOperation(Operation.Gt);
-    assertThat(chain.invert().getOperation()).isEqualTo(Operation.Le);
-
-    var chain2 = new IndexCandidateChain("i");
-    chain2.setOperation(Operation.Ge);
-    assertThat(chain2.invert().getOperation()).isEqualTo(Operation.Lt);
-
-    var chain3 = new IndexCandidateChain("i");
-    chain3.setOperation(Operation.Lt);
-    assertThat(chain3.invert().getOperation()).isEqualTo(Operation.Ge);
-
-    var chain4 = new IndexCandidateChain("i");
-    chain4.setOperation(Operation.Le);
-    assertThat(chain4.invert().getOperation()).isEqualTo(Operation.Gt);
+  public void chainNameWithEmptyStringInputStillRenders() {
+    var chain = new IndexCandidateChain("");
+    assertThat(chain.getName()).isEqualTo("->");
   }
 
   @Test
-  public void chainInvertDoesNothingForEq() {
+  public void chainInvertFlipsGtToLe() {
+    var chain = new IndexCandidateChain("i");
+    chain.setOperation(Operation.Gt);
+    assertThat(chain.invert().getOperation()).isEqualTo(Operation.Le);
+  }
+
+  @Test
+  public void chainInvertFlipsGeToLt() {
+    var chain = new IndexCandidateChain("i");
+    chain.setOperation(Operation.Ge);
+    assertThat(chain.invert().getOperation()).isEqualTo(Operation.Lt);
+  }
+
+  @Test
+  public void chainInvertFlipsLtToGe() {
+    var chain = new IndexCandidateChain("i");
+    chain.setOperation(Operation.Lt);
+    assertThat(chain.invert().getOperation()).isEqualTo(Operation.Ge);
+  }
+
+  @Test
+  public void chainInvertFlipsLeToGt() {
+    var chain = new IndexCandidateChain("i");
+    chain.setOperation(Operation.Le);
+    assertThat(chain.invert().getOperation()).isEqualTo(Operation.Gt);
+  }
+
+  @Test
+  public void chainInvertIsIdentityForEq() {
     var chain = new IndexCandidateChain("i");
     chain.setOperation(Operation.Eq);
     assertThat(chain.invert().getOperation()).isEqualTo(Operation.Eq);
   }
 
   @Test
-  public void chainInvertDoesNothingWhenOperationIsNull() {
-    // setOperation was never called; invert must not NPE on the null comparison branch.
+  public void chainInvertIsIdentityForFuzzyEq() {
     var chain = new IndexCandidateChain("i");
-    assertThat(chain.invert().getOperation()).isNull();
+    chain.setOperation(Operation.FuzzyEq);
+    assertThat(chain.invert().getOperation()).isEqualTo(Operation.FuzzyEq);
+  }
+
+  @Test
+  public void chainInvertIsIdentityForRange() {
+    var chain = new IndexCandidateChain("i");
+    chain.setOperation(Operation.Range);
+    assertThat(chain.invert().getOperation()).isEqualTo(Operation.Range);
+  }
+
+  @Test
+  public void chainInvertReturnsSameInstanceEvenWhenOperationIsNull() {
+    // setOperation was never called; invert must not NPE on the null comparison branch AND
+    // must return `this` (in-place mutation, not a new chain).
+    var chain = new IndexCandidateChain("i");
+    var ret = chain.invert();
+    assertThat(ret).isSameAs(chain);
+    assertThat(ret.getOperation()).isNull();
   }
 
   @Test
@@ -216,7 +255,8 @@ public class IndexCandidatesTest {
     var inner = new IndexCandidateImpl("idx", Operation.Eq, propA);
     m.addCanditate(inner);
     assertThat(m.getCanditates()).containsExactly(inner);
-    assertThat(m.canditates).containsExactly(inner);
+    // Pin: getCanditates() returns the live field (no defensive copy).
+    assertThat(m.getCanditates()).isSameAs(m.canditates);
   }
 
   @Test
@@ -243,6 +283,21 @@ public class IndexCandidatesTest {
     m.addCanditate(new IndexCandidateImpl("idxA", Operation.Eq, propA));
     m.addCanditate(new IndexCandidateImpl("idxB", Operation.Eq, propB));
     assertThat(m.properties()).containsExactly(propA, propB);
+  }
+
+  @Test
+  public void multiplePropertiesIsEmptyWhenNoCandidates() {
+    assertThat(new MultipleIndexCanditate().properties()).isEmpty();
+  }
+
+  @Test
+  public void multiplePropertiesSkipsCandidatesWithEmptyProperties() {
+    // IndexCandidateChain.properties() is always empty — pin that its addAll(empty) contributes
+    // nothing but does not throw.
+    var m = new MultipleIndexCanditate();
+    m.addCanditate(new IndexCandidateChain("chain"));
+    m.addCanditate(new IndexCandidateImpl("idx", Operation.Eq, propA));
+    assertThat(m.properties()).containsExactly(propA);
   }
 
   // ------------------------------------------------------------------------- RangeIndexCanditate
@@ -291,7 +346,7 @@ public class IndexCandidatesTest {
     var inner = new IndexCandidateImpl("idx", Operation.Eq, propA);
     r.addCanditate(inner);
     assertThat(r.getCanditates()).containsExactly(inner);
-    assertThat(r.canditates).containsExactly(inner);
+    assertThat(r.getCanditates()).isSameAs(r.canditates);
   }
 
   @Test
@@ -309,6 +364,64 @@ public class IndexCandidatesTest {
     r.addCanditate(new IndexCandidateImpl("idxA", Operation.Eq, propA));
     r.addCanditate(new IndexCandidateImpl("idxB", Operation.Eq, propB));
     assertThat(r.properties()).containsExactly(propA, propB);
+  }
+
+  /**
+   * RequiredIndexCanditate.normalize is pure logic over the child list — no CommandContext use.
+   * When every child normalizes to non-null, a new RequiredIndexCanditate is built with the
+   * normalized children.
+   */
+  @Test
+  public void requiredNormalizeAllChildrenSurviveReturnsNewInstance() {
+    var child1 = mock(IndexCandidate.class);
+    var child2 = mock(IndexCandidate.class);
+    var normalized1 = mock(IndexCandidate.class);
+    var normalized2 = mock(IndexCandidate.class);
+    when(child1.normalize(null)).thenReturn(normalized1);
+    when(child2.normalize(null)).thenReturn(normalized2);
+    var r = new RequiredIndexCanditate();
+    r.addCanditate(child1);
+    r.addCanditate(child2);
+
+    var result = (RequiredIndexCanditate) r.normalize(null);
+    assertThat(result).isNotSameAs(r);
+    assertThat(result.getCanditates()).containsExactly(normalized1, normalized2);
+  }
+
+  /** Any child normalizing to null short-circuits the whole normalize to null. */
+  @Test
+  public void requiredNormalizeReturnsNullIfAnyChildNormalizesToNull() {
+    var child1 = mock(IndexCandidate.class);
+    var child2 = mock(IndexCandidate.class);
+    when(child1.normalize(null)).thenReturn(mock(IndexCandidate.class));
+    when(child2.normalize(null)).thenReturn(null);
+    var r = new RequiredIndexCanditate();
+    r.addCanditate(child1);
+    r.addCanditate(child2);
+    assertThat(r.normalize(null)).isNull();
+  }
+
+  /** Empty child list → new empty RequiredIndexCanditate (for-loop body never entered). */
+  @Test
+  public void requiredNormalizeWithNoChildrenReturnsEmptyRequired() {
+    var r = new RequiredIndexCanditate();
+    var result = (RequiredIndexCanditate) r.normalize(null);
+    assertThat(result).isNotSameAs(r);
+    assertThat(result.getCanditates()).isEmpty();
+  }
+
+  /** Mocked CommandContext is accepted but never consumed by Required.normalize. */
+  @Test
+  public void requiredNormalizeDoesNotTouchContext() {
+    var ctx = mock(CommandContext.class);
+    var child = mock(IndexCandidate.class);
+    when(child.normalize(ctx)).thenReturn(child);
+    var r = new RequiredIndexCanditate();
+    r.addCanditate(child);
+    var result = (RequiredIndexCanditate) r.normalize(ctx);
+    assertThat(result.getCanditates()).containsExactly(child);
+    // No interactions on the context — pins the "pure logic" guarantee.
+    org.mockito.Mockito.verifyNoInteractions(ctx);
   }
 
   // ------------------------------------------------------------------------- IndexMetadataPath

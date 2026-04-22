@@ -1,10 +1,11 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.resultset;
 
+import static com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.LinkTestFixtures.rid;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -16,10 +17,6 @@ import org.junit.Test;
  * HashSet<Identifiable>}. All tests are standalone.
  */
 public class LinkSetResultImplTest {
-
-  private static Identifiable rid(int cluster, long position) {
-    return new RecordId(cluster, position);
-  }
 
   // ------------------------------------------------------------------------- constructors
 
@@ -36,6 +33,11 @@ public class LinkSetResultImplTest {
   public void initialCapacityConstructorIsEmpty() {
     var set = new LinkSetResultImpl(16);
     assertThat(set).isEmpty();
+  }
+
+  @Test
+  public void copyConstructorAcceptsEmptySource() {
+    assertThat(new LinkSetResultImpl(Collections.emptyList())).isEmpty();
   }
 
   /** Copy constructor is defensive — source mutation does not reach the copy. */
@@ -157,11 +159,11 @@ public class LinkSetResultImplTest {
   }
 
   @Test
-  public void streamCountMatchesSize() {
+  public void streamContainsAllElements() {
     var set = new LinkSetResultImpl();
     set.add(rid(1, 0));
     set.add(rid(1, 1));
-    assertThat(set.stream().count()).isEqualTo(2L);
+    assertThat(set.stream()).containsExactlyInAnyOrder(rid(1, 0), rid(1, 1));
   }
 
   @Test
@@ -186,7 +188,8 @@ public class LinkSetResultImplTest {
   public void toArrayReturnsElements() {
     var set = new LinkSetResultImpl();
     set.add(rid(1, 0));
-    assertThat(set.toArray()).containsExactly(rid(1, 0));
+    // Single-element result: HashSet iteration order is unspecified, but here only one element.
+    assertThat(set.toArray()).containsExactlyInAnyOrder((Object) rid(1, 0));
   }
 
   @Test
@@ -237,7 +240,7 @@ public class LinkSetResultImplTest {
    * Test pins the buggy contract so the fix falsifies it.
    */
   @Test
-  public void equalsIsBrokenBetweenDistinctInstances_WHENFIXED_Track22() {
+  public void equalsReturnsFalseBetweenDistinctInstancesBecauseSuperEqualsIsBuggy() {
     var a = new LinkSetResultImpl();
     a.add(rid(1, 0));
     a.add(rid(1, 1));
@@ -250,18 +253,20 @@ public class LinkSetResultImplTest {
   }
 
   /**
-   * WHEN-FIXED: Track 22 — same defect as above; equality against a plain {@code HashSet} with
-   * identical contents also returns false. A fixed implementation would return true (Set equality
-   * is order-independent).
+   * WHEN-FIXED: Track 22 — same defect as above; equality against a plain {@link Set} (here an
+   * immutable {@code Set.of(...)}) with identical contents also returns false. A fixed
+   * implementation would return true (Set equality is order-independent).
    */
   @Test
-  public void equalsAgainstHashSetIsBroken_WHENFIXED_Track22() {
+  public void equalsAgainstForeignSetReturnsFalseBecauseSuperEqualsIsBuggy() {
     var link = new LinkSetResultImpl();
     link.add(rid(1, 0));
     var other = Set.of(rid(1, 0));
     // Current buggy behavior: super.equals(other) -> false.
     // WHEN-FIXED: equals must return true for a Set with the same elements.
     assertThat(link.equals(other)).isFalse();
+    // HashSet path — identical result today, same fix flips both.
+    assertThat(link.equals(new HashSet<>(List.of(rid(1, 0))))).isFalse();
   }
 
   @Test
@@ -274,10 +279,11 @@ public class LinkSetResultImplTest {
   }
 
   @Test
-  public void toStringBracketsElements() {
+  public void toStringMatchesBackingHashSet() {
     var link = new LinkSetResultImpl();
     link.add(rid(1, 0));
-    assertThat(link.toString()).contains("1:0").startsWith("[").endsWith("]");
+    var expected = new HashSet<>(List.of(rid(1, 0))).toString();
+    assertThat(link.toString()).isEqualTo(expected);
   }
 
   // ------------------------------------------------------------------------- misc

@@ -1,10 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.resultset;
 
+import static com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.LinkTestFixtures.rid;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -12,7 +12,7 @@ import java.util.Comparator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.NoSuchElementException;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.Set;
 import org.junit.Test;
 
 /**
@@ -21,10 +21,6 @@ import org.junit.Test;
  * ArrayList<Identifiable>}. All tests are standalone (no database session).
  */
 public class LinkListResultImplTest {
-
-  private static Identifiable rid(int cluster, long position) {
-    return new RecordId(cluster, position);
-  }
 
   // ------------------------------------------------------------------------- constructors
 
@@ -252,6 +248,14 @@ public class LinkListResultImplTest {
     assertThatThrownBy(list::getLast).isInstanceOf(NoSuchElementException.class);
   }
 
+  /** Parity with EmbeddedListResultImplTest.dequeEndpointsOnEmptyListThrow — pin remove paths. */
+  @Test
+  public void removeFirstAndRemoveLastOnEmptyListThrow() {
+    var list = new LinkListResultImpl();
+    assertThatThrownBy(list::removeFirst).isInstanceOf(NoSuchElementException.class);
+    assertThatThrownBy(list::removeLast).isInstanceOf(NoSuchElementException.class);
+  }
+
   @Test
   public void removeFirstAndRemoveLastReturnRemovedElement() {
     var list = new LinkListResultImpl();
@@ -324,7 +328,9 @@ public class LinkListResultImplTest {
     var list = new LinkListResultImpl();
     list.add(rid(1, 0));
     list.add(rid(1, 1));
-    assertThat(list.stream().count()).isEqualTo(2L);
+    // stream(): ordered, contents verified — a broken stream() returning fewer or extra elements
+    // would be caught (count() alone would not).
+    assertThat(list.stream()).containsExactly(rid(1, 0), rid(1, 1));
     // parallelStream may split or not — just assert content
     assertThat(list.parallelStream()).containsExactlyInAnyOrder(rid(1, 0), rid(1, 1));
   }
@@ -362,6 +368,10 @@ public class LinkListResultImplTest {
 
   // ------------------------------------------------------------------------- subList
 
+  /**
+   * {@code subList} exposes a live view — mutations through the sublist reach the original list
+   * (verifies the live-backing contract that a defensive-copy implementation would break).
+   */
   @Test
   public void subListExposesRangeBackedByOriginal() {
     var list = new LinkListResultImpl();
@@ -370,6 +380,16 @@ public class LinkListResultImplTest {
     list.add(rid(1, 2));
     var sub = list.subList(1, 3);
     assertThat(sub).containsExactly(rid(1, 1), rid(1, 2));
+    sub.set(0, rid(9, 9));
+    assertThat(list).containsExactly(rid(1, 0), rid(9, 9), rid(1, 2));
+  }
+
+  @Test
+  public void subListEmptyRangeReturnsEmpty() {
+    var list = new LinkListResultImpl();
+    list.add(rid(1, 0));
+    assertThat(list.subList(0, 0)).isEmpty();
+    assertThat(list.subList(1, 1)).isEmpty();
   }
 
   // ------------------------------------------------------------------------- equals/hashCode/toString
@@ -410,7 +430,7 @@ public class LinkListResultImplTest {
     assertThat(link.equals("not a list")).isFalse();
     assertThat(link.equals(null)).isFalse();
     // Set-shaped collection with the same element still fails because LinkList is a List.
-    assertThat(link.equals(java.util.Set.of(rid(1, 0)))).isFalse();
+    assertThat(link.equals(Set.of(rid(1, 0)))).isFalse();
   }
 
   @Test
@@ -448,13 +468,50 @@ public class LinkListResultImplTest {
   }
 
   @Test
-  public void addAllViaIteratorConsumerCountsEntries() {
+  public void iteratorForEachRemainingVisitsAllElementsInOrder() {
     var list = new LinkListResultImpl();
     list.add(rid(1, 0));
     list.add(rid(1, 1));
     list.add(rid(1, 2));
-    var counter = new AtomicInteger();
-    list.iterator().forEachRemaining(ignored -> counter.incrementAndGet());
-    assertThat(counter.get()).isEqualTo(3);
+    var seen = new ArrayList<Identifiable>();
+    list.iterator().forEachRemaining(seen::add);
+    assertThat(seen).containsExactly(rid(1, 0), rid(1, 1), rid(1, 2));
+  }
+
+  /** Iterator.remove propagates to the backing list (pin the live-backing contract). */
+  @Test
+  public void iteratorRemovePropagatesToList() {
+    var list = new LinkListResultImpl();
+    list.add(rid(1, 0));
+    list.add(rid(1, 1));
+    var it = list.iterator();
+    it.next();
+    it.remove();
+    assertThat(list).containsExactly(rid(1, 1));
+  }
+
+  /** ListIterator set/add mutate the backing list. */
+  @Test
+  public void listIteratorSetAndAddMutateList() {
+    var list = new LinkListResultImpl();
+    list.add(rid(1, 0));
+    var li = list.listIterator();
+    li.next();
+    li.set(rid(2, 0));
+    li.add(rid(3, 0));
+    assertThat(list).containsExactly(rid(2, 0), rid(3, 0));
+  }
+
+  @Test
+  public void sortAndReversedOnEmptyListAreNoOps() {
+    var list = new LinkListResultImpl();
+    list.sort(null);
+    assertThat(list).isEmpty();
+    assertThat(list.reversed()).isEmpty();
+  }
+
+  @Test
+  public void copyConstructorAcceptsEmptySource() {
+    assertThat(new LinkListResultImpl(new ArrayList<Identifiable>())).isEmpty();
   }
 }

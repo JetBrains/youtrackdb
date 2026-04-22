@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.resultset;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -30,7 +31,7 @@ public class EmbeddedSetResultImplTest {
 
   @Test
   public void copyConstructorIsDefensive() {
-    var source = new java.util.ArrayList<>(List.of("a", "b"));
+    var source = new ArrayList<>(List.of("a", "b"));
     var copy = new EmbeddedSetResultImpl<>(source);
     assertThat(copy).containsExactlyInAnyOrder("a", "b");
     source.add("c");
@@ -132,7 +133,7 @@ public class EmbeddedSetResultImplTest {
   public void streamAndParallelStreamExposeElements() {
     var set = new EmbeddedSetResultImpl<String>();
     set.addAll(List.of("a", "b"));
-    assertThat(set.stream().count()).isEqualTo(2L);
+    assertThat(set.stream()).containsExactlyInAnyOrder("a", "b");
     assertThat(set.parallelStream()).containsExactlyInAnyOrder("a", "b");
   }
 
@@ -146,13 +147,25 @@ public class EmbeddedSetResultImplTest {
   }
 
   @Test
-  public void toArrayFormsExposeElements() {
+  public void toArrayReturnsElements() {
     var set = new EmbeddedSetResultImpl<String>();
     set.addAll(List.of("a", "b"));
-    assertThat(set.toArray()).containsExactlyInAnyOrder((Object) "a", "b");
+    assertThat(set.toArray()).containsExactlyInAnyOrder("a", "b");
+  }
+
+  @Test
+  public void toArrayWithProvidedArrayReusesIt() {
+    var set = new EmbeddedSetResultImpl<String>();
+    set.addAll(List.of("a", "b"));
     var target = new String[2];
     var ret = set.toArray(target);
     assertThat(ret).isSameAs(target).containsExactlyInAnyOrder("a", "b");
+  }
+
+  @Test
+  public void toArrayGeneratorProducesTypedArray() {
+    var set = new EmbeddedSetResultImpl<String>();
+    set.addAll(List.of("a", "b"));
     assertThat(set.toArray(String[]::new)).containsExactlyInAnyOrder("a", "b");
   }
 
@@ -182,7 +195,7 @@ public class EmbeddedSetResultImplTest {
    * is currently the only one that prevents every Set equality test from working correctly.
    */
   @Test
-  public void equalsIsBrokenBetweenDistinctInstances_WHENFIXED_Track22() {
+  public void equalsReturnsFalseBetweenDistinctInstancesBecauseSuperEqualsIsBuggy() {
     var a = new EmbeddedSetResultImpl<String>();
     a.addAll(List.of("a", "b"));
     var b = new EmbeddedSetResultImpl<String>();
@@ -192,13 +205,16 @@ public class EmbeddedSetResultImplTest {
     assertThat(a).isNotEqualTo(b);
   }
 
-  /** WHEN-FIXED: Track 22 — same defect; comparison against a plain HashSet also fails. */
+  /**
+   * WHEN-FIXED: Track 22 — same defect; comparison against a foreign {@link Set} (immutable
+   * {@code Set.of(...)} or a plain {@code HashSet}) also returns false.
+   */
   @Test
-  public void equalsAgainstHashSetIsBroken_WHENFIXED_Track22() {
+  public void equalsAgainstForeignSetReturnsFalseBecauseSuperEqualsIsBuggy() {
     var emb = new EmbeddedSetResultImpl<String>();
     emb.addAll(List.of("a", "b"));
-    var other = Set.of("a", "b");
-    assertThat(emb.equals(other)).isFalse();
+    assertThat(emb.equals(Set.of("a", "b"))).isFalse();
+    assertThat(emb.equals(new HashSet<>(List.of("a", "b")))).isFalse();
   }
 
   @Test
