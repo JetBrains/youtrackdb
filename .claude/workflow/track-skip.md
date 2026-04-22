@@ -51,15 +51,13 @@ A track can be skipped (`[~]`) in two situations:
 
 3. **Remove Track N's section from `implementation-backlog.md`**
    (only if the backlog file is present — skip for legacy plans).
-   Use the "Backlog section body extraction rule" in
-   `conventions-execution.md` §2.1: delete from the line matching
-   `## Track N: <title>` through the line immediately before the
-   next `## Track M: <title>` header, or through EOF if Track N is
-   the last section. Preserve the backlog's opening
-   `# <Feature> — Track Details` header and its
-   `<!-- DO NOT DELETE ... -->` HTML comment. No-op if the section is
-   already gone — Phase A may have claimed the description before
-   the skip was decided.
+   Delete per the "Backlog section body extraction rule" in
+   `conventions-execution.md` §2.1 — that rule states the
+   header-boundary algorithm (and the line-count-deletion
+   prohibition) once as the single authoritative source. Preserve
+   the backlog's opening `# <Feature> — Track Details` header and
+   its `<!-- DO NOT DELETE ... -->` HTML comment. No-op if the
+   section is already gone.
 
    When the last remaining `## Track M:` section is removed, leave
    the backlog file on disk with only its header and HTML comment —
@@ -71,8 +69,8 @@ A track can be skipped (`[~]`) in two situations:
 
    **Backlog deletion is terminal.** Un-skipping a track via inline
    replanning requires re-authoring the plan entry's description
-   from scratch; the backlog is not a recovery source for previously
-   skipped tracks.
+   from scratch; once a track has been skipped, the backlog is no
+   longer a recovery source for it.
 
 4. **Delete the step file** (`tracks/track-N.md`) from disk if one
    exists (e.g., Phase A created it before the skip was decided).
@@ -98,8 +96,8 @@ user confirms):
 
 - Write the `[~]` marker and skip record to the plan file on disk
 - Remove Track N's section from `implementation-backlog.md` if the
-  backlog file is present (skip for legacy plans; no-op if Phase A
-  already removed it)
+  backlog file is present (skip for legacy plans; no-op if the
+  section is already gone)
 - Delete any partially-created step file and review files from disk
 - The session continues: if strategy refresh was already done, proceed to
   the next `[ ]` track's Phase A. If no more tracks remain, proceed to
@@ -113,7 +111,7 @@ If the user says "skip Track N" at session start:
 
 - Write the `[~]` marker and skip record on disk (user provides the reason)
 - Remove Track N's section from `implementation-backlog.md` if the
-  backlog file is present (skip for legacy plans; no-op if it was
-  already removed)
+  backlog file is present (skip for legacy plans; no-op if the
+  section is already gone)
 - Delete any step file and review files for that track from disk
 - Continue with normal startup protocol for the next track

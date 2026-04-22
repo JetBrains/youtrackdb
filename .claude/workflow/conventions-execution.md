@@ -298,6 +298,12 @@ trailing blank lines between Track N's content and the next
 `## Track M:` header are stripped from the extracted body so repeated
 extract-then-insert cycles do not accumulate whitespace.
 
+Do **NOT** use line-count deletion to implement the removal — that
+approach breaks when track-level `mermaid` diagrams or
+multi-paragraph blockquotes change a section's line count between
+when the agent originally read it and when the removal runs. Always
+search for the header boundary at removal time.
+
 This is the single authoritative definition used wherever the workflow
 reads or removes a track's backlog section: Phase A description-move
 (see [`track-review.md`](track-review.md) §What You Do sub-step 2e),

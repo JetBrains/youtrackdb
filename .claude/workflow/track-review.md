@@ -91,14 +91,12 @@ Phase C includes both the track-level code review and track completion
       rare case where the backlog materialises mid-session (e.g., a
       concurrent `/create-plan` run in another worktree).
 
-      Delete by **header boundary**: remove from the line matching
-      `## Track N: <title>` through the line immediately before the
-      next `## Track M: <title>` header, or through EOF if Track N is
-      the last section. Preserve the backlog's opening
-      `# <Feature> — Track Details` header and its
-      `<!-- DO NOT DELETE ... -->` HTML comment. Do NOT use line-count
-      deletion — that approach breaks when track-level `mermaid`
-      diagrams change a section's line count.
+      Delete per the "Backlog section body extraction rule" in
+      `conventions-execution.md` §2.1 — that rule states the
+      header-boundary algorithm and the line-count-deletion
+      prohibition once as the single authoritative source. Preserve
+      the backlog's opening `# <Feature> — Track Details` header and
+      its `<!-- DO NOT DELETE ... -->` HTML comment.
 
       When the last remaining `## Track M:` section is removed, leave
       the backlog file on disk with only its header and HTML comment.
