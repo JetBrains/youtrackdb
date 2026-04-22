@@ -15,8 +15,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import javax.annotation.Nullable;
@@ -359,7 +357,6 @@ public class MatchEdgeTraverser implements ExecutionStream {
     String className = null;
     SQLRid targetRid = null;
 
-    var session = iCommandContext.getDatabaseSession();
     if (item.getFilter() != null) {
       filter = getTargetFilter(item);
       whileCondition = item.getFilter().getWhileCondition();
@@ -394,95 +391,24 @@ public class MatchEdgeTraverser implements ExecutionStream {
               ctx));
     } else {
       // ---- Recursive (WHILE / maxDepth) mode ----
-      // The starting point IS included (depth 0) if it passes the filters. Expansion
-      // continues while the WHILE condition holds and depth < maxDepth.
+      // Pull-based LazyRecursiveTraversalStream: yields results on demand so
+      // downstream LIMIT/short-circuit can stop expansion without materializing
+      // the whole sub-tree. Uses a parallel-array DFS stack so per-vertex cost
+      // is O(1) amortized allocation — cheaper than both the old eager
+      // ArrayList path (no result drain) and the older boxed-Frame lazy path.
       //
       // Dedup strategy: when no pathAlias is declared, a RidSet tracks emitted
-      // vertices so that diamond/cyclic graphs don't produce duplicates. When a
+      // vertices so diamond/cyclic graphs don't produce duplicates. When a
       // pathAlias IS declared the user is asking for distinct *paths*, so each
       // path to a vertex is a legitimate separate result and we skip dedup.
-      List<Result> result = new ArrayList<>();
-      iCommandContext.setSystemVariable(CommandContext.VAR_DEPTH, depth);
-      var previousMatch = iCommandContext.getSystemVariable(CommandContext.VAR_CURRENT_MATCH);
-      iCommandContext.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, startingPoint);
-
-      // Dedup is active when no pathAlias is declared. When pathAlias IS
-      // declared the user wants all distinct paths, so we null out the
-      // visited set to disable dedup entirely.
       assert item.getFilter() != null : "filter guaranteed non-null in recursive branch";
       var hasPathAlias = item.getFilter().getPathAlias() != null;
       var dedupVisited = hasPathAlias ? null : visited;
 
-      // Evaluate the starting point against all filters
-      if (startingPoint != null
-          && matchesFilters(iCommandContext, filter, startingPoint)
-          && matchesClass(iCommandContext, className, startingPoint)
-          && matchesRid(iCommandContext, targetRid, startingPoint)) {
-        ResultInternal rs;
-        if (startingPoint instanceof ResultInternal resultInternal) {
-          rs = resultInternal;
-        } else {
-          rs = ResultInternal.toResultInternal(startingPoint, session, null);
-        }
-        if (rs != null) {
-          // Store traversal metadata so the user can access it via depthAlias/pathAlias
-          rs.setMetadata("$depth", depth);
-          if (hasPathAlias) {
-            rs.setMetadata("$matchPath",
-                pathToHere == null ? PathNode.emptyPath() : pathToHere.toList());
-          }
-          result.add(rs);
-        }
-      }
-
-      // Mark the starting point as visited to prevent re-entry from sibling
-      // branches at any depth level. This must be OUTSIDE the expansion block
-      // because leaf-level nodes (where the while condition fails) would
-      // otherwise never be marked, causing O(fan-out) duplication.
-      if (dedupVisited != null && startingPoint != null
-          && startingPoint.getIdentity() != null) {
-        dedupVisited.add(startingPoint.getIdentity());
-      }
-
-      // Recurse into neighbors if depth allows and WHILE condition holds
-      if (startingPoint != null
-          && (maxDepth == null || depth < maxDepth)
-          && (whileCondition == null
-              || whileCondition.matchesFilters(startingPoint, iCommandContext))) {
-
-        var queryResult = traversePatternEdge(startingPoint, iCommandContext);
-
-        while (queryResult.hasNext(iCommandContext)) {
-          var origin = ResultInternal.toResult(queryResult.next(iCommandContext), session);
-          if (origin == null) {
-            continue;
-          }
-          // Skip neighbors already emitted to avoid duplicate results in
-          // diamond-shaped or cyclic graphs. Skipped when dedupVisited is
-          // null (pathAlias declared) because the user wants all distinct paths.
-          if (dedupVisited != null) {
-            var neighborRid = origin.getIdentity();
-            if (neighborRid != null && dedupVisited.contains(neighborRid)) {
-              continue;
-            }
-          }
-
-          // Only build the path when the user declared a pathAlias — otherwise skip
-          // all PathNode allocation entirely. For IS2 (no pathAlias) this eliminates
-          // all path-related allocations across the entire REPLY_OF chain.
-          var newPath = hasPathAlias ? new PathNode(origin, pathToHere, depth) : null;
-
-          // Recursive call with incremented depth, sharing the visited set
-          var subResult =
-              executeTraversal(iCommandContext, item, origin, depth + 1, newPath, visited);
-          while (subResult.hasNext(iCommandContext)) {
-            var sub = subResult.next(iCommandContext);
-            result.add(sub);
-          }
-        }
-      }
-      iCommandContext.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, previousMatch);
-      return ExecutionStream.resultIterator(result.iterator());
+      return new LazyRecursiveTraversalStream(
+          this, iCommandContext, startingPoint, depth, pathToHere,
+          filter, whileCondition, maxDepth, className, targetRid,
+          hasPathAlias, dedupVisited);
     }
   }
 
