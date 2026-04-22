@@ -160,15 +160,6 @@ public final class WTinyLFUPolicy {
     assert protection.size() <= maxProtectedSize;
   }
 
-  private boolean remove(CacheEntry victim) {
-    final var fileHandler = data.get(victim.getFileId());
-
-    @SuppressWarnings("unchecked")
-    final var casArray = (CASObjectArray<CacheEntry>) fileHandler.casArray();
-    return casArray.compareAndSet(victim.getPageIndex(), victim,
-        LockFreeReadCache.LOCK_FREE_READ_CACHE_CACHE_ENTRY_PLACEHOLDER);
-  }
-
   void onRemove(final CacheEntry cacheEntry) {
     assert cacheEntry.isFrozen();
 

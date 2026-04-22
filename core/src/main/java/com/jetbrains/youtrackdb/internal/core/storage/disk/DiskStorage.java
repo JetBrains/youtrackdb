@@ -1399,8 +1399,9 @@ public class DiskStorage extends AbstractStorage {
     for (var entry : files.entrySet()) {
       final var fileName = entry.getKey();
 
+     final var fileHandler = entry.getValue();
       final long fileId = writeCache.externalFileId(
-          writeCache.internalFileId(entry.getValue().fileId()));
+          writeCache.internalFileId(fileHandler.fileId()));
       final var filledUpTo = writeCache.getFilledUpTo(fileId);
       final var zipEntry = new ZipEntry(fileName);
 
@@ -1412,7 +1413,7 @@ public class DiskStorage extends AbstractStorage {
 
       for (var pageIndex = 0; pageIndex < filledUpTo; pageIndex++) {
         final var cacheEntry =
-            readCache.silentLoadForRead(new FileHandler(fileId), pageIndex, writeCache, true);
+            readCache.silentLoadForRead(fileHandler, pageIndex, writeCache, true);
         long sharedStamp = cacheEntry.acquireSharedLock();
         try {
           var cachePointer = cacheEntry.getCachePointer();

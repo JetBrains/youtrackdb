@@ -65,7 +65,8 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   @Nonnull
   protected final DatabaseSessionEmbedded session;
 
-  @Nullable public RecordOperation txEntry;
+  @Nullable
+  public RecordOperation txEntry;
   public boolean processingInCallback = false;
 
   public RecordAbstract(@Nonnull RecordIdInternal recordId,
@@ -129,6 +130,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
     return this;
   }
+
 
   public boolean isEmbedded() {
     return false;
@@ -204,6 +206,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   public final boolean isDirty() {
     return dirty != 0;
   }
+
 
   @SuppressWarnings("TypeParameterUnusedInFormals")
   public <RET extends DBRecord> RET updateFromJSON(final String iSource, final String iOptions) {
@@ -383,6 +386,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     this.status = iStatus;
   }
 
+
   public RecordAbstract fill(
       final long version, final byte[] buffer, boolean dirty) {
     var session = getSession();
@@ -426,6 +430,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
     return true;
   }
+
 
   public void unsetDirty() {
     contentChanged = false;
@@ -473,6 +478,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     this.source = null;
   }
 
+
   @Override
   public void addIdentityChangeListener(IdentityChangeListener identityChangeListeners) {
     if (recordId instanceof ChangeableIdentity changeableIdentity) {
@@ -496,7 +502,8 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     return false;
   }
 
-  @Nullable @Override
+  @Nullable
+  @Override
   public DatabaseSessionEmbedded getBoundedToSession() {
     assert session.assertIfNotActive();
     return session;

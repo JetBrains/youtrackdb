@@ -5390,6 +5390,7 @@ public abstract class AbstractStorage
           final var pageIndex = updatePageRecord.getPageIndex();
           fileId = writeCache.externalFileId(writeCache.internalFileId(fileId));
 
+          // todo should we read the file id from handler and not create a new one?
           var cacheEntry =
               readCache.loadForWrite(new FileHandler(fileId), pageIndex, writeCache, true, null);
           if (cacheEntry == null) {

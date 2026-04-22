@@ -66,7 +66,8 @@ public class SQLMethodRuntime extends SQLFilterItemAbstract
    * @param iContext       the command execution context
    * @return the result of executing the method, or null if the input is null
    */
-  @Nullable public Object execute(
+  @Nullable
+  public Object execute(
       final Object iThis,
       final Result iCurrentRecord,
       final Object iCurrentResult,
@@ -124,7 +125,7 @@ public class SQLMethodRuntime extends SQLFilterItemAbstract
       if (method.getMaxParams(session) == -1 || method.getMaxParams(session) > 0) {
         if (runtimeParameters.length < method.getMinParams()
             || (method.getMaxParams(session) > -1 && runtimeParameters.length > method.getMaxParams(
-                session))) {
+            session))) {
           String params;
           if (method.getMinParams() == method.getMaxParams(session)) {
             params = "" + method.getMinParams();
@@ -148,7 +149,8 @@ public class SQLMethodRuntime extends SQLFilterItemAbstract
     return transformValue(iCurrentRecord, iContext, functionResult);
   }
 
-  @Nullable @Override
+  @Nullable
+  @Override
   public Object getValue(
       final Result iRecord, Object iCurrentResult, CommandContext iContext) {
     try {
@@ -203,7 +205,7 @@ public class SQLMethodRuntime extends SQLFilterItemAbstract
             final var v = SQLHelper.parseValue(null, null, iParameters[i].toString(), context);
             if (v == SQLHelper.VALUE_NOT_PARSED
                 || (MultiValue.isMultiValue(v)
-                    && MultiValue.getFirstValue(v) == SQLHelper.VALUE_NOT_PARSED)) {
+                && MultiValue.getFirstValue(v) == SQLHelper.VALUE_NOT_PARSED)) {
               continue;
             }
 

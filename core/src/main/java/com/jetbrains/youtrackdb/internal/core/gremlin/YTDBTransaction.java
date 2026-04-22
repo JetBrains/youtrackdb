@@ -20,6 +20,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public final class YTDBTransaction extends AbstractTransaction {
+
   private static final Logger logger = LoggerFactory.getLogger(YTDBTransaction.class);
 
   private Consumer<Transaction> readWriteConsumerInternal = READ_WRITE_BEHAVIOR.AUTO;

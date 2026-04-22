@@ -98,7 +98,8 @@ public class SQLHelper {
         null, schemaProperty, null, null);
   }
 
-  @Nullable public static Object parseValue(
+  @Nullable
+  public static Object parseValue(
       String iValue, final CommandContext context,
       boolean resolveContextVariables,
       @Nullable SchemaClass schemaClass,
@@ -123,7 +124,7 @@ public class SQLHelper {
 
     if ((iValue.charAt(0) == '\'' && iValue.charAt(iValue.length() - 1) == '\'')
         || (iValue.charAt(0) == '\"'
-            && iValue.charAt(iValue.length() - 1) == '\"'))
+        && iValue.charAt(iValue.length() - 1) == '\"'))
     // STRING
     {
       fieldValue = IOUtils.getStringContent(iValue);
@@ -185,8 +186,7 @@ public class SQLHelper {
         } else {
           entity = session.newEntity(schemaClass);
         }
-        fieldValue =
-            JSONSerializerJackson.INSTANCE.fromString(session, iValue, (RecordAbstract) entity);
+        fieldValue = JSONSerializerJackson.INSTANCE.fromString(session, iValue, (RecordAbstract) entity);
       } else {
         final var items =
             StringSerializerHelper.smartSplit(
@@ -263,8 +263,7 @@ public class SQLHelper {
             entity = session.newEntity();
           }
 
-          fieldValue =
-              JSONSerializerJackson.INSTANCE.fromString(session, iValue, (RecordAbstract) entity);
+          fieldValue = JSONSerializerJackson.INSTANCE.fromString(session, iValue, (RecordAbstract) entity);
         } else {
           fieldValue = map;
         }
@@ -318,7 +317,8 @@ public class SQLHelper {
     return fieldValue;
   }
 
-  @Nullable public static Object parseStringNumber(final String iValue) {
+  @Nullable
+  public static Object parseStringNumber(final String iValue) {
     final var t = RecordSerializerCSVAbstract.getType(iValue);
 
     if (t == PropertyTypeInternal.INTEGER) {
@@ -398,7 +398,8 @@ public class SQLHelper {
     return new SQLFilterItemField(context.getDatabaseSession(), iCommand, iWord, null);
   }
 
-  @Nullable public static SQLFunctionRuntime getFunction(DatabaseSessionEmbedded session,
+  @Nullable
+  public static SQLFunctionRuntime getFunction(DatabaseSessionEmbedded session,
       final BaseParser iCommand, final String iWord) {
     final var separator = iWord.indexOf('.');
     final var beginParenthesis = iWord.indexOf(StringSerializerHelper.EMBEDDED_BEGIN);
@@ -417,7 +418,8 @@ public class SQLHelper {
     return null;
   }
 
-  @Nullable public static Object getValue(final Object iObject) {
+  @Nullable
+  public static Object getValue(final Object iObject) {
     if (iObject == null) {
       return null;
     }
@@ -429,7 +431,8 @@ public class SQLHelper {
     return iObject;
   }
 
-  @Nullable public static Object getValue(
+  @Nullable
+  public static Object getValue(
       final Object iObject, final Result iRecord, final CommandContext iContext) {
     switch (iObject) {
       case null -> {
@@ -459,7 +462,8 @@ public class SQLHelper {
     return iObject;
   }
 
-  @Nullable public static Object resolveFieldValue(
+  @Nullable
+  public static Object resolveFieldValue(
       DatabaseSessionEmbedded session, final EntityImpl entity,
       final String iFieldName,
       final Object iFieldValue,
@@ -495,7 +499,8 @@ public class SQLHelper {
     return iFieldValue;
   }
 
-  @Nullable public static EntityImpl bindParameters(
+  @Nullable
+  public static EntityImpl bindParameters(
       final EntityImpl entity,
       final Map<String, Object> iFields,
       final CommandParameters iArguments,
@@ -513,7 +518,8 @@ public class SQLHelper {
     return bindParameters(entity, fields, iArguments, iContext);
   }
 
-  @Nullable public static EntityImpl bindParameters(
+  @Nullable
+  public static EntityImpl bindParameters(
       final EntityImpl e,
       final List<Pair<String, Object>> iFields,
       final CommandParameters iArguments,

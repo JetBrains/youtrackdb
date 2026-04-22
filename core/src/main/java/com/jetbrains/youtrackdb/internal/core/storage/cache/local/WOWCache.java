@@ -926,17 +926,12 @@ public final class WOWCache extends AbstractWriteCache
 
   @Override
   public FileHandler addFile(final String fileName, long fileId) throws IOException {
-    return addFileInternal(fileName, fileId, false);
+    return addFile(fileName, fileId, false);
   }
 
   @Override
-  public long addFile(final String fileName, long fileId, final boolean nonDurable)
+  public FileHandler addFile(final String fileName, long fileId, final boolean nonDurable)
       throws IOException {
-    return addFileInternal(fileName, fileId, nonDurable).fileId();
-  }
-
-  private FileHandler addFileInternal(final String fileName, long fileId,
-      final boolean nonDurable) throws IOException {
     filesLock.acquireWriteLock();
     try {
       checkForClose();
@@ -962,8 +957,8 @@ public final class WOWCache extends AbstractWriteCache
         }
       }
 
-      final var externalId = composeFileId(id, intId);
-      fileClassic = files.get(externalId);
+      fileId = composeFileId(id, intId);
+      fileClassic = files.get(fileId);
 
       if (fileClassic != null) {
         if (!fileClassic.getName().equals(createInternalFileName(fileName, intId))) {
@@ -983,7 +978,7 @@ public final class WOWCache extends AbstractWriteCache
         fileClassic = createFileInstance(fileName, intId);
         createFile(fileClassic, callFsync);
 
-        files.add(externalId, fileClassic);
+        files.add(fileId, fileClassic);
       }
 
       idNameMap.remove(-intId);
@@ -1000,7 +995,7 @@ public final class WOWCache extends AbstractWriteCache
         writeNonDurableRegistry();
       }
 
-      return wrapExternalIdWithHandler(externalId);
+      return wrapExternalIdWithHandler(fileId);
     } catch (final java.lang.InterruptedException e) {
       throw BaseException.wrapException(
           new StorageException(storageName, "File add was interrupted"), e, storageName);
@@ -1413,7 +1408,10 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   @Override
-  public long getFilledUpTo(final long fileId) {
+  public long getFilledUpTo(long fileId) {
+    final var intId = extractFileId(fileId);
+    fileId = composeFileId(id, intId);
+
     filesLock.acquireReadLock();
     try {
       checkForClose();

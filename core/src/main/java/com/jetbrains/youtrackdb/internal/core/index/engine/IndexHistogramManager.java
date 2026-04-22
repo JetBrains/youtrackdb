@@ -2001,8 +2001,8 @@ public class IndexHistogramManager extends StorageComponent {
     this.lastRebalanceFailureNanos = nanos;
   }
 
-  void setFileIdForTest(long fileId) {
-    this.fileHandler = new FileHandler(fileId);
+  void setFileHandlerForTest(FileHandler fileHandler) {
+    this.fileHandler = fileHandler;
   }
 
   void setDirtyMutationsForTest(long value) {

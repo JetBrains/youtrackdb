@@ -104,22 +104,11 @@ public final class CASObjectArray<T> {
     return container.compareAndSet(indexInsideContainer, oldValue, value);
   }
 
-  public T getOrNull(int index) {
-    return get(index, false);
-  }
-
   public T get(int index) {
-    return get(index, true);
-  }
-
-  private T get(int index, boolean throwOnOutOfBounds) {
     final var size = this.size.get();
 
     if (size <= index) {
-      if (throwOnOutOfBounds) {
-        throw new ArrayIndexOutOfBoundsException("Requested " + index + ", size is " + size);
-      }
-      return null;
+      throw new ArrayIndexOutOfBoundsException("Requested " + index + ", size is " + size);
     }
 
     final var containerIndex = 31 - Integer.numberOfLeadingZeros(index + 1);

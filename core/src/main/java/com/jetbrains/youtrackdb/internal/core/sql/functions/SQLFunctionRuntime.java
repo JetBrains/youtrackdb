@@ -114,8 +114,8 @@ public class SQLFunctionRuntime extends SQLFilterItemAbstract {
     if (function.getMaxParams(session) == -1 || function.getMaxParams(session) > 0) {
       if (runtimeParameters.length < function.getMinParams()
           || (function.getMaxParams(session) > -1
-              && runtimeParameters.length > function.getMaxParams(
-                  session))) {
+          && runtimeParameters.length > function.getMaxParams(
+          session))) {
         String params;
         if (function.getMinParams() == function.getMaxParams(session)) {
           params = "" + function.getMinParams();
@@ -149,7 +149,8 @@ public class SQLFunctionRuntime extends SQLFilterItemAbstract {
     function.setResult(iValue);
   }
 
-  @Nullable @Override
+  @Nullable
+  @Override
   public Object getValue(
       final Result iRecord, Object iCurrentResult, CommandContext iContext) {
     try {
@@ -177,7 +178,7 @@ public class SQLFunctionRuntime extends SQLFilterItemAbstract {
             final var v = SQLHelper.parseValue(null, null, iParameters[i].toString(), context);
             if (v == SQLHelper.VALUE_NOT_PARSED
                 || (MultiValue.isMultiValue(v)
-                    && MultiValue.getFirstValue(v) == SQLHelper.VALUE_NOT_PARSED)) {
+                && MultiValue.getFirstValue(v) == SQLHelper.VALUE_NOT_PARSED)) {
               continue;
             }
 
