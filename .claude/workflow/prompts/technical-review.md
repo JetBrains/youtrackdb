@@ -57,12 +57,12 @@ Inputs:
   Decision Records, Component Map)
 - Step file: {step_file_path} (the track's `## Description` section —
   authoritative source for the track's What/How/Constraints/Interactions
-  and any track-level diagram; falls back to the plan-file entry if the
-  step file lacks a `## Description` section)
+  and any track-level diagram. If the step file lacks a `## Description`
+  section, fall back to the plan-file entry for the track.)
 - Track to review: {track_name}
 - Codebase root: {codebase_path}
 - Episodes from completed tracks: {prior_episodes}
-- Previous findings from other reviews: {previous_findings}
+- Previous findings: {previous_findings}
 
 Start by reading the track description and any track-level component
 diagram from the step file's `## Description` section — if the step file
