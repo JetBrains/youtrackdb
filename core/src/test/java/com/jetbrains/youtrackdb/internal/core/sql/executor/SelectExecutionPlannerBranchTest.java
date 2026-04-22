@@ -22,7 +22,6 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionExceptio
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -220,10 +219,13 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
       var rows = result.stream().toList();
       Assert.assertEquals(3, rows.size());
       for (var row : rows) {
-        // Synthetic ORDER BY projection must be stripped from the visible output.
-        Assert.assertNull(
-            "synthetic alias must not leak into visible output",
-            row.getProperty("_$$$ORDER_BY_ALIAS$$$_0"));
+        // Synthetic ORDER BY projection must be stripped from the visible output — assert by
+        // prefix to survive future renames of the internal marker (BC5).
+        for (var propName : row.getPropertyNames()) {
+          Assert.assertFalse(
+              "synthetic ORDER BY alias must not leak into visible output: " + propName,
+              propName.startsWith("_$$$"));
+        }
         Assert.assertNotNull(row.getProperty("name"));
       }
     }
@@ -363,23 +365,29 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
     }
     session.commit();
 
-    // $sub has no $parent reference — the splitLet pass must promote this LET item to the
-    // global-LET clause, evaluating the subquery once up-front. The exact result shape of
-    // $sub in the projection depends on subquery-result coercion; the load-bearing assertion
-    // is that the planner accepts the query and returns rows with the outer fields intact.
+    // $sub has no $parent reference — splitLet must promote this LET item to global-LET and
+    // evaluate the subquery once. Reference $sub via a size() projection so every outer row
+    // must see the same non-null value; if the promotion were a no-op the query would still
+    // parse but the LET binding shape would differ.
     var sql =
-        "select name from " + className
-            + " let $sub = (select from " + className + " order by @rid asc limit 1)";
+        "select name, $sub.size() as cnt from " + className
+            + " let $sub = (select from " + className + ")";
     try (var result = session.query(sql)) {
       var rows = result.stream().toList();
       Assert.assertEquals(3, rows.size());
-      // The outer SELECT still returns every row of the outer target. If the LET-promotion
-      // branch were mis-handled and the subquery ran per-record, we'd still get 3 rows, but
-      // 3*3=9 scans would happen; the correctness signal here is that the planner accepts
-      // a parent-free query subexpression in a per-record LET clause.
+      // Every outer row must see a non-null $sub binding — the global LET subquery resolves
+      // into the context and is available to the projection at evaluation time.
+      var names = new java.util.HashSet<String>();
       for (var row : rows) {
-        Assert.assertTrue(row.<String>getProperty("name").startsWith("row"));
+        Assert.assertNotNull(
+            "global-LET subquery must be visible in projection of every outer row",
+            row.getProperty("cnt"));
+        names.add(row.<String>getProperty("name"));
       }
+      Assert.assertEquals(
+          "outer target scan must enumerate every row distinctly (global-LET is per-plan,"
+              + " not per-record duplicated)",
+          java.util.Set.of("row0", "row1", "row2"), names);
     }
   }
 
@@ -482,7 +490,7 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
       Assert.assertEquals(2, rows.size());
       for (var row : rows) {
         int v = row.getProperty("v");
-        Assert.assertTrue("v must be ≥2 from inner filter", v >= 2);
+        Assert.assertTrue("v must be >= 2 from inner filter", v >= 2);
       }
     }
   }
@@ -556,14 +564,26 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
   }
 
   /**
-   * {@code SELECT FROM #999:0} — literal RID that does not exist returns no rows. Confirms the
-   * planner routes through the RID path even when records are absent.
+   * {@code SELECT FROM #C:P} where the cluster exists but the record position does not. Confirms
+   * the planner routes through the RID path even when records are absent. Derives the cluster
+   * id from a real record to avoid brittle reliance on unused cluster numbers.
    */
   @Test
   public void fetchFromLiteralRid_nonExistent_noRows() {
-    // Cluster 999 is extremely unlikely to exist in a freshly created in-memory DB.
-    try (var result = session.query("select from #999:0")) {
-      Assert.assertFalse(result.hasNext());
+    var className = "RidMissClass_" + uniqueSuffix();
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    var doc = session.newInstance(className);
+    var rid = doc.getIdentity();
+    session.commit();
+
+    // Position 999999 in the same cluster as `rid` is guaranteed not to exist: the class only
+    // ever hosts a single record (`doc`) so its cluster is sparsely populated.
+    var missingRid = "#" + rid.getCollectionId() + ":999999";
+    try (var result = session.query("select from " + missingRid)) {
+      Assert.assertFalse(
+          "RID pointing to non-existent position must produce no rows", result.hasNext());
     }
   }
 
@@ -594,25 +614,31 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
   }
 
   /**
-   * {@code SELECT FROM :target} with a single SchemaClass instance wrapped in a list (tests the
-   * iterable-of-one path where the single element is itself not an Identifiable — but is a
-   * SchemaClass nested in an iterable). This intentionally wraps a SchemaClass in a list so the
-   * Iterable arm enters the non-Identifiable throw branch at a specific position (index 0 — so
-   * the guard trips on the very first element rather than mid-iteration).
+   * {@code SELECT FROM :target} with a list where a valid {@code Identifiable} precedes a
+   * non-{@code Identifiable} element. Exercises the mid-iteration position of the guard —
+   * distinct from {@code selectFromInputParam_iterableWithNonIdentifiable_throws} which
+   * trips the guard at the first element.
    */
   @Test
-  public void selectFromInputParam_iterableFirstElementBad_throws() {
-    var className = "BadFirstElemClass_" + uniqueSuffix();
-    var clazz = session.getMetadata().getSchema().createClass(className);
+  public void selectFromInputParam_iterableMidElementBad_throws() {
+    var className = "BadMidElemClass_" + uniqueSuffix();
+    session.getMetadata().getSchema().createClass(className);
 
-    // First element is a SchemaClass, which is not Identifiable → throw.
+    session.begin();
+    var doc = session.newInstance(className);
+    var goodRid = doc.getIdentity();
+    session.commit();
+
+    // Valid RID first, bad element (String) second — must still throw, but only after
+    // successfully handling the first element (mid-iteration guard).
     Map<Object, Object> params = new HashMap<>();
-    params.put("target", Collections.singletonList(clazz));
+    params.put("target", List.of(goodRid, "not-an-identifiable"));
 
     try {
       session.query("select from :target", params).close();
-      Assert.fail("Expected CommandExecutionException when first iterable element is bad");
+      Assert.fail("Expected CommandExecutionException when mid-iteration element is bad");
     } catch (CommandExecutionException e) {
+      // WHEN-FIXED: Track 22 — fix typo "colleciton" → "collection".
       Assert.assertTrue(
           "message must flag the bad element, got: " + e.getMessage(),
           e.getMessage().contains("colleciton") || e.getMessage().contains("collection"));
@@ -667,6 +693,87 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
     try (var result = session.query("select from :target", params)) {
       Assert.assertTrue(result.hasNext());
       Assert.assertEquals(Integer.valueOf(1), result.next().getProperty("k"));
+    }
+  }
+
+  /**
+   * {@code SELECT FROM [#c:p1, #c:p2, #c:p3]} — literal multi-RID list. Drives the {@code for
+   * (var rid : rids)} loop with N > 1 in {@code handleRidsAsTarget} (TC1).
+   */
+  @Test
+  public void fetchFromLiteralRidList_multipleRids() {
+    var className = "MultiRidTarget_" + uniqueSuffix();
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    List<Object> rids = new ArrayList<>();
+    for (var i = 0; i < 3; i++) {
+      var d = session.newInstance(className);
+      d.setProperty("i", i);
+      rids.add(d.getIdentity());
+    }
+    session.commit();
+
+    var sql =
+        "select i from [" + rids.get(0) + ", " + rids.get(1) + ", " + rids.get(2) + "]";
+    try (var result = session.query(sql)) {
+      var values = new java.util.TreeSet<Integer>();
+      while (result.hasNext()) {
+        values.add(result.next().getProperty("i"));
+      }
+      Assert.assertEquals(
+          "multi-RID fetch must materialize every listed RID",
+          java.util.Set.of(0, 1, 2), values);
+    }
+  }
+
+  /**
+   * {@code SELECT FROM metadata:SCHEMA} — exercises the {@code target.getMetadata() != null}
+   * arm in the planner's target dispatcher plus {@code handleMetadataAsTarget}'s schema
+   * branch (TC2).
+   */
+  @Test
+  public void fetchFromMetadataSchema() {
+    try (var result = session.query("select from metadata:schema")) {
+      Assert.assertTrue("metadata:schema must expose at least one row", result.hasNext());
+      // Schema metadata always contains a "classes" field even on a fresh DB.
+      var row = result.next();
+      Assert.assertNotNull("schema metadata row must carry content", row);
+    }
+  }
+
+  /**
+   * {@code LET $u = unionAll($a, $b)} — exercises {@code isCombinationOfQueries} (set-
+   * combination function) path in {@code splitLet}, promoting the combination LET item to the
+   * global-LET clause (TC3).
+   */
+  @Test
+  public void splitLet_unionAllCombination_promotedToGlobal() {
+    var className = "CombineLetClass_" + uniqueSuffix();
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    for (var i = 0; i < 3; i++) {
+      var d = session.newInstance(className);
+      d.setProperty("n", i);
+    }
+    session.commit();
+
+    // $a and $b each select all 3 rows; unionAll($a, $b) produces 6 items. The combination
+    // must be promoted to global-LET regardless of parent references.
+    var sql =
+        "select $u.size() as totalUnion from " + className
+            + " let $a = (select from " + className + "),"
+            + " $b = (select from " + className + "),"
+            + " $u = unionAll($a, $b)";
+    try (var result = session.query(sql)) {
+      Assert.assertTrue(result.hasNext());
+      var row = result.next();
+      Object size = row.getProperty("totalUnion");
+      Assert.assertNotNull(size);
+      Assert.assertEquals(
+          "unionAll($a, $b) must produce |$a| + |$b| = 6 elements",
+          Integer.valueOf(6), Integer.valueOf(size.toString()));
     }
   }
 

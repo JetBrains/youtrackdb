@@ -18,8 +18,11 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import java.util.HashMap;
+import java.util.Map;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -36,7 +39,7 @@ import org.junit.Test;
  */
 public class SmallPlannerBranchTest extends TestUtilsFixture {
 
-  // ── UpdateExecutionPlanner ──
+  // --- UpdateExecutionPlanner ---
 
   /**
    * {@code UPDATE ... RETURN AFTER @this}. Exercises the {@code returnAfter &&
@@ -90,10 +93,11 @@ public class SmallPlannerBranchTest extends TestUtilsFixture {
     try {
       session.execute("update " + className + " set v = 20 return before").close();
       Assert.fail("Expected RETURN BEFORE to be rejected at parse/plan time");
-    } catch (RuntimeException e) {
-      Assert.assertTrue(
-          "message must indicate BEFORE is not supported: " + e.getMessage(),
-          e.getMessage() != null && e.getMessage().toUpperCase().contains("BEFORE"));
+    } catch (DatabaseException e) {
+      Assert.assertEquals(
+          "Production pins this exact message; a change here signals Track 22 may have removed "
+              + "the parser reject",
+          "BEFORE is not supported", e.getMessage());
     } finally {
       session.rollback();
     }
@@ -151,7 +155,7 @@ public class SmallPlannerBranchTest extends TestUtilsFixture {
     }
   }
 
-  // ── InsertExecutionPlanner ──
+  // --- InsertExecutionPlanner ---
 
   /**
    * {@code INSERT INTO Target FROM (SELECT FROM Src)}. Exercises {@link
@@ -290,7 +294,7 @@ public class SmallPlannerBranchTest extends TestUtilsFixture {
     session.commit();
   }
 
-  // ── CreateEdgeExecutionPlanner ──
+  // --- CreateEdgeExecutionPlanner ---
 
   /**
    * {@code CREATE EDGE Foo UPSERT FROM v1 TO v2} when class {@code Foo} has no unique index on
@@ -355,9 +359,8 @@ public class SmallPlannerBranchTest extends TestUtilsFixture {
       Assert.fail("Expected CommandExecutionException — unknown class with UPSERT");
     } catch (CommandExecutionException e) {
       Assert.assertTrue(
-          "message must reference the missing class: " + e.getMessage(),
-          e.getMessage().toLowerCase().contains("not found")
-              || e.getMessage().toLowerCase().contains("class"));
+          "message must indicate the class was not found, got: " + e.getMessage(),
+          e.getMessage().toLowerCase().contains("not found"));
     } finally {
       session.rollback();
     }
@@ -386,10 +389,14 @@ public class SmallPlannerBranchTest extends TestUtilsFixture {
     }
     session.commit();
 
-    // Verify the edge exists with label "E".
-    try (var result = session.query("select expand(outE()) from " + v1.getIdentity())) {
+    // Verify the edge exists and its class name is the default "E".
+    try (var result =
+        session.query("select @class as cls from (select expand(outE()) from "
+            + v1.getIdentity() + ")")) {
       Assert.assertTrue(result.hasNext());
-      result.next();
+      Assert.assertEquals(
+          "CREATE EDGE without target class must default to class \"E\"",
+          "E", result.next().getProperty("cls"));
     }
   }
 
@@ -453,34 +460,42 @@ public class SmallPlannerBranchTest extends TestUtilsFixture {
     session.commit();
 
     session.begin();
+    com.jetbrains.youtrackdb.internal.core.db.record.record.RID firstRid;
     try (var first =
         session.execute(
             "create edge " + eClass + " upsert from " + v1.getIdentity() + " to "
                 + v2.getIdentity())) {
       Assert.assertTrue(first.hasNext());
-      first.next();
+      firstRid = first.next().getIdentity();
     }
     session.commit();
 
     session.begin();
+    com.jetbrains.youtrackdb.internal.core.db.record.record.RID secondRid;
     try (var second =
         session.execute(
             "create edge " + eClass + " upsert from " + v1.getIdentity() + " to "
                 + v2.getIdentity())) {
       Assert.assertTrue(second.hasNext());
-      second.next();
+      secondRid = second.next().getIdentity();
     }
     session.commit();
+
+    // UPSERT must return the same edge record, not a fresh duplicate.
+    Assert.assertEquals(
+        "UPSERT on existing (out,in) must return the same edge RID, not insert a new one",
+        firstRid, secondRid);
 
     // Exactly one edge must exist.
     try (var result = session.query("select expand(outE('" + eClass + "')) from "
         + v1.getIdentity())) {
       var edges = result.stream().toList();
       Assert.assertEquals("UPSERT must dedupe on (out,in)", 1, edges.size());
+      Assert.assertEquals(firstRid, edges.getFirst().getIdentity());
     }
   }
 
-  // ── DeleteEdgeExecutionPlanner ──
+  // --- DeleteEdgeExecutionPlanner ---
 
   /**
    * {@code DELETE EDGE Foo FROM v1}. Exercises {@link DeleteEdgeExecutionPlanner}'s branches
@@ -636,7 +651,7 @@ public class SmallPlannerBranchTest extends TestUtilsFixture {
     }
   }
 
-  // ── CreateVertexExecutionPlanner / DeleteVertexExecutionPlanner ──
+  // --- CreateVertexExecutionPlanner / DeleteVertexExecutionPlanner ---
 
   /**
    * {@code CREATE VERTEX} (no target class) — exercises the {@code targetClass == null} default
@@ -678,6 +693,31 @@ public class SmallPlannerBranchTest extends TestUtilsFixture {
     try (var result = session.query("select count(*) as c from " + vClass)) {
       Assert.assertEquals(Long.valueOf(0L), result.next().getProperty("c"));
     }
+  }
+
+  /**
+   * {@code INSERT INTO Class CONTENT :p} — CONTENT sourced from a map-valued input parameter
+   * exercises the {@code getContentInputParam()} arm of {@link
+   * InsertExecutionPlanner#handleSetFields} (TC5), distinct from the literal-JSON CONTENT arm
+   * covered by {@code insert_contentBlock_singleEntry}.
+   */
+  @Test
+  public void insert_contentFromInputParam() {
+    var className = "InsertContentParam_" + uniqueSuffix();
+    session.getMetadata().getSchema().createClass(className);
+
+    Map<String, Object> params = new HashMap<>();
+    params.put("p", Map.of("k", 7, "name", "viaParam"));
+
+    session.begin();
+    try (var result =
+        session.execute("insert into " + className + " content :p", params)) {
+      Assert.assertTrue(result.hasNext());
+      var row = result.next();
+      Assert.assertEquals(Integer.valueOf(7), row.getProperty("k"));
+      Assert.assertEquals("viaParam", row.getProperty("name"));
+    }
+    session.commit();
   }
 
   /** Returns a unique suffix so class names never collide across test methods. */
