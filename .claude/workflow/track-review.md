@@ -70,16 +70,19 @@ Phase C includes both the track-level code review and track completion
 
    d. **Create the step file atomically** at
       `docs/adr/<dir-name>/tracks/track-N.md` in a single Write call
-      that already contains the full initial shell — `## Description`
-      (populated with the copied intro + `**What/How/Constraints/Interactions**`
-      subsections + any track-level diagram from sub-step (b)),
-      `## Progress` (with `[ ] Review + decomposition` and the other
-      Progress entries), and an empty `## Reviews completed`. Do NOT
-      create an empty shell and append the description in a second
-      Write — the single atomic Write closes the window in which the
-      description has been pulled out of its source but has not yet
-      landed on disk. Subsequent phases may Edit the file normally;
-      only the initial creation must be atomic.
+      that contains: `## Description` (populated with the copied intro
+      + `**What/How/Constraints/Interactions**` subsections + any
+      track-level diagram from sub-step (b)), `## Progress` (with all
+      three entries as `[ ]`: `Review + decomposition`, `Step
+      implementation`, `Track-level code review`), an empty
+      `## Reviews completed`, and an empty `## Steps` placeholder.
+      Items 4–5 below populate `## Steps`; Phase B writes
+      `## Base commit` at its session start. Do NOT create an empty
+      shell and append the description in a second Write — the single
+      atomic Write closes the window in which the description has been
+      pulled out of its source but has not yet landed on disk.
+      Subsequent phases may Edit the file normally; only the initial
+      creation must be atomic.
 
    e. **Remove Track N's section from the backlog** (skip this sub-step
       for the mid-migration and legacy branches — the former has
@@ -87,9 +90,9 @@ Phase C includes both the track-level code review and track completion
       Before removing, **re-check** that
       `docs/adr/<dir-name>/implementation-backlog.md` still exists on
       disk: the file-exists test is cheap, and running it again here
-      instead of assuming the result from sub-step (b) handles the
-      rare case where the backlog materialises mid-session (e.g., a
-      concurrent `/create-plan` run in another worktree).
+      avoids carrying forward an assumption from sub-step (b) that
+      another agent or hand-edit may have invalidated in the
+      meantime.
 
       Delete per the "Backlog section body extraction rule" in
       `conventions-execution.md` §2.1 — that rule states the

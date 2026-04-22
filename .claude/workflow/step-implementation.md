@@ -147,6 +147,10 @@ completion**, before moving to the next step:
       **What/How/Constraints/Interactions** subsections + any
       track-level diagram — copied there at Phase A start. Below
       that, all steps for this track appear with their episodes.
+      If the file does not contain a `## Description` section (legacy
+      step file created before Phase A's description-move was added),
+      read the track description from the plan file's checklist entry
+      instead.
 
       ## Skip These Files (generated code)
       - core/.../sql/parser/*, generated-sources/*, Gremlin DSL

@@ -306,9 +306,9 @@ search for the header boundary at removal time.
 
 This is the single authoritative definition used wherever the workflow
 reads or removes a track's backlog section: Phase A description-move
-(see [`track-review.md`](track-review.md) §What You Do sub-step 2e),
-`track-skip` backlog cleanup (see [`track-skip.md`](track-skip.md)),
-and inline-replanning updates (see
+(see [`track-review.md`](track-review.md) §What You Do item 2,
+sub-step (e)), `track-skip` backlog cleanup (see
+[`track-skip.md`](track-skip.md)), and inline-replanning updates (see
 [`inline-replanning.md`](inline-replanning.md)). All three entry points
 apply the rule verbatim — keeping the extraction logic identical
 across them avoids accidental divergence when section bodies contain

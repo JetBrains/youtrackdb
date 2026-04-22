@@ -114,7 +114,10 @@ The file begins with a `## Description` section carrying the track's
 original description — intro paragraph +
 **What/How/Constraints/Interactions** subsections + any track-level
 diagram — copied there at Phase A start. Below that, all steps for
-this track appear with their episodes.
+this track appear with their episodes. If the file does not contain a
+`## Description` section (legacy step file created before Phase A's
+description-move was added), read the track description from the plan
+file's checklist entry instead.
 
 ## Changed Files
 {output of git diff {base_commit}..HEAD --name-only — passed inline,
