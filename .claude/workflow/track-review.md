@@ -26,13 +26,91 @@ Phase C includes both the track-level code review and track completion
 
 ### What You Do
 
-1. **Assess track complexity** to determine which reviews to run
-2. **Run track-scoped reviews** as sub-agents (technical, risk, adversarial
+1. **Assess track complexity** to determine which reviews to run (see
+   §Complexity Assessment below).
+
+2. **Move the track description into the step file** (Phase A's first
+   on-disk write — this extends today's "create the step file early"
+   pattern so reviews can update the Reviews section and Phase B/C
+   sub-agents find the description in the file they already read).
+
+   a. **Read the plan file** for strategic context (Goals, Architecture
+      Notes, Decision Records, Component Map) and the current track's
+      intro paragraph.
+
+   b. **Detect the description source** for Track N based on the
+      on-disk presence of
+      `docs/adr/<dir-name>/implementation-backlog.md`:
+
+      - **(a) New-format** — the backlog file exists **and** contains a
+        `## Track N: <title>` section. Read the track's intro paragraph
+        from the plan-file entry and the
+        `**What/How/Constraints/Interactions**` subsections + any
+        track-level `mermaid` block from the backlog section. The
+        section body is defined by the "Backlog section body
+        extraction rule" in `conventions-execution.md` §2.1.
+      - **(b) Mid-migration fallback** — the backlog file exists **but**
+        has no `## Track N:` section (e.g., a partial hand-migration).
+        Read the full track description from the plan-file entry's
+        checklist block, and do NOT attempt a backlog-section removal
+        in sub-step (e) below (there is no section to remove).
+      - **(c) Legacy** — the backlog file is absent. Read the full
+        track description from the plan-file entry's checklist block.
+
+   c. **Mid-migration drift crosscheck (safety valve).** If the plan
+      entry still carries `**What/How/Constraints/Interactions**`
+      subsections **and** the backlog has a `## Track N:` section, the
+      description has drifted into two live locations simultaneously.
+      Flag to the user and pause — do not auto-resolve. This check is
+      a safety valve against hand-edits gone wrong, not a routine code
+      path.
+
+   d. **Create the step file atomically** at
+      `docs/adr/<dir-name>/tracks/track-N.md` in a single Write call
+      that already contains the full initial shell — `## Description`
+      (populated with the copied intro + `**What/How/Constraints/Interactions**`
+      subsections + any track-level diagram from sub-step (b)),
+      `## Progress` (with `[ ] Review + decomposition` and the other
+      Progress entries), and an empty `## Reviews completed`. Do NOT
+      create an empty shell and append the description in a second
+      Write — the single atomic Write closes the window in which the
+      description has been pulled out of its source but has not yet
+      landed on disk. Subsequent phases may Edit the file normally;
+      only the initial creation must be atomic.
+
+   e. **Remove Track N's section from the backlog** (skip this sub-step
+      for the mid-migration (b) and legacy (c) branches — in (b) there
+      is nothing to remove, in (c) there is no backlog file to edit).
+      Delete by **header boundary**: remove from the line matching
+      `## Track N: <title>` through the line immediately before the
+      next `## Track M: <title>` header, or through EOF if Track N is
+      the last section. Preserve the backlog's opening
+      `# <Feature> — Track Details` header and its
+      `<!-- DO NOT DELETE ... -->` HTML comment. Do NOT use line-count
+      deletion — that approach breaks when track-level `mermaid`
+      diagrams change a section's line count.
+
+      When the last remaining `## Track M:` section is removed, leave
+      the backlog file on disk with only its header and HTML comment.
+      The file's continued presence — even when empty — is what signals
+      "new-format plan" to downstream operations (late `track-skip`,
+      slim plan rendering, the `review-plan` orchestrator). Deleting
+      it mid-execution would flip those operations into legacy mode.
+      Natural cleanup happens when the branch is deleted after PR
+      merge, like every other working file.
+
+   f. **Re-check backlog existence at the remove step.** The
+      file-exists test is cheap, so run it again at (e) rather than
+      assuming the result from (b). This handles the rare case where
+      the backlog materialises mid-session (e.g., a concurrent
+      `/create-plan` run in another worktree) and avoids acting on a
+      stale in-memory assumption.
+
+3. **Run track-scoped reviews** as sub-agents (technical, risk, adversarial
    as warranted). After each review completes:
    - Write the review file to `docs/adr/<dir-name>/reviews/track-N-<type>.md`
-   - Update the **Reviews completed** section in the step file (create the
-     step file early with just the Progress and Reviews sections if it
-     doesn't exist yet)
+   - Update the **Reviews completed** section in the step file
+     (created atomically in step 2d).
    - These files persist on disk between sessions — the next session can
      skip completed reviews and only re-run missing ones.
    - **Context consumption check** (mandatory after each review, except
@@ -44,10 +122,10 @@ Phase C includes both the track-level code review and track completion
      is `safe`/`info`, continue. If the file does not exist or the
      command fails, this is **not an error** — treat as `safe` and
      continue.
-3. **Decompose scope indicators** into concrete steps
-4. **Write the step file** to `docs/adr/<dir-name>/tracks/track-N.md` with
-   all steps as `[ ]` items. Mark `Review + decomposition` as `[x]` in the
-   Progress section.
+4. **Decompose scope indicators** into concrete steps.
+5. **Write decomposed steps** to the step file's `## Steps` section as
+   `[ ]` items. Mark `Review + decomposition` as `[x]` in the Progress
+   section.
 
 ### Complexity Assessment and Which Reviews to Run
 

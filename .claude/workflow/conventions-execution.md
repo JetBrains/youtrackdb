@@ -288,6 +288,26 @@ same section requires the file to remain on disk for the lifetime of
 the plan, even after the last track section is removed (an empty
 header-only file still signals the new-format plan).
 
+### Backlog section body extraction rule
+
+Track N's section body in `implementation-backlog.md` is everything
+between the `## Track N: <title>` header line and the next
+`## Track M: <title>` header line (or EOF, if Track N is the last
+section), excluding the `## Track N:` header line itself. Optional
+trailing blank lines between Track N's content and the next
+`## Track M:` header are stripped from the extracted body so repeated
+extract-then-insert cycles do not accumulate whitespace.
+
+This is the single authoritative definition used wherever the workflow
+reads or removes a track's backlog section: Phase A description-move
+(see [`track-review.md`](track-review.md) §What You Do sub-step 2e),
+`track-skip` backlog cleanup (see [`track-skip.md`](track-skip.md)),
+and inline-replanning updates (see
+[`inline-replanning.md`](inline-replanning.md)). All three entry points
+apply the rule verbatim — keeping the extraction logic identical
+across them avoids accidental divergence when section bodies contain
+track-level `mermaid` diagrams or multi-paragraph blockquotes.
+
 ---
 
 ## 2.2 Episode Formats
