@@ -2040,6 +2040,114 @@ public class MatchStepUnitTest extends DbTestBase {
     assertFalse(MatchEdgeTraverser.matchesClass(ctx, "Person", new ResultInternal(session)));
   }
 
+  /**
+   * Verifies matchesClass resolves the class from the RID's cluster ID via the
+   * immutable schema snapshot, without forcing entity materialization.
+   * This is the zero-I/O path that prevents the {@code loadEntity()} chain
+   * triggered by the previous implementation — the dominant cost in LDBC ic12
+   * where every MATCH hop has a {@code class:} constraint. Also asserts that
+   * the underlying identifiable remains a bare RID after the call, proving no
+   * load occurred.
+   */
+  @Test
+  public void testMatchesClassRidOnlyNoLoad() {
+    session.createVertexClass("Person");
+    session.begin();
+    var vertex = session.newVertex("Person");
+    session.commit();
+    var rid = vertex.getIdentity();
+
+    session.begin();
+    var ctx = createCommandContext();
+    // Simulate the lazy MATCH path: bare RID wrapped in a ResultInternal
+    var result = new ResultInternal(session, rid);
+
+    assertTrue(MatchEdgeTraverser.matchesClass(ctx, "Person", result));
+    // The identifiable MUST still be the bare RID — if matchesClass loaded
+    // the entity, getIdentifiable() would now return an Entity instead.
+    assertFalse(
+        "matchesClass must not trigger entity loading",
+        result.getIdentifiable() instanceof Entity);
+    session.commit();
+  }
+
+  /**
+   * Verifies matchesClass returns true for a subclass of the requested class,
+   * resolving the relationship via the schema snapshot without loading the
+   * entity. Exercises the polymorphic {@code isSubClassOf} path inside the
+   * RID-only fast path.
+   */
+  @Test
+  public void testMatchesClassRidOnlySubclass() {
+    session.createVertexClass("Animal");
+    // Dog extends Animal (which already extends V via createVertexClass)
+    session.createClass("Dog", "Animal");
+
+    session.begin();
+    var vertex = session.newVertex("Dog");
+    session.commit();
+    var rid = vertex.getIdentity();
+
+    session.begin();
+    var ctx = createCommandContext();
+    var result = new ResultInternal(session, rid);
+
+    // Dog is a subclass of Animal — matchesClass should accept it
+    assertTrue(MatchEdgeTraverser.matchesClass(ctx, "Animal", result));
+    assertTrue(MatchEdgeTraverser.matchesClass(ctx, "Dog", result));
+    assertFalse(
+        "matchesClass must not trigger entity loading on subclass check",
+        result.getIdentifiable() instanceof Entity);
+    session.commit();
+  }
+
+  /**
+   * Verifies matchesClass returns false when the target class name differs
+   * from the RID's schema class, and still does not trigger entity loading.
+   */
+  @Test
+  public void testMatchesClassRidOnlyNegativeNoLoad() {
+    session.createVertexClass("Cat");
+    session.createVertexClass("Other");
+    session.begin();
+    var vertex = session.newVertex("Cat");
+    session.commit();
+    var rid = vertex.getIdentity();
+
+    session.begin();
+    var ctx = createCommandContext();
+    var result = new ResultInternal(session, rid);
+
+    assertFalse(MatchEdgeTraverser.matchesClass(ctx, "Other", result));
+    assertFalse(
+        "negative matchesClass must not trigger entity loading",
+        result.getIdentifiable() instanceof Entity);
+    session.commit();
+  }
+
+  /**
+   * Verifies matchesClass still works on an already-loaded Entity, using the
+   * entity's cached schema class without a schema snapshot lookup. Guards the
+   * fast path from a regression that would force the slow fallback.
+   */
+  @Test
+  public void testMatchesClassLoadedEntityUsesCachedClass() {
+    session.createVertexClass("Person");
+    session.begin();
+    var vertex = session.newVertex("Person");
+    session.commit();
+
+    session.begin();
+    var ctx = createCommandContext();
+    // Pre-load: pass the actual Entity, not just its RID
+    var result = new ResultInternal(session, vertex);
+
+    // Sanity: already an Entity
+    assertTrue(result.getIdentifiable() instanceof Entity);
+    assertTrue(MatchEdgeTraverser.matchesClass(ctx, "Person", result));
+    session.commit();
+  }
+
   // -- matchesFilters tests --
 
   /** Verifies matchesFilters returns true when filter is null (no constraint). */

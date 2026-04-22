@@ -462,24 +462,61 @@ public class MatchEdgeTraverser implements ExecutionStream {
   /**
    * Checks whether the result's entity is an instance of (or subclass of) the given
    * class name. Returns `true` if no class constraint is specified.
+   *
+   * <p>Performs the check without forcing entity materialization: every
+   * user-defined cluster is owned by exactly one schema class, so the RID's
+   * collection ID resolved against the immutable schema snapshot uniquely
+   * identifies the class (including subclass membership via
+   * {@link com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass#isSubClassOf}).
+   * This eliminates the
+   * {@code loadEntity() -> executeReadRecord() -> fillFromPage()} chain that
+   * the previous entity-based implementation triggered — the dominant cost
+   * in MATCH patterns where every hop has a {@code class:} constraint (e.g.
+   * LDBC ic12). Falls back to loading only when the cluster is unknown to
+   * the schema (e.g. system clusters not owned by a class).
    */
   static boolean matchesClass(
       CommandContext context, String className, Result origin) {
     if (className == null) {
       return true;
     }
-
-    var session = context.getDatabaseSession();
-    var entity = (EntityImpl) origin.asEntityOrNull();
-    if (entity != null) {
-      var clazz = entity.getImmutableSchemaClass(session);
-      if (clazz == null) {
-        return false;
-      }
-      return clazz.isSubClassOf(className);
+    if (origin == null) {
+      return false;
     }
 
-    return false;
+    var session = context.getDatabaseSession();
+
+    // Fast path: the result is already backed by a materialized EntityImpl
+    // (e.g. the caller already loaded it). Use its cached schema class;
+    // asIdentifiableOrNull() returns the underlying identifiable without
+    // triggering a load.
+    var identifiable = origin.asIdentifiableOrNull();
+    if (identifiable instanceof EntityImpl entity) {
+      var clazz = entity.getImmutableSchemaClass(session);
+      return clazz != null && clazz.isSubClassOf(className);
+    }
+
+    // Zero-I/O path: resolve the class from the RID's cluster ID via the
+    // immutable schema snapshot. No record load needed.
+    var rid = origin.getIdentity();
+    if (rid != null && session != null) {
+      var schema = session.getMetadata().getImmutableSchemaSnapshot();
+      if (schema != null) {
+        var clazz = schema.getClassByCollectionId(rid.getCollectionId());
+        if (clazz != null) {
+          return clazz.isSubClassOf(className);
+        }
+      }
+    }
+
+    // Fallback: the RID's cluster is not owned by a schema class. Load the
+    // record so the class name stored on the entity itself can be consulted.
+    var entity = (EntityImpl) origin.asEntityOrNull();
+    if (entity == null) {
+      return false;
+    }
+    var clazz = entity.getImmutableSchemaClass(session);
+    return clazz != null && clazz.isSubClassOf(className);
   }
 
   /** Checks whether the result's RID matches the given RID constraint. */
