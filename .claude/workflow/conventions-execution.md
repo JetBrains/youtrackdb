@@ -23,13 +23,14 @@ Protocol).
 first paragraph of the original description, before any `**What**:` /
 `**How**:` / `**Constraints**:` / `**Interactions**:` subsection), the
 `**Track episode:**` block (written at collapse time), the `**Step
-file:**` pointer, and the `**Strategy refresh:**` line once it is added
-in the next session.
+file:**` pointer, and the `**Strategy refresh:**` line if present — the
+next session's strategy refresh appends it per §"After strategy refresh"
+below.
 
 **Always drop** (regardless of plan shape): the `**Scope:**` line and
 the `**Depends on:**` line.
 
-**Conditional drop** — apply to handle the three plan shapes deterministically:
+**Conditional drop** — applied according to the plan shape:
 
 1. **New-format plan** (`implementation-backlog.md` exists on disk):
    pending-track entries in the plan were already written in the thin
@@ -52,9 +53,8 @@ the `**Depends on:**` line.
    presence of the keyword subsections themselves is what triggers the
    drop.
 
-In short: always drop `**Scope:**` and `**Depends on:**`; drop the four
-keyword subsections only if they are present. No other lines are
-removed by the collapse.
+Quick reference: always drop `**Scope:**` and `**Depends on:**`; drop
+the four keyword subsections only if present.
 
 ```markdown
 - [x] Track 2: <title>
