@@ -1078,11 +1078,67 @@ flowchart TD
   >   surrogate-pair / Turkish-locale coverage to the string-method tests
   >   (SQLMethodToLowerCase/ToUpperCase/Trim/Split/CharAt) so a regression
   >   from `Locale.ENGLISH` pinning would be caught.
+  > - **From Track 8 Phase C iter-1 (CQ1/TS1, CQ2/TS2, CQ3):** Hoist the
+  >   duplicated Track-8 executor-test helpers into `TestUtilsFixture`:
+  >   (a) `protected BasicCommandContext newContext()` (duplicated in ~45
+  >   executor test files), (b) `protected ExecutionStepInternal
+  >   sourceStep(CommandContext, List<? extends Result>)`, (c)
+  >   `protected static List<Result> drain(ExecutionStream, CommandContext)`,
+  >   (d) `protected static String uniqueSuffix()`. Extract the
+  >   `streamOfInts` / `CloseTracker` / `NoOpStep` trio (duplicated across
+  >   `ExecutionStreamWrappersTest`, `ExpireTimeoutResultSetTest`,
+  >   `InterruptResultSetTest`) into a package-private helper alongside
+  >   `LinkTestFixtures` in `core/sql/executor/resultset/` (e.g.
+  >   `StreamTestFixtures`). Replace duplicates file-by-file.
+  > - **From Track 8 Phase C iter-1 (CQ4):** Replace inline fully-qualified
+  >   class names in Track-8 test files with explicit imports — chiefly
+  >   `SQLOrBlock` / `SQLNotBlock` in `FetchFromIndexStepTest`,
+  >   `DatabaseSessionEmbedded` and `ExecutionStreamProducer` in
+  >   `ExecutionStreamWrappersTest`, and the `RID` FQN in
+  >   `SmallPlannerBranchTest`.
+  > - **From Track 8 Phase C iter-1 (CQ8, TS8):** Audit Track-8 executor
+  >   tests for manual `try { … session.commit(); } catch { rollback; throw }`
+  >   boilerplate that duplicates the `TestUtilsFixture.rollbackIfLeftOpen`
+  >   safety net. Keep explicit `session.rollback()` only where the test
+  >   deliberately rolls back as a success-path expectation; drop the
+  >   duplicative catch in the rest.
+  > - **From Track 8 Phase C iter-1 (TC3, TC4, TC5, TC6, TC7, TC8, TC9,
+  >   TC12):** Eight executor corner-case pins deferred to the final sweep:
+  >   (TC3) `CreateRecordStep total<0` → empty stream; (TC4) `UpdateRemoveStep`
+  >   / `UpdateSetStep` / `UpdateMergeStep` / `UpdateContentStep`
+  >   non-`ResultInternal` pass-through path; (TC5) `FetchFromCollection`
+  >   unknown / negative collection ID; (TC6) `FetchFromClass` partial
+  >   `collections`-filter subset matrix (retain only a subclass's collection
+  >   id while excluding the parent's); (TC7) `LetExpressionStep` subquery-
+  >   throws exception propagation (parallel pin in `LetQueryStepTest`);
+  >   (TC8) direct `SkipExecutionStep → LimitExecutionStep` composition test
+  >   (SKIP 2 LIMIT 3 over 6 rows → rows 3-5); (TC9) `UpsertStep` multi-row
+  >   upstream matches behavior; (TC12) `InsertValuesStep` rows<tuples
+  >   boundary (only first N tuples applied).
+  > - **From Track 8 Phase C iter-1 (suggestion tier, 37 items absorbed):**
+  >   CQ5–CQ7, CQ9–CQ10 (test-class splits, field-access patterns, license
+  >   banner, generator unification); BC1–BC2 (deterministic-clock for
+  >   `AccumulatingTimeoutStep`, `reached[0]` assertion simplification);
+  >   TB8–TB9 (RID-equality pin in `ResultInternalTest`, WHEN-FIXED javadoc
+  >   marker on `onCloseIsNotIdempotentOnRepeatedClose`); TC13–TC21
+  >   (Unwind-absent-field, ForEach prev==null, EmbeddedList negative
+  >   indices, EmbeddedSet add(null), EmbeddedMap compute/merge exception,
+  >   LimitedExecutionStream limit==MAX_VALUE, UpdatableResult toJSON
+  >   round-trip, IfStep runtime nested-IF, RetryStep ExecutionThreadLocal
+  >   interrupt); TS3, TS6–TS7, TS9–TS14 (test-class splits for
+  >   `ResultInternalTest` / `FetchFromIndexStepTest` / `ExecutionStream
+  >   WrappersTest`, LinkTestFixtures rename, Step-9 Abstract*Base
+  >   rationale note, license banner consistency, short class-name
+  >   clarity, SoftThread cleanup comment, RetryStep residual rationale
+  >   update); TX1, TX3–TX8 (wall-clock determinism, AtomicBoolean/Integer
+  >   hygiene, TimeoutStep RETURN sendTimeout symmetry, RetryStep
+  >   concurrent-tx integration-test note, InterruptResultSet mid-iteration
+  >   interrupt, ParallelExecStep mid-sub-plan throws propagation).
   >
   > **Scope:** ~6 steps covering transaction management, Gremlin
   > integration, engine lifecycle, exception/compression/config, remaining
-  > small packages, and verification; plus ~1-2 steps absorbing the
-  > inherited DRY / cleanup scope above
+  > small packages, and verification; plus ~2-3 steps absorbing the
+  > inherited DRY / cleanup scope above (Track 7 + Track 8 combined)
   > **Depends on:** Track 1
 
 ## Final Artifacts
