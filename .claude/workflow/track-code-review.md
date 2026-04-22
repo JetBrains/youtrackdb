@@ -279,8 +279,8 @@ proceed directly to track completion **in the same session**.
    track's description is now superseded by the committed code + step
    episodes + track episode. Reduce the description to its **intro
    paragraph** (everything in the blockquote before the first
-   `**Keyword:**` marker like `**What:**`, `**How:**`, `**Constraints:**`,
-   `**Interactions:**`). Drop those keyword subsections, drop the
+   `**Keyword**:` marker like `**What**:`, `**How**:`, `**Constraints**:`,
+   `**Interactions**:`). Drop those keyword subsections, drop the
    **Scope** line, and drop the **Depends on** line. Keep the intro
    paragraph — it tells readers what the track was about at a glance.
 

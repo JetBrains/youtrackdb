@@ -43,7 +43,10 @@ flowchart TD
 This is distinct from the global `~/.claude/plans/` where Claude Code stores
 ephemeral auto-named session plans. The project plan file is the single source
 of truth — it's human-readable, version-controlled, and serves as a lightweight
-ADR (Architecture Decision Record) after the feature is complete.
+ADR (Architecture Decision Record) after the feature is complete. Claude may
+internally use plan mode during any phase — that's fine, but insights must be
+captured in the project's track episodes (plan file) and step episodes (step
+files), never left only in `~/.claude/plans/`.
 
 ---
 

@@ -57,18 +57,20 @@ sub-agent to Read it:
 ```
 ## Implementation Plan (strategic context)
 Read the slim plan snapshot at:
-  /tmp/claude-code-plan-slim-$PPID.md
+  /tmp/claude-code-plan-slim-{PPID}.md
 
-This is a filtered view of the full plan — completed tracks appear as
-title + intro paragraph + track episode + strategy refresh only; the
-current track and other not-started tracks are shown in full. If this
-file is missing, fall back to
-  docs/adr/<dir-name>/implementation-plan.md
+This is a filtered view of the full plan — completed and skipped tracks
+appear as title + intro paragraph + track episode (or Skipped reason) +
+strategy refresh only; the current track and other not-started tracks
+are shown in full. If this file is missing, fall back to
+  docs/adr/{dir-name}/implementation-plan.md
 (full plan).
 ```
 
-The main agent must substitute `$PPID` with its own PID when composing
-the prompt — sub-agents don't inherit the same `$PPID`.
+`{PPID}` and `{dir-name}` are prompt-template placeholders — the main
+agent substitutes them with concrete values when composing each prompt.
+Sub-agents run in separate processes and don't inherit the main agent's
+`$PPID`, so the resolved PID must be baked into the prompt text.
 
 ---
 
@@ -87,7 +89,7 @@ the prompt — sub-agents don't inherit the same `$PPID`.
    |---|---|---|
    | `[ ]` (not started) or `[>]` (in progress) | Full description, Scope, Depends-on — all verbatim | Nothing |
    | `[x]` (completed) | Title line, **intro paragraph** (the first quoted block before any `**Keyword**:` subsection), **Track episode**, **Strategy refresh** line (if present) | **What/How/Constraints/Interactions** subsections, **Scope** line, **Depends on** line, **Step file** pointer line |
-   | `[~]` (skipped) | Title line, **Skipped:** reason, **Strategy refresh** line | Description body, Scope, Depends-on |
+   | `[~]` (skipped) | Title line, **intro paragraph**, **Skipped:** reason, **Strategy refresh** line (if present) | **What/How/Constraints/Interactions** subsections, **Scope** line, **Depends on** line |
 
    **Current track exception:** The track currently being executed is
    always `[ ]` or `[>]` in the plan file (it is not marked `[x]` until

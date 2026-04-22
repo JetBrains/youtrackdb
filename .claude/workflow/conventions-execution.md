@@ -18,8 +18,8 @@ approves** the track results, and at the same time the description is
 **collapsed** to remove implementation detail that is now superseded by
 the committed code and step episodes (see workflow.md §Track Completion
 Protocol). Keep the **intro paragraph** (the first paragraph of the
-original description, before any `**What:**` / `**How:**` /
-`**Constraints:**` / `**Interactions:**` subsection). Drop those keyword
+original description, before any `**What**:` / `**How**:` /
+`**Constraints**:` / `**Interactions**:` subsection). Drop those keyword
 subsections, drop the **Scope** line, and drop the **Depends on** line.
 
 ```markdown
@@ -76,16 +76,21 @@ For ADJUST, include a brief summary of what was adjusted:
 ```
 
 For skipped tracks (`[~]`), the strategy refresh line follows the skip
-record:
+record. The on-disk form keeps the full track description — skipped
+tracks never go through the Phase C collapse, so nothing trims them:
 
 ```markdown
 - [~] Track 3: <title>
-  > <intro paragraph>
+  > <description>
   >
   > **Skipped:** <reason>
   >
   > **Strategy refresh:** CONTINUE — no downstream impact from skipping.
 ```
+
+For how sub-agents see this — `plan-slim-rendering.md` strips the
+implementation-detail subsections at prompt-assembly time so reviewers
+get a compact view without changing what's on disk.
 
 ESCALATE triggers inline replanning (see workflow.md), which restructures
 the plan file directly — no strategy refresh line is written.

@@ -22,8 +22,9 @@ Before implementing the first step:
    and write the result. Sub-agents spawned for step-level code review
    will read this snapshot by path — this keeps the main agent's
    tool-call history from accumulating a plan copy per spawn.
-   Regenerate the snapshot whenever the plan is modified during the
-   session (plan corrections, strategy-refresh writes).
+   Regenerate the snapshot only if inline replanning (ESCALATE) modifies
+   the plan mid-session — Phase B does not otherwise write to the plan
+   file.
 
 ---
 
