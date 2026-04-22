@@ -106,6 +106,47 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
    */
   private boolean indexRidSetResolved;
 
+  /**
+   * Running sum of reverse-link-bag sizes across per-back-ref builds,
+   * used by the IndexLookup amortization guard (YTDB-651). Mirrors
+   * {@code EdgeTraversal.accumulatedLinkBagTotal} — once the total
+   * justifies the one-time cost of scanning the index filter, the RidSet
+   * is materialized (see {@link
+   * EdgeTraversal#evaluateIndexLookupAmortization}).
+   *
+   * <p>Not copied — a fresh {@link BackRefHashJoinStep} is returned by
+   * {@link #copy(CommandContext)} via the constructor, so the counter
+   * resets for each plan instance.
+   */
+  private long accumulatedLinkBagTotal;
+
+  /**
+   * Cached class-level selectivity of {@code descriptor.chain().indexFilter()}.
+   * {@link Double#NaN} until first computation;
+   * {@link IndexSearchDescriptor#estimateSelectivity} may return a negative
+   * sentinel when statistics are unavailable, in which case the amortization
+   * guard conservatively PROCEEDs (same semantics as EdgeTraversal).
+   */
+  private double cachedIndexLookupSelectivity = Double.NaN;
+
+  /**
+   * Cached load-to-scan cost ratio used by the amortization formula.
+   * {@link Double#NaN} means not yet computed. Resolved once per query
+   * lifetime via {@link EdgeTraversal#currentLoadToScanRatio()} — the
+   * first back-ref build reads the current value, and all subsequent
+   * guard evaluations reuse it to avoid repeated metric lookups.
+   */
+  private double cachedLoadToScanRatio = Double.NaN;
+
+  /**
+   * Set to {@code true} when the amortization guard returns
+   * {@link EdgeTraversal.AmortizationDecision#REJECT} (index-lookup
+   * class-level selectivity above the configured threshold). Short-circuits
+   * subsequent back-refs to avoid re-evaluating a decision that will not
+   * change within a query.
+   */
+  private boolean indexLookupRejected;
+
   BackRefHashJoinStep(
       CommandContext ctx,
       SemiJoinDescriptor descriptor,
@@ -540,20 +581,68 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
     var maxSize = MatchExecutionPlanner.getHashJoinThreshold();
 
     RidSet indexRidSet = null;
-    if (chain.indexFilter() != null) {
+    if (chain.indexFilter() != null && !indexLookupRejected) {
       // When an index filter is present, the effective entry count after
       // filtering may be well below the threshold — skip early pre-check.
       // The index result is query-level constant, so resolve once and
       // reuse across all per-back-ref builds (YTDB-650 regression fix).
+      //
+      // YTDB-651: gate the build behind the same IndexLookup amortization
+      // guard used by the MATCH path (see EdgeTraversal). Previously the
+      // only protection was the raw {@code maxRidSetSize} cap inside
+      // {@link TraversalPreFilterHelper#resolveIndexToRidSet}; with the
+      // auto-scaled cap (up to 10M entries) the scan would complete for
+      // large-but-not-huge indexes, imposing a per-query build cost that
+      // outweighed the filtering benefit (IC5 regression).
       if (!indexRidSetResolved) {
-        cachedIndexRidSet = TraversalPreFilterHelper.resolveIndexToRidSet(
-            chain.indexFilter(), ctx);
-        indexRidSetResolved = true;
+        if (Double.isNaN(cachedIndexLookupSelectivity)) {
+          cachedIndexLookupSelectivity =
+              chain.indexFilter().estimateSelectivity(ctx);
+        }
+        if (Double.isNaN(cachedLoadToScanRatio)) {
+          cachedLoadToScanRatio = EdgeTraversal.currentLoadToScanRatio();
+        }
+        long estimatedHits = chain.indexFilter().estimateHits(ctx);
+        int estimatedSize =
+            estimatedHits < 0 ? -1
+                : (int) Math.min(estimatedHits, Integer.MAX_VALUE);
+        // Accumulate the current back-ref's reverse-link-bag size before
+        // the guard check — mirrors EdgeTraversal's accumulator semantics.
+        accumulatedLinkBagTotal += linkBag.size();
+        var decision = EdgeTraversal.evaluateIndexLookupAmortization(
+            estimatedSize, cachedIndexLookupSelectivity,
+            accumulatedLinkBagTotal, cachedLoadToScanRatio);
+        switch (decision) {
+          case REJECT -> {
+            // Class-level selectivity above threshold — a later back-ref
+            // won't change this verdict; short-circuit for the rest of
+            // the query.
+            indexLookupRejected = true;
+            cachedIndexRidSet = null;
+            indexRidSetResolved = true;
+          }
+          case DEFER -> {
+            // Accumulator not yet over the break-even threshold. Leave
+            // indexRidSet null for this build; a later back-ref with a
+            // bigger link bag may push the total over.
+            cachedIndexRidSet = null;
+            // indexRidSetResolved stays false — re-evaluate next call.
+          }
+          case PROCEED -> {
+            cachedIndexRidSet = TraversalPreFilterHelper.resolveIndexToRidSet(
+                chain.indexFilter(), ctx);
+            indexRidSetResolved = true;
+          }
+        }
       }
       indexRidSet = cachedIndexRidSet;
-    } else if (maxSize > 0 && linkBag.size() > maxSize) {
-      // No index filter — the full link bag will be iterated, so we can
-      // reject early without loading any edge records.
+    }
+    if (indexRidSet == null && maxSize > 0 && linkBag.size() > maxSize) {
+      // Either there is no index filter, the IndexLookup guard deferred
+      // the build, or the selectivity check rejected it permanently —
+      // without an effective filter the full link bag must be iterated,
+      // so we reject early once the bag is too large to amortize the
+      // hash-table build.
       return null;
     }
 
@@ -701,6 +790,10 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
     cache = null;
     cachedIndexRidSet = null;
     indexRidSetResolved = false;
+    accumulatedLinkBagTotal = 0L;
+    cachedIndexLookupSelectivity = Double.NaN;
+    cachedLoadToScanRatio = Double.NaN;
+    indexLookupRejected = false;
     super.close();
   }
 

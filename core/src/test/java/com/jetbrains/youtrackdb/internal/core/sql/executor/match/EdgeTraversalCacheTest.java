@@ -2419,4 +2419,135 @@ public class EdgeTraversalCacheTest {
     assertThat(copy.getCachedLiveRatio()).isNaN();
     assertThat(copy.getCachedEffectiveness()).isNull();
   }
+
+  // =========================================================================
+  // evaluateIndexLookupAmortization — stateless guard reused by
+  // BackRefHashJoinStep (YTDB-651 IC5 regression fix)
+  // =========================================================================
+
+  /**
+   * Selectivity above {@code indexLookupMaxSelectivity} (default 0.95) must
+   * return REJECT regardless of accumulator — the condition matches too
+   * many records to ever justify the build.
+   */
+  @Test
+  public void evaluateIndexLookupAmortization_highSelectivity_rejects() {
+    var decision = EdgeTraversal.evaluateIndexLookupAmortization(
+        /* estimatedSize */ 100_000,
+        /* selectivity   */ 0.98,
+        /* accumulated   */ 10_000_000L,
+        /* loadToScan    */ 100.0);
+    assertThat(decision).isEqualTo(EdgeTraversal.AmortizationDecision.REJECT);
+  }
+
+  /**
+   * Selectivity == threshold is the boundary; the check is strictly
+   * greater-than, so equality still PROCEEDs to the amortization branch.
+   * With selectivity 0.95, loadToScan 100 and estimatedSize 100K, the
+   * formula yields 100K / (100 * 0.05) = 20_000, so a large accumulator
+   * should PROCEED (not REJECT, not DEFER).
+   */
+  @Test
+  public void evaluateIndexLookupAmortization_selectivityAtThreshold_proceeds() {
+    var decision = EdgeTraversal.evaluateIndexLookupAmortization(
+        /* estimatedSize */ 100_000,
+        /* selectivity   */ 0.95,
+        /* accumulated   */ 100_000L,
+        /* loadToScan    */ 100.0);
+    assertThat(decision).isEqualTo(EdgeTraversal.AmortizationDecision.PROCEED);
+  }
+
+  /**
+   * IC5-shaped input: indexHits=1_000_000, selectivity=0.5,
+   * loadToScan=25 (warm-cache live ratio), accumulated=75_000.
+   * minNeighbors = 1_000_000 / (25 * 0.5) = 80_000.
+   * Accumulator 75K is just below the threshold → DEFER (the regression
+   * fix: IC5 must NOT materialise the RidSet).
+   */
+  @Test
+  public void evaluateIndexLookupAmortization_ic5Shape_defers() {
+    var decision = EdgeTraversal.evaluateIndexLookupAmortization(
+        /* estimatedSize */ 1_000_000,
+        /* selectivity   */ 0.5,
+        /* accumulated   */ 75_000L,
+        /* loadToScan    */ 25.0);
+    assertThat(decision).isEqualTo(EdgeTraversal.AmortizationDecision.DEFER);
+  }
+
+  /**
+   * Same IC5 shape but with cold-start ratio=100 the threshold drops to
+   * 1_000_000 / (100 * 0.5) = 20_000; accumulator 75K is well above it,
+   * so the guard PROCEEDs. This illustrates why the live cost ratio
+   * matters — cold-start triggers the build, warm metrics defer it.
+   */
+  @Test
+  public void evaluateIndexLookupAmortization_ic5Shape_coldStart_proceeds() {
+    var decision = EdgeTraversal.evaluateIndexLookupAmortization(
+        /* estimatedSize */ 1_000_000,
+        /* selectivity   */ 0.5,
+        /* accumulated   */ 75_000L,
+        /* loadToScan    */ 100.0);
+    assertThat(decision).isEqualTo(EdgeTraversal.AmortizationDecision.PROCEED);
+  }
+
+  /**
+   * Selectivity unknown (negative sentinel from IndexSearchDescriptor)
+   * skips both the REJECT branch and the amortization branch → PROCEED
+   * optimistically. This matches the existing behaviour of
+   * {@link IndexLookup#passesSelectivityCheck} when statistics are absent.
+   */
+  @Test
+  public void evaluateIndexLookupAmortization_unknownSelectivity_proceeds() {
+    var decision = EdgeTraversal.evaluateIndexLookupAmortization(
+        /* estimatedSize */ 100_000,
+        /* selectivity   */ -1.0,
+        /* accumulated   */ 0L,
+        /* loadToScan    */ 100.0);
+    assertThat(decision).isEqualTo(EdgeTraversal.AmortizationDecision.PROCEED);
+  }
+
+  /**
+   * Zero estimatedSize implies {@code computeMinNeighborsForBuild=0}, so
+   * even an empty accumulator PROCEEDs (trivially small build — do it now).
+   */
+  @Test
+  public void evaluateIndexLookupAmortization_zeroEstimatedSize_proceeds() {
+    var decision = EdgeTraversal.evaluateIndexLookupAmortization(
+        /* estimatedSize */ 0,
+        /* selectivity   */ 0.5,
+        /* accumulated   */ 0L,
+        /* loadToScan    */ 100.0);
+    assertThat(decision).isEqualTo(EdgeTraversal.AmortizationDecision.PROCEED);
+  }
+
+  /**
+   * Accumulator equal to {@code Math.ceil(minNeighbors)} is the boundary —
+   * strict less-than means equality PROCEEDs. With estimatedSize=100K,
+   * selectivity=0.5, loadToScan=100 → minNeighbors=2000.0,
+   * Math.ceil=2000; accumulator 2000 → PROCEED.
+   */
+  @Test
+  public void evaluateIndexLookupAmortization_accumulatorAtThreshold_proceeds() {
+    var decision = EdgeTraversal.evaluateIndexLookupAmortization(
+        /* estimatedSize */ 100_000,
+        /* selectivity   */ 0.5,
+        /* accumulated   */ 2_000L,
+        /* loadToScan    */ 100.0);
+    assertThat(decision).isEqualTo(EdgeTraversal.AmortizationDecision.PROCEED);
+  }
+
+  /**
+   * Accumulator one below the ceiling → DEFER. Pairs with
+   * {@link #evaluateIndexLookupAmortization_accumulatorAtThreshold_proceeds}
+   * to fence the strict-less-than boundary.
+   */
+  @Test
+  public void evaluateIndexLookupAmortization_accumulatorJustBelowThreshold_defers() {
+    var decision = EdgeTraversal.evaluateIndexLookupAmortization(
+        /* estimatedSize */ 100_000,
+        /* selectivity   */ 0.5,
+        /* accumulated   */ 1_999L,
+        /* loadToScan    */ 100.0);
+    assertThat(decision).isEqualTo(EdgeTraversal.AmortizationDecision.DEFER);
+  }
 }
