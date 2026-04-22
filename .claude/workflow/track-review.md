@@ -42,28 +42,31 @@ Phase C includes both the track-level code review and track completion
       on-disk presence of
       `docs/adr/<dir-name>/implementation-backlog.md`:
 
-      - **(a) New-format** — the backlog file exists **and** contains a
+      - **(i) New-format** — the backlog file exists **and** contains a
         `## Track N: <title>` section. Read the track's intro paragraph
         from the plan-file entry and the
         `**What/How/Constraints/Interactions**` subsections + any
         track-level `mermaid` block from the backlog section. The
         section body is defined by the "Backlog section body
         extraction rule" in `conventions-execution.md` §2.1.
-      - **(b) Mid-migration fallback** — the backlog file exists **but**
-        has no `## Track N:` section (e.g., a partial hand-migration).
-        Read the full track description from the plan-file entry's
-        checklist block, and do NOT attempt a backlog-section removal
-        in sub-step (e) below (there is no section to remove).
-      - **(c) Legacy** — the backlog file is absent. Read the full
+      - **(ii) Mid-migration fallback** — the backlog file exists
+        **but** has no `## Track N:` section (e.g., a partial
+        hand-migration). Read the full track description from the
+        plan-file entry's checklist block, and do NOT attempt a
+        backlog-section removal in sub-step (e) below (there is no
+        section to remove).
+      - **(iii) Legacy** — the backlog file is absent. Read the full
         track description from the plan-file entry's checklist block.
 
    c. **Mid-migration drift crosscheck (safety valve).** If the plan
       entry still carries `**What/How/Constraints/Interactions**`
       subsections **and** the backlog has a `## Track N:` section, the
       description has drifted into two live locations simultaneously.
-      Flag to the user and pause — do not auto-resolve. This check is
-      a safety valve against hand-edits gone wrong, not a routine code
-      path.
+      Flag to the user and pause — do not auto-resolve, and do not
+      proceed to sub-steps (d)-(e) until the user has reconciled the
+      two descriptions manually and re-run `/execute-tracks`. This
+      check is a safety valve against hand-edits gone wrong, not a
+      routine code path.
 
    d. **Create the step file atomically** at
       `docs/adr/<dir-name>/tracks/track-N.md` in a single Write call
@@ -79,8 +82,15 @@ Phase C includes both the track-level code review and track completion
       only the initial creation must be atomic.
 
    e. **Remove Track N's section from the backlog** (skip this sub-step
-      for the mid-migration (b) and legacy (c) branches — in (b) there
-      is nothing to remove, in (c) there is no backlog file to edit).
+      for the mid-migration and legacy branches — the former has
+      nothing to remove, the latter has no backlog file to edit).
+      Before removing, **re-check** that
+      `docs/adr/<dir-name>/implementation-backlog.md` still exists on
+      disk: the file-exists test is cheap, and running it again here
+      instead of assuming the result from sub-step (b) handles the
+      rare case where the backlog materialises mid-session (e.g., a
+      concurrent `/create-plan` run in another worktree).
+
       Delete by **header boundary**: remove from the line matching
       `## Track N: <title>` through the line immediately before the
       next `## Track M: <title>` header, or through EOF if Track N is
@@ -98,13 +108,6 @@ Phase C includes both the track-level code review and track completion
       it mid-execution would flip those operations into legacy mode.
       Natural cleanup happens when the branch is deleted after PR
       merge, like every other working file.
-
-   f. **Re-check backlog existence at the remove step.** The
-      file-exists test is cheap, so run it again at (e) rather than
-      assuming the result from (b). This handles the rare case where
-      the backlog materialises mid-session (e.g., a concurrent
-      `/create-plan` run in another worktree) and avoids acting on a
-      stale in-memory assumption.
 
 3. **Run track-scoped reviews** as sub-agents (technical, risk, adversarial
    as warranted). After each review completes:
