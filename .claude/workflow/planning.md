@@ -182,10 +182,11 @@ scope creep during execution.
 Each **track** in the checklist is described across two files:
 
 - **`implementation-plan.md` (thin checklist entry):** a blockquote under
-  the track heading containing an **intro paragraph** — 1-3 sentences of
-  high-level context — plus the `**Scope:**` line and, when applicable,
-  the `**Depends on:**` line. This is the content every `/execute-tracks`
-  session loads at startup, so keep it compact.
+  the track heading containing an **intro paragraph** — a short paragraph
+  of high-level context (typically 1-3 sentences) — plus the `**Scope:**`
+  line and, when applicable, the `**Depends on:**` line. This is the
+  content every `/execute-tracks` session loads at startup, so keep it
+  compact.
 - **`implementation-backlog.md` (detailed description):** a `## Track N:
   <title>` section with bold-label blockquote subsections covering the
   full detail. The intro paragraph may be duplicated at the top of the
@@ -208,9 +209,10 @@ The file format and template for both files are defined in
 `conventions.md` §1.2; the authoritative location of the detailed
 description over time (Phase 1 → Phase A → Phase B/C) is given by the
 description-lifecycle table in `conventions-execution.md` §2.1. See
-also the D4 legacy-compat rule in `conventions.md` §1.2 — plans created
-before the split keep all detail in the plan file and are detected by
-the absence of `implementation-backlog.md` on disk.
+also the D4 legacy-compat rule in `conventions.md` §1.2 — if
+`implementation-backlog.md` exists on disk, the plan is new-format;
+otherwise the plan is legacy and keeps all detail in the plan file as
+before.
 
 **Track sizing rule:** If a track would need more than ~5-7 steps, split it
 into separate dependent tracks during planning. The execution agent
@@ -227,8 +229,9 @@ non-trivial interactions and the flow isn't obvious from the prose alone.
 
 Location lifecycle:
 - **Phase 1 (planning):** the diagram is written inside the track's
-  section of `implementation-backlog.md`, immediately below the
-  `**Interactions**:` subsection (or wherever it reads best). It is
+  section of `implementation-backlog.md` as a separate fenced `mermaid`
+  block immediately after the `**Interactions**:` blockquote (outside
+  the blockquote — see the template in `conventions.md` §1.2). It is
   **never rendered in `implementation-plan.md`** — plan readers who
   want visual reasoning about a specific track open the backlog (or,
   after Phase A, the step file).
