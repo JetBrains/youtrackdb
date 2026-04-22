@@ -1,33 +1,50 @@
 apiVersion: 1
 
+# Regression detection has moved to jmh-ldbc/jmh-regression-alert.py, invoked
+# from the nightly benchmark workflow. That path runs against the JSON the
+# benchmark just produced, has unit tests, and fails the workflow loudly if it
+# crashes — avoiding the silent "alert rule with buggy math returns OK" class
+# of failure that used to live here.
+#
+# Grafana keeps one job only: a liveness probe. If the Python alerter stops
+# running (workflow disabled, runner dead, secret rotated, etc.), the Python
+# path cannot alert on its own absence. This rule does.
+
 groups:
   - orgId: 1
-    name: jmh-benchmark-regressions
+    name: jmh-benchmark-freshness
     folder: JMH Alerts
     interval: 1h
     rules:
-      # ── Run-over-run regression (>10% drop vs previous nightly) ──
-      - uid: jmh-run-over-run-regression
-        title: "JMH run-over-run regression (>10% drop)"
+      # Fires when the most recent jmh_benchmark point on `develop` is older
+      # than 36 hours. Nightly benchmarks run every 24h, so a 36h threshold
+      # tolerates one missed run before paging (avoids noise from routine
+      # single-night glitches) while still catching a pipeline that has
+      # genuinely stopped producing data.
+      - uid: jmh-data-freshness
+        title: "JMH benchmark pipeline stalled (no fresh data)"
         condition: C
         for: 0s
         annotations:
           summary: >-
-            Benchmark {{ $labels.query }} ({{ $labels.suite }}) dropped
-            {{ printf "%.1f" $values.B.Value }}% vs the previous run.
+            No JMH benchmark data for {{ printf "%.1f" $values.B.Value }}h
+            on branch `develop` — the nightly pipeline may be broken.
           description: >-
-            The latest nightly benchmark score is more than 10% below
-            the previous run. Check the dashboard for details.
+            The freshest jmh_benchmark point on develop is older than 36h.
+            This usually means the nightly workflow failed, was disabled,
+            or the self-hosted runner is offline. Regression detection
+            relies on fresh data — investigate before more nights pass.
           dashboard_url: https://bench.youtrackdb.io
         labels:
           severity: warning
-        noDataState: OK
-        execErrState: OK
+        # If the bucket has no data in the last 7 days at all, treat it as a
+        # firing condition: a completely empty history is worse than stale.
+        noDataState: Alerting
+        execErrState: Alerting
         data:
-          # Query B: compute delta_pct per query+suite in Flux
           - refId: B
             relativeTimeRange:
-              from: 7776000  # 90 days in seconds
+              from: 604800  # 7 days in seconds
               to: 0
             datasourceUid: "P951FEA4DE68E13C5"
             model:
@@ -36,64 +53,22 @@ groups:
                 type: influxdb
                 uid: "P951FEA4DE68E13C5"
               query: |
-                // Noise suppression: exclude benchmarks where score_error > 10% of score
-                noise = from(bucket: "jmh-benchmarks")
-                  |> range(start: -30d)
+                from(bucket: "jmh-benchmarks")
+                  |> range(start: -7d)
                   |> filter(fn: (r) => r._measurement == "jmh_benchmark")
-                  |> filter(fn: (r) => r.branch == "develop")
-                  |> filter(fn: (r) => r._field == "score" or r._field == "score_error")
-                  |> group(columns: ["query", "suite"])
-                  |> sort(columns: ["_time"], desc: true)
-                  |> limit(n: 2)
-                  |> first()
-                  |> group(columns: ["query", "suite"])
-                  |> pivot(rowKey: ["query", "suite"], columnKey: ["_field"], valueColumn: "_value")
-                  |> filter(fn: (r) => r.score > 0.0 and r.score_error / r.score <= 0.10)
-                  |> keep(columns: ["query", "suite"])
-                  |> group()
-
-                base = from(bucket: "jmh-benchmarks")
-                  |> range(start: -30d)
-                  |> filter(fn: (r) => r._measurement == "jmh_benchmark")
-                  |> filter(fn: (r) => r.branch == "develop")
                   |> filter(fn: (r) => r._field == "score")
-                  |> group(columns: ["query", "suite"])
-                  |> sort(columns: ["_time"], desc: true)
-                  |> limit(n: 2)
-
-                latest = base
-                  |> first()
-                  |> keep(columns: ["_value", "query", "suite"])
+                  |> filter(fn: (r) => r.branch == "develop")
                   |> group()
-
-                previous = base
                   |> last()
-                  |> keep(columns: ["_value", "query", "suite"])
-                  |> group()
-
-                delta = join(tables: {l: latest, p: previous}, on: ["query", "suite"])
                   |> map(fn: (r) => ({
                     _time: now(),
-                    query: r.query,
-                    suite: r.suite,
-                    _value: if r._value_p > 0.0
-                      then (r._value_l - r._value_p) / r._value_p * 100.0
-                      else 0.0,
+                    _value: float(v: int(v: now()) - int(v: r._time))
+                            / 3600000000000.0,
                   }))
-
-                // Keep only non-noisy benchmarks
-                join(tables: {d: delta, n: noise}, on: ["query", "suite"])
-                  |> map(fn: (r) => ({
-                    _time: r._time,
-                    query: r.query,
-                    suite: r.suite,
-                    _value: r._value_d,
-                  }))
-                  |> group(columns: ["query", "suite"])
-          # Reduce: extract the single value from each series
+                  |> keep(columns: ["_time", "_value"])
           - refId: A
             relativeTimeRange:
-              from: 7776000
+              from: 604800
               to: 0
             datasourceUid: __expr__
             model:
@@ -117,10 +92,10 @@ groups:
               reducer: last
               settings:
                 mode: ""
-          # Threshold: fire if delta_pct < -10 (more than 10% regression)
+          # Fire if age_hours > 36
           - refId: C
             relativeTimeRange:
-              from: 7776000
+              from: 604800
               to: 0
             datasourceUid: __expr__
             model:
@@ -132,147 +107,8 @@ groups:
               conditions:
                 - evaluator:
                     params:
-                      - -10
-                    type: lt
-                  operator:
-                    type: and
-                  query:
-                    params:
-                      - C
-                  reducer:
-                    type: last
-              expression: A
-
-      # ── Below 14-run rolling average (>5% drop) ──
-      - uid: jmh-below-rolling-average
-        title: "JMH below 14-run average (>5% drop)"
-        condition: C
-        for: 0s
-        annotations:
-          summary: >-
-            Benchmark {{ $labels.query }} ({{ $labels.suite }}) is
-            {{ printf "%.1f" $values.B.Value }}% below the 14-run average.
-          description: >-
-            The latest nightly benchmark score is more than 5% below
-            the 14-run rolling average. This may indicate a gradual
-            regression. Check the dashboard for details.
-          dashboard_url: https://bench.youtrackdb.io
-        labels:
-          severity: warning
-        noDataState: OK
-        execErrState: OK
-        data:
-          # Query B: compute delta_pct (latest vs 14-run avg) per query+suite
-          - refId: B
-            relativeTimeRange:
-              from: 7776000
-              to: 0
-            datasourceUid: "P951FEA4DE68E13C5"
-            model:
-              refId: B
-              datasource:
-                type: influxdb
-                uid: "P951FEA4DE68E13C5"
-              query: |
-                // Noise suppression: exclude benchmarks where score_error > 10% of score
-                noise = from(bucket: "jmh-benchmarks")
-                  |> range(start: -90d)
-                  |> filter(fn: (r) => r._measurement == "jmh_benchmark")
-                  |> filter(fn: (r) => r.branch == "develop")
-                  |> filter(fn: (r) => r._field == "score" or r._field == "score_error")
-                  |> group(columns: ["query", "suite"])
-                  |> sort(columns: ["_time"], desc: true)
-                  |> limit(n: 2)
-                  |> first()
-                  |> group(columns: ["query", "suite"])
-                  |> pivot(rowKey: ["query", "suite"], columnKey: ["_field"], valueColumn: "_value")
-                  |> filter(fn: (r) => r.score > 0.0 and r.score_error / r.score <= 0.10)
-                  |> keep(columns: ["query", "suite"])
-                  |> group()
-
-                base = from(bucket: "jmh-benchmarks")
-                  |> range(start: -90d)
-                  |> filter(fn: (r) => r._measurement == "jmh_benchmark")
-                  |> filter(fn: (r) => r.branch == "develop")
-                  |> filter(fn: (r) => r._field == "score")
-                  |> group(columns: ["query", "suite"])
-                  |> sort(columns: ["_time"], desc: true)
-                  |> limit(n: 15)
-
-                latest = base
-                  |> first()
-                  |> keep(columns: ["_value", "query", "suite"])
-                  |> group()
-
-                avg14 = base
-                  |> tail(n: 14)
-                  |> mean()
-                  |> keep(columns: ["_value", "query", "suite"])
-                  |> group()
-
-                delta = join(tables: {l: latest, a: avg14}, on: ["query", "suite"])
-                  |> map(fn: (r) => ({
-                    _time: now(),
-                    query: r.query,
-                    suite: r.suite,
-                    _value: if r._value_a > 0.0
-                      then (r._value_l - r._value_a) / r._value_a * 100.0
-                      else 0.0,
-                  }))
-
-                // Keep only non-noisy benchmarks
-                join(tables: {d: delta, n: noise}, on: ["query", "suite"])
-                  |> map(fn: (r) => ({
-                    _time: r._time,
-                    query: r.query,
-                    suite: r.suite,
-                    _value: r._value_d,
-                  }))
-                  |> group(columns: ["query", "suite"])
-          # Reduce: extract the single value from each series
-          - refId: A
-            relativeTimeRange:
-              from: 7776000
-              to: 0
-            datasourceUid: __expr__
-            model:
-              refId: A
-              type: reduce
-              datasource:
-                type: __expr__
-                uid: __expr__
-              conditions:
-                - evaluator:
-                    params: []
+                      - 36
                     type: gt
-                  operator:
-                    type: and
-                  query:
-                    params:
-                      - A
-                  reducer:
-                    type: last
-              expression: B
-              reducer: last
-              settings:
-                mode: ""
-          # Threshold: fire if delta_pct < -5 (more than 5% below average)
-          - refId: C
-            relativeTimeRange:
-              from: 7776000
-              to: 0
-            datasourceUid: __expr__
-            model:
-              refId: C
-              type: threshold
-              datasource:
-                type: __expr__
-                uid: __expr__
-              conditions:
-                - evaluator:
-                    params:
-                      - -5
-                    type: lt
                   operator:
                     type: and
                   query:

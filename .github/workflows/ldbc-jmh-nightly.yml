@@ -209,6 +209,25 @@ jobs:
             --commit-sha "${{ steps.commit.outputs.sha }}" \
             --timestamp "${{ steps.commit.outputs.timestamp }}"
 
+      - name: Check for benchmark regressions
+        # Intentionally no `|| true` — if the alerter crashes we want the
+        # workflow to fail loudly rather than silently drop regression signals.
+        if: success()
+        env:
+          INFLUXDB_URL: ${{ secrets.INFLUXDB_URL }}
+          INFLUXDB_TOKEN: ${{ secrets.INFLUXDB_TOKEN }}
+          ZULIP_API_KEY: ${{ secrets.ZULIP_API_KEY }}
+        run: |
+          python3 jmh-ldbc/jmh-regression-alert.py \
+            --input "${{ github.workspace }}/results.json" \
+            --influxdb-url "$INFLUXDB_URL" \
+            --influxdb-token "$INFLUXDB_TOKEN" \
+            --influxdb-org youtrackdb \
+            --influxdb-bucket jmh-benchmarks \
+            --branch "${{ steps.commit.outputs.branch }}" \
+            --commit-sha "${{ steps.commit.outputs.sha }}" \
+            --zulip-api-key "$ZULIP_API_KEY"
+
       - name: Upload results artifact
         if: always()
         uses: actions/upload-artifact@v7

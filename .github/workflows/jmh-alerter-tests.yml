@@ -1,0 +1,35 @@
+name: JMH alerter unit tests
+
+# Run on every change that could affect the regression-detection math.
+# The alerter is the primary safety net for benchmark regressions
+# (Grafana now only does liveness) — its logic must not silently rot.
+
+on:
+  push:
+    branches: [develop, main]
+    paths:
+      - 'jmh-ldbc/jmh-regression-alert.py'
+      - 'jmh-ldbc/tests/**'
+      - '.github/workflows/jmh-alerter-tests.yml'
+  pull_request:
+    paths:
+      - 'jmh-ldbc/jmh-regression-alert.py'
+      - 'jmh-ldbc/tests/**'
+      - '.github/workflows/jmh-alerter-tests.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Run unit tests
+        run: python3 -m unittest discover -s jmh-ldbc/tests -v

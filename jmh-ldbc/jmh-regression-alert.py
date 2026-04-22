@@ -68,9 +68,11 @@ from(bucket: "{bucket}")
         with urllib.request.urlopen(req) as resp:
             csv_data = resp.read().decode("utf-8")
     except urllib.error.HTTPError as e:
+        # Exit non-zero instead of returning {}: an empty history would
+        # masquerade as "no regressions" and silently drop alerts.
         body_text = e.read().decode("utf-8", errors="replace")
         print(f"InfluxDB query failed: {e.code} - {body_text}", file=sys.stderr)
-        return {}
+        sys.exit(1)
 
     return parse_influx_csv(csv_data)
 
