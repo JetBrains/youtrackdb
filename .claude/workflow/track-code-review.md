@@ -283,15 +283,16 @@ proceed directly to track completion **in the same session**.
    [`conventions-execution.md`](conventions-execution.md) §2.1
    "After track completion (user-approved)". Quick form: always keep
    the intro paragraph + `**Track episode:**` block + `**Step file:**`
-   pointer (plus the `**Strategy refresh:**` line if already present
-   from an earlier session); always drop `**Scope:**` and
-   `**Depends on:**`; drop the four
-   `**What/How/Constraints/Interactions**` subsections only if present
-   — §2.1's three-clause form covers the conditional-drop behaviour
-   across new-format, legacy, and mid-migration plan shapes. The
-   collapse does not touch `implementation-backlog.md`: for new-format
-   plans, Phase A already removed Track N's section at the start of
-   this track.
+   pointer; always drop `**Scope:**` and `**Depends on:**`; drop the
+   four `**What/How/Constraints/Interactions**` subsections only if
+   present — §2.1's three-clause form covers the conditional-drop
+   behaviour across new-format, legacy, and mid-migration plan shapes.
+   (The `**Strategy refresh:**` line belongs to §2.1's "Always keep"
+   clause but is never yet on disk at Phase C collapse time; the next
+   session's strategy refresh appends it.) The collapse does not touch
+   `implementation-backlog.md` — if a backlog exists, Phase A already
+   removed Track N's section at the start of this track; if not,
+   there is nothing to touch.
 
    Final on-disk form:
 
