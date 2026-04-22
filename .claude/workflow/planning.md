@@ -179,16 +179,38 @@ scope creep during execution.
 
 ## Track descriptions
 
-Each **track** in the checklist must have a description block (in a blockquote
-under the track heading). There is no length cap — the description should be as
-long as it needs to be to give the execution agent full context. Use bullet
-points if it grows beyond a short paragraph.
+Each **track** in the checklist is described across two files:
 
-The description should cover:
-- **What** the track achieves
-- **How** (high-level approach)
-- **Track-specific constraints** (compatibility, performance, locking, etc.)
-- **Interactions with other tracks** (dependencies, shared state, ordering)
+- **`implementation-plan.md` (thin checklist entry):** a blockquote under
+  the track heading containing an **intro paragraph** — 1-3 sentences of
+  high-level context — plus the `**Scope:**` line and, when applicable,
+  the `**Depends on:**` line. This is the content every `/execute-tracks`
+  session loads at startup, so keep it compact.
+- **`implementation-backlog.md` (detailed description):** a `## Track N:
+  <title>` section with bold-label blockquote subsections covering the
+  full detail. The intro paragraph may be duplicated at the top of the
+  backlog section for self-containedness, but everything below is
+  backlog-only. This content is read only in Phase A of one track per
+  session; there is no length cap — make it as long as the execution
+  agent needs.
+
+The detailed description in the backlog should cover:
+- **What** the track achieves (concrete deliverables — files to touch,
+  APIs to add, behaviors to change)
+- **How** (high-level approach — sequencing, invariants to preserve,
+  ordering constraints)
+- **Constraints** (in-scope/out-of-scope files, compatibility
+  requirements, performance budgets, locking or crash-safety rules)
+- **Interactions with other tracks** (dependencies, shared state,
+  ordering, hand-off artifacts)
+
+The file format and template for both files are defined in
+`conventions.md` §1.2; the authoritative location of the detailed
+description over time (Phase 1 → Phase A → Phase B/C) is given by the
+description-lifecycle table in `conventions-execution.md` §2.1. See
+also the D4 legacy-compat rule in `conventions.md` §1.2 — plans created
+before the split keep all detail in the plan file and are detected by
+the absence of `implementation-backlog.md` on disk.
 
 **Track sizing rule:** If a track would need more than ~5-7 steps, split it
 into separate dependent tracks during planning. The execution agent
@@ -199,14 +221,29 @@ execution agent.
 
 ## Track-level component interaction diagrams
 
-Optional Mermaid diagrams inside track descriptions, for when the track has
-3+ internal components with non-trivial interactions and the flow isn't
-obvious from the description alone.
+Optional Mermaid diagrams that belong with a track's **detailed
+description**, for when the track has 3+ internal components with
+non-trivial interactions and the flow isn't obvious from the prose alone.
+
+Location lifecycle:
+- **Phase 1 (planning):** the diagram is written inside the track's
+  section of `implementation-backlog.md`, immediately below the
+  `**Interactions**:` subsection (or wherever it reads best). It is
+  **never rendered in `implementation-plan.md`** — plan readers who
+  want visual reasoning about a specific track open the backlog (or,
+  after Phase A, the step file).
+- **Phase A (start of track execution):** the diagram moves with the
+  rest of the description into the step file's `## Description`
+  section. See the lifecycle row for track-level diagrams in
+  `conventions-execution.md` §2.1.
 
 Rules:
-- Scoped to the track — don't repeat the top-level Component Map.
+- Scoped to the track — don't repeat the top-level Component Map. If a
+  track-level diagram starts to carry cross-track reasoning, that's a
+  signal to elevate it into the plan's top-level Component Map instead.
 - Cap at ~10 nodes. Pair with an annotated bullet list.
-- Update when steps change interactions.
+- Update when steps change interactions (the step file's `## Description`
+  section is the authoritative copy during Phase B/C).
 
 ## Scope indicators
 
