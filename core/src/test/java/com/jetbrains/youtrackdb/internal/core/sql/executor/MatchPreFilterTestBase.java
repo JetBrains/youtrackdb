@@ -57,11 +57,48 @@ public abstract class MatchPreFilterTestBase extends DbTestBase {
    * Asserts the EXPLAIN plan contains evidence of back-ref optimization:
    * either {@code "intersection:"} (EdgeRidLookup) or
    * {@code "BACK-REF HASH JOIN"} (BackRefHashJoinStep).
+   *
+   * <p>This is an intentionally-permissive legacy helper — the caller
+   * accepts whichever optimization family the planner currently selects.
+   * Prefer the narrower {@link #assertPlanUsesBackRefHashJoin} or
+   * {@link #assertPlanUsesEdgeRidLookup} when the test is meant to guard
+   * a specific optimization path; those fail if the plan silently switches
+   * family on a regression.
    */
   protected void assertPlanHasIntersection(String query, String reason) {
     String plan = explainPlan(query);
     assertTrue(reason + ":\n" + plan,
         plan.contains("intersection:") || plan.contains("BACK-REF HASH JOIN"));
+  }
+
+  /** Named-parameter variant of {@link #assertPlanHasIntersection}. */
+  protected void assertPlanHasIntersection(
+      String query, Map<String, Object> params, String reason) {
+    String plan = explainPlan(query, params);
+    assertTrue(reason + ":\n" + plan,
+        plan.contains("intersection:") || plan.contains("BACK-REF HASH JOIN"));
+  }
+
+  /**
+   * Asserts the EXPLAIN plan uses the BackRefHashJoin optimization
+   * ({@code "BACK-REF HASH JOIN"} marker). Use this for queries where the
+   * planner is expected to select Pattern A/B/D and the assertion must fail
+   * if the plan silently falls back to the EdgeRidLookup family.
+   */
+  protected void assertPlanUsesBackRefHashJoin(String query, String reason) {
+    String plan = explainPlan(query);
+    assertTrue(reason + ":\n" + plan, plan.contains("BACK-REF HASH JOIN"));
+  }
+
+  /**
+   * Asserts the EXPLAIN plan uses the legacy EdgeRidLookup intersection
+   * ({@code "intersection:"} marker) — for queries whose shape is known
+   * to fall outside the Pattern A/B/D semi-join criteria and must still
+   * benefit from the index-intersection pre-filter.
+   */
+  protected void assertPlanUsesEdgeRidLookup(String query, String reason) {
+    String plan = explainPlan(query);
+    assertTrue(reason + ":\n" + plan, plan.contains("intersection:"));
   }
 
   /** Asserts the EXPLAIN plan contains {@code "intersection: index"}. */
@@ -82,12 +119,18 @@ public abstract class MatchPreFilterTestBase extends DbTestBase {
         plan.contains("intersection:") || plan.contains("BACK-REF HASH JOIN"));
   }
 
-  /** Named-parameter variant of {@link #assertPlanHasIntersection}. */
-  protected void assertPlanHasIntersection(
+  /** Named-parameter variant of {@link #assertPlanUsesBackRefHashJoin}. */
+  protected void assertPlanUsesBackRefHashJoin(
       String query, Map<String, Object> params, String reason) {
     String plan = explainPlan(query, params);
-    assertTrue(reason + ":\n" + plan,
-        plan.contains("intersection:") || plan.contains("BACK-REF HASH JOIN"));
+    assertTrue(reason + ":\n" + plan, plan.contains("BACK-REF HASH JOIN"));
+  }
+
+  /** Named-parameter variant of {@link #assertPlanUsesEdgeRidLookup}. */
+  protected void assertPlanUsesEdgeRidLookup(
+      String query, Map<String, Object> params, String reason) {
+    String plan = explainPlan(query, params);
+    assertTrue(reason + ":\n" + plan, plan.contains("intersection:"));
   }
 
   /** Named-parameter variant of {@link #assertPlanHasIndexIntersection}. */

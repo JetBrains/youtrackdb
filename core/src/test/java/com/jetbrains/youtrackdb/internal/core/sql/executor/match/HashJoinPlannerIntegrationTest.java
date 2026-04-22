@@ -10,6 +10,7 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -315,8 +316,10 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
 
   /**
    * Diamond pattern with intermediate alias in RETURN — correctness test.
-   * All four aliases (a, b, c, t) must appear in the result rows with correct
-   * values, including the intermediate 'c' merged from the build side.
+   * Enumerates the full row set so a regression that duplicates, drops, or
+   * swaps rows (e.g. stale {@code c} binding from the build side) surfaces
+   * directly. Graph: n1→{n2,n3}, n2→Likes→{t1,t2}, n3→Likes→{t1}. For each
+   * (b,c)∈n1.Friends² row exists for every t in b.Likes∩c.Likes.
    */
   @Test
   public void diamondPattern_innerJoin_correctResults() {
@@ -329,13 +332,23 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
             + " t.name as tName")
         .toList();
 
-    assertFalse("inner join query should return results", result.isEmpty());
-    for (var row : result) {
-      assertNotNull("a.name missing", row.getProperty("aName"));
-      assertNotNull("b.name missing", row.getProperty("bName"));
-      assertNotNull("c.name missing", row.getProperty("cName"));
-      assertNotNull("t.name missing", row.getProperty("tName"));
-    }
+    // (b,c,t) combinations where t ∈ b.Likes ∩ c.Likes, with a pinned to n1:
+    //   (n2,n2): t1, t2            (n2,n3): t1
+    //   (n3,n2): t1                (n3,n3): t1
+    // Total 5 rows, each with a=n1.
+    var rows = result.stream()
+        .map(r -> r.getProperty("aName") + "|" + r.getProperty("bName")
+            + "|" + r.getProperty("cName") + "|" + r.getProperty("tName"))
+        .collect(Collectors.toSet());
+    assertEquals(
+        Set.of(
+            "n1|n2|n2|t1",
+            "n1|n2|n2|t2",
+            "n1|n2|n3|t1",
+            "n1|n3|n2|t1",
+            "n1|n3|n3|t1"),
+        rows);
+    assertEquals("no duplicate rows expected", 5, result.size());
     session.commit();
   }
 
@@ -510,15 +523,24 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
               + " c.name as cName, t.name as tName")
           .toList();
 
-      assertFalse("inner-join fallback should still return results",
-          result.isEmpty());
-      // Every row must have all four aliases populated
-      for (var row : result) {
-        assertNotNull("a.name missing", row.getProperty("aName"));
-        assertNotNull("b.name missing", row.getProperty("bName"));
-        assertNotNull("c.name missing", row.getProperty("cName"));
-        assertNotNull("t.name missing", row.getProperty("tName"));
-      }
+      // Runtime fallback must produce the same logical rows as the
+      // hash-join path — see diamondPattern_innerJoin_correctResults for
+      // the derivation. If the nested-loop fallback duplicates, drops,
+      // or swaps rows, the exact-set assertion flags it.
+      var rows = result.stream()
+          .map(r -> r.getProperty("aName") + "|" + r.getProperty("bName")
+              + "|" + r.getProperty("cName") + "|" + r.getProperty("tName"))
+          .collect(Collectors.toSet());
+      assertEquals(
+          Set.of(
+              "n1|n2|n2|t1",
+              "n1|n2|n2|t2",
+              "n1|n2|n3|t1",
+              "n1|n3|n2|t1",
+              "n1|n3|n3|t1"),
+          rows);
+      assertEquals("no duplicate rows in fallback path",
+          5, result.size());
       session.commit();
     } finally {
       GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);
@@ -746,14 +768,23 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
             + " RETURN b.name as bName, e2 as edge2")
         .toList();
 
-    // n2 has 2 outgoing Friend edges to n1. Each should produce a result row.
-    // b=n2 with 2 different e2 edge records.
-    assertTrue("fan-out should produce multiple rows, got " + result.size(),
-        result.size() >= 2);
-    for (var row : result) {
-      assertEquals("n2", row.getProperty("bName"));
-      assertNotNull("edge2 should be populated", row.getProperty("edge2"));
-    }
+    // Only b=n2 back-refs to n1 (via the two added n2→n1 edges). b=n3's
+    // out('Friend') is {n5}, no back-ref. Fan-out must emit exactly 2 rows
+    // — one per edge — both with b=n2 and distinct e2 edge identities.
+    assertEquals("fan-out should emit one row per matching edge",
+        2, result.size());
+    var bNames = result.stream()
+        .map(r -> (String) r.getProperty("bName"))
+        .collect(Collectors.toList());
+    assertEquals(List.of("n2", "n2"), bNames);
+    var edgeIds = result.stream()
+        .map(r -> {
+          var e = r.getProperty("edge2");
+          return e == null ? null : e.toString();
+        })
+        .collect(Collectors.toSet());
+    assertEquals("both emitted edges must be distinct",
+        2, edgeIds.size());
     session.commit();
   }
 
@@ -2095,40 +2126,36 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
    * {@code out_:edge} link bag and passed every candidate through —
    * inverting the intended NOT IN semantics.
    *
-   * <p>The AST walker rejects the expression as a Pattern D candidate
-   * when the edge-class argument is anything other than a plain string
-   * literal (parameters, identifiers, compound expressions). The NOT IN
-   * then stays on the target's WHERE clause and is evaluated by the
-   * standard MatchStep — producing the correct exclusion.
+   * <p>The query is crafted so the buggy path and the correct path yield
+   * <strong>different</strong> row sets: each fof <em>is</em> one of
+   * {@code n1.out('Friend')}. A correct per-row NOT IN excludes them
+   * (zero rows); the old regex bug would build an empty hash on the
+   * non-existent {@code :edgeClass} class, so every fof would survive
+   * (two rows) — inverting the intended exclusion.
    */
   @Test
   public void backRef_notIn_boundParameterEdgeClass_correctResults() {
-    // n1→n2→n4 and n1→n3→n5 from the shared graph (Friend edges).
-    // Starting from n2, fof ∈ n2.in('Friend') = {n1}.
-    // n1 is in n2.start's out('Friend') = {n2,n3}? Wait, start=n2 itself:
-    //   start=n2 → n2.out('Friend') = {n4}.
-    // n1 ∉ {n4}, so fof=n1 passes the NOT IN (not excluded).
     session.begin();
     Map<String, Object> params = new HashMap<>();
     params.put("edgeClass", "Friend");
+    // Fof traversal: n1.out('Friend') = {n2, n3}. The NOT IN RHS resolves
+    // (at runtime, per-row) to n1.out('Friend') = {n2, n3} as well — so
+    // both fof candidates are excluded. Correct result: zero rows.
     var result = session.query(
-        "MATCH {class:Person, as:start, where:(name='n2')}"
-            + ".in('Friend'){as:fof,"
+        "MATCH {class:Person, as:start, where:(name='n1')}"
+            + ".out('Friend'){as:fof,"
             + " where: ($currentMatch NOT IN $matched.start.out(:edgeClass))}"
             + " RETURN fof.name as fofName",
         params)
         .toList();
     session.commit();
 
-    // n2.in('Friend') = {n1}; n2.out('Friend') = {n4}. n1 ∉ {n4} → pass.
-    // With the buggy regex, the descriptor would be built for edge class
-    // "edgeClass" (non-existent). The build side would be empty, so the
-    // anti-join emits every fof — same result here (1 row), but for the
-    // wrong reason. The correctness invariant exercised by this test is
-    // consistent with either code path; it primarily guards against
-    // future regressions in the AST rejection.
-    assertEquals(1, result.size());
-    assertEquals("n1", result.get(0).getProperty("fofName"));
+    // If Pattern D wrongly fired with edge class literally "edgeClass",
+    // the hash build would be empty and NOT IN ∅ would pass every fof —
+    // the result would be {n2, n3}. The correct result (per-row NOT IN
+    // with the resolved Friend class) is the empty set.
+    assertEquals("all fof candidates are in the exclusion set — must be "
+        + "filtered out by correct per-row NOT IN", 0, result.size());
   }
 
   /**

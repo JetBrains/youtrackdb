@@ -3771,8 +3771,11 @@ public class MatchStatementExecutionTest extends DbTestBase {
     assertEquals(1, explain.size());
     String plan = explain.get(0).getProperty("executionPlanAsString");
     assertNotNull("EXPLAIN should produce executionPlanAsString", plan);
-    assertTrue("Plan should show back-ref optimization (intersection or hash join)",
-        plan.contains("intersection:") || plan.contains("BACK-REF HASH JOIN"));
+    assertTrue(
+        "Plan should use BACK-REF HASH JOIN (Pattern A — vertex-level "
+            + "back-ref equality on small build-side qualifies for hash "
+            + "join below threshold):\n" + plan,
+        plan.contains("BACK-REF HASH JOIN"));
     session.commit();
   }
 
@@ -3861,8 +3864,11 @@ public class MatchStatementExecutionTest extends DbTestBase {
     assertEquals(1, explain.size());
     String plan = explain.get(0).getProperty("executionPlanAsString");
     assertNotNull("EXPLAIN should produce executionPlanAsString", plan);
-    assertTrue("Plan should show back-ref optimization (intersection or hash join)",
-        plan.contains("intersection:") || plan.contains("BACK-REF HASH JOIN"));
+    assertTrue(
+        "Plan should use BACK-REF HASH JOIN (Pattern A — vertex-level "
+            + "back-ref equality on small build-side qualifies for hash "
+            + "join below threshold):\n" + plan,
+        plan.contains("BACK-REF HASH JOIN"));
     session.commit();
   }
 
@@ -3973,8 +3979,11 @@ public class MatchStatementExecutionTest extends DbTestBase {
     assertEquals(1, explain.size());
     String plan = explain.get(0).getProperty("executionPlanAsString");
     assertNotNull("EXPLAIN should produce executionPlanAsString", plan);
-    assertTrue("Plan should show back-ref optimization (intersection or hash join)",
-        plan.contains("intersection:") || plan.contains("BACK-REF HASH JOIN"));
+    assertTrue(
+        "Plan should use BACK-REF HASH JOIN (Pattern A — vertex-level "
+            + "back-ref equality on small build-side qualifies for hash "
+            + "join below threshold):\n" + plan,
+        plan.contains("BACK-REF HASH JOIN"));
     session.commit();
   }
 
@@ -4051,8 +4060,11 @@ public class MatchStatementExecutionTest extends DbTestBase {
     assertEquals(1, explain.size());
     String plan = explain.get(0).getProperty("executionPlanAsString");
     assertNotNull("EXPLAIN should produce executionPlanAsString", plan);
-    assertTrue("Plan should show back-ref optimization (intersection or hash join)",
-        plan.contains("intersection:") || plan.contains("BACK-REF HASH JOIN"));
+    assertTrue(
+        "Plan should use BACK-REF HASH JOIN (Pattern A — vertex-level "
+            + "back-ref equality on small build-side qualifies for hash "
+            + "join below threshold):\n" + plan,
+        plan.contains("BACK-REF HASH JOIN"));
     session.commit();
   }
 
@@ -4171,8 +4183,11 @@ public class MatchStatementExecutionTest extends DbTestBase {
     assertEquals(1, explain.size());
     String plan = explain.get(0).getProperty("executionPlanAsString");
     assertNotNull("EXPLAIN should produce executionPlanAsString", plan);
-    assertTrue("Plan should show back-ref optimization (intersection or hash join)",
-        plan.contains("intersection:") || plan.contains("BACK-REF HASH JOIN"));
+    assertTrue(
+        "Plan should use BACK-REF HASH JOIN (Pattern A — vertex-level "
+            + "back-ref equality on small build-side qualifies for hash "
+            + "join below threshold):\n" + plan,
+        plan.contains("BACK-REF HASH JOIN"));
     session.commit();
   }
 
