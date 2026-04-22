@@ -142,7 +142,11 @@ completion**, before moving to the next step:
       ## Track Steps (tactical context)
       Read the step file at:
         docs/adr/{dir-name}/tracks/track-{N}.md
-      Contains all steps for this track with their episodes.
+      The file begins with a `## Description` section carrying the
+      track's original description — intro paragraph +
+      **What/How/Constraints/Interactions** subsections + any
+      track-level diagram — copied there at Phase A start. Below
+      that, all steps for this track appear with their episodes.
 
       ## Skip These Files (generated code)
       - core/.../sql/parser/*, generated-sources/*, Gremlin DSL
