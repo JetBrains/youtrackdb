@@ -204,6 +204,15 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
    */
   private final AtomicInteger openFiles = new AtomicInteger();
 
+  /**
+   * Remembered {@code openFiles.get()} from the last eviction attempt that could not close a
+   * single entry (all were ACQUIRED). Subsequent callers short-circuit while {@code openFiles}
+   * is still at this value — they would only repeat the scan under {@link #lruLock} to no
+   * effect. {@link #release(ClosableEntry)} resets it to {@code -1} so the next eviction pass
+   * can proceed.
+   */
+  private final AtomicInteger lastNoProgressOpenFiles = new AtomicInteger(-1);
+
   private TimeRate fileEvictionRate;
 
   /**
@@ -340,7 +349,16 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
    * Checks if containers limit of open files is reached.
    *
    * <p>In such case execution of threads which add or acquire items is stopped and they wait till
-   * buffers will be emptied and nubmer of open files will be inside limit.
+   * buffers will be emptied and number of open files will be inside limit.
+   *
+   * <p>If every currently-open entry is in ACQUIRED state (held by another thread),
+   * {@link #emptyBuffers()} cannot close any file and {@code openFiles} stays above {@code
+   * openLimit}. Continuing to loop would starve every other thread (the caller holds {@link
+   * #openLatch} while looping). In that case we return after the first non-progressing attempt and
+   * treat {@code openLimit} as a soft limit. {@link #lastNoProgressOpenFiles} caches that fact, so
+   * subsequent callers observing the same {@code openFiles} count short-circuit the scan entirely;
+   * any {@link #release(ClosableEntry)} clears the cache so eviction retries as soon as progress
+   * becomes possible.
    */
   private void checkOpenFilesLimit() throws InterruptedException {
     var ol = openLatch.get();
@@ -349,16 +367,35 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
     }
 
     while (openFiles.get() > openLimit) {
+      // Short-circuit: if a prior eviction already failed at this exact count and nothing has
+      // been released since (which would have reset the cache to -1), skip the lock+scan.
+      if (openFiles.get() == lastNoProgressOpenFiles.get()) {
+        return;
+      }
+
       final var latch = new CountDownLatch(1);
 
       // make other threads to wait till we evict entries and close evicted open files
       if (openLatch.compareAndSet(null, latch)) {
-        while (openFiles.get() > openLimit) {
-          emptyBuffers();
+        try {
+          while (openFiles.get() > openLimit) {
+            final var before = openFiles.get();
+            emptyBuffers();
+            // No progress: every open entry is currently ACQUIRED elsewhere.
+            // Further iterations would livelock with `openLatch` held.
+            if (openFiles.get() >= before) {
+              lastNoProgressOpenFiles.set(before);
+              break;
+            }
+          }
+        } finally {
+          latch.countDown();
+          openLatch.set(null);
         }
-
-        latch.countDown();
-        openLatch.set(null);
+        // Exit after one eviction pass rather than re-entering the outer loop and
+        // re-acquiring `openLatch`. If openFiles is still above the limit, the
+        // caller proceeds (soft limit); the next caller retries eviction.
+        return;
       } else {
         ol = openLatch.get();
 
@@ -369,6 +406,13 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
     }
   }
 
+  /**
+   * Same soft-limit semantics as {@link #checkOpenFilesLimit()}, but single-shot: performs at most
+   * one eviction pass and returns whether the container is back within {@code openLimit}. No
+   * livelock risk — there is no inner loop — but the {@link #lastNoProgressOpenFiles}
+   * short-circuit still applies so concurrent {@code tryAcquire} callers observe O(1) cost while
+   * the "all acquired" state persists.
+   */
   private boolean tryCheckOpenFilesLimit() throws InterruptedException {
     var ol = openLatch.get();
     if (ol != null) {
@@ -376,16 +420,28 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
     }
 
     while (openFiles.get() > openLimit) {
+      if (openFiles.get() == lastNoProgressOpenFiles.get()) {
+        return false;
+      }
+
       final var latch = new CountDownLatch(1);
 
       // make other threads to wait till we evict entries and close evicted open files
       if (openLatch.compareAndSet(null, latch)) {
-        emptyBuffers();
-
-        final var result = openFiles.get() <= openLimit;
-        latch.countDown();
-        openLatch.set(null);
-
+        final boolean result;
+        try {
+          final var before = openFiles.get();
+          emptyBuffers();
+          final var after = openFiles.get();
+          result = after <= openLimit;
+          if (!result && after >= before) {
+            // No progress: cache the count so the next caller can short-circuit.
+            lastNoProgressOpenFiles.set(after);
+          }
+        } finally {
+          latch.countDown();
+          openLatch.set(null);
+        }
         return result;
       } else {
         ol = openLatch.get();
@@ -408,6 +464,10 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
   public void release(ClosableEntry<K, V> entry) {
     if (entry != null) {
       entry.releaseAcquired();
+      // Releasing an entry may make it closable. Invalidate the no-progress cache so the next
+      // checkOpenFilesLimit / tryCheckOpenFilesLimit call retries eviction instead of
+      // short-circuiting based on a stale observation.
+      lastNoProgressOpenFiles.set(-1);
     }
   }
 
@@ -475,6 +535,11 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
     }
 
     return false;
+  }
+
+  /** Package-private accessor for tests that assert soft-limit overflow. */
+  int openFilesCount() {
+    return openFiles.get();
   }
 
   boolean checkAllLRUListItemsInMap() {
