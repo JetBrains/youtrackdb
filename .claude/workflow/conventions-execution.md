@@ -17,10 +17,44 @@ The track episode is written to the plan file **only after the user
 approves** the track results, and at the same time the description is
 **collapsed** to remove implementation detail that is now superseded by
 the committed code and step episodes (see workflow.md §Track Completion
-Protocol). Keep the **intro paragraph** (the first paragraph of the
-original description, before any `**What**:` / `**How**:` /
-`**Constraints**:` / `**Interactions**:` subsection). Drop those keyword
-subsections, drop the **Scope** line, and drop the **Depends on** line.
+Protocol).
+
+**Always keep** (regardless of plan shape): the **intro paragraph** (the
+first paragraph of the original description, before any `**What**:` /
+`**How**:` / `**Constraints**:` / `**Interactions**:` subsection), the
+`**Track episode:**` block (written at collapse time), the `**Step
+file:**` pointer, and the `**Strategy refresh:**` line once it is added
+in the next session.
+
+**Always drop** (regardless of plan shape): the `**Scope:**` line and
+the `**Depends on:**` line.
+
+**Conditional drop** — apply to handle the three plan shapes deterministically:
+
+1. **New-format plan** (`implementation-backlog.md` exists on disk):
+   pending-track entries in the plan were already written in the thin
+   form during Phase 1, so there are no `**What**:` / `**How**:` /
+   `**Constraints**:` / `**Interactions**:` subsections present to drop.
+   The collapse reduces to the "Always drop" rule above. The detailed
+   description was removed from the backlog at Phase A start and already
+   lives in the step file's `## Description` section; Phase C does not
+   touch the backlog.
+2. **Legacy plan** (no `implementation-backlog.md` on disk): pending-
+   track entries still carry `**What/How/Constraints/Interactions**`
+   subsections — drop those in addition to `**Scope:**` and
+   `**Depends on:**` (today's behavior).
+3. **Mid-migration plan** (`implementation-backlog.md` exists on disk,
+   but this particular entry still carries legacy
+   `**What/How/Constraints/Interactions**` subsections — e.g., a
+   partial hand-migration): drop those subsections as in the legacy
+   case, in addition to `**Scope:**` and `**Depends on:**`. Whether the
+   backlog is present does not affect the per-entry decision; the
+   presence of the keyword subsections themselves is what triggers the
+   drop.
+
+In short: always drop `**Scope:**` and `**Depends on:**`; drop the four
+keyword subsections only if they are present. No other lines are
+removed by the collapse.
 
 ```markdown
 - [x] Track 2: <title>
