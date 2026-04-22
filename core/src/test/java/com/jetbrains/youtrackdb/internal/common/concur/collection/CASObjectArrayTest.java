@@ -250,7 +250,6 @@ public class CASObjectArrayTest {
     Assert.assertThrows(ArrayIndexOutOfBoundsException.class, () -> array.getOrDefault(-2));
   }
 
-
   @Test(timeout = 100)
   public void shouldNotHangOnNegativeIndexSet() {
     final var array = new CASObjectArray<>(0);

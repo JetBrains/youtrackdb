@@ -111,7 +111,6 @@
     <jspecify.version>1.0.0</jspecify.version>
     <errorprone.args>-Xplugin:ErrorProne -XepExcludedPaths:.*/target/generated-sources/.*|.*/internal/core/sql/parser/.*|.*/src/test/.*|.*/generated-test-sources/.* -XepOpt:NullAway:OnlyNullMarked=true -Xep:NullAway:ERROR -Xep:BooleanLiteral:ERROR -Xep:MissingSummary:ERROR -Xep:StringCaseLocaleUsage:ERROR -Xep:PatternMatchingInstanceof:ERROR -Xep:UnusedVariable:ERROR -Xep:UnnecessaryParentheses:ERROR -Xep:MixedMutabilityReturnType:ERROR -Xep:SystemOut:ERROR -Xep:CheckedExceptionNotThrown:ERROR -Xep:RemoveUnusedImports:ERROR -Xep:MissingOverride:ERROR -Xep:ImmutableEnumChecker:ERROR -Xep:EffectivelyPrivate:ERROR -Xep:StatementSwitchToExpressionSwitch:ERROR -Xep:OperatorPrecedence:ERROR -Xep:InvalidParam:ERROR -Xep:EmptyBlockTag:ERROR -Xep:ReferenceEquality:ERROR -Xep:EqualsGetClass:ERROR -Xep:StringSplitter:ERROR -Xep:TypeParameterUnusedInFormals:ERROR -Xep:NonApiType:OFF</errorprone.args>
     <spotless.version>3.4.0</spotless.version>
-    <skipVmlens>false</skipVmlens>
   </properties>
 
 
@@ -1106,120 +1105,5 @@
       </build>
     </profile>
 
-    <profile>
-      <id>ekstazi</id>
-      <properties>
-        <skipVmlens>true</skipVmlens>
-      </properties>
-      <build>
-        <plugins>
-          <plugin>
-            <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-compiler-plugin</artifactId>
-            <executions>
-              <execution>
-                <id>default-compile</id>
-                <phase>none</phase>
-              </execution>
-              <execution>
-                <id>default-testCompile</id>
-                <phase>none</phase>
-              </execution>
-            </executions>
-          </plugin>
-          <plugin>
-            <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-surefire-plugin</artifactId>
-            <configuration>
-              <skipTests>true</skipTests>
-              <excludesFile>${java.io.tmpdir}/ekstazi-${project.artifactId}.excludes</excludesFile>
-            </configuration>
-          </plugin>
-          <plugin>
-            <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-failsafe-plugin</artifactId>
-            <configuration>
-              <includes>
-                <include>**/*IT.java</include>
-                <include>**/*IntegrationTest.java</include>
-              </includes>
-              <excludesFile>${java.io.tmpdir}/ekstazi-${project.artifactId}.excludes</excludesFile>
-              <systemPropertyVariables>
-                <buildDirectory>${project.build.directory}</buildDirectory>
-                <youtrackdb.security.userPasswordSaltIterations>1</youtrackdb.security.userPasswordSaltIterations>
-                <youtrackdb.test.env>ci</youtrackdb.test.env>
-              </systemPropertyVariables>
-            </configuration>
-          </plugin>
-          <plugin>
-            <groupId>org.ekstazi</groupId>
-            <artifactId>ekstazi-maven-plugin</artifactId>
-            <configuration>
-              <forcefailing>true</forcefailing>
-            </configuration>
-            <executions>
-              <execution>
-                <id>ekstazi-select</id>
-                <goals><goal>select</goal></goals>
-              </execution>
-              <execution>
-                <id>ekstazi-restore</id>
-                <phase>post-integration-test</phase>
-                <goals><goal>restore</goal></goals>
-              </execution>
-            </executions>
-          </plugin>
-        </plugins>
-      </build>
-    </profile>
-
-    <profile>
-      <id>mutation-testing</id>
-      <build>
-        <plugins>
-          <plugin>
-            <groupId>org.pitest</groupId>
-            <artifactId>pitest-maven</artifactId>
-            <configuration>
-              <mutationThreshold>0</mutationThreshold>
-              <failWhenNoMutations>false</failWhenNoMutations>
-              <threads>1</threads>
-              <timeoutConstant>10000</timeoutConstant>
-              <timeoutFactor>1.5</timeoutFactor>
-              <verbose>false</verbose>
-              <verbosity>NO_SPINNER</verbosity>
-              <mutators>
-                <mutator>NEGATE_CONDITIONALS</mutator>
-                <mutator>VOID_METHOD_CALLS</mutator>
-                <mutator>EMPTY_RETURNS</mutator>
-                <mutator>FALSE_RETURNS</mutator>
-                <mutator>NULL_RETURNS</mutator>
-              </mutators>
-              <features>
-                <feature>+CLASSLIMIT(limit[150])</feature>
-              </features>
-              <excludedClasses>
-                <param>com.jetbrains.youtrackdb.internal.core.sql.parser.*</param>
-                <param>com.jetbrains.youtrackdb.internal.core.gql.parser.gen.*</param>
-                <param>com.jetbrains.youtrackdb.api.gremlin.*</param>
-              </excludedClasses>
-              <excludedTestClasses>
-                <param>*IT</param>
-                <param>*IntegrationTest</param>
-                <!-- GremlinProcessRunner-based tests fail under PIT's classloader -->
-                <param>com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios.*$Traversals</param>
-              </excludedTestClasses>
-              <targetTests>
-                <param>com.jetbrains.youtrackdb.*</param>
-              </targetTests>
-              <outputFormats>
-                <param>XML</param>
-                <param>HTML</param>
-              </outputFormats>
-            </configuration>
-          </plugin>
-        </plugins>
-      </build>
-    </profile>
   </profiles>
 </project>
