@@ -153,27 +153,59 @@ Specific characteristics that upgrade Moderate tracks:
 | Moderate + major architectural decisions or non-obvious scope | Technical + Adversarial |
 | Complex (6-7 steps, or critical path / high-risk) | Technical + Risk + Adversarial |
 
+### Inputs passed to Phase A review sub-agents
+
+All four Phase A review sub-agents — the track-scoped technical, risk,
+and adversarial reviews, plus the review gate verification — receive
+the same shared set of inputs. The mini-sections below describe only
+what each review *does* with those inputs; the inputs themselves are
+enumerated here once so the mini-sections can point here by reference
+instead of restating them.
+
+| Input | Value |
+|---|---|
+| `plan_path` | Absolute path to `docs/adr/<dir-name>/implementation-plan.md` — the strategic context (Goals, Constraints, Architecture Notes, Decision Records, Component Map). |
+| `step_file_path` | Absolute path to `docs/adr/<dir-name>/tracks/track-N.md` — after the description-move in §What You Do sub-step (d), the step file's `## Description` section is the authoritative source for the track's `**What/How/Constraints/Interactions**` subsections and any track-level diagram. |
+| `track_name` | The track heading as it appears in the plan file's checklist (e.g., `"Track 2: Execution workflow edits"`). |
+| `codebase_path` | Absolute path to the repository root — the sub-agent may Read any file under this path to validate code references. |
+| `prior_episodes` | Summary of track episodes from already-completed tracks (pre-rendered into the slim plan snapshot read via `plan_path`) — used for cross-track consistency checks. |
+| `previous_findings` | Findings from earlier iterations of the same review type (empty on iteration 1; populated on iterations 2–3). Used to avoid re-surfacing already-accepted/deferred findings and to verify that review-fix commits resolved prior findings. |
+
+During the transition while the downstream review prompts still read
+the track description from the plan-file entry, Phase A orchestration
+passes both `plan_path` and `step_file_path` to each sub-agent — so
+today's prompts keep working. When the prompts later switch to reading
+description + track-level diagram from the step file, only the prompt
+files are edited; this Inputs block and the per-review mini-sections
+below do not need to change.
+
 ### Track-scoped technical review
 
-Spawn a sub-agent with the technical review prompt.
+Spawn a sub-agent with the technical review prompt. Inputs: the shared
+set defined in §Inputs passed to Phase A review sub-agents above.
 
 **Prompt file:** [`prompts/technical-review.md`](prompts/technical-review.md)
 
 ### Track-scoped risk review
 
-Spawn a sub-agent with the risk review prompt.
+Spawn a sub-agent with the risk review prompt. Inputs: the shared set
+defined in §Inputs passed to Phase A review sub-agents above.
 
 **Prompt file:** [`prompts/risk-review.md`](prompts/risk-review.md)
 
 ### Track-scoped adversarial review
 
-Spawn a sub-agent with the adversarial review prompt.
+Spawn a sub-agent with the adversarial review prompt. Inputs: the
+shared set defined in §Inputs passed to Phase A review sub-agents
+above.
 
 **Prompt file:** [`prompts/adversarial-review.md`](prompts/adversarial-review.md)
 
 ### Review gate verification
 
-After fixes are applied, spawn a sub-agent to verify.
+After fixes are applied, spawn a sub-agent to verify. Inputs: the
+shared set defined in §Inputs passed to Phase A review sub-agents
+above.
 
 **Prompt file:** [`prompts/review-gate-verification.md`](prompts/review-gate-verification.md)
 
