@@ -110,7 +110,11 @@ back to docs/adr/{dir-name}/implementation-plan.md.
 ## Track Steps (tactical context)
 Read the step file at:
   docs/adr/{dir-name}/tracks/track-{N}.md
-Contains all steps for this track with their episodes.
+The file begins with a `## Description` section carrying the track's
+original description — intro paragraph +
+**What/How/Constraints/Interactions** subsections + any track-level
+diagram — copied there at Phase A start. Below that, all steps for
+this track appear with their episodes.
 
 ## Changed Files
 {output of git diff {base_commit}..HEAD --name-only — passed inline,
@@ -275,14 +279,19 @@ proceed directly to track completion **in the same session**.
 4. **Write the track episode, collapse the description, and mark `[x]`**
    in the plan file on disk (only after user approval):
 
-   **Collapse the description** — the long implementation detail in the
-   track's description is now superseded by the committed code + step
-   episodes + track episode. Reduce the description to its **intro
-   paragraph** (everything in the blockquote before the first
-   `**Keyword**:` marker like `**What**:`, `**How**:`, `**Constraints**:`,
-   `**Interactions**:`). Drop those keyword subsections, drop the
-   **Scope** line, and drop the **Depends on** line. Keep the intro
-   paragraph — it tells readers what the track was about at a glance.
+   Apply the three-clause collapse rule from
+   [`conventions-execution.md`](conventions-execution.md) §2.1
+   "After track completion (user-approved)". Quick form: always keep
+   the intro paragraph + `**Track episode:**` block + `**Step file:**`
+   pointer (plus the `**Strategy refresh:**` line if already present
+   from an earlier session); always drop `**Scope:**` and
+   `**Depends on:**`; drop the four
+   `**What/How/Constraints/Interactions**` subsections only if present
+   — §2.1's three-clause form covers the conditional-drop behaviour
+   across new-format, legacy, and mid-migration plan shapes. The
+   collapse does not touch `implementation-backlog.md`: for new-format
+   plans, Phase A already removed Track N's section at the start of
+   this track.
 
    Final on-disk form:
 
