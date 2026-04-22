@@ -97,7 +97,9 @@ perspective on cross-track impact.
 
 ## Startup Protocol (Auto-Resume)
 
-1. **Read the plan file** at `docs/adr/<dir-name>/implementation-plan.md`.
+1. **Read the plan file** at `docs/adr/<dir-name>/implementation-plan.md`
+   (not the backlog — `implementation-backlog.md` is loaded only in Phase A
+   of one track per session).
 
 2. **Identify all tracks** and their status:
    - `[ ]` — not started
