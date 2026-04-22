@@ -150,9 +150,10 @@ Natural cleanup happens when the branch is deleted after PR merge. -->
 ````
 
 **File shape requirements:**
-- `# <Feature Name> — Track Details` header (the canonical opening content;
-  the file remains in new-format mode as long as the file itself exists
-  on disk, regardless of header content).
+- `# <Feature Name> — Track Details` — required canonical header for
+  newly-created backlogs. The D4 detection rule (below) checks only file
+  existence, not header content, but Phase 1 must still write the header
+  for human readers and for structural consistency across plans.
 - The `<!-- DO NOT DELETE … -->` HTML comment immediately after the header
   is **required** in newly-created backlogs as the self-documenting marker
   of the load-bearing-file rule below. It is informational for human
@@ -160,9 +161,13 @@ Natural cleanup happens when the branch is deleted after PR merge. -->
 - One `## Track N: <title>` section per pending track, with bold-label
   blockquote subsections and an optional fenced `mermaid` block for any
   track-level diagram.
-- Sections are removed from the backlog as their tracks enter Phase A or
-  are skipped. The backlog therefore shrinks monotonically during normal
-  execution (entries are added only during Phase 1 or inline replanning).
+
+**Lifecycle (overview):** Sections are removed from the backlog as their
+tracks enter Phase A or are skipped, so the backlog shrinks monotonically
+during normal execution. Entries are added only during Phase 1 or inline
+replanning. Full per-phase detail (writers, readers, authoritative
+location) lives in the description-lifecycle table in
+`conventions-execution.md` §2.1.
 
 **Load-bearing-file rule:** The backlog file's **presence on disk** — not
 its content — is the signal that tells consumers the plan is in the new
