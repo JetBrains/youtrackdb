@@ -37,7 +37,7 @@ certificate** that re-checks the specific location:
 - **Original issue**: <what was wrong>
 - **Fix applied**: <what changed in the step file, plan file, or codebase>
 - **Re-check**:
-  - Code/plan/step-file location: <where the fix was applied>
+  - Step-file/plan/codebase location: <where the fix was applied>
   - Current state: <what it now says vs. original issue>
   - Criteria met: <which review criteria are now satisfied>
 - **Regression check**: <did the fix introduce new issues?
