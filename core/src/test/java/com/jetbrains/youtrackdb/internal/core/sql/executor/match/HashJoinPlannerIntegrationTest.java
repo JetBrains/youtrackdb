@@ -2234,4 +2234,293 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
     assertEquals("t1", result.get(0).getProperty("tName"));
   }
 
+  // ── Rejection-path branch coverage for MatchExecutionPlanner ───────────
+  //
+  // These tests each run EXPLAIN and assert the plan does NOT include
+  // BACK-REF HASH JOIN. This is the load-bearing assertion: a result-only
+  // check would pass even if the planner took the hash-join path and still
+  // happened to return the right rows. Data-correctness assertions (where
+  // they differentiate the paths) follow as a secondary safeguard.
+
+  /**
+   * Pattern A rejected — target WHERE is a multi-branch OR.
+   * {@code extractTargetResidual.flattenConjunction} bails out on multi-branch
+   * OR so the residual cannot be isolated, and the planner must fall back to
+   * the standard {@code MatchStep} + {@code EdgeRidLookup} path. The plan
+   * assertion is load-bearing: the row-set below would look identical if
+   * Pattern A fired and dropped or preserved the OR branch differently, so
+   * result correctness alone could mask a regression.
+   */
+  @Test
+  public void backRef_patternA_rejectedOnMultiBranchOrTargetFilter() {
+    session.begin();
+    // Add cycle n2→n1 so that a real match for $matched.a.@rid exists.
+    session.execute(
+        "CREATE EDGE Friend from (select from Person where name='n2')"
+            + " to (select from Person where name='n1')")
+        .close();
+    session.commit();
+
+    session.begin();
+    var explain = session.query(
+        "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b}"
+            + ".out('Friend'){as:c,"
+            + " where: (@rid = $matched.a.@rid OR name = 'n4')}"
+            + " RETURN b.name, c.name")
+        .toList();
+    assertEquals(1, explain.size());
+    String plan = explain.get(0).getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertFalse(
+        "multi-branch OR in target filter must not take BACK-REF HASH JOIN, "
+            + "got:\n" + plan,
+        plan.contains("BACK-REF HASH JOIN"));
+
+    var result = session.query(
+        "MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b}"
+            + ".out('Friend'){as:c,"
+            + " where: (@rid = $matched.a.@rid OR name = 'n4')}"
+            + " RETURN b.name as bName, c.name as cName")
+        .toList();
+    session.commit();
+
+    // Under standard MatchStep: b=n2 → c=n1 (back-ref) or c=n4 (name='n4').
+    // b=n3 → no match. Resulting set: { (n2,n1), (n2,n4) }.
+    var rows = result.stream()
+        .map(r -> r.getProperty("bName") + "->" + r.getProperty("cName"))
+        .collect(Collectors.toSet());
+    assertEquals(Set.of("n2->n1", "n2->n4"), rows);
+  }
+
+  /**
+   * Pattern A rejected — residual term references {@code $matched.<alias>}.
+   * The residual would be evaluated at hash-table build time (no per-row
+   * {@code $matched} scope) so {@code extractTargetResidual} must return
+   * UNSAFE and the planner falls back. The plan assertion is the primary
+   * verification: if Pattern A applied the residual was semantically invalid
+   * but might still have produced the correct rows by accident.
+   */
+  @Test
+  public void backRef_patternA_rejectedWhenResidualReferencesMatched() {
+    session.begin();
+    session.execute(
+        "CREATE EDGE Friend from (select from Person where name='n2')"
+            + " to (select from Person where name='n1')")
+        .close();
+    session.commit();
+
+    session.begin();
+    var explain = session.query(
+        "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b}"
+            + ".out('Friend'){as:c,"
+            + " where: (@rid = $matched.a.@rid AND name = $matched.a.name)}"
+            + " RETURN b.name, c.name")
+        .toList();
+    assertEquals(1, explain.size());
+    String plan = explain.get(0).getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertFalse(
+        "residual referencing $matched must not take BACK-REF HASH JOIN, "
+            + "got:\n" + plan,
+        plan.contains("BACK-REF HASH JOIN"));
+
+    var result = session.query(
+        "MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b}"
+            + ".out('Friend'){as:c,"
+            + " where: (@rid = $matched.a.@rid AND name = $matched.a.name)}"
+            + " RETURN b.name as bName, c.name as cName")
+        .toList();
+    session.commit();
+
+    // $matched.a.name = 'n1'. Correct rows: c.name='n1' AND c≡a.
+    // b=n2 back-refs to n1 → (n2, n1). b=n3 → no back-ref.
+    var rows = result.stream()
+        .map(r -> r.getProperty("bName") + "->" + r.getProperty("cName"))
+        .collect(Collectors.toSet());
+    assertEquals(Set.of("n2->n1"), rows);
+  }
+
+  /**
+   * Pattern A rejected — residual contains {@code $currentMatch}.
+   * {@link com.jetbrains.youtrackdb.internal.core.sql.executor.match
+   * .MatchExecutionPlanner#refersToCurrentMatch} detects the reference
+   * inside the residual and {@code extractTargetResidual} returns UNSAFE.
+   *
+   * <p>Uses a tautology ({@code $currentMatch.@rid IS NOT NULL}) rather
+   * than a NOT-IN clause so Pattern D cannot fire as a fall-through —
+   * the assertion must fail cleanly on Pattern A alone. A NOT-IN residual
+   * would be picked up by {@code detectNotInAntiJoin} after Pattern A
+   * rejection and emit an ANTI step, masking the branch under test.
+   */
+  @Test
+  public void backRef_patternA_rejectedWhenResidualReferencesCurrentMatch() {
+    session.begin();
+    session.execute(
+        "CREATE EDGE Friend from (select from Person where name='n2')"
+            + " to (select from Person where name='n1')")
+        .close();
+    session.commit();
+
+    session.begin();
+    var explain = session.query(
+        "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b}"
+            + ".out('Friend'){as:c,"
+            + " where: (@rid = $matched.a.@rid"
+            + " AND $currentMatch.@rid IS NOT NULL)}"
+            + " RETURN b.name, c.name")
+        .toList();
+    assertEquals(1, explain.size());
+    String plan = explain.get(0).getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertFalse(
+        "residual referencing $currentMatch must not take BACK-REF HASH JOIN, "
+            + "got:\n" + plan,
+        plan.contains("BACK-REF HASH JOIN"));
+
+    var result = session.query(
+        "MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b}"
+            + ".out('Friend'){as:c,"
+            + " where: (@rid = $matched.a.@rid"
+            + " AND $currentMatch.@rid IS NOT NULL)}"
+            + " RETURN b.name as bName, c.name as cName")
+        .toList();
+    session.commit();
+
+    // $currentMatch.@rid IS NOT NULL is tautologically true, so only the
+    // back-ref filters. b=n2 back-refs to n1 → (n2, n1); b=n3 → no match.
+    var rows = result.stream()
+        .map(r -> r.getProperty("bName") + "->" + r.getProperty("cName"))
+        .collect(Collectors.toSet());
+    assertEquals(Set.of("n2->n1"), rows);
+  }
+
+  /**
+   * Pattern B rejected — intermediate edge WHERE references
+   * {@code $matched.<alias>}. {@code detectChainSemiJoin} inspects the
+   * intermediate filter's involved-aliases set and bails when it is
+   * non-empty. The EXPLAIN assertion is the load-bearing check: both the
+   * rejection path and a hypothetical (wrong) Pattern-B firing would yield
+   * the same result count, so data correctness alone cannot distinguish
+   * them. The query intentionally returns zero rows — the outgoing
+   * Friend targets of n1 ({n2, n3}) cannot back-ref to n1 itself through
+   * a single {@code .outE('Friend').inV()} step.
+   */
+  @Test
+  public void backRef_patternB_rejectedWhenIntermediateFilterReferencesMatched() {
+    session.begin();
+    var explain = session.query(
+        "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".outE('Friend'){as:e, where: ($matched.a.@rid IS NOT NULL)}"
+            + ".inV(){as:c, where: (@rid = $matched.a.@rid)}"
+            + " RETURN c.name")
+        .toList();
+    assertEquals(1, explain.size());
+    String plan = explain.get(0).getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertFalse(
+        "Pattern B must not fire when intermediate filter references "
+            + "$matched.<alias>, got:\n" + plan,
+        plan.contains("BACK-REF HASH JOIN"));
+
+    var result = session.query(
+        "MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".outE('Friend'){as:e, where: ($matched.a.@rid IS NOT NULL)}"
+            + ".inV(){as:c, where: (@rid = $matched.a.@rid)}"
+            + " RETURN c.name as cName")
+        .toList();
+    session.commit();
+
+    // n1.outE('Friend').inV() = {n2, n3}, neither back-refs to n1. Zero rows.
+    assertEquals(0, result.size());
+  }
+
+  /**
+   * Pattern D NOT IN rejected — the RHS of NOT IN is a bare
+   * {@code $matched.<alias>} with no trailing traversal call.
+   * {@code extractMatchedTraversal} requires a second modifier ({@code .out}
+   * or {@code .in}) and returns {@code null} when it is missing.
+   *
+   * <p>The plan assertion is the primary branch-coverage check. The data
+   * assertion is a second safety net: with Pattern D rejected, per-row NOT
+   * IN treats the single-vertex RHS as a singleton set; neither friend of
+   * n1 ({@code n2}, {@code n3}) equals n1, so both rows pass. If a broken
+   * planner tried to build a hash on the malformed RHS and dropped rows,
+   * the returned set would shrink and the assertion would flag it.
+   */
+  @Test
+  public void backRef_notIn_rejectedOnMalformedMatchedTraversalRhs() {
+    session.begin();
+    var explain = session.query(
+        "EXPLAIN MATCH {class:Person, as:start, where:(name='n1')}"
+            + ".out('Friend'){as:friend,"
+            + " where: ($currentMatch NOT IN $matched.start)}"
+            + " RETURN friend.name")
+        .toList();
+    assertEquals(1, explain.size());
+    String plan = explain.get(0).getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertFalse(
+        "Pattern D must not fire when RHS has no traversal call, got:\n"
+            + plan,
+        plan.contains("BACK-REF HASH JOIN"));
+
+    var result = session.query(
+        "MATCH {class:Person, as:start, where:(name='n1')}"
+            + ".out('Friend'){as:friend,"
+            + " where: ($currentMatch NOT IN $matched.start)}"
+            + " RETURN friend.name as fName")
+        .toList();
+    session.commit();
+
+    var names = result.stream()
+        .map(r -> (String) r.getProperty("fName"))
+        .collect(Collectors.toSet());
+    assertEquals(Set.of("n2", "n3"), names);
+  }
+
+  /**
+   * Pattern D NOT IN rejected — the RHS traversal method is
+   * {@code .both(...)}, which is not one of the accepted {@code .out/.in}
+   * shapes. {@code extractMatchedTraversal} rejects anything but out/in.
+   *
+   * <p>The plan assertion is the primary branch-coverage check. The data
+   * assertion complements it: {@code n1.both('Friend')} is {@code {n2, n3}}
+   * and the fof set {@code n1.out('Friend')} is also {@code {n2, n3}}, so
+   * every candidate is excluded by the per-row NOT IN and the query returns
+   * zero rows. A regression that returned unexpected rows would still fail
+   * the data check even if the plan check somehow missed the shift.
+   */
+  @Test
+  public void backRef_notIn_rejectedOnUnacceptedTraversalMethod() {
+    session.begin();
+    var explain = session.query(
+        "EXPLAIN MATCH {class:Person, as:start, where:(name='n1')}"
+            + ".out('Friend'){as:fof,"
+            + " where: ($currentMatch NOT IN $matched.start.both('Friend'))}"
+            + " RETURN fof.name")
+        .toList();
+    assertEquals(1, explain.size());
+    String plan = explain.get(0).getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertFalse(
+        "Pattern D must not fire for .both(...) traversal RHS, got:\n"
+            + plan,
+        plan.contains("BACK-REF HASH JOIN"));
+
+    var result = session.query(
+        "MATCH {class:Person, as:start, where:(name='n1')}"
+            + ".out('Friend'){as:fof,"
+            + " where: ($currentMatch NOT IN $matched.start.both('Friend'))}"
+            + " RETURN fof.name as fName")
+        .toList();
+    session.commit();
+
+    assertEquals(0, result.size());
+  }
 }
