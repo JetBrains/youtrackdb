@@ -1,11 +1,12 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.resultset;
 
+import static com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.LinkTestFixtures.rid;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.junit.Test;
 
@@ -15,10 +16,6 @@ import org.junit.Test;
  * HashMap<String, Identifiable>}. All tests are standalone.
  */
 public class LinkMapResultImplTest {
-
-  private static Identifiable rid(int cluster, long position) {
-    return new RecordId(cluster, position);
-  }
 
   // ------------------------------------------------------------------------- constructors
 
@@ -33,6 +30,22 @@ public class LinkMapResultImplTest {
   public void initialCapacityConstructorIsEmpty() {
     var map = new LinkMapResultImpl(8);
     assertThat(map).isEmpty();
+  }
+
+  /**
+   * WHEN-FIXED: Track 22 — the int-capacity constructor backs the map with a {@link
+   * LinkedHashMap} while the other two constructors use {@link HashMap}. Observable difference:
+   * iteration is insertion-ordered only for the int-capacity instance. If the inconsistency is
+   * unified (both to HashMap), this test will fail and should be rewritten to assert
+   * unordered iteration.
+   */
+  @Test
+  public void initialCapacityConstructorPreservesInsertionOrder() {
+    var map = new LinkMapResultImpl(16);
+    map.put("z", rid(1, 0));
+    map.put("a", rid(1, 1));
+    map.put("m", rid(1, 2));
+    assertThat(map.keySet()).containsExactly("z", "a", "m");
   }
 
   @Test
@@ -106,6 +119,38 @@ public class LinkMapResultImplTest {
     assertThat(map.getOrDefault(42, rid(9, 9))).isEqualTo(rid(9, 9));
     assertThat(map.getOrDefault("a", rid(9, 9))).isEqualTo(rid(1, 0));
     assertThat(map.getOrDefault("missing", rid(9, 9))).isEqualTo(rid(9, 9));
+  }
+
+  /**
+   * Pin the null-key short-circuit on all type-guarded accessors. {@code null instanceof String}
+   * is false, so these paths return defaults without reaching the backing map — a distinct branch
+   * from the {@code Integer} case covered above.
+   */
+  @Test
+  public void nullKeyReturnsDefaultsOnAllAccessors() {
+    var map = new LinkMapResultImpl();
+    map.put("a", rid(1, 0));
+    assertThat(map.containsKey(null)).isFalse();
+    assertThat(map.get(null)).isNull();
+    assertThat(map.remove(null)).isNull();
+    assertThat(map.getOrDefault(null, rid(9, 9))).isEqualTo(rid(9, 9));
+  }
+
+  /**
+   * Documents the divergence from {@link HashMap#containsValue(Object)}: the type-guarded
+   * {@code containsValue(null)} always returns false, even when a {@code null} value is mapped.
+   * A plain HashMap would return true under the same condition.
+   */
+  @Test
+  public void containsValueForNullReturnsFalseEvenWhenNullMapped() {
+    var map = new LinkMapResultImpl();
+    map.put("a", null);
+    // Wrapper — null is never Identifiable, so always false.
+    assertThat(map.containsValue(null)).isFalse();
+    // Reference HashMap behavior — a mapped null value IS contained.
+    var reference = new HashMap<String, Identifiable>();
+    reference.put("a", null);
+    assertThat(reference.containsValue(null)).isTrue();
   }
 
   // ------------------------------------------------------------------------- bulk ops
@@ -252,6 +297,34 @@ public class LinkMapResultImplTest {
     assertThat(e.getValue()).isEqualTo(rid(1, 0));
   }
 
+  /** keySet removal propagates to the backing map (pins live-backing contract). */
+  @Test
+  public void keySetRemovalPropagatesToMap() {
+    var map = new LinkMapResultImpl();
+    map.put("a", rid(1, 0));
+    map.put("b", rid(1, 1));
+    assertThat(map.keySet().remove("a")).isTrue();
+    assertThat(map).doesNotContainKey("a").containsKey("b");
+  }
+
+  @Test
+  public void valuesIteratorRemovePropagatesToMap() {
+    var map = new LinkMapResultImpl();
+    map.put("a", rid(1, 0));
+    var it = map.values().iterator();
+    it.next();
+    it.remove();
+    assertThat(map).isEmpty();
+  }
+
+  @Test
+  public void entrySetClearPropagatesToMap() {
+    var map = new LinkMapResultImpl();
+    map.put("a", rid(1, 0));
+    map.entrySet().clear();
+    assertThat(map).isEmpty();
+  }
+
   // ------------------------------------------------------------------------- equals/hashCode/toString
 
   @Test
@@ -266,7 +339,7 @@ public class LinkMapResultImplTest {
     var map = new LinkMapResultImpl();
     assertThat(map.equals("not a map")).isFalse();
     assertThat(map.equals(null)).isFalse();
-    assertThat(map.equals(java.util.List.of())).isFalse();
+    assertThat(map.equals(List.of())).isFalse();
   }
 
   /**
@@ -277,7 +350,7 @@ public class LinkMapResultImplTest {
    * test pins the buggy contract and the fix falsifies it.
    */
   @Test
-  public void equalsIsBrokenBetweenDistinctInstances_WHENFIXED_Track22() {
+  public void equalsReturnsFalseBetweenDistinctInstancesBecauseSuperEqualsIsBuggy() {
     var a = new LinkMapResultImpl();
     a.put("a", rid(1, 0));
     var b = new LinkMapResultImpl();
@@ -287,16 +360,25 @@ public class LinkMapResultImplTest {
   }
 
   /**
-   * WHEN-FIXED: Track 22 — same defect; equality vs a plain {@code HashMap} with identical entries
-   * also fails.
+   * WHEN-FIXED: Track 22 — same defect; equality vs a plain {@link LinkedHashMap} with identical
+   * entries also fails.
    */
   @Test
-  public void equalsAgainstHashMapIsBroken_WHENFIXED_Track22() {
+  public void equalsAgainstForeignMapReturnsFalseBecauseSuperEqualsIsBuggy() {
     var link = new LinkMapResultImpl();
     link.put("a", rid(1, 0));
     var other = new LinkedHashMap<String, Identifiable>();
     other.put("a", rid(1, 0));
     assertThat(link.equals(other)).isFalse();
+    var plainHash = new HashMap<String, Identifiable>();
+    plainHash.put("a", rid(1, 0));
+    assertThat(link.equals(plainHash)).isFalse();
+    // Asymmetric equals! Because HashMap.equals iterates its entrySet and calls link.get(key),
+    // plainHash.equals(link) returns true (entries match via delegation), while
+    // link.equals(plainHash) returns false (super.equals bug). This violates the equals
+    // contract. WHEN-FIXED: both directions become true.
+    assertThat(plainHash.equals(link)).isTrue();
+    assertThat(link.equals(plainHash)).isFalse();
   }
 
   @Test

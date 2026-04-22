@@ -212,11 +212,25 @@ public class EmbeddedListResultImplTest {
     assertThat(li.previous()).isEqualTo("b");
   }
 
+  /**
+   * {@code subList} is a live view — mutation through the sublist reaches the original list.
+   */
   @Test
-  public void subListReturnsRange() {
+  public void subListReturnsLiveRange() {
     var list = new EmbeddedListResultImpl<String>();
     list.addAll(List.of("a", "b", "c", "d"));
-    assertThat(list.subList(1, 3)).containsExactly("b", "c");
+    var sub = list.subList(1, 3);
+    assertThat(sub).containsExactly("b", "c");
+    sub.set(0, "B");
+    assertThat(list).containsExactly("a", "B", "c", "d");
+  }
+
+  @Test
+  public void subListEmptyRangeReturnsEmpty() {
+    var list = new EmbeddedListResultImpl<String>();
+    list.addAll(List.of("a", "b"));
+    assertThat(list.subList(0, 0)).isEmpty();
+    assertThat(list.subList(2, 2)).isEmpty();
   }
 
   @Test
@@ -232,7 +246,8 @@ public class EmbeddedListResultImplTest {
   public void streamAndParallelStreamExposeElements() {
     var list = new EmbeddedListResultImpl<String>();
     list.addAll(List.of("a", "b"));
-    assertThat(list.stream().count()).isEqualTo(2L);
+    // stream(): ordered, contents verified — count-only would miss a broken stream().
+    assertThat(list.stream()).containsExactly("a", "b");
     assertThat(list.parallelStream()).containsExactlyInAnyOrder("a", "b");
   }
 
@@ -265,7 +280,9 @@ public class EmbeddedListResultImplTest {
     assertThat(list.equals(list)).isTrue();
   }
 
-  /** Unlike the Link variants, Embedded list delegates properly — cross-instance equality works. */
+  /**
+   * Unlike the Link variants, Embedded list delegates properly — cross-instance equality works.
+   */
   @Test
   public void equalsDelegatesToBackingListAcrossInstances() {
     var a = new EmbeddedListResultImpl<String>();
