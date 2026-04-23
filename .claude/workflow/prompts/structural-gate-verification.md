@@ -6,8 +6,8 @@ Inputs:
 - Backlog file: {backlog_path} (may be absent — when
   `implementation-backlog.md` does not exist on disk, track descriptions
   live in the plan file's checklist entries in legacy format; see the
-  per-entry fallback rule in the "Semi-Formal Verification Protocol"
-  section below for mid-migration and legacy handling)
+  detection-rule paragraph at the top of the "Semi-Formal Verification
+  Protocol" section below for mid-migration and legacy handling)
 - Design document: {design_path}
 - Previous findings (context only, finalized in earlier iterations):
   {previous_findings}
