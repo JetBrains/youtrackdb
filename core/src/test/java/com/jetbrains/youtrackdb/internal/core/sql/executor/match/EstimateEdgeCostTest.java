@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
+import static com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchTestWhereBuilders.makeWhereWithOperator;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -761,21 +762,6 @@ public class EstimateEdgeCostTest {
   }
 
   // -- Helper methods ---------------------------------------------------------
-
-  private SQLWhereClause makeWhereWithOperator(
-      com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCompareOperator op) {
-    var condition = new SQLBinaryCondition(-1);
-    condition.setLeft(new SQLExpression(-1));
-    condition.setOperator(op);
-    condition.setRight(new SQLExpression(-1));
-
-    var andBlock = new SQLAndBlock(-1);
-    andBlock.getSubBlocks().add(condition);
-
-    var where = new SQLWhereClause(-1);
-    where.setBaseExpression(andBlock);
-    return where;
-  }
 
   private SQLWhereClause makeWhereWithPropertyAndOperator(
       String propertyName,
