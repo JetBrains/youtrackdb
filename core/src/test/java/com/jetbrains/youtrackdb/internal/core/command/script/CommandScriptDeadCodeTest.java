@@ -26,7 +26,6 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.internal.common.util.CallableFunction;
 import com.jetbrains.youtrackdb.internal.core.command.CommandExecutorAbstract;
@@ -36,6 +35,9 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandRequest;
 import com.jetbrains.youtrackdb.internal.core.command.CommandRequestTextAbstract;
 import com.jetbrains.youtrackdb.internal.core.command.ScriptExecutorRegister;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLScriptEngine;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLScriptEngineFactory;
 import java.io.Reader;
@@ -111,8 +113,10 @@ public class CommandScriptDeadCodeTest {
         List.of(),
         result);
 
-    // Varargs overload must behave identically (the stub does not inspect iArgs).
-    assertEquals(List.of(), script.execute(null, "ignored", 42, null));
+    assertEquals(
+        "execute(session, iArgs...) must also return List.of() ignoring iArgs",
+        List.of(),
+        script.execute(null, "ignored", 42, null));
     // WHEN-FIXED: Track 22 — delete CommandScript.execute along with the whole class.
   }
 
@@ -147,8 +151,20 @@ public class CommandScriptDeadCodeTest {
         "toString() renders 'language.text' when language is set",
         "sql.UPDATE Foo SET bar = 1",
         script.toString());
+    assertTrue(
+        "one-arg ctor must also set useCache (same chain as no-arg ctor)",
+        script.isUseCache());
+    assertFalse(
+        "execute() is explicitly isIdempotent() == false regardless of ctor",
+        script.isIdempotent());
     // WHEN-FIXED: Track 22 — delete CommandScript(String) once the dead callers are gone.
   }
+
+  // Note: CommandScript.fromStream/toStream round-trip is un-testable today because
+  // RecordSerializerNetwork has no concrete implementation anywhere in core. A Track 22
+  // deletion that drops the overrides is still observable via compile-time removal of
+  // the methods — caller-side regressions would surface at build time. No runtime pin
+  // here; TC-1 deferred.
 
   @Test
   public void commandScriptSetLanguageRejectsNullAndEmpty() {
@@ -157,8 +173,8 @@ public class CommandScriptDeadCodeTest {
     var nullEx = assertThrows(
         IllegalArgumentException.class, () -> script.setLanguage(null));
     assertTrue(
-        "null message must identify the invalid input",
-        nullEx.getMessage().contains("null"));
+        "null path must share the canonical prefix with empty path",
+        nullEx.getMessage().startsWith("Not a valid script language specified"));
 
     var emptyEx = assertThrows(
         IllegalArgumentException.class, () -> script.setLanguage(""));
@@ -190,14 +206,15 @@ public class CommandScriptDeadCodeTest {
   // ---------------------------------------------------------------------------
 
   @Test
-  public void commandExecutorScriptHasNoProductionCallers() {
+  public void commandExecutorScriptDefaultCtorProducesCommandExecutorAbstract() {
     // The class is public only so reflection or legacy CommandManager dispatch could
-    // reach it. We can still instantiate it via its public ctor (standalone) to cover
-    // the single uncovered line `public CommandExecutorScript() {}` in JaCoCo, and to
-    // pin the "no-op construction" contract.
+    // reach it. Instantiate it via its public ctor (standalone) to cover the single
+    // uncovered line `public CommandExecutorScript() {}` in JaCoCo, and to pin the
+    // "extends CommandExecutorAbstract" structural contract. The zero-callers claim
+    // is documented in the class-level Javadoc; it is not asserted here — that would
+    // require a classpath scan well beyond this pin's scope.
     var exec = new CommandExecutorScript();
 
-    assertNotNull("default ctor must not throw", exec);
     assertTrue(
         "CommandExecutorScript extends CommandExecutorAbstract",
         exec instanceof CommandExecutorAbstract);
@@ -250,8 +267,8 @@ public class CommandScriptDeadCodeTest {
         CommandExecutorNotFoundException.class,
         () -> manager.getExecutor(new DummyCommandRequest()));
     assertTrue(
-        "exception must mention the request class in its message",
-        ex.getMessage().contains("command request"));
+        "exception must start with the legacy dispatch's not-found prefix",
+        ex.getMessage().startsWith("Cannot find a command executor for the command request"));
     // WHEN-FIXED: Track 22 — delete CommandManager.getExecutor(CommandRequestInternal)
     // and the backing commandReqExecMap.
   }
@@ -275,6 +292,29 @@ public class CommandScriptDeadCodeTest {
         CommandExecutorNotFoundException.class,
         () -> manager.getExecutor(new DummyCommandRequest()));
     // WHEN-FIXED: Track 22 — delete registerExecutor(Class, Class) + unregisterExecutor(Class).
+  }
+
+  @Test
+  public void commandManagerGetExecutorWrapsInstantiationFailureThroughContextChain() {
+    // Pin the catch (Exception) path in CommandManager.getExecutor (CommandManager.java:107-115).
+    // That block dereferences iCommand.getContext().getDatabaseSession().getDatabaseName() when
+    // wrapping the instantiation failure. Our DummyCommandRequest defaults its context to a
+    // fresh BasicCommandContext with no database session — so getDatabaseSession() today
+    // throws DatabaseException("No database session found in SQL context"). This pins the
+    // current observable shape so a Track 22 deletion of the catch block (or a refactor that
+    // null-guards the context chain) is visible.
+    var manager = new CommandManager();
+    manager.registerExecutor(DummyCommandRequest.class, UninstantiableExecutor.class);
+
+    // UninstantiableExecutor is abstract, so Class.newInstance() throws
+    // InstantiationException → caught → context chain dereference fails inside the wrap.
+    var ex = assertThrows(
+        com.jetbrains.youtrackdb.internal.core.exception.DatabaseException.class,
+        () -> manager.getExecutor(new DummyCommandRequest()));
+    assertTrue(
+        "message must identify the missing session in SQL context",
+        ex.getMessage().contains("No database session found in SQL context"));
+    // WHEN-FIXED: Track 22 — delete CommandManager.getExecutor together with its catch block.
   }
 
   @Test
@@ -306,7 +346,7 @@ public class CommandScriptDeadCodeTest {
   // ---------------------------------------------------------------------------
 
   @Test
-  public void scriptExecutorRegisterIsAnSpiWithNoCoreImplementations() {
+  public void scriptExecutorRegisterIsAnSpiWithNoCoreImplementations() throws Exception {
     // Pin that the interface is an SPI (single method; not an annotation; public).
     var iface = ScriptExecutorRegister.class;
     assertTrue("ScriptExecutorRegister must be an interface", iface.isInterface());
@@ -319,22 +359,17 @@ public class CommandScriptDeadCodeTest {
         Modifier.isPublic(iface.getModifiers()));
 
     // The core module must not ship a registration; ScriptManager.lookupProvider will
-    // find zero entries at runtime.
+    // find zero entries at runtime. If a downstream module ships an impl the stream
+    // may still exist — in that case scope the check to core's own package.
     var loader = Thread.currentThread().getContextClassLoader();
     var serviceFile = "META-INF/services/" + iface.getName();
     try (var in = loader.getResourceAsStream(serviceFile)) {
-      // The stream may be non-null if a downstream module registered an impl (e.g.
-      // tests); but within the core module alone it is null.
       if (in != null) {
-        // No impl line may reference a class inside core/command/script since the
-        // interface is documented as "no core impls".
         var contents = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
         assertFalse(
-            "core must not register ScriptExecutorRegister impls",
+            "core must not register ScriptExecutorRegister impls under core/command/script",
             contents.contains("com.jetbrains.youtrackdb.internal.core.command.script."));
       }
-    } catch (Exception e) {
-      fail("service lookup must not throw: " + e);
     }
     // WHEN-FIXED: Track 22 — delete ScriptExecutorRegister.
   }
@@ -372,22 +407,21 @@ public class CommandScriptDeadCodeTest {
   }
 
   @Test
-  public void sqlScriptEngineEvalReaderRoutesToDeadCommandScriptStub() throws Exception {
+  public void sqlScriptEngineEvalReaderThrowsWhenNoDatabaseInBindings() throws Exception {
     // SQLScriptEngine.eval(Reader, Bindings) delegates to new CommandScript(text).execute(...)
-    // which returns List.of(). The bindings lookup for "db" expects a
-    // DatabaseSessionEmbedded — if the bindings are missing or the session is missing
-    // the overload throws CommandExecutionException before it can reach CommandScript.
-    //
-    // Without a real DatabaseSessionEmbedded we can still assert the throws-path shape,
-    // which pins the dead overload's observable contract.
+    // via the dead path at SQLScriptEngine.java:151 — but only AFTER the early null-db
+    // check at lines 138-140. Without a DatabaseSessionEmbedded in bindings, control
+    // never reaches CommandScript; we pin only the guard-throw shape here. The dead
+    // CommandScript.execute delegation is pinned separately by
+    // commandScriptExecuteReturnsEmptyListRegardlessOfSessionAndArgs.
     var engine = new SQLScriptEngine(new SQLScriptEngineFactory());
 
     Reader reader = new StringReader("select 1");
     var ex = assertThrows(
-        com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException.class,
+        CommandExecutionException.class,
         () -> engine.eval(reader, engine.createBindings()));
     assertTrue(
-        "missing-db error message pins the current shape",
+        "missing-db error message pins the current guard-throw shape",
         ex.getMessage().contains("No database available"));
     // WHEN-FIXED: Track 22 — either delete eval(Reader, ...) or route it to live code.
   }
@@ -425,9 +459,7 @@ public class CommandScriptDeadCodeTest {
     // Pin the "no database" fallback path — used only via the deprecated no-arg ctor.
     var wrapper = new ScriptYouTrackDbWrapper();
 
-    var ex = assertThrows(
-        com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException.class,
-        wrapper::getDatabase);
+    var ex = assertThrows(ConfigurationException.class, wrapper::getDatabase);
     assertTrue(
         "message must identify the missing database context",
         ex.getMessage().contains("No database instance found in context"));
@@ -455,8 +487,7 @@ public class CommandScriptDeadCodeTest {
     }
 
     @Override
-    public List<com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl> execute(
-        DatabaseSessionEmbedded querySession, Object... iArgs) {
+    public List<EntityImpl> execute(DatabaseSessionEmbedded querySession, Object... iArgs) {
       return List.of();
     }
   }
@@ -465,6 +496,10 @@ public class CommandScriptDeadCodeTest {
    * Minimal CommandExecutor whose only purpose is to satisfy
    * CommandManager.registerExecutor's class-based contract. Not used in production.
    * Extends {@link CommandExecutorAbstract} to inherit the bulk of the interface.
+   *
+   * <p>Declared {@code public} out of necessity: {@link CommandManager#getExecutor}
+   * calls {@code Class.newInstance()} without {@code setAccessible(true)}, which
+   * requires a public class with a public no-arg ctor.
    */
   public static final class DummyCommandExecutor extends CommandExecutorAbstract {
 
@@ -498,5 +533,14 @@ public class CommandScriptDeadCodeTest {
     protected void throwSyntaxErrorException(String dbName, String iText) {
       throw new IllegalStateException("unused: " + iText);
     }
+  }
+
+  /**
+   * Intentionally abstract — {@link Class#newInstance()} on an abstract class throws
+   * {@link InstantiationException}, which drives CommandManager into its catch block.
+   * Used only by {@link #commandManagerGetExecutorWrapsInstantiationFailureThroughContextChain}.
+   */
+  public abstract static class UninstantiableExecutor extends CommandExecutorAbstract {
+    // abstract by design; no ctor needed.
   }
 }

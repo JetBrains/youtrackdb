@@ -28,6 +28,7 @@ import com.jetbrains.youtrackdb.internal.core.command.ScriptInterceptor;
 import com.jetbrains.youtrackdb.internal.core.command.traverse.AbstractScriptExecutor;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -48,6 +49,12 @@ import org.junit.Test;
  *
  * <p>All tests are standalone — the SPIs neither require a database session nor a transaction.
  * A {@code null} {@link DatabaseSessionEmbedded} is accepted by both code paths.
+ *
+ * <p>The SPIs are "live-wiring, zero-impl": unlike the pinned dead code in
+ * {@link CommandScriptDeadCodeTest}, these interfaces are part of the wired-up execution
+ * path. Whether Track 22 chooses to delete or retain them depends on whether the zero-impl
+ * state is considered a product gap (external plugins depend on them) or accidental
+ * complexity. This suite pins the current observable contract either way.
  */
 public class SPIWiringSmokeTest {
 
@@ -127,7 +134,7 @@ public class SPIWiringSmokeTest {
     // through preExecute dispatch. Registering must route the call; unregistering
     // must stop future dispatches.
     var executor = new RecordingScriptExecutor("sql");
-    var calls = new java.util.ArrayList<String>();
+    var calls = new ArrayList<String>();
 
     ScriptInterceptor interceptor =
         (db, language, script, params) -> calls.add(language + ":" + script);
@@ -151,7 +158,7 @@ public class SPIWiringSmokeTest {
   public void scriptInterceptorMultipleInterceptorsAreAllInvokedInOrder() {
     // preExecute iterates the interceptors list in insertion order — pin that ordering.
     var executor = new RecordingScriptExecutor("javascript");
-    var calls = new java.util.ArrayList<String>();
+    var calls = new ArrayList<String>();
 
     executor.registerInterceptor(
         (db, language, script, params) -> calls.add("first:" + script));
@@ -163,6 +170,27 @@ public class SPIWiringSmokeTest {
     assertEquals(
         "both interceptors must fire, in registration order",
         List.of("first:print(1)", "second:print(1)"),
+        calls);
+  }
+
+  @Test
+  public void scriptInterceptorDoesNotDedupeSameInstanceUnlikeScriptInjection() {
+    // AbstractScriptExecutor.registerInterceptor uses a raw List.add with no contains()
+    // guard — unlike ScriptManager.registerInjection (pinned above) which dedupes. Pin
+    // this behavioral asymmetry so a well-meaning "consistency fix" on either side is
+    // visible.
+    var executor = new RecordingScriptExecutor("sql");
+    var calls = new ArrayList<String>();
+    ScriptInterceptor interceptor =
+        (db, lang, script, params) -> calls.add(script);
+
+    executor.registerInterceptor(interceptor);
+    executor.registerInterceptor(interceptor); // no dedupe path — list grows
+
+    executor.preExecute(null, "x", null);
+    assertEquals(
+        "same instance registered twice must fire twice — contract asymmetry vs ScriptInjection",
+        List.of("x", "x"),
         calls);
   }
 
@@ -215,7 +243,9 @@ public class SPIWiringSmokeTest {
     }
 
     @Override
+    @SuppressWarnings("rawtypes")
     public ResultSet execute(DatabaseSessionEmbedded database, String script, Map params) {
+      // raw Map mirrors the ScriptExecutor SPI signature; not exercised by these tests.
       return null;
     }
 
