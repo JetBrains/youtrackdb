@@ -60,7 +60,7 @@ the four keyword subsections only if present.
 
 ```markdown
 - [x] Track 2: <title>
-  > <intro paragraph — first paragraph of the original description>
+  > <intro paragraph>
   >
   > **Track episode:**
   > <strategic summary — length proportional to cross-track impact>

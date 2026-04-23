@@ -55,8 +55,10 @@ Phase-4-specific reminders that follow from the shared rule:
 - Key Discoveries is the section most prone to leaks — it is typically
   synthesized from step episodes and easily carries track / step /
   finding labels along with the substance. Rewrite each discovery to
-  stand on its own without referring to the ephemeral place it was
-  first recorded.
+  stand on its own: strip any specific track or step numbers (`Track
+  3`, `Step 2 of Track 4`, etc.) and any review-finding IDs, and keep
+  only the substance, plus a file/class reference or commit SHA if
+  "where" still matters.
 
 Re-scan both artifacts before Step 4 (commit) with the grep in §2.3.
 
