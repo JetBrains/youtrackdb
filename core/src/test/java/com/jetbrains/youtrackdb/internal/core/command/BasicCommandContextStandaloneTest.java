@@ -27,9 +27,11 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrackdb.internal.core.command.CommandContext.TIMEOUT_STRATEGY;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
 import java.util.List;
+import java.util.Map;
 import javax.annotation.Nonnull;
 import org.junit.Test;
 
@@ -474,6 +476,171 @@ public class BasicCommandContextStandaloneTest {
         "updated-from-child", parent.getSystemVariable(CommandContext.VAR_CURRENT));
     assertEquals("child observes the update via fallback",
         "updated-from-child", child.getSystemVariable(CommandContext.VAR_CURRENT));
+  }
+
+  // ---------------------------------------------------------------------------
+  // updateMetric — both recordMetrics branches (TC-4).
+  // Source: BasicCommandContext.java:351-365.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * {@code updateMetric} must short-circuit to {@code -1} when metrics are disabled (the default)
+   * and must NOT initialize the variable map. Pins the {@code recordMetrics == false} guard at
+   * line 352-354.
+   */
+  @Test
+  public void updateMetricReturnsMinusOneWhenMetricsDisabled() {
+    var ctx = new BasicCommandContext();
+    // Default: recordMetrics = false.
+    assertEquals(-1L, ctx.updateMetric("ops", 42L));
+    assertTrue("variable map must not be seeded when metrics are off",
+        ctx.getVariables().isEmpty());
+  }
+
+  /**
+   * With metrics enabled, the first call seeds the metric at the delta value; subsequent calls
+   * accumulate. Pins the {@code value == null} seed branch (line 358-359) and the add branch
+   * (line 361).
+   */
+  @Test
+  public void updateMetricAccumulatesWhenMetricsEnabled() {
+    var ctx = new BasicCommandContext();
+    ctx.setRecordingMetrics(true);
+
+    assertEquals(10L, ctx.updateMetric("ops", 10L));
+    assertEquals(25L, ctx.updateMetric("ops", 15L));
+    // Also visible through getVariable.
+    assertEquals(25L, ctx.getVariable("ops"));
+  }
+
+  // ---------------------------------------------------------------------------
+  // getInputParameters — parent-chain fallback (TC-5).
+  // Source: BasicCommandContext.java:512-518.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * When the current context has no input parameters, {@code getInputParameters} must walk to the
+   * parent. SQL sub-plans (per {@code SqlScriptExecutor}) rely on this to inherit parameter
+   * bindings from the outer script context.
+   */
+  @Test
+  public void getInputParametersFallsThroughToParent() {
+    var parent = new BasicCommandContext();
+    var child = new BasicCommandContext();
+    parent.setChild(child);
+    Map<Object, Object> params = Map.of(0, "x");
+    parent.setInputParameters(params);
+
+    assertSame("child must inherit parent's input parameters",
+        params, child.getInputParameters());
+  }
+
+  /**
+   * When the child has its own input parameters, they must win over the parent's — the guard at
+   * line 513-515 returns the own reference without traversing up.
+   */
+  @Test
+  public void getInputParametersOwnValueBeatsParent() {
+    var parent = new BasicCommandContext();
+    var child = new BasicCommandContext();
+    parent.setChild(child);
+    parent.setInputParameters(Map.of(0, "from-parent"));
+    Map<Object, Object> own = Map.of(0, "from-child");
+    child.setInputParameters(own);
+
+    assertSame("own input parameters must win over parent's fallback",
+        own, child.getInputParameters());
+  }
+
+  /**
+   * With no parent and no own input parameters, {@code getInputParameters} returns {@code null}
+   * (line 517).
+   */
+  @Test
+  public void getInputParametersNullChainReturnsNull() {
+    assertNull(new BasicCommandContext().getInputParameters());
+  }
+
+  // ---------------------------------------------------------------------------
+  // declareScriptVariable / isScriptVariableDeclared (TC-6).
+  // Source: BasicCommandContext.java:552-572.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * {@code isScriptVariableDeclared} returns {@code false} for {@code null} and empty-string
+   * names — the input-validation guard at line 558.
+   */
+  @Test
+  public void isScriptVariableDeclaredNullOrEmptyReturnsFalse() {
+    var ctx = new BasicCommandContext();
+    assertFalse(ctx.isScriptVariableDeclared(null));
+    assertFalse(ctx.isScriptVariableDeclared(""));
+  }
+
+  /**
+   * A declared name is resolvable via BOTH the dollar-prefixed and the bare form — the method
+   * normalizes by stripping the dollar and then checking both variants (line 560-570).
+   */
+  @Test
+  public void isScriptVariableDeclaredMatchesDollarAndPlainForms() {
+    var ctx = new BasicCommandContext();
+    ctx.declareScriptVariable("label");
+
+    assertTrue("bare name resolves", ctx.isScriptVariableDeclared("label"));
+    assertTrue("$-prefixed form resolves", ctx.isScriptVariableDeclared("$label"));
+  }
+
+  /**
+   * {@code isScriptVariableDeclared} falls through to the parent chain — the recursive-call
+   * branch at line 571.
+   */
+  @Test
+  public void isScriptVariableDeclaredFallsThroughToParent() {
+    var parent = new BasicCommandContext();
+    var child = new BasicCommandContext();
+    parent.setChild(child);
+    parent.declareScriptVariable("fromParent");
+
+    assertTrue("child must see parent-declared script variables",
+        child.isScriptVariableDeclared("fromParent"));
+  }
+
+  /**
+   * A plain {@code setVariable}-stored value is ALSO discoverable by {@code
+   * isScriptVariableDeclared} (line 566-568). This pins the interaction that LET statements rely
+   * on: once the alias value is set, the alias reads as declared.
+   */
+  @Test
+  public void isScriptVariableDeclaredFindsSetVariablesToo() {
+    var ctx = new BasicCommandContext();
+    ctx.setVariable("alias", "value");
+
+    assertTrue("setVariable-created entry counts as declared",
+        ctx.isScriptVariableDeclared("alias"));
+  }
+
+  // ---------------------------------------------------------------------------
+  // checkTimeout — parent-chain fallback (TC-7).
+  // Source: BasicCommandContext.java:456-476.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * When self has no timeout configured but the parent does and the parent's timeout has elapsed,
+   * {@code checkTimeout} on the child returns the parent's outcome (line 469-473). SQL sub-plans
+   * inherit the top-level statement timeout through this fallback; regressing it would cause
+   * nested queries to ignore the configured limit.
+   */
+  @Test
+  public void checkTimeoutInheritsExpiredReturnFromParent() throws InterruptedException {
+    var parent = new BasicCommandContext();
+    var child = new BasicCommandContext();
+    parent.setChild(child);
+    parent.beginExecution(1L, TIMEOUT_STRATEGY.RETURN);
+    // 50 ms comfortably exceeds wall-clock granularity on all supported platforms.
+    Thread.sleep(50);
+
+    assertFalse("child must see expired parent timeout via the fallback",
+        child.checkTimeout());
   }
 
   // ---------------------------------------------------------------------------

@@ -1,8 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.command;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import org.junit.Test;
@@ -79,6 +81,11 @@ public class BasicCommandContextTest extends DbTestBase {
    * Verifies that setVariable for a variable that exists in the parent context
    * propagates to the parent, except for "current" and "parent" which are bound
    * locally.
+   *
+   * <p>Falsifiability: inspect the child's own {@code getVariables()} map directly to pin that
+   * the write did NOT land on the child — otherwise a bug that routed the write to the child
+   * could still satisfy {@code parent.getVariable("shared")} (which walks the child chain via
+   * {@link BasicCommandContext#getVariables()}).
    */
   @Test
   public void testSetVariableExistingInParent() {
@@ -90,7 +97,14 @@ public class BasicCommandContextTest extends DbTestBase {
 
     // Setting "shared" in child should propagate to parent
     child.setVariable("shared", "updated");
-    assertEquals("updated", parent.getVariable("shared"));
+    assertEquals("parent sees the updated value", "updated", parent.getVariable("shared"));
+    // Pin the storage location: the write must have landed on the parent, NOT the child.
+    // BasicCommandContext.getVariables() merges child's map into the parent's, so we can't use
+    // it to distinguish storage side; fall back to hasVariable (package-visible to tests).
+    assertFalse("child must not hold its own 'shared' entry — propagation landed on parent",
+        child.hasVariable("shared") && !parent.hasVariable("shared"));
+    assertTrue("parent must hold the 'shared' entry directly",
+        parent.hasVariable("shared"));
   }
 
   /**
