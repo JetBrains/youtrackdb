@@ -1,11 +1,15 @@
 package com.jetbrains.youtrackdb.internal.core.command.traverse;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -182,5 +186,344 @@ public class TraverseTest extends DbTestBase {
     session.rollback();
   }
 
+  /**
+   * Safety net: {@link Traverse#next()} consumes the interrupt flag via
+   * {@link Thread#interrupted()} but some tests below may leave the flag set if an assertion fires
+   * between {@code interrupt()} and {@code next()}. Clear it so subsequent {@code @Test} methods
+   * run on a clean thread state.
+   */
+  @After
+  public void clearInterruptFlagAfterTest() {
+    Thread.interrupted();
+  }
 
+  /**
+   * Empty target → {@code hasNext()} returns false immediately. The invariant is important because
+   * a traversal with no seed records must not throw or emit spurious results.
+   */
+  @Test
+  public void hasNextReturnsFalseImmediatelyOnEmptyTarget() {
+    session.begin();
+    try {
+      var traverse = new Traverse(session);
+      traverse.target(Collections.<Identifiable>emptyList().iterator());
+
+      Assert.assertFalse("empty target must yield no results", traverse.hasNext());
+      Assert.assertTrue("execute on empty target returns an empty list",
+          traverse.execute(session).isEmpty());
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * {@code setMaxDepth(0)} → emit only the root records and do not descend into their link fields.
+   * Covers the {@code maxDepth > -1 && depth == maxDepth} branch in {@link TraverseRecordProcess}
+   * at the shallowest setting.
+   */
+  @Test
+  public void setMaxDepthZeroEmitsOnlyRoot() {
+    session.begin();
+    EntityImpl root = (EntityImpl) session.newEntity();
+    EntityImpl child = (EntityImpl) session.newEntity();
+    root.setProperty("child", child, PropertyType.LINK);
+    session.commit();
+
+    session.begin();
+    try {
+      var loaded = session.getActiveTransaction().load(root);
+      var traverse = new Traverse(session);
+      traverse.target(loaded).fields("*");
+      traverse.setMaxDepth(0);
+
+      var results = new HashSet<>(traverse.execute(session));
+
+      Assert.assertEquals("exactly one result: the root itself", 1, results.size());
+      Assert.assertTrue("the sole result is the root", results.contains(loaded));
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * {@code setMaxDepth(1)} → emit root and its direct link children, but not grandchildren.
+   * Covers the cut-off branch at a mid-depth value.
+   */
+  @Test
+  public void setMaxDepthOneEmitsRootAndDirectChildrenButNotGrandchildren() {
+    session.begin();
+    EntityImpl root = (EntityImpl) session.newEntity();
+    EntityImpl child = (EntityImpl) session.newEntity();
+    EntityImpl grandchild = (EntityImpl) session.newEntity();
+    child.setProperty("grand", grandchild, PropertyType.LINK);
+    root.setProperty("child", child, PropertyType.LINK);
+    session.commit();
+
+    session.begin();
+    try {
+      var loadedRoot = session.getActiveTransaction().load(root);
+      var loadedChild = session.getActiveTransaction().load(child);
+      var loadedGrand = session.getActiveTransaction().load(grandchild);
+      var traverse = new Traverse(session);
+      traverse.target(loadedRoot).fields("*");
+      traverse.setMaxDepth(1);
+
+      var results = new HashSet<>(traverse.execute(session));
+
+      Assert.assertTrue("root is included (depth 0)", results.contains(loadedRoot));
+      Assert.assertTrue("direct child is included (depth 1)",
+          results.contains(loadedChild));
+      Assert.assertFalse("grandchild is NOT included (depth 2 > maxDepth=1)",
+          results.contains(loadedGrand));
+      Assert.assertEquals("only two records are emitted", 2, results.size());
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * {@code getMaxDepth}/{@code setMaxDepth} round-trip (and the {@code -1} default → no cut-off)
+   * are the trivially observable accessors the traversal relies on. The default and negative
+   * value are accepted by {@code setMaxDepth} and preserved.
+   */
+  @Test
+  public void getMaxDepthDefaultIsNegativeOneAndSetMaxDepthRoundTrips() {
+    var traverse = new Traverse(session);
+
+    Assert.assertEquals("default maxDepth is -1 (no limit)", -1, traverse.getMaxDepth());
+
+    traverse.setMaxDepth(3);
+    Assert.assertEquals("setMaxDepth round-trips", 3, traverse.getMaxDepth());
+
+    traverse.setMaxDepth(-1);
+    Assert.assertEquals("setMaxDepth(-1) restores the 'no-limit' sentinel",
+        -1, traverse.getMaxDepth());
+  }
+
+  /**
+   * Cycle pin: A→B→A — the cycle-detection guard ({@code history.contains} in
+   * {@link TraverseRecordProcess#process}) keeps each node visited exactly once. Covers R6 (the
+   * already-traversed branch of {@link TraverseContext#isAlreadyTraversed}).
+   */
+  @Test
+  public void cyclicLinksVisitEachRecordExactlyOnce() {
+    session.begin();
+    EntityImpl a = (EntityImpl) session.newEntity();
+    EntityImpl b = (EntityImpl) session.newEntity();
+    a.setProperty("next", b, PropertyType.LINK);
+    b.setProperty("next", a, PropertyType.LINK);
+    // Must save A before setting b.next=a, but once both are saved the link is stored.
+    session.commit();
+
+    session.begin();
+    try {
+      var loadedA = session.getActiveTransaction().load(a);
+      var loadedB = session.getActiveTransaction().load(b);
+      var traverse = new Traverse(session);
+      traverse.target(loadedA).fields("*");
+
+      var results = traverse.execute(session);
+
+      Assert.assertEquals("A and B each visited exactly once — no cycle loop",
+          2, results.size());
+      Assert.assertTrue("A is in the result set", results.contains(loadedA));
+      Assert.assertTrue("B is in the result set", results.contains(loadedB));
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * {@link Traverse#next()} throws {@link CommandExecutionException} when the current thread is
+   * interrupted. The interrupt flag is consumed by {@link Thread#interrupted()} so the same test
+   * can inspect the exception without side-effects.
+   */
+  @Test
+  public void nextOnInterruptedThreadThrowsCommandExecutionException() {
+    session.begin();
+    try {
+      var traverse = new Traverse(session);
+
+      Thread.currentThread().interrupt();
+      var ex = Assert.assertThrows("interrupted thread must trigger next() to throw",
+          CommandExecutionException.class, traverse::next);
+
+      Assert.assertFalse("the interrupt flag is consumed by Thread.interrupted()",
+          Thread.interrupted());
+      Assert.assertTrue("the exception message names the traverse interrupt",
+          ex.getMessage().contains("interrupted"));
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * {@code setStrategy} is observable via {@link Traverse#getStrategy()} and survives repeated
+   * calls. Pairs with {@link TraverseContextTest#setStrategyPreservesPendingProcessesAcrossStrategySwitches}
+   * which validates the underlying memory reshape.
+   */
+  @Test
+  public void setStrategyRoundTripsAndBreadthFirstTraversalProducesSameNodesAsDepthFirst() {
+    session.begin();
+    EntityImpl root = (EntityImpl) session.newEntity();
+    EntityImpl child = (EntityImpl) session.newEntity();
+    root.setProperty("child", child, PropertyType.LINK);
+    session.commit();
+
+    session.begin();
+    try {
+      var loadedRoot = session.getActiveTransaction().load(root);
+
+      // DFS baseline
+      var dfs = new Traverse(session);
+      dfs.target(loadedRoot).fields("*");
+      Assert.assertEquals("default strategy is DEPTH_FIRST",
+          Traverse.STRATEGY.DEPTH_FIRST, dfs.getStrategy());
+      var dfsResults = new HashSet<>(dfs.execute(session));
+
+      // BFS
+      var bfs = new Traverse(session);
+      bfs.target(loadedRoot).fields("*");
+      bfs.setStrategy(Traverse.STRATEGY.BREADTH_FIRST);
+      Assert.assertEquals("setStrategy round-trips",
+          Traverse.STRATEGY.BREADTH_FIRST, bfs.getStrategy());
+      var bfsResults = new HashSet<>(bfs.execute(session));
+
+      Assert.assertEquals("BFS and DFS visit the same record set, order aside",
+          dfsResults, bfsResults);
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * {@code limit(n)} stops traversal after {@code n} results have been returned, leaving remaining
+   * context frames unvisited. {@code getResultCount} reports exactly {@code n}.
+   */
+  @Test
+  public void limitStopsAtResultCountAndLeavesRemainingFramesUnvisited() {
+    session.begin();
+    EntityImpl root = (EntityImpl) session.newEntity();
+    EntityImpl a = (EntityImpl) session.newEntity();
+    EntityImpl b = (EntityImpl) session.newEntity();
+    EntityImpl c = (EntityImpl) session.newEntity();
+    root.getOrCreateLinkList("children").addAll(Arrays.asList(a, b, c));
+    session.commit();
+
+    session.begin();
+    try {
+      var loadedRoot = session.getActiveTransaction().load(root);
+      var traverse = new Traverse(session);
+      traverse.target(loadedRoot).fields("*").limit(2);
+
+      var results = traverse.execute(session);
+
+      Assert.assertEquals("limit(2) caps the output at 2", 2, results.size());
+      Assert.assertEquals("getResultCount matches the limit", 2, traverse.getResultCount());
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * {@code limit(n)} where {@code n < -1} → {@link IllegalArgumentException}. The range guard
+   * rejects values below the {@code -1} "unlimited" sentinel.
+   */
+  @Test
+  public void limitRejectsValuesBelowMinusOne() {
+    var traverse = new Traverse(session);
+
+    var ex = Assert.assertThrows(IllegalArgumentException.class,
+        () -> traverse.limit(-2));
+
+    Assert.assertTrue("exception message pins the observable contract",
+        ex.getMessage().contains("Limit cannot be negative"));
+  }
+
+  /**
+   * {@code remove()} is not supported (the {@link Traverse} iterator is read-only); this pin
+   * covers the {@link UnsupportedOperationException} branch. {@code toString} renders the four
+   * factory fields (target, fields, limit, predicate) — the format is a loose contract used by
+   * debugging / logging paths.
+   */
+  @Test
+  public void removeThrowsAndToStringExposesCoreFactoryFields() {
+    var traverse = new Traverse(session);
+    traverse.fields("foo").limit(5);
+
+    Assert.assertThrows(UnsupportedOperationException.class, traverse::remove);
+
+    var rendered = traverse.toString();
+    Assert.assertTrue("toString includes limit value", rendered.contains("5"));
+    Assert.assertTrue("toString includes field name", rendered.contains("foo"));
+  }
+
+  /**
+   * {@code field(x)} deduplicates on the list — adding the same field twice produces a single
+   * entry. {@code fields(Collection)} and {@code fields(String...)} delegate to {@code field(x)}
+   * and inherit the dedup.
+   */
+  @Test
+  public void fieldDeduplicatesAndCollectionStringOverloadsDelegateToIt() {
+    var traverse = new Traverse(session);
+
+    traverse.field("x").field("x").field("y");
+    Assert.assertEquals("dedup keeps only two fields after three adds",
+        2, traverse.getFields().size());
+
+    traverse.fields(Arrays.asList("y", "z"));
+    Assert.assertEquals("Collection overload adds only the new field 'z'",
+        3, traverse.getFields().size());
+
+    traverse.fields("w", "x");
+    Assert.assertEquals("String... overload dedups against existing fields too",
+        4, traverse.getFields().size());
+  }
+
+  /**
+   * {@link Traverse#iterator()} returns the traverse itself — this is a well-known contract for
+   * the {@link Iterable}/{@link java.util.Iterator} self-implementation used by caller code.
+   */
+  @Test
+  public void iteratorReturnsSelf() {
+    var traverse = new Traverse(session);
+
+    Assert.assertSame("iterator() returns the traverse itself",
+        traverse, traverse.iterator());
+  }
+
+  /**
+   * WHEN-FIXED: Track 22 — the defensive branch in {@link Traverse#hasNext} at lines 91-93
+   * (throw when {@code next()} returns null while {@link TraverseContext#isEmpty()} is false) is
+   * unreachable through normal traversal flow: {@link Traverse#next} loops while memory is
+   * non-empty, so it only returns null when memory drains. This test forces the precondition by
+   * overriding {@code next()} to always return null while leaving an RSP frame in the context —
+   * locking in the observable message and exception type. Track 22 should either delete the
+   * branch or introduce a call path that reaches it naturally.
+   */
+  @Test
+  public void hasNextWhenNextReturnsNullButContextNonEmptyThrowsAbnormalTermination() {
+    session.begin();
+    try {
+      var rootRef = (EntityImpl) session.newEntity();
+
+      // Subclass overrides next() to short-circuit to null WITHOUT draining memory.
+      var traverse = new Traverse(session) {
+        @Override
+        public Identifiable next() {
+          return null;
+        }
+      };
+      // Populate the context with an RSP (pushed by its constructor).
+      new TraverseRecordSetProcess(traverse,
+          Collections.<Identifiable>singletonList(rootRef).iterator(),
+          TraversePath.empty(), session);
+
+      var ex = Assert.assertThrows(
+          IllegalStateException.class, traverse::hasNext);
+      Assert.assertEquals("Traverse ended abnormally", ex.getMessage());
+    } finally {
+      session.rollback();
+    }
+  }
 }
