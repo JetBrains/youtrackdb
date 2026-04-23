@@ -6,8 +6,9 @@ Phase 2 validates the plan before execution begins. It runs two steps
 in sequence:
 
 1. **Consistency Review** — reads the design document, implementation plan,
-   and actual codebase to find gaps and inconsistencies between them.
-   Findings are presented to the user for feedback. Iterates until clean.
+   backlog (when present), and actual codebase to find gaps and
+   inconsistencies between them. Findings are presented to the user for
+   feedback. Iterates until clean.
 2. **Structural Review** — validates plan-internal structure (dependency
    ordering, track sizing, scope indicators, architecture notes). Runs
    **automatically** after consistency review passes — no user interaction
@@ -65,6 +66,15 @@ verify code references, call flows, and class relationships.
 - **Gaps**: plan elements without design coverage, design elements no track
   covers, codebase constructs the documents should reference but don't
 
+For new-format plans, each pending track's detailed description
+(`**What/How/Constraints/Interactions**` subsections and any track-level
+Mermaid diagram) lives in `implementation-backlog.md` rather than
+inline in the plan file; the consistency review reads the backlog
+alongside the plan. Legacy plans (no backlog file on disk) keep those
+subsections in the plan-file checklist entry and the review falls back
+to the plan entry there. See the prompt's per-entry fallback rule for
+the full lifecycle.
+
 ### Sub-agent prompt
 
 **Prompt file:** [`prompts/consistency-review.md`](prompts/consistency-review.md)
@@ -112,6 +122,15 @@ Phase 2 passes. If blockers are found, they are presented to the user.
 Dependency ordering, track sizing, scope indicators, architecture notes
 completeness, design document structure, decision traceability, internal
 consistency.
+
+For new-format plans, each pending track's detailed description (the
+subject of TRACK DESCRIPTIONS and TRACK SIZING checks, plus several
+cross-file bullets in SCOPE INDICATORS and CONSISTENCY) lives in
+`implementation-backlog.md` rather than inline in the plan file; the
+structural review reads the backlog alongside the plan. Legacy plans
+(no backlog file on disk) keep those subsections in the plan-file
+checklist entry and the review falls back to the plan entry there. See
+the prompt's per-entry fallback rule for the full lifecycle.
 
 **Full details:** [`structural-review.md`](structural-review.md)
 

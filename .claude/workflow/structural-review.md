@@ -2,9 +2,14 @@
 
 ## Goal
 
-Validate the plan's internal structure and completeness. This is a
-lightweight check that does NOT read the codebase — it catches plan-level
-defects (dependency cycles, missing descriptions, contradictions) cheaply.
+Validate the plan's internal structure and completeness across the plan
+file and backlog (when present). This is a lightweight check that does
+NOT read the codebase — it catches plan-level defects (dependency
+cycles, missing descriptions, contradictions) cheaply. For new-format
+plans, pending-track `**What/How/Constraints/Interactions**` detail
+lives in `implementation-backlog.md`; the review reads both files. For
+legacy plans (no backlog file on disk), that detail is inline in the
+plan-file entry and the review falls back to it there.
 
 This runs **automatically** as step 2 of the implementation review
 (Phase 2), after the consistency review passes. See
