@@ -17,7 +17,12 @@
         "iconColor": "rgba(96, 160, 255, 1)",
         "name": "Commits",
         "target": {
-          "query": "from(bucket: \"jmh-benchmarks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"jmh_benchmark\")\n  |> filter(fn: (r) => r.suite == \"SingleThread\")\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r._field == \"score\")\n  |> group()\n  |> unique(column: \"commit_sha\")\n  |> keep(columns: [\"_time\", \"commit_sha\"])\n  |> rename(columns: {commit_sha: \"text\"})"
+          "query": "import \"strings\"\n\nfrom(bucket: \"jmh-benchmarks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"jmh_benchmark\")\n  |> filter(fn: (r) => r.suite == \"SingleThread\")\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r._field == \"score\")\n  |> group()\n  |> unique(column: \"commit_sha\")\n  |> keep(columns: [\"_time\", \"commit_sha\"])\n  |> map(fn: (r) => ({\n      _time: r._time,\n      title: strings.substring(v: r.commit_sha, start: 0, end: 8),\n      text: \"[\" + strings.substring(v: r.commit_sha, start: 0, end: 8) + \"](https://github.com/JetBrains/youtrackdb/commit/\" + r.commit_sha + \")\"\n  }))"
+        },
+        "mappings": {
+          "time":  { "source": "field", "value": "_time" },
+          "title": { "source": "field", "value": "title" },
+          "text":  { "source": "field", "value": "text" }
         }
       }
     ]
@@ -47,9 +52,23 @@
             "showPoints": "always",
             "spanNulls": false
           },
-          "unit": "ops"
+          "unit": "ops",
+          "links": [
+            {
+              "title": "View commit on GitHub",
+              "url": "https://github.com/JetBrains/youtrackdb/commit/${__data.fields.commit_sha}",
+              "targetBlank": true
+            }
+          ]
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "commit_sha" },
+            "properties": [
+              { "id": "custom.hideFrom", "value": { "tooltip": false, "viz": true, "legend": true } }
+            ]
+          }
+        ]
       },
       "options": {
         "legend": { "calcs": ["lastNotNull", "mean"], "displayMode": "table", "placement": "right" },
@@ -58,7 +77,7 @@
       "targets": [
         {
           "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
-          "query": "from(bucket: \"jmh-benchmarks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"jmh_benchmark\")\n  |> filter(fn: (r) => r.suite == \"SingleThread\")\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r.query =~ /${query:regex}/)\n  |> filter(fn: (r) => r._field == \"score\")\n  |> group(columns: [\"query\"])\n  |> sort(columns: [\"_time\"])\n  |> keep(columns: [\"_time\", \"_value\", \"query\"])",
+          "query": "from(bucket: \"jmh-benchmarks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"jmh_benchmark\")\n  |> filter(fn: (r) => r.suite == \"SingleThread\")\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r.query =~ /${query:regex}/)\n  |> filter(fn: (r) => r._field == \"score\")\n  |> group(columns: [\"query\"])\n  |> sort(columns: [\"_time\"])\n  |> keep(columns: [\"_time\", \"_value\", \"query\", \"commit_sha\"])",
           "refId": "A"
         }
       ]
@@ -82,9 +101,23 @@
             "showPoints": "always",
             "spanNulls": false
           },
-          "unit": "ops"
+          "unit": "ops",
+          "links": [
+            {
+              "title": "View commit on GitHub",
+              "url": "https://github.com/JetBrains/youtrackdb/commit/${__data.fields.commit_sha}",
+              "targetBlank": true
+            }
+          ]
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "commit_sha" },
+            "properties": [
+              { "id": "custom.hideFrom", "value": { "tooltip": false, "viz": true, "legend": true } }
+            ]
+          }
+        ]
       },
       "options": {
         "legend": { "calcs": ["lastNotNull", "mean"], "displayMode": "table", "placement": "right" },
@@ -93,7 +126,7 @@
       "targets": [
         {
           "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
-          "query": "from(bucket: \"jmh-benchmarks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"jmh_benchmark\")\n  |> filter(fn: (r) => r.suite == \"MultiThread\")\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r.query =~ /${query:regex}/)\n  |> filter(fn: (r) => r._field == \"score\")\n  |> group(columns: [\"query\"])\n  |> sort(columns: [\"_time\"])\n  |> keep(columns: [\"_time\", \"_value\", \"query\"])",
+          "query": "from(bucket: \"jmh-benchmarks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"jmh_benchmark\")\n  |> filter(fn: (r) => r.suite == \"MultiThread\")\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r.query =~ /${query:regex}/)\n  |> filter(fn: (r) => r._field == \"score\")\n  |> group(columns: [\"query\"])\n  |> sort(columns: [\"_time\"])\n  |> keep(columns: [\"_time\", \"_value\", \"query\", \"commit_sha\"])",
           "refId": "A"
         }
       ]
@@ -126,9 +159,23 @@
               { "color": "yellow", "value": 1 },
               { "color": "green", "value": 4 }
             ]
-          }
+          },
+          "links": [
+            {
+              "title": "View commit on GitHub",
+              "url": "https://github.com/JetBrains/youtrackdb/commit/${__data.fields.commit_sha}",
+              "targetBlank": true
+            }
+          ]
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "commit_sha" },
+            "properties": [
+              { "id": "custom.hideFrom", "value": { "tooltip": false, "viz": true, "legend": true } }
+            ]
+          }
+        ]
       },
       "options": {
         "legend": { "calcs": ["lastNotNull", "mean"], "displayMode": "table", "placement": "right" },
@@ -137,7 +184,7 @@
       "targets": [
         {
           "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
-          "query": "from(bucket: \"jmh-benchmarks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"scalability\")\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r.query =~ /${query:regex}/)\n  |> filter(fn: (r) => r._field == \"ratio\")\n  |> group(columns: [\"query\"])\n  |> sort(columns: [\"_time\"])\n  |> keep(columns: [\"_time\", \"_value\", \"query\"])",
+          "query": "from(bucket: \"jmh-benchmarks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"scalability\")\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r.query =~ /${query:regex}/)\n  |> filter(fn: (r) => r._field == \"ratio\")\n  |> group(columns: [\"query\"])\n  |> sort(columns: [\"_time\"])\n  |> keep(columns: [\"_time\", \"_value\", \"query\", \"commit_sha\"])",
           "refId": "A"
         }
       ]
