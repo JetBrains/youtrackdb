@@ -365,7 +365,7 @@ sequenceDiagram
     A->>S: read ## Description + steps + episodes
     Note over A: review loop via sub-agents (slim snapshot + step file)
     A->>A: user approves
-    A->>P: collapse — drop Scope, Depends on; add Track episode + Step file pointer
+    A->>P: collapse — drop Scope and Depends on, add Track episode and Step file pointer
     Note over A: implementation-backlog.md NOT touched — Phase A already removed Track N
 ```
 
@@ -384,12 +384,12 @@ at Phase A start; legacy plans have no backlog to touch.
 flowchart TD
     Start([ESCALATE]) --> Decide{Revise target?}
     Decide -->|New track| New[Plan: add thin entry<br/>Backlog: add full W/H/C/I section<br/>Legacy plans: inline to plan only]
-    Decide -->|Revise not-yet-started<br/>'[ ]', no step file| NS{backlog<br/>file exists?}
+    Decide -->|Revise pending track, no step file yet| NS{backlog<br/>file exists?}
     NS -->|yes| NSNew[Update backlog section]
     NS -->|no legacy| NSLegacy[Update plan entry W/H/C/I + intro if revised]
-    Decide -->|Revise mid-execution<br/>'[ ]'/'[>]' with step file| Mid[Update step file ## Description]
-    Decide -->|Revise completed '[x]'| Done[Prompt user — usually means add new remedial track]
-    Decide -->|Revise skipped '[~]'| Skip[Update plan entry<br/>see 'Backlog deletion is terminal' in track-skip.md]
+    Decide -->|Revise mid-execution track, step file exists| Mid[Update step file ## Description]
+    Decide -->|Revise completed track| Done[Prompt user — usually means add new remedial track]
+    Decide -->|Revise skipped track| Skip[Update plan entry<br/>see 'Backlog deletion is terminal' in track-skip.md]
     Decide -->|Remove| Rem[Remove plan entry<br/>Remove backlog section if present]
 
     New --> Review
@@ -400,11 +400,11 @@ flowchart TD
     Skip --> Review
     Rem --> Review
 
-    Review[§Review: spawn structural-review with plan_path + backlog_path<br/>(sentinel when absent)] --> Gate{PASS?}
+    Review["§Review: spawn structural-review with plan_path + backlog_path<br/>(sentinel when absent)"] --> Gate{PASS?}
     Gate -->|yes| Out([End session])
-    Gate -->|no, <3 iters| Rev[Revise and re-spawn]
+    Gate -->|no, under 3 iters| Rev[Revise and re-spawn]
     Rev --> Review
-    Gate -->|3 iters| Exit[Advise restart from /create-plan]
+    Gate -->|3 iters reached| Exit[Advise restart from /create-plan]
 ```
 
 The `## Updating plan and backlog` section in `inline-replanning.md`
