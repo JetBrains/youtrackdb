@@ -21,6 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.command.script.transformer.result
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.core.command.script.transformer.ScriptTransformerImpl;
@@ -110,8 +111,31 @@ public class MapTransformerTest extends TestUtilsFixture {
     final Map<Object, Object> input = new HashMap<>();
     input.put("maybe", null);
 
-    org.junit.Assert.assertThrows(
+    assertThrows(
         "null value currently NPEs via doesHandleResult(null).getClass() — WHEN-FIXED: Track 22",
+        NullPointerException.class,
+        () -> mapTransformer.transform(session, input));
+  }
+
+  /**
+   * A null element INSIDE an Iterable value triggers the same latent NPE as a top-level null
+   * value, but via a different call site: the stream lambda at {@code MapTransformer.java:33}
+   * invokes {@code transformer.toResult(db, e)} for each element, and
+   * {@code ScriptTransformerImpl.toResult(db, null)} dereferences {@code value.getClass()}
+   * without a null guard. Pins the observed NPE shape so Track 22's hardening flips BOTH this
+   * test and {@link #transformMapWithNullValueThrowsNpe} consistently. If only one is fixed,
+   * the asymmetry is caught.
+   *
+   * <p>WHEN-FIXED: Track 22 — same fix as {@link #transformMapWithNullValueThrowsNpe} (null
+   * guard in {@code toResult} or {@code doesHandleResult}).
+   */
+  @Test
+  public void transformMapWithIterableContainingNullElementThrowsNpe() {
+    final Map<Object, Object> input = new LinkedHashMap<>();
+    input.put("items", Arrays.asList("a", null, "c"));
+
+    assertThrows(
+        "null element in iterable NPEs via toResult(db, null).getClass() — WHEN-FIXED: Track 22",
         NullPointerException.class,
         () -> mapTransformer.transform(session, input));
   }

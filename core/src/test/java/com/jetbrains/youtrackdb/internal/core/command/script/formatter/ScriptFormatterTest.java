@@ -21,13 +21,14 @@ package com.jetbrains.youtrackdb.internal.core.command.script.formatter;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.TestUtilsFixture;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import org.junit.After;
+import java.util.NoSuchElementException;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -45,8 +46,7 @@ import org.junit.Test;
  * com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded)} calls
  * {@code session.newEntity("OFunction")}, which requires an active transaction and a registered
  * schema class. No formatter under test touches the session or the database; the transaction is
- * rolled back in {@link TestUtilsFixture#rollbackIfLeftOpen} (JUnit 4 runs subclass
- * {@code @After} methods before superclass ones, so the rollback guard cleans up per test).
+ * rolled back in {@link TestUtilsFixture#rollbackIfLeftOpen}.
  *
  * <p>Tests live under {@code formatter/} (sibling of the production package) so they run as
  * part of parallel {@code core} test execution. A non-parameterized single-class layout is
@@ -62,17 +62,11 @@ public class ScriptFormatterTest extends TestUtilsFixture {
 
   @Before
   public void buildFunction() {
-    // session.newEntity("OFunction") requires an active transaction; rollback in @After
-    // keeps the fixture clean. We never call f.save(session), so nothing touches disk.
+    // session.newEntity("OFunction") requires an active transaction; the rollback guard in
+    // TestUtilsFixture.rollbackIfLeftOpen (superclass @After) keeps the fixture clean.
+    // We never call f.save(session), so nothing touches disk.
     session.begin();
     function = new Function(session);
-  }
-
-  @After
-  public void rollbackTransactionIfStillOpen() {
-    if (session.isTxActive()) {
-      session.rollback();
-    }
   }
 
   // ---------------------------------------------------------------------------
@@ -273,10 +267,10 @@ public class ScriptFormatterTest extends TestUtilsFixture {
 
   /**
    * Ruby definition with a code body that does NOT start with "\r" throws {@link
-   * java.util.NoSuchElementException} at the {@code scanner.skip("\r")} call. Pins this
-   * latent production bug so Track 22's hardening (either remove skip or guard with
-   * hasNext("\r")) is a visible change — this test will start to PASS where it currently
-   * asserts-throws, forcing a conscious re-pin.
+   * NoSuchElementException} at the {@code scanner.skip("\r")} call. Pins this latent
+   * production bug so Track 22's hardening (either remove skip or guard with hasNext("\r"))
+   * is a visible change — this test will start to PASS where it currently asserts-throws,
+   * forcing a conscious re-pin.
    *
    * <p>WHEN-FIXED: Track 22 — replace unconditional skip("\r") with a conditional guard OR
    * delete the class if Ruby support is removed.
@@ -286,9 +280,9 @@ public class ScriptFormatterTest extends TestUtilsFixture {
     function.setName("bar").setParameters(List.of("x"));
     function.setCode("return x");
 
-    org.junit.Assert.assertThrows(
+    assertThrows(
         "Ruby formatter without leading \\r must throw at scanner.skip(\"\\r\")",
-        java.util.NoSuchElementException.class,
+        NoSuchElementException.class,
         () -> new RubyScriptFormatter().getFunctionDefinition(null, function));
   }
 
@@ -301,8 +295,8 @@ public class ScriptFormatterTest extends TestUtilsFixture {
     function.setName("foo").setParameters(Collections.emptyList());
     function.setCode("");
 
-    org.junit.Assert.assertThrows(
-        java.util.NoSuchElementException.class,
+    assertThrows(
+        NoSuchElementException.class,
         () -> new RubyScriptFormatter().getFunctionDefinition(null, function));
   }
 
