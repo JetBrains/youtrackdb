@@ -2472,7 +2472,68 @@ public class MatchExecutionPlanner {
     if (targetClass == null) {
       return baseCost;
     }
+    return applyClassSelectivity(
+        baseCost, targetAlias, targetClass,
+        aliasFilters, estimatedRootEntries, session);
+  }
 
+  /**
+   * Class-forced overload used by the sort-loop's edge-method chain fold.
+   * Bypasses {@link #resolveTargetClass} — the caller
+   * ({@link #updateScheduleStartingAt} via {@link #resolveChainedTarget})
+   * has already computed the downstream vertex class using chain-aware
+   * precedence (aliasClasses first, then direction-aware edge-schema
+   * derivation), so re-inferring with the outer edge's direction would
+   * pick the wrong endpoint for {@code inE→outV}.
+   *
+   * <p>Short-circuits to {@code baseCost} when {@code preResolvedTargetClass}
+   * is {@code null} (e.g. {@code bothE→bothV} without an explicit
+   * {@code class:} annotation) — matching the behaviour of the existing
+   * 8-arg overload when {@link #resolveTargetClass} returns {@code null}.
+   *
+   * @param baseCost             the fan-out-based traversal cost from
+   *                             {@link #estimateEdgeCost}, already adjusted
+   *                             by the intermediate alias's filter (if any)
+   *                             via the preceding 8-arg call
+   * @param targetAlias          the downstream vertex alias (from
+   *                             {@link ChainedTarget#effectiveTargetAlias})
+   * @param preResolvedTargetClass class name resolved by the chain helper,
+   *                             or {@code null} when inference failed
+   * @param aliasFilters         alias → WHERE clause mapping
+   * @param estimatedRootEntries estimated cardinality per alias
+   * @param session              database session for schema access
+   * @return adjusted cost
+   */
+  static double applyTargetSelectivity(
+      double baseCost,
+      String targetAlias,
+      @Nullable String preResolvedTargetClass,
+      Map<String, SQLWhereClause> aliasFilters,
+      Map<String, Long> estimatedRootEntries,
+      DatabaseSessionEmbedded session) {
+    if (preResolvedTargetClass == null) {
+      return baseCost;
+    }
+    return applyClassSelectivity(
+        baseCost, targetAlias, preResolvedTargetClass,
+        aliasFilters, estimatedRootEntries, session);
+  }
+
+  /**
+   * Shared body of both {@link #applyTargetSelectivity} overloads: given a
+   * non-null target class, look it up in the schema and adjust {@code baseCost}
+   * by either (a) the filter-shape heuristic on the target's WHERE clause,
+   * or (b) the estimated cardinality ratio. All null-guards on the target
+   * class are the callers' responsibility; this helper assumes
+   * {@code targetClass != null}.
+   */
+  private static double applyClassSelectivity(
+      double baseCost,
+      String targetAlias,
+      String targetClass,
+      Map<String, SQLWhereClause> aliasFilters,
+      Map<String, Long> estimatedRootEntries,
+      DatabaseSessionEmbedded session) {
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
     if (schema == null || !schema.existsClass(targetClass)) {
       return baseCost;
