@@ -81,9 +81,9 @@ details that were split into `implementation-backlog.md` are reachable.
 
 ## Updating plan and backlog
 
-When a revision drafted in [§Propose](#process) (step 3) lands — whether
-during the propose step itself or after review passes — each affected
-track must be written to its authoritative file location. The "Description
+When a revision drafted during step 3 of [§Process](#process) lands —
+whether during the propose step itself or after review passes — each
+affected track must be written to its authoritative file location. The "Description
 lifecycle" table in `conventions-execution.md` §2.1 is the authority for
 non-inline-replan phases (Phase A start, Phase A mid, Phase C after
 collapse, Skipped at or before Phase A); this section is the authority
@@ -118,8 +118,8 @@ revision and the file(s) that carry the new description:
    backlog entry was already removed at Phase A start (see
    `track-review.md` sub-step (e)), so the step file is now the single
    authoritative location for this track's description — do NOT add a
-   new backlog entry. For legacy plans, the step file's `##
-   Description` section was populated from the plan-file checklist entry
+   new backlog entry. For legacy plans, the step file's
+   `## Description` was populated from the plan-file checklist entry
    at Phase A start; update the step file here and, if the revision
    also changes the plan entry's intro paragraph, update that too.
 
@@ -133,12 +133,15 @@ revision and the file(s) that carry the new description:
 
 5. **Revising a skipped track** (status `[~]`). Update the plan entry.
    Skipped tracks never retain a backlog entry after the skip (see
-   `track-skip.md` step 3) and never had a step file, so the plan
-   entry is the only location that carries the description. Per
-   `track-skip.md`'s "Backlog deletion is terminal" warning, a reader
-   un-skipping a `[~]` track must re-author the description from
-   scratch — the backlog is not a recovery source after skip, and the
-   revision here is the re-authoring.
+   `track-skip.md` step 3), so the plan entry is always an
+   authoritative location. If the track was skipped **after** Phase A
+   began — the "Skipped after Phase A" sub-case in the Description
+   lifecycle table in `conventions-execution.md` §2.1, where the step
+   file is retained so the skip is traceable — also update the step
+   file's `## Description`. Per `track-skip.md`'s "Backlog deletion is
+   terminal" warning, a reader un-skipping a `[~]` track must re-author
+   the description from scratch — the backlog is not a recovery source
+   after skip, and the revision here is the re-authoring.
 
 6. **Removing a track.** Remove the plan entry. If the backlog section
    still exists (the track had not yet entered Phase A and was not yet
