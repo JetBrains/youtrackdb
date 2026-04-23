@@ -782,6 +782,14 @@ flowchart TD
   >   5 iter-2-touched classes pass; Spotless clean.
   >
   > **Step file:** `tracks/track-8.md` (10 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — Track 8's discoveries (global-LET
+  > stream-exhaustion pin TB15, four dead/semi-dead classes, test-strategy
+  > precedents) are all already absorbed into Track 22 via commit
+  > `7b9313eb4b`. No downstream impact on Tracks 9–21. Phase A of Track 9
+  > should decide whether `SQLScriptEngine` / `SQLScriptEngineFactory`
+  > (located in `core/sql/`) belong in Track 9's scope or stay deferred
+  > to Track 22 — this is a decomposition-level call, not a plan change.
 
 - [ ] Track 9: Command & Script
   > Write tests for the command and script execution infrastructure.
