@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.command.traverse;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -12,8 +13,30 @@ import java.util.HashSet;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
+/**
+ * End-to-end tests for {@link Traverse} — the Iterator/Iterable facade over the traversal state
+ * machine. Exercise cases that require the whole stack (RSP → RP → MVP dispatch) rather than any
+ * one process class in isolation. Companion direct-process unit tests live in
+ * {@link TraverseContextTest}, {@link TraverseRecordProcessTest},
+ * {@link TraverseMultiValueProcessTest}, {@link TraverseRecordSetProcessTest}, and the pure-data
+ * {@link TraversePathTest}.
+ */
 public class TraverseTest extends DbTestBase {
+
+  /**
+   * Roll back any transaction left open by a failing test method before {@link
+   * DbTestBase#afterTest()} drops the database. Mirrors the {@code TestUtilsFixture} safety net
+   * from Track 8. JUnit 4 runs subclass {@code @After} methods before superclass ones, so this
+   * safety net runs ahead of the database teardown.
+   */
+  @After
+  public void rollbackIfLeftOpen() {
+    if (session != null && !session.isClosed() && session.isTxActive()) {
+      session.rollback();
+    }
+  }
 
   @Test
   public void testDepthTraverse() {
@@ -187,10 +210,12 @@ public class TraverseTest extends DbTestBase {
   }
 
   /**
-   * Safety net: {@link Traverse#next()} consumes the interrupt flag via
-   * {@link Thread#interrupted()} but some tests below may leave the flag set if an assertion fires
-   * between {@code interrupt()} and {@code next()}. Clear it so subsequent {@code @Test} methods
-   * run on a clean thread state.
+   * Belt-and-suspenders: {@link Traverse#next()} consumes the interrupt flag via {@link
+   * Thread#interrupted()} on the happy path, but a crash anywhere between {@code
+   * Thread.currentThread().interrupt()} and {@code next()} would leak the flag. The per-test
+   * {@code try { ... } finally { Thread.interrupted(); }} inside the interrupt test covers this,
+   * and this {@code @After} is a second line of defence so a parallel-surefire worker thread
+   * never returns to the pool with the flag set.
    */
   @After
   public void clearInterruptFlagAfterTest() {
@@ -304,6 +329,12 @@ public class TraverseTest extends DbTestBase {
    * Cycle pin: A→B→A — the cycle-detection guard ({@code history.contains} in
    * {@link TraverseRecordProcess#process}) keeps each node visited exactly once. Covers R6 (the
    * already-traversed branch of {@link TraverseContext#isAlreadyTraversed}).
+   *
+   * <p>Bounded via {@code traverse.limit(...)}: if cycle detection silently breaks, the limit
+   * caps output at a finite value so the failure surfaces as a size mismatch instead of an
+   * infinite loop. {@code @Test(timeout=...)} can't be used here because surefire's timeout
+   * runner runs the test on a worker thread, which breaks {@code DbTestBase}'s thread-bound
+   * session.
    */
   @Test
   public void cyclicLinksVisitEachRecordExactlyOnce() {
@@ -312,7 +343,6 @@ public class TraverseTest extends DbTestBase {
     EntityImpl b = (EntityImpl) session.newEntity();
     a.setProperty("next", b, PropertyType.LINK);
     b.setProperty("next", a, PropertyType.LINK);
-    // Must save A before setting b.next=a, but once both are saved the link is stored.
     session.commit();
 
     session.begin();
@@ -320,7 +350,9 @@ public class TraverseTest extends DbTestBase {
       var loadedA = session.getActiveTransaction().load(a);
       var loadedB = session.getActiveTransaction().load(b);
       var traverse = new Traverse(session);
-      traverse.target(loadedA).fields("*");
+      // Cap at 10 results — far above the expected 2 — so a cycle-detection regression fails
+      // with a size mismatch rather than an infinite loop.
+      traverse.target(loadedA).fields("*").limit(10);
 
       var results = traverse.execute(session);
 
@@ -334,24 +366,39 @@ public class TraverseTest extends DbTestBase {
   }
 
   /**
-   * {@link Traverse#next()} throws {@link CommandExecutionException} when the current thread is
-   * interrupted. The interrupt flag is consumed by {@link Thread#interrupted()} so the same test
-   * can inspect the exception without side-effects.
+   * {@link Traverse#next()} consumes the JVM thread interrupt flag via {@link Thread#interrupted()}
+   * and wraps the condition in a {@link CommandExecutionException}. This pins ONE of the two
+   * distinct interrupt paths in the Traverse state machine — the other is inside
+   * {@link Traverse#hasNext()} via {@code CommandExecutorAbstract.checkInterruption}, which reads
+   * {@code ExecutionThreadLocal.isInterruptCurrentOperation()} and throws a
+   * {@code CommandInterruptedException}; that path is exercised by Track 8's executor suite.
+   *
+   * <p>Categorized {@link SequentialTest} because surefire's parallel-classes mode reuses worker
+   * threads and the interrupt flag must not leak between tests. The test clears the flag in a
+   * {@code finally} block even if an assertion fires before {@code next()} consumes it.
    */
   @Test
-  public void nextOnInterruptedThreadThrowsCommandExecutionException() {
+  @Category(SequentialTest.class)
+  public void nextConsumesThreadInterruptFlagAndWrapsInCommandExecutionException() {
     session.begin();
     try {
       var traverse = new Traverse(session);
 
       Thread.currentThread().interrupt();
-      var ex = Assert.assertThrows("interrupted thread must trigger next() to throw",
-          CommandExecutionException.class, traverse::next);
+      try {
+        var ex = Assert.assertThrows("interrupted thread must trigger next() to throw",
+            CommandExecutionException.class, traverse::next);
 
-      Assert.assertFalse("the interrupt flag is consumed by Thread.interrupted()",
-          Thread.interrupted());
-      Assert.assertTrue("the exception message names the traverse interrupt",
-          ex.getMessage().contains("interrupted"));
+        Assert.assertFalse("the interrupt flag is consumed by Thread.interrupted()",
+            Thread.interrupted());
+        Assert.assertTrue("the exception message names the traverse interrupt",
+            ex.getMessage().contains("interrupted"));
+      } finally {
+        // Unconditionally clear the flag — `Thread.interrupted()` inside `next()` normally does
+        // this, but a test-assertion failure could bypass it and leak the flag onto the pooled
+        // surefire worker thread.
+        Thread.interrupted();
+      }
     } finally {
       session.rollback();
     }
@@ -518,6 +565,10 @@ public class TraverseTest extends DbTestBase {
       new TraverseRecordSetProcess(traverse,
           Collections.<Identifiable>singletonList(rootRef).iterator(),
           TraversePath.empty(), session);
+
+      Assert.assertFalse(
+          "precondition of the defensive branch: context is non-empty at throw site",
+          traverse.getContext().isEmpty());
 
       var ex = Assert.assertThrows(
           IllegalStateException.class, traverse::hasNext);

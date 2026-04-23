@@ -23,6 +23,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
@@ -30,6 +31,8 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyTyp
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.After;
 import org.junit.Test;
 
 /**
@@ -52,8 +55,22 @@ import org.junit.Test;
 public class TraverseRecordProcessTest extends DbTestBase {
 
   /**
+   * Safety net matching Track 8's {@code TestUtilsFixture.rollbackIfLeftOpen} — a test that
+   * throws mid-transaction otherwise leaves {@code session.isTxActive() == true} for {@link
+   * DbTestBase#afterTest()}, which masks the original failure with a close-path exception.
+   */
+  @After
+  public void rollbackIfLeftOpen() {
+    if (session != null && !session.isClosed() && session.isTxActive()) {
+      session.rollback();
+    }
+  }
+
+  /**
    * A false predicate rejects every record including the root — the predicate path runs BEFORE
-   * {@code addTraversed}, so even the root never appears in results.
+   * {@code addTraversed}, so even the root never appears in results. Uses an invocation counter
+   * so a regression that silently bypasses the predicate altogether (and still produces an empty
+   * result by other means) breaks the test.
    */
   @Test
   public void falsePredicateRejectsAllRecordsIncludingRoot() {
@@ -66,12 +83,18 @@ public class TraverseRecordProcessTest extends DbTestBase {
     session.begin();
     try {
       var loaded = session.getActiveTransaction().load(root);
+      var invocations = new AtomicInteger();
       var traverse = new Traverse(session);
-      traverse.target(loaded).fields("*").predicate((r, a, c) -> Boolean.FALSE);
+      traverse.target(loaded).fields("*").predicate((r, a, c) -> {
+        invocations.incrementAndGet();
+        return Boolean.FALSE;
+      });
 
       var results = traverse.execute(session);
 
       assertTrue("a false predicate yields an empty result set", results.isEmpty());
+      assertTrue("the predicate must be invoked at least once on the root",
+          invocations.get() >= 1);
     } finally {
       session.rollback();
     }
@@ -110,7 +133,7 @@ public class TraverseRecordProcessTest extends DbTestBase {
   /**
    * A predicate that returns a non-Boolean value (for example a record reference) is treated as
    * rejected — {@code conditionResult != Boolean.TRUE} is strict reference equality on the boxed
-   * TRUE singleton.
+   * TRUE singleton. Counter pins that the predicate actually ran.
    */
   @Test
   public void nonBooleanPredicateReturnIsTreatedAsRejection() {
@@ -121,12 +144,47 @@ public class TraverseRecordProcessTest extends DbTestBase {
     session.begin();
     try {
       var loaded = session.getActiveTransaction().load(root);
+      var invocations = new AtomicInteger();
       var traverse = new Traverse(session);
-      traverse.target(loaded).fields("*").predicate((r, a, c) -> "not-a-boolean");
+      traverse.target(loaded).fields("*").predicate((r, a, c) -> {
+        invocations.incrementAndGet();
+        return "not-a-boolean";
+      });
 
       var results = traverse.execute(session);
 
       assertTrue("non-Boolean predicate result must reject the record", results.isEmpty());
+      assertTrue("predicate must be invoked on the root", invocations.get() >= 1);
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * A predicate that returns {@code null} is rejected for the same reason non-Boolean returns
+   * are ({@code conditionResult != Boolean.TRUE}). Sibling of the non-Boolean test — protects
+   * against a refactor to {@code Boolean.TRUE.equals(...)} that would silently accept null.
+   */
+  @Test
+  public void nullPredicateReturnIsTreatedAsRejection() {
+    session.begin();
+    var root = (EntityImpl) session.newEntity();
+    session.commit();
+
+    session.begin();
+    try {
+      var loaded = session.getActiveTransaction().load(root);
+      var invocations = new AtomicInteger();
+      var traverse = new Traverse(session);
+      traverse.target(loaded).fields("*").predicate((r, a, c) -> {
+        invocations.incrementAndGet();
+        return null;
+      });
+
+      var results = traverse.execute(session);
+
+      assertTrue("null predicate return must reject the record", results.isEmpty());
+      assertTrue("predicate must be invoked on the root", invocations.get() >= 1);
     } finally {
       session.rollback();
     }
@@ -249,10 +307,9 @@ public class TraverseRecordProcessTest extends DbTestBase {
   }
 
   /**
-   * {@code getPath} on a record process reports the path used for that record — not the parent.
-   * {@code process()} with a null target invokes {@code pop} and returns null; since the RP was
-   * pushed to memory via its constructor-less path (it was not pushed), pop of its (null) target
-   * should only try to dequeue one frame from the context.
+   * {@code getPath} on a record process reports the path used for that record. The path is
+   * constructed as {@code parentPath.append(target)}, so the depth of a root-level record is
+   * {@code -1 + 1 = 0} (where {@code -1} is the {@code FirstPathItem} sentinel).
    */
   @Test
   public void getPathReturnsThePathConstructedWithTheTarget() {
@@ -423,13 +480,9 @@ public class TraverseRecordProcessTest extends DbTestBase {
       assertTrue("memory is empty after the single frame popped",
           traverse.getContext().isEmpty());
 
-      Exception ex = null;
-      try {
-        rp.pop();
-      } catch (IllegalStateException e) {
-        ex = e;
-      }
-      assertNotNull("second pop on empty memory throws IllegalStateException", ex);
+      assertThrows(
+          "second pop on empty memory throws IllegalStateException",
+          IllegalStateException.class, rp::pop);
     } finally {
       session.rollback();
     }

@@ -27,11 +27,14 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
+import org.junit.After;
 import org.junit.Test;
 
 /**
@@ -54,6 +57,30 @@ import org.junit.Test;
 public class TraverseMultiValueProcessTest extends DbTestBase {
 
   /**
+   * Safety net matching Track 8's {@code TestUtilsFixture.rollbackIfLeftOpen}.
+   */
+  @After
+  public void rollbackIfLeftOpen() {
+    if (session != null && !session.isClosed() && session.isTxActive()) {
+      session.rollback();
+    }
+  }
+
+  /**
+   * Seed {@code traverse} with a single empty-iterator {@link TraverseRecordSetProcess} so the
+   * context has one pop-able frame for the MVP under test to sit on top of.
+   */
+  private void seedEmptyRsp(Traverse traverse) {
+    new TraverseRecordSetProcess(traverse,
+        Collections.<Identifiable>emptyList().iterator(),
+        TraversePath.empty(), session);
+  }
+
+  private int stackSize(Traverse traverse) {
+    return ((Collection<?>) traverse.getContext().getVariables().get("stack")).size();
+  }
+
+  /**
    * Empty iterator: {@code process()} falls through the {@code while} loop and calls {@code pop},
    * which returns null. Observable via: the process pops its own frame (visible by memory
    * shrinking) and no subprocess is pushed for any element.
@@ -63,25 +90,19 @@ public class TraverseMultiValueProcessTest extends DbTestBase {
     session.begin();
     try {
       var traverse = new Traverse(session);
-      // Seed the context with an RSP so the multi-value process has somewhere to pop FROM.
-      new TraverseRecordSetProcess(traverse,
-          Collections.<Identifiable>emptyList().iterator(),
-          TraversePath.empty(), session);
+      seedEmptyRsp(traverse);
 
       Iterator<Object> emptyIt = Collections.<Object>emptyList().iterator();
       var mvp = new TraverseMultiValueProcess(traverse, emptyIt,
           TraversePath.empty(), session);
       traverse.getContext().push(mvp);
-      int beforePushes = ((java.util.Collection<?>) traverse.getContext()
-          .getVariables().get("stack")).size();
+      int beforePushes = stackSize(traverse);
 
       var result = mvp.process();
 
       assertNull("empty iterator → process returns null (pop path)", result);
-      int after = ((java.util.Collection<?>) traverse.getContext()
-          .getVariables().get("stack")).size();
-      assertTrue("memory shrinks by one (the MVP frame is popped)",
-          after < beforePushes);
+      assertEquals("memory shrinks by exactly one (the MVP frame is popped)",
+          beforePushes - 1, stackSize(traverse));
     } finally {
       session.rollback();
     }
@@ -89,27 +110,31 @@ public class TraverseMultiValueProcessTest extends DbTestBase {
 
   /**
    * Non-Identifiable elements in the iterator are skipped silently — only Identifiables produce
-   * {@link TraverseRecordProcess} subprocesses. An iterator containing a single String yields
-   * {@code null} from process (iterator exhausted) with no subprocess push.
+   * {@link TraverseRecordProcess} subprocesses. An iterator containing only strings and numbers
+   * yields {@code null} from process (iterator exhausted). The MVP pops itself (one frame) and
+   * no subprocess is pushed.
    */
   @Test
   public void nonIdentifiableEntriesAreSkippedWithoutPushingSubprocess() {
     session.begin();
     try {
       var traverse = new Traverse(session);
-      new TraverseRecordSetProcess(traverse,
-          Collections.<Identifiable>emptyList().iterator(),
-          TraversePath.empty(), session);
+      seedEmptyRsp(traverse);
 
       Iterator<Object> it = Arrays.<Object>asList("string-a", 42, 3.14).iterator();
       var mvp = new TraverseMultiValueProcess(traverse, it,
           TraversePath.empty(), session);
       traverse.getContext().push(mvp);
+      int beforePushes = stackSize(traverse);
 
       var result = mvp.process();
 
       assertNull("iterator of only non-Identifiables eventually pops and returns null",
           result);
+      // Exactly one frame removed (the MVP), nothing pushed — verifies no accidental RP was
+      // created for the primitive elements.
+      assertEquals("exactly the MVP frame is popped — no extra pushes from non-Identifiables",
+          beforePushes - 1, stackSize(traverse));
     } finally {
       session.rollback();
     }
@@ -119,30 +144,68 @@ public class TraverseMultiValueProcessTest extends DbTestBase {
    * {@code getPath} reports a path ending in {@code [index]}, where {@code index} starts at -1
    * before any iteration and advances with each processed element. Pinning the pre-iteration
    * state is important because the index is used by the debugging {@code stack} variable.
+   * {@code toString} before iteration renders as {@code [idx:-1]}.
    */
   @Test
   public void getPathBeforeProcessShowsIndexMinusOne() {
     session.begin();
     try {
       var traverse = new Traverse(session);
-      var parent = TraversePath.empty().append(
-          new com.jetbrains.youtrackdb.internal.core.id.RecordId(9, 5L));
+      var parent = TraversePath.empty().append(new RecordId(9, 5L));
       var mvp = new TraverseMultiValueProcess(traverse,
           Collections.<Object>emptyList().iterator(), parent, session);
 
-      assertEquals("pre-iteration index is -1",
+      assertEquals("pre-iteration path ends in [-1]",
           parent.appendIndex(-1).toString(), mvp.getPath().toString());
+      assertEquals("pre-iteration toString renders idx:-1", "[idx:-1]", mvp.toString());
     } finally {
       session.rollback();
     }
   }
 
   /**
-   * After one element has been processed, {@code getPath} reflects the new index; {@code toString}
-   * renders the same index in the debugging format {@code [idx:N]}.
+   * After one Identifiable element has been processed, {@code getPath} reflects the new index
+   * (0 after the first element) and {@code toString} renders {@code [idx:0]}. Drives the MVP
+   * directly to exercise the advance-index bookkeeping in {@link TraverseMultiValueProcess}.
    */
   @Test
   public void getPathAndToStringAdvanceIndexAfterEachProcessedElement() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    session.commit();
+
+    session.begin();
+    try {
+      var loaded = session.getActiveTransaction().load(entity);
+      var traverse = new Traverse(session);
+      seedEmptyRsp(traverse);
+
+      var parent = TraversePath.empty().append(new RecordId(7, 7L));
+      Iterator<Object> it = Collections.<Object>singletonList(loaded).iterator();
+      var mvp = new TraverseMultiValueProcess(traverse, it, parent, session);
+      traverse.getContext().push(mvp);
+
+      // Pre-process: index is -1.
+      assertEquals("pre-process path ends in [-1]",
+          parent.appendIndex(-1).toString(), mvp.getPath().toString());
+
+      mvp.process();
+
+      // Post-process: first element consumed, index is 0.
+      assertEquals("post-process path ends in [0]",
+          parent.appendIndex(0).toString(), mvp.getPath().toString());
+      assertEquals("post-process toString renders idx:0", "[idx:0]", mvp.toString());
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * A link-list field is expanded by {@link TraverseMultiValueProcess} when driven by
+   * {@link Traverse#execute} end-to-end — the link-list child is surfaced in results.
+   */
+  @Test
+  public void linkListTraversalReachesChildViaMultiValueBranch() {
     session.begin();
     var root = (EntityImpl) session.newEntity();
     var child = (EntityImpl) session.newEntity();
@@ -179,24 +242,23 @@ public class TraverseMultiValueProcessTest extends DbTestBase {
     try {
       var loaded = session.getActiveTransaction().load(entity);
       var traverse = new Traverse(session);
-      new TraverseRecordSetProcess(traverse,
-          Collections.<Identifiable>emptyList().iterator(),
-          TraversePath.empty(), session);
+      seedEmptyRsp(traverse);
 
       Iterator<Object> it = Collections.<Object>singletonList(loaded).iterator();
       var mvp = new TraverseMultiValueProcess(traverse, it,
           TraversePath.empty(), session);
       traverse.getContext().push(mvp);
-      int beforePushes = ((java.util.Collection<?>) traverse.getContext()
-          .getVariables().get("stack")).size();
+      int beforePushes = stackSize(traverse);
 
       var result = mvp.process();
 
       assertNull("process returns null when pushing a subprocess", result);
-      int after = ((java.util.Collection<?>) traverse.getContext()
-          .getVariables().get("stack")).size();
-      assertEquals("a new RP subprocess is pushed on top — memory grows by one",
-          beforePushes + 1, after);
+      assertEquals("a new subprocess is pushed on top — memory grows by one",
+          beforePushes + 1, stackSize(traverse));
+      // The top frame must be a TraverseRecordProcess — not an MVP or some other subprocess.
+      var top = traverse.getContext().next();
+      assertTrue("the pushed frame is a TraverseRecordProcess",
+          top instanceof TraverseRecordProcess);
     } finally {
       session.rollback();
     }
@@ -212,10 +274,8 @@ public class TraverseMultiValueProcessTest extends DbTestBase {
     session.begin();
     try {
       var traverse = new Traverse(session);
-      var parent1 = TraversePath.empty().append(
-          new com.jetbrains.youtrackdb.internal.core.id.RecordId(1, 1L));
-      var parent2 = TraversePath.empty().append(
-          new com.jetbrains.youtrackdb.internal.core.id.RecordId(2, 2L));
+      var parent1 = TraversePath.empty().append(new RecordId(1, 1L));
+      var parent2 = TraversePath.empty().append(new RecordId(2, 2L));
 
       var mvp1 = new TraverseMultiValueProcess(traverse,
           Collections.<Object>emptyList().iterator(), parent1, session);
