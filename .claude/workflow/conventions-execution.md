@@ -338,7 +338,114 @@ to cross-track impact.
 
 ---
 
-## 2.3 Commit messages, code review, complexity, decomposition
+## 2.3 Ephemeral identifier rule — don't leak workflow IDs into committed content
+
+**Authoritative statement.** This is the single source of truth for the
+rule; every phase-specific prompt that touches committed content points
+here.
+
+`implementation-plan.md`, `implementation-backlog.md`,
+`tracks/track-N.md`, and `reviews/**` are working files — untracked, and
+deleted together with the branch after the PR is merged. Any identifier
+that lives only in those files becomes a dangling reference the moment
+the branch is gone. The same applies to review-loop counters and named
+invariants that live only in the plan. Therefore, **anything that goes
+into git must not cite those identifiers**.
+
+### Where the rule applies
+
+- **Source code comments and Javadoc** — the most common leak. Comments
+  like `// added per Track 2 Step 1`, `// fixes CQ33`, or `// see
+  Single-authority invariant` tie the code to files that will not exist
+  on `main`.
+- **Commit messages** — even though per-commit messages are squashed on
+  merge (see CLAUDE.md §Git Conventions), the squashed commit message
+  is assembled from the PR title/description and inherits this content.
+  Individual commit messages are also visible in code review and PR
+  history before squashing.
+- **PR titles and descriptions** — stored in GitHub, keyed off by the
+  squashed commit message.
+- **`design-final.md`** and **`adr.md`** — the only workflow files
+  committed to git; see
+  [`prompts/create-final-design.md`](prompts/create-final-design.md)
+  for Phase-4-specific examples.
+- **Tests, test names, and test descriptions** — committed alongside
+  the code.
+
+It does **not** apply to the working files themselves: step files
+(`tracks/track-N.md`), review files, the plan, and the backlog all
+cite tracks, steps, findings, and iterations freely — that's exactly
+what those identifiers are for inside the workflow.
+
+### Forbidden
+
+- Track labels: `Track 1`, `Track N`, `Track N: <title>`
+- Step labels: `Step 1`, `Step N`, `Step M of Track N`
+- Compound labels: `Track 2 Step 1`, `Track 4 iteration 1`
+- Review finding IDs and prefixes: `CQ33`, `F-12`, `R-4`, `A-7`,
+  `S-2`, or any other `<PREFIX><number>` finding label from
+  `reviews/**`
+- Review-loop iteration counters: `iteration 1`, `round 2`, when they
+  refer to ephemeral review loops
+- Named invariants or rule names cited **by label only** —
+  "Single-authority invariant", "Load-bearing-file rule",
+  "Byte-identity discipline", etc. If the rule matters for a future
+  reader of committed content, either restate it in prose or cross-
+  reference the stable `.claude/workflow/` location that defines it
+  (e.g. `conventions.md` §1.2, `conventions-execution.md` §2.1).
+- Plan-file Decision Record IDs (`D1`, `D2`, …) that are **not**
+  restated in `adr.md`. IDs that ARE restated in `adr.md` are stable
+  (the ADR owns them post-implementation) and may be cited.
+
+### Allowed (these survive in git or are self-contained)
+
+- File paths under the project — source files, workflow docs in
+  `.claude/workflow/`, committed artifacts
+- Class, interface, method, and field names
+- Commit SHAs — the stable way to point at "where this was implemented"
+- `adr.md`-defined Decision Record IDs, when `adr.md` itself is the
+  reader's reachable context
+- Issue tracker IDs (e.g. `YTDB-123`) — these survive in the tracker
+
+### How to rewrite a forbidden reference
+
+Replace the ephemeral label with (a) a prose description of what was
+done, (b) the file/class that was modified, or (c) the commit SHA that
+implemented it.
+
+Examples:
+
+- ❌ `// added during Track 2 Step 1 to unblock Phase A resume`
+- ✅ `// part of the atomic step-file-write + backlog-section-remove
+      ordering that keeps Phase A resume idempotent`
+
+- ❌ `Review fix: address CQ72 (anchor drift in legacy fallback)`
+- ✅ `Review fix: restore byte-identical phrasing at the two legacy-
+      fallback cross-reference sites in plan-slim-rendering.md`
+
+- ❌ `// see Track 4 iteration 1 for context`
+- ✅ `// see commit abc1234 for the follow-up that restored these
+      sites; the first pass missed two of them`
+
+When in doubt: if a reader on `main` (without the branch, without the
+plan) couldn't resolve the reference, the reference is forbidden.
+
+### Self-check before commit
+
+Run a quick grep on staged files before committing — applies to code,
+tests, and the two Phase 4 artifacts:
+
+```bash
+git diff --cached | grep -nE '\b(Track|Step)[ ]?[0-9]+|\b[A-Z]{1,3}[0-9]+\b'
+```
+
+Anything this catches is either a genuine leak to rewrite or an
+allowed exception (e.g. issue tracker IDs, class names that happen to
+match the pattern) — inspect, then proceed.
+
+---
+
+## 2.4 Commit messages, code review, complexity, decomposition
 
 These rules are needed only when their specific phase or action runs — not
 at session startup. Load on demand:
@@ -347,7 +454,8 @@ at session startup. Load on demand:
   conventions. Only code changes are committed; workflow files are never
   committed (see §1.2 in `conventions.md`). For the execution-specific
   prefixes (`Review fix:`) used during session resume, see
-  [`commit-conventions.md`](commit-conventions.md).
+  [`commit-conventions.md`](commit-conventions.md). Apply the Ephemeral
+  identifier rule (§2.3 above) to every commit message.
 - **Two-tier dimensional code review** (step-level and track-level
   sub-agent reviews, 4 baseline + up to 6 conditional, max 3 iterations):
   [`code-review-protocol.md`](code-review-protocol.md).

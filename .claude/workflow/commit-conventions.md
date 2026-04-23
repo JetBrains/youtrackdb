@@ -17,6 +17,14 @@ disk between sessions. See `conventions.md` §1.2 for the tracking model.
 | **Step implementation** | Imperative summary of the change | `Add histogram header to leaf page` |
 | **Review fix** | `Review fix:` prefix | `Review fix: extract validation to helper method` |
 
+**Commit messages must not cite workflow-internal identifiers**
+(`Track N`, `Step N`, `Track N Step M`, review finding IDs like `CQ33`,
+review iteration counters, named-only plan invariants). These live in
+untracked files that are deleted with the branch. See
+[`conventions-execution.md`](conventions-execution.md) §2.3 for the full
+rule. For `Review fix:` commits, describe the fix by what changed
+(behavior, file, or class) — not by the finding ID that triggered it.
+
 ## How these are used on resume
 
 When Phase B resumes and detects orphan commits (code committed but episode

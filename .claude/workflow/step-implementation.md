@@ -94,12 +94,24 @@ completion**, before moving to the next step:
    structures, or behavioral semantics beyond what the plan prescribes —
    **pause and ask the user for guidance** before proceeding (see
    workflow.md §Design decision escalation).
+   **Do not reference workflow-internal identifiers** (`Track N`, `Step N`,
+   `Track N Step M`, review finding IDs like `CQ33` / `F-12` / `R-4`,
+   review iteration counters, or named-only invariants from the plan) in
+   **source code comments, Javadoc, test names, or test descriptions**.
+   Those identifiers live in untracked files (plan, backlog, step files,
+   reviews) that are deleted with the branch, so citing them in committed
+   code creates dangling references on `main`. See
+   [`conventions-execution.md`](conventions-execution.md) §2.3 for the
+   full rule and rewrite examples.
 2. **Write tests**, ensure all tests pass, ensure 85% line / 70% branch
    coverage using JaCoCo (triggered by `coverage` Maven profile). Run clean
    phase for each Maven command. **Wait for test results before proceeding.**
 3. **Stage and commit** the code changes. You know exactly which files you
    modified, so stage them explicitly (no `git add -A`). Follow the project's
-   commit message conventions (see `CLAUDE.md`).
+   commit message conventions (see `CLAUDE.md`). The Ephemeral identifier
+   rule (see [`conventions-execution.md`](conventions-execution.md) §2.3)
+   applies to commit messages — no `Track N` / `Step N` / finding IDs /
+   iteration counters in the message body or subject.
 4. **Dimensional review loop** (up to 3 iterations, within your context).
    See [`code-review-protocol.md`](code-review-protocol.md) for the two-tier
    protocol overview and [`review-iteration.md`](review-iteration.md) for

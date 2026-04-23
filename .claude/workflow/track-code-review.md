@@ -192,7 +192,12 @@ Present the synthesized findings list to proceed to the review loop.
 Iterate on the synthesized findings:
 
 1. If any findings need fixes:
-   - Apply fixes as **additional commits** (never amend prior commits)
+   - Apply fixes as **additional commits** (never amend prior commits).
+     Commit messages and any new code comments must follow the Ephemeral
+     identifier rule in
+     [`conventions-execution.md`](conventions-execution.md) §2.3 — no
+     `Track N`, `Step N`, finding IDs, or review iteration counters
+     in the message or the diff.
    - Run tests to verify fixes don't break anything
    - **Update the Progress section** on disk to record the completed
      iteration (e.g., `- [ ] Track-level code review (1/3 iterations)`).
