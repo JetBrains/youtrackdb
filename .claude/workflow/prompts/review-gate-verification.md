@@ -1,12 +1,21 @@
 You are re-checking a track of the plan after fixes were applied.
 
 Inputs:
-- Updated plan file: {plan_path}
+- Plan file: {plan_path} (strategic context — Architecture Notes,
+  Decision Records, Component Map)
+- Step file: {step_file_path} (the track's `## Description` section —
+  authoritative source for the track's What/How/Constraints/Interactions
+  and any track-level diagram. If the step file lacks a `## Description`
+  section, fall back to the plan-file entry for the track.)
 - Track reviewed: {track_name}
-- Previous findings: {findings}
+- Codebase root: {codebase_path}
+- Episodes from completed tracks: {prior_episodes}
+- Previous findings (context only, finalized in earlier iterations):
+  {previous_findings}
+- Findings under re-check (verify these): {findings}
 - Review type: {technical|risk|adversarial}
 
-For each previous finding:
+For each finding under re-check:
 1. If the finding was ACCEPTED: check if the fix was applied correctly
    and if the fix introduced new issues.
 2. If the finding was REJECTED: verify the rejection reason is sound
@@ -14,15 +23,21 @@ For each previous finding:
 
 ## Semi-Formal Verification Protocol
 
+Before verifying any finding whose fix touched the track description,
+re-read the track description and any track-level component diagram from
+the step file's `## Description` section — if the step file lacks this
+section, fall back to the plan-file entry for the track. Read the
+relevant Decision Records from the plan.
+
 For each ACCEPTED finding being verified, produce a **verification
 certificate** that re-checks the specific location:
 
 ```markdown
 #### Verify <PREFIX><N>: <finding title>
 - **Original issue**: <what was wrong>
-- **Fix applied**: <what changed in the plan/track description>
+- **Fix applied**: <what changed in the step file, plan file, or codebase>
 - **Re-check**:
-  - Code/plan location: <where the fix was applied>
+  - Step-file/plan/codebase location: <where the fix was applied>
   - Current state: <what it now says vs. original issue>
   - Criteria met: <which review criteria are now satisfied>
 - **Regression check**: <did the fix introduce new issues?

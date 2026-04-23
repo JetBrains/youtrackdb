@@ -1,11 +1,15 @@
 You are reviewing an implementation plan and its design document for
 consistency with the actual codebase. Unlike the structural review (which
 checks plan-internal quality without reading code), this review reads the
-code to find gaps and inconsistencies between the three artifacts:
+code to find gaps and inconsistencies between the four artifacts:
 
 1. **Implementation plan** (`implementation-plan.md`)
-2. **Design document** (`design.md`)
-3. **Actual codebase**
+2. **Backlog** (`implementation-backlog.md`) — companion file to the plan.
+   Holds the `**What/How/Constraints/Interactions**` detail and any
+   track-level Mermaid diagrams for pending tracks. May be absent for
+   legacy plans; see the per-entry fallback rule below.
+3. **Design document** (`design.md`)
+4. **Actual codebase**
 
 ## Workflow Context
 
@@ -56,6 +60,11 @@ incorrect code.
 
 Inputs:
 - Plan file: {plan_path}
+- Backlog file: {backlog_path} (may be absent — when
+  `implementation-backlog.md` does not exist on disk, track descriptions
+  live in the plan file's checklist entries in legacy format; see the
+  per-entry fallback rule in "How to Review" step 2 for mid-migration
+  and legacy handling)
 - Design document: {design_path}
 - Previous findings: {previous_findings or "None — this is the first pass"}
 
@@ -86,7 +95,12 @@ Inputs:
   (e.g., if the plan says "Query optimizer reads histograms via
   `IndexStatistics.getHistogram()`", does that method exist?)
 - Do track descriptions reference code constructs (classes, methods, SPIs)
-  that actually exist? Flag phantom references.
+  that actually exist? Flag phantom references. *(Applies to the backlog
+  for pending tracks per the per-entry fallback rule in "How to Review"
+  step 2; to the plan-file entry for completed/skipped tracks.
+  Architecture Notes, Component Map, Decision Records, Invariants, and
+  Integration Points bullets in this section remain plan-only per
+  `conventions.md` §1.2.)*
 - Are Invariants listed in the plan consistent with the current code
   behavior? (e.g., if the plan says "histogram updates occur inside WAL
   atomic operations", is that how the current code works, or is that an
@@ -98,7 +112,12 @@ Inputs:
   consistent with the Component Map and Decision Records in the plan?
 - Do the workflow diagrams align with the track descriptions? (e.g., if a
   track says "add snapshot reads for histograms", is there a corresponding
-  flow in the design document?)
+  flow in the design document?) *(For pending tracks, read track
+  descriptions from the backlog per the per-entry fallback rule in
+  "How to Review" step 2; for completed/skipped tracks, read from the
+  plan-file entry. The Component Map/Decision Records bullet above and
+  the Decision Records and scope-indicators bullets below remain
+  plan-only.)*
 - Do Decision Records in the plan correspond to design choices visible in
   the design document? Are there design choices in the diagrams that lack
   a Decision Record?
@@ -110,7 +129,11 @@ Inputs:
 
 - Are there parts of the implementation plan that have no corresponding
   design coverage? (e.g., a track describes complex concurrency behavior
-  but the design document has no concurrency section)
+  but the design document has no concurrency section) *(For pending
+  tracks, the "track describes …" text lives in the backlog per the
+  per-entry fallback rule in "How to Review" step 2; for
+  completed/skipped tracks, in the plan-file entry. The orphan-scope
+  and orphan-codebase-construct bullets below remain plan-only.)*
 - Are there parts of the design document that no track covers? (e.g., the
   design shows a class that isn't mentioned in any track's scope)
 - Are there codebase constructs (existing classes, interfaces, SPIs) that
@@ -121,9 +144,29 @@ Inputs:
 
 ## How to Review
 
-1. **Read the plan and design document** thoroughly.
+1. **Read the plan, backlog, and design document** thoroughly.
 2. **Identify all code references** — every class, interface, method, SPI,
-   configuration parameter, or file path mentioned in either document.
+   configuration parameter, or file path mentioned in the plan, backlog,
+   or design document.
+
+   **Where track-description code references live (per-track, per-entry
+   fallback):** For each **pending** track, read the track's detailed
+   description (`**What/How/Constraints/Interactions**` subsections and
+   any track-level Mermaid diagram) from the backlog's `## Track N:
+   <title>` section when the backlog file is present and contains that
+   section. If the backlog file is absent (legacy plan), or if a
+   particular entry has been left with its detail inline in the plan
+   file (mid-migration edge case), fall back to the plan-file checklist
+   entry's `**What/How/Constraints/Interactions**` block. Apply this
+   decision per track — some entries may be backlog-sourced while others
+   are plan-sourced in the same plan. For **completed** tracks (`[x]`)
+   and **skipped** tracks (`[~]`), the plan-file entry already holds
+   the track's final form (intro paragraph + track episode for
+   completed; intro + `**Skipped:**` reason for skipped) — there is no
+   backlog section to consult, so read code references directly from
+   the plan-file entry. Phantom references in a backlog section have
+   the same severity as phantom references in the plan file (see the
+   severity guide below).
 3. **Verify each reference** against the actual codebase using Grep/Glob/Read.
    For each reference, confirm it exists, is at the described location, and
    has the described behavior.

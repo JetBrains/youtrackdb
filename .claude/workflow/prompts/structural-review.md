@@ -1,6 +1,14 @@
 You are reviewing an implementation plan for structural correctness.
-You do NOT need to read the codebase — this review is about plan quality,
-not technical accuracy.
+The plan lives in three documents under review: the **plan file**
+(`implementation-plan.md`, strategic context + thin checklist + episodes),
+the **backlog** (`implementation-backlog.md`, pending-track
+`**What/How/Constraints/Interactions**` detail and any track-level
+Mermaid diagrams; may be absent for legacy plans), and the **design
+document** (`design.md`, class/workflow diagrams and dedicated sections
+for complex parts). The workflow rules file listed in `Inputs:` is
+procedural input (reviewer guidance), not a review target. You do NOT
+need to read the codebase — this review is about plan quality, not
+technical accuracy.
 
 ## Workflow Context
 
@@ -52,29 +60,60 @@ descriptions, oversized tracks, contradictions — directly impair execution.
 
 Inputs:
 - Plan file: {plan_path}
+- Backlog file: {backlog_path} (may be absent — when
+  `implementation-backlog.md` does not exist on disk, track descriptions
+  live in the plan file's checklist entries in legacy format; see the
+  per-entry fallback rule below for mid-migration and legacy handling)
 - Design document: {design_path}
 - Workflow rules: {workflow_path}
 - Previous findings: {previous_findings or "None — this is the first pass"}
+
+**Where track descriptions live (per-track, per-entry fallback):** For
+each **pending** track, read the track's detailed description
+(`**What/How/Constraints/Interactions**` subsections and any track-level
+Mermaid diagram) from the backlog's `## Track N: <title>` section when
+the backlog file is present and contains that section. If the backlog
+file is absent (legacy plan), or if a particular entry has been left
+with its detail inline in the plan file (mid-migration edge case), fall
+back to the plan-file checklist entry's
+`**What/How/Constraints/Interactions**` block. Apply this decision per
+track — some entries may be backlog-sourced while others are plan-sourced
+in the same plan. For **completed** tracks (`[x]`) and **skipped**
+tracks (`[~]`), the plan-file entry already holds the track's final
+form (intro paragraph + track episode for completed; intro +
+`**Skipped:**` reason for skipped) — read directly from the plan-file
+entry. Phantom references or structural defects in a backlog section
+have the same severity as defects in the plan file. Per-entry
+annotations on individual criterion bullets below (tagged `*(cross-file:
+…)*` or `*(backlog for pending, plan-file for completed/skipped)*`)
+route each check to the right source.
 
 Review the plan against these criteria:
 
 SCOPE INDICATORS
 - Does every track have a **Scope** line with approximate step count and
-  brief list of what they cover?
+  brief list of what they cover? *(plan-file only — scope indicators live
+  in the plan checklist regardless of plan shape)*
 - Are scope indicators plausible given the track description? (e.g., a
   track describing 8 distinct changes but claiming ~2 steps is suspect)
+  *(cross-file: the scope indicator is in the plan-file entry; the track
+  description is in the backlog for pending tracks per the per-entry
+  fallback rule above, in the plan-file entry for completed/skipped
+  tracks. Compare both halves.)*
 - Are there any full `- [ ] Step:` items or *(provisional)* markers?
   These should NOT be present — step decomposition is deferred to
-  execution.
+  execution. *(plan-file only)*
 
-ORDERING & DEPENDENCIES
+ORDERING & DEPENDENCIES *(plan-file only — scope lines, `**Depends on:**`
+annotations, and track ordering all live in the plan checklist)*
 - Are tracks ordered so earlier tracks don't depend on later ones?
 - Do scope indicators imply dependencies not captured in track descriptions?
   (e.g., Track B's scope mentions "wiring X" but X is introduced in Track C)
 - Are cross-cutting concerns ordered before the tracks that depend on them?
 - Are dependent tracks properly annotated with `**Depends on:** Track N`?
 
-TRACK DESCRIPTIONS
+TRACK DESCRIPTIONS *(backlog for pending, plan-file for completed/skipped,
+per the per-entry fallback rule above)*
 - Does every track have a description covering what/how/constraints/interactions?
 - Are track-level component diagrams present where needed (3+ internal
   components with non-trivial interactions)?
@@ -83,12 +122,18 @@ TRACK DESCRIPTIONS
 
 TRACK SIZING
 - Does any track's scope indicator suggest more than ~5-7 steps? If so,
-  the track should be split into separate dependent tracks.
+  the track should be split into separate dependent tracks. *(plan-file
+  only — the Scope line lives in the plan checklist)*
 - Does any track's description cover work that would naturally split into
   distinct phases with internal sequencing? If so, splitting into
   dependent tracks would give better just-in-time decomposition.
+  *(cross-file: Scope line in plan, description in backlog for pending
+  tracks per the per-entry fallback rule above / plan-file entry for
+  completed/skipped tracks — read both halves before concluding.)*
 
-ARCHITECTURE NOTES
+ARCHITECTURE NOTES *(plan-file only — Component Map, Decision Records,
+Invariants, Integration Points, and Non-Goals all live in the plan per
+`conventions.md` §1.2)*
 - Is there a top-level Component Map?
 - Does it include only touched components plus immediate neighbors?
 - Is every component annotated with what changes and why?
@@ -99,7 +144,10 @@ ARCHITECTURE NOTES
 - Are Integration Points documented?
 - Are Non-Goals stated where the scope boundary could be ambiguous?
 
-DESIGN DOCUMENT
+DESIGN DOCUMENT *(design-file for diagram/prose checks; plan-file for
+the Architecture-Notes/Decision-Records cross-reference. The final
+bullet's "track descriptions" half follows the per-entry fallback rule
+above — backlog for pending, plan-file for completed/skipped.)*
 - Does the design document exist at `docs/adr/<dir-name>/design.md`?
 - Does it include an Overview section summarizing the design approach?
 - Does it include class diagrams (Mermaid `classDiagram`) when the plan
@@ -117,7 +165,8 @@ DESIGN DOCUMENT
 - Is the design document consistent with the Architecture Notes (Component Map,
   Decision Records) and track descriptions in the implementation plan?
 
-DECISION TRACEABILITY
+DECISION TRACEABILITY *(plan-file only — Decision Records and their
+track references live in the plan's Architecture Notes)*
 - Does every Decision Record reference the track(s) that implement it?
   (Step references are added during execution, not at planning time.)
 - Does every track that implements a non-obvious choice have a corresponding
@@ -125,9 +174,13 @@ DECISION TRACEABILITY
 
 CONSISTENCY
 - Do track descriptions, decision records, component maps, and scope
-  indicators tell the same story?
+  indicators tell the same story? *(cross-file: track descriptions follow
+  the per-entry fallback rule above — backlog for pending, plan-file for
+  completed/skipped. Decision records, component maps, and scope indicators
+  are plan-file only. Verify the story is coherent across all sources.)*
 - Are there contradictions between tracks (e.g., Track 1 says X, Track 3
-  assumes not-X)?
+  assumes not-X)? *(cross-file: read each track's description from its
+  current authoritative location per the per-entry fallback rule above.)*
 
 For each issue found, produce a finding in this format:
 

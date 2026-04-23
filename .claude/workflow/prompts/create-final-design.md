@@ -16,13 +16,51 @@ name. Otherwise, default to the current git branch name
 Read:
 - `docs/adr/<dir-name>/implementation-plan.md` — full plan with track episodes
 - `docs/adr/<dir-name>/design.md` — original design document (do NOT modify)
-- `docs/adr/<dir-name>/tracks/track-*.md` — all step files with step episodes
+- `docs/adr/<dir-name>/tracks/track-*.md` — all step files with step
+  episodes. Each step file begins with a `## Description` section
+  carrying the track's original description (copied there at Phase A
+  start from the backlog, or for legacy plans from the plan-file
+  checklist entry), so "what each track was supposed to do" lives in
+  the step file rather than in `implementation-backlog.md`. By Phase 4
+  the backlog is header-only: every track has either completed or been
+  skipped, and both paths removed their backlog entries.
 
 Using the plan's Architecture Notes and track episodes as a guide, read the
 actual implemented code: all classes, interfaces, and components mentioned
 in the plan, plus any that emerged during execution.
 
 **Step 3 — Produce the two final artifacts.**
+
+### Ephemeral identifier rule (applies to BOTH artifacts)
+
+`design-final.md` and `adr.md` are the **only** workflow files committed
+to git. Every other workflow file —  `implementation-plan.md`,
+`implementation-backlog.md`, `tracks/track-N.md`, `reviews/**` — is
+untracked and deleted when the branch is deleted after PR merge. Anything
+these final artifacts say must survive that deletion.
+
+**The authoritative rule, forbidden/allowed lists, and rewrite examples
+live in [`../conventions-execution.md`](../conventions-execution.md)
+§2.3.** Read that section and apply it to both artifacts.
+
+Phase-4-specific reminders that follow from the shared rule:
+
+- The `adr.md` Decision Records section is where the final IDs `D1`,
+  `D2`, … live. Retain the numbering from the plan for traceability,
+  **but only for IDs you are restating in `adr.md` itself**. Do not
+  cite a plan-file-only `D<N>` that has no corresponding entry here.
+- Do not write `Implemented in: Track X` or `Track X Step Y` lines in
+  Decision Records — replace with a prose description, a file/class
+  reference, or a commit SHA.
+- Key Discoveries is the section most prone to leaks — it is typically
+  synthesized from step episodes and easily carries track / step /
+  finding labels along with the substance. Rewrite each discovery to
+  stand on its own: strip any specific track or step numbers (`Track
+  3`, `Step 2 of Track 4`, etc.) and any review-finding IDs, and keep
+  only the substance, plus a file/class reference or commit SHA if
+  "where" still matters.
+
+Re-scan both artifacts before Step 4 (commit) with the grep in §2.3.
 
 ### Artifact 1: Final Design Document (`design-final.md`)
 
@@ -133,7 +171,10 @@ Rules:
 - No track details — captures decisions and outcomes, not execution process.
 - Aggregate from both episode levels — do not rely on track episodes alone,
   as they may omit step-level details.
-- Retain original decision numbering for traceability.
+- Apply the Ephemeral identifier rule from the top of Step 3 (and
+  `../conventions-execution.md` §2.3) to the whole file — especially to
+  Decision Records ("Implemented in: …" lines) and Key Discoveries,
+  which are the two most frequent leak sites.
 
 **Step 4 — Commit and complete.**
 

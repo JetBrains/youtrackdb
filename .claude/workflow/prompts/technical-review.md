@@ -42,19 +42,33 @@ Your findings may lead to plan adjustments, decomposition guidance, or
 (if severity is `skip`) a recommendation to skip the entire track. After
 your review, the main agent decomposes the track into concrete steps.
 
+**Where things live during Phase A:** The track's detailed description
+(the `**What/How/Constraints/Interactions**` subsections plus any
+track-level component diagram) lives in the step file at
+`docs/adr/<dir-name>/tracks/track-N.md` under a `## Description` section —
+copied there at Phase A start. The plan file carries strategic context
+(Architecture Notes, Decision Records, Component Map) and track-level
+status + episodic memory.
+
 ---
 
 Inputs:
-- Plan file: {plan_path} (read the full plan for context, but focus on
-  the specified track)
+- Plan file: {plan_path} (strategic context — Architecture Notes,
+  Decision Records, Component Map)
+- Step file: {step_file_path} (the track's `## Description` section —
+  authoritative source for the track's What/How/Constraints/Interactions
+  and any track-level diagram. If the step file lacks a `## Description`
+  section, fall back to the plan-file entry for the track.)
 - Track to review: {track_name}
 - Codebase root: {codebase_path}
 - Episodes from completed tracks: {prior_episodes}
-- Previous findings from other reviews: {previous_findings}
+- Previous findings: {previous_findings}
 
-Start by reading the track description, its component diagram (if any), and
-the relevant Decision Records. Then explore the parts of the codebase this
-track touches.
+Start by reading the track description and any track-level component
+diagram from the step file's `## Description` section — if the step file
+lacks this section, fall back to the plan-file entry for the track. Read
+the relevant Decision Records from the plan. Then explore the parts of
+the codebase this track touches.
 
 Use episodes from completed tracks to inform your review — they may
 reveal codebase realities that the original plan didn't anticipate.

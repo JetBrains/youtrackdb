@@ -80,10 +80,17 @@ Help the user develop the plan:
    - Non-Goals (if applicable): explicit scope boundaries.
 4. Decompose the work into tracks with full descriptions following the
    workflow rules:
-   - Every track gets a mandatory description block (no length cap) covering
-     what/how/constraints/interactions with other tracks.
-   - Include track-level Mermaid component diagrams when the track has 3+
-     internal components with non-trivial interactions.
+   - Every track gets an **intro paragraph** in the plan checklist
+     entry (a short paragraph of high-level context) and a matching
+     `## Track N: <title>` section in `implementation-backlog.md`
+     carrying the detailed `**What**:` / `**How**:` /
+     `**Constraints**:` / `**Interactions**:` subsections (no length
+     cap on the detail). See `planning.md` §Track descriptions for
+     what each subsection should cover.
+   - Include a track-level Mermaid component diagram in the backlog
+     (immediately after the `**Interactions**:` blockquote) when the
+     track has 3+ internal components with non-trivial interactions.
+     Track-level diagrams are **never rendered in the plan file**.
    - Track sizing rule: if a track would need more than ~5-7 steps, split
      it into separate dependent tracks. The execution agent handles
      sequencing and episode propagation between dependent tracks.
@@ -115,11 +122,23 @@ Help the user develop the plan:
 
 Do NOT implement anything. Only research and plan.
 
-Write the implementation plan to `docs/adr/<dir-name>/implementation-plan.md`
-using this structure:
+Write both the implementation plan to
+`docs/adr/<dir-name>/implementation-plan.md` AND the track-details
+backlog to `docs/adr/<dir-name>/implementation-backlog.md` using the
+two structures below. The plan carries strategic context (Goals,
+Constraints, Architecture Notes, Decision Records) plus a thin
+checklist; the backlog carries each track's detailed
+`**What/How/Constraints/Interactions**` subsections and any
+track-level Mermaid diagrams. Splitting keeps `/execute-tracks`
+startup context small — see `.claude/workflow/conventions.md` §1.2 for
+the full rules (backlog file shape, D4 legacy-compat detection,
+load-bearing-file rule).
 
 ```
 # <Feature Name>
+
+## Design Document
+[design.md](design.md)
 
 ## High-level plan
 
@@ -151,15 +170,55 @@ using this structure:
 
 ## Checklist
 - [ ] Track 1: <title>
-  > <track description: what/how/constraints/interactions>
-  > <track-level component diagram if needed>
+  > <intro paragraph — high-level context; detailed description in implementation-backlog.md>
   > **Scope:** ~N steps covering X, Y, Z
 
 - [ ] Track 2: <title>
-  > <track description: what/how/constraints/interactions>
+  > <intro paragraph — high-level context; detailed description in implementation-backlog.md>
   > **Scope:** ~N steps covering A, B
   > **Depends on:** Track 1
+
+## Final Artifacts
+- [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
 ```
+
+````markdown
+# <Feature Name> — Track Details
+
+<!-- DO NOT DELETE THIS FILE. Its presence on disk signals the new
+split-file plan format (see .claude/workflow/conventions.md §1.2).
+Deleting it flips subsequent workflow operations into legacy mode.
+Natural cleanup happens when the branch is deleted after PR merge. -->
+
+## Track 1: <title>
+
+> **What**:
+> - <bullet list of concrete deliverables>
+>
+> **How**:
+> - <approach notes, ordering constraints, invariants to preserve>
+>
+> **Constraints**:
+> - <in-scope/out-of-scope files, compatibility requirements>
+>
+> **Interactions**:
+> - <how this track depends on or enables other tracks>
+
+```mermaid
+<optional track-level component diagram (≤10 nodes); see planning.md>
+```
+
+## Track 2: <title>
+
+> **What**: …
+> **How**: …
+> **Constraints**: …
+> **Interactions**: …
+
+<!-- The Track 2 above uses a condensed one-line-per-label style as a
+layout exemplar; expand each track section to carry the full
+description content per planning.md §Track descriptions. -->
+````
 
 Write the design document to `docs/adr/<dir-name>/design.md` using this
 structure:

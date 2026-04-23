@@ -33,6 +33,9 @@ Select review agents based on code characteristics (see
 [`review-agent-selection.md`](review-agent-selection.md)), then spawn them
 in parallel. Baseline agents (4) always run; conditional agents are added
 based on the track description and changed files across the full diff.
+See [`code-review-protocol.md`](code-review-protocol.md) for the two-tier
+protocol overview and [`review-iteration.md`](review-iteration.md) for
+iteration limits, finding ID prefixes, and gate format.
 
 All selected reviews run against the same diff
 (`git diff {base_commit}..HEAD`) and produce independent findings. Launching
@@ -50,7 +53,15 @@ of the changes.
    records, track episodes from completed tracks).
 3. Read the **step file** (`docs/adr/<dir-name>/tracks/track-N.md`) — this
    provides the step descriptions and episodes.
-4. Use `{base_commit}` when spawning all review sub-agents.
+4. **Generate the slim plan snapshot** at
+   `/tmp/claude-code-plan-slim-$PPID.md`. Apply the rendering rule in
+   [`plan-slim-rendering.md`](plan-slim-rendering.md) to the plan read in
+   step 2, then write the snapshot. Sub-agents spawned for track-level
+   review will read this snapshot by path — this keeps the main agent's
+   tool-call history from accumulating a plan copy per sub-agent spawn.
+   Regenerate the snapshot if plan corrections are applied during the
+   review loop (before the next spawn batch).
+5. Use `{base_commit}` when spawning all review sub-agents.
    All sub-agents review `git diff {base_commit}..HEAD`.
 
 If `## Base commit` is missing (e.g., older step file format), fall back to
@@ -89,13 +100,28 @@ Track {N}: {track title}
 Reviewing commit range: {base_commit}..HEAD
 
 ## Implementation Plan (strategic context)
-{contents of implementation-plan.md}
+Read the slim plan snapshot at:
+  /tmp/claude-code-plan-slim-{PPID}.md
+Filtered view of the plan — completed tracks show title + intro +
+track episode + strategy refresh only; the current track and other
+not-started tracks are shown in full. If the snapshot is missing, fall
+back to docs/adr/{dir-name}/implementation-plan.md.
 
 ## Track Steps (tactical context)
-{contents of tracks/track-N.md — all steps with their episodes}
+Read the step file at:
+  docs/adr/{dir-name}/tracks/track-{N}.md
+The file begins with a `## Description` section carrying the track's
+original description — intro paragraph +
+**What/How/Constraints/Interactions** subsections + any track-level
+diagram — copied there at Phase A start. Below that, all steps for
+this track appear with their episodes. If the file does not contain a
+`## Description` section (legacy step file created before Phase A's
+description-move was added), read the track description from the plan
+file's checklist entry instead.
 
 ## Changed Files
-{output of git diff {base_commit}..HEAD --name-only}
+{output of git diff {base_commit}..HEAD --name-only — passed inline,
+small}
 
 ## Skip These Files (generated code)
 - core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/*
@@ -103,8 +129,18 @@ Reviewing commit range: {base_commit}..HEAD
 - Generated Gremlin DSL classes
 
 ## Diff
-{output of git diff {base_commit}..HEAD}
+{output of git diff {base_commit}..HEAD — passed inline since it is the
+review target}
 ```
+
+**Why paths, not inline contents.** Inlining the plan and track file
+into every track-level sub-agent spawn embeds copies in the main
+agent's tool-call history — up to ~10 agents × 3 iterations per track.
+Paths keep the main agent lean; sub-agents Read the files themselves.
+The diff stays inline because it is the review target.
+
+The main agent substitutes `{PPID}`, `{dir-name}`, `{N}`, and
+`{base_commit}` when composing each prompt.
 
 ### Agent selection and launching
 
@@ -156,7 +192,12 @@ Present the synthesized findings list to proceed to the review loop.
 Iterate on the synthesized findings:
 
 1. If any findings need fixes:
-   - Apply fixes as **additional commits** (never amend prior commits)
+   - Apply fixes as **additional commits** (never amend prior commits).
+     Commit messages and any new code comments must follow the Ephemeral
+     identifier rule in
+     [`conventions-execution.md`](conventions-execution.md) §2.3 — no
+     `Track N`, `Step N`, finding IDs, or review iteration counters
+     in the message or the diff.
    - Run tests to verify fixes don't break anything
    - **Update the Progress section** on disk to record the completed
      iteration (e.g., `- [ ] Track-level code review (1/3 iterations)`).
@@ -229,6 +270,10 @@ proceed directly to track completion **in the same session**.
    - Any unresolved track-level code review findings
    - Plan corrections made (if any) — which findings were deferred and
      where
+   - Note that on approval the track description will be collapsed to its
+     intro paragraph (see step 4) — the detailed implementation
+     subsections are now superseded by the committed code and step
+     episodes
 
 3. **Wait for user response:**
    - **Approved** — proceed to step 4.
@@ -239,18 +284,39 @@ proceed directly to track completion **in the same session**.
    - **Fundamental rework** — trigger ESCALATE (see workflow.md
      §Inline Replanning).
 
-4. **Write the track episode and mark `[x]`** in the plan file on disk
-   (only after user approval):
+4. **Write the track episode, collapse the description, and mark `[x]`**
+   in the plan file on disk (only after user approval):
+
+   Apply the three-clause collapse rule from
+   [`conventions-execution.md`](conventions-execution.md) §2.1
+   "After track completion (user-approved)". Quick form: always keep
+   the intro paragraph + `**Track episode:**` block + `**Step file:**`
+   pointer; always drop `**Scope:**` and `**Depends on:**`; drop the
+   four `**What/How/Constraints/Interactions**` subsections only if
+   present — §2.1's three-clause form covers the conditional-drop
+   behaviour across new-format, legacy, and mid-migration plan shapes.
+   (The `**Strategy refresh:**` line belongs to §2.1's "Always keep"
+   clause but is never yet on disk at Phase C collapse time; the next
+   session's strategy refresh appends it.) The collapse does not touch
+   `implementation-backlog.md` — if a backlog exists, Phase A already
+   removed Track N's section at the start of this track; if not,
+   there is nothing to touch.
+
+   Final on-disk form:
 
    ```markdown
    - [x] Track N: <title>
-     > <description>
+     > <intro paragraph — first paragraph of the original description>
      >
      > **Track episode:**
      > <strategic summary — length proportional to cross-track impact>
      >
      > **Step file:** `tracks/track-N.md` (M steps, K failed)
    ```
+
+   This shrinks completed-track entries from 100+ lines to ~10–15 lines
+   and keeps the plan file lean as tracks land. The strategy-refresh
+   line is appended by the next session.
 
 5. **Session ends.** Strategy refresh happens next session.
 

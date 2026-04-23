@@ -9,15 +9,22 @@ steps and review findings.
 
 ## Phase B Startup
 
-Before implementing the first step, record the current `HEAD` as the base
-commit for Phase C's track-level code review:
+Before implementing the first step:
 
-1. Run `git rev-parse HEAD` to get the current SHA.
-2. Write it to the step file's `## Base commit` section (creating the
-   section if it doesn't exist).
-
-This only needs to happen once per track — skip if `## Base commit` already
-has a SHA (e.g., when resuming Phase B after a mid-phase checkpoint).
+1. **Record the base commit.** Run `git rev-parse HEAD` to get the
+   current SHA, then write it to the step file's `## Base commit`
+   section (creating the section if it doesn't exist). Skip if
+   `## Base commit` already has a SHA (e.g., when resuming Phase B
+   after a mid-phase checkpoint).
+2. **Generate the slim plan snapshot** at
+   `/tmp/claude-code-plan-slim-$PPID.md`. Read the plan, apply the
+   rendering rule in [`plan-slim-rendering.md`](plan-slim-rendering.md),
+   and write the result. Sub-agents spawned for step-level code review
+   will read this snapshot by path — this keeps the main agent's
+   tool-call history from accumulating a plan copy per spawn.
+   Regenerate the snapshot only if inline replanning (ESCALATE) modifies
+   the plan mid-session — Phase B does not otherwise write to the plan
+   file.
 
 ---
 
@@ -78,7 +85,7 @@ three benefits.
 
 ## Per-Step Workflow
 
-For each step in the step file, execute sub-steps 1–6 **in order, to
+For each step in the step file, execute sub-steps 1–7 **in order, to
 completion**, before moving to the next step:
 
 1. **Implement the code** with defensive assertions generously (without
@@ -87,13 +94,28 @@ completion**, before moving to the next step:
    structures, or behavioral semantics beyond what the plan prescribes —
    **pause and ask the user for guidance** before proceeding (see
    workflow.md §Design decision escalation).
+   **Do not reference workflow-internal identifiers** (`Track N`, `Step N`,
+   `Track N Step M`, review finding IDs like `CQ33` / `F-12` / `R-4`,
+   review iteration counters, or named-only invariants from the plan) in
+   **source code comments, Javadoc, test names, or test descriptions**.
+   Those identifiers live in untracked files (plan, backlog, step files,
+   reviews) that are deleted with the branch, so citing them in committed
+   code creates dangling references on `main`. See
+   [`conventions-execution.md`](conventions-execution.md) §2.3 for the
+   full rule and rewrite examples.
 2. **Write tests**, ensure all tests pass, ensure 85% line / 70% branch
    coverage using JaCoCo (triggered by `coverage` Maven profile). Run clean
    phase for each Maven command. **Wait for test results before proceeding.**
 3. **Stage and commit** the code changes. You know exactly which files you
    modified, so stage them explicitly (no `git add -A`). Follow the project's
-   commit message conventions (see `CLAUDE.md`).
-4. **Dimensional review loop** (up to 3 iterations, within your context):
+   commit message conventions (see `CLAUDE.md`). The Ephemeral identifier
+   rule (see [`conventions-execution.md`](conventions-execution.md) §2.3)
+   applies to commit messages — no `Track N` / `Step N` / finding IDs /
+   iteration counters in the message body or subject.
+4. **Dimensional review loop** (up to 3 iterations, within your context).
+   See [`code-review-protocol.md`](code-review-protocol.md) for the two-tier
+   protocol overview and [`review-iteration.md`](review-iteration.md) for
+   iteration limits, finding ID prefixes, and gate format.
    a. **Select review agents** based on code characteristics (see
       [`review-agent-selection.md`](review-agent-selection.md)), then spawn
       them in parallel (fresh sub-agents each iteration). Baseline agents
@@ -122,17 +144,44 @@ completion**, before moving to the next step:
       Reviewing: uncommitted changes or last commit (as appropriate)
 
       ## Implementation Plan (strategic context)
-      {contents of implementation-plan.md}
+      Read the slim plan snapshot at:
+        /tmp/claude-code-plan-slim-{PPID}.md
+      Filtered view of the plan — completed tracks show title + intro +
+      track episode + strategy refresh only; the current track and
+      other not-started tracks are shown in full. If the snapshot is
+      missing, fall back to docs/adr/{dir-name}/implementation-plan.md.
 
       ## Track Steps (tactical context)
-      {contents of tracks/track-N.md — all steps with their episodes}
+      Read the step file at:
+        docs/adr/{dir-name}/tracks/track-{N}.md
+      The file begins with a `## Description` section carrying the
+      track's original description — intro paragraph +
+      **What/How/Constraints/Interactions** subsections + any
+      track-level diagram — copied there at Phase A start. Below
+      that, all steps for this track appear with their episodes.
+      If the file does not contain a `## Description` section (legacy
+      step file created before Phase A's description-move was added),
+      read the track description from the plan file's checklist entry
+      instead.
 
       ## Skip These Files (generated code)
       - core/.../sql/parser/*, generated-sources/*, Gremlin DSL
 
       ## Diff
-      {the step's diff}
+      {the step's diff — passed inline since it is the review target}
       ```
+
+      **Why paths, not inline contents.** Inlining `{contents}` for each
+      of the plan and track file places a copy of those files in the
+      main agent's tool-call history for every sub-agent spawn. Across
+      a Phase B session this dominates main-agent context. Paths keep
+      the main agent lean; sub-agents Read the files themselves so the
+      contents land only in sub-agent context. The diff is the one
+      exception — it is the review target, small, and step-specific, so
+      it is passed inline.
+
+      The main agent substitutes `{PPID}`, `{dir-name}`, and `{N}` with
+      concrete values when composing each prompt.
    b. **Synthesize**: After all selected agents complete, deduplicate findings across
       dimensions and prioritize (blocker > should-fix > suggestion). Merge
       findings that multiple agents flagged for the same code location.
@@ -141,16 +190,13 @@ completion**, before moving to the next step:
       **only the dimension(s) with open findings**.
    d. Repeat until approved OR **max 3 iterations** reached.
    e. If max iterations reached, note remaining findings in the episode.
-5. **Cross-track impact check** — quick self-assessment against the plan:
-   - Does this step contradict assumptions in upcoming tracks?
-   - Does it affect the Component Map or Decision Records?
-   - Does it invalidate remaining track dependencies?
+5. **Cross-track impact check** — quick self-assessment against the plan.
+   See §Cross-Track Impact Check below for the full protocol.
    If minor impact is detected (recommendation: **Continue**), note the
    affected tracks and weakened assumptions — these go into the episode's
    **What was discovered** field in the next sub-step.
    If **Pause and ADJUST** or **ESCALATE** is needed, alert the user
-   immediately (see workflow.md §Cross-Track Impact Monitoring for the
-   full escalation process).
+   immediately.
 6. **Context consumption check** (mandatory, including after the last
    step). Always run it:
 
@@ -285,8 +331,56 @@ followed by another `[!]` for the same step (with `(retry:` in the
 description), this is a two-failure situation. Present both failed
 episodes to the user before proceeding.
 
-See workflow.md §Failure Handling for the broader failure handling context
-and track-level escalation rules.
+---
+
+## Track-Level Failure
+
+If a failure undermines the track's overall approach (not just one step —
+e.g., the track's foundational assumption is wrong, or repeated step
+failures trace back to a common root cause the track cannot address):
+
+- Present the situation to the user with full context (affected steps,
+  what was tried, the underlying issue).
+- Recommend **ESCALATE** if the approach is fundamentally wrong
+  (see [`inline-replanning.md`](inline-replanning.md)).
+- The user decides how to proceed.
+
+---
+
+## Cross-Track Impact Check
+
+After each step implementation (sub-step 5 of the per-step workflow), do a
+lightweight assessment — this is a quick check, not a full strategy
+refresh. You have the plan context in your session, so this is a natural
+self-check.
+
+For each completed step, assess:
+
+1. **Assumption validity** — Does this discovery contradict assumptions
+   in any upcoming track's description?
+2. **Architecture impact** — Does this change affect the Component Map
+   or Decision Records in ways that touch other tracks?
+3. **Dependency ordering** — Does this invalidate the dependency ordering
+   of remaining tracks?
+
+### If impact is detected
+
+Alert the user immediately with:
+
+- Which upcoming track(s) are affected.
+- What assumption is weakened or invalidated.
+- What the step discovered that triggered this alert.
+- Recommended action:
+  - **Continue** (minor impact — record in the step episode's **What was
+    discovered** field so strategy refresh and future track reviews can
+    see it; no user notification needed).
+  - **Pause and ADJUST** (remaining steps in current track need revision).
+  - **ESCALATE** (the discovery fundamentally changes the plan — see
+    [`inline-replanning.md`](inline-replanning.md)).
+
+### If no impact is detected
+
+Continue to the next step. No user notification needed.
 
 ---
 
@@ -309,7 +403,8 @@ in the same session is usually better.
 
 ## Phase B Completion
 
-After the last step's episode is committed:
+After the last step's episode is written to the step file (and its code
+changes committed to git):
 
 1. **Mark `Step implementation` as `[x]`** in the Progress section.
 2. **Inform the user** that Phase B is complete:

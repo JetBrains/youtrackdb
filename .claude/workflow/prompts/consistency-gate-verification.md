@@ -3,10 +3,17 @@ based on your previous consistency review findings.
 
 Inputs:
 - Updated plan file: {plan_path}
+- Backlog file: {backlog_path} (may be absent — when
+  `implementation-backlog.md` does not exist on disk, track descriptions
+  live in the plan file's checklist entries in legacy format; see the
+  detection-rule paragraph at the top of the "Semi-Formal Verification
+  Protocol" section below for mid-migration and legacy handling)
 - Updated design document: {design_path}
-- Previous findings: {findings_file}
+- Previous findings (context only, finalized in earlier iterations):
+  {previous_findings}
+- Findings under re-check (verify these): {findings}
 
-For each previous finding:
+For each finding under re-check:
 1. If the finding was ACCEPTED: verify the fix was applied correctly by
    re-checking the code reference, call flow, or cross-reference that was
    originally flagged. Confirm it no longer has the reported inconsistency.
@@ -21,6 +28,19 @@ the design document but not updating the corresponding sequence diagram).
 
 ## Semi-Formal Verification Protocol
 
+Before verifying any finding whose fix touched a pending track's
+description, re-read that track's description (the
+`**What/How/Constraints/Interactions**` subsections and any track-level
+Mermaid diagram) from the backlog's `## Track N: <title>` section when
+the backlog file is present and contains that section. If the backlog
+file is absent (legacy plan) or the entry has been left with its detail
+inline in the plan file (mid-migration edge case), fall back to the
+plan-file checklist entry's `**What/How/Constraints/Interactions**`
+block. For **completed** (`[x]`) and **skipped** (`[~]`) tracks, read
+from the plan-file entry (intro paragraph + track episode for completed;
+intro + `**Skipped:**` reason for skipped). Read Architecture Notes,
+Decision Records, and other strategic context from the plan regardless.
+
 For each ACCEPTED finding being verified, you must produce a
 **verification certificate** — not just assert "looks fixed." The
 certificate traces the same code reference or flow that was originally
@@ -29,7 +49,7 @@ flagged and confirms the fix resolves it.
 ```markdown
 #### Verify CR<N>: <finding title>
 - **Original issue**: <what was wrong — from the finding>
-- **Fix applied**: <what changed in the plan/design text>
+- **Fix applied**: <what changed in the plan, backlog, or design text>
 - **Re-check**:
   - Search/trace performed: <Grep/Glob query or flow trace>
   - Code location: <file:line — same reference as original, or updated>
@@ -52,7 +72,7 @@ For REJECTED findings, verify the rejection reason with a lighter check:
 ---
 
 Output:
-- For each previous finding: the verification certificate above
+- For each finding under re-check: the verification certificate above
 - New findings (if any) in the same format with cumulative numbering
   (continue from the highest CR number)
 - Summary: PASS (all verified/rejected, no new blockers) or FAIL (with
