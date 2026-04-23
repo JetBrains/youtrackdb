@@ -124,8 +124,8 @@ completeness, design document structure, decision traceability, internal
 consistency.
 
 For new-format plans, each pending track's detailed description (the
-subject of TRACK DESCRIPTIONS and TRACK SIZING checks, plus several
-cross-file bullets in SCOPE INDICATORS and CONSISTENCY) lives in
+subject of TRACK DESCRIPTIONS checks, plus several cross-file bullets
+in TRACK SIZING, SCOPE INDICATORS, and CONSISTENCY) lives in
 `implementation-backlog.md` rather than inline in the plan file; the
 structural review reads the backlog alongside the plan. Legacy plans
 (no backlog file on disk) keep those subsections in the plan-file
