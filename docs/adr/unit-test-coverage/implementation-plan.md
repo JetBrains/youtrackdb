@@ -1233,6 +1233,29 @@ flowchart TD
   >   Also absorbed: `BasicCommandContext.copy()` null-child NPE (T4, Track 9
   >   Step 2 pins via expect-NPE + WHEN-FIXED); `TraverseTest.java:56-72` dead
   >   `activeTx*` local variables (T9, readability cleanup).
+  > - **From Track 9 Step 2 iter-1 dimensional review (5 agents; 0 blockers,
+  >   14 should-fix, 14 suggestions):** Most should-fix items fixed in-step
+  >   via commit `10eac73c8a`. Deferred to Track 22:
+  >   (TB-4) companion positive assertion for `$PARENT.unknownField` —
+  >   `BasicCommandContext` has no clean JavaBean field reachable via
+  >   `EntityHelper.getFieldValue` reflection, making a falsifiable positive
+  >   pin fragile; absorbed with the `copy()` T4 cleanup.
+  >   (TC-1) `getVariables()` self-overrides-child precedence test — minor
+  >   observable; no production caller depends on the direction today.
+  >   (TC-2) `setParentWithoutOverridingChild` test — isolated method, no
+  >   callers in core would regress; coverage via Track 22 when SQL
+  >   sub-query planners reachable through this method land.
+  >   (TC-3) direct `hasVariable` branch tests — indirectly covered by the
+  >   TB-3 tightening in `BasicCommandContextTest.testSetVariableExistingInParent`;
+  >   re-evaluate during Track 22 if JaCoCo still shows uncovered branches.
+  >   Plus ~13 suggestion-tier items (CQ-3..CQ-6 assertNotSame/assertNull
+  >   idiom consistency, TS4 shared stub helper, TS5 pre-existing no-javadoc
+  >   tests in `SqlScriptExecutorTest`, TS6 expose-wrapper naming, TS7
+  >   `_T4Pin` method-name suffix, TB-5 reference-identity mutation pin,
+  >   TB-6 setChild-null-idempotency, TB-7 toString regex relaxation, TC-8
+  >   convertToParameters single-null corner, TC-9 retry-conflict data
+  >   scenario, TC-10 parameterized positional scalars, TC-11 setChild
+  >   replacement observable) fold into existing Track 22 DRY/cleanup scope.
   >
   > **Scope:** ~6 steps covering transaction management, Gremlin
   > integration, engine lifecycle, exception/compression/config, remaining
