@@ -27,6 +27,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMathExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMethodCall;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLModifier;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -1613,4 +1614,411 @@ public class MatchExecutionPlannerMutationTest {
     return item;
   }
 
+  // =========================================================================
+  // resolveChainedTarget — Step 1: structural detection rule
+  //
+  // The helper recognises the edge-method chain pattern .outE(X).inV()
+  // (and .inE→.outV / .bothE→.bothV variants) when it appears as two
+  // consecutive PatternEdges, so the planner's sort loop can fold the
+  // downstream vertex's WHERE selectivity into the first edge's cost.
+  //
+  // In Step 1 the class field of the returned ChainedTarget is always null
+  // (class inference lands in Step 2). These tests exercise the structural
+  // rule in isolation.
+  // =========================================================================
+
+  /**
+   * When {@code edge.item} is null, the helper returns empty. Mirrors the
+   * null-guard of existing callers ({@code estimateEdgeCost} at :2297,
+   * {@code resolveTargetClass} at :2523) so the helper does not NPE on
+   * synthesised patterns.
+   */
+  @Test
+  public void resolveChainedTarget_nullItem_returnsEmpty() {
+    var edge = new PatternEdge();
+    // item intentionally left null
+    edge.out = new PatternNode();
+    edge.in = new PatternNode();
+
+    assertThat(MatchExecutionPlanner.resolveChainedTarget(
+        edge, edge.in, Set.of(), Map.of(), db))
+        .isEmpty();
+  }
+
+  /**
+   * When {@code edge.item.getMethod()} is null, the helper returns empty.
+   */
+  @Test
+  public void resolveChainedTarget_nullMethod_returnsEmpty() {
+    var edge = new PatternEdge();
+    edge.item = mock(SQLMatchPathItem.class);
+    // method intentionally null
+    edge.out = new PatternNode();
+    edge.in = new PatternNode();
+
+    assertThat(MatchExecutionPlanner.resolveChainedTarget(
+        edge, edge.in, Set.of(), Map.of(), db))
+        .isEmpty();
+  }
+
+  /**
+   * First edge method name is {@code null} (e.g. a non-parseable method
+   * call). The helper must not NPE and must return empty.
+   */
+  @Test
+  public void resolveChainedTarget_firstMethodNameNull_returnsEmpty() {
+    var method = mock(SQLMethodCall.class);
+    when(method.getMethodNameString()).thenReturn(null);
+    var chain = buildChain(method, "inV", "post", "e", "tag");
+
+    assertThat(MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
+        .isEmpty();
+  }
+
+  /**
+   * First edge method is a vertex hop ({@code out}) rather than an edge hop
+   * ({@code outE}). The chain pattern does not apply — return empty.
+   */
+  @Test
+  public void resolveChainedTarget_firstMethodIsOut_returnsEmpty() {
+    var chain = buildChain("out", "inV", "post", "e", "tag");
+
+    assertThat(MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
+        .isEmpty();
+  }
+
+  /**
+   * Intermediate node has zero outgoing edges — the chain has no downstream
+   * vertex step. Return empty.
+   */
+  @Test
+  public void resolveChainedTarget_noDownstreamEdge_returnsEmpty() {
+    var chain = buildChain("outE", "inV", "post", "e", "tag");
+    chain.intermediateNode().out.clear();
+
+    assertThat(MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
+        .isEmpty();
+  }
+
+  /**
+   * Intermediate node has two outgoing edges — ambiguous continuation,
+   * chain rule does not apply.
+   */
+  @Test
+  public void resolveChainedTarget_multipleDownstreamEdges_returnsEmpty() {
+    var chain = buildChain("outE", "inV", "post", "e", "tag");
+    // Inject a second outgoing edge on the intermediate node
+    var extraEdge = new PatternEdge();
+    extraEdge.item = mock(SQLMatchPathItem.class);
+    var secondMethod = mock(SQLMethodCall.class);
+    stubMethodName(secondMethod, "inV");
+    when(extraEdge.item.getMethod()).thenReturn(secondMethod);
+    extraEdge.out = chain.intermediateNode();
+    var extraTarget = new PatternNode();
+    extraTarget.alias = "tag2";
+    extraEdge.in = extraTarget;
+    chain.intermediateNode().out.add(extraEdge);
+
+    assertThat(MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
+        .isEmpty();
+  }
+
+  /**
+   * The downstream edge has already been visited — DFS moved past it.
+   * Chain detection must not fire.
+   */
+  @Test
+  public void resolveChainedTarget_downstreamEdgeVisited_returnsEmpty() {
+    var chain = buildChain("outE", "inV", "post", "e", "tag");
+    var visited = new LinkedHashSet<PatternEdge>();
+    visited.add(chain.downstreamEdge());
+
+    assertThat(MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), visited, Map.of(), db))
+        .isEmpty();
+  }
+
+  /**
+   * Intermediate node has zero incoming edges — should not happen for the
+   * sort loop's candidate (the first edge always lands in intermediate.in),
+   * but defensive.
+   */
+  @Test
+  public void resolveChainedTarget_noIncomingEdge_returnsEmpty() {
+    var chain = buildChain("outE", "inV", "post", "e", "tag");
+    chain.intermediateNode().in.clear();
+
+    assertThat(MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
+        .isEmpty();
+  }
+
+  /**
+   * Intermediate alias has two incoming edges — the user joined it from a
+   * second MATCH fragment (e.g. two fragments reuse the same {@code {as: e}}).
+   * The chain rule must reject to avoid folding the filter against the
+   * wrong alias.
+   */
+  @Test
+  public void resolveChainedTarget_multipleIncomingEdges_returnsEmpty() {
+    var chain = buildChain("outE", "inV", "post", "e", "tag");
+    // Simulate a second fragment that joins the intermediate alias
+    var otherSource = new PatternNode();
+    otherSource.alias = "author";
+    var otherEdge = new PatternEdge();
+    otherEdge.item = mock(SQLMatchPathItem.class);
+    var otherMethod = mock(SQLMethodCall.class);
+    stubMethodName(otherMethod, "outE");
+    when(otherEdge.item.getMethod()).thenReturn(otherMethod);
+    otherEdge.out = otherSource;
+    otherEdge.in = chain.intermediateNode();
+    chain.intermediateNode().in.add(otherEdge);
+
+    assertThat(MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
+        .isEmpty();
+  }
+
+  /**
+   * Intermediate has a single incoming edge, but it is not {@code edge} —
+   * identity mismatch. This can't happen from the sort loop today but is
+   * defensive.
+   */
+  @Test
+  public void resolveChainedTarget_incomingEdgeIdentityMismatch_returnsEmpty() {
+    var chain = buildChain("outE", "inV", "post", "e", "tag");
+    // Replace the intermediate's incoming edge with a different PatternEdge
+    var imposter = new PatternEdge();
+    imposter.item = chain.firstEdge().item;
+    imposter.out = chain.firstEdge().out;
+    imposter.in = chain.intermediateNode();
+    chain.intermediateNode().in.clear();
+    chain.intermediateNode().in.add(imposter);
+
+    assertThat(MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
+        .isEmpty();
+  }
+
+  /**
+   * The second-hop method is {@code out} (vertex hop), not {@code outV} —
+   * this is not a chained-edge-then-vertex shape. Return empty.
+   */
+  @Test
+  public void resolveChainedTarget_secondMethodNotVertexStep_returnsEmpty() {
+    var chain = buildChain("outE", "out", "post", "e", "tag");
+
+    assertThat(MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
+        .isEmpty();
+  }
+
+  /**
+   * The second-hop method name is null. Return empty.
+   */
+  @Test
+  public void resolveChainedTarget_secondMethodNameNull_returnsEmpty() {
+    var chain = buildChain("outE", "inV", "post", "e", "tag");
+    var secondMethod = mock(SQLMethodCall.class);
+    when(secondMethod.getMethodNameString()).thenReturn(null);
+    when(chain.downstreamEdge().item.getMethod()).thenReturn(secondMethod);
+
+    assertThat(MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
+        .isEmpty();
+  }
+
+  /**
+   * The second-hop item (or its method) is null. Return empty.
+   */
+  @Test
+  public void resolveChainedTarget_secondItemNullMethod_returnsEmpty() {
+    var chain = buildChain("outE", "inV", "post", "e", "tag");
+    when(chain.downstreamEdge().item.getMethod()).thenReturn(null);
+
+    assertThat(MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
+        .isEmpty();
+  }
+
+  /**
+   * Reverse traversal: the sort loop passes {@code neighbor = edge.out}
+   * when traversing an edge in reverse. From the source side there is no
+   * {@code inV/outV/bothV} continuation, so the structural rule (clause on
+   * {@code neighbor.out}) naturally rejects. This verifies the design
+   * contract documented in the plan (Track 1 — reverse traversal case).
+   */
+  @Test
+  public void resolveChainedTarget_reverseTraversal_returnsEmpty() {
+    var chain = buildChain("outE", "inV", "post", "e", "tag");
+
+    // Pass edge.out (the source `post` node) as neighbor. From there, there
+    // is no outgoing edge that is an inV hop — the structural rule rejects.
+    assertThat(MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.firstEdge().out, Set.of(), Map.of(), db))
+        .isEmpty();
+  }
+
+  // ── Happy-path sanity tests (Step 1 — class field is always null) ──
+
+  /**
+   * outE('X') → inV() with valid structure: helper returns the downstream
+   * vertex alias. Class field is null in Step 1.
+   */
+  @Test
+  public void resolveChainedTarget_outEinV_returnsDownstreamAlias() {
+    var chain = buildChain("outE", "inV", "post", "e", "tag");
+
+    var result = MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db);
+
+    assertThat(result).contains(
+        new MatchExecutionPlanner.ChainedTarget("tag", null));
+  }
+
+  /**
+   * inE('X') → outV() with valid structure: helper returns the downstream
+   * vertex alias. Class field is null in Step 1.
+   */
+  @Test
+  public void resolveChainedTarget_inEoutV_returnsDownstreamAlias() {
+    var chain = buildChain("inE", "outV", "tag", "e", "post");
+
+    var result = MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db);
+
+    assertThat(result).contains(
+        new MatchExecutionPlanner.ChainedTarget("post", null));
+  }
+
+  /**
+   * bothE('X') → bothV() with valid structure: helper returns the downstream
+   * vertex alias. Class field is null in Step 1.
+   */
+  @Test
+  public void resolveChainedTarget_bothEbothV_returnsDownstreamAlias() {
+    var chain = buildChain("bothE", "bothV", "a", "e", "b");
+
+    var result = MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db);
+
+    assertThat(result).contains(
+        new MatchExecutionPlanner.ChainedTarget("b", null));
+  }
+
+  /**
+   * Method-name lowering uses {@code Locale.ENGLISH}: {@code OUTE} → {@code oute}
+   * and {@code INV} → {@code inv} are recognised. Mirrors the case-insensitivity
+   * of {@link MatchExecutionPlanner#parseDirection}.
+   */
+  @Test
+  public void resolveChainedTarget_uppercaseMethodNames_recognised() {
+    var chain = buildChain("OUTE", "INV", "post", "e", "tag");
+
+    var result = MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db);
+
+    assertThat(result).contains(
+        new MatchExecutionPlanner.ChainedTarget("tag", null));
+  }
+
+  // ── resolveChainedTarget test helpers ──
+
+  /**
+   * A test fixture for a two-hop edge-method chain:
+   * <pre>
+   *   (source) ──firstEdge──▶ (intermediate) ──downstreamEdge──▶ (target)
+   * </pre>
+   *
+   * <p>Returned by {@link #buildChain(String, String, String, String, String)}.
+   */
+  private record ChainFixture(
+      PatternEdge firstEdge, PatternNode intermediateNode, PatternEdge downstreamEdge) {
+  }
+
+  /**
+   * Builds a structural chain fixture that matches {@code resolveChainedTarget}'s
+   * input contract: two consecutive PatternEdges with the method names given.
+   * All {@link SQLMatchPathItem}s and {@link SQLMethodCall}s are Mockito mocks
+   * stubbed so that {@code getMethodNameString()} returns the requested name.
+   *
+   * @param firstMethodName  method name on the first edge (e.g. {@code outE})
+   * @param secondMethodName method name on the second edge (e.g. {@code inV})
+   * @param sourceAlias      alias of the source vertex
+   * @param intermediateAlias alias of the intermediate edge alias
+   * @param targetAlias      alias of the downstream vertex
+   */
+  private ChainFixture buildChain(
+      String firstMethodName,
+      String secondMethodName,
+      String sourceAlias,
+      String intermediateAlias,
+      String targetAlias) {
+    var source = new PatternNode();
+    source.alias = sourceAlias;
+    var intermediate = new PatternNode();
+    intermediate.alias = intermediateAlias;
+    var target = new PatternNode();
+    target.alias = targetAlias;
+
+    var firstMethod = mock(SQLMethodCall.class);
+    stubMethodName(firstMethod, firstMethodName);
+
+    return buildChain(firstMethod, secondMethodName, source, intermediate, target);
+  }
+
+  /**
+   * Overload that accepts a pre-built {@link SQLMethodCall} for the first edge —
+   * useful when the test needs a non-standard method stubbing (e.g. null
+   * method name).
+   */
+  private ChainFixture buildChain(
+      SQLMethodCall firstMethod,
+      String secondMethodName,
+      String sourceAlias,
+      String intermediateAlias,
+      String targetAlias) {
+    var source = new PatternNode();
+    source.alias = sourceAlias;
+    var intermediate = new PatternNode();
+    intermediate.alias = intermediateAlias;
+    var target = new PatternNode();
+    target.alias = targetAlias;
+    return buildChain(firstMethod, secondMethodName, source, intermediate, target);
+  }
+
+  private ChainFixture buildChain(
+      SQLMethodCall firstMethod,
+      String secondMethodName,
+      PatternNode source,
+      PatternNode intermediate,
+      PatternNode target) {
+    var firstItem = mock(SQLMatchPathItem.class);
+    when(firstItem.getMethod()).thenReturn(firstMethod);
+
+    var firstEdge = new PatternEdge();
+    firstEdge.item = firstItem;
+    firstEdge.out = source;
+    firstEdge.in = intermediate;
+    source.out.add(firstEdge);
+    intermediate.in.add(firstEdge);
+
+    var secondMethod = mock(SQLMethodCall.class);
+    stubMethodName(secondMethod, secondMethodName);
+    var secondItem = mock(SQLMatchPathItem.class);
+    when(secondItem.getMethod()).thenReturn(secondMethod);
+
+    var downstreamEdge = new PatternEdge();
+    downstreamEdge.item = secondItem;
+    downstreamEdge.out = intermediate;
+    downstreamEdge.in = target;
+    intermediate.out.add(downstreamEdge);
+    target.in.add(downstreamEdge);
+
+    return new ChainFixture(firstEdge, intermediate, downstreamEdge);
+  }
 }
