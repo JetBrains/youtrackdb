@@ -19,15 +19,15 @@
  */
 package com.jetbrains.youtrackdb.internal.core.command.script;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLScriptEngine;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.TestUtilsFixture;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -47,7 +47,7 @@ import org.junit.Test;
  * branches only fire if an engine is externally injected into the wrong pool (not expressible
  * through the public API).
  */
-public class DatabaseScriptManagerTest extends DbTestBase {
+public class DatabaseScriptManagerTest extends TestUtilsFixture {
 
   private ScriptManager scriptManager;
 
@@ -85,10 +85,15 @@ public class DatabaseScriptManagerTest extends DbTestBase {
       dbm.releaseEngine("sql", first);
       final var second = dbm.acquireEngine(session, "sql");
       try {
-        // ResourcePool should return the same instance since it is the only one in the pool.
-        assertNotNull(second);
-        // Pool may recreate on reusability check false; for our "sql" case reuseResource=true.
-        assertEquals(first.getClass(), second.getClass());
+        // TB3 fix: pin instance identity — assertEquals(first.getClass(), second.getClass())
+        // passed even if the pool created a fresh engine every time (class equality always
+        // holds for two SQLScriptEngine instances). assertSame is the observable proof that
+        // ResourcePool returned the previously-released entry (reuseResource=true branch).
+        assertSame(
+            "ResourcePool must return the previously-released instance "
+                + "(proves reuseResource=true and resources.poll found the entry)",
+            first,
+            second);
       } finally {
         dbm.releaseEngine("sql", second);
       }
@@ -112,8 +117,9 @@ public class DatabaseScriptManagerTest extends DbTestBase {
           // Distinct factories: sql produces SQLScriptEngine, javascript produces a JSR-223
           // or Graal polyglot engine (never SQLScriptEngine).
           assertTrue(sql instanceof SQLScriptEngine);
-          assertTrue("javascript engine must not be SQLScriptEngine",
-              !(js instanceof SQLScriptEngine));
+          assertFalse(
+              "javascript engine must not be SQLScriptEngine",
+              js instanceof SQLScriptEngine);
         } finally {
           dbm.releaseEngine("javascript", js);
         }
@@ -169,21 +175,25 @@ public class DatabaseScriptManagerTest extends DbTestBase {
   }
 
   @Test
-  public void releaseEngineForUnknownLanguageDoesNotThrowFromDbm() {
-    // DatabaseScriptManager.releaseEngine calls pooledEngines.get(language).returnResource(...)
-    // which will create a fresh pool for an unknown language and return null ResourcePool's
-    // default return-no-op. Documents the observed shape: no throw, no state change.
+  public void releaseEngineForLanguageNotPreviouslyAcquiredDoesNotThrow() {
+    // CQ1/TB4 fix: the previous version acquired+released "sql" on the SAME language — the
+    // foreign-language branch was never exercised. This version acquires "sql" then releases
+    // into a DIFFERENT, never-acquired language key. DatabaseScriptManager.releaseEngine
+    // calls pooledEngines.get(language).returnResource(...); the ResourcePoolFactory lazily
+    // creates a pool for the foreign key, and returnResource must tolerate an engine whose
+    // listener does not match the pool (the defensive reuseResource-returns-false branch).
     final var dbm = new DatabaseScriptManager(scriptManager, session.getDatabaseName());
     try {
-      // Acquire sql first so we have a real engine to try returning into a foreign-language
-      // pool. The returnResource path checks reuseResource internally; the engine does not
-      // match the "foreign-lang" pool's listener but the call must not throw.
       final var sqlEngine = dbm.acquireEngine(session, "sql");
-      try {
-        assertNotNull(sqlEngine);
-      } finally {
-        dbm.releaseEngine("sql", sqlEngine);
-      }
+      assertNotNull(sqlEngine);
+      // Release the sql engine into a pool keyed by a never-acquired language. Must not
+      // throw — the observable is absence-of-exception. The engine itself is not returned to
+      // the sql pool (intentional: we then also release it via the correct sql pool below to
+      // keep pool bookkeeping clean).
+      final var foreignLang = "never-acquired-" + System.nanoTime();
+      dbm.releaseEngine(foreignLang, sqlEngine);
+      // Cleanup through the correct pool so close() tears down bookkeeping without warnings.
+      dbm.releaseEngine("sql", sqlEngine);
     } finally {
       dbm.close();
     }
@@ -228,8 +238,5 @@ public class DatabaseScriptManagerTest extends DbTestBase {
     } finally {
       dbm.close();
     }
-    // No stored functions were created in this test, so snapshot is clean.
-    assertNull(session.getMetadata().getFunctionLibrary().getFunction(session,
-        "non-existent-sanity-" + System.nanoTime()));
   }
 }

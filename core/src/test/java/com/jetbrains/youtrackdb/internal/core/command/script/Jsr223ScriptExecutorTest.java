@@ -25,14 +25,14 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.script.transformer.ScriptTransformerImpl;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandScriptException;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.TestUtilsFixture;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
-import org.junit.After;
 import org.junit.Test;
 
 /**
@@ -55,16 +55,9 @@ import org.junit.Test;
  * ({@code !(scriptEngine instanceof Compilable)}) is not reachable today without injecting a
  * non-Compilable engine into the ScriptManager — documented as a Track 22 coverage gap.
  */
-public class Jsr223ScriptExecutorTest extends DbTestBase {
+public class Jsr223ScriptExecutorTest extends TestUtilsFixture {
 
   private Jsr223ScriptExecutor executor;
-
-  @After
-  public void rollbackIfLeftOpen() {
-    if (session != null && !session.isClosed() && session.isTxActive()) {
-      session.rollback();
-    }
-  }
 
   // ==========================================================================
   // execute(script, params) — happy path, positional + named overloads.
@@ -90,19 +83,22 @@ public class Jsr223ScriptExecutorTest extends DbTestBase {
 
   /**
    * {@code execute(session, script, Map)} must take the same compile/eval path as the
-   * positional overload and return the same result. Pins the alternate overload — uses a Map
-   * of bound variables that the compiled script reads by name.
+   * positional overload and return the same result. Pins the alternate overload — the compiled
+   * script MUST reference the bound parameter by name so a regression that silently dropped
+   * the params map would fail the eval with a {@code ReferenceError} (TB6 fix: previously the
+   * script was {@code "5 + 7"} which ignored params entirely, making the map-overload delegate
+   * unfalsifiable).
    */
   @Test
   public void executeMapArgsOverloadReturnsResult() {
     executor = new Jsr223ScriptExecutor("javascript", new ScriptTransformerImpl());
     final var params = new HashMap<String, Object>();
     params.put("x", 10);
-    try (var rs = executor.execute(session, "5 + 7", params)) {
+    try (var rs = executor.execute(session, "x + 7", params)) {
       assertNotNull(rs);
       assertTrue(rs.hasNext());
       final Number n = rs.next().getProperty("value");
-      assertEquals(12.0, n.doubleValue(), 0.0);
+      assertEquals(17.0, n.doubleValue(), 0.0);
     }
   }
 
@@ -192,26 +188,33 @@ public class Jsr223ScriptExecutorTest extends DbTestBase {
   /**
    * {@code executeFunction} with named args — each map entry becomes a positional argument in
    * iteration order. Pin that {@code invokeFunction} receives the args in map-entry-iteration
-   * order (deterministic for LinkedHashMap).
+   * order (deterministic for LinkedHashMap). TB5 fix: the body uses subtraction (a
+   * non-commutative operation) so an argument reordering regression (swapping a and b) would
+   * flip the result sign and fail the test — the earlier {@code return a + b;} form masked
+   * ordering bugs because 10+20 == 20+10.
    */
   @Test
   public void executeFunctionWithArgsPassesArgumentsPositionally() {
     executor = new Jsr223ScriptExecutor("javascript", new ScriptTransformerImpl());
 
     final var fname = "jsrExecFnWithArgs";
-    createStoredFunction(fname, List.of("a", "b"), "return a + b;");
+    createStoredFunction(fname, List.of("a", "b"), "return a - b;");
 
     final var ctx = new BasicCommandContext();
     ctx.setDatabaseSession(session);
 
-    final var args = new java.util.LinkedHashMap<Object, Object>();
-    args.put("a", 10);
-    args.put("b", 20);
+    final var args = new LinkedHashMap<Object, Object>();
+    args.put("a", 30);
+    args.put("b", 7);
 
     final var result = executor.executeFunction(ctx, fname, args);
-    // GraalJS returns a polyglot Double for numeric addition.
+    // GraalJS returns a polyglot Number for numeric subtraction; positional order must be
+    // preserved — a regression that swapped args would yield -23, not 23.
     assertNotNull(result);
-    assertEquals(30, ((Number) result).intValue());
+    assertEquals(
+        "positional order must be preserved: a(30) - b(7) = 23, not b - a = -23",
+        23,
+        ((Number) result).intValue());
   }
 
   /**
@@ -257,6 +260,11 @@ public class Jsr223ScriptExecutorTest extends DbTestBase {
    * {@link CommandScriptException} through the {@code catch (ScriptException e)} branch. Pin
    * the runtime-error wrap in the executeFunction path (distinct from the execute()
    * compilation-error wrap above).
+   *
+   * <p>TB7 fix: also pin the wrap preserves the original cause chain and the database name —
+   * a regression that unwrapped the exception or dropped {@code BaseException.wrapException}
+   * would yield a {@link CommandScriptException} with null cause, silently losing the
+   * diagnostic trail to the underlying {@link javax.script.ScriptException}.
    */
   @Test
   public void executeFunctionRuntimeFailureWrapsAsCommandScriptException() {
@@ -268,9 +276,20 @@ public class Jsr223ScriptExecutorTest extends DbTestBase {
     final var ctx = new BasicCommandContext();
     ctx.setDatabaseSession(session);
 
-    assertThrows(
-        CommandScriptException.class,
-        () -> executor.executeFunction(ctx, fname, new HashMap<>()));
+    final var ex =
+        assertThrows(
+            CommandScriptException.class,
+            () -> executor.executeFunction(ctx, fname, new HashMap<>()));
+    assertNotNull(
+        "runtime wrap must preserve the ScriptException as the cause chain",
+        ex.getCause());
+    // The wrap's constructor embeds the dbName in the exception's message context. At least
+    // one of dbName / function name must surface in the diagnostic message — a regression
+    // that collapsed both into a constant string would fail this pin.
+    final var msg = ex.getMessage() == null ? "" : ex.getMessage();
+    assertTrue(
+        "wrapped exception must echo dbName or function name for diagnostics: " + msg,
+        msg.contains(session.getDatabaseName()) || msg.contains(fname));
   }
 
   // ==========================================================================

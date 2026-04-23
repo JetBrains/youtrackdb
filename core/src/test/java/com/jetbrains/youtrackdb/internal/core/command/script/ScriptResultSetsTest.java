@@ -191,7 +191,7 @@ public class ScriptResultSetsTest extends DbTestBase {
    * Counts invocations without producing meaningful {@link Result}s. Used when only the
    * iteration contract is under test.
    */
-  private final class CountingTransformer implements ScriptTransformer {
+  private static final class CountingTransformer implements ScriptTransformer {
 
     int toResultCalls = 0;
 

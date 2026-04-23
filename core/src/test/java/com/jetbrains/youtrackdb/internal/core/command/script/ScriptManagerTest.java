@@ -38,6 +38,7 @@ import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandScriptException;
 import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
+import com.jetbrains.youtrackdb.internal.core.metadata.function.FunctionUtilWrapper;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLScriptEngine;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -46,6 +47,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.script.Bindings;
 import javax.script.ScriptEngine;
@@ -87,9 +91,18 @@ public class ScriptManagerTest extends DbTestBase {
    * Safety net: any package added by a failing test is removed here so sibling script tests
    * (JSScriptTest, etc.) do not observe leaked allowed-package state. No-op when the test
    * restored packages cleanly in its own finally block.
+   *
+   * <p>CQ4/TS5: also roll back any leftover transaction so an assertion that fails between
+   * {@code session.begin()} and {@code session.commit()} does not cascade-poison sibling
+   * tests inside this class (DbTestBase creates a fresh YouTrackDB per test, so cross-class
+   * leakage is bounded, but within-class leakage through the sequential fixture is still
+   * possible if a @Test throws mid-transaction).
    */
   @After
-  public void restoreAllowedPackages() {
+  public void restoreAllowedPackagesAndRollbackIfLeftOpen() {
+    if (session != null && !session.isClosed() && session.isTxActive()) {
+      session.rollback();
+    }
     if (scriptManager == null) {
       return;
     }
@@ -465,7 +478,11 @@ public class ScriptManagerTest extends DbTestBase {
     scriptManager.bind(null, bindings, null, null, null);
     // db null → bindLegacyDatabaseAndUtil skips "youtrackdb" but still binds "util".
     assertNull(bindings.get("youtrackdb"));
-    assertNotNull(bindings.get("util"));
+    // TB9: pin the concrete type rather than mere non-null — a regression that bound an
+    // arbitrary non-null object under "util" would pass assertNotNull silently.
+    assertTrue(
+        "util binding must be a FunctionUtilWrapper regardless of db nullness",
+        bindings.get("util") instanceof FunctionUtilWrapper);
   }
 
   @Test
@@ -591,6 +608,88 @@ public class ScriptManagerTest extends DbTestBase {
   }
 
   // ==========================================================================
+  // throwErrorMessage — TC1/TC6 falsifiable regression pins for boundary and
+  // malformed input behaviors. These pin the CURRENT observed shape; if Track 22
+  // hardens the error handler to throw CommandScriptException uniformly instead
+  // of surfacing NumberFormatException/StringIndexOutOfBoundsException, these
+  // tests will flip — rewrite them to pin the new wrap shape.
+  // ==========================================================================
+
+  /**
+   * TC1 pin (malformed Rhino pattern, non-numeric line): when the Rhino-fallback regex
+   * extracts a non-numeric segment between {@code "<Unknown Source>#"} and {@code ")"},
+   * {@code Integer.parseInt(...)} throws {@link NumberFormatException}. This pins the
+   * current observable — a Track 22 hardening that wraps the parse failure into a
+   * {@link CommandScriptException} would flip this test; rewrite at that time.
+   *
+   * <p>WHEN-FIXED: Track 22 — add guard around Integer.parseInt in
+   * {@code ScriptManager.throwErrorMessage} Rhino-fallback branch.
+   */
+  @Test
+  public void throwErrorMessageRhinoFallbackNonNumericLineThrowsNumberFormatException() {
+    final var lib = "A\nB\nC\n";
+    final var se = new ScriptException("<Unknown Source>#abc)");
+    assertThrows(
+        NumberFormatException.class,
+        () -> scriptManager.throwErrorMessage(session.getDatabaseName(), se, lib));
+  }
+
+  /**
+   * TC1 pin (malformed Rhino pattern, missing close paren): when the regex finds
+   * {@code "<Unknown Source>#"} but no closing {@code ")"}, {@code indexOf(...)} returns
+   * {@code -1} and {@code substring(pos+len, -1)} throws
+   * {@link StringIndexOutOfBoundsException}. Pin the current shape.
+   *
+   * <p>WHEN-FIXED: Track 22 — same hardening as
+   * {@link #throwErrorMessageRhinoFallbackNonNumericLineThrowsNumberFormatException}.
+   */
+  @Test
+  public void throwErrorMessageRhinoFallbackMissingCloseParenThrowsStringIndexOutOfBounds() {
+    final var lib = "A\nB\nC\n";
+    final var se = new ScriptException("<Unknown Source>#3");
+    assertThrows(
+        StringIndexOutOfBoundsException.class,
+        () -> scriptManager.throwErrorMessage(session.getDatabaseName(), se, lib));
+  }
+
+  /**
+   * TC6 pin: when the error line number exceeds the library length, the formatter's
+   * pointer-arrow branch is never emitted. Pin that the error message still carries the
+   * standard preamble (it does NOT include the {@code ">>>"} arrow marker because no
+   * matching line exists).
+   */
+  @Test
+  public void throwErrorMessageLineBeyondLibraryEndsOmitsArrowMarker() {
+    final var lib = "A\nB\nC\n";
+    final var se = new ScriptException("far beyond", "inline", 99);
+    final var ex =
+        assertThrows(
+            CommandScriptException.class,
+            () -> scriptManager.throwErrorMessage(session.getDatabaseName(), se, lib));
+    assertFalse(
+        "no arrow marker should be emitted when line is beyond library end: " + ex.getMessage(),
+        ex.getMessage().contains(">>>"));
+  }
+
+  /**
+   * TC6 pin (line 0 boundary): the {@code <= 0} guard on the error line number takes the
+   * no-line-number branch for line 0 (previously only negative values were tested). Pin the
+   * preamble shape without an arrow marker.
+   */
+  @Test
+  public void throwErrorMessageLineNumberZeroTakesNoLineBranch() {
+    final var lib = "A\nB\n";
+    final var se = new ScriptException("oops", "inline", 0);
+    final var ex =
+        assertThrows(
+            CommandScriptException.class,
+            () -> scriptManager.throwErrorMessage(session.getDatabaseName(), se, lib));
+    assertTrue(
+        "line 0 must take the no-line-info preamble: " + ex.getMessage(),
+        ex.getMessage().contains("Error on evaluation of the script library"));
+  }
+
+  // ==========================================================================
   // Database-engine pool lifecycle: acquire/release, close(dbName) removing
   // the pool, closeAll, and close for a non-existent db.
   // ==========================================================================
@@ -646,6 +745,83 @@ public class ScriptManagerTest extends DbTestBase {
     // is safe (second call is a no-op).
     scriptManager.closeAll();
     scriptManager.closeAll();
+  }
+
+  /**
+   * TX1 — concurrent first-access race pin for {@code acquireDatabaseEngine}. Two threads
+   * simultaneously call {@link ScriptManager#acquireDatabaseEngine} on the same DB name when
+   * no pool exists; the production code reads {@code dbManagers.get(name)} → null, constructs
+   * a fresh {@link DatabaseScriptManager}, and races on {@code putIfAbsent}. The loser must
+   * {@code close()} its orphan and fall through to the winner's entry. Pin the observable
+   * invariant: after both threads complete, {@code dbManagers} contains exactly ONE entry for
+   * the dbName — proving {@code putIfAbsent} admitted only the winner. The closer precise
+   * pin (counting close() calls on the loser) would require injecting a subclass into the
+   * factory, which is not exposed today — acceptable per T7's single-thread scope.
+   *
+   * <p>Covers: ScriptManager.acquireDatabaseEngine lines 248-263, {@code putIfAbsent} race
+   * + {@code prev != null} → {@code dbManager.close()} → {@code dbManager = prev} branch.
+   */
+  @Test
+  public void acquireDatabaseEngineConcurrentFirstAccessAdmitsSingleDbManager() throws Exception {
+    final var dbName = session.getDatabaseName();
+    // Ensure no pre-seeded entry so both threads race the null-check → putIfAbsent path.
+    scriptManager.close(dbName);
+    assertNull(
+        "pre-race: dbManagers must not contain the target dbName",
+        scriptManager.dbManagers.get(dbName));
+
+    final var ready = new CountDownLatch(2);
+    final var go = new CountDownLatch(1);
+    final var pool = Executors.newFixedThreadPool(2);
+    // Each racer needs its OWN DatabaseSessionEmbedded — the primary `session` is bound to
+    // the test thread and cannot be activated on a worker thread simultaneously. Open two
+    // fresh sessions against the same database; acquireDatabaseEngine reads
+    // session.getDatabaseName() to key dbManagers, so both end up racing on the same key.
+    final var sessionA = youTrackDB.open(dbName, "admin", adminPassword);
+    final var sessionB = youTrackDB.open(dbName, "admin", adminPassword);
+    final java.util.concurrent.atomic.AtomicReference<Throwable> failure =
+        new java.util.concurrent.atomic.AtomicReference<>();
+    final java.util.function.Consumer<DatabaseSessionEmbedded> racer =
+        racerSession -> {
+          try {
+            racerSession.activateOnCurrentThread();
+            ready.countDown();
+            go.await(5, TimeUnit.SECONDS);
+            final var engine = scriptManager.acquireDatabaseEngine(racerSession, "sql");
+            try {
+              assertNotNull("racer must observe a non-null engine", engine);
+            } finally {
+              scriptManager.releaseDatabaseEngine("sql", dbName, engine);
+            }
+          } catch (Throwable t) {
+            failure.compareAndSet(null, t);
+          }
+        };
+
+    try {
+      final var f1 = pool.submit(() -> racer.accept(sessionA));
+      final var f2 = pool.submit(() -> racer.accept(sessionB));
+      assertTrue("both racers must arrive at the barrier", ready.await(5, TimeUnit.SECONDS));
+      go.countDown();
+      f1.get(10, TimeUnit.SECONDS);
+      f2.get(10, TimeUnit.SECONDS);
+      if (failure.get() != null) {
+        throw new AssertionError("racer threw", failure.get());
+      }
+    } finally {
+      pool.shutdownNow();
+      assertTrue("race-pool must terminate", pool.awaitTermination(5, TimeUnit.SECONDS));
+      // Reactivate the primary session before touching it from the test thread.
+      session.activateOnCurrentThread();
+      sessionA.close();
+      sessionB.close();
+      session.activateOnCurrentThread();
+    }
+
+    // Post-race invariant: exactly one DatabaseScriptManager survived putIfAbsent for dbName.
+    assertNotNull(
+        "winner's DatabaseScriptManager must be present in dbManagers",
+        scriptManager.dbManagers.get(dbName));
   }
 
   @Test
