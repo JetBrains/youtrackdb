@@ -2163,7 +2163,7 @@ public class MatchExecutionPlannerMutationTest {
    * because no single endpoint is uniquely "downstream".
    */
   @Test
-  public void resolveChainedTarget_bothEbothV_precedence2_returnsNull() {
+  public void resolveChainedTarget_bothEbothV_precedence2_returnsNullClass() {
     var aClass = registerClass("A", 100);
     var bClass = registerClass("B", 100);
     var edgeClass = registerClass("VIKnows", 500);
@@ -2192,7 +2192,7 @@ public class MatchExecutionPlannerMutationTest {
    * fallback's {@code extractEdgeClassName} returns null, so class=null.
    */
   @Test
-  public void resolveChainedTarget_precedence2_missingEdgeClassName_returnsNull() {
+  public void resolveChainedTarget_precedence2_missingEdgeClassName_returnsNullClass() {
     // firstMethod has no params
     var chain = buildChain("outE", "inV", "post", "e", "tag");
 
@@ -2208,7 +2208,7 @@ public class MatchExecutionPlannerMutationTest {
    * precedence-2 returns null.
    */
   @Test
-  public void resolveChainedTarget_precedence2_edgeClassNotInSchema_returnsNull() {
+  public void resolveChainedTarget_precedence2_edgeClassNotInSchema_returnsNullClass() {
     when(schema.getClassInternal("Unknown")).thenReturn(null);
 
     var firstMethod = mockMethodWithBaseExpression("\"Unknown\"");
@@ -2227,7 +2227,7 @@ public class MatchExecutionPlannerMutationTest {
    * linked vertex class exists, precedence-2 returns null.
    */
   @Test
-  public void resolveChainedTarget_precedence2_missingLinkedProperty_returnsNull() {
+  public void resolveChainedTarget_precedence2_missingLinkedProperty_returnsNullClass() {
     var edgeClass = registerClass("VIHasTag", 500);
     when(edgeClass.getPropertyInternal("in")).thenReturn(null);
 
@@ -2247,7 +2247,7 @@ public class MatchExecutionPlannerMutationTest {
    * precedence-2 returns null.
    */
   @Test
-  public void resolveChainedTarget_precedence2_linkedClassNull_returnsNull() {
+  public void resolveChainedTarget_precedence2_linkedClassNull_returnsNullClass() {
     var edgeClass = registerClass("VIHasTag", 500);
     var inProp = mock(SchemaPropertyInternal.class);
     when(inProp.getLinkedClass()).thenReturn(null);
@@ -2269,7 +2269,7 @@ public class MatchExecutionPlannerMutationTest {
    * and must defensively return null (not NPE).
    */
   @Test
-  public void resolveChainedTarget_precedence2_nullSession_returnsNull() {
+  public void resolveChainedTarget_precedence2_nullSession_returnsNullClass() {
     var firstMethod = mockMethodWithBaseExpression("\"VIHasTag\"");
     stubMethodName(firstMethod, "outE");
     var chain = buildChain(firstMethod, "inV", "post", "e", "tag");
@@ -2322,6 +2322,56 @@ public class MatchExecutionPlannerMutationTest {
 
     assertThat(result).contains(
         new MatchExecutionPlanner.ChainedTarget("tag", "VIExplicitTag"));
+  }
+
+  /**
+   * Symmetric complement to {@link #resolveChainedTarget_precedence1_winsOverSchema}:
+   * the inE branch's precedence ordering is also pinned against a conflicting
+   * schema. Catches a mutation that selectively reorders precedence for the
+   * inbound chain only.
+   */
+  @Test
+  public void resolveChainedTarget_inE_precedence1_winsOverSchema() {
+    var postClass = registerClass("VIPost", 100);
+    var edgeClass = registerClass("VIHasTag", 500);
+    var outProp = mock(SchemaPropertyInternal.class);
+    when(outProp.getLinkedClass()).thenReturn(postClass);
+    when(edgeClass.getPropertyInternal("out")).thenReturn(outProp);
+
+    var aliasClasses = Map.of("post", "VIExplicitPost");
+
+    var firstMethod = mockMethodWithBaseExpression("\"VIHasTag\"");
+    stubMethodName(firstMethod, "inE");
+    var chain = buildChain(firstMethod, "outV", "tag", "e", "post");
+
+    var result = MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), aliasClasses, db);
+
+    assertThat(result).contains(
+        new MatchExecutionPlanner.ChainedTarget("post", "VIExplicitPost"));
+  }
+
+  /**
+   * Precedence-2 short-circuits cleanly when the immutable schema snapshot
+   * itself is null (happens in narrow storage-lifecycle windows —
+   * re-open, plugin init). Exercises the
+   * {@code inferDownstreamVertexClassFromEdge} branch guarding against that
+   * case, independent of the null-session, null-edge-class, and null-edge-
+   * class-in-schema branches.
+   */
+  @Test
+  public void resolveChainedTarget_precedence2_nullSchemaSnapshot_returnsNullClass() {
+    when(db.getMetadata().getImmutableSchemaSnapshot()).thenReturn(null);
+
+    var firstMethod = mockMethodWithBaseExpression("\"VIHasTag\"");
+    stubMethodName(firstMethod, "outE");
+    var chain = buildChain(firstMethod, "inV", "post", "e", "tag");
+
+    var result = MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db);
+
+    assertThat(result).contains(
+        new MatchExecutionPlanner.ChainedTarget("tag", null));
   }
 
   // ── resolveChainedTarget test helpers ──

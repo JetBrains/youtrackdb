@@ -2601,9 +2601,12 @@ public class MatchExecutionPlanner {
    *                       ({@code entry.getValue() ? edge.in : edge.out})
    * @param visitedEdges   DFS state — the chain is only detected while the
    *                       intermediate edge's follow-up is still unscheduled
-   * @param aliasClasses   alias → class map; accepted for parity with
-   *                       class-inference overloads and used by Step 2
-   * @param session        database session for schema access; used by Step 2
+   * @param aliasClasses   alias → class map; may be {@code null}, in which
+   *                       case the helper falls directly to the
+   *                       edge-schema-derivation fallback
+   * @param session        database session for schema access; may be
+   *                       {@code null}, in which case the fallback returns
+   *                       {@code null} for the class field
    * @return the downstream vertex descriptor when the chain signature
    *         matches, otherwise {@link Optional#empty()}
    */
@@ -2611,7 +2614,7 @@ public class MatchExecutionPlanner {
       PatternEdge edge,
       PatternNode neighbor,
       Set<PatternEdge> visitedEdges,
-      Map<String, String> aliasClasses,
+      @Nullable Map<String, String> aliasClasses,
       @Nullable DatabaseSessionEmbedded session) {
     if (edge.item == null || edge.item.getMethod() == null) {
       return Optional.empty();
