@@ -2122,6 +2122,27 @@ public class MatchExecutionPlanner {
           cost = applyTargetSelectivity(
               cost, neighbor.alias, entry.getKey(), entry.getValue(),
               aliasClasses, aliasFilters, estimatedRootEntries, session);
+          // Edge-method chain detection: when the current edge is the first hop of
+          // an outE→inV / inE→outV / bothE→bothV sequence, fold the downstream
+          // vertex's WHERE selectivity into the first edge's cost. The intermediate
+          // edge alias carries no vertex WHERE, so without this fold the branch
+          // sorts as "no selectivity" and loses to broader branches. This is the
+          // second factor of the independence multiplication; the first factor
+          // (the intermediate alias's own filter) was applied by the preceding
+          // applyTargetSelectivity call. Multiplication commutes and each call
+          // short-circuits to baseCost when its alias has no filter/class/
+          // row-estimate, so there is no double-counting.
+          var chain = resolveChainedTarget(
+              entry.getKey(), neighbor, visitedEdges, aliasClasses, session);
+          if (chain.isPresent()) {
+            cost = applyTargetSelectivity(
+                cost,
+                chain.get().effectiveTargetAlias(),
+                chain.get().effectiveTargetClass(),
+                aliasFilters,
+                estimatedRootEntries,
+                session);
+          }
           cost = applyDepthMultiplier(cost, entry.getKey());
         }
       }
