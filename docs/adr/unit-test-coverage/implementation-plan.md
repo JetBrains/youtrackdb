@@ -1205,11 +1205,40 @@ flowchart TD
   >   hygiene, TimeoutStep RETURN sendTimeout symmetry, RetryStep
   >   concurrent-tx integration-test note, InterruptResultSet mid-iteration
   >   interrupt, ParallelExecStep mid-sub-plan throws propagation).
+  > - **From Track 9 Phase A reviews (T1/R1, T2, T3, T4, R2):** Seven dead or
+  >   semi-dead command/script code regions pinned via `// WHEN-FIXED: Track 22`
+  >   markers in Track 9 Step 1 and Step 5; Track 22 deletes/simplifies:
+  >   (a) `CommandExecutorScript` (719 LOC — only reachable through
+  >   `SQLScriptEngine.eval(Reader, Bindings)` which has no production callers;
+  >   `CommandScript.execute` is a `List.of()` stub with no
+  >   `CommandManager.commandReqExecMap` routing);
+  >   (b) `CommandScript` (114 LOC — see (a));
+  >   (c) `CommandManager`'s class-based legacy dispatch cluster
+  >   (`commandReqExecMap` + `configCallbacks` + `registerExecutor(Class,Class,...)`
+  >   + `unregisterExecutor(Class)` + `getExecutor(CommandRequestInternal)` —
+  >   zero callers; the live path is `scriptExecutors` map + `getScriptExecutor`);
+  >   (d) `ScriptExecutorRegister` SPI (zero `META-INF/services` entries, zero
+  >   implementations in core);
+  >   (e) `ScriptInterceptor` + `ScriptInjection` SPIs if kept with zero-impl
+  >   register/unregister loops (consolidated SPI-wiring smoke tests will give
+  >   minimal positive coverage; remaining code is production-no-op);
+  >   (f) deprecated `ScriptManager.bind(...)` / `bindLegacyDatabaseAndUtil` +
+  >   `ScriptDocumentDatabaseWrapper` (261 LOC) + `ScriptYouTrackDbWrapper`
+  >   (42 LOC) — reachable only via `Jsr223ScriptExecutor.executeFunction` for
+  >   stored JS functions; Track 9 covers the live method subset via a stored-
+  >   function test and pins the rest;
+  >   (g) `SQLScriptEngine.eval(Reader, Bindings)` — routes to the dead
+  >   `CommandScript.execute` stub; only `eval(String, Bindings)` +
+  >   `convertToParameters` are live.
+  >   Also absorbed: `BasicCommandContext.copy()` null-child NPE (T4, Track 9
+  >   Step 2 pins via expect-NPE + WHEN-FIXED); `TraverseTest.java:56-72` dead
+  >   `activeTx*` local variables (T9, readability cleanup).
   >
   > **Scope:** ~6 steps covering transaction management, Gremlin
   > integration, engine lifecycle, exception/compression/config, remaining
   > small packages, and verification; plus ~2-3 steps absorbing the
-  > inherited DRY / cleanup scope above (Track 7 + Track 8 combined)
+  > inherited DRY / cleanup scope above (Track 7 + Track 8 + Track 9
+  > combined)
   > **Depends on:** Track 1
 
 ## Final Artifacts
