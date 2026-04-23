@@ -22,6 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.command.traverse;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
@@ -30,11 +31,13 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
-import java.util.ArrayDeque;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.Map;
+import java.util.NoSuchElementException;
+import org.junit.After;
 import org.junit.Test;
 
 /**
@@ -54,8 +57,36 @@ import org.junit.Test;
  */
 public class TraverseContextTest extends DbTestBase {
 
+  /**
+   * Safety net matching Track 8's {@code TestUtilsFixture.rollbackIfLeftOpen} — tests that throw
+   * mid-transaction otherwise cascade into an awkward {@code afterTest()} close-path error.
+   */
+  @After
+  public void rollbackIfLeftOpen() {
+    if (session != null && !session.isClosed() && session.isTxActive()) {
+      session.rollback();
+    }
+  }
+
   private Traverse newTraverse() {
     return new Traverse(session);
+  }
+
+  /**
+   * Seed {@code traverse} with a single empty-iterator {@link TraverseRecordSetProcess} (which
+   * auto-pushes itself in its constructor). Most context tests need exactly one pop-able frame,
+   * and the RSP is the simplest way to produce one. Returns the {@link TraverseContext} for
+   * fluent access.
+   */
+  private TraverseContext seedEmptyRsp(Traverse traverse) {
+    new TraverseRecordSetProcess(traverse,
+        Collections.<Identifiable>emptyList().iterator(),
+        TraversePath.empty(), session);
+    return traverse.getContext();
+  }
+
+  private int stackSize(TraverseContext ctx) {
+    return ((Collection<?>) ctx.getVariables().get("stack")).size();
   }
 
   /**
@@ -114,22 +145,23 @@ public class TraverseContextTest extends DbTestBase {
 
     assertEquals("the exception message pins the observable behavior",
         "Traverse stack is empty", ex.getMessage());
-    assertTrue("the NoSuchElementException cause is preserved for debugging",
-        ex.getCause() instanceof java.util.NoSuchElementException);
+    assertNotNull("cause must be preserved, not swallowed", ex.getCause());
+    assertEquals(
+        "cause class is exactly NoSuchElementException (not a subclass) for debugging clarity",
+        NoSuchElementException.class, ex.getCause().getClass());
   }
 
   /**
    * {@code pop(record)} where the record's RID is NOT in {@code history} must still drop the top
-   * frame (observable: memory shrinks by one). The missing-from-history branch only logs a warning
-   * — the pop itself proceeds. This pins the non-throwing observable side of T9's warn branch.
+   * frame (observable: memory shrinks by one). The missing-from-history branch emits a
+   * {@code LogManager.warn} whose content this test does NOT verify — capturing the log
+   * appender is a Track 22 follow-up (WHEN-FIXED: Track 22 — add LogManager appender capture to
+   * pin the exact warn message). Today the assertion is that pop proceeds non-destructively.
    */
   @Test
   public void popRemovesTopFrameEvenWhenRidMissingFromHistory() {
     var traverse = newTraverse();
-    new TraverseRecordSetProcess(traverse,
-        Collections.<Identifiable>emptyList().iterator(),
-        TraversePath.empty(), session);
-    var ctx = traverse.getContext();
+    var ctx = seedEmptyRsp(traverse);
 
     assertFalse("precondition: memory has one frame from RecordSetProcess", ctx.isEmpty());
 
@@ -146,10 +178,7 @@ public class TraverseContextTest extends DbTestBase {
   @Test
   public void popRemovesHistoryEntryAndTopFrameWhenRidMatches() {
     var traverse = newTraverse();
-    new TraverseRecordSetProcess(traverse,
-        Collections.<Identifiable>emptyList().iterator(),
-        TraversePath.empty(), session);
-    var ctx = traverse.getContext();
+    var ctx = seedEmptyRsp(traverse);
     var rid = new RecordId(0, 42L);
     ctx.addTraversed(rid, 0);
     assertTrue("precondition: RID is in history after addTraversed",
@@ -189,10 +218,7 @@ public class TraverseContextTest extends DbTestBase {
   @Test
   public void resetClearsMemoryButNotHistory() {
     var traverse = newTraverse();
-    new TraverseRecordSetProcess(traverse,
-        Collections.<Identifiable>emptyList().iterator(),
-        TraversePath.empty(), session);
-    var ctx = traverse.getContext();
+    var ctx = seedEmptyRsp(traverse);
     var rid = new RecordId(1, 1L);
     ctx.addTraversed(rid, 0);
     assertFalse("precondition: memory has a frame", ctx.isEmpty());
@@ -205,24 +231,22 @@ public class TraverseContextTest extends DbTestBase {
   }
 
   /**
-   * {@code setStrategy(BREADTH_FIRST)} swaps the internal memory to a {@code QueueMemory} but
-   * copies all pending processes forward (verified indirectly via {@code isEmpty}). Switching
-   * back to DFS is also non-destructive of pending frames.
+   * {@code setStrategy(BREADTH_FIRST)} swaps the internal memory to a {@code QueueMemory} while
+   * copying pending frames forward. Pin exact stack size (not just {@code !isEmpty()}) so a
+   * regression that accidentally drops frames during the swap is caught.
    */
   @Test
   public void setStrategyPreservesPendingProcessesAcrossStrategySwitches() {
     var traverse = newTraverse();
-    new TraverseRecordSetProcess(traverse,
-        Collections.<Identifiable>emptyList().iterator(),
-        TraversePath.empty(), session);
-    var ctx = traverse.getContext();
-    assertFalse("precondition: one RSP frame present", ctx.isEmpty());
+    var ctx = seedEmptyRsp(traverse);
+    int initial = stackSize(ctx);
+    assertEquals("precondition: exactly one RSP frame present", 1, initial);
 
     ctx.setStrategy(Traverse.STRATEGY.BREADTH_FIRST);
-    assertFalse("BFS switch must preserve the pending frame", ctx.isEmpty());
+    assertEquals("BFS switch preserves exact frame count", initial, stackSize(ctx));
 
     ctx.setStrategy(Traverse.STRATEGY.DEPTH_FIRST);
-    assertFalse("DFS switch must preserve the pending frame", ctx.isEmpty());
+    assertEquals("DFS switch preserves exact frame count", initial, stackSize(ctx));
   }
 
   /**
@@ -245,8 +269,8 @@ public class TraverseContextTest extends DbTestBase {
         vars.containsKey("stack"));
     assertEquals("depth value is 0 with no current process", 0, vars.get("depth"));
     assertEquals("path value is empty with no current process", "", vars.get("path"));
-    assertTrue("stack value is a collection",
-        vars.get("stack") instanceof java.util.Collection);
+    assertTrue("stack value is a Deque — downstream code relies on head/tail semantics",
+        vars.get("stack") instanceof Deque);
   }
 
   /**
@@ -271,24 +295,23 @@ public class TraverseContextTest extends DbTestBase {
   @Test
   public void getVariableStackReturnsCloneNotTheInternalDeque() {
     var traverse = newTraverse();
-    new TraverseRecordSetProcess(traverse,
-        Collections.<Identifiable>emptyList().iterator(),
-        TraversePath.empty(), session);
-    var ctx = traverse.getContext();
+    var ctx = seedEmptyRsp(traverse);
 
     var returned = ctx.getVariable("STACK");
 
-    assertTrue("STACK returns an ArrayDeque snapshot",
-        returned instanceof ArrayDeque);
-    @SuppressWarnings("unchecked")
-    var returnedDeque = (ArrayDeque<Object>) returned;
-    var countBefore = returnedDeque.size();
-    returnedDeque.clear();
+    // The contract is "returns a snapshot-like collection" — an ArrayDeque today via
+    // ((ArrayDeque) result).clone(). We accept any Collection to stay robust against a refactor
+    // that changes the snapshot type but preserves the read-only semantics.
+    assertTrue("STACK returns a Collection snapshot",
+        returned instanceof Collection);
+    var snapshot = (Collection<?>) returned;
+    var countBefore = snapshot.size();
+    snapshot.clear();
 
     assertFalse("clearing the returned snapshot must not empty the real context memory",
         ctx.isEmpty());
-    assertTrue("the snapshot had at least one element before clearing",
-        countBefore >= 1);
+    assertEquals("snapshot had exactly one frame (the seeded RSP) before clearing",
+        1, countBefore);
   }
 
   /**
@@ -300,8 +323,8 @@ public class TraverseContextTest extends DbTestBase {
   public void getVariableUnknownKeyDelegatesToSuperAndReturnsNull() {
     var ctx = new TraverseContext();
 
-    assertEquals("unknown variable delegates to BasicCommandContext and returns null",
-        null, ctx.getVariable("someUnknownKey"));
+    assertNull("unknown variable delegates to BasicCommandContext and returns null",
+        ctx.getVariable("someUnknownKey"));
   }
 
   /**
@@ -335,15 +358,10 @@ public class TraverseContextTest extends DbTestBase {
   @Test
   public void getVariablesStackReflectsProcessesPushedByProcessConstructors() {
     var traverse = newTraverse();
-    new TraverseRecordSetProcess(traverse,
-        Collections.<Identifiable>emptyList().iterator(),
-        TraversePath.empty(), session);
+    var ctx = seedEmptyRsp(traverse);
 
-    Object stack = traverse.getContext().getVariables().get("stack");
-
-    assertTrue(stack instanceof Collection);
     assertEquals("exactly one process is on the stack (the RSP)",
-        1, ((Collection<?>) stack).size());
+        1, stackSize(ctx));
   }
 
   /**
@@ -358,14 +376,13 @@ public class TraverseContextTest extends DbTestBase {
         Arrays.<Identifiable>asList(new RecordId(3, 1L), new RecordId(3, 2L)).iterator(),
         TraversePath.empty(), session);
     var ctx = traverse.getContext();
-    var initialSize = ((Collection<?>) ctx.getVariables().get("stack")).size();
+    var initialSize = stackSize(ctx);
 
     ctx.setStrategy(Traverse.STRATEGY.BREADTH_FIRST);
     ctx.setStrategy(Traverse.STRATEGY.BREADTH_FIRST);
     ctx.setStrategy(Traverse.STRATEGY.DEPTH_FIRST);
 
-    var finalSize = ((Collection<?>) ctx.getVariables().get("stack")).size();
     assertEquals("stack size is preserved across repeated strategy switches",
-        initialSize, finalSize);
+        initialSize, stackSize(ctx));
   }
 }

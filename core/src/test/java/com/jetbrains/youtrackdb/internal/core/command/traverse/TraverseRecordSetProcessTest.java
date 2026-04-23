@@ -20,17 +20,21 @@
 package com.jetbrains.youtrackdb.internal.core.command.traverse;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
+import org.junit.After;
 import org.junit.Test;
 
 /**
@@ -53,6 +57,20 @@ import org.junit.Test;
 public class TraverseRecordSetProcessTest extends DbTestBase {
 
   /**
+   * Safety net matching Track 8's {@code TestUtilsFixture.rollbackIfLeftOpen}.
+   */
+  @After
+  public void rollbackIfLeftOpen() {
+    if (session != null && !session.isClosed() && session.isTxActive()) {
+      session.rollback();
+    }
+  }
+
+  private int stackSize(Traverse traverse) {
+    return ((Collection<?>) traverse.getContext().getVariables().get("stack")).size();
+  }
+
+  /**
    * Constructor auto-push pin: creating an RSP adds exactly one frame to the context's memory.
    * This is the fundamental invariant {@link Traverse#target} relies on to make the Traverse
    * non-empty.
@@ -70,7 +88,7 @@ public class TraverseRecordSetProcessTest extends DbTestBase {
           TraversePath.empty(), session);
 
       assertEquals("context has exactly one frame (the RSP itself)",
-          1, ((java.util.Collection<?>) context.getVariables().get("stack")).size());
+          1, stackSize(traverse));
     } finally {
       session.rollback();
     }
@@ -88,14 +106,13 @@ public class TraverseRecordSetProcessTest extends DbTestBase {
       var rsp = new TraverseRecordSetProcess(traverse,
           Collections.<Identifiable>emptyList().iterator(),
           TraversePath.empty(), session);
-      var context = traverse.getContext();
-      assertEquals("precondition: 1 frame (the RSP)", 1,
-          ((java.util.Collection<?>) context.getVariables().get("stack")).size());
+      assertEquals("precondition: 1 frame (the RSP)", 1, stackSize(traverse));
 
       var result = rsp.process();
 
       assertNull("empty iterator → process returns null", result);
-      assertTrue("memory is empty after the RSP pops itself", context.isEmpty());
+      assertTrue("memory is empty after the RSP pops itself",
+          traverse.getContext().isEmpty());
     } finally {
       session.rollback();
     }
@@ -118,13 +135,14 @@ public class TraverseRecordSetProcessTest extends DbTestBase {
       var rsp = new TraverseRecordSetProcess(traverse,
           Collections.<Identifiable>singletonList(loaded).iterator(),
           TraversePath.empty(), session);
-      var context = traverse.getContext();
 
       var result = rsp.process();
 
       assertNull("process pushes a subprocess and returns null", result);
-      assertEquals("memory has RSP + new RP = 2 frames", 2,
-          ((java.util.Collection<?>) context.getVariables().get("stack")).size());
+      assertEquals("memory has RSP + new RP = 2 frames", 2, stackSize(traverse));
+      var top = traverse.getContext().next();
+      assertTrue("the pushed frame is a TraverseRecordProcess",
+          top instanceof TraverseRecordProcess);
     } finally {
       session.rollback();
     }
@@ -163,19 +181,24 @@ public class TraverseRecordSetProcessTest extends DbTestBase {
 
   /**
    * {@code toString} returns the target iterator's {@code toString} when non-null, {@code "-"}
-   * otherwise. Pins the debug contract used by the {@code stack} variable.
+   * otherwise. Both branches pinned to protect the debug contract used by the {@code stack}
+   * variable.
    */
   @Test
   public void toStringRendersTargetOrDashForNullTarget() {
     session.begin();
     try {
       var traverse = new Traverse(session);
-      var rsp = new TraverseRecordSetProcess(traverse,
-          Collections.<Identifiable>emptyList().iterator(),
-          TraversePath.empty(), session);
 
-      assertNotNull("toString is never null (target is non-null here)",
-          rsp.toString());
+      Iterator<Identifiable> it = Collections.<Identifiable>emptyList().iterator();
+      var rspWithIterator = new TraverseRecordSetProcess(traverse, it,
+          TraversePath.empty(), session);
+      assertEquals("non-null target renders as target.toString()",
+          it.toString(), rspWithIterator.toString());
+
+      var rspWithNull = new TraverseRecordSetProcess(traverse, null,
+          TraversePath.empty(), session);
+      assertEquals("null target renders as '-'", "-", rspWithNull.toString());
     } finally {
       session.rollback();
     }
@@ -190,8 +213,7 @@ public class TraverseRecordSetProcessTest extends DbTestBase {
     session.begin();
     try {
       var traverse = new Traverse(session);
-      var parent = TraversePath.empty().append(
-          new com.jetbrains.youtrackdb.internal.core.id.RecordId(10, 100L));
+      var parent = TraversePath.empty().append(new RecordId(10, 100L));
       var rsp = new TraverseRecordSetProcess(traverse,
           Collections.<Identifiable>emptyList().iterator(), parent, session);
 
@@ -212,10 +234,8 @@ public class TraverseRecordSetProcessTest extends DbTestBase {
     session.begin();
     try {
       var traverse = new Traverse(session);
-      var parent1 = TraversePath.empty().append(
-          new com.jetbrains.youtrackdb.internal.core.id.RecordId(1, 1L));
-      var parent2 = TraversePath.empty().append(
-          new com.jetbrains.youtrackdb.internal.core.id.RecordId(2, 2L));
+      var parent1 = TraversePath.empty().append(new RecordId(1, 1L));
+      var parent2 = TraversePath.empty().append(new RecordId(2, 2L));
 
       var rsp1 = new TraverseRecordSetProcess(traverse,
           Collections.<Identifiable>emptyList().iterator(), parent1, session);
@@ -224,8 +244,8 @@ public class TraverseRecordSetProcessTest extends DbTestBase {
 
       assertNotNull(rsp1.getPath());
       assertNotNull(rsp2.getPath());
-      assertTrue("distinct parents produce distinct path renders",
-          !rsp1.getPath().toString().equals(rsp2.getPath().toString()));
+      assertNotEquals("distinct parents produce distinct path renders",
+          rsp1.getPath().toString(), rsp2.getPath().toString());
     } finally {
       session.rollback();
     }
