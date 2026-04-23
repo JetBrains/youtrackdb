@@ -2633,8 +2633,12 @@ public class MatchExecutionPlanner {
     if (visitedEdges.contains(downstreamEdge)) {
       return Optional.empty();
     }
-    // Identity check: PatternEdge has no equals() override, but we still want
-    // referential identity to guard against accidental future changes.
+    // Defense-in-depth identity check. The size==1 guard above already
+    // rejects the common fragment-join case (a user reusing {as: e} across
+    // two MATCH fragments makes neighbor.in.size() >= 2). This check pins
+    // the residual case — a pattern graph whose intermediate has a single
+    // incoming edge that is not `edge` — which the DFS does not produce
+    // today but may via future refactorings of pattern construction.
     if (neighbor.in.iterator().next() != edge) {
       return Optional.empty();
     }
