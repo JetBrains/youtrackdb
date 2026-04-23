@@ -45,12 +45,11 @@ snapshot file; concurrent sessions do not collide.
 2. Apply the rendering rule below, in-memory. Under the split-file plan
    format (`implementation-backlog.md` present on disk per the D4
    detection rule in `conventions.md` §1.2), pending-track entries
-   (`[ ]` / `[>]`) are already thin on disk — the transform for those
-   rows is typically a no-op. The legacy-fallback row handles the
-   residual case where the plan is legacy (no backlog file) or
-   mid-migration (backlog file present but a pending entry still
-   carries `**What/How/Constraints/Interactions**` subsections) — see
-   the rendering rule below for details.
+   (`[ ]` / `[>]`) are already thin on disk — the transform for that
+   row is a no-op; the legacy-fallback row below handles the residual
+   case where the plan is legacy (no backlog file) or mid-migration
+   (backlog file present but a pending entry still carries
+   `**What/How/Constraints/Interactions**` subsections).
 3. Write the result to `/tmp/claude-code-plan-slim-$PPID.md`.
 
 This can be done in a single pass during the phase's startup. The main
@@ -98,7 +97,7 @@ Sub-agents run in separate processes and don't inherit the main agent's
    | `[ ]` (not started) or `[>]` (in progress) | Everything in the entry verbatim — title line, intro paragraph, `**Scope:**`, optional `**Depends on:**`. Under the split-file format (D4 — backlog file present), that is all the entry carries on disk; the transform is a no-op. | Nothing |
    | `[x]` (completed) | Title line, **intro paragraph** (the first quoted block before any `**Keyword**:` subsection), **Track episode**, **Strategy refresh** line (if present) | **What/How/Constraints/Interactions** subsections (legacy residuals), **Scope** line, **Depends on** line, **Step file** pointer line |
    | `[~]` (skipped) | Title line, **intro paragraph**, **Skipped:** reason, **Strategy refresh** line (if present) | **What/How/Constraints/Interactions** subsections, **Scope** line, **Depends on** line |
-   | **Legacy fallback** — any `[ ]`/`[>]` entry whose on-disk form still carries `**What/How/Constraints/Interactions**` subsections (legacy plan per D4, or mid-migration plan with a not-yet-migrated entry) | Title line, intro paragraph, `**Scope:**`, optional `**Depends on:**` | **What/How/Constraints/Interactions** subsections — stripped in-memory at snapshot time |
+   | **Legacy fallback** — trigger is the conjunction: the backlog-file-existence check on `implementation-backlog.md` (per D4) plus per-entry subsection presence. A `[ ]`/`[>]` entry satisfies the trigger when either the backlog file is absent (legacy plan) or the backlog file is present but the entry itself still carries `**What/How/Constraints/Interactions**` subsections (mid-migration plan with a not-yet-migrated entry). | Title line, intro paragraph, `**Scope:**`, optional `**Depends on:**` | **What/How/Constraints/Interactions** subsections — stripped in-memory at snapshot time |
 
    **Current track exception:** The track currently being executed is
    always `[ ]` or `[>]` in the plan file (it is not marked `[x]` until
