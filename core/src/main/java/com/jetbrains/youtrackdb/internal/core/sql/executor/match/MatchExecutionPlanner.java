@@ -2135,10 +2135,11 @@ public class MatchExecutionPlanner {
           var chain = resolveChainedTarget(
               entry.getKey(), neighbor, visitedEdges, aliasClasses, session);
           if (chain.isPresent()) {
+            var target = chain.get();
             cost = applyTargetSelectivity(
                 cost,
-                chain.get().effectiveTargetAlias(),
-                chain.get().effectiveTargetClass(),
+                target.effectiveTargetAlias(),
+                target.effectiveTargetClass(),
                 aliasFilters,
                 estimatedRootEntries,
                 session);

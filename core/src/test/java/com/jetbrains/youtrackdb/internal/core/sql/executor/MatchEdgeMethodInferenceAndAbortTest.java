@@ -169,15 +169,18 @@ public class MatchEdgeMethodInferenceAndAbortTest extends DbTestBase {
 
   /**
    * Verify that the planner infers the vertex class for inV() from the edge
-   * schema and applies index intersection, even without an explicit class:
-   * constraint on the vertex alias. Similar to the existing
+   * schema, applies index intersection, and schedules the selective branch
+   * before the broad one — all without an explicit class: constraint on the
+   * vertex alias. Similar to the existing
    * {@code testSelectivityInferredFromEdgeSchemaWithoutExplicitClass} but
    * using edge-method patterns (outE→inV instead of out).
    *
    * <p>Graph: posts with broad tags and a single selective tag. The selective
    * branch uses {@code name = 'targetTag'} which has an index on VITag.name.
-   * The planner must: (1) infer VITag from VIHasTag.in LINK, and (2) use the
-   * VITag_name index for intersection pre-filtering.
+   * The planner must: (1) infer VITag from VIHasTag.in LINK, (2) use the
+   * VITag_name index for intersection pre-filtering, and (3) fold the
+   * downstream vertex's WHERE into the first-edge cost via the edge-method
+   * chain-fold so the selective branch sorts before the broad one.
    */
   @Test
   public void testVertexClassInferenceEnablesIndexIntersection() {
@@ -254,7 +257,18 @@ public class MatchEdgeMethodInferenceAndAbortTest extends DbTestBase {
     String plan = explainResult.getFirst().getProperty("executionPlanAsString");
     assertNotNull(plan);
 
-    // Both aliases should appear in the plan
+    // Anchor that the query actually exercises the edge-method chain shape
+    // (.outE.inV) — a copy-paste refactor that downgraded the query to
+    // .out(...) would take the non-fold path, at which point the ordering
+    // assertion below could pass via unrelated heuristics without exercising
+    // the chain fold this test is meant to pin.
+    assertTrue(
+        "Query must exercise the .outE.inV chain shape that triggers the fold",
+        query.contains(".outE('VIHasTag').inV()"));
+
+    // Both aliases must be present — guards against a regression that drops
+    // a branch, which would otherwise make the selectivePos < broadPos check
+    // below vacuously true (indexOf returns -1 for missing substrings).
     int selectivePos = plan.indexOf("{selectiveTag}");
     int broadPos = plan.indexOf("{broadTag}");
     assertTrue(
