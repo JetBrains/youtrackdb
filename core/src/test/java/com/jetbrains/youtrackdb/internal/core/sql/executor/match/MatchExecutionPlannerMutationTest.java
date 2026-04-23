@@ -17,7 +17,11 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInterna
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaPropertyInternal;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.CostModel;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCompareOperator;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLEqualsOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
@@ -26,6 +30,8 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMathExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMethodCall;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLModifier;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNeOperator;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -2402,6 +2408,239 @@ public class MatchExecutionPlannerMutationTest {
 
     assertThat(result).contains(
         new MatchExecutionPlanner.ChainedTarget("tag", null));
+  }
+
+  // =========================================================================
+  // applyTargetSelectivity — refactor parity + new class-forced overload
+  // =========================================================================
+  //
+  // These tests guard the refactor that extracts the shared body of the
+  // existing 8-arg overload into {@code applyClassSelectivity} and adds a
+  // class-forced 6-arg overload used by the sort-loop's chain fold.
+  //
+  // Parity tests (8-arg ↔ 6-arg) prove the refactor preserves behaviour for
+  // the existing call site. Short-circuit tests on the 6-arg overload pin
+  // the null-class guard and the inherited schema / classCount / filter /
+  // estimate branches, so a mutation that drops any branch is caught.
+
+  // ── 6-arg overload: short-circuit on null pre-resolved class ──
+
+  /**
+   * Kills: "if (preResolvedTargetClass == null) return baseCost;" replaced
+   * with "if (true)" or "if (false)". A null class is the legitimate signal
+   * for {@code bothE→bothV} chains where edge-schema inference returns null
+   * and the user did not annotate the downstream alias — the overload must
+   * leave {@code baseCost} unchanged instead of NPEing on the schema lookup.
+   */
+  @Test
+  public void applyTargetSelectivity_classForced_nullClass_returnsBaseCost() {
+    double result = MatchExecutionPlanner.applyTargetSelectivity(
+        500.0, "tag", (String) null, Map.of(), Map.of("tag", 10L), db);
+    assertEquals(500.0, result, 0.0);
+  }
+
+  // ── 6-arg overload: inherited schema/classCount short-circuits ──
+
+  /**
+   * Kills: "if (schema == null || !schema.existsClass(...)) return baseCost;"
+   * mutated to swallow the guard. The new overload must delegate to the
+   * shared helper, which short-circuits when the schema has no matching
+   * class (transient during storage open / plugin init).
+   */
+  @Test
+  public void applyTargetSelectivity_classForced_classNotInSchema_returnsBaseCost() {
+    when(schema.existsClass("Missing")).thenReturn(false);
+
+    double result = MatchExecutionPlanner.applyTargetSelectivity(
+        500.0, "tag", "Missing", Map.of(), Map.of("tag", 10L), db);
+    assertEquals(500.0, result, 0.0);
+  }
+
+  /**
+   * Kills: "if (classCount <= 0) return baseCost;" replaced with a weaker
+   * or stronger predicate. An empty downstream class has no selectivity
+   * information — we must fall back to {@code baseCost} rather than divide
+   * by zero.
+   */
+  @Test
+  public void applyTargetSelectivity_classForced_classCountZero_returnsBaseCost() {
+    registerClass("Empty", 0);
+    when(schema.existsClass("Empty")).thenReturn(true);
+
+    double result = MatchExecutionPlanner.applyTargetSelectivity(
+        500.0, "tag", "Empty", Map.of(), Map.of("tag", 10L), db);
+    assertEquals(500.0, result, 0.0);
+  }
+
+  // ── 6-arg overload: filter-heuristic vs cardinality-ratio paths ──
+
+  /**
+   * Kills: "return baseCost * heuristic;" in the filter-heuristic branch
+   * replaced with a constant. With an equality filter on a 1000-row class,
+   * selectivity ≈ 1/1000, so adjusted ≈ 0.5. Also kills the
+   * "heuristic >= 0.0" guard: negating it would skip this path entirely.
+   */
+  @Test
+  public void applyTargetSelectivity_classForced_filterHeuristicPath() {
+    registerClass("Tag", 1000);
+    when(schema.existsClass("Tag")).thenReturn(true);
+
+    var filter = makeWhereWithOperator(new SQLEqualsOperator(-1));
+
+    double result = MatchExecutionPlanner.applyTargetSelectivity(
+        500.0, "tag", "Tag", Map.of("tag", filter), Map.of("tag", 100L), db);
+
+    // equality selectivity = 1/1000 → 500 × 0.001 = 0.5
+    assertEquals(0.5, result, 0.01);
+  }
+
+  /**
+   * Kills: "return baseCost * heuristic;" replaced for inequality. With a
+   * {@code <>} filter on a 1000-row class, selectivity = 999/1000. This
+   * complements the equality test so a mutation pinning heuristic to
+   * 1/classCount (equality only) is caught.
+   */
+  @Test
+  public void applyTargetSelectivity_classForced_filterHeuristicInequality() {
+    registerClass("Tag", 1000);
+    when(schema.existsClass("Tag")).thenReturn(true);
+
+    var filter = makeWhereWithOperator(new SQLNeOperator(-1));
+
+    double result = MatchExecutionPlanner.applyTargetSelectivity(
+        500.0, "tag", "Tag", Map.of("tag", filter), Map.of("tag", 100L), db);
+
+    // inequality selectivity = 999/1000 → 500 × 0.999 ≈ 499.5
+    assertEquals(499.5, result, 1.0);
+  }
+
+  /**
+   * Kills: the cardinality-ratio branch ("selectivity = targetEstimate /
+   * classCount; return baseCost × selectivity;") being removed or pinned.
+   * With no filter but an estimated 1-row target on a 1000-row class,
+   * adjusted = 500 × 0.001 = 0.5 — matches the heuristic result, but
+   * reaches it via the fallback path.
+   */
+  @Test
+  public void applyTargetSelectivity_classForced_cardinalityRatioPath() {
+    registerClass("Tag", 1000);
+    when(schema.existsClass("Tag")).thenReturn(true);
+
+    double result = MatchExecutionPlanner.applyTargetSelectivity(
+        500.0, "tag", "Tag", Map.of(), Map.of("tag", 1L), db);
+
+    // no filter → targetEstimate/classCount = 1/1000 → 500 × 0.001 = 0.5
+    assertEquals(0.5, result, 0.01);
+  }
+
+  /**
+   * Kills: the "targetEstimate == null → return baseCost" guard. Without
+   * a filter and without an estimate for the downstream alias, the overload
+   * must not NPE dereferencing a null Long and must not misattribute 0 as
+   * the estimate.
+   */
+  @Test
+  public void applyTargetSelectivity_classForced_noFilterNoEstimate_returnsBaseCost() {
+    registerClass("Tag", 1000);
+    when(schema.existsClass("Tag")).thenReturn(true);
+
+    double result = MatchExecutionPlanner.applyTargetSelectivity(
+        500.0, "tag", "Tag", Map.of(), Map.of(), db);
+
+    assertEquals(500.0, result, 0.0);
+  }
+
+  // ── 8-arg ↔ 6-arg parity (refactor regression guard) ──
+
+  /**
+   * The refactor routes both overloads through the same private helper;
+   * with the same resolved class, the filter-heuristic path must return
+   * identical numeric results. Kills any mutation that changes the
+   * arithmetic in only one overload after the refactor.
+   */
+  @Test
+  public void applyTargetSelectivity_overloadsAgree_filterHeuristicPath() {
+    registerClass("Tag", 1000);
+    when(schema.existsClass("Tag")).thenReturn(true);
+
+    var filter = makeWhereWithOperator(new SQLEqualsOperator(-1));
+    var edge = mockEdgeWithMethodAndParam("out", "\"HAS_TAG\"");
+
+    double legacy = MatchExecutionPlanner.applyTargetSelectivity(
+        500.0, "tag", edge, true,
+        Map.of("tag", "Tag"), Map.of("tag", filter), Map.of("tag", 100L), db);
+
+    double classForced = MatchExecutionPlanner.applyTargetSelectivity(
+        500.0, "tag", "Tag", Map.of("tag", filter), Map.of("tag", 100L), db);
+
+    assertEquals(legacy, classForced, 0.0);
+  }
+
+  /**
+   * Parity for the cardinality-ratio branch: both overloads must produce
+   * the identical double when the filter is absent and the estimate
+   * drives the selectivity.
+   */
+  @Test
+  public void applyTargetSelectivity_overloadsAgree_cardinalityRatioPath() {
+    registerClass("Tag", 1000);
+    when(schema.existsClass("Tag")).thenReturn(true);
+
+    var edge = mockEdgeWithMethodAndParam("out", "\"HAS_TAG\"");
+
+    double legacy = MatchExecutionPlanner.applyTargetSelectivity(
+        500.0, "tag", edge, true,
+        Map.of("tag", "Tag"), Map.of(), Map.of("tag", 1L), db);
+
+    double classForced = MatchExecutionPlanner.applyTargetSelectivity(
+        500.0, "tag", "Tag", Map.of(), Map.of("tag", 1L), db);
+
+    assertEquals(legacy, classForced, 0.0);
+  }
+
+  /**
+   * Parity for the null-class short-circuit: the 8-arg overload returns
+   * {@code baseCost} when {@code resolveTargetClass} returns null; the 6-arg
+   * overload returns {@code baseCost} when {@code preResolvedTargetClass}
+   * is null. Both paths must observe the same {@code baseCost}.
+   */
+  @Test
+  public void applyTargetSelectivity_overloadsAgree_nullClass_shortCircuit() {
+    // 8-arg path: no aliasClasses entry + no edge class → resolveTargetClass
+    // returns null. 6-arg path: pre-resolved class explicitly null.
+    var edge = mockEdgeWithMethod("out");
+
+    double legacy = MatchExecutionPlanner.applyTargetSelectivity(
+        500.0, "tag", edge, true,
+        Map.of(), Map.of(), Map.of("tag", 10L), db);
+
+    double classForced = MatchExecutionPlanner.applyTargetSelectivity(
+        500.0, "tag", (String) null, Map.of(), Map.of("tag", 10L), db);
+
+    assertEquals(500.0, legacy, 0.0);
+    assertEquals(500.0, classForced, 0.0);
+    assertEquals(legacy, classForced, 0.0);
+  }
+
+  // ── applyTargetSelectivity test helpers ──
+
+  /**
+   * Builds an AND-wrapped single-condition WHERE clause with the given
+   * binary operator. Mirrors {@code EstimateEdgeCostTest#makeWhereWithOperator}
+   * for consistent filter shapes across tests.
+   */
+  private SQLWhereClause makeWhereWithOperator(SQLBinaryCompareOperator op) {
+    var condition = new SQLBinaryCondition(-1);
+    condition.setLeft(new SQLExpression(-1));
+    condition.setOperator(op);
+    condition.setRight(new SQLExpression(-1));
+
+    var andBlock = new SQLAndBlock(-1);
+    andBlock.getSubBlocks().add(condition);
+
+    var where = new SQLWhereClause(-1);
+    where.setBaseExpression(andBlock);
+    return where;
   }
 
   // ── resolveChainedTarget test helpers ──
