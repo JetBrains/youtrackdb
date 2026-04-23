@@ -1690,6 +1690,46 @@ public class MatchExecutionPlannerMutationTest {
   }
 
   /**
+   * First edge method is {@code in} (vertex hop), not {@code inE}. Pins the
+   * {@code !"ine".equals(firstName)} branch so a mutation that drops it is
+   * caught. Complements {@code firstMethodIsOut_returnsEmpty}.
+   */
+  @Test
+  public void resolveChainedTarget_firstMethodIsIn_returnsEmpty() {
+    var chain = buildChain("in", "outV", "tag", "e", "post");
+
+    assertThat(MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
+        .isEmpty();
+  }
+
+  /**
+   * First edge method is {@code both} (vertex hop), not {@code bothE}. Pins
+   * the {@code !"bothe".equals(firstName)} branch.
+   */
+  @Test
+  public void resolveChainedTarget_firstMethodIsBoth_returnsEmpty() {
+    var chain = buildChain("both", "bothV", "a", "e", "b");
+
+    assertThat(MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
+        .isEmpty();
+  }
+
+  /**
+   * First edge method is a completely unknown name. Pins the whitelist's
+   * exhaustive rejection of non-edge methods.
+   */
+  @Test
+  public void resolveChainedTarget_firstMethodUnknown_returnsEmpty() {
+    var chain = buildChain("traverse", "inV", "post", "e", "tag");
+
+    assertThat(MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
+        .isEmpty();
+  }
+
+  /**
    * Intermediate node has zero outgoing edges — the chain has no downstream
    * vertex step. Return empty.
    */
@@ -1818,6 +1858,47 @@ public class MatchExecutionPlannerMutationTest {
   }
 
   /**
+   * The second-hop method is {@code in} (vertex hop), not {@code inV}.
+   * Pins the {@code !"inv".equals(secondName)} branch so a mutation that
+   * drops it is caught.
+   */
+  @Test
+  public void resolveChainedTarget_secondMethodIsIn_returnsEmpty() {
+    var chain = buildChain("outE", "in", "post", "e", "tag");
+
+    assertThat(MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
+        .isEmpty();
+  }
+
+  /**
+   * The second-hop method is {@code both} (vertex hop), not {@code bothV}.
+   * Pins the {@code !"bothv".equals(secondName)} branch.
+   */
+  @Test
+  public void resolveChainedTarget_secondMethodIsBoth_returnsEmpty() {
+    var chain = buildChain("outE", "both", "post", "e", "tag");
+
+    assertThat(MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
+        .isEmpty();
+  }
+
+  /**
+   * The second-hop method is an edge hop ({@code inE}) — wrong shape for
+   * the chain rule. Pins that the whitelist does not accept edge methods
+   * in the vertex-hop position.
+   */
+  @Test
+  public void resolveChainedTarget_secondMethodIsEdgeHop_returnsEmpty() {
+    var chain = buildChain("outE", "inE", "post", "e", "tag");
+
+    assertThat(MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
+        .isEmpty();
+  }
+
+  /**
    * The second-hop method name is null. Return empty.
    */
   @Test
@@ -1833,12 +1914,27 @@ public class MatchExecutionPlannerMutationTest {
   }
 
   /**
-   * The second-hop item (or its method) is null. Return empty.
+   * The second-hop item's method is null. Return empty.
    */
   @Test
   public void resolveChainedTarget_secondItemNullMethod_returnsEmpty() {
     var chain = buildChain("outE", "inV", "post", "e", "tag");
     when(chain.downstreamEdge().item.getMethod()).thenReturn(null);
+
+    assertThat(MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
+        .isEmpty();
+  }
+
+  /**
+   * The second-hop item itself is null. Pins the first operand of the
+   * {@code downstreamEdge.item == null || downstreamEdge.item.getMethod() == null}
+   * short-circuit so a mutation dropping the first null-check is caught.
+   */
+  @Test
+  public void resolveChainedTarget_secondItemNull_returnsEmpty() {
+    var chain = buildChain("outE", "inV", "post", "e", "tag");
+    chain.downstreamEdge().item = null;
 
     assertThat(MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
