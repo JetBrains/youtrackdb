@@ -193,6 +193,16 @@ jobs:
           # Copy to workspace for artifact upload
           cp "$RESULTS" "${{ github.workspace }}/results.json"
 
+      # Push happens BEFORE the regression check, intentionally. Two reasons:
+      #   1. The regressing point itself must be visible on the Grafana
+      #      dashboard so a human investigator can compare it to history.
+      #   2. The rolling-average check (vs 14-run avg) is the primary signal
+      #      for sustained regressions, and it already tolerates one noisy
+      #      outlier — so priming the next run's baseline with the bad point
+      #      does not mask a real regression, only (at worst) a small
+      #      run-over-run rebound on the next night.
+      # If this ordering ever needs to be revisited, do it together with the
+      # alerter's math, not on its own.
       - name: Push results to InfluxDB
         if: success()
         env:
@@ -208,6 +218,25 @@ jobs:
             --branch "${{ steps.commit.outputs.branch }}" \
             --commit-sha "${{ steps.commit.outputs.sha }}" \
             --timestamp "${{ steps.commit.outputs.timestamp }}"
+
+      - name: Check for benchmark regressions
+        # Intentionally no `|| true` — if the alerter crashes we want the
+        # workflow to fail loudly rather than silently drop regression signals.
+        if: success()
+        env:
+          INFLUXDB_URL: ${{ secrets.INFLUXDB_URL }}
+          INFLUXDB_TOKEN: ${{ secrets.INFLUXDB_TOKEN }}
+          ZULIP_API_KEY: ${{ secrets.ZULIP_API_KEY }}
+        run: |
+          python3 jmh-ldbc/jmh-regression-alert.py \
+            --input "${{ github.workspace }}/results.json" \
+            --influxdb-url "$INFLUXDB_URL" \
+            --influxdb-token "$INFLUXDB_TOKEN" \
+            --influxdb-org youtrackdb \
+            --influxdb-bucket jmh-benchmarks \
+            --branch "${{ steps.commit.outputs.branch }}" \
+            --commit-sha "${{ steps.commit.outputs.sha }}" \
+            --zulip-api-key "$ZULIP_API_KEY"
 
       - name: Upload results artifact
         if: always()
