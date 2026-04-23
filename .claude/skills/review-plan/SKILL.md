@@ -58,7 +58,8 @@ of the four sub-agent invocations below.
 
 ## Step 1: Consistency Review (interactive)
 
-1. Read the plan file, the design document, and the workflow documents.
+1. Read the plan file, the backlog file (resolved per the legacy-fallback
+   sentinel rule above), the design document, and the workflow documents.
    Also consult `planning.md` §Architecture Notes format and
    `design-document-rules.md` for the rules the review validates against.
 2. Spawn the consistency review sub-agent with the prompt from

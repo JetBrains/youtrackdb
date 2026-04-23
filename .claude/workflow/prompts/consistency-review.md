@@ -63,7 +63,7 @@ Inputs:
 - Backlog file: {backlog_path} (may be absent — when
   `implementation-backlog.md` does not exist on disk, track descriptions
   live in the plan file's checklist entries in legacy format; see the
-  per-entry fallback rule under "How to Review" step 2 for mid-migration
+  per-entry fallback rule in "How to Review" step 2 for mid-migration
   and legacy handling)
 - Design document: {design_path}
 - Previous findings: {previous_findings or "None — this is the first pass"}
