@@ -2442,6 +2442,41 @@ public class MatchExecutionPlannerMutationTest {
   // ── 6-arg overload: inherited schema/classCount short-circuits ──
 
   /**
+   * Pins the sort-loop invariant that {@code Double.MAX_VALUE} (the
+   * "unestimated" sentinel) survives the chain fold unchanged when the
+   * pre-resolved class is null. If the null-class short-circuit at the
+   * head of the 6-arg overload is weakened or removed, the caller at
+   * {@code MatchExecutionPlanner.updateScheduleStartingAt} would multiply
+   * MAX_VALUE by some finite selectivity, quietly breaking the stable-sort
+   * tiebreaker the sort comparator relies on for edges with no estimate.
+   */
+  @Test
+  public void applyTargetSelectivity_classForced_maxValueInputPreservedOnNullClass() {
+    double result =
+        MatchExecutionPlanner.applyTargetSelectivity(
+            Double.MAX_VALUE, "tag", (String) null, Map.of(), Map.of("tag", 10L), db);
+    assertEquals(Double.MAX_VALUE, result, 0.0);
+  }
+
+  /**
+   * Pins the same MAX_VALUE-preservation invariant when the pre-resolved
+   * class is present but the target lacks any filter/row-estimate: the
+   * cardinality-ratio path's {@code return baseCost} on null estimate
+   * must not silently convert MAX_VALUE into a finite cost. Complements
+   * the null-class test above.
+   */
+  @Test
+  public void applyTargetSelectivity_classForced_maxValueInputPreservedOnNoFilterNoEstimate() {
+    registerClass("Tag", 1000);
+    when(schema.existsClass("Tag")).thenReturn(true);
+
+    double result =
+        MatchExecutionPlanner.applyTargetSelectivity(
+            Double.MAX_VALUE, "tag", "Tag", Map.of(), Map.of(), db);
+    assertEquals(Double.MAX_VALUE, result, 0.0);
+  }
+
+  /**
    * Kills: mutation that drops the {@code !schema.existsClass(...)} half of
    * the {@code schema == null || !schema.existsClass(...)} guard. The new
    * overload must delegate to the shared helper, which short-circuits when
