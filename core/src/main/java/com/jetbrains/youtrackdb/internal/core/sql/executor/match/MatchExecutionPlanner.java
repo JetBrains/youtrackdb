@@ -2706,25 +2706,14 @@ public class MatchExecutionPlanner {
     if ("bothe".equals(firstName)) {
       return null;
     }
-    if (session == null) {
-      return null;
-    }
     var edgeClassName = extractEdgeClassName(method);
     if (edgeClassName == null) {
       return null;
     }
-    var schema = session.getMetadata().getImmutableSchemaSnapshot();
-    if (schema == null) {
-      return null;
-    }
-    var edgeClass = schema.getClassInternal(edgeClassName);
-    if (edgeClass == null) {
-      return null;
-    }
+    // outE('X').inV() reads the edge class's "in" linked vertex;
+    // inE('X').outV() reads "out".
     var linkedPropName = "oute".equals(firstName) ? "in" : "out";
-    var linkedProp = edgeClass.getPropertyInternal(linkedPropName);
-    return (linkedProp != null && linkedProp.getLinkedClass() != null)
-        ? linkedProp.getLinkedClass().getName() : null;
+    return lookupLinkedVertexClass(edgeClassName, linkedPropName, session);
   }
 
   /**
@@ -4772,7 +4761,7 @@ public class MatchExecutionPlanner {
         return null;
       }
       var prop = "inv".equals(dirName) ? "in" : "out";
-      return lookupLinkedVertexClass(currentEdgeClass, prop, context);
+      return lookupLinkedVertexClass(currentEdgeClass, prop, context.getDatabaseSession());
     }
 
     // out('X') / in('X'): infer the target vertex class from the edge LINK schema
@@ -4787,20 +4776,30 @@ public class MatchExecutionPlanner {
 
     // out('X') targets the "in" side; in('X') targets the "out" side
     var targetPropName = "out".equals(dirName) ? "in" : "out";
-    return lookupLinkedVertexClass(edgeClassName, targetPropName, context);
+    return lookupLinkedVertexClass(edgeClassName, targetPropName, context.getDatabaseSession());
   }
 
   /**
    * Looks up the linked vertex class from an edge class's LINK property.
+   * Defensive: returns {@code null} if the session or any link in the
+   * schema-lookup chain is missing, so this is the single source of truth
+   * for the "edge-class → linked-vertex-class" resolution (also used by
+   * {@link #inferDownstreamVertexClassFromEdge}).
    *
    * @param edgeClassName the edge class to look up
    * @param propName the property name to read — must be {@code "in"} or {@code "out"}
+   * @param session the database session for schema access; {@code null} yields {@code null}
    * @return the linked class name, or {@code null} if not found
    */
   @Nullable private static String lookupLinkedVertexClass(
-      String edgeClassName, String propName, CommandContext context) {
-    var session = context.getDatabaseSession();
+      String edgeClassName, String propName, @Nullable DatabaseSessionEmbedded session) {
+    if (session == null) {
+      return null;
+    }
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    if (schema == null) {
+      return null;
+    }
     var edgeClass = schema.getClassInternal(edgeClassName);
     if (edgeClass == null) {
       return null;
