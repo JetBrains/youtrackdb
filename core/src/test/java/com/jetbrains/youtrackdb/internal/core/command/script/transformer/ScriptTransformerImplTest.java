@@ -24,19 +24,24 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.core.command.script.ScriptResultSet;
 import com.jetbrains.youtrackdb.internal.core.command.script.transformer.result.MapTransformer;
 import com.jetbrains.youtrackdb.internal.core.command.script.transformer.result.ResultTransformer;
 import com.jetbrains.youtrackdb.internal.core.command.script.transformer.resultset.ResultSetTransformer;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.TestUtilsFixture;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.IteratorResultSet;
 import java.util.Arrays;
+import java.util.Date;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.graalvm.polyglot.Context;
 import org.graalvm.polyglot.HostAccess;
@@ -201,6 +206,38 @@ public class ScriptTransformerImplTest extends TestUtilsFixture {
     }
   }
 
+  /**
+   * Registry-asymmetry pin: {@link MapTransformer} is registered under {@code Map.class} in the
+   * {@code transformers} map (used by {@link ScriptTransformerImpl#toResult}), but NOT in the
+   * {@code resultSetTransformers} map (used by {@link ScriptTransformerImpl#toResultSet}). On
+   * the {@code toResultSet} path, {@code resultSetTransformers.get(LinkedHashMap.class)} returns
+   * {@code null} and a Map falls through to {@code defaultResultSet} as a singleton-iterator
+   * {@link ScriptResultSet}. Then on {@code next()}, {@link ScriptResultSet#next} forwards to
+   * {@code transformer.toResult(db, map)} — which DOES find the MapTransformer (via
+   * {@code transformers}) and unwraps the Map into a per-entry Result (key → property).
+   *
+   * <p>Net: the outer ResultSet is a singleton (one element), but the inner Result has per-entry
+   * properties rather than the Map as a single {@code "value"} property. Pins this two-step
+   * dispatch so a Track 22 refactor that (a) mirrors MapTransformer into {@code
+   * resultSetTransformers} to produce an N-entry stream, or (b) drops the transformers-map
+   * consultation from {@code ScriptResultSet.next}, is a deliberate, visible event.
+   */
+  @Test
+  public void toResultSetWithMapFallsThroughAndUnwrapsPerEntryOnNext() {
+    final Map<String, String> input = new LinkedHashMap<>();
+    input.put("k", "v");
+
+    try (var rs = transformer.toResultSet(session, input)) {
+      assertTrue(rs.hasNext());
+      final var only = rs.next();
+      assertEquals("Map entry must surface as a per-key property on the singleton Result",
+          "v", only.getProperty("k"));
+      assertNull("Map is NOT stored verbatim under 'value' — MapTransformer intercepts on next()",
+          only.getProperty("value"));
+      assertFalse("singleton-iterator — exactly one Result (not per-entry stream)", rs.hasNext());
+    }
+  }
+
   // ===========================================================================
   // toResultSet — polyglot Value branches (each exercises one isXxx check).
   // ===========================================================================
@@ -263,7 +300,7 @@ public class ScriptTransformerImplTest extends TestUtilsFixture {
    */
   @Test
   public void toResultSetPolyglotHostObjectUnwraps() {
-    final var payload = new java.util.Date(1_000_000L);
+    final var payload = new Date(1_000_000L);
     polyglotContext.getBindings("js").putMember("host", payload);
     final var hostVal = polyglotContext.eval("js", "host");
     assertTrue(
@@ -296,7 +333,7 @@ public class ScriptTransformerImplTest extends TestUtilsFixture {
     final var arrVal = polyglotContext.eval("js", "[1, 2, 3]");
     assertTrue(arrVal.hasArrayElements());
 
-    org.junit.Assert.assertThrows(
+    assertThrows(
         "pure JS array of primitives → asHostObject() CCE — WHEN-FIXED: Track 22",
         ClassCastException.class,
         () -> transformer.toResultSet(session, arrVal));
@@ -319,9 +356,9 @@ public class ScriptTransformerImplTest extends TestUtilsFixture {
    */
   @Test
   public void toResultSetPolyglotArrayOfHostObjectsProducesSingletonResultWithListProperty() {
-    final var a = new java.util.Date(100L);
-    final var b = new java.util.Date(200L);
-    final java.util.List<java.util.Date> hostList = java.util.Arrays.asList(a, b);
+    final var a = new Date(100L);
+    final var b = new Date(200L);
+    final List<Date> hostList = Arrays.asList(a, b);
     polyglotContext.getBindings("js").putMember("arr", hostList);
 
     final var arrVal = polyglotContext.eval("js", "arr");
@@ -330,8 +367,7 @@ public class ScriptTransformerImplTest extends TestUtilsFixture {
     try (var rs = transformer.toResultSet(session, arrVal)) {
       assertTrue(rs.hasNext());
       final var only = rs.next();
-      final java.util.List<com.jetbrains.youtrackdb.internal.core.query.Result> inner =
-          only.getProperty("value");
+      final List<Result> inner = only.getProperty("value");
       assertNotNull("array materialized list must be set as the singleton's value", inner);
       assertEquals(2, inner.size());
       assertSame("inner Result 0 wraps the first Date", a, inner.get(0).getProperty("value"));
@@ -345,9 +381,9 @@ public class ScriptTransformerImplTest extends TestUtilsFixture {
    * isNumber checks match) → the Value itself is kept and wrapped in {@code defaultResultSet},
    * which then calls {@code toResult(db, value)} on {@code next()}. Since Value is not a
    * {@code PropertyTypeInternal.isSingleValueType}, {@code ResultInternal.setProperty("value",
-   * fnVal)} throws a {@link com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException}.
-   * Pins the observed "Invalid property value for Result" error so Track 22's hardening
-   * (e.g., coerce Value via toString, or add Value.class transformer) is a visible change.
+   * fnVal)} throws a {@link CommandExecutionException}. Pins the observed "Invalid property
+   * value for Result" error so Track 22's hardening (e.g., coerce Value via toString, or add
+   * Value.class transformer) is a visible change.
    *
    * <p>WHEN-FIXED: Track 22 — either register a transformer for {@code org.graalvm.polyglot.Value}
    * or coerce via {@code Value.toString()} before storing.
@@ -365,9 +401,9 @@ public class ScriptTransformerImplTest extends TestUtilsFixture {
     final var rs = transformer.toResultSet(session, fnVal);
     assertTrue(rs.hasNext());
     try {
-      org.junit.Assert.assertThrows(
+      assertThrows(
           "Value fall-through fails at property-write (not single-value-type)",
-          com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException.class,
+          CommandExecutionException.class,
           rs::next);
     } finally {
       rs.close();

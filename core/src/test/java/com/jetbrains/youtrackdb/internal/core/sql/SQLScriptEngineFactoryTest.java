@@ -28,6 +28,7 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants;
+import javax.script.ScriptEngine;
 import org.junit.Test;
 
 /**
@@ -146,10 +147,10 @@ public class SQLScriptEngineFactoryTest {
   @Test
   public void getParameterReturnsNullForAnyKey() {
     final var f = new SQLScriptEngineFactory();
-    assertNull(f.getParameter(ScriptEngineKeys.NAME));
-    assertNull(f.getParameter(ScriptEngineKeys.LANGUAGE));
-    assertNull(f.getParameter(ScriptEngineKeys.LANGUAGE_VERSION));
-    assertNull(f.getParameter(ScriptEngineKeys.ENGINE));
+    assertNull(f.getParameter(ScriptEngine.NAME));
+    assertNull(f.getParameter(ScriptEngine.LANGUAGE));
+    assertNull(f.getParameter(ScriptEngine.LANGUAGE_VERSION));
+    assertNull(f.getParameter(ScriptEngine.ENGINE));
     assertNull(f.getParameter("arbitrary-unknown-key"));
     assertNull("null key must be handled without throwing", f.getParameter(null));
   }
@@ -270,17 +271,4 @@ public class SQLScriptEngineFactoryTest {
     assertFalse(engineA.getFactory() == engineB.getFactory());
   }
 
-  // ===========================================================================
-  // Tiny constant holder to keep getParameter keys named at the call site.
-  // ===========================================================================
-
-  private static final class ScriptEngineKeys {
-    static final String NAME = "javax.script.name";
-    static final String ENGINE = "javax.script.engine";
-    static final String LANGUAGE = "javax.script.language";
-    static final String LANGUAGE_VERSION = "javax.script.language_version";
-
-    private ScriptEngineKeys() {
-    }
-  }
 }

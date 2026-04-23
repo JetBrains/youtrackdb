@@ -29,7 +29,10 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.core.command.script.ScriptDatabaseWrapper;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.TestUtilsFixture;
 import java.io.StringReader;
@@ -38,7 +41,9 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import javax.annotation.Nonnull;
 import javax.script.Bindings;
+import javax.script.ScriptContext;
 import javax.script.ScriptException;
 import javax.script.SimpleBindings;
 import javax.script.SimpleScriptContext;
@@ -126,10 +131,10 @@ public class SQLScriptEngineTest extends TestUtilsFixture {
     final var engine = new SQLScriptEngine(new SQLScriptEngineFactory());
     final var b = new SimpleBindings();
     b.put("x", 1);
-    engine.setBindings(b, javax.script.ScriptContext.ENGINE_SCOPE);
+    engine.setBindings(b, ScriptContext.ENGINE_SCOPE);
 
     // getBindings returns a fresh SimpleBindings regardless of the just-set bindings.
-    final var got = engine.getBindings(javax.script.ScriptContext.ENGINE_SCOPE);
+    final var got = engine.getBindings(ScriptContext.ENGINE_SCOPE);
     assertNotSame(b, got);
     assertTrue(got.isEmpty());
   }
@@ -138,8 +143,8 @@ public class SQLScriptEngineTest extends TestUtilsFixture {
   @Test
   public void getBindingsReturnsFreshInstancePerCall() {
     final var engine = new SQLScriptEngine(new SQLScriptEngineFactory());
-    final var a = engine.getBindings(javax.script.ScriptContext.ENGINE_SCOPE);
-    final var b = engine.getBindings(javax.script.ScriptContext.ENGINE_SCOPE);
+    final var a = engine.getBindings(ScriptContext.ENGINE_SCOPE);
+    final var b = engine.getBindings(ScriptContext.ENGINE_SCOPE);
     assertNotNull(a);
     assertNotNull(b);
     assertNotSame("each getBindings(scope) call produces a new SimpleBindings", a, b);
@@ -173,9 +178,8 @@ public class SQLScriptEngineTest extends TestUtilsFixture {
         assertThrows(
             CommandExecutionException.class,
             () -> engine.eval("SELECT 1", new SimpleScriptContext()));
-    assertTrue(
-        "error message must name the missing-db condition",
-        ex.getMessage().contains("No database available in bindings"));
+    // Pin the exact message so a Track 22 rewrap into a different wording is a visible event.
+    assertEquals("No database available in bindings", ex.getMessage());
   }
 
   /** eval(Reader, ScriptContext) delegates to eval(Reader, null). */
@@ -186,7 +190,7 @@ public class SQLScriptEngineTest extends TestUtilsFixture {
         assertThrows(
             CommandExecutionException.class,
             () -> engine.eval(new StringReader("SELECT 1"), new SimpleScriptContext()));
-    assertTrue(ex.getMessage().contains("No database available in bindings"));
+    assertEquals("No database available in bindings", ex.getMessage());
   }
 
   /** eval(String) with no bindings path throws the same guard. */
@@ -376,6 +380,33 @@ public class SQLScriptEngineTest extends TestUtilsFixture {
     }
   }
 
+  /**
+   * Minimal non-self-identity {@link Identifiable} stub whose {@code getIdentity()} returns a
+   * DIFFERENT Java object than {@code this}. Required to make the convertToParameters
+   * RID-extraction branch observable: with a bare {@link RecordId}, {@code getIdentity()}
+   * returns {@code this} and the extract vs. verbatim branches collapse into the same
+   * observable. The wrapper keeps the stub minimal — {@code compareTo} delegates to the
+   * inner RID so the {@link Comparable} contract is satisfied by identity on the RID.
+   */
+  private static final class WrapperRid implements Identifiable {
+    private final RecordId inner;
+
+    WrapperRid(final RecordId inner) {
+      this.inner = inner;
+    }
+
+    @Override
+    @Nonnull
+    public RID getIdentity() {
+      return inner;
+    }
+
+    @Override
+    public int compareTo(final Identifiable o) {
+      return inner.compareTo(o.getIdentity());
+    }
+  }
+
   /** Branch 1: single Map argument is returned verbatim (by reference). */
   @Test
   public void convertToParametersSingleMapIsByReference() {
@@ -424,45 +455,69 @@ public class SQLScriptEngineTest extends TestUtilsFixture {
   }
 
   /**
-   * Branch 5: an {@link com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable} with
-   * a valid RID position gets its RID extracted and stored in place of the Identifiable.
-   * Pins the "use the RID only" optimization — the entity reference is replaced by its
-   * identity for parameter passing.
+   * Branch 5: an {@link Identifiable} with a valid RID position gets its RID extracted and
+   * stored in place of the Identifiable. Pins the "use the RID only" optimization — the
+   * entity reference is replaced by its identity for parameter passing.
    *
-   * <p>A {@link com.jetbrains.youtrackdb.internal.core.id.RecordId} is itself an Identifiable
-   * (RID extends Identifiable) whose {@code getIdentity()} returns {@code this}, so the output
-   * value equals the input by reference when isValidPosition is true.
+   * <p>Falsifiability requires a non-self-identity Identifiable: a bare {@link RecordId}
+   * returns {@code this} from {@code getIdentity()}, so the "extract-RID" and "store-verbatim"
+   * branches produce the same Java object and the dispatch is invisible. A {@link WrapperRid}
+   * stub whose {@code getIdentity()} returns a distinct RID object makes the branch
+   * observable: valid-position → out.get(0) == inner rid (wrapper replaced); invalid-position
+   * → out.get(0) == wrapper (verbatim).
    */
   @Test
-  public void convertToParametersIdentifiableWithValidPositionStoresRid() {
-    final var rid = new com.jetbrains.youtrackdb.internal.core.id.RecordId(3, 7);
-    assertTrue("precondition: position 7 is valid (not COLLECTION_POS_INVALID==-1)",
+  public void convertToParametersIdentifiableWithValidPositionExtractsRidAndDropsWrapper() {
+    final var rid = new RecordId(3, 7);
+    assertTrue(
+        "precondition: position 7 is valid (not COLLECTION_POS_INVALID==-1)",
         rid.isValidPosition());
+    final var wrapper = new WrapperRid(rid);
 
-    final var out = new ProbeEngine().call((Object) rid);
-    // A RID's getIdentity() returns itself — so branch 5 stores the RID under key 0. For a
-    // non-RID Identifiable the stored value would differ from the input; here the test
-    // observes that the positional insert targets the identity, not the wrapper.
-    assertSame("RID is extracted (for RecordId, identity == self)", rid, out.get(0));
+    final var out = new ProbeEngine().call((Object) wrapper);
+    assertSame("valid-position Identifiable must have its RID extracted", rid, out.get(0));
+    assertNotSame("wrapper itself must NOT be stored when the RID has a valid position",
+        wrapper, out.get(0));
   }
 
   /**
    * Branch 5 negative: an Identifiable whose RID has an INVALID position (-1) is stored
    * VERBATIM (the {@code isValidPosition} guard fails — no RID extraction). Pins the
-   * "keep as Identifiable" fallback so a future hardening of the branch that always extracts
-   * is a visible change.
+   * "keep as Identifiable" fallback so a future hardening that always extracts is a visible
+   * change.
    */
   @Test
-  public void convertToParametersIdentifiableWithInvalidPositionStoredVerbatim() {
-    final var invalidRid =
-        new com.jetbrains.youtrackdb.internal.core.id.RecordId(
-            3, com.jetbrains.youtrackdb.internal.core.db.record.record.RID.COLLECTION_POS_INVALID);
+  public void convertToParametersIdentifiableWithInvalidPositionKeepsWrapper() {
+    final var invalidRid = new RecordId(3, RID.COLLECTION_POS_INVALID);
     assertFalse(invalidRid.isValidPosition());
+    final var wrapper = new WrapperRid(invalidRid);
 
-    final var out = new ProbeEngine().call((Object) invalidRid);
-    // Even for invalid positions, the identity equals self, so same-identity check still
-    // holds — but the production code took the non-RID-extracted path. Pin via identity.
-    assertSame(invalidRid, out.get(0));
+    final var out = new ProbeEngine().call((Object) wrapper);
+    assertSame("invalid-position Identifiable must be stored verbatim (NOT its RID)",
+        wrapper, out.get(0));
+    assertNotSame("the inner RID must NOT replace the wrapper when position is invalid",
+        invalidRid, out.get(0));
+  }
+
+  /**
+   * Composition: an {@code Object[]} varargs-wrapper that contains an {@link Identifiable}
+   * with a valid position exercises BOTH the unwrap branch (line 108-113) AND the per-element
+   * RID extraction (line 119-124). Also pins the null-safe positional insertion inside the
+   * same unwrap loop. A refactor that bypasses either half would be caught here but missed by
+   * the isolated branch tests above.
+   */
+  @Test
+  public void convertToParametersArrayContainingIdentifiableAndNullUnwrapsAndExtractsRid() {
+    final var rid = new RecordId(3, 7);
+    final var wrapper = new WrapperRid(rid);
+    final var out =
+        new ProbeEngine().call(new Object[] {new Object[] {"a", wrapper, null}});
+    assertEquals(3, out.size());
+    assertEquals("a", out.get(0));
+    assertSame("RID extraction must run inside the unwrap loop", rid, out.get(1));
+    assertNotSame("wrapper itself must NOT survive the unwrap when position is valid",
+        wrapper, out.get(1));
+    assertNull("null element must be stored verbatim at index 2", out.get(2));
   }
 
   /**
