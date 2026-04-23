@@ -98,8 +98,8 @@ SCOPE INDICATORS
   track describing 8 distinct changes but claiming ~2 steps is suspect)
   *(cross-file: the scope indicator is in the plan-file entry; the track
   description is in the backlog for pending tracks per the per-entry
-  fallback rule, in the plan-file entry for completed/skipped tracks.
-  Compare both halves.)*
+  fallback rule above, in the plan-file entry for completed/skipped
+  tracks. Compare both halves.)*
 - Are there any full `- [ ] Step:` items or *(provisional)* markers?
   These should NOT be present — step decomposition is deferred to
   execution. *(plan-file only)*
@@ -128,7 +128,7 @@ TRACK SIZING
   distinct phases with internal sequencing? If so, splitting into
   dependent tracks would give better just-in-time decomposition.
   *(cross-file: Scope line in plan, description in backlog for pending
-  tracks per the per-entry fallback rule / plan-file entry for
+  tracks per the per-entry fallback rule above / plan-file entry for
   completed/skipped tracks — read both halves before concluding.)*
 
 ARCHITECTURE NOTES *(plan-file only — Component Map, Decision Records,
