@@ -9,6 +9,16 @@
         "iconColor": "rgba(0, 211, 255, 1)",
         "name": "Annotations & Alerts",
         "type": "dashboard"
+      },
+      {
+        "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+        "enable": true,
+        "hide": false,
+        "iconColor": "rgba(96, 160, 255, 1)",
+        "name": "Commits",
+        "target": {
+          "query": "from(bucket: \"jmh-benchmarks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"jmh_benchmark\")\n  |> filter(fn: (r) => r.suite == \"SingleThread\")\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r._field == \"score\")\n  |> group()\n  |> unique(column: \"commit_sha\")\n  |> keep(columns: [\"_time\", \"commit_sha\"])\n  |> rename(columns: {commit_sha: \"text\"})"
+        }
       }
     ]
   },
@@ -176,6 +186,19 @@
             "properties": [
               { "id": "displayName", "value": "Query" }
             ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "commit_sha" },
+            "properties": [
+              { "id": "displayName", "value": "Commit" },
+              { "id": "links", "value": [
+                {
+                  "title": "View commit on GitHub",
+                  "url": "https://github.com/JetBrains/youtrackdb/commit/${__value.raw}",
+                  "targetBlank": true
+                }
+              ]}
+            ]
           }
         ]
       },
@@ -186,7 +209,7 @@
       "targets": [
         {
           "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
-          "query": "base = from(bucket: \"jmh-benchmarks\")\n  |> range(start: -90d)\n  |> filter(fn: (r) => r._measurement == \"jmh_benchmark\")\n  |> filter(fn: (r) => r.suite == \"SingleThread\")\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r.query =~ /${query:regex}/)\n  |> filter(fn: (r) => r._field == \"score\")\n  |> group(columns: [\"query\"])\n  |> sort(columns: [\"_time\"])\n  |> tail(n: 15)\n\nscores = base\n  |> tail(n: 14)\n  |> keep(columns: [\"_time\", \"_value\", \"query\"])\n  |> group()\n\ndiffs = base\n  |> difference(columns: [\"_value\"])\n  |> keep(columns: [\"_time\", \"_value\", \"query\"])\n  |> group()\n\njoin(tables: {s: scores, d: diffs}, on: [\"_time\", \"query\"])\n  |> map(fn: (r) => ({\n      _time: r._time,\n      query: r.query,\n      score: r._value_s,\n      delta_pct: if (r._value_s - r._value_d) > 0.0 then r._value_d / (r._value_s - r._value_d) * 100.0 else 0.0\n  }))\n  |> sort(columns: [\"query\", \"_time\"], desc: false)",
+          "query": "base = from(bucket: \"jmh-benchmarks\")\n  |> range(start: -90d)\n  |> filter(fn: (r) => r._measurement == \"jmh_benchmark\")\n  |> filter(fn: (r) => r.suite == \"SingleThread\")\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r.query =~ /${query:regex}/)\n  |> filter(fn: (r) => r._field == \"score\")\n  |> group(columns: [\"query\"])\n  |> sort(columns: [\"_time\"])\n  |> tail(n: 15)\n\nscores = base\n  |> tail(n: 14)\n  |> keep(columns: [\"_time\", \"_value\", \"query\", \"commit_sha\"])\n  |> group()\n\ndiffs = base\n  |> difference(columns: [\"_value\"])\n  |> keep(columns: [\"_time\", \"_value\", \"query\"])\n  |> group()\n\njoin(tables: {s: scores, d: diffs}, on: [\"_time\", \"query\"])\n  |> map(fn: (r) => ({\n      _time: r._time,\n      query: r.query,\n      commit_sha: r.commit_sha,\n      score: r._value_s,\n      delta_pct: if (r._value_s - r._value_d) > 0.0 then r._value_d / (r._value_s - r._value_d) * 100.0 else 0.0\n  }))\n  |> sort(columns: [\"query\", \"_time\"], desc: false)",
           "refId": "A"
         }
       ]
@@ -235,6 +258,19 @@
             "properties": [
               { "id": "displayName", "value": "Query" }
             ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "commit_sha" },
+            "properties": [
+              { "id": "displayName", "value": "Commit" },
+              { "id": "links", "value": [
+                {
+                  "title": "View commit on GitHub",
+                  "url": "https://github.com/JetBrains/youtrackdb/commit/${__value.raw}",
+                  "targetBlank": true
+                }
+              ]}
+            ]
           }
         ]
       },
@@ -245,7 +281,7 @@
       "targets": [
         {
           "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
-          "query": "base = from(bucket: \"jmh-benchmarks\")\n  |> range(start: -90d)\n  |> filter(fn: (r) => r._measurement == \"jmh_benchmark\")\n  |> filter(fn: (r) => r.suite == \"MultiThread\")\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r.query =~ /${query:regex}/)\n  |> filter(fn: (r) => r._field == \"score\")\n  |> group(columns: [\"query\"])\n  |> sort(columns: [\"_time\"])\n  |> tail(n: 15)\n\nscores = base\n  |> tail(n: 14)\n  |> keep(columns: [\"_time\", \"_value\", \"query\"])\n  |> group()\n\ndiffs = base\n  |> difference(columns: [\"_value\"])\n  |> keep(columns: [\"_time\", \"_value\", \"query\"])\n  |> group()\n\njoin(tables: {s: scores, d: diffs}, on: [\"_time\", \"query\"])\n  |> map(fn: (r) => ({\n      _time: r._time,\n      query: r.query,\n      score: r._value_s,\n      delta_pct: if (r._value_s - r._value_d) > 0.0 then r._value_d / (r._value_s - r._value_d) * 100.0 else 0.0\n  }))\n  |> sort(columns: [\"query\", \"_time\"], desc: false)",
+          "query": "base = from(bucket: \"jmh-benchmarks\")\n  |> range(start: -90d)\n  |> filter(fn: (r) => r._measurement == \"jmh_benchmark\")\n  |> filter(fn: (r) => r.suite == \"MultiThread\")\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r.query =~ /${query:regex}/)\n  |> filter(fn: (r) => r._field == \"score\")\n  |> group(columns: [\"query\"])\n  |> sort(columns: [\"_time\"])\n  |> tail(n: 15)\n\nscores = base\n  |> tail(n: 14)\n  |> keep(columns: [\"_time\", \"_value\", \"query\", \"commit_sha\"])\n  |> group()\n\ndiffs = base\n  |> difference(columns: [\"_value\"])\n  |> keep(columns: [\"_time\", \"_value\", \"query\"])\n  |> group()\n\njoin(tables: {s: scores, d: diffs}, on: [\"_time\", \"query\"])\n  |> map(fn: (r) => ({\n      _time: r._time,\n      query: r.query,\n      commit_sha: r.commit_sha,\n      score: r._value_s,\n      delta_pct: if (r._value_s - r._value_d) > 0.0 then r._value_d / (r._value_s - r._value_d) * 100.0 else 0.0\n  }))\n  |> sort(columns: [\"query\", \"_time\"], desc: false)",
           "refId": "A"
         }
       ]
