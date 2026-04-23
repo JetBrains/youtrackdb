@@ -26,8 +26,12 @@ groups:
         condition: C
         for: 0s
         annotations:
+          # Use $values.A.Value (the reduced scalar) rather than $values.B.Value
+          # (the raw query series). Refid A is the single value that refId C's
+          # threshold actually compares against, so the annotation stays
+          # consistent with the firing decision even if B's shape changes.
           summary: >-
-            No JMH benchmark data for {{ printf "%.1f" $values.B.Value }}h
+            No JMH benchmark data for {{ printf "%.1f" $values.A.Value }}h
             on branch `develop` — the nightly pipeline may be broken.
           description: >-
             The freshest jmh_benchmark point on develop is older than 36h.

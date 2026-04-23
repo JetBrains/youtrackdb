@@ -14,8 +14,11 @@ or, with discovery:
 """
 
 import importlib.util
+import io
 import unittest
+import urllib.error
 from pathlib import Path
+from unittest import mock
 
 SCRIPT_PATH = Path(__file__).resolve().parent.parent / "jmh-regression-alert.py"
 _spec = importlib.util.spec_from_file_location("jmh_regression_alert", SCRIPT_PATH)
@@ -242,6 +245,40 @@ class TestFluxEscape(unittest.TestCase):
 
     def test_non_string_coerced(self):
         self.assertEqual(alerter._flux_escape(42), "42")
+
+
+class TestQueryInfluxdbErrorHandling(unittest.TestCase):
+    """Pin that an HTTP failure raises RuntimeError (instead of sys.exit).
+
+    Raising lets main() decide how to exit and, more importantly, keeps the
+    function reusable from tests. If this ever regresses to sys.exit(1), the
+    test suite itself would be terminated by the call — which is exactly the
+    failure mode we want to prevent.
+    """
+
+    def test_http_error_raises_runtime_error(self):
+        http_error = urllib.error.HTTPError(
+            url="http://example/api/v2/query",
+            code=503,
+            msg="Service Unavailable",
+            hdrs=None,
+            fp=io.BytesIO(b"influx is down"),
+        )
+        with mock.patch.object(alerter.urllib.request, "urlopen", side_effect=http_error):
+            with self.assertRaises(RuntimeError) as cm:
+                alerter.query_influxdb(
+                    url="http://example",
+                    token="t",
+                    org="o",
+                    bucket="b",
+                    suite="SingleThread",
+                    branch="develop",
+                    limit=14,
+                )
+        # Error message should carry the status code and body so operators
+        # can diagnose without rerunning with extra logging.
+        self.assertIn("503", str(cm.exception))
+        self.assertIn("influx is down", str(cm.exception))
 
 
 if __name__ == "__main__":

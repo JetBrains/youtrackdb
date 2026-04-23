@@ -90,11 +90,14 @@ from(bucket: "{_flux_escape(bucket)}")
         with urllib.request.urlopen(req) as resp:
             csv_data = resp.read().decode("utf-8")
     except urllib.error.HTTPError as e:
-        # Exit non-zero instead of returning {}: an empty history would
-        # masquerade as "no regressions" and silently drop alerts.
+        # Raise instead of returning {}: an empty history would masquerade as
+        # "no regressions" and silently drop alerts. Raising (rather than
+        # sys.exit) keeps this function reusable and unit-testable — main()
+        # translates the exception into a non-zero process exit.
         body_text = e.read().decode("utf-8", errors="replace")
-        print(f"InfluxDB query failed: {e.code} - {body_text}", file=sys.stderr)
-        sys.exit(1)
+        raise RuntimeError(
+            f"InfluxDB query failed: {e.code} - {body_text}"
+        ) from e
 
     return parse_influx_csv(csv_data)
 
@@ -364,15 +367,19 @@ def main():
     history = {}
     total_points_all_suites = 0
     for suite in ("SingleThread", "MultiThread"):
-        hist = query_influxdb(
-            args.influxdb_url,
-            args.influxdb_token,
-            args.influxdb_org,
-            args.influxdb_bucket,
-            suite,
-            args.branch,
-            args.history_size,
-        )
+        try:
+            hist = query_influxdb(
+                args.influxdb_url,
+                args.influxdb_token,
+                args.influxdb_org,
+                args.influxdb_bucket,
+                suite,
+                args.branch,
+                args.history_size,
+            )
+        except RuntimeError as e:
+            print(str(e), file=sys.stderr)
+            sys.exit(1)
         history[suite] = hist
         total_points = sum(len(v) for v in hist.values())
         total_points_all_suites += total_points
