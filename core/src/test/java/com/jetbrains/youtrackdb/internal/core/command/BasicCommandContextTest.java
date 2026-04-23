@@ -162,4 +162,53 @@ public class BasicCommandContextTest extends DbTestBase {
     // "ROOT.$greeting" should navigate to root, then resolve "greeting"
     assertEquals("hello", child.getVariable("$ROOT.$greeting"));
   }
+
+  /**
+   * Verifies the DB-dependent dot-path branch at {@code BasicCommandContext.java:184-188}:
+   * when {@code getVariable} receives a path like {@code "entity.fieldName"} and the prefix
+   * resolves to an Entity-like value (not a CommandContext and not {@code $PARENT}/{@code $ROOT}),
+   * the suffix is forwarded to {@link
+   * com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper#getFieldValue} with a live
+   * session, which reads the named property off the entity. The active transaction is required
+   * because {@code EntityHelper.getIdentifiableValue} calls {@code session.getActiveTransaction()}
+   * on the read path.
+   */
+  @Test
+  public void testGetVariableDotPathResolvesFieldOnEmbeddedEntity() {
+    session.begin();
+    try {
+      var entity = session.newEmbeddedEntity();
+      entity.setProperty("nickname", "Alice");
+
+      var ctx = new BasicCommandContext(session);
+      ctx.setVariable("person", entity);
+
+      // Forwards to EntityHelper.getFieldValue(session, entity, "nickname", ctx) — the
+      // session-required slow path. Cannot be covered without a DbTestBase.
+      assertEquals("Alice", ctx.getVariable("person.nickname"));
+    } finally {
+      if (session.isTxActive()) {
+        session.commit();
+      }
+    }
+  }
+
+  /**
+   * Verifies the DB-dependent {@code $PARENT.fieldName} branch at {@code BasicCommandContext.java:
+   * 159-161}: the suffix is resolved against the parent CommandContext itself via
+   * {@link com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper#getFieldValue}, which
+   * requires a session. On a parent that is also a {@link BasicCommandContext}, looking up a
+   * non-existent reflective field returns {@code null} rather than throwing — this pin locks in
+   * the observed shape so any change to raise an error is detected.
+   */
+  @Test
+  public void testParentDotPathEntityHelperReturnsNullForUnknownField() {
+    var parent = new BasicCommandContext(session);
+    var child = new BasicCommandContext(session);
+    parent.setChild(child);
+
+    // "$PARENT.noSuchField" hits the EntityHelper path on the parent object; there is no such
+    // field on BasicCommandContext, and the current behavior is to return null quietly.
+    assertNull(child.getVariable("$PARENT.noSuchField"));
+  }
 }
