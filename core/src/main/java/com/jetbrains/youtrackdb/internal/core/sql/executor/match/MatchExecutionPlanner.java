@@ -2659,8 +2659,69 @@ public class MatchExecutionPlanner {
     // effectiveTargetAlias is the downstream vertex alias — NOT neighbor.alias,
     // which is the intermediate edge alias and carries no filter.
     var effectiveTargetAlias = downstreamEdge.in.alias;
-    // Step 1: class inference lands in Step 2; leave null for now.
-    return Optional.of(new ChainedTarget(effectiveTargetAlias, null));
+
+    // Class-inference precedence:
+    //   1. aliasClasses.get(effectiveTargetAlias) — the normal path for
+    //      outE→inV / inE→outV because `addAliases` pre-populates via
+    //      `inferClassFromEdgeSchema` (MatchExecutionPlanner.java:4518). Also
+    //      the only path for bothE→bothV when the user wrote {class: ...}.
+    //   2. Defensive fallback for while-expression aliases skipped by
+    //      `addAliases` at the whileAliases filter (line 4495): derive from
+    //      the first edge's class name + direction. outE→inV uses the edge
+    //      class's `in` linked vertex class; inE→outV uses `out`;
+    //      bothE→bothV cannot infer (returns null).
+    String effectiveTargetClass = aliasClasses != null
+        ? aliasClasses.get(effectiveTargetAlias) : null;
+    if (effectiveTargetClass == null) {
+      effectiveTargetClass = inferDownstreamVertexClassFromEdge(
+          edge.item.getMethod(), firstName, session);
+    }
+    return Optional.of(new ChainedTarget(effectiveTargetAlias, effectiveTargetClass));
+  }
+
+  /**
+   * Precedence-2 fallback for {@link #resolveChainedTarget}: infers the
+   * downstream vertex class from the first edge's class name + chain
+   * direction. Mirrors the explicit-alias branch of
+   * {@link #resolveTargetClass} but is direction-aware for the chain shape:
+   * outbound ({@code oute}) reads the edge class's {@code in} linked vertex
+   * class, inbound ({@code ine}) reads {@code out}, and bidirectional
+   * ({@code bothe}) returns {@code null} because no single endpoint is
+   * uniquely "downstream".
+   *
+   * @param method     the first edge's method call
+   * @param firstName  the first method's name, lower-cased ({@code oute}/
+   *                   {@code ine}/{@code bothe})
+   * @param session    database session for schema access; if {@code null},
+   *                   the method returns {@code null}
+   * @return the inferred class name, or {@code null} if it cannot be derived
+   */
+  @Nullable private static String inferDownstreamVertexClassFromEdge(
+      SQLMethodCall method,
+      String firstName,
+      @Nullable DatabaseSessionEmbedded session) {
+    if ("bothe".equals(firstName)) {
+      return null;
+    }
+    if (session == null) {
+      return null;
+    }
+    var edgeClassName = extractEdgeClassName(method);
+    if (edgeClassName == null) {
+      return null;
+    }
+    var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    if (schema == null) {
+      return null;
+    }
+    var edgeClass = schema.getClassInternal(edgeClassName);
+    if (edgeClass == null) {
+      return null;
+    }
+    var linkedPropName = "oute".equals(firstName) ? "in" : "out";
+    var linkedProp = edgeClass.getPropertyInternal(linkedPropName);
+    return (linkedProp != null && linkedProp.getLinkedClass() != null)
+        ? linkedProp.getLinkedClass().getName() : null;
   }
 
   /**
