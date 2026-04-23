@@ -69,7 +69,11 @@ Read the slim plan snapshot at:
 This is a filtered view of the full plan — completed and skipped tracks
 appear as title + intro paragraph + track episode (or Skipped reason) +
 strategy refresh only; the current track and other not-started tracks
-are shown in full. If this file is missing, fall back to
+keep their title, intro paragraph, `**Scope:**`, and `**Depends on:**`.
+In legacy or mid-migration plans, pending-track
+`**What/How/Constraints/Interactions**` subsections are stripped
+in-memory at snapshot time (see the Legacy-fallback row of the
+rendering rule). If this file is missing, fall back to
   docs/adr/{dir-name}/implementation-plan.md
 (full plan).
 ```
@@ -92,12 +96,18 @@ Sub-agents run in separate processes and don't inherit the main agent's
 
 3. **For each track in the checklist:**
 
+   Rows are evaluated top-down; the Legacy-fallback row is the first
+   exception that fires when a `[ ]`/`[>]` entry still carries
+   `**What/How/Constraints/Interactions**` subsections. In a fully
+   migrated new-format plan it never matches and processing falls
+   through to the default `[ ]`/`[>]` row.
+
    | Status | Keep | Drop |
    |---|---|---|
-   | `[ ]` (not started) or `[>]` (in progress) | Everything in the entry verbatim — title line, intro paragraph, `**Scope:**`, optional `**Depends on:**`. Under the split-file format (D4 — backlog file present), that is all the entry carries on disk; the transform is a no-op. | Nothing |
+   | **Legacy fallback** (pre-empts the `[ ]`/`[>]` row) — trigger is the conjunction: the backlog-file-existence check on `implementation-backlog.md` (per D4) plus per-entry subsection presence. A `[ ]`/`[>]` entry satisfies the trigger when either the backlog file is absent (legacy plan) or the backlog file is present but the entry itself still carries `**What/How/Constraints/Interactions**` subsections (mid-migration plan with a not-yet-migrated entry). | Title line, intro paragraph, `**Scope:**`, optional `**Depends on:**` | **What/How/Constraints/Interactions** subsections — stripped in-memory at snapshot time |
+   | `[ ]` (not started) or `[>]` (in progress) — default row, applied when the Legacy-fallback row does not match | Everything in the entry verbatim — title line, intro paragraph, `**Scope:**`, optional `**Depends on:**`. Under the split-file format (D4 — backlog file present), that is all the entry carries on disk; the transform is a no-op. | Nothing |
    | `[x]` (completed) | Title line, **intro paragraph** (the first quoted block before any `**Keyword**:` subsection), **Track episode**, **Strategy refresh** line (if present) | **What/How/Constraints/Interactions** subsections (legacy residuals), **Scope** line, **Depends on** line, **Step file** pointer line |
    | `[~]` (skipped) | Title line, **intro paragraph**, **Skipped:** reason, **Strategy refresh** line (if present) | **What/How/Constraints/Interactions** subsections, **Scope** line, **Depends on** line |
-   | **Legacy fallback** — trigger is the conjunction: the backlog-file-existence check on `implementation-backlog.md` (per D4) plus per-entry subsection presence. A `[ ]`/`[>]` entry satisfies the trigger when either the backlog file is absent (legacy plan) or the backlog file is present but the entry itself still carries `**What/How/Constraints/Interactions**` subsections (mid-migration plan with a not-yet-migrated entry). | Title line, intro paragraph, `**Scope:**`, optional `**Depends on:**` | **What/How/Constraints/Interactions** subsections — stripped in-memory at snapshot time |
 
    **Current track exception:** The track currently being executed is
    always `[ ]` or `[>]` in the plan file (it is not marked `[x]` until
