@@ -255,12 +255,25 @@ public class MatchEdgeMethodInferenceAndAbortTest extends DbTestBase {
     assertNotNull(plan);
 
     // Both aliases should appear in the plan
+    int selectivePos = plan.indexOf("{selectiveTag}");
+    int broadPos = plan.indexOf("{broadTag}");
     assertTrue(
         "selectiveTag should appear in plan, but plan was:\n" + plan,
-        plan.contains("{selectiveTag}"));
+        selectivePos >= 0);
     assertTrue(
         "broadTag should appear in plan, but plan was:\n" + plan,
-        plan.contains("{broadTag}"));
+        broadPos >= 0);
+
+    // The edge-method chain fold (outE→inV) folds the downstream vertex's
+    // WHERE selectivity into the first-edge cost. The selective branch
+    // (name = 'targetTag') must schedule before the broad branch
+    // (name <> 'targetTag') — proves the planner sees their cost difference
+    // even though the filter is on the inV() target, not the outE() hop.
+    assertTrue(
+        "Selective edge (selectiveTag) should be scheduled before broad edge"
+            + " (broadTag) after the edge-method chain fold, but plan was:\n"
+            + plan,
+        selectivePos < broadPos);
 
     // The index intersection proves class inference worked end-to-end:
     // the planner inferred VITag from VIHasTag.in LINK, found the
