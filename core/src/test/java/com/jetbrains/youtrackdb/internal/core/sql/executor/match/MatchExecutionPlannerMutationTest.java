@@ -2442,10 +2442,11 @@ public class MatchExecutionPlannerMutationTest {
   // ── 6-arg overload: inherited schema/classCount short-circuits ──
 
   /**
-   * Kills: "if (schema == null || !schema.existsClass(...)) return baseCost;"
-   * mutated to swallow the guard. The new overload must delegate to the
-   * shared helper, which short-circuits when the schema has no matching
-   * class (transient during storage open / plugin init).
+   * Kills: mutation that drops the {@code !schema.existsClass(...)} half of
+   * the {@code schema == null || !schema.existsClass(...)} guard. The new
+   * overload must delegate to the shared helper, which short-circuits when
+   * the schema has no matching class (e.g. a stale pre-resolved class that
+   * no longer exists after a schema edit).
    */
   @Test
   public void applyTargetSelectivity_classForced_classNotInSchema_returnsBaseCost() {
@@ -2453,6 +2454,22 @@ public class MatchExecutionPlannerMutationTest {
 
     double result = MatchExecutionPlanner.applyTargetSelectivity(
         500.0, "tag", "Missing", Map.of(), Map.of("tag", 10L), db);
+    assertEquals(500.0, result, 0.0);
+  }
+
+  /**
+   * Kills: mutation that drops the {@code schema == null} half of the
+   * {@code schema == null || !schema.existsClass(...)} guard. During
+   * narrow storage-lifecycle windows (re-open, plugin init) the immutable
+   * snapshot may be null — calling {@code existsClass} on it would NPE, so
+   * the guard must short-circuit to {@code baseCost} first.
+   */
+  @Test
+  public void applyTargetSelectivity_classForced_schemaSnapshotNull_returnsBaseCost() {
+    when(db.getMetadata().getImmutableSchemaSnapshot()).thenReturn(null);
+
+    double result = MatchExecutionPlanner.applyTargetSelectivity(
+        500.0, "tag", "Tag", Map.of(), Map.of("tag", 10L), db);
     assertEquals(500.0, result, 0.0);
   }
 
@@ -2490,15 +2507,17 @@ public class MatchExecutionPlannerMutationTest {
     double result = MatchExecutionPlanner.applyTargetSelectivity(
         500.0, "tag", "Tag", Map.of("tag", filter), Map.of("tag", 100L), db);
 
-    // equality selectivity = 1/1000 → 500 × 0.001 = 0.5
-    assertEquals(0.5, result, 0.01);
+    // equality selectivity = 1/1000 → 500 × 0.001 = 0.5 (exact in IEEE-754)
+    assertEquals(0.5, result, DELTA);
   }
 
   /**
    * Kills: "return baseCost * heuristic;" replaced for inequality. With a
    * {@code <>} filter on a 1000-row class, selectivity = 999/1000. This
    * complements the equality test so a mutation pinning heuristic to
-   * 1/classCount (equality only) is caught.
+   * 1/classCount (equality only) is caught. Uses {@code DELTA} because the
+   * arithmetic is exact at this magnitude — a wider tolerance would admit
+   * off-by-one mutations in the {@code (n-1)/n} fraction.
    */
   @Test
   public void applyTargetSelectivity_classForced_filterHeuristicInequality() {
@@ -2510,8 +2529,8 @@ public class MatchExecutionPlannerMutationTest {
     double result = MatchExecutionPlanner.applyTargetSelectivity(
         500.0, "tag", "Tag", Map.of("tag", filter), Map.of("tag", 100L), db);
 
-    // inequality selectivity = 999/1000 → 500 × 0.999 ≈ 499.5
-    assertEquals(499.5, result, 1.0);
+    // inequality selectivity = 999/1000 → 500 × 0.999 = 499.5 (exact in IEEE-754)
+    assertEquals(499.5, result, DELTA);
   }
 
   /**
@@ -2529,8 +2548,37 @@ public class MatchExecutionPlannerMutationTest {
     double result = MatchExecutionPlanner.applyTargetSelectivity(
         500.0, "tag", "Tag", Map.of(), Map.of("tag", 1L), db);
 
-    // no filter → targetEstimate/classCount = 1/1000 → 500 × 0.001 = 0.5
-    assertEquals(0.5, result, 0.01);
+    // no filter → targetEstimate/classCount = 1/1000 → 500 × 0.001 = 0.5 (exact in IEEE-754)
+    assertEquals(0.5, result, DELTA);
+  }
+
+  /**
+   * Kills: "if (heuristic >= 0.0) return baseCost * heuristic;" mutated to
+   * always take the heuristic branch (applying -1.0 would negate the cost)
+   * or to swallow the threshold comparison. With an unestimable WHERE
+   * (empty AND block), {@code estimateFilterSelectivity} returns -1.0; the
+   * shared helper must fall through to the cardinality-ratio branch, not
+   * short-circuit on the filter or multiply by a negative heuristic.
+   */
+  @Test
+  public void
+      applyTargetSelectivity_classForced_heuristicUnestimable_fallsBackToCardinalityRatio() {
+    registerClass("Tag", 1000);
+    when(schema.existsClass("Tag")).thenReturn(true);
+
+    // Empty SQLAndBlock: unwrapSingleCondition returns the AND block (size != 1),
+    // which is not SQLBinaryCondition and has size 0 < 1 AND-sub-blocks, so
+    // estimateFilterSelectivity returns -1.0. The helper must fall through
+    // to the cardinality-ratio branch using estimatedRootEntries.
+    var where = new SQLWhereClause(-1);
+    where.setBaseExpression(new SQLAndBlock(-1));
+
+    double result = MatchExecutionPlanner.applyTargetSelectivity(
+        500.0, "tag", "Tag", Map.of("tag", where), Map.of("tag", 1L), db);
+
+    // heuristic = -1.0 → fallback to targetEstimate/classCount = 1/1000
+    //                  → 500 × 0.001 = 0.5 (exact in IEEE-754)
+    assertEquals(0.5, result, DELTA);
   }
 
   /**
