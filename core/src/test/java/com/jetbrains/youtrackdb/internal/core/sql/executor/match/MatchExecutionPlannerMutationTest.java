@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
+import static com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchTestWhereBuilders.makeWhereWithOperator;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.entry;
 import static org.junit.Assert.assertEquals;
@@ -19,8 +20,6 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.CostModel;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCompareOperator;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLEqualsOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
@@ -2571,9 +2570,11 @@ public class MatchExecutionPlannerMutationTest {
   /**
    * Kills: the cardinality-ratio branch ("selectivity = targetEstimate /
    * classCount; return baseCost × selectivity;") being removed or pinned.
-   * With no filter but an estimated 1-row target on a 1000-row class,
-   * adjusted = 500 × 0.001 = 0.5 — matches the heuristic result, but
-   * reaches it via the fallback path.
+   * Uses an estimated 100-row target on a 1000-row class so the expected
+   * value (50.0) is distinct from the filter-heuristic test's 0.5 — lets a
+   * reader verify at a glance which branch produced the result, and lets a
+   * mutation that swapped the heuristic and cardinality-ratio branches be
+   * caught by either test individually rather than only by their combination.
    */
   @Test
   public void applyTargetSelectivity_classForced_cardinalityRatioPath() {
@@ -2581,10 +2582,10 @@ public class MatchExecutionPlannerMutationTest {
     when(schema.existsClass("Tag")).thenReturn(true);
 
     double result = MatchExecutionPlanner.applyTargetSelectivity(
-        500.0, "tag", "Tag", Map.of(), Map.of("tag", 1L), db);
+        500.0, "tag", "Tag", Map.of(), Map.of("tag", 100L), db);
 
-    // no filter → targetEstimate/classCount = 1/1000 → 500 × 0.001 = 0.5 (exact in IEEE-754)
-    assertEquals(0.5, result, DELTA);
+    // no filter → targetEstimate/classCount = 100/1000 → 500 × 0.1 = 50.0 (exact in IEEE-754)
+    assertEquals(50.0, result, DELTA);
   }
 
   /**
@@ -2638,8 +2639,11 @@ public class MatchExecutionPlannerMutationTest {
   /**
    * The refactor routes both overloads through the same private helper;
    * with the same resolved class, the filter-heuristic path must return
-   * identical numeric results. Kills any mutation that changes the
-   * arithmetic in only one overload after the refactor.
+   * identical numeric results. Anchoring the absolute value (0.5) in addition
+   * to the legacy==classForced parity kills mutations that alter the shared
+   * helper symmetrically (e.g. {@code baseCost * heuristic} flipped to
+   * {@code baseCost / heuristic}): the relative equality still holds across
+   * both overloads, but the absolute-value assertion fails.
    */
   @Test
   public void applyTargetSelectivity_overloadsAgree_filterHeuristicPath() {
@@ -2656,13 +2660,18 @@ public class MatchExecutionPlannerMutationTest {
     double classForced = MatchExecutionPlanner.applyTargetSelectivity(
         500.0, "tag", "Tag", Map.of("tag", filter), Map.of("tag", 100L), db);
 
+    // equality selectivity = 1/1000 → 500 × 0.001 = 0.5 (exact in IEEE-754)
+    assertEquals(0.5, legacy, DELTA);
+    assertEquals(0.5, classForced, DELTA);
     assertEquals(legacy, classForced, 0.0);
   }
 
   /**
    * Parity for the cardinality-ratio branch: both overloads must produce
    * the identical double when the filter is absent and the estimate
-   * drives the selectivity.
+   * drives the selectivity. Anchors the absolute value (0.5) in addition to
+   * the legacy==classForced parity, for the same reason as the heuristic
+   * parity test above — catches symmetric mutations to the shared helper.
    */
   @Test
   public void applyTargetSelectivity_overloadsAgree_cardinalityRatioPath() {
@@ -2678,6 +2687,9 @@ public class MatchExecutionPlannerMutationTest {
     double classForced = MatchExecutionPlanner.applyTargetSelectivity(
         500.0, "tag", "Tag", Map.of(), Map.of("tag", 1L), db);
 
+    // no filter → targetEstimate/classCount = 1/1000 → 500 × 0.001 = 0.5 (exact in IEEE-754)
+    assertEquals(0.5, legacy, DELTA);
+    assertEquals(0.5, classForced, DELTA);
     assertEquals(legacy, classForced, 0.0);
   }
 
@@ -2703,27 +2715,6 @@ public class MatchExecutionPlannerMutationTest {
     assertEquals(500.0, legacy, 0.0);
     assertEquals(500.0, classForced, 0.0);
     assertEquals(legacy, classForced, 0.0);
-  }
-
-  // ── applyTargetSelectivity test helpers ──
-
-  /**
-   * Builds an AND-wrapped single-condition WHERE clause with the given
-   * binary operator. Mirrors {@code EstimateEdgeCostTest#makeWhereWithOperator}
-   * for consistent filter shapes across tests.
-   */
-  private SQLWhereClause makeWhereWithOperator(SQLBinaryCompareOperator op) {
-    var condition = new SQLBinaryCondition(-1);
-    condition.setLeft(new SQLExpression(-1));
-    condition.setOperator(op);
-    condition.setRight(new SQLExpression(-1));
-
-    var andBlock = new SQLAndBlock(-1);
-    andBlock.getSubBlocks().add(condition);
-
-    var where = new SQLWhereClause(-1);
-    where.setBaseExpression(andBlock);
-    return where;
   }
 
   // ── resolveChainedTarget test helpers ──

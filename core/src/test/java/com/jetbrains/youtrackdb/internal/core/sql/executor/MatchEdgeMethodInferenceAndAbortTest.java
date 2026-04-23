@@ -291,11 +291,21 @@ public class MatchEdgeMethodInferenceAndAbortTest extends DbTestBase {
 
     // The index intersection proves class inference worked end-to-end:
     // the planner inferred VITag from VIHasTag.in LINK, found the
-    // VITag_name index, and attached it as an intersection descriptor
+    // VITag_name index, and attached it as an intersection descriptor.
+    // Anchor the intersection to the SELECTIVE branch (name = 'targetTag')
+    // by asserting its position falls between {selectiveTag} and {broadTag};
+    // without this positional check, the assertion could pass even if the
+    // planner mis-attached the index to the broad branch.
+    int intersectionPos = plan.indexOf("(intersection: index VITag_name)");
     assertTrue(
         "Plan should show index intersection for VITag_name (proves class"
             + " inference), but plan was:\n" + plan,
-        plan.contains("(intersection: index VITag_name)"));
+        intersectionPos >= 0);
+    assertTrue(
+        "Index intersection should attach to the selective branch — the"
+            + " intersection marker must appear between {selectiveTag} and"
+            + " {broadTag} in the plan. Plan was:\n" + plan,
+        intersectionPos > selectivePos && intersectionPos < broadPos);
 
     session.commit();
   }

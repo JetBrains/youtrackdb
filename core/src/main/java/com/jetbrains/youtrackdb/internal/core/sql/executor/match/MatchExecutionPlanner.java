@@ -2469,6 +2469,14 @@ public class MatchExecutionPlanner {
    * the class from the edge schema's linked vertex property (e.g., {@code HAS_TAG.in}
    * linked to {@code Tag}).
    *
+   * <p>This 8-arg overload is used by the sort loop for single-hop edges such as
+   * {@code .out('X')}. For the edge-method chain pattern {@code .outE('X').inV()}
+   * (and its {@code inE→outV} / {@code bothE→bothV} variants), the sort loop adds
+   * a second, chain-aware call using the class-forced 6-arg overload below,
+   * which bypasses {@link #resolveTargetClass} and applies the downstream
+   * vertex's filter on top of the intermediate edge alias's filter — see the
+   * call site in {@link #updateScheduleStartingAt}.
+   *
    * @param baseCost             the fan-out-based traversal cost from
    *                             {@link #estimateEdgeCost}
    * @param targetAlias          alias of the target (neighbor) node
