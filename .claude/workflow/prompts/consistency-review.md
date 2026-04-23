@@ -62,7 +62,9 @@ Inputs:
 - Plan file: {plan_path}
 - Backlog file: {backlog_path} (may be absent — when
   `implementation-backlog.md` does not exist on disk, track descriptions
-  live in the plan file's checklist entries in legacy format)
+  live in the plan file's checklist entries in legacy format; see the
+  per-entry fallback rule under "How to Review" step 2 for mid-migration
+  and legacy handling)
 - Design document: {design_path}
 - Previous findings: {previous_findings or "None — this is the first pass"}
 
@@ -94,11 +96,11 @@ Inputs:
   `IndexStatistics.getHistogram()`", does that method exist?)
 - Do track descriptions reference code constructs (classes, methods, SPIs)
   that actually exist? Flag phantom references. *(Applies to the backlog
-  for pending tracks per the per-entry fallback rule under "Identify all
-  code references"; to the plan-file entry for completed/skipped tracks.
+  for pending tracks per the per-entry fallback rule in "How to Review"
+  step 2; to the plan-file entry for completed/skipped tracks.
   Architecture Notes, Component Map, Decision Records, Invariants, and
-  Integration Points bullets above remain plan-only per `conventions.md`
-  §1.2.)*
+  Integration Points bullets in this section remain plan-only per
+  `conventions.md` §1.2.)*
 - Are Invariants listed in the plan consistent with the current code
   behavior? (e.g., if the plan says "histogram updates occur inside WAL
   atomic operations", is that how the current code works, or is that an
@@ -111,9 +113,11 @@ Inputs:
 - Do the workflow diagrams align with the track descriptions? (e.g., if a
   track says "add snapshot reads for histograms", is there a corresponding
   flow in the design document?) *(For pending tracks, read track
-  descriptions from the backlog per the per-entry fallback rule; for
-  completed/skipped tracks, read from the plan-file entry. The Decision
-  Records bullet below remains plan-only.)*
+  descriptions from the backlog per the per-entry fallback rule in
+  "How to Review" step 2; for completed/skipped tracks, read from the
+  plan-file entry. The Component Map/Decision Records bullet above and
+  the Decision Records and scope-indicators bullets below remain
+  plan-only.)*
 - Do Decision Records in the plan correspond to design choices visible in
   the design document? Are there design choices in the diagrams that lack
   a Decision Record?
@@ -127,9 +131,9 @@ Inputs:
   design coverage? (e.g., a track describes complex concurrency behavior
   but the design document has no concurrency section) *(For pending
   tracks, the "track describes …" text lives in the backlog per the
-  per-entry fallback rule; for completed/skipped tracks, in the plan-file
-  entry. The orphan-scope and orphan-codebase-construct bullets below
-  remain plan-only.)*
+  per-entry fallback rule in "How to Review" step 2; for
+  completed/skipped tracks, in the plan-file entry. The orphan-scope
+  and orphan-codebase-construct bullets below remain plan-only.)*
 - Are there parts of the design document that no track covers? (e.g., the
   design shows a class that isn't mentioned in any track's scope)
 - Are there codebase constructs (existing classes, interfaces, SPIs) that
@@ -142,8 +146,8 @@ Inputs:
 
 1. **Read the plan, backlog, and design document** thoroughly.
 2. **Identify all code references** — every class, interface, method, SPI,
-   configuration parameter, or file path mentioned in any of the three
-   documents.
+   configuration parameter, or file path mentioned in the plan, backlog,
+   or design document.
 
    **Where track-description code references live (per-track, per-entry
    fallback):** For each **pending** track, read the track's detailed
