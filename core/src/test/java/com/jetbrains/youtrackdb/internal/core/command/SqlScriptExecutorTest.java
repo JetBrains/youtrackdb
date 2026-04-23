@@ -6,9 +6,11 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandScriptException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -16,6 +18,20 @@ import org.junit.Test;
  * Tests SQL script execution including plain scripts and parameterized scripts.
  */
 public class SqlScriptExecutorTest extends DbTestBase {
+
+  /**
+   * Rollback any transaction left open by a failing test method before {@link
+   * DbTestBase#afterTest()} drops the database. Track 7/8 precedent: failing script tests (e.g.,
+   * the {@code COMMIT RETRY 0} path) can abort mid-begin and leave a dangling transaction that
+   * cascade-poisons the close path. JUnit 4 runs subclass {@code @After} before superclass
+   * {@code @After}, so this runs ahead of teardown.
+   */
+  @After
+  public void rollbackIfLeftOpen() {
+    if (session != null && !session.isClosed() && session.isTxActive()) {
+      session.rollback();
+    }
+  }
 
   @Test
   public void testPlain() {
@@ -115,13 +131,14 @@ public class SqlScriptExecutorTest extends DbTestBase {
     // No trailing semicolon on the final insert — executor appends one.
     var script = "insert into V set name = 'auto-terminated'";
 
-    var result = session.computeScript("sql", script);
-    result.close();
+    try (var result = session.computeScript("sql", script)) {
+      // Consume nothing — insert runs on close of the execution plan.
+    }
     session.commit();
 
-    var query = session.query("SELECT FROM V WHERE name = 'auto-terminated'");
-    assertEquals(1, query.stream().count());
-    query.close();
+    try (var query = session.query("SELECT FROM V WHERE name = 'auto-terminated'")) {
+      assertEquals(1, query.stream().count());
+    }
   }
 
   /**
@@ -152,17 +169,17 @@ public class SqlScriptExecutorTest extends DbTestBase {
    */
   @Test
   public void testCommitRetryPositiveExecutesBlock() {
-    var script = "BEGIN;\n";
-    script += "insert into V set name = 'retry-ok';\n";
-    script += "COMMIT RETRY 3;\n";
+    final var script =
+        "BEGIN;\ninsert into V set name = 'retry-ok';\nCOMMIT RETRY 3;\n";
 
-    var result = session.computeScript("sql", script);
-    result.close();
+    try (var result = session.computeScript("sql", script)) {
+      // Statements execute as part of the plan — consuming the ResultSet is not required.
+    }
 
-    var query = session.query("SELECT FROM V WHERE name = 'retry-ok'");
-    assertEquals("retry block must execute exactly once when no conflict",
-        1, query.stream().count());
-    query.close();
+    try (var query = session.query("SELECT FROM V WHERE name = 'retry-ok'")) {
+      assertEquals("retry block must execute exactly once when no conflict",
+          1, query.stream().count());
+    }
   }
 
   /**
@@ -173,17 +190,17 @@ public class SqlScriptExecutorTest extends DbTestBase {
    */
   @Test
   public void testBeginRollbackRollsBackBufferedStatements() {
-    var script = "BEGIN;\n";
-    script += "insert into V set name = 'rolled-back';\n";
-    script += "ROLLBACK;\n";
+    final var script =
+        "BEGIN;\ninsert into V set name = 'rolled-back';\nROLLBACK;\n";
 
-    var result = session.computeScript("sql", script);
-    result.close();
+    try (var result = session.computeScript("sql", script)) {
+      // Empty consume — BEGIN/ROLLBACK plan is what's being tested.
+    }
 
-    var query = session.query("SELECT FROM V WHERE name = 'rolled-back'");
-    assertEquals("rolled-back record must not be visible",
-        0, query.stream().count());
-    query.close();
+    try (var query = session.query("SELECT FROM V WHERE name = 'rolled-back'")) {
+      assertEquals("rolled-back record must not be visible",
+          0, query.stream().count());
+    }
   }
 
   /**
@@ -193,45 +210,43 @@ public class SqlScriptExecutorTest extends DbTestBase {
   @Test
   public void testLetStatementDeclaresScriptVariableForReuse() {
     session.begin();
-    var script = "LET $label = 'via-let';\n";
-    script += "insert into V set name = $label;\n";
+    final var script =
+        "LET $label = 'via-let';\ninsert into V set name = $label;\n";
 
-    var result = session.computeScript("sql", script);
-    result.close();
+    try (var result = session.computeScript("sql", script)) {
+      // Plan execution is the observable; no row iteration needed.
+    }
     session.commit();
 
-    var query = session.query("SELECT FROM V WHERE name = 'via-let'");
-    assertEquals("LET alias must propagate into the next statement",
-        1, query.stream().count());
-    query.close();
+    try (var query = session.query("SELECT FROM V WHERE name = 'via-let'")) {
+      assertEquals("LET alias must propagate into the next statement",
+          1, query.stream().count());
+    }
   }
 
   /**
-   * {@code executeFunction} with an unknown function name must fail with a
-   * {@link com.jetbrains.youtrackdb.internal.core.exception.CommandScriptException} or NPE (the
-   * no-such-function path throws from {@code FunctionLibrary.getFunction}). Pin that the call
-   * does not silently return {@code null} — callers must see the failure rather than a phantom
-   * empty result.
+   * {@code executeFunction} with an unknown function name must fail visibly rather than silently
+   * returning {@code null}. The function-lookup path dereferences the result of {@code
+   * FunctionLibrary.getFunction} without a null guard, which today throws a
+   * {@link NullPointerException}. We pin that specific shape so a refactor that quietly returns
+   * {@code null} (or broadens to a different exception not rooted in function lookup) is caught.
    *
-   * <p>The exact exception class is not pinned (it varies by FunctionLibrary impl); what matters
-   * is that it throws. The test uses the SqlScriptExecutor registered for {@code "sql"} via the
-   * default {@link CommandManager}, obtained through the session's YouTrackDB root.
+   * <p>WHEN-FIXED: Track 22 — if {@code FunctionLibrary.getFunction} gains a null-guard and the
+   * unknown-name path starts throwing {@link CommandScriptException} with a message naming the
+   * missing function, flip this assertion to pin that instead; the NPE shape is observed state,
+   * not a desired contract.
    */
   @Test
   public void testExecuteFunctionOnUnknownNameThrows() {
     session.begin();
-    try {
-      var ctx = new BasicCommandContext(session);
-      var executor = new SqlScriptExecutor();
-      Map<Object, Object> args = new HashMap<>();
+    var ctx = new BasicCommandContext(session);
+    var executor = new SqlScriptExecutor();
+    Map<Object, Object> args = new HashMap<>();
 
-      // Must throw — either CommandScriptException (wrap) or NPE from FunctionLibrary.
-      assertThrows(RuntimeException.class,
-          () -> executor.executeFunction(ctx, "__definitelyNotDefined__", args));
-    } finally {
-      if (session.isTxActive()) {
-        session.commit();
-      }
-    }
+    // Observed shape today: NPE on the function.getName() call because getFunction returned null.
+    // The pin is a falsifiable regression: if we start returning null from executeFunction, the
+    // NPE stops being thrown and this test fails.
+    assertThrows(NullPointerException.class,
+        () -> executor.executeFunction(ctx, "__definitelyNotDefined__", args));
   }
 }

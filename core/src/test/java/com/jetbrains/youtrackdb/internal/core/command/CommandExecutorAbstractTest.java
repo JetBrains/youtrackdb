@@ -23,6 +23,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
@@ -31,7 +32,6 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext.TIMEOUT_STR
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import java.util.Collections;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.junit.Test;
@@ -137,9 +137,11 @@ public class CommandExecutorAbstractTest {
   public void checkInterruptionStaticExpiredReturnStrategyReturnsFalse()
       throws InterruptedException {
     var ctx = new BasicCommandContext();
-    // 1 ms timeout + RETURN — guarantees the next checkTimeout sees it as elapsed.
+    // 1 ms timeout + RETURN — sleep 50 ms comfortably exceeds the wall-clock granularity on
+    // all supported platforms (System.currentTimeMillis resolution can be ≥ 15 ms on Windows;
+    // a shorter sleep can round to a delta of 1 and fail the strict-greater-than comparison).
     ctx.beginExecution(1L, TIMEOUT_STRATEGY.RETURN);
-    Thread.sleep(3);
+    Thread.sleep(50);
 
     assertFalse("expired RETURN-strategy context must return false",
         CommandExecutorAbstract.checkInterruption(ctx));
@@ -154,9 +156,10 @@ public class CommandExecutorAbstractTest {
   public void checkInterruptionStaticExpiredExceptionStrategyThrows() throws InterruptedException {
     var ctx = new BasicCommandContext();
     ctx.beginExecution(1L, TIMEOUT_STRATEGY.EXCEPTION);
-    Thread.sleep(3);
+    // 50 ms exceeds wall-clock granularity on all supported platforms (see sibling RETURN test).
+    Thread.sleep(50);
 
-    var ex = org.junit.Assert.assertThrows(TimeoutException.class,
+    var ex = assertThrows(TimeoutException.class,
         () -> CommandExecutorAbstract.checkInterruption(ctx));
     assertTrue("message must name the timeout: " + ex.getMessage(),
         ex.getMessage().contains("timeout"));
@@ -271,12 +274,4 @@ public class CommandExecutorAbstractTest {
     assertEquals("StubExecutor [text=null]", exec.toString());
   }
 
-  /**
-   * Minimal concrete-subclass-local dummy that returns a single-element list from execute. Used
-   * only to satisfy {@link CommandExecutorAbstract}'s abstract surface — tests do not call it.
-   */
-  @SuppressWarnings("unused")
-  private static List<Object> unusedSentinel() {
-    return List.of();
-  }
 }

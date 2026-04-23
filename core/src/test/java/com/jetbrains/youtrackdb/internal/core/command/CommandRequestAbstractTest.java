@@ -319,6 +319,8 @@ public class CommandRequestAbstractTest {
 
   /**
    * Single {@code Object[]} arg is unwrapped (line 85-88) and each element keyed by its index.
+   * Keys must be {@link Integer} (auto-boxed from {@code int i} at line 102) — callers iterating
+   * the map rely on this type.
    */
   @Test
   public void convertToParametersUnwrapsSingleObjectArray() {
@@ -330,10 +332,17 @@ public class CommandRequestAbstractTest {
     assertEquals("x", converted.get(0));
     assertEquals(42, converted.get(1));
     assertNull(converted.get(2));
+    // Pin key-type: positional keys must be Integer so a refactor to String keys is caught.
+    assertEquals(java.util.Set.of(0, 1, 2), converted.keySet());
+    for (var k : converted.keySet()) {
+      assertTrue("positional key must be Integer, got " + k.getClass(),
+          k instanceof Integer);
+    }
   }
 
   /**
-   * Multiple positional scalar args produce a positional map keyed by index.
+   * Multiple positional scalar args produce a positional map keyed by {@link Integer} index.
+   * Pins both the positional layout AND the key type.
    */
   @Test
   public void convertToParametersBuildsPositionalMapFromScalars() {
@@ -343,6 +352,12 @@ public class CommandRequestAbstractTest {
     assertEquals("a", converted.get(0));
     assertEquals(2, converted.get(1));
     assertEquals(3.5, converted.get(2));
+    assertEquals("positional keys must be the full [0..N) range as Integers",
+        java.util.Set.of(0, 1, 2), converted.keySet());
+    for (var k : converted.keySet()) {
+      assertTrue("positional key must be Integer, got " + k.getClass(),
+          k instanceof Integer);
+    }
   }
 
   /**
