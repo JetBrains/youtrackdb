@@ -73,6 +73,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -2532,6 +2533,130 @@ public class MatchExecutionPlanner {
     var linkedProp = edgeClass.getPropertyInternal(linkedPropName);
     return (linkedProp != null && linkedProp.getLinkedClass() != null)
         ? linkedProp.getLinkedClass().getName() : null;
+  }
+
+  /**
+   * Describes the downstream vertex that a recognised edge-method chain
+   * (e.g. {@code .outE('X').inV()}) folds onto for cost-model purposes.
+   *
+   * <p>Returned by {@link #resolveChainedTarget}. The planner's sort loop
+   * uses this to apply the downstream vertex's {@code WHERE} selectivity to
+   * the first edge's cost, instead of the synthetic intermediate edge alias
+   * that carries no filter.
+   *
+   * @param effectiveTargetAlias  the downstream vertex alias (the real target
+   *                              of the chain, e.g. {@code tag} in
+   *                              {@code .outE('VIHasTag').inV(){as: tag}})
+   * @param effectiveTargetClass  the downstream vertex class name, or
+   *                              {@code null} when it cannot be inferred
+   *                              (e.g. {@code bothE→bothV} without an
+   *                              explicit {@code class:} annotation)
+   */
+  record ChainedTarget(
+      String effectiveTargetAlias, @Nullable String effectiveTargetClass) {
+  }
+
+  /**
+   * Detects the edge-method chain pattern {@code .outE(X).inV()} (and its
+   * {@code inE→outV} / {@code bothE→bothV} variants) that appears as two
+   * consecutive {@link PatternEdge}s in the pattern graph.
+   *
+   * <p>The pattern graph models {@code .outE('X').inV()} as
+   * <pre>
+   *   source ── outE('X') ──▶ intermediate(edge alias) ── inV() ──▶ target
+   * </pre>
+   * Cost is computed per {@link PatternEdge}. The first edge's target is the
+   * synthetic intermediate alias (no filter, no class), so
+   * {@link #applyTargetSelectivity} returns the base cost unchanged and the
+   * {@code WHERE} on the real downstream vertex never affects scheduling.
+   *
+   * <p>This helper recognises the chain structurally and returns the
+   * downstream vertex so the caller can fold its selectivity into the first
+   * edge's cost. The pattern graph and runtime execution are left untouched.
+   *
+   * <p><b>Structural rule</b> (all must hold):
+   * <ol>
+   *   <li>{@code edge.item} and {@code edge.item.getMethod()} are non-null;</li>
+   *   <li>first edge method name (lower-cased, {@link Locale#ENGLISH}) is
+   *       one of {@code oute}, {@code ine}, {@code bothe};</li>
+   *   <li>{@code neighbor.out} has exactly one edge, and it is not in
+   *       {@code visitedEdges};</li>
+   *   <li>{@code neighbor.in} has exactly one edge, and it <b>is</b>
+   *       {@code edge} (identity comparison — guards against a user-named
+   *       intermediate alias joined from a second MATCH fragment);</li>
+   *   <li>the downstream edge's method name (lower-cased) is {@code inv},
+   *       {@code outv}, or {@code bothv}.</li>
+   * </ol>
+   *
+   * <p><b>Reverse traversals</b> (where {@code neighbor = edge.out}) are
+   * rejected naturally by clause 3 — the reverse neighbor has no
+   * {@code inV}/{@code outV}/{@code bothV} continuation.
+   *
+   * <p>The helper is pure — no schema mutation, no side effects — so it is
+   * unit-testable in isolation.
+   *
+   * @param edge           the candidate first edge of the chain
+   * @param neighbor       the direction-dependent target already computed
+   *                       by the sort loop
+   *                       ({@code entry.getValue() ? edge.in : edge.out})
+   * @param visitedEdges   DFS state — the chain is only detected while the
+   *                       intermediate edge's follow-up is still unscheduled
+   * @param aliasClasses   alias → class map; accepted for parity with
+   *                       class-inference overloads and used by Step 2
+   * @param session        database session for schema access; used by Step 2
+   * @return the downstream vertex descriptor when the chain signature
+   *         matches, otherwise {@link Optional#empty()}
+   */
+  static Optional<ChainedTarget> resolveChainedTarget(
+      PatternEdge edge,
+      PatternNode neighbor,
+      Set<PatternEdge> visitedEdges,
+      Map<String, String> aliasClasses,
+      @Nullable DatabaseSessionEmbedded session) {
+    if (edge.item == null || edge.item.getMethod() == null) {
+      return Optional.empty();
+    }
+    var firstName = edge.item.getMethod().getMethodNameString();
+    if (firstName == null) {
+      return Optional.empty();
+    }
+    firstName = firstName.toLowerCase(Locale.ENGLISH);
+    if (!"oute".equals(firstName) && !"ine".equals(firstName)
+        && !"bothe".equals(firstName)) {
+      return Optional.empty();
+    }
+
+    if (neighbor.out.size() != 1 || neighbor.in.size() != 1) {
+      return Optional.empty();
+    }
+    var downstreamEdge = neighbor.out.iterator().next();
+    if (visitedEdges.contains(downstreamEdge)) {
+      return Optional.empty();
+    }
+    // Identity check: PatternEdge has no equals() override, but we still want
+    // referential identity to guard against accidental future changes.
+    if (neighbor.in.iterator().next() != edge) {
+      return Optional.empty();
+    }
+
+    if (downstreamEdge.item == null || downstreamEdge.item.getMethod() == null) {
+      return Optional.empty();
+    }
+    var secondName = downstreamEdge.item.getMethod().getMethodNameString();
+    if (secondName == null) {
+      return Optional.empty();
+    }
+    secondName = secondName.toLowerCase(Locale.ENGLISH);
+    if (!"inv".equals(secondName) && !"outv".equals(secondName)
+        && !"bothv".equals(secondName)) {
+      return Optional.empty();
+    }
+
+    // effectiveTargetAlias is the downstream vertex alias — NOT neighbor.alias,
+    // which is the intermediate edge alias and carries no filter.
+    var effectiveTargetAlias = downstreamEdge.in.alias;
+    // Step 1: class inference lands in Step 2; leave null for now.
+    return Optional.of(new ChainedTarget(effectiveTargetAlias, null));
   }
 
   /**
