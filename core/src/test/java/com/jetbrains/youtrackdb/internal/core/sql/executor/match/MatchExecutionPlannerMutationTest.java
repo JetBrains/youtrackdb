@@ -1899,6 +1899,34 @@ public class MatchExecutionPlannerMutationTest {
   }
 
   /**
+   * Same as {@code secondMethodIsEdgeHop} but with {@code outE} in vertex
+   * position — pins the {@code !"outv".equals(secondName)} branch. Without
+   * this a mutation that accepts {@code outE} as a second hop would survive
+   * even though {@code secondMethodIsEdgeHop} only exercises {@code inE}.
+   */
+  @Test
+  public void resolveChainedTarget_secondMethodIsOutE_returnsEmpty() {
+    var chain = buildChain("outE", "outE", "post", "e", "tag");
+
+    assertThat(MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
+        .isEmpty();
+  }
+
+  /**
+   * Same as {@code secondMethodIsEdgeHop} but with {@code bothE} in vertex
+   * position — pins the {@code !"bothv".equals(secondName)} branch.
+   */
+  @Test
+  public void resolveChainedTarget_secondMethodIsBothE_returnsEmpty() {
+    var chain = buildChain("outE", "bothE", "post", "e", "tag");
+
+    assertThat(MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
+        .isEmpty();
+  }
+
+  /**
    * The second-hop method name is null. Return empty.
    */
   @Test
@@ -1943,17 +1971,19 @@ public class MatchExecutionPlannerMutationTest {
 
   /**
    * Reverse traversal: the sort loop passes {@code neighbor = edge.out}
-   * when traversing an edge in reverse. From the source side there is no
-   * {@code inV/outV/bothV} continuation, so the structural rule (clause on
-   * {@code neighbor.out}) naturally rejects. This verifies the design
-   * contract documented in the plan (Track 1 — reverse traversal case).
+   * when traversing an edge in reverse. In this fixture the source node has
+   * no incoming edges, so the {@code neighbor.in.size() == 1} guard rejects
+   * the candidate. This pins the design contract documented in the plan
+   * (Track 1 — reverse traversal case): the structural rule rejects reverse
+   * traversals without any special-case logic.
    */
   @Test
   public void resolveChainedTarget_reverseTraversal_returnsEmpty() {
     var chain = buildChain("outE", "inV", "post", "e", "tag");
 
-    // Pass edge.out (the source `post` node) as neighbor. From there, there
-    // is no outgoing edge that is an inV hop — the structural rule rejects.
+    // Pass edge.out (the source `post` node) as neighbor. Source has
+    // source.out = {firstEdge} (size 1) and source.in = {} (size 0), so the
+    // `neighbor.in.size() != 1` clause in the combined size guard rejects.
     assertThat(MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.firstEdge().out, Set.of(), Map.of(), db))
         .isEmpty();
