@@ -20,13 +20,13 @@
 package com.jetbrains.youtrackdb.internal.core.command.script;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.TestUtilsFixture;
 import java.util.HashMap;
 import java.util.Map;
-import org.junit.After;
 import org.junit.Test;
 
 /**
@@ -36,24 +36,13 @@ import org.junit.Test;
  * construction, so the tests verify that each overload forwards its arguments and returns the
  * session's result verbatim.
  *
- * <p>Tests run under {@link DbTestBase} because every delegate call reaches the real database
- * session. The {@code @After rollbackIfLeftOpen()} safety net mirrors the convention from
- * Track 9 Step 2/3 to keep sibling tests isolated from any transaction a failing test left open.
+ * <p>Tests extend {@link TestUtilsFixture} so the shared {@code @After rollbackIfLeftOpen()}
+ * safety net keeps sibling tests isolated from any transaction a failing delegate left open
+ * (CQ3 — reuses the Track 8 precedent instead of hand-rolling the guard per class).
  */
-public class ScriptDatabaseWrapperTest extends DbTestBase {
+public class ScriptDatabaseWrapperTest extends TestUtilsFixture {
 
   private static final String WRAPPER_CLASS = "WrapperTarget";
-
-  /**
-   * Safety net: a failing delegate may leave an open transaction on the session. This
-   * @After rolls back so sibling tests never inherit dirty state.
-   */
-  @After
-  public void rollbackIfLeftOpen() {
-    if (session != null && !session.isClosed() && session.isTxActive()) {
-      session.rollback();
-    }
-  }
 
   // ==========================================================================
   // query(...) — positional + named parameters forward to session.query.
@@ -256,6 +245,13 @@ public class ScriptDatabaseWrapperTest extends DbTestBase {
 
       final var plain = wrapper.newVertex();
       assertNotNull("newVertex() must return a non-null vertex", plain);
+      // TB8 pin: newVertex() without args defaults to the built-in "V" base class. A
+      // regression that returned a null-class Entity or a differently-named default would
+      // surface here rather than silently passing assertNotNull.
+      assertEquals(
+          "newVertex() must default to the built-in 'V' base class",
+          "V",
+          plain.getSchemaClassName());
 
       final var classed = wrapper.newVertex("V");
       assertNotNull(classed);
@@ -376,9 +372,9 @@ public class ScriptDatabaseWrapperTest extends DbTestBase {
     session.begin();
     final var wrapper = new ScriptDatabaseWrapper(session);
     wrapper.commit();
-    assertTrue(
+    assertFalse(
         "commit() must end the active transaction",
-        !session.isTxActive());
+        session.isTxActive());
   }
 
   /**
@@ -390,8 +386,8 @@ public class ScriptDatabaseWrapperTest extends DbTestBase {
     session.begin();
     final var wrapper = new ScriptDatabaseWrapper(session);
     wrapper.rollback();
-    assertTrue(
+    assertFalse(
         "rollback() must end the active transaction",
-        !session.isTxActive());
+        session.isTxActive());
   }
 }

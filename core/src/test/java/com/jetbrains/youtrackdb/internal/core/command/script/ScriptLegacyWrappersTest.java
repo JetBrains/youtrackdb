@@ -22,7 +22,8 @@ package com.jetbrains.youtrackdb.internal.core.command.script;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import org.junit.Test;
@@ -84,9 +85,10 @@ public class ScriptLegacyWrappersTest extends DbTestBase {
     assertNotNull(second);
     // Each call must allocate a new ScriptDocumentDatabaseWrapper. If a future cache is
     // added, this test fails visibly so the change is deliberate.
-    assertFalse(
+    assertNotSame(
         "getDatabase() must return a fresh wrapper per call, not a cached instance",
-        first == second);
+        first,
+        second);
   }
 
   // ==========================================================================
@@ -109,38 +111,61 @@ public class ScriptLegacyWrappersTest extends DbTestBase {
   }
 
   /**
-   * Confirm that the wrapper stores the supplied session verbatim (reflection-free proof: the
-   * delegated methods are consistent with the caller's session). {@code isClosed()} is a
-   * second trivial delegate that hits the same field — exercising it alongside getName proves
-   * the field binding is stable across calls.
+   * TB1 fix (Phase C iter-1): {@code scriptDocumentDatabaseWrapper.isClosed()} must actually
+   * mirror the session's open/closed state, not merely return {@code false}. The earlier
+   * single-assertion form pinned only {@code session.isClosed() == false} (the DbTestBase
+   * default), so a regression that hard-coded {@code return false;} would pass unnoticed.
+   *
+   * <p>We observe the state transition by opening a second, independent session against the
+   * same database, wrapping it, closing that second session, and asserting the wrapper's
+   * {@code isClosed()} flips from {@code false} to {@code true}. The primary DbTestBase
+   * session is left untouched so teardown is unaffected.
    */
   @Test
-  public void scriptDocumentDatabaseWrapperIsClosedDelegatesToSession() {
-    final var wrapper = new ScriptDocumentDatabaseWrapper(session);
-    // DbTestBase's session is open during the test — wrapper.isClosed() must report false.
-    assertEquals(
-        "ScriptDocumentDatabaseWrapper.isClosed() must mirror session.isClosed()",
-        session.isClosed(),
-        wrapper.isClosed());
+  public void scriptDocumentDatabaseWrapperIsClosedReflectsSessionStateTransition() {
+    final var throwaway = youTrackDB.open(databaseName, "admin", adminPassword);
+    try {
+      final var wrapper = new ScriptDocumentDatabaseWrapper(throwaway);
+
+      // Pre-close: wrapper must see the session as open.
+      assertFalse(
+          "pre-close: wrapper.isClosed() must be false when the session is open",
+          wrapper.isClosed());
+
+      throwaway.close();
+
+      // Post-close: wrapper must flip to closed. This is the falsifiability pin — a
+      // regression that ignored the session and hard-coded `return false` would fail here.
+      assertTrue(
+          "post-close: wrapper.isClosed() must mirror session.isClosed() = true",
+          wrapper.isClosed());
+    } finally {
+      if (!throwaway.isClosed()) {
+        throwaway.close();
+      }
+    }
   }
 
   /**
    * Cross-check the two wrappers' composition: the {@link ScriptDocumentDatabaseWrapper}
    * obtained via {@link ScriptYouTrackDbWrapper#getDatabase()} reports the SAME database name
    * as a direct wrapper constructed with the same session. This pins the composition
-   * invariant: going through ScriptYouTrackDbWrapper does not rebind the session.
+   * invariant: going through ScriptYouTrackDbWrapper does not rebind the session. We use
+   * {@link org.junit.Assert#assertEquals} rather than {@link org.junit.Assert#assertSame} so
+   * a future storage refactor that returns a freshly-allocated database-name string (e.g.,
+   * {@code new String(name)}) doesn't break the test with a reference-identity false negative.
    */
   @Test
   public void composedWrappersExposeTheSameDatabaseName() {
     final var viaYouTrackDbWrapper = new ScriptYouTrackDbWrapper(session).getDatabase();
     final var direct = new ScriptDocumentDatabaseWrapper(session);
-    assertSame(
-        "both wrappers must bind to the exact same session object",
+    assertEquals(
+        "ScriptYouTrackDbWrapper-derived wrapper must bind to a session with the same dbName",
         direct.getName(),
-        // String.intern() is called by javac on compile-time constants only, so using .equals
-        // alone would not prove identity. Since both go through session.getDatabaseName() and
-        // the session is the same, they read the same underlying String.
-        session.getDatabaseName());
-    assertEquals(direct.getName(), viaYouTrackDbWrapper.getName());
+        viaYouTrackDbWrapper.getName());
+    assertEquals(
+        "wrappers must read the database name from the shared session",
+        session.getDatabaseName(),
+        direct.getName());
   }
 }

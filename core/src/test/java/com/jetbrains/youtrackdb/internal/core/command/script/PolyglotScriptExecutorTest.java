@@ -22,21 +22,23 @@ package com.jetbrains.youtrackdb.internal.core.command.script;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.concur.resource.ResourcePool;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.script.transformer.ScriptTransformerImpl;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandScriptException;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.TestUtilsFixture;
 import java.util.HashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import org.graalvm.polyglot.Context;
+import org.graalvm.polyglot.PolyglotException;
 import org.junit.After;
 import org.junit.Test;
 
@@ -58,7 +60,7 @@ import org.junit.Test;
  * {@link PolyglotScriptExecutor#closeAll()} — must be proven to clear the map, not merely to
  * disable the pool.
  */
-public class PolyglotScriptExecutorTest extends DbTestBase {
+public class PolyglotScriptExecutorTest extends TestUtilsFixture {
 
   private PolyglotScriptExecutor executor;
 
@@ -80,22 +82,35 @@ public class PolyglotScriptExecutorTest extends DbTestBase {
   // ==========================================================================
 
   /**
-   * The ctor normalizes the "javascript" alias to "js" because the GraalVM Polyglot API expects
-   * the canonical language id. This pins the normalization rule: any consumer reading
-   * {@code super.language} must see "js" for JavaScript scripts. Pinning via reflection rather
-   * than a behavioral proxy because the language string is not otherwise observable.
+   * The ctor normalizes the lowercase "javascript" alias to "js" because the GraalVM Polyglot
+   * API expects the canonical language id. This pins the lowercase-alias branch.
+   *
+   * <p>TS3 fix: split from a bundled three-scenario test into three focused tests so each
+   * failure points at the specific alias case that regressed (the earlier form masked which
+   * branch failed because the first assertion failure stopped the test immediately).
    */
   @Test
-  public void ctorNormalizesJavascriptAliasToJs() throws Exception {
+  public void ctorNormalizesLowercaseJavascriptAliasToJs() throws Exception {
     executor = new PolyglotScriptExecutor("javascript", new ScriptTransformerImpl());
     assertEquals("js", readLanguage(executor));
+  }
 
-    // "JavaScript" (mixed case) must also normalize.
+  /**
+   * The ctor normalizes the mixed-case "JavaScript" alias to "js". Case-insensitive alias
+   * handling is a separate branch from the lowercase alias.
+   */
+  @Test
+  public void ctorNormalizesMixedCaseJavaScriptAliasToJs() throws Exception {
     executor = new PolyglotScriptExecutor("JavaScript", new ScriptTransformerImpl());
     assertEquals("js", readLanguage(executor));
+  }
 
-    // Non-alias languages are passed through verbatim — pin to catch accidental normalization
-    // generalisation.
+  /**
+   * Non-alias languages (e.g., "python") must be passed through verbatim — pin to catch
+   * accidental over-generalisation of the normalization rule (e.g., lowercasing everything).
+   */
+  @Test
+  public void ctorPassesThroughNonAliasLanguageVerbatim() throws Exception {
     executor = new PolyglotScriptExecutor("python", new ScriptTransformerImpl());
     assertEquals("python", readLanguage(executor));
   }
@@ -205,7 +220,14 @@ public class PolyglotScriptExecutorTest extends DbTestBase {
    * A script with a syntax error triggers a {@code PolyglotException} from Graal; the executor
    * wraps it as a {@link CommandScriptException} that carries the database name, the offending
    * script, and the source column number. Pin the wrap shape and that the underlying script
-   * text is preserved.
+   * text / cause chain are preserved.
+   *
+   * <p>TB2 fix (Phase C iter-1): the earlier form asserted only {@code getMessage().length()
+   * > 0}, which any non-empty string satisfies — a regression that dropped {@code
+   * BaseException.wrapException} or replaced the rich ctor with a constant-message wrap would
+   * pass unnoticed. Pin the two load-bearing wrap properties: (1) the database name is
+   * embedded in the message context, and (2) the cause chain reaches the original
+   * {@link PolyglotException}.
    */
   @Test
   public void executeSyntaxErrorScriptWrapsPolyglotExceptionAsCommandScriptException() {
@@ -214,13 +236,20 @@ public class PolyglotScriptExecutorTest extends DbTestBase {
     final var ex =
         assertThrows(
             CommandScriptException.class, () -> executor.execute(session, broken, new Object[0]));
-    // The script is passed into the CommandScriptException as the source context; the test
-    // must avoid over-specifying the message because PolyglotException message text is
-    // language-implementation-dependent.
     assertNotNull("exception must carry a non-null message", ex.getMessage());
     assertTrue(
-        "wrapped exception must carry the script text or a diagnostic location",
-        ex.getMessage().length() > 0);
+        "wrapped exception must echo the database name for diagnostics: " + ex.getMessage(),
+        ex.getMessage().contains(session.getDatabaseName()));
+    // Production uses BaseException.wrapException(new CommandScriptException(...), pe, dbName)
+    // so the cause chain must reach the originating PolyglotException.
+    assertNotNull("wrap must preserve the original cause", ex.getCause());
+    Throwable root = ex.getCause();
+    while (root.getCause() != null && root.getCause() != root) {
+      root = root.getCause();
+    }
+    assertTrue(
+        "root cause chain must reach PolyglotException (actual: " + root.getClass() + ")",
+        root instanceof PolyglotException);
   }
 
   // ==========================================================================
@@ -314,9 +343,8 @@ public class PolyglotScriptExecutorTest extends DbTestBase {
     assertNotNull(rebuiltPool);
     // The pool instance before close and after rebuild must not be the same — pin that close
     // fully discarded the old pool rather than reusing it.
-    assertFalse(
-        "rebuilt pool must not reuse the closed pool instance",
-        rebuiltPool == removedPool);
+    assertNotSame(
+        "rebuilt pool must not reuse the closed pool instance", removedPool, rebuiltPool);
   }
 
   /**
