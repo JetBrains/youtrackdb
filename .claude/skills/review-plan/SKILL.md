@@ -27,7 +27,9 @@ Backlog file: docs/adr/<dir-name>/implementation-backlog.md (see
 Design document: docs/adr/<dir-name>/design.md
 Review output directory: docs/adr/<dir-name>/reviews/
 
-### Backlog file and legacy-fallback sentinel rule
+---
+
+## Backlog file and legacy-fallback sentinel rule
 
 The plan's `implementation-backlog.md` companion file holds pending-track
 `**What/How/Constraints/Interactions**` detail and any track-level
