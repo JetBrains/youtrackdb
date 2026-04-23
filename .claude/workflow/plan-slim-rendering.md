@@ -42,7 +42,15 @@ snapshot file; concurrent sessions do not collide.
 ### How the main agent generates it
 
 1. Read `docs/adr/<dir-name>/implementation-plan.md`.
-2. Apply the rendering rule below, in-memory.
+2. Apply the rendering rule below, in-memory. Under the split-file plan
+   format (`implementation-backlog.md` present on disk per the D4
+   detection rule in `conventions.md` §1.2), pending-track entries
+   (`[ ]` / `[>]`) are already thin on disk — the transform for those
+   rows is typically a no-op. The legacy-fallback row handles the
+   residual case where the plan is legacy (no backlog file) or
+   mid-migration (backlog file present but a pending entry still
+   carries `**What/How/Constraints/Interactions**` subsections) — see
+   the rendering rule below for details.
 3. Write the result to `/tmp/claude-code-plan-slim-$PPID.md`.
 
 This can be done in a single pass during the phase's startup. The main
@@ -87,13 +95,30 @@ Sub-agents run in separate processes and don't inherit the main agent's
 
    | Status | Keep | Drop |
    |---|---|---|
-   | `[ ]` (not started) or `[>]` (in progress) | Full description, Scope, Depends-on — all verbatim | Nothing |
-   | `[x]` (completed) | Title line, **intro paragraph** (the first quoted block before any `**Keyword**:` subsection), **Track episode**, **Strategy refresh** line (if present) | **What/How/Constraints/Interactions** subsections, **Scope** line, **Depends on** line, **Step file** pointer line |
+   | `[ ]` (not started) or `[>]` (in progress) | Everything in the entry verbatim — title line, intro paragraph, `**Scope:**`, optional `**Depends on:**`. Under the split-file format (D4 — backlog file present), that is all the entry carries on disk; the transform is a no-op. | Nothing |
+   | `[x]` (completed) | Title line, **intro paragraph** (the first quoted block before any `**Keyword**:` subsection), **Track episode**, **Strategy refresh** line (if present) | **What/How/Constraints/Interactions** subsections (legacy residuals), **Scope** line, **Depends on** line, **Step file** pointer line |
    | `[~]` (skipped) | Title line, **intro paragraph**, **Skipped:** reason, **Strategy refresh** line (if present) | **What/How/Constraints/Interactions** subsections, **Scope** line, **Depends on** line |
+   | **Legacy fallback** — any `[ ]`/`[>]` entry whose on-disk form still carries `**What/How/Constraints/Interactions**` subsections (legacy plan per D4, or mid-migration plan with a not-yet-migrated entry) | Title line, intro paragraph, `**Scope:**`, optional `**Depends on:**` | **What/How/Constraints/Interactions** subsections — stripped in-memory at snapshot time |
 
    **Current track exception:** The track currently being executed is
    always `[ ]` or `[>]` in the plan file (it is not marked `[x]` until
-   Phase C completes). Apply the `[ ]/[>]` rule — full detail is kept.
+   Phase C completes). Apply the `[ ]/[>]` rule — the entry is kept
+   verbatim (or, for the legacy-fallback case, verbatim minus the
+   `**What/How/Constraints/Interactions**` subsections). This preserves
+   the "current track rendered in full" contract that sub-agents rely
+   on for tactical context.
+
+   **New legacy-fallback branch — not a preservation of today's rule.**
+   Today's rendering rule keeps every `[ ]`/`[>]` entry verbatim with
+   no stripping; the legacy-fallback row introduces a NEW in-memory
+   transform that applies only when the entry actually carries
+   `**What/How/Constraints/Interactions**` subsections. In a fully
+   migrated new-format plan this transform never fires. Detection is
+   per-entry: the file-existence check on the backlog (per D4)
+   discriminates legacy from new, and the subsection presence on the
+   entry itself distinguishes a mid-migration residual from a
+   fully-migrated entry. Action is the same in both cases — strip the
+   subsections in-memory so sub-agents see a slim pending-track entry.
 
 4. **Keep the `## Final Artifacts` section verbatim.**
 
@@ -165,7 +190,7 @@ paragraph — keep it as-is.
 
 ---
 
-## Interaction with the on-disk collapse (Feature #2)
+## Interaction with the on-disk collapse
 
 [`track-code-review.md`](track-code-review.md) §Track Completion step 4
 also collapses the description **on disk** to match this slim format
