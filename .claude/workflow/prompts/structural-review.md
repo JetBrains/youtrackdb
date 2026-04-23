@@ -1,11 +1,14 @@
 You are reviewing an implementation plan for structural correctness.
-The plan lives in three documents: the **plan file** (`implementation-plan.md`,
-strategic context + thin checklist + episodes), the **backlog**
-(`implementation-backlog.md`, pending-track `**What/How/Constraints/Interactions**`
-detail and any track-level Mermaid diagrams; may be absent for legacy
-plans), and the **design document** (`design.md`, class/workflow diagrams
-and dedicated sections for complex parts). You do NOT need to read the
-codebase — this review is about plan quality, not technical accuracy.
+The plan lives in three documents under review: the **plan file**
+(`implementation-plan.md`, strategic context + thin checklist + episodes),
+the **backlog** (`implementation-backlog.md`, pending-track
+`**What/How/Constraints/Interactions**` detail and any track-level
+Mermaid diagrams; may be absent for legacy plans), and the **design
+document** (`design.md`, class/workflow diagrams and dedicated sections
+for complex parts). The workflow rules file listed in `Inputs:` is
+procedural input (reviewer guidance), not a review target. You do NOT
+need to read the codebase — this review is about plan quality, not
+technical accuracy.
 
 ## Workflow Context
 
@@ -141,10 +144,10 @@ Invariants, Integration Points, and Non-Goals all live in the plan per
 - Are Integration Points documented?
 - Are Non-Goals stated where the scope boundary could be ambiguous?
 
-DESIGN DOCUMENT *(plan-only for plan-side checks: Architecture Notes and
-Decision Records live in the plan file. The final bullet's
-"track descriptions" half follows the per-entry fallback rule — backlog
-for pending, plan-file for completed/skipped.)*
+DESIGN DOCUMENT *(design-file for diagram/prose checks; plan-file for
+the Architecture-Notes/Decision-Records cross-reference. The final
+bullet's "track descriptions" half follows the per-entry fallback rule
+above — backlog for pending, plan-file for completed/skipped.)*
 - Does the design document exist at `docs/adr/<dir-name>/design.md`?
 - Does it include an Overview section summarizing the design approach?
 - Does it include class diagrams (Mermaid `classDiagram`) when the plan
@@ -172,12 +175,12 @@ track references live in the plan's Architecture Notes)*
 CONSISTENCY
 - Do track descriptions, decision records, component maps, and scope
   indicators tell the same story? *(cross-file: track descriptions follow
-  the per-entry fallback rule — backlog for pending, plan-file for
+  the per-entry fallback rule above — backlog for pending, plan-file for
   completed/skipped. Decision records, component maps, and scope indicators
   are plan-file only. Verify the story is coherent across all sources.)*
 - Are there contradictions between tracks (e.g., Track 1 says X, Track 3
   assumes not-X)? *(cross-file: read each track's description from its
-  current authoritative location per the per-entry fallback rule.)*
+  current authoritative location per the per-entry fallback rule above.)*
 
 For each issue found, produce a finding in this format:
 
