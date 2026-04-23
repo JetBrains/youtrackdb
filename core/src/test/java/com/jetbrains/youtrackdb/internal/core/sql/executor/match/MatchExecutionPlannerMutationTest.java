@@ -1959,11 +1959,16 @@ public class MatchExecutionPlannerMutationTest {
         .isEmpty();
   }
 
-  // ── Happy-path sanity tests (Step 1 — class field is always null) ──
+  // ── Happy-path sanity tests (structural detection + class=null fallback) ──
+  //
+  // These tests exercise the structural detection rule with no edge-class
+  // data — the precedence-2 schema lookup returns null in each case because
+  // the mocked schema has no edge class registered and/or the method has
+  // no param. Class-inference happy paths follow in the matrix below.
 
   /**
-   * outE('X') → inV() with valid structure: helper returns the downstream
-   * vertex alias. Class field is null in Step 1.
+   * outE → inV: helper returns the downstream alias. Class is null because
+   * the first edge has no class param (precedence-2 fallback returns null).
    */
   @Test
   public void resolveChainedTarget_outEinV_returnsDownstreamAlias() {
@@ -1977,8 +1982,8 @@ public class MatchExecutionPlannerMutationTest {
   }
 
   /**
-   * inE('X') → outV() with valid structure: helper returns the downstream
-   * vertex alias. Class field is null in Step 1.
+   * inE → outV: helper returns the downstream alias. Class null (same
+   * fallback reason as outEinV).
    */
   @Test
   public void resolveChainedTarget_inEoutV_returnsDownstreamAlias() {
@@ -1992,8 +1997,9 @@ public class MatchExecutionPlannerMutationTest {
   }
 
   /**
-   * bothE('X') → bothV() with valid structure: helper returns the downstream
-   * vertex alias. Class field is null in Step 1.
+   * bothE → bothV: helper returns the downstream alias. Class always null
+   * for bothE — precedence-2 returns null by design (no single endpoint is
+   * uniquely "downstream").
    */
   @Test
   public void resolveChainedTarget_bothEbothV_returnsDownstreamAlias() {
@@ -2020,6 +2026,302 @@ public class MatchExecutionPlannerMutationTest {
 
     assertThat(result).contains(
         new MatchExecutionPlanner.ChainedTarget("tag", null));
+  }
+
+  // =========================================================================
+  // resolveChainedTarget — Step 2: class-inference precedence
+  //
+  // Precedence rule:
+  //   1. aliasClasses.get(effectiveTargetAlias) — the pre-populated path
+  //      for outE→inV / inE→outV (addAliases at :4518) and the only path
+  //      for bothE→bothV when the user wrote {class: ...}.
+  //   2. Derived from the first edge's class + direction:
+  //      outE → edgeClass.in.linkedClass
+  //      inE  → edgeClass.out.linkedClass
+  //      bothE → null (no inference)
+  // =========================================================================
+
+  /**
+   * outE → inV with {@code aliasClasses.get("tag") = "VITag"}: precedence-1
+   * wins. Pins the normal post-{@code addAliases} path for outbound chains.
+   */
+  @Test
+  public void resolveChainedTarget_outEinV_precedence1_aliasClassesHit() {
+    var chain = buildChain("outE", "inV", "post", "e", "tag");
+    var aliasClasses = Map.of("tag", "VITag");
+
+    var result = MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), aliasClasses, db);
+
+    assertThat(result).contains(
+        new MatchExecutionPlanner.ChainedTarget("tag", "VITag"));
+  }
+
+  /**
+   * outE('VIHasTag') → inV with empty aliasClasses: precedence-2 falls back
+   * to the edge-schema {@code in} linked class. Both {@code in} and
+   * {@code out} properties are registered with different classes so a
+   * direction-swap mutation (reading {@code out} instead of {@code in})
+   * would return the wrong class.
+   */
+  @Test
+  public void resolveChainedTarget_outEinV_precedence2_derivedFromSchema() {
+    registerClass("VIPost", 100);
+    var tagClass = registerClass("VITag", 10);
+    var postClass = schema.getClassInternal("VIPost");
+    var edgeClass = registerClass("VIHasTag", 500);
+
+    var inProp = mock(SchemaPropertyInternal.class);
+    when(inProp.getLinkedClass()).thenReturn(tagClass);
+    when(edgeClass.getPropertyInternal("in")).thenReturn(inProp);
+
+    var outProp = mock(SchemaPropertyInternal.class);
+    when(outProp.getLinkedClass()).thenReturn(postClass);
+    when(edgeClass.getPropertyInternal("out")).thenReturn(outProp);
+
+    var firstMethod = mockMethodWithBaseExpression("\"VIHasTag\"");
+    stubMethodName(firstMethod, "outE");
+    var chain = buildChain(firstMethod, "inV", "post", "e", "tag");
+
+    var result = MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db);
+
+    // outE must read the "in" property → VITag, not "out" → VIPost
+    assertThat(result).contains(
+        new MatchExecutionPlanner.ChainedTarget("tag", "VITag"));
+  }
+
+  /**
+   * inE → outV with {@code aliasClasses.get("post") = "VIPost"}:
+   * precedence-1 wins. Pins the normal post-{@code addAliases} path for
+   * inbound chains.
+   */
+  @Test
+  public void resolveChainedTarget_inEoutV_precedence1_aliasClassesHit() {
+    var chain = buildChain("inE", "outV", "tag", "e", "post");
+    var aliasClasses = Map.of("post", "VIPost");
+
+    var result = MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), aliasClasses, db);
+
+    assertThat(result).contains(
+        new MatchExecutionPlanner.ChainedTarget("post", "VIPost"));
+  }
+
+  /**
+   * inE('VIHasTag') → outV with empty aliasClasses: precedence-2 falls back
+   * to the edge-schema {@code out} linked class (NOT {@code in}, which is
+   * what outE would use).
+   */
+  @Test
+  public void resolveChainedTarget_inEoutV_precedence2_derivedFromSchema() {
+    var postClass = registerClass("VIPost", 100);
+    var tagClass = registerClass("VITag", 10);
+    var edgeClass = registerClass("VIHasTag", 500);
+
+    var outProp = mock(SchemaPropertyInternal.class);
+    when(outProp.getLinkedClass()).thenReturn(postClass);
+    when(edgeClass.getPropertyInternal("out")).thenReturn(outProp);
+
+    var inProp = mock(SchemaPropertyInternal.class);
+    when(inProp.getLinkedClass()).thenReturn(tagClass);
+    when(edgeClass.getPropertyInternal("in")).thenReturn(inProp);
+
+    var firstMethod = mockMethodWithBaseExpression("\"VIHasTag\"");
+    stubMethodName(firstMethod, "inE");
+    var chain = buildChain(firstMethod, "outV", "tag", "e", "post");
+
+    var result = MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db);
+
+    // inE must read the "out" property → VIPost, not "in" → VITag
+    assertThat(result).contains(
+        new MatchExecutionPlanner.ChainedTarget("post", "VIPost"));
+  }
+
+  /**
+   * bothE → bothV with {@code aliasClasses.get("vertex") = "VITag"}:
+   * precedence-1 wins. <b>Critical for Track 3 test 4</b> — this is the
+   * only way a {@code bothE→bothV} chain ever gets a non-null class, since
+   * precedence-2 returns null for bothE by design.
+   */
+  @Test
+  public void resolveChainedTarget_bothEbothV_precedence1_aliasClassesHit() {
+    var chain = buildChain("bothE", "bothV", "a", "e", "vertex");
+    var aliasClasses = Map.of("vertex", "VITag");
+
+    var result = MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), aliasClasses, db);
+
+    assertThat(result).contains(
+        new MatchExecutionPlanner.ChainedTarget("vertex", "VITag"));
+  }
+
+  /**
+   * bothE('VIKnows') → bothV with empty aliasClasses and a fully-registered
+   * edge schema: precedence-2 explicitly returns null for {@code bothE}
+   * because no single endpoint is uniquely "downstream".
+   */
+  @Test
+  public void resolveChainedTarget_bothEbothV_precedence2_returnsNull() {
+    var aClass = registerClass("A", 100);
+    var bClass = registerClass("B", 100);
+    var edgeClass = registerClass("VIKnows", 500);
+
+    var inProp = mock(SchemaPropertyInternal.class);
+    when(inProp.getLinkedClass()).thenReturn(bClass);
+    when(edgeClass.getPropertyInternal("in")).thenReturn(inProp);
+
+    var outProp = mock(SchemaPropertyInternal.class);
+    when(outProp.getLinkedClass()).thenReturn(aClass);
+    when(edgeClass.getPropertyInternal("out")).thenReturn(outProp);
+
+    var firstMethod = mockMethodWithBaseExpression("\"VIKnows\"");
+    stubMethodName(firstMethod, "bothE");
+    var chain = buildChain(firstMethod, "bothV", "a", "e", "b");
+
+    var result = MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db);
+
+    assertThat(result).contains(
+        new MatchExecutionPlanner.ChainedTarget("b", null));
+  }
+
+  /**
+   * outE() without a class parameter + empty aliasClasses: precedence-2
+   * fallback's {@code extractEdgeClassName} returns null, so class=null.
+   */
+  @Test
+  public void resolveChainedTarget_precedence2_missingEdgeClassName_returnsNull() {
+    // firstMethod has no params
+    var chain = buildChain("outE", "inV", "post", "e", "tag");
+
+    var result = MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db);
+
+    assertThat(result).contains(
+        new MatchExecutionPlanner.ChainedTarget("tag", null));
+  }
+
+  /**
+   * outE('Unknown') + empty aliasClasses: edge class is not in the schema —
+   * precedence-2 returns null.
+   */
+  @Test
+  public void resolveChainedTarget_precedence2_edgeClassNotInSchema_returnsNull() {
+    when(schema.getClassInternal("Unknown")).thenReturn(null);
+
+    var firstMethod = mockMethodWithBaseExpression("\"Unknown\"");
+    stubMethodName(firstMethod, "outE");
+    var chain = buildChain(firstMethod, "inV", "post", "e", "tag");
+
+    var result = MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db);
+
+    assertThat(result).contains(
+        new MatchExecutionPlanner.ChainedTarget("tag", null));
+  }
+
+  /**
+   * outE('VIHasTag') but the edge class has no {@code in} property: no
+   * linked vertex class exists, precedence-2 returns null.
+   */
+  @Test
+  public void resolveChainedTarget_precedence2_missingLinkedProperty_returnsNull() {
+    var edgeClass = registerClass("VIHasTag", 500);
+    when(edgeClass.getPropertyInternal("in")).thenReturn(null);
+
+    var firstMethod = mockMethodWithBaseExpression("\"VIHasTag\"");
+    stubMethodName(firstMethod, "outE");
+    var chain = buildChain(firstMethod, "inV", "post", "e", "tag");
+
+    var result = MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db);
+
+    assertThat(result).contains(
+        new MatchExecutionPlanner.ChainedTarget("tag", null));
+  }
+
+  /**
+   * Linked property exists but its {@code getLinkedClass()} returns null:
+   * precedence-2 returns null.
+   */
+  @Test
+  public void resolveChainedTarget_precedence2_linkedClassNull_returnsNull() {
+    var edgeClass = registerClass("VIHasTag", 500);
+    var inProp = mock(SchemaPropertyInternal.class);
+    when(inProp.getLinkedClass()).thenReturn(null);
+    when(edgeClass.getPropertyInternal("in")).thenReturn(inProp);
+
+    var firstMethod = mockMethodWithBaseExpression("\"VIHasTag\"");
+    stubMethodName(firstMethod, "outE");
+    var chain = buildChain(firstMethod, "inV", "post", "e", "tag");
+
+    var result = MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db);
+
+    assertThat(result).contains(
+        new MatchExecutionPlanner.ChainedTarget("tag", null));
+  }
+
+  /**
+   * Null session + empty aliasClasses: precedence-2 cannot do schema lookup
+   * and must defensively return null (not NPE).
+   */
+  @Test
+  public void resolveChainedTarget_precedence2_nullSession_returnsNull() {
+    var firstMethod = mockMethodWithBaseExpression("\"VIHasTag\"");
+    stubMethodName(firstMethod, "outE");
+    var chain = buildChain(firstMethod, "inV", "post", "e", "tag");
+
+    var result = MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), null);
+
+    assertThat(result).contains(
+        new MatchExecutionPlanner.ChainedTarget("tag", null));
+  }
+
+  /**
+   * Null aliasClasses map: the helper tolerates null aliasClasses (caller
+   * is not required to pass a non-null map). Falls straight to precedence-2.
+   */
+  @Test
+  public void resolveChainedTarget_precedence1_nullAliasClasses_fallsToPrecedence2() {
+    var chain = buildChain("outE", "inV", "post", "e", "tag");
+
+    var result = MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), null, db);
+
+    assertThat(result).contains(
+        new MatchExecutionPlanner.ChainedTarget("tag", null));
+  }
+
+  /**
+   * aliasClasses wins over schema: even when the schema provides a
+   * different class, precedence-1 short-circuits first. Pins the ordering
+   * of the two precedence clauses.
+   */
+  @Test
+  public void resolveChainedTarget_precedence1_winsOverSchema() {
+    // Set up schema to return "VITag" for outE('VIHasTag')
+    var tagClass = registerClass("VITag", 10);
+    var edgeClass = registerClass("VIHasTag", 500);
+    var inProp = mock(SchemaPropertyInternal.class);
+    when(inProp.getLinkedClass()).thenReturn(tagClass);
+    when(edgeClass.getPropertyInternal("in")).thenReturn(inProp);
+
+    // But aliasClasses says "VIExplicitTag" — that must win.
+    var aliasClasses = Map.of("tag", "VIExplicitTag");
+
+    var firstMethod = mockMethodWithBaseExpression("\"VIHasTag\"");
+    stubMethodName(firstMethod, "outE");
+    var chain = buildChain(firstMethod, "inV", "post", "e", "tag");
+
+    var result = MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), aliasClasses, db);
+
+    assertThat(result).contains(
+        new MatchExecutionPlanner.ChainedTarget("tag", "VIExplicitTag"));
   }
 
   // ── resolveChainedTarget test helpers ──
