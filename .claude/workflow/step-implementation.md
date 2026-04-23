@@ -85,7 +85,7 @@ three benefits.
 
 ## Per-Step Workflow
 
-For each step in the step file, execute sub-steps 1–6 **in order, to
+For each step in the step file, execute sub-steps 1–7 **in order, to
 completion**, before moving to the next step:
 
 1. **Implement the code** with defensive assertions generously (without
@@ -403,7 +403,8 @@ in the same session is usually better.
 
 ## Phase B Completion
 
-After the last step's episode is committed:
+After the last step's episode is written to the step file (and its code
+changes committed to git):
 
 1. **Mark `Step implementation` as `[x]`** in the Progress section.
 2. **Inform the user** that Phase B is complete:

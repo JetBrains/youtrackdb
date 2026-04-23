@@ -62,8 +62,8 @@ prior tracks.
 ## How to run
 
 Start a new Claude Code session and run `/create-plan` (optionally pass a
-branch name; if omitted, the current git branch is used). The command prompt
-is at `.claude/commands/create-plan.md`.
+branch name; if omitted, the current git branch is used). The slash command
+is implemented by the skill at `.claude/skills/create-plan/SKILL.md`.
 
 The session begins with **Phase 0 (Research)** — an interactive exploration
 where you ask questions, request code investigation, and discuss trade-offs.

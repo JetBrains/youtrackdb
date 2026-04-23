@@ -45,10 +45,10 @@ snapshot file; concurrent sessions do not collide.
 2. Apply the rendering rule below, in-memory. Under the split-file plan
    format (`implementation-backlog.md` present on disk per the D4
    detection rule in `conventions.md` §1.2), pending-track entries
-   (`[ ]` / `[>]`) are already thin on disk — the transform for that
-   row is a no-op; the legacy-fallback row below handles the residual
-   case where the plan is legacy (no backlog file) or mid-migration
-   (backlog file present but a pending entry still carries
+   (`[ ]`) are already thin on disk — the transform for that row is a
+   no-op; the legacy-fallback row below handles the residual case where
+   the plan is legacy (no backlog file) or mid-migration (backlog file
+   present but a pending entry still carries
    `**What/How/Constraints/Interactions**` subsections).
 3. Write the result to `/tmp/claude-code-plan-slim-$PPID.md`.
 
@@ -97,29 +97,32 @@ Sub-agents run in separate processes and don't inherit the main agent's
 3. **For each track in the checklist:**
 
    Rows are evaluated top-down; the Legacy-fallback row is the first
-   exception that fires when a `[ ]`/`[>]` entry still carries
+   exception that fires when a `[ ]` entry still carries
    `**What/How/Constraints/Interactions**` subsections. In a fully
    migrated new-format plan it never matches and processing falls
-   through to the default `[ ]`/`[>]` row.
+   through to the default `[ ]` row. (Track markers are `[ ]`, `[x]`,
+   or `[~]` per `conventions.md` §1.2 — `[>]` is Phase-4-only and never
+   appears on a track entry.)
 
    | Status | Keep | Drop |
    |---|---|---|
-   | **Legacy fallback** (pre-empts the `[ ]`/`[>]` row) — trigger is the conjunction: the backlog-file-existence check on `implementation-backlog.md` (per D4) plus per-entry subsection presence. A `[ ]`/`[>]` entry satisfies the trigger when either the backlog file is absent (legacy plan) or the backlog file is present but the entry itself still carries `**What/How/Constraints/Interactions**` subsections (mid-migration plan with a not-yet-migrated entry). | Title line, intro paragraph, `**Scope:**`, optional `**Depends on:**` | **What/How/Constraints/Interactions** subsections — stripped in-memory at snapshot time |
-   | `[ ]` (not started) or `[>]` (in progress) — default row, applied when the Legacy-fallback row does not match | Everything in the entry verbatim — title line, intro paragraph, `**Scope:**`, optional `**Depends on:**`. Under the split-file format (D4 — backlog file present), that is all the entry carries on disk; the transform is a no-op. | Nothing |
+   | **Legacy fallback** (pre-empts the `[ ]` row) — trigger is the conjunction: the backlog-file-existence check on `implementation-backlog.md` (per D4) plus per-entry subsection presence. A `[ ]` entry satisfies the trigger when either the backlog file is absent (legacy plan) or the backlog file is present but the entry itself still carries `**What/How/Constraints/Interactions**` subsections (mid-migration plan with a not-yet-migrated entry). | Title line, intro paragraph, `**Scope:**`, optional `**Depends on:**` | **What/How/Constraints/Interactions** subsections — stripped in-memory at snapshot time |
+   | `[ ]` (not started or in-progress current track) — default row, applied when the Legacy-fallback row does not match | Everything in the entry verbatim — title line, intro paragraph, `**Scope:**`, optional `**Depends on:**`. Under the split-file format (D4 — backlog file present), that is all the entry carries on disk; the transform is a no-op. | Nothing |
    | `[x]` (completed) | Title line, **intro paragraph** (the first quoted block before any `**Keyword**:` subsection), **Track episode**, **Strategy refresh** line (if present) | **What/How/Constraints/Interactions** subsections (legacy residuals), **Scope** line, **Depends on** line, **Step file** pointer line |
    | `[~]` (skipped) | Title line, **intro paragraph**, **Skipped:** reason, **Strategy refresh** line (if present) | **What/How/Constraints/Interactions** subsections, **Scope** line, **Depends on** line |
 
    **Current track exception:** The track currently being executed is
-   always `[ ]` or `[>]` in the plan file (it is not marked `[x]` until
-   Phase C completes). Apply the `[ ]/[>]` rule — the entry is kept
-   verbatim (or, for the legacy-fallback case, verbatim minus the
+   always `[ ]` in the plan file (it is not marked `[x]` until Phase C
+   completes; the execution workflow never sets `[>]` on a track). Apply
+   the `[ ]` rule — the entry is kept verbatim (or, for the
+   legacy-fallback case, verbatim minus the
    `**What/How/Constraints/Interactions**` subsections). This preserves
    the "current track rendered in full" contract that sub-agents rely
    on for tactical context.
 
    **New legacy-fallback branch — not a preservation of today's rule.**
-   Today's rendering rule keeps every `[ ]`/`[>]` entry verbatim with
-   no stripping; the legacy-fallback row introduces a NEW in-memory
+   Today's rendering rule keeps every `[ ]` entry verbatim with no
+   stripping; the legacy-fallback row introduces a NEW in-memory
    transform that applies only when the entry actually carries
    `**What/How/Constraints/Interactions**` subsections. In a fully
    migrated new-format plan this transform never fires. Detection is

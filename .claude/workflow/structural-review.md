@@ -103,7 +103,9 @@ within the session. A separate phase would add unnecessary context loss.
    failed).
 3. Proposes revised plan (new/modified tracks, reordering, removed tracks).
 4. Spawns a structural review sub-agent to validate the revised plan.
-5. On review PASS — resumes track execution with the revised plan.
+5. On review PASS — updates the plan file with the revised plan and ends
+   the session. The next `/execute-tracks` session picks up the revised plan
+   and continues.
 6. On review FAIL with persistent blockers — advises user to restart
    from Phase 1 (`/create-plan`) with accumulated episodes as input.
 

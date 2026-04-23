@@ -65,8 +65,9 @@ of the four sub-agent invocations below.
 2. Spawn the consistency review sub-agent with the prompt from
    `.claude/workflow/prompts/consistency-review.md`. Pass the plan file,
    backlog file (resolved per the legacy-fallback sentinel rule above),
-   design document path, and workflow directory path so the sub-agent can
-   read code and verify references.
+   and design document path as the prompt's named inputs. The sub-agent
+   reads the codebase directly via Grep/Glob/Read (cwd is the repo root),
+   so no separate codebase path input is required.
 3. Receive the findings report.
 4. Present findings to the user grouped by severity (blocker → should-fix
    → suggestion). For each finding, show:

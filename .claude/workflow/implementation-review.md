@@ -43,8 +43,8 @@ flowchart TD
 ## How to run
 
 Start a new Claude Code session and run `/review-plan` (optionally pass a
-directory name; if omitted, the current git branch is used). The command
-prompt is at `.claude/commands/review-plan.md`.
+directory name; if omitted, the current git branch is used). The slash
+command is implemented by the skill at `.claude/skills/review-plan/SKILL.md`.
 
 ---
 

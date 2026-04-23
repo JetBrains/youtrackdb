@@ -11,16 +11,16 @@ are used only for self-contained review tasks (technical/risk/adversarial
 reviews, code review, track-level code review) where fresh perspective or
 parallel execution is valuable.
 
-### Terminology: Phases 0/1/2/3 vs Phases A/B/C
+### Terminology: Phases 0/1/2/3/4 vs Phases A/B/C
 
-The overall workflow has five stages:
+The overall workflow has five phases:
 - **Phase 0 (Research)**: `/create-plan` — interactive research and exploration (same session as Phase 1)
 - **Phase 1 (Planning)**: `/create-plan` — develop the implementation plan and design document, informed by Phase 0 findings
 - **Phase 2 (Implementation Review)**: `/review-plan` — two-step review:
   (1) consistency review (design doc ↔ code ↔ plan, interactive),
   (2) structural review (plan-internal quality, automatic)
 - **Phase 3 (Execution)**: `/execute-tracks` — implement and review tracks
-- **Phase 4 (Final Artifacts)**: produce `design-final.md` and `adr.md` (prompt: `prompts/create-final-design.md`)
+- **Phase 4 (Final Artifacts)**: `/execute-tracks` (State D) — produce `design-final.md` and `adr.md` (follows `prompts/create-final-design.md`)
 
 Within Phase 3, each track goes through three sub-phases:
 - **Phase A**: Review + Decomposition (`track-review.md`)

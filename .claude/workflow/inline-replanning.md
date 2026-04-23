@@ -106,8 +106,7 @@ revision and the file(s) that carry the new description:
      subsections + `**Scope:**` + optional `**Depends on:**` — inline in
      `implementation-plan.md`, matching the rest of the legacy plan's
      shape. Do not create `implementation-backlog.md` mid-execution; the
-     legacy plan stays legacy for the remainder of its lifecycle. (CQ98
-     fix.)
+     legacy plan stays legacy for the remainder of its lifecycle.
 
 2. **Revising a not-yet-started track** (status `[ ]`, no step file yet).
    Branch on plan shape by checking whether `implementation-backlog.md`
@@ -122,26 +121,26 @@ revision and the file(s) that carry the new description:
      checklist entry's `**What/How/Constraints/Interactions**`
      subsections (today's behavior — the legacy plan carries the full
      description inline). If the revision also changes the intro
-     paragraph, update that too. (CQ99 fix — mirrors Case 3's intro-
-     paragraph clause.)
+     paragraph, update that too — mirrors Case 3's intro-paragraph
+     clause.
 
-3. **Revising a mid-execution track** (status `[ ]` or `[>]`, step file
-   exists). Update the step file's `## Description` section. The
-   backlog entry was already removed at Phase A start (see
-   `track-review.md` sub-step (e)), so the step file is now the single
-   authoritative location for this track's description — do NOT add a
-   new backlog entry. For legacy plans, the step file's
-   `## Description` was populated from the plan-file checklist entry
-   at Phase A start and the plan-file checklist entry still carries
-   its `**What/How/Constraints/Interactions**` subsections until
-   Phase C collapse drops them (per `conventions-execution.md` §2.1).
-   To avoid two stale copies, also update the plan-file checklist
-   entry's `**What/How/Constraints/Interactions**` subsections to
-   match the revised step-file description, and if the revision
-   changes the intro paragraph, update that too. The plan-file
-   subsections will be dropped at Phase C collapse anyway; updating
-   them here keeps the two locations consistent in the interim.
-   (CQ100 fix.)
+3. **Revising a mid-execution track** (status `[ ]` with a step file on
+   disk — the execution workflow never sets `[>]` on a track). Update
+   the step file's `## Description` section. The backlog entry was
+   already removed at Phase A start (see `track-review.md` sub-step (e)),
+   so the step file is now the single authoritative location for this
+   track's description — do NOT add a new backlog entry. For legacy
+   plans, the step file's `## Description` was populated from the
+   plan-file checklist entry at Phase A start and the plan-file
+   checklist entry still carries its
+   `**What/How/Constraints/Interactions**` subsections until Phase C
+   collapse drops them (per `conventions-execution.md` §2.1). To avoid
+   two stale copies, also update the plan-file checklist entry's
+   `**What/How/Constraints/Interactions**` subsections to match the
+   revised step-file description, and if the revision changes the intro
+   paragraph, update that too. The plan-file subsections will be
+   dropped at Phase C collapse anyway; updating them here keeps the
+   two locations consistent in the interim.
 
 4. **Revising a completed track** (status `[x]`). This is rare — code
    for `[x]` tracks is already merged, so a revision typically means

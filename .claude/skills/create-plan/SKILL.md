@@ -137,6 +137,9 @@ load-bearing-file rule).
 ```
 # <Feature Name>
 
+## Design Document
+[design.md](design.md)
+
 ## High-level plan
 
 ### Goals
@@ -174,6 +177,9 @@ load-bearing-file rule).
   > <intro paragraph — high-level context; detailed description in implementation-backlog.md>
   > **Scope:** ~N steps covering A, B
   > **Depends on:** Track 1
+
+## Final Artifacts
+- [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
 ```
 
 ````markdown

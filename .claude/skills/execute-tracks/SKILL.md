@@ -22,10 +22,13 @@ After determining which phase to execute, load the phase-specific document:
 - Phase A: `.claude/workflow/track-review.md`
 - Phase B: `.claude/workflow/step-implementation.md`
 - Phase C: `.claude/workflow/track-code-review.md`
+- Phase 4 (State D): `.claude/workflow/prompts/create-final-design.md`
+  (also load `design-document-rules.md` — Phase 4 writes `design-final.md`)
 
 Do NOT load phase documents you won't use this session. Prompt files
 (in `.claude/workflow/prompts/`) are read only when spawning the specific
-sub-agent that needs them — do not pre-load them into the main session.
+sub-agent that needs them — `create-final-design.md` is the one exception
+because Phase 4 is main-agent work rather than a sub-agent spawn.
 
 On-demand reference documents (load only when the situation arises):
 - `strategy-refresh.md` — load when entering State A (strategy refresh)
@@ -34,7 +37,7 @@ On-demand reference documents (load only when the situation arises):
 - `code-review-protocol.md` — load at the start of Phase B sub-step 4 or Phase C code review
 - `plan-slim-rendering.md` — load when assembling any step-level or track-level review sub-agent prompt
 - `episode-format-reference.md` — load when writing your first episode
-- `design-document-rules.md` — not needed during Phase 3
+- `design-document-rules.md` — load when entering State D (Phase 4); not needed for Phase A/B/C
 
 Plan directory name: if "$ARGUMENTS" is non-empty, use it as the directory
 name. Otherwise, default to the current git branch name
@@ -60,17 +63,23 @@ Follow the startup protocol in `workflow.md`:
      - Steps done, code review incomplete → run Phase C
      - All phases done → compile track episode, present to user, write
        to plan file only after user approval
+   - **State D** (all tracks complete, Phase 4 pending): follow
+     `prompts/create-final-design.md` to produce `design-final.md` and
+     `adr.md`. Mark the Phase 4 checklist entry `[>]` when starting and
+     `[x]` when the commit lands. See workflow.md §Startup Protocol for
+     the `[ ]` / `[>]` resume-action table.
 4. Inform the user of the auto-resume decision. The user can override, but
    by default proceed without waiting for confirmation.
 5. Load the phase-specific workflow document and execute that phase only.
 6. After the phase completes, end the session. Instruct the user to clear
    context and re-run `/execute-tracks` for the next phase.
 
-Each session handles exactly ONE PHASE of one track:
+Each session handles exactly ONE PHASE of one track (or Phase 4):
 - Phase A → end session
 - Phase B → end session (or mid-phase checkpoint if 5+ steps done)
 - Phase C → end session
 - Track completion → end session after user approval
+- Phase 4 (State D) → commit `design-final.md` + `adr.md`, then end session
 
 User interaction happens at specific points:
 - Session start: auto-resume decision (confirm or override)
@@ -82,5 +91,6 @@ User interaction happens at specific points:
 
 Everything within a phase executes autonomously: Phase A runs reviews (as
 sub-agents) and decomposes steps; Phase B implements steps with dimensional
-review iterations (ten review sub-agents in parallel) and episode
-production; Phase C runs track-level dimensional review (ten sub-agents).
+review iterations (4 baseline + up to 6 conditional sub-agents in parallel,
+selected per `review-agent-selection.md`) and episode production; Phase C
+runs track-level dimensional review (same 4 + up to 6 selection).

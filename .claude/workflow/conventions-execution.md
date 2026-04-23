@@ -196,7 +196,7 @@ rules across phases. For legacy plans (no `implementation-backlog.md`
 on disk), the section is still written at Phase A start but the whole
 description is sourced from the plan-file entry's checklist block —
 legacy plans keep intro + `**What/How/Constraints/Interactions**` all
-inline there (legacy fallback added in Track 2).
+inline there (legacy fallback — see `track-review.md` §Phase A).
 
 The **Progress** section tracks which phase the track is in. The execution
 agent updates it at each phase transition:
@@ -208,12 +208,14 @@ agent updates it at each phase transition:
   review passes or max iterations are reached
 
 The **Context check** sub-item under each step records the context window
-level measured after step completion (sub-step 7 in step-implementation.md).
-The agent marks it `[x]` with the measured level (`safe`, `info`, `warning`,
-or `critical`). If measurement failed (file missing or command error), record
-`- [x] Context: unavailable`. This sub-item is written as part of the
-episode commit. It must be marked before the step is considered complete —
-an unmarked context check means the agent skipped the check.
+level measured at sub-step 6 of step-implementation.md and recorded when
+the episode is written in sub-step 7. The agent marks it `[x]` with the
+measured level (`safe`, `info`, `warning`, or `critical`). If measurement
+failed (file missing or command error), record `- [x] Context: unavailable`.
+This sub-item is written to the step file on disk alongside the episode;
+like episodes, it is not committed to git. It must be marked before the
+step is considered complete — an unmarked context check means the agent
+skipped the check.
 
 The **Base commit** section records the git SHA of `HEAD` at the start of
 Phase B, before the first implementation commit. Phase B writes this once
@@ -274,8 +276,7 @@ corresponding description row above.
 description remains in the plan-file entry until Phase C collapse drops
 the keyword subsections. The step file still gets a `## Description`
 section at Phase A start, sourced from the plan-file entry rather than
-the backlog (legacy fallback added in Track 2 — `track-review.md`
-Phase A).
+the backlog — see the legacy branch of `track-review.md` §Phase A.
 
 **Monotonic shrinkage:** The backlog grows only during Phase 1 or inline
 replanning, and shrinks as tracks enter Phase A or are skipped. Normal
