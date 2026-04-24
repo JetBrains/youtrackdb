@@ -30,6 +30,10 @@ public class TraverseTest extends DbTestBase {
    * DbTestBase#afterTest()} drops the database. Mirrors the {@code TestUtilsFixture} safety net
    * from Track 8. JUnit 4 runs subclass {@code @After} methods before superclass ones, so this
    * safety net runs ahead of the database teardown.
+   *
+   * <p>WHEN-FIXED: Track 22 — hoist this idiom into {@code TestUtilsFixture} and switch this
+   * class to extend it directly (plan §Track 22 absorption list). Extends {@code DbTestBase}
+   * today to preserve existing test infrastructure.
    */
   @After
   public void rollbackIfLeftOpen() {
