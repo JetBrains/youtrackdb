@@ -202,31 +202,41 @@ public class LiveQueryDeadCodeTest {
   /**
    * Unsubscribing a never-subscribed key must be a no-op — no exception, and no callback. Pins the
    * {@code if (res != null)} guard branch.
+   *
+   * <p>The thread is never {@code start()}ed here, but the defensive
+   * {@code stopExecution + join} cleanup is kept for parity with the class Javadoc — a future
+   * mutation that auto-starts the thread at construction would otherwise leak a daemon thread
+   * into the surefire JVM.
    */
   @Test
-  public void v1_unsubscribeUnknownKeyIsNoOp() {
+  public void v1_unsubscribeUnknownKeyIsNoOp() throws Exception {
     // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryQueueThread
     var thread = new LiveQueryQueueThread();
     var endCalls = new AtomicInteger();
 
-    // Subscribe a different key so the map is non-empty.
-    thread.subscribe(
-        1,
-        new LiveQueryListener() {
-          @Override
-          public void onLiveResult(RecordOperation iRecord) {
-          }
+    try {
+      // Subscribe a different key so the map is non-empty.
+      thread.subscribe(
+          1,
+          new LiveQueryListener() {
+            @Override
+            public void onLiveResult(RecordOperation iRecord) {
+            }
 
-          @Override
-          public void onLiveResultEnd() {
-            endCalls.incrementAndGet();
-          }
-        });
+            @Override
+            public void onLiveResultEnd() {
+              endCalls.incrementAndGet();
+            }
+          });
 
-    thread.unsubscribe(999);
+      thread.unsubscribe(999);
 
-    assertEquals("unknown key must not trigger any listener callback", 0, endCalls.get());
-    assertTrue("the pre-existing subscription must survive", thread.hasToken(1));
+      assertEquals("unknown key must not trigger any listener callback", 0, endCalls.get());
+      assertTrue("the pre-existing subscription must survive", thread.hasToken(1));
+    } finally {
+      thread.stopExecution();
+      thread.join(1000);
+    }
   }
 
   /**
@@ -461,15 +471,22 @@ public class LiveQueryDeadCodeTest {
   /**
    * {@link LiveQueryHook.LiveQueryOps} initialises its dispatcher thread lazily — the thread is
    * allocated at construction but not started. Pins the expected initial state.
+   *
+   * <p>Defensive {@code ops.close()} in {@code finally} guards against a future mutation that
+   * auto-starts the dispatcher at construction.
    */
   @Test
   public void v1_opsExposeFreshQueueThread() {
     // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryHook
     var ops = new LiveQueryHook.LiveQueryOps();
-    var thread = ops.getQueueThread();
-    assertNotNull("ops must expose its dispatcher thread", thread);
-    assertFalse("dispatcher must not auto-start on construction", thread.isAlive());
-    assertFalse("no subscribers yet", thread.hasListeners());
+    try {
+      var thread = ops.getQueueThread();
+      assertNotNull("ops must expose its dispatcher thread", thread);
+      assertFalse("dispatcher must not auto-start on construction", thread.isAlive());
+      assertFalse("no subscribers yet", thread.hasListeners());
+    } finally {
+      ops.close();
+    }
   }
 
   /**
@@ -701,29 +718,34 @@ public class LiveQueryDeadCodeTest {
   public void v2_opsSubscribersLifecycle() {
     // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryHookV2
     var ops = new LiveQueryHookV2.LiveQueryOps();
+    try {
+      assertFalse("fresh ops must report no listeners", ops.hasListeners());
+      assertTrue("subscribers map must be empty", ops.getSubscribers().isEmpty());
+      assertNotNull("queue must be non-null", ops.getQueue());
 
-    assertFalse("fresh ops must report no listeners", ops.hasListeners());
-    assertTrue("subscribers map must be empty", ops.getSubscribers().isEmpty());
-    assertNotNull("queue must be non-null", ops.getQueue());
+      var listener = new CollectingV2Listener(5000, new ArrayList<>());
+      Integer callerToken = Integer.valueOf(5000); // Outside JDK Integer cache range.
 
-    var listener = new CollectingV2Listener(5000, new ArrayList<>());
-    Integer callerToken = Integer.valueOf(5000); // Outside JDK Integer cache range.
+      var token = ops.subscribe(callerToken, listener);
+      assertSame("subscribe must return the caller-supplied Integer reference", callerToken, token);
+      assertTrue("hasListeners flips after subscribe", ops.hasListeners());
+      assertSame(
+          "getSubscribers exposes the same listener instance",
+          listener,
+          ops.getSubscribers().get(callerToken));
 
-    var token = ops.subscribe(callerToken, listener);
-    assertSame("subscribe must return the caller-supplied Integer reference", callerToken, token);
-    assertTrue("hasListeners flips after subscribe", ops.hasListeners());
-    assertSame(
-        "getSubscribers exposes the same listener instance",
-        listener,
-        ops.getSubscribers().get(callerToken));
+      ops.unsubscribe(callerToken);
 
-    ops.unsubscribe(callerToken);
-
-    assertFalse("hasListeners flips back after unsubscribe", ops.hasListeners());
-    assertEquals(
-        "unsubscribe triggers exactly one onLiveResultEnd callback",
-        1,
-        listener.endCount.get());
+      assertFalse("hasListeners flips back after unsubscribe", ops.hasListeners());
+      assertEquals(
+          "unsubscribe triggers exactly one onLiveResultEnd callback",
+          1,
+          listener.endCount.get());
+    } finally {
+      // Defensive close — the test only exercises subscribe/unsubscribe but a future mutation
+      // that auto-started the dispatcher would leave a daemon thread alive without this guard.
+      ops.close();
+    }
   }
 
   /**
@@ -734,16 +756,21 @@ public class LiveQueryDeadCodeTest {
   public void v2_opsUnsubscribeUnknownTokenIsNoOp() {
     // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryHookV2
     var ops = new LiveQueryHookV2.LiveQueryOps();
+    try {
+      var captured = new ArrayList<List<LiveQueryOp>>();
+      var listener = new CollectingV2Listener(6, captured);
+      ops.subscribe(6, listener);
 
-    var captured = new ArrayList<List<LiveQueryOp>>();
-    var listener = new CollectingV2Listener(6, captured);
-    ops.subscribe(6, listener);
+      ops.unsubscribe(777);
 
-    ops.unsubscribe(777);
-
-    assertEquals(
-        "unknown token must not fire onLiveResultEnd on any listener", 0, listener.endCount.get());
-    assertTrue("the pre-existing subscription must survive", ops.hasListeners());
+      assertEquals(
+          "unknown token must not fire onLiveResultEnd on any listener",
+          0,
+          listener.endCount.get());
+      assertTrue("the pre-existing subscription must survive", ops.hasListeners());
+    } finally {
+      ops.close();
+    }
   }
 
   /**
@@ -754,12 +781,16 @@ public class LiveQueryDeadCodeTest {
   public void v2_opsEnqueueRoutesToSharedQueue() {
     // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryHookV2
     var ops = new LiveQueryHookV2.LiveQueryOps();
-    var op = new LiveQueryOp(null, null, null, RecordOperation.UPDATED);
+    try {
+      var op = new LiveQueryOp(null, null, null, RecordOperation.UPDATED);
 
-    ops.enqueue(op);
+      ops.enqueue(op);
 
-    assertEquals("queue must contain exactly the enqueued op", 1, ops.getQueue().size());
-    assertSame(op, ops.getQueue().peek());
+      assertEquals("queue must contain exactly the enqueued op", 1, ops.getQueue().size());
+      assertSame(op, ops.getQueue().peek());
+    } finally {
+      ops.close();
+    }
   }
 
   /**
