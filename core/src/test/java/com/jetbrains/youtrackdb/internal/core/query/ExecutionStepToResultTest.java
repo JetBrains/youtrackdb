@@ -1,6 +1,5 @@
 package com.jetbrains.youtrackdb.internal.core.query;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.List;
@@ -193,15 +192,22 @@ public class ExecutionStepToResultTest {
   }
 
   @Test
-  public void testToResultWithNonNullSessionAcceptedAsBindTarget() {
-    // When session is non-null, setProperty still succeeds as long as the
-    // session accepts the active-thread check. Because passing a real
-    // DatabaseSessionEmbedded would bring in DbTestBase, we instead confirm
-    // the null-session path (the only path reachable without a live DB).
-    // See ResultDefaultMethodsTest for the DB-backed dispatch coverage.
-    DatabaseSessionEmbedded noSession = null;
-    var step = new CountingStub("n", "t", null, 0L, List.of());
-    Result result = step.toResult(noSession);
-    Assert.assertNotNull(result);
+  public void testToResultRecursesThroughMultipleLevels() {
+    // Depth > 1: a bug that flattened sub-step iteration (losing recursion)
+    // would keep passing the depth-1 test above, so pin grandchildren here.
+    var leaf = new CountingStub("leaf", "t", null, 0L, List.of());
+    var mid = new CountingStub("mid", "t", null, 0L, List.<ExecutionStep>of(leaf));
+    var root = new CountingStub("root", "t", null, 0L, List.<ExecutionStep>of(mid));
+    Result result = root.toResult(null);
+    List<?> level1 = result.getProperty("subSteps");
+    Assert.assertNotNull(level1);
+    Assert.assertEquals(1, level1.size());
+    Result midResult = (Result) level1.get(0);
+    List<?> level2 = midResult.getProperty("subSteps");
+    Assert.assertNotNull(level2);
+    Assert.assertEquals(1, level2.size());
+    Result leafResult = (Result) level2.get(0);
+    Assert.assertEquals("leaf", leafResult.getProperty("name"));
+    Assert.assertEquals(0, ((List<?>) leafResult.getProperty("subSteps")).size());
   }
 }

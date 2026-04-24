@@ -161,12 +161,19 @@ public class BasicResultSetDefaultMethodsTest {
       return source.next();
     }
 
+    /**
+     * Idempotent close: increments {@code closeCount} only on the first
+     * invocation. Subsequent calls are no-ops. This lets tests assert exact
+     * close counts (e.g. {@code assertEquals(1, ...)}) and distinguishes
+     * mutations that double-wire {@code onClose} from correct single-close
+     * behavior.
+     */
     @Override
     public void close() {
       if (!closed) {
         closed = true;
+        closeCount.incrementAndGet();
       }
-      closeCount.incrementAndGet();
     }
 
     @Override
@@ -421,10 +428,9 @@ public class BasicResultSetDefaultMethodsTest {
     try (var stream = rs.stream()) {
       Assert.assertEquals(1L, stream.count());
     }
-    // Terminal op (count) plus try-with-resources close: at least one
-    // close call must have happened. Close is idempotent under
-    // try-with-resources.
-    Assert.assertTrue(rs.closeCount() >= 1);
+    Assert.assertEquals(
+        "Stream close must delegate to ResultSet.close exactly once",
+        1, rs.closeCount());
   }
 
   @Test
@@ -433,6 +439,37 @@ public class BasicResultSetDefaultMethodsTest {
     try (var stream = rs.detachedStream()) {
       Assert.assertEquals(1L, stream.count());
     }
-    Assert.assertTrue(rs.closeCount() >= 1);
+    Assert.assertEquals(1, rs.closeCount());
+  }
+
+  /**
+   * Pins the null-element branch in BasicResultSet.detachedStream's
+   * internal Spliterator: {@code while (hasNext()) { var nextElem = next();
+   * if (nextElem != null) { action.accept(...); return true; } }}. The
+   * branch is defensive — if {@code next()} yields null, detachedStream
+   * must skip it and continue. A regression that dropped the null guard
+   * would NPE inside {@code action.accept(nextElem.detach())}.
+   */
+  @Test
+  public void testDetachedStreamSkipsNullElements() {
+    List<TestResult> source = new java.util.ArrayList<>();
+    source.add(null);
+    source.add(new TestResult("a"));
+    source.add(null);
+    source.add(new TestResult("b"));
+    var rs = new TestResultSet(source);
+    var detached = rs.detachedStream().toList();
+    Assert.assertEquals(2, detached.size());
+    Assert.assertEquals("a", detached.get(0).toString());
+    Assert.assertEquals("b", detached.get(1).toString());
+  }
+
+  @Test
+  public void testDetachedStreamAllNullsYieldsEmpty() {
+    List<TestResult> source = new java.util.ArrayList<>();
+    source.add(null);
+    source.add(null);
+    var rs = new TestResultSet(source);
+    Assert.assertTrue(rs.detachedStream().toList().isEmpty());
   }
 }
