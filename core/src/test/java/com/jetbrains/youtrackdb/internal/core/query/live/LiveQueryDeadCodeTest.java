@@ -27,10 +27,15 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.query.BasicLiveQueryResultListener;
+import com.jetbrains.youtrackdb.internal.core.query.BasicResult;
 import com.jetbrains.youtrackdb.internal.core.query.LiveQueryMonitor;
 import com.jetbrains.youtrackdb.internal.core.query.LiveQueryResultListener;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.query.live.LiveQueryHookV2.LiveQueryOp;
 import java.util.ArrayList;
 import java.util.List;
@@ -226,21 +231,34 @@ public class LiveQueryDeadCodeTest {
 
   /**
    * {@link LiveQueryQueueThread#clone()} shares the queue + subscribers maps with the original.
-   * This is how the hook recycles its dispatcher without losing subscribers. Uses {@code try/
-   * finally} to stop both threads defensively — a future mutation that auto-starts the thread at
-   * construction would otherwise leak a hung daemon thread into the surefire JVM.
+   * This is how the hook recycles its dispatcher without losing subscribers.
+   *
+   * <p>Two observables pin the sharing contract:
+   *
+   * <ul>
+   *   <li>{@code hasListeners} / {@code hasToken} on the clone — pins the subscribers-map sharing.
+   *   <li>Enqueueing on the <em>original</em> while only the <em>clone</em> is started — the
+   *       subscriber's latch must trip, proving the clone drains the shared queue. A regression
+   *       that gave {@code clone()} a fresh queue would leave the latch untriggered.
+   * </ul>
+   *
+   * <p>Uses {@code try/finally} to stop both threads defensively — a future mutation that
+   * auto-starts the thread at construction would otherwise leak a hung daemon thread into the
+   * surefire JVM.
    */
   @Test
   public void v1_cloneSharesQueueAndSubscribers() throws Exception {
     // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryQueueThread
     var original = new LiveQueryQueueThread();
     LiveQueryQueueThread copy = null;
+    var delivered = new CountDownLatch(1);
     try {
       original.subscribe(
           2,
           new LiveQueryListener() {
             @Override
             public void onLiveResult(RecordOperation iRecord) {
+              delivered.countDown();
             }
 
             @Override
@@ -257,6 +275,15 @@ public class LiveQueryDeadCodeTest {
           "constructor must not auto-start the thread (regression guard)", original.isAlive());
       assertFalse(
           "clone must not auto-start the thread (regression guard)", copy.isAlive());
+
+      // Queue-sharing pin: start only the clone, enqueue on the original. If clone() gave
+      // itself a fresh queue, the op would land on a queue the clone does not drain and the
+      // latch would time out.
+      copy.start();
+      original.enqueue(new RecordOperation(null, RecordOperation.CREATED));
+      assertTrue(
+          "clone must drain ops enqueued on the original (shared queue)",
+          delivered.await(5, TimeUnit.SECONDS));
     } finally {
       original.stopExecution();
       original.join(1000);
@@ -524,6 +551,15 @@ public class LiveQueryDeadCodeTest {
   @Test
   public void v2_runLoopBatchesAndDispatchesToSubscribers() throws Exception {
     // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryQueueThreadV2
+
+    // The "single-batch collapse" pin below is only meaningful when the inner drain loop can
+    // absorb both pre-enqueued ops in one call (batchSize >= 2). Guard explicitly so a future
+    // surefire JVM-option change to QUERY_REMOTE_RESULTSET_PAGE_SIZE=1 fails here with a clear
+    // message rather than flipping the batch assertion into a silent divergence.
+    assertTrue(
+        "batch size must be >= 2 for the single-batch collapse pin to be meaningful",
+        GlobalConfiguration.QUERY_REMOTE_RESULTSET_PAGE_SIZE.getValueAsInteger() >= 2);
+
     var ops = new LiveQueryHookV2.LiveQueryOps();
     var batches = new ArrayList<List<LiveQueryOp>>();
     var bothArrived = new CountDownLatch(1);
@@ -613,9 +649,18 @@ public class LiveQueryDeadCodeTest {
    * V2-specific behaviour: a lone {@link Thread#interrupt()} (without setting {@code stopped}) is
    * NOT enough to exit the V2 run loop — the {@code catch (InterruptedException)} branch
    * re-interrupts and {@code continue}s, and because {@code stopped} is still false the outer
-   * {@code while} condition sends the loop back into {@code queue.take()}. The thread must stay
-   * alive until {@code stopExecution} is called. This is the observable difference against V1 —
-   * see {@link #v1_loneInterruptExitsRunLoopWithoutStopped}.
+   * {@code while} condition sends the loop back into {@code queue.take()}. The re-asserted flag
+   * makes the next {@code take()} throw {@code InterruptedException} immediately, so V2 enters a
+   * tight catch/continue spin (state {@code RUNNABLE}) rather than returning to {@code WAITING}
+   * — but crucially the thread stays <em>alive</em> until {@code stopExecution} is called. That
+   * liveness under lone interrupt is the observable contrast against V1 (which {@code break}s on
+   * a bare interrupt — see {@link #v1_loneInterruptExitsRunLoopWithoutStopped}).
+   *
+   * <p>The pin uses a bounded {@link Thread#join(long)} as the falsifiable observable: if the V2
+   * catch-branch were mutated to {@code break}, the thread would exit during the join window and
+   * {@link Thread#isAlive()} would return false. We do NOT assert a second {@code WAITING} state
+   * here because V2 never re-parks after a re-interrupted loop — earlier iterations of the pin
+   * made that claim via a silent-timeout helper; this revision states the actual contract.
    */
   @Test
   public void v2_loneInterruptDoesNotExitRunLoopUntilStopped() throws Exception {
@@ -627,12 +672,13 @@ public class LiveQueryDeadCodeTest {
 
     try {
       thread.interrupt();
-      // Give V2 a short window to re-interrupt and settle back into queue.take() WAITING state.
-      // If the production catch-branch were mutated to `break`, the thread would exit during this
-      // window and the subsequent assertTrue(isAlive) would fail — pinning the contrast with V1.
-      awaitThreadState(thread, Thread.State.WAITING, 1000);
+
+      // Bounded join: if production mutated the catch-branch to `break`, the thread would exit
+      // during this 200ms window and the subsequent isAlive() check would fail — pinning the
+      // V1/V2 contrast.
+      thread.join(200);
       assertTrue(
-          "V2 must absorb a lone interrupt and continue (stopped still false)",
+          "V2 must absorb a lone interrupt and keep running (stopped still false)",
           thread.isAlive());
     } finally {
       thread.stopExecution();
@@ -818,37 +864,28 @@ public class LiveQueryDeadCodeTest {
     BasicLiveQueryResultListener<?, ?> anon =
         new BasicLiveQueryResultListener<>() {
           @Override
-          public void onCreate(
-              com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session,
-              com.jetbrains.youtrackdb.internal.core.query.BasicResult data) {
+          public void onCreate(DatabaseSessionEmbedded session, BasicResult data) {
             calls.incrementAndGet();
           }
 
           @Override
           public void onUpdate(
-              com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session,
-              com.jetbrains.youtrackdb.internal.core.query.BasicResult before,
-              com.jetbrains.youtrackdb.internal.core.query.BasicResult after) {
+              DatabaseSessionEmbedded session, BasicResult before, BasicResult after) {
             calls.incrementAndGet();
           }
 
           @Override
-          public void onDelete(
-              com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session,
-              com.jetbrains.youtrackdb.internal.core.query.BasicResult data) {
+          public void onDelete(DatabaseSessionEmbedded session, BasicResult data) {
             calls.incrementAndGet();
           }
 
           @Override
-          public void onError(
-              com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session,
-              com.jetbrains.youtrackdb.internal.core.exception.BaseException exception) {
+          public void onError(DatabaseSessionEmbedded session, BaseException exception) {
             calls.incrementAndGet();
           }
 
           @Override
-          public void onEnd(
-              com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session) {
+          public void onEnd(DatabaseSessionEmbedded session) {
             calls.incrementAndGet();
           }
         };
@@ -872,37 +909,28 @@ public class LiveQueryDeadCodeTest {
     LiveQueryResultListener anon =
         new LiveQueryResultListener() {
           @Override
-          public void onCreate(
-              com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session,
-              com.jetbrains.youtrackdb.internal.core.query.Result data) {
+          public void onCreate(DatabaseSessionEmbedded session, Result data) {
             calls.incrementAndGet();
           }
 
           @Override
           public void onUpdate(
-              com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session,
-              com.jetbrains.youtrackdb.internal.core.query.Result before,
-              com.jetbrains.youtrackdb.internal.core.query.Result after) {
+              DatabaseSessionEmbedded session, Result before, Result after) {
             calls.incrementAndGet();
           }
 
           @Override
-          public void onDelete(
-              com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session,
-              com.jetbrains.youtrackdb.internal.core.query.Result data) {
+          public void onDelete(DatabaseSessionEmbedded session, Result data) {
             calls.incrementAndGet();
           }
 
           @Override
-          public void onError(
-              com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session,
-              com.jetbrains.youtrackdb.internal.core.exception.BaseException exception) {
+          public void onError(DatabaseSessionEmbedded session, BaseException exception) {
             calls.incrementAndGet();
           }
 
           @Override
-          public void onEnd(
-              com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session) {
+          public void onEnd(DatabaseSessionEmbedded session) {
             calls.incrementAndGet();
           }
         };
@@ -943,14 +971,20 @@ public class LiveQueryDeadCodeTest {
   // -------------------------------------------------------------------------
 
   /**
-   * Spin-waits until {@code thread} reaches {@code target} state or {@code timeoutMillis} elapses.
-   * Used by the lone-interrupt pins so the test only probes {@code interrupt()} once the run loop
-   * is actually blocked in {@code queue.take()}; otherwise the interrupt races with thread start.
+   * Spin-waits until {@code thread} reaches {@code target} state. Fails the test if the deadline
+   * elapses first — callers rely on the precondition that the thread is parked in {@code
+   * queue.take()} before firing an interrupt, so a silent timeout would reroute the pin into a
+   * different interleaving and mask a real dispatcher regression.
    */
   private static void awaitThreadState(Thread thread, Thread.State target, long timeoutMillis)
       throws InterruptedException {
     var deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
-    while (thread.getState() != target && System.nanoTime() < deadline) {
+    while (thread.getState() != target) {
+      if (System.nanoTime() >= deadline) {
+        throw new AssertionError(
+            "thread did not reach " + target + " within " + timeoutMillis
+                + "ms — observed state=" + thread.getState());
+      }
       Thread.sleep(5);
     }
   }

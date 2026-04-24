@@ -286,22 +286,60 @@ public class LiveQueryHookStaticApiTest extends TestUtilsFixture {
   /**
    * {@code removePendingDatabaseOps} with live support disabled must NOT touch the pending-ops
    * map. Pins the early-return gate.
+   *
+   * <p>Populates pending-ops first (subscribe + {@code addOp} with live support enabled) so the
+   * post-disable assertion is falsifiable — a regression removing the {@code QUERY_LIVE_SUPPORT}
+   * guard inside {@code removePendingDatabaseOps} would reach {@code ops.pendingOps.remove(session)}
+   * and evict the entry, which this test's size-preservation check would catch.
    */
   @Test
   public void v1_removePendingDatabaseOpsWithLiveSupportDisabledIsNoOp() {
     // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryHook
     var ops = LiveQueryHook.getOpsReference(session);
-    var originalFlag = session.getConfiguration().getValue(QUERY_LIVE_SUPPORT);
+
+    session.begin();
     try {
-      session.getConfiguration().setValue(QUERY_LIVE_SUPPORT, false);
-      // Must not throw.
-      LiveQueryHook.removePendingDatabaseOps(session);
+      var entity = (EntityImpl) session.newEntity();
+      ops.getQueueThread()
+          .subscribe(
+              71,
+              new LiveQueryListener() {
+                @Override
+                public void onLiveResult(RecordOperation iRecord) {
+                }
+
+                @Override
+                public void onLiveResultEnd() {
+                }
+              });
+      try {
+        LiveQueryHook.addOp(entity, RecordOperation.CREATED, session);
+        assertFalse(
+            "precondition: pending ops populated while live support enabled",
+            ops.pendingOps.isEmpty());
+        var sizeBefore = ops.pendingOps.size();
+
+        var originalFlag = session.getConfiguration().getValue(QUERY_LIVE_SUPPORT);
+        try {
+          session.getConfiguration().setValue(QUERY_LIVE_SUPPORT, false);
+          LiveQueryHook.removePendingDatabaseOps(session);
+        } finally {
+          session.getConfiguration().setValue(QUERY_LIVE_SUPPORT, originalFlag);
+        }
+
+        assertEquals(
+            "disabled-support guard must leave pendingOps size unchanged",
+            sizeBefore,
+            ops.pendingOps.size());
+        assertNotNull(
+            "disabled-support guard must preserve the session's pending-ops entry",
+            ops.pendingOps.get(session));
+      } finally {
+        ops.getQueueThread().unsubscribe(71);
+      }
     } finally {
-      session.getConfiguration().setValue(QUERY_LIVE_SUPPORT, originalFlag);
+      session.rollback();
     }
-    assertTrue(
-        "pending ops untouched — entry never existed and disabled-support path did not add one",
-        ops.pendingOps.isEmpty());
   }
 
   /**
@@ -318,16 +356,20 @@ public class LiveQueryHookStaticApiTest extends TestUtilsFixture {
     var pendingSizeBefore = ops.pendingOps.size();
 
     var secondary = openDatabase();
-    secondary.close();
-    assertTrue("precondition: secondary session is closed", secondary.isClosed());
     try {
+      secondary.close();
+      assertTrue("precondition: secondary session is closed", secondary.isClosed());
       // Must not throw AND must not mutate pendingOps — the isClosed() guard short-circuits
       // before reaching `ops.pendingOps.remove(database)`. If the guard is removed, the call
       // would (at minimum) change pendingOps.size() — the post-state assertion pins that.
       LiveQueryHook.removePendingDatabaseOps(secondary);
     } finally {
       // Opening a second session can switch the thread-local; restore fixture session regardless
-      // of whether removePendingDatabaseOps threw so the @After safety net runs cleanly.
+      // of whether any preceding call threw so the @After safety net runs cleanly. Belt-and-
+      // braces close() here in case the earlier close() threw — double-close is idempotent.
+      if (!secondary.isClosed()) {
+        secondary.close();
+      }
       session.activateOnCurrentThread();
     }
 
@@ -348,11 +390,14 @@ public class LiveQueryHookStaticApiTest extends TestUtilsFixture {
     var pendingSizeBefore = ops.pendingOps.size();
 
     var secondary = openDatabase();
-    secondary.close();
-    assertTrue("precondition: secondary session is closed", secondary.isClosed());
     try {
+      secondary.close();
+      assertTrue("precondition: secondary session is closed", secondary.isClosed());
       LiveQueryHookV2.removePendingDatabaseOps(secondary);
     } finally {
+      if (!secondary.isClosed()) {
+        secondary.close();
+      }
       session.activateOnCurrentThread();
     }
 
@@ -516,19 +561,65 @@ public class LiveQueryHookStaticApiTest extends TestUtilsFixture {
     assertTrue(ops.pendingOps.isEmpty());
   }
 
-  /** V2 removePendingDatabaseOps with disabled support must not touch state. */
+  /**
+   * V2 removePendingDatabaseOps with disabled support must not touch state.
+   *
+   * <p>Populates pending-ops first so the assertion is falsifiable — a regression removing the
+   * V2 {@code QUERY_LIVE_SUPPORT} guard would evict the entry on the disabled call.
+   */
   @Test
   public void v2_removePendingDatabaseOpsWithLiveSupportDisabledIsNoOp() {
     // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryHookV2
     var ops = LiveQueryHookV2.getOpsReference(session);
-    var originalFlag = session.getConfiguration().getValue(QUERY_LIVE_SUPPORT);
+    ops.subscribe(
+        781,
+        new LiveQueryListenerV2() {
+          @Override
+          public void onLiveResults(List<LiveQueryOp> iRecords) {
+          }
+
+          @Override
+          public void onLiveResultEnd() {
+          }
+
+          @Override
+          public int getToken() {
+            return 781;
+          }
+        });
     try {
-      session.getConfiguration().setValue(QUERY_LIVE_SUPPORT, false);
-      LiveQueryHookV2.removePendingDatabaseOps(session);
+      var cls = createClassInstance();
+      session.begin();
+      try {
+        var entity = (EntityImpl) session.newEntity(cls.getName());
+        entity.setProperty("v", 1);
+        LiveQueryHookV2.addOp(session, entity, RecordOperation.CREATED);
+        assertFalse(
+            "precondition: addOp must populate pending ops while live support enabled",
+            ops.pendingOps.isEmpty());
+        var sizeBefore = ops.pendingOps.size();
+
+        var originalFlag = session.getConfiguration().getValue(QUERY_LIVE_SUPPORT);
+        try {
+          session.getConfiguration().setValue(QUERY_LIVE_SUPPORT, false);
+          LiveQueryHookV2.removePendingDatabaseOps(session);
+        } finally {
+          session.getConfiguration().setValue(QUERY_LIVE_SUPPORT, originalFlag);
+        }
+
+        assertEquals(
+            "V2 disabled-support guard must leave pendingOps size unchanged",
+            sizeBefore,
+            ops.pendingOps.size());
+        assertNotNull(
+            "V2 disabled-support guard must preserve the session's pending-ops entry",
+            ops.pendingOps.get(session));
+      } finally {
+        session.rollback();
+      }
     } finally {
-      session.getConfiguration().setValue(QUERY_LIVE_SUPPORT, originalFlag);
+      ops.unsubscribe(781);
     }
-    assertTrue(ops.pendingOps.isEmpty());
   }
 
   /**
@@ -688,19 +779,25 @@ public class LiveQueryHookStaticApiTest extends TestUtilsFixture {
    * Happy path for {@link LiveQueryHookV2#subscribe}: with live support enabled the static entry
    * point must register the listener on the session's shared ops AND reach the internal
    * {@code synchronized(ops.threadLock)} auto-start block that clones + starts the dispatcher.
-   * The dispatcher thread is not exposed by the V2 ops public API — the observable pin here is
-   * (a) the listener is registered and (b) subscribe does not throw, which together exercise the
-   * threadLock branch that no disabled-support or direct-ops test reaches.
+   *
+   * <p>Listener-registration alone is not a falsifiable pin for the auto-start branch — a
+   * mutation that removed the {@code queueThread.start()} call would still register the listener
+   * via the trailing {@code ops.subscribe(...)} call. The falsifiable observable is that a
+   * post-subscribe {@code ops.enqueue(...)} must reach the listener within a bounded window:
+   * without a running dispatcher the latch would never fire.
    */
   @Test
-  public void v2_subscribeThroughStaticEntryPointRegistersListenerAndReachesAutoStart() {
+  public void v2_subscribeThroughStaticEntryPointRegistersListenerAndReachesAutoStart()
+      throws Exception {
     // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryHookV2
     var ops = LiveQueryHookV2.getOpsReference(session);
     var endCount = new AtomicInteger();
+    var delivered = new java.util.concurrent.CountDownLatch(1);
     var listener =
         new LiveQueryListenerV2() {
           @Override
           public void onLiveResults(List<LiveQueryOp> iRecords) {
+            delivered.countDown();
           }
 
           @Override
@@ -722,10 +819,19 @@ public class LiveQueryHookStaticApiTest extends TestUtilsFixture {
           "getSubscribers exposes the same listener instance",
           listener,
           ops.getSubscribers().get(4242));
+
+      // Auto-start pin: enqueue after subscribe and await dispatch. If the static entry point
+      // did not auto-start the dispatcher (e.g. the synchronized(threadLock) block were removed),
+      // the queue would accumulate ops but never be drained — the latch would never fire.
+      ops.enqueue(new LiveQueryOp(null, null, null, RecordOperation.CREATED));
+      assertTrue(
+          "static subscribe must auto-start the dispatcher (enqueue reaches listener)",
+          delivered.await(5, java.util.concurrent.TimeUnit.SECONDS));
     } finally {
       LiveQueryHookV2.unsubscribe(4242, session);
-      // ops.close() stops the dispatcher that subscribe started; joining inside close ensures
-      // the thread exits before the test returns so no daemon leaks into @After.
+      // ops.close() joins the dispatcher without a bound; the class-level @Rule Timeout(15s)
+      // is the only backstop if the join hangs. Track 22's close() rewrite should add a bounded
+      // join — until then, the rule is adequate.
       ops.close();
     }
     assertFalse(
