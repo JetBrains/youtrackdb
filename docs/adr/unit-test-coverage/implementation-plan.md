@@ -889,6 +889,14 @@ flowchart TD
   >
   > **Step file:** `tracks/track-9.md` (5 steps, 0 failed — Step 4
   > split into 4a + 4b per anticipated fallback)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact on Tracks 10–21.
+  > All command/script discoveries (dead-code pins, production-bug
+  > WHEN-FIXED markers, DRY-cleanup items, `TraverseTest.java` dead
+  > locals) are already absorbed into Track 22's section of this plan.
+  > Test-infrastructure precedents from Tracks 5–9 (`TestUtilsFixture` +
+  > `@After rollbackIfLeftOpen`, polyglot-state hygiene, dead-code pin
+  > pattern) continue to apply.
 
 - [ ] Track 10: Query & Fetch
   > Write tests for query infrastructure and fetch plan execution.
@@ -1355,12 +1363,54 @@ flowchart TD
   >   `ScriptLegacyWrappersTest`, and `SQLScriptEngineTest` into a
   >   package-private helper in `command/script/` (or `test-commons`)
   >   so the Function-record construction boilerplate is written once.
+  > - **From Track 10 Phase A reviews (T1/R1, T2/R2, T4, T5, T10, R6):**
+  >   Two dead code regions pinned via `// WHEN-FIXED: Track 22` markers
+  >   in Track 10 Steps 2 and 3; Track 22 deletes/simplifies:
+  >   (a) **Entire `core/query/live/` package** (~660 LOC across
+  >   `LiveQueryHook` 164 LOC, `LiveQueryHookV2` 326 LOC,
+  >   `LiveQueryQueueThread` 107 LOC, `LiveQueryQueueThreadV2` 94 LOC,
+  >   `LiveQueryListener` 30 LOC, `LiveQueryListenerV2` 33 LOC) — all
+  >   public-static surface (`subscribe`/`unsubscribe`/`addOp`/
+  >   `notifyForTxChanges`/`removePendingDatabaseOps`/`calculateBefore`/
+  >   `calculateProjections`) has 0 production callers; only
+  >   `LiveQueryHookV2.unboxRidbags` is live via
+  >   `CopyRecordContentBeforeUpdateStep.java:52`. Cross-module grep
+  >   confirmed 0 callers in `server/`, `driver/`, `embedded/`,
+  >   `gremlin-annotations/`, `tests/`.
+  >   (b) **Orphan listener interfaces in `core/query/`**:
+  >   `BasicLiveQueryResultListener` (43 LOC),
+  >   `LiveQueryResultListener` (8 LOC),
+  >   `LiveQueryMonitor` (11 LOC) — zero production implementors.
+  >   (c) **Entire `core/fetch/` package** including `FetchHelper` (1027
+  >   LOC), `FetchPlan` (253 LOC), `FetchContext`, `FetchListener`,
+  >   `core/fetch/remote/RemoteFetchContext` + `RemoteFetchListener` —
+  >   cross-module grep confirmed 0 callers in `server/`, `driver/`,
+  >   `embedded/`, `gremlin-annotations/`, `tests/`; only
+  >   `DepthFetchPlanTest` (test-only) drives it in core. Historical
+  >   binary-protocol fetch path that's no longer wired in.
+  >   (d) **Bug fix in `LiveQueryHookV2.calculateProjections`** (lines
+  >   246-252): method always returns an empty `HashSet` or `null`,
+  >   meaning `calculateBefore`/`calculateAfter` always load ALL
+  >   properties regardless of subscriber projection — pre-existing bug
+  >   pinned via `LiveQueryDeadCodeTest` R6 marker.
+  >   (e) **Clean-up in `ExecutionStep.java:41`**: dead duplicate
+  >   `getSubSteps()` call (return value discarded) in the default
+  >   `toResult` method — harmless but wasteful; T5 pin marker.
+  >   (f) **Reconcile `LiveQueryQueueThread.run` vs
+  >   `LiveQueryQueueThreadV2.run` `InterruptedException` handling**
+  >   (V1 `break` @ line 62 vs V2 re-interrupt + `continue` @ lines
+  >   65-67) — T4 behavioral-inconsistency pin; if the subsystem is
+  >   kept (unlikely), pick one behavior and align.
+  >   Also absorbed: **`DepthFetchPlanTest` modernization** (T10) —
+  >   migrate from top-level `session.begin()`/`session.commit()` to
+  >   `session.executeInTx(...)` callback idiom for consistency with
+  >   Track 6–9 test style; fold into Track 22's DRY/cleanup queue.
   >
   > **Scope:** ~6 steps covering transaction management, Gremlin
   > integration, engine lifecycle, exception/compression/config, remaining
   > small packages, and verification; plus ~2-3 steps absorbing the
-  > inherited DRY / cleanup scope above (Track 7 + Track 8 + Track 9
-  > combined)
+  > inherited DRY / cleanup scope above (Track 7 + Track 8 + Track 9 +
+  > Track 10 combined)
   > **Depends on:** Track 1
 
 ## Final Artifacts
