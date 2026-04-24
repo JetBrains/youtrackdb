@@ -27,7 +27,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.filter.SQLFilterCondition;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
 import org.junit.Assert;
@@ -224,32 +223,38 @@ public class StandaloneComparisonOperatorsTest {
   }
 
   /**
-   * QueryHelper.like pins lowercasing to Locale.ENGLISH (rather than the JVM
-   * default). That matters because the Turkish locale otherwise maps ASCII
-   * 'I' → dotless 'ı' (U+0131) and 'İ' (U+0130) → dotted 'i', producing
-   * mismatches for ASCII patterns in a Turkish-default JVM. The pair below
-   * exercises both directions: uppercase ASCII "INDEX" must still match the
-   * lowercase pattern "index", regardless of the JVM default locale.
-   * WHEN-FIXED: if the Locale.ENGLISH lock is ever dropped in favor of the
-   * default locale, the Turkish-default case would flip — pin this so the
-   * regression shows up at build time.
+   * QueryHelper.like pins lowercasing to Locale.ENGLISH. The pin is
+   * observable through the Turkish capital 'İ' (U+0130): under
+   * Locale.ENGLISH (and all non-Turkish locales), it lowercases to the
+   * two-char sequence 'i' + COMBINING DOT ABOVE ('i̇'); under a
+   * Turkish locale it lowercases to a single 'i'. The assertions below
+   * pin the Locale.ENGLISH lock through input characters alone, without
+   * mutating process-wide {@code Locale.getDefault()} — keeping the
+   * test safe under surefire's parallel-classes configuration.
+   * WHEN-FIXED: if the Locale.ENGLISH lock is ever dropped, this test
+   * continues to detect the regression on any Turkish-default JVM
+   * (where "İ".toLowerCase() = "i") because the pattern "i" would then
+   * match. A full cross-locale pin would require a dedicated
+   * sequential test that mutates Locale.setDefault — intentionally
+   * omitted here to avoid the parallel-test-shared-state race.
    */
   @Test
   public void testLikeUsesEnglishLocaleForLowercasing() {
     var like = new QueryOperatorLike();
-    var previous = Locale.getDefault();
-    try {
-      Locale.setDefault(new Locale("tr", "TR"));
-      // ASCII 'I' lowercased under tr-TR becomes 'ı' (U+0131), not 'i'.
-      // QueryHelper.like explicitly uses Locale.ENGLISH to avoid this.
-      Assert.assertEquals(true, eval(like, "INDEX", "index"));
-      Assert.assertEquals(true, eval(like, "index", "INDEX"));
-      // Wildcard case: pattern must still match after forced-English
-      // lowercasing.
-      Assert.assertEquals(true, eval(like, "INDEX_KEY", "ind%"));
-    } finally {
-      Locale.setDefault(previous);
-    }
+    // "İ" (U+0130) lowercased by Locale.ENGLISH is the two-char sequence
+    // "i̇". A single-char pattern "i" therefore does NOT match.
+    // Under a Turkish-default JVM with no Locale.ENGLISH lock, "İ" would
+    // lowercase to "i" and this assertion would flip — catching the
+    // regression there.
+    Assert.assertEquals(false, eval(like, "İ", "i"));
+    // The full two-char lowercase form does match.
+    Assert.assertEquals(true, eval(like, "İ", "i̇"));
+    // ASCII round-trip: uppercase ASCII "INDEX" under Locale.ENGLISH
+    // still lowercases to ASCII "index". This covers the ordinary case
+    // a caller would write.
+    Assert.assertEquals(true, eval(like, "INDEX", "index"));
+    Assert.assertEquals(true, eval(like, "index", "INDEX"));
+    Assert.assertEquals(true, eval(like, "INDEX_KEY", "ind%"));
   }
 
   // ===== QueryOperatorContainsKey =====

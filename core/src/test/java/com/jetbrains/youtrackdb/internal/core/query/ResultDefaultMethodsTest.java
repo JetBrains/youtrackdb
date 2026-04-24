@@ -150,10 +150,14 @@ public class ResultDefaultMethodsTest extends TestUtilsFixture {
     session.commit();
   }
 
-  @Test(expected = IllegalStateException.class)
+  @Test
   public void testAsVertexOnProjectionThrowsIllegalState() {
     // asVertex() default method delegates to asEntity().asVertex(); asEntity
-    // throws IllegalStateException when the result is not an entity.
+    // throws IllegalStateException with the message "Result is not an
+    // entity" when the result is not an entity. Asserting the message
+    // content pins the specific throw site — ResultInternal#asEntity —
+    // rather than any arbitrary IllegalStateException (ResultInternal
+    // also throws ISE from setProperty for mutation guards).
     var schema = session.getMetadata().getSchema();
     var vClass = "V_AsVertexProjection";
     schema.createClass(vClass, schema.getClass("V"));
@@ -163,15 +167,85 @@ public class ResultDefaultMethodsTest extends TestUtilsFixture {
     session.commit();
 
     session.begin();
-    try {
-      try (var rs = session.query("SELECT count(*) AS c FROM " + vClass)) {
-        Assert.assertTrue(rs.hasNext());
-        Result row = rs.next();
-        row.asVertex();
-      }
-    } finally {
-      session.commit();
+    try (var rs = session.query("SELECT count(*) AS c FROM " + vClass)) {
+      Assert.assertTrue(rs.hasNext());
+      Result row = rs.next();
+      var ise = Assert.assertThrows(IllegalStateException.class, row::asVertex);
+      Assert.assertTrue(
+          "Expected 'not an entity' message from asEntity(), got: "
+              + ise.getMessage(),
+          ise.getMessage() != null && ise.getMessage().contains("not an entity"));
     }
+    // rollbackIfLeftOpen (inherited @After) handles the open read-only tx.
+  }
+
+  @Test
+  public void testAsEdgeOrNullOnVertexRowReturnsNull() {
+    // asEdgeOrNull on a vertex row must return null (the "wrong entity
+    // kind" fall-through arm of asEdgeOrNull's default body).
+    var schema = session.getMetadata().getSchema();
+    var vClass = "V_AsEdgeOrNull";
+    schema.createClass(vClass, schema.getClass("V"));
+
+    session.begin();
+    session.newVertex(vClass);
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query("SELECT FROM " + vClass)) {
+      Assert.assertTrue(rs.hasNext());
+      Result row = rs.next();
+      Assert.assertNull("asEdgeOrNull on a vertex row must return null",
+          row.asEdgeOrNull());
+    }
+    session.commit();
+  }
+
+  @Test
+  public void testAsBlobOrNullOnVertexRowReturnsNull() {
+    // asBlobOrNull on a vertex row exercises the non-Blob fall-through arm.
+    var schema = session.getMetadata().getSchema();
+    var vClass = "V_AsBlobOrNull";
+    schema.createClass(vClass, schema.getClass("V"));
+
+    session.begin();
+    session.newVertex(vClass);
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query("SELECT FROM " + vClass)) {
+      Assert.assertTrue(rs.hasNext());
+      Result row = rs.next();
+      Assert.assertNull(row.asBlobOrNull());
+    }
+    session.commit();
+  }
+
+  @Test
+  public void testAsVertexOrNullOnEdgeRowReturnsNull() {
+    // Default asVertexOrNull body: asEntityOrNull().asVertexOrNull() — on an
+    // edge row, entity is non-null but asVertexOrNull() on the edge must
+    // return null. Pins the cross-kind dispatch fall-through.
+    var schema = session.getMetadata().getSchema();
+    var vClass = "V_ForEdgeVertexOrNull";
+    var eClass = "E_VertexOrNull";
+    schema.createClass(vClass, schema.getClass("V"));
+    schema.createClass(eClass, schema.getClass("E"));
+
+    session.begin();
+    var v1 = session.newVertex(vClass);
+    var v2 = session.newVertex(vClass);
+    v1.addEdge(v2, eClass);
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query("SELECT FROM " + eClass)) {
+      Assert.assertTrue(rs.hasNext());
+      Result row = rs.next();
+      Assert.assertNull("asVertexOrNull on an edge row must return null",
+          row.asVertexOrNull());
+    }
+    session.commit();
   }
 
   @Test

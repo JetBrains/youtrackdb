@@ -1,5 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.query;
 
+import static org.mockito.Mockito.mock;
+
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.sql.filter.SQLFilterItemFieldMultiAbstract;
 import java.util.Collections;
@@ -54,6 +56,18 @@ public class QueryRuntimeValueMultiTest {
     Assert.assertEquals("[42,null,x]", value.toString());
   }
 
+  /**
+   * Leading-null pins the separator logic: {@code if (i++ > 0)} must NOT
+   * emit a leading comma when position 0 is null. A mutation that added
+   * the comma unconditionally would produce "[,null,x]".
+   */
+  @Test
+  public void testToStringLeadingNull() {
+    var value = new QueryRuntimeValueMulti(NULL_DEF, new Object[] {null, "x"},
+        Collections.emptyList());
+    Assert.assertEquals("[null,x]", value.toString());
+  }
+
   @Test
   public void testToStringNullValuesArrayReturnsEmptyString() {
     // Guarded path: values == null → "". Documents the contract for callers
@@ -71,18 +85,45 @@ public class QueryRuntimeValueMultiTest {
   }
 
   @Test
+  public void testGetValuesReturnsStoredEmptyArray() {
+    // Empty-array reference parity: getValues() must return the exact
+    // stored reference, not null and not a fresh empty array. Callers
+    // elsewhere branch on values == null, so this distinction matters.
+    var arr = new Object[0];
+    var value = new QueryRuntimeValueMulti(NULL_DEF, arr, Collections.emptyList());
+    Assert.assertSame(arr, value.getValues());
+  }
+
+  @Test
   public void testGetDefinitionReturnsStoredReference() {
+    // Use a non-null mock so the assertion is identity-sensitive (assertSame)
+    // rather than null-shape-sensitive (assertNull). This catches a
+    // mutation where getDefinition() hard-codes null, which the weaker
+    // null-input test would have missed.
+    var def = mock(SQLFilterItemFieldMultiAbstract.class);
+    var value = new QueryRuntimeValueMulti(def, new Object[0], Collections.emptyList());
+    Assert.assertSame(def, value.getDefinition());
+  }
+
+  @Test
+  public void testGetDefinitionWithNullReturnsNull() {
+    // Also pin the null-input path so getDefinition contract is fully
+    // characterized.
     var value = new QueryRuntimeValueMulti(NULL_DEF, new Object[0],
         Collections.emptyList());
     Assert.assertNull(value.getDefinition());
   }
 
   @Test
-  public void testGetCollateReturnsByIndex() {
-    var collate = Collate.defaultCollate();
-    List<Collate> collates = List.of(collate);
-    var value = new QueryRuntimeValueMulti(NULL_DEF, new Object[] {"x"}, collates);
-    Assert.assertSame(collate, value.getCollate(0));
+  public void testGetCollateReturnsByIndexDistinguishesPositions() {
+    // Use two DISTINCT collates so a mutation that ignores the index and
+    // always returns collates.get(0) is detectable.
+    var c0 = Collate.defaultCollate();
+    var c1 = Collate.caseInsensitiveCollate();
+    var value = new QueryRuntimeValueMulti(NULL_DEF, new Object[] {"x", "y"},
+        List.of(c0, c1));
+    Assert.assertSame(c0, value.getCollate(0));
+    Assert.assertSame(c1, value.getCollate(1));
   }
 
   @Test(expected = IndexOutOfBoundsException.class)
@@ -91,5 +132,15 @@ public class QueryRuntimeValueMultiTest {
         Collections.emptyList());
     // Backing list is empty — any index access must throw.
     value.getCollate(0);
+  }
+
+  @Test(expected = IndexOutOfBoundsException.class)
+  public void testGetCollateShorterThanValuesThrows() {
+    // Realistic schema-evolution case: values longer than the collates
+    // list. Access past collates.size()-1 must throw, not return null or
+    // the last valid collate.
+    var value = new QueryRuntimeValueMulti(NULL_DEF, new Object[] {"a", "b"},
+        List.of(Collate.defaultCollate()));
+    value.getCollate(1);
   }
 }
