@@ -31,7 +31,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.query.live.LiveQueryHookV2.LiveQueryOp;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.TestUtilsFixture;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Rule;
@@ -55,10 +54,10 @@ import org.junit.rules.Timeout;
  * should remove once the feature is formally retired.
  *
  * <p>Extends {@link TestUtilsFixture} for the shared {@code @After rollbackIfLeftOpen} safety net.
- * Tests never start a dispatcher thread — the subscribe path will in production (via
- * {@code ops.queueThread.start()}), but the safety net here is the class-level
- * {@link Timeout(15)} rule and the explicit {@code unsubscribe} / {@code LiveQueryOps#close} in
- * every test that does subscribe.
+ * Tests use direct-ops subscription (bypassing the static {@code subscribe} entry point) wherever
+ * possible to avoid starting the dispatcher thread; the dedicated happy-path tests that DO go
+ * through the static entry point start the dispatcher and stop it explicitly in {@code finally}.
+ * The class-level {@link Timeout} rule (15 s) is a safety backstop for tests that touch threading.
  */
 public class LiveQueryHookStaticApiTest extends TestUtilsFixture {
 
@@ -315,13 +314,52 @@ public class LiveQueryHookStaticApiTest extends TestUtilsFixture {
   @Test
   public void v1_removePendingDatabaseOpsOnClosedSessionIsNoOp() {
     // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryHook
+    var ops = LiveQueryHook.getOpsReference(session);
+    var pendingSizeBefore = ops.pendingOps.size();
+
     var secondary = openDatabase();
     secondary.close();
     assertTrue("precondition: secondary session is closed", secondary.isClosed());
-    // Must not throw — the isClosed() guard short-circuits before touching ops.
-    LiveQueryHook.removePendingDatabaseOps(secondary);
-    // Reactivate the fixture's session — opening a second session can switch the thread-local.
-    session.activateOnCurrentThread();
+    try {
+      // Must not throw AND must not mutate pendingOps — the isClosed() guard short-circuits
+      // before reaching `ops.pendingOps.remove(database)`. If the guard is removed, the call
+      // would (at minimum) change pendingOps.size() — the post-state assertion pins that.
+      LiveQueryHook.removePendingDatabaseOps(secondary);
+    } finally {
+      // Opening a second session can switch the thread-local; restore fixture session regardless
+      // of whether removePendingDatabaseOps threw so the @After safety net runs cleanly.
+      session.activateOnCurrentThread();
+    }
+
+    assertEquals(
+        "closed-session short-circuit must not mutate pendingOps",
+        pendingSizeBefore,
+        ops.pendingOps.size());
+  }
+
+  /**
+   * V2 sibling of {@link #v1_removePendingDatabaseOpsOnClosedSessionIsNoOp}: the V2 closed-session
+   * short-circuit must not mutate the V2 ops' pending-ops map.
+   */
+  @Test
+  public void v2_removePendingDatabaseOpsOnClosedSessionIsNoOp() {
+    // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryHookV2
+    var ops = LiveQueryHookV2.getOpsReference(session);
+    var pendingSizeBefore = ops.pendingOps.size();
+
+    var secondary = openDatabase();
+    secondary.close();
+    assertTrue("precondition: secondary session is closed", secondary.isClosed());
+    try {
+      LiveQueryHookV2.removePendingDatabaseOps(secondary);
+    } finally {
+      session.activateOnCurrentThread();
+    }
+
+    assertEquals(
+        "V2 closed-session short-circuit must not mutate pendingOps",
+        pendingSizeBefore,
+        ops.pendingOps.size());
   }
 
   // -------------------------------------------------------------------------
@@ -577,15 +615,14 @@ public class LiveQueryHookStaticApiTest extends TestUtilsFixture {
   public void v2_calculateProjectionsAlwaysEmptyOrNull_knownBug() {
     // WHEN-FIXED: Track 22 — calculateProjections populates the projection set per subscriber
     var ops = LiveQueryHookV2.getOpsReference(session);
-    var captured = new ArrayList<List<LiveQueryOp>>();
+    // The listener body is irrelevant to this test — no dispatcher is started here, so
+    // onLiveResults will never fire. The subscription exists only to flip ops.hasListeners() so
+    // addOp reaches the calculateProjections(ops) call path.
     ops.subscribe(
         888,
         new LiveQueryListenerV2() {
           @Override
           public void onLiveResults(List<LiveQueryOp> iRecords) {
-            synchronized (captured) {
-              captured.addAll(List.of(iRecords));
-            }
           }
 
           @Override
@@ -604,6 +641,7 @@ public class LiveQueryHookStaticApiTest extends TestUtilsFixture {
       var entity = (EntityImpl) session.newEntity(cls.getName());
       entity.setProperty("only", "value");
       session.commit();
+      var committedVersion = entity.getVersion();
 
       session.begin();
       try (var rs = session.query("SELECT FROM " + cls.getName())) {
@@ -624,15 +662,184 @@ public class LiveQueryHookStaticApiTest extends TestUtilsFixture {
         assertNull(
             "bug: calculateProjections returns an empty set that filters out every property",
             queued.after.getProperty("only"));
+        // The @rid/@class/@version metadata branch is populated regardless of the bug. Pinning
+        // all three so a future regression that breaks that branch is distinguished from a fix
+        // that restores the property loop.
+        assertNotNull(
+            "metadata @rid must be populated outside the buggy property loop",
+            queued.after.getProperty("@rid"));
         assertEquals(
-            "standard metadata is still populated outside the buggy property loop",
+            "metadata @class must be populated outside the buggy property loop",
             cls.getName(),
             queued.after.getProperty("@class"));
+        assertEquals(
+            "metadata @version must be the committed entity's version + 1 (calculateAfter pin)",
+            Long.valueOf(committedVersion + 1),
+            queued.after.getProperty("@version"));
       } finally {
         session.rollback();
       }
     } finally {
       ops.unsubscribe(888);
+    }
+  }
+
+  /**
+   * Happy path for {@link LiveQueryHookV2#subscribe}: with live support enabled the static entry
+   * point must register the listener on the session's shared ops AND reach the internal
+   * {@code synchronized(ops.threadLock)} auto-start block that clones + starts the dispatcher.
+   * The dispatcher thread is not exposed by the V2 ops public API — the observable pin here is
+   * (a) the listener is registered and (b) subscribe does not throw, which together exercise the
+   * threadLock branch that no disabled-support or direct-ops test reaches.
+   */
+  @Test
+  public void v2_subscribeThroughStaticEntryPointRegistersListenerAndReachesAutoStart() {
+    // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryHookV2
+    var ops = LiveQueryHookV2.getOpsReference(session);
+    var endCount = new AtomicInteger();
+    var listener =
+        new LiveQueryListenerV2() {
+          @Override
+          public void onLiveResults(List<LiveQueryOp> iRecords) {
+          }
+
+          @Override
+          public void onLiveResultEnd() {
+            endCount.incrementAndGet();
+          }
+
+          @Override
+          public int getToken() {
+            return 4242;
+          }
+        };
+
+    var token = LiveQueryHookV2.subscribe(4242, listener, session);
+    try {
+      assertEquals("subscribe returns the caller token", Integer.valueOf(4242), token);
+      assertTrue("listener must be registered on the shared ops", ops.hasListeners());
+      assertSame(
+          "getSubscribers exposes the same listener instance",
+          listener,
+          ops.getSubscribers().get(4242));
+    } finally {
+      LiveQueryHookV2.unsubscribe(4242, session);
+      // ops.close() stops the dispatcher that subscribe started; joining inside close ensures
+      // the thread exits before the test returns so no daemon leaks into @After.
+      ops.close();
+    }
+    assertFalse(
+        "listener removed by unsubscribe (ops.close itself clears only pendingOps)",
+        ops.hasListeners());
+    assertEquals(
+        "unsubscribe must call onLiveResultEnd exactly once", 1, endCount.get());
+  }
+
+  /**
+   * Happy path for {@link LiveQueryHookV2#notifyForTxChanges}: with live support enabled and
+   * pending ops populated, the call must drain pending-ops into the queue and clear the map.
+   * Pins the body branch that is not reached by the empty-pending or disabled-support short-cuts.
+   */
+  @Test
+  public void v2_notifyForTxChangesDrainsPendingIntoQueueAndClearsMap() {
+    // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryHookV2
+    var ops = LiveQueryHookV2.getOpsReference(session);
+    ops.subscribe(
+        777,
+        new LiveQueryListenerV2() {
+          @Override
+          public void onLiveResults(List<LiveQueryOp> iRecords) {
+          }
+
+          @Override
+          public void onLiveResultEnd() {
+          }
+
+          @Override
+          public int getToken() {
+            return 777;
+          }
+        });
+    try {
+      var cls = createClassInstance();
+      session.begin();
+      try {
+        var entity = (EntityImpl) session.newEntity(cls.getName());
+        entity.setProperty("v", 1);
+        LiveQueryHookV2.addOp(session, entity, RecordOperation.CREATED);
+        assertFalse(
+            "precondition: addOp must populate pending ops", ops.pendingOps.isEmpty());
+        var queueSizeBefore = ops.getQueue().size();
+
+        LiveQueryHookV2.notifyForTxChanges(session);
+
+        assertNull(
+            "pending ops for this session must be cleared after notify",
+            ops.pendingOps.get(session));
+        assertEquals(
+            "notifyForTxChanges must drain exactly one op into the queue",
+            queueSizeBefore + 1,
+            ops.getQueue().size());
+      } finally {
+        session.rollback();
+      }
+    } finally {
+      ops.unsubscribe(777);
+    }
+  }
+
+  /**
+   * V2 {@code addOp} with an UPDATED op against the same entity instance must merge with the
+   * previously queued UPDATED op — traversing the pending list and overwriting {@code prev.after}
+   * rather than appending a second entry. Pins the dedup branch at
+   * {@code LiveQueryHookV2.java:226-232} that is not reached by any CREATED / DELETED test.
+   */
+  @Test
+  public void v2_addOpUpdatedTwiceOnSameEntityMergesInPlace() {
+    // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryHookV2
+    var ops = LiveQueryHookV2.getOpsReference(session);
+    ops.subscribe(
+        999,
+        new LiveQueryListenerV2() {
+          @Override
+          public void onLiveResults(List<LiveQueryOp> iRecords) {
+          }
+
+          @Override
+          public void onLiveResultEnd() {
+          }
+
+          @Override
+          public int getToken() {
+            return 999;
+          }
+        });
+    try {
+      var cls = createClassInstance();
+      session.begin();
+      var entity = (EntityImpl) session.newEntity(cls.getName());
+      entity.setProperty("v", 1);
+      session.commit();
+
+      session.begin();
+      try (var rs = session.query("SELECT FROM " + cls.getName())) {
+        var reloaded = (EntityImpl) rs.next().asEntity();
+
+        LiveQueryHookV2.addOp(session, reloaded, RecordOperation.UPDATED);
+        LiveQueryHookV2.addOp(session, reloaded, RecordOperation.UPDATED);
+
+        var pending = ops.pendingOps.get(session);
+        assertNotNull(pending);
+        assertEquals(
+            "second UPDATED on the same entity instance must merge with the previous op, not"
+                + " append a second entry",
+            1,
+            pending.size());
+      } finally {
+        session.rollback();
+      }
+    } finally {
+      ops.unsubscribe(999);
     }
   }
 }

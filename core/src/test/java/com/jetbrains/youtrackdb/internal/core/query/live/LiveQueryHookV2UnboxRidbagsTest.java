@@ -63,18 +63,28 @@ public class LiveQueryHookV2UnboxRidbagsTest extends TestUtilsFixture {
   // Non-LinkBag passthrough branch — identity return across representative value types
   // -------------------------------------------------------------------------
 
-  /** Non-LinkBag {@link String} input must return the same instance (identity passthrough). */
+  /**
+   * Non-LinkBag {@link String} input must return the same instance (identity passthrough). Uses
+   * {@code new String(...)} explicitly so the returned reference is <em>not</em> the interned
+   * string-pool instance — a mutation that returned {@code value.intern()} would pass
+   * {@code assertSame} against a literal but fails here.
+   */
   @Test
   public void passthroughReturnsStringUnchanged() {
-    var value = "not-a-linkbag";
+    var value = new String("not-a-linkbag");
     var result = LiveQueryHookV2.unboxRidbags(value);
     assertSame("String passthrough must return the exact same instance", value, result);
   }
 
-  /** {@link Integer} input exercises the non-LinkBag branch on a boxed primitive. */
+  /**
+   * {@link Integer} input exercises the non-LinkBag branch. The value is chosen outside the JDK
+   * {@code Integer.valueOf} cache range (-128..127) so the autoboxed reference is a freshly-
+   * allocated instance — a mutation that returned {@code Integer.valueOf(value.intValue())} would
+   * pass {@code assertSame} against a cached value but fails here.
+   */
   @Test
   public void passthroughReturnsIntegerUnchanged() {
-    Integer value = 42;
+    Integer value = Integer.valueOf(200);
     var result = LiveQueryHookV2.unboxRidbags(value);
     assertSame(value, result);
   }
@@ -128,8 +138,11 @@ public class LiveQueryHookV2UnboxRidbagsTest extends TestUtilsFixture {
       var bag = new LinkBag(session);
       var result = LiveQueryHookV2.unboxRidbags(bag);
       assertTrue(
-          "empty LinkBag must produce an empty List<Identifiable>",
-          result instanceof List<?> && ((List<?>) result).isEmpty());
+          "empty LinkBag must produce a List, got "
+              + (result == null ? "null" : result.getClass().getName()),
+          result instanceof List<?>);
+      assertTrue(
+          "empty LinkBag must produce an empty List<Identifiable>", ((List<?>) result).isEmpty());
     } finally {
       session.rollback();
     }
@@ -206,12 +219,14 @@ public class LiveQueryHookV2UnboxRidbagsTest extends TestUtilsFixture {
     session.begin();
     try {
       var bag = new LinkBag(session);
-      bag.add(
-          RecordIdInternal.fromString("#1:20", false),
-          RecordIdInternal.fromString("#1:100", false));
+      var primary = RecordIdInternal.fromString("#1:20", false);
+      bag.add(primary, RecordIdInternal.fromString("#1:100", false));
 
       var result = LiveQueryHookV2.unboxRidbags(bag);
-      assertTrue(result instanceof List<?>);
+      assertTrue("must be a List to unwrap", result instanceof List<?>);
+      assertTrue(
+          "returned list must be a concrete ArrayList per the production allocation",
+          result instanceof ArrayList<?>);
       @SuppressWarnings("unchecked")
       var list = (List<Identifiable>) result;
 
@@ -219,6 +234,12 @@ public class LiveQueryHookV2UnboxRidbagsTest extends TestUtilsFixture {
 
       assertEquals(
           "clearing the returned list must not affect the underlying LinkBag", 1, bag.size());
+      // Stronger pin: a future aliasing regression (list and bag sharing storage) would leave the
+      // bag's iterator with no entries. Re-iterating the bag must still yield the original entry.
+      assertEquals(
+          "bag contents must survive intact — the returned list is a defensive copy",
+          primary,
+          bag.iterator().next().primaryRid());
     } finally {
       session.rollback();
     }
