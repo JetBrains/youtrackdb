@@ -151,6 +151,54 @@ public class ScriptFormatterTest extends TestUtilsFixture {
             .getFunctionInvoke(null, function, new Object[] {"hello", 42, null}));
   }
 
+  /**
+   * TC7 iter-2 boundary pin: empty function name is not rejected by the formatter — it emits
+   * {@code "function (x) {...}"} (an anonymous function declaration syntactically valid in JS
+   * but semantically an anonymous expression). Pin the current pass-through contract so a
+   * future empty-name guard is a deliberate, visible change.
+   */
+  @Test
+  public void jsGetFunctionDefinitionWithEmptyNameEmitsAnonymousShape() {
+    function.setName("").setParameters(List.of("x"));
+    function.setCode("return x");
+    assertEquals(
+        "empty-name JS function definition currently emits `function (x) {...}` verbatim",
+        "function (x) {\nreturn x\n}\n",
+        new JSScriptFormatter().getFunctionDefinition(null, function));
+  }
+
+  /**
+   * TC7 iter-2 boundary pin: {@link StringBuilder#append(String)} renders {@code null} as the
+   * literal string {@code "null"}. Pin the current no-null-guard behavior — a regression that
+   * accidentally NPEd on null-name would be caught, and a future explicit null-rejection would
+   * be a deliberate change.
+   */
+  @Test
+  public void jsGetFunctionDefinitionWithNullNameRendersLiteralNullString() {
+    function.setName(null).setParameters(List.of());
+    function.setCode("return");
+    assertEquals(
+        "null-name JS function renders `function null() {...}` (StringBuilder append-null)",
+        "function null() {\nreturn\n}\n",
+        new JSScriptFormatter().getFunctionDefinition(null, function));
+  }
+
+  /**
+   * TC7 iter-2 boundary pin: parameter names with commas are NOT escaped — the formatter
+   * concatenates them with a comma separator, so a single parameter named {@code "x,y"} emits
+   * as two ostensible parameters. Pin this unsanitized pass-through so a future parameter
+   * validation is a deliberate change.
+   */
+  @Test
+  public void jsGetFunctionDefinitionWithCommaInParameterNameIsUnescaped() {
+    function.setName("sum").setParameters(List.of("x,y"));
+    function.setCode("return x+y");
+    assertEquals(
+        "comma-in-param name passes through the comma-separated formatter unchanged",
+        "function sum(x,y) {\nreturn x+y\n}\n",
+        new JSScriptFormatter().getFunctionDefinition(null, function));
+  }
+
   // ---------------------------------------------------------------------------
   // GroovyScriptFormatter (same template as JS with "def" instead of "function")
   // ---------------------------------------------------------------------------

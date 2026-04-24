@@ -175,23 +175,47 @@ public class DatabaseScriptManagerTest extends TestUtilsFixture {
   }
 
   @Test
-  public void releaseEngineForLanguageNotPreviouslyAcquiredDoesNotThrow() {
+  public void releaseEngineForLanguageNotPreviouslyAcquiredDoesNotThrow() throws Exception {
     // CQ1/TB4 fix: the previous version acquired+released "sql" on the SAME language — the
     // foreign-language branch was never exercised. This version acquires "sql" then releases
     // into a DIFFERENT, never-acquired language key. DatabaseScriptManager.releaseEngine
     // calls pooledEngines.get(language).returnResource(...); the ResourcePoolFactory lazily
     // creates a pool for the foreign key, and returnResource must tolerate an engine whose
     // listener does not match the pool (the defensive reuseResource-returns-false branch).
+    //
+    // TB4 iter-2 strengthening: pin the observable side-effect via reflection into the
+    // {@code pooledEngines} factory — after {@code releaseEngine(foreignLang, sqlEngine)} the
+    // factory must have lazily created a pool entry keyed by {@code foreignLang}, proving the
+    // code path actually executed. A regression that early-returned without touching the pool
+    // would leave the keyset unchanged and be caught here. Note: we cannot call
+    // {@code dbm.acquireEngine(session, foreignLang)} to observe the pool because the outer
+    // {@code ScriptManager.acquireDatabaseEngine} validates language against supported
+    // engines BEFORE reaching the pool (throws {@code CommandScript} for unknown langs);
+    // {@code DatabaseScriptManager.acquireEngine} skips that validation but the factory's
+    // underlying ScriptEngineManager returns null for an unknown language, NPEing.
     final var dbm = new DatabaseScriptManager(scriptManager, session.getDatabaseName());
     try {
       final var sqlEngine = dbm.acquireEngine(session, "sql");
       assertNotNull(sqlEngine);
-      // Release the sql engine into a pool keyed by a never-acquired language. Must not
-      // throw — the observable is absence-of-exception. The engine itself is not returned to
-      // the sql pool (intentional: we then also release it via the correct sql pool below to
-      // keep pool bookkeeping clean).
       final var foreignLang = "never-acquired-" + System.nanoTime();
+      // Release the sql engine into a pool keyed by a never-acquired language. Must not throw.
       dbm.releaseEngine(foreignLang, sqlEngine);
+
+      // Reflect into pooledEngines to confirm the factory lazily materialized a pool for
+      // foreignLang — observable evidence the code path executed.
+      final var factoryField =
+          DatabaseScriptManager.class.getDeclaredField("pooledEngines");
+      factoryField.setAccessible(true);
+      final var factory = factoryField.get(dbm);
+      // ResourcePoolFactory stores its pools in a private `poolStore` field (of type
+      // ConcurrentLinkedHashMap). Access it via reflection to confirm lazy pool creation.
+      final var poolsField = factory.getClass().getDeclaredField("poolStore");
+      poolsField.setAccessible(true);
+      final var pools = (java.util.Map<?, ?>) poolsField.get(factory);
+      assertTrue(
+          "releaseEngine must have lazily created a pool keyed by the foreign language",
+          pools.containsKey(foreignLang));
+
       // Cleanup through the correct pool so close() tears down bookkeeping without warnings.
       dbm.releaseEngine("sql", sqlEngine);
     } finally {

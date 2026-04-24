@@ -488,6 +488,87 @@ public class TraverseTest extends DbTestBase {
   }
 
   /**
+   * TC1 iter-2 boundary pin: {@code limit(1)} stops traversal after the FIRST result is
+   * emitted. The production guard is {@code limit > 0 && resultCount >= limit}; a regression
+   * that changed {@code >=} to {@code >} would let one extra result through. Pin the
+   * narrowest positive boundary so off-by-one bugs are caught.
+   */
+  @Test
+  public void limitOneStopsAfterFirstResult() {
+    session.begin();
+    EntityImpl root = (EntityImpl) session.newEntity();
+    EntityImpl a = (EntityImpl) session.newEntity();
+    EntityImpl b = (EntityImpl) session.newEntity();
+    root.getOrCreateLinkList("children").addAll(Arrays.asList(a, b));
+    session.commit();
+
+    session.begin();
+    try {
+      var loadedRoot = session.getActiveTransaction().load(root);
+      var traverse = new Traverse(session);
+      traverse.target(loadedRoot).fields("*").limit(1);
+
+      var results = traverse.execute(session);
+
+      Assert.assertEquals("limit(1) caps the output at exactly 1 result", 1, results.size());
+      Assert.assertEquals(
+          "getResultCount matches the limit boundary", 1, traverse.getResultCount());
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * TC1 iter-2 boundary pin: {@code limit(0)} is documented as the "infinite / sentinel"
+   * default — traversal runs without a result cap. The production guard is
+   * {@code limit > 0 && resultCount >= limit}, so {@code limit == 0} must fall through.
+   * A regression that flipped the sentinel (e.g., {@code if (limit >= 0 && ...)}) would
+   * emit zero results and be caught here.
+   */
+  @Test
+  public void limitZeroIsSentinelAndEmitsAllResultsUnbounded() {
+    session.begin();
+    EntityImpl root = (EntityImpl) session.newEntity();
+    EntityImpl a = (EntityImpl) session.newEntity();
+    EntityImpl b = (EntityImpl) session.newEntity();
+    root.getOrCreateLinkList("children").addAll(Arrays.asList(a, b));
+    session.commit();
+
+    session.begin();
+    try {
+      var loadedRoot = session.getActiveTransaction().load(root);
+      var traverse = new Traverse(session);
+      // Explicit limit(0) to exercise the setter's "0 passes the < -1 guard" branch, then
+      // assert the getter round-trips and traversal is unbounded.
+      traverse.target(loadedRoot).fields("*").limit(0);
+      Assert.assertEquals("limit(0) is the unlimited sentinel", 0L, traverse.getLimit());
+
+      var results = traverse.execute(session);
+
+      Assert.assertEquals(
+          "default limit(0) must emit root + 2 children unbounded",
+          3,
+          results.size());
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * TC1 iter-2 boundary pin: {@code limit(-1)} is accepted (the range guard is {@code < -1}, so
+   * {@code -1} passes) and behaves as the same "unlimited" sentinel. Pin the guard boundary —
+   * a regression that tightened the guard to {@code <= -1} or {@code < 0} would reject this
+   * value and be caught.
+   */
+  @Test
+  public void limitMinusOneIsAcceptedAsUnlimitedSentinel() {
+    var traverse = new Traverse(session);
+    // Must not throw — the guard is `< -1`, not `<= -1`.
+    traverse.limit(-1);
+    Assert.assertEquals(-1L, traverse.getLimit());
+  }
+
+  /**
    * {@code remove()} is not supported (the {@link Traverse} iterator is read-only); this pin
    * covers the {@link UnsupportedOperationException} branch. {@code toString} renders the four
    * factory fields (target, fields, limit, predicate) — the format is a loose contract used by

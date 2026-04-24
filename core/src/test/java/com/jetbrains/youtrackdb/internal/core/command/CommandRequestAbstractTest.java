@@ -344,6 +344,35 @@ public class CommandRequestAbstractTest {
    * Multiple positional scalar args produce a positional map keyed by {@link Integer} index.
    * Pins both the positional layout AND the key type.
    */
+  /**
+   * TC5 iter-2 boundary pin: calling {@code convertToParameters} with a ZERO-length Object[]
+   * should return an empty (non-null) map. {@code setParameters(null)} short-circuits and
+   * doesn't reach this path, so the static call is the only way to exercise the empty-args
+   * branch (line 85: {@code iArgs.length == 1} is false when length=0, falls to else, builds
+   * {@code new HashMap<>(0)}).
+   */
+  @Test
+  public void convertToParametersWithZeroLengthArgsReturnsEmptyMap() {
+    var converted = CommandRequestAbstract.convertToParameters(new Object[0]);
+
+    assertNotNull("zero-length iArgs must produce an empty map, not null", converted);
+    assertTrue("zero-length iArgs must produce an empty map", converted.isEmpty());
+  }
+
+  /**
+   * TC5 iter-2 boundary pin: a single null arg is NOT an array (the isArray guard at line 85-87
+   * protects against NPE) and becomes a one-entry positional map with value = null at key 0.
+   * Pin both the map size and the null-at-0 shape.
+   */
+  @Test
+  public void convertToParametersWithSingleNullKeepsNullAtIndexZero() {
+    var converted = CommandRequestAbstract.convertToParameters((Object) null);
+
+    assertEquals(1, converted.size());
+    assertTrue("single null arg must be stored under key 0", converted.containsKey(0));
+    assertNull("single null arg must preserve null as the value", converted.get(0));
+  }
+
   @Test
   public void convertToParametersBuildsPositionalMapFromScalars() {
     var converted = CommandRequestAbstract.convertToParameters("a", 2, 3.5);

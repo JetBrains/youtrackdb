@@ -35,6 +35,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionExceptio
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.TestUtilsFixture;
+import java.io.Reader;
 import java.io.StringReader;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -325,7 +326,7 @@ public class SQLScriptEngineTest extends TestUtilsFixture {
    * around the {@code StringReader.ready()-always-true} production bug above. Only used to
    * pin the eval(Reader, Bindings) live path — remove when Track 22 fixes the ready() loop.
    */
-  private static final class EofAwareReader extends java.io.Reader {
+  private static final class EofAwareReader extends Reader {
     private final String data;
     private int pos;
 
