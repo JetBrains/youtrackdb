@@ -64,6 +64,103 @@ public class LiveQueryHookStaticApiTest extends TestUtilsFixture {
   @Rule
   public Timeout globalTimeout = Timeout.seconds(15);
 
+  // ---------------------------------------------------------------------------
+  // Helpers — extracted to reduce ~10x duplication of the QUERY_LIVE_SUPPORT
+  // save/restore pattern and the anonymous-listener boilerplate. Keep these
+  // close to the tests (package-private visibility not needed — tests live in
+  // the same class) so a future reader can see what's being abstracted.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Runs {@code body} with {@code QUERY_LIVE_SUPPORT} set to {@code flag}, always restoring the
+   * original value in a {@code finally}. The caller passes a {@link Runnable} (which may throw
+   * unchecked exceptions from inside it); checked exceptions must be wrapped at the call site.
+   */
+  private void withLiveSupport(boolean flag, Runnable body) {
+    var original = session.getConfiguration().getValue(QUERY_LIVE_SUPPORT);
+    try {
+      session.getConfiguration().setValue(QUERY_LIVE_SUPPORT, flag);
+      body.run();
+    } finally {
+      session.getConfiguration().setValue(QUERY_LIVE_SUPPORT, original);
+    }
+  }
+
+  /**
+   * Builds a {@link LiveQueryListener} whose callbacks are pure no-ops — suitable for the tests
+   * that only care about subscription-state observables, not dispatched results.
+   */
+  private static LiveQueryListener noopListenerV1() {
+    return new LiveQueryListener() {
+      @Override
+      public void onLiveResult(RecordOperation iRecord) {
+      }
+
+      @Override
+      public void onLiveResultEnd() {
+      }
+    };
+  }
+
+  /**
+   * V1 listener that increments {@code endCount} on {@code onLiveResultEnd} — for tests that
+   * need to observe whether the end callback fired.
+   */
+  private static LiveQueryListener countingListenerV1(AtomicInteger endCount) {
+    return new LiveQueryListener() {
+      @Override
+      public void onLiveResult(RecordOperation iRecord) {
+      }
+
+      @Override
+      public void onLiveResultEnd() {
+        endCount.incrementAndGet();
+      }
+    };
+  }
+
+  /**
+   * Builds a {@link LiveQueryListenerV2} with the given token and pure no-op callbacks.
+   */
+  private static LiveQueryListenerV2 noopListenerV2(int token) {
+    return new LiveQueryListenerV2() {
+      @Override
+      public void onLiveResults(List<LiveQueryOp> iRecords) {
+      }
+
+      @Override
+      public void onLiveResultEnd() {
+      }
+
+      @Override
+      public int getToken() {
+        return token;
+      }
+    };
+  }
+
+  /**
+   * V2 listener with a counted {@code onLiveResultEnd} — for disabled-support tests that pin
+   * "end callback must not fire".
+   */
+  private static LiveQueryListenerV2 countingListenerV2(int token, AtomicInteger endCount) {
+    return new LiveQueryListenerV2() {
+      @Override
+      public void onLiveResults(List<LiveQueryOp> iRecords) {
+      }
+
+      @Override
+      public void onLiveResultEnd() {
+        endCount.incrementAndGet();
+      }
+
+      @Override
+      public int getToken() {
+        return token;
+      }
+    };
+  }
+
   // -------------------------------------------------------------------------
   // LiveQueryHook (V1) — getOpsReference, subscribe, unsubscribe, addOp,
   // notifyForTxChanges, removePendingDatabaseOps
@@ -90,29 +187,13 @@ public class LiveQueryHookStaticApiTest extends TestUtilsFixture {
   public void v1_subscribeWithLiveSupportDisabledReturnsMinusOne() {
     // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryHook
     var ops = LiveQueryHook.getOpsReference(session);
-    var originalFlag = session.getConfiguration().getValue(QUERY_LIVE_SUPPORT);
-    try {
-      session.getConfiguration().setValue(QUERY_LIVE_SUPPORT, false);
-      var token =
-          LiveQueryHook.subscribe(
-              1,
-              new LiveQueryListener() {
-                @Override
-                public void onLiveResult(RecordOperation iRecord) {
-                }
-
-                @Override
-                public void onLiveResultEnd() {
-                }
-              },
-              session);
+    withLiveSupport(false, () -> {
+      var token = LiveQueryHook.subscribe(1, noopListenerV1(), session);
       assertEquals("disabled support must return -1", Integer.valueOf(-1), token);
       assertFalse(
           "listener must not be registered when live support is disabled",
           ops.getQueueThread().hasListeners());
-    } finally {
-      session.getConfiguration().setValue(QUERY_LIVE_SUPPORT, originalFlag);
-    }
+    });
   }
 
   /**
@@ -124,30 +205,17 @@ public class LiveQueryHookStaticApiTest extends TestUtilsFixture {
     // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryHook
     var ops = LiveQueryHook.getOpsReference(session);
     var endCount = new AtomicInteger();
-    ops.getQueueThread()
-        .subscribe(
-            42,
-            new LiveQueryListener() {
-              @Override
-              public void onLiveResult(RecordOperation iRecord) {
-              }
+    ops.getQueueThread().subscribe(42, countingListenerV1(endCount));
 
-              @Override
-              public void onLiveResultEnd() {
-                endCount.incrementAndGet();
-              }
-            });
-
-    var originalFlag = session.getConfiguration().getValue(QUERY_LIVE_SUPPORT);
     try {
-      session.getConfiguration().setValue(QUERY_LIVE_SUPPORT, false);
-      LiveQueryHook.unsubscribe(42, session);
-      assertTrue(
-          "disabled-support unsubscribe must not remove the listener",
-          ops.getQueueThread().hasToken(42));
-      assertEquals("onLiveResultEnd must not fire", 0, endCount.get());
+      withLiveSupport(false, () -> {
+        LiveQueryHook.unsubscribe(42, session);
+        assertTrue(
+            "disabled-support unsubscribe must not remove the listener",
+            ops.getQueueThread().hasToken(42));
+        assertEquals("onLiveResultEnd must not fire", 0, endCount.get());
+      });
     } finally {
-      session.getConfiguration().setValue(QUERY_LIVE_SUPPORT, originalFlag);
       ops.getQueueThread().unsubscribe(42);
     }
   }
@@ -183,36 +251,22 @@ public class LiveQueryHookStaticApiTest extends TestUtilsFixture {
     // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryHook
     var ops = LiveQueryHook.getOpsReference(session);
     var endCount = new AtomicInteger();
-    ops.getQueueThread()
-        .subscribe(
-            55,
-            new LiveQueryListener() {
-              @Override
-              public void onLiveResult(RecordOperation iRecord) {
-              }
+    ops.getQueueThread().subscribe(55, countingListenerV1(endCount));
 
-              @Override
-              public void onLiveResultEnd() {
-                endCount.incrementAndGet();
-              }
-            });
-
-    var originalFlag = session.getConfiguration().getValue(QUERY_LIVE_SUPPORT);
     try {
-      session.getConfiguration().setValue(QUERY_LIVE_SUPPORT, false);
-
-      session.begin();
-      try {
-        var entity = (EntityImpl) session.newEntity();
-        LiveQueryHook.addOp(entity, RecordOperation.UPDATED, session);
-        assertTrue(
-            "pending ops must remain empty when live support is disabled",
-            ops.pendingOps.isEmpty());
-      } finally {
-        session.rollback();
-      }
+      withLiveSupport(false, () -> {
+        session.begin();
+        try {
+          var entity = (EntityImpl) session.newEntity();
+          LiveQueryHook.addOp(entity, RecordOperation.UPDATED, session);
+          assertTrue(
+              "pending ops must remain empty when live support is disabled",
+              ops.pendingOps.isEmpty());
+        } finally {
+          session.rollback();
+        }
+      });
     } finally {
-      session.getConfiguration().setValue(QUERY_LIVE_SUPPORT, originalFlag);
       ops.getQueueThread().unsubscribe(55);
     }
   }
@@ -246,31 +300,14 @@ public class LiveQueryHookStaticApiTest extends TestUtilsFixture {
 
       // Populate pending by subscribing + addOp first (with live support enabled),
       // then flip the flag and call notify.
-      ops.getQueueThread()
-          .subscribe(
-              70,
-              new LiveQueryListener() {
-                @Override
-                public void onLiveResult(RecordOperation iRecord) {
-                }
-
-                @Override
-                public void onLiveResultEnd() {
-                }
-              });
+      ops.getQueueThread().subscribe(70, noopListenerV1());
       try {
         LiveQueryHook.addOp(entity, RecordOperation.CREATED, session);
         assertFalse(
             "precondition: pending ops populated while live support enabled",
             ops.pendingOps.isEmpty());
 
-        var originalFlag = session.getConfiguration().getValue(QUERY_LIVE_SUPPORT);
-        try {
-          session.getConfiguration().setValue(QUERY_LIVE_SUPPORT, false);
-          LiveQueryHook.notifyForTxChanges(session);
-        } finally {
-          session.getConfiguration().setValue(QUERY_LIVE_SUPPORT, originalFlag);
-        }
+        withLiveSupport(false, () -> LiveQueryHook.notifyForTxChanges(session));
 
         assertFalse(
             "pending ops must be left intact when disabled-support short-circuits notify",
@@ -300,18 +337,7 @@ public class LiveQueryHookStaticApiTest extends TestUtilsFixture {
     session.begin();
     try {
       var entity = (EntityImpl) session.newEntity();
-      ops.getQueueThread()
-          .subscribe(
-              71,
-              new LiveQueryListener() {
-                @Override
-                public void onLiveResult(RecordOperation iRecord) {
-                }
-
-                @Override
-                public void onLiveResultEnd() {
-                }
-              });
+      ops.getQueueThread().subscribe(71, noopListenerV1());
       try {
         LiveQueryHook.addOp(entity, RecordOperation.CREATED, session);
         assertFalse(
@@ -319,13 +345,7 @@ public class LiveQueryHookStaticApiTest extends TestUtilsFixture {
             ops.pendingOps.isEmpty());
         var sizeBefore = ops.pendingOps.size();
 
-        var originalFlag = session.getConfiguration().getValue(QUERY_LIVE_SUPPORT);
-        try {
-          session.getConfiguration().setValue(QUERY_LIVE_SUPPORT, false);
-          LiveQueryHook.removePendingDatabaseOps(session);
-        } finally {
-          session.getConfiguration().setValue(QUERY_LIVE_SUPPORT, originalFlag);
-        }
+        withLiveSupport(false, () -> LiveQueryHook.removePendingDatabaseOps(session));
 
         assertEquals(
             "disabled-support guard must leave pendingOps size unchanged",
@@ -428,32 +448,11 @@ public class LiveQueryHookStaticApiTest extends TestUtilsFixture {
   public void v2_subscribeWithLiveSupportDisabledReturnsMinusOne() {
     // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryHookV2
     var ops = LiveQueryHookV2.getOpsReference(session);
-    var originalFlag = session.getConfiguration().getValue(QUERY_LIVE_SUPPORT);
-    try {
-      session.getConfiguration().setValue(QUERY_LIVE_SUPPORT, false);
-      var token =
-          LiveQueryHookV2.subscribe(
-              99,
-              new LiveQueryListenerV2() {
-                @Override
-                public void onLiveResults(List<LiveQueryOp> iRecords) {
-                }
-
-                @Override
-                public void onLiveResultEnd() {
-                }
-
-                @Override
-                public int getToken() {
-                  return 99;
-                }
-              },
-              session);
+    withLiveSupport(false, () -> {
+      var token = LiveQueryHookV2.subscribe(99, noopListenerV2(99), session);
       assertEquals(Integer.valueOf(-1), token);
       assertFalse(ops.hasListeners());
-    } finally {
-      session.getConfiguration().setValue(QUERY_LIVE_SUPPORT, originalFlag);
-    }
+    });
   }
 
   /** V2 unsubscribe with live support disabled must early-return without touching listeners. */
@@ -462,31 +461,14 @@ public class LiveQueryHookStaticApiTest extends TestUtilsFixture {
     // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryHookV2
     var ops = LiveQueryHookV2.getOpsReference(session);
     var endCount = new AtomicInteger();
-    ops.subscribe(
-        123,
-        new LiveQueryListenerV2() {
-          @Override
-          public void onLiveResults(List<LiveQueryOp> iRecords) {
-          }
-
-          @Override
-          public void onLiveResultEnd() {
-            endCount.incrementAndGet();
-          }
-
-          @Override
-          public int getToken() {
-            return 123;
-          }
-        });
-    var originalFlag = session.getConfiguration().getValue(QUERY_LIVE_SUPPORT);
+    ops.subscribe(123, countingListenerV2(123, endCount));
     try {
-      session.getConfiguration().setValue(QUERY_LIVE_SUPPORT, false);
-      LiveQueryHookV2.unsubscribe(123, session);
-      assertTrue("listener must survive disabled-support unsubscribe", ops.hasListeners());
-      assertEquals("onLiveResultEnd must not fire", 0, endCount.get());
+      withLiveSupport(false, () -> {
+        LiveQueryHookV2.unsubscribe(123, session);
+        assertTrue("listener must survive disabled-support unsubscribe", ops.hasListeners());
+        assertEquals("onLiveResultEnd must not fire", 0, endCount.get());
+      });
     } finally {
-      session.getConfiguration().setValue(QUERY_LIVE_SUPPORT, originalFlag);
       ops.unsubscribe(123);
     }
   }
@@ -513,26 +495,9 @@ public class LiveQueryHookStaticApiTest extends TestUtilsFixture {
   public void v2_addOpWithLiveSupportDisabledIsNoOp() {
     // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryHookV2
     var ops = LiveQueryHookV2.getOpsReference(session);
-    ops.subscribe(
-        321,
-        new LiveQueryListenerV2() {
-          @Override
-          public void onLiveResults(List<LiveQueryOp> iRecords) {
-          }
-
-          @Override
-          public void onLiveResultEnd() {
-          }
-
-          @Override
-          public int getToken() {
-            return 321;
-          }
-        });
+    ops.subscribe(321, noopListenerV2(321));
     try {
-      var originalFlag = session.getConfiguration().getValue(QUERY_LIVE_SUPPORT);
-      try {
-        session.getConfiguration().setValue(QUERY_LIVE_SUPPORT, false);
+      withLiveSupport(false, () -> {
         session.begin();
         try {
           var entity = (EntityImpl) session.newEntity();
@@ -543,9 +508,7 @@ public class LiveQueryHookStaticApiTest extends TestUtilsFixture {
         } finally {
           session.rollback();
         }
-      } finally {
-        session.getConfiguration().setValue(QUERY_LIVE_SUPPORT, originalFlag);
-      }
+      });
     } finally {
       ops.unsubscribe(321);
     }
@@ -571,22 +534,7 @@ public class LiveQueryHookStaticApiTest extends TestUtilsFixture {
   public void v2_removePendingDatabaseOpsWithLiveSupportDisabledIsNoOp() {
     // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryHookV2
     var ops = LiveQueryHookV2.getOpsReference(session);
-    ops.subscribe(
-        781,
-        new LiveQueryListenerV2() {
-          @Override
-          public void onLiveResults(List<LiveQueryOp> iRecords) {
-          }
-
-          @Override
-          public void onLiveResultEnd() {
-          }
-
-          @Override
-          public int getToken() {
-            return 781;
-          }
-        });
+    ops.subscribe(781, noopListenerV2(781));
     try {
       var cls = createClassInstance();
       session.begin();
@@ -599,13 +547,7 @@ public class LiveQueryHookStaticApiTest extends TestUtilsFixture {
             ops.pendingOps.isEmpty());
         var sizeBefore = ops.pendingOps.size();
 
-        var originalFlag = session.getConfiguration().getValue(QUERY_LIVE_SUPPORT);
-        try {
-          session.getConfiguration().setValue(QUERY_LIVE_SUPPORT, false);
-          LiveQueryHookV2.removePendingDatabaseOps(session);
-        } finally {
-          session.getConfiguration().setValue(QUERY_LIVE_SUPPORT, originalFlag);
-        }
+        withLiveSupport(false, () -> LiveQueryHookV2.removePendingDatabaseOps(session));
 
         assertEquals(
             "V2 disabled-support guard must leave pendingOps size unchanged",
@@ -709,22 +651,7 @@ public class LiveQueryHookStaticApiTest extends TestUtilsFixture {
     // The listener body is irrelevant to this test — no dispatcher is started here, so
     // onLiveResults will never fire. The subscription exists only to flip ops.hasListeners() so
     // addOp reaches the calculateProjections(ops) call path.
-    ops.subscribe(
-        888,
-        new LiveQueryListenerV2() {
-          @Override
-          public void onLiveResults(List<LiveQueryOp> iRecords) {
-          }
-
-          @Override
-          public void onLiveResultEnd() {
-          }
-
-          @Override
-          public int getToken() {
-            return 888;
-          }
-        });
+    ops.subscribe(888, noopListenerV2(888));
 
     try {
       var cls = createClassInstance();
@@ -850,22 +777,7 @@ public class LiveQueryHookStaticApiTest extends TestUtilsFixture {
   public void v2_notifyForTxChangesDrainsPendingIntoQueueAndClearsMap() {
     // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryHookV2
     var ops = LiveQueryHookV2.getOpsReference(session);
-    ops.subscribe(
-        777,
-        new LiveQueryListenerV2() {
-          @Override
-          public void onLiveResults(List<LiveQueryOp> iRecords) {
-          }
-
-          @Override
-          public void onLiveResultEnd() {
-          }
-
-          @Override
-          public int getToken() {
-            return 777;
-          }
-        });
+    ops.subscribe(777, noopListenerV2(777));
     try {
       var cls = createClassInstance();
       session.begin();
@@ -904,22 +816,7 @@ public class LiveQueryHookStaticApiTest extends TestUtilsFixture {
   public void v2_addOpUpdatedTwiceOnSameEntityMergesInPlace() {
     // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryHookV2
     var ops = LiveQueryHookV2.getOpsReference(session);
-    ops.subscribe(
-        999,
-        new LiveQueryListenerV2() {
-          @Override
-          public void onLiveResults(List<LiveQueryOp> iRecords) {
-          }
-
-          @Override
-          public void onLiveResultEnd() {
-          }
-
-          @Override
-          public int getToken() {
-            return 999;
-          }
-        });
+    ops.subscribe(999, noopListenerV2(999));
     try {
       var cls = createClassInstance();
       session.begin();

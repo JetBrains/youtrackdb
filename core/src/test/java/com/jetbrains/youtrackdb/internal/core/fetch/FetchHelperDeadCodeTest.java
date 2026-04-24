@@ -155,6 +155,49 @@ public class FetchHelperDeadCodeTest {
     FetchHelper.checkFetchPlanValid("ref:notANumber");
   }
 
+  @Test
+  public void checkFetchPlanValidRejectsFirstGoodThenBadCompoundPlan() {
+    // Compound plan where the first part is structurally valid but the second is not — the
+    // validator iterates every part, not just the first, so the method throws on the bad part.
+    // A regression that bailed early after the first valid part would silently accept this.
+    var ex = assertThrows(IllegalArgumentException.class,
+        () -> FetchHelper.checkFetchPlanValid("ref:1 badPart"));
+    assertTrue("error echoes the whole plan string", ex.getMessage().contains("ref:1 badPart"));
+    assertTrue(ex.getMessage().toLowerCase().contains("invalid"));
+  }
+
+  @Test
+  public void checkFetchPlanValidRejectsGoodThenBadBoundaryPart() {
+    // Second part has too many colons (three parts after split(':')) — structurally invalid.
+    // Pairs with the first-good-then-bad pin to cover both "wrong part count = 1" and "wrong
+    // part count = 3" boundaries of the validator's same `parts.size() != 2` predicate.
+    var ex = assertThrows(IllegalArgumentException.class,
+        () -> FetchHelper.checkFetchPlanValid("ref:1 a:b:c"));
+    assertTrue(ex.getMessage().toLowerCase().contains("invalid"));
+  }
+
+  @Test
+  public void checkFetchPlanValidAcceptsPlanWithLeadingWhitespace() {
+    // Leading single space: StringSerializerHelper.split(" ref:1", ' ') includes the empty
+    // leading token — but since split on ' ' preserves empty tokens, the first part "" hits
+    // the `parts.size() != 2` check with size 1 → IAE. Pins the "leading space breaks the
+    // validator" contract (a subtle caller-observable boundary).
+    var ex = assertThrows(IllegalArgumentException.class,
+        () -> FetchHelper.checkFetchPlanValid(" ref:1"));
+    assertTrue("error echoes the original offending plan",
+        ex.getMessage().contains(" ref:1"));
+    assertTrue(ex.getMessage().toLowerCase().contains("invalid"));
+  }
+
+  @Test
+  public void checkFetchPlanValidAcceptsPlanWithTrailingWhitespace() {
+    // Trailing single space: split(' ') yields ["ref:1",""] — the second (empty) token has
+    // parts.size()==1 → IAE. Symmetric to the leading-whitespace boundary.
+    var ex = assertThrows(IllegalArgumentException.class,
+        () -> FetchHelper.checkFetchPlanValid("ref:1 "));
+    assertTrue(ex.getMessage().toLowerCase().contains("invalid"));
+  }
+
   // ---------------------------------------------------------------------------
   // isEmbedded — null / non-entity / empty collection / collection-of-non-entities
   // ---------------------------------------------------------------------------

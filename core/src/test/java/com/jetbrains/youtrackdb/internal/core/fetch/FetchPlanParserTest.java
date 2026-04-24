@@ -112,14 +112,39 @@ public class FetchPlanParserTest {
   @Test
   public void rangeBracketWithOmittedUpperBoundDefaultsToInfinity() {
     // `[3-]ref:5` → indexRanges = ["3",""], rangeFrom=3, rangeTo=-1 (empty → -1).
-    // Depth range is [3, ∞).
+    // Depth range is [3, ∞). Pin only the two in-range observables that actually exercise
+    // the infinite upper bound: the inclusive lower edge and a deep level. The out-of-range
+    // else-branch key-equality (level < 3) is covered separately in
+    // rangeBracketAppliesInclusiveDepthBounds; duplicating it here would not tighten the
+    // upper-bound pin and would pass even after a mutation that collapsed the infinite range
+    // to a single point.
     var plan = new FetchPlan("[3-]ref:5");
-    assertEquals(5, plan.getDepthLevel("ref", 3));
+    assertEquals("inclusive lower bound in-range", 5, plan.getDepthLevel("ref", 3));
     assertEquals("infinite upper bound matches deep levels", 5,
         plan.getDepthLevel("ref", 100));
-    // Below lower bound still matches via key-equality in the else branch per production
-    // semantics (pinned here so a future mutation that tightens this branch is caught).
-    assertEquals(5, plan.getDepthLevel("ref", 2));
+  }
+
+  @Test
+  public void rangeBracketWithOmittedLowerBoundStartsAtZero() {
+    // `[-4]ref:6` → indexRanges = ["","4"], rangeFrom=0 (empty → 0), rangeTo=4.
+    // Depth range is [0, 4] — symmetric to the omitted-upper form `[N-]`. Pin the inclusive
+    // upper bound so a mutation that shifts the endpoint (e.g. rangeTo-1) is detectable.
+    var plan = new FetchPlan("[-4]ref:6");
+    assertEquals("lower bound defaults to 0 → in-range at level 0", 6,
+        plan.getDepthLevel("ref", 0));
+    assertEquals("inclusive upper bound", 6, plan.getDepthLevel("ref", 4));
+  }
+
+  @Test
+  public void rangeBracketWithBothBoundsOmittedDefaultsToInfiniteRange() {
+    // `[-]ref:7` → indexRanges = ["",""], rangeFrom=0 (empty → 0), rangeTo=-1 (empty → -1).
+    // Depth range is [0, ∞) — equivalent to the `[*]` wildcard but exercising the "size>1"
+    // branch rather than the `range.equals("*")` branch. Pin both ends so a mutation
+    // swapping the dual-empty defaults is caught.
+    var plan = new FetchPlan("[-]ref:7");
+    assertEquals(7, plan.getDepthLevel("ref", 0));
+    assertEquals("infinite upper bound matches deep levels", 7,
+        plan.getDepthLevel("ref", 100));
   }
 
   @Test
@@ -362,6 +387,32 @@ public class FetchPlanParserTest {
     // "ref" → returns true. Pins the out-of-range else-branch semantics of has().
     var plan = new FetchPlan("ref:5");
     assertTrue(plan.has("ref", 2));
+  }
+
+  @Test
+  public void hasThrowsNullPointerExceptionForNullFieldPath() {
+    // has(null) reaches iFieldPath.split("\\.", -1) and NPEs before any map lookup. This is
+    // production's de-facto input contract — pinned so a future mutation that adds a null
+    // guard (whose correct return value is ambiguous) would require an intentional behavioural
+    // change rather than slipping through silently.
+    var plan = new FetchPlan("ref:1");
+    assertThrows(NullPointerException.class, () -> plan.has(null, 0));
+  }
+
+  @Test
+  public void hasReturnsTrueForEmptyFieldPathOnAnyPlan() {
+    // `has("", 0)` → iFieldPath="" splits into [""]. The main-map loop iterates the built-in
+    // wildcard `"*"` entry which is always in range (0,0); the check
+    // `fpLevelKey.startsWith(iFieldPath)` reduces to `"*".startsWith("")`, which is vacuously
+    // true. So every plan — even a plan with only a single registered field — reports
+    // `has("", 0) == true`. A regression that swapped the `startsWith` argument order (e.g.
+    // `iFieldPath.startsWith(fpLevelKey)`) would flip this observable; pins that subtle
+    // directionality.
+    var plain = new FetchPlan("ref:1");
+    assertTrue("empty path matches \"*\" wildcard via startsWith", plain.has("", 0));
+    // And with an explicit prefix-map entry, the same branch still fires via the main map:
+    var prefixed = new FetchPlan("field*:3");
+    assertTrue(prefixed.has("", 0));
   }
 
   // ---------------------------------------------------------------------------
