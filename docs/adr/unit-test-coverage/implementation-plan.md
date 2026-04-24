@@ -1256,6 +1256,29 @@ flowchart TD
   >   convertToParameters single-null corner, TC-9 retry-conflict data
   >   scenario, TC-10 parameterized positional scalars, TC-11 setChild
   >   replacement observable) fold into existing Track 22 DRY/cleanup scope.
+  > - **From Track 9 Phase C iter-1 (CQ1, CQ2, CQ3):** Three DRY candidates
+  >   deferred after the Phase-C dimensional review of all Track 9 test
+  >   files (commit `f66b1bc474`):
+  >   (CQ1) Hoist the hand-rolled `@After rollbackIfLeftOpen` safety net
+  >   currently duplicated in `TraverseTest`, `TraverseContextTest`, and
+  >   the bespoke `restoreAllowedPackagesAndRollbackIfLeftOpen` on
+  >   `ScriptManagerTest` / `closeExecutor` on `PolyglotScriptExecutorTest`
+  >   into `TestUtilsFixture` so that `DbTestBase`-extending Track-9
+  >   tests inherit the sweep without redeclaring it. Covered in spirit
+  >   by the Track-8 `TestUtilsFixture` hoist entry above; explicitly
+  >   listed here so the Track-9 call sites are not forgotten.
+  >   (CQ2) Deduplicate the traverse-domain test fixture helpers shared
+  >   across `TraverseTest`, `TraverseContextTest`,
+  >   `TraverseRecordProcessTest`, `TraverseRecordSetProcessTest`, and
+  >   `TraverseMultiValueProcessTest` (common `newDocumentWith*(...)`
+  >   builders, `@After rollbackIfLeftOpen`, traversal-result extraction)
+  >   into a package-private `TraverseTestFixtures` helper alongside the
+  >   traverse tests.
+  >   (CQ3) Extract the `createStoredFunction(session, name, code, language)`
+  >   helper used across `Jsr223ScriptExecutorTest`,
+  >   `ScriptLegacyWrappersTest`, and `SQLScriptEngineTest` into a
+  >   package-private helper in `command/script/` (or `test-commons`)
+  >   so the Function-record construction boilerplate is written once.
   >
   > **Scope:** ~6 steps covering transaction management, Gremlin
   > integration, engine lifecycle, exception/compression/config, remaining
