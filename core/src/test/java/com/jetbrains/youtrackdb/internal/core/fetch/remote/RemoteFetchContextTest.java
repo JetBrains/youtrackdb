@@ -19,9 +19,12 @@ package com.jetbrains.youtrackdb.internal.core.fetch.remote;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.FetchException;
 import com.jetbrains.youtrackdb.internal.core.fetch.FetchContext;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Test;
 
@@ -75,7 +78,7 @@ public class RemoteFetchContextTest {
   }
 
   @Test
-  public void noCallbackInSuperTriggersPeerCallback() throws FetchException {
+  public void superMethodsDoNotDispatchToPeerCallbacks() throws FetchException {
     // Subclass that counts every super-call. If any super-method in RemoteFetchContext ever
     // delegates to another callback (e.g., onBeforeMap calling onBeforeCollection), one of the
     // counters below would see a non-zero increment from the peer's super-invocation. This
@@ -142,17 +145,13 @@ public class RemoteFetchContextTest {
     final AtomicInteger afterStandardField = new AtomicInteger();
 
     @Override
-    public void onBeforeFetch(
-        com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl iRootRecord)
-        throws FetchException {
+    public void onBeforeFetch(EntityImpl iRootRecord) throws FetchException {
       super.onBeforeFetch(iRootRecord);
       beforeFetch.incrementAndGet();
     }
 
     @Override
-    public void onAfterFetch(
-        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded db,
-        com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl iRootRecord)
+    public void onAfterFetch(DatabaseSessionEmbedded db, EntityImpl iRootRecord)
         throws FetchException {
       super.onAfterFetch(db, iRootRecord);
       afterFetch.incrementAndGet();
@@ -160,11 +159,11 @@ public class RemoteFetchContextTest {
 
     @Override
     public void onBeforeArray(
-        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded db,
-        com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl iRootRecord,
+        DatabaseSessionEmbedded db,
+        EntityImpl iRootRecord,
         String iFieldName,
         Object iUserObject,
-        com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable[] iArray)
+        Identifiable[] iArray)
         throws FetchException {
       super.onBeforeArray(db, iRootRecord, iFieldName, iUserObject, iArray);
       beforeArray.incrementAndGet();
@@ -172,10 +171,7 @@ public class RemoteFetchContextTest {
 
     @Override
     public void onAfterArray(
-        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded db,
-        com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl iRootRecord,
-        String iFieldName,
-        Object iUserObject)
+        DatabaseSessionEmbedded db, EntityImpl iRootRecord, String iFieldName, Object iUserObject)
         throws FetchException {
       super.onAfterArray(db, iRootRecord, iFieldName, iUserObject);
       afterArray.incrementAndGet();
@@ -183,8 +179,8 @@ public class RemoteFetchContextTest {
 
     @Override
     public void onBeforeCollection(
-        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded db,
-        com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl iRootRecord,
+        DatabaseSessionEmbedded db,
+        EntityImpl iRootRecord,
         String iFieldName,
         Object iUserObject,
         Iterable<?> iterable)
@@ -195,10 +191,7 @@ public class RemoteFetchContextTest {
 
     @Override
     public void onAfterCollection(
-        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded db,
-        com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl iRootRecord,
-        String iFieldName,
-        Object iUserObject)
+        DatabaseSessionEmbedded db, EntityImpl iRootRecord, String iFieldName, Object iUserObject)
         throws FetchException {
       super.onAfterCollection(db, iRootRecord, iFieldName, iUserObject);
       afterCollection.incrementAndGet();
@@ -206,10 +199,7 @@ public class RemoteFetchContextTest {
 
     @Override
     public void onBeforeMap(
-        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded db,
-        com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl iRootRecord,
-        String iFieldName,
-        Object iUserObject)
+        DatabaseSessionEmbedded db, EntityImpl iRootRecord, String iFieldName, Object iUserObject)
         throws FetchException {
       super.onBeforeMap(db, iRootRecord, iFieldName, iUserObject);
       beforeMap.incrementAndGet();
@@ -217,10 +207,7 @@ public class RemoteFetchContextTest {
 
     @Override
     public void onAfterMap(
-        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded db,
-        com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl iRootRecord,
-        String iFieldName,
-        Object iUserObject)
+        DatabaseSessionEmbedded db, EntityImpl iRootRecord, String iFieldName, Object iUserObject)
         throws FetchException {
       super.onAfterMap(db, iRootRecord, iFieldName, iUserObject);
       afterMap.incrementAndGet();
@@ -228,9 +215,9 @@ public class RemoteFetchContextTest {
 
     @Override
     public void onBeforeDocument(
-        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded db,
-        com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl iRecord,
-        com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl entity,
+        DatabaseSessionEmbedded db,
+        EntityImpl iRecord,
+        EntityImpl entity,
         String iFieldName,
         Object iUserObject)
         throws FetchException {
@@ -240,9 +227,9 @@ public class RemoteFetchContextTest {
 
     @Override
     public void onAfterDocument(
-        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded db,
-        com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl iRootRecord,
-        com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl entity,
+        DatabaseSessionEmbedded db,
+        EntityImpl iRootRecord,
+        EntityImpl entity,
         String iFieldName,
         Object iUserObject)
         throws FetchException {

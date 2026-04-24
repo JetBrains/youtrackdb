@@ -19,6 +19,7 @@ package com.jetbrains.youtrackdb.internal.core.fetch;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
@@ -31,7 +32,7 @@ import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.Test;
 
@@ -73,8 +74,8 @@ public class FetchHelperDeadCodeTest {
     var fp = FetchHelper.buildFetchPlan("ref:3");
     assertNotNull(fp);
     // Distinct from the default singleton — only "*:0" produces the cached instance.
-    assertFalse("custom plan is not the default singleton",
-        FetchHelper.DEFAULT_FETCHPLAN == fp);
+    assertNotSame("custom plan is not the default singleton",
+        FetchHelper.DEFAULT_FETCHPLAN, fp);
     // And parses as a normal FetchPlan — ref@level 0 resolves to 3.
     assertEquals(3, fp.getDepthLevel("ref", 0));
   }
@@ -85,7 +86,7 @@ public class FetchHelperDeadCodeTest {
     // and constructs a no-op FetchPlan with only the wildcard default.
     var fp = FetchHelper.buildFetchPlan("");
     assertNotNull(fp);
-    assertFalse(FetchHelper.DEFAULT_FETCHPLAN == fp);
+    assertNotSame(FetchHelper.DEFAULT_FETCHPLAN, fp);
     assertEquals(0, fp.getDepthLevel("any", 0));
   }
 
@@ -200,8 +201,9 @@ public class FetchHelperDeadCodeTest {
 
   @Test
   public void processRecordRidMapEarlyReturnsForNullFetchPlan() {
-    // The first guard at line 131 early-returns before the record is dereferenced. Passing
-    // nulls for db/record/context exercises the guard without requiring a session.
+    // The null-plan guard early-returns before the record is dereferenced. Passing nulls for
+    // db/record/context exercises the guard without requiring a session — absent the guard,
+    // the method would NPE on record.getPropertyNamesInternal.
     var parsed = new Object2IntOpenHashMap<RID>();
     parsed.defaultReturnValue(-1);
     FetchHelper.processRecordRidMap(null, null, null, 0, 0, -1, parsed, "", null);
@@ -210,10 +212,13 @@ public class FetchHelperDeadCodeTest {
 
   @Test
   public void processRecordRidMapEarlyReturnsForDefaultFetchPlanSingleton() {
-    // Second guard at line 135 early-returns when iFetchPlan == DEFAULT_FETCHPLAN — a
-    // reference-equality check, not .equals. Pinning this prevents a regression that would
-    // replace the guard with an equals-check (which would let user-provided "*:0" plans skip
-    // the guard and fall through to the full record walk).
+    // The DEFAULT_FETCHPLAN guard early-returns when the caller passes the cached singleton.
+    // This test pins that calling with DEFAULT_FETCHPLAN and a null record does not NPE —
+    // i.e., the guard fires before the record walk. (Note: the guard uses reference equality
+    // but FetchPlan inherits Object.equals, so swapping `==` for `.equals` would produce an
+    // identical observable here — that specific mutation is not pinnable without introducing
+    // a FetchPlan instance that .equals DEFAULT_FETCHPLAN, which does not happen in
+    // production.)
     var parsed = new Object2IntOpenHashMap<RID>();
     parsed.defaultReturnValue(-1);
     FetchHelper.processRecordRidMap(
@@ -320,66 +325,42 @@ public class FetchHelperDeadCodeTest {
   }
 
   /**
-   * Sanity check that the test helper itself is well-formed — no mutations of rid should leak
-   * into the caller's map. (Unused-variable suppression: this test exists only to pin the
-   * helper's behavioural contract so the real tests above can rely on it.)
+   * Integration-light pin: every non-null, non-"*:0" string that parses in FetchPlan must also
+   * pass checkFetchPlanValid — both rely on StringSerializerHelper.split(' ') + split(':')
+   * yielding size-2 parts. Each sample also has a semantic probe so a mutation that breaks
+   * the parser silently (while still returning non-null) is caught.
    */
-  @Test
-  public void fixedIdentifiableReturnsProvidedRid() {
-    RID rid = new RecordId(4, 11);
-    assertSame(rid, new FixedIdentifiable(rid).getIdentity());
-  }
-
-  /** Smoke check that the parsed-records map helper used by production is the right shape. */
-  @Test
-  public void sanityCheckParsedRecordsMapDefaultReturnValueIsNegativeOne() {
-    var parsed = new Object2IntOpenHashMap<RID>();
-    parsed.defaultReturnValue(-1);
-    assertEquals("matches the sentinel used in processRecordRidMap",
-        -1, parsed.getInt(new RecordId(0, 0)));
-
-    // A concrete put→get cycle ensures we're actually exercising fastutil's primitive map.
-    RID rid = new RecordId(0, 1);
-    parsed.put(rid, 0);
-    assertEquals(0, parsed.getInt(rid));
-    Map<RID, Integer> snapshot = new HashMap<>();
-    for (var e : parsed.object2IntEntrySet()) {
-      snapshot.put(e.getKey(), e.getIntValue());
-    }
-    assertEquals(Collections.singletonList(rid), new ArrayList<>(snapshot.keySet()));
-  }
-
-  /**
-   * Sanity check for Identifiable.compareTo path used by the stub — not strictly required by
-   * FetchHelper but keeps the helper stable if a future refactor uses the stub elsewhere.
-   */
-  @Test
-  public void fixedIdentifiableCompareToDelegatesToRid() {
-    var a = new FixedIdentifiable(new RecordId(1, 1));
-    var b = new FixedIdentifiable(new RecordId(2, 2));
-    assertTrue("same-cluster compare by position", a.compareTo(b) < 0);
-    assertEquals(0, a.compareTo(a));
-  }
-
-  /** Null-input guard on {@link Object2IntOpenHashMap#getInt} — documents the sentinel. */
-  @Test
-  public void sanityCheckParsedRecordsSentinelForAbsentKey() {
-    var parsed = new Object2IntOpenHashMap<RID>();
-    parsed.defaultReturnValue(-1);
-    assertEquals(-1, parsed.getInt(new RecordId(1, 1)));
-  }
-
-  /** Integration-light pin: buildFetchPlan chain feeding checkFetchPlanValid is consistent. */
   @Test
   public void checkFetchPlanValidAcceptsEveryStringThatBuildFetchPlanAccepts() {
-    // Any non-null, non-"*:0" string that parses in FetchPlan must also pass checkFetchPlanValid
-    // — both rely on StringSerializerHelper.split(' ') + split(':') yielding size-2 parts.
-    List<String> samples = List.of("ref:1", "ref:-1", "ref:1 other:2", "*:3",
-        "[2-4]ref:1", "[*]ref:-1", "field*:2");
-    for (var s : samples) {
+    Map<String, SemanticProbe> samples = new LinkedHashMap<>();
+    samples.put("ref:1", p -> assertEquals(1, p.getDepthLevel("ref", 0)));
+    samples.put("ref:-1", p -> assertEquals(-1, p.getDepthLevel("ref", 0)));
+    samples.put("ref:1 other:2", p -> {
+      assertEquals(1, p.getDepthLevel("ref", 0));
+      assertEquals(2, p.getDepthLevel("other", 0));
+    });
+    samples.put("*:3", p -> assertEquals(3, p.getDepthLevel("anyField", 0)));
+    samples.put("[2-4]ref:1", p -> {
+      assertEquals(1, p.getDepthLevel("ref", 2));
+      assertEquals(1, p.getDepthLevel("ref", 4));
+    });
+    samples.put("[*]ref:-1", p -> {
+      assertEquals(-1, p.getDepthLevel("ref", 0));
+      assertEquals(-1, p.getDepthLevel("ref", 100));
+    });
+    samples.put("field*:2", p -> assertEquals(2, p.getDepthLevel("fieldX", 0)));
+
+    for (var entry : samples.entrySet()) {
+      var s = entry.getKey();
       FetchHelper.checkFetchPlanValid(s);
-      // And a reciprocal buildFetchPlan call does not throw for the same input.
-      assertNotNull("buildFetchPlan(" + s + ")", FetchHelper.buildFetchPlan(s));
+      var fp = FetchHelper.buildFetchPlan(s);
+      assertNotNull("buildFetchPlan(" + s + ")", fp);
+      entry.getValue().probe(fp);
     }
+  }
+
+  @FunctionalInterface
+  private interface SemanticProbe {
+    void probe(com.jetbrains.youtrackdb.internal.core.fetch.FetchPlan fp);
   }
 }

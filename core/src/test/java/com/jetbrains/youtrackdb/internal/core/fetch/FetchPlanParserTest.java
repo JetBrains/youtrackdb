@@ -62,10 +62,10 @@ public class FetchPlanParserTest {
 
   @Test
   public void simpleFieldEntryAppliesOnlyAtLevelZero() {
-    // `ref:3` → only level 0 matches the configured depth; subsequent levels fall through
-    // to the else branch and match by key equality (still returning 3 per production semantics
-    // for out-of-range keys) but has() returns true because the key-equality check fires in
-    // either branch.
+    // `ref:3` → at level 0 the entry (0,0,3) is in range and `ref` equals the key, returning
+    // the configured 3. An unrelated field at level 0 falls through all branches and lands on
+    // defDepthLevel=0 (the built-in wildcard). The out-of-range key-equality fallback for
+    // `ref` at deeper levels is covered separately by `hasReturnsTrueForOutOfRangeButKeyEquality`.
     var plan = new FetchPlan("ref:3");
     assertEquals("in-range key equality → configured level", 3, plan.getDepthLevel("ref", 0));
     assertTrue(plan.has("ref", 0));
@@ -261,14 +261,11 @@ public class FetchPlanParserTest {
   // ---------------------------------------------------------------------------
 
   @Test
-  public void nestedFieldPathMatchesLastPartAgainstConfiguredKey() {
-    // Plan "ref:5" with probe path "parent.ref" at level 1 — parent loop does not find a
-    // match on "parent" / "parent.ref", but fpParts[1]="ref" equals key "ref". Level 1 is
-    // inside the in-range branch (because "ref" has FetchPlanLevel(0,0,5) and the probe
-    // iterates fpParts indexes 0..1; at i=1, the range check is 1>=0 && 1<=0 → false, so the
-    // part-equality block is SKIPPED by design. This pin documents the less-obvious fact that
-    // nested path matching happens only within the configured depth range. Result: the outer
-    // "ref" is NOT matched at level 1, so the default 0 applies.
+  public void nestedFieldPathOutsideDepthRangeFallsThroughToDefault() {
+    // Plan "ref:5" installs key "ref" with range (0,0,5). Probe "parent.ref" at level 1 is
+    // out of range for the main-loop `ref` entry, so the in-range block (which contains the
+    // nested-part iteration) is never entered. The else branch checks only full-path equality
+    // / startsWith — neither matches "parent.ref" — so getDepthLevel returns defDepthLevel=0.
     var plan = new FetchPlan("ref:5");
     assertEquals("nested part at level 1 is outside (0,0) range → default",
         0, plan.getDepthLevel("parent.ref", 1));

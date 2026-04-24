@@ -17,7 +17,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.fetch;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.fetch.FetchContext;
@@ -58,7 +57,7 @@ public class DepthFetchPlanTest extends TestUtilsFixture {
 
   /** Count sendRecord invocations for the given plan driven from the provided root RID. */
   private int fetchAndCount(RID rootId, String fetchPlan, String format) {
-    Integer value = session.computeInTx(tx -> {
+    return session.computeInTx(tx -> {
       EntityImpl root = tx.load(rootId);
       var listener = new CountFetchListener();
       FetchContext context = new RemoteFetchContext();
@@ -66,7 +65,6 @@ public class DepthFetchPlanTest extends TestUtilsFixture {
           root, root, FetchHelper.buildFetchPlan(fetchPlan), listener, context, format);
       return listener.count;
     });
-    return value == null ? 0 : value;
   }
 
   // ---------------------------------------------------------------------------
@@ -227,10 +225,13 @@ public class DepthFetchPlanTest extends TestUtilsFixture {
   }
 
   @Test
-  public void nullFetchPlanDoesNotTriggerRunawayTraversal() {
-    // A null plan from buildFetchPlan means "no explicit fetch plan". With no plan, the
-    // default behaviour does not recurse through `ref` in this configuration — the root is
-    // processed but sendRecord is never invoked for this single-link chain.
+  public void nullFetchPlanBypassesSendRecordOnSingleLinkChain() {
+    // A null plan from buildFetchPlan means "no explicit fetch plan". processRecordRidMap
+    // short-circuits on the null guard so parsedRecords contains only the root; fetchEntity
+    // then sees fieldDepthLevel=-1 for the target and takes the else branch (parseLinked,
+    // a no-op on the listener) rather than fetchLinked (which would sendRecord). Count is
+    // deterministically 0. A regression that pre-populates parsedRecords for null plans
+    // would flip this to 1 and be caught here.
     session.getMetadata().getSchema().createClass("Test");
 
     var targetId = newTestEntityId();
@@ -243,7 +244,7 @@ public class DepthFetchPlanTest extends TestUtilsFixture {
     });
 
     int count = fetchAndCount(srcId, null, "");
-    assertTrue("null plan must not trigger runaway link traversal", count <= 1);
+    assertEquals("null plan → fetchEntity else-branch → no sendRecord", 0, count);
   }
 
   // ---------------------------------------------------------------------------
