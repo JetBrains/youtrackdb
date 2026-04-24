@@ -791,7 +791,7 @@ flowchart TD
   > (located in `core/sql/`) belong in Track 9's scope or stay deferred
   > to Track 22 — this is a decomposition-level call, not a plan change.
 
-- [ ] Track 9: Command & Script
+- [x] Track 9: Command & Script
   > Write tests for the command and script execution infrastructure.
   >
   > Target packages:
@@ -813,6 +813,82 @@ flowchart TD
   > **Scope:** ~5 steps covering command infrastructure, traverse,
   > script execution, script formatting/transformation, and verification
   > **Depends on:** Track 1
+  >
+  > **Track episode:**
+  > Landed comprehensive unit tests for the command and script subsystem
+  > across 5 steps / 15 commits / 30 files / ~10,755 inserted lines —
+  > purely test-additive, zero production-code changes. Step 4 split
+  > into 4a (registries, 1,024 LOC) + 4b (executors + wrappers +
+  > bindings, 1,889 LOC) per the anticipated fallback for commits
+  > > ~1,500 test LOC. Step-level dimensional reviews ran at iter-1
+  > per step (0 blockers overall for Steps 1–3; Step 4 had 2 blockers
+  > both fixed in-step; Step 5 had 1 blocker fixed in-step). Track-level
+  > Phase C ran 6 dimensional sub-agents (CQ/BC/TB/TC/TS/TX) to
+  > iteration 2/3 and PASSED all dimensions: iter-1 surfaced 20
+  > should-fix + ~25 suggestions — 13 should-fix fixes applied in
+  > `f66b1bc474`; iter-2 gate check VERIFIED all 26 iter-1 items plus
+  > 1 new should-fix (CQ5 FQN-leak residue) + 3 promoted suggestions
+  > (CQ6 plan-absorption gap, CQ7 comment lag, TB8 reflection-fragility
+  > marker), all fixed in `d2bc352a2f` + `68791bcf15`. Final coverage
+  > gate: 100.0% line / 100.0% branch on changed production lines
+  > (Step 5 verification run).
+  >
+  > Key discoveries with cross-track impact — all absorbed into
+  > Track 22:
+  >
+  > (a) **~1,770 LOC of `core/command/script` is dead code** reachable
+  > only through paths with no production callers (Phase A T1/R1):
+  > `CommandExecutorScript` (719 LOC), `CommandScript.execute` stub,
+  > `CommandManager`'s legacy class-based dispatch cluster,
+  > `ScriptExecutorRegister` SPI, zero-impl `ScriptInterceptor` +
+  > `ScriptInjection` register/unregister loops,
+  > `ScriptManager.bind(...)` + `bindLegacyDatabaseAndUtil` +
+  > `ScriptDocumentDatabaseWrapper` (261 LOC) + `ScriptYouTrackDbWrapper`
+  > (42 LOC), `SQLScriptEngine.eval(Reader, Bindings)`. All pinned with
+  > `// WHEN-FIXED: Track 22` markers.
+  >
+  > (b) **Production bugs pinned as WHEN-FIXED regressions** for
+  > Track 22 hardening: `BasicCommandContext.copy()` null-child NPE
+  > (T4 — zero callers, safest to delete); `executeFunction(unknown-name)`
+  > NPE rather than named exception; `Traverse.hasNext`
+  > abnormal-termination branch unreachable through normal flow;
+  > `TraverseContext.pop` warn-branch only partially pinned (needs
+  > LogManager appender capture); `PolyglotScriptBinding.clear()` CME
+  > risk on GraalVM upgrade; `ScriptManager.throwErrorMessage`
+  > malformed-Rhino NFE/SIOOBE + `"()"` anonymous-function leak;
+  > `MapTransformer` registry asymmetry (in `transformers` but not
+  > `resultSetTransformers`); Ruby formatter `skip("\r")` NSE on
+  > missing CR; `SQLScriptEngine.eval(Reader, Bindings)`
+  > `StringReader.ready()`-always-true infinite loop; polyglot Value
+  > `asHostObject` CCE on JS primitive arrays.
+  >
+  > (c) **CHM race RISK-B refuted** (R5): `PolyglotScriptExecutor.
+  > resolveContext` uses atomic `computeIfAbsent`. No stage test, no
+  > production fix.
+  >
+  > (d) **DRY-cleanup items added to Track 22**: rollbackIfLeftOpen
+  > hoist into `TestUtilsFixture` (CQ1); traverse-domain fixture
+  > helpers across five Traverse*Test files into a package-private
+  > `TraverseTestFixtures` helper (CQ2); `createStoredFunction`
+  > helper across `Jsr223ScriptExecutorTest` /
+  > `ScriptLegacyWrappersTest` / `SQLScriptEngineTest` into a
+  > package-private helper in `command/script/` or test-commons (CQ3).
+  >
+  > (e) **Test-infrastructure precedent validated**:
+  > `TestUtilsFixture` extension + `@After rollbackIfLeftOpen` safety
+  > net carried forward from Tracks 5–8; polyglot-state hygiene pattern
+  > (mutate-in-try / restore-in-finally + `@Category(SequentialTest)`
+  > for GlobalConfiguration mutations) codified for future script-
+  > execution tests; dead-code pins via dedicated `*DeadCodeTest`
+  > classes with `// WHEN-FIXED: Track 22 — delete <class>` markers.
+  >
+  > No deviations affecting Tracks 10–21. Track 22 scope grew
+  > substantially via three plan-update commits (`8ed372383d`,
+  > `bc8164412c`, `68791bcf15`) — all absorptions are explicitly
+  > recorded in the Track 22 section of this plan.
+  >
+  > **Step file:** `tracks/track-9.md` (5 steps, 0 failed — Step 4
+  > split into 4a + 4b per anticipated fallback)
 
 - [ ] Track 10: Query & Fetch
   > Write tests for query infrastructure and fetch plan execution.
