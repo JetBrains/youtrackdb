@@ -51,8 +51,11 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import javax.script.Bindings;
 import javax.script.ScriptEngine;
+import javax.script.ScriptEngineFactory;
 import javax.script.ScriptException;
 import javax.script.SimpleBindings;
 import org.junit.After;
@@ -689,6 +692,58 @@ public class ScriptManagerTest extends DbTestBase {
         ex.getMessage().contains("Error on evaluation of the script library"));
   }
 
+  /**
+   * TC8 iter-2 corner-case pin: a {@code null} library argument enters {@code throwErrorMessage}
+   * via callers that resolve the library from {@code getLibrary(...)} (which CAN return null —
+   * {@code DatabaseScriptManager.createNewResource:56}). The production code today passes null
+   * directly into {@code new Scanner((String) null)} which NPEs. Pin the current observable
+   * shape so a future null-guard is a deliberate, visible change. WHEN-FIXED: Track 22 — add
+   * null-library handling.
+   */
+  @Test
+  public void throwErrorMessageWithNullLibraryThrowsNpeInScannerCtorAsShapePin() {
+    final var se = new ScriptException("oops", "inline", 3);
+    // Scanner(String) NPEs on null — the NPE may or may not carry a message depending on JDK
+    // internals; assert only the class so the pin survives JDK upgrades.
+    assertThrows(
+        NullPointerException.class,
+        () -> scriptManager.throwErrorMessage(session.getDatabaseName(), se, null));
+  }
+
+  /**
+   * TC8 iter-2 corner-case pin: a JavaScript library function with an empty parenthesized name
+   * (anonymous function declaration — {@code "function () {...}"}) passes the post-
+   * {@code "function "} substring {@code "()"} into {@code StringParser.getWords}. Since
+   * there is no whitespace between the parentheses, getWords returns {@code ["()"]} — a
+   * SINGLE token containing both parens. The guard at production line 410
+   * ({@code !"(".equals(words[0])}) checks against the bare open-paren {@code "("} only, not
+   * the conjoined {@code "()"}, so the guard FAILS TO SKIP and {@code lastFunctionName} is
+   * set to {@code "()"} — NOT the default {@code "unknown"}.
+   *
+   * <p>This pin locks in the subtle guard-mismatch: the guard was almost certainly intended
+   * to detect anonymous functions but misses the common {@code "()"} no-space case. A
+   * regression that fixed the guard (e.g., also rejecting {@code "()"}, {@code "(,"}, etc.)
+   * would change the observable to {@code "Function unknown:"} and flip this pin.
+   * WHEN-FIXED: Track 22 — harden the anonymous-function guard to also reject {@code "()"}.
+   */
+  @Test
+  public void throwErrorMessageAnonymousFunctionHeaderLeaksParensAsFunctionName() {
+    final var lib =
+        "function () {\n"
+            + "  var x = null;\n"
+            + "  return x.y;\n"
+            + "}\n";
+    final var se = new ScriptException("err", "inline", 3);
+    final var ex =
+        assertThrows(
+            CommandScriptException.class,
+            () -> scriptManager.throwErrorMessage(session.getDatabaseName(), se, lib));
+    assertTrue(
+        "anonymous-function guard misses '()' no-space case; lastFunctionName leaks as '()': "
+            + ex.getMessage(),
+        ex.getMessage().contains("Function ():"));
+  }
+
   // ==========================================================================
   // Database-engine pool lifecycle: acquire/release, close(dbName) removing
   // the pool, closeAll, and close for a non-existent db.
@@ -707,17 +762,34 @@ public class ScriptManagerTest extends DbTestBase {
 
   @Test
   public void releaseDatabaseEngineForUnknownDatabaseIsNoOp() {
-    // Must not throw even though no pool has been created for this name.
+    // Must not throw even though no pool has been created for this name. Pin the observable
+    // invariant that no entry is inserted for the unknown dbName under the "no-op" branch —
+    // a regression that lazily created a pool on release would mutate the map and be caught.
+    final var unknownDb = "never-opened-db-" + uniqueSuffix();
+    final var before = new HashSet<>(scriptManager.dbManagers.keySet());
     scriptManager.releaseDatabaseEngine(
-        "sql",
-        "never-opened-db-" + uniqueSuffix(),
-        scriptManager.getEngine(session.getDatabaseName(), "sql"));
+        "sql", unknownDb, scriptManager.getEngine(session.getDatabaseName(), "sql"));
+    assertFalse(
+        "release against unknown dbName must not implicitly create a pool",
+        scriptManager.dbManagers.containsKey(unknownDb));
+    assertEquals(
+        "release against unknown dbName must leave dbManagers keyset unchanged",
+        before,
+        scriptManager.dbManagers.keySet());
   }
 
   @Test
   public void closeForUnknownDatabaseIsNoOp() {
-    // remove() returns null → dbPool.close() branch is skipped. Must not throw.
-    scriptManager.close("never-opened-db-" + uniqueSuffix());
+    // remove() returns null → dbPool.close() branch is skipped. Must not throw. Pin the
+    // observable invariant: closeForUnknown must leave dbManagers keyset unchanged — a
+    // regression that erroneously cleared the whole map would be caught.
+    final var unknownDb = "never-opened-db-" + uniqueSuffix();
+    final var before = new HashSet<>(scriptManager.dbManagers.keySet());
+    scriptManager.close(unknownDb);
+    assertEquals(
+        "close on unknown dbName must leave dbManagers keyset unchanged",
+        before,
+        scriptManager.dbManagers.keySet());
   }
 
   @Test
@@ -741,25 +813,56 @@ public class ScriptManagerTest extends DbTestBase {
     // Populate a pool so closeAll has work to do.
     final var e = scriptManager.acquireDatabaseEngine(session, "sql");
     scriptManager.releaseDatabaseEngine("sql", session.getDatabaseName(), e);
-    // closeAll drains dbManagers and commandManager executors; calling it twice in a row
-    // is safe (second call is a no-op).
+    assertFalse(
+        "precondition: dbManagers must contain the seeded pool",
+        scriptManager.dbManagers.isEmpty());
+
+    // closeAll iterates dbManagers.entrySet() and calls close() on each value but — unlike
+    // close(dbName) which removes — it does NOT clear the keyset (see ScriptManager.closeAll
+    // at lines 577-580). Pin the current asymmetric behavior so a future refactor that aligns
+    // closeAll with close(dbName) (clearing the map) is a deliberate, visible change.
+    // WHEN-FIXED: Track 22 — align closeAll with close(dbName) (clear dbManagers too).
     scriptManager.closeAll();
+    assertFalse(
+        "closeAll leaves dbManagers keyset UNCHANGED — only the pool-factory close() runs. "
+            + "WHEN-FIXED: Track 22 — flip to assertTrue(isEmpty()) once closeAll clears map.",
+        scriptManager.dbManagers.isEmpty());
+
+    // Calling closeAll twice in a row must be idempotent (second iterate-and-close is a no-op
+    // on already-closed pools); a regression that threw on second close would be caught.
     scriptManager.closeAll();
+    assertFalse(
+        "second closeAll must remain idempotent — dbManagers keyset still unchanged",
+        scriptManager.dbManagers.isEmpty());
+
+    // Cleanup: remove the stale closed entries so sibling tests in this class don't pick up
+    // the closed DatabaseScriptManager (which would throw "Pool factory is closed" on next
+    // acquire attempt). DbTestBase creates a fresh YouTrackDB per test, but we pollute the
+    // shared ScriptManager within the sequential test execution.
+    scriptManager.dbManagers.clear();
   }
 
   /**
-   * TX1 — concurrent first-access race pin for {@code acquireDatabaseEngine}. Two threads
+   * TX1 — concurrent first-access smoke test for {@code acquireDatabaseEngine}. Two threads
    * simultaneously call {@link ScriptManager#acquireDatabaseEngine} on the same DB name when
    * no pool exists; the production code reads {@code dbManagers.get(name)} → null, constructs
    * a fresh {@link DatabaseScriptManager}, and races on {@code putIfAbsent}. The loser must
-   * {@code close()} its orphan and fall through to the winner's entry. Pin the observable
-   * invariant: after both threads complete, {@code dbManagers} contains exactly ONE entry for
-   * the dbName — proving {@code putIfAbsent} admitted only the winner. The closer precise
-   * pin (counting close() calls on the loser) would require injecting a subclass into the
-   * factory, which is not exposed today — acceptable per T7's single-thread scope.
+   * {@code close()} its orphan and fall through to the winner's entry.
    *
-   * <p>Covers: ScriptManager.acquireDatabaseEngine lines 248-263, {@code putIfAbsent} race
-   * + {@code prev != null} → {@code dbManager.close()} → {@code dbManager = prev} branch.
+   * <p>BC1 iter-2 clarification: the observable post-condition we can verify today — "exactly
+   * one non-null entry for dbName exists in the ConcurrentHashMap" — is satisfied under BOTH
+   * {@code putIfAbsent} and a hypothetical plain {@code put} regression (both yield one entry
+   * per key; the only behavioral difference between them is whether the loser's orphan
+   * {@code DatabaseScriptManager.close()} fires). This test is therefore a <em>no-crash under
+   * concurrent access</em> smoke test, NOT a putIfAbsent-specific pin. A closer-precise pin
+   * would require a test-only factory override counting {@code close()} invocations, which is
+   * not exposed today. Absence-of-deadlock and absence-of-exception are the load-bearing
+   * invariants this test preserves.
+   *
+   * <p>Covers: ScriptManager.acquireDatabaseEngine lines 248-263, {@code putIfAbsent} happy
+   * path; the loser's {@code dbManager.close()} branch is exercised non-deterministically
+   * (single interleaving). WHEN-FIXED: Track 22 — if {@code ScriptManager} exposes a
+   * factory-override hook, strengthen this test into a close()-counting pin.
    */
   @Test
   public void acquireDatabaseEngineConcurrentFirstAccessAdmitsSingleDbManager() throws Exception {
@@ -779,9 +882,8 @@ public class ScriptManagerTest extends DbTestBase {
     // session.getDatabaseName() to key dbManagers, so both end up racing on the same key.
     final var sessionA = youTrackDB.open(dbName, "admin", adminPassword);
     final var sessionB = youTrackDB.open(dbName, "admin", adminPassword);
-    final java.util.concurrent.atomic.AtomicReference<Throwable> failure =
-        new java.util.concurrent.atomic.AtomicReference<>();
-    final java.util.function.Consumer<DatabaseSessionEmbedded> racer =
+    final AtomicReference<Throwable> failure = new AtomicReference<>();
+    final Consumer<DatabaseSessionEmbedded> racer =
         racerSession -> {
           try {
             racerSession.activateOnCurrentThread();
@@ -885,7 +987,7 @@ public class ScriptManagerTest extends DbTestBase {
 
   /** Minimal ScriptEngineFactory that returns null from getScriptEngine() so we can observe
    * that a non-JS registered engine is not wrapped by JSScriptEngineFactory.maybeWrap. */
-  private static class SpyEngineFactory implements javax.script.ScriptEngineFactory {
+  private static class SpyEngineFactory implements ScriptEngineFactory {
     @Override
     public String getEngineName() {
       return "spy";

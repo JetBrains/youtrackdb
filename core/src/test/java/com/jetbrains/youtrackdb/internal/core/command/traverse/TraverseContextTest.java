@@ -152,6 +152,31 @@ public class TraverseContextTest extends DbTestBase {
   }
 
   /**
+   * TC2 iter-2 corner-case pin: {@code pop(null)} on a NON-empty memory must bypass the
+   * history-remove branch (guarded by {@code currentRecord != null}) and unconditionally drop
+   * one frame from {@code memory}. A regression that moved the null check INSIDE the try block
+   * would NPE on {@code currentRecord.getIdentity()} before reaching the frame-drop. Pin the
+   * non-throwing silent-pop contract: after calling, memory is empty and history is untouched.
+   */
+  @Test
+  public void popWithNullRecordOnNonEmptyMemoryShrinksStackWithoutTouchingHistory() {
+    var traverse = newTraverse();
+    var ctx = seedEmptyRsp(traverse);
+    var rid = new RecordId(0, 42L);
+    ctx.addTraversed(rid, 0);
+    assertFalse("precondition: memory has one frame", ctx.isEmpty());
+    assertTrue("precondition: history holds the seeded RID", ctx.isAlreadyTraversed(rid, 0));
+
+    // pop(null) + non-empty memory: skips history-remove, still drops the frame.
+    ctx.pop(null);
+
+    assertTrue("memory must be empty after popping the only frame with pop(null)", ctx.isEmpty());
+    assertTrue(
+        "history must remain untouched when pop(null) skips the remove branch",
+        ctx.isAlreadyTraversed(rid, 0));
+  }
+
+  /**
    * {@code pop(record)} where the record's RID is NOT in {@code history} must still drop the top
    * frame (observable: memory shrinks by one). The missing-from-history branch emits a
    * {@code LogManager.warn} whose content this test does NOT verify — capturing the log

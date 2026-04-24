@@ -125,6 +125,37 @@ public class CommandRequestTextAbstractTest {
   }
 
   /**
+   * TC6 iter-2 boundary pin: whitespace-only input ({@code "   \t\n   "}) trims to the empty
+   * string — same observable shape as the empty-string case, but via a different production
+   * code path (trim actually strips chars). Pin this equivalence so a future refactor that
+   * replaced {@code trim()} with {@code strip()} (Unicode-aware) is a deliberate change.
+   */
+  @Test
+  public void constructorWhitespaceOnlyTextTrimsToEmptyString() {
+    var req = new StubTextRequest("   \t\n\r   ");
+    assertEquals(
+        "whitespace-only input must trim to the empty string via String.trim()",
+        "",
+        req.getText());
+  }
+
+  /**
+   * TC6 iter-2 boundary pin: {@link String#trim()} only strips characters {@code <= U+0020}
+   * (ASCII whitespace), NOT Unicode whitespace like the non-breaking space {@code U+00A0}.
+   * Pin the current ASCII-only-trim semantics so a future migration to {@link String#strip()}
+   * (Unicode-aware) is a deliberate, visible change. A regression that accidentally switched
+   * to {@code strip()} would fail this assertion by returning {@code "select"} (fully stripped).
+   */
+  @Test
+  public void constructorPreservesUnicodeNonBreakingSpaceBecauseTrimIsAsciiOnly() {
+    var req = new StubTextRequest(" select ");
+    assertEquals(
+        "String.trim() strips only chars <= U+0020; non-breaking space (U+00A0) survives",
+        " select ",
+        req.getText());
+  }
+
+  /**
    * The no-arg constructor leaves {@code text} at its default {@code null} and does not throw.
    * It exists to support lazy-init by subclasses that need to set text after construction.
    */

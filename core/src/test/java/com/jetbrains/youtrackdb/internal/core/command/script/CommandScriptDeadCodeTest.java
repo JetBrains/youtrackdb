@@ -43,6 +43,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.SQLScriptEngineFactory;
 import java.io.Reader;
 import java.io.StringReader;
 import java.lang.reflect.Modifier;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import javax.script.ScriptEngineFactory;
@@ -210,14 +211,26 @@ public class CommandScriptDeadCodeTest {
     // The class is public only so reflection or legacy CommandManager dispatch could
     // reach it. Instantiate it via its public ctor (standalone) to cover the single
     // uncovered line `public CommandExecutorScript() {}` in JaCoCo, and to pin the
-    // "extends CommandExecutorAbstract" structural contract. The zero-callers claim
-    // is documented in the class-level Javadoc; it is not asserted here — that would
-    // require a classpath scan well beyond this pin's scope.
+    // inherited-state contract. The bare `instanceof CommandExecutorAbstract` check is a
+    // compile-time invariant (removing `extends CommandExecutorAbstract` would break this
+    // test's imports); strengthen by pinning the runtime defaults the ctor MUST produce,
+    // so a future override that changes the inherited-state shape (e.g., `limit = 0`,
+    // eager ProgressListener allocation) would be caught at runtime.
     var exec = new CommandExecutorScript();
 
     assertTrue(
         "CommandExecutorScript extends CommandExecutorAbstract",
         exec instanceof CommandExecutorAbstract);
+    // Pin the inherited-default-state contract — these are runtime-observable and catch
+    // ctor overrides that would pass the compile-time instanceof check above.
+    final var asAbstract = (CommandExecutorAbstract) exec;
+    assertEquals(
+        "inherited limit default must be -1 (unlimited)", -1, asAbstract.getLimit());
+    assertNull("inherited fetchPlan default must be null", asAbstract.getFetchPlan());
+    assertNull(
+        "inherited progressListener default must be null", asAbstract.getProgressListener());
+    assertNull("inherited context default must be null", asAbstract.getContext());
+    assertNull("inherited parameters default must be null", asAbstract.getParameters());
     // WHEN-FIXED: Track 22 — delete CommandExecutorScript.
   }
 
@@ -238,7 +251,7 @@ public class CommandScriptDeadCodeTest {
         if (in == null) {
           continue;
         }
-        var contents = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        var contents = new String(in.readAllBytes(), StandardCharsets.UTF_8);
         assertFalse(
             "Service " + serviceName + " must not register the dead CommandExecutorScript",
             contents.contains(deadClassName));
@@ -365,7 +378,7 @@ public class CommandScriptDeadCodeTest {
     var serviceFile = "META-INF/services/" + iface.getName();
     try (var in = loader.getResourceAsStream(serviceFile)) {
       if (in != null) {
-        var contents = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        var contents = new String(in.readAllBytes(), StandardCharsets.UTF_8);
         assertFalse(
             "core must not register ScriptExecutorRegister impls under core/command/script",
             contents.contains("com.jetbrains.youtrackdb.internal.core.command.script."));

@@ -137,6 +137,50 @@ public class CommandManagerTest {
         ex.getMessage().contains("WeirdLang"));
   }
 
+  /**
+   * TC4 iter-2 boundary pin: empty-string language is NOT null (passes the null-guard) but
+   * also not a registered key — takes the exact-miss → lowercase-miss → throw path. Pin that
+   * the diagnostic message still includes the "language: " prefix so the trailing empty
+   * string is at least signalled. A regression that concatenated a null variable or silently
+   * returned a default executor for empty input would be caught.
+   */
+  @Test
+  public void getScriptExecutorEmptyStringThrowsWithEmptyLanguageInMessage() {
+    var manager = new CommandManager();
+
+    var ex = assertThrows(IllegalArgumentException.class,
+        () -> manager.getScriptExecutor(""));
+    assertTrue(
+        "error message must include the 'language:' diagnostic marker: " + ex.getMessage(),
+        ex.getMessage().contains("language:"));
+  }
+
+  /**
+   * TC4 iter-2 boundary pin: {@link HashMap#put} accepts {@code null} keys, so
+   * {@code registerScriptExecutor(null, executor)} stores the entry under a null key.
+   * {@code getScriptExecutor(null)} still throws at the null-guard, so the null-keyed entry
+   * is effectively unreachable via the public API. Pin both halves so a future hardening
+   * (null-rejecting {@code registerScriptExecutor}) is a deliberate, visible change.
+   */
+  @Test
+  public void registerScriptExecutorWithNullKeyIsStoredButUnreachableViaGetter() {
+    var manager = new CommandManager();
+    ScriptExecutor custom = new RecordingScriptExecutor();
+
+    manager.registerScriptExecutor(null, custom);
+
+    // The backing map exposes the null-keyed entry directly.
+    assertTrue(
+        "underlying HashMap accepts null keys — entry must be visible in the exposed map",
+        manager.getScriptExecutors().containsKey(null));
+    assertSame(
+        "null-keyed entry resolves to the registered executor via direct map access",
+        custom,
+        manager.getScriptExecutors().get(null));
+    // The public getter still rejects null — the null-keyed entry is effectively dead.
+    assertThrows(IllegalArgumentException.class, () -> manager.getScriptExecutor(null));
+  }
+
   // ---------------------------------------------------------------------------
   // registerScriptExecutor / getScriptExecutors.
   // Source: CommandManager.java:68-74.

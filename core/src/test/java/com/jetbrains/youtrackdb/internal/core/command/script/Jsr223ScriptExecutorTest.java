@@ -283,13 +283,18 @@ public class Jsr223ScriptExecutorTest extends TestUtilsFixture {
     assertNotNull(
         "runtime wrap must preserve the ScriptException as the cause chain",
         ex.getCause());
-    // The wrap's constructor embeds the dbName in the exception's message context. At least
-    // one of dbName / function name must surface in the diagnostic message — a regression
-    // that collapsed both into a constant string would fail this pin.
+    // TB6 iter-2 strengthening: the wrap carries BOTH the dbName (attached via
+    // BaseException.wrapException context chain) AND the function name (embedded by
+    // executeFunction before calling wrapException). Assert each half independently so a
+    // regression that drops ONE side of the diagnostic is not masked by the other —
+    // previously the assertion used `||` which admitted either-one-missing.
     final var msg = ex.getMessage() == null ? "" : ex.getMessage();
     assertTrue(
-        "wrapped exception must echo dbName or function name for diagnostics: " + msg,
-        msg.contains(session.getDatabaseName()) || msg.contains(fname));
+        "wrapped exception message must include the function name: " + msg,
+        msg.contains(fname));
+    assertTrue(
+        "wrapped exception message must include the dbName: " + msg,
+        msg.contains(session.getDatabaseName()));
   }
 
   // ==========================================================================

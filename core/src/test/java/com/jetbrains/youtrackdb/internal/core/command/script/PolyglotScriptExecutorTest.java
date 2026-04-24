@@ -197,6 +197,35 @@ public class PolyglotScriptExecutorTest extends TestUtilsFixture {
   }
 
   /**
+   * TC3 iter-2 boundary pin: an EMPTY JavaScript source — {@code ""} — is a common user input
+   * (empty editor, failed templating). Graal's {@code Context.eval} on an empty script returns
+   * a "null" / "undefined" Value; the transformer's {@code toResultSet} null-short-circuit
+   * branch then returns {@code null}. Pin this current observable shape. WHEN-FIXED: Track 22 —
+   * when the transformer returns an empty ResultSet instead of null, flip this to assert
+   * non-null + hasNext=false.
+   */
+  @Test
+  public void executeEmptyScriptReturnsNullResultSetAsShapePin() {
+    executor = new PolyglotScriptExecutor("javascript", new ScriptTransformerImpl());
+    assertNull(
+        "empty JS script currently maps to null ResultSet via transformer null-branch",
+        executor.execute(session, ""));
+  }
+
+  /**
+   * TC3 iter-2 boundary pin: whitespace-only scripts ({@code "   \n\t   "}) also evaluate to a
+   * null/undefined Value in Graal and take the same transformer null-branch as the empty
+   * script. Pin the current shape.
+   */
+  @Test
+  public void executeWhitespaceOnlyScriptReturnsNullResultSetAsShapePin() {
+    executor = new PolyglotScriptExecutor("javascript", new ScriptTransformerImpl());
+    assertNull(
+        "whitespace-only JS script currently maps to null ResultSet via transformer null-branch",
+        executor.execute(session, "   \n\t   "));
+  }
+
+  /**
    * A JavaScript string literal triggers the transformer's {@code isString} branch. The
    * returned Java String is the transformer's default-path scalar, wrapped via
    * {@code defaultResultSet} into a single-row result whose "value" property is the string.
