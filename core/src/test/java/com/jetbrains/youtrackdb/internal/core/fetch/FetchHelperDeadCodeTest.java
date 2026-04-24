@@ -177,7 +177,7 @@ public class FetchHelperDeadCodeTest {
   }
 
   @Test
-  public void checkFetchPlanValidAcceptsPlanWithLeadingWhitespace() {
+  public void checkFetchPlanValidRejectsPlanWithLeadingWhitespace() {
     // Leading single space: StringSerializerHelper.split(" ref:1", ' ') includes the empty
     // leading token — but since split on ' ' preserves empty tokens, the first part "" hits
     // the `parts.size() != 2` check with size 1 → IAE. Pins the "leading space breaks the
@@ -190,7 +190,7 @@ public class FetchHelperDeadCodeTest {
   }
 
   @Test
-  public void checkFetchPlanValidAcceptsPlanWithTrailingWhitespace() {
+  public void checkFetchPlanValidRejectsPlanWithTrailingWhitespace() {
     // Trailing single space: split(' ') yields ["ref:1",""] — the second (empty) token has
     // parts.size()==1 → IAE. Symmetric to the leading-whitespace boundary.
     var ex = assertThrows(IllegalArgumentException.class,
