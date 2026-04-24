@@ -28,6 +28,7 @@ import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLScriptEngine;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.TestUtilsFixture;
+import java.util.Map;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -203,6 +204,11 @@ public class DatabaseScriptManagerTest extends TestUtilsFixture {
 
       // Reflect into pooledEngines to confirm the factory lazily materialized a pool for
       // foreignLang — observable evidence the code path executed.
+      //
+      // WHEN-FIXED: Track 22 — if DatabaseScriptManager / ResourcePoolFactory expose a
+      // test-visible accessor for per-language pool existence, replace this reflection chain
+      // so a rename of the private `pooledEngines` / `poolStore` fields does not silently
+      // turn this into a no-op test.
       final var factoryField =
           DatabaseScriptManager.class.getDeclaredField("pooledEngines");
       factoryField.setAccessible(true);
@@ -211,7 +217,7 @@ public class DatabaseScriptManagerTest extends TestUtilsFixture {
       // ConcurrentLinkedHashMap). Access it via reflection to confirm lazy pool creation.
       final var poolsField = factory.getClass().getDeclaredField("poolStore");
       poolsField.setAccessible(true);
-      final var pools = (java.util.Map<?, ?>) poolsField.get(factory);
+      final var pools = (Map<?, ?>) poolsField.get(factory);
       assertTrue(
           "releaseEngine must have lazily created a pool keyed by the foreign language",
           pools.containsKey(foreignLang));

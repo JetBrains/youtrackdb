@@ -37,6 +37,7 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import javax.annotation.Nonnull;
 import org.junit.Test;
 
@@ -333,7 +334,7 @@ public class CommandRequestAbstractTest {
     assertEquals(42, converted.get(1));
     assertNull(converted.get(2));
     // Pin key-type: positional keys must be Integer so a refactor to String keys is caught.
-    assertEquals(java.util.Set.of(0, 1, 2), converted.keySet());
+    assertEquals(Set.of(0, 1, 2), converted.keySet());
     for (var k : converted.keySet()) {
       assertTrue("positional key must be Integer, got " + k.getClass(),
           k instanceof Integer);
@@ -382,7 +383,7 @@ public class CommandRequestAbstractTest {
     assertEquals(2, converted.get(1));
     assertEquals(3.5, converted.get(2));
     assertEquals("positional keys must be the full [0..N) range as Integers",
-        java.util.Set.of(0, 1, 2), converted.keySet());
+        Set.of(0, 1, 2), converted.keySet());
     for (var k : converted.keySet()) {
       assertTrue("positional key must be Integer, got " + k.getClass(),
           k instanceof Integer);
