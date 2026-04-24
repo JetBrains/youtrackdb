@@ -27,6 +27,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.filter.SQLFilterCondition;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
 import org.junit.Assert;
@@ -220,6 +221,35 @@ public class StandaloneComparisonOperatorsTest {
     var like = new QueryOperatorLike();
     Assert.assertEquals(true, eval(like, "x", "?"));
     Assert.assertEquals(false, eval(like, "xy", "?"));
+  }
+
+  /**
+   * QueryHelper.like pins lowercasing to Locale.ENGLISH (rather than the JVM
+   * default). That matters because the Turkish locale otherwise maps ASCII
+   * 'I' → dotless 'ı' (U+0131) and 'İ' (U+0130) → dotted 'i', producing
+   * mismatches for ASCII patterns in a Turkish-default JVM. The pair below
+   * exercises both directions: uppercase ASCII "INDEX" must still match the
+   * lowercase pattern "index", regardless of the JVM default locale.
+   * WHEN-FIXED: if the Locale.ENGLISH lock is ever dropped in favor of the
+   * default locale, the Turkish-default case would flip — pin this so the
+   * regression shows up at build time.
+   */
+  @Test
+  public void testLikeUsesEnglishLocaleForLowercasing() {
+    var like = new QueryOperatorLike();
+    var previous = Locale.getDefault();
+    try {
+      Locale.setDefault(new Locale("tr", "TR"));
+      // ASCII 'I' lowercased under tr-TR becomes 'ı' (U+0131), not 'i'.
+      // QueryHelper.like explicitly uses Locale.ENGLISH to avoid this.
+      Assert.assertEquals(true, eval(like, "INDEX", "index"));
+      Assert.assertEquals(true, eval(like, "index", "INDEX"));
+      // Wildcard case: pattern must still match after forced-English
+      // lowercasing.
+      Assert.assertEquals(true, eval(like, "INDEX_KEY", "ind%"));
+    } finally {
+      Locale.setDefault(previous);
+    }
   }
 
   // ===== QueryOperatorContainsKey =====
