@@ -170,6 +170,10 @@ jobs:
         uses: anthropics/claude-code-base-action@c937844d71159a8f6409acb3be0d10ea3cf92042 # main @ 2026-04-20, Claude Code 2.1.116
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Print Claude's tool calls (and any permission denials) to the
+          # job log so that when the step silently falls back to the stub
+          # body we can see why without rerunning in debug mode.
+          show_full_output: true
           prompt: |
             You are writing GitHub release notes for a YouTrackDB pre-release.
 
@@ -184,37 +188,78 @@ jobs:
                - `git log ${{ steps.prev.outputs.prev_ref }}..${{ env.HEAD_SHA }} --oneline --no-merges`
                - `git diff ${{ steps.prev.outputs.prev_ref }}..${{ env.HEAD_SHA }} --stat`
                - `git diff ${{ steps.prev.outputs.prev_ref }}..${{ env.HEAD_SHA }}` (read selectively for large diffs)
-            2. Group the user-visible changes by theme (features, bug fixes,
+            2. Decide whether the range is **purely infrastructural** — i.e.
+               every change is one of:
+                 - CI / GitHub Actions workflows (`.github/`)
+                 - Build-tool config that doesn't affect the published artifact's
+                   runtime behavior (Maven plugin versions, `.mvn/`, Spotless
+                   config, git hooks, `.gitignore`, Dependabot config)
+                 - Repository-level docs (`README.md`, `docs/`, ADRs,
+                   `CLAUDE.md`, contribution guides)
+                 - Test-only tweaks that don't change production code
+                 - Formatting-only churn (Spotless reformat, whitespace)
+               A change that touches production source under `core/`, `server/`,
+               `client/`, `driver/`, `console/`, `embedded/`, `gremlin-*`, etc.,
+               or that adds/removes/upgrades a runtime dependency in `pom.xml`,
+               is **not** infrastructural — even if it's small. When in doubt,
+               treat the range as non-infrastructural and produce notes.
+               - If the range **is** purely infrastructural: write a single-line
+                 human-readable reason to `/tmp/release-skip-reason` (e.g.
+                 `CI-only: release-notes workflow tweak`) and stop. Do NOT
+                 write `/tmp/release-notes.md`. The downstream step will see
+                 the skip file and not cut a pre-release tag.
+               - Otherwise, continue with steps 3–7 below to produce notes.
+            3. Group the user-visible changes by theme (features, bug fixes,
                performance, refactors, docs/infra). Omit categories that are empty.
-            3. Preserve YTDB issue IDs (e.g. `YTDB-123`) where they appear in
+            4. Preserve YTDB issue IDs (e.g. `YTDB-123`) where they appear in
                commit messages — link them to
                `https://youtrack.jetbrains.com/issue/YTDB-123`.
-            4. Keep the notes focused and skimmable. Drop purely internal churn
+            5. Keep the notes focused and skimmable. Drop purely internal churn
                (renames, whitespace, test-only tweaks) unless nothing else
                changed.
-            5. Write the final Markdown to `/tmp/release-notes.md`. Do not add
+            6. Write the final Markdown to `/tmp/release-notes.md`. Do not add
                a top-level heading — GitHub renders the release title
                separately. Start directly with the section headings.
-            6. If the diff is empty, write a single line:
+            7. If the diff is empty, write a single line:
                `No source changes since the previous pre-release.`
           # The base-action doesn't grant any tool permissions by default;
-          # without `--allowed-tools` Claude can't run `git log`/`git diff` or
-          # write `/tmp/release-notes.md`, and the next step silently falls
-          # back to the stub body. Scope Bash to the git subcommands the
-          # prompt actually uses, and allow writing only to the notes file.
+          # without `--allowed-tools` Claude can't run `git log`/`git diff`
+          # or write `/tmp/release-notes.md`, and the next step silently
+          # falls back to the stub body. Narrower rules like
+          # `Bash(git log:*)` do literal prefix matching on the whole
+          # command, so compound shell invocations (`git diff ... | head`,
+          # redirections, `cd && …`) get denied — which is exactly what
+          # happened in the 2026-04-24 run (`permission_denials_count: 2`,
+          # file never written). Allow any Bash command since this runs in
+          # an ephemeral GitHub-hosted runner with no secrets worth
+          # exfiltrating, but keep Write scoped to the notes file so Claude
+          # can't touch anything in the workspace.
           claude_args: >-
             --model claude-sonnet-4-6
-            --max-turns 25
-            --allowed-tools "Bash(git log:*),Bash(git diff:*),Bash(git rev-parse:*),Bash(git show:*),Read,Write(/tmp/release-notes.md)"
+            --allowed-tools "Bash,Read,Write(/tmp/release-notes.md),Write(/tmp/release-skip-reason)"
 
       - name: Create GitHub pre-release
         # Run even if the Claude step failed, so the tag still gets cut and
-        # artifacts remain addressable — the next step falls back to a stub
-        # body when /tmp/release-notes.md is missing or empty.
+        # artifacts remain addressable — this step falls back to a stub body
+        # when /tmp/release-notes.md is missing or empty.
+        #
+        # Skip branch: if Claude classified the range as purely
+        # infrastructural (CI-only, docs-only, etc.) it writes a reason to
+        # /tmp/release-skip-reason instead of producing notes. In that case
+        # we log the reason and exit cleanly without creating a tag —
+        # Maven-Central SNAPSHOT artifacts are still published by the
+        # earlier deploy job, they just don't get a GitHub pre-release entry.
         if: always() && needs.deploy.result == 'success' && needs.deploy-docker.result == 'success'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          SKIP_FILE=/tmp/release-skip-reason
+          if [ -s "$SKIP_FILE" ]; then
+            REASON=$(tr -d '\n' < "$SKIP_FILE")
+            echo "::notice title=Pre-release skipped::${REASON}"
+            exit 0
+          fi
+
           NOTES_FILE=/tmp/release-notes.md
           if [ ! -s "$NOTES_FILE" ]; then
             # Fallback body if the agent failed to produce notes — the release
