@@ -415,6 +415,16 @@ public class FetchPlanParserTest {
     assertTrue(prefixed.has("", 0));
   }
 
+  @Test
+  public void getDepthLevelThrowsNullPointerExceptionForNullFieldPath() {
+    // Symmetric to hasThrowsNullPointerExceptionForNullFieldPath: getDepthLevel(null, N) also
+    // reaches iFieldPath.split("\\.", -1) before any map lookup and NPEs. Pinned so a future
+    // mutation adding a null guard to only one of the two methods (has vs. getDepthLevel) is
+    // caught — the pair share a de-facto non-null input contract.
+    var plan = new FetchPlan("ref:1");
+    assertThrows(NullPointerException.class, () -> plan.getDepthLevel(null, 0));
+  }
+
   // ---------------------------------------------------------------------------
   // Nested-path iteration
   // ---------------------------------------------------------------------------

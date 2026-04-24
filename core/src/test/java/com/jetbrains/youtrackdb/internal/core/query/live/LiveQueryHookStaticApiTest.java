@@ -364,24 +364,27 @@ public class LiveQueryHookStaticApiTest extends TestUtilsFixture {
 
   /**
    * {@code removePendingDatabaseOps} must tolerate a closed database gracefully. Pins the
-   * {@code isClosed()} short-circuit.
+   * must-not-throw half of the {@code isClosed()} short-circuit: without the guard the call
+   * would reach {@code iDatabase.getConfiguration()} on a closed session and blow up. The
+   * map-mutation half of the contract is not pinned here because the fixture's secondary
+   * session never has a {@code pendingOps} entry of its own (nothing called {@code addOp} on
+   * it), so whether the guard fires or not the resulting {@code remove} is a no-op on the
+   * missing key. A falsifiable map-mutation pin would need to populate a pending entry for
+   * {@code secondary} while it is still open — absorbed into the pending deletion of
+   * {@code core/query/live/} (see the WHEN-FIXED marker below).
    *
    * <p>Uses a dedicated secondary session so the fixture's shared {@code session} can continue
    * serving subsequent tests' {@code @After} teardown.
    */
   @Test
-  public void v1_removePendingDatabaseOpsOnClosedSessionIsNoOp() {
+  public void v1_removePendingDatabaseOpsOnClosedSessionDoesNotThrow() {
     // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryHook
-    var ops = LiveQueryHook.getOpsReference(session);
-    var pendingSizeBefore = ops.pendingOps.size();
-
     var secondary = openDatabase();
     try {
       secondary.close();
       assertTrue("precondition: secondary session is closed", secondary.isClosed());
-      // Must not throw AND must not mutate pendingOps — the isClosed() guard short-circuits
-      // before reaching `ops.pendingOps.remove(database)`. If the guard is removed, the call
-      // would (at minimum) change pendingOps.size() — the post-state assertion pins that.
+      // Must not throw — the isClosed() guard short-circuits before reaching
+      // `iDatabase.getConfiguration()`, which would blow up on a closed session.
       LiveQueryHook.removePendingDatabaseOps(secondary);
     } finally {
       // Opening a second session can switch the thread-local; restore fixture session regardless
@@ -392,23 +395,16 @@ public class LiveQueryHookStaticApiTest extends TestUtilsFixture {
       }
       session.activateOnCurrentThread();
     }
-
-    assertEquals(
-        "closed-session short-circuit must not mutate pendingOps",
-        pendingSizeBefore,
-        ops.pendingOps.size());
   }
 
   /**
-   * V2 sibling of {@link #v1_removePendingDatabaseOpsOnClosedSessionIsNoOp}: the V2 closed-session
-   * short-circuit must not mutate the V2 ops' pending-ops map.
+   * V2 sibling of {@link #v1_removePendingDatabaseOpsOnClosedSessionDoesNotThrow}: the V2
+   * closed-session short-circuit must not throw. See the V1 Javadoc for why the map-mutation
+   * half of the contract is not pinned here.
    */
   @Test
-  public void v2_removePendingDatabaseOpsOnClosedSessionIsNoOp() {
+  public void v2_removePendingDatabaseOpsOnClosedSessionDoesNotThrow() {
     // WHEN-FIXED: Track 22 — delete core/query/live/LiveQueryHookV2
-    var ops = LiveQueryHookV2.getOpsReference(session);
-    var pendingSizeBefore = ops.pendingOps.size();
-
     var secondary = openDatabase();
     try {
       secondary.close();
@@ -420,11 +416,6 @@ public class LiveQueryHookStaticApiTest extends TestUtilsFixture {
       }
       session.activateOnCurrentThread();
     }
-
-    assertEquals(
-        "V2 closed-session short-circuit must not mutate pendingOps",
-        pendingSizeBefore,
-        ops.pendingOps.size());
   }
 
   // -------------------------------------------------------------------------
