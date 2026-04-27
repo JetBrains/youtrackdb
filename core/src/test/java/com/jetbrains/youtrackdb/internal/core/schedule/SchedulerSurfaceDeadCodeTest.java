@@ -17,14 +17,15 @@
 package com.jetbrains.youtrackdb.internal.core.schedule;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
-import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
 import java.util.HashMap;
-import java.util.List;
 import org.junit.After;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -35,14 +36,16 @@ import org.junit.experimental.categories.Category;
  * implementations. A cross-module grep over {@code core/main}, {@code server/}, {@code driver/},
  * {@code embedded/}, {@code gremlin-annotations/}, and {@code tests/} performed during this
  * track's review phase confirmed zero callers reach these methods through the {@code Scheduler}
- * interface: the only live load/close/create call sites all go through {@link SchedulerImpl}'s
- * non-deprecated overloads (e.g., {@code SchedulerImpl#load(DatabaseSessionEmbedded)} and
- * {@code SchedulerImpl#close()}) reached via {@code SharedContext}, never through
- * {@code SchedulerProxy}.
+ * interface: the only live load/close/create call sites all go through {@link SchedulerImpl}
+ * directly (which does not implement {@code Scheduler}) — {@code SchedulerImpl#load(session)}
+ * and {@code SchedulerImpl#close()} are reached via {@code SharedContext}. The deprecated
+ * zero-argument trio on the {@code Scheduler} interface (and its {@code SchedulerProxy}
+ * overrides, including the no-op {@code close()}) has zero callers anywhere in the codebase.
  *
- * <p>Each test pins the proxy's behavioral characteristics so a future deletion that removes
+ * <p>Each test pins a falsifiable behavioral observable so a future deletion that removes
  * one of these methods will fail compilation here (the proxy method signatures themselves
- * become unreachable) — that is the loud signal we want for the final sweep.
+ * become unreachable) and a regression that turns one of them into a no-op will fail at
+ * runtime — that is the loud signal we want for the final sweep.
  *
  * <p>WHEN-FIXED: delete the following from {@link Scheduler} (zero production callers
  * confirmed) and their corresponding {@link SchedulerProxy} overrides — {@code load()},
@@ -51,26 +54,17 @@ import org.junit.experimental.categories.Category;
  * {@code getEvent}) is live and stays.
  *
  * <p>This class is tagged {@link SequentialTest} because it touches the JVM-wide scheduled
- * pool through {@link SchedulerImpl} (load() schedules events that survive across tests if
- * not cleaned up); the {@code @After} cleanup explicitly removes any registered events to
- * prevent cross-test pollution under {@code <parallel>classes</parallel>}.
+ * pool through {@link SchedulerImpl}; the {@code @After} cleanup explicitly removes any
+ * registered events to prevent cross-test pollution under {@code <parallel>classes</parallel>}.
  */
 @Category(SequentialTest.class)
 public class SchedulerSurfaceDeadCodeTest extends DbTestBase {
 
+  private static final String FAR_FUTURE_RULE = "0 0 12 1 1 ? 2099";
+
   @After
   public void cleanRegisteredEvents() {
-    if (session != null && !session.isClosed()) {
-      var scheduler = session.getMetadata().getScheduler();
-      var names = List.copyOf(scheduler.getEvents().keySet());
-      for (var name : names) {
-        try {
-          scheduler.removeEvent(session, name);
-        } catch (Exception ignored) {
-          // best-effort cleanup
-        }
-      }
-    }
+    SchedulerTestFixtures.removeAllRegisteredEvents(session);
   }
 
   // ---------------------------------------------------------------------------
@@ -78,22 +72,55 @@ public class SchedulerSurfaceDeadCodeTest extends DbTestBase {
   // ---------------------------------------------------------------------------
 
   @Test
-  public void deprecatedCreateOnProxyIsIdempotentWhenScheduleClassAlreadyExists() {
-    // SchedulerImpl#create early-returns if the OSchedule class already exists in the schema —
-    // every database created via DbTestBase has it (SharedContext#create calls
-    // SchedulerImpl.create at db creation time). Calling proxy.create() should therefore not
-    // throw and should not disturb existing schema state.
-    var scheduler = session.getMetadata().getScheduler();
+  public void deprecatedCreateOnProxyDelegatesToSchedulerImplAndRecreatesScheduleClass() {
+    // The proxy's create() override calls SchedulerImpl.create(session). To pin that the
+    // delegation actually runs (and would catch a regression that turns the proxy method
+    // into a no-op), we drop the OSchedule class first so create()'s early-return guard
+    // (existsClass check) does NOT short-circuit. After the call, the schema must contain
+    // OSchedule again with the mandatory PROP_NAME property — configured by
+    // SchedulerImpl.create's body.
+    var schema = session.getMetadata().getSchema();
     assertTrue("OSchedule class must exist before the test starts (set up by SharedContext)",
-        session.getMetadata().getSchema().existsClass(ScheduledEvent.CLASS_NAME));
+        schema.existsClass(ScheduledEvent.CLASS_NAME));
 
+    // Schema mutations are not transactional in YouTrackDB; drop the class outside any
+    // active transaction to avoid the "Cannot change the schema while a transaction is
+    // active" guard.
+    schema.dropClass(ScheduledEvent.CLASS_NAME);
+    assertFalse("precondition: OSchedule class is gone before create() is called",
+        schema.existsClass(ScheduledEvent.CLASS_NAME));
+
+    var scheduler = session.getMetadata().getScheduler();
     @SuppressWarnings("deprecation")
     Runnable invoke = scheduler::create;
     invoke.run();
 
-    // Class still exists, no exception thrown.
-    assertTrue("OSchedule class must still exist after deprecated create() call",
-        session.getMetadata().getSchema().existsClass(ScheduledEvent.CLASS_NAME));
+    assertTrue("OSchedule class must be re-created by deprecated create()",
+        schema.existsClass(ScheduledEvent.CLASS_NAME));
+    var cls = schema.getClass(ScheduledEvent.CLASS_NAME);
+    assertNotNull("PROP_NAME property must be created by SchedulerImpl.create",
+        cls.getProperty(ScheduledEvent.PROP_NAME));
+  }
+
+  @Test
+  public void deprecatedCreateOnProxyIsNoOpWhenScheduleClassAlreadyExists() {
+    // Symmetric pin: the early-return path of SchedulerImpl.create is the most common
+    // execution path on a healthy database. Confirm that calling create() when OSchedule
+    // already exists is a no-op — no exception, and the class continues to expose the
+    // mandatory PROP_NAME property without a duplicate creation attempt corrupting it.
+    var schema = session.getMetadata().getSchema();
+    assertTrue("OSchedule class must exist before the test starts",
+        schema.existsClass(ScheduledEvent.CLASS_NAME));
+
+    var scheduler = session.getMetadata().getScheduler();
+    @SuppressWarnings("deprecation")
+    Runnable invoke = scheduler::create;
+    invoke.run();
+
+    assertTrue("OSchedule class must still exist after the early-return create() call",
+        schema.existsClass(ScheduledEvent.CLASS_NAME));
+    assertNotNull("PROP_NAME property must remain on the OSchedule class",
+        schema.getClass(ScheduledEvent.CLASS_NAME).getProperty(ScheduledEvent.PROP_NAME));
   }
 
   // ---------------------------------------------------------------------------
@@ -105,28 +132,30 @@ public class SchedulerSurfaceDeadCodeTest extends DbTestBase {
     // The SchedulerProxy#close override is a no-op (the comment in the source explicitly says
     // "DO NOTHING THE DELEGATE CLOSE IS MANAGED IN A DIFFERENT CONTEXT"). After registering
     // an event and calling proxy.close(), the event must still be retrievable via the proxy's
-    // live getEvent / getEvents calls — proving the underlying SchedulerImpl was not closed.
-    var function = createFunction(session, "deadCloseFn");
+    // live getEvent / getEvents calls — and the same ScheduledEvent instance, not a
+    // re-registered replacement — proving the underlying SchedulerImpl was not closed.
+    var function = SchedulerTestFixtures.createTrivialFunction(session, "fnDeadClose");
     session.executeInTx(transaction -> new ScheduledEventBuilder()
         .setName("evt-close")
-        .setRule("0 0 12 1 1 ? 2099")
+        .setRule(FAR_FUTURE_RULE)
         .setFunction(function)
         .setArguments(new HashMap<>())
         .build(session));
 
     var scheduler = session.getMetadata().getScheduler();
-    assertNotNull("event must be registered after save (auto-schedule hook)",
-        scheduler.getEvent("evt-close"));
+    var before = scheduler.getEvent("evt-close");
+    assertNotNull("event must be registered after save (auto-schedule hook)", before);
 
     @SuppressWarnings("deprecation")
     Runnable invoke = scheduler::close;
     invoke.run();
 
-    // Event registry must be untouched — close() on the proxy is the no-op it claims to be.
-    assertNotNull("deprecated proxy close() must not unregister events",
-        scheduler.getEvent("evt-close"));
-    assertEquals("the registered event remains the only entry",
-        1, scheduler.getEvents().size());
+    var after = scheduler.getEvent("evt-close");
+    assertNotNull("deprecated proxy close() must not unregister events", after);
+    assertSame("close() must not replace the registered ScheduledEvent instance",
+        before, after);
+    assertTrue("registry must contain the registered event by name",
+        scheduler.getEvents().containsKey("evt-close"));
   }
 
   // ---------------------------------------------------------------------------
@@ -134,52 +163,69 @@ public class SchedulerSurfaceDeadCodeTest extends DbTestBase {
   // ---------------------------------------------------------------------------
 
   @Test
-  public void deprecatedLoadOnProxyReregistersEventsFromTheDatabaseIntoSchedulerImpl() {
+  public void deprecatedLoadOnProxyRebuildsRegistryFromPersistedScheduleRows() {
     // SchedulerProxy#load delegates to SchedulerImpl#load(session) which scans every
     // OSchedule row, constructs a fresh ScheduledEvent from the entity, and re-registers
-    // it via scheduleEvent. Pin that re-registration is observable: after we forcibly
-    // remove an event from the in-memory registry (via removeEventInternal-style behavior
-    // through the proxy), calling load() must bring it back if the underlying entity
-    // still exists in the database.
-    //
-    // We exercise this by: (1) creating a saved event so the OSchedule entity exists,
-    // (2) calling load(), and (3) asserting the event is registered. This pins the load
-    // path even when no auto-schedule hook fired because the database already had the row.
-    var function = createFunction(session, "deadLoadFn");
+    // it via scheduleEvent. Pin the actual re-registration: forcibly clear the in-memory
+    // registry (without deleting the DB row), then invoke load() and confirm the event
+    // re-appears. This exercises the load-from-DB-into-empty-registry path that the
+    // putIfAbsent guard in scheduleEvent would otherwise short-circuit if the registry
+    // were left intact from the auto-schedule hook.
+    var function = SchedulerTestFixtures.createTrivialFunction(session, "fnDeadLoad");
     session.executeInTx(transaction -> new ScheduledEventBuilder()
         .setName("evt-load")
-        .setRule("0 0 12 1 1 ? 2099")
+        .setRule(FAR_FUTURE_RULE)
         .setFunction(function)
         .setArguments(new HashMap<>())
         .build(session));
 
     var scheduler = session.getMetadata().getScheduler();
-    // Sanity check: event was registered by the auto-schedule hook.
-    assertNotNull(scheduler.getEvent("evt-load"));
+    var impl = session.getSharedContext().getScheduler();
+    // Drop the in-memory registration WITHOUT deleting the OSchedule entity (the DB row
+    // remains for load() to discover). removeEventInternal also calls event.interrupt(),
+    // which cancels the timer queued by the auto-schedule hook.
+    var dropped = impl.removeEventInternal("evt-load");
+    assertNotNull("event must have been registered before drop", dropped);
+    assertNull("registry must be empty after removeEventInternal",
+        scheduler.getEvent("evt-load"));
 
     @SuppressWarnings("deprecation")
     Runnable invoke = scheduler::load;
     invoke.run();
 
-    // After load(), the event remains registered (load is idempotent — putIfAbsent guards in
-    // SchedulerImpl#scheduleEvent prevent duplicate registration).
+    // Pin: load() reads the OSchedule row from the DB and repopulates the registry.
+    var reloaded = scheduler.getEvent("evt-load");
     assertNotNull("deprecated proxy load() must re-register events from the database",
-        scheduler.getEvent("evt-load"));
+        reloaded);
+    assertEquals("evt-load", reloaded.getName());
   }
 
-  // ---------------------------------------------------------------------------
-  // Helpers
-  // ---------------------------------------------------------------------------
+  @Test
+  public void deprecatedLoadOnProxyIsIdempotentWhenEventIsAlreadyRegistered() {
+    // The putIfAbsent guard in SchedulerImpl#scheduleEvent prevents load() from creating a
+    // duplicate registration when the event is already in the registry (e.g., from the
+    // auto-schedule hook fired during the original save). Pin idempotence: calling load()
+    // a second time over an already-populated registry must not change identity or count.
+    var function = SchedulerTestFixtures.createTrivialFunction(session, "fnDeadLoadIdem");
+    session.executeInTx(transaction -> new ScheduledEventBuilder()
+        .setName("evt-load-idem")
+        .setRule(FAR_FUTURE_RULE)
+        .setFunction(function)
+        .setArguments(new HashMap<>())
+        .build(session));
 
-  private static Function createFunction(
-      com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session,
-      String name) {
-    return session.computeInTx(transaction -> {
-      var func = session.getMetadata().getFunctionLibrary().createFunction(name);
-      func.setLanguage("SQL");
-      func.setCode("select 1");
-      func.save(session);
-      return func;
-    });
+    var scheduler = session.getMetadata().getScheduler();
+    var before = scheduler.getEvent("evt-load-idem");
+    assertNotNull(before);
+    int sizeBefore = scheduler.getEvents().size();
+
+    @SuppressWarnings("deprecation")
+    Runnable invoke = scheduler::load;
+    invoke.run();
+
+    assertSame("idempotent load must not replace the existing registration",
+        before, scheduler.getEvent("evt-load-idem"));
+    assertEquals("idempotent load must not duplicate the registry entry",
+        sizeBefore, scheduler.getEvents().size());
   }
 }
