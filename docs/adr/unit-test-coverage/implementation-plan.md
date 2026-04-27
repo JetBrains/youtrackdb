@@ -898,23 +898,78 @@ flowchart TD
   > `@After rollbackIfLeftOpen`, polyglot-state hygiene, dead-code pin
   > pattern) continue to apply.
 
-- [ ] Track 10: Query & Fetch
+- [x] Track 10: Query & Fetch
   > Write tests for query infrastructure and fetch plan execution.
   >
-  > Target packages:
-  > - `core/query` (237 uncov, 38.8%) — query helpers (QueryHelper.like,
-  >   BasicResultSet, ExecutionPlan)
-  > - `core/query/live` (272 uncov, 13.4%) — live query infrastructure
-  >   (LiveQueryQueueThread, LiveQueryListener)
-  > - `core/fetch` (248 uncov, 46.6%) — fetch plan execution
+  > **Track episode:**
+  > Added ~4,800 LOC of test code across 12 new/extended files + 1
+  > baseline doc covering `core/query`, `core/query/live`, `core/fetch`,
+  > `core/fetch/remote`, and the `sql/fetch` callable surface. Purely
+  > test-additive: zero production code modified. Track 10 confirmed
+  > that **live-query and fetch subsystems are substantially dead code**
+  > — cross-module grep found 0 callers in `server/`, `driver/`,
+  > `embedded/`, `gremlin-annotations/`, `tests/` modules for
+  > `FetchHelper`, `FetchPlan`, `FetchContext`, `FetchListener`, and the
+  > entire `core/query/live/` public-static surface (the only live
+  > surface is `LiveQueryHookV2.unboxRidbags`, called from
+  > `CopyRecordContentBeforeUpdateStep.java:52`). This mirrors Track 9's
+  > `CommandExecutorScript` situation and was reframed (per Phase A
+  > iter-1) as dead-code pinning via `LiveQueryDeadCodeTest` /
+  > `FetchHelperDeadCodeTest` + `// WHEN-FIXED: Track 22` markers —
+  > rather than trying to drive live paths that no production code
+  > reaches. Step 1 covered query defaults with a Turkish-locale
+  > lowercasing pin driven by input characters (U+0130) to avoid a
+  > `Locale.setDefault` race with surefire's `<parallel>classes</parallel>`
+  > config. `DepthFetchPlanTest` was modernized to `TestUtilsFixture` +
+  > `executeInTx` callbacks.
   >
-  > QueryHelper.like() is a pure function — excellent quick win. Live
-  > query tests need threading. Fetch plan tests need a database session
-  > with linked records to verify depth-based loading.
+  > Production bugs / known issues pinned for Track 22:
+  > `LiveQueryHookV2.calculateProjections` always-returns-empty-or-null
+  > (the consequence is that `calculateBefore`/`calculateAfter` load ALL
+  > properties regardless of subscriber projection filters); V1 `break`
+  > vs V2 `continue` divergent `InterruptedException` handling;
+  > `ExecutionStep.java:41` duplicate `getSubSteps()` call whose return
+  > value is discarded. Plus six deletion items absorbed: entire
+  > `core/query/live/` package, three orphan listener interfaces in
+  > `core/query/`, entire `core/fetch/` package, `DepthFetchPlanTest`
+  > style modernization consistency, and `ExecutionStep.java:41`
+  > duplicate-call cleanup.
   >
-  > **Scope:** ~4 steps covering query helpers, live query, fetch plans,
-  > and verification
-  > **Depends on:** Track 1
+  > Track-level code review ran 2 iterations (6 dimensions
+  > CQ/BC/TB/TC/TS/TX). Iter-1: 0 blockers / 20 should-fix / ~40
+  > suggestions; 13 should-fix fixes applied across `a8c918b74b`
+  > (live-query falsifiability + fixture hygiene) and `adc9ce95bb`
+  > (fetch/query completeness). Iter-2 gate check PASSED on all 6
+  > dimensions with all 13 iter-1 fixes VERIFIED; 3 recommended-tier
+  > findings fixed in `3488e0db2e` (whitespace-pin name correction
+  > `Accepts→Rejects`, symmetric `getDepthLevel(null, 0)` NPE pin,
+  > rename vacuous `…OnClosedSessionIsNoOp→…DoesNotThrow` and drop the
+  > vacuous `pendingOps.size()` preservation assertion). Zero open
+  > blockers / zero open should-fix at track end. ~25 suggestion-grade
+  > items deferred — several fold into Track 22's DRY sweep.
+  >
+  > Test count: 273 tests across the 12 new/extended classes, all
+  > passing. Spotless clean. Coverage gate: 100.0% line / 100.0% branch
+  > on changed production lines (trivially, since Track 10 is purely
+  > test-additive).
+  >
+  > No plan corrections to Tracks 11–21. Track 22's queue expanded by
+  > ~6 deletion items + ~2 production-fix markers + ~10 DRY/cleanup
+  > items, all cataloged in the Track 22 section of this plan (entries
+  > already landed in prior commits).
+  >
+  > **Step file:** `tracks/track-10.md` (4 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact on Tracks 11–21.
+  > All Track 10 discoveries (live-query / fetch dead-code reframe, V1/V2
+  > `InterruptedException` divergence, `LiveQueryHookV2.calculateProjections`
+  > always-empty bug, `ExecutionStep.java:41` duplicate `getSubSteps()`,
+  > `DepthFetchPlanTest` modernization) are already cataloged in the
+  > Track 22 section of this plan. Test-infrastructure precedents
+  > (`TestUtilsFixture` + `executeInTx` callbacks, `@After
+  > rollbackIfLeftOpen`, `@Category(SequentialTest)` for global-state
+  > mutations, dead-code pinning via `*DeadCodeTest` + WHEN-FIXED markers)
+  > continue to apply.
 
 - [ ] Track 11: Scheduler
   > Write tests for the task scheduler subsystem.
@@ -1405,12 +1460,85 @@ flowchart TD
   >   migrate from top-level `session.begin()`/`session.commit()` to
   >   `session.executeInTx(...)` callback idiom for consistency with
   >   Track 6–9 test style; fold into Track 22's DRY/cleanup queue.
+  > - **From Track 11 (Scheduler) Phase A reviews + Phase B step
+  >   episodes:** Deletions, production-bug WHEN-FIXED markers, and
+  >   refinements queued for Track 22, all pinned via `*DeadCodeTest`
+  >   classes and `// WHEN-FIXED:` test markers in
+  >   `core/src/test/java/.../schedule/`:
+  >   (a) **`CronExpression` secondary-surface dead-code deletions**
+  >   (pinned in `CronExpressionDeadCodeTest`): `getTimeBefore` (TODO
+  >   stub returns null), `getFinalFireTime` (TODO stub returns null),
+  >   `clone()` and the copy-constructor, `isSatisfiedBy`,
+  >   `getNextInvalidTimeAfter`, `getExpressionSummary`, **and the lazy
+  >   `TimeZone.getDefault()` fallback inside `getTimeZone()` only**
+  >   (refined from the original "`setTimeZone(non-UTC)` lazy fallback"
+  >   description — the public `setTimeZone(TimeZone)` setter is the
+  >   live shape used by both new tests and any production caller and
+  >   stays; only the implicit no-zone fallback is dead). Cross-module
+  >   grep should confirm zero callers before deletion.
+  >   (b) **Deprecated `Scheduler` interface methods** (pinned in
+  >   `SchedulerSurfaceDeadCodeTest`): `Scheduler.load`, `Scheduler.close`,
+  >   `Scheduler.create` (all `@Deprecated`) and their three
+  >   `SchedulerProxy` overrides — only the live `scheduleEvent` /
+  >   `removeEvent` / `getEvent` / `getEvents` are routed through
+  >   `DatabaseSessionEmbedded` hooks.
+  >   (c) **`ScheduledEvent` ctor silent `ParseException`** (T4 — pinned
+  >   as falsifiable regression in `ScheduledEventTest`): the
+  >   `new ScheduledEvent(EntityImpl)` constructor catches `ParseException`
+  >   and leaves `private CronExpression cron == null`; the next
+  >   `schedule()` NPEs at the cron usage site. Track 22 should rethrow
+  >   or surface the parse failure (consider also making the field
+  >   `volatile` or assigning it under `timerLock` to close the
+  >   non-`final`/non-`volatile` publication gap discovered during Step
+  >   2 review).
+  >   (d) **`ScheduledEvent.executeEventFunction` retry-loop bug** (T5 —
+  >   structurally pinned with rationale in the test class Javadoc):
+  >   the 10× retry loop runs unconditionally — there is no `break` on
+  >   success, and `catch NeedRetryException` is **inside** the inner
+  >   lambda so it never reaches the surrounding loop. The user-supplied
+  >   function is invoked once per cron firing (inside `computeInTx`),
+  >   but `event.save(session)` runs 10 times unconditionally in the
+  >   surrounding finally-block loop. Pinning the buggy "10 saves"
+  >   shape from outside the class requires either reflection on the
+  >   private inner-class method `ScheduledTimerTask#executeEventFunction`
+  >   or a custom `ScheduledEvent` subclass overriding `save` — both
+  >   coupled to the internal API. **Treat as a single coupled cleanup
+  >   in Track 22**: fix the loop break + relocate the
+  >   `NeedRetryException`/`RecordNotFoundException` catch to the
+  >   surrounding loop, and replace the falsifiable observable then
+  >   (e.g., per-call invocation counter on a `RecordingFunction`).
+  >   (e) **`CronExpression` parser leniency** (latent — Step 1
+  >   discovery): the day-of-month field silently drops trailing
+  >   garbage characters (e.g., `"0 0 12 5X * ?"` parses without throwing
+  >   and the `X` is ignored). Cross-module grep should confirm no
+  >   in-repo cron strings exploit this; if any do, fix them before
+  >   tightening the parser.
+  >   (f) **`ScheduledEvent.cron` field unsafe publication** (Step 2
+  >   discovery, paired with T4 above): the field is non-`final` and
+  >   non-`volatile` while the read site in `ScheduledTimerTask.schedule()`
+  >   takes `timerLock`. Bundle the publication fix with the silent-
+  >   `ParseException` fix in (c).
+  >   (g) **R6-acceptance residuals** (test-completeness gaps documented
+  >   in `SchedulerImplTest` Javadoc, not bug pins): two log-and-swallow
+  >   `catch (Exception)` branches in `SchedulerImpl` need
+  >   persistence-failure injection at integration scope; the
+  >   interrupt-during-run race lives inside the `ScheduledTimerTask`
+  >   private inner class and is exercised indirectly by `SchedulerTest`'s
+  >   second-level cron firings. No Track 22 deletion item — these
+  >   acceptances are recorded in the Phase B episode and the test
+  >   class Javadoc as out-of-scope-by-design.
+  >   No Track 11-specific DRY items: the Track 8 `TestUtilsFixture`
+  >   hoist already covers the schedule package's `@After
+  >   rollbackIfLeftOpen` use; the `SchedulerTestFixtures`
+  >   package-private helper consolidates the schedule-domain
+  >   builders/cleanup within the package and does not need promotion
+  >   to `test-commons`.
   >
   > **Scope:** ~6 steps covering transaction management, Gremlin
   > integration, engine lifecycle, exception/compression/config, remaining
   > small packages, and verification; plus ~2-3 steps absorbing the
   > inherited DRY / cleanup scope above (Track 7 + Track 8 + Track 9 +
-  > Track 10 combined)
+  > Track 10 + Track 11 combined)
   > **Depends on:** Track 1
 
 ## Final Artifacts
