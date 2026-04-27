@@ -93,15 +93,12 @@ import org.junit.experimental.categories.Category;
 public class ScheduledEventTest extends DbTestBase {
 
   /**
-   * Far-future cron rule. The expression parses as a single firing at noon on
-   * 1 January 2099 — every call to {@code getNextValidTimeAfter(now)} during the test
-   * window returns that same timestamp, so the queued timer waits for a moment that does
-   * not arrive before the surefire JVM exits. Each {@link ScheduledEvent#schedule} call
-   * therefore queues a single far-future task into the JVM-wide scheduled pool, all of
-   * which are cancelled by explicit {@link ScheduledEvent#interrupt()} calls in the test
-   * body or by the {@code @After} cleanup.
+   * Far-future cron rule mirror — see {@link SchedulerTestFixtures#FAR_FUTURE_RULE} for the
+   * canonical definition and rationale (single firing at noon on 1 January 2099, queued
+   * task never fires during the surefire JVM window). Re-bound here as a shorthand
+   * because this class references the constant inside dozens of tests.
    */
-  private static final String FAR_FUTURE_RULE = "0 0 12 1 1 ? 2099";
+  private static final String FAR_FUTURE_RULE = SchedulerTestFixtures.FAR_FUTURE_RULE;
 
   @After
   public void interruptDanglingEvents() {
@@ -435,11 +432,6 @@ public class ScheduledEventTest extends DbTestBase {
    */
   private ScheduledEvent buildEvent(String name, String rule, Function function,
       Map<Object, Object> args) {
-    return session.computeInTx(transaction -> new ScheduledEventBuilder()
-        .setName(name)
-        .setRule(rule)
-        .setFunction(function)
-        .setArguments(args == null ? new HashMap<>() : new HashMap<>(args))
-        .build(session));
+    return SchedulerTestFixtures.buildEvent(session, name, rule, function, args);
   }
 }
