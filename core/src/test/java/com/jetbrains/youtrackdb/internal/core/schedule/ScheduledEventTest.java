@@ -17,12 +17,13 @@
 package com.jetbrains.youtrackdb.internal.core.schedule;
 
 import static com.jetbrains.youtrackdb.internal.core.schedule.ScheduledEvent.PROP_ARGUMENTS;
+import static com.jetbrains.youtrackdb.internal.core.schedule.ScheduledEvent.PROP_EXEC_ID;
 import static com.jetbrains.youtrackdb.internal.core.schedule.ScheduledEvent.PROP_FUNC;
 import static com.jetbrains.youtrackdb.internal.core.schedule.ScheduledEvent.PROP_NAME;
 import static com.jetbrains.youtrackdb.internal.core.schedule.ScheduledEvent.PROP_RULE;
+import static com.jetbrains.youtrackdb.internal.core.schedule.ScheduledEvent.PROP_STARTTIME;
 import static com.jetbrains.youtrackdb.internal.core.schedule.ScheduledEvent.PROP_STATUS;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -35,8 +36,8 @@ import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.schedule.Scheduler.STATUS;
 import java.lang.reflect.Field;
+import java.util.Date;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import org.junit.After;
 import org.junit.Test;
@@ -66,39 +67,50 @@ import org.junit.experimental.categories.Category;
  * without inviting an after-commit hook NPE that would also leave a half-constructed event
  * in the {@link SchedulerImpl} registry) and the {@code unsavedEvent} guard (so we can
  * reach the {@code !isPersistent()} branch of {@link ScheduledEvent#schedule}).
+ *
+ * <p><b>Dual-instance invariant.</b> The after-commit {@code scheduleEvent} hook
+ * (DatabaseSessionEmbedded#afterCommitOperations) constructs a <em>separate</em>
+ * {@link ScheduledEvent} instance over the same persistent entity and registers it under
+ * {@link SchedulerImpl}. The instance returned by {@link #buildEvent} has its own
+ * {@code nextExecutionId} starting at zero and its own {@code timer} field. Tests that
+ * operate on the builder-returned instance therefore need both per-instance
+ * {@code interrupt()} calls (handled inside the test body) <em>and</em> the
+ * {@code @After} {@code removeEvent} cleanup (which interrupts the registered instance).
+ *
+ * <p><b>Retry-loop pin deferral.</b> A "retry loop runs 10 times unconditionally" pin
+ * was considered for this class but deferred. The actual observable is the 10× run of
+ * {@code event.save(session)} inside the private {@code ScheduledTimerTask#executeEventFunction}
+ * — the user-supplied function itself runs once per cron firing, only the save loop is
+ * unconditional (no {@code break} on success, and {@code catch NeedRetryException} is
+ * mis-scoped inside the lambda so it cannot reach the surrounding loop). Pinning the
+ * save count from outside the class requires either reflective access to that private
+ * inner-class method or a custom {@code ScheduledEvent} subclass that overrides
+ * {@code save}; both options are deferred to the final-sweep cleanup that fixes the
+ * underlying bug, since pinning the buggy behavior here would either under-pin (passes
+ * after fix without flipping) or over-pin (test code must change shape at fix time).
  */
 @Category(SequentialTest.class)
 public class ScheduledEventTest extends DbTestBase {
 
   /**
-   * Far-future cron rule. The expression parses as a single firing time at noon on
-   * 1 January 2099 — the corresponding scheduled timer therefore never fires within the
-   * test JVM's lifetime, which keeps the JVM-wide scheduled pool quiet under
-   * {@link SequentialTest}. (The cron's year-list parser exhausts after one match;
-   * subsequent {@code getNextValidTimeAfter} calls return {@code null}, but that path is
-   * not exercised here — every test cancels its timer via {@link ScheduledEvent#interrupt}
-   * before the rule's only firing time is reached.)
+   * Far-future cron rule. The expression parses as a single firing at noon on
+   * 1 January 2099 — every call to {@code getNextValidTimeAfter(now)} during the test
+   * window returns that same timestamp, so the queued timer waits for a moment that does
+   * not arrive before the surefire JVM exits. Each {@link ScheduledEvent#schedule} call
+   * therefore queues a single far-future task into the JVM-wide scheduled pool, all of
+   * which are cancelled by explicit {@link ScheduledEvent#interrupt()} calls in the test
+   * body or by the {@code @After} cleanup.
    */
   private static final String FAR_FUTURE_RULE = "0 0 12 1 1 ? 2099";
 
   @After
   public void interruptDanglingEvents() {
-    // Defense-in-depth: if a test left an event registered in SchedulerImpl, drop it via the
-    // public API before DbTestBase#afterTest tears down the database. SchedulerImpl#close
+    // Defense-in-depth: if a test left an event registered in SchedulerImpl, drop it via
+    // the public API before DbTestBase#afterTest tears down the database. SchedulerImpl#close
     // (called via SharedContext#close in YouTrackDB#close) already cancels all registered
     // events, but doing it here keeps test output focused on the test under inspection
     // rather than the close-time cancellation cascade.
-    if (session != null && !session.isClosed()) {
-      var scheduler = session.getMetadata().getScheduler();
-      var eventNames = List.copyOf(scheduler.getEvents().keySet());
-      for (var name : eventNames) {
-        try {
-          scheduler.removeEvent(session, name);
-        } catch (Exception ignored) {
-          // Event entity may already be deleted (e.g., as part of the test); ignore.
-        }
-      }
-    }
+    SchedulerTestFixtures.removeAllRegisteredEvents(session);
   }
 
   // ---------------------------------------------------------------------------
@@ -107,7 +119,7 @@ public class ScheduledEventTest extends DbTestBase {
 
   @Test
   public void buildPersistsAllPropertiesAndAfterReloadEntityKeepsName() {
-    var function = createFunction(session, "logEvent1");
+    var function = SchedulerTestFixtures.createTrivialFunction(session, "fnRoundTripName");
     var event = buildEvent("evt-name", FAR_FUTURE_RULE, function, Map.of("note", "hello"));
     assertNotNull("builder must return a non-null ScheduledEvent", event);
     assertTrue("ScheduledEvent must have a persistent RID after the surrounding tx commit",
@@ -122,7 +134,7 @@ public class ScheduledEventTest extends DbTestBase {
 
   @Test
   public void reloadedEntityKeepsRuleAndArgumentsAndFunctionLink() {
-    var function = createFunction(session, "logEvent2");
+    var function = SchedulerTestFixtures.createTrivialFunction(session, "fnRoundTripPayload");
     var args = new HashMap<Object, Object>();
     args.put("note", "hi");
     args.put("count", 42);
@@ -132,15 +144,46 @@ public class ScheduledEventTest extends DbTestBase {
       var reloaded = (EntityImpl) session.loadEntity(event.getIdentity());
       assertEquals(FAR_FUTURE_RULE, reloaded.getProperty(PROP_RULE));
       Map<String, Object> reloadedArgs = reloaded.getProperty(PROP_ARGUMENTS);
+      assertEquals("args map round-trips with exactly the two written entries",
+          2, reloadedArgs.size());
       assertEquals("hi", reloadedArgs.get("note"));
       assertEquals(42, ((Number) reloadedArgs.get("count")).intValue());
       // The function link is stored as the function's RID (see ScheduledEvent#toEntity);
-      // reloaded entity exposes it via getProperty as a link. Pin that the link round-trips
-      // (non-null reference back to the saved function record).
+      // pin RID equality so a future change that captures a different identity is loud.
       Object funcLink = reloaded.getProperty(PROP_FUNC);
-      assertNotNull("function link must round-trip", funcLink);
+      assertEquals("function link must point back to the saved function's RID",
+          function.getIdentity(), funcLink);
       return null;
     });
+  }
+
+  @Test
+  public void explicitSaveRoundTripsStartTimeAsEpochByDefaultThroughToEntity() {
+    // ScheduledEvent#startTime is a primitive long defaulting to 0L; only ScheduledEvent's
+    // toEntity (invoked from IdentityWrapper#save) writes it as PROP_STARTTIME (DATETIME).
+    // The build() path does not call toEntity — only the builder's own properties map is
+    // copied via updateFromMap, so a freshly-built-but-never-saved event has no
+    // PROP_STARTTIME on its entity. Pin that an explicit event.save(session) call does
+    // populate the property, and that the default round-trips as a non-null Date at epoch
+    // — a future change to the field's type or default would surface here.
+    var function = SchedulerTestFixtures.createTrivialFunction(session, "fnStartTime");
+    var event = buildEvent("evt-st", FAR_FUTURE_RULE, function, Map.of());
+
+    // Without an explicit save, PROP_STARTTIME is absent.
+    Object beforeSave =
+        session.computeInTx(transaction -> ((EntityImpl) session.loadEntity(event.getIdentity()))
+            .getProperty(PROP_STARTTIME));
+    assertNull("build() does not invoke toEntity, so PROP_STARTTIME stays unset", beforeSave);
+
+    // Explicit save() drives toEntity, which writes PROP_STARTTIME from the long field.
+    session.executeInTx(transaction -> event.save(session));
+
+    Object afterSave =
+        session.computeInTx(transaction -> ((EntityImpl) session.loadEntity(event.getIdentity()))
+            .getProperty(PROP_STARTTIME));
+    assertNotNull("PROP_STARTTIME must round-trip after explicit event.save()", afterSave);
+    assertEquals("default startTime persists as the epoch timestamp",
+        0L, ((Date) afterSave).getTime());
   }
 
   @Test
@@ -148,7 +191,7 @@ public class ScheduledEventTest extends DbTestBase {
     // The DatabaseSessionEmbedded#beforeCreateOperations hook calls
     // SchedulerImpl#initScheduleRecord which sets PROP_STATUS to STATUS.STOPPED.name() before
     // commit. Verify the persisted status string matches the enum value.
-    var function = createFunction(session, "logEvent3");
+    var function = SchedulerTestFixtures.createTrivialFunction(session, "fnInitStatus");
     var event = buildEvent("evt-status", FAR_FUTURE_RULE, function, Map.of());
 
     Object status =
@@ -156,6 +199,66 @@ public class ScheduledEventTest extends DbTestBase {
             .getProperty(PROP_STATUS));
     // The hook stores the .name() string of the enum.
     assertEquals(STATUS.STOPPED.name(), status);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Constructor — null-fallback branches over PROP_ARGUMENTS / PROP_EXEC_ID
+  // ---------------------------------------------------------------------------
+
+  @Test
+  public void constructorFallsBackToEmptyArgumentsMapWhenEntityHasNoArgumentsProperty() {
+    // ScheduledEvent's constructor coalesces a missing PROP_ARGUMENTS via
+    // Objects.requireNonNullElse(args, Collections.emptyMap()) so that getArguments()
+    // never returns null. Pin the fallback so a future refactor that drops the coalesce
+    // (and would NPE in executeEventFunction's getArguments() call) is caught here.
+    var function = SchedulerTestFixtures.createTrivialFunction(session, "fnNullArgs");
+
+    session.begin();
+    ScheduledEvent event;
+    try {
+      EntityImpl entity = (EntityImpl) session.newEntity(ScheduledEvent.CLASS_NAME);
+      entity.setProperty(PROP_NAME, "no-args");
+      entity.setProperty(PROP_RULE, FAR_FUTURE_RULE);
+      entity.setProperty(PROP_FUNC, function.getIdentity());
+      // Intentionally do NOT set PROP_ARGUMENTS.
+      event = new ScheduledEvent(entity, session);
+    } finally {
+      session.rollback();
+    }
+
+    assertNotNull("getArguments() must never return null", event.getArguments());
+    assertTrue("missing PROP_ARGUMENTS must yield an empty map",
+        event.getArguments().isEmpty());
+  }
+
+  @Test
+  public void constructorSeedsNextExecutionIdFromExistingExecIdPropertyWhenNonNull()
+      throws Exception {
+    // ScheduledEvent's constructor reads PROP_EXEC_ID and seeds nextExecutionId to that
+    // value (or 0 if absent). Pin the non-null branch so a reloaded event keeps its
+    // execution-history counter — a refactor that swaps the ternary or drops the seed
+    // would cause reloaded events to "forget" their prior id and re-run already-completed
+    // executions.
+    var function = SchedulerTestFixtures.createTrivialFunction(session, "fnSeedExecId");
+
+    session.begin();
+    ScheduledEvent event;
+    try {
+      EntityImpl entity = (EntityImpl) session.newEntity(ScheduledEvent.CLASS_NAME);
+      entity.setProperty(PROP_NAME, "seeded");
+      entity.setProperty(PROP_RULE, FAR_FUTURE_RULE);
+      entity.setProperty(PROP_FUNC, function.getIdentity());
+      entity.setProperty(PROP_EXEC_ID, 42L);
+      event = new ScheduledEvent(entity, session);
+    } finally {
+      session.rollback();
+    }
+
+    Field idField = ScheduledEvent.class.getDeclaredField("nextExecutionId");
+    idField.setAccessible(true);
+    var atomic = (java.util.concurrent.atomic.AtomicLong) idField.get(event);
+    assertEquals("nextExecutionId must seed from the entity's PROP_EXEC_ID",
+        42L, atomic.get());
   }
 
   // ---------------------------------------------------------------------------
@@ -202,12 +305,13 @@ public class ScheduledEventTest extends DbTestBase {
     // construct a ScheduledEvent and immediately call schedule() → NPE on the null cron) does
     // not fire. This isolates the pin to the constructor's swallow behavior.
     //
-    // WHEN-FIXED: this test will fail when the constructor either rethrows the ParseException
-    // (ideally as a runtime exception) or rejects the entity earlier in the save pipeline,
-    // turning the late NPE into an early, readable error.
-    var function = createFunction(session, "logEvent4");
+    // Note: the cron field is non-volatile and non-final; the reflective read here is sound
+    // only because it happens on the same thread that constructed the event. A complete fix
+    // for the silent-swallow bug should also close the publication gap by making cron
+    // volatile or assigning it under timerLock (matching the read site in ScheduledTimerTask).
+    var function = SchedulerTestFixtures.createTrivialFunction(session, "fnMalformedCron");
 
-    var tx = session.begin();
+    session.begin();
     ScheduledEvent event;
     try {
       EntityImpl entity = (EntityImpl) session.newEntity(ScheduledEvent.CLASS_NAME);
@@ -221,7 +325,7 @@ public class ScheduledEventTest extends DbTestBase {
     } finally {
       // Discard the entity: rollback prevents the OSchedule row from reaching commit, so the
       // after-commit auto-schedule hook does not fire on this transient row.
-      tx.rollback();
+      session.rollback();
     }
 
     // Pin the silent-swallow observable: the private cron field is null after construction.
@@ -229,6 +333,10 @@ public class ScheduledEventTest extends DbTestBase {
     cronField.setAccessible(true);
     assertNull("cron field must be null after silently-swallowed ParseException",
         cronField.get(event));
+    // Also pin that the rollback path did not register a half-constructed event in the
+    // SchedulerImpl registry — the auto-schedule hook's post-commit path was never reached.
+    assertNull("transient bad-cron event must not appear in the registry after rollback",
+        session.getMetadata().getScheduler().getEvent("bad-cron"));
   }
 
   // ---------------------------------------------------------------------------
@@ -244,9 +352,9 @@ public class ScheduledEventTest extends DbTestBase {
     // before ScheduledTimerTask#schedule reaches the JVM-wide pool — otherwise we would see
     // a NullPointerException from cron.getNextValidTimeAfter rather than the readable
     // DatabaseExportException.
-    var function = createFunction(session, "logEvent5");
+    var function = SchedulerTestFixtures.createTrivialFunction(session, "fnUnsavedGuard");
 
-    var tx = session.begin();
+    session.begin();
     ScheduledEvent event;
     try {
       EntityImpl entity = (EntityImpl) session.newEntity(ScheduledEvent.CLASS_NAME);
@@ -255,7 +363,7 @@ public class ScheduledEventTest extends DbTestBase {
       entity.setProperty(PROP_FUNC, function.getIdentity());
       event = new ScheduledEvent(entity, session);
     } finally {
-      tx.rollback();
+      session.rollback();
     }
 
     try {
@@ -283,8 +391,11 @@ public class ScheduledEventTest extends DbTestBase {
     // call interrupt() between schedule() calls — without interrupt, the prior timer
     // reference is lost (schedule overwrites event.timer unconditionally), so the prior
     // pool task remains queued for year 2099. interrupt() captures the current timer,
-    // nulls the field, and cancels the pool task.
-    var function = createFunction(session, "logEvent6");
+    // nulls the field, and cancels the pool task. Note that cancel(false) does not remove
+    // the cancelled task from the underlying ScheduledThreadPoolExecutor's delay queue
+    // (setRemoveOnCancelPolicy(true) is not configured), so a small bounded amount of
+    // cancelled-future heap survives until JVM shutdown — acceptable for SequentialTest.
+    var function = SchedulerTestFixtures.createTrivialFunction(session, "fnMonotonic");
     var event = buildEvent("evt-monotonic", FAR_FUTURE_RULE, function, Map.of());
 
     Field idField = ScheduledEvent.class.getDeclaredField("nextExecutionId");
@@ -304,19 +415,24 @@ public class ScheduledEventTest extends DbTestBase {
     long afterThird = atomic.get();
     event.interrupt();
 
+    // The +1/+2/+3 form pins both the increment magnitude (1) and strict monotonicity —
+    // a regression that increments by 2 per call would fail the first assertion.
     assertEquals("first schedule increments by 1", initial + 1, afterFirst);
-    assertEquals("second schedule increments by 1", initial + 2, afterSecond);
-    assertEquals("third schedule increments by 1", initial + 3, afterThird);
-    // Strictness — each successive ID is greater than the previous.
-    assertNotEquals(afterFirst, afterSecond);
-    assertNotEquals(afterSecond, afterThird);
-    assertTrue(afterFirst < afterSecond && afterSecond < afterThird);
+    assertEquals("second schedule increments by 1 more", initial + 2, afterSecond);
+    assertEquals("third schedule increments by 1 more", initial + 3, afterThird);
   }
 
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
 
+  /**
+   * Builds and saves a ScheduledEvent through the production fluent path inside a single
+   * transaction so the {@code initScheduleRecord} and after-commit {@code scheduleEvent}
+   * hooks fire. The args map is defensively copied because the builder stores it by
+   * reference (see {@link ScheduledEventBuilderTest}); copying here keeps each test's
+   * args independent of the literal {@code Map.of(...)} view passed in.
+   */
   private ScheduledEvent buildEvent(String name, String rule, Function function,
       Map<Object, Object> args) {
     return session.computeInTx(transaction -> new ScheduledEventBuilder()
@@ -325,17 +441,5 @@ public class ScheduledEventTest extends DbTestBase {
         .setFunction(function)
         .setArguments(args == null ? new HashMap<>() : new HashMap<>(args))
         .build(session));
-  }
-
-  private static Function createFunction(
-      com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session,
-      String name) {
-    return session.computeInTx(transaction -> {
-      var func = session.getMetadata().getFunctionLibrary().createFunction(name);
-      func.setLanguage("SQL");
-      func.setCode("select 1");
-      func.save(session);
-      return func;
-    });
   }
 }

@@ -45,7 +45,7 @@ import org.junit.Test;
 public class ScheduledEventBuilderTest {
 
   @Test
-  public void defaultConstructorProducesEmptyHashMap() {
+  public void defaultConstructorProducesEmptyMap() {
     var b = new ScheduledEventBuilder();
     assertNotNull("properties map must be initialized", b.properties);
     assertTrue("freshly-built builder has no properties yet", b.properties.isEmpty());
