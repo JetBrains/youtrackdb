@@ -21,6 +21,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import java.text.ParseException;
@@ -48,9 +49,11 @@ import org.junit.Test;
  * confirmed): {@code getTimeBefore}, {@code getFinalFireTime}, {@code clone}, {@code
  * CronExpression(CronExpression)} copy constructor, {@code isSatisfiedBy}, {@code
  * getNextInvalidTimeAfter}, {@code getExpressionSummary}, and the lazy {@link
- * java.util.TimeZone#getDefault()} fallback inside {@link CronExpression#getTimeZone()} together
- * with the {@link CronExpression#setTimeZone(TimeZone)} setter (the live caller on {@code
- * getNextValidTimeAfter} should pass the storage time zone explicitly).
+ * java.util.TimeZone#getDefault()} fallback inside {@link CronExpression#getTimeZone()}. The
+ * {@link CronExpression#setTimeZone(TimeZone)} setter is exercised by the live test fixtures here
+ * and in {@link CronExpressionTest} to pin computations to UTC, so it stays — only the implicit
+ * {@code TimeZone.getDefault()} fallback path is dead and should be replaced by an explicit
+ * caller-supplied zone (or a constructor argument) when this class is deleted.
  */
 public class CronExpressionDeadCodeTest {
 
@@ -101,42 +104,55 @@ public class CronExpressionDeadCodeTest {
   // ---------------------------------------------------------------------------
 
   @Test
-  public void cloneReturnsADistinctInstanceWithIdenticalExpression() throws ParseException {
-    // clone() delegates to the copy constructor; pin both at once.
+  @SuppressWarnings("deprecation") // CronExpression#clone is part of the dead surface pinned here
+  public void cloneReturnsADistinctInstanceWithEquivalentBehavior() throws ParseException {
+    // clone() delegates to the copy constructor. Pin three observables: distinct
+    // identity, identical cron string, and behavioral equivalence (the next fire
+    // time matches), so that a refactor dropping buildExpression in the copy
+    // constructor is detected at this site rather than only via the firing-time
+    // test below.
     var c = cronUtc("0 0 12 ? * MON-FRI");
     var copy = (CronExpression) c.clone();
     assertNotSame(c, copy);
     assertEquals(c.getCronExpression(), copy.getCronExpression());
-  }
-
-  @Test
-  public void cloneCopiesTimeZoneSoFiringTimesMatch() throws ParseException {
-    // Setting an explicit non-default zone on the original must propagate to the
-    // clone — otherwise the clone's getTimeZone() would lazy-fallback to the JVM
-    // default and produce different fire times. This pins the TimeZone-clone branch
-    // inside the copy constructor.
-    var c = new CronExpression("0 0 12 * * ?");
-    c.setTimeZone(TimeZone.getTimeZone("America/New_York"));
-    var copy = (CronExpression) c.clone();
-    assertEquals(c.getTimeZone(), copy.getTimeZone());
     var origin = utc(2025, 1, 1, 0, 0, 0);
     assertEquals(c.getNextValidTimeAfter(origin), copy.getNextValidTimeAfter(origin));
   }
 
   @Test
-  public void copyConstructorPropagatesLazyInitializedTimeZoneToCopy() throws ParseException {
-    // The copy ctor reads the source via expression.getTimeZone() (the accessor),
-    // not the raw field — so even if the caller never called setTimeZone, the
-    // accessor lazy-initializes the source's field to TimeZone.getDefault() and
-    // returns it. The conditional `if (expression.getTimeZone() != null)` is
-    // therefore never false in practice, and the copy always inherits a non-null
-    // zone (the lazily-defaulted one). Pin both the cron-string copy and the
-    // non-null TZ propagation so a future refactor that changes the accessor's
-    // contract is detected.
+  @SuppressWarnings("deprecation") // CronExpression#clone is part of the dead surface pinned here
+  public void cloneCopiesTimeZoneSoFiringTimesMatchUnderNonDefaultZone() throws ParseException {
+    // Setting an explicit non-default zone on the original must propagate to the
+    // clone — otherwise the clone's getTimeZone() would lazy-fallback to the JVM
+    // default and produce different fire times. Pin via firing-time equality
+    // rather than TimeZone.equals: TimeZone.equals is subclass-defined (ZoneInfo
+    // / SimpleTimeZone) and brittle across JDK refactors, but firing-time equality
+    // is the actual contract callers depend on.
     var c = new CronExpression("0 0 12 * * ?");
-    var copy = new CronExpression(c);
-    assertEquals(c.getCronExpression(), copy.getCronExpression());
-    assertNotNull(copy.getTimeZone());
+    c.setTimeZone(TimeZone.getTimeZone("America/New_York"));
+    var copy = (CronExpression) c.clone();
+    assertEquals(
+        "TimeZone IDs must match so the clone reproduces the original's wall-clock fires",
+        c.getTimeZone().getID(),
+        copy.getTimeZone().getID());
+    var origin = utc(2025, 1, 1, 0, 0, 0);
+    assertEquals(c.getNextValidTimeAfter(origin), copy.getNextValidTimeAfter(origin));
+  }
+
+  @Test
+  public void cloneIsIndependentOfPostCloneMutationsToOriginalsTimeZone() throws ParseException {
+    // The copy constructor explicitly clones the source's TimeZone instance —
+    // pin the deep-copy contract by mutating the original AFTER the clone and
+    // verifying the clone is unaffected. A regression that swapped the
+    // explicit (TimeZone) expression.getTimeZone().clone() for a shared
+    // reference (`timeZone = expression.getTimeZone();`) would corrupt this
+    // contract silently.
+    var original = new CronExpression("0 0 12 * * ?");
+    original.setTimeZone(TimeZone.getTimeZone("America/New_York"));
+    @SuppressWarnings("deprecation")
+    var copy = (CronExpression) original.clone();
+    original.setTimeZone(TimeZone.getTimeZone("Asia/Tokyo"));
+    assertEquals("America/New_York", copy.getTimeZone().getID());
   }
 
   // ---------------------------------------------------------------------------
@@ -185,6 +201,21 @@ public class CronExpressionDeadCodeTest {
   }
 
   @Test
+  public void getNextInvalidTimeAfterAdvancesPastContiguousFireBlock() throws ParseException {
+    // Contract from the inner loop body: while consecutive fires are exactly 1
+    // second apart the loop walks forward, updating lastDate on each step. Pin
+    // the advance branch with a dense schedule whose fires are contiguous:
+    // "0-30 * * * * ?" fires every second of seconds 0..30 of every minute.
+    // From 12:00:00 the loop visits 12:00:01, 12:00:02, ... 12:00:30, then
+    // observes the next fire is 12:01:00 (gap > 1 second), exits, and returns
+    // lastDate (12:00:30) + 1 second = 12:00:31. A regression that dropped the
+    // `lastDate = newDate` assignment would return 12:00:01 instead of 12:00:31.
+    var c = cronUtc("0-30 * * * * ?");
+    var next = c.getNextInvalidTimeAfter(utc(2025, 1, 1, 12, 0, 0));
+    assertEquals(utc(2025, 1, 1, 12, 0, 31), next);
+  }
+
+  @Test
   public void getNextInvalidTimeAfterDiscardsSubSecondPrecisionOnInput() throws ParseException {
     // Milliseconds on the input Date are stripped before the +1s addition, so an
     // input of 12:00:00.500 yields 12:00:01.000 (not 12:00:01.500).
@@ -199,68 +230,54 @@ public class CronExpressionDeadCodeTest {
   // ---------------------------------------------------------------------------
 
   @Test
-  public void getExpressionSummaryRendersAllFieldLabels() throws ParseException {
-    // The summary is a fixed 10-line string keyed by field name. Pin the contract
-    // so renaming any internal field (or dropping a label) trips the test.
+  public void getExpressionSummaryRendersExactCanonicalForm() throws ParseException {
+    // The summary is a fixed 11-line string with a precise label/value layout.
+    // Pin full-string equality so a refactor that reorders lines, drops a
+    // separator, or rephrases a label trips the test loudly. Substring-only
+    // checks would let any of those mutations slip through.
     var c = cronUtc("0 0 12 1 1 ?");
-    var summary = c.getExpressionSummary();
-    assertTrue(summary.contains("seconds: "));
-    assertTrue(summary.contains("minutes: "));
-    assertTrue(summary.contains("hours: "));
-    assertTrue(summary.contains("daysOfMonth: "));
-    assertTrue(summary.contains("months: "));
-    assertTrue(summary.contains("daysOfWeek: "));
-    assertTrue(summary.contains("lastdayOfWeek: false"));
-    assertTrue(summary.contains("nearestWeekday: false"));
-    assertTrue(summary.contains("NthDayOfWeek: 0"));
-    assertTrue(summary.contains("lastdayOfMonth: false"));
-    assertTrue(summary.contains("years: "));
-  }
-
-  @Test
-  public void getExpressionSummaryEmitsQuestionMarkForNoSpecField() throws ParseException {
-    // The day-of-week field carries "?" → summary renders "?" verbatim, not
-    // the underlying NO_SPEC integer marker.
-    var c = cronUtc("0 0 12 1 1 ?");
-    var summary = c.getExpressionSummary();
-    assertTrue(
-        "daysOfWeek line must read '?'", summary.contains("daysOfWeek: ?"));
-  }
-
-  @Test
-  public void getExpressionSummaryEmitsStarForAllSpecField() throws ParseException {
-    // The seconds field is "*" → summary renders "*" rather than enumerating 0..59.
-    var c = cronUtc("* * * 1 1 ?");
-    var summary = c.getExpressionSummary();
-    assertTrue(
-        "seconds line must read '*'", summary.contains("seconds: *"));
+    var expected =
+        "seconds: 0\n"
+            + "minutes: 0\n"
+            + "hours: 12\n"
+            + "daysOfMonth: 1\n"
+            + "months: 1\n"
+            + "daysOfWeek: ?\n"
+            + "lastdayOfWeek: false\n"
+            + "nearestWeekday: false\n"
+            + "NthDayOfWeek: 0\n"
+            + "lastdayOfMonth: false\n"
+            + "years: *\n";
+    assertEquals(expected, c.getExpressionSummary());
   }
 
   @Test
   public void getExpressionSummaryEmitsCommaSeparatedListForExplicitValues()
       throws ParseException {
-    // "0,15,30,45" in seconds → summary lists those exact values comma-separated.
+    // Branch coverage: the comma-list path of getExpressionSetSummary fires only
+    // when the set lacks both NO_SPEC and ALL_SPEC. "0,15,30,45" hits that path
+    // with a deterministic enumeration order. Pin the exact resulting line.
     var c = cronUtc("0,15,30,45 * * * * ?");
     var summary = c.getExpressionSummary();
     assertTrue(
-        "seconds line must enumerate 0,15,30,45",
-        summary.contains("seconds: 0,15,30,45"));
+        "seconds line must enumerate 0,15,30,45 in ascending order: " + summary,
+        summary.contains("seconds: 0,15,30,45\n"));
   }
 
   @Test
-  public void getExpressionSummaryReflectsLastDayOfMonthFlag() throws ParseException {
-    // The "L" token in day-of-month sets lastdayOfMonth = true; pin the rendered flag.
-    var c = cronUtc("0 0 12 L * ?");
-    var summary = c.getExpressionSummary();
-    assertTrue(summary.contains("lastdayOfMonth: true"));
-  }
-
-  @Test
-  public void getExpressionSummaryReflectsNearestWeekdayFlag() throws ParseException {
-    // "15W" sets nearestWeekday = true.
-    var c = cronUtc("0 0 12 15W * ?");
-    var summary = c.getExpressionSummary();
-    assertTrue(summary.contains("nearestWeekday: true"));
+  public void getExpressionSummaryReflectsBooleanFlagsForLastDayAndNearestWeekday()
+      throws ParseException {
+    // Both boolean flags are normally false; "L" must flip lastdayOfMonth and
+    // "15W" must flip nearestWeekday. Pin both flips in one test to keep the
+    // dead-code surface compact.
+    var l = cronUtc("0 0 12 L * ?");
+    assertTrue(
+        "L token must set lastdayOfMonth flag",
+        l.getExpressionSummary().contains("lastdayOfMonth: true\n"));
+    var w = cronUtc("0 0 12 15W * ?");
+    assertTrue(
+        "W token must set nearestWeekday flag",
+        w.getExpressionSummary().contains("nearestWeekday: true\n"));
   }
 
   // ---------------------------------------------------------------------------
@@ -270,14 +287,19 @@ public class CronExpressionDeadCodeTest {
   @Test
   public void getTimeZoneLazilyFallsBackToJvmDefaultWhenUnset() throws ParseException {
     // The constructor leaves timeZone == null. The first call to getTimeZone()
-    // populates the field with TimeZone.getDefault() and returns it. Subsequent
-    // calls return the same instance — pin both via two consecutive accessors.
+    // must (a) populate the field with the JVM default zone, (b) return that exact
+    // instance on subsequent calls (i.e. memoize, not re-fetch). Pin both via
+    // assertSame on two consecutive accessors. assertEquals is too weak — two
+    // distinct TimeZone clones of the same zone compare equal but would let a
+    // refactor that drops the field caching slip through.
     var c = new CronExpression("0 0 12 * * ?");
     var first = c.getTimeZone();
     assertNotNull(first);
+    assertEquals(
+        "first call must populate the field with TimeZone.getDefault()",
+        TimeZone.getDefault(), first);
     var second = c.getTimeZone();
-    // Same reference — fallback writes the field once, then short-circuits.
-    assertEquals(first, second);
+    assertSame("subsequent calls must return the cached instance, not re-resolve", first, second);
   }
 
   @Test

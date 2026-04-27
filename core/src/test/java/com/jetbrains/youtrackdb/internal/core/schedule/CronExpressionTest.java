@@ -95,23 +95,34 @@ public class CronExpressionTest {
   }
 
   @Test
-  public void constructorParsesNamedDayOfWeek() throws ParseException {
-    new CronExpression("0 0 12 ? * MON");
+  public void namedDayOfWeekTokenBindsToCorrectWeekday() throws ParseException {
+    // "MON" must bind to Monday — pin the binding by firing, not just by parsing.
+    // 2025-01-05 is a Sunday; the next Monday-noon match is 2025-01-06 12:00 UTC.
+    var c = cron("0 0 12 ? * MON");
+    assertEquals(utc(2025, 1, 6, 12, 0, 0), c.getNextValidTimeAfter(utc(2025, 1, 5, 0, 0, 0)));
   }
 
   @Test
-  public void constructorParsesNamedDayOfWeekRange() throws ParseException {
-    new CronExpression("0 0 12 ? * MON-FRI");
+  public void namedDayOfWeekRangeTokenBindsAcrossWeekdays() throws ParseException {
+    // "MON-FRI" must include Monday and exclude Saturday/Sunday.
+    // 2025-01-04 is a Saturday → next match is Mon 2025-01-06 12:00 UTC.
+    var c = cron("0 0 12 ? * MON-FRI");
+    assertEquals(utc(2025, 1, 6, 12, 0, 0), c.getNextValidTimeAfter(utc(2025, 1, 4, 12, 0, 0)));
   }
 
   @Test
-  public void constructorParsesNamedMonth() throws ParseException {
-    new CronExpression("0 0 12 1 JAN ?");
+  public void namedMonthTokenBindsToCorrectMonth() throws ParseException {
+    // "JAN" must bind to month 1 — from mid-2025 → next match is Jan 1 2026 noon UTC.
+    var c = cron("0 0 12 1 JAN ?");
+    assertEquals(utc(2026, 1, 1, 12, 0, 0), c.getNextValidTimeAfter(utc(2025, 7, 15, 0, 0, 0)));
   }
 
   @Test
-  public void constructorParsesNamedMonthRange() throws ParseException {
-    new CronExpression("0 0 12 1 JAN-DEC ?");
+  public void namedMonthRangeTokenSpansAllMonths() throws ParseException {
+    // "JAN-DEC" must include every month — fire on day 1 of every month.
+    // From 2025-01-15 → next match is 2025-02-01.
+    var c = cron("0 0 12 1 JAN-DEC ?");
+    assertEquals(utc(2025, 2, 1, 12, 0, 0), c.getNextValidTimeAfter(utc(2025, 1, 15, 0, 0, 0)));
   }
 
   @Test
@@ -125,28 +136,41 @@ public class CronExpressionTest {
   }
 
   @Test
-  public void constructorParsesLastWeekdayOfMonth() throws ParseException {
-    new CronExpression("0 0 12 LW * ?");
+  public void lastWeekdayOfMonthTokenFiresOnLastWeekday() throws ParseException {
+    // "LW" must fire on the last weekday of each month. May 31 2025 is a Saturday →
+    // last weekday is Fri May 30. Pin both the parse and the fire.
+    var c = cron("0 0 12 LW * ?");
+    assertEquals(utc(2025, 5, 30, 12, 0, 0), c.getNextValidTimeAfter(utc(2025, 5, 1, 0, 0, 0)));
   }
 
   @Test
-  public void constructorParsesNearestWeekday() throws ParseException {
-    new CronExpression("0 0 12 15W * ?");
+  public void nearestWeekdayTokenFiresOnNearestWeekdayWhenTargetIsSaturday()
+      throws ParseException {
+    // "15W" — March 15 2025 is a Saturday → nearest weekday is Fri Mar 14.
+    var c = cron("0 0 12 15W * ?");
+    assertEquals(utc(2025, 3, 14, 12, 0, 0), c.getNextValidTimeAfter(utc(2025, 3, 1, 0, 0, 0)));
   }
 
   @Test
-  public void constructorParsesNthDayOfWeek() throws ParseException {
-    new CronExpression("0 0 12 ? * 6#3");
+  public void nthDayOfWeekTokenFiresOnNthOccurrence() throws ParseException {
+    // "6#3" — 3rd Friday of the month. In Jan 2025 the third Friday is Jan 17.
+    var c = cron("0 0 12 ? * 6#3");
+    assertEquals(utc(2025, 1, 17, 12, 0, 0), c.getNextValidTimeAfter(utc(2025, 1, 1, 0, 0, 0)));
   }
 
   @Test
-  public void constructorParsesLastDayOfWeek() throws ParseException {
-    new CronExpression("0 0 12 ? * 6L");
+  public void lastDayOfWeekTokenFiresOnLastOccurrence() throws ParseException {
+    // "6L" — last Friday of the month. In Jan 2025 the last Friday is Jan 31.
+    var c = cron("0 0 12 ? * 6L");
+    assertEquals(utc(2025, 1, 31, 12, 0, 0), c.getNextValidTimeAfter(utc(2025, 1, 1, 0, 0, 0)));
   }
 
   @Test
-  public void constructorParsesYearField() throws ParseException {
-    new CronExpression("0 0 12 1 1 ? 2030");
+  public void yearFieldRestrictsFiresToConfiguredYear() throws ParseException {
+    // The year field must restrict fires. "0 0 12 1 1 ? 2030" must fire on 2030-01-01
+    // and never before; from 2025 the next match is exactly that instant.
+    var c = cron("0 0 12 1 1 ? 2030");
+    assertEquals(utc(2030, 1, 1, 12, 0, 0), c.getNextValidTimeAfter(utc(2025, 1, 1, 0, 0, 0)));
   }
 
   @Test
@@ -161,16 +185,13 @@ public class CronExpressionTest {
   }
 
   @Test
-  public void constructorIsCaseInsensitive() throws ParseException {
-    // Lowercase tokens are upper-cased before parsing.
-    var c = new CronExpression("0 0 12 ? * mon");
-    assertEquals("0 0 12 ? * MON", c.getCronExpression());
-  }
-
-  @Test
-  public void constructorPreservesUpperCasedInputViaToString() throws ParseException {
-    var c = new CronExpression("0 0 12 ? * mon");
-    assertEquals("0 0 12 ? * MON", c.toString());
+  public void constructorUpperCasesInputForBothAccessors() throws ParseException {
+    // The constructor stores cronExpression.toUpperCase(Locale.US); both accessors
+    // (getCronExpression and toString) must echo the upper-cased form, and they
+    // must agree (toString delegates to the same field).
+    var c = new CronExpression("0 0 12 ? * mon-fri");
+    assertEquals("0 0 12 ? * MON-FRI", c.getCronExpression());
+    assertEquals(c.getCronExpression(), c.toString());
   }
 
   // ---------------------------------------------------------------------------
@@ -182,6 +203,19 @@ public class CronExpressionTest {
     // Documented contract: null is rejected eagerly with IllegalArgumentException
     // (not ParseException), to distinguish "no expression supplied" from "malformed".
     assertThrows(IllegalArgumentException.class, () -> new CronExpression((String) null));
+  }
+
+  @Test
+  public void constructorRejectsEmptyString() {
+    // Empty input yields zero tokens; buildExpression's "exprOn <= DAY_OF_WEEK"
+    // post-loop guard fires and throws "Unexpected end of expression."
+    assertThrows(ParseException.class, () -> new CronExpression(""));
+  }
+
+  @Test
+  public void constructorRejectsWhitespaceOnly() {
+    // Whitespace-only input also yields zero tokens — same rejection path.
+    assertThrows(ParseException.class, () -> new CronExpression("   \t  "));
   }
 
   @Test
@@ -204,6 +238,19 @@ public class CronExpressionTest {
   @Test
   public void constructorRejectsOutOfRangeMinute() {
     assertThrows(ParseException.class, () -> new CronExpression("* 0-60 * * * ?"));
+  }
+
+  @Test
+  public void constructorRejectsOutOfRangeMinuteWithMatchingMessage() {
+    // The rejection message identifies which field failed, distinguishing the
+    // "Minute and Second values must be between 0 and 59" branch from "Hour values
+    // must be between 0 and 23" — pin the message so a refactor that conflates two
+    // branches under a single message is detected.
+    var ex =
+        assertThrows(ParseException.class, () -> new CronExpression("* 0-60 * * * ?"));
+    assertNotNull("ParseException must carry a non-null message", ex.getMessage());
+    assertEquals(
+        "Minute and Second values must be between 0 and 59", ex.getMessage());
   }
 
   @Test
@@ -474,19 +521,143 @@ public class CronExpressionTest {
   }
 
   // ---------------------------------------------------------------------------
+  // Advanced day selectors — firing-time pins for L / LW / W / #N
+  // ---------------------------------------------------------------------------
+
+  @Test
+  public void getNextValidTimeAfter15WWhen15thIsSundayShiftsForwardOneDay()
+      throws ParseException {
+    // June 15 2025 is a Sunday → "15W" must fire on Mon Jun 16. Exercises the
+    // (dow == SUNDAY && day != ldom → day += 1) arm of the nearest-weekday logic.
+    var c = cron("0 0 12 15W * ?");
+    assertEquals(utc(2025, 6, 16, 12, 0, 0), c.getNextValidTimeAfter(utc(2025, 6, 1, 0, 0, 0)));
+  }
+
+  @Test
+  public void getNextValidTimeAfter1WWhen1stIsSaturdayShiftsForwardTwoDays()
+      throws ParseException {
+    // Feb 1 2025 is a Saturday → "1W" must fire on Mon Feb 3 (NOT roll back into
+    // January). Exercises the (dow == SATURDAY && day == 1 → day += 2) arm.
+    var c = cron("0 0 12 1W * ?");
+    assertEquals(utc(2025, 2, 3, 12, 0, 0), c.getNextValidTimeAfter(utc(2025, 1, 15, 0, 0, 0)));
+  }
+
+  @Test
+  public void getNextValidTimeAfter31WWhenLastDayIsSundayShiftsBackTwoDays()
+      throws ParseException {
+    // Aug 31 2025 is a Sunday and equals last-day-of-month (ldom=31) → "31W" must
+    // fire on Fri Aug 29. Exercises the (dow == SUNDAY && day == ldom → day -= 2) arm.
+    var c = cron("0 0 12 31W * ?");
+    assertEquals(utc(2025, 8, 29, 12, 0, 0), c.getNextValidTimeAfter(utc(2025, 8, 1, 0, 0, 0)));
+  }
+
+  @Test
+  public void getNextValidTimeAfterFifthWednesdayRollsToMonthThatHasFive()
+      throws ParseException {
+    // "4#5" = 5th Wednesday. Feb 2025 has only 4 Wednesdays → must skip to a month
+    // with 5. April 2025 has 5 Wednesdays (the last is Apr 30). Exercises the
+    // nthdayOfWeek "no Nth occurrence this month — roll month" branch.
+    var c = cron("0 0 12 ? * 4#5");
+    assertEquals(utc(2025, 4, 30, 12, 0, 0), c.getNextValidTimeAfter(utc(2025, 2, 1, 0, 0, 0)));
+  }
+
+  @Test
+  public void getNextValidTimeAfterLastFridayWhenAlreadyMissedRollsToNextMonth()
+      throws ParseException {
+    // Last Friday of Feb 2025 is Feb 28; from Feb 28 12:00:01 (one second past),
+    // the next match is the last Friday of March (Mar 28 2025).
+    // Exercises the "did we already miss the last one?" rollover.
+    var c = cron("0 0 12 ? * 6L");
+    assertEquals(utc(2025, 3, 28, 12, 0, 0), c.getNextValidTimeAfter(utc(2025, 2, 28, 12, 0, 1)));
+  }
+
+  @Test
+  public void getNextValidTimeAfterLastDayOfMonthRollsAcrossYearBoundary()
+      throws ParseException {
+    // From Dec 31 2025 12:00:01 (one second past the year's final L-fire), "L * ?"
+    // must roll to Jan 31 2026. Exercises the mon > 12 → year+1 branch in the
+    // lastdayOfMonth path together with the "tmon = 3333" sentinel that prevents
+    // an erroneous mon == tmon short-circuit.
+    var c = cron("0 0 12 L * ?");
+    assertEquals(utc(2026, 1, 31, 12, 0, 0), c.getNextValidTimeAfter(utc(2025, 12, 31, 12, 0, 1)));
+  }
+
+  @Test
+  public void getNextValidTimeAfterDayOfMonth31SkipsShortMonths() throws ParseException {
+    // "0 0 12 31 * ?" — fire only on the 31st. From Feb 1 2025 → next match is
+    // Mar 31 (Feb has 28 days, so day=31 > lastDay=28 triggers the daysOfMonth
+    // overrun cap that resets day to first-in-set and increments month).
+    var c = cron("0 0 12 31 * ?");
+    assertEquals(utc(2025, 3, 31, 12, 0, 0), c.getNextValidTimeAfter(utc(2025, 2, 1, 0, 0, 0)));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Overflowing ranges (stopAt < startAt) — modulo branch in addToSet
+  // ---------------------------------------------------------------------------
+
+  @Test
+  public void getNextValidTimeAfterOverflowingHourRangeWrapsAroundMidnight()
+      throws ParseException {
+    // "22-2" hours = {22, 23, 0, 1, 2} after the modulo wrap (HOUR max=24).
+    // From 03:00 → next match is the same day at 22:00.
+    var c = cron("0 0 22-2 * * ?");
+    assertEquals(utc(2025, 1, 1, 22, 0, 0), c.getNextValidTimeAfter(utc(2025, 1, 1, 3, 0, 0)));
+  }
+
+  @Test
+  public void getNextValidTimeAfterOverflowingMonthRangeWrapsAroundYearEnd()
+      throws ParseException {
+    // "NOV-FEB" months = {11, 12, 1, 2}. The post-modulo i2==0 → max remap (line
+    // 1017-1019) is the path that turns "0" into "12" for 1-indexed types — pin
+    // the boundary by firing the schedule across the wrap. From mid-March 2025 →
+    // next match is Nov 1 2025.
+    var c = cron("0 0 0 1 NOV-FEB ?");
+    assertEquals(utc(2025, 11, 1, 0, 0, 0), c.getNextValidTimeAfter(utc(2025, 3, 15, 0, 0, 0)));
+  }
+
+  @Test
+  public void constructorRejectsOverflowingYearRange() {
+    // The YEAR arm of addToSet's overflow switch unconditionally throws
+    // IllegalArgumentException, which buildExpression's catch-Exception block
+    // wraps in a ParseException — pin the wrapping contract.
+    assertThrows(ParseException.class, () -> new CronExpression("0 0 12 1 1 ? 2030-2025"));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Numeric day-of-week boundaries — DOW=1 (Sunday) and DOW=7 (Saturday)
+  // ---------------------------------------------------------------------------
+
+  @Test
+  public void getNextValidTimeAfterNumericSundayMatchesSunday() throws ParseException {
+    // DOW=1 = Sunday. From Sat Jan 4 2025 → next match is Sun Jan 5.
+    var c = cron("0 0 12 ? * 1");
+    assertEquals(utc(2025, 1, 5, 12, 0, 0), c.getNextValidTimeAfter(utc(2025, 1, 4, 0, 0, 0)));
+  }
+
+  @Test
+  public void getNextValidTimeAfterNumericSaturdayMatchesSaturday() throws ParseException {
+    // DOW=7 = Saturday. From Fri Jan 3 2025 → next match is Sat Jan 4.
+    // Exercises the upper boundary of the DOW range validation (val == 7 accepted).
+    var c = cron("0 0 12 ? * 7");
+    assertEquals(utc(2025, 1, 4, 12, 0, 0), c.getNextValidTimeAfter(utc(2025, 1, 3, 0, 0, 0)));
+  }
+
+  // ---------------------------------------------------------------------------
   // Public constants and accessors
   // ---------------------------------------------------------------------------
 
   @Test
-  public void maxYearIsCurrentYearPlusOneHundred() {
+  public void maxYearIsAtLeastOneHundredYearsInTheFuture() {
     // The class advertises a 100-year future window beyond the JVM's current year.
+    // Pinning the lower bound (≥ currentYear + 99) absorbs a Dec 31 → Jan 1
+    // class-load-vs-test-run year boundary without losing the contract.
     var thisYear = Calendar.getInstance().get(Calendar.YEAR);
-    assertEquals(thisYear + 100, CronExpression.MAX_YEAR);
-  }
-
-  @Test
-  public void getCronExpressionEchoesUpperCasedInput() throws ParseException {
-    var c = new CronExpression("0 0 12 ? * mon-fri");
-    assertEquals("0 0 12 ? * MON-FRI", c.getCronExpression());
+    assertNotNull("MAX_YEAR is initialized as a primitive int constant",
+        Integer.valueOf(CronExpression.MAX_YEAR));
+    assertEquals(
+        "MAX_YEAR must be exactly currentYear+100 (or +99 if class loaded in the previous"
+            + " calendar year)",
+        true,
+        CronExpression.MAX_YEAR == thisYear + 100 || CronExpression.MAX_YEAR == thisYear + 99);
   }
 }
