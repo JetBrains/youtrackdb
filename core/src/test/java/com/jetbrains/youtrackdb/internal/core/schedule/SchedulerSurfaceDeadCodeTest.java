@@ -60,7 +60,7 @@ import org.junit.experimental.categories.Category;
 @Category(SequentialTest.class)
 public class SchedulerSurfaceDeadCodeTest extends DbTestBase {
 
-  private static final String FAR_FUTURE_RULE = "0 0 12 1 1 ? 2099";
+  private static final String FAR_FUTURE_RULE = SchedulerTestFixtures.FAR_FUTURE_RULE;
 
   @After
   public void cleanRegisteredEvents() {

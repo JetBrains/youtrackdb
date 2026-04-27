@@ -104,15 +104,44 @@ public class ScheduledEventBuilderTest {
   }
 
   @Test
+  public void allBuilderSettersAcceptNullAndStoreItUnderTheirKey() {
+    // The five fluent setters (setName / setRule / setArguments / setStartTime / setFunction)
+    // share the same pattern — `properties.put(KEY, arg); return this;` — and none validate
+    // their argument. setFunction(null) is pinned above; this test extends the same shape to
+    // the other four so a regression that adds null validation to one setter (without the
+    // others) is caught here. The key contract is: null is stored verbatim, the key is
+    // materialized in the map, and the fluent return is preserved.
+    var b = new ScheduledEventBuilder();
+    var ret = b.setName(null).setRule(null).setArguments(null).setStartTime(null).setFunction(null);
+    assertSame("each setter must return the same builder instance", b, ret);
+    var keys = new String[] {
+        ScheduledEvent.PROP_NAME, ScheduledEvent.PROP_RULE, ScheduledEvent.PROP_ARGUMENTS,
+        ScheduledEvent.PROP_STARTTIME, ScheduledEvent.PROP_FUNC};
+    assertEquals("each setter must materialize its key, even for null",
+        keys.length, b.properties.size());
+    for (var key : keys) {
+      assertTrue("setter for " + key + " must materialize the key for null",
+          b.properties.containsKey(key));
+      assertNull("setter for " + key + " must store null verbatim", b.properties.get(key));
+    }
+  }
+
+  @Test
   public void setterChainOfDistinctKeysAccumulatesIntoSinglePropertiesMap() {
+    // Pin reference identity (not just non-null) on the arguments map so a regression
+    // that swapped the setter for a defensive copy would flip this assertion red. The
+    // primitive setters (setName/setRule) are deterministic equality checks; the map
+    // setter is the only one where reference vs. copy is observable.
+    var args = new HashMap<>();
     var b = new ScheduledEventBuilder()
         .setName("daily")
         .setRule("0 0 12 * * ?")
-        .setArguments(new HashMap<>());
+        .setArguments(args);
     assertEquals(3, b.properties.size());
     assertEquals("daily", b.properties.get(ScheduledEvent.PROP_NAME));
     assertEquals("0 0 12 * * ?", b.properties.get(ScheduledEvent.PROP_RULE));
-    assertNotNull(b.properties.get(ScheduledEvent.PROP_ARGUMENTS));
+    assertSame("setArguments must store the map by reference, not as a defensive copy",
+        args, b.properties.get(ScheduledEvent.PROP_ARGUMENTS));
   }
 
   @Test

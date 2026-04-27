@@ -114,12 +114,14 @@ final class SchedulerTestFixtures {
    *
    * <p>Single-thread callers (sequential tests) read the field on the same thread that
    * produced the value — happens-before is trivially satisfied. Multi-thread callers
-   * (e.g. concurrent register/remove tests) must establish a happens-before edge before
-   * reading; either by joining on a {@code Future.get()} for the writer thread or by
-   * awaiting a {@code CountDownLatch} count-down that the writer has issued. Otherwise
-   * the volatile read may observe a stale value despite the volatile guarantee, because
-   * the writer's effect propagates through {@code timerLock} release rather than through
-   * the field's own write fence.
+   * (e.g. concurrent register/remove tests) must establish a happens-before edge with
+   * the writer before reading: either by joining on a {@code Future.get()} for the
+   * writer thread or by awaiting a {@code CountDownLatch} count-down that the writer
+   * has issued. Without that edge, a volatile read on the reader can simply land before
+   * the writer's volatile write — observing an older value, not a stale one. The
+   * volatile guarantee establishes happens-before between matching read/write pairs,
+   * but it does not order events that have not been linked by another synchronization
+   * action; tests must supply that link explicitly.
    */
   static ScheduledFuture<?> readTimerField(ScheduledEvent event) throws Exception {
     Field field = ScheduledEvent.class.getDeclaredField("timer");

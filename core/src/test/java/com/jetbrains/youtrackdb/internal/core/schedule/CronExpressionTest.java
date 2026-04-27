@@ -20,6 +20,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
 
 import java.text.ParseException;
 import java.util.Calendar;
@@ -616,6 +617,19 @@ public class CronExpressionTest {
   }
 
   @Test
+  public void getNextValidTimeAfterOverflowingDayOfWeekRangeWrapsAroundWeek()
+      throws ParseException {
+    // The 1-indexed `i2 == 0 → max` remap fires for MONTH, DAY_OF_WEEK, and DAY_OF_MONTH.
+    // The MONTH arm is pinned above; pin the DAY_OF_WEEK arm here so a refactor that
+    // special-cases MONTH (and breaks DOW silently) is caught. "FRI-MON" expands across
+    // the week wrap to {FRI=6, SAT=7, SUN=1, MON=2}. From Sun Jan 5 12:00:01 (a SUN
+    // match completed) → next match is Mon Jan 6 12:00 — the SUN-then-MON transition
+    // exercises the post-modulo remap on the wrap-around boundary.
+    var c = cron("0 0 12 ? * FRI-MON");
+    assertEquals(utc(2025, 1, 6, 12, 0, 0), c.getNextValidTimeAfter(utc(2025, 1, 5, 12, 0, 1)));
+  }
+
+  @Test
   public void constructorRejectsOverflowingYearRange() {
     // The YEAR arm of addToSet's overflow switch unconditionally throws
     // IllegalArgumentException, which buildExpression's catch-Exception block
@@ -647,17 +661,17 @@ public class CronExpressionTest {
   // ---------------------------------------------------------------------------
 
   @Test
-  public void maxYearIsAtLeastOneHundredYearsInTheFuture() {
-    // The class advertises a 100-year future window beyond the JVM's current year.
-    // Pinning the lower bound (≥ currentYear + 99) absorbs a Dec 31 → Jan 1
-    // class-load-vs-test-run year boundary without losing the contract.
+  public void maxYearIsExactlyCurrentYearPlus99Or100() {
+    // The class computes MAX_YEAR as currentYear + 100 at class-load time. A test that
+    // runs minutes after class-load can hit either the +100 case (same calendar year) or
+    // the +99 case (class loaded in the previous calendar year, e.g. Dec 31 → Jan 1).
+    // Strict equality on the disjunction catches a regression that would silently widen
+    // (e.g., +1000) or narrow (e.g., +50) the advertised 100-year future window.
     var thisYear = Calendar.getInstance().get(Calendar.YEAR);
-    assertNotNull("MAX_YEAR is initialized as a primitive int constant",
-        Integer.valueOf(CronExpression.MAX_YEAR));
-    assertEquals(
+    var actual = CronExpression.MAX_YEAR;
+    assertTrue(
         "MAX_YEAR must be exactly currentYear+100 (or +99 if class loaded in the previous"
-            + " calendar year)",
-        true,
-        CronExpression.MAX_YEAR == thisYear + 100 || CronExpression.MAX_YEAR == thisYear + 99);
+            + " calendar year), but was " + actual,
+        actual == thisYear + 100 || actual == thisYear + 99);
   }
 }

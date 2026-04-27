@@ -17,6 +17,7 @@
 package com.jetbrains.youtrackdb.internal.core.schedule;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
@@ -345,8 +346,10 @@ public class SchedulerImplTest extends DbTestBase {
     var secondFuture = readTimerField(secondRegistered);
     assertNotNull("both events must have queued timers before close()", firstFuture);
     assertNotNull(secondFuture);
-    assertTrue("queued ScheduledFuture must be live (not cancelled) before close()",
-        !firstFuture.isCancelled() && !secondFuture.isCancelled());
+    assertFalse("first event's queued ScheduledFuture must be live before close()",
+        firstFuture.isCancelled());
+    assertFalse("second event's queued ScheduledFuture must be live before close()",
+        secondFuture.isCancelled());
 
     impl.close();
 
@@ -407,10 +410,14 @@ public class SchedulerImplTest extends DbTestBase {
   @Test
   public void getEventsReturnsTheLiveInternalConcurrentHashMapNotADefensiveCopy() {
     // SchedulerImpl#getEvents returns the underlying ConcurrentHashMap directly (no
-    // defensive copy). Pin that by invoking it twice and asserting same-reference equality —
-    // a regression that wraps the return in Collections.unmodifiableMap or that returns
-    // a new copy each time would break this assertion. Documenting the wart so future
-    // refactors are deliberate.
+    // defensive copy). Pin three observables a wrapper-based regression would not all
+    // satisfy: (a) same-reference identity across two calls (a stable wrapper would also
+    // pass this), (b) ConcurrentHashMap type (an unmodifiableMap wrapper would fail),
+    // and (c) live mutation through a previously returned view — a stable
+    // unmodifiableMap-style wrapper that cached a snapshot would fail this even if the
+    // type and identity checks both passed. Documenting the wart so future refactors are
+    // deliberate.
+    var function = SchedulerTestFixtures.createTrivialFunction(session, "fnLiveView");
     var impl = session.getSharedContext().getScheduler();
     var firstView = impl.getEvents();
     var secondView = impl.getEvents();
@@ -418,6 +425,17 @@ public class SchedulerImplTest extends DbTestBase {
         firstView, secondView);
     assertTrue("the returned map must be the same ConcurrentHashMap type",
         firstView instanceof ConcurrentHashMap);
+
+    int sizeBefore = firstView.size();
+    buildEvent("evt-live-view", FAR_FUTURE_RULE, function, Map.of());
+
+    // The PREVIOUSLY-RETURNED firstView must reflect the new registration without a
+    // re-fetch — this is the live-not-defensive-copy contract a snapshotted wrapper
+    // would violate.
+    assertEquals("subsequent registration must be visible through the prior view",
+        sizeBefore + 1, firstView.size());
+    assertTrue("new registration must be reachable through the prior view",
+        firstView.containsKey("evt-live-view"));
   }
 
   @Test
@@ -576,6 +594,39 @@ public class SchedulerImplTest extends DbTestBase {
           readTimerField(registered));
       assertTrue("the queued ScheduledFuture must be cancelled, not just dropped from view",
           queuedFuture.isCancelled());
+    } finally {
+      session.rollback();
+    }
+  }
+
+  @Test
+  public void onEventDroppedNullPointerExceptionsWhenTxCustomDataMapWasNeverPopulated()
+      throws Exception {
+    // Production has no null-guard on the tx custom-data map (SchedulerImpl#onEventDropped
+    // reads it then calls .get(rid) directly). If the after-commit pipeline ever invokes
+    // onEventDropped without a prior onAfterEventDropped — e.g., a future refactor that
+    // changes hook ordering, or a partial recovery path — the .get(rid) call NPEs. Pin
+    // the current behavior so the regression catches the change. The test creates a
+    // standalone event entity (no schedule registration), then drives onEventDropped on
+    // a fresh tx where the map was never populated. WHEN-FIXED: add a null-guard around
+    // the map.get(rid) call (SchedulerImpl#onEventDropped) so a missing map yields a
+    // no-op rather than NPE; flip this to assertNull(impl.getEvent(name)) once fixed.
+    var function = SchedulerTestFixtures.createTrivialFunction(session, "fnNullMap");
+    var event = buildEvent("evt-null-map", FAR_FUTURE_RULE, function, Map.of());
+    var impl = session.getSharedContext().getScheduler();
+    var rid = event.getIdentity();
+    // Drop the auto-registration so removeEventInternal would be a no-op even if the
+    // production code somehow reached it through a non-NPE path; the test focuses on
+    // pinning the .get(rid) NPE, not the downstream registry effect.
+    impl.removeEventInternal("evt-null-map");
+
+    session.begin();
+    try {
+      // Fresh tx — droppedEventsMap is null in custom data.
+      assertNull("droppedEventsMap must be null on the fresh tx for the pin to be valid",
+          ((FrontendTransactionImpl) session.getTransactionInternal())
+              .getCustomData(SchedulerTestFixtures.DROPPED_EVENTS_MAP_KEY));
+      assertThrows(NullPointerException.class, () -> impl.onEventDropped(session, rid));
     } finally {
       session.rollback();
     }

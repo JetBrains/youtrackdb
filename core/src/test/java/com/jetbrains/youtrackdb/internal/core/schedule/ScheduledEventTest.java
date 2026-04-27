@@ -24,7 +24,9 @@ import static com.jetbrains.youtrackdb.internal.core.schedule.ScheduledEvent.PRO
 import static com.jetbrains.youtrackdb.internal.core.schedule.ScheduledEvent.PROP_STARTTIME;
 import static com.jetbrains.youtrackdb.internal.core.schedule.ScheduledEvent.PROP_STATUS;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -39,6 +41,7 @@ import java.lang.reflect.Field;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.After;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -198,6 +201,34 @@ public class ScheduledEventTest extends DbTestBase {
     assertEquals(STATUS.STOPPED.name(), status);
   }
 
+  @Test
+  public void builderReuseAfterBuildDoesNotMutateThePriorBuiltScheduledEvent() {
+    // ScheduledEventBuilder is reusable: each build() call does
+    // entity.updateFromMap(properties), creating a fresh EntityImpl. After build(),
+    // mutating the builder's properties map (e.g. setName("other")) must NOT change the
+    // prior result. A regression that swapped updateFromMap for a shared-reference path
+    // — or that aliased the builder's properties into the constructed entity — would
+    // silently corrupt the first event when the second build runs.
+    var function = SchedulerTestFixtures.createTrivialFunction(session, "fnReuse");
+    var builder = new ScheduledEventBuilder()
+        .setName("reuse-1")
+        .setRule(FAR_FUTURE_RULE)
+        .setFunction(function)
+        .setArguments(new HashMap<>());
+    var first = session.computeInTx(tx -> builder.build(session));
+    assertEquals("reuse-1", first.getName());
+
+    builder.setName("reuse-2");
+    var second = session.computeInTx(tx -> builder.build(session));
+
+    assertEquals("post-build mutation must not affect the prior result",
+        "reuse-1", first.getName());
+    assertEquals("reuse-2", second.getName());
+    assertNotSame("two builds must produce distinct ScheduledEvent instances", first, second);
+    assertNotEquals("two builds must produce distinct persisted RIDs",
+        first.getIdentity(), second.getIdentity());
+  }
+
   // ---------------------------------------------------------------------------
   // Constructor — null-fallback branches over PROP_ARGUMENTS / PROP_EXEC_ID
   // ---------------------------------------------------------------------------
@@ -229,6 +260,36 @@ public class ScheduledEventTest extends DbTestBase {
   }
 
   @Test
+  public void constructorLeavesStatusFieldNullWhenEntityHasNoStatusProperty() throws Exception {
+    // The constructor reads PROP_STATUS and only assigns the status field inside
+    // `if (statusValue != null)`. Pin the null branch: a regression that drops the
+    // null-guard (and unconditionally calls STATUS.valueOf(statusValue)) would NPE on
+    // any entity whose PROP_STATUS is missing — typically a malformed OSchedule row
+    // that predates the initScheduleRecord hook. The status field remains null in this
+    // path; the initScheduleRecord hook later compensates by setting it to STOPPED, but
+    // the constructor itself does NOT.
+    var function = SchedulerTestFixtures.createTrivialFunction(session, "fnNullStatus");
+
+    session.begin();
+    ScheduledEvent event;
+    try {
+      EntityImpl entity = (EntityImpl) session.newEntity(ScheduledEvent.CLASS_NAME);
+      entity.setProperty(PROP_NAME, "no-status");
+      entity.setProperty(PROP_RULE, FAR_FUTURE_RULE);
+      entity.setProperty(PROP_FUNC, function.getIdentity());
+      // Intentionally do NOT set PROP_STATUS.
+      event = new ScheduledEvent(entity, session);
+    } finally {
+      session.rollback();
+    }
+
+    Field statusField = ScheduledEvent.class.getDeclaredField("status");
+    statusField.setAccessible(true);
+    assertNull("missing PROP_STATUS must leave the status field null, not NPE in valueOf",
+        statusField.get(event));
+  }
+
+  @Test
   public void constructorSeedsNextExecutionIdFromExistingExecIdPropertyWhenNonNull()
       throws Exception {
     // ScheduledEvent's constructor reads PROP_EXEC_ID and seeds nextExecutionId to that
@@ -253,7 +314,7 @@ public class ScheduledEventTest extends DbTestBase {
 
     Field idField = ScheduledEvent.class.getDeclaredField("nextExecutionId");
     idField.setAccessible(true);
-    var atomic = (java.util.concurrent.atomic.AtomicLong) idField.get(event);
+    var atomic = (AtomicLong) idField.get(event);
     assertEquals("nextExecutionId must seed from the entity's PROP_EXEC_ID",
         42L, atomic.get());
   }
@@ -397,7 +458,7 @@ public class ScheduledEventTest extends DbTestBase {
 
     Field idField = ScheduledEvent.class.getDeclaredField("nextExecutionId");
     idField.setAccessible(true);
-    var atomic = (java.util.concurrent.atomic.AtomicLong) idField.get(event);
+    var atomic = (AtomicLong) idField.get(event);
     long initial = atomic.get();
 
     event.schedule(databaseName, "admin", session.getSharedContext().getYouTrackDB());
