@@ -181,6 +181,19 @@ public class CronExpressionDeadCodeTest {
     assertTrue(c.isSatisfiedBy(withMillis));
   }
 
+  @Test
+  public void isSatisfiedByReturnsFalseWhenNoFiringExistsAfterInputDate()
+      throws ParseException {
+    // The implementation is `return timeAfter != null && timeAfter.equals(originalDate);`.
+    // The null-short-circuit branch fires only when getTimeAfter exhausts its search and
+    // returns null — reachable with a year-bounded expression queried past its only
+    // allowed year. A regression that swapped `&&` for `||`, or that dropped the
+    // null-guard, would NPE on `equals` rather than returning false.
+    var c = cronUtc("0 0 12 1 1 ? 2025");
+    assertFalse("year-bounded cron must yield false (not NPE) past the bounded year",
+        c.isSatisfiedBy(utc(2030, 1, 1, 0, 0, 0)));
+  }
+
   // ---------------------------------------------------------------------------
   // getNextInvalidTimeAfter — pin the "fire + 1 sec" contract
   // ---------------------------------------------------------------------------
