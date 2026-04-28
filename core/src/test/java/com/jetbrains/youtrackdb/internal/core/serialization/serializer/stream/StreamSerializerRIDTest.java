@@ -5,6 +5,7 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.ShortSeriali
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
+import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.LinkSerializer;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALChanges;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALPageChangesPortion;
 import java.nio.ByteBuffer;
@@ -79,7 +80,8 @@ public class StreamSerializerRIDTest {
 
     Assert.assertEquals(
         streamSerializerRID.deserializeFromByteBufferObject(serializerFactory, serializationOffset,
-            buffer), OBJECT);
+            buffer),
+        OBJECT);
     Assert.assertEquals(0, buffer.position());
   }
 
@@ -89,7 +91,7 @@ public class StreamSerializerRIDTest {
 
     final var buffer =
         ByteBuffer.allocateDirect(
-                FIELD_SIZE + serializationOffset + WALPageChangesPortion.PORTION_BYTES)
+            FIELD_SIZE + serializationOffset + WALPageChangesPortion.PORTION_BYTES)
             .order(ByteOrder.nativeOrder());
     final var data = new byte[FIELD_SIZE];
     streamSerializerRID.serializeNativeObject(OBJECT, serializerFactory, data, 0);
@@ -104,5 +106,64 @@ public class StreamSerializerRIDTest {
         streamSerializerRID.deserializeFromByteBufferObject(serializerFactory,
             buffer, walChanges, serializationOffset),
         OBJECT);
+  }
+
+  /**
+   * Pin the fixed-length contract: every RID has the same encoded width
+   * ({@code RID_SIZE} from {@link LinkSerializer}). Catches a regression that flips this to
+   * {@code false} (which would suggest a switch to a variable-length RID encoding) or that
+   * changes the stable {@code SHORT + LONG} layout.
+   */
+  @Test
+  public void testIsFixedLengthAndFixedLength() {
+    Assert.assertTrue(streamSerializerRID.isFixedLength());
+    Assert.assertEquals(LinkSerializer.RID_SIZE, streamSerializerRID.getFixedLength());
+    // The fixed length must equal the SHORT (cluster) + LONG (position) byte width.
+    Assert.assertEquals(FIELD_SIZE, streamSerializerRID.getFixedLength());
+  }
+
+  /**
+   * {@code serializeNativeObject} / {@code getObjectSizeNative} round-trip on a heap
+   * byte array at a non-zero offset, with a deserialized identity check.
+   *
+   * <p>Mirror of {@link #testFieldSize} but exercises the native-byte-order path explicitly.
+   * The non-zero offset (5) catches a regression that ignored {@code startPosition} in
+   * either method (e.g., always wrote/read at index 0).
+   */
+  @Test
+  public void testNativeRoundTripAtNonZeroOffset() {
+    final var serializationOffset = 5;
+    final var data = new byte[FIELD_SIZE + serializationOffset];
+
+    streamSerializerRID.serializeNativeObject(OBJECT, serializerFactory, data, serializationOffset);
+
+    Assert.assertEquals(
+        FIELD_SIZE,
+        streamSerializerRID.getObjectSizeNative(serializerFactory, data, serializationOffset));
+    Assert.assertEquals(
+        OBJECT,
+        streamSerializerRID.deserializeNativeObject(serializerFactory, data, serializationOffset));
+  }
+
+  /**
+   * Pin the {@code preprocess} no-op contract: the RID stream serializer never rewrites the
+   * input identifiable. A regression that introduced cloning or canonicalization here would
+   * silently change reference equality semantics for callers that compare against the input.
+   */
+  @Test
+  public void testPreprocessReturnsInputReference() {
+    Assert.assertSame(
+        OBJECT,
+        streamSerializerRID.preprocess(serializerFactory, OBJECT));
+  }
+
+  /**
+   * Pin the public {@link StreamSerializerRID#ID} byte and {@code getId()} agreement so a
+   * regression that changed one without the other would be caught.
+   */
+  @Test
+  public void testIdMatchesPublicConstant() {
+    Assert.assertEquals(StreamSerializerRID.ID, streamSerializerRID.getId());
+    Assert.assertEquals((byte) 16, StreamSerializerRID.ID);
   }
 }
