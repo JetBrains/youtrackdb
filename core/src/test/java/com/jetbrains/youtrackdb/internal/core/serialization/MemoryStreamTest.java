@@ -26,9 +26,21 @@ import org.junit.Test;
 
 /**
  * Pins the raw read/write/grow/move/copyFrom/peek primitives of the {@code @Deprecated}
- * {@link MemoryStream}. Higher-level uses such as {@code RecordId.toStream/fromStream} and
- * {@code RecordBytes} round-trips are deliberately out of scope here — they are picked up where
- * the live callers are tested (in the DB record serialization tracks).
+ * {@link MemoryStream} plus the snapshot accessors ({@code toByteArray}, {@code copy}) and the
+ * position/capacity primitives ({@code reset}, {@code close}, {@code jump}, {@code fill},
+ * {@code setPosition}, {@code available}, {@code size}, {@code getSize}, {@code setSource}).
+ *
+ * <p><strong>Out of scope (residual gaps).</strong> The typed accessor family
+ * ({@code set(byte[]/boolean/char/int/long/short)}, {@code setAsFixed}, {@code setUtf8},
+ * {@code setCustom}, {@code getAsByteArrayFixed}, {@code getAsByteArrayOffset},
+ * {@code getAsByteArray}, {@code getAsString}, {@code getAsBoolean}, {@code getAsChar},
+ * {@code getAsByte}, {@code getAsLong}, {@code getAsInteger}, {@code getAsShort},
+ * {@code getVariableSize}, {@code remove(begin,end)}) is intentionally not pinned by this class.
+ * The few overloads with live callers ({@code getAsShort}/{@code getAsLong} via
+ * {@code RecordId.toStream/fromStream}; {@code getAsString} via
+ * {@code CommandRequestTextAbstract}) are exercised transitively through the tests of those
+ * callers. The remaining overloads have no live caller anywhere in the project and are residual
+ * gaps that the wider {@link MemoryStream} {@code @Deprecated} cleanup will absorb when it lands.
  */
 public class MemoryStreamTest {
 
@@ -55,15 +67,19 @@ public class MemoryStreamTest {
   }
 
   /**
-   * The wrap-existing-buffer constructor stores the buffer reference itself (not a copy); writes
-   * to the stream observe in the original array.
+   * The wrap-existing-buffer constructor stores the buffer reference itself (not a copy). A
+   * subsequent write on the stream is therefore visible in the original {@code backing} array.
    */
   @Test
-  public void wrapBufferConstructorStoresBufferReference() {
+  public void wrapBufferConstructorStoresBufferReferenceAndWritesAreObservable() {
     var backing = new byte[] {1, 2, 3, 4};
     var ms = new MemoryStream(backing);
     Assert.assertSame(backing, ms.getInternalBuffer());
     Assert.assertEquals(0, ms.getPosition());
+
+    // Write through the stream — the change must be visible in the original backing array.
+    ms.write(0x55);
+    Assert.assertEquals((byte) 0x55, backing[0]);
   }
 
   // ---------------------------------------------------------------------------
@@ -93,9 +109,15 @@ public class MemoryStreamTest {
     Assert.assertArrayEquals(new byte[] {3, 4, 5, 6, 7}, ms.copy());
   }
 
-  /** Writing an array slice longer than {@code NATIVE_COPY_THRESHOLD} (=9) goes through the native-arraycopy branch. */
+  /**
+   * Writing a 16-byte slice (i.e. larger than {@code NATIVE_COPY_THRESHOLD = 9}) round-trips
+   * correctly. Both arms of the threshold-driven {@code if} inside
+   * {@code MemoryStream.write(byte[], int, int)} call the same {@code System.arraycopy} so they
+   * are not separately observable from a test, but exercising the {@code >=} arm with a typical
+   * "large" slice still pins the bulk-copy contract.
+   */
   @Test
-  public void writeArrayLargerThanCopyThresholdGoesThroughNativeArrayCopy() {
+  public void writeArrayOfSixteenBytesCopiesAllBytesAndAdvancesPosition() {
     var ms = new MemoryStream(64);
     var source = new byte[16];
     for (var i = 0; i < source.length; i++) {
@@ -110,16 +132,40 @@ public class MemoryStreamTest {
   // grow / assureSpaceFor
   // ---------------------------------------------------------------------------
 
-  /** Writing more bytes than the initial capacity grows the buffer. */
+  /**
+   * Writing more bytes than the initial capacity grows the buffer using the documented strategy:
+   * {@code Math.max(bufferLength << 1, capacity)}. Initial 4 bytes, requested 8 → both branches of
+   * the {@code Math.max} produce 8, so the new capacity is exactly 8 (not greater).
+   */
   @Test
-  public void writeBeyondInitialCapacityGrowsBuffer() {
+  public void writeBeyondInitialCapacityGrowsBufferToExactlyTheLargerOfDoubleAndRequest() {
     var ms = new MemoryStream(4);
     ms.write(new byte[] {1, 2, 3, 4, 5, 6, 7, 8}, 0, 8);
     Assert.assertEquals(8, ms.getPosition());
-    Assert.assertTrue(
-        "buffer should have grown beyond the 4-byte initial capacity",
-        ms.getInternalBuffer().length >= 8);
+    Assert.assertEquals(8, ms.getInternalBuffer().length);
     Assert.assertArrayEquals(new byte[] {1, 2, 3, 4, 5, 6, 7, 8}, ms.copy());
+  }
+
+  /**
+   * The growth strategy picks the doubled capacity when doubling exceeds the requested length.
+   * Initial 16 bytes, requested 17 → {@code max(32, 17) = 32}; pin the doubling-wins branch.
+   */
+  @Test
+  public void assureSpaceForUsesDoublingWhenDoubleExceedsRequest() {
+    var ms = new MemoryStream(16);
+    ms.write(new byte[17], 0, 17);
+    Assert.assertEquals(32, ms.getInternalBuffer().length);
+  }
+
+  /**
+   * The growth strategy picks the requested length when it exceeds the doubled capacity.
+   * Initial 4 bytes, requested 100 → {@code max(8, 100) = 100}; pin the request-wins branch.
+   */
+  @Test
+  public void assureSpaceForUsesRequestedSizeWhenItExceedsDouble() {
+    var ms = new MemoryStream(4);
+    ms.write(new byte[100], 0, 100);
+    Assert.assertEquals(100, ms.getInternalBuffer().length);
   }
 
   /** A single very-large write makes the buffer at least the required size. */
@@ -231,9 +277,14 @@ public class MemoryStreamTest {
     Assert.assertEquals(1, dst.getPosition());
   }
 
-  /** copyFrom copies {@code size} bytes from the source stream's current position. */
+  /**
+   * {@code copyFrom} copies {@code size} bytes from the source stream's current position into the
+   * destination at the destination's current position, but — surprising for a method named
+   * "copy from" — it does <strong>not</strong> advance the destination's position. Pin the
+   * behaviour so a future change that started advancing position becomes loud.
+   */
   @Test
-  public void copyFromAppendsBytesAtCurrentPosition() {
+  public void copyFromWritesBytesAtCurrentPositionWithoutAdvancing() {
     var dst = new MemoryStream(8);
     dst.setPosition(2);
     var src = new MemoryStream(new byte[] {10, 20, 30, 40, 50});
@@ -295,18 +346,29 @@ public class MemoryStreamTest {
     Assert.assertEquals(8, ms.getInternalBuffer().length);
   }
 
-  /** {@code close()} is documented as equivalent to reset(); position returns to zero. */
+  /**
+   * {@code close()} is documented as equivalent to reset(): position returns to zero AND the
+   * underlying buffer is preserved untouched. A regression that nulled the buffer, allocated a
+   * fresh one, or zeroed the contents would still satisfy "position == 0" alone, so this test
+   * also pins the buffer-identity, capacity, and content invariants.
+   */
   @Test
   public void closeIsEquivalentToReset() {
     var ms = new MemoryStream(8);
     ms.write(1);
     ms.write(2);
+    var bufferBefore = ms.getInternalBuffer();
 
     ms.close();
+
     Assert.assertEquals(0, ms.getPosition());
+    Assert.assertSame(bufferBefore, ms.getInternalBuffer());
+    Assert.assertEquals(8, ms.getInternalBuffer().length);
+    Assert.assertEquals((byte) 1, ms.getInternalBuffer()[0]);
+    Assert.assertEquals((byte) 2, ms.getInternalBuffer()[1]);
   }
 
-  /** {@code setPosition(int)} rewinds (or fast-forwards) without checking against capacity. */
+  /** {@code setPosition(int)} rewinds or fast-forwards within the buffer and returns {@code this}. */
   @Test
   public void setPositionMovesPositionToTarget() {
     var ms = new MemoryStream(16);
@@ -314,7 +376,9 @@ public class MemoryStreamTest {
     Assert.assertEquals(5, ms.getPosition());
     ms.setPosition(2);
     Assert.assertEquals(2, ms.getPosition());
+    // Chained call returns this AND moves the position; both must hold.
     Assert.assertSame(ms, ms.setPosition(3));
+    Assert.assertEquals(3, ms.getPosition());
   }
 
   /** {@code jump(int)} moves to a position within capacity. */
@@ -397,6 +461,51 @@ public class MemoryStreamTest {
     ms.write(0x33);
     var second = ms.copy();
     Assert.assertArrayEquals(new byte[] {0x11, 0x22, 0x33}, second);
+  }
+
+  /**
+   * {@code copy()} on a fresh stream (position == 0) takes the alternate branch of its
+   * {@code position > 0 ? position : buffer.length} ternary and returns a snapshot sized to the
+   * full buffer capacity. Pin both arms so a regression in either is caught.
+   */
+  @Test
+  public void copyOnFreshStreamReturnsFullCapacityZeroFilledArray() {
+    var ms = new MemoryStream(8);
+    var snapshot = ms.copy();
+    Assert.assertEquals(8, snapshot.length);
+    for (var b : snapshot) {
+      Assert.assertEquals(0, b);
+    }
+  }
+
+  /**
+   * {@code toByteArray()} on the common path returns a snapshot of the bytes written so far,
+   * independent of the underlying buffer; mutating either does not affect the other.
+   */
+  @Test
+  public void toByteArrayCopyPathReturnsIndependentSnapshot() {
+    var ms = new MemoryStream(16);
+    ms.write(0xAB);
+    ms.write(0xCD);
+    var snapshot = ms.toByteArray();
+
+    Assert.assertArrayEquals(new byte[] {(byte) 0xAB, (byte) 0xCD}, snapshot);
+
+    snapshot[0] = 0;
+    Assert.assertEquals((byte) 0xAB, ms.getInternalBuffer()[0]);
+  }
+
+  /**
+   * {@code toByteArray()} contains an early-return shortcut that aliases the internal buffer when
+   * {@code position == buffer.length - 1} (the documented "100% USED" condition). Pin the alias
+   * semantics so a future change that removed the shortcut, or that flipped the off-by-one to
+   * {@code buffer.length}, becomes loud.
+   */
+  @Test
+  public void toByteArrayShortcutAliasesInternalBufferAtFullUseMarker() {
+    var ms = new MemoryStream(4);
+    ms.fill(3); // position == buffer.length - 1 — triggers the shortcut
+    Assert.assertSame(ms.getInternalBuffer(), ms.toByteArray());
   }
 
   /** {@code available()} reports the number of bytes between the current position and capacity. */
