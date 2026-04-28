@@ -28,6 +28,7 @@ import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.StringWriter;
 import java.lang.reflect.Modifier;
+import java.util.HashSet;
 import java.util.Set;
 import org.junit.Test;
 
@@ -180,7 +181,7 @@ public class RecordSerializerCsvAbstractDeadCodeTest {
         "embeddedMapToStream",
         "embeddedCollectionFromStream",
         "embeddedCollectionToStream");
-    final var actual = new java.util.HashSet<String>();
+    final var actual = new HashSet<String>();
     for (final var m : RecordSerializerCSVAbstract.class.getDeclaredMethods()) {
       if (Modifier.isStatic(m.getModifiers()) || m.isSynthetic()) {
         continue;

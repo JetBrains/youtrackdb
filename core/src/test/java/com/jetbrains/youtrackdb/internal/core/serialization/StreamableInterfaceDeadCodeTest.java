@@ -17,7 +17,6 @@ package com.jetbrains.youtrackdb.internal.core.serialization;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import java.io.ByteArrayInputStream;
@@ -27,6 +26,7 @@ import java.io.DataInputStream;
 import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.lang.reflect.Modifier;
 import org.junit.Test;
 
 /**
@@ -142,9 +142,18 @@ public class StreamableInterfaceDeadCodeTest {
   }
 
   @Test
-  public void interfaceClassReferenceCompilesAndIsLoadable() {
-    // Trivial pin — compile-time class reference. Removing Streamable will fail compilation
-    // here regardless of whether any other test method exercises a method.
-    assertSame(Streamable.class, Streamable.class);
+  public void streamableIsAPublicInterfaceWithNoFields() {
+    // Replaces an earlier tautological pin with falsifiable invariants: the interface must
+    // remain `public interface` (not abstract class, not enum, not annotation) and must declare
+    // no fields. A regression that converted Streamable to an abstract class — invalidating
+    // the assumption that any concrete class could implement multiple Streamables — would
+    // fail here. Compile-time deletion of the type itself is already pinned by the
+    // `implements Streamable` clause on TestStreamable above.
+    assertTrue("Streamable must be a public type",
+        Modifier.isPublic(Streamable.class.getModifiers()));
+    assertTrue("Streamable must remain an interface", Streamable.class.isInterface());
+    assertEquals(
+        "Streamable must declare no fields (zero state contract)",
+        0, Streamable.class.getDeclaredFields().length);
   }
 }
