@@ -341,8 +341,28 @@ public class JSONSerializerJacksonImportBackwardsCompatTest extends TestUtilsFix
     var json = "{\"@type\":\"d\",\"@class\":\"" + REGULAR_CLASS
         + "\",\"name\":\"alpha	beta\"}";
     inTx(() -> {
-      assertThrows(SerializationException.class, () -> parseImport(json));
+      var ex = assertThrows(SerializationException.class, () -> parseImport(json));
+      // Pin the cause-chain reason so the parity claim doesn't degrade to "any error counts".
+      var chain = chainMessagesOf(ex).toLowerCase();
+      assertTrue(
+          "expected unescaped-control-char diagnostic in cause chain, got: " + chainMessagesOf(ex),
+          chain.contains("illegal unquoted character") || chain.contains("control character"));
     });
+  }
+
+  /**
+   * Walk the {@link Throwable#getCause()} chain and concatenate every non-null message. Used by
+   * exception-pin tests that want to assert on the underlying Jackson diagnostic rather than the
+   * outer wrap message — the cause chain is more stable across re-wraps.
+   */
+  private static String chainMessagesOf(Throwable t) {
+    var sb = new StringBuilder();
+    for (Throwable c = t; c != null; c = c.getCause()) {
+      if (c.getMessage() != null) {
+        sb.append(c.getMessage()).append(" | ");
+      }
+    }
+    return sb.toString();
   }
 
   // ====================================================================== readAllowGraphStructure=true
@@ -430,7 +450,17 @@ public class JSONSerializerJacksonImportBackwardsCompatTest extends TestUtilsFix
     // brace; Jackson's parseEnd-of-object handling triggers regardless of relaxed flags.
     var json = "{\"@type\":\"d\",\"@class\":\"" + REGULAR_CLASS + "\",\"name\":\"x\"";
     inTx(() -> {
-      assertThrows(SerializationException.class, () -> parseBackwardsCompat(json));
+      var ex = assertThrows(SerializationException.class, () -> parseBackwardsCompat(json));
+      // Pin the cause-chain reason — without this, the test could pass for any unrelated error
+      // (e.g., schema lookup failure) that happens to surface as SerializationException.
+      var chain = chainMessagesOf(ex).toLowerCase();
+      assertTrue(
+          "expected unexpected-end-of-input diagnostic in cause chain, got: "
+              + chainMessagesOf(ex),
+          chain.contains("end-of-input")
+              || chain.contains("end of input")
+              || chain.contains("unexpected end")
+              || chain.contains("unexpected eof"));
     });
   }
 

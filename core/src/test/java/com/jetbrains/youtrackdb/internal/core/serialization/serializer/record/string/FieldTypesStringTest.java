@@ -16,7 +16,9 @@
 package com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
@@ -211,7 +213,7 @@ public class FieldTypesStringTest {
     assertEquals(2, result.size());
     assertEquals(Character.valueOf('f'), result.get("a"));
     assertEquals(Character.valueOf('l'), result.get("c"));
-    assertTrue("broken-entry must NOT appear as a key", !result.containsKey("broken"));
+    assertFalse("broken-entry must NOT appear as a key", result.containsKey("broken"));
   }
 
   /**
@@ -236,7 +238,9 @@ public class FieldTypesStringTest {
     final Map<String, Character> returned =
         FieldTypesString.loadFieldTypesV0(supplied, "a=f,b=l");
 
-    assertEquals("returned reference must be the supplied map", supplied, returned);
+    // Reference identity, not content equality — `assertEquals` on Map compares entries, so a
+    // regression that copied the entries into a freshly-allocated map would still satisfy it.
+    assertSame("returned reference must be the supplied map", supplied, returned);
     assertEquals(3, supplied.size());
     assertEquals(Character.valueOf('x'), supplied.get("preexisting"));
     assertEquals(Character.valueOf('f'), supplied.get("a"));

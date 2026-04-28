@@ -18,6 +18,7 @@ package com.jetbrains.youtrackdb.internal.core.serialization.serializer;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
@@ -101,6 +102,56 @@ public class JSONReaderStandaloneTest {
     var read = r.nextChar();
     assertEquals('A', (char) read);
     assertEquals(6, r.getCursor());
+  }
+
+  /**
+   * Pin the null character (codepoint 0) round-trip through the unicode-escape branch. The
+   * downstream consumer of the parsed string may be
+   * a C/JNI sink for which embedded nulls are a truncation hazard — pinning the parser's accept
+   * behaviour here makes any future hardening (rejecting nulls outright) loud.
+   */
+  @Test
+  public void unicodeEscapeForNullCharacterIsAccepted() throws Exception {
+    var r = new JSONReader(new StringReader("\\u0000"));
+    assertEquals(0, r.nextChar());
+    assertEquals(6, r.getCursor());
+  }
+
+  /**
+   * Pin the surrogate-pair contract for U+1F600 (😀) — the parser treats {@code 😀} as
+   * two consecutive {@code char} values, not a single combined codepoint. A regression that began
+   * combining surrogates (or, conversely, rejecting unmatched surrogates) would surface here.
+   */
+  @Test
+  public void unicodeEscapeForSurrogatePairProducesTwoCharsInOrder() throws Exception {
+    var r = new JSONReader(new StringReader("\\uD83D\\uDE00"));
+    assertEquals(0xD83D, r.nextChar());
+    assertEquals(0xDE00, r.nextChar());
+  }
+
+  /**
+   * Pin the malformed-hex behaviour: {@code &#92;uZZZZ} fails at the {@code Integer.parseInt(...,16)}
+   * call inside {@code nextChar}, surfacing the JDK {@link NumberFormatException} unwrapped to the
+   * caller. Pinning the current contract makes a future hardening that wrapped the failure in a
+   * project-specific {@code SerializationException} a loud test break — at which point the
+   * production behaviour is the more desirable one and this test should follow.
+   */
+  @Test
+  public void unicodeEscapeWithMalformedHexThrowsNumberFormatException() {
+    var r = new JSONReader(new StringReader("\\uZZZZ"));
+    assertThrows(NumberFormatException.class, r::nextChar);
+  }
+
+  /**
+   * Pin the truncated-{@code &#92;u}-at-EOF contract. The parser reads four hex chars after the
+   * {@code &#92;u}; if the underlying reader runs out at any point during the read, the loop's
+   * {@code reader.read()} returns {@code -1}, which the production code propagates back as
+   * {@code -1} from {@code nextChar} (it does not parse the partial buffer).
+   */
+  @Test
+  public void unicodeEscapeTruncatedAtEofReturnsMinusOne() throws Exception {
+    var r = new JSONReader(new StringReader("\\u00"));
+    assertEquals(-1, r.nextChar());
   }
 
   @Test
@@ -262,7 +313,11 @@ public class JSONReaderStandaloneTest {
   public void readNextReturnsSelfForFluentChaining() throws Exception {
     var r = new JSONReader(new StringReader("v,"));
     var same = r.readNext(JSONReader.COMMA_SEPARATOR);
-    assertEquals(r, same);
+    // Reference identity — JSONReader does not override equals, so assertEquals would degrade
+    // to Object.equals (reference identity) by accident; assertSame expresses the contract
+    // directly so a future equals-override does not silently pass for a regression returning
+    // a different instance with the same parser state.
+    assertSame(r, same);
     assertEquals("v", r.getValue());
   }
 
@@ -348,7 +403,9 @@ public class JSONReaderStandaloneTest {
     var r = new JSONReader(new StringReader("v,"));
     r.readNext(JSONReader.COMMA_SEPARATOR);
     var same = r.checkContent("v");
-    assertEquals(r, same);
+    // Reference identity — JSONReader does not override equals; assertSame expresses the
+    // fluent-API self-return contract directly.
+    assertSame(r, same);
   }
 
   @Test

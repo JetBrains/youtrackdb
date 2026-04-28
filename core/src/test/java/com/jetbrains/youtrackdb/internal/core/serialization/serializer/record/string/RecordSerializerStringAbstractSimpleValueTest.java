@@ -33,7 +33,6 @@ import java.util.Base64;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.GregorianCalendar;
-import java.util.TimeZone;
 import org.junit.Test;
 
 /**
@@ -598,12 +597,11 @@ public class RecordSerializerStringAbstractSimpleValueTest extends TestUtilsFixt
         "input must be a non-midnight time in the DB timezone",
         dbCal.getTimeInMillis() != input.getTime());
 
-    // Reference to TimeZone.getDefault() is not used in production for DATE branches — pin by
-    // contradiction: if the implementation accidentally switched to JVM-default truncation on
-    // a non-default DB timezone, the assertion above would fail. We don't force a non-default
-    // DB timezone here because the project test harness uses the JVM default by default; the
-    // pin above plus the DateHelper-derived expectation guards both cases.
-    @SuppressWarnings("unused")
-    var jvmDefault = TimeZone.getDefault();
+    // The pin above (DateHelper-derived expected midnight) is the actual test of the
+    // DB-timezone-vs-JVM-default contract: if the implementation accidentally switched to
+    // JVM-default truncation on a non-default DB timezone, the equality above would fail.
+    // The project test harness uses the JVM default by default, so we cannot force a divergence
+    // without mutating system state; the equality + the non-trivial-truncation assertion that
+    // follows are sufficient as the pinned invariants.
   }
 }

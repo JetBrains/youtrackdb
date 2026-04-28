@@ -390,4 +390,38 @@ public class BinaryProtocolTest {
     var bis = new ByteArrayInputStream(new byte[0]);
     Assert.assertEquals(-1L, BinaryProtocol.bytes2long(bis));
   }
+
+  /**
+   * bytes2short on an empty InputStream produces -1 — same short-read pathology as the int and
+   * long forms; previously unpinned for the 16-bit form even though the documented contract is
+   * symmetric.
+   */
+  @Test
+  public void bytes2shortOverEmptyStreamReturnsMinusOne() throws IOException {
+    var bis = new ByteArrayInputStream(new byte[0]);
+    Assert.assertEquals(-1, BinaryProtocol.bytes2short(bis));
+  }
+
+  /**
+   * Partial-stream pin: reading {@code bytes2int} over a 3-byte stream composes the first three
+   * bytes plus a 4th byte of {@code 0xFF} (every read past EOF returns -1). Pinning the partial
+   * case alongside the fully-empty case catches a regression where short-read semantics differ
+   * for partial inputs (e.g., a future hardening that throws on EOF mid-read would surface here).
+   */
+  @Test
+  public void bytes2intOverPartialStreamComposesAvailableBytesPlusEofFill() throws IOException {
+    var bis = new ByteArrayInputStream(new byte[] {0x12, 0x34, 0x56});
+    Assert.assertEquals(0x123456FF, BinaryProtocol.bytes2int(bis));
+  }
+
+  /**
+   * Partial-stream pin for the long form — symmetric with the int partial-read pin above. Reads
+   * 7 bytes from the input then composes -1 into the low byte.
+   */
+  @Test
+  public void bytes2longOverPartialStreamComposesAvailableBytesPlusEofFill() throws IOException {
+    var bis = new ByteArrayInputStream(new byte[] {0x12, 0x34, 0x56, 0x78, (byte) 0x9A,
+        (byte) 0xBC, (byte) 0xDE});
+    Assert.assertEquals(0x123456789ABCDEFFL, BinaryProtocol.bytes2long(bis));
+  }
 }
