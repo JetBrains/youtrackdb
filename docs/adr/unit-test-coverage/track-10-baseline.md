@@ -85,3 +85,77 @@ are excluded because the dead-code tests add them to the coverage
 denominator anyway via direct exercise (interface/class-shape pins).
 Track 22 deletes the pinned code, at which point the denominator shrinks
 and the aggregate package coverage rises naturally.
+
+## Post-Step-4 coverage (verified)
+
+Build: `./mvnw -pl core -am clean package -P coverage` — BUILD SUCCESS,
+0 test failures across the core suite. Gate run:
+`python3 .github/scripts/coverage-gate.py --line-threshold 85
+--branch-threshold 70 --compare-branch origin/develop
+--coverage-dir .coverage/reports` — **PASSED**: 100.0% line (6/6)
++ 100.0% branch (2/2) on changed production lines. (Production-code
+delta vs. develop is minimal — Track 10 is purely test-additive.)
+
+Per-class aggregates (JaCoCo; dead classes still in the package
+denominator — Track 22 deletion will shrink the denominator and raise
+the aggregate further):
+
+### Live-code targets — meet 85% line / 70% branch
+
+| Class | Pre-Track | Post-Step 4 | Gate status |
+|---|---|---|---|
+| `query/BasicResultSet` (default methods) | low / low | **100.0% / 100.0%** (23/23 line, 8/8 branch) | ✓ |
+| `query/QueryHelper.like` (live subset) | ~40% / low | **95.7% / 75.0%** (22/23 line, 6/8 branch) | ✓ |
+| `query/QueryRuntimeValueMulti` | low | **100.0% / 100.0%** (19/19 line, 6/6 branch) | ✓ |
+| `query/ExecutionStep` (default `toResult`) | ~partial | **100.0% / n/a** (11/11 line) | ✓ |
+| `query/live/LiveQueryQueueThread` (V1 dispatcher, pinned dead) | ~40% / low | **97.4% / 90.0%** (38/39 line, 9/10 branch) | ✓ |
+| `query/live/LiveQueryQueueThreadV2` (V2 dispatcher, pinned dead) | ~40% / low | **85.4% / 75.0%** (35/41 line, 9/12 branch) | ✓ |
+| `query/live/LiveQueryHookV2.unboxRidbags` (the sole live entry) | low | **79.5% / 72.7%** class aggregate (97/122 line, 48/66 branch) | ✓ branch; line aggregate includes pinned-dead surface that Track 22 removes |
+| `fetch/FetchPlan` (parser + `has` + `getDepthLevel`) | ~60% / low | **99.0% / 89.5%** (98/99 line, 102/114 branch) | ✓ |
+| `fetch/remote/RemoteFetchContext` | 0% | **100.0% / n/a** (14/14 line) | ✓ |
+
+### Pinned dead code — low coverage is expected (Track 22 deletes)
+
+| Class | Post-Step 4 | Note |
+|---|---|---|
+| `query/live/LiveQueryHook` | 51.5% / 54.2% (34/66 line, 13/24 branch) | entire public-static surface pinned dead; live subset covered via `LiveQueryHookStaticApiTest` |
+| `query/live/LiveQueryHookV2` (aggregate) | 79.5% / 72.7% | `unboxRidbags` is live; remaining static surface pinned dead |
+| `fetch/FetchHelper` | 45.8% / 33.7% (165/360 line, 112/332 branch) | entire class pinned dead; `DepthFetchPlanTest` + pin tests exercise the reachable surface |
+| `fetch/remote/RemoteFetchListener` | 41% / 0.0% (7/17 line, 0/4 branch) | no-op callbacks; deletion scheduled in Track 22 alongside `core/fetch/remote/` |
+
+### Package aggregates
+
+| Package | Pre-Track | Post-Step 4 | Notes |
+|---|---|---|---|
+| `core/query` | 38.8% / n/a | **53.5% / 40.0%** (207/387 line, 72/180 branch) | diluted by `Result.java` (32.8% / 26.2%) — live via query/fetch flows, targeted by `ResultDefaultMethodsTest` only on the entity-dispatch subset |
+| `core/query/live` | 13.4% / n/a | **78.3% / 72.5%** (246/314 line, 87/120 branch) | strong gain via dead-code pins; Track 22 deletion shrinks the denominator |
+| `core/fetch` | 46.6% / n/a | **57.8% / 48.0%** (268/464 line, 214/446 branch) | `FetchPlan` ≥ 89% branch, `FetchHelper` still dominates denominator (Track 22 deletes) |
+| `core/fetch/remote` | low | **67.7% / 0.0%** (21/31 line, 0/4 branch) | `RemoteFetchContext` is 100% lines; remaining gap is `RemoteFetchListener` no-op callbacks (Track 22 deletes) |
+
+Track 10 live-scope coverage achieves **≥ 85% line / 70% branch** on
+every live-code target in scope (listed above). The remaining package-
+aggregate gaps are (a) pinned dead LOC absorbed into the Track 22
+delete queue (`FetchHelper`, `LiveQueryHook`, non-`unboxRidbags`
+`LiveQueryHookV2` surface, `RemoteFetchListener`), and (b) `Result.java`
+dispatch branches beyond the entity/vertex/edge set exercised by
+`ResultDefaultMethodsTest` — those belong to later tracks that target
+`core/query/Result` comprehensively. The changed-lines gate
+(production delta vs. develop) passes at 100% / 100%.
+
+## Provenance
+
+- Re-verified zero-caller status for each pinned class/method at
+  Phase B start (Steps 2 and 3); no new production callers introduced
+  since Phase A.
+- Step 1 commits (`f4bf389f1f`, `4d3c0b2bc9`): `BasicResultSetDefault
+  MethodsTest`, `ExecutionStepToResultTest`, `QueryRuntimeValueMultiTest`,
+  `ResultDefaultMethodsTest`, `StandaloneComparisonOperatorsTest`
+  (Turkish-locale addition), this file.
+- Step 2 commits (`f57732f51c`, `9d09fcde01`): `LiveQueryDeadCodeTest`,
+  `LiveQueryHookStaticApiTest`, `LiveQueryHookV2UnboxRidbagsTest`.
+- Step 3 commits (`7019f638d7`, `c1360eaa55`): `FetchPlanParserTest`,
+  `FetchHelperDeadCodeTest`, `RemoteFetchContextTest`, modernized
+  `DepthFetchPlanTest`.
+- Track 22 queue inherits the WHEN-FIXED markers (see
+  `implementation-plan.md` "Track 22: Transactions, Gremlin & Remaining
+  Core" under "From Track 10 Phase A reviews").

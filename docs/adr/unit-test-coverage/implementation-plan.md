@@ -971,7 +971,7 @@ flowchart TD
   > mutations, dead-code pinning via `*DeadCodeTest` + WHEN-FIXED markers)
   > continue to apply.
 
-- [ ] Track 11: Scheduler
+- [x] Track 11: Scheduler
   > Write tests for the task scheduler subsystem.
   >
   > Target packages:
@@ -983,9 +983,102 @@ flowchart TD
   > class — good standalone test target. SchedulerImpl manages the
   > timer thread and event queue.
   >
-  > **Scope:** ~3 steps covering CronExpression, scheduler lifecycle,
-  > and verification
-  > **Depends on:** Track 1
+  > **Track episode:**
+  > Added ~3,375 LOC of test code across 8 new files + 1 shared fixture
+  > covering `core/schedule` (CronExpression, ScheduledEvent / Builder,
+  > SchedulerImpl, SchedulerProxy). Purely test-additive: zero production
+  > code modified. Aggregate package coverage rose from baseline 45.7%
+  > line / n/a branch to **86.4% line / 75.1% branch** — exceeds the
+  > project-wide 85% line / 70% branch target. All R6-style per-file
+  > acceptances (drafted in Phase A as `~75% line / ~60% branch` for
+  > `SchedulerImpl` and `~75% line / ~55–60% branch` for `ScheduledEvent`)
+  > were materially exceeded — actual outer-class coverage 97.4% / 88.9%
+  > and 98.1% / 75.0%. The residual gap concentrates in
+  > `ScheduledEvent$ScheduledTimerTask` (60.0% / 55.0%) where the
+  > retry-loop catch branches and run-time interrupt race are
+  > out-of-scope-by-design.
+  >
+  > Production bugs / known issues pinned for the deferred-cleanup track
+  > via falsifiable regression tests with WHEN-FIXED markers: (a)
+  > `ScheduledEvent` ctor silently swallows `ParseException` and leaves
+  > `cron == null` (paired with the cron-field unsafe-publication
+  > finding — `cron` is non-final / non-volatile while reads are
+  > timer-locked); (b) `executeEventFunction` retry-loop bug where the
+  > 10× loop runs unconditionally because `catch NeedRetryException` is
+  > mis-scoped inside the lambda; (c) `SchedulerImpl.onEventDropped` NPE
+  > when the dropped-events custom-data map was never populated; (d)
+  > `CronExpression` DOM-field parser leniency (e.g., `"0 0 12 5X * ?"`
+  > silently dropped trailing `X`). Plus deletion items absorbed:
+  > `CronExpression` lazy `TimeZone.getDefault()` fallback in
+  > `getTimeZone()` (refined from track plan's broader scope — the
+  > `setTimeZone(TimeZone)` setter itself stays live), deprecated
+  > `Scheduler.{load, close, create}` interface methods + their three
+  > `SchedulerProxy` overrides, and a residual-gap entry covering the
+  > two log-and-swallow `catch (Exception)` paths in `SchedulerImpl`
+  > plus the interrupt-during-run race (recorded as out-of-scope-by-design
+  > rather than as deletion candidates).
+  >
+  > Track-level code review ran 2 iterations (6 dimensions:
+  > CQ/BC/TB/TC/TS/TX). Iter-1: 0 blockers / 3 should-fix (missing
+  > SchedulerProxy live-method delegation tests, null-PROP_STATUS
+  > branch, getEvents live-mutation observability) / ~17 suggestions;
+  > TX returned PASS. Iter-1 fix commit `59520943a7` addressed all 3
+  > should-fix items + the higher-value suggestions (DAY_OF_WEEK
+  > overflow remap pin, isSatisfiedBy null-time-after pin,
+  > all-builder-setters-accept-null parameterized pin, builder
+  > reuse-after-build invariant, onEventDropped null-map NPE pin, etc.)
+  > and added the new `SchedulerProxyTest` covering live-method
+  > delegation. Iter-2 gate-check PASSED on all 5 dimensions
+  > (CQ/BC/TB/TC/TS — TX needed no re-run): all iter-1 fixes VERIFIED
+  > (or REJECTED where the stronger iter-1 fix made the original
+  > suggestion moot), zero open blockers, zero open should-fix, ~17
+  > new suggestion-tier findings. Three high-leverage suggestions fixed
+  > in `634a8a5a83`: replaced `firstView instanceof ConcurrentHashMap`
+  > with `assertEquals(ConcurrentHashMap.class, firstView.getClass())`
+  > (strictly more falsifiable — catches subclass-wrapper regressions),
+  > replaced 4× vacuous `assertNotNull(<builder-returned ref>)` with
+  > load-bearing `assertNotSame(<builder-returned>, <registered>)`
+  > assertions pinning the dual-instance invariant, and replaced the
+  > inline FQN `EntityImpl` reference in `SchedulerProxyTest` with a
+  > regular import.
+  >
+  > Test count: **161 tests** across 8 new test files (78
+  > CronExpression + 16 CronExpressionDeadCode + 10
+  > ScheduledEventBuilder + 11 ScheduledEvent + 24 SchedulerImpl + 11
+  > SchedulerProxy + 5 SchedulerSurfaceDeadCode + 6 pre-existing
+  > SchedulerTest end-to-end) plus the shared `SchedulerTestFixtures`
+  > package-private helper. Spotless clean. Coverage gate: 100.0%
+  > line / 100.0% branch on changed production lines (trivially, since
+  > the track is purely test-additive).
+  >
+  > No plan corrections to Tracks 12–21. The deferred-cleanup track's
+  > existing scheduler-absorption block (committed in `d7395358fc`)
+  > already captures the substantive deletion items, production-bug
+  > fixes, and out-of-scope-by-design entries. ~14 iter-2 suggestion-
+  > tier items (interrupt-with-null-timer branch, tab-separator parse,
+  > DST spring-forward test, direct `SchedulerImpl.{create, load}`
+  > pins needed once proxy deprecated methods are deleted, plus
+  > DRY/cohesion sweep candidates) are recorded in the step-file
+  > Iter-2 summary and may be picked up at the deferred-cleanup
+  > track's discretion.
+  >
+  > **Step file:** `tracks/track-11.md` (4 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact on Tracks 12–21.
+  > All Track 11 discoveries (scheduler dead code, WHEN-FIXED bug pins,
+  > residual-gap acceptances) are scheduler-internal and already cataloged
+  > in the Track 22 section of this plan. Test-infrastructure precedents
+  > from Tracks 5–11 (`TestUtilsFixture` + `@After rollbackIfLeftOpen`,
+  > falsifiable-regression + WHEN-FIXED marker convention, dead-code pins
+  > via `*DeadCodeTest` classes, `@Category(SequentialTest)` for static-
+  > state mutations, `// forwards-to: Track NN` cross-track bug-pin
+  > convention, `Iterable` detach-after-commit pattern) continue to apply.
+  > `common/serialization` (146 uncov, 34.5%) is owned by Track 12 per
+  > Track 3's explicit deferral — no boundary conflict. Track 8's D2
+  > override (DbTestBase-by-default for executor-step tests) is per-track
+  > and does not propagate to Track 12; default D2 (standalone over
+  > DbTestBase) applies for serialization round-trips except where link/
+  > embedded resolution genuinely needs a session.
 
 - [ ] Track 12: Serialization — String & Core
   > Write tests for the string record serializer and core serialization
@@ -1533,12 +1626,139 @@ flowchart TD
   >   package-private helper consolidates the schedule-domain
   >   builders/cleanup within the package and does not need promotion
   >   to `test-commons`.
+  > - **From Track 12 (Serialization — String & Core) Phase A reviews +
+  >   Phase B step episodes:** Deletions, residual coverage gaps, and
+  >   refinements queued for Track 22, all pinned via `*DeadCodeTest`
+  >   classes (one per dead surface) under `core/src/test/java/.../
+  >   serialization/`:
+  >   (a) **`RecordSerializerCSVAbstract` instance API deletion**
+  >   (~866 LOC; pinned in `RecordSerializerCsvAbstractDeadCodeTest`):
+  >   the abstract instance methods (`fieldFromStream`, `fieldToStream`,
+  >   `embeddedCollectionFromStream`, `embeddedCollectionToStream`, etc.)
+  >   have **zero concrete subclasses or `new`-instantiations** anywhere
+  >   in the project after YTDB-86 removed `RecordSerializerSchemaAware2CSV`
+  >   in commit `24d5a3d967`. Only the static helper
+  >   `embeddedMapFromStream(...)` (used by `SQLHelper.parseValue` and
+  >   `EntityHelper`) is live and stays. Aggregate uncovered lines on
+  >   this class: 360 of 402 (89.6% uncovered) — dominates the residual
+  >   gap on `core/serialization/serializer/record/string`.
+  >   (b) **`RecordSerializerStringAbstract` abstract-instance API
+  >   deletion** (588 LOC, of which ~200 LOC are abstract instance
+  >   methods; pinned in `RecordSerializerStringAbstractDeadCodeTest`):
+  >   four unused public statics on the same class (zero callers in
+  >   `core/`, `server/`, `driver/`, `embedded/`, `gremlin-annotations/`,
+  >   `tests/`, `test-commons/`, `docker-tests/`). The live static
+  >   helpers (`getType(String)`, `getTypeValue(...)`, `simpleValue*`,
+  >   `embeddedMapFromStream(...)`) stay. After (a) and (b) deletions,
+  >   `RecordSerializerCsvAbstractEmbeddedMapTest` and
+  >   `RecordSerializerStringAbstractStaticsTest` /
+  >   `RecordSerializerStringAbstractSimpleValueTest` continue to pin
+  >   the live helper subset.
+  >   (c) **`JSONWriter` deletion** (511 LOC; pinned in
+  >   `JSONWriterDeadCodeTest`): zero callers in `core/`, `server/`,
+  >   `driver/`, `embedded/`, `gremlin-annotations/`, `tests/`,
+  >   `test-commons/`, `docker-tests/`. Despite living next to live
+  >   `JSONReader` (which has one production caller — `DatabaseImport`),
+  >   `JSONWriter` is fully orphaned and accounts for 158 of the 362
+  >   uncovered lines on `core/serialization/serializer`.
+  >   (d) **`Streamable` interface + `StreamableHelper` deletion**
+  >   (176 LOC of helper + the marker interface; pinned in
+  >   `StreamableInterfaceDeadCodeTest` and `StreamableHelperDeadCodeTest`):
+  >   the `Streamable` interface has **zero implementors** in the
+  >   project; `StreamableHelper.{toStream,fromStream}` are reachable
+  >   only through that dead interface. Cross-module grep confirms no
+  >   external callers. The `StreamableHelper$1` inner class (2 lines)
+  >   is part of the same dead surface.
+  >   (e) **`SerializationThreadLocal` listener / shutdown path
+  >   deletion** (54 LOC; pinned in
+  >   `SerializationThreadLocalDeadCodeTest`): the `addListener` /
+  >   `removeListener` API and the listener-dispatch shutdown path have
+  >   zero readers; only the per-thread `ThreadLocal<Map>` accessor
+  >   stays live. The `SerializationThreadLocal$1` synthetic inner class
+  >   accounts for 3 of the 3 uncovered lines on
+  >   `core/serialization/serializer/record`.
+  >   (f) **Residual coverage gap on `JSONSerializerJackson`'s
+  >   `IMPORT_BACKWARDS_COMPAT_INSTANCE` legacy 1.x export branches**
+  >   (~5 percentage points on the live class — outer-class coverage
+  >   80.0% line / 70.1% branch; pinned in
+  >   `JSONSerializerJacksonImportBackwardsCompatTest` Javadoc): the
+  >   pre-version-14 export branch at `DatabaseImport.java:416` is
+  >   reachable only through `DatabaseImport` of legacy 1.x export
+  >   files. Constructing the full 1.x schema/RID layout end-to-end is
+  >   disproportionate to the marginal coverage gain since the four
+  >   flag distinctions (`oldFieldTypesFormat`, `unescapedControlChars`,
+  >   `replacements`, `readAllowGraphStructure`) are already
+  >   individually pinned via the import-mode test files. Track 22 +
+  >   Track 15 (`db/tool` integration) jointly own the residual; if
+  >   the legacy 1.x exporter compatibility is dropped from the
+  >   product, the branch can be deleted outright.
+  >   (g) **Residual coverage gap on `StringSerializerHelper`** (live
+  >   class, 68.2% line / 60.3% branch; 182 of 573 lines uncovered):
+  >   Track 12's scope was "extensions" only — the existing
+  >   `StringSerializerHelperTest` baseline plus targeted new pins.
+  >   The remaining gap is in low-level parser branches (escape
+  >   handling, multi-quote splits, edge-case empty-string returns)
+  >   and in helper methods that are dead in the post-CSV-deletion
+  >   surface. After (a)–(c) deletions land, re-measure; if still
+  >   below target, decide between extending the test or marking
+  >   the residual lines as dead.
+  >   (h) **Residual coverage gap on `MemoryStream`** (62.3% line /
+  >   58.0% branch; 69 of 183 lines uncovered): per Phase A
+  >   cross-track decision, Track 12's `MemoryStreamTest` covers the
+  >   raw read/write/grow/move/copyFrom primitives only.
+  >   `RecordId*` and `RecordBytes` round-trips that exercise the
+  >   remaining surface are deferred to Track 14 (DB Core & Config) /
+  >   Track 15 (Record Implementation & DB Tool). `MemoryStream` is
+  >   `@Deprecated` but still used by `RecordId*` / `RecordBytes` /
+  >   `CommandRequestTextAbstract` / Track-9-pinned-dead `CommandScript`,
+  >   so deletion is gated on those callers being migrated first.
+  >   (i) **Residual coverage gap on `UnsafeBinaryConverter`** (live
+  >   class, 75.8% line / 50.0% branch; 31 of 128 lines uncovered):
+  >   the `Safe/UnsafeConverterTest` repair in Step 1 + extensions in
+  >   Step 3 cover the round-trip and offset edge cases; the residual
+  >   is the platform-detection cold path (`UnsafeBinaryConverter$1`
+  >   60.0% line — synthetic inner class for static initializer) and
+  >   `nativeAccelerationUsed` returns whose `MEMORY_USE_UNSAFE` toggle
+  >   is exercised process-wide. Re-measure after `BinaryConverterFactory`
+  >   pinning lands; if irreducible, mark as out-of-scope-by-design.
+  >   (j) **Residual coverage gap on `StreamSerializerRID`** (live
+  >   class, 82.6% line / 100.0% branch; 4 of 23 lines uncovered):
+  >   the `StreamSerializerRIDTest` extension in Step 3 covers the
+  >   primary serialize/deserialize round-trip; the 4 uncovered lines
+  >   are an unused two-arg constructor + a deprecated wrapper method
+  >   that delegates to the primary method. Pinned via shape assertion;
+  >   delete in the same sweep as (a)–(e).
+  >   (k) **Pre-existing inert converter tests are repaired**
+  >   (Step 1 — committed in `683189c1a3` + iter-1 review fix
+  >   `4ce8111501`): `SafeConverterTest`, `UnsafeConverterTest`, and
+  >   `AbstractConverterTest` were declaring eight `testPut*` methods
+  >   each but **zero `@Test` annotations**, so JUnit 4 silently never
+  >   ran any of them. The `@Test` annotations are now in place, the
+  >   `Assert.assertEquals(byte[], byte[])` calls (which resolved to
+  >   the `Object` overload — reference identity) are replaced with
+  >   `Assert.assertArrayEquals(expected, actual)`, and the scalar
+  >   argument order is corrected to `(expected, actual)`. The
+  >   abstract base now uses `protected final assertPut*RoundTrips()`
+  >   helpers + per-subclass `@Test public void put*RoundTrips()`
+  >   methods (codebase-idiomatic shape; precedent
+  >   `AbstractComparatorTest`). Result: 16 newly-active tests on the
+  >   `common/serialization` surface; baseline `common/serialization`
+  >   coverage corrected from the pre-fix inflated **34.5% line /
+  >   27.1% branch** to the actual post-fix **82.1% line / 61.4%
+  >   branch**, against which Track 12's other Steps were measured.
+  >   No Track 22 deletion item — this is a pure test-quality fix
+  >   recorded here for traceability.
+  >   No Track 12-specific DRY items: round-trip tests are scoped per
+  >   serializer instance (default vs. import vs. import-backcompat) and
+  >   do not share a builder; the `JSONSerializerJacksonInstance*Test`
+  >   classes deliberately do not subclass each other since the schema /
+  >   session setup differs by instance flag.
   >
   > **Scope:** ~6 steps covering transaction management, Gremlin
   > integration, engine lifecycle, exception/compression/config, remaining
   > small packages, and verification; plus ~2-3 steps absorbing the
   > inherited DRY / cleanup scope above (Track 7 + Track 8 + Track 9 +
-  > Track 10 + Track 11 combined)
+  > Track 10 + Track 11 + Track 12 combined)
   > **Depends on:** Track 1
 
 ## Final Artifacts
