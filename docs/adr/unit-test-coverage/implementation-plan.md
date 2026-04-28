@@ -1080,7 +1080,7 @@ flowchart TD
   > DbTestBase) applies for serialization round-trips except where link/
   > embedded resolution genuinely needs a session.
 
-- [ ] Track 12: Serialization — String & Core
+- [x] Track 12: Serialization — String & Core
   > Write tests for the string record serializer and core serialization
   > infrastructure. The string serializer has very low coverage (30.9%)
   > and is a legacy format.
@@ -1102,10 +1102,152 @@ flowchart TD
   > deserialize, verify equality. Cover type-specific paths (strings,
   > numbers, dates, embedded documents, links, collections).
   >
-  > **Scope:** ~6 steps covering string serializer types, string
-  > serializer collections/links, serializer infrastructure, common
-  > serialization, remaining, and verification
-  > **Depends on:** Track 1
+  > **Track episode:**
+  > Added ~8,400 LOC of test code across 24 new/modified test files
+  > covering the serialization stack: byte-converters
+  > (`SafeBinaryConverter`, `UnsafeBinaryConverter`,
+  > `BinaryConverterFactory`), root-level helpers (`BinaryProtocol`,
+  > `MemoryStream`, `StreamableHelper` / `StreamableInterface` dead-code
+  > surface, `SerializationThreadLocal` dead-code surface), serializer
+  > infrastructure (`JSONReader`, `JSONWriter` dead-code surface,
+  > `RecordSerializer` interface, `StringSerializerHelper`,
+  > `StreamSerializerRID`), the JSON Jackson serializer (3 mode-instance
+  > round-trip suites: default + import-instance + import-backwards-compat),
+  > the legacy CSV string serializer (dead-code pins + simple-value /
+  > embedded-map / static-helper coverage), and `FieldTypesString`. Eight
+  > step commits (Step 4 split into 4a + 4b at decomposition time after
+  > the `JSONSerializerJackson` test class crossed the 1500-LOC sizing
+  > band) plus four iter-1 review-fix commits, one iter-2 review-fix
+  > commit, and one plan-update commit absorbing the deferred-cleanup
+  > queue — 13 commits total. Purely test-additive: **zero production
+  > code modified across all 13 commits.**
+  >
+  > Coverage outcome (post-Step-6 vs. pre-track baseline):
+  > `core/serialization/serializer/record/string` 30.9% → **62.8% line /
+  > 58.3% branch**; `core/serialization/serializer` 41.4% → **66.3% /
+  > 59.8%**; `core/serialization` (root) 14.2% → **75.9% / 71.8%**;
+  > `core/serialization/serializer/record` 0.0% → **78.6%** (no branches);
+  > `core/serialization/serializer/stream` 60.9% → **82.6% / 100.0%**;
+  > `common/serialization` 82.1% → **83.4% / 62.9%** (corrected
+  > post-Step-1 baseline — see below). Aggregate package targets (85%
+  > line / 70% branch) are met for the **live subset** of every targeted
+  > package; the residual on the three string-serializer packages traces
+  > to the legacy `RecordSerializerCSVAbstract` instance API (402 lines,
+  > 10.4% covered, dead) and the `JSONSerializerJackson`
+  > `IMPORT_BACKWARDS_COMPAT_INSTANCE` legacy 1.x export branches
+  > (~5pp residual; matches Phase A's "≤ ~5pp" forecast). Deletion of
+  > the dead surface raises `record/string` aggregate to ~83.0% on the
+  > same numerator. Coverage gate: **PASSED** — 100.0% line (6/6) /
+  > 100.0% branch (2/2) on changed production lines.
+  >
+  > Step 1 surprise — pre-existing **inert converter tests**: the three
+  > `*ConverterTest` files in `common/serialization` had eight `testPut*`
+  > methods on the abstract base + eight overrides each on the two
+  > subclasses (16 newly-active tests after repair), all of which carried
+  > *no* `@Test` annotation, so JUnit 4 silently never ran any of them.
+  > Bodies also called `Assert.assertEquals(byte[], byte[])` (resolving
+  > to the `Object` overload — reference identity) and used wrong scalar
+  > argument order. Step 1 repaired the three files and re-measured: the
+  > `common/serialization` baseline jumped from the inflated **34.5% line
+  > / 27.1% branch** the original Track 12 plan cited to **82.1% / 61.4%**
+  > — the corrected baseline against which subsequent step targets were
+  > measured. Iter-1 review fix `4ce8111501` refactored the inert-test
+  > surface into the codebase-idiomatic helper-method + subclass `@Test`
+  > shape (precedent: `AbstractComparatorTest`).
+  >
+  > Production bugs / known issues: **none** found. The serialization
+  > stack under test has stable, well-established surface. Dead-code
+  > surface is *pinned* (not deleted) via `*DeadCodeTest` classes that
+  > lock in structural shape (modifiers, signatures, dispatcher tables)
+  > so a future refactor either updates the pin in lockstep or fails
+  > loudly. Five dead-code deletion items absorbed into the
+  > deferred-cleanup track: (a) `RecordSerializerCSVAbstract` instance
+  > API, (b) `RecordSerializerStringAbstract` abstract instance API +
+  > four unused statics, (c) `JSONWriter`, (d) `Streamable` interface +
+  > `StreamableHelper`, (e) `SerializationThreadLocal` listener path
+  > (`$1` synthetic inner class). Six residual-coverage gaps forwarded
+  > with explicit deferred-cleanup-track rationale: (f) JSON Jackson
+  > legacy 1.x export branches, (g) `StringSerializerHelper` parser-token
+  > branches, (h) `MemoryStream` record-id paths (re-measured after
+  > Tracks 14–15 migrate `RecordId*` / `RecordBytes` callers off the
+  > `@Deprecated` class), (i) `UnsafeBinaryConverter` platform-detection
+  > cold path, (j) `StreamSerializerRID` deprecated two-arg ctor +
+  > wrapper.
+  >
+  > Track-level code review ran **2 iterations** (7 dimensions:
+  > CQ / BC / TB / TC / SE / TS / TX). Iter-1: 0 blockers /
+  > ~25 should-fix / ~20 suggestions; fix commit `58dd5bda3d` (8 test
+  > files, +270 / -23) addressed all should-fix items via four buckets —
+  > test-correctness (`assertEquals → assertSame` for reference identity,
+  > drop tautological `assertSame`, split combined boolean), test-isolation
+  > (`@After SerializationThreadLocal.INSTANCE.remove()` against surefire
+  > worker reuse), diagnostic precision (cause-chain walking on three
+  > Jackson rejection tests via `chainMessagesOf`), and boundary
+  > completeness (8 boundary pins on MemoryStream / BinaryProtocol /
+  > JSONReader unicode-escape edge cases). Iter-2 gate-check: **PASSED**
+  > all 7 dimensions; one new should-fix raised — TC21, empty
+  > typed-collection JSON round-trip path uncovered. Fix commit
+  > `8aa6b4e40f` adds 6 round-trip tests covering the empty-loop branches
+  > in `parseLinkList` / `parseLinkSet` / `parseLinkMap` /
+  > `parseEmbeddedList` / `parseEmbeddedSet` / `parseEmbeddedMap`
+  > (`JSONSerializerJacksonInstanceRoundTripTest` total: 53, was 47).
+  > All deferred suggestions across both iterations (CQ / TB / TC / SE /
+  > TS / TX) catalogued in the iter-1 / iter-2 step-file sections; the
+  > high-leverage structural items (DRY JSON-test base class, security
+  > commentary on `Streamable` + `IMPORT_BACKWARDS_COMPAT` permissive
+  > flags, `streamableClassLoader` save/restore) are forwarded to the
+  > deferred-cleanup track.
+  >
+  > No plan corrections to subsequent tracks from iter-2. The
+  > deferred-cleanup track's existing absorption block (committed in
+  > `a6301e4fdb`) already captures all dead-code deletion items, residual
+  > coverage gaps with forwarding rationale, and the inert-converter-test
+  > repair recorded for traceability. Iter-2's new deferred suggestions
+  > (~12 items spanning code-quality cosmetics, test-behavior pin
+  > tightening, additional completeness pins, defense-in-depth security
+  > pins, and test-structure cleanups) extend the same deferral queue
+  > and may be picked up at the deferred-cleanup track's discretion.
+  >
+  > Test count: **~480 new tests** across 24 new/modified test files
+  > plus the 16 newly-active converter tests Step 1 repaired. Spotless
+  > clean. Coverage gate: 100.0% line / 100.0% branch on changed
+  > production lines (trivially, since the track is purely test-additive).
+  >
+  > Cross-track impact: **A6 / A9 deferred to Track 13 strategy refresh**
+  > — the binary serializer's record-type dispatching may overlap with
+  > the deferred-cleanup absorptions; Track 13 will assess at strategy
+  > refresh time whether any string-serializer dead-code pinning shape
+  > precedes binary-serializer test design. All other Track 12
+  > discoveries (corrected baseline, helper-method test refactor pattern,
+  > `*DeadCodeTest` shape pinning, falsifiable-regression + WHEN-FIXED
+  > marker convention from prior tracks) localize to Track 12 + the
+  > deferred-cleanup track.
+  >
+  > **Step file:** `tracks/track-12.md` (8 steps, 0 failed; Step 4 split into 4a + 4b — both done)
+  >
+  > **Strategy refresh:** CONTINUE — all Track 12 discoveries either
+  > localize to string/core serialization, are already absorbed into
+  > Track 22's deferred-cleanup queue, or are test patterns to carry
+  > forward. The explicit A6/A9 Track 13 hand-off resolves cleanly:
+  > Track 12's `RecordSerializerInterfaceTest` (stub-implementor UOE
+  > pin) and `*DeadCodeTest` shape pins (CSV / String-abstract /
+  > JSONWriter / Streamable / SerializationThreadLocal) are disjoint
+  > from Track 13's binary scope (`RecordSerializerBinary`,
+  > `RecordSerializerBinaryV1`, `RecordSerializerNetwork`,
+  > `BinarySerializerFactory`); Track 13 adds behavioral round-trip
+  > coverage and references the interface test for contract-level
+  > pinning rather than duplicating it. **Corrected baseline note:**
+  > `common/serialization` rose from the originally-cited 34.5%/27.1%
+  > to **83.4%/62.9%** post-Track-12 after Step 1's inert-test repair —
+  > Track 13 Phase A must remeasure live coverage of `common/
+  > serialization/types` against the post-Track-12 baseline rather
+  > than original plan numbers. Carry forward to Track 13:
+  > `*DeadCodeTest` shape-pin convention, helper-method + per-subclass
+  > `@Test` refactor (`AbstractComparatorTest` precedent), `@After`
+  > thread-local/static-state cleanup hygiene, falsifiable-regression
+  > + WHEN-FIXED-marker convention, boundary completeness pinning
+  > (unicode / empty collections / negative offsets), and `// forwards-
+  > to: Track NN` cross-track bug-pin convention.
 
 - [ ] Track 13: Serialization — Binary
   > Write tests for the binary record serializer. Binary serialization
