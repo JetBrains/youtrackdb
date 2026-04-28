@@ -3,66 +3,51 @@ package com.jetbrains.youtrackdb.internal.common.serialization;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- * Tests for {@link UnsafeBinaryConverter} byte-order conversion correctness.
- *
- * <p>The {@code @Test} annotations on the overrides are required for JUnit 4 to discover the
- * tests; without them, the parent's identically-named methods were silently never executed.
- *
- * @since 21.05.13
- */
+/** Verifies {@link UnsafeBinaryConverter} byte-order conversion correctness. */
 public class UnsafeConverterTest extends AbstractConverterTest {
 
   @Before
-  public void beforeClass() {
+  public void setUp() {
     converter = new UnsafeBinaryConverter();
   }
 
   @Test
-  @Override
-  public void testPutIntBigEndian() {
-    super.testPutIntBigEndian();
+  public void putIntBigEndianRoundTrips() {
+    assertPutIntBigEndianRoundTrips();
   }
 
   @Test
-  @Override
-  public void testPutIntLittleEndian() {
-    super.testPutIntLittleEndian();
+  public void putIntLittleEndianRoundTrips() {
+    assertPutIntLittleEndianRoundTrips();
   }
 
   @Test
-  @Override
-  public void testPutLongBigEndian() {
-    super.testPutLongBigEndian();
+  public void putLongBigEndianRoundTrips() {
+    assertPutLongBigEndianRoundTrips();
   }
 
   @Test
-  @Override
-  public void testPutLongLittleEndian() {
-    super.testPutLongLittleEndian();
+  public void putLongLittleEndianRoundTrips() {
+    assertPutLongLittleEndianRoundTrips();
   }
 
   @Test
-  @Override
-  public void testPutShortBigEndian() {
-    super.testPutShortBigEndian();
+  public void putShortBigEndianRoundTrips() {
+    assertPutShortBigEndianRoundTrips();
   }
 
   @Test
-  @Override
-  public void testPutShortLittleEndian() {
-    super.testPutShortLittleEndian();
+  public void putShortLittleEndianRoundTrips() {
+    assertPutShortLittleEndianRoundTrips();
   }
 
   @Test
-  @Override
-  public void testPutCharBigEndian() {
-    super.testPutCharBigEndian();
+  public void putCharBigEndianRoundTrips() {
+    assertPutCharBigEndianRoundTrips();
   }
 
   @Test
-  @Override
-  public void testPutCharLittleEndian() {
-    super.testPutCharLittleEndian();
+  public void putCharLittleEndianRoundTrips() {
+    assertPutCharLittleEndianRoundTrips();
   }
 }

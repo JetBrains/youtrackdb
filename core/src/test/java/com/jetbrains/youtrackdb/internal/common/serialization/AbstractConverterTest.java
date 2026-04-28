@@ -4,21 +4,36 @@ import java.nio.ByteOrder;
 import org.junit.Assert;
 
 /**
- * Base test class for {@link BinaryConverter} implementations verifying byte-order conversions.
+ * Round-trip helpers for {@link BinaryConverter} implementations: write a value to a byte buffer
+ * via {@code put*}, assert the on-wire byte layout matches the explicit hex pattern, then read the
+ * value back via {@code get*} and assert it equals the original.
  *
- * <p>Concrete subclasses inject the converter under test in {@code @Before} and override each
- * {@code testPut*} method with a {@code @Test} annotation so JUnit 4 picks them up. Earlier
- * revisions of these tests omitted {@code @Test} entirely and silently never ran; equality on
- * {@code byte[]} also went through {@code Object.equals} (reference identity) instead of element
- * comparison. Both issues are fixed here.
+ * <p>Concrete subclasses install the converter under test in a {@code @Before} method that assigns
+ * the {@link #converter} field. JUnit 4 instantiates a fresh test class per {@code @Test} method,
+ * so the field cannot leak between methods. Each subclass then declares {@code @Test} methods that
+ * delegate to the protected helpers below.
+ *
+ * <p>Earlier revisions inlined the bodies as parameterless methods on this base class and forced
+ * each subclass to override every method just to attach the {@code @Test} annotation that JUnit 4
+ * re-reads at the override site. That shape was a footgun: a third subclass added without
+ * remembering {@code @Test} on every override would silently never run, exactly the regression
+ * fixed here. The earlier shape also asserted byte-array equality through
+ * {@code Assert.assertEquals(byte[], byte[])}, which dispatched to {@code Object.equals}
+ * (reference identity) and silently passed for any non-null pair, and passed scalar assertions in
+ * {@code (actual, expected)} order, producing inverted failure messages. Helpers below use
+ * {@link Assert#assertArrayEquals(byte[], byte[])} with the canonical {@code (expected, actual)}
+ * argument order.
  *
  * @since 21.05.13
  */
 public abstract class AbstractConverterTest {
 
+  /** Set by the concrete subclass in a {@code @Before} method. Per-method JUnit 4 instantiation
+   * guarantees no cross-method leakage. */
   protected BinaryConverter converter;
 
-  public void testPutIntBigEndian() {
+  /** Round-trips a high-bit int in big-endian order; pins the four-byte layout. */
+  protected final void assertPutIntBigEndianRoundTrips() {
     var value = 0xFE23A067;
 
     var result = new byte[4];
@@ -29,7 +44,8 @@ public abstract class AbstractConverterTest {
     Assert.assertEquals(value, converter.getInt(result, 0, ByteOrder.BIG_ENDIAN));
   }
 
-  public void testPutIntLittleEndian() {
+  /** Round-trips a high-bit int in little-endian order; pins the four-byte layout. */
+  protected final void assertPutIntLittleEndianRoundTrips() {
     var value = 0xFE23A067;
 
     var result = new byte[4];
@@ -40,7 +56,8 @@ public abstract class AbstractConverterTest {
     Assert.assertEquals(value, converter.getInt(result, 0, ByteOrder.LITTLE_ENDIAN));
   }
 
-  public void testPutLongBigEndian() {
+  /** Round-trips a high-bit long in big-endian order; pins the eight-byte layout. */
+  protected final void assertPutLongBigEndianRoundTrips() {
     var value = 0xFE23A067ED890C14L;
 
     var result = new byte[8];
@@ -52,7 +69,8 @@ public abstract class AbstractConverterTest {
     Assert.assertEquals(value, converter.getLong(result, 0, ByteOrder.BIG_ENDIAN));
   }
 
-  public void testPutLongLittleEndian() {
+  /** Round-trips a high-bit long in little-endian order; pins the eight-byte layout. */
+  protected final void assertPutLongLittleEndianRoundTrips() {
     var value = 0xFE23A067ED890C14L;
 
     var result = new byte[8];
@@ -65,7 +83,8 @@ public abstract class AbstractConverterTest {
     Assert.assertEquals(value, converter.getLong(result, 0, ByteOrder.LITTLE_ENDIAN));
   }
 
-  public void testPutShortBigEndian() {
+  /** Round-trips a high-bit short in big-endian order; pins the two-byte layout. */
+  protected final void assertPutShortBigEndianRoundTrips() {
     var value = (short) 0xA028;
     var result = new byte[2];
 
@@ -75,7 +94,8 @@ public abstract class AbstractConverterTest {
     Assert.assertEquals(value, converter.getShort(result, 0, ByteOrder.BIG_ENDIAN));
   }
 
-  public void testPutShortLittleEndian() {
+  /** Round-trips a high-bit short in little-endian order; pins the two-byte layout. */
+  protected final void assertPutShortLittleEndianRoundTrips() {
     var value = (short) 0xA028;
     var result = new byte[2];
 
@@ -85,7 +105,8 @@ public abstract class AbstractConverterTest {
     Assert.assertEquals(value, converter.getShort(result, 0, ByteOrder.LITTLE_ENDIAN));
   }
 
-  public void testPutCharBigEndian() {
+  /** Round-trips a high-bit char in big-endian order; pins the two-byte layout. */
+  protected final void assertPutCharBigEndianRoundTrips() {
     var value = (char) 0xA028;
     var result = new byte[2];
 
@@ -95,7 +116,8 @@ public abstract class AbstractConverterTest {
     Assert.assertEquals(value, converter.getChar(result, 0, ByteOrder.BIG_ENDIAN));
   }
 
-  public void testPutCharLittleEndian() {
+  /** Round-trips a high-bit char in little-endian order; pins the two-byte layout. */
+  protected final void assertPutCharLittleEndianRoundTrips() {
     var value = (char) 0xA028;
     var result = new byte[2];
 
