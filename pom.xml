@@ -99,7 +99,7 @@
     <log4j.version>2.25.4</log4j.version>
     <jackson.verson>2.21.2</jackson.verson>
     <toolchain.jdk.version>[21,)</toolchain.jdk.version>
-    <gremlin.version>3.8.1-fccfc5a-SNAPSHOT</gremlin.version>
+    <gremlin.version>3.8.1-af9db90-SNAPSHOT</gremlin.version>
     <hamcrest.version>3.0</hamcrest.version>
     <cucumber.version>7.34.3</cucumber.version>
     <docker.platforms>linux/amd64,linux/arm64/v8</docker.platforms>
