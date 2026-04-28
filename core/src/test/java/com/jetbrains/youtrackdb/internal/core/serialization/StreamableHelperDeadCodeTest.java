@@ -25,9 +25,7 @@ import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.DataInput;
 import java.io.DataInputStream;
-import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.Serializable;
@@ -125,22 +123,48 @@ public class StreamableHelperDeadCodeTest {
   }
 
   // ---------------------------------------------------------------------------
+  // STREAMABLE arm — round-trips a Streamable impl, exercising the production
+  // class-by-name reflective path (the one branch that actually depends on the
+  // sibling-dead Streamable interface)
+  // ---------------------------------------------------------------------------
+
+  @Test
+  public void roundTripStreamableArmPreservesValueViaClassForName() throws IOException {
+    // Default classloader path: streamableClassLoader is null (set by @Before), so fromStream
+    // uses Class.forName(payloadClassName).newInstance(). PublicTestStreamable is public + has
+    // a public no-arg constructor, satisfying that contract.
+    final var in = new PublicTestStreamable();
+    in.value = 0xCAFEBABE;
+    final var out = (PublicTestStreamable) roundTrip(in);
+    assertNotNull(out);
+    assertEquals(0xCAFEBABE, out.value);
+  }
+
+  @Test
+  public void roundTripStreamableArmHonoursSetClassLoader() throws IOException {
+    // Provide a non-null classloader. fromStream takes the streamableClassLoader.loadClass(...)
+    // branch instead of Class.forName(...), which is the second behavioural arm worth pinning
+    // because the two arms differ in production.
+    StreamableHelper.setStreamableClassLoader(getClass().getClassLoader());
+    final var in = new PublicTestStreamable();
+    in.value = 7;
+    final var out = (PublicTestStreamable) roundTrip(in);
+    assertNotNull(out);
+    assertEquals(7, out.value);
+  }
+
+  // ---------------------------------------------------------------------------
   // Default arm — non-supported object type throws SerializationException
   // ---------------------------------------------------------------------------
 
   @Test
-  public void toStreamThrowsForNonSupportedObjectType() {
-    // Pass a Float — the helper supports Integer/Short/Long/Boolean but not Float, and Float
-    // does not implement Streamable. It does implement Serializable (boxed primitives do),
-    // so this actually takes the SERIALIZABLE arm — adjust the test to use a non-Serializable
-    // type. java.lang.Object is the simplest non-Serializable.
-    final var bytes = new ByteArrayOutputStream();
-    try (var out = new DataOutputStream(bytes)) {
-      assertThrows(SerializationException.class,
-          () -> StreamableHelper.toStream(out, new Object()));
-    } catch (final IOException e) {
-      throw new AssertionError("unexpected IOException", e);
-    }
+  public void toStreamThrowsForNonSupportedObjectType() throws IOException {
+    // Pin: a non-Serializable, non-Streamable, non-primitive object (raw java.lang.Object)
+    // takes the default arm and throws SerializationException.
+    final var out = new DataOutputStream(new ByteArrayOutputStream());
+    assertThrows(SerializationException.class,
+        () -> StreamableHelper.toStream(out, new Object()));
+    out.close();
   }
 
   @Test
@@ -167,9 +191,17 @@ public class StreamableHelperDeadCodeTest {
   }
 
   @Test
-  public void setStreamableClassLoaderAcceptsNull() {
-    // Null is the canonical "use Class.forName" code path. Setter accepts null without throwing.
+  public void setStreamableClassLoaderToNullRestoresClassForNamePath() throws IOException {
+    // After setting and then clearing the classloader, the STREAMABLE arm must fall back to
+    // Class.forName. Round-tripping a Streamable proves both setter calls landed (the second
+    // call cannot be a silent no-op or the prior loader would still be in effect).
+    StreamableHelper.setStreamableClassLoader(getClass().getClassLoader());
     StreamableHelper.setStreamableClassLoader(null);
+    final var in = new PublicTestStreamable();
+    in.value = 13;
+    final var out = (PublicTestStreamable) roundTrip(in);
+    assertNotNull(out);
+    assertEquals(13, out.value);
   }
 
   // ---------------------------------------------------------------------------
@@ -200,10 +232,28 @@ public class StreamableHelperDeadCodeTest {
     }
   }
 
-  // Reference DataInput/DataOutput so removing them in the future would be loud at compile time.
-  @SuppressWarnings("unused")
-  private static final Class<?> DATA_INPUT_REF = DataInput.class;
+  /**
+   * Public Streamable implementor used to exercise the STREAMABLE switch arm. Must be {@code
+   * public} with a public no-arg constructor because {@link StreamableHelper#fromStream}
+   * resolves the type via {@code Class.forName(payloadClassName).newInstance()}.
+   */
+  public static final class PublicTestStreamable implements Streamable {
+    public int value;
 
-  @SuppressWarnings("unused")
-  private static final Class<?> DATA_OUTPUT_REF = DataOutput.class;
+    public PublicTestStreamable() {
+      // Required for Class.forName(...).newInstance().
+    }
+
+    @Override
+    public void toStream(final java.io.DataOutput out) throws IOException {
+      // Fully-qualified parameter names match the Streamable interface contract; staying FQN
+      // avoids pulling DataInput/DataOutput imports into the file just for this test fixture.
+      out.writeInt(value);
+    }
+
+    @Override
+    public void fromStream(final java.io.DataInput in) throws IOException {
+      value = in.readInt();
+    }
+  }
 }

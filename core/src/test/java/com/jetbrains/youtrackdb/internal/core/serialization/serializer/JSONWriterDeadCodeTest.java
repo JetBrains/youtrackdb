@@ -25,8 +25,12 @@ import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
 import java.io.StringWriter;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import org.junit.Test;
 
 /**
@@ -221,5 +225,35 @@ public class JSONWriterDeadCodeTest {
   @Test
   public void encodeReturnsNullForNullInput() {
     assertNull(JSONWriter.encode(null));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Reflective drift detector — guards against partial-deletion regressions on
+  // the writing API (writeValue, writeRecord, writeAttribute, writeObjects,
+  // beginCollection, endCollection, flush, close, write, writeValue instance,
+  // beginObject overloads, endObject overloads). The behavioural pins above
+  // exercise about half of the public surface; this test pins the rest by
+  // declared-method-name set so that a deletion of any one fails here too.
+  // ---------------------------------------------------------------------------
+
+  @Test
+  public void declaredPublicMethodsAreExactlyTheKnownDeadSet() {
+    final Set<String> expected = Set.of(
+        // covered by behavioural tests above
+        "encode", "mapToJSON", "isPrettyPrint", "setPrettyPrint", "beginObject", "endObject",
+        "append", "resetAttributes", "newline",
+        // additional public surface pinned only by name (writing API)
+        "writeValue", "writeRecord", "writeAttribute", "writeObjects",
+        "beginCollection", "endCollection", "flush", "close", "write");
+    final Set<String> actual = new HashSet<>();
+    for (final Method m : JSONWriter.class.getDeclaredMethods()) {
+      if (Modifier.isPublic(m.getModifiers()) && !m.isSynthetic()) {
+        actual.add(m.getName());
+      }
+    }
+    assertEquals(
+        "JSONWriter public method set drifted; update the pin set above and add a behavioural"
+            + " test for any genuinely new entry point",
+        expected, actual);
   }
 }

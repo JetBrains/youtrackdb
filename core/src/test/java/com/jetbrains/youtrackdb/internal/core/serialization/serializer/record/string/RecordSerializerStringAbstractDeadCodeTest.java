@@ -22,9 +22,14 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.StringWriter;
+import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.HashSet;
+import java.util.Set;
 import org.junit.Test;
 
 /**
@@ -176,20 +181,125 @@ public class RecordSerializerStringAbstractDeadCodeTest {
         instance.getSupportBinaryEvaluate());
   }
 
+  // ---------------------------------------------------------------------------
+  // Unused public statics — fieldTypeFromStream / convertValue / fieldTypeToString
+  //
+  // These three statics have zero non-self callers across core/, server/, driver/, embedded/,
+  // gremlin-annotations/, tests/, test-commons/, docker-tests/. The simpleValue* family is
+  // explicitly excluded because they are live (`getTypeValue` / `simpleValueFromStream`
+  // chain into them from CommandRequestTextAbstract, EntityHelper, SQLHelper).
+  // ---------------------------------------------------------------------------
+
+  @Test
+  public void fieldTypeFromStreamSignaturePinned() throws NoSuchMethodException {
+    final var m = RecordSerializerStringAbstract.class.getDeclaredMethod(
+        "fieldTypeFromStream",
+        DatabaseSessionEmbedded.class,
+        EntityImpl.class,
+        PropertyTypeInternal.class,
+        Object.class);
+    assertNotNull(m);
+    assertEquals(Object.class, m.getReturnType());
+    assertTrue("public visibility expected", Modifier.isPublic(m.getModifiers()));
+    assertTrue("static expected", Modifier.isStatic(m.getModifiers()));
+  }
+
+  @Test
+  public void convertValueSignaturePinned() throws NoSuchMethodException {
+    final var m = RecordSerializerStringAbstract.class.getDeclaredMethod(
+        "convertValue",
+        DatabaseSessionEmbedded.class,
+        String.class,
+        PropertyTypeInternal.class);
+    assertNotNull(m);
+    assertEquals(Object.class, m.getReturnType());
+    assertTrue(Modifier.isPublic(m.getModifiers()));
+    assertTrue(Modifier.isStatic(m.getModifiers()));
+  }
+
+  @Test
+  public void fieldTypeToStringSignaturePinned() throws NoSuchMethodException {
+    final var m = RecordSerializerStringAbstract.class.getDeclaredMethod(
+        "fieldTypeToString",
+        DatabaseSessionEmbedded.class,
+        StringWriter.class,
+        PropertyTypeInternal.class,
+        Object.class);
+    assertNotNull(m);
+    assertEquals(void.class, m.getReturnType());
+    assertTrue(Modifier.isPublic(m.getModifiers()));
+    assertTrue(Modifier.isStatic(m.getModifiers()));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Drift detector — mirrors RecordSerializerCsvAbstractDeadCodeTest's invariant
+  // ---------------------------------------------------------------------------
+
+  @Test
+  public void declaredInstanceMethodsAreExactlyTheKnownDeadSet() {
+    // If a future refactor adds a new public/protected instance method here, it must either
+    // (a) become a new entry in this dead-code pin (if it has zero callers) or (b) be moved
+    // out to a callable site. This test fails when the declared instance-method set drifts,
+    // forcing the maintainer to make that decision rather than silently growing the dead
+    // surface — same invariant the sibling CSV dead-code test enforces.
+    final Set<String> expected = Set.of(
+        "fromString",
+        "toString",
+        "fromStream",
+        "toStream",
+        "getSupportBinaryEvaluate");
+    final Set<String> actual = new HashSet<>();
+    for (final Method m : RecordSerializerStringAbstract.class.getDeclaredMethods()) {
+      if (Modifier.isStatic(m.getModifiers()) || m.isSynthetic()) {
+        continue;
+      }
+      if (!Modifier.isPublic(m.getModifiers()) && !Modifier.isProtected(m.getModifiers())) {
+        continue;
+      }
+      actual.add(m.getName());
+    }
+    assertEquals("dead-instance-API surface drifted; update the pin set above", expected, actual);
+  }
+
+  @Test
+  public void twoArgFromStringDelegatesToFourArg() {
+    // Pin the concrete fromString(2-arg) -> abstract fromString(4-arg) delegation by counting
+    // invocations on a test-local subclass. A regression that broke the delegation (e.g., the
+    // 2-arg method became a no-op or returned null directly) would not be caught by reflective
+    // signature pins alone.
+    final var instance = new ConcreteForReflection();
+    instance.fromString(null, "anything");
+    assertEquals("two-arg fromString must delegate to the abstract four-arg",
+        1, instance.fourArgInvocations);
+  }
+
+  @Test
+  public void fourArgToStringDelegatesToFiveArg() {
+    // Same as above but for toString(4) -> protected abstract toString(5).
+    final var instance = new ConcreteForReflection();
+    instance.toString(null, null, new StringWriter(), null);
+    assertEquals("four-arg toString must delegate to the abstract five-arg",
+        1, instance.fiveArgToStringInvocations);
+  }
+
   /**
    * Test-local minimal concrete subclass — exists only to invoke the inherited concrete
-   * instance methods so JaCoCo records coverage on them, and to pin the abstract-method count.
-   * If a new abstract method is ever added to {@link RecordSerializerStringAbstract}, this
-   * subclass will fail to compile and force the maintainer to consider whether the dead
-   * surface has grown.
+   * instance methods so JaCoCo records coverage on them, and to pin the abstract-method count
+   * (a new abstract method on the base would fail to compile here). Counter fields verify the
+   * delegation contract from the concrete two-arg / four-arg overloads to their abstract
+   * counterparts.
    */
   private static final class ConcreteForReflection extends RecordSerializerStringAbstract {
+    int fourArgInvocations;
+    int fiveArgToStringInvocations;
+
     @Override
     public <T extends DBRecord> T fromString(
         final DatabaseSessionEmbedded session,
         final String iContent,
         final RecordAbstract iRecord,
         final String[] iFields) {
+      fourArgInvocations++;
       return null;
     }
 
@@ -200,6 +310,7 @@ public class RecordSerializerStringAbstractDeadCodeTest {
         final StringWriter iOutput,
         final String iFormat,
         final boolean autoDetectCollectionType) {
+      fiveArgToStringInvocations++;
       return iOutput;
     }
   }

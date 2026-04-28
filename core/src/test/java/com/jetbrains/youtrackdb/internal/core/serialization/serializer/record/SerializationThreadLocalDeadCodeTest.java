@@ -24,6 +24,7 @@ import static org.junit.Assert.assertTrue;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBListenerAbstract;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
+import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import org.junit.Test;
 
@@ -113,30 +114,31 @@ public class SerializationThreadLocalDeadCodeTest {
   // ---------------------------------------------------------------------------
 
   @Test
-  public void anonymousListenerSubclassExistsAfterClassLoad() {
+  public void anonymousListenerSubclassExistsAndDeclaresStartupAndShutdownCallbacks()
+      throws ClassNotFoundException, NoSuchMethodException {
     // The static initializer instantiates an anonymous YouTrackDBListenerAbstract and registers
-    // it. With no public handle, the only way to pin the listener's existence without invoking
-    // shutdown is via reflection over the SerializationThreadLocal class file's nested classes.
-    // Anonymous inner classes get synthetic names like SerializationThreadLocal$1.
-    final var declared = SerializationThreadLocal.class.getDeclaredClasses();
-    // Anonymous inner classes are not "declared" in the reflective sense; check loadable
-    // synthetic name SerializationThreadLocal$1 directly.
-    Class<?> anon = null;
-    try {
-      anon = Class.forName(SerializationThreadLocal.class.getName() + "$1");
-    } catch (final ClassNotFoundException e) {
-      // Some Java versions name it differently; fall through and skip the assertion.
-    }
-    if (anon != null) {
-      assertTrue(
-          "static-block listener must extend YouTrackDBListenerAbstract; got "
-              + anon.getSuperclass(),
-          YouTrackDBListenerAbstract.class.isAssignableFrom(anon));
-    } else {
-      // Reflective lookup unavailable on this JVM — the existence is still pinned indirectly
-      // by the static init having run (instanceIsNonNullAfterClassLoad above).
-      assertNotNull("reflective lookup unavailable but class loaded", declared);
-    }
+    // it. The only way to pin the listener's existence without invoking
+    // YouTrackDBEnginesManager.shutdown() (Risk R2) is via reflection over the synthetic class.
+    // javac names the first anonymous inner class SerializationThreadLocal$1; on every JDK
+    // version supported by this project (21+) this name is stable. Hard-fail if it is not
+    // loadable — the previous "fall through to no-op" branch silently accepted any future
+    // change (e.g., refactor to a lambda registration) that would still satisfy the live
+    // INSTANCE pins above while removing the listener-shutdown surface this test exists to
+    // pin.
+    final var anon = Class.forName(SerializationThreadLocal.class.getName() + "$1");
+    assertTrue(
+        "static-block listener must extend YouTrackDBListenerAbstract; got "
+            + anon.getSuperclass(),
+        YouTrackDBListenerAbstract.class.isAssignableFrom(anon));
+
+    // Pin the two callbacks explicitly so a refactor that drops onShutdown but keeps
+    // onStartup (or vice versa) is loud here.
+    final Method onStartup = anon.getDeclaredMethod("onStartup");
+    final Method onShutdown = anon.getDeclaredMethod("onShutdown");
+    assertNotNull(onStartup);
+    assertNotNull(onShutdown);
+    assertEquals(void.class, onStartup.getReturnType());
+    assertEquals(void.class, onShutdown.getReturnType());
   }
 
   @Test
