@@ -333,27 +333,34 @@ public class BinaryProtocolTest {
   }
 
   // ---------------------------------------------------------------------------
-  // Truncation behaviour
+  // Wire format for narrowed inputs
   //
-  // The encode helpers take their input as a Java primitive (char/short/int/long).
-  // Java promotion means a value passed as int that exceeds the short range is
-  // already truncated by the explicit cast at the call site — the test below
-  // verifies the documented contract: the bottom-N bytes are written.
+  // The encode helpers take a Java primitive (char/short/int/long) by value, so
+  // the explicit narrowing cast at the call site ((short)/(char)) drops the high
+  // bits before the helper sees the value — the helpers themselves never see a
+  // wider input. The two tests below pin the resulting on-wire bytes for a
+  // narrowed input, documenting the cast-then-encode pipeline rather than any
+  // truncation behaviour internal to BinaryProtocol.
   // ---------------------------------------------------------------------------
 
-  /** A short cast of a value that overflows the short range writes only the low 16 bits. */
+  /**
+   * The narrowing cast at the call site ((short) 0x12345678 == 0x5678) drops the high 16 bits;
+   * pin the resulting wire layout {@code {0x56, 0x78}}.
+   */
   @Test
-  public void short2bytesTruncatesToLow16Bits() {
+  public void short2bytesWritesLowSixteenBitsOfNarrowedShort() {
     var buffer = new byte[2];
-    // 0x12345678 cast to short is 0x5678; high 16 bits are dropped.
     BinaryProtocol.short2bytes((short) 0x12345678, buffer, 0);
     Assert.assertArrayEquals(new byte[] {0x56, 0x78}, buffer);
     Assert.assertEquals((short) 0x5678, BinaryProtocol.bytes2short(buffer, 0));
   }
 
-  /** A char cast of an int writes only the low 16 bits as an unsigned char. */
+  /**
+   * The narrowing cast at the call site ((char) 0x12345678 == 0x5678) drops the high 16 bits;
+   * pin the resulting wire layout {@code {0x56, 0x78}}.
+   */
   @Test
-  public void char2bytesTruncatesToLow16Bits() {
+  public void char2bytesWritesLowSixteenBitsOfNarrowedChar() {
     var buffer = new byte[2];
     BinaryProtocol.char2bytes((char) 0x12345678, buffer, 0);
     Assert.assertArrayEquals(new byte[] {0x56, 0x78}, buffer);

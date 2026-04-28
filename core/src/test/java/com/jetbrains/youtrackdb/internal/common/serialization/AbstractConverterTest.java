@@ -307,7 +307,7 @@ public abstract class AbstractConverterTest {
   // passing the offset-0 high-bit helper above.
   // ---------------------------------------------------------------------------
 
-  /** Round-trips Integer MIN/MAX/0/-1 in both byte orders at offset 0. */
+  /** Round-trips a representative spread of int values (MIN, MAX, 0, -1, 1) in both byte orders. */
   protected final void assertPutIntBoundaryValuesRoundTrip() {
     for (var order : new ByteOrder[] {ByteOrder.BIG_ENDIAN, ByteOrder.LITTLE_ENDIAN}) {
       for (var value : new int[] {Integer.MIN_VALUE, Integer.MAX_VALUE, 0, -1, 1}) {
@@ -319,7 +319,7 @@ public abstract class AbstractConverterTest {
     }
   }
 
-  /** Round-trips Long MIN/MAX/0/-1 in both byte orders at offset 0. */
+  /** Round-trips a representative spread of long values (MIN, MAX, 0, -1, 1) in both byte orders. */
   protected final void assertPutLongBoundaryValuesRoundTrip() {
     for (var order : new ByteOrder[] {ByteOrder.BIG_ENDIAN, ByteOrder.LITTLE_ENDIAN}) {
       for (var value : new long[] {Long.MIN_VALUE, Long.MAX_VALUE, 0L, -1L, 1L}) {
@@ -331,10 +331,11 @@ public abstract class AbstractConverterTest {
     }
   }
 
-  /** Round-trips Short MIN/MAX/0/-1 in both byte orders at offset 0. */
+  /** Round-trips a representative spread of short values (MIN, MAX, 0, -1, 1) in both byte orders. */
   protected final void assertPutShortBoundaryValuesRoundTrip() {
     for (var order : new ByteOrder[] {ByteOrder.BIG_ENDIAN, ByteOrder.LITTLE_ENDIAN}) {
-      for (var value : new short[] {Short.MIN_VALUE, Short.MAX_VALUE, (short) 0, (short) -1}) {
+      for (var value : new short[] {Short.MIN_VALUE, Short.MAX_VALUE, (short) 0, (short) -1,
+          (short) 1}) {
         var buffer = new byte[2];
         converter.putShort(buffer, 0, value, order);
         Assert.assertEquals(
@@ -343,7 +344,11 @@ public abstract class AbstractConverterTest {
     }
   }
 
-  /** Round-trips Char MIN/MAX/0 in both byte orders at offset 0. */
+  /**
+   * Round-trips a representative spread of char values (MIN, MAX, ' ', U+00FF, U+FF00) in both
+   * byte orders. The two high-byte values (U+00FF and U+FF00) catch a regression that mishandled
+   * sign extension in the byte→char composition.
+   */
   protected final void assertPutCharBoundaryValuesRoundTrip() {
     for (var order : new ByteOrder[] {ByteOrder.BIG_ENDIAN, ByteOrder.LITTLE_ENDIAN}) {
       for (var value : new char[] {Character.MIN_VALUE, Character.MAX_VALUE, ' ', '\u00FF',

@@ -11,6 +11,16 @@ import org.junit.Test;
  * <p>Out-of-bounds tests are deliberately Safe-only: the {@code sun.misc.Unsafe}-backed paths in
  * this converter do not bounds-check, so a negative offset or length-0 write would corrupt heap
  * memory rather than throw. See {@link SafeConverterTest} for the bounds-check contract.
+ *
+ * <p><strong>Residual gap.</strong> Every {@code put*}/{@code get*} method on
+ * {@link UnsafeBinaryConverter} dispatches on the {@code useOnlyAlignedAccess} flag, which is
+ * captured into a {@code static final} at class init from
+ * {@code GlobalConfiguration.DIRECT_MEMORY_ONLY_ALIGNED_ACCESS} (default {@code true}). Tests in
+ * this class therefore exercise the aligned-byte-by-byte branches only; the
+ * {@code !useOnlyAlignedAccess} fast-path branches (the {@code theUnsafe.putShort/putInt/...}
+ * + {@code reverseBytes} family) are not reachable from a single-JVM test without classloader
+ * tricks. The wider deferred cleanup that retires the unsafe-backed converter will absorb that
+ * surface.
  */
 public class UnsafeConverterTest extends AbstractConverterTest {
 
@@ -147,14 +157,27 @@ public class UnsafeConverterTest extends AbstractConverterTest {
 
   /**
    * UnsafeBinaryConverter exposes both a public no-arg constructor and the
-   * {@link UnsafeBinaryConverter#INSTANCE} singleton; pin both yield equivalent observable behaviour.
+   * {@link UnsafeBinaryConverter#INSTANCE} singleton; pin that the two share an on-wire contract
+   * in both directions. A regression where one of the two paths produced a different layout for
+   * the same value would still be caught.
    */
   @Test
   public void instanceAndNewConstructorAgree() {
     var newInstance = new UnsafeBinaryConverter();
-    var buffer = new byte[4];
-    UnsafeBinaryConverter.INSTANCE.putInt(buffer, 0, 0x12345678, ByteOrder.BIG_ENDIAN);
-    Assert.assertEquals(0x12345678, newInstance.getInt(buffer, 0, ByteOrder.BIG_ENDIAN));
+
+    // singleton writes, fresh instance reads
+    var bufferA = new byte[4];
+    UnsafeBinaryConverter.INSTANCE.putInt(bufferA, 0, 0x12345678, ByteOrder.BIG_ENDIAN);
+    Assert.assertEquals(0x12345678, newInstance.getInt(bufferA, 0, ByteOrder.BIG_ENDIAN));
+
+    // fresh instance writes, singleton reads
+    var bufferB = new byte[4];
+    newInstance.putInt(bufferB, 0, 0x12345678, ByteOrder.BIG_ENDIAN);
+    Assert.assertEquals(
+        0x12345678, UnsafeBinaryConverter.INSTANCE.getInt(bufferB, 0, ByteOrder.BIG_ENDIAN));
+
+    // The wire layouts produced by the two paths must be byte-for-byte identical.
+    Assert.assertArrayEquals(bufferA, bufferB);
   }
 
   /** UnsafeBinaryConverter always reports native acceleration. */

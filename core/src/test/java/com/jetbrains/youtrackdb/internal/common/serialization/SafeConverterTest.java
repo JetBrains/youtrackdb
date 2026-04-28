@@ -195,14 +195,27 @@ public class SafeConverterTest extends AbstractConverterTest {
 
   /**
    * SafeBinaryConverter exposes a public no-arg constructor in addition to the
-   * {@link SafeBinaryConverter#INSTANCE} singleton; pin both yield equivalent observable behaviour.
+   * {@link SafeBinaryConverter#INSTANCE} singleton; pin that the two share an on-wire contract
+   * in both directions. A regression where one of the two paths produced a different layout for
+   * the same value would still be caught.
    */
   @Test
   public void instanceAndNewConstructorAgree() {
     var newInstance = new SafeBinaryConverter();
-    var buffer = new byte[4];
-    SafeBinaryConverter.INSTANCE.putInt(buffer, 0, 0x12345678, ByteOrder.BIG_ENDIAN);
-    Assert.assertEquals(0x12345678, newInstance.getInt(buffer, 0, ByteOrder.BIG_ENDIAN));
+
+    // singleton writes, fresh instance reads
+    var bufferA = new byte[4];
+    SafeBinaryConverter.INSTANCE.putInt(bufferA, 0, 0x12345678, ByteOrder.BIG_ENDIAN);
+    Assert.assertEquals(0x12345678, newInstance.getInt(bufferA, 0, ByteOrder.BIG_ENDIAN));
+
+    // fresh instance writes, singleton reads
+    var bufferB = new byte[4];
+    newInstance.putInt(bufferB, 0, 0x12345678, ByteOrder.BIG_ENDIAN);
+    Assert.assertEquals(0x12345678,
+        SafeBinaryConverter.INSTANCE.getInt(bufferB, 0, ByteOrder.BIG_ENDIAN));
+
+    // The wire layouts produced by the two paths must be byte-for-byte identical.
+    Assert.assertArrayEquals(bufferA, bufferB);
   }
 
   /** SafeBinaryConverter never reports native acceleration. */
