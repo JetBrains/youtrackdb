@@ -533,6 +533,23 @@ public class JSONSerializerJacksonInstanceRoundTripTest extends TestUtilsFixture
   }
 
   @Test
+  public void linkListEmptyRoundTripsToEmptyContainer() {
+    // The parser's empty-array branch returns an `EntityLinkListImpl(entity)` constructed
+    // with the parent entity but never populated (the `while (... != END_ARRAY)` loop in
+    // `parseLinkList` exits immediately). Pin the round-trip so a regression that allocates
+    // a different shape (e.g., `Collections.emptyList()` without entity binding, or a null
+    // sentinel) is caught.
+    var original = persistThing(e -> e.newLinkList("links", List.of()));
+    var json = serialize(original);
+    inFreshTx(() -> {
+      var parsed = parseFreshAsEntity(json);
+      Collection<? extends Identifiable> got = parsed.getProperty("links");
+      assertNotNull("empty linkList must round-trip to a non-null empty container", got);
+      assertTrue("must round-trip empty, got: " + got, got.isEmpty());
+    });
+  }
+
+  @Test
   public void linkSetRoundTripPreservesIdentitySet() {
     var p1 = persistPeerWithName("s1");
     var p2 = persistPeerWithName("s2");
@@ -546,6 +563,22 @@ public class JSONSerializerJacksonInstanceRoundTripTest extends TestUtilsFixture
       var ids = new LinkedHashSet<RID>();
       got.forEach(i -> ids.add(i.getIdentity()));
       assertEquals(Set.of(p1, p2), ids);
+    });
+  }
+
+  @Test
+  public void linkSetEmptyRoundTripsToEmptyContainer() {
+    // Symmetric to linkListEmptyRoundTripsToEmptyContainer — the parser's `parseLinkSet`
+    // empty-array branch returns `new EntityLinkSetImpl(entity)` and exits the while-loop
+    // without populating. Pin the contract so a regression that started returning null or
+    // a different container shape is caught.
+    var original = persistThing(e -> e.newLinkSet("links", new LinkedHashSet<>()));
+    var json = serialize(original);
+    inFreshTx(() -> {
+      var parsed = parseFreshAsEntity(json);
+      Collection<? extends Identifiable> got = parsed.getProperty("links");
+      assertNotNull("empty linkSet must round-trip to a non-null empty container", got);
+      assertTrue("must round-trip empty, got: " + got, got.isEmpty());
     });
   }
 
@@ -567,6 +600,22 @@ public class JSONSerializerJacksonInstanceRoundTripTest extends TestUtilsFixture
       assertEquals(2, got.size());
       assertEquals(p1, got.get("a").getIdentity());
       assertEquals(p2, got.get("b").getIdentity());
+    });
+  }
+
+  @Test
+  public void linkMapEmptyRoundTripsToEmptyContainer() {
+    // The parser's `parseLinkMap` empty-object branch (`while (... != END_OBJECT)` exits
+    // immediately) returns `new EntityLinkMapIml(entity)`. Pin the round-trip so a
+    // regression that returned null or a non-Iml shape is caught.
+    var original =
+        persistThing(e -> e.newLinkMap("links", new LinkedHashMap<String, Identifiable>()));
+    var json = serialize(original);
+    inFreshTx(() -> {
+      var parsed = parseFreshAsEntity(json);
+      Map<String, ? extends Identifiable> got = parsed.getProperty("links");
+      assertNotNull("empty linkMap must round-trip to a non-null empty container", got);
+      assertTrue("must round-trip empty, got: " + got, got.isEmpty());
     });
   }
 
@@ -666,6 +715,22 @@ public class JSONSerializerJacksonInstanceRoundTripTest extends TestUtilsFixture
   }
 
   @Test
+  public void embeddedListEmptyRoundTripsToEmptyContainer() {
+    // The parser's `parseEmbeddedList` empty-array branch exits the while-loop immediately
+    // and returns `new EntityEmbeddedListImpl<>(entity)` (constructed with parent binding).
+    // Pin the round-trip so a regression that returned `Collections.emptyList()` (no entity
+    // binding) or null is caught at the test boundary.
+    var original = persistThing(e -> e.newEmbeddedList("list", List.<String>of()));
+    var json = serialize(original);
+    inFreshTx(() -> {
+      var parsed = parseFreshAsEntity(json);
+      Collection<?> got = parsed.getProperty("list");
+      assertNotNull("empty embeddedList must round-trip to a non-null empty container", got);
+      assertTrue("must round-trip empty, got: " + got, got.isEmpty());
+    });
+  }
+
+  @Test
   public void embeddedSetRoundTripPreservesElementValues() {
     var input = new LinkedHashSet<>(List.of(1, 2, 3));
     var original = persistThing(e -> e.newEmbeddedSet("set", input));
@@ -675,6 +740,21 @@ public class JSONSerializerJacksonInstanceRoundTripTest extends TestUtilsFixture
       Collection<?> got = parsed.getProperty("set");
       assertNotNull(got);
       assertEquals(input, new LinkedHashSet<>(got));
+    });
+  }
+
+  @Test
+  public void embeddedSetEmptyRoundTripsToEmptyContainer() {
+    // Symmetric to embeddedListEmptyRoundTripsToEmptyContainer — `parseEmbeddedSet` empty
+    // branch returns `new EntityEmbeddedSetImpl<>(entity)`. Pin the round-trip.
+    var original =
+        persistThing(e -> e.newEmbeddedSet("set", new LinkedHashSet<Integer>()));
+    var json = serialize(original);
+    inFreshTx(() -> {
+      var parsed = parseFreshAsEntity(json);
+      Collection<?> got = parsed.getProperty("set");
+      assertNotNull("empty embeddedSet must round-trip to a non-null empty container", got);
+      assertTrue("must round-trip empty, got: " + got, got.isEmpty());
     });
   }
 
@@ -699,6 +779,25 @@ public class JSONSerializerJacksonInstanceRoundTripTest extends TestUtilsFixture
       assertEquals(Integer.valueOf(7), got.get("count"));
       assertEquals("Integer must be the concrete class for small JSON integer literals",
           Integer.class, got.get("count").getClass());
+    });
+  }
+
+  @Test
+  public void embeddedMapEmptyRoundTripsToEmptyContainer() {
+    // For an EMBEDDEDMAP-typed property the parser dispatches to `parseEmbeddedMap` whose
+    // empty-object branch exits the while-loop immediately and returns
+    // `new EntityEmbeddedMapImpl<>(entity)`. (For a map property whose type cannot be
+    // inferred, `parseObjectOrMap` short-circuits at `currentToken() == END_OBJECT` and
+    // returns the same shape.) Pin the round-trip across the dispatch the property
+    // declaration actually triggers.
+    var original =
+        persistThing(e -> e.newEmbeddedMap("map", new LinkedHashMap<String, Object>()));
+    var json = serialize(original);
+    inFreshTx(() -> {
+      var parsed = parseFreshAsEntity(json);
+      Map<?, ?> got = parsed.getProperty("map");
+      assertNotNull("empty embeddedMap must round-trip to a non-null empty container", got);
+      assertTrue("must round-trip empty, got: " + got, got.isEmpty());
     });
   }
 
