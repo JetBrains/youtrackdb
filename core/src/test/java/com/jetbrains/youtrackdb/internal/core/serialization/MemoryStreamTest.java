@@ -232,6 +232,47 @@ public class MemoryStreamTest {
     Assert.assertEquals(3, ms.getPosition());
   }
 
+  /**
+   * Pin the contract that the single-byte {@code read()} does NOT bounds-check — it indexes the
+   * buffer directly and throws AIOOBE past the end. A regression that started returning -1 (the
+   * java.io.InputStream EOF convention) would silently change behaviour for callers (e.g.,
+   * RecordId / RecordBytes round-trip helpers) that depend on the throw to detect a truncated
+   * stream.
+   */
+  @Test(expected = ArrayIndexOutOfBoundsException.class)
+  public void readSingleByteAtEndOfBufferThrows() {
+    var ms = new MemoryStream(new byte[] {1, 2});
+    ms.setPosition(2);
+    ms.read();
+  }
+
+  /**
+   * Pin the contract that {@code read(byte[], off, len)} with a zero-length request is a no-op:
+   * arraycopy with length 0 succeeds, position is unchanged, returns 0 (because position is
+   * before end so the early-out does not fire — len is just added unchanged).
+   */
+  @Test
+  public void readIntoBufferWithZeroLengthIsNoOpAndReturnsZero() {
+    var ms = new MemoryStream(new byte[] {1, 2, 3});
+    var dst = new byte[2];
+    Assert.assertEquals(0, ms.read(dst, 0, 0));
+    Assert.assertEquals(0, ms.getPosition());
+  }
+
+  /**
+   * Pin the contract that {@code read(byte[], off, len)} does NOT clamp {@code len} to the
+   * remaining bytes — when the requested length exceeds what is available, the underlying
+   * {@code System.arraycopy} throws AIOOBE. A future hardening that clamped to the remaining
+   * bytes (the saner Java InputStream convention) would surface as a loud test break.
+   */
+  @Test(expected = ArrayIndexOutOfBoundsException.class)
+  public void readIntoBufferWithLenExceedingRemainingThrows() {
+    var ms = new MemoryStream(new byte[] {1, 2, 3});
+    ms.setPosition(2); // only 1 byte remains
+    var dst = new byte[5];
+    ms.read(dst, 0, 5);
+  }
+
   // ---------------------------------------------------------------------------
   // move
   // ---------------------------------------------------------------------------
@@ -260,6 +301,28 @@ public class MemoryStreamTest {
     // Shift from index 2 left by 2 positions: indices 2..6 become indices 0..4.
     ms.move(2, -2);
     Assert.assertArrayEquals(new byte[] {1, 2, 3, 4, 5, 4, 5}, ms.getInternalBuffer());
+  }
+
+  /**
+   * Pin the well-formed-input boundary: {@code move(from, +n)} where {@code from + n} exceeds the
+   * buffer length surfaces an AIOOBE inside {@code System.arraycopy} (the size formula computes
+   * {@code buffer.length - to = -1}, and arraycopy rejects negative length). A regression that
+   * silently no-op'd on bad inputs would mask logic errors in callers that depend on the throw.
+   */
+  @Test(expected = ArrayIndexOutOfBoundsException.class)
+  public void moveRightPastBufferEndThrows() {
+    var ms = new MemoryStream(new byte[] {1, 2, 3, 4});
+    ms.move(2, 3); // to = 5, size = 4-5 = -1 → arraycopy rejects negative length
+  }
+
+  /**
+   * Symmetric pin for the left-shift boundary: {@code move(0, -1)} produces a destination index
+   * of {@code -1} which {@code arraycopy} rejects.
+   */
+  @Test(expected = ArrayIndexOutOfBoundsException.class)
+  public void moveLeftPastBufferStartThrows() {
+    var ms = new MemoryStream(new byte[] {1, 2, 3, 4});
+    ms.move(0, -1); // to = -1 → arraycopy rejects negative dst index
   }
 
   // ---------------------------------------------------------------------------
@@ -309,8 +372,11 @@ public class MemoryStreamTest {
     var src = new MemoryStream(new byte[] {1, 2, 3, 4, 5, 6, 7, 8});
     dst.copyFrom(src, 8);
     Assert.assertTrue(dst.getInternalBuffer().length >= 8);
-    Assert.assertEquals((byte) 1, dst.getInternalBuffer()[0]);
-    Assert.assertEquals((byte) 8, dst.getInternalBuffer()[7]);
+    // Pin the full slice — bookend-only assertions (byte[0]==1 / byte[7]==8) would still pass
+    // for a regression that copied a wrong sub-range of src as long as the endpoints happened
+    // to align.
+    var copied = java.util.Arrays.copyOfRange(dst.getInternalBuffer(), 0, 8);
+    Assert.assertArrayEquals(new byte[] {1, 2, 3, 4, 5, 6, 7, 8}, copied);
   }
 
   // ---------------------------------------------------------------------------
@@ -506,6 +572,23 @@ public class MemoryStreamTest {
     var ms = new MemoryStream(4);
     ms.fill(3); // position == buffer.length - 1 — triggers the shortcut
     Assert.assertSame(ms.getInternalBuffer(), ms.toByteArray());
+  }
+
+  /**
+   * Pin the off-by-one boundary: when {@code position == buffer.length} (one past the shortcut
+   * trigger), the {@code position == buffer.length - 1} guard does NOT fire and the call falls
+   * through to the copy path. A regression that "fixed" the off-by-one to {@code position ==
+   * buffer.length} would silently change semantics for the {@code position = length - 1} case
+   * pinned above; this test guards the inverse direction.
+   */
+  @Test
+  public void toByteArrayWithPositionEqualToBufferLengthReturnsCopy() {
+    var ms = new MemoryStream(4);
+    ms.fill(4); // position == buffer.length — past the shortcut threshold
+    Assert.assertNotSame(
+        "shortcut must NOT fire when position == buffer.length — copy path expected",
+        ms.getInternalBuffer(),
+        ms.toByteArray());
   }
 
   /** {@code available()} reports the number of bytes between the current position and capacity. */

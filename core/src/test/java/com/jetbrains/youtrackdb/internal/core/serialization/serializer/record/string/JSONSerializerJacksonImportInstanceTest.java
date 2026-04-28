@@ -369,8 +369,30 @@ public class JSONSerializerJacksonImportInstanceTest extends TestUtilsFixture {
     var json = "{\"@type\":\"d\",\"@class\":\"" + REGULAR_CLASS
         + "\",\"name\":\"alpha	beta\"}";
     inTx(() -> {
-      assertThrows(SerializationException.class, () -> parseImport(json));
+      var ex = assertThrows(SerializationException.class, () -> parseImport(json));
+      // Pin the cause-chain reason so a regression where the rejection happens in an unrelated
+      // code path (e.g., schema lookup, missing-brace gate) would surface — without this, only
+      // the umbrella SerializationException type was being checked.
+      var chain = chainMessagesOf(ex).toLowerCase();
+      assertTrue(
+          "expected unescaped-control-char diagnostic in cause chain, got: " + chainMessagesOf(ex),
+          chain.contains("illegal unquoted character") || chain.contains("control character"));
     });
+  }
+
+  /**
+   * Walk the {@link Throwable#getCause()} chain and concatenate every non-null message. Used by
+   * exception-pin tests that want to assert on the underlying Jackson diagnostic rather than the
+   * outer wrap message — the cause chain is more stable across re-wraps.
+   */
+  private static String chainMessagesOf(Throwable t) {
+    var sb = new StringBuilder();
+    for (Throwable c = t; c != null; c = c.getCause()) {
+      if (c.getMessage() != null) {
+        sb.append(c.getMessage()).append(" | ");
+      }
+    }
+    return sb.toString();
   }
 
   @Test

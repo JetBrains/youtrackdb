@@ -18,6 +18,7 @@ package com.jetbrains.youtrackdb.internal.core.serialization.serializer.record;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
@@ -26,6 +27,7 @@ import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import org.junit.After;
 import org.junit.Test;
 
 /**
@@ -67,6 +69,20 @@ import org.junit.Test;
  */
 public class SerializationThreadLocalDeadCodeTest {
 
+  /**
+   * Force-clear the surefire worker thread's per-thread set after every test method.
+   *
+   * <p>{@code SerializationThreadLocal.INSTANCE} is a {@link ThreadLocal}; surefire reuses worker
+   * threads across test classes (parallel-by-classes runner), so a set populated here would
+   * survive into a sibling test on the same worker. The inline {@code remove()} inside
+   * {@link #initialValueReturnsFreshIntOpenHashSet} only fires on the success path; this
+   * {@code @After} guarantees cleanup even if an assertion throws mid-test.
+   */
+  @After
+  public void clearSurefireWorkerThreadLocal() {
+    SerializationThreadLocal.INSTANCE.remove();
+  }
+
   // ---------------------------------------------------------------------------
   // INSTANCE — live; pin to anchor the class for the rest of the suite
   // ---------------------------------------------------------------------------
@@ -81,10 +97,12 @@ public class SerializationThreadLocalDeadCodeTest {
 
   @Test
   public void instanceIsAssignableToThreadLocalIntSet() {
-    // Pin the static field type so a refactor that replaced ThreadLocal<IntSet> with a different
-    // shape (e.g., ThreadLocal<Set<Integer>>) would fail compilation here.
+    // Compile-time pin only: assignment fails to compile if the static field type ever changes
+    // from ThreadLocal<IntSet> to a different shape (e.g., ThreadLocal<Set<Integer>>). No
+    // runtime check is needed — `ref` was just assigned `SerializationThreadLocal.INSTANCE` on
+    // the line above, so the runtime comparison would be tautological.
+    @SuppressWarnings("unused")
     final ThreadLocal<IntSet> ref = SerializationThreadLocal.INSTANCE;
-    assertSame(SerializationThreadLocal.INSTANCE, ref);
   }
 
   @Test
@@ -102,11 +120,12 @@ public class SerializationThreadLocalDeadCodeTest {
     // Mutate and re-read on the same thread — must be the same instance (per ThreadLocal
     // semantics), still cleaned up correctly when remove() is called.
     set.add(0xBEEF);
-    assertEquals(set, SerializationThreadLocal.INSTANCE.get());
+    assertSame(set, SerializationThreadLocal.INSTANCE.get());
     SerializationThreadLocal.INSTANCE.remove();
     final var reset = SerializationThreadLocal.INSTANCE.get();
-    assertTrue("after remove(), a fresh empty set must be produced",
-        reset.isEmpty() && reset != set);
+    // Split the two invariants so a failure points at exactly one of them, not the boolean AND.
+    assertTrue("after remove(), the new set must be empty", reset.isEmpty());
+    assertNotSame("after remove(), a fresh instance must be produced", set, reset);
   }
 
   // ---------------------------------------------------------------------------
