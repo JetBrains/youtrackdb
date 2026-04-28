@@ -361,9 +361,14 @@ public class SchedulerImplTest extends DbTestBase {
     assertTrue("close() must cancel the queued ScheduledFuture, not just null the field",
         firstFuture.isCancelled());
     assertTrue(secondFuture.isCancelled());
-    // Builder-returned references are independent instances; we don't assert their state.
-    assertNotNull(first);
-    assertNotNull(second);
+    // Builder-returned references are independent instances from the auto-registered ones
+    // (see ScheduledEventTest class Javadoc on the dual-instance invariant). Pin that
+    // independence — a regression that aliased the builder's return into the registry
+    // would make these the same object, hiding the dual-instance contract.
+    assertNotSame("dual-instance: builder-returned 'first' must differ from registered",
+        first, firstRegistered);
+    assertNotSame("dual-instance: builder-returned 'second' must differ from registered",
+        second, secondRegistered);
   }
 
   @Test
@@ -423,8 +428,12 @@ public class SchedulerImplTest extends DbTestBase {
     var secondView = impl.getEvents();
     assertSame("getEvents must return the same internal ConcurrentHashMap reference",
         firstView, secondView);
-    assertTrue("the returned map must be the same ConcurrentHashMap type",
-        firstView instanceof ConcurrentHashMap);
+    // Pin the exact runtime class — a regression that swapped the field for a
+    // ConcurrentHashMap subclass with overridden put/remove (e.g., a defensive wrapper)
+    // would still satisfy `instanceof` while breaking the live-mutation contract pinned
+    // below. assertEquals(class) is strictly more falsifiable.
+    assertEquals("the returned map must be exactly ConcurrentHashMap (not a subclass wrapper)",
+        ConcurrentHashMap.class, firstView.getClass());
 
     int sizeBefore = firstView.size();
     buildEvent("evt-live-view", FAR_FUTURE_RULE, function, Map.of());
@@ -451,8 +460,9 @@ public class SchedulerImplTest extends DbTestBase {
         impl.getEvent("evt-access"));
     // The builder-returned reference is a separate instance from the one auto-registered
     // by the after-commit hook (see ScheduledEventTest class Javadoc on the dual-instance
-    // invariant), so we don't pin assertSame here.
-    assertNotNull(event);
+    // invariant). Pin that independence as a load-bearing assertion.
+    assertNotSame("dual-instance: builder-returned reference must differ from registered",
+        event, impl.getEvent("evt-access"));
   }
 
   // ---------------------------------------------------------------------------
@@ -894,7 +904,8 @@ public class SchedulerImplTest extends DbTestBase {
     assertEquals("registry must grow by exactly one entry",
         sizeBefore + 1, impl.getEvents().size());
     // Builder-returned reference: dual-instance — see ScheduledEventTest class Javadoc.
-    assertNotNull(event);
+    assertNotSame("dual-instance: builder-returned reference must differ from registered",
+        event, registered);
   }
 
   // ---------------------------------------------------------------------------
@@ -1029,7 +1040,8 @@ public class SchedulerImplTest extends DbTestBase {
     var queuedFuture = readTimerField(registered);
     assertNotNull(queuedFuture);
     // Builder-returned reference is independent — see ScheduledEventTest class Javadoc.
-    assertNotNull(event);
+    assertNotSame("dual-instance: builder-returned reference must differ from registered",
+        event, registered);
 
     final int threadCount = 8;
     var executor = Executors.newFixedThreadPool(threadCount);

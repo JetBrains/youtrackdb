@@ -25,6 +25,7 @@ import static org.junit.Assert.assertThrows;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.After;
@@ -128,8 +129,7 @@ public class SchedulerProxyTest extends DbTestBase {
     // wrapped in computeInTx because session.loadEntity requires an active transaction.
     // The ctor swallows ParseException internally, so its construction is unchecked.
     ScheduledEvent replacement = session.computeInTx(tx -> {
-      var entity = (com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl) session
-          .loadEntity(firstEvent.getIdentity());
+      var entity = (EntityImpl) session.loadEntity(firstEvent.getIdentity());
       return new ScheduledEvent(entity, session);
     });
 
