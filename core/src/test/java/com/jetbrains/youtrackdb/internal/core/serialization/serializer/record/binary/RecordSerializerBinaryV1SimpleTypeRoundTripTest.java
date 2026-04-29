@@ -53,10 +53,29 @@ import org.junit.Test;
  * for every type. Both layers must agree, otherwise either the value encoding or the
  * record header has shifted and the test fails loudly with a hex diff.
  *
- * <p>Date/datetime tests use the database's GMT timezone (the default for an in-memory
- * database under {@link DbTestBase}) so that DAY-since-epoch encoding is deterministic;
- * any future change to {@code DateHelper.getDatabaseTimeZone} default will cause these
- * pins to fail until the developer evaluates whether the wire format actually changed.
+ * <p>Date/datetime tests force the database's TIMEZONE attribute to GMT in {@code @Before}
+ * — DbTestBase otherwise leaves the storage timezone unset, in which case
+ * {@code DateHelper.getDatabaseTimeZone} falls back to {@code TimeZone.getDefault()} and
+ * the encoded DAY-since-epoch shifts by the JVM offset. The override pins the encoding so
+ * worker timezone (CET on most CI hosts, GMT on others) does not change the byte shapes.
+ *
+ * <p><b>Adding a new scalar type:</b> place the canonical byte-encoding pin in the Tier 1
+ * block (one {@code @Test} per representative value — zero, smallest positive, smallest
+ * negative, MIN, MAX, plus type-specific edge cases like NaN / infinity / multi-byte UTF-8)
+ * and add the new type to {@link #allScalarTypesRoundTripInOneRecord} for end-to-end
+ * dispatch coverage. Collection / embedded / link types belong in a companion
+ * {@code RecordSerializerBinaryV1CollectionRoundTripTest} (added in a later step).
+ *
+ * <p><b>Latent production gap (carried forward):</b> the {@code BytesContainer}
+ * overload of {@code RecordSerializerBinaryV1#deserializeValue} (the one this class's
+ * Tier 1 helpers call) does not validate length-prefix fields the way its
+ * {@code ReadBytesContainer} sibling does — STRING, BINARY, and DECIMAL all happily
+ * read with attacker-supplied lengths up to {@code Integer.MAX_VALUE}. The negative
+ * tests live with the {@code ReadBytesContainer} guards in
+ * {@code RecordSerializerBinaryV1GuardTest}; this class deliberately only feeds
+ * round-trippable encodings to the {@code BytesContainer} path. WHEN-FIXED — when
+ * {@code RecordSerializerBinaryV1#deserializeValue(BytesContainer ...)} adopts the
+ * same length validation, add the matching tier-1 negative tests here.
  */
 public class RecordSerializerBinaryV1SimpleTypeRoundTripTest extends DbTestBase {
 
@@ -157,9 +176,27 @@ public class RecordSerializerBinaryV1SimpleTypeRoundTripTest extends DbTestBase 
   }
 
   @Test
+  public void integerValueNegativeOneZigZagsToOddOne() {
+    // Zig-zag(-1) = 1 → varint 0x01.
+    pinValueEncoding(PropertyTypeInternal.INTEGER, -1, "01");
+  }
+
+  @Test
   public void integerValueSmallPositiveEncodesAsTwoByteVarint() {
     // Zig-zag(1234) = 2468 = 0x9A4 → varint 0xA4 0x13.
     pinValueEncoding(PropertyTypeInternal.INTEGER, 1234, "a413");
+  }
+
+  @Test
+  public void integerValueAtThreeByteVarintBoundary() {
+    // Zig-zag(8192) = 16384 = 2^14 → varint 0x80 0x80 0x01 (transition from 2 to 3 bytes).
+    pinValueEncoding(PropertyTypeInternal.INTEGER, 8192, "808001");
+  }
+
+  @Test
+  public void integerValueAtFourByteVarintBoundary() {
+    // Zig-zag(1048576) = 2097152 = 2^21 → varint 0x80 0x80 0x80 0x01.
+    pinValueEncoding(PropertyTypeInternal.INTEGER, 1_048_576, "80808001");
   }
 
   @Test
@@ -222,6 +259,27 @@ public class RecordSerializerBinaryV1SimpleTypeRoundTripTest extends DbTestBase 
     pinValueEncoding(PropertyTypeInternal.FLOAT, Float.NaN, "7fc00000");
   }
 
+  @Test
+  public void floatPositiveInfinityPinsCanonicalBitPattern() {
+    pinValueEncoding(PropertyTypeInternal.FLOAT, Float.POSITIVE_INFINITY, "7f800000");
+  }
+
+  @Test
+  public void floatNegativeInfinityPinsCanonicalBitPattern() {
+    pinValueEncoding(PropertyTypeInternal.FLOAT, Float.NEGATIVE_INFINITY, "ff800000");
+  }
+
+  @Test
+  public void floatMinSubnormalRoundTripsBitExact() {
+    // Float.MIN_VALUE is the smallest positive subnormal, bit pattern 0x00000001.
+    pinValueEncoding(PropertyTypeInternal.FLOAT, Float.MIN_VALUE, "00000001");
+  }
+
+  @Test
+  public void floatMaxValueRoundTripsBitExact() {
+    pinValueEncoding(PropertyTypeInternal.FLOAT, Float.MAX_VALUE, "7f7fffff");
+  }
+
   // DOUBLE: 8 raw bytes from Double.doubleToLongBits, big-endian.
 
   @Test
@@ -244,6 +302,27 @@ public class RecordSerializerBinaryV1SimpleTypeRoundTripTest extends DbTestBase 
   public void doubleValueNanPinsCanonicalBitPattern() {
     // Double.doubleToLongBits collapses NaN to 0x7FF8000000000000L.
     pinValueEncoding(PropertyTypeInternal.DOUBLE, Double.NaN, "7ff8000000000000");
+  }
+
+  @Test
+  public void doublePositiveInfinityPinsCanonicalBitPattern() {
+    pinValueEncoding(PropertyTypeInternal.DOUBLE, Double.POSITIVE_INFINITY, "7ff0000000000000");
+  }
+
+  @Test
+  public void doubleNegativeInfinityPinsCanonicalBitPattern() {
+    pinValueEncoding(PropertyTypeInternal.DOUBLE, Double.NEGATIVE_INFINITY, "fff0000000000000");
+  }
+
+  @Test
+  public void doubleMinSubnormalRoundTripsBitExact() {
+    // Double.MIN_VALUE is the smallest positive subnormal, bit pattern 0x...0001.
+    pinValueEncoding(PropertyTypeInternal.DOUBLE, Double.MIN_VALUE, "0000000000000001");
+  }
+
+  @Test
+  public void doubleMaxValueRoundTripsBitExact() {
+    pinValueEncoding(PropertyTypeInternal.DOUBLE, Double.MAX_VALUE, "7fefffffffffffff");
   }
 
   // STRING: varint(byteLen) + UTF-8 bytes.
@@ -274,7 +353,7 @@ public class RecordSerializerBinaryV1SimpleTypeRoundTripTest extends DbTestBase 
   @Test
   public void stringEmbeddedNullByteRoundTrips() {
     // "a b" → 3 UTF-8 bytes, varint(3) = 0x06.
-    pinValueEncoding(PropertyTypeInternal.STRING, "a b", "0661" + "00" + "62");
+    pinValueEncoding(PropertyTypeInternal.STRING, "a\u0000b", "06" + "61" + "00" + "62");
   }
 
   // BINARY: varint(len) + raw bytes.
@@ -336,35 +415,57 @@ public class RecordSerializerBinaryV1SimpleTypeRoundTripTest extends DbTestBase 
 
   @Test
   public void decimalHighPrecisionRoundTripsExactly() {
-    // 31415926535897932384.626433832795028841 — pin scale only, hex of unscaled
-    // BigInteger varies by JDK version of toByteArray.
-    var value =
-        new BigDecimal("31415926535897932384.626433832795028841");
+    // pi-like 18-decimal-digit fraction; BigInteger.toByteArray() is spec-deterministic
+    // (two's-complement big-endian) so we can pin scale, unscaled length, and unscaled
+    // bytes against a fixed hex sentinel. This catches a self-consistent BE→LE flip in
+    // the scale/unscaledLen fields that round-trip-only assertions cannot detect.
+    var value = new BigDecimal("31415926535897932384.626433832795028841");
     var encoded = serializeValueBytes(PropertyTypeInternal.DECIMAL, value);
+    // scale       (4 bytes BE) = 0x00000012 (18)
+    // unscaledLen (4 bytes BE) = 0x00000010 (16)
+    // unscaled bytes           = 17a27cc3ed6cf7eeaae7b57d8c88bd69
+    assertEquals(
+        "00000012" + "00000010" + "17a27cc3ed6cf7eeaae7b57d8c88bd69",
+        HEX.formatHex(encoded));
     var decoded = (BigDecimal) deserializeValueBytes(PropertyTypeInternal.DECIMAL, encoded);
     assertEquals(value, decoded);
-    assertEquals(0, value.compareTo(decoded));
-    assertEquals(value.scale(), decoded.scale());
   }
 
   @Test
   public void decimalLargeNegativeRoundTripsWithSignBit() {
     var value = new BigDecimal("-99999999999999999999999999999999.0");
-    var roundTripped = (BigDecimal) deserializeValueBytes(
-        PropertyTypeInternal.DECIMAL,
-        serializeValueBytes(PropertyTypeInternal.DECIMAL, value));
-    assertEquals(value, roundTripped);
-    assertEquals(value.scale(), roundTripped.scale());
+    var encoded = serializeValueBytes(PropertyTypeInternal.DECIMAL, value);
+    // scale       (4 bytes BE) = 0x00000001
+    // unscaledLen (4 bytes BE) = 0x0000000e (14)
+    // unscaled bytes           = ceb239bb726cc73ea4f60000000a (leading 0xCE >= 0x80
+    //                            flags negative two's-complement — the test name's
+    //                            "WithSignBit" claim is now actually asserted).
+    assertEquals(
+        "00000001" + "0000000e" + "ceb239bb726cc73ea4f60000000a",
+        HEX.formatHex(encoded));
+    var decoded = (BigDecimal) deserializeValueBytes(PropertyTypeInternal.DECIMAL, encoded);
+    assertEquals(value, decoded);
   }
 
   @Test
-  public void decimalSerializationLengthMatchesScaleAndUnscaledBigEndian() {
-    // Half-precision sentinel: 0x7FFFFFFF as unscaled BigInteger value.
+  public void decimalScaleZeroLengthFourPositiveUnscaledBigEndian() {
+    // Pinned sentinel: scale=0, unscaledLen=4, unscaled=0x7FFFFFFF.
     var value = new BigDecimal(BigInteger.valueOf(0x7FFFFFFFL), 0);
     var encoded = serializeValueBytes(PropertyTypeInternal.DECIMAL, value);
-    // scale (4 bytes BE) = 0x00000000, unscaledLen (4 bytes BE) = 0x00000004,
-    // unscaled bytes = 0x7F 0xFF 0xFF 0xFF.
-    assertEquals("0000000000000004" + "7fffffff", HEX.formatHex(encoded));
+    assertEquals(12, encoded.length);
+    assertEquals(
+        "00000000" + "00000004" + "7fffffff", HEX.formatHex(encoded));
+  }
+
+  @Test
+  public void decimalScaleOnePointFiveEncodesScaleAndUnscaledBigEndian() {
+    // BigDecimal("1.5") → scale=1, unscaled=15 → [0x0F]. Unlike the scale=0 cases
+    // above, this asserts the scale field carries a non-zero value through both
+    // legs of the encode/decode path.
+    pinValueEncoding(
+        PropertyTypeInternal.DECIMAL,
+        new BigDecimal("1.5"),
+        "00000001" + "00000001" + "0f");
   }
 
   // DATETIME: zig-zag varint of Date.getTime() millis.
@@ -398,8 +499,9 @@ public class RecordSerializerBinaryV1SimpleTypeRoundTripTest extends DbTestBase 
 
   @Test
   public void dateEpochEncodesAsSingleZeroByte() {
-    // Database default timezone is GMT for a fresh DbTestBase MEMORY db, so
-    // convertDayToTimezone(GMT,GMT,0) = 0 → 0 days since epoch → varint(0) = 0x00.
+    // @Before forces the database TIMEZONE to GMT, so convertDayToTimezone(GMT,GMT,0)
+    // = 0 → 0 days since epoch → varint(0) = 0x00. Without the override the
+    // encoding would shift by the JVM-default offset (e.g. -3_600_000 ms in CET).
     pinValueEncoding(PropertyTypeInternal.DATE, new Date(0L), "00");
   }
 
@@ -407,6 +509,13 @@ public class RecordSerializerBinaryV1SimpleTypeRoundTripTest extends DbTestBase 
   public void dateOneDayPastEpochEncodesAsZigZagPositive() {
     // 1 day = 86_400_000 ms → 1 day → varint(zigzag(1)) = 0x02.
     pinValueEncoding(PropertyTypeInternal.DATE, new Date(86_400_000L), "02");
+  }
+
+  @Test
+  public void dateOneDayBeforeEpochEncodesAsZigZagOdd() {
+    // -1 day = -86_400_000 ms → -1 day → varint(zigzag(-1)) = 0x01. Pre-epoch dates
+    // exercise the negative branch of zig-zag varint encoding.
+    pinValueEncoding(PropertyTypeInternal.DATE, new Date(-86_400_000L), "01");
   }
 
   @Test
@@ -506,14 +615,34 @@ public class RecordSerializerBinaryV1SimpleTypeRoundTripTest extends DbTestBase 
 
   @Test
   public void schemalessRecordWithLongStringRoundTrips() {
-    // Exercises multi-byte varint length encoding inside the value region.
+    // Exercises a 2-byte varint length prefix (1024 bytes → varint 0x80 0x10).
+    // The cast to char is essential — `'a' + (i % 26)` is `int`, and
+    // `StringBuilder.append(int)` would emit decimal-digit characters, not letters.
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     var sb = new StringBuilder();
     for (var i = 0; i < 1024; i++) {
-      sb.append('a' + (i % 26));
+      sb.append((char) ('a' + (i % 26)));
     }
     var payload = sb.toString();
+    assertEquals(1024, payload.length());
+    entity.setString("big", payload);
+
+    var serialized = recordSerializer.toStream(session, entity);
+    var extracted = (EntityImpl) session.newEntity();
+    recordSerializer.fromStream(session, serialized, extracted, new String[] {});
+
+    assertEquals(payload, extracted.getProperty("big"));
+    session.rollback();
+  }
+
+  @Test
+  public void schemalessRecordWithVeryLongStringCrossesThreeByteVarintBoundary() {
+    // Pins the 3-byte varint length prefix (20_000 bytes → varint 0xA0 0x9C 0x01).
+    // ASCII payload to keep the wire size equal to the character count.
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    var payload = "x".repeat(20_000);
     entity.setString("big", payload);
 
     var serialized = recordSerializer.toStream(session, entity);
@@ -557,6 +686,123 @@ public class RecordSerializerBinaryV1SimpleTypeRoundTripTest extends DbTestBase 
     session.rollback();
   }
 
+  @Test
+  public void deserializePartialIgnoresUnknownRequestedField() {
+    // Exercises findMatchingFieldName returning -1 — the loop must skip the value
+    // bytes correctly without setting any property on the entity.
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setInt("a", 1);
+
+    var serialized = recordSerializer.toStream(session, entity);
+    var partial = (EntityImpl) session.newEntity();
+    recordSerializer.fromStream(session, serialized, partial, new String[] {"missing"});
+
+    assertNull(partial.getProperty("missing"));
+    assertNull(partial.getProperty("a"));
+    assertTrue(partial.getPropertyNames().isEmpty());
+    session.rollback();
+  }
+
+  @Test
+  public void deserializePartialReadsTwoOfThreeFields() {
+    // Exercises the early-break-when-unmarshalledFields == iFields.length branch
+    // in deserializePartial — the loop must terminate before scanning the third field.
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setInt("a", 1);
+    entity.setString("b", "value-b");
+    entity.setLong("c", 99L);
+
+    var serialized = recordSerializer.toStream(session, entity);
+    var partial = (EntityImpl) session.newEntity();
+    recordSerializer.fromStream(session, serialized, partial, new String[] {"a", "b"});
+
+    assertEquals(1, (int) partial.getProperty("a"));
+    assertEquals("value-b", partial.getProperty("b"));
+    assertNull(partial.getProperty("c"));
+    session.rollback();
+  }
+
+  @Test
+  public void deserializePartialOverRequestStopsAtRecordEnd() {
+    // Requesting more fields than the record contains — the loop must terminate
+    // via bytes.offset >= valuesStart and not via the early-break.
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setInt("a", 1);
+
+    var serialized = recordSerializer.toStream(session, entity);
+    var partial = (EntityImpl) session.newEntity();
+    recordSerializer.fromStream(
+        session, serialized, partial, new String[] {"a", "b", "c"});
+
+    assertEquals(1, (int) partial.getProperty("a"));
+    assertNull(partial.getProperty("b"));
+    assertNull(partial.getProperty("c"));
+    session.rollback();
+  }
+
+  // -----------------------------------------------------------
+  // Null property and 3-byte varint length-prefix corner cases
+  // -----------------------------------------------------------
+
+  @Test
+  public void nullPropertyRoundTripsAsNullAndPreservesPropertyName() {
+    // Exercises the V1 header tombstone branch: a null value writes fieldLength=0
+    // in the header and never enters serializeValue. The deserialise side restores
+    // the property name with a null value.
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("nullable", null, PropertyType.STRING);
+
+    var serialized = recordSerializer.toStream(session, entity);
+    var extracted = (EntityImpl) session.newEntity();
+    recordSerializer.fromStream(session, serialized, extracted, new String[] {});
+
+    assertTrue(extracted.getPropertyNames().contains("nullable"));
+    assertNull(extracted.getProperty("nullable"));
+    session.rollback();
+  }
+
+  @Test
+  public void nullPropertyPartialReadReturnsNull() {
+    // The deserializePartial null branch (fieldLength == 0 → setDeserializedPropertyInternal
+    // with null + null type) must restore the property name with null when explicitly
+    // requested by the partial read.
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("nullable", null, PropertyType.STRING);
+    entity.setInt("present", 42);
+
+    var serialized = recordSerializer.toStream(session, entity);
+    var partial = (EntityImpl) session.newEntity();
+    recordSerializer.fromStream(session, serialized, partial, new String[] {"nullable"});
+
+    assertTrue(partial.getPropertyNames().contains("nullable"));
+    assertNull(partial.getProperty("nullable"));
+    assertNull(partial.getProperty("present"));
+    session.rollback();
+  }
+
+  @Test
+  public void binaryLargePayloadCrossesThreeByteVarintBoundary() {
+    // 20_000 bytes > 2^13 (zig-zag boundary), so the length prefix is a 3-byte varint.
+    // VarIntSerializer.write zig-zag-encodes BEFORE varint encoding, so the prefix is
+    // varint(zigzag(20_000)) = varint(40_000) = 0xC0 0xB8 0x02.
+    var raw = new byte[20_000];
+    for (var i = 0; i < raw.length; i++) {
+      raw[i] = (byte) (i & 0xFF);
+    }
+    var encoded = serializeValueBytes(PropertyTypeInternal.BINARY, raw);
+    assertEquals(20_003, encoded.length);
+    assertEquals((byte) 0xC0, encoded[0]);
+    assertEquals((byte) 0xB8, encoded[1]);
+    assertEquals((byte) 0x02, encoded[2]);
+    var decoded = (byte[]) deserializeValueBytes(PropertyTypeInternal.BINARY, encoded);
+    assertArrayEquals(raw, decoded);
+  }
+
   // ----------------
   // Helper machinery
   // ----------------
@@ -564,8 +810,24 @@ public class RecordSerializerBinaryV1SimpleTypeRoundTripTest extends DbTestBase 
   /**
    * Asserts that the canonical byte encoding of {@code value} under {@code type} matches
    * {@code expectedHex}, then deserializes the bytes and confirms the round-tripped value
-   * equals the original. The exact-byte assertion is the regression sentinel; the round-
-   * trip equality covers the deserialize switch case.
+   * equals the original. The exact-byte assertion is the regression sentinel; the
+   * round-trip equality covers the deserialize switch case. Per-type equality semantics:
+   *
+   * <ul>
+   *   <li><b>BINARY</b>: array content equality</li>
+   *   <li><b>FLOAT / DOUBLE</b>: bit-pattern equality via {@code floatToIntBits} /
+   *       {@code doubleToLongBits} so NaN, negative zero, and infinity are
+   *       distinguishable</li>
+   *   <li><b>DATE / DATETIME</b>: millis comparison; the deserialise side always returns
+   *       a {@link Date} even when the encode side accepted a raw {@link Number}. DATE
+   *       callers must pass whole-day millis (the encode path floors to day precision)</li>
+   *   <li><b>everything else</b>: {@link Object#equals}</li>
+   * </ul>
+   *
+   * <p>The helper deliberately rejects {@code null} via {@code assertNotNull} — the V1
+   * value dispatch is unreachable for null property values, since the schemaless header
+   * records null as a tombstone (fieldLength=0) before {@code serializeValue} would ever
+   * be called.
    */
   private void pinValueEncoding(
       PropertyTypeInternal type, Object value, String expectedHex) {
@@ -573,26 +835,20 @@ public class RecordSerializerBinaryV1SimpleTypeRoundTripTest extends DbTestBase 
     assertEquals(expectedHex, HEX.formatHex(encoded));
     var decoded = deserializeValueBytes(type, encoded);
     assertNotNull("round-trip yielded null for type " + type, decoded);
-    if (value.getClass().isArray()) {
-      // BINARY case — compare arrays by content.
-      assertArrayEquals((byte[]) value, (byte[]) decoded);
-    } else if (value instanceof Number expectedNum && decoded instanceof Number decodedNum
-        && type == PropertyTypeInternal.FLOAT) {
-      assertEquals(
-          Float.floatToIntBits(expectedNum.floatValue()),
-          Float.floatToIntBits(decodedNum.floatValue()));
-    } else if (value instanceof Number expectedNum && decoded instanceof Number decodedNum
-        && type == PropertyTypeInternal.DOUBLE) {
-      assertEquals(
-          Double.doubleToLongBits(expectedNum.doubleValue()),
-          Double.doubleToLongBits(decodedNum.doubleValue()));
-    } else if (type == PropertyTypeInternal.DATETIME || type == PropertyTypeInternal.DATE) {
-      // Number values serialise via the Number branch but always deserialise as Date.
-      var expectedMillis =
-          (value instanceof Number n) ? n.longValue() : ((Date) value).getTime();
-      assertEquals(expectedMillis, ((Date) decoded).getTime());
-    } else {
-      assertEquals(value, decoded);
+    switch (type) {
+      case BINARY -> assertArrayEquals((byte[]) value, (byte[]) decoded);
+      case FLOAT -> assertEquals(
+          Float.floatToIntBits(((Number) value).floatValue()),
+          Float.floatToIntBits(((Number) decoded).floatValue()));
+      case DOUBLE -> assertEquals(
+          Double.doubleToLongBits(((Number) value).doubleValue()),
+          Double.doubleToLongBits(((Number) decoded).doubleValue()));
+      case DATE, DATETIME -> {
+        var expectedMillis =
+            (value instanceof Number n) ? n.longValue() : ((Date) value).getTime();
+        assertEquals(expectedMillis, ((Date) decoded).getTime());
+      }
+      default -> assertEquals(value, decoded);
     }
   }
 
