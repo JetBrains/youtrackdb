@@ -1,6 +1,8 @@
 name: Java CI/CD Integration Tests Pipeline
 on:
   workflow_dispatch:
+  push:
+    branches: [ "develop" ]
   schedule:
     # Run at 2 AM CET (1 AM UTC)
     - cron: '0 1 * * *'
