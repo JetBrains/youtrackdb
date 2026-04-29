@@ -1,0 +1,696 @@
+name: Java CI/CD Weekly Beta Release Pipeline
+on:
+  workflow_dispatch:
+  schedule:
+    # Saturday 06:00 UTC. Cron is in UTC; this is roughly the start of
+    # the weekend across all our contributor timezones.
+    - cron: '0 6 * * 6'
+
+concurrency:
+  # Singleton group across all triggers and refs. Two runs of this
+  # workflow always target the same Maven coordinate space (we
+  # always release from `main`, see classify checkout below), so they
+  # must serialize regardless of which ref triggered them. A
+  # `${github.workflow}-${github.ref}` group would put a manual
+  # `workflow_dispatch` from a non-default ref into a separate group
+  # and let it race the cron-triggered run for a coordinate.
+  group: ${{ github.workflow }}
+  # Release uploads are not idempotent: once `central-publishing-maven-plugin`
+  # has staged artifacts under `autoPublish=true`, cancelling mid-flight can
+  # leave a half-published version that we cannot retry under the same
+  # coordinate (Central refuses re-uploads of an existing release version).
+  # If a manual `workflow_dispatch` overlaps with the cron run we queue
+  # instead of cancelling.
+  cancel-in-progress: false
+
+# Strict default — every job that needs more must opt in explicitly. No
+# job in this workflow publishes to GitHub Packages, so workflow-level
+# `packages: write` was dropped; only `create-release` needs `contents:
+# write` (for the tag), and `notify-fixed` needs `actions: read` (to
+# read prior workflow-run history).
+permissions:
+  contents: read
+
+jobs:
+  classify:
+    name: Classify changes and pick beta coordinate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      should_publish: ${{ steps.decide.outputs.should_publish }}
+      skip_reason: ${{ steps.decide.outputs.skip_reason }}
+      classifier_degraded: ${{ steps.decide.outputs.classifier_degraded }}
+      head_sha: ${{ steps.vars.outputs.head_sha }}
+      changelist: ${{ steps.coord.outputs.changelist }}
+      release_tag: ${{ steps.coord.outputs.release_tag }}
+      base_version: ${{ steps.coord.outputs.base_version }}
+      prev_ref: ${{ steps.prev.outputs.prev_ref }}
+      prev_scope: ${{ steps.prev.outputs.scope }}
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v6
+        with:
+          # Always release from `main`, even though `develop` is the repo
+          # default branch. GitHub cron schedules only fire against the
+          # workflow file at the default branch's HEAD, so the trigger
+          # itself runs in the `develop` context — but the artifact we
+          # ship has to come from `main` (the delivery branch that the
+          # nightly integration-tests pipeline fast-forwards from `develop`
+          # only after IT passes). Pinning the checkout to `refs/heads/main`
+          # decouples "which ref triggered the workflow" from "which ref
+          # we're publishing", and the `head_sha` captured below is then
+          # propagated to every downstream job via `ref:`, so deploy /
+          # docker / release-tag all stay consistent even if `main`
+          # advances during the multi-hour deploy window.
+          ref: refs/heads/main
+          # Full history so we can diff against the previous beta tag.
+          fetch-depth: 0
+          # Drop GITHUB_TOKEN from .git/config so the unrestricted Bash
+          # available to Claude in the classify step can't exfiltrate it.
+          # All git operations from here on are read-only against the
+          # local clone, and `gh` authenticates via GH_TOKEN env.
+          persist-credentials: false
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+          overwrite-settings: false
+
+      - name: Capture HEAD SHA
+        id: vars
+        run: echo "head_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Determine beta coordinate (with collision-aware suffix)
+        id: coord
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
+          MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
+        run: |
+          set -euo pipefail
+          DATE=$(date -u +%Y-%m-%d)
+          # Read the canonical project version (the `revision` CI-friendly
+          # property) without the `-SNAPSHOT` changelist applied, so we can
+          # build the beta coordinate from a clean base.
+          BASE_VERSION=$(mvn -s .github/workflows/settings.xml help:evaluate \
+            -Dexpression=revision -q -DforceStdout)
+          BASE_TAG="${BASE_VERSION}-beta-${DATE}"
+          # Auto-append `-2`, `-3`, … if a release with the same coordinate
+          # already exists. Central Portal release coordinates are immutable
+          # (re-uploading would fail) and the GitHub tag must be unique too.
+          TAG="$BASE_TAG"
+          N=2
+          while gh release view "$TAG" --repo "${{ github.repository }}" \
+              >/dev/null 2>&1; do
+            TAG="${BASE_TAG}-${N}"
+            N=$((N + 1))
+          done
+          # `changelist` is whatever follows BASE_VERSION; the project POM
+          # uses ${revision}${sha1}${changelist} so passing this rebuilds
+          # the same coordinate downstream.
+          CHANGELIST="${TAG#${BASE_VERSION}}"
+          echo "base_version=$BASE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "changelist=$CHANGELIST" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Beta coordinate::${TAG}"
+
+      - name: Determine previous beta base
+        id: prev
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_VERSION: ${{ steps.coord.outputs.base_version }}
+        run: |
+          set -euo pipefail
+          # Pick the previous beta on the same minor line as the diff base.
+          # We deliberately do NOT use `gh release list --limit 1` because
+          # that sorts by creation date across ALL releases (drafts, GA
+          # tags, hotfix tags from older minors), and a non-beta tag would
+          # produce misleading release notes. Instead, filter the listing
+          # to:
+          #   - non-draft entries,
+          #   - pre-releases (matches `--prerelease` on `gh release create`),
+          #   - tag schema `<base_version>-beta-...` so we stay on the
+          #     current minor line and don't pull in betas from a newer
+          #     or older release line.
+          # `--limit 50` is a generous cushion in case a flurry of
+          # GA/patch releases lands between two betas.
+          # The tag regex is anchored to `<base>-beta-YYYY-MM-DD` with an
+          # optional `-N` collision suffix — a looser `startswith` would
+          # also match a hand-rolled `0.5.0-beta-rc1` style tag and pick
+          # up the wrong diff base.
+          PREV_TAG=$(gh release list \
+            --repo "${{ github.repository }}" \
+            --limit 50 \
+            --json tagName,isPrerelease,isDraft \
+            --jq "[.[]
+                  | select(.isDraft | not)
+                  | select(.isPrerelease)
+                  | .tagName
+                  | select(test(\"^${BASE_VERSION}-beta-[0-9]{4}-[0-9]{2}-[0-9]{2}(-[0-9]+)?$\"))]
+                  | .[0] // empty")
+
+          if [ -n "$PREV_TAG" ] && git rev-parse --verify "refs/tags/$PREV_TAG" >/dev/null 2>&1; then
+            PREV_REF="$PREV_TAG"
+            SCOPE="since previous beta \`$PREV_TAG\`"
+          elif git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+            PREV_REF=$(git rev-parse HEAD^)
+            SCOPE="since parent commit of HEAD (no prior beta on \`${BASE_VERSION}\` line)"
+          else
+            # Single-commit repo with no prior beta: a `HEAD..HEAD` diff
+            # would be empty, Claude would write the "no source changes"
+            # stub, and the decide step would still publish (notes file
+            # is non-empty). That's a misleading first beta. Treat this
+            # as a skip and let an operator cut the initial tag manually.
+            PREV_REF=$(git rev-parse HEAD)
+            SCOPE="initial release (no prior history)"
+            echo 'Initial release: no prior history to diff against; cut the first beta tag manually.' \
+              > /tmp/release-skip-reason
+          fi
+
+          echo "prev_ref=$PREV_REF" >> "$GITHUB_OUTPUT"
+          echo "scope=$SCOPE" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Beta diff base::${PREV_REF} (${SCOPE})"
+
+      - name: Classify changes and draft release notes with Claude
+        # Same classifier prompt and pinned action as the previous
+        # snapshot pipeline; the structural difference is that this
+        # step now runs *before* deploy, so its decision gates the
+        # whole publish, not just the GitHub tag.
+        # Pinned to an immutable commit SHA (not a tag) to prevent
+        # tag-moving supply-chain attacks; the comment lists the
+        # corresponding upstream revision the pin was taken from.
+        # If the step fails for any reason, the next step falls back
+        # to publishing with a stub body — silently swallowing a
+        # week of work is worse than publishing notes that need a
+        # human follow-up.
+        continue-on-error: true
+        uses: anthropics/claude-code-base-action@c937844d71159a8f6409acb3be0d10ea3cf92042 # main @ 2026-04-20, Claude Code 2.1.116
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Print Claude's tool calls (and any permission denials) to the
+          # job log so that when the step silently falls back to the stub
+          # body we can see why without rerunning in debug mode.
+          show_full_output: true
+          prompt: |
+            You are writing GitHub release notes for a YouTrackDB weekly beta release.
+
+            ## Release
+            - Tag / Maven version: `${{ steps.coord.outputs.release_tag }}`
+            - Commit: `${{ steps.vars.outputs.head_sha }}`
+            - Scope: ${{ steps.prev.outputs.scope }}
+
+            ## Instructions
+            1. Inspect the range `${{ steps.prev.outputs.prev_ref }}..${{ steps.vars.outputs.head_sha }}`:
+               - `git log ${{ steps.prev.outputs.prev_ref }}..${{ steps.vars.outputs.head_sha }} --oneline --no-merges`
+               - `git diff ${{ steps.prev.outputs.prev_ref }}..${{ steps.vars.outputs.head_sha }} --stat`
+               - `git diff ${{ steps.prev.outputs.prev_ref }}..${{ steps.vars.outputs.head_sha }}` (read selectively for large diffs)
+            2. Decide whether the range is **purely infrastructural** — i.e.
+               every change is one of:
+                 - CI / GitHub Actions workflows (`.github/`)
+                 - Build-tool config that doesn't affect the published artifact's
+                   runtime behavior (Maven plugin versions, `.mvn/`, Spotless
+                   config, git hooks, `.gitignore`, Dependabot config)
+                 - Repository-level docs (`README.md`, `docs/`, ADRs,
+                   `CLAUDE.md`, contribution guides)
+                 - Test-only tweaks that don't change production code
+                 - Formatting-only churn (Spotless reformat, whitespace)
+               A change that touches production source under `core/`, `server/`,
+               `client/`, `driver/`, `console/`, `embedded/`, `gremlin-*`, etc.,
+               or that adds/removes/upgrades a runtime dependency in `pom.xml`,
+               is **not** infrastructural — even if it's small. When in doubt,
+               treat the range as non-infrastructural and produce notes.
+               Borderline examples that **are** infrastructural: Maven plugin
+               version bumps that don't regenerate sources or change artifact
+               bytes, tweaks to `.mvn/jvm.config`, README/docs fixes, CI-only
+               permission changes. Borderline examples that are **not**:
+               any `<dependency>` add/remove/upgrade in a `pom.xml` (even a
+               transitively-bundled runtime like Netty), any change to
+               `core/src/main/grammar/YouTrackDBSql.jjt` (regenerates the SQL
+               parser), any change to `META-INF/services/` (SPI wiring),
+               any change to `GlobalConfiguration.java` (tunables exposed to
+               users).
+               - If the range **is** purely infrastructural: write a single
+                 human-readable line (≤120 characters, no newlines) to
+                 `/tmp/release-skip-reason` (e.g.
+                 `CI-only: release-notes workflow tweak`) and stop. Do NOT
+                 write `/tmp/release-notes.md`. The decide step will see
+                 the skip file and not deploy this week.
+               - Otherwise, continue with steps 3–7 below to produce notes.
+               For very large diffs, start with `--stat` to identify the hot
+               paths, then narrow with `git diff ... -- <path>` piped through
+               `head` / `grep` rather than dumping the full diff.
+            3. Group the user-visible changes by theme (features, bug fixes,
+               performance, refactors, docs/infra). Omit categories that are empty.
+            4. Preserve YTDB issue IDs (e.g. `YTDB-123`) where they appear in
+               commit messages — link them to
+               `https://youtrack.jetbrains.com/issue/YTDB-123`.
+            5. Keep the notes focused and skimmable. Drop purely internal churn
+               (renames, whitespace, test-only tweaks) unless nothing else
+               changed.
+            6. Write the final Markdown to `/tmp/release-notes.md`. Do not add
+               a top-level heading — GitHub renders the release title
+               separately. Start directly with the section headings.
+            7. If the diff is empty, write a single line:
+               `No source changes since the previous beta.`
+          # The base-action doesn't grant any tool permissions by default;
+          # without `--allowed-tools` Claude can't run `git log`/`git diff`
+          # or write `/tmp/release-notes.md`. Allow any Bash command so
+          # pipes and redirects work, but keep Write scoped to the two
+          # files this step consumes so Claude can't touch anything else
+          # in the workspace. The job runs on an ephemeral GitHub-hosted
+          # runner and `persist-credentials: false` on the checkout strips
+          # the GITHUB_TOKEN from `.git/config`, closing the main
+          # exfiltration vector available to an unrestricted Bash; no
+          # secrets are exported into this step's environment either.
+          claude_args: >-
+            --model claude-sonnet-4-6
+            --allowed-tools "Bash,Read,Write(/tmp/release-notes.md),Write(/tmp/release-skip-reason)"
+
+      - name: Decide whether to publish
+        id: decide
+        run: |
+          set -euo pipefail
+          NOTES_FILE=/tmp/release-notes.md
+          SKIP_FILE=/tmp/release-skip-reason
+          # Prefer real notes if Claude produced them, even if a skip file
+          # was also (erroneously) left behind. The skip branch only wins
+          # when there are no notes — that protects against a partially
+          # written skip file from a mid-run Claude failure silently
+          # suppressing a legitimate release.
+          if [ -s "$NOTES_FILE" ]; then
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=" >> "$GITHUB_OUTPUT"
+            echo "classifier_degraded=false" >> "$GITHUB_OUTPUT"
+          elif [ -s "$SKIP_FILE" ]; then
+            # Strip CR and LF (in case of CRLF endings) and cap the rendered
+            # length so a runaway reason can't balloon the job summary.
+            REASON=$(tr -d '\r\n' < "$SKIP_FILE" | cut -c1-200)
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=$REASON" >> "$GITHUB_OUTPUT"
+            echo "classifier_degraded=false" >> "$GITHUB_OUTPUT"
+            # Write to the step summary rather than emitting `::notice::`:
+            # Markdown renders `REASON` as literal text, so a stray `::`
+            # sequence in the reason can't be interpreted as a workflow
+            # command.
+            {
+              echo "### Beta release skipped"
+              echo
+              printf '%s\n' "$REASON"
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "Beta release skipped: $REASON"
+          else
+            # Claude produced neither file (the action itself failed, the
+            # step timed out, etc.). Fall back to publishing with a stub
+            # body — silently swallowing a week of work is worse than
+            # publishing notes that need a human follow-up. Mark the run
+            # as `classifier_degraded` so the notify-degraded job can
+            # page the team at lower severity; the publish itself is
+            # still attempted.
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+            echo "skip_reason=" >> "$GITHUB_OUTPUT"
+            echo "classifier_degraded=true" >> "$GITHUB_OUTPUT"
+            printf 'Beta release of YouTrackDB `%s` built from commit `%s`.\n' \
+              "${{ steps.coord.outputs.release_tag }}" \
+              "${{ steps.vars.outputs.head_sha }}" > "$NOTES_FILE"
+            echo "::warning title=Release notes::Claude classify step produced no output, falling back to stub notes"
+          fi
+
+      - name: Upload draft release notes
+        if: steps.decide.outputs.should_publish == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: /tmp/release-notes.md
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy:
+    name: Deploy Maven Artifacts
+    needs: classify
+    if: needs.classify.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 270
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v6
+        with:
+          # Pin to the SHA the classify job evaluated, so the deployed
+          # artifact, the GitHub tag, and the release notes stay
+          # consistent even if main moves while the job is queued.
+          ref: ${{ needs.classify.outputs.head_sha }}
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+          overwrite-settings: false
+
+      - name: Import GPG signing key
+        # Central rejects unsigned release artifacts, so this is a hard
+        # prerequisite for the deploy step. Failing fast here gives a
+        # clearer error than letting Maven discover a missing key
+        # mid-build.
+        env:
+          MAVEN_GPG_PRIVATE_KEY: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${MAVEN_GPG_PRIVATE_KEY:-}" ]; then
+            echo "::error title=Missing GPG secret::MAVEN_GPG_PRIVATE_KEY is not set; cannot sign release artifacts." >&2
+            exit 1
+          fi
+          # `--batch` to suppress prompts; the passphrase is read by
+          # the maven-gpg-plugin from the `MAVEN_GPG_PASSPHRASE` env
+          # var (set on the Maven deploy step), not by gpg here.
+          # `printf '%s'` instead of `echo` avoids backslash
+          # interpretation on shells where the builtin differs from
+          # bash's.
+          printf '%s' "$MAVEN_GPG_PRIVATE_KEY" | gpg --batch --import
+
+      - name: Maven deploy
+        # Single deploy to the Central Portal release channel. The
+        # `sonatype-oss-release` profile attaches sources + javadoc
+        # jars and signs every artifact (Central rejects unsigned
+        # releases). With `autoPublish=true` configured on the
+        # `central-publishing-maven-plugin` in the root POM, the
+        # staged release is promoted automatically once validation
+        # passes.
+        env:
+          MAVEN_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.MAVEN_CENTRAL_TOKEN }}
+          MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
+          MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
+          # `maven-gpg-plugin` reads MAVEN_GPG_PASSPHRASE directly from
+          # the environment, so we do not pass `-Dgpg.passphrase=` on
+          # the command line — keeping the secret off the process
+          # argv where `ps` could (in principle) expose it.
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+          CHANGELIST: ${{ needs.classify.outputs.changelist }}
+          RELEASE_TAG: ${{ needs.classify.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          mvn -s .github/workflows/settings.xml clean deploy \
+            -P sonatype-oss-release \
+            -Dchangelist="$CHANGELIST" \
+            -Dspotless.check.skip=true -B
+          echo "::notice title=Maven Artifact Deployed::${RELEASE_TAG}"
+
+  deploy-docker:
+    name: Deploy Docker Images (${{ matrix.platform.arch }})
+    needs: [ classify, deploy ]
+    if: needs.classify.outputs.should_publish == 'true'
+    runs-on: ${{ matrix.platform.os }}
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        platform:
+          - os: ubuntu-latest
+            arch: x64
+            docker_platform: 'linux/amd64'
+          - os: ubuntu-24.04-arm
+            arch: arm64
+            docker_platform: 'linux/arm64/v8'
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.classify.outputs.head_sha }}
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+          overwrite-settings: false
+
+      - name: Docker deploy
+        # Tag the published images with the same beta coordinate as the
+        # Maven artifact so a Docker tag, a Maven version, and a GitHub
+        # release entry are all 1:1. The `docker.tags.majorVersion.minorVersion`
+        # property is referenced by `server/pom.xml` and `console/pom.xml`
+        # but never defined in the POM tree, so we must pass it explicitly
+        # at deploy time — otherwise fabric8 substitutes the literal
+        # `${docker.tags.majorVersion.minorVersion}` string and Docker
+        # rejects it as an invalid tag. The property name is historic and
+        # slightly misleading: we set it to the full beta coordinate
+        # (e.g. `0.5.0-beta-2026-04-29`), not just the major.minor pair,
+        # because every beta needs its own immutable Docker tag.
+        # `DOCKER_PASSWORD` is exported via env (rather than expanded
+        # into the command line via `${{ secrets.DOCKER_PASSWORD }}`) so
+        # an unanticipated shell metacharacter in the secret can't break
+        # the command or be misinterpreted by the shell.
+        env:
+          MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
+          MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+          RELEASE_TAG: ${{ needs.classify.outputs.release_tag }}
+          CHANGELIST: ${{ needs.classify.outputs.changelist }}
+          DOCKER_PLATFORM: ${{ matrix.platform.docker_platform }}
+        run: |
+          set -euo pipefail
+          mvn -s .github/workflows/settings.xml clean deploy -pl console,server -am \
+            -Dchangelist="$CHANGELIST" \
+            -Ddocker.username=youtrackdb \
+            -Ddocker.password="$DOCKER_PASSWORD" \
+            -Ddocker.tags.latest=latest \
+            -Ddocker.tags.majorVersion.minorVersion="$RELEASE_TAG" \
+            -Ddocker.platforms="$DOCKER_PLATFORM" \
+            -P docker-images -Dspotless.check.skip=true -B
+
+  create-release:
+    name: Create GitHub release tag
+    needs: [ classify, deploy, deploy-docker ]
+    if: needs.classify.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      # The tag matches the beta-suffixed Maven coordinate that was
+      # just published to Central, so every GitHub release is 1:1 with
+      # a uniquely addressable artifact.
+      RELEASE_TAG: ${{ needs.classify.outputs.release_tag }}
+      HEAD_SHA: ${{ needs.classify.outputs.head_sha }}
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download release notes
+        uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+          path: /tmp
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          NOTES_FILE=/tmp/release-notes.md
+          if [ ! -s "$NOTES_FILE" ]; then
+            # Defensive fallback: the classify job already substitutes a
+            # stub when Claude produced nothing, but if the artifact was
+            # corrupted in transit we still want to cut the tag.
+            printf 'Beta release of YouTrackDB `%s` built from commit `%s`.\n' \
+              "$RELEASE_TAG" "$HEAD_SHA" > "$NOTES_FILE"
+          fi
+          gh release create "$RELEASE_TAG" \
+            --repo "${{ github.repository }}" \
+            --target "$HEAD_SHA" \
+            --title "$RELEASE_TAG" \
+            --notes-file "$NOTES_FILE" \
+            --prerelease
+
+  notify-classify-failure:
+    name: Notify classify failure on Zulip
+    needs: [ classify, deploy, deploy-docker, create-release ]
+    # Classify failed before deciding whether to publish or skip, so no
+    # Maven, Docker, or GitHub artifacts were touched. This is a CI /
+    # workflow problem (gh CLI flake, settings.xml issue, GPG secret
+    # misconfigured, etc.) rather than a release-rollback situation.
+    # We page at lower severity than `notify-publish-failure` so the
+    # team doesn't habituate to the rotating-light siren on transient
+    # classifier flakes — when the siren *does* fire, it now reliably
+    # means "an artifact may be in an inconsistent published state."
+    if: always() && needs.classify.result == 'failure'
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Send Zulip Notification
+        uses: zulip/github-actions-zulip/send-message@v1
+        with:
+          api-key: ${{ secrets.ZULIP_API_KEY }}
+          email: ci-status-bot@youtrackdb.zulipchat.com
+          organization-url: 'https://youtrackdb.zulipchat.com'
+          to: 'ytdb'
+          type: 'stream'
+          topic: 'ci status'
+          content: |
+            **BETA RELEASE BLOCKED** :warning:
+            Classifier job failed on branch `main` for repo ${{ github.repository }} — no artifacts were touched, no rollback is needed; rerun the workflow once the underlying CI issue is fixed.
+            Commit: ${{ needs.classify.outputs.head_sha || 'unknown (classify failed before HEAD capture)' }}
+            [View Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+  notify-publish-failure:
+    name: Notify publish failure on Zulip
+    needs: [ classify, deploy, deploy-docker, create-release ]
+    # Real publish failure: at least one of deploy / deploy-docker /
+    # create-release reached `failure`, which means the Maven artifact
+    # may be half-staged at Central, the Docker images may be partially
+    # pushed across architectures, or the GitHub release tag may be
+    # missing — all states that need a human to inspect and possibly
+    # clean up before the next run can succeed (Central release
+    # coordinates are immutable, so a half-publish blocks retry under
+    # the same version).
+    # We deliberately don't use `failure()` here because it would also
+    # match a `classify` failure, which is handled by
+    # `notify-classify-failure` above with lower severity.
+    # Hyphenated job IDs (`deploy-docker`, `create-release`) must be
+    # accessed via bracket notation: GitHub Actions' expression grammar
+    # parses `needs.deploy-docker.result` as `needs.deploy - docker.result`
+    # (subtraction), which silently never equals `'failure'` — meaning a
+    # real publish failure on those jobs would not page the team.
+    if: |
+      always() && (
+        needs.deploy.result == 'failure'
+        || needs['deploy-docker'].result == 'failure'
+        || needs['create-release'].result == 'failure'
+      )
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Send Zulip Notification
+        uses: zulip/github-actions-zulip/send-message@v1
+        with:
+          api-key: ${{ secrets.ZULIP_API_KEY }}
+          email: ci-status-bot@youtrackdb.zulipchat.com
+          organization-url: 'https://youtrackdb.zulipchat.com'
+          to: 'ytdb'
+          type: 'stream'
+          topic: 'ci status'
+          content: |
+            **BETA RELEASE FAILED** :rotating_light:
+            Publish failed on branch `main` for repo ${{ github.repository }} — inconsistent state may exist at Maven Central, Docker Hub, or GitHub Releases. Investigate before retrying; the same coordinate cannot be republished.
+            Coordinate: ${{ needs.classify.outputs.release_tag }}
+            Commit: ${{ needs.classify.outputs.head_sha }}
+            Failed: ${{ needs.deploy.result == 'failure' && 'deploy ' || '' }}${{ needs['deploy-docker'].result == 'failure' && 'deploy-docker ' || '' }}${{ needs['create-release'].result == 'failure' && 'create-release' || '' }}
+            [View Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+  notify-degraded:
+    name: Notify classifier degradation on Zulip
+    needs: [ classify, deploy, deploy-docker, create-release ]
+    # Lower-severity page that fires when the publish itself succeeded
+    # but the Claude classifier silently fell back to stub release notes.
+    # Without this signal the team has no out-of-band way to learn the
+    # classifier is broken — `notify-failure` doesn't fire (the job
+    # succeeded) and the only trace is a `::warning::` annotation in
+    # the workflow log that nobody reads.
+    if: success() && needs.classify.outputs.classifier_degraded == 'true' && needs.classify.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Send Zulip Notification
+        uses: zulip/github-actions-zulip/send-message@v1
+        with:
+          api-key: ${{ secrets.ZULIP_API_KEY }}
+          email: ci-status-bot@youtrackdb.zulipchat.com
+          organization-url: 'https://youtrackdb.zulipchat.com'
+          to: 'ytdb'
+          type: 'stream'
+          topic: 'ci status'
+          content: |
+            **BETA RELEASE DEGRADED** :warning:
+            Beta `${{ needs.classify.outputs.release_tag }}` published with stub release notes — the Claude classifier produced no output and the workflow used a fallback body. The Maven and Docker artifacts shipped successfully; only the release-notes body needs human follow-up.
+            Commit: ${{ needs.classify.outputs.head_sha }}
+            [View Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+  notify-fixed:
+    name: Notify deploy fixed on Zulip
+    needs: [ classify, deploy, deploy-docker, create-release ]
+    # Only treat this as "fixed" if a publish actually happened. A run
+    # that classified as infrastructural and skipped doesn't represent
+    # a fix — deploy / deploy-docker / create-release would all be
+    # `skipped`, which `success()` treats as success but the user
+    # shouldn't be notified about.
+    if: success() && needs.classify.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      # `gh run list` / `gh run view` need `actions: read` to inspect
+      # prior workflow runs and their job conclusions. `contents` is
+      # not requested because this job operates entirely through the
+      # `gh` CLI and never reads the working tree.
+      actions: read
+    steps:
+      - name: Get Previous Run Status
+        id: previous_run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Walk back through recent runs of this workflow to find the
+          # most recent one that actually *published* (deploy job not
+          # `skipped`), and use that run's conclusion as the basis for
+          # the "fixed" decision. A naive `--limit 2` lookup was wrong:
+          # a fail / skip / fix sequence would see the skip run's
+          # `success` conclusion and never send the FIXED message,
+          # leaving an open FAILED page from the original failure.
+          # `github.ref_name` scopes the history to the same trigger
+          # context (workflow file lives on the default branch); the
+          # release target branch is `main` but that's irrelevant here.
+          # `--limit 11` covers up to ten prior runs after skipping
+          # the in-flight current run; with weekly cadence and rare
+          # skips that's roughly 2–3 months of history, plenty.
+          previous_conclusion=""
+          run_ids=$(gh run list \
+            --repo "$REPO" \
+            --branch "${{ github.ref_name }}" \
+            --workflow "${{ github.workflow }}" \
+            --limit 11 \
+            --json databaseId,conclusion \
+            --jq '.[1:] | .[] | .databaseId')
+          for run_id in $run_ids; do
+            deploy_conclusion=$(gh run view "$run_id" \
+              --repo "$REPO" \
+              --json jobs \
+              --jq '[.jobs[] | select(.name == "Deploy Maven Artifacts") | .conclusion] | .[0] // ""')
+            # `skipped` ⇒ the run was a CI-only / classifier-skip cycle;
+            # ignore it and keep walking back. Anything else (success,
+            # failure, cancelled) means a real publish was attempted.
+            if [ -n "$deploy_conclusion" ] && [ "$deploy_conclusion" != "skipped" ]; then
+              previous_conclusion=$(gh run view "$run_id" \
+                --repo "$REPO" \
+                --json conclusion \
+                --jq '.conclusion')
+              break
+            fi
+          done
+          echo "previous_conclusion=$previous_conclusion" >> "$GITHUB_OUTPUT"
+
+      - name: Send Zulip notification
+        if: steps.previous_run.outputs.previous_conclusion == 'failure'
+        uses: zulip/github-actions-zulip/send-message@v1
+        with:
+          api-key: ${{ secrets.ZULIP_API_KEY }}
+          email: ci-status-bot@youtrackdb.zulipchat.com
+          organization-url: 'https://youtrackdb.zulipchat.com'
+          to: 'ytdb'
+          type: 'stream'
+          topic: 'ci status'
+          content: |
+            **BETA RELEASE FIXED** :white_check_mark:
+            Beta release fixed on branch `main` for commit ${{ needs.classify.outputs.head_sha }} for repo ${{ github.repository }}.
+            [View Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
