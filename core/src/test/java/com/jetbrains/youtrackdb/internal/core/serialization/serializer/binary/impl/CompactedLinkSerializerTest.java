@@ -2,6 +2,8 @@ package com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.i
 
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALChanges;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALPageChangesPortion;
 import java.nio.ByteBuffer;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -238,5 +240,59 @@ public class CompactedLinkSerializerTest {
     Assert.assertEquals(0, buffer.position());
 
     Assert.assertEquals(rid, restoredRid);
+  }
+
+  @Test
+  public void testIdAndVariableLengthContract() {
+    // ID 22 is the dispatch byte registered with BinarySerializerFactory. The serializer is
+    // variable-length because the encoded payload is 1, 2, 3, ... 8 bytes depending on
+    // log-compaction of the collection-position. Pin both contract bits.
+    Assert.assertEquals((byte) 22, CompactedLinkSerializer.ID);
+    Assert.assertEquals((byte) 22, new CompactedLinkSerializer().getId());
+    Assert.assertFalse(new CompactedLinkSerializer().isFixedLength());
+    Assert.assertEquals(0, new CompactedLinkSerializer().getFixedLength());
+  }
+
+  @Test
+  public void testInstanceSingleton() {
+    // The INSTANCE singleton is what BinarySerializerFactory registers at startup; SBTree
+    // pages reach this serializer through the factory id-lookup, not through `new`.
+    Assert.assertNotNull(CompactedLinkSerializer.INSTANCE);
+    Assert.assertSame(CompactedLinkSerializer.INSTANCE, CompactedLinkSerializer.INSTANCE);
+  }
+
+  @Test
+  public void testPreprocessExtractsIdentity() {
+    // preprocess returns value.getIdentity() unconditionally — there is no null guard. Pin
+    // the identity-extraction behaviour for a RID input (which returns itself as identity).
+    final var linkSerializer = new CompactedLinkSerializer();
+    final var rid = new RecordId(5, 5);
+    Assert.assertEquals(rid, linkSerializer.preprocess(serializerFactory, rid));
+  }
+
+  @Test
+  public void testWalOverlayDeserialiseRoundTripsCompactedRid() {
+    // The WAL deserialise variant reads through a WALPageChangesPortion overlay — pin a
+    // round-trip through the overlay so the compacted-byte unmarshalling on the WAL path
+    // matches the in-memory decode.
+    final var linkSerializer = new CompactedLinkSerializer();
+    final var rid = new RecordId(42, 65628);
+    final var size = linkSerializer.getObjectSize(serializerFactory, rid);
+
+    final var offset = 4;
+    final var buffer = ByteBuffer
+        .allocateDirect(size + offset + WALPageChangesPortion.PORTION_BYTES)
+        .order(java.nio.ByteOrder.nativeOrder());
+    final var data = new byte[size];
+    linkSerializer.serializeNativeObject(rid, serializerFactory, data, 0);
+
+    final WALChanges overlay = new WALPageChangesPortion();
+    overlay.setBinaryValue(buffer, data, offset);
+
+    Assert.assertEquals(size,
+        linkSerializer.getObjectSizeInByteBuffer(buffer, overlay, offset));
+    Assert.assertEquals(rid,
+        linkSerializer.deserializeFromByteBufferObject(serializerFactory, buffer, overlay,
+            offset));
   }
 }

@@ -106,7 +106,8 @@ public class LinkSerializerTest {
 
     Assert.assertEquals(
         linkSerializer.deserializeFromByteBufferObject(serializerFactory, serializationOffset,
-            buffer), OBJECT);
+            buffer),
+        OBJECT);
     Assert.assertEquals(0, buffer.position());
   }
 
@@ -132,5 +133,37 @@ public class LinkSerializerTest {
         OBJECT);
 
     Assert.assertEquals(0, buffer.position());
+  }
+
+  @Test
+  public void testIdAndFixedLengthContract() {
+    // ID 9 is the byte the BinarySerializerFactory uses to dispatch this serializer at
+    // deserialise time. The on-disk byte size is fixed at FIELD_SIZE (10 bytes — short
+    // collectionId + long collectionPosition, regardless of value width). Pin both so a
+    // regression that breaks SBTree forward-compat or factory dispatch fails loudly.
+    Assert.assertEquals((byte) 9, linkSerializer.getId());
+    Assert.assertTrue(linkSerializer.isFixedLength());
+    Assert.assertEquals(FIELD_SIZE, linkSerializer.getFixedLength());
+  }
+
+  @Test
+  public void testStaticGetObjectSizeMatchesFieldSize() {
+    // staticGetObjectSize() is a static convenience accessor used by callers that do not
+    // hold a serializer instance — pin its return value against the canonical FIELD_SIZE.
+    Assert.assertEquals(FIELD_SIZE, LinkSerializer.staticGetObjectSize());
+  }
+
+  @Test
+  public void testPreprocessReturnsIdentityWhenValueIsNonNull() {
+    // preprocess delegates to value.getIdentity(). Passing a RID (which is its own identity)
+    // pins that the result equals the input — exercises the non-null branch.
+    Assert.assertEquals(OBJECT, linkSerializer.preprocess(serializerFactory, OBJECT));
+  }
+
+  @Test
+  public void testPreprocessReturnsNullWhenValueIsNull() {
+    // The null branch short-circuits at the top of preprocess. This pins the contract used by
+    // index-layer normalisation when a position is intentionally null.
+    Assert.assertNull(linkSerializer.preprocess(serializerFactory, null));
   }
 }
