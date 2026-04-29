@@ -139,6 +139,10 @@ jobs:
           #     or older release line.
           # `--limit 50` is a generous cushion in case a flurry of
           # GA/patch releases lands between two betas.
+          # The tag regex is anchored to `<base>-beta-YYYY-MM-DD` with an
+          # optional `-N` collision suffix — a looser `startswith` would
+          # also match a hand-rolled `0.5.0-beta-rc1` style tag and pick
+          # up the wrong diff base.
           PREV_TAG=$(gh release list \
             --repo "${{ github.repository }}" \
             --limit 50 \
@@ -147,7 +151,7 @@ jobs:
                   | select(.isDraft | not)
                   | select(.isPrerelease)
                   | .tagName
-                  | select(startswith(\"${BASE_VERSION}-beta-\"))]
+                  | select(test(\"^${BASE_VERSION}-beta-[0-9]{4}-[0-9]{2}-[0-9]{2}(-[0-9]+)?$\"))]
                   | .[0] // empty")
 
           if [ -n "$PREV_TAG" ] && git rev-parse --verify "refs/tags/$PREV_TAG" >/dev/null 2>&1; then
@@ -157,8 +161,15 @@ jobs:
             PREV_REF=$(git rev-parse HEAD^)
             SCOPE="since parent commit of HEAD (no prior beta on \`${BASE_VERSION}\` line)"
           else
+            # Single-commit repo with no prior beta: a `HEAD..HEAD` diff
+            # would be empty, Claude would write the "no source changes"
+            # stub, and the decide step would still publish (notes file
+            # is non-empty). That's a misleading first beta. Treat this
+            # as a skip and let an operator cut the initial tag manually.
             PREV_REF=$(git rev-parse HEAD)
             SCOPE="initial release (no prior history)"
+            echo 'Initial release: no prior history to diff against; cut the first beta tag manually.' \
+              > /tmp/release-skip-reason
           fi
 
           echo "prev_ref=$PREV_REF" >> "$GITHUB_OUTPUT"
@@ -516,6 +527,7 @@ jobs:
     # means "an artifact may be in an inconsistent published state."
     if: always() && needs.classify.result == 'failure'
     runs-on: ubuntu-latest
+    permissions: {}
     steps:
       - name: Send Zulip Notification
         uses: zulip/github-actions-zulip/send-message@v1
@@ -546,8 +558,19 @@ jobs:
     # We deliberately don't use `failure()` here because it would also
     # match a `classify` failure, which is handled by
     # `notify-classify-failure` above with lower severity.
-    if: always() && (needs.deploy.result == 'failure' || needs.deploy-docker.result == 'failure' || needs.create-release.result == 'failure')
+    # Hyphenated job IDs (`deploy-docker`, `create-release`) must be
+    # accessed via bracket notation: GitHub Actions' expression grammar
+    # parses `needs.deploy-docker.result` as `needs.deploy - docker.result`
+    # (subtraction), which silently never equals `'failure'` — meaning a
+    # real publish failure on those jobs would not page the team.
+    if: |
+      always() && (
+        needs.deploy.result == 'failure'
+        || needs['deploy-docker'].result == 'failure'
+        || needs['create-release'].result == 'failure'
+      )
     runs-on: ubuntu-latest
+    permissions: {}
     steps:
       - name: Send Zulip Notification
         uses: zulip/github-actions-zulip/send-message@v1
@@ -563,7 +586,7 @@ jobs:
             Publish failed on branch `main` for repo ${{ github.repository }} — inconsistent state may exist at Maven Central, Docker Hub, or GitHub Releases. Investigate before retrying; the same coordinate cannot be republished.
             Coordinate: ${{ needs.classify.outputs.release_tag }}
             Commit: ${{ needs.classify.outputs.head_sha }}
-            Failed: ${{ needs.deploy.result == 'failure' && 'deploy ' || '' }}${{ needs.deploy-docker.result == 'failure' && 'deploy-docker ' || '' }}${{ needs.create-release.result == 'failure' && 'create-release' || '' }}
+            Failed: ${{ needs.deploy.result == 'failure' && 'deploy ' || '' }}${{ needs['deploy-docker'].result == 'failure' && 'deploy-docker ' || '' }}${{ needs['create-release'].result == 'failure' && 'create-release' || '' }}
             [View Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
 
   notify-degraded:
@@ -577,6 +600,7 @@ jobs:
     # the workflow log that nobody reads.
     if: success() && needs.classify.outputs.classifier_degraded == 'true' && needs.classify.outputs.should_publish == 'true'
     runs-on: ubuntu-latest
+    permissions: {}
     steps:
       - name: Send Zulip Notification
         uses: zulip/github-actions-zulip/send-message@v1
@@ -605,13 +629,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       # `gh run list` / `gh run view` need `actions: read` to inspect
-      # prior workflow runs and their job conclusions.
-      contents: read
+      # prior workflow runs and their job conclusions. `contents` is
+      # not requested because this job operates entirely through the
+      # `gh` CLI and never reads the working tree.
       actions: read
     steps:
-      - name: Checkout Source Code
-        uses: actions/checkout@v6
-
       - name: Get Previous Run Status
         id: previous_run
         env:
