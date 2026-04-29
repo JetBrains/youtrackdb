@@ -46,6 +46,8 @@ import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.Consumer;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -103,6 +105,17 @@ public class EntitySerializerDeltaRoundTripTest extends DbTestBase {
   private static final String TARGET_CLASS = "Target";
   private static final String EMBEDDED_CLASS = "EmbeddedTarget";
   private static final String PEER_CLASS = "Peer";
+
+  /**
+   * Forged BytesContainer payload for the non-embedded LinkBag/LinkSet read paths
+   * with an invalid {@link com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkBagPointer}.
+   * Layout: {@code mode=0x02} (selects the B-tree-pointer branch),
+   * {@code size=zigzag(0)=0x00}, {@code fileId=zigzag(-1)=0x01},
+   * {@code linkBagId=zigzag(-1)=0x01}. Both pointer halves are negative so the
+   * {@code LinkBagPointer.isValid()} guard fails and the read path throws.
+   */
+  private static final byte[] FORGED_MODE_TWO_INVALID_POINTER =
+      new byte[] {0x02, 0x00, 0x01, 0x01};
 
   private EntitySerializerDelta delta;
 
@@ -522,7 +535,8 @@ public class EntitySerializerDeltaRoundTripTest extends DbTestBase {
   /**
    * Entity with class but no properties full-form round-trip. The class name must
    * survive the round-trip via the {@code writeString} / {@code readString} pair in
-   * {@code serializeClass}.
+   * {@code serializeClass}; the property count varint must encode zero so the
+   * deserialise loop falls through without consuming any bytes for entries.
    */
   @Test
   public void entityWithClassNameOnlyFullFormRoundTrips() {
@@ -533,6 +547,7 @@ public class EntitySerializerDeltaRoundTripTest extends DbTestBase {
       var rebuilt = (EntityImpl) session.newEntity();
       delta.deserialize(session, encoded, rebuilt);
       assertEquals(TARGET_CLASS, rebuilt.getSchemaClassName());
+      assertEquals(0, rebuilt.getPropertiesCount());
     });
   }
 
@@ -641,8 +656,13 @@ public class EntitySerializerDeltaRoundTripTest extends DbTestBase {
 
     session.begin();
     var target = session.<EntityImpl>load(startRid);
+    Identifiable preDelta = target.getProperty("link");
+    assertNotNull(preDelta);
+    assertEquals("baseline link must point to peerA before delta apply",
+        peerA, preDelta.getIdentity());
     delta.deserializeDelta(session, deltaBytes, target);
     Identifiable rebuilt = target.getProperty("link");
+    assertNotNull(rebuilt);
     assertEquals(peerB, rebuilt.getIdentity());
     session.rollback();
   }
@@ -678,9 +698,12 @@ public class EntitySerializerDeltaRoundTripTest extends DbTestBase {
   /**
    * Delta-of-delta: apply a first delta, then mutate the freshly-rebuilt entity in a
    * second transaction, serialise that delta, and apply it on top. The cumulative
-   * application must arrive at the same state as a single transaction would have. This
-   * exercises the {@code REPLACED} dispatch on a property already touched by an earlier
-   * delta (the entry's tx-state must reset between transactions).
+   * application must arrive at the state both transactions would have produced
+   * sequentially. Both source transactions are rolled back after their delta is
+   * captured so the on-disk baseline stays at the persisted-{@code v0, 0} state —
+   * this prevents the rebuilt entity loaded for the apply pass from already carrying
+   * the {@code firstDelta} mutations, which would make the firstDelta application
+   * step tautological.
    */
   @Test
   public void deltaOfDeltaAppliesCumulatively() {
@@ -689,25 +712,31 @@ public class EntitySerializerDeltaRoundTripTest extends DbTestBase {
       e.setProperty("schemaInt", 0);
     });
 
-    // First transaction: schemaStr v0 → v1
     session.begin();
     var first = session.<EntityImpl>load(startRid);
     first.setProperty("schemaStr", "v1");
     var firstDelta = EntitySerializerDelta.serializeDelta(session, first);
-    session.commit();
+    session.rollback();
 
-    // Second transaction: schemaStr v1 → v2, schemaInt 0 → 99
+    // Build secondDelta against a re-loaded baseline that has schemaStr=v1 already
+    // (i.e., post-firstDelta state) so the bytes encode the v1→v2 transition the
+    // cumulative apply must reproduce. The mutations are rolled back so on-disk
+    // state remains v0/0.
     session.begin();
     var second = session.<EntityImpl>load(startRid);
+    second.setProperty("schemaStr", "v1");
     second.setProperty("schemaStr", "v2");
     second.setProperty("schemaInt", 99);
     var secondDelta = EntitySerializerDelta.serializeDelta(session, second);
     session.rollback();
 
-    // Apply first then second delta on a fresh copy outside a transaction context that
-    // owns those mutations — the cumulative state must match the in-transaction one.
+    // Reload the v0 baseline and apply both deltas in order — the cumulative state
+    // must be v2 / 99. Each apply step is asserted independently so a regression
+    // that broke firstDelta application would not be masked by secondDelta.
     session.begin();
     var rebuilt = session.<EntityImpl>load(startRid);
+    assertEquals("v0", rebuilt.getProperty("schemaStr"));
+    assertEquals(Integer.valueOf(0), rebuilt.getProperty("schemaInt"));
     delta.deserializeDelta(session, firstDelta, rebuilt);
     assertEquals("v1", rebuilt.getProperty("schemaStr"));
     assertEquals(Integer.valueOf(0), rebuilt.getProperty("schemaInt"));
@@ -718,16 +747,22 @@ public class EntitySerializerDeltaRoundTripTest extends DbTestBase {
   }
 
   /**
-   * Nested-embedded delta where only the inner property changed: the outer entity is
-   * untouched, but the embedded entity has one property mutated. The serialised delta
-   * must propagate the inner property's new value when applied to a fresh copy.
+   * Nested-embedded delta where only the inner property changed: the outer entity
+   * has a sibling top-level property that must remain untouched, the embedded entity
+   * has a sibling inner property that must remain untouched, and the only mutation
+   * is on a single inner property. The post-apply state must show the mutated inner
+   * value, the preserved sibling-inner value, the preserved outer property, and the
+   * preserved class name — covering "outer untouched", "sibling-inner untouched",
+   * and "embedded class preserved" together.
    */
   @Test
   public void nestedEmbeddedInnerPropertyChangeDeltaRoundTrips() {
     var startRid = persistEntity(e -> {
       var nested = (EntityImpl) session.newEmbeddedEntity(EMBEDDED_CLASS);
       nested.setProperty("inner", "before");
+      nested.setProperty("siblingInner", 42);
       e.setProperty("nest", nested, PropertyType.EMBEDDED);
+      e.setProperty("siblingOuter", "outerKept");
     });
 
     session.begin();
@@ -743,6 +778,10 @@ public class EntitySerializerDeltaRoundTripTest extends DbTestBase {
     delta.deserializeDelta(session, deltaBytes, target);
     EntityImpl rebuilt = target.getProperty("nest");
     assertEquals("after", rebuilt.getProperty("inner"));
+    assertEquals(Integer.valueOf(42), rebuilt.getProperty("siblingInner"));
+    assertEquals(EMBEDDED_CLASS, rebuilt.getSchemaClassName());
+    assertEquals("outerKept", target.getProperty("siblingOuter"));
+    assertEquals(TARGET_CLASS, target.getSchemaClassName());
     session.rollback();
   }
 
@@ -826,6 +865,7 @@ public class EntitySerializerDeltaRoundTripTest extends DbTestBase {
     var target = session.<EntityImpl>load(startRid);
     delta.deserializeDelta(session, deltaBytes, target);
     Map<String, Object> rebuilt = target.getProperty("kv");
+    assertEquals(2, rebuilt.size());
     assertEquals("v1prime", rebuilt.get("k1"));
     assertEquals("v2", rebuilt.get("k2"));
     session.rollback();
@@ -845,7 +885,7 @@ public class EntitySerializerDeltaRoundTripTest extends DbTestBase {
 
     session.begin();
     var loaded = session.<EntityImpl>load(startRid);
-    java.util.Set<Object> set = loaded.getProperty("tags");
+    Set<Object> set = loaded.getProperty("tags");
     set.add("gamma");
     set.remove("alpha");
     var deltaBytes = EntitySerializerDelta.serializeDelta(session, loaded);
@@ -854,7 +894,8 @@ public class EntitySerializerDeltaRoundTripTest extends DbTestBase {
     session.begin();
     var target = session.<EntityImpl>load(startRid);
     delta.deserializeDelta(session, deltaBytes, target);
-    java.util.Set<Object> rebuilt = target.getProperty("tags");
+    Set<Object> rebuilt = target.getProperty("tags");
+    assertEquals(2, rebuilt.size());
     assertEquals(new HashSet<>(Arrays.asList("beta", "gamma")), new HashSet<>(rebuilt));
     session.rollback();
   }
@@ -884,9 +925,9 @@ public class EntitySerializerDeltaRoundTripTest extends DbTestBase {
     var target = session.<EntityImpl>load(startRid);
     delta.deserializeDelta(session, deltaBytes, target);
     List<Identifiable> rebuilt = target.getProperty("links");
-    assertEquals(2, rebuilt.size());
-    assertEquals(peerA, rebuilt.get(0).getIdentity());
-    assertEquals(peerB, rebuilt.get(1).getIdentity());
+    var rebuiltIds = new ArrayList<RID>();
+    rebuilt.forEach(i -> rebuiltIds.add(i.getIdentity()));
+    assertEquals(List.of(peerA, peerB), rebuiltIds);
     session.rollback();
   }
 
@@ -914,6 +955,7 @@ public class EntitySerializerDeltaRoundTripTest extends DbTestBase {
     var target = session.<EntityImpl>load(startRid);
     delta.deserializeDelta(session, deltaBytes, target);
     Map<String, Identifiable> rebuilt = target.getProperty("byName");
+    assertEquals(1, rebuilt.size());
     assertEquals(peerB, rebuilt.get("a").getIdentity());
     session.rollback();
   }
@@ -958,43 +1000,45 @@ public class EntitySerializerDeltaRoundTripTest extends DbTestBase {
   // ============================================================================
 
   /**
-   * The {@code mode_byte == 2} branch of {@code readLinkBag} treats the remaining
-   * payload as a {@link com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkBagPointer}
-   * triple ({@code size}, {@code fileId}, {@code linkBagId}). When the pointer values
-   * are negative the constructed pointer is invalid and the read path must throw
-   * {@code IllegalStateException("LinkBag with invalid pointer was found")}. Forge
-   * the bytes manually because the in-memory test storage does not have a B-tree
-   * collection manager that would emit this shape naturally.
+   * The non-embedded LinkBag read path (selected when the leading mode byte is not
+   * {@code 0x01}) treats the remaining payload as a
+   * {@link com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkBagPointer}
+   * triple ({@code size}, {@code fileId}, {@code linkBagId}). When either pointer
+   * half is negative the constructed pointer is invalid and the read path must
+   * throw {@code IllegalStateException("LinkBag with invalid pointer was found")}.
+   * The exact diagnostic string is asserted so a regression that conflated the
+   * LinkBag/LinkSet/RidBag throw sites would fail loudly.
    *
-   * <p>Encoding: mode=0x02, size=zigzag(0)=0x00, fileId=zigzag(-1)=0x01,
-   * linkBagId=zigzag(-1)=0x01.
+   * <p>Forge the bytes manually because the in-memory test storage does not have a
+   * B-tree collection manager that would emit this shape naturally. Encoding lives
+   * in {@link #FORGED_MODE_TWO_INVALID_POINTER}.
    */
   @Test
   public void linkBagReadModeTwoInvalidPointerThrowsIllegalState() {
     runInTx(() -> {
       var owner = (EntityImpl) session.newEntity(TARGET_CLASS);
-      var bytes = new BytesContainer(new byte[] {0x02, 0x00, 0x01, 0x01});
+      var bytes = new BytesContainer(FORGED_MODE_TWO_INVALID_POINTER.clone());
       var ex = assertThrows(IllegalStateException.class,
           () -> delta.deserializeValue(session, bytes, PropertyTypeInternal.LINKBAG, owner));
-      assertTrue("expected invalid-pointer diagnostic, got: " + ex.getMessage(),
-          ex.getMessage().contains("invalid pointer"));
+      assertEquals("LinkBag with invalid pointer was found", ex.getMessage());
     });
   }
 
   /**
-   * Symmetrical mode-2 invalid-pointer pin for LINKSET — same encoding shape, but the
-   * dispatch lands in {@code readLinkSet}, which throws
-   * {@code IllegalStateException("LinkSet with invalid pointer was found")}.
+   * Symmetrical non-embedded invalid-pointer pin for LINKSET — same forged byte
+   * payload, but the dispatch lands in {@code readLinkSet}. The exact diagnostic
+   * is {@code "LinkSet with invalid pointer was found"}, distinct from LinkBag's
+   * message; asserting the full string forces a future regression that swapped the
+   * dispatch to fail loudly.
    */
   @Test
   public void linkSetReadModeTwoInvalidPointerThrowsIllegalState() {
     runInTx(() -> {
       var owner = (EntityImpl) session.newEntity(TARGET_CLASS);
-      var bytes = new BytesContainer(new byte[] {0x02, 0x00, 0x01, 0x01});
+      var bytes = new BytesContainer(FORGED_MODE_TWO_INVALID_POINTER.clone());
       var ex = assertThrows(IllegalStateException.class,
           () -> delta.deserializeValue(session, bytes, PropertyTypeInternal.LINKSET, owner));
-      assertTrue("expected invalid-pointer diagnostic, got: " + ex.getMessage(),
-          ex.getMessage().contains("invalid pointer"));
+      assertEquals("LinkSet with invalid pointer was found", ex.getMessage());
     });
   }
 
@@ -1032,7 +1076,7 @@ public class EntitySerializerDeltaRoundTripTest extends DbTestBase {
    * the transaction, and return its committed RID. Subsequent transactions can
    * {@code session.load(rid)} to obtain a fresh, loaded copy.
    */
-  private RID persistEntity(java.util.function.Consumer<EntityImpl> populate) {
+  private RID persistEntity(Consumer<EntityImpl> populate) {
     session.begin();
     var entity = (EntityImpl) session.newEntity(TARGET_CLASS);
     populate.accept(entity);
