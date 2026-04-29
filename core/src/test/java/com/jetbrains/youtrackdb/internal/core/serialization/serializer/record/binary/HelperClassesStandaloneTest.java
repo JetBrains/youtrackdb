@@ -22,7 +22,6 @@ package com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.b
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
@@ -299,12 +298,15 @@ public class HelperClassesStandaloneTest {
 
   @Test
   public void tupleInstancesAreIndependent() {
+    // Pin: each Tuple holds its own components — mutating one (or constructing one
+    // with different inputs) does not bleed through to another. Drop the vacuous
+    // `assertNotNull` lines that always passed regardless of the production code.
     var a = new HelperClasses.Tuple<>("a", 1);
     var b = new HelperClasses.Tuple<>("b", 2);
-    assertNotNull(a);
-    assertNotNull(b);
     assertEquals("a", a.getFirstVal());
+    assertEquals(Integer.valueOf(1), a.getSecondVal());
     assertEquals("b", b.getFirstVal());
+    assertEquals(Integer.valueOf(2), b.getSecondVal());
   }
 
   // --- helpers ---
