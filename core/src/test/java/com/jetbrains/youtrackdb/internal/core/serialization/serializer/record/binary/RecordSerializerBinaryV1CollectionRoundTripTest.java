@@ -43,6 +43,7 @@ import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.Re
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -106,17 +107,16 @@ public class RecordSerializerBinaryV1CollectionRoundTripTest extends DbTestBase 
     v1 = new RecordSerializerBinaryV1();
     recordSerializer = RecordSerializerBinary.INSTANCE;
 
+    // DbTestBase drops and re-creates the in-memory database per test method, so each
+    // call to this @Before runs against a fresh schema — the getOrCreateClass +
+    // unconditional createProperty sequence below is correct without idempotency guards.
     var schema = session.getMetadata().getSchema();
     schema.getOrCreateClass(THING_CLASS);
     schema.getOrCreateClass(PEER_CLASS);
     var address = schema.getOrCreateClass(ADDRESS_CLASS);
-    if (!address.isAbstract()) {
-      address.setAbstract(true);
-    }
-    if (address.getProperty("street") == null) {
-      address.createProperty("street", PropertyType.STRING);
-      address.createProperty("zip", PropertyType.INTEGER);
-    }
+    address.setAbstract(true);
+    address.createProperty("street", PropertyType.STRING);
+    address.createProperty("zip", PropertyType.INTEGER);
   }
 
   // ============================================================================
@@ -357,37 +357,55 @@ public class RecordSerializerBinaryV1CollectionRoundTripTest extends DbTestBase 
   /**
    * Empty EMBEDDEDLIST with linkedType=STRING: the linkedType marker becomes 0x07 (STRING)
    * instead of the default 0x09 (EMBEDDED). Pins the linkedType branch in
-   * {@code writeEmbeddedCollection}.
+   * {@code writeEmbeddedCollection} and round-trips back through the value dispatch so a
+   * read-side regression that ignored the linkedType marker would also be caught.
    */
   @Test
   public void embeddedListEmptyWithStringLinkedTypeWritesStringTypeMarker() {
     var encoded = serializeValueBytesWithLinkedType(
         PropertyTypeInternal.EMBEDDEDLIST, List.of(), PropertyTypeInternal.STRING);
     assertEquals("0007", HEX.formatHex(encoded));
+    @SuppressWarnings("unchecked")
+    Collection<Object> decoded =
+        (Collection<Object>) deserializeValueBytes(PropertyTypeInternal.EMBEDDEDLIST, encoded);
+    assertNotNull(decoded);
+    assertTrue(decoded.isEmpty());
   }
 
   /**
    * One-element EMBEDDEDLIST with linkedType=STRING: size(varint(1)=0x02) +
    * linkedTypeMarker(STRING=0x07) + perItemTypeMarker(STRING=0x07) +
    * serializeValue(STRING, "x") = writeString("x") (varint(1)=0x02 + 0x78). Total:
-   * {@code 02 07 07 02 78}.
+   * {@code 02 07 07 02 78}. Round-trips back through the value dispatch to confirm the
+   * read side honours the linkedType marker rather than defaulting to EMBEDDED.
    */
   @Test
   public void embeddedListSingleStringWithLinkedTypeEncodesAsExpectedSequence() {
     var encoded = serializeValueBytesWithLinkedType(
         PropertyTypeInternal.EMBEDDEDLIST, List.of("x"), PropertyTypeInternal.STRING);
     assertEquals("0207070278", HEX.formatHex(encoded));
+    @SuppressWarnings("unchecked")
+    Collection<Object> decoded =
+        (Collection<Object>) deserializeValueBytes(PropertyTypeInternal.EMBEDDEDLIST, encoded);
+    assertNotNull(decoded);
+    assertEquals(List.of("x"), new ArrayList<>(decoded));
   }
 
   /**
    * EMBEDDEDSET shares {@code writeEmbeddedCollection} with EMBEDDEDLIST. The byte shape is
    * therefore identical for an empty set, default-EMBEDDED linked type. Pin the symmetry so
-   * a regression that diverges the two branches surfaces immediately.
+   * a regression that diverges the two branches surfaces immediately, plus round-trip the
+   * encoded bytes back through the EMBEDDEDSET dispatch so a read-side break is also caught.
    */
   @Test
   public void embeddedSetEmptyEncodesIdenticallyToEmbeddedListEmpty() {
     var encoded = serializeValueBytes(PropertyTypeInternal.EMBEDDEDSET, Set.of());
     assertEquals("0009", HEX.formatHex(encoded));
+    @SuppressWarnings("unchecked")
+    Collection<Object> decoded =
+        (Collection<Object>) deserializeValueBytes(PropertyTypeInternal.EMBEDDEDSET, encoded);
+    assertNotNull(decoded);
+    assertTrue(decoded.isEmpty());
   }
 
   // --- EMBEDDEDMAP ---------------------------------------------------------
@@ -412,6 +430,13 @@ public class RecordSerializerBinaryV1CollectionRoundTripTest extends DbTestBase 
    * Negative: EMBEDDEDMAP rejects null keys with a {@link SerializationException}. The
    * {@code if (key == null)} branch in {@code writeEmbeddedMap} fires before any per-entry
    * bytes are written.
+   *
+   * <p>The corresponding full-record-path null-key rejection is not testable end-to-end:
+   * the null key is rejected earlier inside {@code entity.newEmbeddedMap} when
+   * {@code EntityEmbeddedMapImpl} iterates the source-map entries to copy them across, so
+   * the {@link SerializationException} from {@code writeEmbeddedMap} is unreachable from
+   * a normal public-API call sequence. This Tier-1 test pins the writer-side contract
+   * directly.
    */
   @Test
   public void embeddedMapWriteRejectsNullKeyWithSerializationException() {
@@ -568,28 +593,37 @@ public class RecordSerializerBinaryV1CollectionRoundTripTest extends DbTestBase 
 
       var extracted = roundTripFullRecord(entity);
       Collection<?> got = extracted.getProperty("items");
-      assertEquals(Set.of("a", "b", "c"), new LinkedHashSet<>(got));
+      assertEquals("EMBEDDEDSET round-trip must preserve element count", 3, got.size());
+      assertEquals(Set.of("a", "b", "c"), new HashSet<>(got));
     });
   }
 
+  /**
+   * Pin the size and content of an EMBEDDEDSET round-tripped through {@code newEmbeddedSet}
+   * with a {@link LinkedHashSet} input — the input deduplicates eagerly, so the serialiser
+   * receives a 2-element set. A regression that swelled or shrank the post-round-trip count
+   * surfaces here. Note that this test does NOT exercise the serialiser-side deduplication
+   * contract (the serialiser never sees the pre-dedup duplicates); a hypothetical regression
+   * that allowed duplicate elements to pass through {@code writeEmbeddedCollection} would
+   * not be detected by this test alone.
+   */
   @Test
-  public void embeddedSetEliminatesDuplicateValuesOnInputSide() {
+  public void embeddedSetWithDeduplicatedInputRoundTripsToTwoElements() {
     runInTx(() -> {
-      // Pin the contract that duplicate values added to the SET surface as a single entry
-      // post-round-trip. The deduplication happens on the in-memory set side; the
-      // serialiser then writes out the deduplicated members.
       var entity = (EntityImpl) session.newEntity(THING_CLASS);
       var input = new LinkedHashSet<String>();
       input.add("dup");
       input.add("dup");
       input.add("once");
+      assertEquals(
+          "test precondition: LinkedHashSet must dedup before reaching the serialiser",
+          2, input.size());
       entity.newEmbeddedSet("items", input);
 
       var extracted = roundTripFullRecord(entity);
       Collection<?> got = extracted.getProperty("items");
       assertEquals(2, got.size());
-      assertTrue(got.contains("dup"));
-      assertTrue(got.contains("once"));
+      assertEquals(Set.of("dup", "once"), new HashSet<>(got));
     });
   }
 
@@ -690,7 +724,9 @@ public class RecordSerializerBinaryV1CollectionRoundTripTest extends DbTestBase 
   /**
    * The full-record path also surfaces the non-persistent-link rejection — pin that the
    * exception originates from {@code serializeValue} (rather than being silently
-   * substituted with NULL_RECORD_ID, for instance).
+   * substituted with NULL_RECORD_ID, for instance) by asserting the diagnostic message
+   * fragment so an unrelated layer throwing {@link IllegalStateException} for a different
+   * reason cannot satisfy the assertion.
    */
   @Test
   public void linkSerializeFailsWhenLinkedRidIsNotPersistentViaFullRecordPath() {
@@ -701,8 +737,11 @@ public class RecordSerializerBinaryV1CollectionRoundTripTest extends DbTestBase 
           "test precondition: dangling entity must not yet be persistent",
           dangling.getIdentity().isPersistent());
       entity.setProperty("ref", dangling, PropertyType.LINK);
-      assertThrows(
+      var ex = assertThrows(
           IllegalStateException.class, () -> recordSerializer.toStream(session, entity));
+      assertTrue(
+          "expected non-persistent-link diagnostic, got: " + ex.getMessage(),
+          ex.getMessage().contains("Non-persistent link"));
     });
   }
 
@@ -754,6 +793,7 @@ public class RecordSerializerBinaryV1CollectionRoundTripTest extends DbTestBase 
       var extracted = roundTripFullRecord(entity);
       Collection<? extends Identifiable> got = extracted.getProperty("links");
       assertNotNull(got);
+      assertEquals("LINKSET round-trip must preserve element count", 2, got.size());
       var ids = new LinkedHashSet<>();
       got.forEach(i -> ids.add(i.getIdentity()));
       assertEquals(Set.of(p1, p2), ids);
@@ -848,14 +888,31 @@ public class RecordSerializerBinaryV1CollectionRoundTripTest extends DbTestBase 
     });
   }
 
+  /**
+   * Empty LINKBAG: writeLinkBag for an embedded bag writes config(0x01) + size varint(0x00)
+   * + writeEmbeddedLinkBagDelegate's trailing terminator(0x00) — total {@code 010000}.
+   * Pin pairs the empty round-trip ({@link #linkBagEmptyRoundTripsToEmptyBag}) so a
+   * regression that flipped the embedded-default branch would surface.
+   */
   @Test
-  public void linkBagWithSingleEntryEncodesEmbeddedConfigByteAndSizeOne() {
+  public void linkBagEmptyEncodesAsEmbeddedConfigByteSizeZeroAndTerminator() {
+    runInTx(() -> {
+      var bag = new LinkBag(session);
+      var bytes = new BytesContainer();
+      v1.serializeValue(session, bytes, bag,
+          PropertyTypeInternal.LINKBAG, null, null, null);
+      var encoded = bytes.fitBytes();
+      assertEquals("010000", HEX.formatHex(encoded));
+    });
+  }
+
+  @Test
+  public void linkBagWithSingleEntryEncodesEmbeddedConfigByteSizeOneAndTerminator() {
     // Tier-1 byte-shape spot-check on the LINKBAG path. Bag is embedded by default for
-    // small sizes so the leading config byte is 0x01; size 1 → varint 0x02. Subsequent
-    // bytes carry the change-list entry whose secondary RID is allocated by the bag's
-    // change-tracker — pin only the leading three bytes (config + size + first entry's
-    // continue marker = 0x01) so the structural pin survives any change-tracker
-    // reshuffle of the secondary RID encoding.
+    // small sizes so the leading config byte is 0x01; size 1 → varint 0x02; the
+    // change-list entry starts with continue marker 0x01; entries close with terminator
+    // byte 0x00. Pin the leading prelude AND the trailing terminator — middle bytes
+    // depend on the change-tracker's secondary-RID allocation and are not asserted.
     var p1 = persistPeerWithName("lb-shape");
     runInTx(() -> {
       var bag = new LinkBag(session);
@@ -868,7 +925,7 @@ public class RecordSerializerBinaryV1CollectionRoundTripTest extends DbTestBase 
       assertTrue(
           "LINKBAG encoding too short to verify embedded prelude, got: "
               + HEX.formatHex(encoded),
-          encoded.length >= 3);
+          encoded.length >= 4);
       assertEquals(
           "embedded LINKBAG must start with config byte 0x01",
           (byte) 0x01, encoded[0]);
@@ -878,6 +935,9 @@ public class RecordSerializerBinaryV1CollectionRoundTripTest extends DbTestBase 
       assertEquals(
           "single embedded change-entry must start with continue marker 0x01",
           (byte) 0x01, encoded[2]);
+      assertEquals(
+          "embedded LINKBAG change-list must end with terminator byte 0x00",
+          (byte) 0x00, encoded[encoded.length - 1]);
     });
   }
 
@@ -903,12 +963,27 @@ public class RecordSerializerBinaryV1CollectionRoundTripTest extends DbTestBase 
       entity.newLinkMap("lMap", new LinkedHashMap<>());
 
       var extracted = roundTripFullRecord(entity);
-      assertTrue(extracted.<Collection<?>>getProperty("eList").isEmpty());
-      assertTrue(extracted.<Collection<?>>getProperty("eSet").isEmpty());
-      assertTrue(extracted.<Map<?, ?>>getProperty("eMap").isEmpty());
-      assertTrue(extracted.<Collection<?>>getProperty("lList").isEmpty());
-      assertTrue(extracted.<Collection<?>>getProperty("lSet").isEmpty());
-      assertTrue(extracted.<Map<?, ?>>getProperty("lMap").isEmpty());
+      // Bind each property and assertNotNull before isEmpty so a regression that dropped
+      // a property entirely surfaces as a clean diagnostic rather than as an NPE on the
+      // chained isEmpty() call.
+      Collection<?> eList = extracted.getProperty("eList");
+      Collection<?> eSet = extracted.getProperty("eSet");
+      Map<?, ?> eMap = extracted.getProperty("eMap");
+      Collection<?> lList = extracted.getProperty("lList");
+      Collection<?> lSet = extracted.getProperty("lSet");
+      Map<?, ?> lMap = extracted.getProperty("lMap");
+      assertNotNull("eList must round-trip to a non-null container", eList);
+      assertNotNull("eSet must round-trip to a non-null container", eSet);
+      assertNotNull("eMap must round-trip to a non-null container", eMap);
+      assertNotNull("lList must round-trip to a non-null container", lList);
+      assertNotNull("lSet must round-trip to a non-null container", lSet);
+      assertNotNull("lMap must round-trip to a non-null container", lMap);
+      assertTrue(eList.isEmpty());
+      assertTrue(eSet.isEmpty());
+      assertTrue(eMap.isEmpty());
+      assertTrue(lList.isEmpty());
+      assertTrue(lSet.isEmpty());
+      assertTrue(lMap.isEmpty());
     });
   }
 
@@ -943,6 +1018,101 @@ public class RecordSerializerBinaryV1CollectionRoundTripTest extends DbTestBase 
       var got3 = got2.<EntityImpl>getProperty("nested");
       assertNotNull(got3);
       assertEquals("level-3", got3.<String>getProperty("street"));
+    });
+  }
+
+  /**
+   * Symmetric to {@link #embeddedListWithNullElementsPreservesNullsAndOrder}: the read side
+   * for EMBEDDEDSET also has a dedicated {@code if (itemType == null)} null-tombstone branch
+   * — pin that the EMBEDDEDSET path preserves a null member rather than silently dropping
+   * it or throwing. The serialiser writes the same per-element type-tombstone byte
+   * ({@code -1}) for null members, regardless of LIST vs SET shape.
+   */
+  @Test
+  public void embeddedSetWithNullElementPreservesNullViaTypeTombstone() {
+    runInTx(() -> {
+      var entity = (EntityImpl) session.newEntity(THING_CLASS);
+      var input = new LinkedHashSet<Object>();
+      input.add("a");
+      input.add(null);
+      entity.newEmbeddedSet("items", input);
+
+      var extracted = roundTripFullRecord(entity);
+      Collection<?> got = extracted.getProperty("items");
+      assertNotNull(got);
+      assertEquals(2, got.size());
+      assertTrue("string element 'a' must round-trip", got.contains("a"));
+      assertTrue("null element must round-trip in EMBEDDEDSET", got.contains(null));
+    });
+  }
+
+  /**
+   * EMBEDDEDLIST with element count crossing the single-byte size-varint boundary: the
+   * size prefix is {@code VarIntSerializer.write(zigzag(size))}, and zig-zag(63)=126 fits
+   * one byte while zig-zag(64)=128 spills into two bytes. Round-trip just past the
+   * boundary (sizes 63, 64, 65, 200) so a regression in the size-varint encoding /
+   * decoding path is caught — the simple-type test class pins the same boundary for
+   * STRING/BINARY length prefixes; this is the collection-side equivalent.
+   */
+  @Test
+  public void embeddedListAtAndPastSingleByteSizeVarintBoundaryRoundTrips() {
+    int[] sizes = {63, 64, 65, 200};
+    for (int size : sizes) {
+      runInTx(() -> {
+        var entity = (EntityImpl) session.newEntity(THING_CLASS);
+        var input = new ArrayList<Object>();
+        for (var i = 0; i < size; i++) {
+          input.add(i);
+        }
+        entity.newEmbeddedList("items_" + size, input);
+
+        var extracted = roundTripFullRecord(entity);
+        Collection<?> got = extracted.getProperty("items_" + size);
+        assertNotNull("size " + size + " must round-trip to a non-null container", got);
+        assertEquals(
+            "size " + size + " must round-trip to the same element count",
+            size, got.size());
+        var roundTripped = new ArrayList<>(got);
+        assertEquals(
+            "size " + size + " first element must be 0",
+            0, roundTripped.get(0));
+        assertEquals(
+            "size " + size + " last element must be size-1",
+            size - 1, roundTripped.get(size - 1));
+      });
+    }
+  }
+
+  /**
+   * Latent inconsistency on the LINKLIST read path: {@code HelperClasses.readLinkCollection}
+   * has an {@code if (id.equals(NULL_RECORD_ID)) found.addInternal(null)} branch, but
+   * {@code EntityLinkListImpl.addInternal(null)} routes through
+   * {@code LinkTrackedMultiValue.checkValue} which rejects null with a
+   * {@code SchemaException("Cannot add a non-identifiable entity to a link based data
+   * container")}. The result: a forged payload with the sentinel NULL_RECORD_ID encoding
+   * (cluster {@code -2}, position {@code -1} per {@code HelperClasses.NULL_RECORD_ID})
+   * always throws — the null-conversion branch is dead-on-arrival. Pin today's behavior
+   * so a future fix that either reaches the null-branch or drops it produces a loud
+   * failure; the production contradiction is forwarded to the deferred-cleanup track.
+   *
+   * <p>Forged bytes: {@code 00 02 03 01} — leading config byte, varint(zigzag(1))=0x02 size,
+   * then varint(zigzag(-2))=0x03 for the cluster id and varint(zigzag(-1))=0x01 for the
+   * position. WHEN-FIXED: when the LINKLIST read path is harmonised so the null sentinel
+   * round-trips cleanly, replace this assertion with {@code assertNull(decoded.iterator()
+   * .next())} to pin the new contract.
+   */
+  @Test
+  public void linkListReadOfNullRecordIdSentinelThrowsSchemaExceptionPendingFix() {
+    runInTx(() -> {
+      var owner = (EntityImpl) session.newEntity(THING_CLASS);
+      var forged = new byte[] {(byte) 0x00, (byte) 0x02, (byte) 0x03, (byte) 0x01};
+      var ex = assertThrows(
+          com.jetbrains.youtrackdb.internal.core.exception.SchemaException.class,
+          () -> deserializeValueBytesWithOwner(
+              PropertyTypeInternal.LINKLIST, forged, owner));
+      assertTrue(
+          "expected non-identifiable rejection diagnostic, got: " + ex.getMessage(),
+          ex.getMessage().contains("non-identifiable"));
     });
   }
 
@@ -1034,14 +1204,6 @@ public class RecordSerializerBinaryV1CollectionRoundTripTest extends DbTestBase 
       assertEquals(List.of(p1, p2), ids);
     });
   }
-
-  // (The corresponding full-record-path null-key rejection is not testable end-to-end:
-  // the null key is rejected earlier inside {@code entity.newEmbeddedMap} when
-  // EntityEmbeddedMapImpl iterates the source-map entries to copy them across, so the
-  // SerializationException from {@code writeEmbeddedMap} is unreachable from a normal
-  // public-API call sequence. The Tier-1 negative test
-  // embeddedMapWriteRejectsNullKeyWithSerializationException pins the writer-side
-  // contract directly.)
 
   // ============================================================================
   // === Helpers ===============================================================
