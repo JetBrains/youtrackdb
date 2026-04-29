@@ -101,6 +101,53 @@ only track-level or decision-level changes require escalation.
 Architecture notes document the structural context and design decisions for the plan.
 They live in the `## High-level plan > ### Architecture Notes` section of the plan file.
 
+### Boundary with `design.md` and `implementation-backlog.md`
+
+Architecture Notes carry the **strategic** shape of the design — what
+components are touched, what decisions were made, what must remain true,
+where new code plugs in. Long-form material — worked examples, layered
+design diagrams, audit findings, edit-by-edit walk-throughs, crash
+scenarios, multi-paragraph rationale derivations — **does not belong
+here**. It belongs in `design.md` (long-form architectural and
+behavioral design) or `implementation-backlog.md` (per-track edit
+detail). Architecture Notes link to those longer documents rather than
+duplicating them.
+
+The plan file is loaded at every `/execute-tracks` session startup, so
+bloat in Architecture Notes is paid by every Phase A/B/C session for
+the rest of the plan's life. The per-section budgets below exist to
+keep that cost bounded; the table in *Per-section budget at a glance*
+just below summarizes them, and each section restates its own budget
+alongside its format rules.
+
+> **Rule of thumb:** if you find yourself writing a worked example, a
+> multi-paragraph derivation, a code-change inventory, or a "here is
+> how all the pieces fit together" walk-through inside a decision
+> record, an invariant, or an integration-point bullet, **stop and
+> move it to `design.md`** (or, if it is per-track edit detail, to
+> `implementation-backlog.md`). Replace the original location with a
+> one-line link.
+
+### Per-section budget at a glance
+
+| Section | Budget |
+|---|---|
+| Component Map intent bullet | ≤ ~5 lines per component |
+| Decision Record | 15–30 lines (four-bullet form + optional `**Full design**`) |
+| Invariant | ≤ ~5 lines |
+| Integration Point | ≤ ~3 lines per bullet |
+| Track checklist intro | 1–3 sentences + `**Scope:**` + `**Depends on:**` |
+| Plan file total | ~1,500 lines / ~30K tokens |
+
+Each section below restates its own budget alongside its format rules.
+Where a plan would exceed a budget, the long-form material almost
+always belongs in `design.md` (worked examples, layered diagrams,
+complex-topic walk-throughs, multi-paragraph rationale) or
+`implementation-backlog.md` (per-track edit detail — files, classes,
+methods, edit ordering). The structural review (Phase 2) enforces the
+budgets as first-class findings — see
+[`structural-review.md`](structural-review.md) § Bloat checks.
+
 ### Required sections
 
 Every plan must include these two sections:
@@ -115,6 +162,12 @@ Every plan must include these two sections:
   changes in each component and why. The diagram shows topology; the bullets
   show intent.
 - Cap diagrams at ~15 nodes. If larger, split into multiple diagrams per track.
+- **Cap each component's intent bullet at ~5 lines** (one short
+  paragraph, sub-bullets allowed). The bullets accompany the diagram —
+  they are *not* a place for design-level descriptions. If a
+  component's intent prose grows beyond ~5 lines, that's the signal to
+  split out a `design.md` section for that component's behavioral
+  change and link to it from the bullet.
 
 **2. Decision Records** — One block per non-obvious design choice:
 
@@ -124,7 +177,59 @@ Every plan must include these two sections:
 - **Rationale**: <why this option won — trade-offs, constraints>
 - **Risks/Caveats**: <known downsides or things to watch>
 - **Implemented in**: Track X (step references added during execution)
+- **Full design**: design.md §<section> (only when the decision drives
+  a non-trivial design that needs walked examples, layered diagrams,
+  or extended discussion — omit when the four lines above are the
+  whole story)
 ```
+
+**Decision Record rules:**
+
+- **Cap each DR at ~30 lines.** A DR that exceeds 30 lines is a signal
+  that long-form material has leaked in. The four-bullet form (plus
+  optional `Full design` link) is naturally a 10–20 line block.
+- **What a DR carries:** *alternatives considered*, *rationale*,
+  *risks/caveats*, *where it lands*, and (optionally) *a one-line link
+  to its long-form design*. Worked examples, audit findings, edit-by-
+  edit guidance, layered designs, and crash-scenario walk-throughs
+  **do not belong here** — they belong in `design.md` (long-form
+  design) or `implementation-backlog.md` (per-track edit detail). The
+  DR links to those rather than absorbing them.
+- **Superseded DRs are deleted, not retained.** When a decision is
+  replaced (e.g., DN supersedes DM), remove DM from the plan entirely
+  and document the supersession in DN's rationale ("This replaces an
+  earlier approach where ...") rather than keeping both. The plan
+  reflects the *current* decision set, not the history. If the
+  superseded approach matters for future readers, capture it in the
+  Phase 4 `adr.md`.
+
+**Good DR (~12 lines):**
+
+````markdown
+#### D7: Use coarse-grained snapshot for histogram refresh
+
+- **Alternatives considered**: per-key incremental updates; background
+  sampling; coarse snapshot at storage open and on schema change (chosen).
+- **Rationale**: refresh frequency is bounded by schema-change rate,
+  which is rare in this workload. Per-key incremental doubles
+  write-path cost; sampling adds a background thread.
+- **Risks/Caveats**: post-DDL window where stats reflect prior schema.
+  Bounded by schema-change frequency; planner already tolerates
+  approximate stats.
+- **Implemented in**: Track 3
+- **Full design**: design.md §"Histogram refresh strategy" (covers
+  the on-open scan walk and the schema-change trigger hook)
+````
+
+**Bad DR (anti-pattern):** A DR that has grown past ~30 lines almost
+always did so by absorbing material that belongs elsewhere — the
+alternatives' implementation sketches, layered design diagrams, audit
+result tables, edit-list bullets, crash-scenario walk-throughs. The
+fix is mechanical: **trim back to the four-bullet form** and move the
+long-form material to a new (or existing) `design.md` section, linked
+from `Full design`. If the displaced material is per-track edit detail
+(files to touch, methods to add), move it to the track section in
+`implementation-backlog.md` instead.
 
 ### Optional sections (include when applicable)
 
@@ -138,6 +243,12 @@ Each invariant listed here must have a corresponding test in the relevant step.
 - Histogram read path must not acquire write locks
 ```
 
+**Cap each invariant at ~5 lines** (a one-paragraph statement plus
+optional sub-clauses). Multi-paragraph derivations of invariant
+semantics belong in a `design.md` complex-topic section; the invariant
+entry here states the rule and (when a long-form derivation exists)
+links to the section that explains why.
+
 **4. Integration Points** — How new code connects to existing code: entry points,
 SPIs, callbacks, event flows.
 
@@ -146,6 +257,11 @@ SPIs, callbacks, event flows.
 - Query optimizer reads histograms via `IndexStatistics.getHistogram(indexName)`
 - Histogram refresh triggered during storage open (via `AbstractStorage#open`)
 ```
+
+**Cap each integration-point bullet at ~3 lines.** Multi-step workflow
+walk-throughs ("Step 1 / Step 2 / Step 3 ...") belong in `design.md`
+Workflow sections; the bullet here names the connection point and (if
+a workflow section exists) links to it.
 
 **5. Non-Goals** — Explicitly state what this plan does NOT attempt. Prevents
 scope creep during execution.
@@ -176,6 +292,19 @@ scope creep during execution.
 7. **Mermaid diagrams** — required when there are 3+ components with
    non-trivial relationships; omit for simpler cases where a bullet list
    alone is clearer.
+8. **Respect the per-section budgets** — DR ≤ ~30 lines, invariant ≤ ~5
+   lines, integration-point bullet ≤ ~3 lines, component intent bullet
+   ≤ ~5 lines, plan file total ~1,500 lines / ~30K tokens (see the
+   *Per-section budget at a glance* table above and each section's own
+   rules for the rationale). Exceeding a budget is the signal that
+   long-form material has leaked into the plan and should move to
+   `design.md` or `implementation-backlog.md`.
+9. **No plan/design duplication.** If a decision record, invariant, or
+   integration-point bullet starts to repeat prose that already exists
+   in `design.md`, replace the duplicated body with a one-line link to
+   the design section. The plan is the **strategic** view; the design
+   document is the **long-form** view; nothing should appear in full
+   in both.
 
 ## Track descriptions
 

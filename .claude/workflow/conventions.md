@@ -104,6 +104,17 @@ episode propagation between dependent tracks is handled by the session
 workflow — this gives the same "informed decomposition" benefit without
 extra complexity.
 
+### Section budgets
+
+`implementation-plan.md` is loaded at every `/execute-tracks` startup,
+so each section of the plan file obeys a length budget. Targets:
+plan-file total ~1,500 lines / ~30K tokens; DR ≤ ~30 lines; invariant
+≤ ~5; integration-point bullet ≤ ~3; component intent bullet ≤ ~5.
+See [`planning.md`](planning.md) § Architecture Notes format for the
+per-section budgets and rationale, and
+[`structural-review.md`](structural-review.md) § Bloat checks for how
+the structural review enforces them.
+
 ### Backlog file content (`implementation-backlog.md`)
 
 Companion file to `implementation-plan.md`. It holds the detailed

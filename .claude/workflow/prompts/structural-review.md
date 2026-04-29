@@ -182,6 +182,63 @@ CONSISTENCY
   assumes not-X)? *(cross-file: read each track's description from its
   current authoritative location per the per-entry fallback rule above.)*
 
+BLOAT *(plan-file only for the per-section checks; plan/design
+duplication is cross-file between the plan and `design.md`)* — these
+checks are mechanical line-count and pattern-match. The plan file is
+loaded at every `/execute-tracks` session startup, so each
+budget-exceedance is paid by every Phase A/B/C session for the rest
+of the plan's life. Bloat is a first-class structural defect, not a
+stylistic concern.
+
+- **DR length:** does any Decision Record body exceed ~30 lines? Count
+  from `#### D<N>: <title>` through the final bullet line of that DR
+  (exclude trailing blank lines and the next `#### ...` heading). The
+  four-bullet form (alternatives / rationale / risks / implemented-in)
+  plus optional `**Full design**` line is naturally a 10–20 line
+  block. A DR that exceeds ~30 lines almost always absorbed long-form
+  material that belongs elsewhere. **Severity: should-fix.** **Fix:**
+  trim the DR back to the four-bullet form and move the long-form
+  material (worked examples, audit findings, layered diagrams,
+  edit-by-edit guidance, crash-scenario walk-throughs) to a new or
+  existing `design.md` section, linked from the DR's `**Full design**`
+  line.
+- **Invariant length:** does any invariant entry exceed ~5 lines?
+  Count from the bullet's `-` through its final continuation line.
+  **Severity: should-fix.** **Fix:** state the rule as a one-paragraph
+  bullet; move multi-paragraph derivations of invariant semantics to
+  a `design.md` complex-topic section.
+- **Integration-point length:** does any integration-point bullet
+  exceed ~3 lines? **Severity: should-fix.** **Fix:** name the
+  connection point in one short bullet; move multi-step workflow
+  walk-throughs ("Step 1 / Step 2 / Step 3 ...") to a `design.md`
+  Workflow section.
+- **Component-intent length:** does any component's intent bullet (in
+  the Component Map's annotated bullet list) exceed ~5 lines?
+  **Severity: should-fix.** **Fix:** keep the intent to one short
+  paragraph; move design-level descriptions of that component's
+  behavioral change to a `design.md` section.
+- **Superseded DR retained:** is any DR explicitly marked
+  `(SUPERSEDED ...)` or "see DN" still present as a `#### D<N>` block?
+  **Severity: blocker.** The plan must reflect the *current* decision
+  set, not the history. **Fix:** delete the superseded DR entirely;
+  document the supersession in the replacing DR's rationale ("This
+  replaces an earlier approach where...").
+- **Plan/design duplication:** does any DR body or Architecture Notes
+  subsection exceed ~50 lines **and** does `design.md` have a section
+  whose title matches the DR/subsection topic (fuzzy match: 2+
+  significant words shared after lowercasing and dropping stop-words)?
+  **Severity: should-fix.** **Fix:** replace the duplicated body in
+  the plan with a one-line link to the matching `design.md` section.
+  Borderline title matches should be flagged for human review, not
+  auto-resolved.
+- **Plan-file total length:** does the plan file exceed ~1,500 lines
+  or ~30K tokens? **Severity: should-fix.** **Fix:** identify which
+  sections are over their per-section budget (the findings above will
+  already cite the per-section ones); if cumulative bloat across many
+  sections is the cause and no single section is dramatically
+  oversized, recommend a global trim pass against the per-section
+  budgets.
+
 For each issue found, produce a finding in this format:
 
 ### Finding S<N> [blocker|should-fix|suggestion]
@@ -191,8 +248,11 @@ For each issue found, produce a finding in this format:
 
 Severity guide:
 - blocker: Plan cannot be executed correctly (dependency cycle, missing track
-  description, contradictions, track too large to execute)
+  description, contradictions, track too large to execute, retained
+  superseded Decision Record)
 - should-fix: Plan can be executed but quality/clarity suffers (implausible
-  scope indicator, missing decision record for a key choice)
+  scope indicator, missing decision record for a key choice, **section
+  exceeds its per-section budget, plan/design duplication, plan file
+  exceeds the overall budget**)
 - suggestion: Improvement that isn't strictly necessary (better wording,
   optional diagram that would help)

@@ -13,6 +13,57 @@ solution.
   agent and reviewers can verify intent without reverse-engineering code
 - Provide a single place where the overall design can be understood as a coherent
   whole, not just as a collection of tracks
+- Hold the **long-form** material that supports plan-level decisions
+  (worked examples, layered diagrams, multi-paragraph rationale,
+  crash-scenario walk-throughs) so the implementation plan can stay
+  thin and strategic — see "Boundary with the implementation plan"
+  below.
+
+## Boundary with the implementation plan
+
+The plan corpus is split across three files with a strict content
+boundary. Putting prose in the wrong file inflates the
+`/execute-tracks` startup load (the plan file is read at every
+session) and routinely produces duplication between the plan and the
+design document.
+
+| File | What it carries |
+|---|---|
+| `implementation-plan.md` | Goals, constraints, the **decisions themselves** (alternatives / rationale / risks / where-implemented / link-to-design), the Component Map (topology + short intent bullets), short invariant statements, short integration-point bullets, the track checklist. **Strategic, scannable, loaded every session.** |
+| `design.md` | Class diagrams, sequence/flow diagrams, the **long-form rationale** that supports a decision (when one exists), worked examples, layered designs, complex-topic walk-throughs (concurrency, crash recovery, performance paths), full workflow descriptions. **Long-form, loaded only when referenced.** |
+| `implementation-backlog.md` | Per-track concrete deliverables — files, classes, methods, edit lists, ordering constraints, track-level diagrams. **Per-track edit detail, loaded only in Phase A of one track per session.** |
+
+> **The rule, succinctly:** if you find yourself writing a worked
+> example, a multi-paragraph derivation, a code-change inventory, or
+> a "here is how all the pieces fit together" walk-through inside a
+> decision record, an invariant, or an integration-point bullet,
+> **stop and move it to `design.md`** (or, if it is per-track edit
+> detail, to `implementation-backlog.md`). Replace the original
+> location with a one-line link.
+
+The reciprocal pointer is the `**Full design**: design.md §<section>`
+line in the Decision Record template (see `planning.md` § Decision
+Records). When a DR has long-form support, the DR itself stays at the
+four-bullet form and the long-form material lives in `design.md` under
+a section the DR links to.
+
+**What this looks like in practice:**
+
+- A decision whose rationale is "we picked B over A because A doesn't
+  satisfy invariant X" — that's a 1-line rationale, no `design.md`
+  section needed.
+- A decision whose rationale needs a worked example (e.g., walking
+  through what happens to a transaction when the rollback log is
+  evicted mid-commit) — keep the four-bullet rationale at one
+  sentence, then add a `design.md` section titled "Rollback log
+  eviction during commit" that walks the example, and link to it from
+  the DR's `**Full design**` line.
+- An invariant like "WAL atomic operation boundaries enclose the
+  histogram update" — one bullet, no `design.md` section needed.
+- An invariant whose semantics need a multi-paragraph derivation
+  (e.g., why the read path is safe under concurrent eviction) — keep
+  the invariant entry at one bullet stating the rule, and add a
+  `design.md` complex-topic section that derives it.
 
 ## Required content
 

@@ -5,11 +5,16 @@
 Validate the plan's internal structure and completeness across the plan
 file and backlog (when present). This is a lightweight check that does
 NOT read the codebase — it catches plan-level defects (dependency
-cycles, missing descriptions, contradictions) cheaply. For new-format
-plans, pending-track `**What/How/Constraints/Interactions**` detail
-lives in `implementation-backlog.md`; the review reads both files. For
-legacy plans (no backlog file on disk), that detail is inline in the
-plan-file entry and the review falls back to it there.
+cycles, missing descriptions, contradictions, **bloat**) cheaply. For
+new-format plans, pending-track `**What/How/Constraints/Interactions**`
+detail lives in `implementation-backlog.md`; the review reads both
+files. For legacy plans (no backlog file on disk), that detail is
+inline in the plan-file entry and the review falls back to it there.
+
+The review also enforces the per-section budgets defined in
+`planning.md` § Architecture Notes format. Plan-file bloat is paid by
+every Phase A/B/C session for the rest of the plan's life — bloat
+findings are first-class structural defects, not stylistic suggestions.
 
 This runs **automatically** as step 2 of the implementation review
 (Phase 2), after the consistency review passes. See
@@ -23,6 +28,37 @@ codebase and can benefit from what was learned executing earlier tracks.
 ## Structural review prompt
 
 **Prompt file:** [`prompts/structural-review.md`](prompts/structural-review.md)
+
+## Bloat checks
+
+The structural review enforces the per-section budgets in
+`planning.md` § Architecture Notes format (which carries both the
+table-form summary and the per-section rationale). Detection is
+mechanical — line-count and pattern-match on the plan file, no
+codebase read required — and the findings carry the severities below.
+
+| Category | Severity | Trigger | Fix |
+|---|---|---|---|
+| **DR-length** | should-fix | Decision Record body exceeds ~30 lines | Trim DR back to the four-bullet form; move long-form material to a `design.md` section and link from `**Full design**`. |
+| **Invariant-length** | should-fix | Invariant entry exceeds ~5 lines | State the rule in one short paragraph; move multi-paragraph derivations to a `design.md` complex-topic section. |
+| **Integration-point-length** | should-fix | Integration-point bullet exceeds ~3 lines | Name the connection point in one short bullet; move workflow walk-throughs to a `design.md` Workflow section. |
+| **Component-intent-length** | should-fix | A component's intent bullet (under the Component Map) exceeds ~5 lines | Keep the intent to one short paragraph; move design-level descriptions of that component's behavioral change to `design.md`. |
+| **Superseded-DR retained** | blocker | A DR is explicitly marked `(SUPERSEDED ...)` or "see DN" but still occupies a `#### D<N>` block | Delete the superseded DR entirely; document the supersession in the replacing DR's rationale ("This replaces an earlier approach where..."). |
+| **Plan/design duplication** | should-fix | A DR body or Architecture Notes subsection is >50 lines **and** `design.md` has a section whose title matches the DR's topic | Replace the duplicated body in the plan with a one-line link to the matching `design.md` section. |
+| **Plan-file budget exceeded** | should-fix | Plan file exceeds ~1,500 lines / ~30K tokens | Identify which sections are over their per-section budget and apply the per-section fixes above. |
+
+**Detection notes:**
+- Line counts include the section heading and bullet body but exclude
+  trailing blank lines between sections.
+- For the **plan/design duplication** heuristic, the title-match check
+  is fuzzy: any section in `design.md` whose heading shares 2+
+  significant words with the DR title (after lowercasing and dropping
+  stop-words) is a hit. Borderline matches should be flagged for human
+  review, not auto-resolved.
+- A single oversized section is enough to fire the per-section finding;
+  the plan-file-budget finding is a roll-up that fires when *cumulative*
+  bloat across many sections puts the whole file over budget even
+  though no individual section is dramatically oversized.
 
 ## Gate verification
 
