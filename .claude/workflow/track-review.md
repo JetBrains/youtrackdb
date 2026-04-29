@@ -126,17 +126,25 @@ Phase C includes both the track-level code review and track completion
      is `safe`/`info`, continue. If the file does not exist or the
      command fails, this is **not an error** — treat as `safe` and
      continue.
-4. **Decompose scope indicators** into concrete steps.
+4. **Decompose scope indicators** into concrete steps. For each step,
+   assign a **risk tag** (`low` / `medium` / `high`) per the criteria
+   in [`risk-tagging.md`](risk-tagging.md) — load that file at the
+   start of decomposition. The tag controls whether Phase B runs
+   step-level dimensional review for the step.
 5. **Write decomposed steps** to the step file's `## Steps` section as
-   `[ ]` items. Mark `Review + decomposition` as `[x]` in the Progress
+   `[ ]` items, each with its `**Risk:**` line in the description
+   blockquote. Mark `Review + decomposition` as `[x]` in the Progress
    section.
 
 ### Complexity Assessment and Which Reviews to Run
 
 Complexity determines which pre-execution reviews to run, not user
 interaction level — all tracks execute autonomously after review.
-All tracks get both step-level and track-level code review regardless of
-complexity.
+All tracks get track-level code review (Phase C) regardless of
+complexity. Step-level dimensional review (Phase B sub-step 4) runs
+only for steps tagged `risk: high` per
+[`risk-tagging.md`](risk-tagging.md); `medium` and `low` steps rely on
+tests plus track-level review.
 
 | Track complexity | Review pipeline |
 |---|---|
@@ -253,6 +261,36 @@ full upfront decomposition feasible.
   a neighbor.
 - Note **cross-cutting concerns** (shared types, refactors) as separate
   steps rather than embedding them inside feature steps.
+
+#### Risk tagging
+
+Assign a risk tag — `low`, `medium`, or `high` — to each decomposed
+step. The tag controls whether Phase B runs step-level dimensional
+review (`high` runs the full review loop; `medium` and `low` skip it
+and rely on tests plus track-level review). Track-level review at
+Phase C always runs against the cumulative track diff regardless of
+the per-step distribution.
+
+Apply the criteria in [`risk-tagging.md`](risk-tagging.md) — load that
+file at the start of decomposition. Six HIGH categories (concurrency,
+crash-safety/durability, public API, security, architecture,
+performance hot path), one MEDIUM band (multi-file logic, test
+infrastructure, build config, observability changes), and a LOW
+default for refactoring / new tests / docs / isolated bug fixes. When
+in doubt, mark `high` — over-tagging costs an extra review, but
+missing a real high-risk step ships bugs.
+
+Write the tag inline in each step's description blockquote:
+
+```markdown
+- [ ] Step: <description>
+  > **Risk:** <level> — <category, "default", or "override: <reason>">
+```
+
+The tag stays in place through Phase B (where it gates
+`step-implementation.md` sub-step 4) and Phase C (where `medium` and
+`high` are treated as focal points by the track-level reviewers).
+Once a step is implemented, the tag is locked.
 
 #### Parallel step annotation
 

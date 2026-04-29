@@ -167,18 +167,25 @@ for authoritative-location rules and the legacy-plan fallback.>
 ## Steps
 - [x] Step: <description>
   - [x] Context: safe
+  > **Risk:** high — concurrency (introduces lock acquisition)
+  >
   > **What was done:** ...
   > **What was discovered:** ...
   > **Key files:** ...
 
 - [x] Step: <description>
   - [x] Context: info
+  > **Risk:** low — default (pure refactoring)
+  >
   > **What was done:** ...
   > **Key files:** ...
 
 - [ ] Step: <description>
+  > **Risk:** medium — multi-file logic in core (no HIGH triggers)
 - [ ] Step: <description>
+  > **Risk:** low — default (extract helper)
 - [ ] Step: <description>
+  > **Risk:** high — public API change
 ````
 
 The **Description** section carries the track's full description —
@@ -216,6 +223,23 @@ This sub-item is written to the step file on disk alongside the episode;
 like episodes, it is not committed to git. It must be marked before the
 step is considered complete — an unmarked context check means the agent
 skipped the check.
+
+The **Risk:** line in each step's description blockquote names the step's
+risk level (`low`, `medium`, or `high`) and the triggering category (or
+`default` / `override: <reason>`). It is written by the Phase A decomposer
+and reviewed by the user before the step file is approved. Phase B reads
+it to gate sub-step 4 — the dimensional review loop runs only when the
+tag is `high`; for `medium` and `low` steps Phase B skips directly to
+sub-step 5. If implementation reveals that a step is more invasive than
+tagged, Phase B may upgrade the tag in place (recording the upgrade in
+the risk note) but never downgrade. After the step is committed and the
+episode written, the risk tag is locked. Phase C reads the locked tags
+from the step file and treats `medium` and `high` step ranges as focal
+points when reviewing the cumulative track diff. Full criteria, override
+rules, and lifecycle live in [`risk-tagging.md`](risk-tagging.md), which
+is loaded only by Phase A (and rarely by Phase B on the upgrade path);
+sub-step 4's gating decision in normal Phase B execution reads the tag
+value from the step file alone.
 
 The **Base commit** section records the git SHA of `HEAD` at the start of
 Phase B, before the first implementation commit. Phase B writes this once

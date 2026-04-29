@@ -4,6 +4,12 @@ Characteristic-based selection of review sub-agents for step-level (Phase B)
 and track-level (Phase C) code reviews. Referenced from `step-implementation.md`
 and `track-code-review.md`.
 
+Step-level review fires only for steps tagged `risk: high` per
+[`risk-tagging.md`](risk-tagging.md); for `medium` and `low` steps,
+selection is moot because no step-level agents are spawned. Track-level
+review always runs. The selection rules below apply identically whenever
+either review actually fires.
+
 ---
 
 ## Baseline agents (always run)

@@ -112,7 +112,16 @@ completion**, before moving to the next step:
    rule (see [`conventions-execution.md`](conventions-execution.md) §2.3)
    applies to commit messages — no `Track N` / `Step N` / finding IDs /
    iteration counters in the message body or subject.
-4. **Dimensional review loop** (up to 3 iterations, within your context).
+4. **Dimensional review loop — runs only when the step's `**Risk:**` line
+   is `high`.** For `medium` and `low` steps, skip directly to sub-step 5.
+   If implementation revealed that the step is higher risk than tagged
+   (e.g., the "trivial refactor" turned out to require lock-ordering
+   changes), upgrade the risk in the step file before proceeding — see
+   [`risk-tagging.md`](risk-tagging.md) §Override rules for the upgrade
+   protocol. Downgrades mid-Phase B are not permitted.
+
+   When the loop runs (i.e., the step is `high`), it follows the protocol
+   unchanged: up to 3 iterations within your context.
    See [`code-review-protocol.md`](code-review-protocol.md) for the two-tier
    protocol overview and [`review-iteration.md`](review-iteration.md) for
    iteration limits, finding ID prefixes, and gate format.

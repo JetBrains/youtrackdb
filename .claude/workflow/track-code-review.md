@@ -16,14 +16,20 @@ feed into an accurate track episode.
 
 ## Single-Step Track: Skip Code Review, Proceed to Track Completion
 
-If the track has exactly **1 step**, the code review portion of Phase C is
-skipped — the step-level review in Phase B already covered the identical
-diff. There is no cross-step interaction to catch.
+If the track has exactly **1 step** AND that step is tagged `risk: high`
+in the step file, the code review portion of Phase C is skipped — the
+step-level review in Phase B already covered the identical diff and
+there is no cross-step interaction to catch.
 
 1. Mark `Track-level code review` as `[x]` in the step file's Progress
    section with a note: `(skipped — single-step track, fully reviewed
    in Phase B)`.
 2. Skip directly to **Track Completion** (below) in the same session.
+
+If the single step is `risk: medium` or `risk: low`, step-level review
+was skipped per [`risk-tagging.md`](risk-tagging.md), so track-level
+review must run. Proceed to **Multi-Step Tracks** below; the single
+step is treated as the entire diff.
 
 ---
 
@@ -114,10 +120,15 @@ The file begins with a `## Description` section carrying the track's
 original description — intro paragraph +
 **What/How/Constraints/Interactions** subsections + any track-level
 diagram — copied there at Phase A start. Below that, all steps for
-this track appear with their episodes. If the file does not contain a
-`## Description` section (legacy step file created before Phase A's
-description-move was added), read the track description from the plan
-file's checklist entry instead.
+this track appear with their episodes. Each step also carries a
+`**Risk:**` line tagging it as `low`, `medium`, or `high` — treat
+`medium` and `high` step ranges as **focal points** within the diff
+(weight your attention toward those changes; the tag identifies where
+tests + the workflow's own gating could not easily catch issues, so
+this review carries more of the load there). If the file does not
+contain a `## Description` section (legacy step file created before
+Phase A's description-move was added), read the track description from
+the plan file's checklist entry instead.
 
 ## Changed Files
 {output of git diff {base_commit}..HEAD --name-only — passed inline,
