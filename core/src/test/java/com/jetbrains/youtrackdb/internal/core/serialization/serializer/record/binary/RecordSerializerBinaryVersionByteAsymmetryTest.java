@@ -52,21 +52,17 @@ import org.junit.Test;
  * remove the {@link ArrayIndexOutOfBoundsException} expectation below and replace
  * it with the {@link IllegalArgumentException} expectation that matches the other
  * overload's behaviour.
+ *
+ * <p><strong>Security note:</strong> the {@code byte[]} overload's un-decorated
+ * AIOOBE pairs with the diagnostic at {@code RecordSerializerBinary.java:106-114}
+ * (today), which Base64-encodes the entire un-validated input and writes it to a
+ * WARN log. Harmonising to a typed {@link IllegalArgumentException} thrown
+ * <em>before</em> the array index also short-circuits this log-amplification path —
+ * without the typed early exit, every malformed-leading-byte read writes O(N) of
+ * attacker-controlled bytes into the log file. The deferred-cleanup harmonisation
+ * is therefore a defense-in-depth fix as well as an error-shape consistency one.
  */
 public class RecordSerializerBinaryVersionByteAsymmetryTest {
-
-  @Test
-  public void byteArrayOverloadEmptyStreamReturnsSilently() {
-    // Pin: empty input is a valid no-op; returning silently is not a bug — the
-    // contract is that an empty record source means "no fields". Pinned here as a
-    // safety net so the asymmetry pin below is not mistakenly read as "all error
-    // input throws AIOOBE".
-    var serializer = new RecordSerializerBinary();
-    assertEquals("Sanity: factory wires V1 only", 1, serializer.getNumberOfSupportedVersions());
-    // We do not invoke fromStream(byte[]) with an empty byte array here because the
-    // method requires a non-null RecordAbstract. The reachable branch is exercised
-    // through the binary serializer integration tests.
-  }
 
   @Test
   public void readBytesContainerOverloadRejectsNegativeVersion() {

@@ -48,6 +48,15 @@ import org.junit.Test;
  * class once Java-Serialization-based payload wrapping is confirmed unused outside the
  * core module (driver/server already use binary record serialization). When deletion
  * lands, this whole test file should be removed.
+ *
+ * <p><strong>Security note:</strong> {@code SerializableWrapper.fromStream} invokes
+ * {@code ObjectInputStream.readObject()} on a raw {@code byte[]} with no
+ * {@code ObjectInputFilter} (JEP 290), no class allow-list, and no maximum-depth
+ * bound. Until this class is deleted, callers MUST NOT feed it bytes from any
+ * non-trusted source — network input, RPC payloads, or backups restored by an
+ * untrusted operator. Java-Serialization gadget chains (Commons Collections, BCEL,
+ * etc.) are a known RCE primitive; the deferred deletion is therefore a security-
+ * posture upgrade, not just dead-code cleanup.
  */
 public class SerializableWrapperDeadCodeTest {
 
@@ -129,6 +138,23 @@ public class SerializableWrapperDeadCodeTest {
     var receiver = new SerializableWrapper(((Serializable) "preset"));
     receiver.fromStream(stream);
     assertNull("round-trip of null payload deserializes back to null", receiver.getSerializable());
+  }
+
+  @Test
+  public void toStreamProducesCanonicalJavaSerializationHeader() {
+    // Java Object Serialization Stream Protocol (JLS): every stream begins with
+    // STREAM_MAGIC (0xACED) followed by STREAM_VERSION (0x0005). Pin this header
+    // so a regression that wraps the stream layer or replaces it with a different
+    // encoding is caught immediately rather than silently changing the wire shape
+    // for any persisted payload.
+    var w = new SerializableWrapper((Serializable) "x");
+    var stream = w.toStream();
+    assertTrue("output must be at least 4 bytes (STREAM_MAGIC + STREAM_VERSION)",
+        stream.length >= 4);
+    assertEquals((byte) 0xAC, stream[0]);
+    assertEquals((byte) 0xED, stream[1]);
+    assertEquals((byte) 0x00, stream[2]);
+    assertEquals((byte) 0x05, stream[3]);
   }
 
   @Test

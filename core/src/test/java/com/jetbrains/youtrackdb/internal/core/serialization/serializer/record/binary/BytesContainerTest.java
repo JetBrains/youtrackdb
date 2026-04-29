@@ -196,7 +196,7 @@ public class BytesContainerTest {
   // --- copy semantics ---
 
   @Test
-  public void copyShareesBytesArrayButHasIndependentOffset() {
+  public void copySharesBytesArrayButHasIndependentOffset() {
     var c = new BytesContainer();
     c.alloc(10);
     c.bytes[0] = 1;

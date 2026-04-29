@@ -22,6 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
@@ -31,6 +32,7 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerial
 import com.jetbrains.youtrackdb.internal.common.serialization.types.BinaryTypeSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.BooleanSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.ByteSerializer;
+import com.jetbrains.youtrackdb.internal.common.serialization.types.CharSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.DateSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.DateTimeSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.DecimalSerializer;
@@ -41,9 +43,14 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializ
 import com.jetbrains.youtrackdb.internal.common.serialization.types.NullSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.ShortSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.StringSerializer;
+import com.jetbrains.youtrackdb.internal.common.serialization.types.UTF8Serializer;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.CompactedLinkSerializer;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.LinkSerializer;
+import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.index.CompositeKeySerializer;
+import com.jetbrains.youtrackdb.internal.core.serialization.serializer.stream.StreamSerializerRID;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.MultiValueEntrySerializer;
 import org.junit.Test;
 
 /**
@@ -129,6 +136,20 @@ public class BinarySerializerFactoryTest {
     assertSame(LinkSerializer.INSTANCE, f.getObjectSerializer(LinkSerializer.ID));
     assertSame(BinaryTypeSerializer.INSTANCE, f.getObjectSerializer(BinaryTypeSerializer.ID));
     assertSame(DecimalSerializer.INSTANCE, f.getObjectSerializer(DecimalSerializer.ID));
+    // The remaining six serializers are registered with type=null (id-only lookup):
+    // CharSerializer, CompositeKeySerializer, StreamSerializerRID,
+    // CompactedLinkSerializer, UTF8Serializer, MultiValueEntrySerializer. A regression
+    // that drops any of these registrations would silently break id-based dispatch
+    // for that slot — pin them all here so the failure mode is "unit test fails" not
+    // "deep NPE in record deserialization three layers down".
+    assertSame(CharSerializer.INSTANCE, f.getObjectSerializer(CharSerializer.ID));
+    assertSame(CompositeKeySerializer.INSTANCE, f.getObjectSerializer(CompositeKeySerializer.ID));
+    assertSame(StreamSerializerRID.INSTANCE, f.getObjectSerializer(StreamSerializerRID.ID));
+    assertSame(CompactedLinkSerializer.INSTANCE,
+        f.getObjectSerializer(CompactedLinkSerializer.ID));
+    assertSame(UTF8Serializer.INSTANCE, f.getObjectSerializer(UTF8Serializer.ID));
+    assertSame(MultiValueEntrySerializer.INSTANCE,
+        f.getObjectSerializer((byte) MultiValueEntrySerializer.ID));
   }
 
   @Test
@@ -201,9 +222,7 @@ public class BinarySerializerFactoryTest {
     var b = BinarySerializerFactory.create(BinarySerializerFactory.CURRENT_BINARY_FORMAT_VERSION);
     assertNotNull(a);
     assertNotNull(b);
-    if (a == b) {
-      throw new AssertionError("create() must return a fresh factory each time");
-    }
+    assertNotSame("create() must return a fresh factory each time", a, b);
     // Mutating one (registering a new id) must not affect the other.
     var fresh = new IdStub((byte) 99);
     a.registerSerializer(fresh, null);
@@ -220,9 +239,13 @@ public class BinarySerializerFactoryTest {
     // must be rejected.
     var ex = assertThrows(IllegalArgumentException.class,
         () -> f.registerSerializer(BooleanSerializer.INSTANCE, PropertyTypeInternal.BOOLEAN));
+    // Pin the duplicate-id reference AND the rejection wording. Asserting just
+    // contains("1") is too loose — many unrelated rewordings would still match.
+    var msg = ex.getMessage();
+    assertNotNull("rejection message must not be null", msg);
     assertTrue(
-        "exception must reference the duplicate id (1)",
-        ex.getMessage() != null && ex.getMessage().contains("1"));
+        "exception must mention the duplicate id and the rejection: " + msg,
+        msg.contains("id 1") && msg.contains("already registered"));
   }
 
   @Test
