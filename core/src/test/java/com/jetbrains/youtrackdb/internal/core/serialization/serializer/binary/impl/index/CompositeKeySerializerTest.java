@@ -133,9 +133,9 @@ public class CompositeKeySerializerTest {
     final var stream = new byte[size];
     serializer.serialize(key, serializerFactory, stream, 0);
 
-    // First int = total size (13, little-endian)
+    // First int = total size (13, big-endian via serializeLiteral)
     assertEquals(13, IntegerSerializer.deserializeLiteral(stream, 0));
-    // Second int = key count (1, little-endian)
+    // Second int = key count (1, big-endian via serializeLiteral)
     assertEquals(1, IntegerSerializer.deserializeLiteral(stream, 4));
     // Third byte = type identifier for INTEGER (IntegerSerializer.ID = 8)
     assertEquals(IntegerSerializer.ID, stream[8]);
@@ -146,7 +146,7 @@ public class CompositeKeySerializerTest {
     assertEquals(key, roundTripped);
     assertNotSame(key, roundTripped);
 
-    // getObjectSize(stream, offset) reads the first little-endian int (the total size)
+    // getObjectSize(stream, offset) reads the first big-endian int (the total size)
     assertEquals(13, serializer.getObjectSize(serializerFactory, stream, 0));
   }
 
@@ -239,16 +239,22 @@ public class CompositeKeySerializerTest {
   public void nullEntryAtEachPositionEncodesAsNullSerializerId() {
     // A null entry encodes as the NullSerializer (ID = 11) with a zero-byte payload. Test all
     // three slots — start, middle, end — to pin that the null branch is taken regardless of
-    // surrounding non-null context.
+    // surrounding non-null context AND that the on-disk byte at the null position is exactly
+    // NullSerializer.ID. Use fixed-width INTEGER neighbours so the typeId byte offset for
+    // each position is computable: header (8) + position * (typeId(1) + INTEGER payload(4)).
     for (var nullPos = 0; nullPos < 3; nullPos++) {
       final var key = new CompositeKey();
       key.addKey(nullPos == 0 ? null : 1);
-      key.addKey(nullPos == 1 ? null : "m");
-      key.addKey(nullPos == 2 ? null : 9);
+      key.addKey(nullPos == 1 ? null : 2);
+      key.addKey(nullPos == 2 ? null : 3);
 
       final var size = serializer.getObjectSize(serializerFactory, key);
       final var stream = new byte[size];
       serializer.serialize(key, serializerFactory, stream, 0);
+
+      final var typeIdOffset = 8 + nullPos * 5; // 8 header + 5 bytes per INTEGER slot
+      assertEquals("null sentinel byte at position " + nullPos,
+          NullSerializer.ID, stream[typeIdOffset]);
 
       final var rt = serializer.deserialize(serializerFactory, stream, 0);
       assertEquals("null at position " + nullPos, key, rt);
@@ -429,6 +435,49 @@ public class CompositeKeySerializerTest {
 
   // -----------------------------------------------------------------
   // WAL-overlay path
+
+  @Test
+  public void walOverlayShadowsConflictingUnderlyingBytes() {
+    // The WAL overlay's primary purpose is to surface staged uncommitted writes that
+    // disagree with the underlying page bytes. Pre-fill the buffer with a "wrong" key and
+    // confirm the overlay surfaces the staged "right" key — a regression where readData()
+    // bypassed pageChunks would silently return the wrong key here, whereas the
+    // walOverlayDeserialisesNativePayload test (which uses a zero-filled underlying buffer)
+    // would still pass.
+    // Keep both keys at the same encoded width so the pre-fill and the staged write occupy
+    // the same byte range — int + same-length string both encoded as fixed-shape positions.
+    final var rightKey = new CompositeKey();
+    rightKey.addKey(7);
+    rightKey.addKey("rt");
+
+    final var wrongKey = new CompositeKey();
+    wrongKey.addKey(99);
+    wrongKey.addKey("wr");
+
+    final var offset = 5;
+    final var size = serializer.getObjectSize(serializerFactory, rightKey);
+    assertEquals(size, serializer.getObjectSize(serializerFactory, wrongKey));
+
+    final var bb = ByteBuffer
+        .allocateDirect(size + offset + WALPageChangesPortion.PORTION_BYTES)
+        .order(ByteOrder.nativeOrder());
+
+    final var wrongBytes = new byte[size];
+    serializer.serializeNativeObject(wrongKey, serializerFactory, wrongBytes, 0);
+    for (var i = 0; i < size; i++) {
+      bb.put(offset + i, wrongBytes[i]);
+    }
+
+    final var rightBytes = new byte[size];
+    serializer.serializeNativeObject(rightKey, serializerFactory, rightBytes, 0);
+    final WALChanges overlay = new WALPageChangesPortion();
+    overlay.setBinaryValue(bb, rightBytes, offset);
+
+    final var rt = serializer.deserializeFromByteBufferObject(serializerFactory, bb, overlay,
+        offset);
+    assertEquals(rightKey, rt);
+    assertEquals(size, serializer.getObjectSizeInByteBuffer(bb, overlay, offset));
+  }
 
   @Test
   public void walOverlayDeserialisesNativePayload() {
@@ -666,66 +715,11 @@ public class CompositeKeySerializerTest {
     assertEquals(rid, rt.getKeys().get(0));
   }
 
-  // -----------------------------------------------------------------
-  // Helpers
-
-  /**
-   * Builds a CompositeKey from the supplied positions in order.
-   */
-  private static CompositeKey newKey(Object... positions) {
-    final var key = new CompositeKey();
-    for (final var p : positions) {
-      key.addKey(p);
-    }
-    return key;
-  }
-
-  /**
-   * Encodes the page key into a ByteBuffer and the search key into a byte[] (both via the
-   * native-order serializer, which matches the SBTree page-write contract), then runs
-   * {@link CompositeKeySerializer#compareInByteBuffer}.
-   */
-  private static int compareInByteBuffer(CompositeKey pageKey, CompositeKey searchKey) {
-    final var pageSize = serializer.getObjectSize(serializerFactory, pageKey);
-    final var pageBuf = ByteBuffer.allocate(pageSize).order(ByteOrder.nativeOrder());
-    final var pageBytes = new byte[pageSize];
-    serializer.serializeNativeObject(pageKey, serializerFactory, pageBytes, 0);
-    pageBuf.put(pageBytes);
-
-    final var searchSize = serializer.getObjectSize(serializerFactory, searchKey);
-    final var searchBytes = new byte[searchSize];
-    serializer.serializeNativeObject(searchKey, serializerFactory, searchBytes, 0);
-
-    return serializer.compareInByteBuffer(serializerFactory, 0, pageBuf, searchBytes, 0);
-  }
-
-  /**
-   * WAL-overlay variant of {@link #compareInByteBuffer} — wraps the page byte stream in a
-   * {@link WALPageChangesPortion} overlay and exercises the WAL-aware comparator.
-   */
-  private static int compareInByteBufferWithWAL(CompositeKey pageKey, CompositeKey searchKey) {
-    final var pageSize = serializer.getObjectSize(serializerFactory, pageKey);
-    final var pageBuf = ByteBuffer
-        .allocateDirect(pageSize + WALPageChangesPortion.PORTION_BYTES)
-        .order(ByteOrder.nativeOrder());
-    final var pageBytes = new byte[pageSize];
-    serializer.serializeNativeObject(pageKey, serializerFactory, pageBytes, 0);
-    final WALChanges overlay = new WALPageChangesPortion();
-    overlay.setBinaryValue(pageBuf, pageBytes, 0);
-
-    final var searchSize = serializer.getObjectSize(serializerFactory, searchKey);
-    final var searchBytes = new byte[searchSize];
-    serializer.serializeNativeObject(searchKey, serializerFactory, searchBytes, 0);
-
-    return serializer.compareInByteBufferWithWALChanges(
-        serializerFactory, pageBuf, overlay, 0, searchBytes, 0);
-  }
-
   @Test
-  public void byteShapePinForBooleanRoundTripIsTwoBytePayload() {
+  public void byteShapePinForBooleanRoundTripIsTenBytesTotal() {
     // Pin the BOOLEAN encoding inside a single-position composite key — the trailing payload
     // is exactly 1 byte (BooleanSerializer is fixed-length 1). Header is 8 bytes, type id is
-    // 1 byte → total 10 bytes.
+    // 1 byte, payload is 1 byte → total 10 bytes.
     final var key = new CompositeKey();
     key.addKey(true);
 
@@ -861,4 +855,58 @@ public class CompositeKeySerializerTest {
     assertEquals(0, processed.getKeys().size());
   }
 
+  // -----------------------------------------------------------------
+  // Helpers
+
+  /**
+   * Builds a CompositeKey from the supplied positions in order.
+   */
+  private static CompositeKey newKey(Object... positions) {
+    final var key = new CompositeKey();
+    for (final var p : positions) {
+      key.addKey(p);
+    }
+    return key;
+  }
+
+  /**
+   * Encodes the page key into a ByteBuffer and the search key into a byte[] (both via the
+   * native-order serializer, which matches the SBTree page-write contract), then runs
+   * {@link CompositeKeySerializer#compareInByteBuffer}.
+   */
+  private static int compareInByteBuffer(CompositeKey pageKey, CompositeKey searchKey) {
+    final var pageSize = serializer.getObjectSize(serializerFactory, pageKey);
+    final var pageBuf = ByteBuffer.allocate(pageSize).order(ByteOrder.nativeOrder());
+    final var pageBytes = new byte[pageSize];
+    serializer.serializeNativeObject(pageKey, serializerFactory, pageBytes, 0);
+    pageBuf.put(pageBytes);
+
+    final var searchSize = serializer.getObjectSize(serializerFactory, searchKey);
+    final var searchBytes = new byte[searchSize];
+    serializer.serializeNativeObject(searchKey, serializerFactory, searchBytes, 0);
+
+    return serializer.compareInByteBuffer(serializerFactory, 0, pageBuf, searchBytes, 0);
+  }
+
+  /**
+   * WAL-overlay variant of {@link #compareInByteBuffer} — wraps the page byte stream in a
+   * {@link WALPageChangesPortion} overlay and exercises the WAL-aware comparator.
+   */
+  private static int compareInByteBufferWithWAL(CompositeKey pageKey, CompositeKey searchKey) {
+    final var pageSize = serializer.getObjectSize(serializerFactory, pageKey);
+    final var pageBuf = ByteBuffer
+        .allocateDirect(pageSize + WALPageChangesPortion.PORTION_BYTES)
+        .order(ByteOrder.nativeOrder());
+    final var pageBytes = new byte[pageSize];
+    serializer.serializeNativeObject(pageKey, serializerFactory, pageBytes, 0);
+    final WALChanges overlay = new WALPageChangesPortion();
+    overlay.setBinaryValue(pageBuf, pageBytes, 0);
+
+    final var searchSize = serializer.getObjectSize(serializerFactory, searchKey);
+    final var searchBytes = new byte[searchSize];
+    serializer.serializeNativeObject(searchKey, serializerFactory, searchBytes, 0);
+
+    return serializer.compareInByteBufferWithWALChanges(
+        serializerFactory, pageBuf, overlay, 0, searchBytes, 0);
+  }
 }
