@@ -10,6 +10,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.W
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALPageChangesPortion;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.Arrays;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -95,7 +96,7 @@ public class NullSerializerTest {
   @Test
   public void heapSerializeDeserializeAreNoOps() {
     final var stream = new byte[4];
-    java.util.Arrays.fill(stream, (byte) 0xAA);
+    Arrays.fill(stream, (byte) 0xAA);
 
     nullSerializer.serialize(new Object(), serializerFactory, stream, 0);
     for (final var b : stream) {
@@ -112,7 +113,7 @@ public class NullSerializerTest {
   @Test
   public void nativeHeapSerializeDeserializeAreNoOps() {
     final var stream = new byte[4];
-    java.util.Arrays.fill(stream, (byte) 0x55);
+    Arrays.fill(stream, (byte) 0x55);
 
     nullSerializer.serializeNativeObject(new Object(), serializerFactory, stream, 0);
     for (final var b : stream) {
@@ -127,17 +128,26 @@ public class NullSerializerTest {
   /**
    * ByteBuffer round-trip at the buffer's current position: serialize advances the
    * position by zero (it's a no-op write), getObjectSizeInByteBuffer and
-   * deserializeFromByteBufferObject both return their NULL contract. Pin all three
-   * of these together.
+   * deserializeFromByteBufferObject both return their NULL contract. Pre-fill the
+   * underlying bytes with a sentinel so a regression that wrote bytes through the
+   * absolute-index API (e.g. {@code buffer.putLong(0, value)}) — which would not
+   * advance position — still fails the assertion.
    */
   @Test
   public void byteBufferAtCurrentPositionAreNoOps() {
     final var serializationOffset = 5;
-    final var buffer = ByteBuffer.allocate(serializationOffset);
+    final var buffer = ByteBuffer.allocate(serializationOffset + 4);
+    final var sentinel = (byte) 0xAA;
+    for (var i = 0; i < buffer.capacity(); i++) {
+      buffer.put(i, sentinel);
+    }
     buffer.position(serializationOffset);
 
     nullSerializer.serializeInByteBufferObject(serializerFactory, new Object(), buffer);
     assertEquals(serializationOffset, buffer.position());
+    for (var i = 0; i < buffer.capacity(); i++) {
+      assertEquals("byte " + i + " was mutated by no-op write", sentinel, buffer.get(i));
+    }
 
     buffer.position(serializationOffset);
     assertEquals(0, nullSerializer.getObjectSizeInByteBuffer(serializerFactory, buffer));
@@ -169,15 +179,22 @@ public class NullSerializerTest {
    * WALChanges overload: pin that both the size query and the deserialise return the
    * NULL contract under WAL-driven access. WALChanges is the only non-trivial code
    * path on the read side — it dispatches through {@code WALChanges.getXxxValue} but
-   * for NULL must short-circuit to zero/null without touching the WAL state.
+   * for NULL must short-circuit to zero/null without touching the WAL state. Pre-fill
+   * the underlying buffer with a sentinel so a regression that started staging bytes
+   * via {@code walChanges.setBinaryValue} (or any other write through the WAL surface)
+   * would corrupt the sentinel and fail the post-call invariance check — the size /
+   * deserialise return-value assertions alone would not catch a stray write.
    */
   @Test
   public void walChangesOverloadsAreNoOps() {
     final var serializationOffset = 5;
+    final var bufferSize = serializationOffset + WALPageChangesPortion.PORTION_BYTES;
     final var buffer =
-        ByteBuffer.allocateDirect(
-            serializationOffset + WALPageChangesPortion.PORTION_BYTES)
-            .order(ByteOrder.nativeOrder());
+        ByteBuffer.allocateDirect(bufferSize).order(ByteOrder.nativeOrder());
+    final var sentinel = (byte) 0x77;
+    for (var i = 0; i < bufferSize; i++) {
+      buffer.put(i, sentinel);
+    }
     final WALChanges walChanges = new WALPageChangesPortion();
 
     assertEquals(
@@ -186,5 +203,10 @@ public class NullSerializerTest {
     assertNull(
         nullSerializer.deserializeFromByteBufferObject(serializerFactory, buffer, walChanges,
             serializationOffset));
+
+    for (var i = 0; i < bufferSize; i++) {
+      assertEquals("byte " + i + " was mutated by no-op WAL access", sentinel, buffer.get(i));
+    }
+    assertEquals(0, buffer.position());
   }
 }

@@ -12,6 +12,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.W
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALPageChangesPortion;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.Arrays;
 import java.util.UUID;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -133,21 +134,37 @@ public class UUIDSerializerTest {
     assertSame(DETERMINISTIC_UUID, preprocessed);
   }
 
+  /**
+   * Null-input identity for {@code preprocess}: UUID is unregistered with the
+   * dispatcher (see {@link #getIdThrowsUnsupportedOperation}) so the contract is
+   * "value in, value out" with no normalization branch. Pinning the null case
+   * separately would catch a regression that introduced any UUID-method call
+   * (e.g. variant normalization via {@code value.version()}), which would NPE
+   * on null input but pass the non-null pin above.
+   */
+  @Test
+  public void preprocessReturnsNullForNullInput() {
+    assertEquals(null, uuidSerializer.preprocess(serializerFactory, null));
+  }
+
   // --- Heap byte[] round-trips ---
 
   /**
    * Basic heap round-trip via the instance methods — covers
    * {@link UUIDSerializer#serialize(UUID, BinarySerializerFactory, byte[], int, Object...)}
    * and {@link UUIDSerializer#deserialize(BinarySerializerFactory, byte[], int)},
-   * which were not exercised by the original suite.
+   * which were not exercised by the original suite. Uses the deterministic fixture
+   * so a failure message reports the same UUID across all runs and architectures —
+   * the legacy {@code OBJECT} field's {@code UUID.randomUUID()} value would change
+   * on every run, complicating triage.
    */
   @Test
   public void heapByteArrayRoundTripIdentity() {
     final var stream = new byte[FIELD_SIZE];
-    uuidSerializer.serialize(OBJECT, serializerFactory, stream, 0);
+    uuidSerializer.serialize(DETERMINISTIC_UUID, serializerFactory, stream, 0);
 
     final var deserialized = uuidSerializer.deserialize(serializerFactory, stream, 0);
-    assertEquals(OBJECT, deserialized);
+    assertEquals(DETERMINISTIC_UUID, deserialized);
   }
 
   /**
@@ -264,7 +281,7 @@ public class UUIDSerializerTest {
     uuidSerializer.serialize(ALL_ONES_UUID, serializerFactory, stream, 0);
 
     final var expected = new byte[FIELD_SIZE];
-    java.util.Arrays.fill(expected, (byte) 0xFF);
+    Arrays.fill(expected, (byte) 0xFF);
     assertArrayEquals(expected, stream);
     assertEquals(ALL_ONES_UUID, uuidSerializer.deserialize(serializerFactory, stream, 0));
   }
@@ -287,6 +304,23 @@ public class UUIDSerializerTest {
     final var deserialized =
         uuidSerializer.deserializeNativeObject(serializerFactory, stream, 0);
     assertEquals(DETERMINISTIC_UUID, deserialized);
+  }
+
+  /**
+   * Native heap MSB/LSB-half pin: read the serialised bytes back as two longs in
+   * platform byte order and assert each half. Round-trip identity alone cannot
+   * catch a regression that swapped the MSB-half / LSB-half slots since both
+   * write and read would flip together; reading the halves out via the native
+   * order reveals the swap without pinning a specific endianness.
+   */
+  @Test
+  public void nativeHeapPinsLongHalvesViaNativeOrder() {
+    final var stream = new byte[FIELD_SIZE];
+    uuidSerializer.serializeNativeObject(DETERMINISTIC_UUID, serializerFactory, stream, 0);
+
+    final var bb = ByteBuffer.wrap(stream).order(ByteOrder.nativeOrder());
+    assertEquals(DETERMINISTIC_MSB, bb.getLong());
+    assertEquals(DETERMINISTIC_LSB, bb.getLong());
   }
 
   /**
