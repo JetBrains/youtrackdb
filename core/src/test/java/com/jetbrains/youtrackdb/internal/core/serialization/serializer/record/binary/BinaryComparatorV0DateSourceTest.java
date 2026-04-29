@@ -22,6 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.b
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
@@ -73,22 +74,42 @@ public class BinaryComparatorV0DateSourceTest extends DbTestBase {
    */
   @Test
   public void dateSameTypeEqualityAndOrdering() {
-    var dEq = field(PropertyTypeInternal.DATE, 0L);
-    var dLt = field(PropertyTypeInternal.DATE, -86_400_000L);
-    var dGt = field(PropertyTypeInternal.DATE, 86_400_000L);
-
+    // Each call to field(...) allocates a fresh BytesContainer at offset 0; the comparator's
+    // try/finally restores offsets so a single instance per side is sufficient — but using
+    // distinct allocations per assertion keeps the test self-contained.
     assertTrue(
-        "DATE 0 ms isEqual DATE 0 ms", comparator.isEqual(session, dEq, freshCopy(dEq)));
+        "DATE 0 ms isEqual DATE 0 ms",
+        comparator.isEqual(
+            session, field(PropertyTypeInternal.DATE, 0L), field(PropertyTypeInternal.DATE, 0L)));
     assertFalse(
         "DATE 0 ms isEqual DATE -86_400_000 ms (-1 day)",
-        comparator.isEqual(session, dEq, freshCopy(dLt)));
+        comparator.isEqual(
+            session,
+            field(PropertyTypeInternal.DATE, 0L),
+            field(PropertyTypeInternal.DATE, -86_400_000L)));
     assertFalse(
         "DATE 0 ms isEqual DATE +86_400_000 ms (+1 day)",
-        comparator.isEqual(session, dEq, freshCopy(dGt)));
+        comparator.isEqual(
+            session,
+            field(PropertyTypeInternal.DATE, 0L),
+            field(PropertyTypeInternal.DATE, 86_400_000L)));
 
-    assertEquals(0, comparator.compare(session, dEq, freshCopy(dEq)));
-    assertTrue(comparator.compare(session, dEq, freshCopy(dLt)) > 0);
-    assertTrue(comparator.compare(session, dEq, freshCopy(dGt)) < 0);
+    assertEquals(
+        0,
+        comparator.compare(
+            session, field(PropertyTypeInternal.DATE, 0L), field(PropertyTypeInternal.DATE, 0L)));
+    assertTrue(
+        comparator.compare(
+            session,
+            field(PropertyTypeInternal.DATE, 0L),
+            field(PropertyTypeInternal.DATE, -86_400_000L))
+            > 0);
+    assertTrue(
+        comparator.compare(
+            session,
+            field(PropertyTypeInternal.DATE, 0L),
+            field(PropertyTypeInternal.DATE, 86_400_000L))
+            < 0);
   }
 
   // ===========================================================================
@@ -194,7 +215,6 @@ public class BinaryComparatorV0DateSourceTest extends DbTestBase {
   public void dateCrossDatetime() {
     var date0 = field(PropertyTypeInternal.DATE, 0L);
     var dateOneDay = field(PropertyTypeInternal.DATE, 86_400_000L);
-    var datetimeOneDayMs = field(PropertyTypeInternal.DATETIME, 86_400_000L);
 
     assertTrue(comparator.isEqual(session, date0, field(PropertyTypeInternal.DATETIME, 0L)));
     assertFalse(
@@ -203,7 +223,8 @@ public class BinaryComparatorV0DateSourceTest extends DbTestBase {
             field(PropertyTypeInternal.DATETIME, -86_400_000L)));
     assertTrue(
         "DATE +1 day equals DATETIME 86_400_000 ms (same day)",
-        comparator.isEqual(session, dateOneDay, freshCopy(datetimeOneDayMs)));
+        comparator.isEqual(
+            session, dateOneDay, field(PropertyTypeInternal.DATETIME, 86_400_000L)));
 
     // compare arm at line 1140 does literal Long.compare without flooring, so intra-day ±1 ms
     // produces a non-zero ordering.
@@ -282,10 +303,21 @@ public class BinaryComparatorV0DateSourceTest extends DbTestBase {
   public void dateCrossDecimal() {
     var date0 = field(PropertyTypeInternal.DATE, 0L);
 
-    assertTrue(comparator.isEqual(session, date0,
-        field(PropertyTypeInternal.DECIMAL, new BigDecimal(0))));
-    assertFalse(comparator.isEqual(session, date0,
-        field(PropertyTypeInternal.DECIMAL, new BigDecimal(-1))));
+    assertTrue(
+        "DATE 0 ms isEqual DECIMAL 0",
+        comparator.isEqual(
+            session, date0, field(PropertyTypeInternal.DECIMAL, new BigDecimal(0))));
+    assertFalse(
+        "DATE 0 ms NOT isEqual DECIMAL -1",
+        comparator.isEqual(
+            session, date0, field(PropertyTypeInternal.DECIMAL, new BigDecimal(-1))));
+    // +1 case pins the value1 < value2.longValue() arm of the BigDecimal comparison; without
+    // it, a stub that returned `value1 == value2.longValue() || value1 < value2.longValue()` for
+    // small inputs could pass the -1 case alone.
+    assertFalse(
+        "DATE 0 ms NOT isEqual DECIMAL +1",
+        comparator.isEqual(
+            session, date0, field(PropertyTypeInternal.DECIMAL, new BigDecimal(1))));
 
     assertEquals(0,
         comparator.compare(session, date0,
@@ -323,15 +355,25 @@ public class BinaryComparatorV0DateSourceTest extends DbTestBase {
   /**
    * DATE × STRING compare with a date-format string: enters the {@code DateFormat.parse} path
    * (line 1168). The string parses as a date in the database timezone; the result is the
-   * day-aligned millis comparison.
+   * day-aligned millis comparison. Pins both equality and the two ordering directions so a
+   * stub `return 0` regression in the date-format branch is caught.
    */
   @Test
   public void dateCompareStringDateFormatPath() {
-    // "1970-01-01" parses to 0 ms in GMT; equals DATE 0 days.
     var date0 = field(PropertyTypeInternal.DATE, 0L);
+
+    // "1970-01-01" parses to 0 ms in GMT; equals DATE 0 days.
     assertEquals(
         "DATE 0 ms equals STRING \"1970-01-01\" (date-format fast path under GMT)",
         0, comparator.compare(session, date0, field(PropertyTypeInternal.STRING, "1970-01-01")));
+    // "1969-12-31" parses to -86_400_000 ms — strictly less than 0 → DATE 0 is greater (>0).
+    assertTrue(
+        "DATE 0 ms compares > 0 against STRING \"1969-12-31\" (right-side parses as -1 day)",
+        comparator.compare(session, date0, field(PropertyTypeInternal.STRING, "1969-12-31")) > 0);
+    // "1970-01-02" parses to +86_400_000 ms — strictly greater than 0 → DATE 0 is less (<0).
+    assertTrue(
+        "DATE 0 ms compares < 0 against STRING \"1970-01-02\" (right-side parses as +1 day)",
+        comparator.compare(session, date0, field(PropertyTypeInternal.STRING, "1970-01-02")) < 0);
   }
 
   /**
@@ -382,14 +424,23 @@ public class BinaryComparatorV0DateSourceTest extends DbTestBase {
    * here so the future fix (separating the STRING arm to use {@code Long.parseLong(readString)})
    * fails this assertion loudly. forwards-to: Track 22.
    */
-  @Test(expected = NumberFormatException.class)
+  @Test
   public void dateIsEqualStringThrowsBecauseOfDecimalDeserializerMisuse() {
     var date0 = field(PropertyTypeInternal.DATE, 0L);
-    // Production currently throws NumberFormatException("Zero length BigInteger") because
-    // DecimalSerializer.deserialize is invoked on STRING-encoded bytes. WHEN-FIXED: Track 22 —
-    // the fix should separate the STRING arm so STRING bytes round-trip via Long.parseLong,
-    // at which point this test should be flipped to assert isEqual semantics directly.
-    comparator.isEqual(session, date0, field(PropertyTypeInternal.STRING, "0"));
+    // Production currently throws NumberFormatException with the BigInteger constructor's
+    // diagnostic when DecimalSerializer.deserialize is invoked on STRING-encoded bytes. The
+    // message starts with "Zero length BigInteger" — assert it contains the BigInteger marker so
+    // a regression that throws a DIFFERENT NumberFormatException (e.g. from Long.parseLong on
+    // the STRING bytes after a partial cleanup) does not silently pass. WHEN-FIXED: the proper
+    // fix is to separate the STRING arm so STRING bytes round-trip via Long.parseLong; at that
+    // point this test should be flipped to assert isEqual returns false.
+    var nfe = assertThrows(
+        NumberFormatException.class,
+        () -> comparator.isEqual(session, date0, field(PropertyTypeInternal.STRING, "0")));
+    assertTrue(
+        "Expected NumberFormatException raised by BigInteger ctor inside"
+            + " DecimalSerializer.deserialize; actual message: " + nfe.getMessage(),
+        nfe.getMessage() != null && nfe.getMessage().contains("BigInteger"));
   }
 
   // ===========================================================================
@@ -397,49 +448,100 @@ public class BinaryComparatorV0DateSourceTest extends DbTestBase {
   // BOOLEAN, BINARY, or LINK; isEqual returns false and compare returns 1.
   // ===========================================================================
 
-  /** DATE × BYTE: BYTE is not in the DATE source's isEqual arm (line 470) — returns false. */
+  /**
+   * DATE × BYTE: BYTE is not in the DATE source's isEqual arm (line 470) — returns false. The
+   * compare arm returns 1 as a sentinel meaning "unsupported pair". The naked {@code 1} value is
+   * indistinguishable from "left strictly greater" if a future arm is added; the paired
+   * {@code isEqual=false} on equivalent values disambiguates: a real arm that returned 0 for
+   * equal values would not match {@code isEqual=false}, so this pin requires both signals to
+   * shift in lockstep when the sentinel is replaced by a real arm. WHEN-FIXED: future addition
+   * of DATE × BYTE arms.
+   */
   @Test
   public void dateIsEqualWithByteIsUnsupported() {
     var date0 = field(PropertyTypeInternal.DATE, 0L);
     assertFalse(
-        "DATE × BYTE isEqual: unsupported pair → false",
+        "DATE × BYTE isEqual: unsupported pair → false (no DATE source × BYTE dest arm)",
         comparator.isEqual(session, date0, field(PropertyTypeInternal.BYTE, (byte) 0)));
     assertEquals(
-        "DATE × BYTE compare: unsupported pair → 1 (sentinel)",
+        "DATE × BYTE compare: unsupported pair → 1 sentinel; paired with isEqual=false above to"
+            + " disambiguate from a hypothetical real arm returning 1 for left>right",
         1, comparator.compare(session, date0, field(PropertyTypeInternal.BYTE, (byte) 0)));
   }
 
-  /** DATE × BOOLEAN: unsupported. */
+  /**
+   * DATE × BOOLEAN: unsupported. Pinned with paired isEqual=false on both true and false BOOLEAN
+   * inputs, plus the compare-sentinel 1 — a future arm cannot return 1 for both BOOLEAN(true) and
+   * BOOLEAN(false) while also keeping isEqual false on both, so the multi-input pin is robust to
+   * a regression that adds a partial arm.
+   */
   @Test
   public void dateIsEqualWithBooleanIsUnsupported() {
     var date0 = field(PropertyTypeInternal.DATE, 0L);
     assertFalse(
+        "DATE × BOOLEAN(true) isEqual: unsupported pair → false",
         comparator.isEqual(session, date0, field(PropertyTypeInternal.BOOLEAN, true)));
     assertFalse(
+        "DATE × BOOLEAN(false) isEqual: unsupported pair → false",
         comparator.isEqual(session, date0, field(PropertyTypeInternal.BOOLEAN, false)));
     assertEquals(
+        "DATE × BOOLEAN(true) compare: unsupported pair → 1 sentinel",
         1, comparator.compare(session, date0, field(PropertyTypeInternal.BOOLEAN, true)));
+    assertEquals(
+        "DATE × BOOLEAN(false) compare: unsupported pair → 1 sentinel"
+            + " (a real arm could not return 1 for both true and false against the same DATE)",
+        1, comparator.compare(session, date0, field(PropertyTypeInternal.BOOLEAN, false)));
   }
 
-  /** DATE × BINARY: unsupported. */
+  /**
+   * DATE × BINARY: unsupported. Empty-binary input is paired with single-byte input — a real arm
+   * could not return 1 for both length-0 and length-1 BINARYs against DATE 0, so the multi-input
+   * pin disambiguates from "unsupported" vs a future "real arm returning 1 for left>right".
+   */
   @Test
   public void dateIsEqualWithBinaryIsUnsupported() {
     var date0 = field(PropertyTypeInternal.DATE, 0L);
     assertFalse(
+        "DATE × BINARY{0} isEqual: unsupported pair → false",
         comparator.isEqual(session, date0, field(PropertyTypeInternal.BINARY, new byte[] {0})));
+    assertFalse(
+        "DATE × BINARY{} (empty) isEqual: unsupported pair → false",
+        comparator.isEqual(session, date0, field(PropertyTypeInternal.BINARY, new byte[0])));
     assertEquals(
+        "DATE × BINARY{0} compare: unsupported pair → 1 sentinel",
         1, comparator.compare(session, date0, field(PropertyTypeInternal.BINARY, new byte[] {0})));
+    assertEquals(
+        "DATE × BINARY{} (empty) compare: unsupported pair → 1 sentinel"
+            + " (a real arm could not return 1 for both empty and non-empty BINARY)",
+        1, comparator.compare(session, date0, field(PropertyTypeInternal.BINARY, new byte[0])));
   }
 
-  /** DATE × LINK: unsupported. */
+  /**
+   * DATE × LINK: unsupported. Two distinct RecordIds are pinned — a real arm could not return 1
+   * for both #1:2 and #99:99 against DATE 0 while also keeping isEqual false on both, so the
+   * multi-input pin disambiguates from a future real-arm return value of 1.
+   */
   @Test
   public void dateIsEqualWithLinkIsUnsupported() {
     var date0 = field(PropertyTypeInternal.DATE, 0L);
     assertFalse(
+        "DATE × LINK(#1:2) isEqual: unsupported pair → false",
         comparator.isEqual(session, date0, field(PropertyTypeInternal.LINK, new RecordId(1, 2))));
+    assertFalse(
+        "DATE × LINK(#99:99) isEqual: unsupported pair → false",
+        comparator.isEqual(
+            session, date0, field(PropertyTypeInternal.LINK, new RecordId(99, 99))));
     assertEquals(
+        "DATE × LINK(#1:2) compare: unsupported pair → 1 sentinel",
         1,
         comparator.compare(session, date0, field(PropertyTypeInternal.LINK, new RecordId(1, 2))));
+    assertEquals(
+        "DATE × LINK(#99:99) compare: unsupported pair → 1 sentinel"
+            + " (a real arm could not return 1 for two unrelated LINK values against the"
+            + " same DATE)",
+        1,
+        comparator.compare(
+            session, date0, field(PropertyTypeInternal.LINK, new RecordId(99, 99))));
   }
 
   // ===========================================================================
@@ -448,20 +550,11 @@ public class BinaryComparatorV0DateSourceTest extends DbTestBase {
 
   /** Allocates a fresh BytesContainer, serializes the value at offset 0, and wraps it as a
    * BinaryField with no collation. Container offset is reset to 0 so the comparator reads from
-   * the value's first byte. */
+   * the value's first byte. Field name is {@code null} to match {@code AbstractComparatorTest}'s
+   * convention; the comparator does not consume the name. */
   private BinaryField field(PropertyTypeInternal type, Object value) {
     var bytes = new BytesContainer();
     bytes.offset = serializer.serializeValue(session, bytes, value, type, null, null, null);
-    return new BinaryField("test", type, new BytesContainer(bytes.bytes, 0), null);
-  }
-
-  /** Returns a fresh copy of the field with offset reset to 0. The comparator's try/finally
-   * already resets offset, but using fresh copies in same-type tests removes any doubt about
-   * shared-state interference between sequential assertions. */
-  private static BinaryField freshCopy(BinaryField original) {
-    return new BinaryField(
-        original.name, original.type,
-        new BytesContainer(original.bytes.bytes, 0),
-        original.collate);
+    return new BinaryField(null, type, new BytesContainer(bytes.bytes, 0), null);
   }
 }

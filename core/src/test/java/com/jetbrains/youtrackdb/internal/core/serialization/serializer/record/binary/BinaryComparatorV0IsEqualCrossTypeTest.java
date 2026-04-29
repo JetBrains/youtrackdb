@@ -53,8 +53,10 @@ public class BinaryComparatorV0IsEqualCrossTypeTest extends DbTestBase {
 
   // ===========================================================================
   // INTEGER source — supported destinations: INTEGER, LONG, DATETIME, DATE,
-  // SHORT, BYTE, FLOAT, DOUBLE, STRING, DECIMAL
-  // (DATE handled separately because its 1ms ≠ 1day cross-type asymmetry)
+  // SHORT, BYTE, FLOAT, DOUBLE, STRING, DECIMAL.
+  // DATE cells use src=0 because the production arm compares
+  // {@code value1 (int) == readAsLong(fv2) * MILLISEC_PER_DAY} — the only int
+  // value that equals a non-trivial day count is 0.
   // ===========================================================================
 
   /** INTEGER 10 vs each numeric destination at 10 returns equal; ±1 returns not-equal. */
@@ -74,6 +76,27 @@ public class BinaryComparatorV0IsEqualCrossTypeTest extends DbTestBase {
     assertEqualPair(
         src, srcVal, PropertyTypeInternal.DECIMAL, new BigDecimal(10), new BigDecimal(9),
         new BigDecimal(11));
+  }
+
+  /**
+   * INTEGER × DATE — the production arm at line 99 compares
+   * {@code int value1 == (readAsLong(fv2) * MILLISEC_PER_DAY)}. Source value 0 equals DATE 0L
+   * (= 0 ms); DATE 1L (= 86_400_000 ms) and DATE -1L (= -86_400_000 ms) do NOT equal int 0.
+   */
+  @Test
+  public void integerCrossDateIsEqual() {
+    var src = PropertyTypeInternal.INTEGER;
+    var dst = PropertyTypeInternal.DATE;
+
+    assertTrue(
+        "INTEGER 0 == DATE 0 days (= 0 ms)",
+        comparator.isEqual(session, field(src, 0), field(dst, 0L)));
+    assertFalse(
+        "INTEGER 0 != DATE +1 day (= 86_400_000 ms)",
+        comparator.isEqual(session, field(src, 0), field(dst, 86_400_000L)));
+    assertFalse(
+        "INTEGER 0 != DATE -1 day (= -86_400_000 ms)",
+        comparator.isEqual(session, field(src, 0), field(dst, -86_400_000L)));
   }
 
   // ===========================================================================
@@ -99,6 +122,30 @@ public class BinaryComparatorV0IsEqualCrossTypeTest extends DbTestBase {
         new BigDecimal(11));
   }
 
+  /**
+   * LONG × DATE — same shape as INTEGER × DATE: source value 0L equals DATE 0L.
+   * LONG can hold values larger than 32-bit DATE arithmetic but the day-multiplied right-hand
+   * side and zero left-hand side keep this pin straightforward. Distinct from
+   * {@code BinaryComparatorV0DateSourceTest.dateCrossLongUnderGmt} which exercises the inverse
+   * source/destination pairing (DATE source × LONG dest).
+   */
+  @Test
+  public void longCrossDateIsEqual() {
+    var src = PropertyTypeInternal.LONG;
+    var dst = PropertyTypeInternal.DATE;
+
+    assertTrue(
+        "LONG 0L == DATE 0 days (= 0 ms)",
+        comparator.isEqual(session, field(src, 0L), field(dst, 0L)));
+    assertFalse(
+        "LONG 0L != DATE +1 day",
+        comparator.isEqual(session, field(src, 0L), field(dst, 86_400_000L)));
+    // LONG of one full day equals DATE 1 day (86_400_000 == 1 * MILLISEC_PER_DAY).
+    assertTrue(
+        "LONG 86_400_000L == DATE +1 day",
+        comparator.isEqual(session, field(src, 86_400_000L), field(dst, 86_400_000L)));
+  }
+
   // ===========================================================================
   // SHORT source — supported destinations: same as INTEGER.
   // ===========================================================================
@@ -120,6 +167,24 @@ public class BinaryComparatorV0IsEqualCrossTypeTest extends DbTestBase {
     assertEqualPair(
         src, srcVal, PropertyTypeInternal.DECIMAL, new BigDecimal(10), new BigDecimal(9),
         new BigDecimal(11));
+  }
+
+  /**
+   * SHORT × DATE — production arm at line 191-195 widens SHORT to long and compares against
+   * {@code readAsLong(fv2) * MILLISEC_PER_DAY}. Only SHORT 0 equals DATE 0; SHORT range
+   * (−32 768..32 767) is far too small to equal any non-zero day-multiplied value.
+   */
+  @Test
+  public void shortCrossDateIsEqual() {
+    var src = PropertyTypeInternal.SHORT;
+    var dst = PropertyTypeInternal.DATE;
+
+    assertTrue(
+        "SHORT 0 == DATE 0 days",
+        comparator.isEqual(session, field(src, (short) 0), field(dst, 0L)));
+    assertFalse(
+        "SHORT 0 != DATE +1 day (= 86_400_000 ms ≫ Short.MAX_VALUE)",
+        comparator.isEqual(session, field(src, (short) 0), field(dst, 86_400_000L)));
   }
 
   // ===========================================================================
@@ -218,6 +283,27 @@ public class BinaryComparatorV0IsEqualCrossTypeTest extends DbTestBase {
         new BigDecimal(11));
   }
 
+  /**
+   * STRING × DATE — production arm at line 240-242 calls
+   * {@code Long.parseLong(readString(fv1)) == readAsLong(fv2) * MILLISEC_PER_DAY}. The numeric
+   * STRING parses via Long.parseLong and is compared against the day-multiplied DATE side.
+   */
+  @Test
+  public void stringCrossDateIsEqual() {
+    var src = PropertyTypeInternal.STRING;
+    var dst = PropertyTypeInternal.DATE;
+
+    assertTrue(
+        "STRING \"0\" == DATE 0 days (parseLong(\"0\") == 0)",
+        comparator.isEqual(session, field(src, "0"), field(dst, 0L)));
+    assertTrue(
+        "STRING \"86400000\" == DATE +1 day (parseLong matches 1 * MILLISEC_PER_DAY)",
+        comparator.isEqual(session, field(src, "86400000"), field(dst, 86_400_000L)));
+    assertFalse(
+        "STRING \"1\" != DATE 0 days",
+        comparator.isEqual(session, field(src, "1"), field(dst, 0L)));
+  }
+
   /** STRING source × BOOLEAN destination: parses STRING via Boolean.parseBoolean and compares
    * against the BOOLEAN byte. */
   @Test
@@ -310,10 +396,11 @@ public class BinaryComparatorV0IsEqualCrossTypeTest extends DbTestBase {
 
   /** Allocates a fresh BytesContainer, serializes the value at offset 0, and wraps it as a
    * BinaryField with no collation. Container offset is reset to 0 so the comparator reads from
-   * the value's first byte. */
+   * the value's first byte. Field name is {@code null} to match {@code AbstractComparatorTest}'s
+   * convention; the comparator does not consume the name. */
   private BinaryField field(PropertyTypeInternal type, Object value) {
     var bytes = new BytesContainer();
     bytes.offset = serializer.serializeValue(session, bytes, value, type, null, null, null);
-    return new BinaryField("test", type, new BytesContainer(bytes.bytes, 0), null);
+    return new BinaryField(null, type, new BytesContainer(bytes.bytes, 0), null);
   }
 }
