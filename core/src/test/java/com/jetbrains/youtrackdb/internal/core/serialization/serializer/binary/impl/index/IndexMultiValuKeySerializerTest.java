@@ -166,31 +166,46 @@ public class IndexMultiValuKeySerializerTest {
 
   @Test
   public void shortRoundTrip() {
+    // Pin: header (8) + typeId (1) + 2-byte short payload, big-endian on the portable path
     final var hints = new PropertyTypeInternal[] {PropertyTypeInternal.SHORT};
     final var key = new CompositeKey();
     key.addKey((short) 0x1234);
 
     final var stream = serialise(key, hints);
+    assertEquals(11, stream.length);
+    assertEquals((byte) PropertyTypeInternal.SHORT.getId(), stream[8]);
+    assertEquals((short) 0x1234, ByteBuffer.wrap(stream).getShort(9));
+
     assertEquals(key, serializer.deserialize(serializerFactory, stream, 0));
   }
 
   @Test
   public void integerRoundTrip() {
+    // Pin: header (8) + typeId (1) + 4-byte int payload, big-endian on the portable path
     final var hints = new PropertyTypeInternal[] {PropertyTypeInternal.INTEGER};
     final var key = new CompositeKey();
     key.addKey(0xCAFEBABE);
 
     final var stream = serialise(key, hints);
+    assertEquals(13, stream.length);
+    assertEquals((byte) PropertyTypeInternal.INTEGER.getId(), stream[8]);
+    assertEquals(0xCAFEBABE, ByteBuffer.wrap(stream).getInt(9));
+
     assertEquals(key, serializer.deserialize(serializerFactory, stream, 0));
   }
 
   @Test
   public void longRoundTrip() {
+    // Pin: header (8) + typeId (1) + 8-byte long payload, big-endian on the portable path
     final var hints = new PropertyTypeInternal[] {PropertyTypeInternal.LONG};
     final var key = new CompositeKey();
     key.addKey(0x0102030405060708L);
 
     final var stream = serialise(key, hints);
+    assertEquals(17, stream.length);
+    assertEquals((byte) PropertyTypeInternal.LONG.getId(), stream[8]);
+    assertEquals(0x0102030405060708L, ByteBuffer.wrap(stream).getLong(9));
+
     assertEquals(key, serializer.deserialize(serializerFactory, stream, 0));
   }
 
@@ -230,34 +245,44 @@ public class IndexMultiValuKeySerializerTest {
 
   @Test
   public void dateRoundTripStoresMillis() {
-    // DATE and DATETIME share the same on-disk encoding (8 bytes = epoch millis). The
-    // serialise side calls ((Date) key).getTime(), so any Date including pre-epoch is fine.
+    // DATE and DATETIME share the same on-disk encoding (8 bytes = epoch millis written as
+    // big-endian long). Pin both the typeId byte and the 8-byte payload bit pattern.
     final var hints = new PropertyTypeInternal[] {PropertyTypeInternal.DATE};
     final var d = new Date(1_700_000_000_000L);
     final var key = new CompositeKey();
     key.addKey(d);
 
     final var stream = serialise(key, hints);
+    assertEquals(17, stream.length);
+    assertEquals((byte) PropertyTypeInternal.DATE.getId(), stream[8]);
+    assertEquals(d.getTime(), ByteBuffer.wrap(stream).getLong(9));
+
     final var rt = (Date) serializer.deserialize(serializerFactory, stream, 0).getKeys().get(0);
     assertEquals(d.getTime(), rt.getTime());
   }
 
   @Test
   public void dateTimeRoundTripStoresMillis() {
+    // DATETIME shares the 8-byte epoch-millis encoding with DATE; pin both bytes and value.
     final var hints = new PropertyTypeInternal[] {PropertyTypeInternal.DATETIME};
     final var d = new Date(0L);
     final var key = new CompositeKey();
     key.addKey(d);
 
     final var stream = serialise(key, hints);
+    assertEquals(17, stream.length);
+    assertEquals((byte) PropertyTypeInternal.DATETIME.getId(), stream[8]);
+    assertEquals(0L, ByteBuffer.wrap(stream).getLong(9));
+
     final var rt = (Date) serializer.deserialize(serializerFactory, stream, 0).getKeys().get(0);
     assertEquals(d.getTime(), rt.getTime());
   }
 
   @Test
   public void binaryRoundTripPreservesPayloadAndLengthHeader() {
-    // BINARY encodes [int len][raw bytes]. Pin the length-prefix shape and the round-trip
-    // contents — including a zero-length array (the degenerate bound).
+    // BINARY encodes [int len][raw bytes]. Pin the length-prefix shape (4-byte big-endian
+    // int) and the raw payload bytes alongside the round-trip — pure round-trip-only would
+    // pass even if the length-prefix byte order silently flipped.
     final var hints = new PropertyTypeInternal[] {PropertyTypeInternal.BINARY};
 
     for (final byte[] payload : new byte[][] {
@@ -265,6 +290,16 @@ public class IndexMultiValuKeySerializerTest {
       final var key = new CompositeKey();
       key.addKey(payload);
       final var stream = serialise(key, hints);
+
+      // header(8) + typeId(1) + lengthInt(4) + payload bytes
+      assertEquals(8 + 1 + 4 + payload.length, stream.length);
+      assertEquals((byte) PropertyTypeInternal.BINARY.getId(), stream[8]);
+      assertEquals(payload.length, ByteBuffer.wrap(stream).getInt(9));
+      // Pin the payload bytes at offset 13 (after typeId at 8 and length-int at 9-12)
+      final var rawSlice = new byte[payload.length];
+      System.arraycopy(stream, 13, rawSlice, 0, payload.length);
+      assertArrayEquals("payload bytes at offset 13", payload, rawSlice);
+
       final var rt = (byte[]) serializer.deserialize(serializerFactory, stream, 0).getKeys()
           .get(0);
       assertArrayEquals(payload, rt);
@@ -287,9 +322,23 @@ public class IndexMultiValuKeySerializerTest {
 
   @Test
   public void decimalRoundTripPreservesScaleAndUnscaledBytes() {
-    // DECIMAL encodes [int scale][int unscaledLen][unscaled bytes]. Test multiple scale /
-    // unscaled-bit-width combinations to pin the layout.
+    // DECIMAL encodes [int scale][int unscaledLen][unscaled bytes]. Pin scale at offset 9
+    // and unscaledLen at offset 13 (both big-endian on the portable path) for a single
+    // representative value; iterate the round-trip across a wider fixture set covering
+    // scale=0, scale&gt;0, negative-value scale, and a 128-bit unscaled magnitude.
     final var hints = new PropertyTypeInternal[] {PropertyTypeInternal.DECIMAL};
+
+    // Byte-shape pin on a fixed witness
+    {
+      final var d = new BigDecimal("123.456");
+      final var key = new CompositeKey();
+      key.addKey(d);
+      final var stream = serialise(key, hints);
+      assertEquals((byte) PropertyTypeInternal.DECIMAL.getId(), stream[8]);
+      assertEquals("scale at offset 9", 3, ByteBuffer.wrap(stream).getInt(9));
+      // 123456 fits in 3 bytes (0x01E240), so unscaledLen = 3
+      assertEquals("unscaledLen at offset 13", 3, ByteBuffer.wrap(stream).getInt(13));
+    }
 
     for (final BigDecimal d : new BigDecimal[] {
         BigDecimal.ZERO,
@@ -307,14 +356,21 @@ public class IndexMultiValuKeySerializerTest {
 
   @Test
   public void linkRoundTripStoresCompactedRid() {
-    // LINK delegates to CompactedLinkSerializer. Pin a non-trivial RID and confirm round-trip
-    // identity.
+    // LINK delegates to CompactedLinkSerializer (variable-width: short clusterId + byte
+    // numberSize + numberSize bytes). Pin the clusterId and numberSize bytes alongside the
+    // round-trip so a regression that swaps to LinkSerializer (fixed-width 10) is caught.
     final var hints = new PropertyTypeInternal[] {PropertyTypeInternal.LINK};
     final var rid = new RecordId(33, 7777);
     final var key = new CompositeKey();
     key.addKey(rid);
 
     final var stream = serialise(key, hints);
+    assertEquals((byte) PropertyTypeInternal.LINK.getId(), stream[8]);
+    // Compacted layout at offset 9: short clusterId (big-endian default) + byte numberSize
+    assertEquals((short) 33, ByteBuffer.wrap(stream).getShort(9));
+    // 7777 = 0x1E61 → 2 bytes wide
+    assertEquals((byte) 2, stream[11]);
+
     final var rt = serializer.deserialize(serializerFactory, stream, 0).getKeys().get(0);
     assertEquals(rid, rt);
   }
@@ -740,6 +796,75 @@ public class IndexMultiValuKeySerializerTest {
     // Each path round-trips through its own deserialiser
     assertEquals(key, serializer.deserialize(serializerFactory, portable, 0));
     assertEquals(key, serializer.deserializeNativeObject(serializerFactory, native_, 0));
+  }
+
+  @Test
+  public void getObjectSizeOnByteArrayReadsBigEndianHeader() {
+    // The default-order byte[] reader at IndexMultiValuKeySerializer mirrors the writer
+    // (which uses ByteBuffer.wrap default-order). Pin the round-trip so a regression that
+    // swaps to native order is caught on x86 / aarch64. Independent of the
+    // getObjectSizeNative variant which already tests native-order reads.
+    final var hints = new PropertyTypeInternal[] {
+        PropertyTypeInternal.INTEGER, PropertyTypeInternal.STRING};
+    final var key = new CompositeKey();
+    key.addKey(42);
+    key.addKey("size-pin");
+
+    final var declared = serializer.getObjectSize(serializerFactory, key, (Object[]) hints);
+    final var stream = new byte[declared + 3];
+    serializer.serialize(key, serializerFactory, stream, 3, (Object[]) hints);
+
+    assertEquals(declared, serializer.getObjectSize(serializerFactory, stream, 3));
+  }
+
+  @Test
+  public void walOverlayShadowsConflictingUnderlyingBytes() {
+    // The WAL overlay's primary contract is to surface staged uncommitted writes that
+    // disagree with the underlying page bytes. The earlier walOverlayDeserialiseCoversEveryType
+    // staged into a zero-filled buffer — a regression where readData() bypassed pageChunks
+    // would still pass because the underlying buffer was empty. This test pre-fills the
+    // buffer with a "wrong" key and confirms the overlay surfaces the staged "right" key.
+    final var hints = new PropertyTypeInternal[] {
+        PropertyTypeInternal.INTEGER, PropertyTypeInternal.STRING};
+    // Keep both keys at the same encoded width so the pre-fill and the staged write occupy
+    // the same byte range — same int + same-length string per position.
+    final var rightKey = new CompositeKey();
+    rightKey.addKey(7);
+    rightKey.addKey("rt");
+
+    final var wrongKey = new CompositeKey();
+    wrongKey.addKey(99);
+    wrongKey.addKey("wr");
+
+    final var offset = 5;
+    final var size = serializer.getObjectSize(serializerFactory, rightKey, (Object[]) hints);
+    assertEquals(size, serializer.getObjectSize(serializerFactory, wrongKey, (Object[]) hints));
+
+    final var bb = ByteBuffer
+        .allocateDirect(size + offset + WALPageChangesPortion.PORTION_BYTES)
+        .order(ByteOrder.nativeOrder());
+
+    // Pre-fill the buffer with wrong-key bytes at [offset, offset + size)
+    final var wrongBytes = new byte[size];
+    serializer.serializeNativeObject(wrongKey, serializerFactory, wrongBytes, 0,
+        (Object[]) hints);
+    for (var i = 0; i < size; i++) {
+      bb.put(offset + i, wrongBytes[i]);
+    }
+
+    // Stage right-key bytes on top via the overlay
+    final var rightBytes = new byte[size];
+    serializer.serializeNativeObject(rightKey, serializerFactory, rightBytes, 0,
+        (Object[]) hints);
+    final WALChanges overlay = new WALPageChangesPortion();
+    overlay.setBinaryValue(bb, rightBytes, offset);
+
+    // The overlay-aware deserialise must surface the staged right key, not the buffer's
+    // underlying wrong bytes.
+    final var rt = serializer.deserializeFromByteBufferObject(serializerFactory, bb, overlay,
+        offset);
+    assertEquals(rightKey, rt);
+    assertEquals(size, serializer.getObjectSizeInByteBuffer(bb, overlay, offset));
   }
 
   // -----------------------------------------------------------------

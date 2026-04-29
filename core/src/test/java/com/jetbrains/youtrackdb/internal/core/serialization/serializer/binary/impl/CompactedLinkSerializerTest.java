@@ -271,6 +271,34 @@ public class CompactedLinkSerializerTest {
   }
 
   @Test
+  public void testNumberSizeBoundariesZeroThroughEight() {
+    // Pin every numberSize bucket from 0 (collectionPosition=0) through 8 (Long.MAX_VALUE)
+    // — each bucket exercises a different loop length in encode and decode. Position=0 is
+    // the most critical bucket because numberSize=0 means the decode loop never executes
+    // and the result depends entirely on the `long position = 0` initialisation; a
+    // regression that initialised position to a non-zero default would silently break the
+    // first-record-in-cluster path.
+    final var linkSerializer = new CompactedLinkSerializer();
+    final long[] positions = {
+        0L, 0xFFL, 0xFFFFL, 0xFFFFFFL, 0xFFFFFFFFL,
+        0xFFFFFFFFFFL, 0xFFFFFFFFFFFFL, 0xFFFFFFFFFFFFFFL, Long.MAX_VALUE};
+    for (final long pos : positions) {
+      final var rid = new RecordId(7, pos);
+      final var size = linkSerializer.getObjectSize(serializerFactory, rid);
+      final var data = new byte[size];
+      linkSerializer.serialize(rid, serializerFactory, data, 0);
+      Assert.assertEquals("portable round-trip for position=" + pos,
+          rid, linkSerializer.deserialize(serializerFactory, data, 0));
+
+      // Also pin the native-order path through the same boundary set
+      final var nativeData = new byte[size];
+      linkSerializer.serializeNativeObject(rid, serializerFactory, nativeData, 0);
+      Assert.assertEquals("native round-trip for position=" + pos,
+          rid, linkSerializer.deserializeNativeObject(serializerFactory, nativeData, 0));
+    }
+  }
+
+  @Test
   public void testWalOverlayDeserialiseRoundTripsCompactedRid() {
     // The WAL deserialise variant reads through a WALPageChangesPortion overlay — pin a
     // round-trip through the overlay so the compacted-byte unmarshalling on the WAL path
