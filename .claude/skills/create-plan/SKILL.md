@@ -131,8 +131,7 @@ checklist; the backlog carries each track's detailed
 `**What/How/Constraints/Interactions**` subsections and any
 track-level Mermaid diagrams. Splitting keeps `/execute-tracks`
 startup context small — see `.claude/workflow/conventions.md` §1.2 for
-the full rules (backlog file shape, D4 legacy-compat detection,
-load-bearing-file rule).
+the full rules (backlog file shape, lifecycle).
 
 ```
 # <Feature Name>
@@ -184,11 +183,6 @@ load-bearing-file rule).
 
 ````markdown
 # <Feature Name> — Track Details
-
-<!-- DO NOT DELETE THIS FILE. Its presence on disk signals the new
-split-file plan format (see .claude/workflow/conventions.md §1.2).
-Deleting it flips subsequent workflow operations into legacy mode.
-Natural cleanup happens when the branch is deleted after PR merge. -->
 
 ## Track 1: <title>
 

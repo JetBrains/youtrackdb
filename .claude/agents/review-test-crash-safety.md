@@ -16,6 +16,24 @@ YouTrackDB is a Java 21+ object-oriented graph database with:
 - **Transaction lifecycle**: Begin → log mutations to WAL → apply to pages → commit (flush WAL) → checkpoint (flush dirty pages)
 - Core and server tests use JUnit 4; the `tests` module uses JUnit 5
 
+## Tooling — PSI for production-code reads
+
+Crash-safety test review needs to know which classes extend
+`StorageComponent`, which override `redo()`, and which call sites
+emit each WAL record type. Those are reference-accuracy questions.
+Use **mcp-steroid PSI find-usages / find-implementations /
+type-hierarchy** when the mcp-steroid MCP server is reachable.
+Grep silently misses polymorphic call sites and generic dispatch
+— exactly the cases where a "every durable structure has a redo
+test" or "every WAL record has a replay test" claim flips. Use
+grep only for filename globs, unique string literals (matching
+config keys, error strings), and orientation reads. If mcp-steroid
+is unreachable, fall back to grep and note the caveat in any
+finding that depends on enumerating subclasses, implementers, or
+producers/consumers of a WAL record type. Before the first symbol
+audit, call `steroid_list_projects` once to confirm the open
+project matches the working tree.
+
 ## Your Mission
 
 Review test code **only for crash safety testing quality and production assert statements**. Do not review for assertion precision, corner cases, test structure, or concurrency — other reviewers handle those dimensions.

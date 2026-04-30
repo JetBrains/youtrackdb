@@ -3,11 +3,7 @@ based on your previous consistency review findings.
 
 Inputs:
 - Updated plan file: {plan_path}
-- Backlog file: {backlog_path} (may be absent — when
-  `implementation-backlog.md` does not exist on disk, track descriptions
-  live in the plan file's checklist entries in legacy format; see the
-  detection-rule paragraph at the top of the "Semi-Formal Verification
-  Protocol" section below for mid-migration and legacy handling)
+- Backlog file: {backlog_path}
 - Updated design document: {design_path}
 - Previous findings (context only, finalized in earlier iterations):
   {previous_findings}
@@ -31,27 +27,33 @@ the design document but not updating the corresponding sequence diagram).
 Before verifying any finding whose fix touched a pending track's
 description, re-read that track's description (the
 `**What/How/Constraints/Interactions**` subsections and any track-level
-Mermaid diagram) from the backlog's `## Track N: <title>` section when
-the backlog file is present and contains that section. If the backlog
-file is absent (legacy plan) or the entry has been left with its detail
-inline in the plan file (mid-migration edge case), fall back to the
-plan-file checklist entry's `**What/How/Constraints/Interactions**`
-block. For **completed** (`[x]`) and **skipped** (`[~]`) tracks, read
-from the plan-file entry (intro paragraph + track episode for completed;
-intro + `**Skipped:**` reason for skipped). Read Architecture Notes,
-Decision Records, and other strategic context from the plan regardless.
+Mermaid diagram) from the backlog's `## Track N: <title>` section. For
+**completed** (`[x]`) and **skipped** (`[~]`) tracks, read from the
+plan-file entry (intro paragraph + track episode for completed; intro +
+`**Skipped:**` reason for skipped). Read Architecture Notes, Decision
+Records, and other strategic context from the plan regardless.
 
 For each ACCEPTED finding being verified, you must produce a
 **verification certificate** — not just assert "looks fixed." The
 certificate traces the same code reference or flow that was originally
 flagged and confirms the fix resolves it.
 
+For Java symbol re-checks (does this method now exist / have these
+callers / live in this class), use mcp-steroid PSI find-usages /
+find-implementations when the IDE is reachable; fall back to
+Grep/Glob with a reference-accuracy caveat only when mcp-steroid is
+unreachable. The original finding may have been generated against
+grep — verifying the fix with PSI catches subtle mismatches that grep
+missed.
+
 ```markdown
 #### Verify CR<N>: <finding title>
 - **Original issue**: <what was wrong — from the finding>
 - **Fix applied**: <what changed in the plan, backlog, or design text>
 - **Re-check**:
-  - Search/trace performed: <Grep/Glob query or flow trace>
+  - Search/trace performed: <PSI find-usages / find-implementations
+    query when the IDE is reachable; Grep/Glob query or flow trace
+    otherwise. Record which tool was used.>
   - Code location: <file:line — same reference as original, or updated>
   - Current state: <what the document now says vs. what the code shows>
 - **Regression check**: <did the fix introduce new inconsistencies

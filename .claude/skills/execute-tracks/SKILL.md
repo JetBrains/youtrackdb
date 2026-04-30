@@ -38,6 +38,7 @@ On-demand reference documents (load only when the situation arises):
 - `plan-slim-rendering.md` — load when assembling any step-level or track-level review sub-agent prompt
 - `episode-format-reference.md` — load when writing your first episode
 - `design-document-rules.md` — load when entering State D (Phase 4); not needed for Phase A/B/C
+- `risk-tagging.md` — load during Phase A decomposition (to assign per-step risk tags) and on the rare Phase B upgrade path (when implementation reveals a step is more invasive than tagged); **not** loaded by Phase B normal execution or Phase C — those phases read the per-step `**Risk:**` tag from the step file directly
 
 Plan directory name: if "$ARGUMENTS" is non-empty, use it as the directory
 name. Otherwise, default to the current git branch name
@@ -89,8 +90,14 @@ User interaction happens at specific points:
 - Track complete: approve, request fixes, or request rework
 - Step failure (2nd attempt): retry, adjust, or escalate
 
-Everything within a phase executes autonomously: Phase A runs reviews (as
-sub-agents) and decomposes steps; Phase B implements steps with dimensional
-review iterations (4 baseline + up to 6 conditional sub-agents in parallel,
-selected per `review-agent-selection.md`) and episode production; Phase C
-runs track-level dimensional review (same 4 + up to 6 selection).
+Everything within a phase executes autonomously: Phase A runs reviews
+(as sub-agents), decomposes steps, and assigns each step a risk tag
+(`low` / `medium` / `high`) per `risk-tagging.md`. Phase B implements
+steps and produces episodes; the step-level dimensional review loop
+(4 baseline + up to 6 conditional sub-agents in parallel, selected per
+`review-agent-selection.md`) fires only on steps tagged `risk: high` —
+`medium` and `low` steps proceed directly from commit to episode,
+relying on tests plus the always-on track-level review. Phase C runs
+track-level dimensional review (same selection rules) against the
+cumulative track diff and treats `medium` and `high` step ranges as
+focal points.

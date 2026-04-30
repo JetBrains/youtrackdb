@@ -4,6 +4,20 @@ After all steps are committed, review the full track diff using sub-agents.
 These are deliberately sub-agents — fresh eyes catch systematic issues that
 you (as the implementer) are blind to.
 
+## Tooling — PSI for cross-step reference accuracy
+
+Track-level review's value is catching cross-step interaction issues —
+one step adds a producer, another adds a consumer, and only the
+cumulative diff shows whether they actually meet. Those are
+reference-accuracy questions and route through mcp-steroid PSI
+find-usages rather than grep when the IDE is reachable, per the rule
+in [`conventions.md`](conventions.md) §1.4 *Tooling discipline* (run
+`steroid_list_projects` once at session start; do not re-probe). The
+canonical sub-agent context block below already embeds the PSI
+instruction — keep it intact when customising. When mcp-steroid is
+unreachable, sub-agents fall back to grep and add reference-accuracy
+caveats to any finding that depends on a symbol search.
+
 After the review loop completes and any deferred findings are processed,
 this phase continues directly into track completion: compiling the track
 episode, presenting results to the user, and marking the track `[x]` upon
@@ -16,14 +30,20 @@ feed into an accurate track episode.
 
 ## Single-Step Track: Skip Code Review, Proceed to Track Completion
 
-If the track has exactly **1 step**, the code review portion of Phase C is
-skipped — the step-level review in Phase B already covered the identical
-diff. There is no cross-step interaction to catch.
+If the track has exactly **1 step** AND that step is tagged `risk: high`
+in the step file, the code review portion of Phase C is skipped — the
+step-level review in Phase B already covered the identical diff and
+there is no cross-step interaction to catch.
 
 1. Mark `Track-level code review` as `[x]` in the step file's Progress
    section with a note: `(skipped — single-step track, fully reviewed
    in Phase B)`.
 2. Skip directly to **Track Completion** (below) in the same session.
+
+If the single step is `risk: medium` or `risk: low`, step-level review
+was skipped per [`risk-tagging.md`](risk-tagging.md), so track-level
+review must run. Proceed to **Multi-Step Tracks** below; the single
+step is treated as the entire diff.
 
 ---
 
@@ -63,9 +83,6 @@ of the changes.
    review loop (before the next spawn batch).
 5. Use `{base_commit}` when spawning all review sub-agents.
    All sub-agents review `git diff {base_commit}..HEAD`.
-
-If `## Base commit` is missing (e.g., older step file format), fall back to
-finding the parent of the first step's commit via git log.
 
 ---
 
@@ -114,10 +131,12 @@ The file begins with a `## Description` section carrying the track's
 original description — intro paragraph +
 **What/How/Constraints/Interactions** subsections + any track-level
 diagram — copied there at Phase A start. Below that, all steps for
-this track appear with their episodes. If the file does not contain a
-`## Description` section (legacy step file created before Phase A's
-description-move was added), read the track description from the plan
-file's checklist entry instead.
+this track appear with their episodes. Each step also carries a
+`**Risk:**` line tagging it as `low`, `medium`, or `high` — treat
+`medium` and `high` step ranges as **focal points** within the diff
+(weight your attention toward those changes; the tag identifies where
+tests + the workflow's own gating could not easily catch issues, so
+this review carries more of the load there).
 
 ## Changed Files
 {output of git diff {base_commit}..HEAD --name-only — passed inline,
@@ -127,6 +146,20 @@ small}
 - core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/*
 - Any files under generated-sources/ or generated-test-sources/
 - Generated Gremlin DSL classes
+
+## Tooling
+Use **mcp-steroid PSI find-usages, not grep**, for any
+reference-accuracy question about a Java symbol in the cumulative
+track diff or its callers (callers/overrides/usages of a method,
+field, class, or annotation; cross-step interaction sites where one
+step adds a producer and another adds a consumer; whether a renamed
+symbol still has stale references elsewhere; whether a deleted member
+is genuinely unused). Grep is acceptable for filename globs, unique
+string literals, and orientation reads, but the load-bearing answer
+behind a finding must be PSI-backed when mcp-steroid is reachable. If
+the SessionStart hook reported `mcp-steroid: NOT reachable`, fall
+back to grep and note the reference-accuracy caveat in any finding
+that depends on a symbol search.
 
 ## Diff
 {output of git diff {base_commit}..HEAD — passed inline since it is the
@@ -287,20 +320,16 @@ proceed directly to track completion **in the same session**.
 4. **Write the track episode, collapse the description, and mark `[x]`**
    in the plan file on disk (only after user approval):
 
-   Apply the three-clause collapse rule from
+   Apply the collapse rule from
    [`conventions-execution.md`](conventions-execution.md) §2.1
    "After track completion (user-approved)". Quick form: always keep
    the intro paragraph + `**Track episode:**` block + `**Step file:**`
-   pointer; always drop `**Scope:**` and `**Depends on:**`; drop the
-   four `**What/How/Constraints/Interactions**` subsections only if
-   present — §2.1's three-clause form covers the conditional-drop
-   behaviour across new-format, legacy, and mid-migration plan shapes.
-   (The `**Strategy refresh:**` line belongs to §2.1's "Always keep"
+   pointer; always drop `**Scope:**` and `**Depends on:**`. (The
+   `**Strategy refresh:**` line belongs to §2.1's "Always keep"
    clause but is never yet on disk at Phase C collapse time; the next
    session's strategy refresh appends it.) The collapse does not touch
-   `implementation-backlog.md` — if a backlog exists, Phase A already
-   removed Track N's section at the start of this track; if not,
-   there is nothing to touch.
+   `implementation-backlog.md` — Phase A already removed Track N's
+   section at the start of this track.
 
    Final on-disk form:
 

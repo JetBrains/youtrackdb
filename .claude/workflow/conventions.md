@@ -17,10 +17,11 @@ during Phase 3 execution.
 | **Step** | A single atomic change = one commit. Fully tested. |
 | **Episode** | Structured record of what happened during a step or track. |
 | **Scope indicator** | Rough sketch of expected work in a track. |
+| **Risk tag** | Per-step `low` / `medium` / `high` label assigned by the Phase A decomposer. Gates whether Phase B runs step-level dimensional review (`high` only) and signals focal points to Phase C track-level review (`medium` and `high`). Locked once the step is implemented. Criteria, override rules, and lifecycle live in `risk-tagging.md`; sub-step gating reads only the tag value, not the criteria. |
 | **Research** | Phase 0 — interactive exploration before planning. The agent answers questions, explores code, and does internet research. Completes only when the user explicitly asks to create the plan. Same session as Phase 1. |
 | **Session** | One invocation of `/execute-tracks`. Handles one sub-phase (A, B, or C) of one track. Sessions are separated by context clearing. Episodes bridge context across sessions. The only exception: strategy refresh + Phase A share a single session. |
 | **Sub-agent** | A spawned agent for self-contained review tasks (technical/risk/adversarial reviews, dimensional code review agents, test quality review). Sub-agents provide fresh perspective; the main agent retains full context. |
-| **Backlog** | `implementation-backlog.md` — the companion file to `implementation-plan.md` that holds the detailed `**What/How/Constraints/Interactions**` subsections and any track-level Mermaid diagrams for pending tracks. Written during Phase 1 alongside the plan (and extended by inline replanning); shrinks monotonically as tracks enter Phase A or are skipped; never committed to git. Its presence on disk is the signal that tells consumers the plan is in the new split-file format (see §1.2). |
+| **Backlog** | `implementation-backlog.md` — the companion file to `implementation-plan.md` that holds the detailed `**What/How/Constraints/Interactions**` subsections and any track-level Mermaid diagrams for pending tracks. Written during Phase 1 alongside the plan (and extended by inline replanning); shrinks monotonically as tracks enter Phase A or are skipped; never committed to git. |
 
 ---
 
@@ -40,8 +41,7 @@ docs/adr/<dir-name>/
   implementation-backlog.md       <- pending-track details (what/how/
                                      constraints/interactions + any
                                      track-level diagrams); shrinks
-                                     monotonically; presence on disk signals
-                                     new-format plan (see subsection below)
+                                     monotonically
   design.md                       <- design-level: class diagrams, workflow
                                      diagrams, complex/opaque part explanations
                                      (created in Phase 1, never modified after)
@@ -103,23 +103,28 @@ episode propagation between dependent tracks is handled by the session
 workflow — this gives the same "informed decomposition" benefit without
 extra complexity.
 
+### Section budgets
+
+`implementation-plan.md` is loaded at every `/execute-tracks` startup,
+so each section of the plan file obeys a length budget. Targets:
+plan-file total ~1,500 lines / ~30K tokens; DR ≤ ~30 lines; invariant
+≤ ~5; integration-point bullet ≤ ~3; component intent bullet ≤ ~5.
+See [`planning.md`](planning.md) § Architecture Notes format for the
+per-section budgets and rationale, and
+[`structural-review.md`](structural-review.md) § Bloat checks for how
+the structural review enforces them.
+
 ### Backlog file content (`implementation-backlog.md`)
 
 Companion file to `implementation-plan.md`. It holds the detailed
 `**What/How/Constraints/Interactions**` subsections and any track-level
-Mermaid diagrams for **pending** tracks — the content that used to live
-inside each checklist entry in the plan file. Splitting this detail out of
-the plan keeps `implementation-plan.md` thin so `/execute-tracks` sessions
-read only strategic context at startup; the backlog is read only in Phase A
-of one track per session.
+Mermaid diagrams for **pending** tracks. Keeping this detail out of the
+plan keeps `implementation-plan.md` thin so `/execute-tracks` sessions
+read only strategic context at startup; the backlog is read only in
+Phase A of one track per session.
 
 ````markdown
 # <Feature Name> — Track Details
-
-<!-- DO NOT DELETE THIS FILE. Its presence on disk signals the new
-split-file plan format (see .claude/workflow/conventions.md §1.2).
-Deleting it flips subsequent workflow operations into legacy mode.
-Natural cleanup happens when the branch is deleted after PR merge. -->
 
 ## Track 1: <title>
 
@@ -150,14 +155,7 @@ Natural cleanup happens when the branch is deleted after PR merge. -->
 ````
 
 **File shape requirements:**
-- `# <Feature Name> — Track Details` — required canonical header for
-  newly-created backlogs. The D4 detection rule (below) checks only file
-  existence, not header content, but Phase 1 must still write the header
-  for human readers and for structural consistency across plans.
-- The `<!-- DO NOT DELETE … -->` HTML comment immediately after the header
-  is **required** in newly-created backlogs as the self-documenting marker
-  of the load-bearing-file rule below. It is informational for human
-  readers and agents; detection does not parse it.
+- `# <Feature Name> — Track Details` — required canonical header.
 - One `## Track N: <title>` section per pending track, with bold-label
   blockquote subsections and an optional fenced `mermaid` block for any
   track-level diagram.
@@ -168,23 +166,6 @@ during normal execution. Entries are added only during Phase 1 or inline
 replanning. Full per-phase detail (writers, readers, authoritative
 location) lives in the description-lifecycle table in
 `conventions-execution.md` §2.1.
-
-**Load-bearing-file rule:** The backlog file's **presence on disk** — not
-its content — is the signal that tells consumers the plan is in the new
-split-file format. The file must remain on disk throughout execution even
-after the last track section is removed (an empty header-only file still
-signals new-format). The `<!-- DO NOT DELETE -->` HTML comment is the
-self-documenting marker of this rule; natural cleanup happens when the
-branch is deleted after PR merge, like every other working file.
-
-**D4 — Legacy-compat detection rule:** If the file
-`docs/adr/<dir-name>/implementation-backlog.md` exists, the plan is
-new-format and consumers read pending-track detail from the backlog;
-otherwise the plan is legacy and consumers fall back to reading
-`**What/How/Constraints/Interactions**` from the plan file's checklist
-entries as before. Use "file exists" wording in derived documents and
-prompts — the canonical rule is language-neutral; individual orchestrators
-choose whatever tool is convenient (Bash `test`, Glob, Read).
 
 ### Status markers
 
@@ -234,3 +215,87 @@ code review. Severity levels: **blocker** / **should-fix** / **suggestion**
 **Full protocol** (iteration limits, finding ID prefixes, finding format,
 gate verification output): [`review-iteration.md`](review-iteration.md) —
 load when running a review loop.
+
+---
+
+## 1.4 Tooling discipline — prefer mcp-steroid PSI for Java symbol audits
+
+The user's global rules in `~/.claude/CLAUDE.md` (sections "MCP Steroid"
+and "Grep vs PSI — when to switch") are the single authoritative source
+for when to route through the IntelliJ IDE via mcp-steroid versus when
+to fall back to `grep`/`rg`/Bash. This subsection is a project-level
+reminder that those rules apply to **every phase of the workflow** —
+research, planning, Phase A review, Phase B implementation, Phase C
+code review, Phase 4 final artifacts — and to **every sub-agent** the
+workflow spawns.
+
+### Session-start preflight
+
+The SessionStart hook prints an `mcp-steroid: …` status line. Trust it
+as the canonical IDE state for the session, do not re-probe, and act on
+its three outcomes:
+
+- **`mcp-steroid: reachable`** — call `steroid_list_projects` once
+  before the first symbol-related action to confirm the open project
+  matches the working tree, then route every reference-accuracy
+  question about Java symbols through PSI for the rest of the session.
+- **`mcp-steroid: NOT reachable`** — IDE control is unavailable. Symbol
+  audits must use `grep`/`rg` and every audit conclusion that depends
+  on a symbol search must explicitly note the reference-accuracy caveat
+  ("grep-based; may miss polymorphic call sites / Javadoc / generics").
+- **cwd mismatch** (`steroid_list_projects` reports a different open
+  project than the working tree) — pause and ask the user to switch
+  the open project before running any load-bearing symbol audit. Do
+  not silently fall back to grep.
+
+### When PSI is required (not optional)
+
+When mcp-steroid is reachable, **load-bearing audits MUST use PSI** —
+grep is not acceptable for the search that drives the action. A search
+is load-bearing if a missed or spurious reference would corrupt the
+result: deletions, renames, signature changes, "no production callers"
+claims, "field is referenced only inside its declaring class" claims,
+"this slot has no consumer" claims, etc. The cost of a missed
+polymorphic call site is "tests pass at the deletion commit but
+production breaks at runtime" — exactly the failure mode PSI exists to
+prevent.
+
+This rule applies to design and research sessions too. Design
+conclusions often hinge on reference-accuracy facts that grep can
+silently miss — so research, Phase 1 planning, and Phase A track
+reviews are not exempt.
+
+### Sub-agent delegation
+
+Delegating a symbol-usage question to a sub-agent (Explore, Phase A
+review prompts, code review prompts, Phase 4 final-artifact prompts)
+**does not bypass the PSI requirement.** Sub-agents default to
+Bash/grep, so an unannotated delegation routes through grep regardless
+of the question's shape. When passing a reference-accuracy question
+to any sub-agent, the prompt MUST explicitly say *"use mcp-steroid PSI
+find-usages, not grep, for these reference-accuracy questions"*. The
+canonical review prompts under `prompts/` already embed this
+instruction; custom delegations and on-the-fly prompts must do the
+same.
+
+### Other mcp-steroid routes (Maven, refactoring)
+
+The user-global rules also cover when to route Maven runs and Java
+refactors through the IDE. Two project-relevant defaults:
+
+- **Single-test reruns** during step implementation (e.g. `-Dtest=Foo#bar`
+  after a focused fix) and **compile-fix loops** benefit from
+  `steroid_execute_code` — the IDE returns parsed test results and
+  filtered compiler output. Full-suite runs, coverage profiles, JMH
+  benchmarks, and integration-test suites stay on Bash `./mvnw` per the
+  Maven-routing rule in `~/.claude/CLAUDE.md`.
+- **Renames, moves, signature changes, extract-method, pull-up/push-down,
+  and any refactor that touches more than one reference site** route
+  through the IDE refactoring engine via mcp-steroid, not raw `Edit`.
+  Pure single-file edits and changes that don't move references stay on
+  `Edit`. After an IDE refactor, run Spotless on the affected modules
+  and re-run the relevant tests — the engine doesn't enforce project
+  formatting.
+
+Both routes require the same `steroid_list_projects` preflight as PSI
+audits.

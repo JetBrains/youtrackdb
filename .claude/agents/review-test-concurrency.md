@@ -17,6 +17,23 @@ YouTrackDB is a Java 21+ object-oriented graph database with:
 - `ConcurrentTestHelper` in `test-commons` for multi-threaded test scenarios
 - Core and server tests use JUnit 4; the `tests` module uses JUnit 5
 
+## Tooling — PSI for production-code reads
+
+Concurrency-test gap analysis depends on knowing which production
+threads can reach a method, which classes implement a shared
+synchronizer interface, and where a lock is acquired across the
+codebase. Those are reference-accuracy questions. Use **mcp-steroid
+PSI find-usages / find-implementations / type-hierarchy** when the
+mcp-steroid MCP server is reachable. Grep silently misses
+polymorphic call sites and generic dispatch — exactly the cases
+where a "this state is exercised by exactly N threads" claim
+breaks. Use grep only for filename globs, unique string literals,
+and orientation reads. If mcp-steroid is unreachable, fall back to
+grep and note the caveat in any finding that depends on caller /
+implementer enumeration. Before the first symbol audit, call
+`steroid_list_projects` once to confirm the open project matches
+the working tree.
+
 ## Your Mission
 
 Review test code **only for concurrency testing quality**. Do not review for assertion precision, corner cases, test structure, or crash safety — other reviewers handle those dimensions.
