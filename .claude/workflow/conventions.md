@@ -260,7 +260,7 @@ polymorphic call site is "tests pass at the deletion commit but
 production breaks at runtime" — exactly the failure mode PSI exists to
 prevent.
 
-The bullet list above is **illustrative, not exhaustive**. The
+The examples listed above are **illustrative, not exhaustive**. The
 operative test is the criterion ("would a missed or spurious reference
 corrupt the result?"), not the example set. When a case isn't listed,
 apply the criterion; when in doubt, treat the audit as load-bearing
