@@ -36,6 +36,7 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.Date;
 import java.util.HexFormat;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -94,6 +95,20 @@ public class RecordSerializerBinaryV1SimpleTypeRoundTripTest extends DbTestBase 
     // will then return GMT and the convertDayToTimezone calls in DATE encode/decode
     // become exact inverses.
     session.set(ATTRIBUTES.TIMEZONE, "GMT");
+  }
+
+  /**
+   * Safety net for tier-2 tests that begin a transaction and rollback inline. If an
+   * assertion fails between begin() and rollback(), the transaction would otherwise leak
+   * into DbTestBase.afterTest() and the resulting "transaction still active" warning at
+   * teardown would obscure the real failure. Mirrors the @After convention used by
+   * sibling round-trip tests in this package.
+   */
+  @After
+  public void rollbackIfLeftOpen() {
+    if (session != null && session.isTxActive()) {
+      session.rollback();
+    }
   }
 
   // -----------------------------------------------------------------

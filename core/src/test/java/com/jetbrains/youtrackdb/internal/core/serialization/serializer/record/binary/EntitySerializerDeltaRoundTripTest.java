@@ -1054,8 +1054,8 @@ public class EntitySerializerDeltaRoundTripTest extends DbTestBase {
 
   /**
    * Runs {@code body} inside a fresh transaction, rolling back on exit so the test
-   * leaves no persistent state behind. Mirrors the helper used by other Track-13
-   * round-trip tests.
+   * leaves no persistent state behind. Mirrors the helper used by other binary-serializer
+   * round-trip tests in this package.
    */
   private void runInTx(Runnable body) {
     if (session.isTxActive()) {

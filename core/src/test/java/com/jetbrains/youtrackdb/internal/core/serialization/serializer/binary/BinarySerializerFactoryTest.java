@@ -206,10 +206,11 @@ public class BinarySerializerFactoryTest {
     // WHEN-FIXED: deferred-cleanup track — change the registration in
     // BinarySerializerFactory.create() to use NullSerializer.INSTANCE for consistency
     // with every other serializer in the factory; flip this assertion to assertSame.
-    if (resolved == NullSerializer.INSTANCE) {
-      throw new AssertionError(
-          "create() now uses NullSerializer.INSTANCE — update this pin to assertSame");
-    }
+    assertNotSame(
+        "today create() registers a fresh NullSerializer rather than the INSTANCE singleton —"
+            + " WHEN-FIXED flip to assertSame against NullSerializer.INSTANCE",
+        NullSerializer.INSTANCE,
+        resolved);
   }
 
   @Test

@@ -43,15 +43,15 @@ import org.junit.Test;
  * <p>The pinned branches are:
  * <ul>
  *   <li>LINK × LINK same-cluster, different-position — exercises the inner else branch
- *       (lines 1252-1263) where collection IDs match and only positions differ.</li>
- *   <li>BINARY × BINARY length-difference paths (lines 1235-1239) — same-prefix arrays of
+ * where collection IDs match and only positions differ.</li>
+ *   <li>BINARY × BINARY length-difference paths — same-prefix arrays of
  *       differing length, plus the empty-vs-single-byte boundary.</li>
- *   <li>DATETIME source × DATE destination for both isEqual (lines 524-527) and compare
- *       (lines 1075-1078) — production multiplies the DATE side by MILLISEC_PER_DAY.</li>
+ *   <li>DATETIME source × DATE destination for both isEqual and compare
+ * — production multiplies the DATE side by MILLISEC_PER_DAY.</li>
  *   <li>BOOLEAN × non-canonical / uppercase STRING — pins case-insensitivity of
- *       {@code Boolean.parseBoolean} and the compare arm's three-way ternary (line 1054-1056).
+ *       {@code Boolean.parseBoolean} and the compare arm's three-way ternary.
  *       </li>
- *   <li>DECIMAL × BYTE compare-only positive pin (lines 1312-1315) — the {@code BinaryComparator}
+ *   <li>DECIMAL × BYTE compare-only positive pin — the {@code BinaryComparator}
  *       supports DECIMAL × BYTE in {@code compare} but not in {@code isEqual}; pre-existing pin
  *       only covers the isEqual gap.</li>
  * </ul>
@@ -75,7 +75,7 @@ public class BinaryComparatorV0EdgeCasesTest extends DbTestBase {
 
   // ===========================================================================
   // LINK × LINK same-cluster, different-position. Exercises the inner else
-  // branch at BinaryComparatorV0.java:1252-1263 — collection IDs equal, so the
+  // branch at BinaryComparatorV0.java-1263 — collection IDs equal, so the
   // outer compare returns 0 from the cluster branch and falls to the position
   // disambiguation. Pre-existing tests only feed differing-cluster pairs, so
   // this branch is uncovered without these pins.
@@ -138,7 +138,7 @@ public class BinaryComparatorV0EdgeCasesTest extends DbTestBase {
   }
 
   // ===========================================================================
-  // BINARY × BINARY length-difference paths (lines 1235-1239). Existing tests
+  // BINARY × BINARY length-difference paths. Existing tests
   // only use same-length arrays, so the length tiebreak is uncovered.
   // ===========================================================================
 
@@ -199,8 +199,8 @@ public class BinaryComparatorV0EdgeCasesTest extends DbTestBase {
 
   // ===========================================================================
   // DATETIME source × DATE destination — production multiplies the DATE side
-  // by MILLISEC_PER_DAY for both isEqual (lines 524-527) and compare
-  // (lines 1075-1078). Pre-existing tests cover DATE source × DATETIME dest;
+  // by MILLISEC_PER_DAY for both isEqual and compare
+  //. Pre-existing tests cover DATE source × DATETIME dest;
   // these pin the inverse direction.
   // ===========================================================================
 
@@ -253,7 +253,7 @@ public class BinaryComparatorV0EdgeCasesTest extends DbTestBase {
   }
 
   /**
-   * DATETIME 1 ms (intra-day, sub-day-floor) vs DATE 0 days. The isEqual arm at line 524-527
+   * DATETIME 1 ms (intra-day, sub-day-floor) vs DATE 0 days. The isEqual arm
    * does NOT floor the DATETIME side, so 1 != 0; this pins the asymmetry where the DATE side gets
    * day-multiplied but the DATETIME side passes through as raw millis.
    */
@@ -272,7 +272,7 @@ public class BinaryComparatorV0EdgeCasesTest extends DbTestBase {
   // ===========================================================================
   // BOOLEAN source × non-canonical / uppercase STRING — pins case-insensitivity
   // of Boolean.parseBoolean for both isEqual and compare arms, and the three-way
-  // ternary at compare line 1054-1056.
+  // ternary at compare.
   // ===========================================================================
 
   /**
@@ -315,7 +315,7 @@ public class BinaryComparatorV0EdgeCasesTest extends DbTestBase {
   }
 
   /**
-   * Compare arm three-way ternary at lines 1054-1056:
+   * Compare arm three-way ternary at:
    * {@code (value1 == value2) ? 0 : value1 ? 1 : -1}. value1 (BOOLEAN) is true and value2
    * (parsed STRING) is false → returns 1.
    */
@@ -370,7 +370,7 @@ public class BinaryComparatorV0EdgeCasesTest extends DbTestBase {
   }
 
   // ===========================================================================
-  // DECIMAL × BYTE compare-only positive pin (lines 1312-1315). isEqual has no
+  // DECIMAL × BYTE compare-only positive pin. isEqual has no
   // BYTE arm in the DECIMAL switch; compare DOES, returning a sign-of-compare
   // via BigDecimal.compareTo(new BigDecimal(byteValue)).
   // ===========================================================================

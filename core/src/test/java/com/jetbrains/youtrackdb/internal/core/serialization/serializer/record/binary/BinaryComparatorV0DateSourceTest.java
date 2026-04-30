@@ -37,7 +37,8 @@ import org.junit.Test;
  * Coverage for {@link BinaryComparatorV0} with DATE as the source type. The pre-existing
  * {@code BinaryComparatorCompareTest} drives the source via {@code testCompareNumber} only for
  * INTEGER, LONG, SHORT, BYTE, FLOAT, DOUBLE, DATETIME — DATE is not in that list, so its source
- * arms (lines 470-510 for {@code isEqual}, 1132-1216 for {@code compare}) are largely uncovered.
+ * arms (the {@code isEqual} DATE-source switch and the {@code compare} DATE-source switch)
+ * are largely uncovered.
  *
  * <p>Tests use a fixed GMT database timezone so DATE's {@code value1 = days × MILLISEC_PER_DAY}
  * conversion is reproducible, and the {@code DATE × LONG/DATETIME} {@code convertDayToTimezone}
@@ -69,7 +70,7 @@ public class BinaryComparatorV0DateSourceTest extends DbTestBase {
   /**
    * DATE 0 ms vs DATE 0 ms → equal; DATE 0 vs DATE ∓one-day → ordered. DATE serialization
    * accepts millis (not days) and divides by MILLISEC_PER_DAY internally — see
-   * {@link RecordSerializerBinaryV1} line 1088. Using day-aligned millis as test fixtures keeps
+   * {@link RecordSerializerBinaryV1}. Using day-aligned millis as test fixtures keeps
    * the encoded {@code days} differing across the three samples.
    */
   @Test
@@ -138,11 +139,11 @@ public class BinaryComparatorV0DateSourceTest extends DbTestBase {
   /**
    * DATE × LONG under GMT: 0 ms vs 0L equals; ∓1 day produces ordering by signed long compare.
    *
-   * <p>Subtle: the {@code isEqual} arm at line 478 calls
+   * <p>Subtle: the {@code isEqual} arm calls
    * {@code convertDayToTimezone(databaseTZ, GMT, value2)} which FLOORS the LONG value to the
    * start of its day. Therefore intra-day ±1 ms variations on the LONG side compare equal to
    * DATE 0. The test fixtures use ∓one-full-day to produce distinct day-aligned values.
-   * The {@code compare} arm at line 1140 does NOT apply this flooring (it just calls
+   * The {@code compare} arm does NOT apply this flooring (it just calls
    * {@code Long.compare(value1, value2)}), so compare with intra-day ±1 ms still produces a
    * non-zero ordering; the matching {@link #dateCompareLongIntradaySignsAreLiteralLongCompare}
    * test below pins that distinction.
@@ -189,10 +190,11 @@ public class BinaryComparatorV0DateSourceTest extends DbTestBase {
     // erroneously equals LONG 1 ms. NEGATIVE intra-day values floor to the previous day's
     // start (-86_400_000), so they do NOT spuriously match. This asymmetry pins the latent
     // semantics — pinning current behavior so a future fix that drops the flooring fails
-    // these assertions loudly. WHEN-FIXED: Track 22.
+    // these assertions loudly. WHEN-FIXED: deferred-cleanup track.
     assertTrue(
-        "isEqual(DATE 0, LONG 1) returns TRUE due to day-flooring of LONG side at line 478 —"
-            + " positive intra-day flooring rounds to 0. WHEN-FIXED: Track 22.",
+        "isEqual(DATE 0, LONG 1) returns TRUE due to day-flooring of LONG side in"
+            + " BinaryComparatorV0.isEqualSwitch DATE×LONG arm — positive intra-day flooring"
+            + " rounds to 0. WHEN-FIXED: deferred-cleanup track.",
         comparator.isEqual(session, date0, field(PropertyTypeInternal.LONG, 1L)));
     assertFalse(
         "isEqual(DATE 0, LONG -1) returns FALSE because the day-flooring of -1 ms yields"
@@ -208,7 +210,7 @@ public class BinaryComparatorV0DateSourceTest extends DbTestBase {
   /**
    * DATE × DATETIME under GMT: 0 ms vs 0L equals; ∓one-full-day produces day-distinct
    * comparisons. Like LONG, DATETIME goes through the {@code case LONG, DATETIME} arm at
-   * line 478 which floors via {@code convertDayToTimezone} — so intra-day ms variations on
+   * which floors via {@code convertDayToTimezone} — so intra-day ms variations on
    * the DATETIME side cannot distinguish from DATE 0 in {@code isEqual}.
    */
   @Test
@@ -226,7 +228,7 @@ public class BinaryComparatorV0DateSourceTest extends DbTestBase {
         comparator.isEqual(
             session, dateOneDay, field(PropertyTypeInternal.DATETIME, 86_400_000L)));
 
-    // compare arm at line 1140 does literal Long.compare without flooring, so intra-day ±1 ms
+    // compare arm does literal Long.compare without flooring, so intra-day ±1 ms
     // produces a non-zero ordering.
     assertEquals(0, comparator.compare(session, date0, field(PropertyTypeInternal.DATETIME, 0L)));
     assertTrue(comparator.compare(session, date0, field(PropertyTypeInternal.DATETIME, -1L)) > 0);
@@ -354,7 +356,7 @@ public class BinaryComparatorV0DateSourceTest extends DbTestBase {
 
   /**
    * DATE × STRING compare with a date-format string: enters the {@code DateFormat.parse} path
-   * (line 1168). The string parses as a date in the database timezone; the result is the
+   *. The string parses as a date in the database timezone; the result is the
    * day-aligned millis comparison. Pins both equality and the two ordering directions so a
    * stub `return 0` regression in the date-format branch is caught.
    */
@@ -378,7 +380,7 @@ public class BinaryComparatorV0DateSourceTest extends DbTestBase {
 
   /**
    * DATE × STRING compare with a malformed (non-numeric, non-date) string: falls through to the
-   * {@code new Date(value1).toString().compareTo(value2AsString)} fallback (line 1201). The
+   * {@code new Date(value1).toString().compareTo(value2AsString)} fallback. The
    * production behavior is locked here so a regression that, e.g., throws instead of falling
    * through is caught.
    */
@@ -396,7 +398,7 @@ public class BinaryComparatorV0DateSourceTest extends DbTestBase {
     assertTrue(
         "DATE 0 ms compared to malformed STRING returns non-zero ordering",
         result != 0);
-    // The sign is deterministic: Date(0).toString() starts with "Thu Jan 01 ..." which
+    // The sign is deterministic: Date(0).toString() starts with "Thu Jan 01..." which
     // lexicographically begins with 'T' (0x54). "junk-string" begins with 'j' (0x6A). Therefore
     // the toString comparison returns a negative value (T < j).
     assertTrue(
@@ -406,7 +408,7 @@ public class BinaryComparatorV0DateSourceTest extends DbTestBase {
 
   /**
    * DATE × STRING isEqual is a LATENT BUG: production routes STRING and DECIMAL through the same
-   * arm at line 501 of {@link BinaryComparatorV0}, calling
+   * arm of {@link BinaryComparatorV0}, calling
    * {@code DecimalSerializer.deserialize} on the STRING bytes. The STRING wire format is
    * {@code varint(length) + UTF-8 bytes}, NOT the {@code DecimalSerializer} format
    * ({@code int scale + int unscaledLen + unscaled bytes}), so the deserializer interprets
@@ -422,7 +424,7 @@ public class BinaryComparatorV0DateSourceTest extends DbTestBase {
    * <p>This is a DoS / crash-on-bad-input risk: a server fed an attacker-controlled STRING
    * field value would crash the comparator inside any DATE-vs-STRING isEqual check. Pinned
    * here so the future fix (separating the STRING arm to use {@code Long.parseLong(readString)})
-   * fails this assertion loudly. forwards-to: Track 22.
+   * fails this assertion loudly. WHEN-FIXED: deferred-cleanup track.
    */
   @Test
   public void dateIsEqualStringThrowsBecauseOfDecimalDeserializerMisuse() {
@@ -444,12 +446,12 @@ public class BinaryComparatorV0DateSourceTest extends DbTestBase {
   }
 
   // ===========================================================================
-  // Unsupported DATE pairs — the inner switch at line 470 has no arms for BYTE,
+  // Unsupported DATE pairs — the inner switch has no arms for BYTE,
   // BOOLEAN, BINARY, or LINK; isEqual returns false and compare returns 1.
   // ===========================================================================
 
   /**
-   * DATE × BYTE: BYTE is not in the DATE source's isEqual arm (line 470) — returns false. The
+   * DATE × BYTE: BYTE is not in the DATE source's isEqual arm — returns false. The
    * compare arm returns 1 as a sentinel meaning "unsupported pair". The naked {@code 1} value is
    * indistinguishable from "left strictly greater" if a future arm is added; the paired
    * {@code isEqual=false} on equivalent values disambiguates: a real arm that returned 0 for

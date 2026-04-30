@@ -256,9 +256,12 @@ public class CompactedLinkSerializerTest {
   @Test
   public void testInstanceSingleton() {
     // The INSTANCE singleton is what BinarySerializerFactory registers at startup; SBTree
-    // pages reach this serializer through the factory id-lookup, not through `new`.
+    // pages reach this serializer through the factory id-lookup, not through `new`. Pin
+    // the factory dispatch contract — id ID must resolve to INSTANCE — so a regression
+    // that re-registered a fresh instance would round-trip but break SBTree page parsing.
     Assert.assertNotNull(CompactedLinkSerializer.INSTANCE);
-    Assert.assertSame(CompactedLinkSerializer.INSTANCE, CompactedLinkSerializer.INSTANCE);
+    Assert.assertSame(CompactedLinkSerializer.INSTANCE,
+        serializerFactory.getObjectSerializer(CompactedLinkSerializer.ID));
   }
 
   @Test

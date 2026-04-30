@@ -946,10 +946,10 @@ public class RecordSerializerBinaryV1CollectionRoundTripTest extends DbTestBase 
   // ============================================================================
 
   /**
-   * Binary analog of the JSON track's TC21: empty <i>typed</i> EMBEDDED collections
-   * must round-trip to a non-null empty container of the same kind. Cover all four
-   * embedded/link container types so a regression that swapped the empty-branch for
-   * any one of them surfaces here.
+   * Mirrors the empty-typed-embedded-collection round-trip pin in the string-serializer
+   * Jackson suite: empty <i>typed</i> EMBEDDED collections must round-trip to a non-null
+   * empty container of the same kind. Cover all four embedded/link container types so a
+   * regression that swapped the empty-branch for any one of them surfaces here.
    */
   @Test
   public void emptyTypedEmbeddedCollectionsAllRoundTripToEmptyContainersOfSameKind() {

@@ -54,13 +54,23 @@ import org.junit.Test;
  * overload's behaviour.
  *
  * <p><strong>Security note:</strong> the {@code byte[]} overload's un-decorated
- * AIOOBE pairs with the diagnostic at {@code RecordSerializerBinary.java:106-114}
- * (today), which Base64-encodes the entire un-validated input and writes it to a
- * WARN log. Harmonising to a typed {@link IllegalArgumentException} thrown
+ * AIOOBE pairs with the WARN-log diagnostic in {@code fromStream(byte[])}'s catch
+ * block (today), which Base64-encodes the entire un-validated input and writes it
+ * to a WARN log. Harmonising to a typed {@link IllegalArgumentException} thrown
  * <em>before</em> the array index also short-circuits this log-amplification path —
  * without the typed early exit, every malformed-leading-byte read writes O(N) of
  * attacker-controlled bytes into the log file. The deferred-cleanup harmonisation
  * is therefore a defense-in-depth fix as well as an error-shape consistency one.
+ *
+ * <p><strong>byte[]-overload AIOOBE pin deferred:</strong> a falsifiable test that
+ * actually triggers the byte[] overload's AIOOBE requires constructing a non-{@code
+ * Blob}, non-null {@link RecordAbstract} with a valid {@link RecordIdInternal} (the
+ * catch path calls {@code iRecord.getIdentity().toString()} for the WARN-log message)
+ * and a real {@link DatabaseSessionEmbedded}. This restructures the file from
+ * standalone into a {@code DbTestBase}-extending test. The deferred-cleanup track
+ * that performs the actual harmonisation should add the pin at the same time it
+ * flips the {@code IllegalArgumentException} expectation, since both ends of the
+ * harmonisation land in lockstep.
  */
 public class RecordSerializerBinaryVersionByteAsymmetryTest {
 
