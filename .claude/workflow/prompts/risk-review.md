@@ -80,6 +80,14 @@ mcp-steroid is unreachable in this session, fall back to grep and add
 an explicit reference-accuracy caveat to any finding that depends on
 a symbol search.
 
+The exposure questions listed above are **illustrative, not
+exhaustive**. The operative criterion is reference accuracy — would a
+missed or spurious match change the risk verdict (under-counting blast
+radius, missing an existing safeguard, mis-locating a hot caller)?
+When in doubt, route through PSI. `~/.claude/CLAUDE.md` (sections
+"MCP Steroid" and "Grep vs PSI — when to switch") is the last
+authoritative source for edge cases.
+
 **How to invoke:**
 - The MCP server is `mcp-steroid`. Its tools are deferred, so load their schemas via ToolSearch first.
 - Call `steroid_list_projects` once at session start to confirm the IDE has the right project open and matches the working tree.
