@@ -87,6 +87,12 @@ string literals, and orientation. If mcp-steroid is unreachable in
 this session, fall back to grep and add an explicit reference-accuracy
 caveat to any challenge that depends on a symbol search.
 
+**How to invoke:**
+- The MCP server is `mcp-steroid`. Its tools are deferred, so load their schemas via ToolSearch first.
+- Call `steroid_list_projects` once at session start to confirm the IDE has the right project open and matches the working tree.
+- Run PSI queries (find-usages, find-implementations, type-hierarchy) via `steroid_execute_code`, which evaluates a Kotlin snippet against the PSI tree — there is no dedicated `find_usages` tool.
+- For Kotlin recipes, fetch the `coding-with-intellij-psi` skill via `steroid_fetch_resource`.
+
 DECISION CHALLENGES
 - For each Decision Record relevant to this track: argue for the best
   rejected alternative using codebase evidence.
