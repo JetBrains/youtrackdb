@@ -19,6 +19,7 @@ package com.jetbrains.youtrackdb.internal.common.serialization.types;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
@@ -160,7 +161,7 @@ public class UUIDSerializerTest {
    */
   @Test
   public void preprocessReturnsNullForNullInput() {
-    assertEquals(null, uuidSerializer.preprocess(serializerFactory, null));
+    assertNull(uuidSerializer.preprocess(serializerFactory, null));
   }
 
   // --- Heap byte[] round-trips ---

@@ -18,6 +18,7 @@ package com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.i
 
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.ShortSerializer;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
@@ -179,9 +180,7 @@ public class LinkSerializerTest {
     // format eventually widens beyond 16 bits, both the constructor check and the
     // serializer cast must relax in lockstep, and this pin gets updated.
     final var oversizedClusterId = Short.MAX_VALUE + 1; // 32768
-    Assert.assertThrows(
-        com.jetbrains.youtrackdb.internal.core.exception.DatabaseException.class,
-        () -> new RecordId(oversizedClusterId, 100L));
+    Assert.assertThrows(DatabaseException.class, () -> new RecordId(oversizedClusterId, 100L));
   }
 
   @Test

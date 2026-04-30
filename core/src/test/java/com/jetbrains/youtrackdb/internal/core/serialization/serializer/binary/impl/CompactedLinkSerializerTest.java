@@ -5,6 +5,7 @@ import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.Bi
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALChanges;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALPageChangesPortion;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -353,7 +354,7 @@ public class CompactedLinkSerializerTest {
     final var offset = 4;
     final var buffer = ByteBuffer
         .allocateDirect(size + offset + WALPageChangesPortion.PORTION_BYTES)
-        .order(java.nio.ByteOrder.nativeOrder());
+        .order(ByteOrder.nativeOrder());
     final var data = new byte[size];
     linkSerializer.serializeNativeObject(rid, serializerFactory, data, 0);
 
