@@ -150,6 +150,16 @@ is unreachable in this session, fall back to grep and add an explicit
 reference-accuracy caveat to any finding that depends on a symbol
 search.
 
+**How to invoke:** the MCP server is `mcp-steroid` (its tools are
+deferred — load schemas via ToolSearch first). Call
+`steroid_list_projects` once at session start to confirm the IDE has
+the right project open and matches the working tree, then run PSI
+queries (find-usages, find-implementations, type-hierarchy) via
+`steroid_execute_code`, which evaluates a Kotlin snippet against the
+PSI tree — there is no dedicated `find_usages` tool. For Kotlin
+recipes, fetch the `coding-with-intellij-psi` skill via
+`steroid_fetch_resource`.
+
 1. **Read the plan, backlog, and design document** thoroughly.
 2. **Identify all code references** — every class, interface, method, SPI,
    configuration parameter, or file path mentioned in the plan, backlog,
