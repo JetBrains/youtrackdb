@@ -83,15 +83,11 @@ unreachable in this session, fall back to grep and add an explicit
 reference-accuracy caveat to any finding that depends on a symbol
 search.
 
-**How to invoke:** the MCP server is `mcp-steroid` (its tools are
-deferred — load schemas via ToolSearch first). Call
-`steroid_list_projects` once at session start to confirm the IDE has
-the right project open and matches the working tree, then run PSI
-queries (find-usages, find-implementations, type-hierarchy) via
-`steroid_execute_code`, which evaluates a Kotlin snippet against the
-PSI tree — there is no dedicated `find_usages` tool. For Kotlin
-recipes, fetch the `coding-with-intellij-psi` skill via
-`steroid_fetch_resource`.
+**How to invoke:**
+- The MCP server is `mcp-steroid`. Its tools are deferred, so load their schemas via ToolSearch first.
+- Call `steroid_list_projects` once at session start to confirm the IDE has the right project open and matches the working tree.
+- Run PSI queries (find-usages, find-implementations, type-hierarchy) via `steroid_execute_code`, which evaluates a Kotlin snippet against the PSI tree — there is no dedicated `find_usages` tool.
+- For Kotlin recipes, fetch the `coding-with-intellij-psi` skill via `steroid_fetch_resource`.
 
 Use episodes from completed tracks to inform your review — they may
 reveal codebase realities that the original plan didn't anticipate.
