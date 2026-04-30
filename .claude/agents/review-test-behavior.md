@@ -14,6 +14,23 @@ YouTrackDB is a Java 21+ object-oriented graph database with:
 - Public API in `com.jetbrains.youtrackdb.api`, internals in `com.jetbrains.youtrackdb.internal`
 - Core and server tests use JUnit 4; the `tests` module uses JUnit 5 with JUnit Platform Suite
 
+## Tooling — PSI for production-code reads
+
+Behavior-driven assessment requires reading the production code each
+test exercises and tracing what its callers actually expect. "Every
+caller of this method", "every override of this interface", "every
+producer that should land in this assertion" are reference-accuracy
+questions. Use **mcp-steroid PSI find-usages /
+find-implementations / type-hierarchy** when the mcp-steroid MCP
+server is reachable. Grep silently misses polymorphic call sites and
+generic dispatch — exactly the cases where a "this contract is fully
+asserted" claim flips. Use grep only for filename globs, unique
+string literals, and orientation reads. If mcp-steroid is
+unreachable, fall back to grep and note the caveat in any finding
+that depends on a caller / override search. Before the first symbol
+audit, call `steroid_list_projects` once to confirm the open project
+matches the working tree.
+
 ## Your Mission
 
 Review test code **only for behavior quality, assertion precision, and exception testing**. Do not review for corner case coverage, test structure, concurrency patterns, or crash safety patterns — other reviewers handle those dimensions.

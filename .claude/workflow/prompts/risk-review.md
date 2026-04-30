@@ -56,18 +56,29 @@ Inputs:
   Decision Records, Component Map)
 - Step file: {step_file_path} (the track's `## Description` section —
   authoritative source for the track's What/How/Constraints/Interactions
-  and any track-level diagram. If the step file lacks a `## Description`
-  section, fall back to the plan-file entry for the track.)
+  and any track-level diagram.)
 - Track to review: {track_name}
 - Codebase root: {codebase_path}
 - Episodes from completed tracks: {prior_episodes}
 - Previous findings: {previous_findings}
 
 Start by reading the track description and any track-level component
-diagram from the step file's `## Description` section — if the step file
-lacks this section, fall back to the plan-file entry for the track. Read
-the relevant Decision Records from the plan. Then explore the parts of
-the codebase this track touches.
+diagram from the step file's `## Description` section. Read the
+relevant Decision Records from the plan. Then explore the parts of the
+codebase this track touches.
+
+**Tooling — PSI is required for symbol audits.** Critical-path
+exposure analysis ("who calls this hot method", "which subclasses
+override this", "which existing safeguards already protect this
+path") is reference-accuracy work. Use mcp-steroid PSI find-usages /
+find-implementations / type-hierarchy when the mcp-steroid MCP server
+is reachable — grep silently misses polymorphic call sites, generic
+dispatch, and Javadoc references, exactly the cases where a "blast
+radius is bounded" claim can quietly be wrong. Use grep only for
+filename globs, unique string literals, and orientation. If
+mcp-steroid is unreachable in this session, fall back to grep and add
+an explicit reference-accuracy caveat to any finding that depends on
+a symbol search.
 
 Review against these criteria:
 
@@ -125,7 +136,10 @@ where existing safeguards already mitigate the perceived risk.
 ```markdown
 #### Assumption: <what the track takes for granted>
 - **Track claim**: <quote or paraphrase the assumption>
-- **Evidence search**: <Grep/Glob query performed>
+- **Evidence search**: <PSI find-usages / find-implementations /
+  type-hierarchy query when the IDE is reachable; Grep/Glob query
+  otherwise. Record which tool was used so the certificate's
+  reference-accuracy is auditable.>
 - **Code evidence**: <file:line showing the assumption holds or doesn't>
 - **Verdict**: VALIDATED | UNVALIDATED | CONTRADICTED
 - **Detail**: <if not VALIDATED — what the code actually shows>
@@ -147,7 +161,9 @@ where existing safeguards already mitigate the perceived risk.
 
 - **Trace critical paths fully.** Do not claim blast radius without tracing
   the callers. A method that looks critical may be called from only one
-  isolated test helper.
+  isolated test helper. Use mcp-steroid PSI find-usages when the IDE is
+  reachable so polymorphic and generic call sites are not silently
+  missed.
 - **Document existing safeguards.** A risk that already has WAL coverage,
   lock protection, or comprehensive tests is lower severity than the same
   risk without safeguards. Check before flagging.

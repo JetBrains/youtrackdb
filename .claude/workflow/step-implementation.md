@@ -7,6 +7,42 @@ steps and review findings.
 
 ---
 
+## Tooling — IDE-routed Maven, refactors, and PSI
+
+Phase B is the phase where the user-global routing rules in
+`~/.claude/CLAUDE.md` (§"Maven — when to route through mcp-steroid"
+and §"Refactoring — IDE refactor vs raw Edit") earn their keep:
+
+- **Single-test reruns** (`-Dtest=Foo#bar` after a focused fix) and
+  **compile-fix loops** route through `steroid_execute_code` when
+  mcp-steroid is reachable — the IDE returns a parsed test tree and
+  filtered compiler output instead of full Maven INFO chatter.
+- **Full-suite runs**, **coverage profiles** (`-P coverage` followed by
+  `coverage-gate.py`), **integration tests** (`-P ci-integration-tests`),
+  **JMH benchmarks**, and anything that runs more than ~5 minutes stay
+  on Bash `./mvnw`. The Pre-Commit Verification commands in the
+  project `CLAUDE.md` are Bash-only by design.
+- **Refactors that touch more than one reference site** — renames,
+  moves, signature changes, extract-method, pull-up/push-down — route
+  through the IDE refactoring engine via mcp-steroid, not raw `Edit`.
+  After an IDE refactor, run Spotless on the affected modules and the
+  module's tests; the engine doesn't enforce project formatting.
+
+Reference-accuracy questions during step implementation (e.g., "what
+calls this method I'm about to delete", "every caller of this enum
+constant", "which subclasses override this") MUST use mcp-steroid PSI
+find-usages when the IDE is reachable — see
+[`conventions.md`](conventions.md) §1.4 *Tooling discipline* for the
+full rule. Run `steroid_list_projects` once at the start of the
+session to confirm the open project matches the working tree, then do
+not re-probe.
+
+When delegating a step-level code review to sub-agents (sub-step 4
+below), the canonical context block includes a PSI instruction; keep
+it intact when customising the prompt.
+
+---
+
 ## Phase B Startup
 
 Before implementing the first step:
@@ -112,7 +148,26 @@ completion**, before moving to the next step:
    rule (see [`conventions-execution.md`](conventions-execution.md) §2.3)
    applies to commit messages — no `Track N` / `Step N` / finding IDs /
    iteration counters in the message body or subject.
-4. **Dimensional review loop** (up to 3 iterations, within your context).
+4. **Dimensional review loop — runs only when the step's `**Risk:**` line
+   is `high`.** For `medium` and `low` steps, skip directly to sub-step 5.
+   If implementation revealed that the step is higher risk than tagged
+   (e.g., the "trivial refactor" turned out to require lock-ordering
+   changes), upgrade the risk in the step file before proceeding — see
+   [`risk-tagging.md`](risk-tagging.md) §Override rules for the upgrade
+   protocol. Downgrades mid-Phase B are not permitted.
+
+   **Missing `**Risk:**` line.** If the step entry has no `**Risk:**`
+   line at all (e.g., the step file was authored before per-step risk
+   tagging existed and the session resumes against an older plan),
+   treat the step as `high` (safe direction — the cost of an extra
+   review is much lower than missing a real high-risk issue) and ask
+   the user to confirm or override before running the loop. Record the
+   inferred tag in the step's risk note as `high — inferred (no risk
+   line on disk; user-confirmed at <date>)` so subsequent phases see a
+   normal locked tag.
+
+   When the loop runs (i.e., the step is `high`), it follows the protocol
+   unchanged: up to 3 iterations within your context.
    See [`code-review-protocol.md`](code-review-protocol.md) for the two-tier
    protocol overview and [`review-iteration.md`](review-iteration.md) for
    iteration limits, finding ID prefixes, and gate format.
@@ -159,13 +214,22 @@ completion**, before moving to the next step:
       **What/How/Constraints/Interactions** subsections + any
       track-level diagram — copied there at Phase A start. Below
       that, all steps for this track appear with their episodes.
-      If the file does not contain a `## Description` section (legacy
-      step file created before Phase A's description-move was added),
-      read the track description from the plan file's checklist entry
-      instead.
 
       ## Skip These Files (generated code)
       - core/.../sql/parser/*, generated-sources/*, Gremlin DSL
+
+      ## Tooling
+      Use **mcp-steroid PSI find-usages, not grep**, for any
+      reference-accuracy question about a Java symbol in the diff or
+      its callers (callers/overrides/usages of a method, field, class,
+      or annotation; whether a slot has any consumer; whether a
+      reference is confined to one component). Grep is acceptable for
+      filename globs, unique string literals, and orientation reads,
+      but the load-bearing answer behind a finding must be PSI-backed
+      when mcp-steroid is reachable. If the SessionStart hook reported
+      `mcp-steroid: NOT reachable`, fall back to grep and note the
+      reference-accuracy caveat in any finding that depends on a
+      symbol search.
 
       ## Diff
       {the step's diff — passed inline since it is the review target}
@@ -265,6 +329,34 @@ architectural problems, coverage cannot be met):
 3. Write the failed episode to the step file on disk
 4. Decide: **retry** with a different approach, or **split** the step into
    smaller pieces that can succeed independently
+
+### When the failure mode is opaque — consider an IDE debug session
+
+Phase B is a code-execution phase, so it's easy to stay focused on
+re-running the build instead of consulting general guidance. This
+note is a deliberate in-line reminder.
+
+If the failure is **opaque from the stack trace + test output** —
+concurrency hang, unexpected branch taken, mid-operation state
+corruption, "wrong value at line N and I don't know why" — and
+mcp-steroid is reachable per the SessionStart hook with the project
+open in the IDE, fetch `mcp-steroid://debugger/overview` via
+`steroid_fetch_resource` and run an IntelliJ debug session: set a
+breakpoint, debug-run the failing test, wait for suspend, evaluate
+the relevant expressions/fields, step over as needed. Each step is a
+separate `steroid_execute_code` call per the overview's failure-
+recovery pattern.
+
+**Skip the debugger** for clean assertion failures, compile errors,
+or anything where the stack trace already names the bug — adding a
+debugger session there is pure overhead. Skip it also when
+mcp-steroid is unreachable (`mcp-steroid: NOT reachable` in the
+status line) — fall back to print-debugging or an extra assertion in
+the test.
+
+After the debug session yields a root cause, capture the finding in
+the failed episode's **What was discovered** field and proceed with
+the retry / split decision in the steps above.
 
 ### Retry representation in the step file
 

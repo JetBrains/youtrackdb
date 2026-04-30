@@ -19,15 +19,28 @@ Read:
 - `docs/adr/<dir-name>/tracks/track-*.md` — all step files with step
   episodes. Each step file begins with a `## Description` section
   carrying the track's original description (copied there at Phase A
-  start from the backlog, or for legacy plans from the plan-file
-  checklist entry), so "what each track was supposed to do" lives in
-  the step file rather than in `implementation-backlog.md`. By Phase 4
-  the backlog is header-only: every track has either completed or been
-  skipped, and both paths removed their backlog entries.
+  start from the backlog), so "what each track was supposed to do"
+  lives in the step file rather than in `implementation-backlog.md`.
+  By Phase 4 the backlog is header-only: every track has either
+  completed or been skipped, and both paths removed their backlog
+  entries.
 
 Using the plan's Architecture Notes and track episodes as a guide, read the
 actual implemented code: all classes, interfaces, and components mentioned
 in the plan, plus any that emerged during execution.
+
+**Tooling — PSI is required for symbol verification.** The two final
+artifacts are committed to git, so the class diagrams, workflow
+diagrams, and Decision Record "Implemented in" details must reflect
+the *actual* code precisely. Use mcp-steroid PSI find-usages /
+find-implementations / type-hierarchy when the mcp-steroid MCP server
+is reachable to verify class hierarchies, method signatures, callers
+of integration points, and override sets. Grep silently misses
+polymorphic call sites, generic dispatch, and identifiers inside
+Javadoc/comments — exactly the kinds of mistakes that would mislead
+future readers of `design-final.md` and `adr.md`. Fall back to grep
+only when mcp-steroid is unreachable, and note any reference-accuracy
+caveats inline.
 
 **Step 3 — Produce the two final artifacts.**
 

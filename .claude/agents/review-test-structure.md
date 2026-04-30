@@ -13,6 +13,19 @@ YouTrackDB is a Java 21+ object-oriented graph database with:
 - The `tests` module uses ordered execution via `@SelectClasses` and `@Order` — tests in this module intentionally share state
 - `test-commons` module provides shared base classes (`TestBuilder`, `TestFactory`, `ConcurrentTestHelper`)
 
+## Tooling — PSI for production-code reads
+
+Test-isolation analysis sometimes needs to confirm "this fixture is
+shared across many tests" or "this base class is extended by N
+classes". Those are reference-accuracy questions. Use **mcp-steroid
+PSI find-usages / find-implementations / type-hierarchy** when the
+mcp-steroid MCP server is reachable; grep is acceptable for
+filename globs, string literals, and orientation reads. If
+mcp-steroid is unreachable, fall back to grep and note the caveat
+in any finding that hinges on enumerating subclasses or callers.
+Before the first symbol audit, call `steroid_list_projects` once to
+confirm the open project matches the working tree.
+
 ## Your Mission
 
 Review test code **only for isolation, independence, readability, and documentation quality**. Do not review for assertion precision, corner cases, concurrency, or crash safety — other reviewers handle those dimensions.

@@ -57,18 +57,31 @@ Inputs:
   Decision Records, Component Map)
 - Step file: {step_file_path} (the track's `## Description` section —
   authoritative source for the track's What/How/Constraints/Interactions
-  and any track-level diagram. If the step file lacks a `## Description`
-  section, fall back to the plan-file entry for the track.)
+  and any track-level diagram.)
 - Track to review: {track_name}
 - Codebase root: {codebase_path}
 - Episodes from completed tracks: {prior_episodes}
 - Previous findings: {previous_findings}
 
 Start by reading the track description and any track-level component
-diagram from the step file's `## Description` section — if the step file
-lacks this section, fall back to the plan-file entry for the track. Read
-the relevant Decision Records from the plan. Then explore the parts of
-the codebase this track touches.
+diagram from the step file's `## Description` section. Read the
+relevant Decision Records from the plan. Then explore the parts of the
+codebase this track touches.
+
+**Tooling — PSI is required for symbol audits.** Reference-accuracy
+questions about Java symbols in this codebase (callers/overrides/usages
+of a method, field, class, or annotation; whether a slot has any
+consumer; whether a reference is confined to one component; class
+hierarchies) MUST be answered using mcp-steroid PSI find-usages, not
+grep, when the mcp-steroid MCP server is reachable. Grep silently
+misses polymorphic call sites, generic dispatch, identifiers inside
+Javadoc/comments/string literals, and recently-renamed symbols —
+exactly the cases where a Phase A "no callers" or "interface has these
+implementers" claim ends up wrong. Use grep only for filename globs,
+unique string literals, and orientation reads. If mcp-steroid is
+unreachable in this session, fall back to grep and add an explicit
+reference-accuracy caveat to any finding that depends on a symbol
+search.
 
 Use episodes from completed tracks to inform your review — they may
 reveal codebase realities that the original plan didn't anticipate.
@@ -119,7 +132,10 @@ interface probably has that method" and catches subtle mismatches.
 ```markdown
 #### Premise: <what the track assumes>
 - **Track claim**: <quote or paraphrase from the track description>
-- **Search performed**: <Grep/Glob query used>
+- **Search performed**: <PSI find-usages / find-implementations /
+  type-hierarchy query when the IDE is reachable; Grep/Glob query
+  otherwise. Record which tool was used so the certificate's
+  reference-accuracy is auditable.>
 - **Code location**: <file:line, or "NOT FOUND">
 - **Actual behavior**: <what the code actually shows — copy relevant
   declaration, method signature, or excerpt>
@@ -148,7 +164,10 @@ interface probably has that method" and catches subtle mismatches.
 #### Integration: <integration point name>
 - **Plan claim**: <what the plan says about how new code connects>
 - **Actual entry point**: <file:line of the real integration surface>
-- **Caller analysis**: <who calls this today — list callers found via Grep>
+- **Caller analysis**: <who calls this today — list callers found via
+  PSI find-usages when the IDE is reachable, otherwise via Grep with a
+  reference-accuracy caveat. Polymorphic dispatch, generics, and
+  Javadoc references are the common grep miss cases here.>
 - **Breaking change risk**: <will the track's changes break existing callers?>
 - **Verdict**: MATCHES | MISMATCHES | CALLERS AT RISK
 ```
@@ -156,7 +175,10 @@ interface probably has that method" and catches subtle mismatches.
 ### Rules for certificates
 
 - **Every premise requires a search.** Do not confirm an API exists
-  because its name is plausible. Search and read the actual code.
+  because its name is plausible. Search and read the actual code. For
+  Java symbols, use mcp-steroid PSI find-usages / find-implementations
+  when the IDE is reachable; only fall back to grep for filename globs,
+  unique string literals, or when mcp-steroid is unreachable.
 - **Follow calls interprocedurally.** When checking feasibility of an
   approach, trace the actual call chain. A method may delegate, throw,
   or behave differently than its name suggests.

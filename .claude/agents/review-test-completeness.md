@@ -16,6 +16,23 @@ YouTrackDB is a Java 21+ object-oriented graph database with:
 - Custom fork of Apache TinkerPop under `io.youtrackdb` group ID
 - Core and server tests use JUnit 4; the `tests` module uses JUnit 5
 
+## Tooling — PSI for production-code reads
+
+To know what corner cases a test should cover, you must read the
+production method's branches and contracts. When asking "what does
+this method actually do", "every override of this interface", or
+"every place that calls this helper from a different boundary
+condition", use **mcp-steroid PSI find-usages /
+find-implementations** when the mcp-steroid MCP server is
+reachable. Grep silently misses polymorphic call sites and generic
+dispatch; PSI catches them so the completeness assessment isn't
+based on a partial view of the code. Use grep only for filename
+globs, unique string literals, and orientation reads. If mcp-steroid
+is unreachable, fall back to grep and note the caveat in any
+finding that depends on a "this is the only caller / override"
+claim. Before the first symbol audit, call `steroid_list_projects`
+once to confirm the open project matches the working tree.
+
 ## Your Mission
 
 Review test code **only for missing corner cases, boundary conditions, and test data quality**. Do not review for assertion precision, test structure, concurrency, or crash safety — other reviewers handle those dimensions.

@@ -5,8 +5,7 @@ Inputs:
   Decision Records, Component Map)
 - Step file: {step_file_path} (the track's `## Description` section —
   authoritative source for the track's What/How/Constraints/Interactions
-  and any track-level diagram. If the step file lacks a `## Description`
-  section, fall back to the plan-file entry for the track.)
+  and any track-level diagram.)
 - Track reviewed: {track_name}
 - Codebase root: {codebase_path}
 - Episodes from completed tracks: {prior_episodes}
@@ -25,12 +24,19 @@ For each finding under re-check:
 
 Before verifying any finding whose fix touched the track description,
 re-read the track description and any track-level component diagram from
-the step file's `## Description` section — if the step file lacks this
-section, fall back to the plan-file entry for the track. Read the
-relevant Decision Records from the plan.
+the step file's `## Description` section. Read the relevant Decision
+Records from the plan.
 
 For each ACCEPTED finding being verified, produce a **verification
-certificate** that re-checks the specific location:
+certificate** that re-checks the specific location.
+
+For Java symbol re-checks (does this method now exist / have these
+callers / live in this class / override this interface), use
+mcp-steroid PSI find-usages / find-implementations when the IDE is
+reachable; fall back to Grep/Glob with a reference-accuracy caveat
+only when mcp-steroid is unreachable. The original finding may have
+been generated against grep — verifying the fix with PSI catches
+subtle mismatches that grep missed.
 
 ```markdown
 #### Verify <PREFIX><N>: <finding title>

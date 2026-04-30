@@ -16,6 +16,23 @@ YouTrackDB is a Java 21+ object-oriented graph database with:
 - **SQL engine**: Custom SQL parser with query optimizer
 - **Concurrent access**: Multiple threads reading/writing simultaneously with lock-based synchronization
 
+## Tooling — PSI is required for symbol audits
+
+Performance triage requires tracing call frequency: "is this method
+on a hot path?", "who calls this — every-record, every-query, or
+once at startup?", "every override of this hot-path interface". Those
+are reference-accuracy questions. Use **mcp-steroid PSI find-usages
+/ find-implementations / type-hierarchy** when the mcp-steroid MCP
+server is reachable. Grep silently misses polymorphic call sites,
+generic dispatch, and identifiers
+inside Javadoc/comments — exactly the cases where a "this is hot"
+or "this is called once" claim flips. Use grep only for filename
+globs, unique string literals, and orientation reads. If mcp-steroid
+is unreachable, fall back to grep and add an explicit reference-
+accuracy caveat to any finding that depends on a caller search.
+Before the first symbol audit, call `steroid_list_projects` once to
+confirm the open project matches the working tree.
+
 ## Your Mission
 
 Review the provided code changes **only for performance implications**. Do not review for code style, security, concurrency correctness, or crash safety — other reviewers handle those dimensions.

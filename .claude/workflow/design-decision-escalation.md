@@ -37,8 +37,11 @@ algorithms, or behavioral semantics beyond what the plan specifies.
 Everything within a phase session is fully autonomous **except design
 decisions**:
 
-- Phase A: track reviews (as sub-agents), step decomposition
+- Phase A: track reviews (as sub-agents), step decomposition, per-step
+  risk tagging (`low` / `medium` / `high` per `risk-tagging.md`)
 - Phase B: step implementation, testing, coverage, step-level code review
-  iterations (up to 3 per step), episode production, within-track adaptation
-- Phase C: track-level code review (up to 3 iterations)
+  iterations (up to 3 per step — fires only on `risk: high` steps),
+  episode production, within-track adaptation
+- Phase C: track-level code review (up to 3 iterations; treats `medium`
+  and `high` step ranges as focal points)
 - Cross-track impact checks (unless impact is detected)

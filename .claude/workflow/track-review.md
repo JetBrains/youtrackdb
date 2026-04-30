@@ -24,6 +24,24 @@ Phase C includes both the track-level code review and track completion
 > into steps. The only files you write are: the step file
 > (`tracks/track-N.md`) and review files (`reviews/track-N-*.md`).**
 
+### Tooling — PSI is required for symbol audits in Phase A
+
+Phase A's outputs (review findings, scope-indicator validation, step
+decomposition with risk tags) ride on reference-accuracy facts —
+"this method's callers", "this interface's implementations", "no
+existing consumer for this slot". When mcp-steroid is reachable per
+the SessionStart hook, those facts MUST come from PSI find-usages
+rather than grep — see [`conventions.md`](conventions.md) §1.4
+*Tooling discipline* for the full rule (preflight via
+`steroid_list_projects`, cwd-mismatch handling, fallback when
+unreachable). Run the preflight once before the first symbol audit;
+do not re-probe.
+
+The Phase A review sub-agents you spawn (technical, risk, adversarial)
+all default to grep unless their prompts explicitly route them to
+PSI. The canonical prompts under `prompts/` already include this
+instruction — keep it intact when customising.
+
 ### What You Do
 
 1. **Assess track complexity** to determine which reviews to run (see
@@ -38,37 +56,16 @@ Phase C includes both the track-level code review and track completion
       Notes, Decision Records, Component Map) and the current track's
       intro paragraph.
 
-   b. **Detect the description source** for Track N based on the
-      on-disk presence of
-      `docs/adr/<dir-name>/implementation-backlog.md`:
+   b. **Read Track N's section from the backlog**
+      (`docs/adr/<dir-name>/implementation-backlog.md`). Read the
+      track's intro paragraph from the plan-file entry and the
+      `**What/How/Constraints/Interactions**` subsections + any
+      track-level `mermaid` block from the backlog's `## Track N:
+      <title>` section. The section body is defined by the "Backlog
+      section body extraction rule" in `conventions-execution.md`
+      §2.1.
 
-      - **(i) New-format** — the backlog file exists **and** contains a
-        `## Track N: <title>` section. Read the track's intro paragraph
-        from the plan-file entry and the
-        `**What/How/Constraints/Interactions**` subsections + any
-        track-level `mermaid` block from the backlog section. The
-        section body is defined by the "Backlog section body
-        extraction rule" in `conventions-execution.md` §2.1.
-      - **(ii) Mid-migration fallback** — the backlog file exists
-        **but** has no `## Track N:` section (e.g., a partial
-        hand-migration). Read the full track description from the
-        plan-file entry's checklist block, and do NOT attempt a
-        backlog-section removal in sub-step (e) below (there is no
-        section to remove).
-      - **(iii) Legacy** — the backlog file is absent. Read the full
-        track description from the plan-file entry's checklist block.
-
-   c. **Mid-migration drift crosscheck (safety valve).** If the plan
-      entry still carries `**What/How/Constraints/Interactions**`
-      subsections **and** the backlog has a `## Track N:` section, the
-      description has drifted into two live locations simultaneously.
-      Flag to the user and pause — do not auto-resolve, and do not
-      proceed to sub-steps (d)-(e) until the user has reconciled the
-      two descriptions manually and re-run `/execute-tracks`. This
-      check is a safety valve against hand-edits gone wrong, not a
-      routine code path.
-
-   d. **Create the step file atomically** at
+   c. **Create the step file atomically** at
       `docs/adr/<dir-name>/tracks/track-N.md` in a single Write call
       that contains: `## Description` (populated with the copied intro
       + `**What/How/Constraints/Interactions**` subsections + any
@@ -84,37 +81,23 @@ Phase C includes both the track-level code review and track completion
       Subsequent phases may Edit the file normally; only the initial
       creation must be atomic.
 
-   e. **Remove Track N's section from the backlog** (skip this sub-step
-      for the mid-migration and legacy branches — the former has
-      nothing to remove, the latter has no backlog file to edit).
-      Before removing, **re-check** that
-      `docs/adr/<dir-name>/implementation-backlog.md` still exists on
-      disk: the file-exists test is cheap, and running it again here
-      avoids carrying forward an assumption from sub-step (b) that
-      another agent or hand-edit may have invalidated in the
-      meantime.
-
-      Delete per the "Backlog section body extraction rule" in
+   d. **Remove Track N's section from the backlog.** Delete per the
+      "Backlog section body extraction rule" in
       `conventions-execution.md` §2.1 — that rule states the
       header-boundary algorithm and the line-count-deletion
       prohibition once as the single authoritative source. Preserve
-      the backlog's opening `# <Feature> — Track Details` header and
-      its `<!-- DO NOT DELETE ... -->` HTML comment.
+      the backlog's opening `# <Feature> — Track Details` header.
 
       When the last remaining `## Track M:` section is removed, leave
-      the backlog file on disk with only its header and HTML comment.
-      The file's continued presence — even when empty — is what signals
-      "new-format plan" to downstream operations (late `track-skip`,
-      slim plan rendering, the `review-plan` orchestrator). Deleting
-      it mid-execution would flip those operations into legacy mode.
-      Natural cleanup happens when the branch is deleted after PR
-      merge, like every other working file.
+      the backlog file on disk with only its header. Natural cleanup
+      happens when the branch is deleted after PR merge, like every
+      other working file.
 
 3. **Run track-scoped reviews** as sub-agents (technical, risk, adversarial
    as warranted). After each review completes:
    - Write the review file to `docs/adr/<dir-name>/reviews/track-N-<type>.md`
    - Update the **Reviews completed** section in the step file
-     (created atomically in step 2d).
+     (created atomically in sub-step 2c).
    - These files persist on disk between sessions — the next session can
      skip completed reviews and only re-run missing ones.
    - **Context consumption check** (mandatory after each review, except
@@ -126,17 +109,25 @@ Phase C includes both the track-level code review and track completion
      is `safe`/`info`, continue. If the file does not exist or the
      command fails, this is **not an error** — treat as `safe` and
      continue.
-4. **Decompose scope indicators** into concrete steps.
+4. **Decompose scope indicators** into concrete steps. For each step,
+   assign a **risk tag** (`low` / `medium` / `high`) per the criteria
+   in [`risk-tagging.md`](risk-tagging.md) — load that file at the
+   start of decomposition. The tag controls whether Phase B runs
+   step-level dimensional review for the step.
 5. **Write decomposed steps** to the step file's `## Steps` section as
-   `[ ]` items. Mark `Review + decomposition` as `[x]` in the Progress
+   `[ ]` items, each with its `**Risk:**` line in the description
+   blockquote. Mark `Review + decomposition` as `[x]` in the Progress
    section.
 
 ### Complexity Assessment and Which Reviews to Run
 
 Complexity determines which pre-execution reviews to run, not user
 interaction level — all tracks execute autonomously after review.
-All tracks get both step-level and track-level code review regardless of
-complexity.
+All tracks get track-level code review (Phase C) regardless of
+complexity. Step-level dimensional review (Phase B sub-step 4) runs
+only for steps tagged `risk: high` per
+[`risk-tagging.md`](risk-tagging.md); `medium` and `low` steps rely on
+tests plus track-level review.
 
 | Track complexity | Review pipeline |
 |---|---|
@@ -254,6 +245,36 @@ full upfront decomposition feasible.
 - Note **cross-cutting concerns** (shared types, refactors) as separate
   steps rather than embedding them inside feature steps.
 
+#### Risk tagging
+
+Assign a risk tag — `low`, `medium`, or `high` — to each decomposed
+step. The tag controls whether Phase B runs step-level dimensional
+review (`high` runs the full review loop; `medium` and `low` skip it
+and rely on tests plus track-level review). Track-level review at
+Phase C always runs against the cumulative track diff regardless of
+the per-step distribution.
+
+Apply the criteria in [`risk-tagging.md`](risk-tagging.md) — load that
+file at the start of decomposition. Six HIGH categories (concurrency,
+crash-safety/durability, public API, security, architecture,
+performance hot path), one MEDIUM band (multi-file logic, test
+infrastructure, build config, observability changes), and a LOW
+default for refactoring / new tests / docs / isolated bug fixes. When
+in doubt, mark `high` — over-tagging costs an extra review, but
+missing a real high-risk step ships bugs.
+
+Write the tag inline in each step's description blockquote:
+
+```markdown
+- [ ] Step: <description>
+  > **Risk:** <level> — <category, "default", or "override: <reason>">
+```
+
+The tag stays in place through Phase B (where it gates
+`step-implementation.md` sub-step 4) and Phase C (where `medium` and
+`high` are treated as focal points by the track-level reviewers).
+Once a step is implemented, the tag is locked.
+
 #### Parallel step annotation
 
 During decomposition, you may identify independent steps within the
@@ -274,9 +295,9 @@ different aspects, based on what is actually needed.
 
 ### Phase A Resume — Description-move recovery
 
-The description-move in §What You Do sub-steps (b)-(e) performs two
-on-disk mutations: the atomic step-file write in (d) and the
-backlog-section removal in (e). Either operation may be interrupted by
+The description-move in §What You Do sub-steps (b)-(d) performs two
+on-disk mutations: the atomic step-file write in (c) and the
+backlog-section removal in (d). Either operation may be interrupted by
 a session termination. When `/execute-tracks` auto-resumes into Phase A
 (the Startup Protocol's State C `Review + decomposition is [ ]` row
 routes here), the main agent observes two states — the step file's
@@ -294,11 +315,9 @@ was interrupted and State C resumed here).
 
 | Step file state | Backlog state | Resume action |
 |---|---|---|
-| Missing | `## Track N:` section present | Fresh Phase A: run §What You Do sub-steps (a)-(e) from the top. Sub-step (d)'s single-Write rule rules out an on-disk step file with an empty `## Description`, so this row cannot represent a partial (d); it only represents an interruption at or before (c). |
-| Missing | No `## Track N:` section (mid-migration) or no backlog file at all (legacy) | Fresh Phase A: read the full description from the plan-file entry per §What You Do branch (ii)/(iii); skip sub-step (e). |
-| Present, `## Description` populated | `## Track N:` section still present | Partial interruption after (d), before (e) completed. Run sub-step (e) **verbatim** — including its file-exists re-check preamble — and remove the backlog section using the "Backlog section body extraction rule" in `conventions-execution.md` §2.1. Do NOT re-copy into the step file's `## Description`. |
-| Present, `## Description` populated | No `## Track N:` section / no backlog file | Steady state. No description mutation needed. Resume from the next incomplete Phase A activity (reviews not yet run, decomposition not yet written). |
-| Present WITHOUT `## Description` section (step file predates the Phase A description-move — it was created by Phase A before sub-steps (b)-(e) were added) | Any of the above — the backlog state is irrelevant for this row | Leave the step file's Description state untouched. Phase A review prompts detect the missing `## Description` and fall back to reading the description from the plan-file entry. Resume from the next incomplete Phase A activity. |
+| Missing | `## Track N:` section present | Fresh Phase A: run §What You Do sub-steps (a)-(d) from the top. Sub-step (c)'s single-Write rule rules out an on-disk step file with an empty `## Description`, so this row cannot represent a partial (c); it only represents an interruption at or before (b). |
+| Present, `## Description` populated | `## Track N:` section still present | Partial interruption after (c), before (d) completed. Run sub-step (d) **verbatim** and remove the backlog section using the "Backlog section body extraction rule" in `conventions-execution.md` §2.1. Do NOT re-copy into the step file's `## Description`. |
+| Present, `## Description` populated | No `## Track N:` section | Steady state. No description mutation needed. Resume from the next incomplete Phase A activity (reviews not yet run, decomposition not yet written). |
 
 After the resume action completes, Phase A continues normally — the
 §Complexity Assessment, review loop, and §Step Decomposition proceed

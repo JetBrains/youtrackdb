@@ -6,8 +6,7 @@ code to find gaps and inconsistencies between the four artifacts:
 1. **Implementation plan** (`implementation-plan.md`)
 2. **Backlog** (`implementation-backlog.md`) — companion file to the plan.
    Holds the `**What/How/Constraints/Interactions**` detail and any
-   track-level Mermaid diagrams for pending tracks. May be absent for
-   legacy plans; see the per-entry fallback rule below.
+   track-level Mermaid diagrams for pending tracks.
 3. **Design document** (`design.md`)
 4. **Actual codebase**
 
@@ -60,11 +59,7 @@ incorrect code.
 
 Inputs:
 - Plan file: {plan_path}
-- Backlog file: {backlog_path} (may be absent — when
-  `implementation-backlog.md` does not exist on disk, track descriptions
-  live in the plan file's checklist entries in legacy format; see the
-  per-entry fallback rule in "How to Review" step 2 for mid-migration
-  and legacy handling)
+- Backlog file: {backlog_path}
 - Design document: {design_path}
 - Previous findings: {previous_findings or "None — this is the first pass"}
 
@@ -96,8 +91,7 @@ Inputs:
   `IndexStatistics.getHistogram()`", does that method exist?)
 - Do track descriptions reference code constructs (classes, methods, SPIs)
   that actually exist? Flag phantom references. *(Applies to the backlog
-  for pending tracks per the per-entry fallback rule in "How to Review"
-  step 2; to the plan-file entry for completed/skipped tracks.
+  for pending tracks; to the plan-file entry for completed/skipped tracks.
   Architecture Notes, Component Map, Decision Records, Invariants, and
   Integration Points bullets in this section remain plan-only per
   `conventions.md` §1.2.)*
@@ -113,10 +107,9 @@ Inputs:
 - Do the workflow diagrams align with the track descriptions? (e.g., if a
   track says "add snapshot reads for histograms", is there a corresponding
   flow in the design document?) *(For pending tracks, read track
-  descriptions from the backlog per the per-entry fallback rule in
-  "How to Review" step 2; for completed/skipped tracks, read from the
-  plan-file entry. The Component Map/Decision Records bullet above and
-  the Decision Records and scope-indicators bullets below remain
+  descriptions from the backlog; for completed/skipped tracks, read from
+  the plan-file entry. The Component Map/Decision Records bullet above
+  and the Decision Records and scope-indicators bullets below remain
   plan-only.)*
 - Do Decision Records in the plan correspond to design choices visible in
   the design document? Are there design choices in the diagrams that lack
@@ -130,8 +123,7 @@ Inputs:
 - Are there parts of the implementation plan that have no corresponding
   design coverage? (e.g., a track describes complex concurrency behavior
   but the design document has no concurrency section) *(For pending
-  tracks, the "track describes …" text lives in the backlog per the
-  per-entry fallback rule in "How to Review" step 2; for
+  tracks, the "track describes …" text lives in the backlog; for
   completed/skipped tracks, in the plan-file entry. The orphan-scope
   and orphan-codebase-construct bullets below remain plan-only.)*
 - Are there parts of the design document that no track covers? (e.g., the
@@ -144,32 +136,42 @@ Inputs:
 
 ## How to Review
 
+**Tooling — PSI is required for symbol verification.** Every claim
+in this review is a reference-accuracy fact about Java code (a class
+exists, a method has these callers, a flow has these participants).
+Use mcp-steroid PSI find-usages / find-implementations / type-
+hierarchy when the mcp-steroid MCP server is reachable — grep
+silently misses polymorphic call sites, generic dispatch, identifiers
+inside Javadoc/comments/string literals, and recently-renamed
+symbols, exactly the cases where a "phantom reference" finding can be
+spurious or a real mismatch can hide. Use grep only for filename
+globs, unique string literals, and orientation reads. If mcp-steroid
+is unreachable in this session, fall back to grep and add an explicit
+reference-accuracy caveat to any finding that depends on a symbol
+search.
+
 1. **Read the plan, backlog, and design document** thoroughly.
 2. **Identify all code references** — every class, interface, method, SPI,
    configuration parameter, or file path mentioned in the plan, backlog,
    or design document.
 
-   **Where track-description code references live (per-track, per-entry
-   fallback):** For each **pending** track, read the track's detailed
-   description (`**What/How/Constraints/Interactions**` subsections and
-   any track-level Mermaid diagram) from the backlog's `## Track N:
-   <title>` section when the backlog file is present and contains that
-   section. If the backlog file is absent (legacy plan), or if a
-   particular entry has been left with its detail inline in the plan
-   file (mid-migration edge case), fall back to the plan-file checklist
-   entry's `**What/How/Constraints/Interactions**` block. Apply this
-   decision per track — some entries may be backlog-sourced while others
-   are plan-sourced in the same plan. For **completed** tracks (`[x]`)
-   and **skipped** tracks (`[~]`), the plan-file entry already holds
-   the track's final form (intro paragraph + track episode for
-   completed; intro + `**Skipped:**` reason for skipped) — there is no
-   backlog section to consult, so read code references directly from
-   the plan-file entry. Phantom references in a backlog section have
-   the same severity as phantom references in the plan file (see the
-   severity guide below).
-3. **Verify each reference** against the actual codebase using Grep/Glob/Read.
-   For each reference, confirm it exists, is at the described location, and
-   has the described behavior.
+   **Where track-description code references live:** For each
+   **pending** track, read the track's detailed description
+   (`**What/How/Constraints/Interactions**` subsections and any
+   track-level Mermaid diagram) from the backlog's `## Track N:
+   <title>` section. For **completed** tracks (`[x]`) and **skipped**
+   tracks (`[~]`), the plan-file entry already holds the track's final
+   form (intro paragraph + track episode for completed; intro +
+   `**Skipped:**` reason for skipped) — there is no backlog section to
+   consult, so read code references directly from the plan-file entry.
+   Phantom references in a backlog section have the same severity as
+   phantom references in the plan file (see the severity guide below).
+3. **Verify each reference** against the actual codebase. For Java
+   symbols, prefer mcp-steroid PSI find-usages / find-implementations /
+   type-hierarchy when the IDE is reachable; use Grep/Glob/Read for
+   filename globs, unique string literals, file content reads, or when
+   mcp-steroid is unreachable. For each reference, confirm it exists,
+   is at the described location, and has the described behavior.
 4. **Trace workflow diagrams** — for each sequence/flow diagram, read the
    actual source code to verify the described call flow is accurate.
 5. **Check for orphans** — code constructs the plan should reference but
@@ -195,7 +197,10 @@ file path, configuration parameter), produce a verification entry:
 #### Ref: <name from document>
 - **Document claim**: <what the plan or design document says — quote or
   paraphrase the specific claim>
-- **Search performed**: <Grep/Glob query used to locate the construct>
+- **Search performed**: <PSI find-usages / find-implementations /
+  type-hierarchy query when the IDE is reachable; Grep/Glob query
+  otherwise. Record which tool was used so the certificate's
+  reference-accuracy is auditable.>
 - **Code location**: <file:line where found, or "NOT FOUND">
 - **Actual signature/role**: <what the code actually shows — copy the
   relevant declaration or excerpt>
@@ -233,7 +238,8 @@ file path, configuration parameter), produce a verification entry:
 ### Rules for certificates
 
 - **Every claim requires a search.** Do not assume a class exists because
-  its name is plausible. Search for it explicitly.
+  its name is plausible. Search for it explicitly using mcp-steroid PSI
+  when the IDE is reachable; otherwise use grep and note the caveat.
 - **Follow calls interprocedurally.** When tracing a flow, if a method
   delegates to another, follow the delegation. A method named `validate()`
   may not actually validate, or may validate the wrong property — always

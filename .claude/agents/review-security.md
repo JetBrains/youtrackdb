@@ -17,6 +17,24 @@ YouTrackDB is a Java 21+ object-oriented graph database with:
 - Record serialization/deserialization
 - File-based storage with direct memory access
 
+## Tooling — PSI is required for symbol audits
+
+Taint analysis traces sources to sinks across method boundaries:
+"every caller of this parser entry point", "every override of this
+authentication filter", "every consumer of this user-supplied
+field". Those are reference-accuracy questions. Use **mcp-steroid
+PSI find-usages / find-implementations / type-hierarchy** when the
+mcp-steroid MCP server is reachable. Grep silently misses
+polymorphic call sites and generic
+dispatch — exactly the cases where a "this method is unreachable
+from external input" claim flips. Use grep only for filename globs,
+unique string literals (matching specific config keys, error
+strings), and orientation reads. If mcp-steroid is unreachable,
+fall back to grep and add an explicit reference-accuracy caveat to
+any finding that depends on a caller / reachability search. Before
+the first symbol audit, call `steroid_list_projects` once to confirm
+the open project matches the working tree.
+
 ## Your Mission
 
 Review the provided code changes **only for security implications**. Do not review for code style, performance, concurrency, or crash safety — other reviewers handle those dimensions.

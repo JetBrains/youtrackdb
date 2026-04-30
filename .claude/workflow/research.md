@@ -73,3 +73,23 @@ When the user says to create the plan:
   These decisions carry forward to planning.
 - **Internet research is allowed.** Use web search and web fetch when the
   user asks about external libraries, algorithms, standards, or prior art.
+
+## Tooling for code research
+
+Research routinely produces conclusions that planning, decomposition, or
+deletion decisions ride on later — "this method has no production
+callers", "this slot has no consumer", "the field is touched only
+inside its declaring class". Those are reference-accuracy questions and
+must be answered through the IntelliJ PSI search via mcp-steroid when
+the IDE is connected, not through grep. See
+[`conventions.md`](conventions.md) §1.4 *Tooling discipline* for the
+full rule (preflight, fallback when unreachable, sub-agent
+delegation). The session-start hook prints the `mcp-steroid: …` status
+line — act on it before the first symbol audit. Grep is fine for
+orientation (filename globs, unique string literals, "is there
+anything called X anywhere") but the load-bearing answer must be
+PSI-backed when the IDE is reachable.
+
+When routing exploration to a sub-agent (Explore or any other),
+explicitly instruct it to use mcp-steroid PSI find-usages for symbol
+questions — sub-agents default to grep otherwise.

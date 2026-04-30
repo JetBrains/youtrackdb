@@ -3,9 +3,21 @@
 Load this document when running step-level or track-level code review.
 It is **not** needed at session startup.
 
-Code review happens at two levels — step-level and track-level — using
+Code review happens at two levels — step-level and track-level. Both use
 review sub-agents selected based on code characteristics (see
 [`review-agent-selection.md`](review-agent-selection.md)).
+
+- **Step-level review** runs only on steps tagged `risk: high` per
+  [`risk-tagging.md`](risk-tagging.md). For `medium` and `low` steps,
+  step-level review is skipped — the step proceeds directly from
+  commit to episode, relying on tests plus the always-on track-level
+  review for quality assurance.
+- **Track-level review** runs at Phase C against the cumulative track
+  diff regardless of the per-step risk distribution. The track-level
+  reviewers receive the per-step risk tags and treat `medium` and
+  `high` step ranges as focal points within the diff.
+
+For both levels:
 
 - **Baseline agents (4)** always run.
 - **Conditional agents (up to 6)** are added based on the step/track
@@ -19,10 +31,13 @@ source dimension(s). Max 3 iterations per level.
 
 ## Single-step tracks
 
-**Single-step tracks skip the code review portion of Phase C** — the
-step-level review already covered the identical diff. Phase C still runs
-for track completion (episode, user approval). See
-[`track-code-review.md`](track-code-review.md) §Single-Step Track.
+**Single-step tracks skip the code review portion of Phase C only when
+the single step is `risk: high`** — i.e., step-level dimensional review
+already ran against the identical diff. Single-step tracks where the
+sole step is `medium` or `low` still run track-level code review at
+Phase C, since step-level was skipped under the risk-gating rule above.
+Phase C track completion (episode, user approval) runs in both cases.
+See [`track-code-review.md`](track-code-review.md) §Single-Step Track.
 
 ---
 
