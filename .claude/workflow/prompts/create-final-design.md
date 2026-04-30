@@ -42,6 +42,14 @@ future readers of `design-final.md` and `adr.md`. Fall back to grep
 only when mcp-steroid is unreachable, and note any reference-accuracy
 caveats inline.
 
+The verification cases listed above are **illustrative, not
+exhaustive**. The operative criterion is reference accuracy — would
+a missed or spurious match make a diagram, signature, caller list,
+or "Implemented in" reference in the committed artifacts wrong?
+When in doubt, route through PSI. `~/.claude/CLAUDE.md` (sections
+"MCP Steroid" and "Grep vs PSI — when to switch") is the last
+authoritative source for edge cases.
+
 **How to invoke:**
 - The MCP server is `mcp-steroid`. Its tools are deferred, so load their schemas via ToolSearch first.
 - Call `steroid_list_projects` once at session start to confirm the IDE has the right project open and matches the working tree.

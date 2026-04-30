@@ -26,6 +26,13 @@ in any finding that hinges on enumerating subclasses or callers.
 Before the first symbol audit, call `steroid_list_projects` once to
 confirm the open project matches the working tree.
 
+The questions listed above are **illustrative, not exhaustive**.
+The operative criterion is reference accuracy — would a missed or
+spurious match make an isolation, fixture-sharing, or
+base-class-fanout claim wrong? When in doubt, route through PSI.
+`~/.claude/CLAUDE.md` (sections "MCP Steroid" and "Grep vs PSI —
+when to switch") is the last authoritative source for edge cases.
+
 **How to invoke:**
 - PSI queries (find-usages, find-implementations, type-hierarchy) run via `steroid_execute_code`, which evaluates a Kotlin snippet against the PSI tree — there is no dedicated `find_usages` tool.
 - `mcp-steroid` tools are deferred, so load their schemas via ToolSearch first.

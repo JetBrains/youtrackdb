@@ -260,6 +260,14 @@ polymorphic call site is "tests pass at the deletion commit but
 production breaks at runtime" — exactly the failure mode PSI exists to
 prevent.
 
+The examples listed above are **illustrative, not exhaustive**. The
+operative test is the criterion ("would a missed or spurious reference
+corrupt the result?"), not the example set. When a case isn't listed,
+apply the criterion; when in doubt, treat the audit as load-bearing
+and route through PSI. `~/.claude/CLAUDE.md` (sections "MCP Steroid"
+and "Grep vs PSI — when to switch") is the last authoritative source
+for edge cases.
+
 This rule applies to design and research sessions too. Design
 conclusions often hinge on reference-accuracy facts that grep can
 silently miss — so research, Phase 1 planning, and Phase A track
@@ -296,6 +304,14 @@ refactors through the IDE. Two project-relevant defaults:
   `Edit`. After an IDE refactor, run Spotless on the affected modules
   and re-run the relevant tests — the engine doesn't enforce project
   formatting.
+
+The two examples above are **illustrative, not exhaustive** — they
+name the project-relevant defaults, not the full set of cases where
+mcp-steroid is the right route. The full Maven and refactoring
+routing tables live in `~/.claude/CLAUDE.md` (sections "Maven — when
+to route through mcp-steroid" and "Refactoring — IDE refactor vs raw
+Edit"); when a situation isn't covered here, that file is the last
+authoritative source.
 
 Both routes require the same `steroid_list_projects` preflight as PSI
 audits.
