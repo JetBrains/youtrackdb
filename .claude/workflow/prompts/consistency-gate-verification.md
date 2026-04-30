@@ -46,12 +46,22 @@ For each ACCEPTED finding being verified, you must produce a
 certificate traces the same code reference or flow that was originally
 flagged and confirms the fix resolves it.
 
+For Java symbol re-checks (does this method now exist / have these
+callers / live in this class), use mcp-steroid PSI find-usages /
+find-implementations when the IDE is reachable; fall back to
+Grep/Glob with a reference-accuracy caveat only when mcp-steroid is
+unreachable. The original finding may have been generated against
+grep — verifying the fix with PSI catches subtle mismatches that grep
+missed.
+
 ```markdown
 #### Verify CR<N>: <finding title>
 - **Original issue**: <what was wrong — from the finding>
 - **Fix applied**: <what changed in the plan, backlog, or design text>
 - **Re-check**:
-  - Search/trace performed: <Grep/Glob query or flow trace>
+  - Search/trace performed: <PSI find-usages / find-implementations
+    query when the IDE is reachable; Grep/Glob query or flow trace
+    otherwise. Record which tool was used.>
   - Code location: <file:line — same reference as original, or updated>
   - Current state: <what the document now says vs. what the code shows>
 - **Regression check**: <did the fix introduce new inconsistencies

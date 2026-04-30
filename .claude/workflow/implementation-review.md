@@ -54,6 +54,18 @@ Checks that the design document, implementation plan, and actual codebase
 are aligned. Unlike structural review, this step **reads the codebase** to
 verify code references, call flows, and class relationships.
 
+Because the consistency review's findings are factual claims about the
+code (a method exists / does not exist, a flow has these participants,
+this class has these callers), they are reference-accuracy questions
+under the rule in [`conventions.md`](conventions.md) §1.4 *Tooling
+discipline*. When mcp-steroid is reachable per the SessionStart hook,
+the verification routes through the IntelliJ PSI rather than grep —
+preflight via `steroid_list_projects`, and instruct the consistency
+sub-agent to use PSI find-usages for symbol questions (its prompt
+already contains this instruction). When mcp-steroid is unreachable,
+fall back to grep with explicit reference-accuracy caveats in the
+findings.
+
 ### What it checks
 
 - **Design ↔ Code**: class diagrams match real classes, workflow diagrams

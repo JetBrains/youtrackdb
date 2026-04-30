@@ -77,6 +77,18 @@ lacks this section, fall back to the plan-file entry for the track. Read
 the relevant Decision Records from the plan. Then explore the parts of
 the codebase this track touches.
 
+**Tooling — PSI is required for symbol audits.** Adversarial counter-
+arguments often hinge on "the rejected alternative already has
+infrastructure" or "this invariant is violated at a caller the plan
+didn't list" — both are reference-accuracy claims. Use mcp-steroid
+PSI find-usages / find-implementations / type-hierarchy when the
+mcp-steroid MCP server is reachable so polymorphic call sites,
+generic dispatch, and Javadoc/comment matches don't muddy the
+counterargument. Grep is acceptable for filename globs, unique
+string literals, and orientation. If mcp-steroid is unreachable in
+this session, fall back to grep and add an explicit reference-accuracy
+caveat to any challenge that depends on a symbol search.
+
 DECISION CHALLENGES
 - For each Decision Record relevant to this track: argue for the best
   rejected alternative using codebase evidence.
@@ -164,7 +176,11 @@ that survive scrutiny.
   the invariant may be stronger than you think — mark as INFEASIBLE.
 - **Always search for the rejected alternative in the codebase.** The
   strongest adversarial challenge is showing that the codebase already
-  has infrastructure for the rejected approach.
+  has infrastructure for the rejected approach. Use mcp-steroid PSI
+  find-usages / find-implementations when the IDE is reachable —
+  polymorphic call sites, generic dispatch, and supertype overrides
+  are exactly the kinds of evidence grep loses but PSI surfaces
+  reliably.
 - **Survival tests are mandatory.** After constructing the challenge,
   honestly assess whether the chosen approach survives. A challenge
   that the decision survives still has value (it strengthens rationale)

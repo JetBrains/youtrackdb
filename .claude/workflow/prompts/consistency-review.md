@@ -144,6 +144,20 @@ Inputs:
 
 ## How to Review
 
+**Tooling — PSI is required for symbol verification.** Every claim
+in this review is a reference-accuracy fact about Java code (a class
+exists, a method has these callers, a flow has these participants).
+Use mcp-steroid PSI find-usages / find-implementations / type-
+hierarchy when the mcp-steroid MCP server is reachable — grep
+silently misses polymorphic call sites, generic dispatch, identifiers
+inside Javadoc/comments/string literals, and recently-renamed
+symbols, exactly the cases where a "phantom reference" finding can be
+spurious or a real mismatch can hide. Use grep only for filename
+globs, unique string literals, and orientation reads. If mcp-steroid
+is unreachable in this session, fall back to grep and add an explicit
+reference-accuracy caveat to any finding that depends on a symbol
+search.
+
 1. **Read the plan, backlog, and design document** thoroughly.
 2. **Identify all code references** — every class, interface, method, SPI,
    configuration parameter, or file path mentioned in the plan, backlog,
@@ -167,9 +181,12 @@ Inputs:
    the plan-file entry. Phantom references in a backlog section have
    the same severity as phantom references in the plan file (see the
    severity guide below).
-3. **Verify each reference** against the actual codebase using Grep/Glob/Read.
-   For each reference, confirm it exists, is at the described location, and
-   has the described behavior.
+3. **Verify each reference** against the actual codebase. For Java
+   symbols, prefer mcp-steroid PSI find-usages / find-implementations /
+   type-hierarchy when the IDE is reachable; use Grep/Glob/Read for
+   filename globs, unique string literals, file content reads, or when
+   mcp-steroid is unreachable. For each reference, confirm it exists,
+   is at the described location, and has the described behavior.
 4. **Trace workflow diagrams** — for each sequence/flow diagram, read the
    actual source code to verify the described call flow is accurate.
 5. **Check for orphans** — code constructs the plan should reference but
@@ -195,7 +212,10 @@ file path, configuration parameter), produce a verification entry:
 #### Ref: <name from document>
 - **Document claim**: <what the plan or design document says — quote or
   paraphrase the specific claim>
-- **Search performed**: <Grep/Glob query used to locate the construct>
+- **Search performed**: <PSI find-usages / find-implementations /
+  type-hierarchy query when the IDE is reachable; Grep/Glob query
+  otherwise. Record which tool was used so the certificate's
+  reference-accuracy is auditable.>
 - **Code location**: <file:line where found, or "NOT FOUND">
 - **Actual signature/role**: <what the code actually shows — copy the
   relevant declaration or excerpt>
@@ -233,7 +253,8 @@ file path, configuration parameter), produce a verification entry:
 ### Rules for certificates
 
 - **Every claim requires a search.** Do not assume a class exists because
-  its name is plausible. Search for it explicitly.
+  its name is plausible. Search for it explicitly using mcp-steroid PSI
+  when the IDE is reachable; otherwise use grep and note the caveat.
 - **Follow calls interprocedurally.** When tracing a flow, if a method
   delegates to another, follow the delegation. A method named `validate()`
   may not actually validate, or may validate the wrong property — always

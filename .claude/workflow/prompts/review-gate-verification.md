@@ -30,7 +30,15 @@ section, fall back to the plan-file entry for the track. Read the
 relevant Decision Records from the plan.
 
 For each ACCEPTED finding being verified, produce a **verification
-certificate** that re-checks the specific location:
+certificate** that re-checks the specific location.
+
+For Java symbol re-checks (does this method now exist / have these
+callers / live in this class / override this interface), use
+mcp-steroid PSI find-usages / find-implementations when the IDE is
+reachable; fall back to Grep/Glob with a reference-accuracy caveat
+only when mcp-steroid is unreachable. The original finding may have
+been generated against grep — verifying the fix with PSI catches
+subtle mismatches that grep missed.
 
 ```markdown
 #### Verify <PREFIX><N>: <finding title>

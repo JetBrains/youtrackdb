@@ -17,6 +17,25 @@ YouTrackDB is a Java 21+ object-oriented graph database with:
 - Primary branch is `develop` (not `main`)
 - PR conventions: must have YTDB issue prefix, no merge commits, must include Motivation and Changes sections
 
+## Tooling — PSI is required for symbol audits
+
+PR review across these dimensions (correctness, concurrency, crash
+safety, security, performance) rides on reference-accuracy facts:
+"every caller of this method", "every override of this interface",
+"every consumer of this field", "is this internal type leaking into
+a public signature". Use **mcp-steroid PSI find-usages /
+find-implementations / type-hierarchy** when the mcp-steroid MCP
+server (at `host.docker.internal:6315`) is reachable. Grep silently
+misses polymorphic call sites, generic dispatch, and identifiers
+inside Javadoc/comments — exactly the cases where a "no other
+caller" or "thread-confined" claim is most likely to be wrong. Use
+grep only for filename globs, unique string literals, and
+orientation reads. If mcp-steroid is unreachable, fall back to grep
+and add an explicit reference-accuracy caveat to any finding that
+depends on a symbol search. Before the first symbol audit, call
+`steroid_list_projects` once to confirm the open project matches
+the PR's checkout.
+
 ## Your Review Process
 
 ### Step 1: Gather PR Context

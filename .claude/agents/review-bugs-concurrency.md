@@ -17,6 +17,24 @@ YouTrackDB is a Java 21+ object-oriented graph database with:
 - Transaction lifecycle with begin/commit/rollback semantics
 - Index implementations based on B-trees
 
+## Tooling — PSI is required for symbol audits
+
+Bug- and concurrency-finding rides on reference-accuracy facts:
+"every caller of this method", "every override of this lock-acquiring
+interface", "every reader of this shared field", "every subclass of
+this base class". Those questions MUST be answered using **mcp-steroid
+PSI find-usages / find-implementations / type-hierarchy** when the
+mcp-steroid MCP server (at `host.docker.internal:6315`) is reachable.
+Grep silently misses polymorphic call sites, generic dispatch,
+identifiers inside Javadoc/comments, and recently-renamed symbols —
+exactly the cases where a "this is thread-confined" or "no other
+caller" claim is most likely to be wrong. Use grep only for filename
+globs, unique string literals, and orientation reads. If mcp-steroid
+is unreachable, fall back to grep and add an explicit reference-
+accuracy caveat to any finding that depends on a symbol search.
+Before the first symbol audit, call `steroid_list_projects` once to
+confirm the open project matches the working tree.
+
 ## Your Mission
 
 Review the provided code changes **only for potential bugs and concurrency issues**. Do not review for code style, security, performance, or crash safety — other reviewers handle those dimensions.

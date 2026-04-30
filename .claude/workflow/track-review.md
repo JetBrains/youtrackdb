@@ -24,6 +24,24 @@ Phase C includes both the track-level code review and track completion
 > into steps. The only files you write are: the step file
 > (`tracks/track-N.md`) and review files (`reviews/track-N-*.md`).**
 
+### Tooling — PSI is required for symbol audits in Phase A
+
+Phase A's outputs (review findings, scope-indicator validation, step
+decomposition with risk tags) ride on reference-accuracy facts —
+"this method's callers", "this interface's implementations", "no
+existing consumer for this slot". When mcp-steroid is reachable per
+the SessionStart hook, those facts MUST come from PSI find-usages
+rather than grep — see [`conventions.md`](conventions.md) §1.4
+*Tooling discipline* for the full rule (preflight via
+`steroid_list_projects`, cwd-mismatch handling, fallback when
+unreachable). Run the preflight once before the first symbol audit;
+do not re-probe.
+
+The Phase A review sub-agents you spawn (technical, risk, adversarial)
+all default to grep unless their prompts explicitly route them to
+PSI. The canonical prompts under `prompts/` already include this
+instruction — keep it intact when customising.
+
 ### What You Do
 
 1. **Assess track complexity** to determine which reviews to run (see

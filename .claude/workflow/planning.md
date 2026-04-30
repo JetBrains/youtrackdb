@@ -409,3 +409,23 @@ decomposition). The canonical decomposition rules are in
 [`track-review.md`](track-review.md) §Step Decomposition. During planning,
 focus on track-level descriptions and scope indicators — not step-level
 detail.
+
+## Tooling — PSI-backed Component Map and integration points
+
+Architecture Notes that name code constructs (Component Map, Integration
+Points, Decision Records that cite specific classes/methods, Invariants
+that refer to existing enforcement sites) ride on the assumption that
+the cited symbols exist with the cited shape and the cited callers.
+Verify those facts through the IntelliJ PSI via mcp-steroid when the
+IDE is connected — per the rule in
+[`conventions.md`](conventions.md) §1.4 *Tooling discipline*. The
+preflight (`steroid_list_projects`), the requirement that load-bearing
+audits use PSI rather than grep, and the explicit-instruction rule for
+sub-agent delegations all apply during planning.
+
+In particular, when the plan claims a component is touched only in
+specific places, an integration point has only specific callers, or a
+new SPI has no preexisting consumer, those statements need PSI-backed
+verification before they land in `implementation-plan.md` or
+`design.md` — they shape Phase A complexity assessment and step
+sizing, and silent grep misses become Phase A surprises.

@@ -4,6 +4,20 @@ After all steps are committed, review the full track diff using sub-agents.
 These are deliberately sub-agents — fresh eyes catch systematic issues that
 you (as the implementer) are blind to.
 
+## Tooling — PSI for cross-step reference accuracy
+
+Track-level review's value is catching cross-step interaction issues —
+one step adds a producer, another adds a consumer, and only the
+cumulative diff shows whether they actually meet. Those are
+reference-accuracy questions and route through mcp-steroid PSI
+find-usages rather than grep when the IDE is reachable, per the rule
+in [`conventions.md`](conventions.md) §1.4 *Tooling discipline* (run
+`steroid_list_projects` once at session start; do not re-probe). The
+canonical sub-agent context block below already embeds the PSI
+instruction — keep it intact when customising. When mcp-steroid is
+unreachable, sub-agents fall back to grep and add reference-accuracy
+caveats to any finding that depends on a symbol search.
+
 After the review loop completes and any deferred findings are processed,
 this phase continues directly into track completion: compiling the track
 episode, presenting results to the user, and marking the track `[x]` upon
@@ -138,6 +152,20 @@ small}
 - core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/*
 - Any files under generated-sources/ or generated-test-sources/
 - Generated Gremlin DSL classes
+
+## Tooling
+Use **mcp-steroid PSI find-usages, not grep**, for any
+reference-accuracy question about a Java symbol in the cumulative
+track diff or its callers (callers/overrides/usages of a method,
+field, class, or annotation; cross-step interaction sites where one
+step adds a producer and another adds a consumer; whether a renamed
+symbol still has stale references elsewhere; whether a deleted member
+is genuinely unused). Grep is acceptable for filename globs, unique
+string literals, and orientation reads, but the load-bearing answer
+behind a finding must be PSI-backed when mcp-steroid is reachable. If
+the SessionStart hook reported `mcp-steroid: NOT reachable`, fall
+back to grep and note the reference-accuracy caveat in any finding
+that depends on a symbol search.
 
 ## Diff
 {output of git diff {base_commit}..HEAD — passed inline since it is the

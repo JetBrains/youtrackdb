@@ -246,3 +246,87 @@ code review. Severity levels: **blocker** / **should-fix** / **suggestion**
 **Full protocol** (iteration limits, finding ID prefixes, finding format,
 gate verification output): [`review-iteration.md`](review-iteration.md) —
 load when running a review loop.
+
+---
+
+## 1.4 Tooling discipline — prefer mcp-steroid PSI for Java symbol audits
+
+The user's global rules in `~/.claude/CLAUDE.md` (sections "MCP Steroid"
+and "Grep vs PSI — when to switch") are the single authoritative source
+for when to route through the IntelliJ IDE via mcp-steroid versus when
+to fall back to `grep`/`rg`/Bash. This subsection is a project-level
+reminder that those rules apply to **every phase of the workflow** —
+research, planning, Phase A review, Phase B implementation, Phase C
+code review, Phase 4 final artifacts — and to **every sub-agent** the
+workflow spawns.
+
+### Session-start preflight
+
+The SessionStart hook prints an `mcp-steroid: …` status line. Trust it
+as the canonical IDE state for the session, do not re-probe, and act on
+its three outcomes:
+
+- **`mcp-steroid: reachable`** — call `steroid_list_projects` once
+  before the first symbol-related action to confirm the open project
+  matches the working tree, then route every reference-accuracy
+  question about Java symbols through PSI for the rest of the session.
+- **`mcp-steroid: NOT reachable`** — IDE control is unavailable. Symbol
+  audits must use `grep`/`rg` and every audit conclusion that depends
+  on a symbol search must explicitly note the reference-accuracy caveat
+  ("grep-based; may miss polymorphic call sites / Javadoc / generics").
+- **cwd mismatch** (`steroid_list_projects` reports a different open
+  project than the working tree) — pause and ask the user to switch
+  the open project before running any load-bearing symbol audit. Do
+  not silently fall back to grep.
+
+### When PSI is required (not optional)
+
+When mcp-steroid is reachable, **load-bearing audits MUST use PSI** —
+grep is not acceptable for the search that drives the action. A search
+is load-bearing if a missed or spurious reference would corrupt the
+result: deletions, renames, signature changes, "no production callers"
+claims, "field is referenced only inside its declaring class" claims,
+"this slot has no consumer" claims, etc. The cost of a missed
+polymorphic call site is "tests pass at the deletion commit but
+production breaks at runtime" — exactly the failure mode PSI exists to
+prevent.
+
+This rule applies to design and research sessions too. Design
+conclusions often hinge on reference-accuracy facts that grep can
+silently miss — so research, Phase 1 planning, and Phase A track
+reviews are not exempt.
+
+### Sub-agent delegation
+
+Delegating a symbol-usage question to a sub-agent (Explore, Phase A
+review prompts, code review prompts, Phase 4 final-artifact prompts)
+**does not bypass the PSI requirement.** Sub-agents default to
+Bash/grep, so an unannotated delegation routes through grep regardless
+of the question's shape. When passing a reference-accuracy question
+to any sub-agent, the prompt MUST explicitly say *"use mcp-steroid PSI
+find-usages, not grep, for these reference-accuracy questions"*. The
+canonical review prompts under `prompts/` already embed this
+instruction; custom delegations and on-the-fly prompts must do the
+same.
+
+### Other mcp-steroid routes (Maven, refactoring)
+
+The user-global rules also cover when to route Maven runs and Java
+refactors through the IDE. Two project-relevant defaults:
+
+- **Single-test reruns** during step implementation (e.g. `-Dtest=Foo#bar`
+  after a focused fix) and **compile-fix loops** benefit from
+  `steroid_execute_code` — the IDE returns parsed test results and
+  filtered compiler output. Full-suite runs, coverage profiles, JMH
+  benchmarks, and integration-test suites stay on Bash `./mvnw` per the
+  Maven-routing rule in `~/.claude/CLAUDE.md`.
+- **Renames, moves, signature changes, extract-method, pull-up/push-down,
+  and any refactor that touches more than one reference site** route
+  through the IDE refactoring engine via mcp-steroid, not raw `Edit`.
+  Pure single-file edits and changes that don't move references stay on
+  `Edit`. After an IDE refactor, run Spotless on the affected modules
+  and re-run the relevant tests — the engine doesn't enforce project
+  formatting.
+
+Both routes require the same `steroid_list_projects` preflight as PSI
+audits.
