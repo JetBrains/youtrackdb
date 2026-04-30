@@ -26,6 +26,11 @@ in any finding that hinges on enumerating subclasses or callers.
 Before the first symbol audit, call `steroid_list_projects` once to
 confirm the open project matches the working tree.
 
+**How to invoke:**
+- PSI queries (find-usages, find-implementations, type-hierarchy) run via `steroid_execute_code`, which evaluates a Kotlin snippet against the PSI tree — there is no dedicated `find_usages` tool.
+- `mcp-steroid` tools are deferred, so load their schemas via ToolSearch first.
+- For Kotlin recipes, fetch the `coding-with-intellij-psi` skill via `steroid_fetch_resource`.
+
 ## Your Mission
 
 Review test code **only for isolation, independence, readability, and documentation quality**. Do not review for assertion precision, corner cases, concurrency, or crash safety — other reviewers handle those dimensions.

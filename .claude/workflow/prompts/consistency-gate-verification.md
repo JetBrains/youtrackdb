@@ -46,6 +46,12 @@ unreachable. The original finding may have been generated against
 grep — verifying the fix with PSI catches subtle mismatches that grep
 missed.
 
+**How to invoke:**
+- The MCP server is `mcp-steroid`. Its tools are deferred, so load their schemas via ToolSearch first.
+- Call `steroid_list_projects` once at session start to confirm the IDE has the right project open and matches the working tree.
+- Run PSI queries (find-usages, find-implementations, type-hierarchy) via `steroid_execute_code`, which evaluates a Kotlin snippet against the PSI tree — there is no dedicated `find_usages` tool.
+- For Kotlin recipes, fetch the `coding-with-intellij-psi` skill via `steroid_fetch_resource`.
+
 ```markdown
 #### Verify CR<N>: <finding title>
 - **Original issue**: <what was wrong — from the finding>
