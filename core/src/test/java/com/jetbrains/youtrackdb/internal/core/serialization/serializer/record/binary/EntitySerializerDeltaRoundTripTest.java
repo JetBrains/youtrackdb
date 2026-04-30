@@ -97,6 +97,19 @@ import org.junit.Test;
  * to GMT so any DATE round-trip pin is deterministic regardless of the JVM's
  * default timezone (CET on most CI workers, GMT on others) — see the same
  * note in {@link RecordSerializerBinaryV1SimpleTypeRoundTripTest}.
+ *
+ * <p><b>SECURITY.</b> The delta wire format reads variable-length item counts
+ * via {@code VarIntSerializer.readAsLong} without an upper-bound cap; an
+ * attacker-controlled byte stream can therefore claim a huge number of change
+ * records and force the {@code deserializeDelta} loop to consume bytes well
+ * beyond the buffer's intended payload. The forged-payload tests in this class
+ * (mode-2 invalid-pointer LinkBag/LinkSet) only exercise the structural-guard
+ * path; the unbounded-count path is not yet pinned because it requires a
+ * production-side cap (or an enclosing length prefix) before a falsifiable
+ * test can be written. WHEN-FIXED — when {@code deserializeDelta} grows a cap
+ * (or callers wrap with a length-prefixed envelope), add a falsifiable pin
+ * here that feeds a forged count beyond the cap and asserts the rejection
+ * shape.
  */
 public class EntitySerializerDeltaRoundTripTest extends DbTestBase {
 
@@ -995,6 +1008,69 @@ public class EntitySerializerDeltaRoundTripTest extends DbTestBase {
     session.rollback();
   }
 
+  /**
+   * No-mutation delta: a transaction loads an entity, makes no property changes, and the
+   * resulting delta encodes class name + zero change records. Applying the empty delta to
+   * a freshly-loaded copy must leave every property untouched. This pins the empty-loop
+   * branch of {@code deserializeDelta} (the {@code while (count-- > 0)} body never
+   * executes) — a regression that mishandled the zero-count header would either throw or
+   * silently corrupt the rebuilt entity.
+   */
+  @Test
+  public void emptyDeltaLeavesTargetUntouched() {
+    var startRid = persistEntity(e -> {
+      e.setProperty("schemaStr", "kept");
+      e.setProperty("schemaInt", 17);
+    });
+
+    session.begin();
+    var loaded = session.<EntityImpl>load(startRid);
+    // No mutations — serialise the bare class name + count=0 record list.
+    var deltaBytes = EntitySerializerDelta.serializeDelta(session, loaded);
+    session.rollback();
+
+    session.begin();
+    var target = session.<EntityImpl>load(startRid);
+    delta.deserializeDelta(session, deltaBytes, target);
+    assertEquals("kept", target.getProperty("schemaStr"));
+    assertEquals(Integer.valueOf(17), target.getProperty("schemaInt"));
+    session.rollback();
+  }
+
+  /**
+   * Dry-run deserialisation: passing {@code null} for the {@code toFill} argument routes
+   * every change-record branch through the no-side-effect path (the bytes are parsed for
+   * structural validity but no entity is mutated). Pins the {@code toFill != null} guards
+   * at the class-set / REMOVED / CHANGED arms — a regression that NPE'd on null target
+   * would surface here.
+   */
+  @Test
+  public void dryRunDeserializeWithNullTargetParsesWithoutMutation() {
+    var startRid = persistEntity(e -> {
+      e.setProperty("schemaStr", "before");
+    });
+
+    session.begin();
+    var loaded = session.<EntityImpl>load(startRid);
+    loaded.setProperty("schemaStr", "after");
+    loaded.setProperty("schemaInt", 99);
+    var deltaBytes = EntitySerializerDelta.serializeDelta(session, loaded);
+    session.rollback();
+
+    // Dry-run apply: null target. The contract is "parse without mutating"; if a
+    // regression NPE'd through any of the toFill dispatch sites, this test would fail.
+    delta.deserializeDelta(session, deltaBytes, null);
+
+    // Confirm the on-disk state was not mutated by the dry run (it cannot be, since
+    // no entity was passed, but pin the property name to make the post-condition
+    // explicit and falsifiable).
+    session.begin();
+    var reloaded = session.<EntityImpl>load(startRid);
+    assertEquals("before", reloaded.getProperty("schemaStr"));
+    assertNull(reloaded.getProperty("schemaInt"));
+    session.rollback();
+  }
+
   // ============================================================================
   // === B-tree-mode read pins for LinkBag / LinkSet ============================
   // ============================================================================
@@ -1052,23 +1128,8 @@ public class EntitySerializerDeltaRoundTripTest extends DbTestBase {
     return HEX.formatHex(bytes.fitBytes());
   }
 
-  /**
-   * Runs {@code body} inside a fresh transaction, rolling back on exit so the test
-   * leaves no persistent state behind. Mirrors the helper used by other binary-serializer
-   * round-trip tests in this package.
-   */
   private void runInTx(Runnable body) {
-    if (session.isTxActive()) {
-      session.rollback();
-    }
-    session.begin();
-    try {
-      body.run();
-    } finally {
-      if (session.isTxActive()) {
-        session.rollback();
-      }
-    }
+    RecordSerializerBinaryTestFixture.runInTx(session, body);
   }
 
   /**

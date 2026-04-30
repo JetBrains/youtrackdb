@@ -401,13 +401,7 @@ public class BinaryComparatorV0IsEqualCrossTypeTest extends DbTestBase {
         comparator.isEqual(session, field(src, srcVal), field(dst, gtVal)));
   }
 
-  /** Allocates a fresh BytesContainer, serializes the value at offset 0, and wraps it as a
-   * BinaryField with no collation. Container offset is reset to 0 so the comparator reads from
-   * the value's first byte. Field name is {@code null} to match {@code AbstractComparatorTest}'s
-   * convention; the comparator does not consume the name. */
   private BinaryField field(PropertyTypeInternal type, Object value) {
-    var bytes = new BytesContainer();
-    bytes.offset = serializer.serializeValue(session, bytes, value, type, null, null, null);
-    return new BinaryField(null, type, new BytesContainer(bytes.bytes, 0), null);
+    return BinaryComparatorV0TestFixture.field(serializer, session, type, value);
   }
 }

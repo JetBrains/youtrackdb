@@ -302,6 +302,46 @@ public class CompactedLinkSerializerTest {
   }
 
   @Test
+  public void testRecordIdMaximumClusterIdRoundTripsThroughCompactedLink() {
+    // The on-wire format reserves 16 bits for the clusterId; this serializer casts
+    // `(short) r.getCollectionId()` unconditionally in serialize / serializeNativeObject /
+    // serializeInByteBufferObject. The cast would silently truncate cluster ids
+    // > Short.MAX_VALUE — but RecordId's constructor rejects oversized cluster ids
+    // first (LinkSerializerTest pins the constructor rejection), so the cast is never
+    // reachable through the public RID API. Pinning a round-trip at the limit
+    // (Short.MAX_VALUE = 32767) catches a regression that off-by-one'd the constructor
+    // guard or that mis-encoded the top of the unsigned-vs-signed boundary in this
+    // serializer. WHEN-FIXED — when the wire format eventually widens beyond 16 bits,
+    // both the constructor check and the (short) cast must relax in lockstep.
+    final var linkSerializer = new CompactedLinkSerializer();
+    final var maxClusterId = (int) Short.MAX_VALUE;
+    final var rid = new RecordId(maxClusterId, 12345L);
+    final var size = linkSerializer.getObjectSize(serializerFactory, rid);
+
+    final var portableData = new byte[size];
+    linkSerializer.serialize(rid, serializerFactory, portableData, 0);
+    Assert.assertEquals(
+        "portable round-trip preserves max-cluster id", maxClusterId,
+        linkSerializer.deserialize(serializerFactory, portableData, 0).getIdentity()
+            .getCollectionId());
+
+    final var nativeData = new byte[size];
+    linkSerializer.serializeNativeObject(rid, serializerFactory, nativeData, 0);
+    Assert.assertEquals(
+        "native round-trip preserves max-cluster id", maxClusterId,
+        linkSerializer.deserializeNativeObject(serializerFactory, nativeData, 0).getIdentity()
+            .getCollectionId());
+
+    final var buffer = ByteBuffer.allocate(size);
+    linkSerializer.serializeInByteBufferObject(serializerFactory, rid, buffer);
+    buffer.position(0);
+    Assert.assertEquals(
+        "byteBuffer round-trip preserves max-cluster id", maxClusterId,
+        linkSerializer.deserializeFromByteBufferObject(serializerFactory, buffer).getIdentity()
+            .getCollectionId());
+  }
+
+  @Test
   public void testWalOverlayDeserialiseRoundTripsCompactedRid() {
     // The WAL deserialise variant reads through a WALPageChangesPortion overlay — pin a
     // round-trip through the overlay so the compacted-byte unmarshalling on the WAL path

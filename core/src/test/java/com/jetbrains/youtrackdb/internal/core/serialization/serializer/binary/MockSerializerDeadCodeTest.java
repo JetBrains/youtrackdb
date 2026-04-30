@@ -27,6 +27,7 @@ import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.mock;
 
 import com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
@@ -111,45 +112,91 @@ public class MockSerializerDeadCodeTest {
     assertEquals(0, MockSerializer.INSTANCE.getFixedLength());
   }
 
-  @Test
-  public void allObjectSizeOverridesReturnZero() {
-    var s = MockSerializer.INSTANCE;
-    var bytes = new byte[16];
-    var bb = ByteBuffer.allocate(16);
+  // --- getObjectSize overloads — split per-overload so a regression to a single
+  // override surfaces with the offending method's name in the failure message. ---
 
-    assertEquals(0, s.getObjectSize(null, (EntityImpl) null));
-    assertEquals(0, s.getObjectSize(null, bytes, 0));
-    assertEquals(0, s.getObjectSizeNative(null, bytes, 0));
-    assertEquals(0, s.getObjectSizeInByteBuffer(null, bb));
-    assertEquals(0, s.getObjectSizeInByteBuffer(null, 0, bb));
-    assertEquals(0, s.getObjectSizeInByteBuffer(bb, null, 0));
+  @Test
+  public void getObjectSizeEntityImplReturnsZero() {
+    assertEquals(0, MockSerializer.INSTANCE.getObjectSize(null, (EntityImpl) null));
   }
 
   @Test
-  public void allDeserializeOverridesReturnNull() {
-    var s = MockSerializer.INSTANCE;
-    var bytes = new byte[16];
-    var bb = ByteBuffer.allocate(16);
+  public void getObjectSizeByteArrayReturnsZero() {
+    assertEquals(0, MockSerializer.INSTANCE.getObjectSize(null, new byte[16], 0));
+  }
 
-    assertNull(s.deserialize(null, bytes, 0));
-    assertNull(s.deserializeNativeObject(null, bytes, 0));
-    assertNull(s.deserializeFromByteBufferObject(null, bb));
-    assertNull(s.deserializeFromByteBufferObject(null, 0, bb));
-    assertNull(s.deserializeFromByteBufferObject(null, bb, null, 0));
+  @Test
+  public void getObjectSizeNativeReturnsZero() {
+    assertEquals(0, MockSerializer.INSTANCE.getObjectSizeNative(null, new byte[16], 0));
+  }
+
+  @Test
+  public void getObjectSizeInByteBufferAtPositionReturnsZero() {
+    assertEquals(0,
+        MockSerializer.INSTANCE.getObjectSizeInByteBuffer(null, ByteBuffer.allocate(16)));
+  }
+
+  @Test
+  public void getObjectSizeInByteBufferAtOffsetReturnsZero() {
+    assertEquals(0,
+        MockSerializer.INSTANCE.getObjectSizeInByteBuffer(null, 0, ByteBuffer.allocate(16)));
+  }
+
+  @Test
+  public void getObjectSizeInByteBufferWithWalChangesReturnsZero() {
+    assertEquals(0,
+        MockSerializer.INSTANCE.getObjectSizeInByteBuffer(ByteBuffer.allocate(16), null, 0));
+  }
+
+  // --- deserialize overloads — split per-overload likewise. ---
+
+  @Test
+  public void deserializeFromByteArrayReturnsNull() {
+    assertNull(MockSerializer.INSTANCE.deserialize(null, new byte[16], 0));
+  }
+
+  @Test
+  public void deserializeNativeObjectReturnsNull() {
+    assertNull(MockSerializer.INSTANCE.deserializeNativeObject(null, new byte[16], 0));
+  }
+
+  @Test
+  public void deserializeFromByteBufferAtPositionReturnsNull() {
+    assertNull(
+        MockSerializer.INSTANCE.deserializeFromByteBufferObject(null, ByteBuffer.allocate(16)));
+  }
+
+  @Test
+  public void deserializeFromByteBufferAtOffsetReturnsNull() {
+    assertNull(
+        MockSerializer.INSTANCE.deserializeFromByteBufferObject(null, 0, ByteBuffer.allocate(16)));
+  }
+
+  @Test
+  public void deserializeFromByteBufferWithWalChangesReturnsNull() {
+    assertNull(MockSerializer.INSTANCE.deserializeFromByteBufferObject(null,
+        ByteBuffer.allocate(16), null, 0));
   }
 
   @Test
   public void preprocessReturnsNullForNullInput() {
     var s = MockSerializer.INSTANCE;
-    // The contract usually calls for preprocess to return its input; the sentinel
-    // returns null instead. Pin this behavioral divergence so a future "fix" doesn't
-    // accidentally start returning input — which would change record serialization
-    // semantics for callers that reach this stub. Even non-null inputs would return
-    // null here, but we pass null to avoid constructing an EntityImpl (which requires
-    // a session).
+    // Pin the null-input branch first — kept as-is from earlier work.
     assertNull(
-        "MockSerializer.preprocess returns null — sentinel shape",
+        "MockSerializer.preprocess returns null for null input — sentinel shape",
         s.preprocess(null, (EntityImpl) null));
+  }
+
+  @Test
+  public void preprocessReturnsNullEvenForNonNullInput() {
+    // Falsifiability pin: a regression mutating the body to `return value;` would still
+    // pass the null-input variant above (null → null in either case). Feeding a
+    // distinguishable non-null sentinel via Mockito makes the assertion strictly stronger
+    // — `return value;` would surface the mock instance and fail this test.
+    var nonNullSentinel = mock(EntityImpl.class);
+    assertNull(
+        "MockSerializer.preprocess returns null regardless of input — sentinel shape",
+        MockSerializer.INSTANCE.preprocess(null, nonNullSentinel));
   }
 
   @Test

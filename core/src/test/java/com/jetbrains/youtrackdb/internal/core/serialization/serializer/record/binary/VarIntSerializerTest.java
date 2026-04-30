@@ -167,8 +167,51 @@ public class VarIntSerializerTest {
     }
     input[9] = 0x00; // terminator
     var bc = new BytesContainer(input);
-    // No exception expected; result is irrelevant — the point is the guard does not fire.
-    VarIntSerializer.readUnsignedVarLong(bc);
+    // 9 zero-payload continuation bytes followed by zero terminator decode to 0L. The
+    // payload assertion catches a regression that mis-counts the loop iteration count
+    // or skips the guard; the bare "no-throw" check would not.
+    assertEquals(0L, VarIntSerializer.readUnsignedVarLong(bc));
+  }
+
+  @Test
+  public void nineByteEncodingRoundTripsHighestNonOverflowValue() {
+    // The largest unsigned value encodable in exactly 9 bytes carries 7 payload bits per
+    // continuation byte across positions 0..8 (i.e. (1L<<63)-1). Round-trip pins the
+    // happy 9-byte boundary symmetrically against the overflow guard above and detects a
+    // regression in either the writer's continuation-emit logic or the reader's
+    // shift-and-accumulate path at i=56.
+    final long value = (1L << 63) - 1L;
+    var bc = new BytesContainer();
+    VarIntSerializer.writeUnsignedVarLong(value, bc);
+    var encoded = bc.fitBytes();
+    assertEquals("7-bit chunks across 0..62 → 9 bytes", 9, encoded.length);
+    assertEquals(value, VarIntSerializer.readUnsignedVarLong(new BytesContainer(encoded)));
+  }
+
+  @Test
+  public void integerMaxValueZigZagsToFiveByteVarint() {
+    // Integer.MAX_VALUE zigzags to 0xFFFFFFFE (32-bit width). The unsigned varint encoding
+    // therefore needs ceil(32/7) = 5 bytes — the canonical 5-byte length. A regression
+    // that treated values as if they fit in 4 bytes would either truncate or drop a
+    // continuation byte; both shapes are caught by pinning the encoded length.
+    var bc = new BytesContainer();
+    VarIntSerializer.write(bc, Integer.MAX_VALUE);
+    var encoded = bc.fitBytes();
+    assertEquals("Integer.MAX_VALUE zigzags + varint-encodes to 5 bytes", 5, encoded.length);
+    assertEquals(Integer.MAX_VALUE,
+        (int) VarIntSerializer.readSignedVarLong(new BytesContainer(encoded)));
+  }
+
+  @Test
+  public void integerMinValueZigZagsToFiveByteVarint() {
+    // Integer.MIN_VALUE zigzags to 0xFFFFFFFF (32-bit width). Mirrors the MAX_VALUE pin
+    // above — both 32-bit boundary inputs land at exactly 5 encoded bytes.
+    var bc = new BytesContainer();
+    VarIntSerializer.write(bc, Integer.MIN_VALUE);
+    var encoded = bc.fitBytes();
+    assertEquals("Integer.MIN_VALUE zigzags + varint-encodes to 5 bytes", 5, encoded.length);
+    assertEquals(Integer.MIN_VALUE,
+        (int) VarIntSerializer.readSignedVarLong(new BytesContainer(encoded)));
   }
 
   // --- Truncated / EOF handling on DataInput ---

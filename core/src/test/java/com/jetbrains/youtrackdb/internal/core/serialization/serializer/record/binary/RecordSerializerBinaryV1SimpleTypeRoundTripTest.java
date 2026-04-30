@@ -77,6 +77,18 @@ import org.junit.Test;
  * round-trippable encodings to the {@code BytesContainer} path. WHEN-FIXED — when
  * {@code RecordSerializerBinaryV1#deserializeValue(BytesContainer ...)} adopts the
  * same length validation, add the matching tier-1 negative tests here.
+ *
+ * <p><b>SECURITY.</b> The {@code BytesContainer} read path trusts every length
+ * prefix on the wire — STRING, BINARY, and DECIMAL all dereference attacker-
+ * controlled lengths up to {@code Integer.MAX_VALUE} without an upper bound
+ * before allocation. Round-trip tests in this class deliberately only feed
+ * encodings produced by the matching writer, so they cannot pin the
+ * untrusted-input failure modes; those pins live in
+ * {@code RecordSerializerBinaryV1GuardTest} on the {@code ReadBytesContainer}
+ * variant which already validates lengths. WHEN-FIXED — when the
+ * {@code BytesContainer} variant adopts the same length cap, add a falsifiable
+ * negative-test pin here that feeds an oversize length and asserts the
+ * rejection shape (paired with the {@code ReadBytesContainer} sibling pin).
  */
 public class RecordSerializerBinaryV1SimpleTypeRoundTripTest extends DbTestBase {
 

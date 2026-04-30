@@ -259,6 +259,17 @@ public class BinarySerializerFactoryTest {
         () -> f.registerSerializer(collidingStub, null));
   }
 
+  @Test
+  public void registerSerializerNullInstanceThrowsNpeOnIdLookup() {
+    // Pin the registration-side null-guard contract: passing a null instance trips an NPE
+    // when the factory's duplicate-id check dereferences `iInstance.getId()`. A regression
+    // that silently swallowed nulls (e.g. via a defensive guard returning early) would
+    // leave the factory with no serializer registered for the implicit id and surface as
+    // confusing "missing serializer for id 0" failures in unrelated tests.
+    var f = BinarySerializerFactory.create(BinarySerializerFactory.CURRENT_BINARY_FORMAT_VERSION);
+    assertThrows(NullPointerException.class, () -> f.registerSerializer(null, null));
+  }
+
   // --- A test-only stub for duplicate-id rejection ---
 
   /**

@@ -166,4 +166,46 @@ public class LinkSerializerTest {
     // index-layer normalisation when a position is intentionally null.
     Assert.assertNull(linkSerializer.preprocess(serializerFactory, null));
   }
+
+  @Test
+  public void testRecordIdRejectsClusterIdAboveShortMax() {
+    // The on-wire format reserves 16 bits for the clusterId; this serializer casts
+    // `(short) r.getCollectionId()` unconditionally in serialize / serializeNativeObject.
+    // The cast would silently truncate cluster ids > Short.MAX_VALUE — but RecordId's
+    // constructor rejects oversized cluster ids first via checkCollectionLimits, so the
+    // cast is never reachable through the public RID API. Pin the upstream rejection so
+    // a regression that loosened the constructor guard would fail here before the
+    // silent truncation in the serializer became observable. WHEN-FIXED — when the wire
+    // format eventually widens beyond 16 bits, both the constructor check and the
+    // serializer cast must relax in lockstep, and this pin gets updated.
+    final var oversizedClusterId = Short.MAX_VALUE + 1; // 32768
+    Assert.assertThrows(
+        com.jetbrains.youtrackdb.internal.core.exception.DatabaseException.class,
+        () -> new RecordId(oversizedClusterId, 100L));
+  }
+
+  @Test
+  public void testRecordIdMaximumClusterIdRoundTripsThroughLinkSerializer() {
+    // Maximum legitimate cluster id (Short.MAX_VALUE = 32767) is right on the boundary
+    // of the on-wire short representation. Pinning a round-trip at the limit catches
+    // a regression that off-by-one'd the constructor guard or that mis-encoded the
+    // top of the unsigned-vs-signed boundary in serialize/deserialize.
+    final var maxClusterId = (int) Short.MAX_VALUE;
+    final var rid = new RecordId(maxClusterId, 12345L);
+
+    final var stream = new byte[FIELD_SIZE];
+    linkSerializer.serialize(rid, serializerFactory, stream, 0);
+    final var roundTripped = linkSerializer.deserialize(serializerFactory, stream, 0);
+    Assert.assertEquals(
+        "max-cluster portable round-trip preserves cluster id", maxClusterId,
+        roundTripped.getCollectionId());
+
+    final var nativeStream = new byte[FIELD_SIZE];
+    linkSerializer.serializeNativeObject(rid, serializerFactory, nativeStream, 0);
+    final var nativeRoundTripped =
+        linkSerializer.deserializeNativeObject(serializerFactory, nativeStream, 0);
+    Assert.assertEquals(
+        "max-cluster native round-trip preserves cluster id", maxClusterId,
+        nativeRoundTripped.getCollectionId());
+  }
 }
