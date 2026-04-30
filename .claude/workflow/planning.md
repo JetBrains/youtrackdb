@@ -139,6 +139,13 @@ alongside its format rules.
 | Track checklist intro | 1–3 sentences + `**Scope:**` + `**Depends on:**` |
 | Plan file total | ~1,500 lines / ~30K tokens |
 
+The Track-checklist-intro budget is enforced via the existing
+TRACK DESCRIPTIONS and SCOPE INDICATORS checks in the structural
+review prompt (sentence-count and Scope-line presence), not as a
+separate mechanical bloat rule. Every other row above has a
+corresponding mechanical check in [`structural-review.md`](structural-review.md)
+§ Bloat checks.
+
 Each section below restates its own budget alongside its format rules.
 Where a plan would exceed a budget, the long-form material almost
 always belongs in `design.md` (worked examples, layered diagrams,

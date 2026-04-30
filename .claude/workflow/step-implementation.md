@@ -156,6 +156,16 @@ completion**, before moving to the next step:
    [`risk-tagging.md`](risk-tagging.md) §Override rules for the upgrade
    protocol. Downgrades mid-Phase B are not permitted.
 
+   **Missing `**Risk:**` line.** If the step entry has no `**Risk:**`
+   line at all (e.g., the step file was authored before per-step risk
+   tagging existed and the session resumes against an older plan),
+   treat the step as `high` (safe direction — the cost of an extra
+   review is much lower than missing a real high-risk issue) and ask
+   the user to confirm or override before running the loop. Record the
+   inferred tag in the step's risk note as `high — inferred (no risk
+   line on disk; user-confirmed at <date>)` so subsequent phases see a
+   normal locked tag.
+
    When the loop runs (i.e., the step is `high`), it follows the protocol
    unchanged: up to 3 iterations within your context.
    See [`code-review-protocol.md`](code-review-protocol.md) for the two-tier

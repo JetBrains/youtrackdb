@@ -6,9 +6,9 @@ Phase 2 validates the plan before execution begins. It runs two steps
 in sequence:
 
 1. **Consistency Review** — reads the design document, implementation plan,
-   backlog (when present), and actual codebase to find gaps and
-   inconsistencies between them. Findings are presented to the user for
-   feedback. Iterates until clean.
+   backlog, and actual codebase to find gaps and inconsistencies between
+   them. Findings are presented to the user for feedback. Iterates until
+   clean.
 2. **Structural Review** — validates plan-internal structure (dependency
    ordering, track sizing, scope indicators, architecture notes). Runs
    **automatically** after consistency review passes — no user interaction
