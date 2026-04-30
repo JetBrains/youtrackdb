@@ -75,8 +75,9 @@ public class LinkBagConversionTest extends DbTestBase {
 
   /**
    * Default thresholds (≥ 0) make {@code init()} pick {@link EmbeddedLinkBag}. Pins the
-   * type via wrapper-class assertion (Track 11 wrapper-type precedent — equality on
-   * {@code .getClass()}, not {@code instanceof}).
+   * type via wrapper-class assertion — equality on {@code .getClass()}, not
+   * {@code instanceof}, so a future subclass split of {@link EmbeddedLinkBag} is
+   * caught at the assertion site rather than silently subsumed.
    */
   @Test
   public void defaultThresholdYieldsEmbeddedDelegate() {
