@@ -98,10 +98,14 @@ public class CompositeKeySerializerTest {
 
   @Test
   public void instanceSingletonAndIdAreStable() {
-    // The singleton instance is the canonical one — used by every BinarySerializerFactory call
-    // site through CompositeKeySerializer.INSTANCE. The byte ID 14 is encoded into every
-    // composite-key page on disk; changing it breaks SBTree forward-compatibility.
-    assertSame(CompositeKeySerializer.INSTANCE, CompositeKeySerializer.INSTANCE);
+    // The singleton instance is what BinarySerializerFactory registers at startup; SBTree
+    // pages reach this serializer through the factory id-lookup, not through `new`.
+    // Pin the factory dispatch contract — id 14 must resolve to INSTANCE — so a regression
+    // that re-registered a fresh instance would round-trip but break SBTree page parsing in
+    // production. The byte ID 14 is encoded into every composite-key page on disk;
+    // changing it breaks SBTree forward-compatibility.
+    assertSame(CompositeKeySerializer.INSTANCE,
+        serializerFactory.getObjectSerializer(CompositeKeySerializer.ID));
     assertEquals(14, CompositeKeySerializer.ID);
     assertEquals(14, serializer.getId());
   }

@@ -46,7 +46,7 @@ import org.junit.Test;
  *
  * <p>WHEN-FIXED: deferred-cleanup track — replace with a real {@code EMBEDDED}
  * serializer or remove the registration in
- * {@link BinarySerializerFactory#create(int)} (line 110 today) once it is confirmed
+ * {@link BinarySerializerFactory#create(int)} (its registration loop today) once it is confirmed
  * the EMBEDDED slot is never reached through the factory dispatch path. Note that
  * MockSerializer is still wired in by the factory, so deletion requires deleting the
  * factory registration in lockstep.

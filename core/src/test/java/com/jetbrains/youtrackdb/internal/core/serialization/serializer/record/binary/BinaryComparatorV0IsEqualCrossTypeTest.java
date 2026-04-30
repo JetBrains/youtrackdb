@@ -24,6 +24,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded.ATTRIBUTES;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import java.math.BigDecimal;
 import org.junit.Before;
@@ -46,9 +47,15 @@ public class BinaryComparatorV0IsEqualCrossTypeTest extends DbTestBase {
   private BinaryComparator comparator;
 
   @Before
-  public void initSerializer() {
+  public void initSerializerAndPinTimezone() {
     serializer = RecordSerializerBinary.INSTANCE.getCurrentSerializer();
     comparator = serializer.getComparator();
+    // Pin GMT so DATE encoding/comparison is reproducible across CI/developer hosts —
+    // sibling tests in this package (BinaryComparatorV0DateSourceTest /
+    // BinaryComparatorV0EdgeCasesTest) follow the same convention. Without it, the DATE
+    // source/destination arms route through convertDayToTimezone with the JVM-default
+    // database timezone, which can shift the encoded day by ±1 on hosts west of GMT.
+    session.set(ATTRIBUTES.TIMEZONE, "GMT");
   }
 
   // ===========================================================================
@@ -79,7 +86,7 @@ public class BinaryComparatorV0IsEqualCrossTypeTest extends DbTestBase {
   }
 
   /**
-   * INTEGER × DATE — the production arm at line 99 compares
+   * INTEGER × DATE — the production arm compares
    * {@code int value1 == (readAsLong(fv2) * MILLISEC_PER_DAY)}. Source value 0 equals DATE 0L
    * (= 0 ms); DATE 1L (= 86_400_000 ms) and DATE -1L (= -86_400_000 ms) do NOT equal int 0.
    */
@@ -170,7 +177,7 @@ public class BinaryComparatorV0IsEqualCrossTypeTest extends DbTestBase {
   }
 
   /**
-   * SHORT × DATE — production arm at line 191-195 widens SHORT to long and compares against
+   * SHORT × DATE — production arm widens SHORT to long and compares against
    * {@code readAsLong(fv2) * MILLISEC_PER_DAY}. Only SHORT 0 equals DATE 0; SHORT range
    * (−32 768..32 767) is far too small to equal any non-zero day-multiplied value.
    */
@@ -189,7 +196,7 @@ public class BinaryComparatorV0IsEqualCrossTypeTest extends DbTestBase {
 
   // ===========================================================================
   // BYTE source — supported destinations: INTEGER, LONG, DATETIME, SHORT, BYTE,
-  // FLOAT, DOUBLE, STRING, DECIMAL. Note BYTE has NO DATE arm in isEqual (line 410).
+  // FLOAT, DOUBLE, STRING, DECIMAL. Note BYTE has NO DATE arm in isEqual.
   // ===========================================================================
 
   /** BYTE 10 vs each numeric destination at 10 returns equal; ±1 returns not-equal. */
@@ -284,7 +291,7 @@ public class BinaryComparatorV0IsEqualCrossTypeTest extends DbTestBase {
   }
 
   /**
-   * STRING × DATE — production arm at line 240-242 calls
+   * STRING × DATE — production arm calls
    * {@code Long.parseLong(readString(fv1)) == readAsLong(fv2) * MILLISEC_PER_DAY}. The numeric
    * STRING parses via Long.parseLong and is compared against the day-multiplied DATE side.
    */
@@ -338,7 +345,7 @@ public class BinaryComparatorV0IsEqualCrossTypeTest extends DbTestBase {
   // ===========================================================================
   // DECIMAL source — supported destinations: INTEGER, LONG, DATETIME, SHORT,
   // FLOAT, DOUBLE, STRING, DECIMAL. Note: BYTE is NOT in the isEqual decimal arm
-  // (line 633) — only in the compare arm (line 1276). Verified below.
+  // — only in the compare arm. Verified below.
   // ===========================================================================
 
   /** DECIMAL 10 vs each numeric destination at 10 returns equal; ±1 returns not-equal. */
@@ -364,7 +371,7 @@ public class BinaryComparatorV0IsEqualCrossTypeTest extends DbTestBase {
   @Test
   public void decimalIsEqualWithByteIsUnsupported() {
     // Even when the values are nominally equal, isEqual must return false because the BYTE
-    // arm is missing from the DECIMAL switch in isEqual (line 633). A regression that adds the
+    // arm is missing from the DECIMAL switch in isEqual. A regression that adds the
     // arm to isEqual without updating this pin will fail loudly here.
     assertFalse(
         comparator.isEqual(

@@ -89,6 +89,13 @@ public class SerializableWrapperDeadCodeTest {
 
   @Test
   public void toStreamFromStreamRoundTripsArbitraryPayload() {
+    // NOTE: this pin assumes deletion is the WHEN-FIXED remediation. If the
+    // deferred-cleanup track instead opts to harden the existing class in place via
+    // JEP 290 (ObjectInputFilter + class allow-list), this test must be relaxed to
+    // configure an ObjectInputFilter that explicitly allows ArrayList/Integer for
+    // this specific assertion — do NOT relax the production filter to satisfy the
+    // pin. Same caveat applies to toStreamWithNullPayloadProducesNonEmptyStream
+    // below, which also relies on unfiltered readObject() succeeding.
     var original = new ArrayList<Integer>();
     original.add(1);
     original.add(2);
