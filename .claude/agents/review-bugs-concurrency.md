@@ -24,8 +24,8 @@ Bug- and concurrency-finding rides on reference-accuracy facts:
 interface", "every reader of this shared field", "every subclass of
 this base class". Those questions MUST be answered using **mcp-steroid
 PSI find-usages / find-implementations / type-hierarchy** when the
-mcp-steroid MCP server (at `host.docker.internal:6315`) is reachable.
-Grep silently misses polymorphic call sites, generic dispatch,
+mcp-steroid MCP server is reachable. Grep silently misses
+polymorphic call sites, generic dispatch,
 identifiers inside Javadoc/comments, and recently-renamed symbols —
 exactly the cases where a "this is thread-confined" or "no other
 caller" claim is most likely to be wrong. Use grep only for filename

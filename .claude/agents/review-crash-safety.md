@@ -25,8 +25,8 @@ page", "every WAL record type with this opcode", "every override of
 this redo() method", "every caller of this atomic operation
 boundary" are reference-accuracy questions. Use **mcp-steroid PSI
 find-usages / find-implementations / type-hierarchy** when the
-mcp-steroid MCP server (at `host.docker.internal:6315`) is
-reachable. Grep silently misses polymorphic call sites, generic
+mcp-steroid MCP server is reachable. Grep silently misses
+polymorphic call sites, generic
 dispatch, and identifiers inside Javadoc/comments — exactly the
 sites where a "WAL coverage is complete" or "this redo handles every
 case" claim is most likely to be wrong. Use grep only for filename

@@ -25,8 +25,8 @@ safety, security, performance) rides on reference-accuracy facts:
 "every consumer of this field", "is this internal type leaking into
 a public signature". Use **mcp-steroid PSI find-usages /
 find-implementations / type-hierarchy** when the mcp-steroid MCP
-server (at `host.docker.internal:6315`) is reachable. Grep silently
-misses polymorphic call sites, generic dispatch, and identifiers
+server is reachable. Grep silently misses polymorphic call sites,
+generic dispatch, and identifiers
 inside Javadoc/comments — exactly the cases where a "no other
 caller" or "thread-confined" claim is most likely to be wrong. Use
 grep only for filename globs, unique string literals, and

@@ -29,8 +29,8 @@ of this method", "every override of this interface", "every
 producer that should land in this assertion" are reference-
 accuracy questions. Use **mcp-steroid PSI find-usages /
 find-implementations / type-hierarchy** when the mcp-steroid MCP
-server (at `host.docker.internal:6315`) is reachable. Grep
-silently misses polymorphic call sites, generic dispatch, and
+server is reachable. Grep silently misses polymorphic call sites,
+generic dispatch, and
 identifiers inside Javadoc/comments — exactly the cases where a
 "this contract is fully asserted" or "no other behavior path
 exists" claim flips. Use grep only for filename globs, unique

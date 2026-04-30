@@ -22,9 +22,9 @@ signature?), DRY/duplication checks (is there really an existing
 helper for this?), and consistency checks (do callers of this
 method already follow the new pattern?) are reference-accuracy
 questions. Use **mcp-steroid PSI find-usages / find-implementations /
-type-hierarchy** when the mcp-steroid MCP server (at
-`host.docker.internal:6315`) is reachable — grep silently misses
-polymorphic call sites, generic dispatch, and identifiers inside
+type-hierarchy** when the mcp-steroid MCP server is reachable —
+grep silently misses polymorphic call sites, generic dispatch, and
+identifiers inside
 Javadoc/comments. Use grep only for filename globs, unique string
 literals, and orientation reads. If mcp-steroid is unreachable,
 fall back to grep and add an explicit reference-accuracy caveat to

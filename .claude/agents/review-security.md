@@ -24,8 +24,8 @@ Taint analysis traces sources to sinks across method boundaries:
 authentication filter", "every consumer of this user-supplied
 field". Those are reference-accuracy questions. Use **mcp-steroid
 PSI find-usages / find-implementations / type-hierarchy** when the
-mcp-steroid MCP server (at `host.docker.internal:6315`) is
-reachable. Grep silently misses polymorphic call sites and generic
+mcp-steroid MCP server is reachable. Grep silently misses
+polymorphic call sites and generic
 dispatch — exactly the cases where a "this method is unreachable
 from external input" claim flips. Use grep only for filename globs,
 unique string literals (matching specific config keys, error

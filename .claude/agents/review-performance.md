@@ -23,8 +23,8 @@ on a hot path?", "who calls this — every-record, every-query, or
 once at startup?", "every override of this hot-path interface". Those
 are reference-accuracy questions. Use **mcp-steroid PSI find-usages
 / find-implementations / type-hierarchy** when the mcp-steroid MCP
-server (at `host.docker.internal:6315`) is reachable. Grep silently
-misses polymorphic call sites, generic dispatch, and identifiers
+server is reachable. Grep silently misses polymorphic call sites,
+generic dispatch, and identifiers
 inside Javadoc/comments — exactly the cases where a "this is hot"
 or "this is called once" claim flips. Use grep only for filename
 globs, unique string literals, and orientation reads. If mcp-steroid
