@@ -84,9 +84,6 @@ of the changes.
 5. Use `{base_commit}` when spawning all review sub-agents.
    All sub-agents review `git diff {base_commit}..HEAD`.
 
-If `## Base commit` is missing (e.g., older step file format), fall back to
-finding the parent of the first step's commit via git log.
-
 ---
 
 ## Sub-agents
@@ -139,10 +136,7 @@ this track appear with their episodes. Each step also carries a
 `medium` and `high` step ranges as **focal points** within the diff
 (weight your attention toward those changes; the tag identifies where
 tests + the workflow's own gating could not easily catch issues, so
-this review carries more of the load there). If the file does not
-contain a `## Description` section (legacy step file created before
-Phase A's description-move was added), read the track description from
-the plan file's checklist entry instead.
+this review carries more of the load there).
 
 ## Changed Files
 {output of git diff {base_commit}..HEAD --name-only — passed inline,
@@ -326,20 +320,16 @@ proceed directly to track completion **in the same session**.
 4. **Write the track episode, collapse the description, and mark `[x]`**
    in the plan file on disk (only after user approval):
 
-   Apply the three-clause collapse rule from
+   Apply the collapse rule from
    [`conventions-execution.md`](conventions-execution.md) §2.1
    "After track completion (user-approved)". Quick form: always keep
    the intro paragraph + `**Track episode:**` block + `**Step file:**`
-   pointer; always drop `**Scope:**` and `**Depends on:**`; drop the
-   four `**What/How/Constraints/Interactions**` subsections only if
-   present — §2.1's three-clause form covers the conditional-drop
-   behaviour across new-format, legacy, and mid-migration plan shapes.
-   (The `**Strategy refresh:**` line belongs to §2.1's "Always keep"
+   pointer; always drop `**Scope:**` and `**Depends on:**`. (The
+   `**Strategy refresh:**` line belongs to §2.1's "Always keep"
    clause but is never yet on disk at Phase C collapse time; the next
    session's strategy refresh appends it.) The collapse does not touch
-   `implementation-backlog.md` — if a backlog exists, Phase A already
-   removed Track N's section at the start of this track; if not,
-   there is nothing to touch.
+   `implementation-backlog.md` — Phase A already removed Track N's
+   section at the start of this track.
 
    Final on-disk form:
 

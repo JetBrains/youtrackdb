@@ -56,37 +56,16 @@ instruction — keep it intact when customising.
       Notes, Decision Records, Component Map) and the current track's
       intro paragraph.
 
-   b. **Detect the description source** for Track N based on the
-      on-disk presence of
-      `docs/adr/<dir-name>/implementation-backlog.md`:
+   b. **Read Track N's section from the backlog**
+      (`docs/adr/<dir-name>/implementation-backlog.md`). Read the
+      track's intro paragraph from the plan-file entry and the
+      `**What/How/Constraints/Interactions**` subsections + any
+      track-level `mermaid` block from the backlog's `## Track N:
+      <title>` section. The section body is defined by the "Backlog
+      section body extraction rule" in `conventions-execution.md`
+      §2.1.
 
-      - **(i) New-format** — the backlog file exists **and** contains a
-        `## Track N: <title>` section. Read the track's intro paragraph
-        from the plan-file entry and the
-        `**What/How/Constraints/Interactions**` subsections + any
-        track-level `mermaid` block from the backlog section. The
-        section body is defined by the "Backlog section body
-        extraction rule" in `conventions-execution.md` §2.1.
-      - **(ii) Mid-migration fallback** — the backlog file exists
-        **but** has no `## Track N:` section (e.g., a partial
-        hand-migration). Read the full track description from the
-        plan-file entry's checklist block, and do NOT attempt a
-        backlog-section removal in sub-step (e) below (there is no
-        section to remove).
-      - **(iii) Legacy** — the backlog file is absent. Read the full
-        track description from the plan-file entry's checklist block.
-
-   c. **Mid-migration drift crosscheck (safety valve).** If the plan
-      entry still carries `**What/How/Constraints/Interactions**`
-      subsections **and** the backlog has a `## Track N:` section, the
-      description has drifted into two live locations simultaneously.
-      Flag to the user and pause — do not auto-resolve, and do not
-      proceed to sub-steps (d)-(e) until the user has reconciled the
-      two descriptions manually and re-run `/execute-tracks`. This
-      check is a safety valve against hand-edits gone wrong, not a
-      routine code path.
-
-   d. **Create the step file atomically** at
+   c. **Create the step file atomically** at
       `docs/adr/<dir-name>/tracks/track-N.md` in a single Write call
       that contains: `## Description` (populated with the copied intro
       + `**What/How/Constraints/Interactions**` subsections + any
@@ -102,37 +81,23 @@ instruction — keep it intact when customising.
       Subsequent phases may Edit the file normally; only the initial
       creation must be atomic.
 
-   e. **Remove Track N's section from the backlog** (skip this sub-step
-      for the mid-migration and legacy branches — the former has
-      nothing to remove, the latter has no backlog file to edit).
-      Before removing, **re-check** that
-      `docs/adr/<dir-name>/implementation-backlog.md` still exists on
-      disk: the file-exists test is cheap, and running it again here
-      avoids carrying forward an assumption from sub-step (b) that
-      another agent or hand-edit may have invalidated in the
-      meantime.
-
-      Delete per the "Backlog section body extraction rule" in
+   d. **Remove Track N's section from the backlog.** Delete per the
+      "Backlog section body extraction rule" in
       `conventions-execution.md` §2.1 — that rule states the
       header-boundary algorithm and the line-count-deletion
       prohibition once as the single authoritative source. Preserve
-      the backlog's opening `# <Feature> — Track Details` header and
-      its `<!-- DO NOT DELETE ... -->` HTML comment.
+      the backlog's opening `# <Feature> — Track Details` header.
 
       When the last remaining `## Track M:` section is removed, leave
-      the backlog file on disk with only its header and HTML comment.
-      The file's continued presence — even when empty — is what signals
-      "new-format plan" to downstream operations (late `track-skip`,
-      slim plan rendering, the `review-plan` orchestrator). Deleting
-      it mid-execution would flip those operations into legacy mode.
-      Natural cleanup happens when the branch is deleted after PR
-      merge, like every other working file.
+      the backlog file on disk with only its header. Natural cleanup
+      happens when the branch is deleted after PR merge, like every
+      other working file.
 
 3. **Run track-scoped reviews** as sub-agents (technical, risk, adversarial
    as warranted). After each review completes:
    - Write the review file to `docs/adr/<dir-name>/reviews/track-N-<type>.md`
    - Update the **Reviews completed** section in the step file
-     (created atomically in step 2d).
+     (created atomically in sub-step 2c).
    - These files persist on disk between sessions — the next session can
      skip completed reviews and only re-run missing ones.
    - **Context consumption check** (mandatory after each review, except
@@ -330,9 +295,9 @@ different aspects, based on what is actually needed.
 
 ### Phase A Resume — Description-move recovery
 
-The description-move in §What You Do sub-steps (b)-(e) performs two
-on-disk mutations: the atomic step-file write in (d) and the
-backlog-section removal in (e). Either operation may be interrupted by
+The description-move in §What You Do sub-steps (b)-(d) performs two
+on-disk mutations: the atomic step-file write in (c) and the
+backlog-section removal in (d). Either operation may be interrupted by
 a session termination. When `/execute-tracks` auto-resumes into Phase A
 (the Startup Protocol's State C `Review + decomposition is [ ]` row
 routes here), the main agent observes two states — the step file's
@@ -350,11 +315,9 @@ was interrupted and State C resumed here).
 
 | Step file state | Backlog state | Resume action |
 |---|---|---|
-| Missing | `## Track N:` section present | Fresh Phase A: run §What You Do sub-steps (a)-(e) from the top. Sub-step (d)'s single-Write rule rules out an on-disk step file with an empty `## Description`, so this row cannot represent a partial (d); it only represents an interruption at or before (c). |
-| Missing | No `## Track N:` section (mid-migration) or no backlog file at all (legacy) | Fresh Phase A: read the full description from the plan-file entry per §What You Do branch (ii)/(iii); skip sub-step (e). |
-| Present, `## Description` populated | `## Track N:` section still present | Partial interruption after (d), before (e) completed. Run sub-step (e) **verbatim** — including its file-exists re-check preamble — and remove the backlog section using the "Backlog section body extraction rule" in `conventions-execution.md` §2.1. Do NOT re-copy into the step file's `## Description`. |
-| Present, `## Description` populated | No `## Track N:` section / no backlog file | Steady state. No description mutation needed. Resume from the next incomplete Phase A activity (reviews not yet run, decomposition not yet written). |
-| Present WITHOUT `## Description` section (step file predates the Phase A description-move — it was created by Phase A before sub-steps (b)-(e) were added) | Any of the above — the backlog state is irrelevant for this row | Leave the step file's Description state untouched. Phase A review prompts detect the missing `## Description` and fall back to reading the description from the plan-file entry. Resume from the next incomplete Phase A activity. |
+| Missing | `## Track N:` section present | Fresh Phase A: run §What You Do sub-steps (a)-(d) from the top. Sub-step (c)'s single-Write rule rules out an on-disk step file with an empty `## Description`, so this row cannot represent a partial (c); it only represents an interruption at or before (b). |
+| Present, `## Description` populated | `## Track N:` section still present | Partial interruption after (c), before (d) completed. Run sub-step (d) **verbatim** and remove the backlog section using the "Backlog section body extraction rule" in `conventions-execution.md` §2.1. Do NOT re-copy into the step file's `## Description`. |
+| Present, `## Description` populated | No `## Track N:` section | Steady state. No description mutation needed. Resume from the next incomplete Phase A activity (reviews not yet run, decomposition not yet written). |
 
 After the resume action completes, Phase A continues normally — the
 §Complexity Assessment, review loop, and §Step Decomposition proceed

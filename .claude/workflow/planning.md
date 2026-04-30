@@ -339,11 +339,7 @@ The detailed description in the backlog should cover:
 The file format and template for both files are defined in
 `conventions.md` §1.2; the authoritative location of the detailed
 description over time (Phase 1 → Phase A → Phase B/C) is given by the
-description-lifecycle table in `conventions-execution.md` §2.1. See
-also the D4 legacy-compat rule in `conventions.md` §1.2 — if
-`implementation-backlog.md` exists on disk, the plan is new-format;
-otherwise the plan is legacy and keeps all detail in the plan file as
-before.
+description-lifecycle table in `conventions-execution.md` §2.1.
 
 **Track sizing rule:** If a track would need more than ~5-7 steps, split it
 into separate dependent tracks during planning. The execution agent

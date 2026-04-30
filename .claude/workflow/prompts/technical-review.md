@@ -57,18 +57,16 @@ Inputs:
   Decision Records, Component Map)
 - Step file: {step_file_path} (the track's `## Description` section —
   authoritative source for the track's What/How/Constraints/Interactions
-  and any track-level diagram. If the step file lacks a `## Description`
-  section, fall back to the plan-file entry for the track.)
+  and any track-level diagram.)
 - Track to review: {track_name}
 - Codebase root: {codebase_path}
 - Episodes from completed tracks: {prior_episodes}
 - Previous findings: {previous_findings}
 
 Start by reading the track description and any track-level component
-diagram from the step file's `## Description` section — if the step file
-lacks this section, fall back to the plan-file entry for the track. Read
-the relevant Decision Records from the plan. Then explore the parts of
-the codebase this track touches.
+diagram from the step file's `## Description` section. Read the
+relevant Decision Records from the plan. Then explore the parts of the
+codebase this track touches.
 
 **Tooling — PSI is required for symbol audits.** Reference-accuracy
 questions about Java symbols in this codebase (callers/overrides/usages

@@ -27,36 +27,14 @@ file:**` pointer, and the `**Strategy refresh:**` line if present — the
 next session's strategy refresh appends it per §"After strategy refresh"
 below.
 
-**Always drop** (regardless of plan shape): the `**Scope:**` line and
-the `**Depends on:**` line.
+**Always drop**: the `**Scope:**` line and the `**Depends on:**` line.
 
-**Conditional drop** — applied according to the plan shape:
-
-1. **New-format plan** (`implementation-backlog.md` exists on disk):
-   pending-track entries in the plan were already written in the thin
-   form during Phase 1, so there are no `**What**:` / `**How**:` /
-   `**Constraints**:` / `**Interactions**:` subsections present to drop.
-   The collapse reduces to the "Always drop" rule above. The detailed
-   description was removed from the backlog at Phase A start and already
-   lives in the step file's `## Description` section; Phase C does not
-   touch the backlog.
-2. **Legacy plan** (no `implementation-backlog.md` on disk): pending-
-   track entries still carry `**What/How/Constraints/Interactions**`
-   subsections — drop those in addition to `**Scope:**` and
-   `**Depends on:**` (today's behavior).
-3. **Mid-migration plan** (`implementation-backlog.md` exists on disk,
-   but this particular entry still carries legacy
-   `**What/How/Constraints/Interactions**` subsections — e.g., a
-   partial hand-migration): drop those subsections as in the legacy
-   case, in addition to `**Scope:**` and `**Depends on:**`. Whether the
-   backlog is present does not affect the per-entry decision; the
-   presence of the keyword subsections themselves is what triggers the
-   drop. This case arises only from manual hand-migration of a legacy
-   plan; normal workflow operations never leave a new-format plan
-   entry with residual keyword subsections.
-
-Quick reference: always drop `**Scope:**` and `**Depends on:**`; drop
-the four keyword subsections only if present.
+Pending-track entries in the plan are written in the thin form during
+Phase 1, so there are no `**What**:` / `**How**:` / `**Constraints**:` /
+`**Interactions**:` subsections present in the plan-file entry to drop —
+the detailed description was removed from the backlog at Phase A start
+and already lives in the step file's `## Description` section; Phase C
+does not touch the backlog.
 
 ```markdown
 - [x] Track 2: <title>
@@ -83,8 +61,7 @@ re-sent to every sub-agent as strategic context. Keeping the full
 implementation detail for completed tracks inflates every code-review
 sub-agent prompt by tens of thousands of tokens. The intro paragraph plus
 track episode is sufficient strategic context for reviewers of later
-tracks. For how sub-agents render the plan (including the same shape
-applied in-memory for legacy un-collapsed entries), see
+tracks. For how sub-agents render the plan, see
 [`plan-slim-rendering.md`](plan-slim-rendering.md).
 
 ### After strategy refresh
@@ -112,13 +89,11 @@ For ADJUST, include a brief summary of what was adjusted:
 ```
 
 For skipped tracks (`[~]`), the strategy refresh line follows the skip
-record. The on-disk form keeps whatever description was in the plan
-entry: in new-format plans that is the intro paragraph only (the
+record. The plan entry holds only the intro paragraph (the
 `**What/How/Constraints/Interactions**` detail lived in
-`implementation-backlog.md` and track-skip removes that section at the
-same time it marks `[~]` — see `track-skip.md`); in legacy plans that
-is the full inline description. Skipped tracks never go through the
-Phase C collapse, so nothing further trims the plan entry:
+`implementation-backlog.md` and `track-skip` removes that section at the
+same time it marks `[~]` — see `track-skip.md`). Skipped tracks never go
+through the Phase C collapse, so nothing further trims the plan entry:
 
 ```markdown
 - [~] Track 3: <title>
@@ -150,7 +125,7 @@ detection is used.
 <assembled at Phase A start — intro paragraph from the plan entry plus
 `**What/How/Constraints/Interactions**` + optional diagram from the
 backlog. See the "Description lifecycle" subsection at the end of §2.1
-for authoritative-location rules and the legacy-plan fallback.>
+for authoritative-location rules across phases.>
 
 ## Progress
 - [x] Review + decomposition
@@ -199,11 +174,7 @@ with the backlog-section body; it is re-written only if
 track's description. Phase B and Phase C sub-agents that already read
 the step file see the description here automatically — see the
 Description lifecycle subsection below for the authoritative-location
-rules across phases. For legacy plans (no `implementation-backlog.md`
-on disk), the section is still written at Phase A start but the whole
-description is sourced from the plan-file entry's checklist block —
-legacy plans keep intro + `**What/How/Constraints/Interactions**` all
-inline there (legacy fallback — see `track-review.md` §Phase A).
+rules across phases.
 
 The **Progress** section tracks which phase the track is in. The execution
 agent updates it at each phase transition:
@@ -274,9 +245,8 @@ pending, active, and completed tracks. Phase A resume logic (see
 [`inline-replanning.md`](inline-replanning.md)) both read the same
 rules from here. Skipped tracks follow a separate retention rule —
 see §"After strategy refresh" above for the authoritative statement
-(in new-format plans the plan entry keeps only the intro paragraph;
-in legacy plans it keeps the full inline description; either way, the
-`[~]` entry is never collapsed).
+(the plan entry keeps only the intro paragraph; the `[~]` entry is
+never collapsed).
 
 | Phase | Authoritative location | Writer | Reader(s) |
 |---|---|---|---|
@@ -296,22 +266,13 @@ description (backlog → step file at Phase A; never rendered in the
 plan file). The writer and readers at each phase are the same as the
 corresponding description row above.
 
-**Legacy plans** (no `implementation-backlog.md` on disk, per D4): the
-description remains in the plan-file entry until Phase C collapse drops
-the keyword subsections. The step file still gets a `## Description`
-section at Phase A start, sourced from the plan-file entry rather than
-the backlog — see the legacy branch of `track-review.md` §Phase A.
-
 **Monotonic shrinkage:** The backlog grows only during Phase 1 or inline
 replanning, and shrinks as tracks enter Phase A or are skipped. Normal
 Phase A / B / C execution never adds entries. The file itself is never
 committed to git — it is a working file that persists on disk between
 sessions and is cleaned up when the branch is deleted after PR merge
 (see `conventions.md` §1.2: "Working files persist on disk between
-sessions and are never committed"). The load-bearing-file rule in the
-same section requires the file to remain on disk for the lifetime of
-the plan, even after the last track section is removed (an empty
-header-only file still signals the new-format plan).
+sessions and are never committed").
 
 ### Backlog section body extraction rule
 
@@ -332,7 +293,7 @@ search for the header boundary at removal time.
 This is the single authoritative definition used wherever the workflow
 reads or removes a track's backlog section: Phase A description-move
 (see [`track-review.md`](track-review.md) §What You Do item 2,
-sub-step (e)), `track-skip` backlog cleanup (see
+sub-step (d)), `track-skip` backlog cleanup (see
 [`track-skip.md`](track-skip.md)), and inline-replanning updates (see
 [`inline-replanning.md`](inline-replanning.md)). All three entry points
 apply the rule verbatim — keeping the extraction logic identical
@@ -444,9 +405,9 @@ Examples:
 - ✅ `// part of the atomic step-file-write + backlog-section-remove
       ordering that keeps Phase A resume idempotent`
 
-- ❌ `Review fix: address CQ72 (anchor drift in legacy fallback)`
-- ✅ `Review fix: restore byte-identical phrasing at the two legacy-
-      fallback cross-reference sites in plan-slim-rendering.md`
+- ❌ `Review fix: address CQ72 (anchor drift in slim rendering)`
+- ✅ `Review fix: restore byte-identical phrasing at the two
+      cross-reference sites in plan-slim-rendering.md`
 
 - ❌ `// see Track 4 iteration 1 for context`
 - ✅ `// see commit abc1234 for the follow-up that restored these

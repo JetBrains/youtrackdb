@@ -78,14 +78,11 @@ findings.
 - **Gaps**: plan elements without design coverage, design elements no track
   covers, codebase constructs the documents should reference but don't
 
-For new-format plans, each pending track's detailed description
+Each pending track's detailed description
 (`**What/How/Constraints/Interactions**` subsections and any track-level
 Mermaid diagram) lives in `implementation-backlog.md` rather than
 inline in the plan file; the consistency review reads the backlog
-alongside the plan. Legacy plans (no backlog file on disk) keep those
-subsections in the plan-file checklist entry and the review falls back
-to the plan entry there. See the prompt's per-entry fallback rule for
-the full lifecycle.
+alongside the plan.
 
 ### Sub-agent prompt
 
@@ -135,14 +132,11 @@ Dependency ordering, track sizing, scope indicators, architecture notes
 completeness, design document structure, decision traceability, internal
 consistency.
 
-For new-format plans, each pending track's detailed description (the
-subject of TRACK DESCRIPTIONS checks, plus several cross-file bullets
-in TRACK SIZING, SCOPE INDICATORS, and CONSISTENCY) lives in
-`implementation-backlog.md` rather than inline in the plan file; the
-structural review reads the backlog alongside the plan. Legacy plans
-(no backlog file on disk) keep those subsections in the plan-file
-checklist entry and the review falls back to the plan entry there. See
-the prompt's per-entry fallback rule for the full lifecycle.
+Each pending track's detailed description (the subject of TRACK
+DESCRIPTIONS checks, plus several cross-file bullets in TRACK SIZING,
+SCOPE INDICATORS, and CONSISTENCY) lives in `implementation-backlog.md`
+rather than inline in the plan file; the structural review reads the
+backlog alongside the plan.
 
 **Full details:** [`structural-review.md`](structural-review.md)
 

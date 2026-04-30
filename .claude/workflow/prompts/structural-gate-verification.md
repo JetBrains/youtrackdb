@@ -3,11 +3,7 @@ structural review findings.
 
 Inputs:
 - Updated plan file: {plan_path}
-- Backlog file: {backlog_path} (may be absent — when
-  `implementation-backlog.md` does not exist on disk, track descriptions
-  live in the plan file's checklist entries in legacy format; see the
-  detection-rule paragraph at the top of the "Semi-Formal Verification
-  Protocol" section below for mid-migration and legacy handling)
+- Backlog file: {backlog_path}
 - Design document: {design_path}
 - Previous findings (context only, finalized in earlier iterations):
   {previous_findings}
@@ -28,15 +24,11 @@ fixes sometimes shift problems rather than solving them.
 Before verifying any finding whose fix touched a pending track's
 description, re-read that track's description (the
 `**What/How/Constraints/Interactions**` subsections and any track-level
-Mermaid diagram) from the backlog's `## Track N: <title>` section when
-the backlog file is present and contains that section. If the backlog
-file is absent (legacy plan) or the entry has been left with its detail
-inline in the plan file (mid-migration edge case), fall back to the
-plan-file checklist entry's `**What/How/Constraints/Interactions**`
-block. For **completed** (`[x]`) and **skipped** (`[~]`) tracks, read
-from the plan-file entry (intro paragraph + track episode for completed;
-intro + `**Skipped:**` reason for skipped). Read Architecture Notes,
-Decision Records, and other strategic context from the plan regardless.
+Mermaid diagram) from the backlog's `## Track N: <title>` section. For
+**completed** (`[x]`) and **skipped** (`[~]`) tracks, read from the
+plan-file entry (intro paragraph + track episode for completed; intro +
+`**Skipped:**` reason for skipped). Read Architecture Notes, Decision
+Records, and other strategic context from the plan regardless.
 
 For each ACCEPTED finding being verified, produce a **verification
 certificate** that re-checks the specific plan location:

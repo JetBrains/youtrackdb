@@ -47,23 +47,17 @@ Decision Record revisions follow this format:
 ```
 
 **File-location mechanics.** Each proposed track revision lands in a
-specific file on disk depending on the track's current status and
-whether the plan is new-format (backlog present) or legacy (no backlog).
-See [§Updating plan and backlog](#updating-plan-and-backlog) below for
-the authoritative rule per case.
+specific file on disk depending on the track's current status. See
+[§Updating plan and backlog](#updating-plan-and-backlog) below for the
+authoritative rule per case.
 
 **4. Review** — spawn a sub-agent to validate the revised plan using the
 structural review protocol from Phase 2 (see `structural-review.md`).
-The invocation passes `plan_path` + `backlog_path` per the legacy-fallback
-sentinel rule in `.claude/skills/review-plan/SKILL.md` (always pass
-`backlog_path`; when `implementation-backlog.md` does not exist on disk,
-pass the would-be path annotated `(none — legacy plan)` as the sentinel).
-The downstream `prompts/structural-review.md` prompt-reader carries the
-"(may be absent — …)" degradation prose; the path-passing layer does not
-conditionally omit the argument. The sub-agent receives the full plan
-file including both completed track episodes and the proposed revisions,
-plus the backlog (or its legacy-fallback sentinel) so pending-track
-details that were split into `implementation-backlog.md` are reachable.
+The invocation passes `plan_path` + `backlog_path` per the path-passing
+rule in `.claude/skills/review-plan/SKILL.md`. The sub-agent receives
+the full plan file including both completed track episodes and the
+proposed revisions, plus the backlog so pending-track details split
+into `implementation-backlog.md` are reachable.
 
 **5. Iterate** — if the review finds blockers, revise and re-review. Maximum
 3 iterations.
@@ -93,54 +87,25 @@ correction must resync them.
 Enumerate by case — each case names the plan status at the moment of
 revision and the file(s) that carry the new description:
 
-1. **New track.** Branch on plan shape by checking whether
-   `implementation-backlog.md` exists on disk (the D4 detection rule in
-   `conventions.md` §1.2):
-   - **New-format plan** (backlog file present): add a thin checklist
-     entry (title + intro paragraph + `**Scope:**` + optional
-     `**Depends on:**`) to `implementation-plan.md`, and add the full
-     `**What/How/Constraints/Interactions**` subsections (plus any
-     track-level Mermaid diagram) to `implementation-backlog.md`.
-   - **Legacy plan** (backlog file absent): add the full checklist entry
-     — title + intro paragraph + `**What/How/Constraints/Interactions**`
-     subsections + `**Scope:**` + optional `**Depends on:**` — inline in
-     `implementation-plan.md`, matching the rest of the legacy plan's
-     shape. Do not create `implementation-backlog.md` mid-execution; the
-     legacy plan stays legacy for the remainder of its lifecycle.
+1. **New track.** Add a thin checklist entry (title + intro paragraph +
+   `**Scope:**` + optional `**Depends on:**`) to
+   `implementation-plan.md`, and add the full
+   `**What/How/Constraints/Interactions**` subsections (plus any
+   track-level Mermaid diagram) to `implementation-backlog.md`.
 
 2. **Revising a not-yet-started track** (status `[ ]`, no step file yet).
-   Branch on plan shape by checking whether `implementation-backlog.md`
-   exists on disk (this is the detection rule stated in `conventions.md`
-   §1.2, used anywhere the workflow distinguishes new-format from legacy
-   plans):
-   - **New-format plan** (backlog file present): update that track's
-     section in `implementation-backlog.md`. The plan-file checklist
-     entry keeps its intro paragraph + `**Scope:**` + `**Depends on:**`
-     unchanged unless the intro itself is being revised.
-   - **Legacy plan** (backlog file absent): update the plan-file
-     checklist entry's `**What/How/Constraints/Interactions**`
-     subsections (today's behavior — the legacy plan carries the full
-     description inline). If the revision also changes the intro
-     paragraph, update that too — mirrors Case 3's intro-paragraph
-     clause.
+   Update that track's section in `implementation-backlog.md`. The
+   plan-file checklist entry keeps its intro paragraph + `**Scope:**` +
+   `**Depends on:**` unchanged unless the intro itself is being revised.
 
 3. **Revising a mid-execution track** (status `[ ]` with a step file on
    disk — the execution workflow never sets `[>]` on a track). Update
    the step file's `## Description` section. The backlog entry was
-   already removed at Phase A start (see `track-review.md` sub-step (e)),
+   already removed at Phase A start (see `track-review.md` sub-step (d)),
    so the step file is now the single authoritative location for this
-   track's description — do NOT add a new backlog entry. For legacy
-   plans, the step file's `## Description` was populated from the
-   plan-file checklist entry at Phase A start and the plan-file
-   checklist entry still carries its
-   `**What/How/Constraints/Interactions**` subsections until Phase C
-   collapse drops them (per `conventions-execution.md` §2.1). To avoid
-   two stale copies, also update the plan-file checklist entry's
-   `**What/How/Constraints/Interactions**` subsections to match the
-   revised step-file description, and if the revision changes the intro
-   paragraph, update that too. The plan-file subsections will be
-   dropped at Phase C collapse anyway; updating them here keeps the
-   two locations consistent in the interim.
+   track's description — do NOT add a new backlog entry. If the
+   revision changes the intro paragraph, update the plan-file checklist
+   entry's intro paragraph to match.
 
 4. **Revising a completed track** (status `[x]`). This is rare — code
    for `[x]` tracks is already merged, so a revision typically means

@@ -19,11 +19,11 @@ Read:
 - `docs/adr/<dir-name>/tracks/track-*.md` — all step files with step
   episodes. Each step file begins with a `## Description` section
   carrying the track's original description (copied there at Phase A
-  start from the backlog, or for legacy plans from the plan-file
-  checklist entry), so "what each track was supposed to do" lives in
-  the step file rather than in `implementation-backlog.md`. By Phase 4
-  the backlog is header-only: every track has either completed or been
-  skipped, and both paths removed their backlog entries.
+  start from the backlog), so "what each track was supposed to do"
+  lives in the step file rather than in `implementation-backlog.md`.
+  By Phase 4 the backlog is header-only: every track has either
+  completed or been skipped, and both paths removed their backlog
+  entries.
 
 Using the plan's Architecture Notes and track episodes as a guide, read the
 actual implemented code: all classes, interfaces, and components mentioned

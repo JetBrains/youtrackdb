@@ -42,14 +42,10 @@ snapshot file; concurrent sessions do not collide.
 ### How the main agent generates it
 
 1. Read `docs/adr/<dir-name>/implementation-plan.md`.
-2. Apply the rendering rule below, in-memory. Under the split-file plan
-   format (`implementation-backlog.md` present on disk per the D4
-   detection rule in `conventions.md` §1.2), pending-track entries
-   (`[ ]`) are already thin on disk — the transform for that row is a
-   no-op; the legacy-fallback row below handles the residual case where
-   the plan is legacy (no backlog file) or mid-migration (backlog file
-   present but a pending entry still carries
-   `**What/How/Constraints/Interactions**` subsections).
+2. Apply the rendering rule below, in-memory. Pending-track entries
+   (`[ ]`) are already thin on disk (their detail lives in
+   `implementation-backlog.md`), so the transform for that row is a
+   no-op.
 3. Write the result to `/tmp/claude-code-plan-slim-$PPID.md`.
 
 This can be done in a single pass during the phase's startup. The main
@@ -70,10 +66,7 @@ This is a filtered view of the full plan — completed and skipped tracks
 appear as title + intro paragraph + track episode (or Skipped reason) +
 strategy refresh only; the current track and other not-started tracks
 keep their title, intro paragraph, `**Scope:**`, and `**Depends on:**`.
-In legacy or mid-migration plans, pending-track
-`**What/How/Constraints/Interactions**` subsections are stripped
-in-memory at snapshot time (see the Legacy-fallback row of the
-rendering rule). If this file is missing, fall back to
+If this file is missing, fall back to
   docs/adr/{dir-name}/implementation-plan.md
 (full plan).
 ```
@@ -96,41 +89,21 @@ Sub-agents run in separate processes and don't inherit the main agent's
 
 3. **For each track in the checklist:**
 
-   Rows are evaluated top-down; the Legacy-fallback row is the first
-   exception that fires when a `[ ]` entry still carries
-   `**What/How/Constraints/Interactions**` subsections. In a fully
-   migrated new-format plan it never matches and processing falls
-   through to the default `[ ]` row. (Track markers are `[ ]`, `[x]`,
-   or `[~]` per `conventions.md` §1.2 — `[>]` is Phase-4-only and never
-   appears on a track entry.)
+   (Track markers are `[ ]`, `[x]`, or `[~]` per `conventions.md` §1.2
+   — `[>]` is Phase-4-only and never appears on a track entry.)
 
    | Status | Keep | Drop |
    |---|---|---|
-   | **Legacy fallback** (pre-empts the `[ ]` row) — trigger is the conjunction: the backlog-file-existence check on `implementation-backlog.md` (per D4) plus per-entry subsection presence. A `[ ]` entry satisfies the trigger when either the backlog file is absent (legacy plan) or the backlog file is present but the entry itself still carries `**What/How/Constraints/Interactions**` subsections (mid-migration plan with a not-yet-migrated entry). | Title line, intro paragraph, `**Scope:**`, optional `**Depends on:**` | **What/How/Constraints/Interactions** subsections — stripped in-memory at snapshot time |
-   | `[ ]` (not started or in-progress current track) — default row, applied when the Legacy-fallback row does not match | Everything in the entry verbatim — title line, intro paragraph, `**Scope:**`, optional `**Depends on:**`. Under the split-file format (D4 — backlog file present), that is all the entry carries on disk; the transform is a no-op. | Nothing |
-   | `[x]` (completed) | Title line, **intro paragraph** (the first quoted block before any `**Keyword**:` subsection), **Track episode**, **Strategy refresh** line (if present) | **What/How/Constraints/Interactions** subsections (legacy residuals), **Scope** line, **Depends on** line, **Step file** pointer line |
-   | `[~]` (skipped) | Title line, **intro paragraph**, **Skipped:** reason, **Strategy refresh** line (if present) | **What/How/Constraints/Interactions** subsections, **Scope** line, **Depends on** line |
+   | `[ ]` (not started or in-progress current track) | Everything in the entry verbatim — title line, intro paragraph, `**Scope:**`, optional `**Depends on:**`. The detailed `**What/How/Constraints/Interactions**` content lives in `implementation-backlog.md`, not in the plan-file entry; the transform is a no-op. | Nothing |
+   | `[x]` (completed) | Title line, **intro paragraph** (the first quoted block before any `**Keyword**:` subsection), **Track episode**, **Strategy refresh** line (if present) | **Scope** line, **Depends on** line, **Step file** pointer line |
+   | `[~]` (skipped) | Title line, **intro paragraph**, **Skipped:** reason, **Strategy refresh** line (if present) | **Scope** line, **Depends on** line |
 
    **Current track exception:** The track currently being executed is
    always `[ ]` in the plan file (it is not marked `[x]` until Phase C
    completes; the execution workflow never sets `[>]` on a track). Apply
-   the `[ ]` rule — the entry is kept verbatim (or, for the
-   legacy-fallback case, verbatim minus the
-   `**What/How/Constraints/Interactions**` subsections). This preserves
-   the "current track rendered in full" contract that sub-agents rely
-   on for tactical context.
-
-   **New legacy-fallback branch — not a preservation of today's rule.**
-   Today's rendering rule keeps every `[ ]` entry verbatim with no
-   stripping; the legacy-fallback row introduces a NEW in-memory
-   transform that applies only when the entry actually carries
-   `**What/How/Constraints/Interactions**` subsections. In a fully
-   migrated new-format plan this transform never fires. Detection is
-   per-entry: the file-existence check on the backlog (per D4)
-   discriminates legacy from new, and the subsection presence on the
-   entry itself distinguishes a mid-migration residual from a
-   fully-migrated entry. Action is the same in both cases — strip the
-   subsections in-memory so sub-agents see a slim pending-track entry.
+   the `[ ]` rule — the entry is kept verbatim. This preserves the
+   "current track rendered in full" contract that sub-agents rely on
+   for tactical context.
 
 4. **Keep the `## Final Artifacts` section verbatim.**
 
@@ -138,24 +111,13 @@ Sub-agents run in separate processes and don't inherit the main agent's
 
 ## Example — before and after
 
-### Before (full render, 90+ lines for one completed track)
+### Before (pre-collapse on-disk form — completed track entry still carries `**Scope:**`, `**Depends on:**`, and `**Step file:**` lines)
 
 ```markdown
 - [x] Track 2: Direct Buffer Write Infrastructure
   > Modify `AtomicOperationBinaryTracking` to support direct buffer writes
   > alongside the existing overlay mode, with a per-file flag controlling
   > which path is used.
-  >
-  > **What**: Add `directBuffer` boolean to `FileChanges`. Make
-  > `CacheEntryChanges.changes` non-final and nullable — initialized to
-  > `null` for direct-buffer files, `new WALPageChangesPortion()` for
-  > overlay files. ... [dozens of lines of implementation detail] ...
-  >
-  > **How**: ... [more lines] ...
-  >
-  > **Constraints**: ... [more lines] ...
-  >
-  > **Interactions**: ... [more lines] ...
   >
   > **Scope:** ~6 steps covering direct-buffer write path, flush ordering,
   > undo log integration.
@@ -172,7 +134,7 @@ Sub-agents run in separate processes and don't inherit the main agent's
   > **Strategy refresh:** CONTINUE — no downstream impact detected.
 ```
 
-### After (slim render, ~15 lines)
+### After (slim render)
 
 ```markdown
 - [x] Track 2: Direct Buffer Write Infrastructure
@@ -206,13 +168,6 @@ paragraph — keep it as-is.
 
 [`track-code-review.md`](track-code-review.md) §Track Completion step 4
 also collapses the description **on disk** to match this slim format
-when a track is marked `[x]`. Once a plan has been through one track
-completion under the new rule, the slim rendering above and the on-disk
-form match for completed tracks — the rendering rule is then idempotent
-for those entries.
-
-For completed tracks from earlier plans (pre-refactor), the on-disk form
-still carries the full description. The slim rendering strips it at
-prompt-assembly time, so sub-agent contexts are compact either way. If
-you want to also shrink the on-disk plan, manually apply the collapse
-rule to those legacy entries.
+when a track is marked `[x]`. Once a track is collapsed, the slim
+rendering above and the on-disk form match — the rendering rule is
+idempotent for those entries.

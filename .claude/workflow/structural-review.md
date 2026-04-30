@@ -3,13 +3,11 @@
 ## Goal
 
 Validate the plan's internal structure and completeness across the plan
-file and backlog (when present). This is a lightweight check that does
-NOT read the codebase — it catches plan-level defects (dependency
-cycles, missing descriptions, contradictions, **bloat**) cheaply. For
-new-format plans, pending-track `**What/How/Constraints/Interactions**`
-detail lives in `implementation-backlog.md`; the review reads both
-files. For legacy plans (no backlog file on disk), that detail is
-inline in the plan-file entry and the review falls back to it there.
+file and backlog. This is a lightweight check that does NOT read the
+codebase — it catches plan-level defects (dependency cycles, missing
+descriptions, contradictions, **bloat**) cheaply. Pending-track
+`**What/How/Constraints/Interactions**` detail lives in
+`implementation-backlog.md`; the review reads both files.
 
 The review also enforces the per-section budgets defined in
 `planning.md` § Architecture Notes format. Plan-file bloat is paid by

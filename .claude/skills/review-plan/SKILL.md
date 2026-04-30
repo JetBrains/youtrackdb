@@ -22,52 +22,30 @@ name. Otherwise, default to the current git branch name
 (`git branch --show-current`).
 
 Plan file: docs/adr/<dir-name>/implementation-plan.md
-Backlog file: docs/adr/<dir-name>/implementation-backlog.md (see
-  legacy-fallback sentinel rule below)
+Backlog file: docs/adr/<dir-name>/implementation-backlog.md
 Design document: docs/adr/<dir-name>/design.md
 Review output directory: docs/adr/<dir-name>/reviews/
 
----
-
-## Backlog file and legacy-fallback sentinel rule
-
-The plan's `implementation-backlog.md` companion file holds pending-track
+The backlog file holds pending-track
 `**What/How/Constraints/Interactions**` detail and any track-level
-Mermaid diagrams (see `conventions.md` §1.2 D4 for the detection rule
-and `conventions-execution.md` §2.1 for the Description lifecycle).
-Phase 2 sub-agents read the backlog to verify pending-track descriptions.
-
-Resolve the argument as follows before each sub-agent spawn:
-
-- If `docs/adr/<dir-name>/implementation-backlog.md` **exists on disk**:
-  pass its absolute path as the `backlog_path` argument.
-- If the file **does not exist on disk** (legacy plan per
-  `conventions.md` §1.2 D4): pass the would-be path annotated
-  `(none — legacy plan)` — e.g.,
-  `docs/adr/<dir-name>/implementation-backlog.md (none — legacy plan)` —
-  rather than omitting the argument. The prompt's `Inputs:` block
-  describes the degradation in prose and falls back to reading
-  pending-track descriptions from the plan file's checklist entries.
-
-This mirrors the Phase A `step_file_path` convention — the placeholder
-shape stays stable across plans so sub-agent prompts can describe the
-fallback inline. The rule is written here once and referenced from each
-of the four sub-agent invocations below.
+Mermaid diagrams (see `conventions-execution.md` §2.1 for the
+Description lifecycle). Phase 2 sub-agents read it alongside the plan
+to verify pending-track descriptions; pass its absolute path as the
+`backlog_path` argument on each sub-agent spawn.
 
 ---
 
 ## Step 1: Consistency Review (interactive)
 
-1. Read the plan file, the backlog file (resolved per the legacy-fallback
-   sentinel rule above), the design document, and the workflow documents.
-   Also consult `planning.md` §Architecture Notes format and
-   `design-document-rules.md` for the rules the review validates against.
+1. Read the plan file, the backlog file, the design document, and the
+   workflow documents. Also consult `planning.md` §Architecture Notes
+   format and `design-document-rules.md` for the rules the review
+   validates against.
 2. Spawn the consistency review sub-agent with the prompt from
    `.claude/workflow/prompts/consistency-review.md`. Pass the plan file,
-   backlog file (resolved per the legacy-fallback sentinel rule above),
-   and design document path as the prompt's named inputs. The sub-agent
-   reads the codebase directly via Grep/Glob/Read (cwd is the repo root),
-   so no separate codebase path input is required.
+   backlog file, and design document path as the prompt's named inputs.
+   The sub-agent reads the codebase directly via Grep/Glob/Read (cwd is
+   the repo root), so no separate codebase path input is required.
 3. Receive the findings report.
 4. Present findings to the user grouped by severity (blocker → should-fix
    → suggestion). For each finding, show:
@@ -78,8 +56,7 @@ of the four sub-agent invocations below.
 6. Apply accepted fixes to the plan file and/or design document.
 7. Spawn the consistency gate verification sub-agent with:
    - The updated plan file
-   - The backlog file (resolved per the legacy-fallback sentinel rule
-     above)
+   - The backlog file
    - The updated design document
    - Previous findings (context only, finalized in earlier iterations) —
      passed as the `previous_findings` argument
@@ -105,8 +82,7 @@ review without waiting for user confirmation.
 10. Spawn the structural review sub-agent with the prompt from
     `.claude/workflow/prompts/structural-review.md`. Pass:
     - The plan file
-    - The backlog file (resolved per the legacy-fallback sentinel rule
-      above)
+    - The backlog file
     - The design document path
     - The workflow directory path
 11. Receive the findings report.
@@ -121,8 +97,7 @@ review without waiting for user confirmation.
 15. Apply accepted fixes.
 16. Spawn the structural gate verification sub-agent with:
     - The updated plan file
-    - The backlog file (resolved per the legacy-fallback sentinel rule
-      above)
+    - The backlog file
     - The design document
     - Previous findings (context only, finalized in earlier iterations) —
       passed as the `previous_findings` argument

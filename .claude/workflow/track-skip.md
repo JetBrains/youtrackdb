@@ -21,51 +21,37 @@ A track can be skipped (`[~]`) in two situations:
 
    ```markdown
    - [~] Track N: <title>
-     > <description>
+     > <intro paragraph>
      >
      > **Skipped:** <reason — e.g., "Prior track already implemented the
      > histogram reader; this track's scope is fully covered.">
    ```
 
-   The `<description>` placeholder carries whatever the plan-file
-   entry already holds when the skip is decided:
+   The plan entry holds only the intro paragraph; the
+   `**What/How/Constraints/Interactions**` subsections and any
+   track-level diagram lived in `implementation-backlog.md` and are
+   removed in step 3 below.
 
-   - **New-format plans** (backlog file present) — the plan entry holds
-     only the intro paragraph; the
-     `**What/How/Constraints/Interactions**` subsections and any
-     track-level diagram lived in `implementation-backlog.md` and are
-     removed in step 3 below. The skip record therefore retains the
-     intro paragraph only.
-   - **Legacy plans** (no backlog file on disk) — the plan entry holds
-     the full inline description (intro +
-     `**What/How/Constraints/Interactions**`). The skip record retains
-     the whole block.
-
-   The authoritative retention rule for `[~]` entries across both
-   shapes lives in `conventions-execution.md` §"After strategy
-   refresh" — this process step must not diverge from that rule.
+   The authoritative retention rule for `[~]` entries lives in
+   `conventions-execution.md` §"After strategy refresh" — this process
+   step must not diverge from that rule.
 
    The skip record replaces both the track episode and step file
    reference. It must include enough context for strategy refresh to
    assess downstream impact.
 
-3. **Remove Track N's section from `implementation-backlog.md`**
-   (only if the backlog file is present — skip for legacy plans).
+3. **Remove Track N's section from `implementation-backlog.md`**.
    Delete per the "Backlog section body extraction rule" in
    `conventions-execution.md` §2.1 — that rule states the
    header-boundary algorithm (and the line-count-deletion
    prohibition) once as the single authoritative source. Preserve
-   the backlog's opening `# <Feature> — Track Details` header and
-   its `<!-- DO NOT DELETE ... -->` HTML comment. No-op if the
-   section is already gone.
+   the backlog's opening `# <Feature> — Track Details` header.
+   No-op if the section is already gone.
 
    When the last remaining `## Track M:` section is removed, leave
-   the backlog file on disk with only its header and HTML comment —
-   same empty-backlog final-state rule that Phase A follows. The
-   file's continued presence signals "new-format plan" to downstream
-   operations; deleting it would flip those operations into legacy
-   mode. Natural cleanup happens when the branch is deleted after
-   PR merge.
+   the backlog file on disk with only its header — same empty-backlog
+   final-state rule that Phase A follows. Natural cleanup happens
+   when the branch is deleted after PR merge.
 
    **Backlog deletion is terminal.** Un-skipping a track via inline
    replanning requires re-authoring the plan entry's description
@@ -95,9 +81,8 @@ If the skip is decided during Phase A (review sub-agent recommends it and
 user confirms):
 
 - Write the `[~]` marker and skip record to the plan file on disk
-- Remove Track N's section from `implementation-backlog.md` if the
-  backlog file is present (skip for legacy plans; no-op if the
-  section is already gone)
+- Remove Track N's section from `implementation-backlog.md` (no-op
+  if the section is already gone)
 - Delete any partially-created step file and review files from disk
 - The session continues: if strategy refresh was already done, proceed to
   the next `[ ]` track's Phase A. If no more tracks remain, proceed to
@@ -110,8 +95,7 @@ user confirms):
 If the user says "skip Track N" at session start:
 
 - Write the `[~]` marker and skip record on disk (user provides the reason)
-- Remove Track N's section from `implementation-backlog.md` if the
-  backlog file is present (skip for legacy plans; no-op if the
-  section is already gone)
+- Remove Track N's section from `implementation-backlog.md` (no-op
+  if the section is already gone)
 - Delete any step file and review files for that track from disk
 - Continue with normal startup protocol for the next track
