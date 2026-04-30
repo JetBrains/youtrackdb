@@ -90,6 +90,16 @@ import org.junit.Test;
  * {@code === Tier 2 ===}. Edge cases (empty containers, deep nesting, null elements,
  * mixed-type schemaless collections) live in {@code === Edge cases ===} so a regression that
  * silently changes one branch is easy to localise.
+ *
+ * <p><b>SECURITY.</b> The collection deserialisers (EMBEDDEDLIST, EMBEDDEDSET, EMBEDDEDMAP,
+ * LINKLIST, LINKSET, LINKMAP, LINKBAG) read element counts via varint without an upper-
+ * bound cap; an attacker-controlled byte stream can claim a huge element count and force
+ * the dispatch loop to consume bytes well past the buffer's intended payload. The negative
+ * tests in this class only feed encodings produced by the matching writer; the
+ * unbounded-count failure mode is not pinned because it requires a production-side cap (or
+ * a length-prefixed envelope) before a falsifiable test is meaningful. WHEN-FIXED — when
+ * the collection deserialisers grow a cap, add a falsifiable pin here that feeds a forged
+ * count beyond the cap and asserts the rejection shape.
  */
 public class RecordSerializerBinaryV1CollectionRoundTripTest extends DbTestBase {
 
@@ -1222,23 +1232,8 @@ public class RecordSerializerBinaryV1CollectionRoundTripTest extends DbTestBase 
     return peer.getIdentity();
   }
 
-  /**
-   * Run the supplied body inside a fresh transaction; any active transaction left over
-   * from {@link #persistPeerWithName} is rolled back first. Always rolls back the body's
-   * transaction on exit so successive tests do not stack open transactions.
-   */
   private void runInTx(Runnable body) {
-    if (session.isTxActive()) {
-      session.rollback();
-    }
-    session.begin();
-    try {
-      body.run();
-    } finally {
-      if (session.isTxActive()) {
-        session.rollback();
-      }
-    }
+    RecordSerializerBinaryTestFixture.runInTx(session, body);
   }
 
   /**
