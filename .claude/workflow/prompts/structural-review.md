@@ -106,6 +106,15 @@ TRACK DESCRIPTIONS *(backlog for pending, plan-file for completed/skipped)*
   components with non-trivial interactions)?
 - Are track descriptions substantive enough for the execution agent to
   decompose steps from them?
+- Does each track's plan-file intro paragraph stay within 1–3
+  sentences (the prose paragraph that precedes `**Scope:**` and, if
+  present, `**Depends on:**`)? An intro that runs 4+ sentences or
+  spans multiple paragraphs has expanded into territory that belongs
+  in the backlog's W/H/C/I subsections or in `design.md`; the plan
+  checklist is loaded at every `/execute-tracks` session startup, so
+  every extra intro sentence is paid by every Phase A/B/C session for
+  the rest of the plan's life. *(plan-file only — the intro paragraph
+  lives in the plan checklist for every track regardless of status.)*
 
 TRACK SIZING
 - Does any track's scope indicator suggest more than ~5-7 steps? If so,
