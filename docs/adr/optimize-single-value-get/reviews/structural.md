@@ -31,3 +31,31 @@ Cross-page test complexity. Execution agent handles tactical decisions.
 
 ## Result: PASS
 No blockers. 4 findings applied, 4 skipped.
+
+---
+
+## Track 5 Review
+
+### S9 [should-fix] — ACCEPTED
+Component Map missing `IndexMultiValuKeySerializer`. Added node + relationship + bullet.
+
+### S10 [should-fix] — ACCEPTED
+`preprocess()` parenthetical was ambiguous. Clarified wording.
+
+### S11 [should-fix] — REJECTED
+Design.md coincidentally matches Track 5 target state. Frozen — no meta-notes added.
+
+### S12 [should-fix] — ACCEPTED
+D4 deferral said "after Track 4" but Non-Goals said "after Track 5". Updated D4 to match.
+
+### S13 [suggestion] — No action needed
+Scope ~3 steps is tight but plausible. Execution agent can split if needed.
+
+### S14 [suggestion] — REJECTED
+D5 risks could mention per-type correctness. Test strategy already covers this.
+
+### S15 [should-fix] — No action needed
+WAL variant and compareInByteBuffer coupling noted. Scope indicator is flexible.
+
+## Result (Track 5): PASS
+No blockers. 3 findings applied (S9, S10, S12), 4 skipped/rejected.
