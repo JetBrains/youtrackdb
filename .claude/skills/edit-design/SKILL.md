@@ -34,7 +34,8 @@ the plan lifecycle:
 **Phase 4 special case.** Phase 4 produces `design-final.md` (and
 `design-mechanics-final.md` if the original had a mechanics companion).
 Use the `phase4-creation` kind — structurally similar to
-`phase1-creation` (one-shot creation of both files, full discipline) but
+`phase1-creation` (one-shot creation, full discipline; one or both
+files depending on whether a mechanics companion is needed) but
 targeting the `*-final.md` paths and skipping plan/backlog ref
 propagation (those refs point at the original `design.md`, not at the
 new final artifact). No follow-up `mechanics-edit` / `design-sync` cycle:
@@ -272,8 +273,11 @@ schema as mechanical findings.
 ### Step 5: Merge findings
 
 Combine mechanical + cold-read findings into a single list. Sort by
-severity: `blocker` → `should-fix` → `suggestion`. Deduplicate by `(rule,
-location)` if the same issue appears in both halves.
+severity: `blocker` → `should-fix` → `suggestion`. Mechanical findings
+carry a structured `rule` field; cold-read findings are free-form
+bullets and won't usually duplicate the mechanical set, but if a
+cold-read bullet plainly restates a mechanical finding (same severity,
+same location, same shape rule), drop the cold-read copy.
 
 ### Step 6: Iterate
 

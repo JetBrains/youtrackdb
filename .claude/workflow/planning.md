@@ -421,10 +421,12 @@ situation that touches the design. See `design-document-rules.md`
 § Mutation discipline for the full protocol.
 
 **Phase 1 sub-phases (working / sync model).** Phase 1 is internally
-three sub-phases — `phase1-creation` (seed both files), `mechanics-edit`
-(iterate on mechanics with `design.md` frozen as a stable reference;
-cold-read deferred), and `design-sync` (re-distill `design.md` from
-current mechanics; full discipline runs). The user can request a sync
+three sub-phases — `phase1-creation` (seed `design.md`; the
+`edit-design` skill decides whether a `design-mechanics.md` companion
+is needed up front, default single file), `mechanics-edit` (iterate on
+mechanics with `design.md` frozen as a stable reference; cold-read
+deferred), and `design-sync` (re-distill `design.md` from current
+mechanics; full discipline runs). The user can request a sync
 explicitly at any time, or accept the auto-suggestion that fires after
 5 mechanics edits. Full protocol in `design-document-rules.md`
 § Two-mode editing — working vs sync.

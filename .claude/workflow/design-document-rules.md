@@ -293,9 +293,12 @@ iterate on the design with `design.md` staying stable as a
 reference between batches, the workflow has three sub-phases:
 
 ```
-Phase 1.1  phase1-creation     ── seed both files; full discipline
-   │                             on design.md, stripped checks on
-   │                             mechanics.
+Phase 1.1  phase1-creation     ── seed design.md (and design-mechanics.md
+   │                             only when the design plans for a mechanics
+   │                             companion or a single-file seed would
+   │                             already cross the length trigger; default
+   │                             single file). Full discipline on design.md,
+   │                             stripped checks on mechanics when present.
    ▼
 Phase 1.2  mechanics-edit      ── agent processes user feedback by
    │ ↻                           mutating mechanics; mechanical-only

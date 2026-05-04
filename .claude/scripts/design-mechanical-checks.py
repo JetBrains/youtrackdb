@@ -85,17 +85,42 @@ def read_lines(path: str) -> List[str]:
 # tags including `c++`, `c#`, and dotted forms like `objective-c.swift`.
 # Lines beginning with ``` but containing inline triple-backtick spans
 # like `` ```inline``` more text `` are NOT fences.
-_CODE_FENCE_RE = re.compile(r"^(```+|~~~+)\s*[\w+#.\-]*\s*$")
+_CODE_FENCE_RE = re.compile(r"^(`{3,}|~{3,})\s*[\w+#.\-]*\s*$")
+
+
+def parse_code_fence(line: str) -> Optional[Tuple[str, int]]:
+    """Return `(char, length)` if `line` is a fenced-code-block delimiter, else None.
+
+    `char` is `` ` `` or `~`; `length` is the run length. The caller uses this to
+    track an *open* fence and decide whether a subsequent fence-shaped line
+    actually closes it: per CommonMark, a closing fence must use the same
+    character as the opener and be at least as long.
+    """
+    m = _CODE_FENCE_RE.match(line)
+    if m is None:
+        return None
+    run = m.group(1)
+    return run[0], len(run)
 
 
 def is_code_fence_line(line: str) -> bool:
-    """Return True iff `line` is a fenced-code-block opener/closer.
+    """Return True iff `line` is a fenced-code-block delimiter (opener or closer)."""
+    return parse_code_fence(line) is not None
 
-    The fence must be alone on its line (CommonMark): three or more
-    backticks/tildes, optional whitespace, optional info string of word
-    chars and hyphens, optional trailing whitespace, then end of line.
+
+def fence_closes(open_fence: Tuple[str, int], line: str) -> bool:
+    """Return True iff `line` is a fence delimiter that closes `open_fence`.
+
+    Per CommonMark, the closing fence must use the same character as the opener
+    and be at least as long. A backtick fence is NOT closed by a tilde fence
+    of any length, and a 4-char ```` ```` fence is NOT closed by a 3-char ``` fence.
     """
-    return _CODE_FENCE_RE.match(line) is not None
+    parsed = parse_code_fence(line)
+    if parsed is None:
+        return False
+    char, length = parsed
+    open_char, open_len = open_fence
+    return char == open_char and length >= open_len
 
 
 def parse_sections(lines: List[str]) -> Tuple[List[Dict], List[Dict]]:
@@ -114,18 +139,23 @@ def parse_sections(lines: List[str]) -> Tuple[List[Dict], List[Dict]]:
     parts: List[Dict] = []
     current_part: Optional[Dict] = None
     current_section: Optional[Dict] = None
-    in_code_fence = False
+    open_fence: Optional[Tuple[str, int]] = None
 
     for i, line in enumerate(lines, start=1):
-        # Fenced code block tracking — per CommonMark, an opening/closing fence
-        # is 3+ consecutive backticks (or tildes) optionally followed by an
-        # info string with no embedded backticks (and only whitespace after).
-        # Lines that start with ``` but contain inline triple-backtick spans
-        # like `` ```inline``` more text `` are NOT fences and must not toggle.
-        if is_code_fence_line(line):
-            in_code_fence = not in_code_fence
-            continue
-        if in_code_fence:
+        # Fenced code block tracking — per CommonMark, the closing fence must
+        # use the same character as the opener and be at least as long.
+        # Tracking just an `in_fence` bool would mis-handle nested fences
+        # (e.g. ```` ``` `` example outer, ``` `` ``` inner) and treat the
+        # inner fence as a close, exposing the inner content's `##` lines as
+        # phantom sections.
+        if open_fence is None:
+            parsed = parse_code_fence(line)
+            if parsed is not None:
+                open_fence = parsed
+                continue
+        else:
+            if fence_closes(open_fence, line):
+                open_fence = None
             continue
 
         # `# Part N — name` (or any other top-level `# ` heading after the title).
@@ -183,12 +213,16 @@ def collect_all_headings(lines: List[str]) -> List[Tuple[int, int, str]]:
     Level is 1 for `# `, 2 for `## `, 3 for `### `, etc.
     """
     headings: List[Tuple[int, int, str]] = []
-    in_code_fence = False
+    open_fence: Optional[Tuple[str, int]] = None
     for i, line in enumerate(lines, start=1):
-        if is_code_fence_line(line):
-            in_code_fence = not in_code_fence
-            continue
-        if in_code_fence:
+        if open_fence is None:
+            parsed = parse_code_fence(line)
+            if parsed is not None:
+                open_fence = parsed
+                continue
+        else:
+            if fence_closes(open_fence, line):
+                open_fence = None
             continue
         m = re.match(r"^(#{1,6})\s+(.+?)\s*$", line)
         if m:
@@ -303,9 +337,10 @@ def check_overview_first(design_path: str, lines: List[str], sections: List[Dict
             "overview-body",
             f"{design_path}:{first['line_start']}",
             (f"`## Overview` has only {len(body_non_empty)} non-empty body line(s) (excluding "
-             "fences). Overview must carry the baseline being replaced, the change, the "
-             "enabling primitive(s), what else is restructured to fit, and a one-sentence "
-             "document-structure roadmap — typically 15-40 lines."),
+             "fences). Overview must carry, in order, the five required elements: baseline "
+             "being replaced, the change, the enabling primitive(s), what else is restructured "
+             "to fit, and a one-sentence document-structure roadmap. A body shorter than 5 "
+             "non-empty lines cannot meaningfully cover all five."),
             "Flesh out the Overview section per design-document-rules.md § Overview "
             "(mandatory, first content).",
         ))
@@ -366,16 +401,23 @@ def section_body_lines_outside_fences(lines: List[str], section: Dict) -> List[s
 
     Section heading lines are guaranteed by `parse_sections` to sit outside
     any fence (headings inside fences are skipped), so a body always starts
-    with `in_fence = False`. Fence opener/closer lines are themselves dropped.
+    with no open fence. Fence opener/closer lines are themselves dropped.
+    Uses CommonMark same-char-and-length matching so a 3-char ``` doesn't
+    falsely close a 4-char ```` outer fence.
     """
     out: List[str] = []
-    in_fence = False
+    open_fence: Optional[Tuple[str, int]] = None
     for line in section_body_lines(lines, section):
-        if is_code_fence_line(line):
-            in_fence = not in_fence
-            continue
-        if not in_fence:
+        if open_fence is None:
+            parsed = parse_code_fence(line)
+            if parsed is not None:
+                open_fence = parsed
+                continue
             out.append(line)
+        else:
+            if fence_closes(open_fence, line):
+                open_fence = None
+            # Lines inside an open fence are dropped, including the closer.
     return out
 
 
@@ -417,11 +459,33 @@ def check_per_section_shape(
 ) -> List[Dict]:
     """Check that every section (except exempt ones) has TL;DR and References blocks."""
     findings: List[Dict] = []
+    # Validate `changed_section` against the section list before iterating. A
+    # typo'd section name (or a stale name passed during a section-rename)
+    # would otherwise skip every section in the loop and silently return zero
+    # findings — the script would emit verdict=PASS without ever running the
+    # per-section shape check on the bounded scope's actual target.
+    if scope == "bounded" and changed_section is not None:
+        normalized_target = normalize_heading(changed_section)
+        section_titles = [s["title"] for s in sections]
+        if not any(normalize_heading(s["title"]) == normalized_target for s in sections):
+            findings.append(make_finding(
+                "blocker",
+                "changed-section-not-found",
+                f"{design_path}:1",
+                (f"--changed-section \"{changed_section}\" does not match any `## ` heading in "
+                 f"{design_path}. The bounded per-section shape check would skip every section "
+                 "and silently return PASS. Section titles in this file: "
+                 f"{section_titles[:20]}{'...' if len(section_titles) > 20 else ''}."),
+                ("Pass the exact section title (case- and punctuation-sensitive after fuzzy "
+                 "normalization). For section-rename mutations, pass the NEW title."),
+            ))
+            return findings
     for section in sections:
         if is_shape_exempt(section):
             continue
         # When scope is "bounded" and a changed section is specified, only check that section.
-        if scope == "bounded" and changed_section is not None and section["title"] != changed_section:
+        if (scope == "bounded" and changed_section is not None
+                and normalize_heading(section["title"]) != normalize_heading(changed_section)):
             continue
         location = f"{design_path}:{section['line_start']}"
         if not section_has_tldr(lines, section):
@@ -567,7 +631,7 @@ def check_dsc_parenthetical_asides(
     findings: List[Dict] = []
     # Track which lines are inside a References block (which legitimately lists D/S codes).
     in_references = False
-    in_code_fence = False
+    open_fence: Optional[Tuple[str, int]] = None
 
     aside_patterns = [
         re.compile(r"\([Pp]er D\d+(?:\s*[,/]\s*D\d+)*\)"),
@@ -577,10 +641,14 @@ def check_dsc_parenthetical_asides(
     ]
 
     for i, line in enumerate(lines, start=1):
-        if is_code_fence_line(line):
-            in_code_fence = not in_code_fence
-            continue
-        if in_code_fence:
+        if open_fence is None:
+            parsed = parse_code_fence(line)
+            if parsed is not None:
+                open_fence = parsed
+                continue
+        else:
+            if fence_closes(open_fence, line):
+                open_fence = None
             continue
 
         # References block toggles on `### References` or `**References.**`,
@@ -690,7 +758,13 @@ def check_same_shape_siblings(
 # Phase 1 mutations target the first two; Phase 4 targets the `-final.md`
 # variants. The regex must catch all four so refs are validated regardless of
 # which mutation kind is running.
-_FILENAME_RE = re.compile(r"\b(design(?:-final|-mechanics(?:-final)?)?\.md)\b")
+#
+# The leading negative lookbehind rejects matches preceded by a word char or
+# hyphen, so prefixed variants like `test-design.md`, `pre-design.md`, or
+# `not-design-final.md` don't sneak through (a plain `\b` boundary sits at the
+# `-d` transition and would silently strip the prefix). The closing `\b` is
+# fine — `.md` is followed by end-of-line or punctuation in valid refs.
+_FILENAME_RE = re.compile(r"(?<![\w-])(design(?:-final|-mechanics(?:-final)?)?\.md)\b")
 _QUOTE_RE = re.compile(r"§\s*\"([^\"]+)\"")
 
 
@@ -894,7 +968,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--backlog-path", help="Absolute path to implementation-backlog.md (optional)")
     p.add_argument("--changed-section", help="Title of the section that changed (for bounded scope)")
     p.add_argument("--scope", choices=("bounded", "whole-doc"), default="whole-doc",
-                   help="Scope of checks (default: whole-doc)")
+                   help=("Scope of the per-section shape check only (default: whole-doc). "
+                         "When `bounded`, --changed-section is required and the per-section "
+                         "TL;DR/References check runs only against that section. ALL OTHER "
+                         "checks (per-section length cap, parenthetical asides, top-level cap, "
+                         "mechanics-link resolution, length-trigger compliance, same-shape "
+                         "siblings, full-design link resolution, reverse-direction refs) "
+                         "always run whole-doc regardless of --scope."))
     p.add_argument("--target", choices=("design", "mechanics", "both"), default="design",
                    help=("Which file the mutation actually touched. `design` runs the full "
                          "design.md shape rules + cross-file checks (default — current behavior). "
