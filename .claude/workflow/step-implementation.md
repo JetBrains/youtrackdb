@@ -477,11 +477,12 @@ until sub-steps 1–7 above are done.
 ### `escalate_to_user_then_respawn(step, result)`
 
 Triggered when `result.RESULT == DESIGN_DECISION_NEEDED`. The
-implementer has run `git reset --hard HEAD` per
+implementer has run `git reset --hard HEAD && git clean -fd` per
 [`implementer-rules.md`](implementer-rules.md) §Detection rules, so
 the working tree is clean at `step_base_commit` (no commit was
-produced). `result.DESIGN_DECISION` is populated with `context`,
-`alternatives`, `recommendation`, and `exploration_notes`.
+produced, and no untracked files were left behind).
+`result.DESIGN_DECISION` is populated with `context`, `alternatives`,
+`recommendation`, and `exploration_notes`.
 
 Verify `git status` is clean before continuing — a dirty tree at
 this point is a contract violation; surface the discrepancy to the
@@ -504,11 +505,12 @@ user instead of proceeding.
 
 Triggered when `result.RESULT == RISK_UPGRADE_REQUESTED`. The
 implementer has flagged that the step is more invasive than its
-tagged risk and has run `git reset --hard HEAD` per
+tagged risk and has run `git reset --hard HEAD && git clean -fd` per
 [`implementer-rules.md`](implementer-rules.md) §Detection rules, so
 the working tree is clean at `step_base_commit` (no commit was
-produced). `result.RISK_UPGRADE` carries `from`, `to`, `category`,
-and `evidence`.
+produced, and no untracked files were left behind).
+`result.RISK_UPGRADE` carries `from`, `to`, `category`, and
+`evidence`.
 
 Verify `git status` is clean before continuing — a dirty tree at
 this point is a contract violation; surface the discrepancy to the
@@ -543,9 +545,10 @@ Triggered when `result.RESULT == FAILED` from `mode=INITIAL` or
 `mode=FIX_REVIEW_FINDINGS`, the dim-review loop dispatches to
 `rollback_and_handle_failure` instead — see §Post-Commit Handlers.
 
-The implementer has already reverted any uncommitted changes
-(`git reset --hard HEAD`) before returning, so the working tree is
-clean at `step_base_commit`. `result.FAILURE` carries
+The implementer has already reverted any uncommitted changes and
+removed any untracked artefacts
+(`git reset --hard HEAD && git clean -fd`) before returning, so the
+working tree is clean at `step_base_commit`. `result.FAILURE` carries
 `what_was_attempted`, `why_it_failed`, `impact_on_remaining_steps`,
 and `recommended_action`.
 
@@ -569,8 +572,9 @@ to enter ESCALATE per [`inline-replanning.md`](inline-replanning.md).
 
 When the dim-review loop's `mode=FIX_REVIEW_FINDINGS` respawn returns
 a non-`SUCCESS` result, the prior step commits are still on disk.
-The implementer's local revert (`git reset --hard HEAD`) only undoes
-its in-progress fix attempt; rolling back the prior commits is the
+The implementer's local revert
+(`git reset --hard HEAD && git clean -fd`) only undoes its
+in-progress fix attempt; rolling back the prior commits is the
 orchestrator's responsibility.
 
 The post-commit handlers all share a common rollback step:
@@ -626,11 +630,12 @@ critical-systems project; squash-merge collapses the noise at the PR
 boundary.
 
 **Pre-revert assertion.** Before running `git revert -n`, verify
-`git status` is clean. The implementer's `git reset --hard HEAD`
-should have left it clean; if not, that is a contract violation and
-the orchestrator surfaces the discrepancy to the user instead of
-proceeding (a dirty tree at this point usually means the implementer
-exited mid-write or the user has manual edits in flight).
+`git status` is clean. The implementer's
+`git reset --hard HEAD && git clean -fd` should have left it clean;
+if not, that is a contract violation and the orchestrator surfaces
+the discrepancy to the user instead of proceeding (a dirty tree at
+this point usually means the implementer exited mid-write or the
+user has manual edits in flight).
 
 ### `rollback_and_handle_failure(step, fix_result, step_base_commit)`
 
@@ -815,7 +820,8 @@ examples live in
 ## Step Failure
 
 If the implementer returns `RESULT: FAILED`, the implementer has
-already reverted uncommitted changes (`git reset --hard HEAD`). For
+already reverted uncommitted changes and removed any untracked
+artefacts (`git reset --hard HEAD && git clean -fd`). For
 pre-commit failures (`mode=INITIAL` / `mode=WITH_GUIDANCE`) the
 working tree is now clean at `step_base_commit` and the orchestrator
 proceeds directly with the steps below. For post-commit failures

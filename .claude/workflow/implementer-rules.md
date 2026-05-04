@@ -170,17 +170,21 @@ in three cases. The orchestrator decides what happens next; the
 implementer never escalates directly to the user.
 
 **Always revert before returning.** Whichever case fires below, run
-`git reset --hard HEAD` first so the orchestrator always observes a
-clean tree at the implementer's `HEAD`. The reset clears both the
-working tree and the index (untracked files are preserved). Use
-`git reset --hard HEAD` rather than `git checkout -- .` — the latter
-leaves a dirty index if the implementer had staged files before
-bailing. The semantic scope of the revert differs by mode (see
-§"Mode-specific scope of the local revert" below), but the command
-is the same. The orchestrator's pre-revert assertion in
-[`step-implementation.md`](step-implementation.md) §Post-Commit
-Handlers depends on this — a dirty tree at hand-off is a contract
-violation.
+`git reset --hard HEAD && git clean -fd` first so the orchestrator
+always observes a clean tree at the implementer's `HEAD`. The reset
+clears the working tree and the index; `git clean -fd` removes any
+untracked files or directories the implementer created (new test
+files, scratch output) — without it, the orchestrator's `git status`
+clean-tree assertions would fire a spurious contract violation
+whenever the implementer added a new file before bailing. Use
+`git reset --hard HEAD` rather than `git checkout -- .` for the
+tracked half — the latter leaves a dirty index if the implementer
+had staged files before bailing. The semantic scope of the revert
+differs by mode (see §"Mode-specific scope of the local revert"
+below), but the command is the same. The orchestrator's pre-revert
+assertion in [`step-implementation.md`](step-implementation.md)
+§Post-Commit Handlers depends on this — a dirty tree at hand-off is
+a contract violation.
 
 ### Design decision detected
 
@@ -204,9 +208,10 @@ What is **NOT** a design decision (handle autonomously):
 - Implementation details fully prescribed by the plan or by Decision
   Records in `adr.md` / the plan file.
 
-When a design decision is detected, run `git reset --hard HEAD` to
-discard any in-progress changes, then return `RESULT:
-DESIGN_DECISION_NEEDED` with `DESIGN_DECISION` populated: `context`,
+When a design decision is detected, run
+`git reset --hard HEAD && git clean -fd` to discard any in-progress
+changes (per the rule at the top of this section), then return
+`RESULT: DESIGN_DECISION_NEEDED` with `DESIGN_DECISION` populated: `context`,
 `alternatives` (≥2, with pros/cons), `recommendation`, and
 `exploration_notes` summarising what was already investigated (API
 shape, call sites surveyed, candidate approaches ruled out — these
@@ -224,7 +229,8 @@ turns out to require lock-ordering changes, or the "internal helper
 addition" tagged `medium` actually changes a public-API serialized
 form.
 
-Run `git reset --hard HEAD` to discard any in-progress changes, then
+Run `git reset --hard HEAD && git clean -fd` to discard any
+in-progress changes (per the rule at the top of this section), then
 return `RESULT: RISK_UPGRADE_REQUESTED` with `RISK_UPGRADE` populated:
 `from`, `to`, `category` (one of: `concurrency`, `crash-safety`,
 `public-API`, `security`, `architecture`, `performance-hot-path` —
@@ -244,9 +250,9 @@ tests cannot be made to pass, coverage cannot be met, architectural
 problem revealed by the implementation, repeated test failures with
 a root cause outside the step's surface area.
 
-Run `git reset --hard HEAD` to discard any in-progress changes (per
-the rule at the top of this section), then return `RESULT: FAILED`
-with `FAILURE` populated: `what_was_attempted`, `why_it_failed`,
+Run `git reset --hard HEAD && git clean -fd` to discard any
+in-progress changes (per the rule at the top of this section), then
+return `RESULT: FAILED` with `FAILURE` populated: `what_was_attempted`, `why_it_failed`,
 `impact_on_remaining_steps`, and `recommended_action` (`retry` |
 `split` | `escalate`).
 
@@ -255,10 +261,12 @@ retry/split rows, and runs the two-failure detection on its side.
 
 ### Mode-specific scope of the local revert
 
-`git reset --hard HEAD` resets to the **current commit**, not to a
-pre-step state. The command is the same for every early-return case
-(design decision, risk upgrade, fundamental failure) and every mode,
-but the **semantic scope** of what gets cleaned up differs:
+`git reset --hard HEAD && git clean -fd` resets to the **current
+commit** (and removes any untracked artefacts the implementer
+created), not to a pre-step state. The command is the same for
+every early-return case (design decision, risk upgrade, fundamental
+failure) and every mode, but the **semantic scope** of what gets
+cleaned up differs:
 
 - **`mode=INITIAL`** or **`mode=WITH_GUIDANCE`**: `HEAD` is the
   step's pre-implementation state (the orchestrator's `step_base_commit`).
@@ -275,11 +283,12 @@ but the **semantic scope** of what gets cleaned up differs:
   step_base_commit` or `git revert` to undo prior commits; that
   would silently destroy work the orchestrator may need.
 
-The implementer is therefore symmetric in code (`git reset --hard
-HEAD` regardless of mode and regardless of which early-return case
-fired) but the orchestrator-side cleanup differs: pre-commit modes
-need no further work; post-commit mode requires the orchestrator's
-post-commit rollback to remove the prior step commits as well.
+The implementer is therefore symmetric in code
+(`git reset --hard HEAD && git clean -fd` regardless of mode and
+regardless of which early-return case fired) but the
+orchestrator-side cleanup differs: pre-commit modes need no further
+work; post-commit mode requires the orchestrator's post-commit
+rollback to remove the prior step commits as well.
 
 ---
 
