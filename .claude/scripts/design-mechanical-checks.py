@@ -24,7 +24,7 @@ import json
 import os
 import re
 import sys
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Tuple
 
 
 # ---------------------------------------------------------------------------
@@ -81,12 +81,11 @@ def read_lines(path: str) -> List[str]:
 # Per CommonMark, a fenced code block opens/closes on a line whose only
 # content is a run of 3+ backticks (or tildes) optionally followed by an
 # info string. For backtick fences the info string must not contain a
-# backtick, which is the case our heuristic rules out by requiring the
-# info string to match `[\w-]*` (word characters and hyphens — covers
-# ```mermaid, ```python, ```c++ would not match but those are rare in
-# design docs). Lines beginning with ``` but containing inline triple-
-# backtick spans like `` ```inline``` more text `` are NOT fences.
-_CODE_FENCE_RE = re.compile(r"^(```+|~~~+)\s*[\w-]*\s*$")
+# backtick. The info-string class `[\w+#.\-]*` covers the common language
+# tags including `c++`, `c#`, and dotted forms like `objective-c.swift`.
+# Lines beginning with ``` but containing inline triple-backtick spans
+# like `` ```inline``` more text `` are NOT fences.
+_CODE_FENCE_RE = re.compile(r"^(```+|~~~+)\s*[\w+#.\-]*\s*$")
 
 
 def is_code_fence_line(line: str) -> bool:
@@ -256,7 +255,7 @@ def make_finding(
 
 
 def check_overview_first(design_path: str, lines: List[str], sections: List[Dict]) -> List[Dict]:
-    """First `## ` heading in design.md must be `## Overview`.
+    """First `## ` heading in design.md must be `## Overview` and have a body.
 
     The concept-first elevator pitch is the cold reader's entry point and
     must come first; meta-navigation (audience, journey table) is folded
@@ -274,17 +273,41 @@ def check_overview_first(design_path: str, lines: List[str], sections: List[Dict
         ))
         return findings
     first = sections[0]
+    # Truncate the offending title in the message so a 10,000-char title
+    # cannot balloon the JSON output.
+    first_title_truncated = first["title"][:80]
     if first["title"] != "Overview":
         findings.append(make_finding(
             "blocker",
             "overview-first",
             f"{design_path}:{first['line_start']}",
-            (f"First `## ` section is `{first['title']}`, not `Overview`. "
+            (f"First `## ` section is `{first_title_truncated}`, not `Overview`. "
              "Per design-document-rules.md § Required content, every design.md must open with a "
              "`## Overview` section as the first content under the title — concept-first elevator "
              "pitch, no meta-navigation ahead of the concept."),
             "Reorder so `## Overview` is the first `## ` heading; fold any meta-navigation "
             "(audience, journey table, companion-file pointer) into the tail of Overview.",
+        ))
+        return findings
+
+    # Overview is first — verify it has substantive body content. An empty or
+    # near-empty Overview silently passes the per-section shape rules (Overview
+    # is shape-exempt) but defeats the concept-first purpose entirely.
+    body_non_empty = [
+        line for line in section_body_lines_outside_fences(lines, first)
+        if line.strip()
+    ]
+    if len(body_non_empty) < 5:
+        findings.append(make_finding(
+            "should-fix",
+            "overview-body",
+            f"{design_path}:{first['line_start']}",
+            (f"`## Overview` has only {len(body_non_empty)} non-empty body line(s) (excluding "
+             "fences). Overview must carry the baseline being replaced, the change, the "
+             "enabling primitive(s), what else is restructured to fit, and a one-sentence "
+             "document-structure roadmap — typically 15-40 lines."),
+            "Flesh out the Overview section per design-document-rules.md § Overview "
+            "(mandatory, first content).",
         ))
     return findings
 
@@ -338,9 +361,27 @@ def section_body_lines(lines: List[str], section: Dict) -> List[str]:
     return lines[section["line_start"]:section["line_end"]]
 
 
-def section_has_tldr(lines: List[str], section: Dict, head_window: int = 15) -> bool:
-    """Return True if a TL;DR appears within the first head_window lines of the section body."""
-    body = section_body_lines(lines, section)[:head_window]
+def section_body_lines_outside_fences(lines: List[str], section: Dict) -> List[str]:
+    """Return body lines that are NOT inside a fenced code block.
+
+    Section heading lines are guaranteed by `parse_sections` to sit outside
+    any fence (headings inside fences are skipped), so a body always starts
+    with `in_fence = False`. Fence opener/closer lines are themselves dropped.
+    """
+    out: List[str] = []
+    in_fence = False
+    for line in section_body_lines(lines, section):
+        if is_code_fence_line(line):
+            in_fence = not in_fence
+            continue
+        if not in_fence:
+            out.append(line)
+    return out
+
+
+def section_has_tldr(lines: List[str], section: Dict, head_window: int = 10) -> bool:
+    """Return True if a TL;DR appears within the first head_window non-fence lines of the section body."""
+    body = section_body_lines_outside_fences(lines, section)[:head_window]
     text = "\n".join(body)
     if re.search(r"(^|\n)\*\*TL;DR\.\*\*", text):
         return True
@@ -350,8 +391,8 @@ def section_has_tldr(lines: List[str], section: Dict, head_window: int = 15) -> 
 
 
 def section_has_references(lines: List[str], section: Dict, tail_window: int = 30) -> bool:
-    """Return True if a References block appears in the last tail_window lines of the section."""
-    body = section_body_lines(lines, section)
+    """Return True if a References block appears in the last tail_window non-fence lines of the section."""
+    body = section_body_lines_outside_fences(lines, section)
     if len(body) > tail_window:
         body = body[-tail_window:]
     text = "\n".join(body)
@@ -527,7 +568,6 @@ def check_dsc_parenthetical_asides(
     # Track which lines are inside a References block (which legitimately lists D/S codes).
     in_references = False
     in_code_fence = False
-    in_table_row = False
 
     aside_patterns = [
         re.compile(r"\([Pp]er D\d+(?:\s*[,/]\s*D\d+)*\)"),
@@ -601,95 +641,57 @@ def check_same_shape_siblings(
     design_path: str,
     sections: List[Dict],
 ) -> List[Dict]:
-    """Detect 3+ sibling `## ` sections with ≥80% sub-heading-name overlap."""
+    """Detect 3+ sibling `## ` sections sharing the same custom sub-heading shape.
+
+    Two sibling sections "share a shape" when the sorted tuple of their
+    custom (non-mandatory, non-form) sub-headings is identical. Bucketing
+    by that tuple catches the consolidation-form anti-pattern (3+ siblings
+    repeating the same internal `### ` sequence) without the cost of
+    pairwise similarity computation.
+    """
     findings: List[Dict] = []
 
-    # Group sections by parent_part.
-    by_part: Dict[Optional[str], List[Dict]] = {}
+    # Bucket sections by (parent_part, sorted custom-subheading tuple).
+    buckets: Dict[Tuple[Optional[str], Tuple[str, ...]], List[Dict]] = {}
     for s in sections:
         if is_shape_exempt(s):
             continue
-        # Drop mandatory/form sub-headings before computing the shape signature.
-        custom_subs = {
+        custom_subs = sorted(
             sub.lower()
             for sub in s["sub_headings"]
             if sub.lower() not in MANDATORY_OR_FORM_SUBHEADINGS
-        }
-        # Sections without any custom sub-heading have no shape to compare;
-        # skip them.
+        )
         if not custom_subs:
             continue
-        s_with_shape = {**s, "_shape": custom_subs}
-        by_part.setdefault(s["parent_part"], []).append(s_with_shape)
+        key = (s["parent_part"], tuple(custom_subs))
+        buckets.setdefault(key, []).append(s)
 
-    def jaccard(a: Set[str], b: Set[str]) -> float:
-        if not a and not b:
-            return 1.0
-        if not a or not b:
-            return 0.0
-        return len(a & b) / len(a | b)
-
-    # For each part, find clusters of 3+ sections with pairwise Jaccard ≥ 0.8.
-    for part_title, group in by_part.items():
+    for (part_title, _shape), group in buckets.items():
         if len(group) < 3:
             continue
-        # Greedy clustering — start from each section, find all neighbors with
-        # Jaccard ≥ 0.8 (transitively), report when cluster size ≥ 3.
-        clustered: Set[int] = set()
-        for i, sec_i in enumerate(group):
-            if i in clustered:
-                continue
-            cluster = [i]
-            for j, sec_j in enumerate(group):
-                if j == i or j in clustered:
-                    continue
-                # Connected if it shares ≥0.8 with EVERY current cluster member.
-                if all(jaccard(sec_i["_shape"], group[k]["_shape"]) >= 0.8 for k in cluster):
-                    if jaccard(sec_i["_shape"], sec_j["_shape"]) >= 0.8:
-                        cluster.append(j)
-            if len(cluster) >= 3:
-                titles = [group[k]["title"] for k in cluster]
-                first_loc = group[cluster[0]]["line_start"]
-                findings.append(make_finding(
-                    "should-fix",
-                    "same-shape-siblings",
-                    f"{design_path}:{first_loc}",
-                    (f"{len(cluster)} sibling sections under `{part_title or '(no Part)'}` share the "
-                     f"same internal sub-heading shape: {titles}. Per design-document-rules.md "
-                     "§ Consolidation form for sibling sections, 3+ siblings with the same shape "
-                     "MUST be consolidated under one parent section using the consolidation form "
-                     "(TL;DR + Comparison table + Per-instance short bodies)."),
-                    f"Merge {titles} into one parent section using the consolidation form.",
-                ))
-                clustered.update(cluster)
+        titles = [s["title"] for s in group]
+        first_loc = group[0]["line_start"]
+        findings.append(make_finding(
+            "should-fix",
+            "same-shape-siblings",
+            f"{design_path}:{first_loc}",
+            (f"{len(group)} sibling sections under `{part_title or '(no Part)'}` share the "
+             f"same internal sub-heading shape: {titles}. Per design-document-rules.md "
+             "§ Consolidation form for sibling sections, 3+ siblings with the same shape "
+             "MUST be consolidated under one parent section using the consolidation form "
+             "(TL;DR + Comparison table + Per-instance short bodies)."),
+            f"Merge {titles} into one parent section using the consolidation form.",
+        ))
     return findings
 
 
-def collect_section_ref_targets(text: str) -> List[Tuple[str, str]]:
-    """Extract `<filename>.md §"<section name>"` references from a chunk of text.
-
-    Returns a list of (filename, section_name) tuples. Handles the common
-    forms `design.md §"X"`, `design.md Part N §"X"`, and the `+ §"X"`
-    continuation pattern within one line.
-    """
-    refs: List[Tuple[str, str]] = []
-    # Match `<filename>.md` followed by zero or more `Part N`/whitespace chars,
-    # then one or more `§"name"` chunks (separated by `+` or commas).
-    pattern = re.compile(
-        r"(\bdesign(?:-mechanics)?\.md)"          # filename
-        r"(?:\s+Part\s+\d+)?"                     # optional Part qualifier
-        r"\s*§"                                   # section sigil
-        r"(?:\s*[\+,]\s*§)*"                      # tolerate `+ §` continuations
-        r"\s*\"([^\"]+)\""                        # first quoted name
-    )
-    # Continuation pattern for additional `+ §"name"` chunks attached to the
-    # same primary reference.
-    continuation = re.compile(r"§\s*\"([^\"]+)\"")
-
-    # We do this in two passes: first match whole `filename.md ... §"name"`,
-    # then sweep all `§"name"` quotes that come *after* a recent filename.
-    # Simpler: iterate by line and track the active filename.
-    return refs  # superseded by line-by-line collector below
+# Filename regex covers the four canonical companions:
+#   design.md / design-final.md / design-mechanics.md / design-mechanics-final.md
+# Phase 1 mutations target the first two; Phase 4 targets the `-final.md`
+# variants. The regex must catch all four so refs are validated regardless of
+# which mutation kind is running.
+_FILENAME_RE = re.compile(r"\b(design(?:-final|-mechanics(?:-final)?)?\.md)\b")
+_QUOTE_RE = re.compile(r"§\s*\"([^\"]+)\"")
 
 
 def collect_refs_line_by_line(filepath: str, lines: List[str]) -> List[Tuple[int, str, str]]:
@@ -701,16 +703,14 @@ def collect_refs_line_by_line(filepath: str, lines: List[str]) -> List[Tuple[int
     the same line; subsequent `§"name"` quotes on that line attach to it.
     """
     refs: List[Tuple[int, str, str]] = []
-    fname_re = re.compile(r"\b(design(?:-mechanics)?\.md)\b")
-    quote_re = re.compile(r"§\s*\"([^\"]+)\"")
     for i, line in enumerate(lines, start=1):
         # Find all (offset, filename) on this line.
-        fname_matches = list(fname_re.finditer(line))
+        fname_matches = list(_FILENAME_RE.finditer(line))
         if not fname_matches:
             continue
         # Walk all `§"name"` quotes in order; each binds to the most recent
         # filename whose offset is ≤ the quote's offset.
-        for q in quote_re.finditer(line):
+        for q in _QUOTE_RE.finditer(line):
             quote_offset = q.start()
             active_fname: Optional[str] = None
             for f in fname_matches:
@@ -730,30 +730,68 @@ def check_mechanics_link_resolution(
     design_mechanics_path: Optional[str],
     design_mechanics_lines: Optional[List[str]],
 ) -> List[Dict]:
-    """Every `Mechanics: design-mechanics.md §"<name>"` in design.md must resolve
-    to a heading in design-mechanics.md."""
+    """Every `<mechanics-basename> §"<name>"` reference in design.md must
+    resolve to a heading in the supplied mechanics file.
+
+    The mechanics basename is derived from `--design-mechanics-path` so the
+    check works for both `design-mechanics.md` (Phase 1) and
+    `design-mechanics-final.md` (Phase 4).
+    """
     findings: List[Dict] = []
     if design_mechanics_path is None or design_mechanics_lines is None:
         return findings
 
-    # All headings in design-mechanics.md, normalized.
+    mech_basename = os.path.basename(design_mechanics_path)
+
+    # All headings in mechanics, normalized.
     mech_headings = collect_all_headings(design_mechanics_lines)
     norm_targets = {normalize_heading(t): (line_no, t) for line_no, _level, t in mech_headings}
 
     refs = collect_refs_line_by_line(design_path, design_lines)
     for line_no, fname, ref_name in refs:
-        if fname != "design-mechanics.md":
+        if fname != mech_basename:
             continue
         if normalize_heading(ref_name) not in norm_targets:
             findings.append(make_finding(
                 "blocker",
                 "mechanics-link-resolution",
                 f"{design_path}:{line_no}",
-                (f"`design-mechanics.md §\"{ref_name}\"` does not resolve to any heading in "
+                (f"`{mech_basename} §\"{ref_name}\"` does not resolve to any heading in "
                  f"`{design_mechanics_path}`."),
-                ("Either rename the design-mechanics.md heading to match (recommended — heading "
+                (f"Either rename the {mech_basename} heading to match (recommended — heading "
                  "names should track design.md) or update the reference."),
             ))
+    return findings
+
+
+def check_reverse_direction_refs(
+    design_mechanics_path: str,
+    design_mechanics_lines: List[str],
+    design_basename: str,
+) -> List[Dict]:
+    """Flag any `<design-basename> §"<name>"` reference appearing inside the
+    mechanics file.
+
+    Per design-document-rules.md § Length-triggered split, cross-references go
+    one direction only: design.md → design-mechanics.md, never the reverse.
+    Mechanics is the agent-targeted long-form companion and must remain
+    self-contained — a reverse ref is a should-fix.
+    """
+    findings: List[Dict] = []
+    refs = collect_refs_line_by_line(design_mechanics_path, design_mechanics_lines)
+    for line_no, fname, ref_name in refs:
+        if fname != design_basename:
+            continue
+        findings.append(make_finding(
+            "should-fix",
+            "reverse-direction-ref",
+            f"{design_mechanics_path}:{line_no}",
+            (f"`{design_basename} §\"{ref_name}\"` referenced from {design_mechanics_path}. "
+             "Per design-document-rules.md § Length-triggered split, cross-references go one "
+             "direction only: design.md → design-mechanics.md, never the reverse. The mechanics "
+             "file must be self-contained for the agent reader."),
+            "Remove the reverse reference or inline the relevant content into the mechanics file.",
+        ))
     return findings
 
 
@@ -767,12 +805,23 @@ def check_full_design_link_resolution(
     design_mechanics_path: Optional[str],
     design_mechanics_lines: Optional[List[str]],
 ) -> List[Dict]:
-    """Every `**Full design**: design.md §"<name>"` in plan and backlog must
-    resolve to a heading in design.md (and any chained `design-mechanics.md
-    §"<name>"` in the same line must resolve in design-mechanics.md)."""
+    """Every `**Full design**: <design-basename> §"<name>"` in plan and
+    backlog must resolve to a heading in design.md (and any chained
+    `<mechanics-basename> §"<name>"` must resolve in mechanics).
+
+    Basenames are derived from `--design-path` / `--design-mechanics-path` so
+    the check works whether the supplied paths point at the original `design.md`
+    pair or at the Phase 4 `*-final.md` variants.
+    """
     findings: List[Dict] = []
     if plan_lines is None and backlog_lines is None:
         return findings
+
+    design_basename = os.path.basename(design_path)
+    mech_basename = (
+        os.path.basename(design_mechanics_path)
+        if design_mechanics_path is not None else None
+    )
 
     # Targets in design.md and design-mechanics.md.
     design_norm = {
@@ -789,17 +838,29 @@ def check_full_design_link_resolution(
     def check_file(path: str, lines_: List[str]) -> List[Dict]:
         out: List[Dict] = []
         for line_no, fname, ref_name in collect_refs_line_by_line(path, lines_):
-            target_table = design_norm if fname == "design.md" else mech_norm
-            target_label = "design.md" if fname == "design.md" else "design-mechanics.md"
-            if fname == "design-mechanics.md" and design_mechanics_lines is None:
+            if fname == design_basename:
+                target_table = design_norm
+                target_label = design_basename
+            elif mech_basename is not None and fname == mech_basename:
+                target_table = mech_norm
+                target_label = mech_basename
+            elif fname in {"design-mechanics.md", "design-mechanics-final.md"}:
+                # Plan/backlog refs to a mechanics file but no mechanics path supplied.
                 out.append(make_finding(
                     "blocker",
                     "full-design-link-resolution",
                     f"{path}:{line_no}",
-                    (f"`{target_label} §\"{ref_name}\"` referenced from `{path}` but "
-                     "`design-mechanics.md` was not provided as a path."),
+                    (f"`{fname} §\"{ref_name}\"` referenced from `{path}` but "
+                     "no mechanics path was provided."),
                     "Pass `--design-mechanics-path` so the reference can be resolved.",
                 ))
+                continue
+            else:
+                # Reference to a design-family file we weren't told about
+                # (e.g., the plan references `design-final.md` but the script
+                # was run with `--design-path design.md`). Skip silently —
+                # this is the agent's contract: the script resolves only the
+                # files it was given.
                 continue
             if normalize_heading(ref_name) not in target_table:
                 out.append(make_finding(
@@ -847,7 +908,16 @@ def parse_args() -> argparse.Namespace:
                          "variants; omit --plan-path and --backlog-path so the cross-file ref "
                          "check is naturally skipped — Phase 4 produces a new artifact, not a "
                          "modification of the original design.md.)"))
-    return p.parse_args()
+    args = p.parse_args()
+    # Fail-fast validation: target=mechanics or target=both requires
+    # --design-mechanics-path; otherwise the parenthetical-aside scan over
+    # mechanics is silently skipped, which makes those targets a no-op.
+    if args.target in ("mechanics", "both") and not args.design_mechanics_path:
+        p.error(
+            f"--target={args.target} requires --design-mechanics-path "
+            "(the mechanics file the mutation supposedly touched)."
+        )
+    return args
 
 
 def main() -> int:
@@ -870,19 +940,55 @@ def main() -> int:
     design_lines = read_lines(args.design_path)
     sections, parts = parse_sections(design_lines)
 
+    findings: List[Dict] = []
+
+    # Optional companion paths: when supplied, the file must exist. A supplied
+    # path is the agent's explicit assertion that the file is part of the
+    # mutation; silently skipping when missing would mask a regression in the
+    # cross-file ref check.
     design_mechanics_lines: Optional[List[str]] = None
-    if args.design_mechanics_path and os.path.exists(args.design_mechanics_path):
-        design_mechanics_lines = read_lines(args.design_mechanics_path)
+    if args.design_mechanics_path:
+        if os.path.exists(args.design_mechanics_path):
+            design_mechanics_lines = read_lines(args.design_mechanics_path)
+        else:
+            findings.append(make_finding(
+                "should-fix",
+                "companion-path-missing",
+                args.design_mechanics_path,
+                (f"--design-mechanics-path was supplied but the file does not exist at "
+                 f"{args.design_mechanics_path}. Cross-file link-resolution against this "
+                 "file will be skipped."),
+                "Pass an existing path or omit the flag.",
+            ))
 
     plan_lines: Optional[List[str]] = None
-    if args.plan_path and os.path.exists(args.plan_path):
-        plan_lines = read_lines(args.plan_path)
+    if args.plan_path:
+        if os.path.exists(args.plan_path):
+            plan_lines = read_lines(args.plan_path)
+        else:
+            findings.append(make_finding(
+                "should-fix",
+                "companion-path-missing",
+                args.plan_path,
+                (f"--plan-path was supplied but the file does not exist at {args.plan_path}. "
+                 "`**Full design**` ref resolution against the plan will be skipped."),
+                "Pass an existing path or omit the flag.",
+            ))
 
     backlog_lines: Optional[List[str]] = None
-    if args.backlog_path and os.path.exists(args.backlog_path):
-        backlog_lines = read_lines(args.backlog_path)
-
-    findings: List[Dict] = []
+    if args.backlog_path:
+        if os.path.exists(args.backlog_path):
+            backlog_lines = read_lines(args.backlog_path)
+        else:
+            findings.append(make_finding(
+                "should-fix",
+                "companion-path-missing",
+                args.backlog_path,
+                (f"--backlog-path was supplied but the file does not exist at "
+                 f"{args.backlog_path}. `**Full design**` ref resolution against the "
+                 "backlog will be skipped."),
+                "Pass an existing path or omit the flag.",
+            ))
 
     # design.md shape checks fire only when the mutation actually touched
     # design.md. mechanics-edit mutations (working mode) skip them.
@@ -917,6 +1023,17 @@ def main() -> int:
         args.plan_path, plan_lines,
         args.backlog_path, backlog_lines,
         args.design_mechanics_path, design_mechanics_lines))
+
+    # Reverse-direction ref check: per design-document-rules.md § Length-
+    # triggered split, mechanics must be self-contained — no `<design-basename>
+    # §"X"` refs may appear inside mechanics. Fires whenever the mutation
+    # touches mechanics (i.e., target includes mechanics).
+    if args.target in ("mechanics", "both") and design_mechanics_lines is not None:
+        findings.extend(check_reverse_direction_refs(
+            args.design_mechanics_path,
+            design_mechanics_lines,
+            os.path.basename(args.design_path),
+        ))
 
     blockers = sum(1 for f in findings if f["severity"] == "blocker")
     should_fix = sum(1 for f in findings if f["severity"] == "should-fix")

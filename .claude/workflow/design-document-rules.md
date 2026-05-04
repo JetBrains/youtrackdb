@@ -143,6 +143,15 @@ The cold-read half is the sub-agent prompt at
 agent needs to modify `design.md` or `design-mechanics.md`, it
 invokes the skill — not raw `Edit` / `Write`.
 
+**Scope: new mutations only.** The discipline gates *new*
+modifications to a design document. Existing `design.md` files that
+predate the discipline (or were created before a particular rule was
+added) may have legitimate findings if you point the script at them
+out of curiosity — that's expected and not a bug. The contract is
+"every mutation lands without introducing or worsening findings,"
+not "every existing file passes today." Backfilling old designs is a
+separate exercise and is not required.
+
 ### Cold-read scope by mutation kind
 
 In the table below, the `--target` column reads as a function of whether a
@@ -194,7 +203,7 @@ context to disambiguate.
 | Core Concepts when applicable | If the doc has `# Part N` headings, a `## Core Concepts` section must exist between Overview and Class Design (`should-fix` if absent) |
 | Per-section shape compliance | Per `^## ` section (excluding shape-exempt: Overview, Core Concepts, Class Design, Workflow, Part-level TL;DR): TL;DR present (`\*\*TL;DR\.\*\*` or similar bold-prefix paragraph in the first ~10 lines); References footer present (`### References` or `\*\*References\.\*\*` near section end) |
 | Top-level cap | Flat count of `^## ` ≤ 15 always; when `# Part N` headings exist, an additional per-Part cap of ≤ 8 sections (warn at > 6) applies on top of the flat 15 |
-| Per-section length cap | Each `^## ` section ≤ 300 lines (warn at 200) |
+| Per-section length cap | Each `^## ` section ≤ 300 lines, three-tier severity: 201-300 lines is a `suggestion` (warn — long-form material is creeping in); 301-400 is `should-fix` (over the soft cap); >400 is a `blocker` (sections over 400 lines almost always have long-form material that must move to `design-mechanics.md`). |
 | D/S parenthetical asides | Regex set: `(per D…)`, `(per S…)`, `(see D…)`, `(see S…)`, each with optional comma- or slash-separated additional codes (`(per D1, D2)`, `(see S5/S6)`). Rejected inside prose; allowed inside `### References` / `**References.**` blocks and table rows. |
 | Length trigger compliance | If file > 2,000 lines and `design-mechanics.md` doesn't exist, blocker |
 | Same-shape sibling detection | Cluster of 3+ sibling `## ` sections with ≥80% sub-heading-name overlap → flag for consolidation |
@@ -217,8 +226,8 @@ context to disambiguate.
 ### Review log
 
 Each mutation appends to
-`docs/adr/<dir-name>/reviews/design-mutations.md`. Format per
-entry:
+`docs/adr/<dir-name>/reviews/design-mutations.md`. The minimum
+shape per entry is:
 
 ```markdown
 ## Mutation N — <ISO date> — <mutation kind>
@@ -233,6 +242,15 @@ entry:
 
 **Iterations**: 1 of 3 (PASS) | 3 of 3 (BLOCKER REMAINS)
 ```
+
+The skill ([`edit-design/SKILL.md`](../../.claude/skills/edit-design/SKILL.md)
+§ Step 7) is the **canonical** writer and adds qualifiers the minimum
+above does not show — file-basename suffix in the header (`design.md`
+vs `design-final.md`), the `target=` flag on the mechanical-checks
+line, a `SKIPPED` value for cold-read on `mechanics-edit`, and a
+`Working-mode counter` line for `mechanics-edit` / `design-sync`
+entries. Use the skill's expanded format when writing the log;
+treat the shape above as the floor, not the ceiling.
 
 The review log is a working artifact (deleted with the branch),
 not committed — same lifecycle as other Phase working files.
@@ -262,8 +280,11 @@ cold-read) on the file(s) the mutation actually touches — usually
 `section-rename` / `structural-rewrite` that propagates into a
 mechanics companion will run mechanical and cold-read against both
 files. Best for small, targeted changes after the design is
-published — for example, a Phase 3 inline-replanning bullet add,
-or a Phase 4 `design-final.md` edit.
+published — for example, a Phase 3 inline-replanning bullet add.
+(Phase 4 produces a *new* committed artifact via `phase4-creation`
+and is not subsequently mutated through this discipline; once
+`design-final.md` is committed, follow-up changes go through normal
+git workflow.)
 
 ### Working / sync (the iterative model)
 
@@ -492,8 +513,9 @@ trailing blocks.
   forces either grouping into `# Part N — <name>` headings (one
   level up from `##`) or moving long-form material to
   `design-mechanics.md`.
-- **Max ~300 lines per `##` section.** Warn at 200. Exceeding is
-  a signal that long-form material has leaked in; move it to
+- **Max ~300 lines per `##` section.** Warn at 200; soft cap at
+  300 (`should-fix` over); hard blocker at 400. Exceeding is a
+  signal that long-form material has leaked in; move it to
   `design-mechanics.md`.
 - **Reader-journey Parts are encouraged when the design has
   ≥6 distinct concern areas.** Group related sections under

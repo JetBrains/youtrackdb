@@ -97,7 +97,7 @@ things and trigger different actions; do not collapse them mentally:
 | Counter | Counts | Resets on | Triggers |
 |---|---|---|---|
 | Periodic whole-doc counter | All mutation log entries except `mechanics-edit` | Never resets — running modulo over the log | Cold-read scope is escalated to `whole-doc` for the current mutation, regardless of its declared scope |
-| Working-mode counter | `mechanics-edit` entries since the most recent `design-sync` (or since `phase1-creation`) | Resets to 0 on every `design-sync` | The skill surfaces *"5 mechanics edits have accumulated since the last sync — want me to run `design-sync`?"* at the next conversational turn (Step 8) |
+| Working-mode counter | `mechanics-edit` entries since the most recent `design-sync` (or since `phase1-creation` if no sync has happened yet) | Resets to 0 on every `design-sync` | The skill surfaces *"5 mechanics edits have accumulated since the last sync — want me to run `design-sync`?"* at the next conversational turn (Step 8) |
 
 See `design-document-rules.md § Mutation discipline § Cold-read scope by
 mutation kind` for the canonical statement of both counters.
@@ -208,13 +208,22 @@ Two flags need derivation:
   cold-read scope conveyed to the sub-agent. Pass `--scope=bounded`
   (and supply `--changed-section`) when column 4's cold-read scope
   starts with `bounded`; the script then runs the per-section shape
-  check only on `<changed-section>` instead of every section.
+  check only on `<changed-section>` instead of every section. Other
+  checks (per-section length cap, parenthetical asides, top-level cap,
+  mechanics-link resolution, full-design-link resolution, reverse-
+  direction refs) always run whole-doc regardless of `--scope`.
   Pass `--scope=whole-doc` for any kind whose cold-read scope is
   `whole-doc` (or for `mechanics-edit`, where there is no cold-read
   but the script still runs in whole-doc mode for the parenthetical-
   aside scan over the mechanics file). The cold-read scope itself is
   passed through the sub-agent prompt's `Inputs` block, not via this
   CLI flag.
+
+For `mechanics-edit`, `--design-path` is still required even though
+the design.md file is not touched by this mutation kind — it is the
+reference for cross-file ref checks and reverse-direction-ref
+detection. Treat `design.md` as read-only inputs to the script for
+this kind.
 
 The script prints JSON to stdout. Exit code `0` ⇒ no blockers; `1` ⇒ NEEDS
 REVISION. Capture and parse the JSON; do not act on the exit code alone —
@@ -338,8 +347,8 @@ one. The first mutation is `## Mutation 1 — ...`.
 ### Step 8: Auto-suggest sync at N=5 (working mode only)
 
 After a `mechanics-edit` mutation completes, count `mechanics-edit` entries
-in the review log since the last `design-sync` entry (or since the log was
-created, if no sync yet). If `count >= 5`:
+in the review log since the most recent `design-sync` (or since
+`phase1-creation` if no sync has happened yet). If `count >= 5`:
 
 > Surface to the user at the next conversational turn: *"5 mechanics edits
 > have accumulated since the last design.md sync. The polished view in
@@ -445,7 +454,8 @@ After 5 mechanics-edits accumulate, the user says "OK, update
 design.md". The skill:
 
 1. Reads the review log, identifies all `mechanics-edit` entries since
-   the last `design-sync` (or since `phase1-creation` if no sync yet).
+   the most recent `design-sync` (or since `phase1-creation` if no sync
+   has happened yet).
 2. Reads `design-mechanics.md` to see the current state.
 3. Distills `design.md` — updates each affected section's TL;DR +
    overview + edge cases + references to match current mechanics.
