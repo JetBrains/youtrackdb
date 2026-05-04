@@ -481,21 +481,22 @@ public class ResultInternal implements Result, BasicResultInternal {
   }
 
   /**
-   * Cold path for {@link #getProperty}: loads the entity from a bare RID
-   * and returns the requested property. Blob identifiables return {@code null}
-   * (blobs have no properties and never reach getProperty in practice).
-   * Uses {@code instanceof Blob} instead of {@code isBlob()} to avoid
-   * schema snapshot lookups for bare RIDs.
+   * Cold path for {@link #getProperty}: materializes the record from a bare RID
+   * and returns the requested property. Returns {@code null} for blobs — a bare
+   * {@code RecordId} pointing to a blob cluster is not {@code instanceof Blob},
+   * so the only reliable way to classify it without a schema snapshot lookup is
+   * to load the record and dispatch on the resolved type. The load is unavoidable
+   * here anyway since reading the property requires it.
    */
   @SuppressWarnings("TypeParameterUnusedInFormals")
   @Nullable private <T> T loadLazyAndGetProperty(@Nonnull String name) {
-    if (identifiable instanceof Blob) {
-      return null;
+    DBRecord record = session.getActiveTransaction().load(identifiable);
+    this.identifiable = record;
+    if (record instanceof Entity entity) {
+      //noinspection unchecked
+      return (T) entity.getProperty(name);
     }
-    var entity = session.getActiveTransaction().loadEntity(identifiable);
-    this.identifiable = entity;
-    //noinspection unchecked
-    return (T) entity.getProperty(name);
+    return null;
   }
 
   @Override
@@ -631,17 +632,14 @@ public class ResultInternal implements Result, BasicResultInternal {
   }
 
   /**
-   * Cold path for {@link #hasProperty}: loads the entity from a bare RID
-   * and checks for the property. See {@link #loadLazyAndGetProperty} for
-   * rationale on the Blob check and extraction into a separate method.
+   * Cold path for {@link #hasProperty}: materializes the record from a bare RID
+   * and checks for the property. See {@link #loadLazyAndGetProperty} for the
+   * rationale behind loading-then-dispatching instead of a pre-load type check.
    */
   private boolean loadLazyAndHasProperty(@Nonnull String propName) {
-    if (identifiable instanceof Blob) {
-      return false;
-    }
-    var entity = session.getActiveTransaction().loadEntity(identifiable);
-    this.identifiable = entity;
-    return entity.hasProperty(propName);
+    DBRecord record = session.getActiveTransaction().load(identifiable);
+    this.identifiable = record;
+    return record instanceof Entity entity && entity.hasProperty(propName);
   }
 
   @Nullable @Override
