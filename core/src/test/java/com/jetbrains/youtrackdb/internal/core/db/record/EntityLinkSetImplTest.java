@@ -411,14 +411,23 @@ public class EntityLinkSetImplTest extends DbTestBase {
   public void hashCodeFallsThroughToAbstractSetForEmbedded() {
     session.begin();
     final var doc = (EntityImpl) session.newEntity();
-    final var set = new EntityLinkSetImpl(doc);
+    final var setA = new EntityLinkSetImpl(doc);
+    final var setB = new EntityLinkSetImpl(doc);
     final var a = (EntityImpl) session.newEntity();
-    set.add(a);
+    setA.add(a);
+    setB.add(a);
 
-    // Two empty link-sets do NOT necessarily hash to the same value because they walk different
-    // owners; a single-owner set hashed twice must be stable.
-    final var first = set.hashCode();
-    assertEquals(first, set.hashCode());
+    // Stable hash on a single instance: a regression that flipped to identity-hashCode
+    // would still pass this stand-alone check, so we ALSO compare two independent
+    // EntityLinkSetImpl instances containing the same single Identifiable. AbstractSet.
+    // hashCode is the sum of element hashCodes — two link-sets with equal element
+    // contents MUST hash equally regardless of wrapper instance.
+    assertEquals("hashCode must be stable across two reads on the same instance",
+        setA.hashCode(), setA.hashCode());
+    assertEquals(
+        "AbstractSet.hashCode is sum-of-element-hashCodes — two single-element sets with the"
+            + " same Identifiable must hash equally, falsifying any swap to identity-hashCode",
+        setA.hashCode(), setB.hashCode());
     session.rollback();
   }
 

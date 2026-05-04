@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.db;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -140,6 +141,13 @@ public class DatabaseSessionEmbeddedAttributesTest extends DbTestBase {
   // path: input "Europe/Paris" upper-cases to "EUROPE/PARIS" (unknown →
   // GMT), then the retry uses the original mixed-case form which IS a
   // recognised Java TZ id and resolves to the live Europe/Paris zone.
+  //
+  // WHEN-FIXED: deferred-cleanup track — the production comment that says
+  // "until 2.1.13 YouTrackDB accepted timezones in lowercase as well" is
+  // misleading. A fully-lowercase input ("europe/paris") yields GMT both on
+  // the upper-case lookup and on the retry, because Java's getTimeZone is
+  // case-sensitive on the canonical id. Either drop the misleading comment
+  // or extend the dispatcher with a real case-insensitive zone lookup.
   @Test
   public void setTimezoneMixedCaseFallsBackToCasePreservedLookup() {
     session.set(ATTRIBUTES.TIMEZONE, "Europe/Paris");
@@ -168,14 +176,18 @@ public class DatabaseSessionEmbeddedAttributesTest extends DbTestBase {
   }
 
   // LOCALE_COUNTRY — there is no null guard; null reaches the storage as a
-  // null country. Pinning the observed shape: storage accepts null without
-  // throwing.
+  // null country. Pin observed shape on the in-memory storage used by this
+  // fixture: the dispatcher does not throw, and the in-memory storage
+  // collapses the null read-back to null (different storage implementations
+  // may collapse to ""; both shapes are acceptable provided the dispatcher
+  // itself does not reject null).
   @Test
   public void setLocaleCountryNullValuePassesThroughToStorage() {
     session.set(ATTRIBUTES.LOCALE_COUNTRY, null);
-    // No assertion on the post-condition — different storage implementations
-    // may collapse null to "" or keep it as null. The contract here is only
-    // "no exception thrown by the dispatcher" (no null guard exists).
+    // The dispatcher must not throw (the no-guard contract this test pins).
+    // The in-memory storage round-trips null as null; if a future refactor
+    // replaces null with "" this assertion is the falsification trigger.
+    assertNull(session.getStorage().getLocaleCountry());
   }
 
   // LOCALE_LANGUAGE — happy path.
@@ -257,6 +269,26 @@ public class DatabaseSessionEmbeddedAttributesTest extends DbTestBase {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // setCustom dispatcher branches.
+  //
+  // Observability note: the public Storage interface exposes setProperty /
+  // removeProperty / clearProperties as void writes; there is no public
+  // read-back accessor for custom properties on Storage or AbstractStorage
+  // (the `configuration` field is protected). The setCustom branch tests
+  // therefore pin two falsifiable contracts only:
+  //   (1) the dispatcher must not throw for the input shape under test
+  //       (any assertion-by-no-exception is the falsifier — adding a guard
+  //        that throws would surface as a test failure);
+  //   (2) the fluent-self return contract on the happy path.
+  // The "did setCustom actually land in storage" question is structurally
+  // unobservable at this layer and is forwarded to the deferred-cleanup
+  // track (which may either expose a getProperty accessor on Storage or
+  // delete the entire setCustom dispatcher together with its call sites).
+  // WHEN-FIXED: deferred-cleanup track — once a public read-back exists,
+  //  tighten the no-throw assertions below into post-state pins.
+  // ---------------------------------------------------------------------------
+
   // setCustom — the happy "set" path: name + non-empty stringified value lands
   // in setCustomInternal which calls storage.setProperty. The fluent return
   // is the receiving session itself.
@@ -269,6 +301,8 @@ public class DatabaseSessionEmbeddedAttributesTest extends DbTestBase {
 
   // setCustom — empty-string value is collapsed to a remove. The dispatcher
   // routes through removeCustomInternal which calls storage.removeProperty.
+  // Falsifier: a future change that throws on empty-value (e.g. an explicit
+  // reject) makes this test fail.
   @Test
   public void setCustomEmptyValueRoutesToRemove() {
     // First set, then remove via empty string — verifying the empty branch is
@@ -277,21 +311,17 @@ public class DatabaseSessionEmbeddedAttributesTest extends DbTestBase {
     session.setCustom("custom.key.A", "");
   }
 
-  // setCustom — name == "clear" with null value clears all custom properties.
-  // The "clear" keyword check is case-insensitive (equalsIgnoreCase).
+  // setCustom — name equals "clear" (case-insensitively) with a null value
+  // routes to clearCustomInternal. The keyword check uses equalsIgnoreCase, so
+  // every casing must reach the same branch. Falsifier: a future strict-case
+  // dispatcher rejects mixed-case "Clear" or "CLEAR".
   @Test
-  public void setCustomClearKeywordLowercaseRoutesToClearProperties() {
-    session.setCustom("clear", null);
-  }
-
-  @Test
-  public void setCustomClearKeywordCapitalizedRoutesToClearProperties() {
-    session.setCustom("Clear", null);
-  }
-
-  @Test
-  public void setCustomClearKeywordUppercaseRoutesToClearProperties() {
-    session.setCustom("CLEAR", null);
+  public void setCustomClearKeywordIsCaseInsensitiveForAllCasings() {
+    for (var keyword : new String[] {"clear", "Clear", "CLEAR"}) {
+      // Each casing must complete without throwing — pin the keyword's
+      // case-insensitive routing into clearCustomInternal.
+      session.setCustom(keyword, null);
+    }
   }
 
   // setCustom — name == "clear" with a non-null value does NOT route to
@@ -308,7 +338,9 @@ public class DatabaseSessionEmbeddedAttributesTest extends DbTestBase {
   // setCustom — null name with a non-null value: the short-circuit
   // (name == null || customValue.isEmpty()) hits the first arm and routes to
   // removeCustomInternal(null), which delegates to storage.removeProperty(null).
-  // Pinning that the null-name path does not NPE before reaching storage.
+  // Pin that the null-name path does not NPE before reaching storage.
+  // Falsifier: any future guard at the dispatcher entry that rejects null
+  // names with NPE would surface here.
   @Test
   public void setCustomNullNameRoutesViaRemoveShortCircuit() {
     session.setCustom(null, "ignored");
@@ -341,17 +373,5 @@ public class DatabaseSessionEmbeddedAttributesTest extends DbTestBase {
       // Pinned. When the production guard is added, this test fails and the
       // forwarded deferred-cleanup item is the single fix point.
     }
-  }
-
-  // setCustom — Object value is stringified via "" + iValue, so a numeric
-  // input becomes its decimal string form. Pin the conversion shape so a
-  // future explicit String.valueOf change does not silently alter behaviour.
-  @Test
-  public void setCustomObjectValueIsStringConcatenatedNotToStringDirectly() {
-    var result = session.setCustom("custom.numeric", 42);
-    assertSame(session, result);
-    // No direct read-back available without reflection, but the assertion
-    // above is sufficient to pin that the dispatcher accepts a non-String
-    // value and the fluent contract holds.
   }
 }

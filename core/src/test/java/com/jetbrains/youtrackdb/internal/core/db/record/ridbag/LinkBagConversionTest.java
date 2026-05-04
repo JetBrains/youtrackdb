@@ -24,12 +24,15 @@ import static org.junit.Assert.assertTrue;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.BTreeBasedLinkBag;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.EmbeddedLinkBag;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkBagPointer;
+import java.util.HashSet;
+import java.util.Set;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -132,13 +135,16 @@ public class LinkBagConversionTest extends DbTestBase {
     assertTrue(bag.contains(r3));
     assertFalse(bag.contains(new RecordId(5, 99)));
 
-    int seen = 0;
+    // Pin element identity, not just count: collect each iterated primaryRid into a Set
+    // and assert it matches the expected three. A regression that returns three placeholder
+    // RidPairs (e.g. all-zero or all-equal) would otherwise pass the previous count-only
+    // loop.
+    final var seen = new HashSet<RID>();
     final var iter = bag.iterator();
     while (iter.hasNext()) {
-      assertNotNull(iter.next());
-      seen++;
+      seen.add(iter.next().primaryRid());
     }
-    assertEquals(3, seen);
+    assertEquals(Set.of(r1, r2, r3), seen);
     assertEquals(3, bag.stream().count());
     session.rollback();
   }
@@ -302,11 +308,28 @@ public class LinkBagConversionTest extends DbTestBase {
 
   // ---------- toString / isEmbeddedContainer ----------
 
-  /** {@code toString} delegates to the delegate's {@code toString}. */
+  /**
+   * {@code toString} delegates to the delegate's {@code toString}. The embedded delegate
+   * renders as {@code "EmbeddedLinkBag [size=N]"} (size summary, not element list). Pin
+   * the observable: a non-empty bag's rendering must reflect its current size so a
+   * regression that collapses to {@code Object.toString} (containing the identity
+   * hashCode only) is falsified.
+   */
   @Test
-  public void toStringDelegates() {
-    final var bag = new LinkBag(session);
-    assertNotNull(bag.toString());
+  public void toStringDelegatesAndReflectsSize() {
+    session.begin();
+    try {
+      final var bag = new LinkBag(session);
+      bag.add(new RecordId(7, 42));
+      bag.add(new RecordId(7, 43));
+      final var rendered = bag.toString();
+      assertNotNull(rendered);
+      assertTrue(
+          "delegate's toString must surface the current size; got: " + rendered,
+          rendered.contains("size=2"));
+    } finally {
+      session.rollback();
+    }
   }
 
   /** {@code isEmbeddedContainer()} returns false — ridbag is not embedded for entity-storage. */
@@ -318,9 +341,16 @@ public class LinkBagConversionTest extends DbTestBase {
 
   // ---------- LinkBagDeleter ----------
 
-  /** {@link LinkBagDeleter#deleteAllRidBags} on an entity with no pending bags is a no-op. */
+  /**
+   * {@link LinkBagDeleter#deleteAllRidBags} on an entity with no pending bags is a no-op.
+   *
+   * <p>The iterating-loop path that walks {@code entity.getLinkBagsToDelete()} cannot be
+   * driven from the unit-test layer — populating that collection requires the storage
+   * delete pipeline which only fires inside an active commit. The non-empty path is
+   * forwarded to the deferred-cleanup track for storage-IT-level coverage.
+   */
   @Test
-  public void deleteAllRidBagsHandlesEmptyEntity() {
+  public void deleteAllRidBagsOnEntityWithNoPendingBagsIsNoOp() {
     session.begin();
     final var doc = (EntityImpl) session.newEntity();
     // The deleter must not throw on an entity with no pending bags. The dirty state of
@@ -328,23 +358,6 @@ public class LinkBagConversionTest extends DbTestBase {
     // we pin only that the call completes and the entity remains usable.
     LinkBagDeleter.deleteAllRidBags(doc, session.getActiveTransaction());
     assertNotNull(doc.getIdentity());
-    session.rollback();
-  }
-
-  /**
-   * {@link LinkBagDeleter#deleteAllRidBags} delegates each pending bag's delete request
-   * to the transaction. End-to-end the call must complete without exception when at
-   * least one bag is registered for deletion via the standard graph mutation path.
-   */
-  @Test
-  public void deleteAllRidBagsRunsThroughEachPendingBag() {
-    session.begin();
-    final var doc = (EntityImpl) session.newEntity();
-    // Indirectly populate getLinkBagsToDelete by attaching and then orphaning a ridbag —
-    // the safe path is the empty case above; we additionally pin the no-throw behaviour
-    // of the deleter against an entity that did not accumulate bags.
-    final var tx = session.getActiveTransaction();
-    LinkBagDeleter.deleteAllRidBags(doc, tx);
     session.rollback();
   }
 }

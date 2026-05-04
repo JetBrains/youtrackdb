@@ -19,7 +19,6 @@
 package com.jetbrains.youtrackdb.internal.core.db.record.record;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
@@ -128,7 +127,8 @@ public class RecordHookAbstractDeadCodeTest {
     bareHook.onAfterRecordUpdate(null);
     bareHook.onBeforeRecordDelete(null);
     bareHook.onAfterRecordDelete(null);
-    assertFalse("if we got here without exception, the empty defaults are intact", false);
+    // No assertion needed — JUnit reports the test as failed if any of the seven calls
+    // above throws. Reaching this line is the contract the test pins.
   }
 
   @Test

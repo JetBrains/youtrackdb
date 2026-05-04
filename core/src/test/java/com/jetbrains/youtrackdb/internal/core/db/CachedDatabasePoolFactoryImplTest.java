@@ -10,6 +10,9 @@ import static org.junit.Assert.fail;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
+import java.lang.reflect.Field;
+import java.util.Map;
+import java.util.concurrent.ScheduledFuture;
 import org.junit.Test;
 
 /**
@@ -307,16 +310,18 @@ public class CachedDatabasePoolFactoryImplTest extends DbTestBase {
 
   // cleanUpCache — runs periodically once eviction interval elapses. With a
   // tight timeout (50 ms) the scheduled task fires almost immediately. After
-  // closing a pool externally, the next clean-up sweep removes the closed
-  // entry from the cache, and a follow-up getOrCreate produces a freshly
-  // created pool. We assert the cache no longer holds the closed reference
-  // by verifying the new pool is not the (now-closed) old one.
+  // closing a pool externally, the next clean-up sweep must remove the closed
+  // entry from the private poolCache map. The previous shape of this test
+  // observed only that a follow-up getOrCreate produced a live pool, but
+  // getOrCreate's own retry path replaces a closed cached entry inline — so
+  // a broken sweep would still return a live pool from getOrCreate. Pin the
+  // sweep itself by polling the private poolCache field directly: the size
+  // must drop to zero from the sweep, before any second getOrCreate is made.
   @Test
   public void cleanUpCacheRemovesClosedPoolsAfterPeriodicSweep()
       throws Exception {
     // 50 ms eviction interval — short enough for the test to observe a sweep
-    // within the wait window below; long enough that the sweep does not
-    // interleave catastrophically with the inline assertions.
+    // within the poll window below.
     var factory = new CachedDatabasePoolFactoryImpl(
         youTrackDB.internal, 100, 50);
     try {
@@ -324,40 +329,72 @@ public class CachedDatabasePoolFactoryImplTest extends DbTestBase {
           databaseName, adminUser, adminPassword, null);
       first.close();
 
-      // Wait long enough for the periodic sweep to fire at least once and
-      // remove the closed entry. 1 s is generous on slow CI runners.
-      Thread.sleep(1_000);
-
-      var second = factory.getOrCreate(
-          databaseName, adminUser, adminPassword, null);
-      try {
-        assertFalse(second.isClosed());
-        // The replacement is a different live pool, not a stale reference.
-        // (The cache may have either been emptied by the sweep or had the
-        // closed entry replaced by getOrCreate's own retry path; both lead
-        // to a live, non-closed second pool.)
-      } finally {
-        second.close();
-      }
+      // Read the private poolCache map reflectively; the sweep is the only
+      // path that removes a closed-but-not-replaced entry without a parallel
+      // getOrCreate(). Falsifier: a future change that drops the periodic
+      // schedule, or that no-ops cleanUpCache, leaves the closed entry in
+      // the map and this poll times out.
+      var poolCache = readPoolCache(factory);
+      pollUntilEmpty(poolCache, 5_000L);
+      assertEquals("periodic sweep must remove the closed pool from the cache",
+          0, poolCache.size());
     } finally {
       factory.close();
     }
   }
 
   // After close, the periodic clean-up task observes the closed flag and
-  // cancels itself via cleanUpFuture.cancel(false). We can only observe this
-  // indirectly: factory.isClosed() returns true and no exception escapes.
+  // cancels itself via cleanUpFuture.cancel(false). Pin via reflection on the
+  // private cleanUpFuture field: it must be cancelled within a small grace
+  // window. (The previous shape asserted only factory.isClosed(), which the
+  // synchronous close() flag flip satisfies regardless of cancellation.)
   @Test
   public void closeCancelsPeriodicCleanUpTask() throws Exception {
     var factory = new CachedDatabasePoolFactoryImpl(
         youTrackDB.internal, 100, 50);
     factory.close();
 
-    // The next scheduled tick observes the closed flag and cancels the
-    // future. Wait long enough for that tick to land and prove the test
-    // did not observe a stale exception (the wrap in
-    // YouTrackDBInternalEmbedded.schedule logs but does not propagate).
-    Thread.sleep(200);
+    // The cleanUpFuture is volatile and cancelled inside close(); poll for
+    // up to 1 s to absorb scheduler thread hop. Falsifier: a future change
+    // that drops the cancel call leaves cleanUpFuture in a non-cancelled,
+    // potentially still-firing state.
+    var future = readCleanUpFuture(factory);
+    var deadline = System.nanoTime() + 1_000_000_000L;
+    while (!future.isCancelled() && System.nanoTime() < deadline) {
+      Thread.sleep(10);
+    }
+    assertTrue("close must cancel the periodic clean-up future",
+        future.isCancelled());
     assertTrue(factory.isClosed());
+  }
+
+  // ---------------------------------------------------------------------------
+  // Reflection helpers — used to pin behaviour the public API does not expose.
+  //
+  // Both readers target {@code private} fields on
+  // {@link CachedDatabasePoolFactoryImpl}: a follow-up that exposes a
+  // package-private accessor on the factory would let these helpers go away.
+  // ---------------------------------------------------------------------------
+
+  private static Map<?, ?> readPoolCache(CachedDatabasePoolFactoryImpl factory)
+      throws Exception {
+    Field f = CachedDatabasePoolFactoryImpl.class.getDeclaredField("poolCache");
+    f.setAccessible(true);
+    return (Map<?, ?>) f.get(factory);
+  }
+
+  private static ScheduledFuture<?> readCleanUpFuture(
+      CachedDatabasePoolFactoryImpl factory) throws Exception {
+    Field f = CachedDatabasePoolFactoryImpl.class.getDeclaredField("cleanUpFuture");
+    f.setAccessible(true);
+    return (ScheduledFuture<?>) f.get(factory);
+  }
+
+  private static void pollUntilEmpty(Map<?, ?> map, long timeoutMs)
+      throws InterruptedException {
+    var deadline = System.nanoTime() + timeoutMs * 1_000_000L;
+    while (!map.isEmpty() && System.nanoTime() < deadline) {
+      Thread.sleep(20);
+    }
   }
 }
