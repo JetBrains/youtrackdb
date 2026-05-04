@@ -153,11 +153,16 @@ safety net for criteria-application errors.
 ### Phase B upgrade
 If implementing a step reveals that the change is more invasive than
 the plan suggested (e.g., the "trivial refactor" turned out to require
-lock ordering changes), the Phase B agent upgrades the risk to `high`
-BEFORE running the dimensional review for that step. Upgrades are
-recorded in the step's risk note. Downgrades are NOT permitted
-mid-Phase B — once the step has been planned at a given risk level,
-the implementer cannot self-relax review pressure.
+lock ordering changes), the implementer flags the upgrade by returning
+`RESULT: RISK_UPGRADE_REQUESTED` (per
+[`implementer-rules.md`](implementer-rules.md) §Detection rules) and
+the Phase B orchestrator applies it — rewriting the `**Risk:**` line
+and respawning — BEFORE running the dimensional review for that step.
+`medium → high` auto-applies; `low → high` pauses for user
+confirmation. Upgrades are recorded in the step's risk note.
+Downgrades are NOT permitted mid-Phase B — once the step has been
+planned at a given risk level, neither implementer nor orchestrator
+can self-relax review pressure.
 
 ### Risk locking
 After a step is implemented (committed + episode written), the risk tag

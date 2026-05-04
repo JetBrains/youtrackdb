@@ -21,8 +21,12 @@ Recorded in the step file under the completed step item:
 
 ### Episode fields
 
-Episodes are produced by the **execution agent** (step implementation phase)
-after it commits the code changes and completes the code review cycle.
+Episodes are produced by the **Phase B orchestrator** from the
+implementer's `EPISODE_DRAFT` return field, merged with cross-track
+impact observations from sub-step 5. The implementer drafts the
+episode after committing the code changes; the orchestrator finalises
+and writes it after sub-step 4 (dimensional review for `risk: high`
+steps) and sub-step 5 (cross-track impact check) complete.
 
 | Field | Required | Purpose |
 |---|---|---|
@@ -75,10 +79,11 @@ simply omitted — no need for "N/A" placeholders.
 
 When a step implementation phase cannot complete its work (tests won't pass,
 coverage can't be met, code reviewer finds fundamental issues, wrong API
-assumption), it signals failure. The execution agent reverts uncommitted
-changes and produces a failed episode.
+assumption), the implementer reverts uncommitted changes (`git checkout -- .`)
+and returns `RESULT: FAILED` with a `FAILURE` block. The orchestrator
+writes the failed episode from `FAILURE` to the step file.
 
-The execution agent then decides:
+The orchestrator then decides:
 - **Retry** with a different approach
 - **Split** the step into smaller pieces that can succeed independently
 - **Adjust** upcoming steps to work around the discovered constraint
