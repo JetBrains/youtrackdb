@@ -105,17 +105,8 @@ public class VertexFromLinkBagIterator implements Iterator<Vertex>, Sizeable {
   }
 
   @Nullable private Vertex loadVertex(RidPair ridPair) {
-    ridPair.validateEdgePair();
-    var rid = ridPair.secondaryRid();
-
-    // Class filter: check the collection (cluster) ID before loading from storage.
-    // The collection ID is part of the RID and already in memory — no disk I/O.
-    if (acceptedCollectionIds != null
-        && !acceptedCollectionIds.contains(rid.getCollectionId())) {
-      return null;
-    }
-
-    if (acceptedRids != null && !acceptedRids.contains(rid)) {
+    var rid = acceptRid(ridPair, acceptedCollectionIds, acceptedRids);
+    if (rid == null) {
       return null;
     }
 
@@ -135,6 +126,35 @@ public class VertexFromLinkBagIterator implements Iterator<Vertex>, Sizeable {
           rid, ridPair.primaryRid());
       return null;
     }
+  }
+
+  /**
+   * Resolves the target vertex RID from a {@link RidPair} and applies the
+   * collection-ID and accepted-RID filters. Returns the secondary RID when both
+   * filters accept it, or {@code null} when either rejects.
+   *
+   * <p>Class filter (collection ID) is checked against the in-memory RID — no
+   * disk I/O. RID filter is a {@link Set#contains} probe against the index-built
+   * accepted set.
+   *
+   * <p>Shared between this iterator (loading path) and {@code
+   * VertexFromLinkBagIterable.RidOnlyIterator} (lazy MATCH path) so the filter
+   * contract lives in one place and cannot drift between the two callers.
+   */
+  @Nullable static RID acceptRid(
+      @Nonnull RidPair ridPair,
+      @Nullable IntSet acceptedCollectionIds,
+      @Nullable Set<RID> acceptedRids) {
+    ridPair.validateEdgePair();
+    var rid = ridPair.secondaryRid();
+    if (acceptedCollectionIds != null
+        && !acceptedCollectionIds.contains(rid.getCollectionId())) {
+      return null;
+    }
+    if (acceptedRids != null && !acceptedRids.contains(rid)) {
+      return null;
+    }
+    return rid;
   }
 
   @Override

@@ -166,17 +166,8 @@ public class VertexFromLinkBagIterable
     }
 
     @Nullable private RID filterRid(RidPair ridPair) {
-      ridPair.validateEdgePair();
-      var rid = ridPair.secondaryRid();
-
-      if (acceptedCollectionIds != null
-          && !acceptedCollectionIds.contains(rid.getCollectionId())) {
-        return null;
-      }
-      if (acceptedRids != null && !acceptedRids.contains(rid)) {
-        return null;
-      }
-      return rid;
+      return VertexFromLinkBagIterator.acceptRid(
+          ridPair, acceptedCollectionIds, acceptedRids);
     }
   }
 }
