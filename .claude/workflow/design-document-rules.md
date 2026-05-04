@@ -137,8 +137,8 @@ invokes the skill — not raw `Edit` / `Write`.
 | `phase1-creation` (initial seed of both files) | both files | `both` | **Whole-doc** on `design.md` (mechanics is exempt — it's agent-targeted long-form) |
 | `mechanics-edit` (working-mode edit) | mechanics only | `mechanics` | **NONE** — cold-read deferred to next `design-sync` |
 | `design-sync` (re-distill design.md from current mechanics) | both files | `both` | **Whole-doc** on `design.md`, plus mechanics-link sweep |
-| `content-edit` within an existing section | `design.md` | `design` | **Bounded** — changed section + 1-2 surrounding sections + Reader Orientation + Overview |
-| `section-add` | `design.md` | `design` | **Bounded** — new section + Reader Orientation + Overview + table of contents (for placement check) |
+| `content-edit` within an existing section | `design.md` | `design` | **Bounded** — changed section + 1-2 surrounding sections + Overview + (when present) Core Concepts |
+| `section-add` | `design.md` | `design` | **Bounded** — new section + Overview + (when present) Core Concepts + structure roadmap (for placement check) |
 | `section-remove` | `design.md` | `design` | **Whole-doc** — verify no broken references and no orphaned forward-pointers |
 | `section-rename` | `design.md` (+ plan/backlog ref propagation) | `design` | **Whole-doc** — every cross-reference to the renamed section must be updated, including in plan and backlog |
 | `section-move` | `design.md` | `design` | **Whole-doc** — verify the new placement makes sense in the reader journey |
@@ -157,11 +157,12 @@ working vs sync).
 
 | Check | Detection |
 |---|---|
-| Reader Orientation header present | Match `^## Reader Orientation` near the top |
-| Per-section shape compliance | Per `^## ` section: TL;DR present (`\*\*TL;DR\.\*\*` or similar bold-prefix paragraph in the first ~10 lines); References footer present (`### References` or `\*\*References\.\*\*` near section end) |
+| Overview first | First `## ` heading must be `## Overview` (concept-first ordering — meta-navigation is folded into Overview's tail, not given its own header) |
+| Core Concepts when applicable | If the doc has `# Part N` headings, a `## Core Concepts` section must exist between Overview and Class Design (`should-fix` if absent) |
+| Per-section shape compliance | Per `^## ` section (excluding shape-exempt: Overview, Core Concepts, Class Design, Workflow, Part-level TL;DR): TL;DR present (`\*\*TL;DR\.\*\*` or similar bold-prefix paragraph in the first ~10 lines); References footer present (`### References` or `\*\*References\.\*\*` near section end) |
 | Top-level cap | Count of `^## ` ≤ 15 (excluding `# Part N` parts which group sections) |
 | Per-section length cap | Each `^## ` section ≤ 300 lines (warn at 200) |
-| D/S parenthetical asides | Regex `\([Pp]er D\d+\)`, `\(see [DS]\d+\)` — reject inside prose |
+| D/S parenthetical asides | Regex `\([Pp]er D\d+\)`, `\([Ss]ee [DS]\d+\)` — reject inside prose |
 | Length trigger compliance | If file > 2,000 lines and `design-mechanics.md` doesn't exist, blocker |
 | Same-shape sibling detection | Cluster of 3+ sibling `## ` sections with ≥80% sub-heading-name overlap → flag for consolidation |
 | `Mechanics:` link resolution | Every `Mechanics: design-mechanics.md §"<name>"` resolves to a real section in `design-mechanics.md` |
@@ -308,36 +309,111 @@ off when iteration depth justifies the deferred-cold-read win
 — typically once the user has issued ≥3 substantive feedback
 rounds on the same design.
 
-## Reader orientation header (mandatory)
+## Overview (mandatory, first content)
 
-Every `design.md` opens with a `## Reader Orientation` section
-that names the audience, sketches the reader journey, and (when
-applicable) points at the companion `design-mechanics.md`.
-Without this header, a reader landing on the file cold has no
-way to navigate it.
+Every `design.md` opens with a `## Overview` section as the first
+content under the title. This is where a cold reader lands; it
+must be **concept-first**, plain language, and short enough to
+read in one sitting (≤40 lines).
 
-The header carries:
+The Overview carries, in order:
 
-1. **One paragraph stating what the design is and what it
-   replaces.** Concrete, not aspirational. ("Replaces the
-   buffer-until-tx-commit storage model with in-place page
-   updates scoped to a single component op.")
-2. **Intended audience block.** A 2-row enumeration: human
-   reviewers (TL;DRs are for them) and execution agents
-   (References footers are for them). Each row says how to use
-   the doc.
-3. **Reader journey table.** One row per major Part with three
-   columns: name, what it covers, when to read. Acts as the
-   table of contents and lets a reader jump to the right Part
-   without reading the whole doc.
-4. **Companion-file block** (only if the length trigger applied
-   and `design-mechanics.md` exists). States the section-name
-   convention, the directionality rule (cross-refs go
-   `design.md → design-mechanics.md`, never the reverse), and
-   notes which artifacts (typically diagrams) are duplicated.
+1. **The baseline being replaced**, in concrete terms. ("YouTrackDB
+   today buffers all of a transaction's writes until commit, then
+   flushes them as one atomic batch.")
+2. **The change**, named and scoped. ("This design replaces that
+   with in-place page updates scoped to a single component
+   operation.")
+3. **The enabling primitive(s)** — one or two sentences naming the
+   load-bearing addition that makes the change possible.
+4. **What else is restructured to fit** — a brief enumeration of
+   the subsystems that change as a consequence of the core change.
+5. **Companion-file pointer** (when `design-mechanics.md` exists)
+   — a 2-3 line note on the section-name convention, the
+   directionality rule (cross-refs go `design.md →
+   design-mechanics.md`, never the reverse), and which artifacts
+   (typically diagrams) appear in both files.
+6. **Document-structure roadmap** — one sentence summarizing what
+   the rest of the doc covers, in order. ("The rest of this
+   document is structured as: Core Concepts → Class Design →
+   Workflow → seven Parts that each tell one arc of the story.")
 
-The reader-orientation header is a structural-review finding if
-absent.
+The Overview does **not** carry meta-navigation (audience block,
+journey table). Those — when needed at all — go either into Core
+Concepts' inline `→ Part X` pointers or are absorbed by the
+Overview's structure roadmap. The doc's shape (TL;DRs at section
+tops, References footers) makes the audience model self-evident
+without an explicit block.
+
+Absence of `## Overview` as the first `##` heading is a blocker.
+
+## Core Concepts (mandatory when applicable)
+
+When the design uses `# Part N` headings or introduces ≥3 new
+domain terms that the reader will meet in subsequent sections,
+add a `## Core Concepts` section **between Overview and Class
+Design**. This is the vocabulary primer: each new term gets a
+paragraph that names it, defines it in plain language, states
+its delta from the baseline, and points at the Part(s) that
+elaborate it.
+
+```markdown
+## Core Concepts
+
+This design introduces N load-bearing ideas. Each is named and
+used without re-definition in the Parts that follow; if a Part
+later references one of these concepts, the relevant definition
+is here. Each entry pairs the new concept with what it replaces,
+so the delta from the baseline is visible at a glance.
+
+**<Concept name>.** <One-sentence definition in plain language.>
+<One sentence on the role this concept plays in the design.>
+Replaces "<the corresponding baseline behavior>". → Part X
+§"<elaborating section>".
+
+**<Next concept>.** …
+```
+
+**Why a separate section.** Overview at ≤40 lines cannot absorb
+seven new domain terms with their definitions and deltas; Class
+Design jumps straight into structural detail using the
+vocabulary; Parts dive into mechanics assuming the reader already
+has it. Core Concepts is the missing layer that lets the reader
+acquire vocabulary in one place before the deep dives. It also
+absorbs what would otherwise be a separate "Key Changes" section
+— each concept paragraph naturally states its delta from
+baseline.
+
+**Format rules:**
+
+- 5-9 concepts is the sweet spot; under 3 means Overview was
+  enough, over 10 means the boundary between "core" and "Part-
+  internal" got blurry.
+- Each concept paragraph: ≤8 lines. Plain language; technical
+  precision is the Part's job. The Core Concepts entry is the
+  reader's hook to know what to look for in the Part.
+- Each concept ends with a `→ Part X §"<section>"` pointer (or a
+  comma-separated list of multiple pointers for cross-cutting
+  concepts).
+- The section's intro paragraph (before the first concept) is the
+  TL;DR-equivalent — it states how many concepts are below and
+  the meta-pattern (one paragraph each, definition + role +
+  delta + pointer). Don't add a separate `**TL;DR.**` block.
+- No References footer required. The `→` pointers act as the
+  References for each concept.
+
+**Conditions for omitting:**
+
+- Designs with no `# Part N` headings AND fewer than 3 new domain
+  terms can skip Core Concepts. The Overview's enumeration of
+  enabling primitives + restructured subsystems is enough.
+- For agent-facing reviewers and execution agents, Core Concepts
+  is also the section to load when starting a new track — it's
+  the minimum vocabulary needed to read the relevant Part.
+
+A multi-Part design without `## Core Concepts` is a
+`should-fix` finding (not blocker — the design can stand without
+it but the cold reader pays for its absence).
 
 ## Per-section mandatory shape
 
@@ -437,10 +513,10 @@ the per-section shape and consolidation rules have been applied,
 the long-form mechanism content moves to a sibling
 `design-mechanics.md`. The rule:
 
-- `design.md` keeps: Reader Orientation, Overview, all class /
-  workflow diagrams, every `##` section's TL;DR + mechanism
-  overview + edge cases + references footer. Diagrams stay in
-  `design.md` (visible to humans first).
+- `design.md` keeps: Overview, Core Concepts (when applicable),
+  all class / workflow diagrams, every `##` section's TL;DR +
+  mechanism overview + edge cases + references footer. Diagrams
+  stay in `design.md` (visible to humans first).
 - `design-mechanics.md` carries: long-form mechanism walk-throughs
   (deeper than the `design.md` overview prose), full state-machine
   tables, per-instance per-stat detail in a consolidated family,
@@ -512,14 +588,18 @@ restructured names live in `design.md`'s consolidated parent.
 
 ## Required content
 
-**1. Reader Orientation header.** See dedicated section above.
-First content under the title.
+**1. Overview** (mandatory, first content). Concept-first
+elevator pitch. ≤40 lines. See dedicated section above. **No
+spec-sheet listings of every component change** — those belong
+in the relevant Parts. The Overview is where a reader lands cold
+and decides whether to keep reading.
 
-**2. Overview.** Concept-first elevator pitch. ≤40 lines. States
-what the design is, what enables it, what it changes, where
-each Part fits. **No spec-sheet listings of every component
-change** — those belong in the relevant Parts. The Overview is
-where a reader lands cold and decides whether to keep reading.
+**2. Core Concepts** (mandatory when the doc has `# Part N`
+headings or introduces ≥3 new domain terms; optional otherwise).
+Vocabulary primer. One paragraph per load-bearing idea: name,
+plain-language definition, role in the design, delta from
+baseline, `→ Part X §"…"` pointer to where it's elaborated. See
+dedicated section above.
 
 **3. Class diagrams (Mermaid `classDiagram`)** — Show the key classes, interfaces,
 and their relationships that this plan introduces or modifies. Focus on:
@@ -589,7 +669,7 @@ sequenceDiagram
 ```
 ````
 
-**5. Dedicated `##` sections for complex or opaque parts**, each
+**6. Dedicated `##` sections for complex or opaque parts**, each
 following the per-section mandatory shape (TL;DR + mechanism
 overview + edge cases + references footer). Examples of things
 that warrant dedicated sections:
@@ -613,26 +693,39 @@ that warrant dedicated sections:
    design was chosen.
 5. **Keep diagrams focused** — cap class diagrams at ~10-12 classes, sequence
    diagrams at ~6-8 participants. Split into multiple diagrams if larger.
-6. **Reader Orientation header is mandatory.** See section above.
-7. **Per-section shape is mandatory** — TL;DR + mechanism overview +
-   edge cases + references footer. See section above.
-8. **Top-level structure caps apply** — ≤15 `##` sections;
+6. **Overview is mandatory and first content.** Concept-first
+   elevator pitch, ≤40 lines. Meta-navigation (audience block,
+   journey table) is folded into Overview's tail or Core
+   Concepts' inline `→ Part X` pointers — not given its own
+   header. See § Overview (mandatory, first content).
+7. **Core Concepts is mandatory when the doc has `# Part N`
+   headings or introduces ≥3 new domain terms.** Vocabulary
+   primer between Overview and Class Design. See § Core Concepts
+   (mandatory when applicable). For small designs (no Parts,
+   ≤2 new domain terms) Core Concepts is optional.
+8. **Per-section shape is mandatory for content sections** —
+   TL;DR + mechanism overview + edge cases + references footer.
+   The shape-exempt sections are Overview, Core Concepts, Class
+   Design, Workflow, and Part-level `## TL;DR` sections — each
+   has its own format defined in the relevant rule. See § Per-
+   section mandatory shape.
+9. **Top-level structure caps apply** — ≤15 `##` sections;
    ≤300 lines per section. Group into `# Part N` headings or
    move long-form to `design-mechanics.md` when exceeded.
-9. **Consolidate sibling sections that share structure.** 3+
-   siblings with the same internal sub-heading sequence MUST be
-   merged using the consolidation form.
-10. **Length-triggered split.** When `design.md` exceeds ~2,000
+10. **Consolidate sibling sections that share structure.** 3+
+    siblings with the same internal sub-heading sequence MUST be
+    merged using the consolidation form.
+11. **Length-triggered split.** When `design.md` exceeds ~2,000
     lines / ~50,000 tokens, agent-targeted long-form moves to
     `design-mechanics.md`. Section names match between files.
-11. **D/S codes follow the discipline** — no parenthetical
+12. **D/S codes follow the discipline** — no parenthetical
     asides; allowed when subject; collected in References footer.
-12. **Section renames update all `**Full design**` refs in plan
+13. **Section renames update all `**Full design**` refs in plan
     and backlog same commit.**
-13. **Complex parts are mandatory** — if any part of the design involves concurrency,
+14. **Complex parts are mandatory** — if any part of the design involves concurrency,
     crash recovery, performance-critical paths, or non-obvious invariants, it MUST
     have a dedicated section. Omitting these is a structural review finding.
-14. **Frozen after Phase 1** — the original `design.md` (and
+15. **Frozen after Phase 1** — the original `design.md` (and
     `design-mechanics.md` if it exists) is never modified after
     planning. Phase 4 produces `design-final.md` (actual design)
     and `adr.md` (architecture decisions with actual outcomes) —
@@ -640,16 +733,15 @@ that warrant dedicated sections:
 
 ## Structure
 
-Default (no length trigger):
+Default (small design, no Parts, no length trigger):
 
 ```markdown
 # <Feature Name> — Design
 
-## Reader Orientation
-<Audience block + reader-journey table + companion-file note (when applicable)>
-
 ## Overview
-<Concept-first elevator pitch, ≤40 lines>
+<Concept-first elevator pitch, ≤40 lines. Closes with the
+companion-file pointer when `design-mechanics.md` exists, and a
+one-sentence document-structure roadmap.>
 
 ## Class Design
 <Mermaid classDiagram(s) — each in a sub-section with TL;DR +
@@ -675,16 +767,26 @@ diagram + condensed prose + References footer>
 …
 ```
 
-When the length trigger applies and the design has 6+ distinct
-concern areas, group into Parts:
+When the design has `# Part N` headings or introduces ≥3 new
+domain terms, add `## Core Concepts` between Overview and Class
+Design:
 
 ```markdown
 # <Feature Name> — Design
 
-## Reader Orientation
+## Overview
 …
 
-## Overview
+## Core Concepts
+
+<Intro paragraph: how many concepts, the meta-pattern (definition
++ role + delta + → pointer).>
+
+**<Concept 1>.** <Plain-language definition. Role in design.>
+Replaces "<baseline>". → Part X §"<section>".
+
+**<Concept 2>.** <…>
+
 …
 
 ## Class Design

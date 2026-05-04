@@ -42,13 +42,15 @@ docs/adr/<dir-name>/
                                      constraints/interactions + any
                                      track-level diagrams); shrinks
                                      monotonically
-  design.md                       <- narrative: Reader Orientation,
-                                     concept-first Overview, class diagrams,
-                                     workflow diagrams, per-section TL;DR +
-                                     mechanism overview + edge cases +
-                                     References footer. Every modification
-                                     goes through the mutation action defined
-                                     in design-document-rules.md § Mutation
+  design.md                       <- narrative: concept-first Overview
+                                     (first content), Core Concepts vocabulary
+                                     primer (when doc has Parts or ≥3 new
+                                     domain terms), class diagrams, workflow
+                                     diagrams, per-section TL;DR + mechanism
+                                     overview + edge cases + References
+                                     footer. Every modification goes through
+                                     the mutation action defined in
+                                     design-document-rules.md § Mutation
                                      discipline. Frozen between Phase 1 end
                                      and Phase 4 start.
   design-mechanics.md             <- (optional, length-triggered) long-form

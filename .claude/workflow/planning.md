@@ -397,13 +397,16 @@ The plan must be accompanied by a separate **design document** at
 design (not code): class diagrams, workflow diagrams, and dedicated sections
 for complex/opaque parts (concurrency, crash recovery, performance paths).
 
-Required content: a Reader Orientation header, a concept-first
-Overview, Mermaid class diagrams, Mermaid workflow/sequence
-diagrams, and dedicated `##` sections for complex parts each
-following the per-section shape (TL;DR + mechanism overview +
-edge cases + References footer). All diagrams paired with prose.
-Frozen after Phase 1 — `design-final.md` and `adr.md` are
-produced in Phase 4 as the only git-tracked workflow artifacts.
+Required content: a concept-first Overview as first content (≤40
+lines, plain language); Core Concepts vocabulary primer between
+Overview and Class Design when the doc has `# Part N` headings or
+introduces ≥3 new domain terms; Mermaid class diagrams; Mermaid
+workflow/sequence diagrams; and dedicated `##` sections for
+complex parts each following the per-section shape (TL;DR +
+mechanism overview + edge cases + References footer). All
+diagrams paired with prose. Frozen after Phase 1 —
+`design-final.md` and `adr.md` are produced in Phase 4 as the
+only git-tracked workflow artifacts.
 
 **Mutation discipline.** Every modification to `design.md` —
 whether the initial creation in this phase, a later interactive

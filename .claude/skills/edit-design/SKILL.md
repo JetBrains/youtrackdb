@@ -57,8 +57,8 @@ so the cold-read scope and check-set are correct; do not guess.
 | `phase1-creation` | both files (initial seed) | `both` | `whole-doc` on design.md (mechanics is exempt from cold-read since it's agent-targeted) |
 | `mechanics-edit` | mechanics only | `mechanics` | **NONE** — cold-read deferred to next `design-sync` |
 | `design-sync` | both files (re-distill design.md from updated mechanics) | `both` | `whole-doc` on design.md, plus mechanics-link-resolution sweep |
-| `content-edit` | design.md | `design` | `bounded` — changed section + 1-2 surrounding sections + Reader Orientation + Overview |
-| `section-add` | design.md | `design` | `bounded` — new section + Reader Orientation + Overview + ToC |
+| `content-edit` | design.md | `design` | `bounded` — changed section + 1-2 surrounding sections + Overview + (when present) Core Concepts |
+| `section-add` | design.md | `design` | `bounded` — new section + Overview + (when present) Core Concepts + structure roadmap |
 | `section-remove` | design.md | `design` | `whole-doc` |
 | `section-rename` | design.md (+ plan/backlog ref propagation) | `design` | `whole-doc` |
 | `section-move` | design.md | `design` | `whole-doc` |
@@ -83,10 +83,11 @@ new section creation). Read the target file first to satisfy the `Edit`
 precondition.
 
 For `phase1-creation`: write **both** files in this step. Seed `design.md`
-with Reader Orientation, Overview, Class Design, Workflow, and TL;DR-shaped
-sections; seed `design-mechanics.md` with the long-form mechanism content
-that supports each design.md section. Section names match between the two
-files from the start.
+with Overview (concept-first elevator pitch), Core Concepts (when the doc
+will have Parts or ≥3 new domain terms), Class Design, Workflow, and
+TL;DR-shaped Part sections; seed `design-mechanics.md` with the long-form
+mechanism content that supports each design.md section. Section names match
+between the two files from the start.
 
 For `design-sync`: see Step 1.5 below — sync has a distillation sub-step
 before the apply.
@@ -378,8 +379,9 @@ The agent has produced `implementation-plan.md` with goals, decisions,
 and component map; now it needs to seed the design files.
 
 The skill:
-1. Writes `design.md` with Reader Orientation, Overview, Class Design,
-   Workflow, and TL;DR-shaped sections matching the planned scope.
+1. Writes `design.md` with Overview (concept-first pitch), Core Concepts
+   (when applicable — multi-Part design or ≥3 new domain terms), Class
+   Design, Workflow, and TL;DR-shaped sections matching the planned scope.
 2. Writes `design-mechanics.md` with long-form mechanism content under
    matching section names.
 3. Runs mechanical checks with `--target=both`.

@@ -54,10 +54,10 @@ warning, or pass.
 - **Read only the files at the paths above.** No source code.
   No prior conversation context. No other workflow files.
 - **Bounded scope**: read the changed section + 1-2 surrounding
-  sections + the `## Reader Orientation` header + the
-  `## Overview` section. Do not read the rest of `design.md` and
-  do not open `design-mechanics.md` unless verifying a specific
-  `Mechanics:` link.
+  sections + the `## Overview` section + (when present) the
+  `## Core Concepts` section. Do not read the rest of `design.md`
+  and do not open `design-mechanics.md` unless verifying a
+  specific `Mechanics:` link.
 - **Whole-doc scope**: read the entire `design.md`. Read
   `design-mechanics.md` only when verifying that a
   `Mechanics: design-mechanics.md §"…"` link resolves.
@@ -73,9 +73,12 @@ section + a 1-sentence anchor). If the document doesn't give you
 enough to answer, that itself is a finding.
 
 1. **What is this design replacing or adding?** State in one
-   sentence.
-2. **Who is the intended audience and how should they navigate
-   the doc?** Use the Reader Orientation header.
+   sentence. Use the Overview.
+2. **What are the load-bearing concepts a reader needs before
+   the Parts?** Use the Core Concepts section if present;
+   otherwise note its absence and whether the Overview alone
+   gives enough vocabulary. (For docs without Parts and
+   <3 new domain terms, this question is N/A — say so.)
 3. **What is the load-bearing claim of the section that just
    changed?** Read the changed section's TL;DR; restate in your
    own words.
@@ -106,9 +109,16 @@ enough to answer, that itself is a finding.
   table + per-instance short bodies)?
 - **Length budget**: did this change push `design.md` over
   2,000 lines without splitting into `design-mechanics.md`?
-- (**Whole-doc scope only**) **Reader Orientation header is
-  current** — names every Part the doc has, doesn't reference
-  removed Parts.
+- (**Whole-doc scope only**) **Overview is concept-first** —
+  starts with the baseline being replaced + the change, no
+  meta-navigation block (audience listing, journey table) ahead
+  of the concept. Closes with companion-file pointer (when
+  applicable) and a one-sentence document-structure roadmap.
+- (**Whole-doc scope only**) **Core Concepts is current and
+  complete** (when the doc has Parts or ≥3 new domain terms) —
+  every load-bearing concept the Parts use without re-definition
+  appears in Core Concepts; each entry has a `→ Part X §"…"`
+  pointer; no concept entries name removed Parts.
 - (**Whole-doc scope only**) **`**Full design**` refs in plan
   and backlog all resolve** to real `design.md` sections.
 

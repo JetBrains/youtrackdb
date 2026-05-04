@@ -31,8 +31,8 @@ from typing import Dict, List, Optional, Set, Tuple
 # These sections have their own format defined elsewhere in the rules.
 # ---------------------------------------------------------------------------
 SHAPE_EXEMPT_SECTION_NAMES = {
-    "Reader Orientation",
     "Overview",
+    "Core Concepts",
     "Class Design",
     "Workflow",
     "TL;DR",  # When used as a Part-level TL;DR section under a `# Part N` heading.
@@ -229,28 +229,80 @@ def make_finding(
 # ---------------------------------------------------------------------------
 
 
-def check_reader_orientation(design_path: str, lines: List[str], sections: List[Dict]) -> List[Dict]:
-    """First `## ` heading in design.md must be `## Reader Orientation`."""
+def check_overview_first(design_path: str, lines: List[str], sections: List[Dict]) -> List[Dict]:
+    """First `## ` heading in design.md must be `## Overview`.
+
+    The concept-first elevator pitch is the cold reader's entry point and
+    must come first; meta-navigation (audience, journey table) is folded
+    into the tail of Overview, not given its own header. Per
+    design-document-rules.md § Required content.
+    """
     findings: List[Dict] = []
     if not sections:
         findings.append(make_finding(
             "blocker",
-            "reader-orientation-present",
+            "overview-first",
             f"{design_path}:1",
-            "design.md has no `## ` sections at all — Reader Orientation header missing.",
-            "Add a `## Reader Orientation` section as the first `## ` heading after the title.",
+            "design.md has no `## ` sections at all — Overview missing.",
+            "Add a `## Overview` section as the first `## ` heading after the title.",
         ))
         return findings
     first = sections[0]
-    if first["title"] != "Reader Orientation":
+    if first["title"] != "Overview":
         findings.append(make_finding(
             "blocker",
-            "reader-orientation-present",
+            "overview-first",
             f"{design_path}:{first['line_start']}",
-            (f"First `## ` section is `{first['title']}`, not `Reader Orientation`. "
-             "Per design-document-rules.md, every design.md must open with a `## Reader Orientation` "
-             "section as the first content under the title."),
-            "Insert a `## Reader Orientation` section before the existing first section.",
+            (f"First `## ` section is `{first['title']}`, not `Overview`. "
+             "Per design-document-rules.md § Required content, every design.md must open with a "
+             "`## Overview` section as the first content under the title — concept-first elevator "
+             "pitch, no meta-navigation ahead of the concept."),
+            "Reorder so `## Overview` is the first `## ` heading; fold any meta-navigation "
+            "(audience, journey table, companion-file pointer) into the tail of Overview.",
+        ))
+    return findings
+
+
+def check_core_concepts_when_parts(
+    design_path: str,
+    sections: List[Dict],
+    parts: List[Dict],
+) -> List[Dict]:
+    """If the design has `# Part N` headings, recommend a `## Core Concepts`
+    section between Overview and Class Design.
+
+    Severity: `should-fix` — the design is comprehensible without Core
+    Concepts, but multi-Part docs introduce more vocabulary than Overview's
+    ≤40 lines can absorb, and Parts dive into mechanics assuming the reader
+    already has the concepts. The discipline says: fold the new vocabulary
+    into a Core Concepts primer between Overview and the deep dives.
+    """
+    findings: List[Dict] = []
+    if not parts:
+        return findings
+    # Find Core Concepts section (must come after Overview, before any Part).
+    # If absent, flag.
+    concept_section = next(
+        (s for s in sections if s["title"] == "Core Concepts" and s["parent_part"] is None),
+        None,
+    )
+    if concept_section is None:
+        # Locate where it should be inserted (right after Overview, conventionally).
+        overview = next((s for s in sections if s["title"] == "Overview"), None)
+        loc_line = overview["line_end"] + 1 if overview else 1
+        findings.append(make_finding(
+            "should-fix",
+            "core-concepts-when-parts",
+            f"{design_path}:{loc_line}",
+            (f"design.md has {len(parts)} `# Part N` heading(s) but no `## Core Concepts` section "
+             "between Overview and Class Design. Multi-Part docs introduce more domain vocabulary "
+             "than Overview's ≤40 lines can absorb; the Parts then dive into mechanics assuming "
+             "the reader already has the concepts. Per design-document-rules.md § Core Concepts "
+             "(conditional), add a `## Core Concepts` section that names each load-bearing idea "
+             "(component op, logical rollback, etc.), defines it in plain language, states the "
+             "delta from baseline, and points at the Part(s) that elaborate."),
+            "Insert a `## Core Concepts` section after Overview, with one bold-prefix paragraph "
+            "per load-bearing concept ending with a `→ Part X §\"…\"` pointer.",
         ))
     return findings
 
@@ -799,7 +851,8 @@ def main() -> int:
     run_design_shape_checks = args.target in ("design", "both")
 
     if run_design_shape_checks:
-        findings.extend(check_reader_orientation(args.design_path, design_lines, sections))
+        findings.extend(check_overview_first(args.design_path, design_lines, sections))
+        findings.extend(check_core_concepts_when_parts(args.design_path, sections, parts))
         findings.extend(check_per_section_shape(
             args.design_path, design_lines, sections, args.changed_section, args.scope))
         findings.extend(check_top_level_cap(args.design_path, sections, parts))
