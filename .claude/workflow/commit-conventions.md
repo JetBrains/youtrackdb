@@ -24,12 +24,23 @@ non-`SUCCESS` result. The orchestrator runs
 `git revert -n {step_base_commit}..HEAD` to stage the reversal of all
 step-related commits (the original implementer commit plus any prior
 `Review fix:` commits from the same dim-review loop), then commits
-once with the `Revert step:` prefix. The body should describe in one
-sentence why the rollback happened (failed review-fix, late design
-decision, late risk upgrade). The implementer never produces this
-commit type — it is exclusively an orchestrator-side operation. See
+once with the `Revert step:` prefix.
+
+The body is load-bearing for Phase B Resume. The **first non-empty
+body line MUST be** `reason: <slug>` where `<slug>` is one of:
+
+| Slug | Trigger |
+|---|---|
+| `failed-review-fix` | The review-fix respawn returned `RESULT: FAILED` |
+| `late-design-decision` | The review-fix respawn returned `RESULT: DESIGN_DECISION_NEEDED` |
+| `late-risk-upgrade` | The review-fix respawn returned `RESULT: RISK_UPGRADE_REQUESTED` |
+
+A blank line separates the slug from a one-sentence prose explanation
+drawn from the relevant `fix_result.{FAILURE|DESIGN_DECISION|RISK_UPGRADE}`
+field. The implementer never produces this commit type — it is
+exclusively an orchestrator-side operation. See
 [`step-implementation.md`](step-implementation.md) §Post-Commit
-Handlers.
+Handlers for the full procedure and resume-dispatch table.
 
 **Commit messages must not cite workflow-internal identifiers**
 (`Track N`, `Step N`, `Track N Step M`, review finding IDs like `CQ33`,
@@ -47,9 +58,14 @@ not written to the step file on disk), it scans
 
 1. **`Revert step:` commits** — the previous session rolled the step
    back after a non-`SUCCESS` review-fix attempt. The next `[ ]` step
-   was already cleanly returned to its pre-implementation state by the
-   revert; resume by writing the `[!]` failed episode (if not already
-   written) and respawning `mode=INITIAL` for the retry/split row.
+   was already cleanly returned to its pre-implementation state by
+   the revert. Read the `reason: <slug>` line in the body and
+   dispatch per the table in
+   [`step-implementation.md`](step-implementation.md) §Phase B
+   Resume — the bookkeeping differs by slug (write `[!]` for
+   `failed-review-fix`; respawn-and-rederive for
+   `late-design-decision`; verify-or-apply-upgrade for
+   `late-risk-upgrade`).
 2. **`Review fix:` commits** — indicate the dim-review loop already
    ran for that step. Resume from episode production.
 3. **Implementation commits** — anything else → dim-review loop has

@@ -69,66 +69,70 @@ inputs**.
 ## What the implementer does (sub-steps 1–3, expanded)
 
 The orchestrator's per-step workflow has seven sub-steps; the
-implementer owns sub-steps 1–3 (implement code, add tests, commit).
-The numbered items below are the implementer's internal expansion of
-those three sub-steps — items 1–3 cover sub-step 1 (implement code;
-reading the step file and slim plan are preconditions, not separate
-sub-steps), item 4 covers sub-step 2 (tests + Spotless + coverage),
-item 5 covers sub-step 3 (commit), and item 6 is the return.
+implementer owns sub-steps 1–3 below. Reading the step file and the
+slim plan are **preconditions** to sub-step 1, not separate sub-steps.
+Run sub-steps 1–3 in order, to completion, then emit the return
+contract. Any detection rule in the next section may interrupt the
+flow with an early return — in that case skip the remaining sub-steps
+and emit the return contract instead of continuing.
 
-Run these in order, to completion, before returning. Any detection
-rule in the next section may interrupt the flow with an early return
-— in that case skip the remaining items and emit the return contract
-instead of continuing.
+**Preconditions.**
 
-1. **Read the step file** at `step_file_path`; locate the step at
-   `step_index`; confirm intent and check the `**Risk:**` line. If
-   `mode == FIX_REVIEW_FINDINGS`, also locate the prior commit's diff
-   so the fixes land on top of it.
-2. **Read the slim plan** at `plan_slim_path` for strategic context.
-   Read `design_path` only if the step requires it.
-3. **Implement the change.** Apply the existing project rules:
-   - Defensive assertions where they cost nothing.
-   - **Reference-accuracy questions go through PSI** (callers,
-     overrides, "is X still used?") per the rules in
-     `~/.claude/CLAUDE.md` "Grep vs PSI". Grep is acceptable for
-     orientation, filename globs, or unique string literals; PSI is
-     required when a missed reference would corrupt a refactor.
-   - **Refactors that touch more than one reference site** route
-     through the IDE refactoring engine via mcp-steroid, not raw
-     `Edit` — see `~/.claude/CLAUDE.md` "Refactoring — IDE refactor
-     vs raw Edit" for the routing table.
-   - **Single-test reruns** (`-Dtest=Foo#bar`) and **compile-fix loops**
-     route through `steroid_execute_code` when mcp-steroid is
-     reachable; full-suite runs and coverage profiles stay on Bash
-     `./mvnw` per `~/.claude/CLAUDE.md` "Maven — when to route
-     through mcp-steroid".
-   - The user-global preflight applies: `steroid_list_projects` once
-     at the start of the spawn confirms the open project matches the
-     working tree before any IDE-routed action; do not re-probe.
-   - **Do not reference workflow-internal identifiers** (`Track N`,
-     `Step N`, finding IDs, iteration counters, or named-only plan
-     invariants) in source code, Javadoc, test names, test
-     descriptions, or the commit message — see
-     [`conventions-execution.md`](conventions-execution.md) §2.3 for
-     the full Ephemeral identifier rule and rewrite examples.
-4. **Add or update tests.** Run module tests, verify Spotless on
-   affected modules (`./mvnw -pl <module> spotless:apply`), verify
-   coverage thresholds (85% line / 70% branch on changed code via the
-   coverage gate command in §"Coverage gate command" below). Wait for
-   test results before proceeding — never start the commit while a
-   background test run is still streaming.
-5. **Stage explicit paths and commit** in one commit. No `git add -A`.
-   No `--amend`. Apply the project's commit-message convention from
-   `CLAUDE.md` (imperative summary under 50 chars, blank line,
-   detailed why) and the Ephemeral identifier rule from
-   [`conventions-execution.md`](conventions-execution.md) §2.3 (no
-   `Track N` / `Step N` / finding IDs / iteration counters in the
-   message body or subject). For `mode == FIX_REVIEW_FINDINGS`,
-   prefix the commit subject with `Review fix:` per
-   [`commit-conventions.md`](commit-conventions.md).
-6. **Return the structured result block** (see §Return contract
-   below).
+- Read the step file at `step_file_path`; locate the step at
+  `step_index`; confirm intent and check the `**Risk:**` line. If
+  `mode == FIX_REVIEW_FINDINGS`, also locate the prior commit's diff
+  so the fixes land on top of it.
+- Read the slim plan at `plan_slim_path` for strategic context. Read
+  `design_path` only if the step requires it.
+
+**Sub-step 1 — Implement the change.** Apply the existing project
+rules:
+
+- Defensive assertions where they cost nothing.
+- **Reference-accuracy questions go through PSI** (callers,
+  overrides, "is X still used?") per the rules in
+  `~/.claude/CLAUDE.md` "Grep vs PSI". Grep is acceptable for
+  orientation, filename globs, or unique string literals; PSI is
+  required when a missed reference would corrupt a refactor.
+- **Refactors that touch more than one reference site** route
+  through the IDE refactoring engine via mcp-steroid, not raw
+  `Edit` — see `~/.claude/CLAUDE.md` "Refactoring — IDE refactor
+  vs raw Edit" for the routing table.
+- **Single-test reruns** (`-Dtest=Foo#bar`) and **compile-fix loops**
+  route through `steroid_execute_code` when mcp-steroid is
+  reachable; full-suite runs and coverage profiles stay on Bash
+  `./mvnw` per `~/.claude/CLAUDE.md` "Maven — when to route
+  through mcp-steroid".
+- The user-global preflight applies: `steroid_list_projects` once
+  at the start of the spawn confirms the open project matches the
+  working tree before any IDE-routed action; do not re-probe.
+- **Do not reference workflow-internal identifiers** (`Track N`,
+  `Step N`, finding IDs, iteration counters, or named-only plan
+  invariants) in source code, Javadoc, test names, test
+  descriptions, or the commit message — see
+  [`conventions-execution.md`](conventions-execution.md) §2.3 for
+  the full Ephemeral identifier rule and rewrite examples.
+
+**Sub-step 2 — Add or update tests.** Run module tests, verify
+Spotless on affected modules (`./mvnw -pl <module> spotless:apply`),
+verify coverage thresholds (85% line / 70% branch on changed code
+via the coverage gate command in §"Coverage gate command" below).
+Wait for test results before proceeding — never start the commit
+while a background test run is still streaming.
+
+**Sub-step 3 — Stage explicit paths and commit** in one commit. No
+`git add -A`. No `--amend`. Apply the project's commit-message
+convention from `CLAUDE.md` (imperative summary under 50 chars, blank
+line, detailed why) and the Ephemeral identifier rule from
+[`conventions-execution.md`](conventions-execution.md) §2.3 (no
+`Track N` / `Step N` / finding IDs / iteration counters in the
+message body or subject). For `mode == FIX_REVIEW_FINDINGS`, prefix
+the commit subject with `Review fix:` per
+[`commit-conventions.md`](commit-conventions.md).
+
+**Return.** Emit the structured result block (see §Return contract
+below). The orchestrator parses the block; everything else in the
+implementer's output is ignored.
 
 The implementer **MUST NOT** modify the step file, the plan file, the
 backlog, or any review file. All step-file mutations — episode write,
@@ -165,6 +169,19 @@ The implementer **MUST** stop and return early — without committing —
 in three cases. The orchestrator decides what happens next; the
 implementer never escalates directly to the user.
 
+**Always revert before returning.** Whichever case fires below, run
+`git reset --hard HEAD` first so the orchestrator always observes a
+clean tree at the implementer's `HEAD`. The reset clears both the
+working tree and the index (untracked files are preserved). Use
+`git reset --hard HEAD` rather than `git checkout -- .` — the latter
+leaves a dirty index if the implementer had staged files before
+bailing. The semantic scope of the revert differs by mode (see
+§"Mode-specific scope of the local revert" below), but the command
+is the same. The orchestrator's pre-revert assertion in
+[`step-implementation.md`](step-implementation.md) §Post-Commit
+Handlers depends on this — a dirty tree at hand-off is a contract
+violation.
+
 ### Design decision detected
 
 A **design decision** is a choice between alternatives that affects
@@ -187,13 +204,15 @@ What is **NOT** a design decision (handle autonomously):
 - Implementation details fully prescribed by the plan or by Decision
   Records in `adr.md` / the plan file.
 
-When a design decision is detected, return `RESULT:
-DESIGN_DECISION_NEEDED` with `DESIGN_DECISION` populated:
-`context`, `alternatives` (≥2, with pros/cons), `recommendation`,
-and `exploration_notes` summarising what was already investigated
-(API shape, call sites surveyed, candidate approaches ruled out).
-The orchestrator presents the alternatives to the user and respawns
-the implementer with `mode=WITH_GUIDANCE` and the
+When a design decision is detected, run `git reset --hard HEAD` to
+discard any in-progress changes, then return `RESULT:
+DESIGN_DECISION_NEEDED` with `DESIGN_DECISION` populated: `context`,
+`alternatives` (≥2, with pros/cons), `recommendation`, and
+`exploration_notes` summarising what was already investigated (API
+shape, call sites surveyed, candidate approaches ruled out — these
+notes survive the revert because they go in the return block, not the
+working tree). The orchestrator presents the alternatives to the user
+and respawns the implementer with `mode=WITH_GUIDANCE` and the
 `exploration_notes_echo` populated, so the new implementer does not
 redo the exploration.
 
@@ -205,12 +224,12 @@ turns out to require lock-ordering changes, or the "internal helper
 addition" tagged `medium` actually changes a public-API serialized
 form.
 
-Return `RESULT: RISK_UPGRADE_REQUESTED` with `RISK_UPGRADE`
-populated: `from`, `to`, `category` (one of: `concurrency`,
-`crash-safety`, `public-API`, `security`, `architecture`,
-`performance-hot-path` — see [`risk-tagging.md`](risk-tagging.md)
-for the full criteria), and `evidence` (a short factual statement
-of what was discovered).
+Run `git reset --hard HEAD` to discard any in-progress changes, then
+return `RESULT: RISK_UPGRADE_REQUESTED` with `RISK_UPGRADE` populated:
+`from`, `to`, `category` (one of: `concurrency`, `crash-safety`,
+`public-API`, `security`, `architecture`, `performance-hot-path` —
+see [`risk-tagging.md`](risk-tagging.md) for the full criteria), and
+`evidence` (a short factual statement of what was discovered).
 
 The implementer **never writes to the step file** to apply the
 upgrade. The orchestrator rewrites the `**Risk:**` line and
@@ -225,19 +244,11 @@ tests cannot be made to pass, coverage cannot be met, architectural
 problem revealed by the implementation, repeated test failures with
 a root cause outside the step's surface area.
 
-Before returning:
-
-1. **Revert any uncommitted changes** with `git reset --hard HEAD`
-   so the orchestrator never observes uncommitted state. This clears
-   both the working tree and the index back to the current `HEAD`
-   (untracked files are preserved). Use `git reset --hard HEAD`
-   rather than `git checkout -- .` because the latter does not
-   unstage staged changes — if the implementer staged files but
-   bailed before committing, `git checkout -- .` leaves a dirty
-   index for the orchestrator to discover.
-2. Return `RESULT: FAILED` with `FAILURE` populated:
-   `what_was_attempted`, `why_it_failed`, `impact_on_remaining_steps`,
-   and `recommended_action` (`retry` | `split` | `escalate`).
+Run `git reset --hard HEAD` to discard any in-progress changes (per
+the rule at the top of this section), then return `RESULT: FAILED`
+with `FAILURE` populated: `what_was_attempted`, `why_it_failed`,
+`impact_on_remaining_steps`, and `recommended_action` (`retry` |
+`split` | `escalate`).
 
 The orchestrator writes the failed episode to the step file, inserts
 retry/split rows, and runs the two-failure detection on its side.
@@ -245,7 +256,9 @@ retry/split rows, and runs the two-failure detection on its side.
 ### Mode-specific scope of the local revert
 
 `git reset --hard HEAD` resets to the **current commit**, not to a
-pre-step state. That has different effects across modes:
+pre-step state. The command is the same for every early-return case
+(design decision, risk upgrade, fundamental failure) and every mode,
+but the **semantic scope** of what gets cleaned up differs:
 
 - **`mode=INITIAL`** or **`mode=WITH_GUIDANCE`**: `HEAD` is the
   step's pre-implementation state (the orchestrator's `step_base_commit`).
@@ -263,9 +276,10 @@ pre-step state. That has different effects across modes:
   would silently destroy work the orchestrator may need.
 
 The implementer is therefore symmetric in code (`git reset --hard
-HEAD` regardless of mode) but the **semantic scope** of the revert
-differs: pre-commit modes return the working tree to a true clean
-state; post-commit mode only undoes the in-progress fix.
+HEAD` regardless of mode and regardless of which early-return case
+fired) but the orchestrator-side cleanup differs: pre-commit modes
+need no further work; post-commit mode requires the orchestrator's
+post-commit rollback to remove the prior step commits as well.
 
 ---
 

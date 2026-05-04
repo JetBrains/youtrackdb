@@ -93,19 +93,57 @@ the step file on disk:
 2. If a `Revert step:` commit is present at the tip (or near the
    tip with no implementer commits after it), the previous session
    rolled the next `[ ]` step back via §Post-Commit Handlers but may
-   not have finished writing the `[!]` episode and retry/split rows:
-   - Inspect the `Revert step:` commit body to recover the rollback
-     reason (failed review-fix, late design decision, late risk
-     upgrade) — the orchestrator writes a one-line reason there.
-   - If the step file already has an `[!]` entry for this step, the
-     rollback was fully recorded; just respawn the implementer for
+   not have finished the orchestrator-side bookkeeping (episode,
+   retry/split rows, risk-line rewrite, or user escalation).
+
+   **Read the rollback reason from the commit body.** The first
+   non-empty body line is `reason: <slug>` per §Post-Commit Handlers
+   "Body format". Branch on the slug:
+
+   **`reason: failed-review-fix`** — the review-fix respawn returned
+   `FAILED`.
+   - If the step file already has an `[!]` entry for this step,
+     the rollback was fully recorded; respawn the implementer for
      the next `[ ]` row from `mode=INITIAL` with `step_base_commit
      = HEAD`.
-   - If the step file does not yet have a `[!]` entry, finish the
-     rollback bookkeeping: write the `[!]` episode (reconstruct
-     `FAILURE` content from the revert commit body + git log of the
-     reverted commits), insert retry/split rows per the recovered
-     `recommended_action`, then proceed.
+   - If no `[!]` entry exists, write it now (reconstruct the
+     `FAILURE` fields from the prose explanation in the revert body
+     plus the git log of the reverted commits), insert retry/split
+     rows per the implied `recommended_action` (default to `retry`
+     when the revert body does not name one), update Progress, then
+     respawn from the retry/split row with `mode=INITIAL`.
+
+   **`reason: late-design-decision`** — the review-fix respawn
+   returned `DESIGN_DECISION_NEEDED` and the user had not yet chosen
+   an alternative when the session ended.
+   - The original `DESIGN_DECISION` payload (alternatives,
+     recommendation, exploration_notes) is **not recoverable** from
+     the revert body — it was held only in the prior session's
+     orchestrator state.
+   - The step file is still `[ ]` (no `[!]` is written for this
+     case). Respawn the implementer with `mode=INITIAL` and
+     `step_base_commit = HEAD`. The new implementer either lands on
+     the same design decision (and re-derives the alternatives via
+     a fresh `DESIGN_DECISION_NEEDED` return) or finds a different
+     path. Either is acceptable — re-derivation is the cost of the
+     mid-escalation crash.
+
+   **`reason: late-risk-upgrade`** — the review-fix respawn returned
+   `RISK_UPGRADE_REQUESTED`.
+   - Read the step's `**Risk:**` line. If it already names the
+     upgraded level (the prior session wrote it before dying), no
+     further bookkeeping is needed.
+   - If the line still names the original level, apply the upgrade
+     now: rewrite to the new level (auto-applied for `medium → high`,
+     paused for user confirmation on `low → high`) and append an
+     override note (`override: upgraded mid-Phase-B during dim review
+     (<reason from revert body>)`).
+   - Respawn the implementer from `mode=INITIAL` with
+     `step_base_commit = HEAD`.
+
+   **Unrecognised slug or missing `reason:` line.** Treat as a
+   contract violation: present the revert commit and the step state
+   to the user and ask how to proceed. Do not invent a slug.
 3. If the commit count exceeds the expected total without a
    `Revert step:` at the tip (one implementer commit + any
    `Review fix:` commits per `[x]` step):
@@ -181,9 +219,12 @@ implementer prompt template is in §Implementer Prompt Template.
 
 Each spawn uses `subagent_type: "general-purpose"` with
 `model: "opus"`. The prompt has a **stable static prefix** followed
-by the **per-step variable inputs**. Order matters for prefix
-caching — the static block goes first and never changes within a
-session.
+by the **per-step variable inputs**. The static block goes first for
+predictability and to keep the variable section easy to spot in
+transcripts; whether the platform's prompt cache hits across
+sub-agent spawns depends on Claude Code's `cache_control` placement
+(currently neither documented nor guaranteed for Agent-tool spawns),
+so do not rely on caching as a load-bearing optimisation here.
 
 ```
 ## Workflow Context (static — same on every spawn this session)
@@ -436,10 +477,15 @@ until sub-steps 1–7 above are done.
 ### `escalate_to_user_then_respawn(step, result)`
 
 Triggered when `result.RESULT == DESIGN_DECISION_NEEDED`. The
-implementer has reverted nothing — it found the decision point
-*before* committing — and has populated `result.DESIGN_DECISION`
-with `context`, `alternatives`, `recommendation`, and
-`exploration_notes`.
+implementer has run `git reset --hard HEAD` per
+[`implementer-rules.md`](implementer-rules.md) §Detection rules, so
+the working tree is clean at `step_base_commit` (no commit was
+produced). `result.DESIGN_DECISION` is populated with `context`,
+`alternatives`, `recommendation`, and `exploration_notes`.
+
+Verify `git status` is clean before continuing — a dirty tree at
+this point is a contract violation; surface the discrepancy to the
+user instead of proceeding.
 
 1. Present `result.DESIGN_DECISION` (alternatives + trade-offs +
    recommendation) to the user via the existing escalation protocol
@@ -458,9 +504,15 @@ with `context`, `alternatives`, `recommendation`, and
 
 Triggered when `result.RESULT == RISK_UPGRADE_REQUESTED`. The
 implementer has flagged that the step is more invasive than its
-tagged risk and reverted nothing because it stopped before
-committing. `result.RISK_UPGRADE` carries `from`, `to`, `category`,
+tagged risk and has run `git reset --hard HEAD` per
+[`implementer-rules.md`](implementer-rules.md) §Detection rules, so
+the working tree is clean at `step_base_commit` (no commit was
+produced). `result.RISK_UPGRADE` carries `from`, `to`, `category`,
 and `evidence`.
+
+Verify `git status` is clean before continuing — a dirty tree at
+this point is a contract violation; surface the discrepancy to the
+user instead of proceeding.
 
 1. **Apply the upgrade in place** in the step file: rewrite the
    `**Risk:**` line to the new level and append an override note
@@ -528,9 +580,26 @@ The post-commit handlers all share a common rollback step:
 git revert -n {step_base_commit}..HEAD
 git commit -m "Revert step: <step description>
 
-<one-sentence reason: failed review-fix / late design decision /
-late risk upgrade — see fix_result.{FAILURE|DESIGN_DECISION|RISK_UPGRADE}>"
+reason: <slug>
+
+<one-sentence prose explanation, drawn from
+fix_result.{FAILURE|DESIGN_DECISION|RISK_UPGRADE}>"
 ```
+
+**Body format (load-bearing for Phase B Resume).** The first
+non-empty line of the body MUST be `reason: <slug>` where `<slug>`
+is exactly one of three values, used by Phase B Resume to dispatch:
+
+| Slug | Source handler | Resume dispatch |
+|---|---|---|
+| `failed-review-fix` | `rollback_and_handle_failure` | Write `[!]` if missing, insert retry/split rows, respawn `INITIAL` |
+| `late-design-decision` | `rollback_and_escalate` | Respawn `INITIAL`; new implementer re-derives — if it returns `DESIGN_DECISION_NEEDED` again, escalate then |
+| `late-risk-upgrade` | `rollback_and_upgrade` | Verify Risk line; apply upgrade if not yet rewritten; respawn `INITIAL` |
+
+A blank line separates the slug line from the prose explanation.
+Resume parses the body by reading the first body line and matching
+against the slug table — do not vary spelling, capitalisation, or
+position.
 
 `git revert -n` stages the reversal of every commit in
 `{step_base_commit}..HEAD` (the original implementer commit plus any
