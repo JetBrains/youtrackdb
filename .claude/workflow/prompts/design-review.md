@@ -193,8 +193,13 @@ attempt the fix automatically.>
   stand.
 - **should-fix** — the doc is comprehensible but a rule was
   violated (D/S parenthetical aside, mechanism prose grew past
-  200 lines, missing edge-case bullets, etc.). The mutation can
+  300 lines, missing edge-case bullets, etc.). The mutation can
   stand if the budget exhausts, but the finding is logged.
+  (Per design-document-rules.md § Mechanical checks, the
+  per-section length tiers are: 201-300 lines = suggestion,
+  301-400 = should-fix, >400 = blocker. The mechanical script
+  surfaces the precise tier; this rubric matches the script's
+  should-fix threshold.)
 - **suggestion** — improvement opportunity that isn't
   rule-mandated (e.g., "the TL;DR could be one sentence
   tighter").

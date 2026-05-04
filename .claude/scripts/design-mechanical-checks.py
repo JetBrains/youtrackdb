@@ -65,6 +65,10 @@ TOP_LEVEL_CAP = 15
 PER_PART_CAP = 8
 PER_PART_WARN = 6
 
+# Overview is the concept-first elevator pitch; past 40 lines it has stopped
+# being a pitch.
+OVERVIEW_LINE_CAP = 40
+
 
 # ---------------------------------------------------------------------------
 # Markdown parsing
@@ -80,12 +84,17 @@ def read_lines(path: str) -> List[str]:
 
 # Per CommonMark, a fenced code block opens/closes on a line whose only
 # content is a run of 3+ backticks (or tildes) optionally followed by an
-# info string. For backtick fences the info string must not contain a
-# backtick. The info-string class `[\w+#.\-]*` covers the common language
-# tags including `c++`, `c#`, and dotted forms like `objective-c.swift`.
-# Lines beginning with ``` but containing inline triple-backtick spans
-# like `` ```inline``` more text `` are NOT fences.
-_CODE_FENCE_RE = re.compile(r"^(`{3,}|~{3,})\s*[\w+#.\-]*\s*$")
+# info string:
+#   - Backtick fence: info string MAY NOT contain a backtick. So a line
+#     beginning with ``` followed by text containing more backticks (e.g.
+#     `` ```inline``` more text ``) is NOT a fence opener.
+#   - Tilde fence: info string can contain anything except a newline,
+#     including backticks, spaces, braces, dotted forms — anything an
+#     authoring tool may emit (e.g. ``~~~python {cmd=true}``).
+#
+# Two regexes per fence type so the contracts don't bleed into each other.
+_BACKTICK_FENCE_RE = re.compile(r"^(`{3,})([^`]*)$")
+_TILDE_FENCE_RE = re.compile(r"^(~{3,})(.*)$")
 
 
 def parse_code_fence(line: str) -> Optional[Tuple[str, int]]:
@@ -96,11 +105,13 @@ def parse_code_fence(line: str) -> Optional[Tuple[str, int]]:
     actually closes it: per CommonMark, a closing fence must use the same
     character as the opener and be at least as long.
     """
-    m = _CODE_FENCE_RE.match(line)
-    if m is None:
-        return None
-    run = m.group(1)
-    return run[0], len(run)
+    m = _BACKTICK_FENCE_RE.match(line)
+    if m is not None:
+        return "`", len(m.group(1))
+    m = _TILDE_FENCE_RE.match(line)
+    if m is not None:
+        return "~", len(m.group(1))
+    return None
 
 
 def is_code_fence_line(line: str) -> bool:
@@ -140,6 +151,12 @@ def parse_sections(lines: List[str]) -> Tuple[List[Dict], List[Dict]]:
     current_part: Optional[Dict] = None
     current_section: Optional[Dict] = None
     open_fence: Optional[Tuple[str, int]] = None
+    # The first heading-shaped line (any level) outside fences is the document's
+    # entry point. If it's H1, it's the document title — consume it so a feature
+    # title that happens to match the `Part \d+` shape (e.g. `# Part 5: Memory`)
+    # is not misclassified as a Part grouping heading. If the first heading is
+    # H2+ (designs without a level-1 title), fall through to normal processing.
+    first_heading_seen = False
 
     for i, line in enumerate(lines, start=1):
         # Fenced code block tracking — per CommonMark, the closing fence must
@@ -157,6 +174,13 @@ def parse_sections(lines: List[str]) -> Tuple[List[Dict], List[Dict]]:
             if fence_closes(open_fence, line):
                 open_fence = None
             continue
+
+        if not first_heading_seen and re.match(r"^#{1,6}\s", line):
+            first_heading_seen = True
+            if re.match(r"^# ", line):
+                # Document title — skip so the Part regex below doesn't fire.
+                continue
+            # First heading is H2+ — fall through; ## handler picks it up.
 
         # `# Part N — name` (or any other top-level `# ` heading after the title).
         m_part = re.match(r"^# (Part \d+\b.*)$", line)
@@ -344,6 +368,26 @@ def check_overview_first(design_path: str, lines: List[str], sections: List[Dict
             "Flesh out the Overview section per design-document-rules.md § Overview "
             "(mandatory, first content).",
         ))
+
+    # Overview ≤40 lines (per design-document-rules.md § Overview). Past 40
+    # lines, Overview has stopped being the elevator pitch and has started
+    # becoming the design itself — detail belongs in Core Concepts, Class
+    # Design, Workflow, or the Parts. Length is total inclusive line span,
+    # matching how the agent reads the section.
+    overview_length = (first["line_end"] or first["line_start"]) - first["line_start"] + 1
+    if overview_length > OVERVIEW_LINE_CAP:
+        findings.append(make_finding(
+            "should-fix",
+            "overview-length",
+            f"{design_path}:{first['line_start']}",
+            (f"`## Overview` is {overview_length} lines (cap: {OVERVIEW_LINE_CAP}). The Overview "
+             "is the concept-first elevator pitch; past the cap it has stopped being a pitch and "
+             "started becoming the design itself. Per design-document-rules.md § Overview, move "
+             "detail into Core Concepts (vocabulary), Class Design (types), Workflow (sequence), "
+             "or the Parts (deep dives)."),
+            f"Trim `## Overview` to ≤{OVERVIEW_LINE_CAP} lines; relocate detail to the appropriate "
+            "downstream section.",
+        ))
     return findings
 
 
@@ -364,29 +408,87 @@ def check_core_concepts_when_parts(
     findings: List[Dict] = []
     if not parts:
         return findings
-    # Find Core Concepts section (must come after Overview, before any Part).
-    # If absent, flag.
-    concept_section = next(
-        (s for s in sections if s["title"] == "Core Concepts" and s["parent_part"] is None),
+    # Locate the canonical scaffold sections (Overview, Core Concepts, Class
+    # Design) in document order. `parent_part is None` filters out homonyms
+    # nested inside a Part.
+    overview_idx = next(
+        (i for i, s in enumerate(sections)
+         if s["title"] == "Overview" and s["parent_part"] is None),
         None,
     )
-    if concept_section is None:
-        # Locate where it should be inserted (right after Overview, conventionally).
-        overview = next((s for s in sections if s["title"] == "Overview"), None)
-        loc_line = overview["line_end"] + 1 if overview else 1
+    cc_idx = next(
+        (i for i, s in enumerate(sections)
+         if s["title"] == "Core Concepts" and s["parent_part"] is None),
+        None,
+    )
+    class_design_idx = next(
+        (i for i, s in enumerate(sections)
+         if s["title"] == "Class Design" and s["parent_part"] is None),
+        None,
+    )
+
+    if cc_idx is None:
+        # Missing entirely — including any nested-inside-a-Part placement,
+        # which the `parent_part is None` filter already rejects.
+        overview_section = sections[overview_idx] if overview_idx is not None else None
+        loc_line = (overview_section["line_end"] + 1) if overview_section else 1
         findings.append(make_finding(
             "should-fix",
             "core-concepts-when-parts",
             f"{design_path}:{loc_line}",
-            (f"design.md has {len(parts)} `# Part N` heading(s) but no `## Core Concepts` section "
-             "between Overview and Class Design. Multi-Part docs introduce more domain vocabulary "
-             "than Overview's ≤40 lines can absorb; the Parts then dive into mechanics assuming "
-             "the reader already has the concepts. Per design-document-rules.md § Core Concepts "
-             "(conditional), add a `## Core Concepts` section that names each load-bearing idea "
-             "(component op, logical rollback, etc.), defines it in plain language, states the "
-             "delta from baseline, and points at the Part(s) that elaborate."),
+            (f"design.md has {len(parts)} `# Part N` heading(s) but no top-level `## Core "
+             "Concepts` section between Overview and Class Design. Multi-Part docs introduce "
+             "more domain vocabulary than Overview's ≤40 lines can absorb; the Parts then "
+             "dive into mechanics assuming the reader already has the concepts. Per "
+             "design-document-rules.md § Core Concepts (conditional), add a `## Core "
+             "Concepts` section that names each load-bearing idea (component op, logical "
+             "rollback, etc.), defines it in plain language, states the delta from baseline, "
+             "and points at the Part(s) that elaborate. (A `## Core Concepts` nested inside "
+             "a `# Part N` is not the canonical placement — it must sit at the top level.)"),
             "Insert a `## Core Concepts` section after Overview, with one bold-prefix paragraph "
             "per load-bearing concept ending with a `→ Part X §\"…\"` pointer.",
+        ))
+        return findings
+
+    # Core Concepts exists at the top level — verify position. Per
+    # design-document-rules.md § Core Concepts, the section must sit between
+    # Overview and Class Design (and necessarily before any `# Part N`,
+    # since concepts must be defined before the deep dives that use them).
+    cc_section = sections[cc_idx]
+    cc_loc = f"{design_path}:{cc_section['line_start']}"
+    if overview_idx is not None and cc_idx < overview_idx:
+        findings.append(make_finding(
+            "should-fix",
+            "core-concepts-when-parts",
+            cc_loc,
+            ("`## Core Concepts` appears before `## Overview`. Per design-document-rules.md "
+             "§ Core Concepts (conditional), Core Concepts must sit between Overview and "
+             "Class Design — it builds on Overview's concept-first pitch, so it cannot "
+             "precede it."),
+            "Move `## Core Concepts` to immediately follow `## Overview`.",
+        ))
+    if class_design_idx is not None and cc_idx > class_design_idx:
+        findings.append(make_finding(
+            "should-fix",
+            "core-concepts-when-parts",
+            cc_loc,
+            ("`## Core Concepts` appears after `## Class Design`. Per design-document-rules.md "
+             "§ Core Concepts (conditional), Core Concepts must sit between Overview and "
+             "Class Design — concepts must be defined before the types and the Parts that "
+             "use them."),
+            "Move `## Core Concepts` to sit between `## Overview` and `## Class Design`.",
+        ))
+    # If `# Part N` exists, Core Concepts must come before the first Part.
+    first_part_line = parts[0]["line_start"]
+    if cc_section["line_start"] > first_part_line:
+        findings.append(make_finding(
+            "should-fix",
+            "core-concepts-when-parts",
+            cc_loc,
+            (f"`## Core Concepts` appears after `# {parts[0]['title']}`. Per design-document-"
+             "rules.md § Core Concepts (conditional), the section must precede the Parts so "
+             "the cold reader has vocabulary in hand before the first deep dive."),
+            "Move `## Core Concepts` to before the first `# Part N` heading.",
         ))
     return findings
 
@@ -579,11 +681,24 @@ def check_per_section_length(
     design_path: str,
     lines: List[str],
     sections: List[Dict],
+    changed_section: Optional[str],
+    scope: str,
 ) -> List[Dict]:
-    """Each `## ` section ≤ 300 lines (warn at 200, blocker at 400)."""
+    """Each `## ` section ≤ 300 lines (warn at 200, blocker at 400).
+
+    Honors `--scope=bounded`: when `scope == "bounded"` and `changed_section`
+    is set, the check fires only on that section. Per design-document-rules.md
+    § Mutation discipline (scope: new mutations only), the discipline does not
+    backfill length-cap violations on sections the current mutation didn't
+    touch — pre-existing legacy oversize sections live until they're modified.
+    """
     findings: List[Dict] = []
     for section in sections:
         if is_shape_exempt(section):
+            continue
+        # Bounded scope: only flag length on the section the mutation changed.
+        if (scope == "bounded" and changed_section is not None
+                and normalize_heading(section["title"]) != normalize_heading(changed_section)):
             continue
         # Section length = lines from heading through end (inclusive).
         length = (section["line_end"] or section["line_start"]) - section["line_start"] + 1
@@ -619,6 +734,9 @@ def check_per_section_length(
 def check_dsc_parenthetical_asides(
     file_path: str,
     lines: List[str],
+    sections: Optional[List[Dict]] = None,
+    changed_section: Optional[str] = None,
+    scope: str = "whole-doc",
 ) -> List[Dict]:
     """Reject `(per D27)`, `(see S14)` style parenthetical asides anywhere in prose.
 
@@ -627,6 +745,13 @@ def check_dsc_parenthetical_asides(
 
     Operates on whichever file the caller passes — design.md or
     design-mechanics.md. Parenthetical asides are forbidden in both.
+
+    Honors `--scope=bounded`: when `scope == "bounded"`, `changed_section`
+    is set, and `sections` is supplied, only asides whose line falls within
+    the changed section's `[line_start, line_end]` range are flagged. Per
+    design-document-rules.md § Mutation discipline (scope: new mutations only),
+    pre-existing asides outside the changed section are left for the mutation
+    that next touches them.
     """
     findings: List[Dict] = []
     # Track which lines are inside a References block (which legitimately lists D/S codes).
@@ -639,6 +764,20 @@ def check_dsc_parenthetical_asides(
         re.compile(r"\([Ss]ee D\d+(?:\s*[,/]\s*D\d+)*\)"),
         re.compile(r"\([Ss]ee S\d+(?:\s*[,/]\s*S\d+)*\)"),
     ]
+
+    # Resolve the changed section's line range when bounded scope is active.
+    bounded_range: Optional[Tuple[int, int]] = None
+    if scope == "bounded" and changed_section is not None and sections is not None:
+        target_norm = normalize_heading(changed_section)
+        target = next(
+            (s for s in sections if normalize_heading(s["title"]) == target_norm),
+            None,
+        )
+        if target is not None:
+            bounded_range = (
+                target["line_start"],
+                target["line_end"] or len(lines),
+            )
 
     for i, line in enumerate(lines, start=1):
         if open_fence is None:
@@ -663,6 +802,10 @@ def check_dsc_parenthetical_asides(
         is_table_row = line.lstrip().startswith("|")
 
         if in_references or is_table_row:
+            continue
+
+        # Bounded scope: skip lines outside the changed section's range.
+        if bounded_range is not None and not (bounded_range[0] <= i <= bounded_range[1]):
             continue
 
         for pat in aside_patterns:
@@ -775,9 +918,24 @@ def collect_refs_line_by_line(filepath: str, lines: List[str]) -> List[Tuple[int
 
     The active filename is bound by the most recent `<filename>.md` token on
     the same line; subsequent `§"name"` quotes on that line attach to it.
+
+    Lines inside fenced code blocks are skipped — `design.md §"Foo"` appearing
+    inside a worked example would otherwise be reported as a broken cross-ref
+    even though it's just illustrative code.
     """
     refs: List[Tuple[int, str, str]] = []
+    open_fence: Optional[Tuple[str, int]] = None
     for i, line in enumerate(lines, start=1):
+        if open_fence is None:
+            parsed = parse_code_fence(line)
+            if parsed is not None:
+                open_fence = parsed
+                continue
+        else:
+            if fence_closes(open_fence, line):
+                open_fence = None
+            continue
+
         # Find all (offset, filename) on this line.
         fname_matches = list(_FILENAME_RE.finditer(line))
         if not fname_matches:
@@ -968,13 +1126,17 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--backlog-path", help="Absolute path to implementation-backlog.md (optional)")
     p.add_argument("--changed-section", help="Title of the section that changed (for bounded scope)")
     p.add_argument("--scope", choices=("bounded", "whole-doc"), default="whole-doc",
-                   help=("Scope of the per-section shape check only (default: whole-doc). "
-                         "When `bounded`, --changed-section is required and the per-section "
-                         "TL;DR/References check runs only against that section. ALL OTHER "
-                         "checks (per-section length cap, parenthetical asides, top-level cap, "
-                         "mechanics-link resolution, length-trigger compliance, same-shape "
-                         "siblings, full-design link resolution, reverse-direction refs) "
-                         "always run whole-doc regardless of --scope."))
+                   help=("Scope of the section-bounded checks (default: whole-doc). When "
+                         "`bounded`, --changed-section is required and the following checks "
+                         "fire only against that section: per-section TL;DR/References shape, "
+                         "per-section length cap, and parenthetical-aside scan over design.md. "
+                         "Per design-document-rules.md § Mutation discipline (scope: new "
+                         "mutations only), bounded scope keeps the discipline from forcing "
+                         "the agent to backfill pre-existing legacy violations on sections "
+                         "the current mutation didn't touch. Whole-doc-only checks (top-level "
+                         "cap, mechanics-link resolution, length-trigger compliance, "
+                         "same-shape siblings, full-design link resolution, reverse-direction "
+                         "refs, mechanics-side parenthetical asides) always run whole-doc."))
     p.add_argument("--target", choices=("design", "mechanics", "both"), default="design",
                    help=("Which file the mutation actually touched. `design` runs the full "
                          "design.md shape rules + cross-file checks (default — current behavior). "
@@ -1080,16 +1242,25 @@ def main() -> int:
         findings.extend(check_per_section_shape(
             args.design_path, design_lines, sections, args.changed_section, args.scope))
         findings.extend(check_top_level_cap(args.design_path, sections, parts))
-        findings.extend(check_per_section_length(args.design_path, design_lines, sections))
+        findings.extend(check_per_section_length(
+            args.design_path, design_lines, sections, args.changed_section, args.scope))
         findings.extend(check_length_trigger_compliance(
             args.design_path, args.design_mechanics_path, len(design_lines)))
         findings.extend(check_same_shape_siblings(args.design_path, sections))
 
     # Parenthetical-aside scan runs against whichever file(s) were touched.
     # design.md and design-mechanics.md are both human-readable; the rule
-    # applies to both.
+    # applies to both. Bounded scope only flags asides inside the changed
+    # section on the design.md side; for mechanics-edit (working mode) the
+    # scan still runs whole-doc since `--changed-section` describes a
+    # design.md section, not a mechanics section.
     if args.target in ("design", "both"):
-        findings.extend(check_dsc_parenthetical_asides(args.design_path, design_lines))
+        findings.extend(check_dsc_parenthetical_asides(
+            args.design_path, design_lines,
+            sections=sections,
+            changed_section=args.changed_section,
+            scope=args.scope,
+        ))
     if args.target in ("mechanics", "both") and design_mechanics_lines is not None:
         findings.extend(check_dsc_parenthetical_asides(
             args.design_mechanics_path, design_mechanics_lines))
