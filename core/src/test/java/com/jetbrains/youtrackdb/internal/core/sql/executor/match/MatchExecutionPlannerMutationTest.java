@@ -2562,19 +2562,21 @@ public class MatchExecutionPlannerMutationTest {
   }
 
   // =========================================================================
-  // applyTargetSelectivity — refactor parity + new class-forced overload
+  // applyTargetSelectivity / applyTargetSelectivityWithResolvedClass —
+  // refactor parity + new class-forced sibling
   // =========================================================================
   //
-  // These tests guard the refactor that extracts the shared body of the
-  // existing 8-arg overload into {@code applyClassSelectivity} and adds a
-  // class-forced 6-arg overload used by the sort-loop's chain fold.
+  // These tests guard the refactor that extracts the shared body of
+  // applyTargetSelectivity into {@code applyClassSelectivity} and adds the
+  // class-forced sibling {@code applyTargetSelectivityWithResolvedClass}
+  // used by the sort-loop's chain fold.
   //
-  // Parity tests (8-arg ↔ 6-arg) prove the refactor preserves behaviour for
-  // the existing call site. Short-circuit tests on the 6-arg overload pin
-  // the null-class guard and the inherited schema / classCount / filter /
+  // Parity tests prove the refactor preserves behaviour for the existing
+  // call site. Short-circuit tests on the class-forced sibling pin the
+  // null-class guard and the inherited schema / classCount / filter /
   // estimate branches, so a mutation that drops any branch is caught.
 
-  // ── 6-arg overload: short-circuit on null pre-resolved class ──
+  // ── class-forced sibling: short-circuit on null pre-resolved class ──
 
   /**
    * Kills: "if (preResolvedTargetClass == null) return baseCost;" replaced
@@ -2585,18 +2587,18 @@ public class MatchExecutionPlannerMutationTest {
    */
   @Test
   public void applyTargetSelectivity_classForced_nullClass_returnsBaseCost() {
-    double result = MatchExecutionPlanner.applyTargetSelectivity(
-        500.0, "tag", (String) null, Map.of(), Map.of("tag", 10L), db);
+    double result = MatchExecutionPlanner.applyTargetSelectivityWithResolvedClass(
+        500.0, "tag", null, Map.of(), Map.of("tag", 10L), db);
     assertEquals(500.0, result, 0.0);
   }
 
-  // ── 6-arg overload: inherited schema/classCount short-circuits ──
+  // ── class-forced sibling: inherited schema/classCount short-circuits ──
 
   /**
    * Pins the sort-loop invariant that {@code Double.MAX_VALUE} (the
    * "unestimated" sentinel) survives the chain fold unchanged when the
    * pre-resolved class is null. If the null-class short-circuit at the
-   * head of the 6-arg overload is weakened or removed, the caller at
+   * head of applyTargetSelectivityWithResolvedClass is weakened or removed, the caller at
    * {@code MatchExecutionPlanner.updateScheduleStartingAt} would multiply
    * MAX_VALUE by some finite selectivity, quietly breaking the stable-sort
    * tiebreaker the sort comparator relies on for edges with no estimate.
@@ -2604,8 +2606,8 @@ public class MatchExecutionPlannerMutationTest {
   @Test
   public void applyTargetSelectivity_classForced_maxValueInputPreservedOnNullClass() {
     double result =
-        MatchExecutionPlanner.applyTargetSelectivity(
-            Double.MAX_VALUE, "tag", (String) null, Map.of(), Map.of("tag", 10L), db);
+        MatchExecutionPlanner.applyTargetSelectivityWithResolvedClass(
+            Double.MAX_VALUE, "tag", null, Map.of(), Map.of("tag", 10L), db);
     assertEquals(Double.MAX_VALUE, result, 0.0);
   }
 
@@ -2622,7 +2624,7 @@ public class MatchExecutionPlannerMutationTest {
     when(schema.existsClass("Tag")).thenReturn(true);
 
     double result =
-        MatchExecutionPlanner.applyTargetSelectivity(
+        MatchExecutionPlanner.applyTargetSelectivityWithResolvedClass(
             Double.MAX_VALUE, "tag", "Tag", Map.of(), Map.of(), db);
     assertEquals(Double.MAX_VALUE, result, 0.0);
   }
@@ -2638,7 +2640,7 @@ public class MatchExecutionPlannerMutationTest {
   public void applyTargetSelectivity_classForced_classNotInSchema_returnsBaseCost() {
     when(schema.existsClass("Missing")).thenReturn(false);
 
-    double result = MatchExecutionPlanner.applyTargetSelectivity(
+    double result = MatchExecutionPlanner.applyTargetSelectivityWithResolvedClass(
         500.0, "tag", "Missing", Map.of(), Map.of("tag", 10L), db);
     assertEquals(500.0, result, 0.0);
   }
@@ -2654,7 +2656,7 @@ public class MatchExecutionPlannerMutationTest {
   public void applyTargetSelectivity_classForced_schemaSnapshotNull_returnsBaseCost() {
     when(db.getMetadata().getImmutableSchemaSnapshot()).thenReturn(null);
 
-    double result = MatchExecutionPlanner.applyTargetSelectivity(
+    double result = MatchExecutionPlanner.applyTargetSelectivityWithResolvedClass(
         500.0, "tag", "Tag", Map.of(), Map.of("tag", 10L), db);
     assertEquals(500.0, result, 0.0);
   }
@@ -2670,12 +2672,12 @@ public class MatchExecutionPlannerMutationTest {
     registerClass("Empty", 0);
     when(schema.existsClass("Empty")).thenReturn(true);
 
-    double result = MatchExecutionPlanner.applyTargetSelectivity(
+    double result = MatchExecutionPlanner.applyTargetSelectivityWithResolvedClass(
         500.0, "tag", "Empty", Map.of(), Map.of("tag", 10L), db);
     assertEquals(500.0, result, 0.0);
   }
 
-  // ── 6-arg overload: filter-heuristic vs cardinality-ratio paths ──
+  // ── class-forced sibling: filter-heuristic vs cardinality-ratio paths ──
 
   /**
    * Kills: "return baseCost * heuristic;" in the filter-heuristic branch
@@ -2690,7 +2692,7 @@ public class MatchExecutionPlannerMutationTest {
 
     var filter = makeWhereWithOperator(new SQLEqualsOperator(-1));
 
-    double result = MatchExecutionPlanner.applyTargetSelectivity(
+    double result = MatchExecutionPlanner.applyTargetSelectivityWithResolvedClass(
         500.0, "tag", "Tag", Map.of("tag", filter), Map.of("tag", 100L), db);
 
     // equality selectivity = 1/1000 → 500 × 0.001 = 0.5 (exact in IEEE-754)
@@ -2712,7 +2714,7 @@ public class MatchExecutionPlannerMutationTest {
 
     var filter = makeWhereWithOperator(new SQLNeOperator(-1));
 
-    double result = MatchExecutionPlanner.applyTargetSelectivity(
+    double result = MatchExecutionPlanner.applyTargetSelectivityWithResolvedClass(
         500.0, "tag", "Tag", Map.of("tag", filter), Map.of("tag", 100L), db);
 
     // inequality selectivity = 999/1000 → 500 × 0.999 = 499.5 (exact in IEEE-754)
@@ -2733,7 +2735,7 @@ public class MatchExecutionPlannerMutationTest {
     registerClass("Tag", 1000);
     when(schema.existsClass("Tag")).thenReturn(true);
 
-    double result = MatchExecutionPlanner.applyTargetSelectivity(
+    double result = MatchExecutionPlanner.applyTargetSelectivityWithResolvedClass(
         500.0, "tag", "Tag", Map.of(), Map.of("tag", 100L), db);
 
     // no filter → targetEstimate/classCount = 100/1000 → 500 × 0.1 = 50.0 (exact in IEEE-754)
@@ -2761,7 +2763,7 @@ public class MatchExecutionPlannerMutationTest {
     var where = new SQLWhereClause(-1);
     where.setBaseExpression(new SQLAndBlock(-1));
 
-    double result = MatchExecutionPlanner.applyTargetSelectivity(
+    double result = MatchExecutionPlanner.applyTargetSelectivityWithResolvedClass(
         500.0, "tag", "Tag", Map.of("tag", where), Map.of("tag", 1L), db);
 
     // heuristic = -1.0 → fallback to targetEstimate/classCount = 1/1000
@@ -2780,13 +2782,14 @@ public class MatchExecutionPlannerMutationTest {
     registerClass("Tag", 1000);
     when(schema.existsClass("Tag")).thenReturn(true);
 
-    double result = MatchExecutionPlanner.applyTargetSelectivity(
+    double result = MatchExecutionPlanner.applyTargetSelectivityWithResolvedClass(
         500.0, "tag", "Tag", Map.of(), Map.of(), db);
 
     assertEquals(500.0, result, 0.0);
   }
 
-  // ── 8-arg ↔ 6-arg parity (refactor regression guard) ──
+  // ── applyTargetSelectivity ↔ applyTargetSelectivityWithResolvedClass parity ──
+  // ── (refactor regression guard) ──
 
   /**
    * The refactor routes both overloads through the same private helper;
@@ -2809,7 +2812,7 @@ public class MatchExecutionPlannerMutationTest {
         500.0, "tag", edge, true,
         Map.of("tag", "Tag"), Map.of("tag", filter), Map.of("tag", 100L), db);
 
-    double classForced = MatchExecutionPlanner.applyTargetSelectivity(
+    double classForced = MatchExecutionPlanner.applyTargetSelectivityWithResolvedClass(
         500.0, "tag", "Tag", Map.of("tag", filter), Map.of("tag", 100L), db);
 
     // equality selectivity = 1/1000 → 500 × 0.001 = 0.5 (exact in IEEE-754)
@@ -2836,7 +2839,7 @@ public class MatchExecutionPlannerMutationTest {
         500.0, "tag", edge, true,
         Map.of("tag", "Tag"), Map.of(), Map.of("tag", 1L), db);
 
-    double classForced = MatchExecutionPlanner.applyTargetSelectivity(
+    double classForced = MatchExecutionPlanner.applyTargetSelectivityWithResolvedClass(
         500.0, "tag", "Tag", Map.of(), Map.of("tag", 1L), db);
 
     // no filter → targetEstimate/classCount = 1/1000 → 500 × 0.001 = 0.5 (exact in IEEE-754)
@@ -2846,23 +2849,25 @@ public class MatchExecutionPlannerMutationTest {
   }
 
   /**
-   * Parity for the null-class short-circuit: the 8-arg overload returns
-   * {@code baseCost} when {@code resolveTargetClass} returns null; the 6-arg
-   * overload returns {@code baseCost} when {@code preResolvedTargetClass}
-   * is null. Both paths must observe the same {@code baseCost}.
+   * Parity for the null-class short-circuit: {@code applyTargetSelectivity}
+   * returns {@code baseCost} when {@code resolveTargetClass} returns null;
+   * {@code applyTargetSelectivityWithResolvedClass} returns {@code baseCost}
+   * when {@code preResolvedTargetClass} is null. Both paths must observe
+   * the same {@code baseCost}.
    */
   @Test
   public void applyTargetSelectivity_overloadsAgree_nullClass_shortCircuit() {
-    // 8-arg path: no aliasClasses entry + no edge class → resolveTargetClass
-    // returns null. 6-arg path: pre-resolved class explicitly null.
+    // applyTargetSelectivity: no aliasClasses entry + no edge class →
+    // resolveTargetClass returns null.
+    // applyTargetSelectivityWithResolvedClass: pre-resolved class explicitly null.
     var edge = mockEdgeWithMethod("out");
 
     double legacy = MatchExecutionPlanner.applyTargetSelectivity(
         500.0, "tag", edge, true,
         Map.of(), Map.of(), Map.of("tag", 10L), db);
 
-    double classForced = MatchExecutionPlanner.applyTargetSelectivity(
-        500.0, "tag", (String) null, Map.of(), Map.of("tag", 10L), db);
+    double classForced = MatchExecutionPlanner.applyTargetSelectivityWithResolvedClass(
+        500.0, "tag", null, Map.of(), Map.of("tag", 10L), db);
 
     assertEquals(500.0, legacy, 0.0);
     assertEquals(500.0, classForced, 0.0);
@@ -2963,5 +2968,60 @@ public class MatchExecutionPlannerMutationTest {
     target.in.add(downstreamEdge);
 
     return new ChainFixture(firstEdge, intermediate, downstreamEdge);
+  }
+
+  // =========================================================================
+  // clampChainFoldMaxHops — knob bounding + warn-once contract
+  // =========================================================================
+
+  /**
+   * In-range value (default knob) passes through unchanged. Pins the
+   * happy path so a mutation that always clamps would be caught.
+   */
+  @Test
+  public void clampChainFoldMaxHops_inRangeDefault_returnedUnchanged() {
+    assertEquals(10, MatchExecutionPlanner.clampChainFoldMaxHops(10));
+  }
+
+  /**
+   * The documented "fold disabled" sentinel zero passes through. Pins
+   * that the lower clamp does not accidentally bump zero to anything.
+   */
+  @Test
+  public void clampChainFoldMaxHops_zero_returnedUnchanged() {
+    assertEquals(0, MatchExecutionPlanner.clampChainFoldMaxHops(0));
+  }
+
+  /**
+   * The maximum supported value passes through. Pins the boundary of
+   * the upper clamp — a strict {@code >} comparison must let the cap
+   * through, while a {@code >=} mutation would clamp it to itself
+   * (harmless) but still trip the warning machinery.
+   */
+  @Test
+  public void clampChainFoldMaxHops_atMaxBoundary_returnedUnchanged() {
+    assertEquals(1000, MatchExecutionPlanner.clampChainFoldMaxHops(1000));
+  }
+
+  /**
+   * Negative input is silently clamped to zero per project convention
+   * (see {@code getHashJoinThreshold}). No warning, no exception.
+   */
+  @Test
+  public void clampChainFoldMaxHops_negative_clampedToZero() {
+    assertEquals(0, MatchExecutionPlanner.clampChainFoldMaxHops(-100));
+    assertEquals(0, MatchExecutionPlanner.clampChainFoldMaxHops(Integer.MIN_VALUE));
+  }
+
+  /**
+   * Above-cap input is clamped to the cap. Pins both the cap value
+   * itself and the direction of the clamp — a mutation that returned
+   * {@code raw} or {@code 0} for the over-cap branch would fail.
+   */
+  @Test
+  public void clampChainFoldMaxHops_aboveCap_clampedToMax() {
+    assertEquals(1000, MatchExecutionPlanner.clampChainFoldMaxHops(1001));
+    assertEquals(1000, MatchExecutionPlanner.clampChainFoldMaxHops(100_000));
+    assertEquals(1000, MatchExecutionPlanner.clampChainFoldMaxHops(Integer.MAX_VALUE));
   }
 }

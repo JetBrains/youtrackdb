@@ -74,6 +74,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 import org.slf4j.Logger;
@@ -373,6 +374,38 @@ public class MatchExecutionPlanner {
   /** Pattern for validating edge class names as valid identifiers. */
   private static final java.util.regex.Pattern VALID_EDGE_LABEL =
       java.util.regex.Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
+
+  /**
+   * Hard upper bound applied to {@code QUERY_MATCH_CHAIN_FOLD_MAX_HOPS} when
+   * it is read for plan construction. The chain-fold walk terminates
+   * structurally at the pattern graph's branch points and visited edges, so
+   * any knob value larger than the deepest linear chain a MATCH can encode
+   * is semantically equivalent to this cap — but can poison downstream
+   * arithmetic (int overflow in the walk's bookkeeping) and waste memory on
+   * upfront collection allocations sized to the raw knob value. Realistic
+   * MATCH patterns top out below 30 linear hops; 1000 leaves a 30× margin
+   * while staying far away from any int-overflow threshold.
+   */
+  private static final int MAX_CHAIN_FOLD_HOPS = 1000;
+
+  /**
+   * Tracks the last knob value that triggered an upper-bound clamp warning,
+   * so {@link #clampChainFoldMaxHops} logs at most once per <em>unique</em>
+   * out-of-range value. The sort loop reads the knob once per plan, so for
+   * a server processing thousands of queries with a misconfigured knob we
+   * would otherwise emit thousands of duplicate WARN lines.
+   *
+   * <p>Initialised to {@code 0} as a sentinel: {@code 0} is always in-range
+   * (it is the documented "fold disabled" value) so the clamp helper never
+   * compares an out-of-range raw against it as a stale match.
+   *
+   * <p>An {@link AtomicInteger#getAndSet} pair makes the warning emission
+   * thread-safe — concurrent plan constructions racing on a brand-new
+   * out-of-range value will see exactly one of them swap successfully and
+   * log; the others observe {@code previous == raw} and skip.
+   */
+  private static final AtomicInteger lastWarnedChainFoldKnob =
+      new AtomicInteger(0);
 
   /**
    * Creates a planner from a pre-built pattern IR. Bypasses SQL AST parsing entirely:
@@ -1956,8 +1989,11 @@ public class MatchExecutionPlanner {
     // re-reading the volatile configuration field per edge would amortize
     // an O(edges) configuration lookup over the planning phase, and any
     // mid-plan reconfiguration would split the plan across two knob values.
-    int chainFoldMaxHops =
-        GlobalConfiguration.QUERY_MATCH_CHAIN_FOLD_MAX_HOPS.getValueAsInteger();
+    //
+    // {@link #clampChainFoldMaxHops} bounds the value to a safe range and
+    // emits a one-shot WARN if the upper cap actually fires.
+    int chainFoldMaxHops = clampChainFoldMaxHops(
+        GlobalConfiguration.QUERY_MATCH_CHAIN_FOLD_MAX_HOPS.getValueAsInteger());
     // Per-plan structural-detection cache for the chain fold: the answer is
     // determined by the pattern graph plus the per-plan {@code aliasClasses}
     // and session, all stable for the lifetime of one plan. The visited-edge
@@ -2029,6 +2065,50 @@ public class MatchExecutionPlanner {
     }
 
     return resultingSchedule;
+  }
+
+  /**
+   * Bounds {@code raw} to {@code [0, MAX_CHAIN_FOLD_HOPS]}, the safe range
+   * for {@code QUERY_MATCH_CHAIN_FOLD_MAX_HOPS}, and emits a one-shot WARN
+   * the first time a given out-of-range value triggers the upper cap.
+   *
+   * <p>Lower-bound clamp ({@code raw < 0}) is silent — values below zero
+   * are an obvious user error with no meaningful semantics, and the project
+   * convention (see {@link #getHashJoinThreshold}) is silent clamp at the
+   * read site.
+   *
+   * <p>Upper-bound clamp ({@code raw > MAX_CHAIN_FOLD_HOPS}) is logged
+   * because the operator's intent matters here: somebody who set the knob
+   * to e.g. {@code 100_000} probably wanted "fold everything", and a silent
+   * clamp would leave them debugging a fold depth that does not match their
+   * configuration. The warning fires at most once per unique raw value in a
+   * JVM lifetime — concurrent plans racing on the same out-of-range value
+   * agree on a single emitter via {@link AtomicInteger#getAndSet}.
+   *
+   * @param raw the raw knob value as read from {@link GlobalConfiguration}
+   * @return the clamped value, in {@code [0, MAX_CHAIN_FOLD_HOPS]}
+   */
+  static int clampChainFoldMaxHops(int raw) {
+    if (raw > MAX_CHAIN_FOLD_HOPS) {
+      // getAndSet returns the previous sentinel/value; if it equals raw,
+      // we have already warned about this exact value and stay silent.
+      // Otherwise we own the warning for this new out-of-range value.
+      int previous = lastWarnedChainFoldKnob.getAndSet(raw);
+      if (previous != raw) {
+        logger.warn(
+            "QUERY_MATCH_CHAIN_FOLD_MAX_HOPS={} exceeds the supported"
+                + " maximum {}; clamping for plan construction. The chain-fold"
+                + " walk terminates structurally at the pattern graph's branch"
+                + " points, so values above {} are equivalent to {} but risk"
+                + " int overflow in the walk's bookkeeping.",
+            raw, MAX_CHAIN_FOLD_HOPS, MAX_CHAIN_FOLD_HOPS, MAX_CHAIN_FOLD_HOPS);
+      }
+      return MAX_CHAIN_FOLD_HOPS;
+    }
+    // Negative values clamp silently (project convention; see
+    // getHashJoinThreshold). Zero is the documented "fold disabled" value
+    // and passes through unchanged.
+    return Math.max(0, raw);
   }
 
   /**
@@ -2478,13 +2558,14 @@ public class MatchExecutionPlanner {
    * the class from the edge schema's linked vertex property (e.g., {@code HAS_TAG.in}
    * linked to {@code Tag}).
    *
-   * <p>This 8-arg overload is used by the sort loop for single-hop edges such as
+   * <p>This method is used by the sort loop for single-hop edges such as
    * {@code .out('X')}. For the edge-method chain pattern {@code .outE('X').inV()}
    * (and its {@code inE→outV} / {@code bothE→bothV} variants), the sort loop adds
-   * a second, chain-aware call using the class-forced 6-arg overload below,
-   * which bypasses {@link #resolveTargetClass} and applies the downstream
-   * vertex's filter on top of the intermediate edge alias's filter — see the
-   * call site in {@link #updateScheduleStartingAt}.
+   * a second, chain-aware call using
+   * {@link #applyTargetSelectivityWithResolvedClass} below, which bypasses
+   * {@link #resolveTargetClass} and applies the downstream vertex's filter on
+   * top of the intermediate edge alias's filter — see the call site in
+   * {@link #updateScheduleStartingAt}.
    *
    * @param baseCost             the fan-out-based traversal cost from
    *                             {@link #estimateEdgeCost}
@@ -2517,23 +2598,25 @@ public class MatchExecutionPlanner {
   }
 
   /**
-   * Class-forced overload used by the sort-loop's edge-method chain fold.
-   * Bypasses {@link #resolveTargetClass} — the caller
-   * ({@link #updateScheduleStartingAt} via {@link #resolveChainedTarget})
-   * has already computed the downstream vertex class using chain-aware
-   * precedence (aliasClasses first, then direction-aware edge-schema
-   * derivation), so re-inferring with the outer edge's direction would
-   * pick the wrong endpoint for {@code inE→outV}.
+   * Class-forced sibling of {@link #applyTargetSelectivity} used by the
+   * sort-loop's edge-method chain fold. Bypasses {@link #resolveTargetClass}
+   * — the caller ({@link #updateScheduleStartingAt} via
+   * {@link #resolveChainedTarget}) has already computed the downstream
+   * vertex class using chain-aware precedence (aliasClasses first, then
+   * direction-aware edge-schema derivation), so re-inferring with the outer
+   * edge's direction would pick the wrong endpoint for {@code inE→outV}.
    *
    * <p>Short-circuits to {@code baseCost} when {@code preResolvedTargetClass}
    * is {@code null} (e.g. {@code bothE→bothV} without an explicit
-   * {@code class:} annotation) — matching the behaviour of the existing
-   * 8-arg overload when {@link #resolveTargetClass} returns {@code null}.
+   * {@code class:} annotation) — matching the behaviour of
+   * {@link #applyTargetSelectivity} when {@link #resolveTargetClass} returns
+   * {@code null}.
    *
    * @param baseCost             the fan-out-based traversal cost from
    *                             {@link #estimateEdgeCost}, already adjusted
    *                             by the intermediate alias's filter (if any)
-   *                             via the preceding 8-arg call
+   *                             via the preceding {@link #applyTargetSelectivity}
+   *                             call
    * @param targetAlias          the downstream vertex alias (from
    *                             {@link ChainedTarget#effectiveTargetAlias})
    * @param preResolvedTargetClass class name resolved by the chain helper,
@@ -2543,7 +2626,7 @@ public class MatchExecutionPlanner {
    * @param session              database session for schema access
    * @return adjusted cost
    */
-  static double applyTargetSelectivity(
+  static double applyTargetSelectivityWithResolvedClass(
       double baseCost,
       String targetAlias,
       @Nullable String preResolvedTargetClass,
@@ -2559,10 +2642,11 @@ public class MatchExecutionPlanner {
   }
 
   /**
-   * Shared body of both {@link #applyTargetSelectivity} overloads: given a
-   * non-null target class, look it up in the schema and adjust {@code baseCost}
-   * by either (a) the filter-shape heuristic on the target's WHERE clause,
-   * or (b) the estimated cardinality ratio. All null-guards on the target
+   * Shared body of {@link #applyTargetSelectivity} and
+   * {@link #applyTargetSelectivityWithResolvedClass}: given a non-null
+   * target class, look it up in the schema and adjust {@code baseCost} by
+   * either (a) the filter-shape heuristic on the target's WHERE clause, or
+   * (b) the estimated cardinality ratio. All null-guards on the target
    * class are the callers' responsibility; this helper assumes
    * {@code targetClass != null}.
    */
@@ -2919,8 +3003,14 @@ public class MatchExecutionPlanner {
    * downstream vertex's WHERE.
    *
    * <p>{@code maxHops} caps the total number of (edge, vertex) sub-chains
-   * folded. Pre-condition: {@code maxHops >= 1}; the caller's gate excludes
-   * {@code maxHops <= 0} (the rollback case).
+   * folded. Two layers gate the knob: the sort-loop call site skips
+   * {@code applyChainFold} entirely when {@code chainFoldMaxHops < 1} (full
+   * rollback to pre-YTDB-643 behaviour, no allocations), and the inner
+   * {@code maxHops <= 1} short-circuit here returns after the single-hop
+   * fold without entering the multi-hop walk. Either layer alone restricts
+   * the fold to legacy single-hop behaviour for {@code maxHops == 1}; the
+   * outer layer is the only one that can disable the fold completely. Both
+   * layers are intentional defense-in-depth: callers may rely on either.
    *
    * <p>{@code chainShapeCache} memoizes the structural part of the chain
    * detection per first-edge identity, so repeat sort-loop invocations of
@@ -2947,13 +3037,18 @@ public class MatchExecutionPlanner {
     if (firstHop == null) {
       return baseCost;
     }
+    // detectChainShape verified firstNeighbor.out.size() == 1, so this
+    // iterator yields the chain's vertex-step edge — referenced both for
+    // the visited-edge guard below and as the source of the first hop's
+    // downstream vertex when seeding the multi-hop walk.
+    var firstHopVertexStepEdge = firstNeighbor.out.iterator().next();
     // Visited-edge check is dynamic and intentionally not cached: a chain
     // whose downstream edge is already scheduled would double-count its
     // selectivity through the cached structural answer.
-    if (visitedEdges.contains(firstNeighbor.out.iterator().next())) {
+    if (visitedEdges.contains(firstHopVertexStepEdge)) {
       return baseCost;
     }
-    double cost = applyTargetSelectivity(
+    double cost = applyTargetSelectivityWithResolvedClass(
         baseCost,
         firstHop.effectiveTargetAlias(),
         firstHop.effectiveTargetClass(),
@@ -2967,15 +3062,13 @@ public class MatchExecutionPlanner {
 
     // Walk forward from the first hop's downstream vertex into any
     // additional linear sub-chains, capped at maxHops - 1 extra hops.
-    var firstDownstreamVertex =
-        firstNeighbor.out.iterator().next().in;
     var extraHops = walkLinearChainExtension(
-        firstDownstreamVertex,
+        firstHopVertexStepEdge.in,
         firstHop.effectiveTargetClass(),
         maxHops - 1,
         visitedEdges,
         firstEdge,
-        firstNeighbor,
+        firstHopVertexStepEdge,
         aliasClasses,
         session,
         chainShapeCache);
@@ -2987,17 +3080,17 @@ public class MatchExecutionPlanner {
       // Intermediate edge alias is mostly auto-generated (no WHERE), so this
       // call is typically a no-op via the no-filter short-circuit. The class
       // is the EDGE class of this hop's edge step (e.g. 'Friend' for
-      // .outE('Friend'){as: e}); without it, applyTargetSelectivity would
-      // short-circuit unconditionally and ignore user-named intermediate
-      // aliases that carry their own WHERE (e.g. {as: e, where: weight > 5}).
-      cost = applyTargetSelectivity(
+      // .outE('Friend'){as: e}); without it, the helper would short-circuit
+      // unconditionally and ignore user-named intermediate aliases that
+      // carry their own WHERE (e.g. {as: e, where: weight > 5}).
+      cost = applyTargetSelectivityWithResolvedClass(
           cost,
           hop.intermediateAlias(),
           extractEdgeClassName(hop.edgeStep().item.getMethod()),
           aliasFilters,
           estimatedRootEntries,
           session);
-      cost = applyTargetSelectivity(
+      cost = applyTargetSelectivityWithResolvedClass(
           cost,
           hop.downstreamAlias(),
           hop.downstreamClass(),
@@ -3024,11 +3117,18 @@ public class MatchExecutionPlanner {
    * fragment-join, branch-point, and visited-edge rejection identically to
    * the single-hop case.
    *
-   * <p>Visited tracking uses a local copy of {@code initialVisitedEdges}
-   * augmented with the first hop's two edges (so the walk does not loop
-   * back through them) and with each sub-chain's edges as we cross them.
-   * This local set is only used to reason about chain shape — the caller's
-   * DFS-level {@code visitedEdges} is not mutated.
+   * <p>Visited tracking uses two disjoint sets to avoid copying the DFS
+   * state: {@code initialVisitedEdges} is consulted read-only for the
+   * back-edge guard against already-scheduled edges, while a small local
+   * {@code chainEdges} set tracks just the edges this walk has crossed
+   * (the first hop's two edges plus each sub-chain's pair). Each
+   * {@code contains} check queries both sets. The walk's loop counter
+   * {@code remainingHops} is upper-bounded by {@code MAX_CHAIN_FOLD_HOPS}
+   * via the knob clamp at the read site, so {@code chainEdges} grows to
+   * at most {@code 2 * MAX_CHAIN_FOLD_HOPS + 2} entries — but in practice
+   * the structural termination at branch points keeps it well under 30
+   * for any realistic MATCH pattern. The caller's DFS-level
+   * {@code visitedEdges} is not mutated.
    *
    * @return list of additional hops (may be empty); each hop is one
    *         (edge step, vertex step) sub-chain
@@ -3039,7 +3139,7 @@ public class MatchExecutionPlanner {
       int remainingHops,
       Set<PatternEdge> initialVisitedEdges,
       PatternEdge firstHopEdge,
-      PatternNode firstHopNeighbor,
+      PatternEdge firstHopVertexStepEdge,
       @Nullable Map<String, String> aliasClasses,
       @Nullable DatabaseSessionEmbedded session,
       Map<PatternEdge, ChainedTarget> chainShapeCache) {
@@ -3047,19 +3147,25 @@ public class MatchExecutionPlanner {
       return List.of();
     }
     // Fast-path: terminal vertices and branch points cannot extend the
-    // chain. Bail out before allocating the localVisited HashSet — the
+    // chain. Bail out before allocating the chainEdges HashSet — the
     // common case in pattern graphs whose tail vertex has no outgoing
     // edges or fans out to multiple neighbors.
     if (currentVertex.out.size() != 1) {
       return List.of();
     }
     var hops = new ArrayList<ChainHop>();
-    var localVisited = new HashSet<>(initialVisitedEdges);
-    localVisited.add(firstHopEdge);
-    // Mark the first hop's vertex-step edge so the walk cannot loop back
-    // through it. firstHopNeighbor.out.size() == 1 holds by virtue of
-    // resolveChainedTarget having already accepted the first hop.
-    localVisited.add(firstHopNeighbor.out.iterator().next());
+    // Default-sized HashSet (capacity 16) is sufficient: the walk
+    // terminates structurally at branch points or visited edges, so
+    // chainEdges typically holds well under 16 entries even for
+    // MAX_CHAIN_FOLD_HOPS-sized knobs. The default knob (10) walks at
+    // most 20 entries, costing one rehash to capacity 32 — negligible
+    // in plan-construction time. Explicit pre-sizing was removed to
+    // eliminate any int-overflow surface in the sizing arithmetic; the
+    // knob is already clamped to [0, MAX_CHAIN_FOLD_HOPS] at the read
+    // site, so every entry in the loop's bookkeeping stays bounded.
+    var chainEdges = new HashSet<PatternEdge>();
+    chainEdges.add(firstHopEdge);
+    chainEdges.add(firstHopVertexStepEdge);
 
     var sourceClass = currentVertexClass;
     while (hops.size() < remainingHops) {
@@ -3067,13 +3173,17 @@ public class MatchExecutionPlanner {
         break;
       }
       var nextEdgeStep = currentVertex.out.iterator().next();
-      if (localVisited.contains(nextEdgeStep)) {
+      // Two-set check: nextEdgeStep is rejected if it's already in the
+      // DFS schedule (back-edge into scheduled territory) OR already in
+      // this walk (chain loops back on itself).
+      if (initialVisitedEdges.contains(nextEdgeStep)
+          || chainEdges.contains(nextEdgeStep)) {
         break;
       }
       var nextIntermediate = nextEdgeStep.in;
       // Reuse the structural-detection cache: identical pattern shape and
       // class-resolution inputs across plan iterations. The visited-edge
-      // check uses the local set rather than the cached value.
+      // check uses the two-set guard rather than the cached value.
       var nextSubChain = lookupOrDetectChainShape(
           nextEdgeStep, nextIntermediate, aliasClasses, session, chainShapeCache);
       if (nextSubChain == null) {
@@ -3081,11 +3191,12 @@ public class MatchExecutionPlanner {
       }
       // detectChainShape verified nextIntermediate.out.size() == 1.
       var vertexStepEdge = nextIntermediate.out.iterator().next();
-      if (localVisited.contains(vertexStepEdge)) {
+      if (initialVisitedEdges.contains(vertexStepEdge)
+          || chainEdges.contains(vertexStepEdge)) {
         break;
       }
-      localVisited.add(nextEdgeStep);
-      localVisited.add(vertexStepEdge);
+      chainEdges.add(nextEdgeStep);
+      chainEdges.add(vertexStepEdge);
 
       hops.add(new ChainHop(
           nextEdgeStep,
