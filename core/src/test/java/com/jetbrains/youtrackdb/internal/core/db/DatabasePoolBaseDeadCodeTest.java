@@ -21,7 +21,6 @@ package com.jetbrains.youtrackdb.internal.core.db;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
@@ -170,7 +169,8 @@ public class DatabasePoolBaseDeadCodeTest {
   }
 
   @Test
-  public void getConnectionsInCurrentThreadShortCircuitsWhenPoolIsNullWithoutTouchingThread() {
+  public void getConnectionsInCurrentThreadShortCircuitsWhenPoolIsNullWithoutTouchingThread()
+      throws Exception {
     // The single behaviorally-pinnable observation that does not require an engines-manager
     // touch: in the no-arg ctor path (url/user/password null), dbPool stays null and
     // getConnectionsInCurrentThread short-circuits to 0 without dereferencing dbPool.
@@ -191,11 +191,14 @@ public class DatabasePoolBaseDeadCodeTest {
     assertEquals("dbPool==null path must return 0 without dereferencing the pool",
         0, count);
 
-    // close() on a null pool is also a no-op — pin so a future refactor that drops the
-    // null guard fails loudly under unit tests.
+    // close() on a null pool is also a no-op — pin via reflection that the dbPool field
+    // stays null (i.e. close did not lazily allocate one). A future refactor that drops
+    // the null guard or allocates on close would fail this assertion.
     probe.close();
-    assertNotNull("probe must remain a valid object after no-op close",
-        probe);
+    var dbPoolField = DatabasePoolBase.class.getDeclaredField("dbPool");
+    dbPoolField.setAccessible(true);
+    assertEquals("close on a null dbPool must leave it null",
+        null, dbPoolField.get(probe));
   }
 
   @Test

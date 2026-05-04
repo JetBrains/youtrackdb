@@ -520,6 +520,68 @@ public class YouTrackDBConfigImplTest {
   }
 
   /**
+   * setParent's child-side `if (attributes != null)` arm: when the child's attributes map
+   * is null, the merge takes only the parent's attributes — the inner null-guard at
+   * {@code if (attributes != null) attrs.putAll(attributes)} skips the child contribution
+   * and the parent's pairs survive intact. Child built via the anonymous subclass with
+   * null attributes (the no-arg ctor coerces to an empty EnumMap; the protected ctor does
+   * NOT coerce attributes).
+   */
+  @Test
+  public void setParentWhenChildAttributesNullAdoptsParentAttributes() {
+    var parent =
+        (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
+            .addAttribute(ATTRIBUTES.LOCALE_COUNTRY, "US")
+            .addAttribute(ATTRIBUTES.TIMEZONE, "UTC")
+            .build();
+
+    var child = childWithNullAttrsAndConfig();
+    child.setParent(parent);
+
+    var attrs = child.getAttributes();
+    assertNotNull(attrs);
+    assertEquals("US", attrs.get(ATTRIBUTES.LOCALE_COUNTRY));
+    assertEquals("UTC", attrs.get(ATTRIBUTES.TIMEZONE));
+  }
+
+  /**
+   * setParent's child-side `if (this.configuration != null)` arm: when the child's
+   * configuration is null, the merge yields a fresh ContextConfiguration carrying only the
+   * parent's values. Pinned because the protected ctor does not coerce configuration to a
+   * non-null default.
+   */
+  @Test
+  public void setParentWhenChildConfigurationNullAdoptsParentConfiguration() {
+    var parent =
+        (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
+            .addGlobalConfigurationParameter(GlobalConfiguration.DB_POOL_MAX, 50)
+            .build();
+
+    var child = childWithNullAttrsAndConfig();
+    child.setParent(parent);
+
+    var conf = child.getConfiguration();
+    assertNotNull(conf);
+    assertEquals(50, conf.getValue(GlobalConfiguration.DB_POOL_MAX));
+  }
+
+  /**
+   * Helper: anonymous subclass that exercises the protected ctor with null attributes and
+   * null configuration. The protected ctor does not coerce these to defaults (only the
+   * listeners argument is coerced to {@link java.util.Collections#emptySet()} on null).
+   */
+  private static YouTrackDBConfigImpl childWithNullAttrsAndConfig() {
+    return new YouTrackDBConfigImpl(
+        /* configuration= */ null,
+        /* attributes= */ null,
+        /* listeners=  */ null,
+        /* securityConfig= */ null,
+        /* users= */ new java.util.ArrayList<>()) {
+      // anonymous subclass to call the protected ctor
+    };
+  }
+
+  /**
    * setParent's `if (parent.attributes != null)` arm: when the parent's attributes map is
    * null, the merge is skipped and the child's attribute map identity must remain.
    */

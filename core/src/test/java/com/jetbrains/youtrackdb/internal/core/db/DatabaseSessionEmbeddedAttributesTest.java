@@ -197,6 +197,16 @@ public class DatabaseSessionEmbeddedAttributesTest extends DbTestBase {
     assertEquals("de", session.getStorage().getLocaleLanguage());
   }
 
+  // LOCALE_LANGUAGE — symmetric with LOCALE_COUNTRY: no null guard; null reaches the
+  // storage and the in-memory storage round-trips null as null. Pinned to mirror the
+  // LOCALE_COUNTRY shape so a future refactor that adds a null guard to one but not
+  // the other would fail loudly here.
+  @Test
+  public void setLocaleLanguageNullValuePassesThroughToStorage() {
+    session.set(ATTRIBUTES.LOCALE_LANGUAGE, null);
+    assertNull(session.getStorage().getLocaleLanguage());
+  }
+
   // CHARSET — happy path.
   @Test
   public void setCharsetPersistsToStorage() {

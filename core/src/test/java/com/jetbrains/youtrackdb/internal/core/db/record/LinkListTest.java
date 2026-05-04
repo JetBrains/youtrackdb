@@ -486,7 +486,9 @@ public class LinkListTest extends DbTestBase {
     Assert.assertEquals(java.util.List.of(a.getIdentity()), list);
     Assert.assertNotEquals("non-list comparand", "x", list);
     Assert.assertEquals(java.util.List.of(a.getIdentity()).hashCode(), list.hashCode());
-    Assert.assertNotNull(list.toString());
+    // Exact toString format pinned — falsifiable against an identity-style or
+    // wrapper-class-named override.
+    Assert.assertEquals(java.util.List.of(a.getIdentity()).toString(), list.toString());
     session.rollback();
   }
 

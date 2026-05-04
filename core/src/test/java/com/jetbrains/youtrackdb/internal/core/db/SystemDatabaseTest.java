@@ -321,16 +321,6 @@ public class SystemDatabaseTest extends DbTestBase {
     assertEquals("still-here", afterRecovery);
   }
 
-  // --------------------------------------------------------------------------------------------
-  // Helpers
-  // --------------------------------------------------------------------------------------------
-
-  private SystemDatabase systemDatabase() {
-    var sysDb = session.getSharedContext().getYouTrackDB().getSystemDatabase();
-    assertNotNull("SystemDatabase must be wired into the shared context", sysDb);
-    return sysDb;
-  }
-
   /**
    * After the row is seeded by the first {@code init()}, a second explicit
    * {@code init()} drives {@code checkServerId()} through the "row already exists"
@@ -366,5 +356,15 @@ public class SystemDatabaseTest extends DbTestBase {
     var a = systemDb.getServerId();
     var b = systemDb.getServerId();
     assertEquals(a, b);
+  }
+
+  // --------------------------------------------------------------------------------------------
+  // Helpers
+  // --------------------------------------------------------------------------------------------
+
+  private SystemDatabase systemDatabase() {
+    var sysDb = session.getSharedContext().getYouTrackDB().getSystemDatabase();
+    assertNotNull("SystemDatabase must be wired into the shared context", sysDb);
+    return sysDb;
   }
 }

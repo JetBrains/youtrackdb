@@ -15,7 +15,6 @@ package com.jetbrains.youtrackdb.internal.core.db.record;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
@@ -502,7 +501,7 @@ public class EntityLinkMapImlTest extends DbTestBase {
     session.rollback();
   }
 
-  /** {@code toString} delegates to the underlying map. */
+  /** {@code toString} delegates to the underlying map (exact format of {@code AbstractMap}). */
   @Test
   public void toStringDelegates() {
     session.begin();
@@ -510,8 +509,9 @@ public class EntityLinkMapImlTest extends DbTestBase {
     final var a = (EntityImpl) session.newEntity();
     final var map = new EntityLinkMapIml(doc);
     map.put("k", a);
-    assertNotNull(map.toString());
-    assertTrue(map.toString().contains("k"));
+    // Exact format pinned via Map.of — falsifiable: a regression that swapped to identity
+    // hashCode-style toString or returned the wrapper class name would no longer match.
+    assertEquals(Map.of("k", a.getIdentity()).toString(), map.toString());
     session.rollback();
   }
 
