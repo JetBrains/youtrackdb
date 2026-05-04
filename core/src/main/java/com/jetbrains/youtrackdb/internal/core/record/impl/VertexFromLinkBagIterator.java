@@ -172,6 +172,9 @@ public class VertexFromLinkBagIterator
     // RID-set pre-filter: count probed/filtered for the effectiveness metric.
     // Only entries that reach this branch count toward the metric, so the
     // ratio describes the RID-set filter in isolation (not class filter).
+    // The filter order here mirrors acceptRid(); this eager path keeps it
+    // inline to increment the per-instance effectiveness counters, which a
+    // static helper cannot touch.
     if (acceptedRids != null) {
       probedCount++;
       if (!acceptedRids.contains(rid)) {
@@ -196,6 +199,38 @@ public class VertexFromLinkBagIterator
           rid, ridPair.primaryRid());
       return null;
     }
+  }
+
+  /**
+   * Resolves the target vertex RID from a {@link RidPair} and applies the
+   * collection-ID and accepted-RID filters. Returns the secondary RID when both
+   * filters accept it, or {@code null} when either rejects.
+   *
+   * <p>Class filter (collection ID) is checked against the in-memory RID — no
+   * disk I/O. RID filter is a {@link Set#contains} probe against the index-built
+   * accepted set.
+   *
+   * <p>Used by {@code VertexFromLinkBagIterable.RidOnlyIterator} (lazy MATCH
+   * path), which needs the filter decision without effectiveness metrics. The
+   * eager {@link #loadVertex} path applies the same two filters in the same
+   * order inline, because it also increments per-instance effectiveness
+   * counters that a static helper cannot reach. Keep the two filter orderings
+   * in sync when changing either.
+   */
+  @Nullable static RID acceptRid(
+      @Nonnull RidPair ridPair,
+      @Nullable IntSet acceptedCollectionIds,
+      @Nullable Set<RID> acceptedRids) {
+    ridPair.validateEdgePair();
+    var rid = ridPair.secondaryRid();
+    if (acceptedCollectionIds != null
+        && !acceptedCollectionIds.contains(rid.getCollectionId())) {
+      return null;
+    }
+    if (acceptedRids != null && !acceptedRids.contains(rid)) {
+      return null;
+    }
+    return rid;
   }
 
   @Override
