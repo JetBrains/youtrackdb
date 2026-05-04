@@ -118,7 +118,9 @@ Spotless on affected modules (`./mvnw -pl <module> spotless:apply`),
 verify coverage thresholds (85% line / 70% branch on changed code
 via the coverage gate command in §"Coverage gate command" below).
 Wait for test results before proceeding — never start the commit
-while a background test run is still streaming.
+while a background test run is still streaming. For long-running
+Maven builds (full `core` test suite or coverage profile), see
+§"Pacing long-running tasks" below before deciding how to wait.
 
 **Sub-step 3 — Stage explicit paths and commit** in one commit. No
 `git add -A`. No `--amend`. Apply the project's commit-message
@@ -138,6 +140,52 @@ The implementer **MUST NOT** modify the step file, the plan file, the
 backlog, or any review file. All step-file mutations — episode write,
 risk-line rewrite, `[x]` mark, Progress count update, retry/split row
 inserts — are the orchestrator's responsibility.
+
+### Pacing long-running tasks — do not use `ScheduleWakeup`
+
+The implementer is spawned synchronously by the orchestrator via the
+Agent tool. The orchestrator parses **one** structured return block
+per spawn — the spawn either ends with a valid `RESULT: …` block or
+the orchestrator treats the return as a contract violation.
+
+`ScheduleWakeup` breaks this contract. It yields control back to the
+caller with no `RESULT` block, so the orchestrator sees the
+implementer return without a handoff — indistinguishable from a
+crash. The implementer is also left **idle** between scheduled wakes
+rather than actively running, so any subsequent SendMessage from the
+orchestrator is required to resume work — at which point the
+implementer's understanding of the prior in-flight Bash background
+task may be stale (the runtime may have garbage-collected the
+background task across the idle gap, leaving zero-byte output files
+and no live process).
+
+**Rule.** The implementer MUST NOT call `ScheduleWakeup`. Pacing is
+the orchestrator's job, not the implementer's. The implementer runs
+straight through sub-steps 1–3 and emits exactly one return block.
+
+**For long-running Maven runs** — full `core` test suite, coverage
+profile build, integration tests:
+
+- Prefer **foreground** Bash with `timeout` set to the realistic
+  upper bound (Bash `timeout` caps at 600 000 ms / 10 minutes; for
+  builds that may exceed that, split into stages — e.g., compile
+  first, then test, then coverage report — each stage under 10 min).
+- If background is genuinely needed (e.g., to keep the implementer
+  responsive to other work during a long build), use Bash
+  `run_in_background` with the `Monitor` tool's "until-loop" pattern
+  inside a single Bash invocation:
+  `until grep -q "BUILD SUCCESS\\|BUILD FAILURE" {logfile}; do sleep
+  10; done` — the loop runs in one Bash call, the implementer waits
+  for the loop's exit, and the runtime delivers a single completion
+  notification rather than a sequence of wake-ups.
+- Do not chain multiple short `sleep`s with `ScheduleWakeup` between
+  them. Each `ScheduleWakeup` is a yield-and-idle, not a wait.
+
+If a build genuinely exceeds the realistic foreground budget for the
+implementer (rare — only the full `verify -P ci-integration-tests`
+or large coverage runs), return `RESULT: FAILED` with
+`recommended_action: split` and let the orchestrator decide whether
+to break the step into smaller, individually-verifiable pieces.
 
 ### When the failure mode is opaque — consider an IDE debug session
 
