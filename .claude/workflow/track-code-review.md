@@ -2,7 +2,8 @@
 
 After all steps are committed, review the full track diff using sub-agents.
 These are deliberately sub-agents — fresh eyes catch systematic issues that
-you (as the implementer) are blind to.
+the main agent, having read every step episode and skimmed the cumulative
+diff, can normalise away.
 
 ## Tooling — PSI for cross-step reference accuracy
 

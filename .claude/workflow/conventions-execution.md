@@ -255,7 +255,7 @@ never collapsed).
 | Phase A start — before step-file write | `implementation-backlog.md` | (inherited from Phase 1) | Phase A orchestration (reads the track's backlog section) |
 | Phase A mid — step file has `## Description`, backlog entry still present | **step file** (Phase A writes the step file first, then removes the backlog entry — the step file takes authority the moment it is written, so an interrupted session always resumes against a single source) | Phase A orchestration (wrote the step file) | Phase A resume logic (idempotent re-entry); Phase A review sub-agents |
 | Phase A end | step file | Phase A orchestration (backlog section already removed) | Phase A review sub-agents (Track 3 prompts) |
-| Phase B / Phase C | step file | (stable — only inline replan rewrites) | Phase B/C code-review sub-agents |
+| Phase B / Phase C | step file | (stable — only inline replan rewrites) | Phase B implementer + Phase B/C code-review sub-agents |
 | Phase C after collapse | step file + plan intro paragraph | Phase C collapse (writes intro + episode) | future-track sessions (as strategic context) |
 | Skipped at or before Phase A | plan file entry (retained under `[~]`) + (backlog entry removed; step file never created) | `track-skip` | strategy refresh / future sessions |
 | Skipped after Phase A (rare) | plan file entry (retained under `[~]`) + step file (retained so the skip is traceable) | `track-skip` | strategy refresh / future sessions |

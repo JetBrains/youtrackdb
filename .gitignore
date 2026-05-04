@@ -204,5 +204,9 @@ local.properties
 # Claude Code worktrees
 .claude/worktrees/
 
+# Python bytecode (e.g. .claude/scripts/ helper scripts)
+__pycache__/
+*.pyc
+
 # Gremlin test case data
 **/test-case-data/

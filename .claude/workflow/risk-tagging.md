@@ -153,11 +153,35 @@ safety net for criteria-application errors.
 ### Phase B upgrade
 If implementing a step reveals that the change is more invasive than
 the plan suggested (e.g., the "trivial refactor" turned out to require
-lock ordering changes), the Phase B agent upgrades the risk to `high`
-BEFORE running the dimensional review for that step. Upgrades are
-recorded in the step's risk note. Downgrades are NOT permitted
-mid-Phase B — once the step has been planned at a given risk level,
-the implementer cannot self-relax review pressure.
+lock ordering changes), the implementer flags the upgrade by returning
+`RESULT: RISK_UPGRADE_REQUESTED` (per
+[`implementer-rules.md`](implementer-rules.md) §Detection rules).
+
+The orchestrator's response depends on **when** the upgrade surfaces:
+
+- **Pre-commit** (during the implementer's first attempt at the
+  step, `mode=INITIAL` or `mode=WITH_GUIDANCE`) — the orchestrator
+  rewrites the `**Risk:**` line and respawns from `mode=INITIAL`
+  BEFORE running the dimensional review for that step. See
+  [`step-implementation.md`](step-implementation.md)
+  §`apply_upgrade_then_decide`.
+- **Post-commit** (during a `mode=FIX_REVIEW_FINDINGS` respawn — the
+  upgrade surfaces only when applying review findings) — the
+  orchestrator rolls back the original implementer commit and any
+  prior `Review fix:` commits via `git revert`, rewrites the
+  `**Risk:**` line, and respawns from `mode=INITIAL`. The next
+  attempt re-runs implementation with full dim-review pressure from
+  the start at the new risk level — not stacked on top of an
+  implementation that was already reviewed under the old tag. See
+  [`step-implementation.md`](step-implementation.md)
+  §`rollback_and_upgrade`.
+
+In both cases, `medium → high` auto-applies; `low → high` pauses
+for user confirmation. Upgrades are recorded in the step's risk note
+(post-commit upgrades carry an additional `during dim review` marker
+in the override). Downgrades are NOT permitted mid-Phase B — once the
+step has been planned at a given risk level, neither implementer nor
+orchestrator can self-relax review pressure.
 
 ### Risk locking
 After a step is implemented (committed + episode written), the risk tag
