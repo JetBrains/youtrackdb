@@ -529,4 +529,59 @@ public class VertexAndEdgeTest extends DbTestBase {
       return true;
     }
   }
+
+  /**
+   * {@link VertexEntityImpl} extends {@link EntityImpl} and exposes a class-level
+   * {@code RECORD_TYPE} constant {@code 'v'}; an instance returned by {@code newVertex} must
+   * be exactly that class (not just an EntityImpl with vertex semantics) and must report the
+   * same record-type byte through the instance method. The same shape is mirrored for
+   * {@link EdgeEntityImpl} with constant {@code 'e'}. We assert both with
+   * {@code assertEquals(X.class, x.getClass())} (the load-bearing wrapper-type idiom from
+   * Track 11) — {@code instanceof} is NOT sufficient here because a regression that returned
+   * a base {@link EntityImpl} with vertex flags flipped on would silently pass an
+   * {@code instanceof Vertex} check.
+   */
+  @Test
+  public void testVertexAndEdgeWrapperClassShape() {
+    session.createVertexClass("VShape");
+    session.createEdgeClass("EShape");
+
+    session.executeInTx(tx -> {
+      var v1 = tx.newVertex("VShape");
+      var v2 = tx.newVertex("VShape");
+
+      assertThat(v1.getClass()).isEqualTo(VertexEntityImpl.class);
+      assertThat(v2.getClass()).isEqualTo(VertexEntityImpl.class);
+      assertThat(((VertexEntityImpl) v1).getRecordType()).isEqualTo(VertexEntityImpl.RECORD_TYPE);
+      assertThat(VertexEntityImpl.RECORD_TYPE).isEqualTo((byte) 'v');
+
+      var e = tx.newEdge(v1, v2, "EShape");
+      assertThat(e.getClass()).isEqualTo(EdgeEntityImpl.class);
+      assertThat(((EdgeEntityImpl) e).getRecordType()).isEqualTo(EdgeEntityImpl.RECORD_TYPE);
+      assertThat(EdgeEntityImpl.RECORD_TYPE).isEqualTo((byte) 'e');
+    });
+  }
+
+  /**
+   * The {@link EdgeEntityImpl#label()} delegating method returns the schema-class name when one
+   * is present. {@link EdgeEntityImpl#getSchemaClassName()} and {@link EdgeEntityImpl#getSchemaClass()}
+   * forward to the underlying {@link EntityImpl} state. This pins the delegating-subclass
+   * pass-through.
+   */
+  @Test
+  public void testEdgeEntityImplDelegatesSchemaShapeToEntityImpl() {
+    session.createVertexClass("EShapeV");
+    session.createEdgeClass("EShapeLabel");
+
+    session.executeInTx(tx -> {
+      var v1 = tx.newVertex("EShapeV");
+      var v2 = tx.newVertex("EShapeV");
+      var e = (EdgeEntityImpl) tx.newEdge(v1, v2, "EShapeLabel");
+
+      assertThat(e.label()).isEqualTo("EShapeLabel");
+      assertThat(e.getSchemaClassName()).isEqualTo("EShapeLabel");
+      assertThat(e.getSchemaClass()).isNotNull();
+      assertThat(e.getSchemaClass().getName()).isEqualTo("EShapeLabel");
+    });
+  }
 }
