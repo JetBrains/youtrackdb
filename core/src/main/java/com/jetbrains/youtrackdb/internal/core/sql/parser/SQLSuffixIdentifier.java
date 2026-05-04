@@ -154,15 +154,37 @@ public class SQLSuffixIdentifier extends SimpleNode {
         return result;
       }
       if (iCurrentRecord != null) {
-        // Probe with hasProperty first — unlike getProperty, it does not run
-        // validatePropertyName and so handles names that look invalid to the
-        // entity schema (e.g. "$let", "out_edge", "in_edge") by returning
-        // false instead of throwing. hasProperty on a lazy bare-RID Result
-        // materializes the entity (loadLazyAndHasProperty caches it in
-        // this.identifiable), so the subsequent getProperty hits the hot
-        // path without reloading.
-        if (iCurrentRecord.hasProperty(varName)) {
-          return iCurrentRecord.getProperty(varName);
+        // $-prefixed names are LET-variable references — they fail
+        // EntityImpl.validatePropertyName (first char must be letter/_/@/~)
+        // and EntityImpl.getProperty would throw DatabaseException. Resolve
+        // from Result metadata / temporary properties directly instead of
+        // dispatching to the record path.
+        // Note: no other identifier shape produced by the SQL parser
+        // (out_edge, in_edge, @rid, foo_bar, ~temp, …) fails validation —
+        // they all start with letter/_/@/~ and contain no `: , ; space =`.
+        // So $-prefix is the only name pattern that requires this shortcut.
+        if (varName.startsWith("$")) {
+          if (iCurrentRecord instanceof ResultInternal resultInternal) {
+            if (resultInternal.getMetadataKeys().contains(varName)) {
+              return resultInternal.getMetadata(varName);
+            }
+            if (resultInternal.getTemporaryProperties().contains(varName)) {
+              return resultInternal.getTemporaryProperty(varName);
+            }
+          }
+          return null;
+        }
+
+        // Common path: getProperty first — single dispatch in the hot case
+        // (property exists with non-null value). Only call hasProperty when
+        // getProperty returns null, to disambiguate "absent" from
+        // "present-but-null". On a lazy bare-RID Result this also materializes
+        // the entity in one step (loadLazyAndGetProperty caches it in
+        // this.identifiable), avoiding hasProperty's load + getProperty's
+        // re-dispatch.
+        var propValue = iCurrentRecord.getProperty(varName);
+        if (propValue != null || iCurrentRecord.hasProperty(varName)) {
+          return propValue;
         }
 
         if (iCurrentRecord instanceof ResultInternal resultInternal
