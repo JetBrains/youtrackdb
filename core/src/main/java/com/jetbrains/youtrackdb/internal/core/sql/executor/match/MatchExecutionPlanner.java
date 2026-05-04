@@ -2123,26 +2123,19 @@ public class MatchExecutionPlanner {
               cost, neighbor.alias, entry.getKey(), entry.getValue(),
               aliasClasses, aliasFilters, estimatedRootEntries, session);
           // Edge-method chain detection: when the current edge is the first hop of
-          // an outE→inV / inE→outV / bothE→bothV sequence, fold the downstream
-          // vertex's WHERE selectivity into the first edge's cost. The intermediate
-          // edge alias carries no vertex WHERE, so without this fold the branch
-          // sorts as "no selectivity" and loses to broader branches. This is the
-          // second factor of the independence multiplication; the first factor
-          // (the intermediate alias's own filter) was applied by the preceding
-          // applyTargetSelectivity call. Multiplication commutes and each call
-          // short-circuits to baseCost when its alias has no filter/class/
-          // row-estimate, so there is no double-counting.
-          var chain = resolveChainedTarget(
-              entry.getKey(), neighbor, visitedEdges, aliasClasses, session);
-          if (chain.isPresent()) {
-            var target = chain.get();
-            cost = applyTargetSelectivity(
-                cost,
-                target.effectiveTargetAlias(),
-                target.effectiveTargetClass(),
-                aliasFilters,
-                estimatedRootEntries,
-                session);
+          // an outE→inV / inE→outV / bothE→bothV sequence (possibly extended into
+          // a multi-hop linear chain), fold each downstream vertex's WHERE and
+          // each subsequent edge step's fan-out into the first edge's cost. The
+          // intermediate edge alias carries no vertex WHERE, so without this
+          // fold the branch sorts as "no selectivity" and loses to broader
+          // branches. Each fold call short-circuits to baseCost when its alias
+          // has no filter/class/row-estimate, so adding more hops does not
+          // double-count when those hops have no filter.
+          int maxHops = GlobalConfiguration.QUERY_MATCH_CHAIN_FOLD_MAX_HOPS.getValueAsInteger();
+          if (maxHops >= 1) {
+            cost = applyChainFold(
+                cost, entry.getKey(), neighbor, maxHops, visitedEdges,
+                aliasClasses, aliasFilters, estimatedRootEntries, session);
           }
           cost = applyDepthMultiplier(cost, entry.getKey());
         }
@@ -2824,6 +2817,212 @@ public class MatchExecutionPlanner {
       return null;
     }
     return lookupLinkedVertexClass(edgeClassName, prop, session);
+  }
+
+  /**
+   * Describes a single sub-chain in a multi-hop linear chain extension. A
+   * sub-chain is one (edge step → vertex step) pair, e.g. {@code outE('B')
+   * → inV()} appearing AFTER an initial {@code outE('A').inV()} that started
+   * the chain. The first sub-chain is handled by the existing single-hop
+   * fold and is not represented here — only the additional hops are.
+   *
+   * @param edgeStep         the {@code outE}/{@code inE}/{@code bothE} step
+   *                         that starts this sub-chain. Its fan-out from
+   *                         {@code edgeStepSourceClass} is multiplied into
+   *                         the running cost (the first edge step is part of
+   *                         {@code estimateEdgeCost}'s baseCost; subsequent
+   *                         steps are not, so we add them here)
+   * @param edgeStepSourceClass class of the vertex feeding {@code edgeStep},
+   *                         used as the cardinality denominator for fan-out
+   *                         estimation. May be {@code null} if class
+   *                         inference failed for the previous hop's
+   *                         downstream vertex
+   * @param intermediateAlias the alias of the intermediate edge alias node
+   *                         (e.g. user's {@code as: e2}). Selectivity is
+   *                         applied to it the same way the first hop does
+   *                         in the sort loop's primary
+   *                         {@code applyTargetSelectivity} call
+   * @param downstreamAlias  the alias of the vertex reached by this hop's
+   *                         vertex step. Its WHERE drives the per-hop
+   *                         selectivity contribution
+   * @param downstreamClass  class of the downstream vertex, or {@code null}
+   *                         when it cannot be inferred
+   */
+  record ChainHop(
+      PatternEdge edgeStep,
+      @Nullable String edgeStepSourceClass,
+      String intermediateAlias,
+      String downstreamAlias,
+      @Nullable String downstreamClass) {
+  }
+
+  /**
+   * Applies the multi-hop chain fold to {@code baseCost} starting from
+   * {@code firstEdge → firstNeighbor}. This is the unified entry point used
+   * by the sort loop: it composes {@link #resolveChainedTarget} (the
+   * single-hop rule) with {@link #walkLinearChainExtension} (the iterative
+   * extension into subsequent linear sub-chains, bounded by
+   * {@code maxHops}).
+   *
+   * <p>For the first hop only the downstream vertex's WHERE selectivity is
+   * applied — the first edge's fan-out is already in {@code baseCost} and
+   * the immediate intermediate alias was folded by the sort loop's primary
+   * {@code applyTargetSelectivity} call before this method runs.
+   *
+   * <p>For each additional hop (hop 2…N): multiply by the edge step's
+   * fan-out, apply the intermediate edge alias's WHERE (rare, only when the
+   * user named it with {@code as:} and gave it a filter), then apply the
+   * downstream vertex's WHERE.
+   *
+   * <p>{@code maxHops} caps the total number of (edge, vertex) sub-chains
+   * folded. Pre-condition: {@code maxHops >= 1}; the caller's gate excludes
+   * {@code maxHops <= 0} (the rollback case).
+   *
+   * @return the cost adjusted for all detected chain hops up to
+   *         {@code maxHops}; equals {@code baseCost} when no chain is
+   *         detected
+   */
+  private static double applyChainFold(
+      double baseCost,
+      PatternEdge firstEdge,
+      PatternNode firstNeighbor,
+      int maxHops,
+      Set<PatternEdge> visitedEdges,
+      Map<String, String> aliasClasses,
+      Map<String, SQLWhereClause> aliasFilters,
+      Map<String, Long> estimatedRootEntries,
+      DatabaseSessionEmbedded session) {
+    var firstHop = resolveChainedTarget(
+        firstEdge, firstNeighbor, visitedEdges, aliasClasses, session);
+    if (firstHop.isEmpty()) {
+      return baseCost;
+    }
+    double cost = applyTargetSelectivity(
+        baseCost,
+        firstHop.get().effectiveTargetAlias(),
+        firstHop.get().effectiveTargetClass(),
+        aliasFilters,
+        estimatedRootEntries,
+        session);
+
+    if (maxHops <= 1) {
+      return cost;
+    }
+
+    // Walk forward from the first hop's downstream vertex into any
+    // additional linear sub-chains, capped at maxHops - 1 extra hops.
+    var firstDownstreamVertex =
+        firstNeighbor.out.iterator().next().in;
+    var extraHops = walkLinearChainExtension(
+        firstDownstreamVertex,
+        firstHop.get().effectiveTargetClass(),
+        maxHops - 1,
+        visitedEdges,
+        firstEdge,
+        firstNeighbor,
+        aliasClasses,
+        session);
+    for (var hop : extraHops) {
+      cost *= estimateMethodFanOut(
+          hop.edgeStep().item.getMethod(),
+          hop.edgeStepSourceClass(),
+          session);
+      // Intermediate edge alias is mostly auto-generated (no WHERE), so this
+      // call is a no-op in the typical case. Required only for user-named
+      // intermediate aliases that carry their own WHERE/estimate.
+      cost = applyTargetSelectivity(
+          cost,
+          hop.intermediateAlias(),
+          (String) null,
+          aliasFilters,
+          estimatedRootEntries,
+          session);
+      cost = applyTargetSelectivity(
+          cost,
+          hop.downstreamAlias(),
+          hop.downstreamClass(),
+          aliasFilters,
+          estimatedRootEntries,
+          session);
+    }
+    return cost;
+  }
+
+  /**
+   * Iteratively extends a linear chain past its first hop. Starts from
+   * {@code currentVertex} (the downstream vertex of the first hop) and
+   * walks forward as long as:
+   * <ul>
+   *   <li>{@code currentVertex.out.size() == 1} (no branch point);</li>
+   *   <li>that single outgoing edge starts another valid sub-chain per
+   *       {@link #resolveChainedTarget}'s structural rule;</li>
+   *   <li>neither edge in the new sub-chain has been visited (back-edge
+   *       guard against pattern loops).</li>
+   * </ul>
+   * Walk terminates as soon as any condition fails, or when
+   * {@code remainingHops} reaches zero. The structural rule handles
+   * fragment-join, branch-point, and visited-edge rejection identically to
+   * the single-hop case.
+   *
+   * <p>Visited tracking uses a local copy of {@code initialVisitedEdges}
+   * augmented with the first hop's two edges (so the walk does not loop
+   * back through them) and with each sub-chain's edges as we cross them.
+   * This local set is only used to reason about chain shape — the caller's
+   * DFS-level {@code visitedEdges} is not mutated.
+   *
+   * @return list of additional hops (may be empty); each hop is one
+   *         (edge step, vertex step) sub-chain
+   */
+  private static List<ChainHop> walkLinearChainExtension(
+      PatternNode currentVertex,
+      @Nullable String currentVertexClass,
+      int remainingHops,
+      Set<PatternEdge> initialVisitedEdges,
+      PatternEdge firstHopEdge,
+      PatternNode firstHopNeighbor,
+      @Nullable Map<String, String> aliasClasses,
+      @Nullable DatabaseSessionEmbedded session) {
+    if (remainingHops <= 0) {
+      return List.of();
+    }
+    var hops = new ArrayList<ChainHop>();
+    var localVisited = new HashSet<>(initialVisitedEdges);
+    localVisited.add(firstHopEdge);
+    // Mark the first hop's vertex-step edge so the walk cannot loop back
+    // through it. firstHopNeighbor.out.size() == 1 holds by virtue of
+    // resolveChainedTarget having already accepted the first hop.
+    localVisited.add(firstHopNeighbor.out.iterator().next());
+
+    var sourceClass = currentVertexClass;
+    while (hops.size() < remainingHops) {
+      if (currentVertex.out.size() != 1) {
+        break;
+      }
+      var nextEdgeStep = currentVertex.out.iterator().next();
+      if (localVisited.contains(nextEdgeStep)) {
+        break;
+      }
+      var nextIntermediate = nextEdgeStep.in;
+      var nextSubChain = resolveChainedTarget(
+          nextEdgeStep, nextIntermediate, localVisited, aliasClasses, session);
+      if (nextSubChain.isEmpty()) {
+        break;
+      }
+      var vertexStepEdge = nextIntermediate.out.iterator().next();
+      localVisited.add(nextEdgeStep);
+      localVisited.add(vertexStepEdge);
+
+      hops.add(new ChainHop(
+          nextEdgeStep,
+          sourceClass,
+          nextIntermediate.alias,
+          nextSubChain.get().effectiveTargetAlias(),
+          nextSubChain.get().effectiveTargetClass()));
+
+      currentVertex = vertexStepEdge.in;
+      sourceClass = nextSubChain.get().effectiveTargetClass();
+    }
+    return hops;
   }
 
   /**
