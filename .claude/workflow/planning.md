@@ -397,10 +397,43 @@ The plan must be accompanied by a separate **design document** at
 design (not code): class diagrams, workflow diagrams, and dedicated sections
 for complex/opaque parts (concurrency, crash recovery, performance paths).
 
-Required content: (1) Mermaid class diagrams, (2) Mermaid workflow/sequence
-diagrams, (3) dedicated paragraphs for complex parts. All diagrams paired
-with prose. Frozen after Phase 1 — `design-final.md` and `adr.md` are
-produced in Phase 4 as the only git-tracked workflow artifacts.
+Required content: a concept-first Overview as first content (≤40
+lines, plain language); Core Concepts vocabulary primer between
+Overview and Class Design when the doc has `# Part N` headings or
+introduces ≥3 new domain terms; Mermaid class diagrams; Mermaid
+workflow/sequence diagrams; and dedicated `##` sections for
+complex parts each following the per-section shape (TL;DR +
+mechanism overview + edge cases + References footer). All
+diagrams paired with prose. Frozen after Phase 1 —
+`design-final.md` and `adr.md` are produced in Phase 4 as the
+only git-tracked workflow artifacts.
+
+**Mutation discipline.** Every modification to `design.md` —
+whether the initial creation in this phase, a later interactive
+revision ("add a section about X"), or a later inline-replanning
+update — is implemented as **one atomic action that bundles
+`(apply edit → auto-review → bounded iterate → present)`**. The
+agent does not directly Edit `design.md` mid-conversation; it
+invokes the mutation action, which wraps the auto-review gate
+(mechanical checks + cold-read sub-agent). This makes the shape
+rules in `design-document-rules.md` self-enforcing across every
+situation that touches the design. See `design-document-rules.md`
+§ Mutation discipline for the full protocol.
+
+**Phase 1 sub-phases (working / sync model).** Phase 1 is internally
+three sub-phases — `phase1-creation` (seed `design.md`; the
+`edit-design` skill decides whether a `design-mechanics.md` companion
+is needed up front, default single file), `mechanics-edit` (iterate on
+mechanics with `design.md` frozen as a stable reference; cold-read
+deferred), and `design-sync` (re-distill `design.md` from current
+mechanics; full discipline runs). The user can request a sync
+explicitly at any time, or accept the auto-suggestion that fires after
+5 mechanics edits. Full protocol in `design-document-rules.md`
+§ Two-mode editing — working vs sync.
+
+**Invocation:** use the `edit-design` skill
+([`.claude/skills/edit-design/SKILL.md`](../skills/edit-design/SKILL.md)),
+not direct `Edit` / `Write` calls.
 
 **Full rules, examples, and structure:**
 [`design-document-rules.md`](design-document-rules.md)
