@@ -106,6 +106,9 @@ import javax.annotation.Nullable;
  *     (COUNT(*) short-circuits) |
  *  4. Global LET                | handleGlobalLet()
  *  5. Fetch from target         | handleFetchFromTarget()
+ *  5b. LET pre-filter           | handleLetPreFilter()
+ *      (push LET-independent    |   (skips LET subqueries for
+ *       WHERE before LET)       |    filtered-out rows)
  *  6. Per-record LET            | handleLet()
  *  7. WHERE filtering           | handleWhere()
  *  8. Projections block         | handleProjectionsBlock()
@@ -265,6 +268,10 @@ public class SelectExecutionPlanner {
     handleGlobalLet(result, info, ctx, enableProfiling); // global LET (executed once)
 
     handleFetchFromTarget(result, info, ctx, enableProfiling); // data source
+
+    // Push LET-independent WHERE conjuncts before per-record LET evaluation
+    // so that expensive LET subqueries are skipped for filtered-out rows.
+    handleLetPreFilter(result, info, ctx, enableProfiling);
 
     handleLet(result, info, ctx, enableProfiling); // per-record LET
 
@@ -1691,6 +1698,88 @@ public class SelectExecutionPlanner {
         info.globalLetPresent = true;
       }
     }
+  }
+
+  /**
+   * Pushes LET-independent WHERE conjuncts before per-record LET evaluation.
+   *
+   * <p>If the WHERE clause contains conjuncts that do not reference any per-record
+   * LET variable (and do not reference {@code $parent}), those conjuncts are
+   * split off and evaluated as an early {@link FilterStep} <em>before</em> the
+   * per-record LET steps. This avoids executing expensive LET subqueries for
+   * rows that will be discarded by the WHERE filter.
+   *
+   * <p>The remaining LET-dependent conjuncts (if any) stay in
+   * {@code info.whereClause} for the subsequent {@link #handleWhere} call.
+   * When the entire WHERE is LET-independent, it is fully pushed down and
+   * {@code info.whereClause} is set to {@code null}.
+   *
+   * <p><b>Guards</b> (any one skips the optimization):
+   * <ul>
+   *   <li>No per-record LET clause, or its items list is empty</li>
+   *   <li>No WHERE clause</li>
+   *   <li>Last chained step is a {@link SubQueryStep} — inserting a
+   *       FilterStep here would create a false
+   *       {@code SubQueryStep → FilterStep} adjacency that
+   *       {@link #tryPushDownFilterIntoExpand} would incorrectly match</li>
+   * </ul>
+   */
+  private void handleLetPreFilter(
+      SelectExecutionPlan plan,
+      QueryPlanningInfo info,
+      CommandContext ctx,
+      boolean profilingEnabled) {
+    // Guard: must have both a per-record LET and a WHERE clause.
+    if (info.perRecordLetClause == null
+        || info.perRecordLetClause.getItems().isEmpty()) {
+      return;
+    }
+    if (info.whereClause == null) {
+      return;
+    }
+
+    // When the last chained step is a SubQueryStep, inserting a FilterStep
+    // creates a SubQueryStep → FilterStep adjacency that
+    // tryPushDownFilterIntoExpand() would incorrectly match. This is only
+    // dangerous for mixed splits where info.whereClause retains a non-null
+    // dependent part — tryPushDownFilterIntoExpand would try to push the
+    // dependent WHERE (which references LET vars) into the subquery's expand.
+    // For full push-downs (split == null), info.whereClause becomes null and
+    // tryPushDownFilterIntoExpand bails out at its null check, so the
+    // adjacency is harmless.
+    var steps = plan.getSteps();
+    boolean afterSubQuery =
+        !steps.isEmpty() && steps.getLast() instanceof SubQueryStep;
+
+    // Collect per-record LET variable names.
+    var letVarNames = new HashSet<String>();
+    for (var item : info.perRecordLetClause.getItems()) {
+      var name = item.getVarName().getStringValue();
+      if (name != null) {
+        letVarNames.add(name);
+      }
+    }
+
+    var split = info.whereClause.splitByLetDependency(letVarNames);
+    long timeout =
+        info.timeout != null ? info.timeout.getVal().longValue() : -1;
+
+    if (split == null) {
+      // No LET variable is referenced — push the entire WHERE down.
+      // Safe even after SubQueryStep: info.whereClause becomes null, so
+      // tryPushDownFilterIntoExpand will bail out at its null guard.
+      plan.chain(new FilterStep(info.whereClause, ctx, timeout, profilingEnabled));
+      info.whereClause = null;
+    } else if (split.independent() != null && !afterSubQuery) {
+      // Mixed split: push independent conjuncts, keep dependent for
+      // handleWhere. Blocked after SubQueryStep to avoid false adjacency
+      // for tryPushDownFilterIntoExpand (info.whereClause would still be
+      // non-null with the dependent part).
+      plan.chain(
+          new FilterStep(split.independent(), ctx, timeout, profilingEnabled));
+      info.whereClause = split.dependent();
+    }
+    // else: all conjuncts are LET-dependent — no push-down, leave as-is.
   }
 
   /**
