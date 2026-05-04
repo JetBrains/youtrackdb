@@ -97,9 +97,19 @@ self-enforcing.
 Each mutation invocation receives:
 
 - The intended edit (the diff, or the full new section content)
-- The mutation kind (one of: `content-edit`, `section-add`,
-  `section-remove`, `section-rename`, `section-move`,
-  `structural-rewrite`, `length-trigger-crossing`)
+- The mutation kind, drawn from the full set of 11:
+  - **Direct mutation kinds** (existing-doc edits, full discipline runs
+    on every mutation): `content-edit`, `section-add`, `section-remove`,
+    `section-rename`, `section-move`, `structural-rewrite`,
+    `length-trigger-crossing`.
+  - **Working/sync kinds** (Phase 1 iteration loop, deferred cold-read on
+    mechanics): `phase1-creation`, `mechanics-edit`, `design-sync`.
+  - **Phase 4 kind** (one-shot creation of the committed final artifact):
+    `phase4-creation`.
+
+  See the cold-read scope table below for the per-kind discipline; the
+  full lifecycle for the working/sync kinds lives in § Two-mode editing —
+  working vs sync.
 - An iteration budget (default: 3 rounds)
 
 The action runs:
@@ -135,17 +145,25 @@ invokes the skill — not raw `Edit` / `Write`.
 
 ### Cold-read scope by mutation kind
 
+In the table below, the `--target` column reads as a function of whether a
+`design-mechanics.md` companion exists. "design.md only" designs use
+`--target=design`; designs that also touch mechanics (because the seeding
+or rename or rewrite spans both files) use `--target=both`. Mutation kinds
+whose `--target` depends on this condition are written as
+`design \| both` and resolved by the `edit-design` skill at invocation
+time.
+
 | Mutation kind | Touches | Mechanical `--target` | Cold-read scope |
 |---|---|---|---|
-| `phase1-creation` (initial seed of both files) | both files | `both` | **Whole-doc** on `design.md` (mechanics is exempt — it's agent-targeted long-form) |
+| `phase1-creation` (initial seed) | `design.md` only when mechanics is not needed; both files when the design will exceed the length trigger or already plans for a mechanics companion | `design \| both` | **Whole-doc** on `design.md` (mechanics is exempt — it's agent-targeted long-form) |
 | `mechanics-edit` (working-mode edit) | mechanics only | `mechanics` | **NONE** — cold-read deferred to next `design-sync` |
 | `design-sync` (re-distill design.md from current mechanics) | both files | `both` | **Whole-doc** on `design.md`, plus mechanics-link sweep |
 | `content-edit` within an existing section | `design.md` | `design` | **Bounded** — changed section + 1-2 surrounding sections + Overview + (when present) Core Concepts |
 | `section-add` | `design.md` | `design` | **Bounded** — new section + Overview + (when present) Core Concepts + structure roadmap (for placement check) |
-| `section-remove` | `design.md` | `design` | **Whole-doc** — verify no broken references and no orphaned forward-pointers |
-| `section-rename` | `design.md` (+ plan/backlog ref propagation) | `design` | **Whole-doc** — every cross-reference to the renamed section must be updated, including in plan and backlog |
+| `section-remove` | `design.md` (+ plan/backlog ref cleanup) | `design` | **Whole-doc** — verify no broken references and no orphaned forward-pointers |
+| `section-rename` | `design.md` + (when mechanics exists) the matching section in `design-mechanics.md` + plan/backlog ref propagation | `design \| both` | **Whole-doc** — every cross-reference to the renamed section must be updated, including the matching mechanics heading and every `**Full design**` ref in plan and backlog |
 | `section-move` | `design.md` | `design` | **Whole-doc** — verify the new placement makes sense in the reader journey |
-| `structural-rewrite` (multiple section adds/moves/renames) | `design.md` | `design` | **Whole-doc** |
+| `structural-rewrite` (multiple section adds/moves/renames) | `design.md` + (when mechanics exists and any rename or split propagates) the matching sections in `design-mechanics.md` | `design \| both` | **Whole-doc** |
 | `length-trigger-crossing` (file crosses the 2,000-line / 50,000-token trigger) | both files | `both` | **Whole-doc** — verify split into `design-mechanics.md` is correctly applied |
 | `phase4-creation` (Phase 4 production of `design-final.md` ± `design-mechanics-final.md`) | `design-final.md` + (optional) `design-mechanics-final.md` | `both` if mechanics-final exists, else `design` | **Whole-doc** on `design-final.md`. Plan/backlog ref propagation is **N/A** — Phase 4 produces a *new* committed artifact whose section structure may differ from the original `design.md`; the plan/backlog `**Full design**` refs continue to point at the original (frozen) `design.md`, not at the final variant. The skill omits `--plan-path` / `--backlog-path` so the cross-file ref check is naturally skipped. |
 
@@ -153,9 +171,20 @@ invokes the skill — not raw `Edit` / `Write`.
 (default N=5, counted from the review log) triggers a whole-doc
 cold-read regardless of the kind, to catch coherence drift across
 many small edits. `mechanics-edit` mutations do **not** increment
-this counter — they have their own working-mode counter that drives
-the auto-suggest at N=5 sync prompt (see § Two-mode editing —
-working vs sync).
+this counter.
+
+**Two distinct counters.** Both fire at "5", but they count
+different things and trigger different actions. A small table to
+keep them apart:
+
+| Counter | Counts | Resets on | Triggers |
+|---|---|---|---|
+| Periodic whole-doc counter | All mutation log entries except `mechanics-edit` | Never resets — it's a running modulo over the log | Cold-read scope is escalated to `whole-doc` for the current mutation, regardless of its declared scope |
+| Working-mode counter | `mechanics-edit` entries since the most recent `design-sync` (or since `phase1-creation` if no sync has happened yet) | Resets to 0 on every `design-sync` | The skill surfaces *"5 mechanics edits have accumulated since the last sync — want me to run `design-sync`?"* at the next conversational turn |
+
+Both default to N=5 today; if that turns out to be confusing in
+practice, change one of the two thresholds rather than relying on
+context to disambiguate.
 
 ### Mechanical checks (always run)
 
@@ -164,14 +193,13 @@ working vs sync).
 | Overview first | First `## ` heading must be `## Overview` (concept-first ordering — meta-navigation is folded into Overview's tail, not given its own header) |
 | Core Concepts when applicable | If the doc has `# Part N` headings, a `## Core Concepts` section must exist between Overview and Class Design (`should-fix` if absent) |
 | Per-section shape compliance | Per `^## ` section (excluding shape-exempt: Overview, Core Concepts, Class Design, Workflow, Part-level TL;DR): TL;DR present (`\*\*TL;DR\.\*\*` or similar bold-prefix paragraph in the first ~10 lines); References footer present (`### References` or `\*\*References\.\*\*` near section end) |
-| Top-level cap | Count of `^## ` ≤ 15 (excluding `# Part N` parts which group sections) |
+| Top-level cap | Flat count of `^## ` ≤ 15 always; when `# Part N` headings exist, an additional per-Part cap of ≤ 8 sections (warn at > 6) applies on top of the flat 15 |
 | Per-section length cap | Each `^## ` section ≤ 300 lines (warn at 200) |
-| D/S parenthetical asides | Regex `\([Pp]er D\d+\)`, `\([Ss]ee [DS]\d+\)` — reject inside prose |
+| D/S parenthetical asides | Regex set: `(per D…)`, `(per S…)`, `(see D…)`, `(see S…)`, each with optional comma- or slash-separated additional codes (`(per D1, D2)`, `(see S5/S6)`). Rejected inside prose; allowed inside `### References` / `**References.**` blocks and table rows. |
 | Length trigger compliance | If file > 2,000 lines and `design-mechanics.md` doesn't exist, blocker |
 | Same-shape sibling detection | Cluster of 3+ sibling `## ` sections with ≥80% sub-heading-name overlap → flag for consolidation |
-| `Mechanics:` link resolution | Every `Mechanics: design-mechanics.md §"<name>"` resolves to a real section in `design-mechanics.md` |
-| `**Full design**` link resolution | Every `**Full design**: design.md §"<name>"` in `implementation-plan.md` and `implementation-backlog.md` resolves to a real section in `design.md` |
-| Section-rename ref propagation | If the mutation is a rename, every `**Full design**` and `Mechanics:` reference to the old name has been updated in the same mutation |
+| `Mechanics:` / mechanics-link resolution | Every `design-mechanics.md §"<name>"` reference appearing in `design.md` resolves to a real heading in `design-mechanics.md`. The check is applied to all such references — the canonical home for these is the per-section `Mechanics:` line in the References footer, but the script flags any unresolved reference regardless of how the line is prefixed. |
+| `**Full design**` link resolution | Every `**Full design**: design.md §"<name>"` in `implementation-plan.md` and `implementation-backlog.md` resolves to a real section in `design.md` (and any chained `design-mechanics.md §"<name>"` resolves in mechanics). This is also the check that catches stale references after a rename — when a `section-rename` (or rename inside `structural-rewrite`) has not propagated, the un-updated `**Full design**` and `Mechanics:` lines simply fail to resolve here, blocking the mutation. |
 
 ### Findings and severities
 
@@ -229,9 +257,13 @@ Pick the right one based on where you are in the plan lifecycle.
 `content-edit`, `section-add`, `section-remove`, `section-rename`,
 `section-move`, `structural-rewrite`, `length-trigger-crossing`.
 Every mutation runs the **full discipline** (mechanical +
-cold-read) on `design.md`. Best for small, targeted changes after
-the design is published — for example, a Phase 3 inline-replanning
-bullet add, or a Phase 4 `design-final.md` edit.
+cold-read) on the file(s) the mutation actually touches — usually
+`design.md` alone, but `length-trigger-crossing` and any
+`section-rename` / `structural-rewrite` that propagates into a
+mechanics companion will run mechanical and cold-read against both
+files. Best for small, targeted changes after the design is
+published — for example, a Phase 3 inline-replanning bullet add,
+or a Phase 4 `design-final.md` edit.
 
 ### Working / sync (the iterative model)
 
@@ -529,8 +561,10 @@ the long-form mechanism content moves to a sibling
 
 **Section names match between the two files.** When a section in
 `design.md` references its detailed mechanics, the link reads:
-`**Mechanics**: design-mechanics.md §"<exact same section name>"`.
-This stability is what keeps `implementation-plan.md`'s per-D
+`Mechanics: design-mechanics.md §"<exact same section name>"`
+(canonical form — same wording inside the per-section References
+footer template above and on standalone inline lines). This
+stability is what keeps `implementation-plan.md`'s per-D
 `**Full design**` references resolvable across the split.
 
 **Cross-references go one direction:** `design.md →

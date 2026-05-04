@@ -71,13 +71,23 @@ on the size of the inline-replanning revision (see
   one section add), use the direct mutation kinds — `content-edit`,
   `section-add`, `section-rename`, etc. Full discipline runs in
   one shot; the inline-replan completes in one mutation.
-- For a multi-section revision that touches both files (e.g., the
-  user is restructuring how a subsystem works and several sections
-  need updates), follow the working/sync loop: `mechanics-edit`
-  rounds for the substantive changes, ending in a `design-sync`
-  to re-publish `design.md`. This keeps `design.md` stable as a
-  review reference while the agent works through the multi-section
-  revision.
+- For a multi-section revision **on a design that already has a
+  `design-mechanics.md` companion**, follow the working/sync loop:
+  `mechanics-edit` rounds for the substantive changes, ending in a
+  `design-sync` to re-publish `design.md`. This keeps `design.md`
+  stable as a review reference while the agent works through the
+  multi-section revision. The working/sync loop is **only** valid
+  when `design-mechanics.md` exists at the time of the
+  inline-replan — `mechanics-edit` mutates that file, and there's
+  no equivalent on a design.md-only design.
+- For a multi-section revision **on a design.md-only design**
+  (no mechanics companion), either run a sequence of direct
+  mutations (`content-edit` / `section-add` / `section-rename` —
+  each one is its own atomic action with full discipline), or, if
+  the revision is large enough that the design genuinely now needs
+  long-form mechanism content, first run a `length-trigger-crossing`
+  to create the mechanics companion and then drop into the
+  working/sync loop.
 
 **Invocation:** use the `edit-design` skill
 ([`.claude/skills/edit-design/SKILL.md`](../skills/edit-design/SKILL.md)),

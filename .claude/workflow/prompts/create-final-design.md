@@ -142,8 +142,9 @@ with:
 - `design_mechanics_path`: `docs/adr/<dir-name>/design-mechanics-final.md`
   if the original design had a mechanics companion (or if the final
   content would cross the length trigger), else `null`
-- `target_file`: `both` when a mechanics-final companion exists, else
-  `design`
+- `target`: `both` when a mechanics-final companion exists, else
+  `design` (no `.md` suffix — these values pass through to the
+  script's `--target` flag verbatim)
 - `plan_path` / `backlog_path`: **omit**. Phase 4 produces a new
   committed artifact whose section structure may differ from the
   original `design.md`; the plan/backlog `**Full design**` refs continue

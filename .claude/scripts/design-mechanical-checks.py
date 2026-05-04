@@ -13,6 +13,7 @@ Usage:
         [--plan-path docs/adr/<dir>/implementation-plan.md] \
         [--backlog-path docs/adr/<dir>/implementation-backlog.md] \
         [--changed-section "Section Title"] \
+        [--target design|mechanics|both] \
         [--scope bounded|whole-doc]
 
 Output: JSON to stdout. Exit code 0 on PASS, 1 on NEEDS REVISION (any blocker).
@@ -77,6 +78,27 @@ def read_lines(path: str) -> List[str]:
         return f.read().splitlines()
 
 
+# Per CommonMark, a fenced code block opens/closes on a line whose only
+# content is a run of 3+ backticks (or tildes) optionally followed by an
+# info string. For backtick fences the info string must not contain a
+# backtick, which is the case our heuristic rules out by requiring the
+# info string to match `[\w-]*` (word characters and hyphens — covers
+# ```mermaid, ```python, ```c++ would not match but those are rare in
+# design docs). Lines beginning with ``` but containing inline triple-
+# backtick spans like `` ```inline``` more text `` are NOT fences.
+_CODE_FENCE_RE = re.compile(r"^(```+|~~~+)\s*[\w-]*\s*$")
+
+
+def is_code_fence_line(line: str) -> bool:
+    """Return True iff `line` is a fenced-code-block opener/closer.
+
+    The fence must be alone on its line (CommonMark): three or more
+    backticks/tildes, optional whitespace, optional info string of word
+    chars and hyphens, optional trailing whitespace, then end of line.
+    """
+    return _CODE_FENCE_RE.match(line) is not None
+
+
 def parse_sections(lines: List[str]) -> Tuple[List[Dict], List[Dict]]:
     """Parse a markdown file into a list of `## ` sections and `# Part N` parts.
 
@@ -96,8 +118,12 @@ def parse_sections(lines: List[str]) -> Tuple[List[Dict], List[Dict]]:
     in_code_fence = False
 
     for i, line in enumerate(lines, start=1):
-        # Fenced code block tracking — toggles on lines beginning with ``` or ~~~.
-        if re.match(r"^(```|~~~)", line):
+        # Fenced code block tracking — per CommonMark, an opening/closing fence
+        # is 3+ consecutive backticks (or tildes) optionally followed by an
+        # info string with no embedded backticks (and only whitespace after).
+        # Lines that start with ``` but contain inline triple-backtick spans
+        # like `` ```inline``` more text `` are NOT fences and must not toggle.
+        if is_code_fence_line(line):
             in_code_fence = not in_code_fence
             continue
         if in_code_fence:
@@ -160,7 +186,7 @@ def collect_all_headings(lines: List[str]) -> List[Tuple[int, int, str]]:
     headings: List[Tuple[int, int, str]] = []
     in_code_fence = False
     for i, line in enumerate(lines, start=1):
-        if re.match(r"^(```|~~~)", line):
+        if is_code_fence_line(line):
             in_code_fence = not in_code_fence
             continue
         if in_code_fence:
@@ -386,37 +412,44 @@ def check_top_level_cap(
 ) -> List[Dict]:
     """Top-level `## ` cap.
 
-    Rule: ≤ 15 `## ` total when no `# Part N` headings exist; when Parts are
-    used (the prescribed escape hatch), apply per-Part caps instead since the
-    Parts themselves are the consolidation. The total `## ` count alone over-
-    flags well-structured docs that already used Parts.
+    Rule (per design-document-rules.md § Mechanical checks):
+    - The total flat count of `## ` sections must be ≤ 15. This bound holds
+      regardless of whether `# Part N` headings exist — Parts group sections
+      visually but each `##` still counts.
+    - When Parts exist, an additional per-Part cap (≤ 8 sections, warn at > 6)
+      catches Parts that have absorbed too much detail, even when the flat
+      total is still below 15.
     """
     findings: List[Dict] = []
+
+    # Always apply the flat 15 cap — Parts are a grouping layer, not an
+    # escape hatch from the top-level count.
+    if len(sections) > TOP_LEVEL_CAP:
+        findings.append(make_finding(
+            "should-fix",
+            "top-level-cap",
+            f"{design_path}:1",
+            (f"design.md has {len(sections)} `## ` sections (cap: ~{TOP_LEVEL_CAP}). "
+             "Consolidate same-shape siblings or move long-form material to "
+             "`design-mechanics.md`. `# Part N` headings group sections visually "
+             "but every `##` still counts toward the total."),
+            "Consolidate `##` sections via the consolidation form, or move "
+            "long-form mechanism content to `design-mechanics.md`.",
+        ))
+
     if not parts:
-        # No Parts; apply the flat 15 cap.
-        if len(sections) > TOP_LEVEL_CAP:
-            findings.append(make_finding(
-                "should-fix",
-                "top-level-cap",
-                f"{design_path}:1",
-                (f"design.md has {len(sections)} `## ` sections (cap: ~{TOP_LEVEL_CAP}). "
-                 "Group related sections into `# Part N — <name>` headings or move long-form "
-                 "material to `design-mechanics.md`."),
-                "Group ## sections into `# Part N — <name>` parents.",
-            ))
         return findings
 
-    # Parts exist; apply per-Part caps.
+    # Per-Part caps when Parts exist — the pre-Part region (Overview,
+    # Core Concepts, Class Design, Workflow) is the canonical scaffold and
+    # does not get its own additional cap beyond the flat 15 above.
     by_part: Dict[Optional[str], List[Dict]] = {}
     for s in sections:
         by_part.setdefault(s["parent_part"], []).append(s)
     for part_title, part_sections in by_part.items():
         if part_title is None:
-            # The pre-Part region (Reader Orientation, Overview, Class Design, Workflow).
-            # No cap — these are the canonical 4 sections.
             continue
         n = len(part_sections)
-        # Find the part dict for line number.
         line_no = next((p["line_start"] for p in parts if p["title"] == part_title), 1)
         if n > PER_PART_CAP:
             findings.append(make_finding(
@@ -504,7 +537,7 @@ def check_dsc_parenthetical_asides(
     ]
 
     for i, line in enumerate(lines, start=1):
-        if re.match(r"^(```|~~~)", line):
+        if is_code_fence_line(line):
             in_code_fence = not in_code_fence
             continue
         if in_code_fence:

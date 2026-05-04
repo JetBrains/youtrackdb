@@ -53,7 +53,7 @@ The invoking agent supplies these when calling the skill:
 | `design_mechanics_path` | Absolute path to `design-mechanics.md` (or `null` if no companion). |
 | `plan_path` | Absolute path to `implementation-plan.md` (for `**Full design**` link resolution). |
 | `backlog_path` | Absolute path to `implementation-backlog.md` (same purpose). |
-| `target_file` | `design.md`, `design-mechanics.md`, or `both` — the file(s) the edit touches. Threads through to `--target` on the script. |
+| `target` | `design`, `mechanics`, or `both` — the file(s) the edit touches. Threaded through to the script's `--target` flag verbatim. (No `.md` suffix — the script's argparse choices are `design`/`mechanics`/`both`.) |
 | `intended_edit` | Either `(old_string, new_string)` for a focused edit, or full new content for a section-add / section-rewrite / file creation. |
 | `mutation_kind` | One of the values listed in the mode table above. |
 | `changed_section` | Title of the section being changed (for bounded cold-read scope). For `section-rename`, supply the **new** name. Optional for `mechanics-edit` and `design-sync`. |
@@ -65,25 +65,42 @@ so the cold-read scope and check-set are correct; do not guess.
 
 ## Cold-read scope and check-set by mutation kind
 
+The `--target` column reads as a function of whether
+`design-mechanics.md` exists at the time of the mutation. When a value
+is written `design \| both`, resolve to `design` if the mutation
+touches only `design.md` (the common case for small designs without a
+mechanics companion) or `both` if the mutation also propagates into
+`design-mechanics.md`.
+
 | Mutation kind | Touches | Mechanical script `--target` | Cold-read scope |
 |---|---|---|---|
-| `phase1-creation` | both files (initial seed) | `both` | `whole-doc` on design.md (mechanics is exempt from cold-read since it's agent-targeted) |
+| `phase1-creation` | `design.md` only when the design will not need a mechanics companion (small designs under ~5 sections), or both files when the design will exceed the length trigger / already plans for mechanics | `design \| both` | `whole-doc` on design.md (mechanics is exempt from cold-read since it's agent-targeted) |
 | `mechanics-edit` | mechanics only | `mechanics` | **NONE** — cold-read deferred to next `design-sync` |
 | `design-sync` | both files (re-distill design.md from updated mechanics) | `both` | `whole-doc` on design.md, plus mechanics-link-resolution sweep |
 | `content-edit` | design.md | `design` | `bounded` — changed section + 1-2 surrounding sections + Overview + (when present) Core Concepts |
 | `section-add` | design.md | `design` | `bounded` — new section + Overview + (when present) Core Concepts + structure roadmap |
-| `section-remove` | design.md | `design` | `whole-doc` |
-| `section-rename` | design.md (+ plan/backlog ref propagation) | `design` | `whole-doc` |
+| `section-remove` | design.md (+ plan/backlog ref cleanup — `**Full design**` lines pointing at the removed section must be updated in the same mutation, otherwise `**Full design**` link resolution fails) | `design` | `whole-doc` |
+| `section-rename` | design.md + (when mechanics exists) the matching section in `design-mechanics.md` + plan/backlog ref propagation | `design \| both` | `whole-doc` |
 | `section-move` | design.md | `design` | `whole-doc` |
-| `structural-rewrite` | design.md | `design` | `whole-doc` |
+| `structural-rewrite` | design.md + (when mechanics exists and any rename or split propagates) the matching sections in `design-mechanics.md` | `design \| both` | `whole-doc` |
 | `length-trigger-crossing` | both files (split into design-mechanics) | `both` | `whole-doc` |
 | `phase4-creation` | `design-final.md` + (optional) `design-mechanics-final.md` | `both` if mechanics-final exists, else `design` | `whole-doc` on `design-final.md` (mechanics-final is exempt — agent-targeted long-form). Skip plan/backlog ref propagation: omit `--plan-path` / `--backlog-path` so the cross-file ref check is naturally skipped. |
 
 **Periodic whole-doc check.** Independent of mode: every Nth design-touching
 mutation (default `N=5`, counted from the review log) escalates the cold-read
 scope to `whole-doc` regardless of the kind. `mechanics-edit` mutations do
-NOT increment this counter — only design-touching mutations do (the working/
-sync loop has its own counter, see below).
+NOT increment this counter.
+
+**Two distinct N=5 counters.** Both fire at "5", but they count different
+things and trigger different actions; do not collapse them mentally:
+
+| Counter | Counts | Resets on | Triggers |
+|---|---|---|---|
+| Periodic whole-doc counter | All mutation log entries except `mechanics-edit` | Never resets — running modulo over the log | Cold-read scope is escalated to `whole-doc` for the current mutation, regardless of its declared scope |
+| Working-mode counter | `mechanics-edit` entries since the most recent `design-sync` (or since `phase1-creation`) | Resets to 0 on every `design-sync` | The skill surfaces *"5 mechanics edits have accumulated since the last sync — want me to run `design-sync`?"* at the next conversational turn (Step 8) |
+
+See `design-document-rules.md § Mutation discipline § Cold-read scope by
+mutation kind` for the canonical statement of both counters.
 
 ## Workflow
 
@@ -96,12 +113,24 @@ Use the `Edit` tool (for focused edits) or `Write` (for full-file rewrites or
 new section creation). Read the target file first to satisfy the `Edit`
 precondition.
 
-For `phase1-creation`: write **both** files in this step. Seed `design.md`
-with Overview (concept-first elevator pitch), Core Concepts (when the doc
-will have Parts or ≥3 new domain terms), Class Design, Workflow, and
-TL;DR-shaped Part sections; seed `design-mechanics.md` with the long-form
-mechanism content that supports each design.md section. Section names match
-between the two files from the start.
+For `phase1-creation`: decide first whether the design needs a mechanics
+companion. **Default is single file.** Most designs (under ~5 sections,
+no `# Part N` headings, no anticipated long-form derivations) seed only
+`design.md` — pass `target=design` and leave `design_mechanics_path=null`.
+Seed `design.md` with Overview (concept-first elevator pitch), Core
+Concepts (when the doc will have Parts or ≥3 new domain terms), Class
+Design, Workflow, and TL;DR-shaped Part sections.
+
+Seed both files only when the design genuinely needs the split — typically
+when the user has signaled it up front ("this will have a mechanics
+companion") or when a single-file seed would already exceed the
+2,000-line / 50,000-token length trigger. In that case, pass
+`target=both` and `design_mechanics_path=<abs path>`; seed
+`design-mechanics.md` with the long-form mechanism content that supports
+each design.md section, with section names matching between the two
+files from the start. A design that doesn't need mechanics on day 1
+crosses into one later via `length-trigger-crossing`, not by retroactively
+re-running `phase1-creation`.
 
 For `phase4-creation`: same as `phase1-creation` but the file paths are
 `design-final.md` and (optional) `design-mechanics-final.md`, and the
@@ -168,7 +197,24 @@ python3 .claude/scripts/design-mechanical-checks.py \
     --scope <bounded|whole-doc>
 ```
 
-The `--target` value comes from the cold-read scope table above (column 3).
+Two flags need derivation:
+
+- **`--target`** comes from the cold-read scope table above (column 3).
+  When the table writes `design \| both`, resolve to `design` if the
+  mutation only edits `design.md` (no `design-mechanics.md` companion
+  exists, or the rename / rewrite did not propagate into mechanics)
+  and to `both` if both files are touched in this mutation.
+- **`--scope`** is the **mechanical-check scope** — orthogonal to the
+  cold-read scope conveyed to the sub-agent. Pass `--scope=bounded`
+  (and supply `--changed-section`) when column 4's cold-read scope
+  starts with `bounded`; the script then runs the per-section shape
+  check only on `<changed-section>` instead of every section.
+  Pass `--scope=whole-doc` for any kind whose cold-read scope is
+  `whole-doc` (or for `mechanics-edit`, where there is no cold-read
+  but the script still runs in whole-doc mode for the parenthetical-
+  aside scan over the mechanics file). The cold-read scope itself is
+  passed through the sub-agent prompt's `Inputs` block, not via this
+  CLI flag.
 
 The script prints JSON to stdout. Exit code `0` ⇒ no blockers; `1` ⇒ NEEDS
 REVISION. Capture and parse the JSON; do not act on the exit code alone —
@@ -222,27 +268,41 @@ location)` if the same issue appears in both halves.
 
 ### Step 6: Iterate
 
-If any `blocker` remains and the iteration budget is not exhausted:
+Each iteration runs in this order until either the budget is exhausted
+or no findings remain:
 
-1. **Try auto-apply for mechanical findings.** When a finding has
-   `auto_applicable: true`, apply its `suggested_fix` directly with `Edit`.
-   The current auto-applicable rule is `dsc-parenthetical-aside` (regex
-   strip).
-2. **For non-auto-fixable findings**, attempt the fix yourself based on
-   the `suggested_fix` text and the surrounding context. Use `Edit` for
-   focused changes.
-3. **Re-run mechanical checks and (if mechanical now passes and cold-read
-   was applicable) cold-read.**
-4. **Decrement the iteration budget.**
+1. **Address blockers first.** For each `blocker` finding:
+   - **`auto_applicable: true`**: the script has flagged this finding as
+     mechanically resolvable from its `suggested_fix` text. The
+     `auto_applicable` flag does **not** mean a literal regex
+     replacement; the agent reads the `suggested_fix` and applies it
+     via `Edit`, using the matched substring (e.g., the offending
+     `(per D27)` aside) as the `old_string`. The current auto-
+     applicable rule is `dsc-parenthetical-aside`.
+   - **`auto_applicable: false` (or unset)**: read `suggested_fix` and
+     the surrounding context; apply the fix via `Edit`.
+2. **Then address `should-fix` findings** in the same iteration, using
+   the same auto-vs-manual flow. `suggestion` findings are not retried —
+   they are recorded in the review log only.
+3. **Re-run mechanical checks** and, if mechanical now passes and
+   cold-read was applicable for this kind, re-run cold-read. Replace the
+   prior findings list with the new one.
+4. **Decrement the iteration budget.** Stop when the budget reaches
+   zero or all blocker + should-fix findings are gone.
 
-If the budget exhausts with blockers remaining: **the action does not
-succeed.** Leave the partial edits on disk (do not revert), append a clear
-warning to the review log, and present findings + diff to the user for
-manual resolution.
+Outcomes when the loop exits:
 
-If only `should-fix` and/or `suggestion` findings remain after one round,
-attempt a second pass to address them; if they persist, log them and
-complete with a warning.
+- **All blockers and should-fix findings cleared**: PASS — proceed to
+  Step 7.
+- **Budget exhausted with blockers remaining**: the action does **not**
+  succeed. Leave the partial edits on disk (do not revert), append a
+  clear warning to the review log (Step 7 still runs), and present
+  findings + diff to the user for manual resolution. The user is the
+  gate when the action can't self-correct.
+- **Budget exhausted with only `should-fix` findings remaining**: the
+  action completes with a warning. Log the unresolved findings and
+  proceed to Step 7. The mutation can stand; the residual findings
+  carry forward to the next mutation as known debt.
 
 ### Step 7: Append to the review log
 
@@ -252,7 +312,7 @@ they don't exist). Format per `design-document-rules.md § Mutation
 discipline § Review log`:
 
 ```markdown
-## Mutation N — <ISO date YYYY-MM-DD> — <mutation kind>
+## Mutation N — <ISO date YYYY-MM-DD> — <mutation kind> (<design.md | design-final.md>)
 
 **Diff summary**: <one paragraph describing the change>
 
@@ -266,6 +326,11 @@ discipline § Review log`:
 
 **Working-mode counter**: <K mechanics-edits since last design-sync> (only for `mechanics-edit` and `design-sync` entries)
 ```
+
+The header includes the target file's basename (`design.md` for normal
+mutations, `design-final.md` for `phase4-creation`) so the log is
+unambiguous when an entry follows a Phase 4 entry — both `phase1-creation`
+and `phase4-creation` look structurally similar otherwise.
 
 Use `Read` to find the highest existing mutation number and increment by
 one. The first mutation is `## Mutation 1 — ...`.
@@ -397,18 +462,28 @@ design.md". The skill:
 
 **Example 2 — Section rename (`section-rename`).**
 The user asks to rename `## DPB (D33)` to `## Architectural redesign:
-Dirty Page Bitset (D33)`. The skill:
+Dirty Page Bitset (D33)`. This design has a `design-mechanics.md`
+companion, so the rename has to propagate. The skill:
 
 1. Applies the rename `Edit` in `design.md`.
-2. Updates the matching section name in `design-mechanics.md` (per the
-   "section names match" rule).
+2. Updates the matching section name in `design-mechanics.md` — per
+   the "section names match" rule in
+   `design-document-rules.md` § Length-triggered split into
+   `design-mechanics.md`.
 3. Updates every `**Full design**: design.md §"DPB (D33)"` line in
    `implementation-plan.md` and `implementation-backlog.md` to use the
    new name.
-4. Runs mechanical checks with `--target=both`, scope=`whole-doc` —
-   confirms zero broken refs.
+4. Runs mechanical checks with `--target=both`, `--scope=whole-doc` —
+   confirms zero broken refs. (`both` because mechanics was touched;
+   the cold-read scope table resolves `design \| both` to `both` for
+   this case.)
 5. Spawns cold-read with `whole-doc` scope.
 6. Logs and presents.
+
+If the design has **no** `design-mechanics.md` companion, step 2 is
+skipped and step 4 runs with `--target=design`. Step 3 still runs —
+plan/backlog ref propagation is independent of whether mechanics
+exists.
 
 ## Reference
 
