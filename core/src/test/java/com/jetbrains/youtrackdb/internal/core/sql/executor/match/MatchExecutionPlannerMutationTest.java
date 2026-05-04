@@ -1735,6 +1735,25 @@ public class MatchExecutionPlannerMutationTest {
   }
 
   /**
+   * Method names arrive case-preserved from the parser, so the whitelist must
+   * be case-insensitive. Pins this for both hops jointly: a mutation that
+   * replaces the {@code equalsIgnoreCase} short-circuit with a strict
+   * {@code equals} would reject {@code OUTE}/{@code INV} variants and break
+   * any user query written in upper case.
+   */
+  @Test
+  public void resolveChainedTarget_mixedCaseMethodNames_returnsTarget() {
+    var chain = buildChain("OuTe", "InV", "post", "e", "tag");
+    var aliasClasses = Map.of("tag", "VITag");
+
+    var result = MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), aliasClasses, db);
+
+    assertThat(result).contains(
+        new MatchExecutionPlanner.ChainedTarget("tag", "VITag"));
+  }
+
+  /**
    * Intermediate node has zero outgoing edges — the chain has no downstream
    * vertex step. Return empty.
    */
