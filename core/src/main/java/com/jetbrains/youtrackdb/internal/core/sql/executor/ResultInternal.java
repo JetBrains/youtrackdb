@@ -909,15 +909,6 @@ public class ResultInternal implements Result, BasicResultInternal {
     setIdentifiable(identity);
   }
 
-  /**
-   * Returns the raw identifiable without triggering entity loading.
-   * For a bare RID (lazy MATCH path), returns the RID; for an already
-   * materialized entity, returns the entity.
-   */
-  public Identifiable getIdentifiable() {
-    return identifiable;
-  }
-
   public void setIdentifiable(Identifiable identifiable) {
     assert checkSession();
 
