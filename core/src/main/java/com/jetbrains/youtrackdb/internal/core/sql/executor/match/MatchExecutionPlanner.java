@@ -2769,48 +2769,61 @@ public class MatchExecutionPlanner {
     String effectiveTargetClass = aliasClasses != null
         ? aliasClasses.get(effectiveTargetAlias) : null;
     if (effectiveTargetClass == null) {
-      // Lazy: lower-case only on the precedence-2 fallback path, since
-      // precedence-1 (addAliases-populated aliasClasses) covers the common
-      // production case and does not need the canonical form.
-      var firstName = rawFirstName.toLowerCase(Locale.ENGLISH);
-      effectiveTargetClass = inferDownstreamVertexClassFromEdge(
-          edge.item.getMethod(), firstName, session);
+      // Precedence-2 fallback: derive class from the edge schema using the
+      // SECOND method (inV/outV/bothV). The vertex step decides which side of
+      // the edge is downstream, regardless of whether we entered via outE,
+      // inE, or bothE — so this mirrors how addAliases.inferClassFromEdgeSchema
+      // resolves a stand-alone inV/outV. bothV cannot be disambiguated from
+      // schema alone and falls through to null.
+      effectiveTargetClass = linkedVertexClassForVertexStep(
+          rawSecondName, extractEdgeClassName(edge.item.getMethod()), session);
     }
     return Optional.of(new ChainedTarget(effectiveTargetAlias, effectiveTargetClass));
   }
 
   /**
-   * Precedence-2 fallback for {@link #resolveChainedTarget}: infers the
-   * downstream vertex class from the first edge's class name + chain
-   * direction. Mirrors the explicit-alias branch of
-   * {@link #resolveTargetClass} but is direction-aware for the chain shape:
-   * outbound ({@code oute}) reads the edge class's {@code in} linked vertex
-   * class, inbound ({@code ine}) reads {@code out}, and bidirectional
-   * ({@code bothe}) returns {@code null} because no single endpoint is
-   * uniquely "downstream".
+   * Resolves the linked vertex class for a TinkerPop vertex step ({@code inV},
+   * {@code outV}, {@code bothV}) on a known edge class, using the edge's
+   * {@code in}/{@code out} LINK schema.
    *
-   * @param method     the first edge's method call
-   * @param firstName  the first method's name, lower-cased ({@code oute}/
-   *                   {@code ine}/{@code bothe})
-   * @param session    database session for schema access; if {@code null},
-   *                   the method returns {@code null}
-   * @return the inferred class name, or {@code null} if it cannot be derived
+   * <p>{@code inV} reads the edge's {@code in} linked vertex class (target
+   * side); {@code outV} reads {@code out} (source side); {@code bothV} cannot
+   * be resolved from schema alone and returns {@code null}.
+   *
+   * <p>Shared by {@link #resolveChainedTarget} (precedence-2 fallback during
+   * cost-fold class inference) and the {@code inV}/{@code outV} branch of
+   * {@link #inferClassFromEdgeSchema} (during plan construction in
+   * {@code addAliases}). Centralising the mapping here keeps the two paths in
+   * lock-step: any future addition (e.g. a new vertex-step variant) only
+   * needs editing once.
+   *
+   * @param vertexStepName the vertex step name as read from the parsed
+   *                       method call ({@code inV}/{@code outV}/{@code bothV},
+   *                       case-insensitive); {@code null} returns {@code null}
+   * @param edgeClassName  the edge class whose schema supplies the linked
+   *                       vertex class; {@code null} returns {@code null}
+   * @param session        database session for schema access; {@code null}
+   *                       returns {@code null}
+   * @return the linked vertex class name, or {@code null} when any input is
+   *         missing or the step is {@code bothV}/unrecognized
    */
-  @Nullable private static String inferDownstreamVertexClassFromEdge(
-      SQLMethodCall method,
-      String firstName,
+  @Nullable static String linkedVertexClassForVertexStep(
+      @Nullable String vertexStepName,
+      @Nullable String edgeClassName,
       @Nullable DatabaseSessionEmbedded session) {
-    if ("bothe".equals(firstName)) {
+    if (edgeClassName == null || vertexStepName == null) {
       return null;
     }
-    var edgeClassName = extractEdgeClassName(method);
-    if (edgeClassName == null) {
+    String prop;
+    if ("inV".equalsIgnoreCase(vertexStepName)) {
+      prop = "in";
+    } else if ("outV".equalsIgnoreCase(vertexStepName)) {
+      prop = "out";
+    } else {
+      // bothV or any unrecognized step: cannot disambiguate from schema
       return null;
     }
-    // outE('X').inV() reads the edge class's "in" linked vertex;
-    // inE('X').outV() reads "out".
-    var linkedPropName = "oute".equals(firstName) ? "in" : "out";
-    return lookupLinkedVertexClass(edgeClassName, linkedPropName, session);
+    return lookupLinkedVertexClass(edgeClassName, prop, session);
   }
 
   /**
@@ -4852,13 +4865,12 @@ public class MatchExecutionPlanner {
     }
 
     // inV() / outV(): look up the linked vertex class from the preceding edge.
-    // inV() reads the "in" property; outV() reads the "out" property.
+    // Delegates to the shared helper so this branch stays in lock-step with
+    // resolveChainedTarget's precedence-2 fallback (both resolve a vertex
+    // step against an edge schema; centralising avoids divergent logic).
     if ("inv".equals(dirName) || "outv".equals(dirName)) {
-      if (currentEdgeClass == null) {
-        return null;
-      }
-      var prop = "inv".equals(dirName) ? "in" : "out";
-      return lookupLinkedVertexClass(currentEdgeClass, prop, context.getDatabaseSession());
+      return linkedVertexClassForVertexStep(
+          dirName, currentEdgeClass, context.getDatabaseSession());
     }
 
     // out('X') / in('X'): infer the target vertex class from the edge LINK schema
