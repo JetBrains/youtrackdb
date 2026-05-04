@@ -92,9 +92,13 @@ def read_lines(path: str) -> List[str]:
 #     including backticks, spaces, braces, dotted forms — anything an
 #     authoring tool may emit (e.g. ``~~~python {cmd=true}``).
 #
+# CommonMark allows 0-3 leading spaces of indentation on the fence line
+# (4+ spaces would make it an indented code block). Keeping leading-space
+# tolerance avoids missing fences in lists or quoted blocks.
+#
 # Two regexes per fence type so the contracts don't bleed into each other.
-_BACKTICK_FENCE_RE = re.compile(r"^(`{3,})([^`]*)$")
-_TILDE_FENCE_RE = re.compile(r"^(~{3,})(.*)$")
+_BACKTICK_FENCE_RE = re.compile(r"^[ ]{0,3}(`{3,})([^`]*)$")
+_TILDE_FENCE_RE = re.compile(r"^[ ]{0,3}(~{3,})(.*)$")
 
 
 def parse_code_fence(line: str) -> Optional[Tuple[str, int]]:
@@ -848,51 +852,98 @@ def check_length_trigger_compliance(
     return findings
 
 
+SAME_SHAPE_JACCARD_THRESHOLD = 0.8
+
+
+def _jaccard(a: frozenset, b: frozenset) -> float:
+    """Jaccard similarity over two sub-heading sets: |a ∩ b| / |a ∪ b|.
+
+    Empty sets are filtered out by the caller, so the union is always non-empty.
+    """
+    union = a | b
+    return len(a & b) / len(union)
+
+
 def check_same_shape_siblings(
     design_path: str,
     sections: List[Dict],
 ) -> List[Dict]:
-    """Detect 3+ sibling `## ` sections sharing the same custom sub-heading shape.
+    """Detect 3+ sibling `## ` sections whose custom sub-heading sets overlap
+    by ≥ SAME_SHAPE_JACCARD_THRESHOLD (Jaccard similarity).
 
-    Two sibling sections "share a shape" when the sorted tuple of their
-    custom (non-mandatory, non-form) sub-headings is identical. Bucketing
-    by that tuple catches the consolidation-form anti-pattern (3+ siblings
-    repeating the same internal `### ` sequence) without the cost of
-    pairwise similarity computation.
+    Per design-document-rules.md § Consolidation form for sibling sections,
+    3+ siblings sharing the same internal shape must be consolidated. The
+    threshold is fuzzy on purpose: a cluster where two sections have
+    `### Inputs / ### Algorithm / ### Outputs` and a third adds
+    `### Edge Cases` is still the consolidation-form anti-pattern — exact-set
+    matching would silently miss it. Pairs with similarity ≥ threshold are
+    unioned (transitive closure), and clusters of 3+ are flagged.
     """
     findings: List[Dict] = []
 
-    # Bucket sections by (parent_part, sorted custom-subheading tuple).
-    buckets: Dict[Tuple[Optional[str], Tuple[str, ...]], List[Dict]] = {}
+    # Per-Part candidates: section + custom sub-heading set (lowercased).
+    by_part: Dict[Optional[str], List[Tuple[Dict, frozenset]]] = {}
     for s in sections:
         if is_shape_exempt(s):
             continue
-        custom_subs = sorted(
+        custom_subs = frozenset(
             sub.lower()
             for sub in s["sub_headings"]
             if sub.lower() not in MANDATORY_OR_FORM_SUBHEADINGS
         )
         if not custom_subs:
             continue
-        key = (s["parent_part"], tuple(custom_subs))
-        buckets.setdefault(key, []).append(s)
+        by_part.setdefault(s["parent_part"], []).append((s, custom_subs))
 
-    for (part_title, _shape), group in buckets.items():
-        if len(group) < 3:
+    for part_title, items in by_part.items():
+        n = len(items)
+        if n < 3:
             continue
-        titles = [s["title"] for s in group]
-        first_loc = group[0]["line_start"]
-        findings.append(make_finding(
-            "should-fix",
-            "same-shape-siblings",
-            f"{design_path}:{first_loc}",
-            (f"{len(group)} sibling sections under `{part_title or '(no Part)'}` share the "
-             f"same internal sub-heading shape: {titles}. Per design-document-rules.md "
-             "§ Consolidation form for sibling sections, 3+ siblings with the same shape "
-             "MUST be consolidated under one parent section using the consolidation form "
-             "(TL;DR + Comparison table + Per-instance short bodies)."),
-            f"Merge {titles} into one parent section using the consolidation form.",
-        ))
+
+        # Union-find: merge any pair whose custom-subhead sets overlap by
+        # ≥ threshold. Path compression keeps the find amortized near-O(1).
+        parent = list(range(n))
+
+        def find(x: int) -> int:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        def union(a: int, b: int) -> None:
+            ra, rb = find(a), find(b)
+            if ra != rb:
+                parent[ra] = rb
+
+        for i in range(n):
+            for j in range(i + 1, n):
+                if _jaccard(items[i][1], items[j][1]) >= SAME_SHAPE_JACCARD_THRESHOLD:
+                    union(i, j)
+
+        clusters: Dict[int, List[int]] = {}
+        for i in range(n):
+            clusters.setdefault(find(i), []).append(i)
+
+        for cluster_indices in clusters.values():
+            if len(cluster_indices) < 3:
+                continue
+            cluster_indices.sort(key=lambda idx: items[idx][0]["line_start"])
+            cluster_sections = [items[idx][0] for idx in cluster_indices]
+            titles = [s["title"] for s in cluster_sections]
+            first_loc = cluster_sections[0]["line_start"]
+            findings.append(make_finding(
+                "should-fix",
+                "same-shape-siblings",
+                f"{design_path}:{first_loc}",
+                (f"{len(cluster_sections)} sibling sections under "
+                 f"`{part_title or '(no Part)'}` share the same internal sub-heading shape "
+                 f"(Jaccard ≥ {SAME_SHAPE_JACCARD_THRESHOLD:.0%} pairwise overlap on custom "
+                 f"sub-headings): {titles}. Per design-document-rules.md § Consolidation "
+                 "form for sibling sections, 3+ siblings with the same shape MUST be "
+                 "consolidated under one parent section using the consolidation form "
+                 "(TL;DR + Comparison table + Per-instance short bodies)."),
+                f"Merge {titles} into one parent section using the consolidation form.",
+            ))
     return findings
 
 
@@ -1188,18 +1239,23 @@ def main() -> int:
     # path is the agent's explicit assertion that the file is part of the
     # mutation; silently skipping when missing would mask a regression in the
     # cross-file ref check.
+    # A supplied-but-missing companion path is a blocker, not a should-fix:
+    # the agent's flag is an explicit assertion that the file is part of the
+    # mutation, and silently skipping the cross-file checks would mask broken
+    # references (the exact failure mode the cross-file checks exist to catch)
+    # while still emitting a misleading PASS verdict on the rest of the doc.
     design_mechanics_lines: Optional[List[str]] = None
     if args.design_mechanics_path:
         if os.path.exists(args.design_mechanics_path):
             design_mechanics_lines = read_lines(args.design_mechanics_path)
         else:
             findings.append(make_finding(
-                "should-fix",
+                "blocker",
                 "companion-path-missing",
                 args.design_mechanics_path,
                 (f"--design-mechanics-path was supplied but the file does not exist at "
                  f"{args.design_mechanics_path}. Cross-file link-resolution against this "
-                 "file will be skipped."),
+                 "file would be silently skipped, masking any broken `Mechanics:` refs."),
                 "Pass an existing path or omit the flag.",
             ))
 
@@ -1209,11 +1265,12 @@ def main() -> int:
             plan_lines = read_lines(args.plan_path)
         else:
             findings.append(make_finding(
-                "should-fix",
+                "blocker",
                 "companion-path-missing",
                 args.plan_path,
                 (f"--plan-path was supplied but the file does not exist at {args.plan_path}. "
-                 "`**Full design**` ref resolution against the plan will be skipped."),
+                 "`**Full design**` ref resolution against the plan would be silently "
+                 "skipped, masking any broken refs."),
                 "Pass an existing path or omit the flag.",
             ))
 
@@ -1223,12 +1280,12 @@ def main() -> int:
             backlog_lines = read_lines(args.backlog_path)
         else:
             findings.append(make_finding(
-                "should-fix",
+                "blocker",
                 "companion-path-missing",
                 args.backlog_path,
                 (f"--backlog-path was supplied but the file does not exist at "
                  f"{args.backlog_path}. `**Full design**` ref resolution against the "
-                 "backlog will be skipped."),
+                 "backlog would be silently skipped, masking any broken refs."),
                 "Pass an existing path or omit the flag.",
             ))
 

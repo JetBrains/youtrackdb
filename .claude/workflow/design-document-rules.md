@@ -206,7 +206,7 @@ context to disambiguate.
 | Per-section length cap | Each `^## ` section ≤ 300 lines, three-tier severity: 201-300 lines is a `suggestion` (warn — long-form material is creeping in); 301-400 is `should-fix` (over the soft cap); >400 is a `blocker` (sections over 400 lines almost always have long-form material that must move to `design-mechanics.md`). Honors `--scope=bounded`: when bounded, only the changed section is checked — pre-existing legacy oversize sections are not backfilled. |
 | D/S parenthetical asides | Regex set: `(per D…)`, `(per S…)`, `(see D…)`, `(see S…)`, each with optional comma- or slash-separated additional codes (`(per D1, D2)`, `(see S5/S6)`). Rejected inside prose; allowed inside `### References` / `**References.**` blocks and table rows. Honors `--scope=bounded` on the design.md side: only asides whose line falls within the changed section's range are flagged. (Mechanics-side asides, when `--target=mechanics` or `--target=both`, always run whole-doc — `--changed-section` describes a design.md section, not a mechanics section.) |
 | Length trigger compliance | If file > 2,000 lines and `design-mechanics.md` doesn't exist, blocker |
-| Same-shape sibling detection | Cluster of 3+ sibling `## ` sections with ≥80% sub-heading-name overlap → flag for consolidation |
+| Same-shape sibling detection | Cluster of 3+ sibling `## ` sections with ≥80% Jaccard overlap on custom sub-headings → flag for consolidation. Pairs above the threshold are merged via union-find so a near-duplicate cluster (e.g. 5 sections sharing `### Inputs / ### Algorithm / ### Outputs` plus one with an extra `### Edge Cases`) flags as a single same-shape group. |
 | `Mechanics:` / mechanics-link resolution | Every `design-mechanics.md §"<name>"` reference appearing in `design.md` resolves to a real heading in `design-mechanics.md`. The check is applied to all such references — the canonical home for these is the per-section `Mechanics:` line in the References footer, but the script flags any unresolved reference regardless of how the line is prefixed. |
 | `**Full design**` link resolution | Every `**Full design**: design.md §"<name>"` in `implementation-plan.md` and `implementation-backlog.md` resolves to a real section in `design.md` (and any chained `design-mechanics.md §"<name>"` resolves in mechanics). This is also the check that catches stale references after a rename — when a `section-rename` (or rename inside `structural-rewrite`) has not propagated, the un-updated `**Full design**` and `Mechanics:` lines simply fail to resolve here, blocking the mutation. |
 
@@ -768,8 +768,11 @@ that warrant dedicated sections:
    ≤300 lines per section. Group into `# Part N` headings or
    move long-form to `design-mechanics.md` when exceeded.
 10. **Consolidate sibling sections that share structure.** 3+
-    siblings with the same internal sub-heading sequence MUST be
-    merged using the consolidation form.
+    siblings whose custom sub-heading sets overlap by ≥80%
+    (Jaccard) MUST be merged using the consolidation form. Order
+    of sub-headings is not load-bearing — what matters is that
+    the same recurring set of internal `### ` headings appears
+    across the cluster.
 11. **Length-triggered split.** When `design.md` exceeds ~2,000
     lines / ~50,000 tokens, agent-targeted long-form moves to
     `design-mechanics.md`. Section names match between files.
