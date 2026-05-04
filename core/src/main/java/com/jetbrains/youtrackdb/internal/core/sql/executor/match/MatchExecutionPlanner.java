@@ -2928,12 +2928,15 @@ public class MatchExecutionPlanner {
           hop.edgeStepSourceClass(),
           session);
       // Intermediate edge alias is mostly auto-generated (no WHERE), so this
-      // call is a no-op in the typical case. Required only for user-named
-      // intermediate aliases that carry their own WHERE/estimate.
+      // call is typically a no-op via the no-filter short-circuit. The class
+      // is the EDGE class of this hop's edge step (e.g. 'Friend' for
+      // .outE('Friend'){as: e}); without it, applyTargetSelectivity would
+      // short-circuit unconditionally and ignore user-named intermediate
+      // aliases that carry their own WHERE (e.g. {as: e, where: weight > 5}).
       cost = applyTargetSelectivity(
           cost,
           hop.intermediateAlias(),
-          (String) null,
+          extractEdgeClassName(hop.edgeStep().item.getMethod()),
           aliasFilters,
           estimatedRootEntries,
           session);
