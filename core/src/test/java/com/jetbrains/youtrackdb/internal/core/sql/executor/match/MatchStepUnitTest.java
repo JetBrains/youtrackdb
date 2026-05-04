@@ -1986,13 +1986,13 @@ public class MatchStepUnitTest extends DbTestBase {
     assertEquals(rid, result.getIdentity());
     // Verify the identifiable is still the bare RID, not a loaded Entity
     assertFalse("getIdentity() must not trigger entity loading",
-        result.getIdentifiable() instanceof Entity);
+        result.asIdentifiableOrNull() instanceof Entity);
 
     // getProperty() triggers lazy loading and returns the value
     assertEquals("Alice", result.getProperty("name"));
     // After getProperty(), the identifiable should now be a loaded Entity
     assertTrue("getProperty() must trigger entity loading",
-        result.getIdentifiable() instanceof Entity);
+        result.asIdentifiableOrNull() instanceof Entity);
     session.commit();
   }
 
@@ -2094,10 +2094,10 @@ public class MatchStepUnitTest extends DbTestBase {
 
     assertTrue(MatchEdgeTraverser.matchesClass(ctx, "Person", result));
     // The identifiable MUST still be the bare RID — if matchesClass loaded
-    // the entity, getIdentifiable() would now return an Entity instead.
+    // the entity, asIdentifiableOrNull() would now return an Entity instead.
     assertFalse(
         "matchesClass must not trigger entity loading",
-        result.getIdentifiable() instanceof Entity);
+        result.asIdentifiableOrNull() instanceof Entity);
     session.commit();
   }
 
@@ -2127,7 +2127,7 @@ public class MatchStepUnitTest extends DbTestBase {
     assertTrue(MatchEdgeTraverser.matchesClass(ctx, "Dog", result));
     assertFalse(
         "matchesClass must not trigger entity loading on subclass check",
-        result.getIdentifiable() instanceof Entity);
+        result.asIdentifiableOrNull() instanceof Entity);
     session.commit();
   }
 
@@ -2151,7 +2151,7 @@ public class MatchStepUnitTest extends DbTestBase {
     assertFalse(MatchEdgeTraverser.matchesClass(ctx, "Other", result));
     assertFalse(
         "negative matchesClass must not trigger entity loading",
-        result.getIdentifiable() instanceof Entity);
+        result.asIdentifiableOrNull() instanceof Entity);
     session.commit();
   }
 
@@ -2173,7 +2173,7 @@ public class MatchStepUnitTest extends DbTestBase {
     var result = new ResultInternal(session, vertex);
 
     // Sanity: already an Entity
-    assertTrue(result.getIdentifiable() instanceof Entity);
+    assertTrue(result.asIdentifiableOrNull() instanceof Entity);
     assertTrue(MatchEdgeTraverser.matchesClass(ctx, "Person", result));
     session.commit();
   }
