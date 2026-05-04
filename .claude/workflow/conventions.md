@@ -42,21 +42,41 @@ docs/adr/<dir-name>/
                                      constraints/interactions + any
                                      track-level diagrams); shrinks
                                      monotonically
-  design.md                       <- design-level: class diagrams, workflow
-                                     diagrams, complex/opaque part explanations
-                                     (created in Phase 1, never modified after)
+  design.md                       <- narrative: Reader Orientation,
+                                     concept-first Overview, class diagrams,
+                                     workflow diagrams, per-section TL;DR +
+                                     mechanism overview + edge cases +
+                                     References footer. Every modification
+                                     goes through the mutation action defined
+                                     in design-document-rules.md § Mutation
+                                     discipline. Frozen between Phase 1 end
+                                     and Phase 4 start.
+  design-mechanics.md             <- (optional, length-triggered) long-form
+                                     derivations, file:line citations,
+                                     edit-list subsections, full state-
+                                     machine tables. Created when design.md
+                                     exceeds ~2,000 lines / ~50K tokens.
+                                     Section names match design.md so
+                                     `**Full design**` refs in the plan
+                                     resolve in either file.
   tracks/
     track-1.md                    <- tactical: decomposed steps, step episodes
     track-2.md
     ...
   reviews/
-    structural.md
+    structural.md                 <- Phase 2 structural-review output
+    consistency.md                <- Phase 2 consistency-review output
+    design-mutations.md           <- append-only log of every design.md
+                                     mutation: diff summary, mechanical-check
+                                     result, cold-read verdict, iteration
+                                     count
     track-1-technical.md
     ...
 
   ## Final artifacts (committed in Phase 4 — the only tracked files)
   design-final.md                 <- post-implementation design reflecting
-                                     what was actually built
+                                     what was actually built; same shape as
+                                     design.md (mutation discipline applies)
   adr.md                          <- architecture decision record with actual
                                      outcomes, aggregated from all episodes
 ```

@@ -14,6 +14,20 @@ in sequence:
    **automatically** after consistency review passes — no user interaction
    unless blockers are found.
 
+**Division of labor with the design mutation discipline.** Phase 2
+does **not** separately review the narrative quality of `design.md`
+(per-section shape, top-level caps, consolidation form, D/S code
+discipline, length-trigger compliance, etc.). Those checks are
+gated at **write time** by the design-mutation action defined in
+[`design-document-rules.md`](design-document-rules.md) § Mutation
+discipline — every modification to `design.md` runs the
+mechanical checks + cold-read sub-agent before the change stands.
+Phase 2's Consistency Review still verifies design ↔ code ↔ plan
+alignment (i.e., are the diagrams accurate and the cross-links
+resolvable), and the Structural Review still owns plan-internal
+quality. Narrative readability of the design document is the
+mutation action's responsibility.
+
 ```mermaid
 flowchart TD
     START["/review-plan"]

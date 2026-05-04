@@ -397,10 +397,29 @@ The plan must be accompanied by a separate **design document** at
 design (not code): class diagrams, workflow diagrams, and dedicated sections
 for complex/opaque parts (concurrency, crash recovery, performance paths).
 
-Required content: (1) Mermaid class diagrams, (2) Mermaid workflow/sequence
-diagrams, (3) dedicated paragraphs for complex parts. All diagrams paired
-with prose. Frozen after Phase 1 — `design-final.md` and `adr.md` are
+Required content: a Reader Orientation header, a concept-first
+Overview, Mermaid class diagrams, Mermaid workflow/sequence
+diagrams, and dedicated `##` sections for complex parts each
+following the per-section shape (TL;DR + mechanism overview +
+edge cases + References footer). All diagrams paired with prose.
+Frozen after Phase 1 — `design-final.md` and `adr.md` are
 produced in Phase 4 as the only git-tracked workflow artifacts.
+
+**Mutation discipline.** Every modification to `design.md` —
+whether the initial creation in this phase, a later interactive
+revision ("add a section about X"), or a later inline-replanning
+update — is implemented as **one atomic action that bundles
+`(apply edit → auto-review → bounded iterate → present)`**. The
+agent does not directly Edit `design.md` mid-conversation; it
+invokes the mutation action, which wraps the auto-review gate
+(mechanical checks + cold-read sub-agent). This makes the shape
+rules in `design-document-rules.md` self-enforcing across every
+situation that touches the design. See `design-document-rules.md`
+§ Mutation discipline for the full protocol.
+
+**Invocation:** use the `edit-design` skill
+([`.claude/skills/edit-design/SKILL.md`](../skills/edit-design/SKILL.md)),
+not direct `Edit` / `Write` calls.
 
 **Full rules, examples, and structure:**
 [`design-document-rules.md`](design-document-rules.md)

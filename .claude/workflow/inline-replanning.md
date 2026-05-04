@@ -51,6 +51,21 @@ specific file on disk depending on the track's current status. See
 [§Updating plan and backlog](#updating-plan-and-backlog) below for the
 authoritative rule per case.
 
+**Design coherence.** When the revision invalidates a Decision
+Record's `**Full design**` link, adds a new design section, or
+renames an existing one, the design changes go through the
+mutation discipline defined in
+[`design-document-rules.md`](design-document-rules.md) § Mutation
+discipline — one atomic action that bundles `(apply edit →
+auto-review → bounded iterate → present)`. Do not directly Edit
+`design.md` mid-replan; invoke the mutation action so the
+auto-review gate (mechanical checks + cold-read sub-agent) fires.
+The structural review in step 4 below validates the plan; the
+design's own narrative quality is owned by the mutation action.
+**Invocation:** use the `edit-design` skill
+([`.claude/skills/edit-design/SKILL.md`](../skills/edit-design/SKILL.md)),
+not direct `Edit` / `Write` calls.
+
 **4. Review** — spawn a sub-agent to validate the revised plan using the
 structural review protocol from Phase 2 (see `structural-review.md`).
 The invocation passes `plan_path` + `backlog_path` per the path-passing
