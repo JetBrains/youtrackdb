@@ -2194,6 +2194,135 @@ public class MatchExecutionPlannerMutationTest {
   }
 
   /**
+   * outE('VIHasTag') → outV with empty aliasClasses: precedence-2 must read
+   * the edge class's {@code out} linked vertex (source side), NOT {@code in}
+   * (target side). The downstream side is determined by the SECOND method
+   * (outV ↔ source), not the first one (outE) — a regression to a
+   * firstName-only mapping would return VITag here instead of VIPost and
+   * silently fold a wrong selectivity into the cost model.
+   */
+  @Test
+  public void resolveChainedTarget_outEoutV_precedence2_readsOutSide() {
+    var postClass = registerClass("VIPost", 100);
+    var tagClass = registerClass("VITag", 10);
+    var edgeClass = registerClass("VIHasTag", 500);
+
+    var inProp = mock(SchemaPropertyInternal.class);
+    when(inProp.getLinkedClass()).thenReturn(tagClass);
+    when(edgeClass.getPropertyInternal("in")).thenReturn(inProp);
+
+    var outProp = mock(SchemaPropertyInternal.class);
+    when(outProp.getLinkedClass()).thenReturn(postClass);
+    when(edgeClass.getPropertyInternal("out")).thenReturn(outProp);
+
+    var firstMethod = mockMethodWithBaseExpression("\"VIHasTag\"");
+    stubMethodName(firstMethod, "outE");
+    // outE.outV — second hop loops back to source side
+    var chain = buildChain(firstMethod, "outV", "post", "e", "sourcePost");
+
+    var result = MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db);
+
+    assertThat(result).contains(
+        new MatchExecutionPlanner.ChainedTarget("sourcePost", "VIPost"));
+  }
+
+  /**
+   * inE('VIHasTag') → inV with empty aliasClasses: precedence-2 must read
+   * the edge class's {@code in} linked vertex (target side), NOT {@code out}.
+   * Mirror of the outE.outV test — second-method-driven mapping pinned
+   * for the inbound-then-target direction.
+   */
+  @Test
+  public void resolveChainedTarget_inEinV_precedence2_readsInSide() {
+    var postClass = registerClass("VIPost", 100);
+    var tagClass = registerClass("VITag", 10);
+    var edgeClass = registerClass("VIHasTag", 500);
+
+    var inProp = mock(SchemaPropertyInternal.class);
+    when(inProp.getLinkedClass()).thenReturn(tagClass);
+    when(edgeClass.getPropertyInternal("in")).thenReturn(inProp);
+
+    var outProp = mock(SchemaPropertyInternal.class);
+    when(outProp.getLinkedClass()).thenReturn(postClass);
+    when(edgeClass.getPropertyInternal("out")).thenReturn(outProp);
+
+    var firstMethod = mockMethodWithBaseExpression("\"VIHasTag\"");
+    stubMethodName(firstMethod, "inE");
+    // inE.inV — second hop loops back to target side
+    var chain = buildChain(firstMethod, "inV", "tag", "e", "targetTag");
+
+    var result = MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db);
+
+    assertThat(result).contains(
+        new MatchExecutionPlanner.ChainedTarget("targetTag", "VITag"));
+  }
+
+  /**
+   * bothE('VIKnows') → inV: even though the first hop is bidirectional, the
+   * second hop ({@code inV}) unambiguously selects the edge's {@code in}
+   * side. Precedence-2 returns the in-linked class. Pins that bothE no
+   * longer short-circuits to null when the second hop pins the direction —
+   * a previous version of the fallback would return null on any bothE.
+   */
+  @Test
+  public void resolveChainedTarget_bothEinV_precedence2_readsInSide() {
+    var aClass = registerClass("A", 100);
+    var bClass = registerClass("B", 50);
+    var edgeClass = registerClass("VIKnows", 500);
+
+    var inProp = mock(SchemaPropertyInternal.class);
+    when(inProp.getLinkedClass()).thenReturn(bClass);
+    when(edgeClass.getPropertyInternal("in")).thenReturn(inProp);
+
+    var outProp = mock(SchemaPropertyInternal.class);
+    when(outProp.getLinkedClass()).thenReturn(aClass);
+    when(edgeClass.getPropertyInternal("out")).thenReturn(outProp);
+
+    var firstMethod = mockMethodWithBaseExpression("\"VIKnows\"");
+    stubMethodName(firstMethod, "bothE");
+    var chain = buildChain(firstMethod, "inV", "a", "e", "target");
+
+    var result = MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db);
+
+    // bothE.inV → in side = B (the edge's "in" linked class)
+    assertThat(result).contains(
+        new MatchExecutionPlanner.ChainedTarget("target", "B"));
+  }
+
+  /**
+   * bothE('VIKnows') → outV: bothE no longer blocks inference; outV picks
+   * the {@code out} linked class. Mirror of the bothE.inV test.
+   */
+  @Test
+  public void resolveChainedTarget_bothEoutV_precedence2_readsOutSide() {
+    var aClass = registerClass("A", 100);
+    var bClass = registerClass("B", 50);
+    var edgeClass = registerClass("VIKnows", 500);
+
+    var inProp = mock(SchemaPropertyInternal.class);
+    when(inProp.getLinkedClass()).thenReturn(bClass);
+    when(edgeClass.getPropertyInternal("in")).thenReturn(inProp);
+
+    var outProp = mock(SchemaPropertyInternal.class);
+    when(outProp.getLinkedClass()).thenReturn(aClass);
+    when(edgeClass.getPropertyInternal("out")).thenReturn(outProp);
+
+    var firstMethod = mockMethodWithBaseExpression("\"VIKnows\"");
+    stubMethodName(firstMethod, "bothE");
+    var chain = buildChain(firstMethod, "outV", "a", "e", "source");
+
+    var result = MatchExecutionPlanner.resolveChainedTarget(
+        chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db);
+
+    // bothE.outV → out side = A
+    assertThat(result).contains(
+        new MatchExecutionPlanner.ChainedTarget("source", "A"));
+  }
+
+  /**
    * bothE → bothV with {@code aliasClasses.get("vertex") = "VITag"}:
    * precedence-1 wins. <b>Critical for Track 3 test 4</b> — this is the
    * only way a {@code bothE→bothV} chain ever gets a non-null class, since
@@ -2213,8 +2342,12 @@ public class MatchExecutionPlannerMutationTest {
 
   /**
    * bothE('VIKnows') → bothV with empty aliasClasses and a fully-registered
-   * edge schema: precedence-2 explicitly returns null for {@code bothE}
-   * because no single endpoint is uniquely "downstream".
+   * edge schema: precedence-2 returns null because the SECOND hop
+   * ({@code bothV}) cannot disambiguate which side of the edge is
+   * downstream — neither {@code in} nor {@code out} alone is correct.
+   * Note that the rejection now lives in {@code linkedVertexClassForVertexStep}'s
+   * "bothV → null" branch, not in any first-method check; bothE.inV /
+   * bothE.outV are now resolvable (see {@code bothEinV_precedence2_readsInSide}).
    */
   @Test
   public void resolveChainedTarget_bothEbothV_precedence2_returnsNullClass() {
