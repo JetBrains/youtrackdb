@@ -1996,6 +1996,36 @@ public class MatchStepUnitTest extends DbTestBase {
     session.commit();
   }
 
+  /**
+   * Regression test for lazy MATCH traversal over blob clusters. A bare
+   * {@code RecordId} pointing to a blob is not {@code instanceof Blob}, so the
+   * cold path in {@code ResultInternal.loadLazyAndGetProperty} cannot classify
+   * it before loading. Both {@code getProperty} and {@code hasProperty} must
+   * resolve the type after materialization and return {@code null}/{@code false}
+   * for blobs — historically the behavior delivered by the schema-snapshot
+   * {@code isBlob()} check. They must NOT route the bare RID through
+   * {@code loadEntity()}, which throws {@link
+   * com.jetbrains.youtrackdb.internal.core.exception.DatabaseException
+   * DatabaseException} ("Record with id ... is not an entity, but a Blob") on
+   * a blob record.
+   */
+  @Test
+  public void testGetPropertyOnBareBlobRidReturnsNullNotThrows() {
+    var blobRid =
+        session.computeInTx(tx -> tx.newBlob("payload".getBytes()).getIdentity());
+
+    session.begin();
+    // Simulate the lazy MATCH path: wrap the bare blob RID — not the Blob
+    // instance — in a ResultInternal. instanceof Blob would miss this.
+    var result = new ResultInternal(session, blobRid);
+
+    // getProperty must return null instead of throwing DatabaseException
+    assertNull(result.getProperty("anything"));
+    // hasProperty must return false instead of throwing DatabaseException
+    assertFalse(result.hasProperty("anything"));
+    session.commit();
+  }
+
   // -- matchesRid tests --
 
   /** Verifies matchesRid returns true when rid is null (no constraint). */
