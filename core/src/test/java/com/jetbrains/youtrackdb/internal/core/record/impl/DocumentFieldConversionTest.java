@@ -394,4 +394,43 @@ public class DocumentFieldConversionTest extends BaseMemoryInternalDatabase {
     assertEquals(20304L, ((Date) doc.getProperty("date")).getTime());
     session.rollback();
   }
+
+  /**
+   * Boundary-completeness conversion fixture. For each scalar {@link PropertyType} that
+   * accepts a string-form input, set the property using a string and assert the auto-
+   * conversion picks the correctly-typed Java value back. Numeric / boolean / decimal / date
+   * conversion all flow through the same {@code PropertyTypeConverter} dispatch — a regression
+   * in any one branch surfaces here as a single failing assertion.
+   */
+  @Test
+  public void testStringConversionForAllScalarTypes() {
+    session.begin();
+    try {
+      var doc = (EntityImpl) session.newEntity(clazz);
+      doc.setProperty("integer", "11");
+      doc.setProperty("long", "12");
+      doc.setProperty("float", "13.5");
+      doc.setProperty("double", "14.5");
+      doc.setProperty("boolean", "true");
+      doc.setProperty("string", "fifteen");
+      doc.setProperty("decimal", "16.25");
+
+      assertTrue(doc.getProperty("integer") instanceof Integer);
+      assertEquals(Integer.valueOf(11), doc.getProperty("integer"));
+      assertTrue(doc.getProperty("long") instanceof Long);
+      assertEquals(Long.valueOf(12L), doc.getProperty("long"));
+      assertTrue(doc.getProperty("float") instanceof Float);
+      assertEquals(Float.valueOf(13.5f), doc.getProperty("float"));
+      assertTrue(doc.getProperty("double") instanceof Double);
+      assertEquals(Double.valueOf(14.5d), doc.getProperty("double"));
+      assertTrue(doc.getProperty("boolean") instanceof Boolean);
+      assertEquals(Boolean.TRUE, doc.getProperty("boolean"));
+      assertTrue(doc.getProperty("string") instanceof String);
+      assertEquals("fifteen", doc.getProperty("string"));
+      assertTrue(doc.getProperty("decimal") instanceof BigDecimal);
+      assertEquals(new BigDecimal("16.25"), doc.<BigDecimal>getProperty("decimal"));
+    } finally {
+      session.rollback();
+    }
+  }
 }

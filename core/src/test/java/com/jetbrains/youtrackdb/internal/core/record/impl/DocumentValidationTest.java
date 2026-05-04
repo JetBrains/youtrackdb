@@ -71,7 +71,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     entity.setLong("long", 10L);
     entity.setFloat("float", 10f);
     entity.setBoolean("boolean", true);
-    entity.setBinary("binary", new byte[]{});
+    entity.setBinary("binary", new byte[] {});
     entity.setByte("byte", (byte) 10);
     entity.setDate("date", new Date());
     entity.setDateTime("datetime", new Date());
@@ -333,7 +333,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     entity.setInt("int", 11);
     entity.setLong("long", 11L);
     entity.setFloat("float", 11f);
-    entity.setBinary("binary", new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11});
+    entity.setBinary("binary", new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11});
     entity.setByte("byte", (byte) 11);
     entity.setDate("date", new Date());
     entity.setDateTime("datetime", new Date());
@@ -382,7 +382,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     checkField(entity, "int", 12);
     checkField(entity, "long", 12);
     checkField(entity, "float", 20);
-    checkField(entity, "binary", new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13});
+    checkField(entity, "binary", new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13});
 
     checkField(entity, "byte", 20);
     cal = Calendar.getInstance();
@@ -483,7 +483,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     entity.setInt("int", 11);
     entity.setLong("long", 11L);
     entity.setFloat("float", 11f);
-    entity.setBinary("binary", new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11});
+    entity.setBinary("binary", new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11});
     entity.setByte("byte", (byte) 11);
 
     cal = Calendar.getInstance();
@@ -517,7 +517,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     checkField(entity, "int", 10);
     checkField(entity, "long", 10);
     checkField(entity, "float", 10);
-    checkField(entity, "binary", new byte[]{1, 2, 3, 4, 5, 6, 7, 8});
+    checkField(entity, "binary", new byte[] {1, 2, 3, 4, 5, 6, 7, 8});
     checkField(entity, "byte", 10);
 
     cal = Calendar.getInstance();
@@ -578,7 +578,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     e.setLong("long", 12L);
     e.setFloat("float", 12f);
     e.setBoolean("boolean", true);
-    e.setBinary("binary", new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12});
+    e.setBinary("binary", new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12});
     e.setByte("byte", (byte) 12);
     e.setDate("date", new Date());
     e.setDateTime("datetime", new Date());
@@ -844,6 +844,116 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
       fail();
     } catch (NumberFormatException | ValidationException v) {
       //ignore
+    }
+  }
+
+  /**
+   * All-field-types boundary-completeness fixture. The {@link PropertyType} enum currently
+   * exposes 21 distinct constants — {@code BOOLEAN, BYTE, SHORT, INTEGER, LONG, FLOAT, DOUBLE,
+   * STRING, DECIMAL, DATETIME, DATE, BINARY, EMBEDDED, EMBEDDEDLIST, EMBEDDEDSET, EMBEDDEDMAP,
+   * LINK, LINKLIST, LINKSET, LINKMAP, LINKBAG}. (TRANSIENT, CUSTOM, ANY are not in the public
+   * enum at this stage of the codebase — if/when they are added, this test must be extended in
+   * lockstep.) For each type we declare a property, populate a representative value on a
+   * freshly created entity, and call {@code validate()}. The pin is two-fold: validation must
+   * succeed for every type (no silent rejection), and {@code getPropertyType} must report the
+   * declared schema type after assignment, so a misclassification on any setter manifests
+   * here as a single failing assertion rather than as an opaque downstream serialization
+   * issue.
+   */
+  @Test
+  public void testValidationOfAllSchemaTypesFixture() {
+    var schema = session.getMetadata().getSchema();
+    schema.createAbstractClass("AllTypesEmbeddedShape");
+    var clazz = schema.createClass("AllTypes");
+
+    clazz.createProperty("p_boolean", PropertyType.BOOLEAN);
+    clazz.createProperty("p_byte", PropertyType.BYTE);
+    clazz.createProperty("p_short", PropertyType.SHORT);
+    clazz.createProperty("p_integer", PropertyType.INTEGER);
+    clazz.createProperty("p_long", PropertyType.LONG);
+    clazz.createProperty("p_float", PropertyType.FLOAT);
+    clazz.createProperty("p_double", PropertyType.DOUBLE);
+    clazz.createProperty("p_string", PropertyType.STRING);
+    clazz.createProperty("p_decimal", PropertyType.DECIMAL);
+    clazz.createProperty("p_datetime", PropertyType.DATETIME);
+    clazz.createProperty("p_date", PropertyType.DATE);
+    clazz.createProperty("p_binary", PropertyType.BINARY);
+    clazz.createProperty("p_embedded", PropertyType.EMBEDDED);
+    clazz.createProperty("p_embedded_list", PropertyType.EMBEDDEDLIST);
+    clazz.createProperty("p_embedded_set", PropertyType.EMBEDDEDSET);
+    clazz.createProperty("p_embedded_map", PropertyType.EMBEDDEDMAP);
+    clazz.createProperty("p_link", PropertyType.LINK);
+    clazz.createProperty("p_link_list", PropertyType.LINKLIST);
+    clazz.createProperty("p_link_set", PropertyType.LINKSET);
+    clazz.createProperty("p_link_map", PropertyType.LINKMAP);
+    clazz.createProperty("p_link_bag", PropertyType.LINKBAG);
+
+    session.begin();
+    var sentinelTarget = session.newEntity();
+    var sentinelId = ((DBRecord) sentinelTarget).getIdentity();
+    session.commit();
+
+    session.begin();
+    try {
+      var entity = (EntityImpl) session.newEntity(clazz);
+
+      entity.setBoolean("p_boolean", Boolean.TRUE);
+      entity.setByte("p_byte", (byte) 1);
+      entity.setShort("p_short", (short) 2);
+      entity.setInt("p_integer", 3);
+      entity.setLong("p_long", 4L);
+      entity.setFloat("p_float", 5f);
+      entity.setDouble("p_double", 6d);
+      entity.setString("p_string", "seven");
+      entity.setDecimal("p_decimal", new BigDecimal("8.0"));
+      entity.setDateTime("p_datetime", new Date(9_000L));
+      var dayCal = Calendar.getInstance();
+      dayCal.set(Calendar.MILLISECOND, 0);
+      entity.setDate("p_date", dayCal.getTime());
+      entity.setBinary("p_binary", new byte[] {10, 11});
+      entity.setEmbeddedEntity("p_embedded",
+          session.newEmbeddedEntity("AllTypesEmbeddedShape"));
+      entity.newEmbeddedList("p_embedded_list");
+      entity.newEmbeddedSet("p_embedded_set");
+      entity.newEmbeddedMap("p_embedded_map");
+      entity.setLink("p_link", sentinelId);
+      entity.newLinkList("p_link_list");
+      entity.newLinkSet("p_link_set");
+      entity.newLinkMap("p_link_map");
+      var bag = new LinkBag(session);
+      entity.setProperty("p_link_bag", bag, PropertyType.LINKBAG);
+
+      entity.validate();
+
+      Assert.assertEquals(PropertyType.BOOLEAN, entity.getPropertyType("p_boolean"));
+      Assert.assertEquals(PropertyType.BYTE, entity.getPropertyType("p_byte"));
+      Assert.assertEquals(PropertyType.SHORT, entity.getPropertyType("p_short"));
+      Assert.assertEquals(PropertyType.INTEGER, entity.getPropertyType("p_integer"));
+      Assert.assertEquals(PropertyType.LONG, entity.getPropertyType("p_long"));
+      Assert.assertEquals(PropertyType.FLOAT, entity.getPropertyType("p_float"));
+      Assert.assertEquals(PropertyType.DOUBLE, entity.getPropertyType("p_double"));
+      Assert.assertEquals(PropertyType.STRING, entity.getPropertyType("p_string"));
+      Assert.assertEquals(PropertyType.DECIMAL, entity.getPropertyType("p_decimal"));
+      Assert.assertEquals(PropertyType.DATETIME, entity.getPropertyType("p_datetime"));
+      Assert.assertEquals(PropertyType.DATE, entity.getPropertyType("p_date"));
+      Assert.assertEquals(PropertyType.BINARY, entity.getPropertyType("p_binary"));
+      Assert.assertEquals(PropertyType.EMBEDDED, entity.getPropertyType("p_embedded"));
+      Assert.assertEquals(PropertyType.EMBEDDEDLIST, entity.getPropertyType("p_embedded_list"));
+      Assert.assertEquals(PropertyType.EMBEDDEDSET, entity.getPropertyType("p_embedded_set"));
+      Assert.assertEquals(PropertyType.EMBEDDEDMAP, entity.getPropertyType("p_embedded_map"));
+      Assert.assertEquals(PropertyType.LINK, entity.getPropertyType("p_link"));
+      Assert.assertEquals(PropertyType.LINKLIST, entity.getPropertyType("p_link_list"));
+      Assert.assertEquals(PropertyType.LINKSET, entity.getPropertyType("p_link_set"));
+      Assert.assertEquals(PropertyType.LINKMAP, entity.getPropertyType("p_link_map"));
+      Assert.assertEquals(PropertyType.LINKBAG, entity.getPropertyType("p_link_bag"));
+
+      // Sanity: PropertyType currently has 21 constants. If a new public type is added,
+      // this assertion fires and the boundary-completeness fixture above must be extended.
+      Assert.assertEquals(
+          "PropertyType enum surface unexpectedly changed — extend the all-types fixture",
+          21, PropertyType.values().length);
+    } finally {
+      session.rollback();
     }
   }
 }
