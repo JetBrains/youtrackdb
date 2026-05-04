@@ -44,18 +44,38 @@ import org.junit.Test;
  */
 public class MatchEdgeMethodChainCostTest extends DbTestBase {
 
-  private Object savedChainFoldMaxHops;
+  private int savedChainFoldMaxHops;
 
   @Before
   public void saveChainFoldDefault() {
+    // Pin int (not Object) so a later setValue with a wrong type would fail
+    // type-checking up front rather than silently corrupting the restore.
     savedChainFoldMaxHops =
-        GlobalConfiguration.QUERY_MATCH_CHAIN_FOLD_MAX_HOPS.getValue();
+        GlobalConfiguration.QUERY_MATCH_CHAIN_FOLD_MAX_HOPS.getValueAsInteger();
   }
 
   @After
   public void restoreChainFoldDefault() {
     GlobalConfiguration.QUERY_MATCH_CHAIN_FOLD_MAX_HOPS
         .setValue(savedChainFoldMaxHops);
+  }
+
+  /**
+   * Finds the position of an alias step in an EXPLAIN plan. Today the
+   * planner renders aliases as <code>{alias}</code>, but the regex also
+   * accepts a comma terminator so a future format addition (e.g.
+   * <code>{alias,index=...}</code>) does not silently break ordering
+   * assertions. Use in place of a literal substring search on
+   * <code>{alias}</code>.
+   *
+   * @return -1 when the alias does not appear, otherwise the position of
+   *         its opening brace
+   */
+  private static int aliasStepPosition(String plan, String alias) {
+    var pattern = java.util.regex.Pattern.compile(
+        "\\{" + java.util.regex.Pattern.quote(alias) + "[,}]");
+    var matcher = pattern.matcher(plan);
+    return matcher.find() ? matcher.start() : -1;
   }
 
   /**
@@ -129,8 +149,8 @@ public class MatchEdgeMethodChainCostTest extends DbTestBase {
     String plan = explainResult.getFirst().getProperty("executionPlanAsString");
     assertNotNull(plan);
 
-    int selectivePos = plan.indexOf("{selectiveTag}");
-    int broadPos = plan.indexOf("{broadTag}");
+    int selectivePos = aliasStepPosition(plan, "selectiveTag");
+    int broadPos = aliasStepPosition(plan, "broadTag");
     assertTrue("selectiveTag missing from plan:\n" + plan, selectivePos >= 0);
     assertTrue("broadTag missing from plan:\n" + plan, broadPos >= 0);
     assertTrue(
@@ -204,8 +224,8 @@ public class MatchEdgeMethodChainCostTest extends DbTestBase {
     var explainResult = session.query("EXPLAIN " + query).toList();
     String plan = explainResult.getFirst().getProperty("executionPlanAsString");
     assertNotNull(plan);
-    int selectivePos = plan.indexOf("{selectiveTag}");
-    int broadPos = plan.indexOf("{broadTag}");
+    int selectivePos = aliasStepPosition(plan, "selectiveTag");
+    int broadPos = aliasStepPosition(plan, "broadTag");
     assertTrue("selectiveTag missing from plan:\n" + plan, selectivePos >= 0);
     assertTrue("broadTag missing from plan:\n" + plan, broadPos >= 0);
     assertTrue(
@@ -279,8 +299,8 @@ public class MatchEdgeMethodChainCostTest extends DbTestBase {
     var explainResult = session.query("EXPLAIN " + query).toList();
     String plan = explainResult.getFirst().getProperty("executionPlanAsString");
     assertNotNull(plan);
-    int selectivePos = plan.indexOf("{selectivePost}");
-    int broadPos = plan.indexOf("{broadPost}");
+    int selectivePos = aliasStepPosition(plan, "selectivePost");
+    int broadPos = aliasStepPosition(plan, "broadPost");
     assertTrue("selectivePost missing from plan:\n" + plan, selectivePos >= 0);
     assertTrue("broadPost missing from plan:\n" + plan, broadPos >= 0);
     assertTrue(
@@ -354,8 +374,8 @@ public class MatchEdgeMethodChainCostTest extends DbTestBase {
     String planWithClass =
         explainWithClass.getFirst().getProperty("executionPlanAsString");
     assertNotNull(planWithClass);
-    int selectivePosWithClass = planWithClass.indexOf("{selectiveTag}");
-    int broadPosWithClass = planWithClass.indexOf("{broadTag}");
+    int selectivePosWithClass = aliasStepPosition(planWithClass, "selectiveTag");
+    int broadPosWithClass = aliasStepPosition(planWithClass, "broadTag");
     assertTrue(planWithClass, selectivePosWithClass >= 0);
     assertTrue(planWithClass, broadPosWithClass >= 0);
     assertTrue(
@@ -383,8 +403,8 @@ public class MatchEdgeMethodChainCostTest extends DbTestBase {
     String planWithoutClass =
         explainWithoutClass.getFirst().getProperty("executionPlanAsString");
     assertNotNull(planWithoutClass);
-    int selectivePosWithoutClass = planWithoutClass.indexOf("{selectiveTag}");
-    int broadPosWithoutClass = planWithoutClass.indexOf("{broadTag}");
+    int selectivePosWithoutClass = aliasStepPosition(planWithoutClass, "selectiveTag");
+    int broadPosWithoutClass = aliasStepPosition(planWithoutClass, "broadTag");
     assertTrue(planWithoutClass, selectivePosWithoutClass >= 0);
     assertTrue(planWithoutClass, broadPosWithoutClass >= 0);
     assertTrue(
@@ -465,8 +485,8 @@ public class MatchEdgeMethodChainCostTest extends DbTestBase {
     var explainResult = session.query("EXPLAIN " + query).toList();
     String plan = explainResult.getFirst().getProperty("executionPlanAsString");
     assertNotNull(plan);
-    int selectivePos = plan.indexOf("{selectiveCorp}");
-    int broadPos = plan.indexOf("{broadCorp}");
+    int selectivePos = aliasStepPosition(plan, "selectiveCorp");
+    int broadPos = aliasStepPosition(plan, "broadCorp");
     assertTrue(plan, selectivePos >= 0);
     assertTrue(plan, broadPos >= 0);
     assertTrue(
@@ -541,8 +561,8 @@ public class MatchEdgeMethodChainCostTest extends DbTestBase {
     var explainResult = session.query("EXPLAIN " + query).toList();
     String plan = explainResult.getFirst().getProperty("executionPlanAsString");
     assertNotNull(plan);
-    int selectivePos = plan.indexOf("{selectiveTag}");
-    int broadPos = plan.indexOf("{broadTag}");
+    int selectivePos = aliasStepPosition(plan, "selectiveTag");
+    int broadPos = aliasStepPosition(plan, "broadTag");
     assertTrue("selectiveTag missing from plan:\n" + plan, selectivePos >= 0);
     assertTrue("broadTag missing from plan:\n" + plan, broadPos >= 0);
     assertTrue(
@@ -628,7 +648,7 @@ public class MatchEdgeMethodChainCostTest extends DbTestBase {
   }
 
   /**
-   * Scenario 9 — multi-hop chain fold. Two competing two-hop chains from
+   * Scenario 8 — multi-hop chain fold. Two competing two-hop chains from
    * {@code post} share identical first-hop fan-out and identical
    * intermediate vertices (no WHERE on intermediates). The selectivity
    * difference lives ONLY on the FINAL vertex (2 hops away from
@@ -710,8 +730,8 @@ public class MatchEdgeMethodChainCostTest extends DbTestBase {
     var explainResult = session.query("EXPLAIN " + query).toList();
     String plan = explainResult.getFirst().getProperty("executionPlanAsString");
     assertNotNull(plan);
-    int selectivePos = plan.indexOf("{selectiveTag}");
-    int broadPos = plan.indexOf("{broadTag}");
+    int selectivePos = aliasStepPosition(plan, "selectiveTag");
+    int broadPos = aliasStepPosition(plan, "broadTag");
     assertTrue("selectiveTag missing from plan:\n" + plan, selectivePos >= 0);
     assertTrue("broadTag missing from plan:\n" + plan, broadPos >= 0);
     assertTrue(
@@ -723,7 +743,7 @@ public class MatchEdgeMethodChainCostTest extends DbTestBase {
   }
 
   /**
-   * Scenario 10 — knob {@code QUERY_MATCH_CHAIN_FOLD_MAX_HOPS = 1}
+   * Scenario 9 — knob {@code QUERY_MATCH_CHAIN_FOLD_MAX_HOPS = 1}
    * downgrades the fold to legacy single-hop behaviour. Same query as
    * scenario 9 (selectivity hidden 2 hops in), but with the knob set to
    * 1 the fold cannot reach the final vertex. Both branches end up with
@@ -797,8 +817,8 @@ public class MatchEdgeMethodChainCostTest extends DbTestBase {
     var explainResult = session.query("EXPLAIN " + query).toList();
     String plan = explainResult.getFirst().getProperty("executionPlanAsString");
     assertNotNull(plan);
-    int selectivePos = plan.indexOf("{selectiveTag}");
-    int broadPos = plan.indexOf("{broadTag}");
+    int selectivePos = aliasStepPosition(plan, "selectiveTag");
+    int broadPos = aliasStepPosition(plan, "broadTag");
     assertTrue("selectiveTag missing from plan:\n" + plan, selectivePos >= 0);
     assertTrue("broadTag missing from plan:\n" + plan, broadPos >= 0);
     assertTrue(
@@ -810,7 +830,7 @@ public class MatchEdgeMethodChainCostTest extends DbTestBase {
   }
 
   /**
-   * Scenario 11 — user-named intermediate edge alias with its own WHERE on
+   * Scenario 10 — user-named intermediate edge alias with its own WHERE on
    * a SECOND hop of a multi-hop chain. The fold must propagate that filter
    * into the first edge's cost. Pins the contract that the second-hop
    * intermediate alias's class is supplied (via {@code extractEdgeClassName}
@@ -890,8 +910,8 @@ public class MatchEdgeMethodChainCostTest extends DbTestBase {
     var explainResult = session.query("EXPLAIN " + query).toList();
     String plan = explainResult.getFirst().getProperty("executionPlanAsString");
     assertNotNull(plan);
-    int selectivePos = plan.indexOf("{selectiveTag}");
-    int broadPos = plan.indexOf("{broadTag}");
+    int selectivePos = aliasStepPosition(plan, "selectiveTag");
+    int broadPos = aliasStepPosition(plan, "broadTag");
     assertTrue("selectiveTag missing from plan:\n" + plan, selectivePos >= 0);
     assertTrue("broadTag missing from plan:\n" + plan, broadPos >= 0);
     assertTrue(

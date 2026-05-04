@@ -1647,7 +1647,7 @@ public class MatchExecutionPlannerMutationTest {
 
     assertThat(MatchExecutionPlanner.resolveChainedTarget(
         edge, edge.in, Set.of(), Map.of(), db))
-        .isEmpty();
+        .isNull();
   }
 
   /**
@@ -1663,7 +1663,7 @@ public class MatchExecutionPlannerMutationTest {
 
     assertThat(MatchExecutionPlanner.resolveChainedTarget(
         edge, edge.in, Set.of(), Map.of(), db))
-        .isEmpty();
+        .isNull();
   }
 
   /**
@@ -1678,7 +1678,7 @@ public class MatchExecutionPlannerMutationTest {
 
     assertThat(MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
-        .isEmpty();
+        .isNull();
   }
 
   /**
@@ -1691,7 +1691,7 @@ public class MatchExecutionPlannerMutationTest {
 
     assertThat(MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
-        .isEmpty();
+        .isNull();
   }
 
   /**
@@ -1705,7 +1705,7 @@ public class MatchExecutionPlannerMutationTest {
 
     assertThat(MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
-        .isEmpty();
+        .isNull();
   }
 
   /**
@@ -1718,7 +1718,7 @@ public class MatchExecutionPlannerMutationTest {
 
     assertThat(MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
-        .isEmpty();
+        .isNull();
   }
 
   /**
@@ -1731,7 +1731,7 @@ public class MatchExecutionPlannerMutationTest {
 
     assertThat(MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
-        .isEmpty();
+        .isNull();
   }
 
   /**
@@ -1749,7 +1749,7 @@ public class MatchExecutionPlannerMutationTest {
     var result = MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), aliasClasses, db);
 
-    assertThat(result).contains(
+    assertThat(result).isEqualTo(
         new MatchExecutionPlanner.ChainedTarget("tag", "VITag"));
   }
 
@@ -1764,7 +1764,7 @@ public class MatchExecutionPlannerMutationTest {
 
     assertThat(MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
-        .isEmpty();
+        .isNull();
   }
 
   /**
@@ -1788,7 +1788,7 @@ public class MatchExecutionPlannerMutationTest {
 
     assertThat(MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
-        .isEmpty();
+        .isNull();
   }
 
   /**
@@ -1803,7 +1803,7 @@ public class MatchExecutionPlannerMutationTest {
 
     assertThat(MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), visited, Map.of(), db))
-        .isEmpty();
+        .isNull();
   }
 
   /**
@@ -1818,7 +1818,7 @@ public class MatchExecutionPlannerMutationTest {
 
     assertThat(MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
-        .isEmpty();
+        .isNull();
   }
 
   /**
@@ -1844,7 +1844,7 @@ public class MatchExecutionPlannerMutationTest {
 
     assertThat(MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
-        .isEmpty();
+        .isNull();
   }
 
   /**
@@ -1865,7 +1865,7 @@ public class MatchExecutionPlannerMutationTest {
 
     assertThat(MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
-        .isEmpty();
+        .isNull();
   }
 
   /**
@@ -1878,7 +1878,7 @@ public class MatchExecutionPlannerMutationTest {
 
     assertThat(MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
-        .isEmpty();
+        .isNull();
   }
 
   /**
@@ -1892,7 +1892,7 @@ public class MatchExecutionPlannerMutationTest {
 
     assertThat(MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
-        .isEmpty();
+        .isNull();
   }
 
   /**
@@ -1905,7 +1905,7 @@ public class MatchExecutionPlannerMutationTest {
 
     assertThat(MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
-        .isEmpty();
+        .isNull();
   }
 
   /**
@@ -1919,7 +1919,7 @@ public class MatchExecutionPlannerMutationTest {
 
     assertThat(MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
-        .isEmpty();
+        .isNull();
   }
 
   /**
@@ -1934,7 +1934,7 @@ public class MatchExecutionPlannerMutationTest {
 
     assertThat(MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
-        .isEmpty();
+        .isNull();
   }
 
   /**
@@ -1947,7 +1947,7 @@ public class MatchExecutionPlannerMutationTest {
 
     assertThat(MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
-        .isEmpty();
+        .isNull();
   }
 
   /**
@@ -1962,7 +1962,7 @@ public class MatchExecutionPlannerMutationTest {
 
     assertThat(MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
-        .isEmpty();
+        .isNull();
   }
 
   /**
@@ -1975,7 +1975,7 @@ public class MatchExecutionPlannerMutationTest {
 
     assertThat(MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
-        .isEmpty();
+        .isNull();
   }
 
   /**
@@ -1990,7 +1990,7 @@ public class MatchExecutionPlannerMutationTest {
 
     assertThat(MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db))
-        .isEmpty();
+        .isNull();
   }
 
   /**
@@ -2010,7 +2010,7 @@ public class MatchExecutionPlannerMutationTest {
     // `neighbor.in.size() != 1` clause in the combined size guard rejects.
     assertThat(MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.firstEdge().out, Set.of(), Map.of(), db))
-        .isEmpty();
+        .isNull();
   }
 
   // ── Happy-path sanity tests (structural detection + class=null fallback) ──
@@ -2031,7 +2031,7 @@ public class MatchExecutionPlannerMutationTest {
     var result = MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db);
 
-    assertThat(result).contains(
+    assertThat(result).isEqualTo(
         new MatchExecutionPlanner.ChainedTarget("tag", null));
   }
 
@@ -2046,7 +2046,7 @@ public class MatchExecutionPlannerMutationTest {
     var result = MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db);
 
-    assertThat(result).contains(
+    assertThat(result).isEqualTo(
         new MatchExecutionPlanner.ChainedTarget("post", null));
   }
 
@@ -2062,7 +2062,7 @@ public class MatchExecutionPlannerMutationTest {
     var result = MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db);
 
-    assertThat(result).contains(
+    assertThat(result).isEqualTo(
         new MatchExecutionPlanner.ChainedTarget("b", null));
   }
 
@@ -2078,7 +2078,7 @@ public class MatchExecutionPlannerMutationTest {
     var result = MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db);
 
-    assertThat(result).contains(
+    assertThat(result).isEqualTo(
         new MatchExecutionPlanner.ChainedTarget("tag", null));
   }
 
@@ -2107,7 +2107,7 @@ public class MatchExecutionPlannerMutationTest {
     var result = MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), aliasClasses, db);
 
-    assertThat(result).contains(
+    assertThat(result).isEqualTo(
         new MatchExecutionPlanner.ChainedTarget("tag", "VITag"));
   }
 
@@ -2141,7 +2141,7 @@ public class MatchExecutionPlannerMutationTest {
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db);
 
     // outE must read the "in" property → VITag, not "out" → VIPost
-    assertThat(result).contains(
+    assertThat(result).isEqualTo(
         new MatchExecutionPlanner.ChainedTarget("tag", "VITag"));
   }
 
@@ -2158,7 +2158,7 @@ public class MatchExecutionPlannerMutationTest {
     var result = MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), aliasClasses, db);
 
-    assertThat(result).contains(
+    assertThat(result).isEqualTo(
         new MatchExecutionPlanner.ChainedTarget("post", "VIPost"));
   }
 
@@ -2189,7 +2189,7 @@ public class MatchExecutionPlannerMutationTest {
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db);
 
     // inE must read the "out" property → VIPost, not "in" → VITag
-    assertThat(result).contains(
+    assertThat(result).isEqualTo(
         new MatchExecutionPlanner.ChainedTarget("post", "VIPost"));
   }
 
@@ -2223,7 +2223,7 @@ public class MatchExecutionPlannerMutationTest {
     var result = MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db);
 
-    assertThat(result).contains(
+    assertThat(result).isEqualTo(
         new MatchExecutionPlanner.ChainedTarget("sourcePost", "VIPost"));
   }
 
@@ -2255,7 +2255,7 @@ public class MatchExecutionPlannerMutationTest {
     var result = MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db);
 
-    assertThat(result).contains(
+    assertThat(result).isEqualTo(
         new MatchExecutionPlanner.ChainedTarget("targetTag", "VITag"));
   }
 
@@ -2288,7 +2288,7 @@ public class MatchExecutionPlannerMutationTest {
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db);
 
     // bothE.inV → in side = B (the edge's "in" linked class)
-    assertThat(result).contains(
+    assertThat(result).isEqualTo(
         new MatchExecutionPlanner.ChainedTarget("target", "B"));
   }
 
@@ -2318,7 +2318,7 @@ public class MatchExecutionPlannerMutationTest {
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db);
 
     // bothE.outV → out side = A
-    assertThat(result).contains(
+    assertThat(result).isEqualTo(
         new MatchExecutionPlanner.ChainedTarget("source", "A"));
   }
 
@@ -2336,7 +2336,7 @@ public class MatchExecutionPlannerMutationTest {
     var result = MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), aliasClasses, db);
 
-    assertThat(result).contains(
+    assertThat(result).isEqualTo(
         new MatchExecutionPlanner.ChainedTarget("vertex", "VITag"));
   }
 
@@ -2370,7 +2370,7 @@ public class MatchExecutionPlannerMutationTest {
     var result = MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db);
 
-    assertThat(result).contains(
+    assertThat(result).isEqualTo(
         new MatchExecutionPlanner.ChainedTarget("b", null));
   }
 
@@ -2386,7 +2386,7 @@ public class MatchExecutionPlannerMutationTest {
     var result = MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db);
 
-    assertThat(result).contains(
+    assertThat(result).isEqualTo(
         new MatchExecutionPlanner.ChainedTarget("tag", null));
   }
 
@@ -2405,7 +2405,7 @@ public class MatchExecutionPlannerMutationTest {
     var result = MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db);
 
-    assertThat(result).contains(
+    assertThat(result).isEqualTo(
         new MatchExecutionPlanner.ChainedTarget("tag", null));
   }
 
@@ -2425,7 +2425,7 @@ public class MatchExecutionPlannerMutationTest {
     var result = MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db);
 
-    assertThat(result).contains(
+    assertThat(result).isEqualTo(
         new MatchExecutionPlanner.ChainedTarget("tag", null));
   }
 
@@ -2447,7 +2447,7 @@ public class MatchExecutionPlannerMutationTest {
     var result = MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db);
 
-    assertThat(result).contains(
+    assertThat(result).isEqualTo(
         new MatchExecutionPlanner.ChainedTarget("tag", null));
   }
 
@@ -2464,7 +2464,7 @@ public class MatchExecutionPlannerMutationTest {
     var result = MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), null);
 
-    assertThat(result).contains(
+    assertThat(result).isEqualTo(
         new MatchExecutionPlanner.ChainedTarget("tag", null));
   }
 
@@ -2479,7 +2479,7 @@ public class MatchExecutionPlannerMutationTest {
     var result = MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), null, db);
 
-    assertThat(result).contains(
+    assertThat(result).isEqualTo(
         new MatchExecutionPlanner.ChainedTarget("tag", null));
   }
 
@@ -2507,7 +2507,7 @@ public class MatchExecutionPlannerMutationTest {
     var result = MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), aliasClasses, db);
 
-    assertThat(result).contains(
+    assertThat(result).isEqualTo(
         new MatchExecutionPlanner.ChainedTarget("tag", "VIExplicitTag"));
   }
 
@@ -2534,7 +2534,7 @@ public class MatchExecutionPlannerMutationTest {
     var result = MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), aliasClasses, db);
 
-    assertThat(result).contains(
+    assertThat(result).isEqualTo(
         new MatchExecutionPlanner.ChainedTarget("post", "VIExplicitPost"));
   }
 
@@ -2557,7 +2557,7 @@ public class MatchExecutionPlannerMutationTest {
     var result = MatchExecutionPlanner.resolveChainedTarget(
         chain.firstEdge(), chain.intermediateNode(), Set.of(), Map.of(), db);
 
-    assertThat(result).contains(
+    assertThat(result).isEqualTo(
         new MatchExecutionPlanner.ChainedTarget("tag", null));
   }
 
