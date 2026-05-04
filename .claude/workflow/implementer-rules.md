@@ -217,22 +217,69 @@ The implementer **MUST** stop and return early — without committing —
 in three cases. The orchestrator decides what happens next; the
 implementer never escalates directly to the user.
 
-**Always revert before returning.** Whichever case fires below, run
-`git reset --hard HEAD && git clean -fd` first so the orchestrator
-always observes a clean tree at the implementer's `HEAD`. The reset
-clears the working tree and the index; `git clean -fd` removes any
-untracked files or directories the implementer created (new test
-files, scratch output) — without it, the orchestrator's `git status`
-clean-tree assertions would fire a spurious contract violation
-whenever the implementer added a new file before bailing. Use
-`git reset --hard HEAD` rather than `git checkout -- .` for the
+**Always revert before returning.** Whichever case fires below, the
+implementer must roll back its in-progress changes so the orchestrator
+observes a clean tree at the implementer's `HEAD` — but it must
+preserve any untracked files that pre-existed the spawn. The
+orchestrator keeps its working state (step files, review reports,
+the design document, the implementation backlog, baselines) as
+**untracked-on-disk files** under `docs/adr/<dir>/`. Those files
+must survive any implementer revert; otherwise the orchestrator
+loses cross-spawn state. The required sequence:
+
+1. **Snapshot pre-existing untracked files at the start of every
+   spawn**, before any code change. This is the first action of
+   sub-step 1, before reading the step file or making any edit:
+
+   ```bash
+   git ls-files --others --exclude-standard | sort \
+     > /tmp/claude-impl-preexisting-untracked-$PPID.txt
+   ```
+
+   The snapshot reflects the world the orchestrator handed you.
+
+2. **At revert time**, discard tracked-file changes and the index:
+
+   ```bash
+   git reset --hard HEAD
+   ```
+
+3. **Then surgically remove only the untracked files the implementer
+   created** in this spawn — `comm -13 <pre> <post>` lists files
+   present in the post-snapshot but absent from the pre-snapshot:
+
+   ```bash
+   git ls-files --others --exclude-standard | sort \
+     > /tmp/claude-impl-post-untracked-$PPID.txt
+   comm -13 \
+     /tmp/claude-impl-preexisting-untracked-$PPID.txt \
+     /tmp/claude-impl-post-untracked-$PPID.txt \
+     | xargs -r -d '\n' rm -v --
+   ```
+
+   `xargs -r` handles the empty-input case (no new files to remove);
+   `-d '\n'` makes the listing newline-safe for paths with spaces.
+
+**Do NOT run `git clean -fd` (or `-fdx`).** It indiscriminately
+removes every untracked file in the worktree — including the
+orchestrator's workflow state — and the orchestrator depends on
+those files persisting across spawn boundaries. Past versions of
+this rulebook used `git clean -fd`; that was a bug that destroyed
+the orchestrator's cross-spawn state on every early-return. The
+snapshot-and-diff sequence above is the supported replacement.
+
+Use `git reset --hard HEAD` rather than `git checkout -- .` for the
 tracked half — the latter leaves a dirty index if the implementer
-had staged files before bailing. The semantic scope of the revert
-differs by mode (see §"Mode-specific scope of the local revert"
-below), but the command is the same. The orchestrator's pre-revert
-assertion in [`step-implementation.md`](step-implementation.md)
-§Post-Commit Handlers depends on this — a dirty tree at hand-off is
-a contract violation.
+had staged files before bailing.
+
+The semantic scope of the revert differs by mode (see §"Mode-specific
+scope of the local revert" below), but the command sequence above
+is the same. The orchestrator's pre-revert assertion in
+[`step-implementation.md`](step-implementation.md) §Post-Commit
+Handlers depends on this — a dirty tree at hand-off is a contract
+violation, and an orphaned implementer-created untracked file at
+hand-off would also be a contract violation (it would interfere with
+the next spawn's pre-snapshot).
 
 ### Design decision detected
 
@@ -256,9 +303,11 @@ What is **NOT** a design decision (handle autonomously):
 - Implementation details fully prescribed by the plan or by Decision
   Records in `adr.md` / the plan file.
 
-When a design decision is detected, run
-`git reset --hard HEAD && git clean -fd` to discard any in-progress
-changes (per the rule at the top of this section), then return
+When a design decision is detected, run the snapshot-and-diff revert
+sequence at the top of this section (snapshot pre-existing untracked
+files first, then `git reset --hard HEAD`, then `comm -13` against a
+post-snapshot to surgically remove only files this spawn created),
+then return
 `RESULT: DESIGN_DECISION_NEEDED` with `DESIGN_DECISION` populated: `context`,
 `alternatives` (≥2, with pros/cons), `recommendation`, and
 `exploration_notes` summarising what was already investigated (API
@@ -277,9 +326,10 @@ turns out to require lock-ordering changes, or the "internal helper
 addition" tagged `medium` actually changes a public-API serialized
 form.
 
-Run `git reset --hard HEAD && git clean -fd` to discard any
-in-progress changes (per the rule at the top of this section), then
-return `RESULT: RISK_UPGRADE_REQUESTED` with `RISK_UPGRADE` populated:
+Run the snapshot-and-diff revert sequence at the top of this section
+(snapshot pre-existing untracked files first, then `git reset --hard
+HEAD`, then `comm -13` against a post-snapshot to surgically remove
+only files this spawn created), then return `RESULT: RISK_UPGRADE_REQUESTED` with `RISK_UPGRADE` populated:
 `from`, `to`, `category` (one of: `concurrency`, `crash-safety`,
 `public-API`, `security`, `architecture`, `performance-hot-path` —
 see [`risk-tagging.md`](risk-tagging.md) for the full criteria), and
@@ -298,9 +348,10 @@ tests cannot be made to pass, coverage cannot be met, architectural
 problem revealed by the implementation, repeated test failures with
 a root cause outside the step's surface area.
 
-Run `git reset --hard HEAD && git clean -fd` to discard any
-in-progress changes (per the rule at the top of this section), then
-return `RESULT: FAILED` with `FAILURE` populated: `what_was_attempted`, `why_it_failed`,
+Run the snapshot-and-diff revert sequence at the top of this section
+(snapshot pre-existing untracked files first, then `git reset --hard
+HEAD`, then `comm -13` against a post-snapshot to surgically remove
+only files this spawn created), then return `RESULT: FAILED` with `FAILURE` populated: `what_was_attempted`, `why_it_failed`,
 `impact_on_remaining_steps`, and `recommended_action` (`retry` |
 `split` | `escalate`).
 
@@ -309,12 +360,14 @@ retry/split rows, and runs the two-failure detection on its side.
 
 ### Mode-specific scope of the local revert
 
-`git reset --hard HEAD && git clean -fd` resets to the **current
-commit** (and removes any untracked artefacts the implementer
-created), not to a pre-step state. The command is the same for
-every early-return case (design decision, risk upgrade, fundamental
-failure) and every mode, but the **semantic scope** of what gets
-cleaned up differs:
+The snapshot-and-diff revert sequence at the top of this section
+(snapshot, `git reset --hard HEAD`, `comm -13` cleanup) resets to
+the **current commit** and removes only the untracked artefacts
+this spawn created — not the orchestrator's pre-existing untracked
+state, and not changes from any prior commit. The sequence is the
+same for every early-return case (design decision, risk upgrade,
+fundamental failure) and every mode, but the **semantic scope** of
+what gets reverted differs:
 
 - **`mode=INITIAL`** or **`mode=WITH_GUIDANCE`**: `HEAD` is the
   step's pre-implementation state (the orchestrator's `step_base_commit`).
@@ -331,12 +384,12 @@ cleaned up differs:
   step_base_commit` or `git revert` to undo prior commits; that
   would silently destroy work the orchestrator may need.
 
-The implementer is therefore symmetric in code
-(`git reset --hard HEAD && git clean -fd` regardless of mode and
-regardless of which early-return case fired) but the
-orchestrator-side cleanup differs: pre-commit modes need no further
-work; post-commit mode requires the orchestrator's post-commit
-rollback to remove the prior step commits as well.
+The implementer is therefore symmetric in code (the snapshot-and-diff
+revert sequence regardless of mode and regardless of which
+early-return case fired) but the orchestrator-side cleanup differs:
+pre-commit modes need no further work; post-commit mode requires
+the orchestrator's post-commit rollback to remove the prior step
+commits as well.
 
 ---
 

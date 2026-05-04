@@ -477,7 +477,7 @@ until sub-steps 1–7 above are done.
 ### `escalate_to_user_then_respawn(step, result)`
 
 Triggered when `result.RESULT == DESIGN_DECISION_NEEDED`. The
-implementer has run `git reset --hard HEAD && git clean -fd` per
+implementer has run the snapshot-and-diff revert sequence (snapshot pre-existing untracked files, `git reset --hard HEAD`, then `comm -13` against a post-snapshot to surgically remove only files this spawn created) per
 [`implementer-rules.md`](implementer-rules.md) §Detection rules, so
 the working tree is clean at `step_base_commit` (no commit was
 produced, and no untracked files were left behind).
@@ -505,7 +505,7 @@ user instead of proceeding.
 
 Triggered when `result.RESULT == RISK_UPGRADE_REQUESTED`. The
 implementer has flagged that the step is more invasive than its
-tagged risk and has run `git reset --hard HEAD && git clean -fd` per
+tagged risk and has run the snapshot-and-diff revert sequence (snapshot pre-existing untracked files, `git reset --hard HEAD`, then `comm -13` against a post-snapshot to surgically remove only files this spawn created) per
 [`implementer-rules.md`](implementer-rules.md) §Detection rules, so
 the working tree is clean at `step_base_commit` (no commit was
 produced, and no untracked files were left behind).
@@ -547,7 +547,7 @@ Triggered when `result.RESULT == FAILED` from `mode=INITIAL` or
 
 The implementer has already reverted any uncommitted changes and
 removed any untracked artefacts
-(`git reset --hard HEAD && git clean -fd`) before returning, so the
+(the snapshot-and-diff revert sequence (snapshot pre-existing untracked files, `git reset --hard HEAD`, then `comm -13` against a post-snapshot to surgically remove only files this spawn created)) before returning, so the
 working tree is clean at `step_base_commit`. `result.FAILURE` carries
 `what_was_attempted`, `why_it_failed`, `impact_on_remaining_steps`,
 and `recommended_action`.
@@ -573,7 +573,7 @@ to enter ESCALATE per [`inline-replanning.md`](inline-replanning.md).
 When the dim-review loop's `mode=FIX_REVIEW_FINDINGS` respawn returns
 a non-`SUCCESS` result, the prior step commits are still on disk.
 The implementer's local revert
-(`git reset --hard HEAD && git clean -fd`) only undoes its
+(the snapshot-and-diff revert sequence (snapshot pre-existing untracked files, `git reset --hard HEAD`, then `comm -13` against a post-snapshot to surgically remove only files this spawn created)) only undoes its
 in-progress fix attempt; rolling back the prior commits is the
 orchestrator's responsibility.
 
@@ -631,7 +631,7 @@ boundary.
 
 **Pre-revert assertion.** Before running `git revert -n`, verify
 `git status` is clean. The implementer's
-`git reset --hard HEAD && git clean -fd` should have left it clean;
+the snapshot-and-diff revert sequence (snapshot pre-existing untracked files, `git reset --hard HEAD`, then `comm -13` against a post-snapshot to surgically remove only files this spawn created) should have left it clean;
 if not, that is a contract violation and the orchestrator surfaces
 the discrepancy to the user instead of proceeding (a dirty tree at
 this point usually means the implementer exited mid-write or the
@@ -821,7 +821,7 @@ examples live in
 
 If the implementer returns `RESULT: FAILED`, the implementer has
 already reverted uncommitted changes and removed any untracked
-artefacts (`git reset --hard HEAD && git clean -fd`). For
+artefacts (the snapshot-and-diff revert sequence (snapshot pre-existing untracked files, `git reset --hard HEAD`, then `comm -13` against a post-snapshot to surgically remove only files this spawn created)). For
 pre-commit failures (`mode=INITIAL` / `mode=WITH_GUIDANCE`) the
 working tree is now clean at `step_base_commit` and the orchestrator
 proceeds directly with the steps below. For post-commit failures
