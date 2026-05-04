@@ -588,21 +588,13 @@ restructured names live in `design.md`'s consolidated parent.
 
 ## Required content
 
-**1. Overview** (mandatory, first content). Concept-first
-elevator pitch. ≤40 lines. See dedicated section above. **No
-spec-sheet listings of every component change** — those belong
-in the relevant Parts. The Overview is where a reader lands cold
-and decides whether to keep reading.
+Overview and Core Concepts are covered in their dedicated sections
+above (§ Overview, § Core Concepts). The remaining required content
+is the diagrams and complex-part sections — Mermaid examples below.
 
-**2. Core Concepts** (mandatory when the doc has `# Part N`
-headings or introduces ≥3 new domain terms; optional otherwise).
-Vocabulary primer. One paragraph per load-bearing idea: name,
-plain-language definition, role in the design, delta from
-baseline, `→ Part X §"…"` pointer to where it's elaborated. See
-dedicated section above.
-
-**3. Class diagrams (Mermaid `classDiagram`)** — Show the key classes, interfaces,
-and their relationships that this plan introduces or modifies. Focus on:
+**1. Class diagrams (Mermaid `classDiagram`)** — Show the key classes,
+interfaces, and their relationships that this plan introduces or
+modifies. Focus on:
 - New classes/interfaces and their responsibilities
 - Inheritance and composition relationships
 - Key method signatures that define the contracts between components
@@ -637,7 +629,7 @@ classDiagram
 ```
 ````
 
-**4. Workflow/sequence diagrams (Mermaid `sequenceDiagram` or `flowchart`)** — Show
+**2. Workflow/sequence diagrams (Mermaid `sequenceDiagram` or `flowchart`)** — Show
 the runtime behavior of key operations. Use sequence diagrams for interactions
 between components over time; use flowcharts for decision logic or state transitions.
 
@@ -669,7 +661,7 @@ sequenceDiagram
 ```
 ````
 
-**6. Dedicated `##` sections for complex or opaque parts**, each
+**3. Dedicated `##` sections for complex or opaque parts**, each
 following the per-section mandatory shape (TL;DR + mechanism
 overview + edge cases + references footer). Examples of things
 that warrant dedicated sections:
@@ -733,15 +725,29 @@ that warrant dedicated sections:
 
 ## Structure
 
-Default (small design, no Parts, no length trigger):
+One annotated template covers all variants. Sections marked CONDITIONAL
+appear only when their condition is met; sections marked OPTIONAL appear
+only when scale justifies them.
 
 ```markdown
 # <Feature Name> — Design
 
 ## Overview
 <Concept-first elevator pitch, ≤40 lines. Closes with the
-companion-file pointer when `design-mechanics.md` exists, and a
+companion-file pointer (when `design-mechanics.md` exists) and a
 one-sentence document-structure roadmap.>
+
+## Core Concepts                  ← MANDATORY when doc has `# Part N`
+                                    headings or introduces ≥3 new
+                                    domain terms; OMIT otherwise.
+<Intro paragraph: how many concepts, the meta-pattern (definition +
+role + delta + → pointer).>
+
+**<Concept 1>.** <Plain-language definition. Role in design.>
+Replaces "<baseline>". → Part X §"<section>".
+
+**<Concept 2>.** <…>
+…
 
 ## Class Design
 <Mermaid classDiagram(s) — each in a sub-section with TL;DR +
@@ -750,7 +756,12 @@ diagram + condensed prose + References footer>
 ## Workflow
 <Mermaid sequenceDiagram(s) and/or flowchart(s) — same shape>
 
-## <Complex Topic 1>
+# Part 1 — <name>                 ← OPTIONAL grouping. Use when ≥6
+                                    distinct concern areas justify
+                                    reader-journey grouping.
+<1-2 sentence intro>
+
+## <Section under Part 1>
 **TL;DR.** <≤5 lines>
 
 <Mechanism overview>
@@ -761,51 +772,16 @@ diagram + condensed prose + References footer>
 ### References
 - D-records: …
 - Invariants: …
-- Mechanics: design-mechanics.md §"<name>" (when split applies)
-
-## <Complex Topic 2>
-…
-```
-
-When the design has `# Part N` headings or introduces ≥3 new
-domain terms, add `## Core Concepts` between Overview and Class
-Design:
-
-```markdown
-# <Feature Name> — Design
-
-## Overview
-…
-
-## Core Concepts
-
-<Intro paragraph: how many concepts, the meta-pattern (definition
-+ role + delta + → pointer).>
-
-**<Concept 1>.** <Plain-language definition. Role in design.>
-Replaces "<baseline>". → Part X §"<section>".
-
-**<Concept 2>.** <…>
-
-…
-
-## Class Design
-…
-
-## Workflow
-…
-
-# Part 1 — <name>
-<1-2 sentence intro>
-
-## <Section under Part 1>
-…
+- Mechanics: design-mechanics.md §"<name>"   ← ONLY when split applies
 
 # Part 2 — <name>
 …
 ```
 
-When `design-mechanics.md` exists:
+When `design.md` exceeds the length trigger, a sibling
+`design-mechanics.md` is created. It opens with a 4-line preamble
+naming the convention, then per-section long-form content under
+section names matching `design.md`:
 
 ```markdown
 # <Feature Name> — Design Mechanics

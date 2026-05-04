@@ -17,18 +17,20 @@ during Phase 3 ESCALATE, and Phase 4 production of `design-final.md`.
 
 ## Two operational modes
 
-The skill supports two complementary workflows. Pick the right one based on
-where you are in the plan lifecycle:
+The skill supports two complementary workflows. Pick by where you are in
+the plan lifecycle:
 
-| Mode | When to use | Mutation kinds | What runs per mutation |
-|---|---|---|---|
-| **Working / sync** (preferred for Phase 1 and large iterative revisions) | When the user is iterating on the design and wants `design.md` to stay stable as a reference between batches. | `phase1-creation`, `mechanics-edit`, `design-sync` | Working-mode mutations run mechanical checks only on mechanics; cold-read deferred to sync. |
-| **Direct mutation** (preferred for small post-publication edits) | When `design.md` is already published and the user asks for a single targeted change ("add a bullet to section X", "rename section Y"). | `content-edit`, `section-add`, `section-remove`, `section-rename`, `section-move`, `structural-rewrite`, `length-trigger-crossing` | Full discipline (mechanical + cold-read) runs on every mutation. |
+- **Working / sync** (Phase 1 and large iterative revisions): mutation
+  kinds `phase1-creation`, `mechanics-edit`, `design-sync`. `design.md`
+  stays frozen between syncs as a stable reference; cold-read is deferred
+  to sync.
+- **Direct mutation** (small post-publication edits): mutation kinds
+  `content-edit`, `section-add`, `section-remove`, `section-rename`,
+  `section-move`, `structural-rewrite`, `length-trigger-crossing`. Full
+  discipline runs on every mutation.
 
-The two modes share the same review-log file and the same auto-review gate;
-they differ only in which checks fire and how often the cold-read sub-agent
-spawns. The full rationale lives in `design-document-rules.md § Two-mode
-editing — working vs sync`.
+Full rationale, sub-phase diagram, and sync-trigger rules live in
+`design-document-rules.md § Two-mode editing — working vs sync`.
 
 ## Skill inputs
 
@@ -145,13 +147,7 @@ python3 .claude/scripts/design-mechanical-checks.py \
     --scope <bounded|whole-doc>
 ```
 
-Mapping mutation kind → `--target`:
-
-| Mutation kind | `--target` value |
-|---|---|
-| `phase1-creation`, `design-sync`, `length-trigger-crossing` | `both` |
-| `mechanics-edit` | `mechanics` |
-| All other kinds | `design` |
+The `--target` value comes from the cold-read scope table above (column 3).
 
 The script prints JSON to stdout. Exit code `0` ⇒ no blockers; `1` ⇒ NEEDS
 REVISION. Capture and parse the JSON; do not act on the exit code alone —
@@ -293,33 +289,14 @@ matches their mental model of the iteration.
 The action is then complete. The agent returns control to the user / parent
 flow.
 
-## Working/sync model — full lifecycle
+## Staleness reconciliation
 
-For Phase 1 (initial creation) and any phase where the user wants iterative
-design changes with a stable reference, the recommended flow is:
+The full Phase 1 lifecycle (sub-phases, sync triggers, working-mode
+counter) lives in `design-document-rules.md § Two-mode editing — working
+vs sync`. The one operational protocol anchored here — because rules.md
+cross-refs to it — is the staleness-reconciliation prompt.
 
-```
-[ Phase 1.1 ] phase1-creation
-    │
-    │   (both files seeded; design.md goes through full discipline;
-    │    mechanics goes through stripped checks)
-    ▼
-[ Phase 1.2 ] mechanics-edit ── (agent processes user feedback by
-    │                            mutating mechanics; mechanical-only
-    │                            checks fire; cold-read deferred)
-    │
-    │   ↻ loop until user is satisfied OR auto-suggest fires at N=5
-    │
-    ▼
-[ Phase 1.3 ] design-sync ──── (re-distill design.md from current
-    │                            mechanics; full discipline runs;
-    │                            counter resets)
-    │
-    └─→ back to Phase 1.2 if more iteration needed,
-        or out to Phase 2 (Implementation Review) when stable.
-```
-
-**Staleness reconciliation.** During Phase 1.2, `design.md` is **frozen**
+During Phase 1.2 (`mechanics-edit` rounds), `design.md` is **frozen**
 relative to mechanics. The user reads `design.md` to review and issues
 feedback against it. If the user's request references a `design.md`
 statement that mechanics has already moved past, the agent reconciles
@@ -373,77 +350,34 @@ the meaning of the request.
 
 ## Examples
 
-**Example 1 — Phase 1 initial creation (`phase1-creation`).**
-The user has just finished Phase 0 research and asked to create the plan.
-The agent has produced `implementation-plan.md` with goals, decisions,
-and component map; now it needs to seed the design files.
+Two intricate cases worth showing concretely. The simpler kinds
+(`phase1-creation`, `mechanics-edit`, `content-edit`) follow the
+Workflow steps directly with no special handling.
 
-The skill:
-1. Writes `design.md` with Overview (concept-first pitch), Core Concepts
-   (when applicable — multi-Part design or ≥3 new domain terms), Class
-   Design, Workflow, and TL;DR-shaped sections matching the planned scope.
-2. Writes `design-mechanics.md` with long-form mechanism content under
-   matching section names.
-3. Runs mechanical checks with `--target=both`.
-4. Spawns cold-read with `whole-doc` scope on design.md.
-5. Iterates as needed.
-6. Appends `Mutation 1 — ... — phase1-creation` to the review log.
-7. Presents both files + log entry to the user.
+**Example 1 — Sync (`design-sync`).**
+After 5 mechanics-edits accumulate, the user says "OK, update
+design.md". The skill:
 
-**Example 2 — Iterative working-mode edit (`mechanics-edit`).**
-After phase1-creation, the user says: "actually, the rollback should also
-handle the case where the WAL truncation horizon overshoots the LWM."
-
-The skill:
-1. Locates the relevant section in `design-mechanics.md`.
-2. Adds a sub-section / paragraph covering the truncation-overshoot case.
-3. Runs mechanical checks with `--target=mechanics` — only parenthetical-
-   aside scan + cross-file link-resolution fires.
-4. **Skips cold-read** (mechanics-edit kind).
-5. Appends `Mutation 2 — ... — mechanics-edit` to the review log with
-   the working-mode counter at `1`.
-6. If counter is now ≥ 5: surfaces sync suggestion at next turn.
-7. Presents diff + log entry. design.md is unchanged.
-
-**Example 3 — Sync (`design-sync`).**
-After 5 mechanics-edits, the user says "OK, update design.md".
-
-The skill:
-1. Reads the review log, identifies mutations 2-6 (all `mechanics-edit`)
-   since the last `design-sync` (or since `phase1-creation` if no sync
-   yet).
+1. Reads the review log, identifies all `mechanics-edit` entries since
+   the last `design-sync` (or since `phase1-creation` if no sync yet).
 2. Reads `design-mechanics.md` to see the current state.
-3. Distills `design.md` — updates each affected section's TL;DR + overview
-   + edge cases + references to match current mechanics.
+3. Distills `design.md` — updates each affected section's TL;DR +
+   overview + edge cases + references to match current mechanics.
 4. Updates plan/backlog `**Full design**` refs for any renamed/added/
    removed sections.
 5. Runs mechanical checks with `--target=both`.
 6. Spawns cold-read with `whole-doc` scope, including the sync-specific
    "verify design.md reflects current mechanics" instruction.
 7. Iterates as needed.
-8. Appends `Mutation 7 — ... — design-sync` to the review log; the
+8. Appends `Mutation N — ... — design-sync` to the review log; the
    working-mode counter resets to 0.
 9. Presents the user a "what changed in mechanics since last sync"
    summary alongside the diff and log entry.
 
-**Example 4 — Direct mutation post-publication (`content-edit`).**
-After Phase 1 is done and the plan is being executed, an inline-replanning
-step adds one bullet to a single section.
-
-The skill:
-1. Applies the `Edit` to `design.md`.
-2. Runs mechanical checks with `--target=design`, scope=`bounded`.
-3. Spawns cold-read with `bounded` scope.
-4. Logs and presents.
-
-This bypasses the working/sync workflow because the change is small and
-targeted; full discipline runs in one shot.
-
-**Example 5 — Section rename (`section-rename`).**
+**Example 2 — Section rename (`section-rename`).**
 The user asks to rename `## DPB (D33)` to `## Architectural redesign:
-Dirty Page Bitset (D33)`.
+Dirty Page Bitset (D33)`. The skill:
 
-The skill:
 1. Applies the rename `Edit` in `design.md`.
 2. Updates the matching section name in `design-mechanics.md` (per the
    "section names match" rule).
