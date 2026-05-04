@@ -872,7 +872,7 @@ public class SQLBinaryConditionInPlaceTest extends DbTestBase {
     // would trigger loadEntity for every WHERE predicate on an intermediate MATCH hop.
     // That force-load cost -16%/-17% throughput on ic1/ic4 in PR #863 profiling.
     //
-    // The guard must use a non-loading check (asIdentifiableOrNull/getIdentifiable)
+    // The guard must use a non-loading check (asIdentifiableOrNull)
     // so bare-RID Results fail the instanceof EntityImpl test and fall through to
     // the standard path, which loads lazily via getProperty only when needed.
     //
