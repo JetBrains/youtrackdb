@@ -23,12 +23,31 @@ warning, or pass.
   name(s) plus one or two surrounding section names.
 - `mutation_kind` — one of `content-edit`, `section-add`,
   `section-remove`, `section-rename`, `section-move`,
-  `structural-rewrite`, `length-trigger-crossing`.
+  `structural-rewrite`, `length-trigger-crossing`,
+  `phase1-creation`, `design-sync`. (`mechanics-edit` does not
+  invoke this prompt — cold-read is deferred to the next
+  `design-sync`.)
 - `plan_path` (optional) — absolute path to
   `implementation-plan.md`. Read **only** to verify
   `**Full design**` link resolution, never for context.
 - `backlog_path` (optional) — same: read only for link
   resolution.
+
+### Mutation-kind specific instructions
+
+- **`phase1-creation`**: `design.md` and `design-mechanics.md`
+  were just seeded together. Verify the design.md is internally
+  coherent on its own (a fresh reader can navigate it) AND that
+  every `Mechanics: design-mechanics.md §"…"` link resolves to a
+  matching section in mechanics.
+- **`design-sync`**: this sync re-distilled `design.md` from the
+  current state of `design-mechanics.md`. **In addition to the
+  standard whole-doc cold-read**, verify that every TL;DR and
+  mechanism overview in `design.md` accurately summarizes the
+  current mechanics file's content for the same-named section. If
+  the design.md TL;DR contradicts the mechanics, or names a
+  mechanism that mechanics doesn't describe, flag it as a blocker
+  — that's exactly what the sync was supposed to fix.
 
 ## Reading rules
 

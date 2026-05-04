@@ -62,6 +62,23 @@ auto-review → bounded iterate → present)`. Do not directly Edit
 auto-review gate (mechanical checks + cold-read sub-agent) fires.
 The structural review in step 4 below validates the plan; the
 design's own narrative quality is owned by the mutation action.
+
+**Working/sync vs direct mutation.** Pick the mutation kind based
+on the size of the inline-replanning revision (see
+`design-document-rules.md` § Two-mode editing — working vs sync):
+
+- For a single targeted change (one bullet, one section rename,
+  one section add), use the direct mutation kinds — `content-edit`,
+  `section-add`, `section-rename`, etc. Full discipline runs in
+  one shot; the inline-replan completes in one mutation.
+- For a multi-section revision that touches both files (e.g., the
+  user is restructuring how a subsystem works and several sections
+  need updates), follow the working/sync loop: `mechanics-edit`
+  rounds for the substantive changes, ending in a `design-sync`
+  to re-publish `design.md`. This keeps `design.md` stable as a
+  review reference while the agent works through the multi-section
+  revision.
+
 **Invocation:** use the `edit-design` skill
 ([`.claude/skills/edit-design/SKILL.md`](../skills/edit-design/SKILL.md)),
 not direct `Edit` / `Write` calls.

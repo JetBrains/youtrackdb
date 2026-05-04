@@ -427,13 +427,16 @@ def check_per_section_length(
 
 
 def check_dsc_parenthetical_asides(
-    design_path: str,
+    file_path: str,
     lines: List[str],
 ) -> List[Dict]:
     """Reject `(per D27)`, `(see S14)` style parenthetical asides anywhere in prose.
 
     Allowed: D-codes / S-codes when they are the SUBJECT of a sentence
     ("D27 makes histograms volatile") and inside the `### References` block.
+
+    Operates on whichever file the caller passes — design.md or
+    design-mechanics.md. Parenthetical asides are forbidden in both.
     """
     findings: List[Dict] = []
     # Track which lines are inside a References block (which legitimately lists D/S codes).
@@ -474,7 +477,7 @@ def check_dsc_parenthetical_asides(
                 findings.append(make_finding(
                     "should-fix",
                     "dsc-parenthetical-aside",
-                    f"{design_path}:{i}",
+                    f"{file_path}:{i}",
                     (f"D/S parenthetical aside `{m.group(0)}` in prose. "
                      "Per design-document-rules.md § D/S code discipline, D/S codes are forbidden as "
                      "parenthetical asides; allowed when the code IS the subject of the sentence, "
@@ -746,6 +749,14 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--changed-section", help="Title of the section that changed (for bounded scope)")
     p.add_argument("--scope", choices=("bounded", "whole-doc"), default="whole-doc",
                    help="Scope of checks (default: whole-doc)")
+    p.add_argument("--target", choices=("design", "mechanics", "both"), default="design",
+                   help=("Which file the mutation actually touched. `design` runs the full "
+                         "design.md shape rules + cross-file checks (default — current behavior). "
+                         "`mechanics` skips the design.md shape rules (since they don't apply to "
+                         "design-mechanics.md) and scans the mechanics file for parenthetical "
+                         "asides instead; cross-file link-resolution still runs. `both` runs the "
+                         "design.md shape rules AND scans both files for parenthetical asides — "
+                         "use for phase1-creation and design-sync mutations that touch both files."))
     return p.parse_args()
 
 
@@ -783,15 +794,31 @@ def main() -> int:
 
     findings: List[Dict] = []
 
-    findings.extend(check_reader_orientation(args.design_path, design_lines, sections))
-    findings.extend(check_per_section_shape(
-        args.design_path, design_lines, sections, args.changed_section, args.scope))
-    findings.extend(check_top_level_cap(args.design_path, sections, parts))
-    findings.extend(check_per_section_length(args.design_path, design_lines, sections))
-    findings.extend(check_dsc_parenthetical_asides(args.design_path, design_lines))
-    findings.extend(check_length_trigger_compliance(
-        args.design_path, args.design_mechanics_path, len(design_lines)))
-    findings.extend(check_same_shape_siblings(args.design_path, sections))
+    # design.md shape checks fire only when the mutation actually touched
+    # design.md. mechanics-edit mutations (working mode) skip them.
+    run_design_shape_checks = args.target in ("design", "both")
+
+    if run_design_shape_checks:
+        findings.extend(check_reader_orientation(args.design_path, design_lines, sections))
+        findings.extend(check_per_section_shape(
+            args.design_path, design_lines, sections, args.changed_section, args.scope))
+        findings.extend(check_top_level_cap(args.design_path, sections, parts))
+        findings.extend(check_per_section_length(args.design_path, design_lines, sections))
+        findings.extend(check_length_trigger_compliance(
+            args.design_path, args.design_mechanics_path, len(design_lines)))
+        findings.extend(check_same_shape_siblings(args.design_path, sections))
+
+    # Parenthetical-aside scan runs against whichever file(s) were touched.
+    # design.md and design-mechanics.md are both human-readable; the rule
+    # applies to both.
+    if args.target in ("design", "both"):
+        findings.extend(check_dsc_parenthetical_asides(args.design_path, design_lines))
+    if args.target in ("mechanics", "both") and design_mechanics_lines is not None:
+        findings.extend(check_dsc_parenthetical_asides(
+            args.design_mechanics_path, design_mechanics_lines))
+
+    # Cross-file link-resolution always fires — these rules guard against
+    # broken references that any mutation can introduce.
     findings.extend(check_mechanics_link_resolution(
         args.design_path, design_lines, args.design_mechanics_path, design_mechanics_lines))
     findings.extend(check_full_design_link_resolution(

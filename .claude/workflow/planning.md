@@ -417,9 +417,38 @@ rules in `design-document-rules.md` self-enforcing across every
 situation that touches the design. See `design-document-rules.md`
 § Mutation discipline for the full protocol.
 
+**Phase 1 sub-phases (working / sync model).** Phase 1 is
+internally three sub-phases — see `design-document-rules.md`
+§ Two-mode editing — working vs sync for the rationale and the
+full protocol:
+
+- **Phase 1.1 — Initial creation (`phase1-creation`).** Both
+  `design.md` and `design-mechanics.md` are seeded together.
+  Full discipline runs on `design.md`; mechanics gets stripped
+  mechanical checks (it's agent-targeted long-form, not the
+  human-facing summary).
+- **Phase 1.2 — Working iteration (`mechanics-edit`).** The user
+  reviews `design.md` (frozen as a stable reference) and issues
+  feedback. The agent mutates only `design-mechanics.md` in
+  response. Mechanical checks fire; **cold-read is deferred**.
+  The working-mode counter increments; at N=5 the skill
+  auto-suggests a sync (the user can defer or accept).
+- **Phase 1.3 — Sync (`design-sync`).** The agent re-distills
+  `design.md` from the current state of mechanics. Full discipline
+  runs (mechanical + whole-doc cold-read). Plan/backlog
+  `**Full design**` refs are propagated for any added/removed/
+  renamed sections. The working-mode counter resets to 0. After
+  sync, the loop returns to Phase 1.2 or moves to Phase 2.
+
+The user can also explicitly request a sync at any working-mode
+count ("update design.md now", "let's publish the polished
+version") — explicit requests override the N=5 default.
+
 **Invocation:** use the `edit-design` skill
 ([`.claude/skills/edit-design/SKILL.md`](../skills/edit-design/SKILL.md)),
-not direct `Edit` / `Write` calls.
+not direct `Edit` / `Write` calls. The skill knows how to dispatch
+each mutation kind and how to read the working-mode counter from
+the review log.
 
 **Full rules, examples, and structure:**
 [`design-document-rules.md`](design-document-rules.md)

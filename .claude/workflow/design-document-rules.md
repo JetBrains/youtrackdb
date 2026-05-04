@@ -132,19 +132,26 @@ invokes the skill — not raw `Edit` / `Write`.
 
 ### Cold-read scope by mutation kind
 
-| Mutation kind | Cold-read scope |
-|---|---|
-| Content edit within an existing section | **Bounded** — changed section + 1-2 surrounding sections + Reader Orientation + Overview |
-| Section add | **Bounded** — new section + Reader Orientation + Overview + table of contents (for placement check) |
-| Section remove | **Whole-doc** — verify no broken references and no orphaned forward-pointers |
-| Section rename | **Whole-doc** — every cross-reference to the renamed section must be updated, including in plan and backlog |
-| Section move | **Whole-doc** — verify the new placement makes sense in the reader journey |
-| Structural rewrite (multiple section adds/moves/renames) | **Whole-doc** |
-| Length crossing the 2,000-line / 50,000-token trigger | **Whole-doc** — verify split into `design-mechanics.md` is correctly applied |
+| Mutation kind | Touches | Mechanical `--target` | Cold-read scope |
+|---|---|---|---|
+| `phase1-creation` (initial seed of both files) | both files | `both` | **Whole-doc** on `design.md` (mechanics is exempt — it's agent-targeted long-form) |
+| `mechanics-edit` (working-mode edit) | mechanics only | `mechanics` | **NONE** — cold-read deferred to next `design-sync` |
+| `design-sync` (re-distill design.md from current mechanics) | both files | `both` | **Whole-doc** on `design.md`, plus mechanics-link sweep |
+| `content-edit` within an existing section | `design.md` | `design` | **Bounded** — changed section + 1-2 surrounding sections + Reader Orientation + Overview |
+| `section-add` | `design.md` | `design` | **Bounded** — new section + Reader Orientation + Overview + table of contents (for placement check) |
+| `section-remove` | `design.md` | `design` | **Whole-doc** — verify no broken references and no orphaned forward-pointers |
+| `section-rename` | `design.md` (+ plan/backlog ref propagation) | `design` | **Whole-doc** — every cross-reference to the renamed section must be updated, including in plan and backlog |
+| `section-move` | `design.md` | `design` | **Whole-doc** — verify the new placement makes sense in the reader journey |
+| `structural-rewrite` (multiple section adds/moves/renames) | `design.md` | `design` | **Whole-doc** |
+| `length-trigger-crossing` (file crosses the 2,000-line / 50,000-token trigger) | both files | `both` | **Whole-doc** — verify split into `design-mechanics.md` is correctly applied |
 
-**Periodic whole-doc check.** Every Nth mutation (default
-N=5) of any kind triggers a whole-doc cold-read regardless,
-to catch coherence drift across many small edits.
+**Periodic whole-doc check.** Every Nth design-touching mutation
+(default N=5, counted from the review log) triggers a whole-doc
+cold-read regardless of the kind, to catch coherence drift across
+many small edits. `mechanics-edit` mutations do **not** increment
+this counter — they have their own working-mode counter that drives
+the auto-suggest at N=5 sync prompt (see § Two-mode editing —
+working vs sync).
 
 ### Mechanical checks (always run)
 
@@ -205,7 +212,101 @@ prompt at
 prompt instructs a fresh sub-agent to read the design document
 without context, answer comprehension questions, and report
 structural findings. The mutation action invokes it once per
-auto-review cycle.
+auto-review cycle (skipped entirely for `mechanics-edit`).
+
+## Two-mode editing — working vs sync
+
+Two complementary workflows live inside the mutation discipline.
+Pick the right one based on where you are in the plan lifecycle.
+
+### Direct mutation (existing kinds)
+
+`content-edit`, `section-add`, `section-remove`, `section-rename`,
+`section-move`, `structural-rewrite`, `length-trigger-crossing`.
+Every mutation runs the **full discipline** (mechanical +
+cold-read) on `design.md`. Best for small, targeted changes after
+the design is published — for example, a Phase 3 inline-replanning
+bullet add, or a Phase 4 `design-final.md` edit.
+
+### Working / sync (the iterative model)
+
+For Phase 1 initial creation and any phase where the user wants to
+iterate on the design with `design.md` staying stable as a
+reference between batches, the workflow has three sub-phases:
+
+```
+Phase 1.1  phase1-creation     ── seed both files; full discipline
+   │                             on design.md, stripped checks on
+   │                             mechanics.
+   ▼
+Phase 1.2  mechanics-edit      ── agent processes user feedback by
+   │ ↻                           mutating mechanics; mechanical-only
+   │                             checks fire; cold-read DEFERRED;
+   │                             working-mode counter increments.
+   ▼
+Phase 1.3  design-sync         ── re-distill design.md from current
+   │                             mechanics; full discipline runs;
+   │                             working-mode counter resets to 0.
+   │
+   └─→ back to Phase 1.2 or out to Phase 2 when stable.
+```
+
+**Why the split exists.** During iteration, distilling design.md
+on every mechanics tweak is expensive (cold-read fires per change)
+and produces churn in the human-facing summary. Working mode lets
+mechanics evolve freely under cheap mechanical checks; sync
+batches the distillation into one expensive review pass at a
+deliberate publish point.
+
+**Stable reference for review.** Between syncs, `design.md` stays
+**frozen** relative to mechanics. The user reads `design.md` to
+understand the design, then issues feedback against it. The
+agent processes feedback by editing `mechanics`, not `design.md`.
+
+**Sync trigger — hybrid.** Sync runs when **either**:
+- The user explicitly requests it ("update design.md", "run
+  design-sync", "publish the polished version", or any phrasing
+  that conveys intent), **or**
+- The working-mode counter reaches `N=5` and the agent
+  auto-suggests at the next conversational turn: *"5 mechanics
+  edits have accumulated since the last sync. Want me to run
+  `design-sync` now, or keep iterating?"*
+
+The user can defer the auto-suggestion. The skill does not
+auto-trigger the sync — the user is the gate.
+
+**What sync does.** The agent re-distills `design.md` from the
+current state of `design-mechanics.md`:
+- Each section's TL;DR + mechanism overview is re-written to
+  reflect the current mechanics.
+- Edge cases / Gotchas bullets are added/removed/edited.
+- References footers updated for new D/S codes and any
+  `Mechanics:` link changes.
+- Sections **added** in mechanics get a corresponding new section
+  in `design.md`.
+- Sections **removed** in mechanics are removed from `design.md`.
+- Sections **renamed** in mechanics propagate the rename to
+  `design.md` and to every `**Full design**` ref in plan and
+  backlog.
+
+The sync's cold-read sub-agent gets an extended instruction:
+*"Verify that every TL;DR and mechanism overview in design.md
+accurately summarizes the current mechanics file's content for
+the same-named section."*
+
+**Staleness reconciliation.** Because `design.md` is frozen
+between syncs while mechanics evolves, the user's feedback may
+reference a `design.md` statement that mechanics has already
+moved past. The agent reconciles explicitly rather than blindly
+re-applying — see `edit-design/SKILL.md § Staleness reconciliation`
+for the prompt template.
+
+**Working/sync is preferred but not mandatory.** Small designs
+(under ~5 sections) and one-off edits can use direct mutation
+without the working/sync ceremony. The working/sync model pays
+off when iteration depth justifies the deferred-cold-read win
+— typically once the user has issued ≥3 substantive feedback
+rounds on the same design.
 
 ## Reader orientation header (mandatory)
 
