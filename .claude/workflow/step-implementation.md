@@ -43,6 +43,30 @@ Before spawning the first implementer:
 3. **Detect orphan commits** per the §Phase B Resume protocol below
    before spawning the first implementer.
 
+### Per-step base commit tracking
+
+The orchestrator tracks a **per-step base commit** —
+`step_base_commit` — distinct from the Phase B `base_commit`:
+
+- `base_commit` is the SHA at Phase B startup. It does not change
+  across steps.
+- `step_base_commit` is the SHA at HEAD **immediately before the
+  implementer is first spawned for the current step** (`mode=INITIAL`
+  or the first respawn after a `WITH_GUIDANCE` escalation /
+  `apply_upgrade_then_decide` upgrade). It advances every time a step
+  reaches `[x]`.
+
+`step_base_commit` is the rollback target if a `FIX_REVIEW_FINDINGS`
+respawn returns a non-`SUCCESS` result — `git revert
+{step_base_commit}..HEAD` produces a single revert commit covering
+the original implementer commit plus any prior `Review fix:` commits
+in the same dim-review loop. See §Post-Commit Handlers.
+
+The orchestrator captures `step_base_commit` in-memory by running
+`git rev-parse HEAD` just before the spawn. On resume, derive it
+from git: it is the parent of the first orphan commit for the next
+`[ ]` step, or HEAD if no orphans exist.
+
 ---
 
 ## Phase B Resume — Incomplete Step Recovery
@@ -60,8 +84,31 @@ the step file on disk:
 
 1. Count the `[x]` steps in the step file. Scan
    `git log --oneline {base_commit}..HEAD` for code commits.
-2. If there are more code commits than accounted for by completed
-   steps:
+   Each completed step is expected to contribute exactly **one**
+   implementer commit plus **zero or more** `Review fix:` commits.
+   `Revert step:` commits and the implementer + `Review fix:`
+   commits they cancel form a self-contained "rolled back" group
+   that does not count toward any `[x]` step's expected commits;
+   anything else beyond the expected total is orphaned.
+2. If a `Revert step:` commit is present at the tip (or near the
+   tip with no implementer commits after it), the previous session
+   rolled the next `[ ]` step back via §Post-Commit Handlers but may
+   not have finished writing the `[!]` episode and retry/split rows:
+   - Inspect the `Revert step:` commit body to recover the rollback
+     reason (failed review-fix, late design decision, late risk
+     upgrade) — the orchestrator writes a one-line reason there.
+   - If the step file already has an `[!]` entry for this step, the
+     rollback was fully recorded; just respawn the implementer for
+     the next `[ ]` row from `mode=INITIAL` with `step_base_commit
+     = HEAD`.
+   - If the step file does not yet have a `[!]` entry, finish the
+     rollback bookkeeping: write the `[!]` episode (reconstruct
+     `FAILURE` content from the revert commit body + git log of the
+     reverted commits), insert retry/split rows per the recovered
+     `recommended_action`, then proceed.
+3. If the commit count exceeds the expected total without a
+   `Revert step:` at the tip (one implementer commit + any
+   `Review fix:` commits per `[x]` step):
    - The previous session committed code for this step but didn't
      write the episode.
    - **Resume from the appropriate orchestrator handler** by checking
@@ -78,8 +125,8 @@ the step file on disk:
        is already on disk; treat it as the implementer's `SUCCESS`
        return).
    - Then proceed to the next `[ ]` step normally.
-3. If no orphan commits exist, spawn the implementer for the next
-   `[ ]` step from `mode=INITIAL`.
+4. If no orphan commits exist, spawn the implementer for the next
+   `[ ]` step from `mode=INITIAL` with `step_base_commit = HEAD`.
 
 **Why this matters.** Without this check, the orchestrator would
 spawn an implementer that re-derives changes already committed,
@@ -302,10 +349,36 @@ finding ID prefixes, and gate format.
    c. **If findings need fixes**, respawn the implementer with
       `mode=FIX_REVIEW_FINDINGS` and the synthesised findings as
       input. The implementer applies the fixes on top of the
-      existing commit and emits a new `Review fix:` commit per
-      [`commit-conventions.md`](commit-conventions.md). The new
-      `result.COMMIT` becomes the diff target for the next gate
-      check.
+      existing commit. The respawn's return is then **dispatched on
+      `RESULT`** — non-`SUCCESS` returns leave a prior commit on
+      disk and route to a post-commit handler:
+
+      ```
+      match fix_result.RESULT:
+          SUCCESS                  -> continue iteration loop with
+                                      the new Review fix: commit as
+                                      the diff target
+          FAILED                   -> rollback_and_handle_failure(
+                                          step, fix_result,
+                                          step_base_commit)
+                                      # exits the dim-review loop
+          DESIGN_DECISION_NEEDED   -> rollback_and_escalate(
+                                          step, fix_result,
+                                          step_base_commit)
+                                      # exits the dim-review loop
+          RISK_UPGRADE_REQUESTED   -> rollback_and_upgrade(
+                                          step, fix_result,
+                                          step_base_commit)
+                                      # exits the dim-review loop
+      ```
+
+      On `SUCCESS`, the implementer's new commit follows
+      [`commit-conventions.md`](commit-conventions.md)'s
+      `Review fix:` prefix; the new `result.COMMIT` becomes the
+      diff target for the next gate check. On any non-`SUCCESS`
+      return, the orchestrator hands off to the post-commit handler
+      below, which rolls the prior commits back and re-enters the
+      top-level dispatch with a clean tree at `step_base_commit`.
    d. **Re-run only the dimension(s) with open findings** on each
       gate-check iteration. Repeat until approved OR **max 3
       iterations** reached.
@@ -403,14 +476,26 @@ and `evidence`.
 3. After application/confirmation, respawn the implementer with
    `mode=INITIAL`. The next implementer's run is identical except
    downstream `on_success` will now run the dimensional review.
+   No `exploration_notes_echo` is carried across — risk upgrades
+   typically surface early, before substantial implementation
+   exploration, so re-derivation is cheap and `mode=INITIAL` keeps
+   the respawn contract simple. If the prior implementer's
+   `RISK_UPGRADE.evidence` already names what was discovered, that
+   text plus the rewritten `**Risk:**` line is enough context for
+   the next implementer.
 
 ### `handle_failure(step, result)`
 
-Triggered when `result.RESULT == FAILED`. The implementer has
-already reverted any uncommitted changes (`git checkout -- .`)
-before returning. `result.FAILURE` carries `what_was_attempted`,
-`why_it_failed`, `impact_on_remaining_steps`, and
-`recommended_action`.
+Triggered when `result.RESULT == FAILED` from `mode=INITIAL` or
+`mode=WITH_GUIDANCE` (pre-commit failure). For `FAILED` returns from
+`mode=FIX_REVIEW_FINDINGS`, the dim-review loop dispatches to
+`rollback_and_handle_failure` instead — see §Post-Commit Handlers.
+
+The implementer has already reverted any uncommitted changes
+(`git reset --hard HEAD`) before returning, so the working tree is
+clean at `step_base_commit`. `result.FAILURE` carries
+`what_was_attempted`, `why_it_failed`, `impact_on_remaining_steps`,
+and `recommended_action`.
 
 1. **Write the failed episode** to the step file from
    `result.FAILURE` (mark the step `[!]`).
@@ -425,6 +510,156 @@ before returning. `result.FAILURE` carries `what_was_attempted`,
 The implementer never escalates directly; it returns `FAILED` with
 `recommended_action: escalate`, and the orchestrator decides whether
 to enter ESCALATE per [`inline-replanning.md`](inline-replanning.md).
+
+---
+
+## Post-Commit Handlers
+
+When the dim-review loop's `mode=FIX_REVIEW_FINDINGS` respawn returns
+a non-`SUCCESS` result, the prior step commits are still on disk.
+The implementer's local revert (`git reset --hard HEAD`) only undoes
+its in-progress fix attempt; rolling back the prior commits is the
+orchestrator's responsibility.
+
+The post-commit handlers all share a common rollback step:
+
+```bash
+# step_base_commit was captured at spawn time
+git revert -n {step_base_commit}..HEAD
+git commit -m "Revert step: <step description>
+
+<one-sentence reason: failed review-fix / late design decision /
+late risk upgrade — see fix_result.{FAILURE|DESIGN_DECISION|RISK_UPGRADE}>"
+```
+
+`git revert -n` stages the reversal of every commit in
+`{step_base_commit}..HEAD` (the original implementer commit plus any
+prior `Review fix:` commits in the same dim-review loop) without
+auto-committing each revert. The orchestrator then commits once with
+the `Revert step:` prefix per
+[`commit-conventions.md`](commit-conventions.md). After the revert
+commit, HEAD's tree state matches `step_base_commit` — the new HEAD
+becomes the next step's `step_base_commit` for any respawn that
+follows.
+
+The rollback preserves history (the original attempt, any review
+fixes, and the revert all stay in `git log`), so future investigators
+can see what was tried. This is the conservative choice for a
+critical-systems project; squash-merge collapses the noise at the PR
+boundary.
+
+**Pre-revert assertion.** Before running `git revert -n`, verify
+`git status` is clean. The implementer's `git reset --hard HEAD`
+should have left it clean; if not, that is a contract violation and
+the orchestrator surfaces the discrepancy to the user instead of
+proceeding (a dirty tree at this point usually means the implementer
+exited mid-write or the user has manual edits in flight).
+
+### `rollback_and_handle_failure(step, fix_result, step_base_commit)`
+
+Triggered when a `FIX_REVIEW_FINDINGS` respawn returns
+`RESULT: FAILED` — the implementer cannot apply the review findings,
+typically because the findings reveal a deeper issue than a
+mechanical fix can address. `fix_result.FAILURE` carries
+`what_was_attempted`, `why_it_failed`, `impact_on_remaining_steps`,
+and `recommended_action`.
+
+1. **Write the failed episode** to the step file from
+   `fix_result.FAILURE` (mark the step `[!]`). The episode's
+   `what_was_attempted` should describe both the original
+   implementation and the review-fix attempt that failed; the
+   `why_it_failed` field captures the underlying reason. This write
+   precedes the revert so that if the session dies between the two,
+   Phase B Resume sees the `[!]` and the prior commits and can
+   complete the rollback.
+2. **Run the rollback** (revert + `Revert step:` commit) per the
+   common procedure above.
+3. **Insert `[ ]` retry/split rows** per the existing protocol —
+   see §Step Failure for the formats.
+4. **Update the Progress section's step count** to reflect the
+   inserted rows.
+5. **Two-failure rule.** If the new `[!]` makes two consecutive
+   `[!]` entries for the same logical step, stop and present both
+   failed episodes to the user — see §Two-Failure Rule.
+
+After this handler completes, `step_base_commit` for the retry/split
+row is the new HEAD (the `Revert step:` commit).
+
+### `rollback_and_escalate(step, fix_result, step_base_commit)`
+
+Triggered when a `FIX_REVIEW_FINDINGS` respawn returns
+`RESULT: DESIGN_DECISION_NEEDED` — applying the review findings
+surfaced a design decision that was not visible during the original
+implementation. `fix_result.DESIGN_DECISION` carries `context`,
+`alternatives`, `recommendation`, and `exploration_notes`.
+
+1. **Run the rollback** (revert + `Revert step:` commit) per the
+   common procedure above. The rollback removes the original
+   implementer commit and any prior `Review fix:` commits because
+   the surfaced design decision affects the step's premise — the
+   user's chosen alternative may invalidate the original approach,
+   so we start the next attempt from a clean slate.
+2. **Present** `fix_result.DESIGN_DECISION` (alternatives + trade-offs
+   + recommendation) to the user via the existing escalation protocol
+   in [`design-decision-escalation.md`](design-decision-escalation.md).
+   Include in the prose that this decision surfaced **post-commit
+   during dim review**, so the user understands the rollback context.
+3. On user response, capture the new HEAD as `step_base_commit` and
+   respawn the implementer with:
+   - `mode=WITH_GUIDANCE`
+   - `Guidance:` set to the user's chosen alternative + any
+     additional direction
+   - `exploration_notes_echo` set to
+     `fix_result.DESIGN_DECISION.exploration_notes`
+4. The respawn's result re-enters the top-level `match result.RESULT`
+   dispatch in §Per-Step Orchestration Loop.
+
+### `rollback_and_upgrade(step, fix_result, step_base_commit)`
+
+Triggered when a `FIX_REVIEW_FINDINGS` respawn returns
+`RESULT: RISK_UPGRADE_REQUESTED` — applying the review findings
+revealed the step is more invasive than its tagged risk.
+`fix_result.RISK_UPGRADE` carries `from`, `to`, `category`, and
+`evidence`.
+
+1. **Run the rollback** (revert + `Revert step:` commit) per the
+   common procedure above. The rollback removes the original commit
+   so that the next attempt re-runs the implementation **with full
+   dim-review pressure from the start** at the new risk level — not
+   stacked on top of an implementation that was reviewed under the
+   old risk level.
+2. **Apply the upgrade in place** in the step file: rewrite the
+   `**Risk:**` line and append an override note in the form
+   `override: upgraded mid-Phase-B during dim review (<short reason
+   from fix_result.RISK_UPGRADE.evidence>)`. The decomposer-time
+   category stays for traceability. Downgrades are not permitted —
+   see [`risk-tagging.md`](risk-tagging.md) §Override rules.
+3. **Approval flow** (same as `apply_upgrade_then_decide`):
+   - `medium → high`: auto-apply (no user prompt). Note the
+     auto-apply in the step-file write.
+   - `low → high`: pause and confirm with the user before respawning.
+4. After application/confirmation, capture the new HEAD as
+   `step_base_commit` and respawn the implementer with `mode=INITIAL`.
+   The respawn's result re-enters the top-level dispatch.
+
+### Why rollback in all three cases?
+
+The post-commit handlers always rollback rather than try to
+patch-on-top because:
+
+- **`FAILED`**: by definition the prior commit cannot be salvaged;
+  retry/split needs a clean starting point.
+- **`DESIGN_DECISION_NEEDED`**: the user's chosen alternative may
+  invalidate the prior implementation. Starting fresh avoids
+  carrying assumptions from the old approach into a new one.
+- **`RISK_UPGRADE_REQUESTED`**: the prior implementation was reviewed
+  under the wrong risk level. Re-implementing with full dim-review
+  pressure from the start is the only way to get the review pressure
+  the upgraded risk demands.
+
+The cost is one rerun of the implementation. For a database project,
+the alternative — leaving an under-reviewed commit on disk and
+trying to patch it — is the wrong tradeoff.
 
 ---
 
@@ -498,8 +733,14 @@ examples live in
 ## Step Failure
 
 If the implementer returns `RESULT: FAILED`, the implementer has
-already reverted uncommitted changes (`git checkout -- .`). The
-orchestrator handles the rest:
+already reverted uncommitted changes (`git reset --hard HEAD`). For
+pre-commit failures (`mode=INITIAL` / `mode=WITH_GUIDANCE`) the
+working tree is now clean at `step_base_commit` and the orchestrator
+proceeds directly with the steps below. For post-commit failures
+(`mode=FIX_REVIEW_FINDINGS`) the orchestrator first runs the
+rollback per §Post-Commit Handlers, then proceeds with the steps
+below; the retry/split rows below apply to both. The orchestrator
+handles the rest:
 
 1. **Write a failed episode** to the step file from
    `result.FAILURE` (see

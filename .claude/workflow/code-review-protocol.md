@@ -44,8 +44,8 @@ See [`track-code-review.md`](track-code-review.md) §Single-Step Track.
 ## Where each level is implemented
 
 - **Step-level:** see [`step-implementation.md`](step-implementation.md)
-  §Per-Step Orchestration Loop (sub-step 4 of the dimensional review,
-  run by the orchestrator on the implementer's commit).
+  §Per-Step Orchestration Loop sub-step 4 — the dimensional review
+  loop, run by the orchestrator on the implementer's commit.
 - **Track-level:** see [`track-code-review.md`](track-code-review.md)
   (includes track completion).
 

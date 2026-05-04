@@ -71,8 +71,9 @@ inputs**.
 The orchestrator's per-step workflow has seven sub-steps; the
 implementer owns sub-steps 1–3 (implement code, add tests, commit).
 The numbered items below are the implementer's internal expansion of
-those three sub-steps — items 1–3 cover sub-step 1 (read context +
-implement), item 4 covers sub-step 2 (tests + Spotless + coverage),
+those three sub-steps — items 1–3 cover sub-step 1 (implement code;
+reading the step file and slim plan are preconditions, not separate
+sub-steps), item 4 covers sub-step 2 (tests + Spotless + coverage),
 item 5 covers sub-step 3 (commit), and item 6 is the return.
 
 Run these in order, to completion, before returning. Any detection
@@ -226,14 +227,45 @@ a root cause outside the step's surface area.
 
 Before returning:
 
-1. **Revert any uncommitted changes** with `git checkout -- .` so
-   the orchestrator never observes uncommitted state.
+1. **Revert any uncommitted changes** with `git reset --hard HEAD`
+   so the orchestrator never observes uncommitted state. This clears
+   both the working tree and the index back to the current `HEAD`
+   (untracked files are preserved). Use `git reset --hard HEAD`
+   rather than `git checkout -- .` because the latter does not
+   unstage staged changes — if the implementer staged files but
+   bailed before committing, `git checkout -- .` leaves a dirty
+   index for the orchestrator to discover.
 2. Return `RESULT: FAILED` with `FAILURE` populated:
    `what_was_attempted`, `why_it_failed`, `impact_on_remaining_steps`,
    and `recommended_action` (`retry` | `split` | `escalate`).
 
 The orchestrator writes the failed episode to the step file, inserts
 retry/split rows, and runs the two-failure detection on its side.
+
+### Mode-specific scope of the local revert
+
+`git reset --hard HEAD` resets to the **current commit**, not to a
+pre-step state. That has different effects across modes:
+
+- **`mode=INITIAL`** or **`mode=WITH_GUIDANCE`**: `HEAD` is the
+  step's pre-implementation state (the orchestrator's `step_base_commit`).
+  The reset returns the working tree to that pristine state — the
+  orchestrator sees a clean tree at `step_base_commit`. Correct.
+- **`mode=FIX_REVIEW_FINDINGS`**: `HEAD` is the prior `SUCCESS`
+  commit (the original implementer commit, possibly with earlier
+  `Review fix:` commits on top from prior dim-review iterations).
+  The implementer's reset clears only its in-progress fix attempt;
+  the prior commits stay on disk. Rolling those back is the
+  **orchestrator's** responsibility — see
+  [`step-implementation.md`](step-implementation.md) §Post-Commit
+  Handlers. The implementer must not run `git reset --hard
+  step_base_commit` or `git revert` to undo prior commits; that
+  would silently destroy work the orchestrator may need.
+
+The implementer is therefore symmetric in code (`git reset --hard
+HEAD` regardless of mode) but the **semantic scope** of the revert
+differs: pre-commit modes return the working tree to a true clean
+state; post-commit mode only undoes the in-progress fix.
 
 ---
 
@@ -318,11 +350,14 @@ FAILURE:                          # only if RESULT == FAILED
   otherwise. On `DESIGN_DECISION_NEEDED` and `RISK_UPGRADE_REQUESTED`,
   the implementer has typically not run tests yet — every field may
   be `n/a`.
-- `EPISODE_DRAFT` is populated on every result. The orchestrator
+- `EPISODE_DRAFT` is populated on `SUCCESS` only. The orchestrator
   finalises it (merging in cross-track-impact-check observations from
   sub-step 5) before writing the episode to the step file. On
   `FAILED`, the orchestrator uses `FAILURE` instead of
-  `EPISODE_DRAFT` to write the failed episode.
+  `EPISODE_DRAFT`. On `DESIGN_DECISION_NEEDED` and
+  `RISK_UPGRADE_REQUESTED`, omit `EPISODE_DRAFT` — the eventual
+  respawn produces the authoritative draft once the step actually
+  completes.
 - `CROSS_TRACK_HINTS` is a free-form note for the orchestrator's
   cross-track impact check (sub-step 5). Anything that might affect
   upcoming tracks goes here — invariant weakened, new dependency

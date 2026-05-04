@@ -16,6 +16,20 @@ disk between sessions. See `conventions.md` §1.2 for the tracking model.
 |---|---|---|
 | **Step implementation** | Imperative summary of the change | `Add histogram header to leaf page` |
 | **Review fix** | `Review fix:` prefix | `Review fix: extract validation to helper method` |
+| **Step rollback** | `Revert step:` prefix | `Revert step: add histogram header to leaf page` |
+
+**Step rollback (`Revert step:`) commits** are produced **only by the
+Phase B orchestrator** when a `FIX_REVIEW_FINDINGS` respawn returns a
+non-`SUCCESS` result. The orchestrator runs
+`git revert -n {step_base_commit}..HEAD` to stage the reversal of all
+step-related commits (the original implementer commit plus any prior
+`Review fix:` commits from the same dim-review loop), then commits
+once with the `Revert step:` prefix. The body should describe in one
+sentence why the rollback happened (failed review-fix, late design
+decision, late risk upgrade). The implementer never produces this
+commit type — it is exclusively an orchestrator-side operation. See
+[`step-implementation.md`](step-implementation.md) §Post-Commit
+Handlers.
 
 **Commit messages must not cite workflow-internal identifiers**
 (`Track N`, `Step N`, `Track N Step M`, review finding IDs like `CQ33`,
@@ -31,11 +45,19 @@ When Phase B resumes and detects orphan commits (code committed but episode
 not written to the step file on disk), it scans
 `git log --oneline {base_commit}..HEAD` and uses these patterns:
 
-1. **Review fix commits** — contain `Review fix:` → indicate the code
-   review loop already ran for that step. Resume from episode production.
-2. **Implementation commits** — anything else → code review loop has not
-   run. Resume from code review.
+1. **`Revert step:` commits** — the previous session rolled the step
+   back after a non-`SUCCESS` review-fix attempt. The next `[ ]` step
+   was already cleanly returned to its pre-implementation state by the
+   revert; resume by writing the `[!]` failed episode (if not already
+   written) and respawning `mode=INITIAL` for the retry/split row.
+2. **`Review fix:` commits** — indicate the dim-review loop already
+   ran for that step. Resume from episode production.
+3. **Implementation commits** — anything else → dim-review loop has
+   not run. Resume from review.
 
 The step file on disk is the source of truth for which steps are complete
 (have episodes). Any code commits beyond the last completed step's work
-are orphans for the next `[ ]` step.
+are orphans for the next `[ ]` step. A `Revert step:` commit cancels
+the implementer + `Review fix:` commits it reverts — together they form
+a self-contained "attempted and rolled back" group that does not count
+toward any `[x]` step's expected commits.
