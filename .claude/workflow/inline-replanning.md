@@ -51,6 +51,48 @@ specific file on disk depending on the track's current status. See
 [§Updating plan and backlog](#updating-plan-and-backlog) below for the
 authoritative rule per case.
 
+**Design coherence.** When the revision invalidates a Decision
+Record's `**Full design**` link, adds a new design section, or
+renames an existing one, the design changes go through the
+mutation discipline defined in
+[`design-document-rules.md`](design-document-rules.md) § Mutation
+discipline — one atomic action that bundles `(apply edit →
+auto-review → bounded iterate → present)`. Do not directly Edit
+`design.md` mid-replan; invoke the mutation action so the
+auto-review gate (mechanical checks + cold-read sub-agent) fires.
+The structural review in step 4 below validates the plan; the
+design's own narrative quality is owned by the mutation action.
+
+**Working/sync vs direct mutation.** Pick the mutation kind based
+on the size of the inline-replanning revision (see
+`design-document-rules.md` § Two-mode editing — working vs sync):
+
+- For a single targeted change (one bullet, one section rename,
+  one section add), use the direct mutation kinds — `content-edit`,
+  `section-add`, `section-rename`, etc. Full discipline runs in
+  one shot; the inline-replan completes in one mutation.
+- For a multi-section revision **on a design that already has a
+  `design-mechanics.md` companion**, follow the working/sync loop:
+  `mechanics-edit` rounds for the substantive changes, ending in a
+  `design-sync` to re-publish `design.md`. This keeps `design.md`
+  stable as a review reference while the agent works through the
+  multi-section revision. The working/sync loop is **only** valid
+  when `design-mechanics.md` exists at the time of the
+  inline-replan — `mechanics-edit` mutates that file, and there's
+  no equivalent on a design.md-only design.
+- For a multi-section revision **on a design.md-only design**
+  (no mechanics companion), either run a sequence of direct
+  mutations (`content-edit` / `section-add` / `section-rename` —
+  each one is its own atomic action with full discipline), or, if
+  the revision is large enough that the design genuinely now needs
+  long-form mechanism content, first run a `length-trigger-crossing`
+  to create the mechanics companion and then drop into the
+  working/sync loop.
+
+**Invocation:** use the `edit-design` skill
+([`.claude/skills/edit-design/SKILL.md`](../skills/edit-design/SKILL.md)),
+not direct `Edit` / `Write` calls.
+
 **4. Review** — spawn a sub-agent to validate the revised plan using the
 structural review protocol from Phase 2 (see `structural-review.md`).
 The invocation passes `plan_path` + `backlog_path` per the path-passing
