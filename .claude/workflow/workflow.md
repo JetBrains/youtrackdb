@@ -159,8 +159,10 @@ ESCALATE assessment. Strategy refresh + Phase A share a single session.
 
 ## Cross-Track Impact Monitoring
 
-After each step implementation, the agent performs a lightweight
-self-assessment against the plan. Triggered inside Phase B, not at startup.
+After each step implementation, the Phase B orchestrator performs a
+lightweight self-assessment against the plan, fed by the per-step
+implementer's `CROSS_TRACK_HINTS` return field. Triggered inside Phase B,
+not at startup.
 
 **Full protocol:** [`step-implementation.md`](step-implementation.md)
 §Cross-Track Impact Check.
@@ -190,11 +192,6 @@ exactly one phase:
   is interrupted before user approval, the next session re-enters Phase C
   at the track completion stage (all phases `[x]` in step file, track
   still `[ ]` in plan file).
-
-- **Mid-Phase B checkpoint** — if you've completed 5+ steps and the track
-  has more steps remaining, suggest ending the session. The step file with
-  episodes provides full continuity. The next session resumes Phase B from
-  the next incomplete step.
 
 - **After ESCALATE resolution** — if inline replanning produces a revised
   plan, end the session. The next session starts fresh with the revised plan.
@@ -365,3 +362,4 @@ On-demand reference documents (loaded only when their specific situation arises)
 - **`track-skip.md`** — full track skip protocol (when `[~]` is triggered)
 - **`review-agent-selection.md`** — characteristic-based review agent selection (loaded by step-implementation.md and track-code-review.md)
 - **`risk-tagging.md`** — per-step risk criteria and lifecycle (loaded by `track-review.md` during Phase A decomposition; loaded by `step-implementation.md` only on the rare Phase B upgrade path; **not** loaded by Phase B normal execution or by Phase C — those phases consume the per-step `**Risk:**` tag from the step file directly)
+- **`implementer-rules.md`** — Phase B per-step implementer sub-agent rulebook (loaded only by the implementer; orchestrators do not load it)

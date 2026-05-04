@@ -21,8 +21,12 @@ Recorded in the step file under the completed step item:
 
 ### Episode fields
 
-Episodes are produced by the **execution agent** (step implementation phase)
-after it commits the code changes and completes the code review cycle.
+Episodes are produced by the **Phase B orchestrator** from the
+implementer's `EPISODE_DRAFT` return field, merged with cross-track
+impact observations from sub-step 5. The implementer drafts the
+episode after committing the code changes; the orchestrator finalises
+and writes it after sub-step 4 (dimensional review for `risk: high`
+steps) and sub-step 5 (cross-track impact check) complete.
 
 | Field | Required | Purpose |
 |---|---|---|
@@ -38,8 +42,9 @@ after it commits the code changes and completes the code review cycle.
   found** — even if it didn't block the current step. Future sessions and
   track reviews depend on this field to adapt.
 - **"What changed from the plan" must name affected future steps** when the
-  deviation could impact them. The execution agent uses this to
-  adapt remaining steps within the track and across tracks.
+  deviation could impact them. The Phase B orchestrator (and later
+  Phase C track-level review) uses this to adapt remaining steps
+  within the track and across tracks.
 - Keep each field concise but complete. A reviewer should understand the
   full step outcome from the episode alone, without reading the diff.
 - Episodes are immutable once written. If later work reveals an episode
@@ -75,10 +80,15 @@ simply omitted — no need for "N/A" placeholders.
 
 When a step implementation phase cannot complete its work (tests won't pass,
 coverage can't be met, code reviewer finds fundamental issues, wrong API
-assumption), it signals failure. The execution agent reverts uncommitted
-changes and produces a failed episode.
+assumption), the implementer reverts uncommitted changes (`git reset --hard
+HEAD`) and returns `RESULT: FAILED` with a `FAILURE` block. The orchestrator
+writes the failed episode from `FAILURE` to the step file. If the failure
+arrived from a `mode=FIX_REVIEW_FINDINGS` respawn (post-commit), the
+orchestrator additionally runs the `Revert step:` rollback per
+[`step-implementation.md`](step-implementation.md) §Post-Commit Handlers
+before writing the episode.
 
-The execution agent then decides:
+The orchestrator then decides:
 - **Retry** with a different approach
 - **Split** the step into smaller pieces that can succeed independently
 - **Adjust** upcoming steps to work around the discovered constraint
@@ -106,7 +116,8 @@ impact. Reference to step file with counts.
 Proportional to cross-track impact. A track that went as planned and
 produced no surprises needs 1-2 sentences. A track that discovered
 architectural issues, changed assumptions, or deviated from the plan
-should include enough detail for the execution agent to assess
+should include enough detail for downstream sessions (Phase B in
+later tracks, Phase C track review, strategy refresh) to assess
 impact on remaining tracks without reading the step file. There is no
 hard line limit — clarity and completeness for downstream decision-making
 is the criterion.
