@@ -1322,13 +1322,16 @@ public enum GlobalConfiguration {
           + " fan-outs into the first edge's cost so that the planner sorts"
           + " competing branches by their full chain selectivity, not just"
           + " the single-hop leading edge. A linear-chain walk terminates"
-          + " naturally at branch points or visited nodes, so the default"
-          + " (Integer.MAX_VALUE) is bounded by pattern shape rather than"
-          + " by this knob. Set to 1 to restrict the fold to the immediate"
-          + " downstream vertex (legacy single-hop behaviour). Set to 0 to"
-          + " disable the fold entirely (rollback-only safety valve).",
+          + " naturally at branch points or visited nodes, so this knob is"
+          + " a defense-in-depth cap rather than the typical bound. The"
+          + " default (10) matches the planner's WHILE-depth default and"
+          + " covers all realistic LDBC SNB queries; raise it for unusually"
+          + " deep linear MATCH patterns. Set to 1 to restrict the fold to"
+          + " the immediate downstream vertex (legacy single-hop behaviour)."
+          + " Set to 0 to disable the fold entirely (rollback-only safety"
+          + " valve).",
       Integer.class,
-      Integer.MAX_VALUE,
+      10,
       true),
       ;
 

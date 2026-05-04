@@ -73,7 +73,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -1952,6 +1951,21 @@ public class MatchExecutionPlanner {
     Set<PatternNode> visitedNodes = new HashSet<>();
     Set<PatternEdge> visitedEdges = new HashSet<>();
 
+    // Read the chain-fold knob once at the top of plan construction. It is
+    // a hot-path setting consulted by every candidate edge in the sort loop;
+    // re-reading the volatile configuration field per edge would amortize
+    // an O(edges) configuration lookup over the planning phase, and any
+    // mid-plan reconfiguration would split the plan across two knob values.
+    int chainFoldMaxHops =
+        GlobalConfiguration.QUERY_MATCH_CHAIN_FOLD_MAX_HOPS.getValueAsInteger();
+    // Per-plan structural-detection cache for the chain fold: the answer is
+    // determined by the pattern graph plus the per-plan {@code aliasClasses}
+    // and session, all stable for the lifetime of one plan. The visited-edge
+    // check is dynamic and is performed at each call site separately, so the
+    // cache stores only the structural shape. {@code containsKey} disambiguates
+    // a known-not-chain ({@code null} value) from an uncached entry.
+    Map<PatternEdge, ChainedTarget> chainShapeCache = new HashMap<>();
+
     // Sort the possible root vertices in order of estimated size, since we want to start with a
     // small vertex set.
     List<PairLongObject<String>> rootWeights = new ArrayList<>();
@@ -2006,7 +2020,7 @@ public class MatchExecutionPlanner {
       updateScheduleStartingAt(
           startingNode, visitedNodes, visitedEdges, remainingDependencies,
           resultingSchedule, estimatedRootEntries, aliasClasses, aliasFilters,
-          session);
+          session, chainFoldMaxHops, chainShapeCache);
     }
 
     if (resultingSchedule.size() != pattern.numOfEdges) {
@@ -2039,7 +2053,9 @@ public class MatchExecutionPlanner {
       Map<String, Long> estimatedRootEntries,
       Map<String, String> aliasClasses,
       Map<String, SQLWhereClause> aliasFilters,
-      DatabaseSessionEmbedded session) {
+      DatabaseSessionEmbedded session,
+      int chainFoldMaxHops,
+      Map<PatternEdge, ChainedTarget> chainShapeCache) {
     // YouTrackDB requires the schedule to contain all edges present in the query, which is a stronger
     // condition
     // than simply visiting all nodes in the query. Consider the following example query:
@@ -2131,11 +2147,11 @@ public class MatchExecutionPlanner {
           // branches. Each fold call short-circuits to baseCost when its alias
           // has no filter/class/row-estimate, so adding more hops does not
           // double-count when those hops have no filter.
-          int maxHops = GlobalConfiguration.QUERY_MATCH_CHAIN_FOLD_MAX_HOPS.getValueAsInteger();
-          if (maxHops >= 1) {
+          if (chainFoldMaxHops >= 1) {
             cost = applyChainFold(
-                cost, entry.getKey(), neighbor, maxHops, visitedEdges,
-                aliasClasses, aliasFilters, estimatedRootEntries, session);
+                cost, entry.getKey(), neighbor, chainFoldMaxHops, visitedEdges,
+                aliasClasses, aliasFilters, estimatedRootEntries, session,
+                chainShapeCache);
           }
           cost = applyDepthMultiplier(cost, entry.getKey());
         }
@@ -2248,7 +2264,7 @@ public class MatchExecutionPlanner {
           updateScheduleStartingAt(
               neighboringNode, visitedNodes, visitedEdges, remainingDependencies,
               resultingSchedule, estimatedRootEntries, aliasClasses, aliasFilters,
-              session);
+              session, chainFoldMaxHops, chainShapeCache);
           progress = true;
         }
       }
@@ -2692,16 +2708,47 @@ public class MatchExecutionPlanner {
    *                       {@code null}, in which case the fallback returns
    *                       {@code null} for the class field
    * @return the downstream vertex descriptor when the chain signature
-   *         matches, otherwise {@link Optional#empty()}
+   *         matches, otherwise {@code null}
    */
-  static Optional<ChainedTarget> resolveChainedTarget(
+  @Nullable static ChainedTarget resolveChainedTarget(
       PatternEdge edge,
       PatternNode neighbor,
       Set<PatternEdge> visitedEdges,
       @Nullable Map<String, String> aliasClasses,
       @Nullable DatabaseSessionEmbedded session) {
+    var shape = detectChainShape(edge, neighbor, aliasClasses, session);
+    if (shape == null) {
+      return null;
+    }
+    // Visited-edge check is dynamic (DFS state); kept separate from
+    // {@link #detectChainShape} so the structural answer can be cached
+    // across plan iterations. {@code detectChainShape} already verified
+    // {@code neighbor.out.size() == 1}, so the iterator access is safe.
+    if (visitedEdges.contains(neighbor.out.iterator().next())) {
+      return null;
+    }
+    return shape;
+  }
+
+  /**
+   * Pure structural part of the chain-detection rule: applies all clauses
+   * of {@link #resolveChainedTarget} except the dynamic visited-edge check.
+   * The result depends only on the pattern graph and the per-plan
+   * {@code aliasClasses} / {@code session}, all stable for the lifetime of
+   * one plan, which makes it safe to cache by {@link PatternEdge} identity
+   * (see the {@code chainShapeCache} threaded through
+   * {@link #updateScheduleStartingAt}).
+   *
+   * <p>Callers that need the visited check (the sort loop, the multi-hop
+   * walk) apply it on top of this helper's result.
+   */
+  @Nullable private static ChainedTarget detectChainShape(
+      PatternEdge edge,
+      PatternNode neighbor,
+      @Nullable Map<String, String> aliasClasses,
+      @Nullable DatabaseSessionEmbedded session) {
     if (edge.item == null || edge.item.getMethod() == null) {
-      return Optional.empty();
+      return null;
     }
     var rawFirstName = edge.item.getMethod().getMethodNameString();
     // Sort-loop hot path: invoked on every candidate edge, including the very
@@ -2714,16 +2761,13 @@ public class MatchExecutionPlanner {
         || (!"outE".equalsIgnoreCase(rawFirstName)
             && !"inE".equalsIgnoreCase(rawFirstName)
             && !"bothE".equalsIgnoreCase(rawFirstName))) {
-      return Optional.empty();
+      return null;
     }
 
     if (neighbor.out.size() != 1 || neighbor.in.size() != 1) {
-      return Optional.empty();
+      return null;
     }
     var downstreamEdge = neighbor.out.iterator().next();
-    if (visitedEdges.contains(downstreamEdge)) {
-      return Optional.empty();
-    }
     // Defense-in-depth identity check. The size==1 guard above already
     // rejects the common fragment-join case (a user reusing {as: e} across
     // two MATCH fragments makes neighbor.in.size() >= 2). This check pins
@@ -2731,18 +2775,18 @@ public class MatchExecutionPlanner {
     // incoming edge that is not `edge` — which the DFS does not produce
     // today but may via future refactorings of pattern construction.
     if (neighbor.in.iterator().next() != edge) {
-      return Optional.empty();
+      return null;
     }
 
     if (downstreamEdge.item == null || downstreamEdge.item.getMethod() == null) {
-      return Optional.empty();
+      return null;
     }
     var rawSecondName = downstreamEdge.item.getMethod().getMethodNameString();
     if (rawSecondName == null
         || (!"inV".equalsIgnoreCase(rawSecondName)
             && !"outV".equalsIgnoreCase(rawSecondName)
             && !"bothV".equalsIgnoreCase(rawSecondName))) {
-      return Optional.empty();
+      return null;
     }
 
     // effectiveTargetAlias is the downstream vertex alias — NOT neighbor.alias,
@@ -2751,13 +2795,13 @@ public class MatchExecutionPlanner {
 
     // Class-inference precedence:
     //   1. aliasClasses.get(effectiveTargetAlias) — the normal path for
-    //      outE→inV / inE→outV because `addAliases` pre-populates via
-    //      `inferClassFromEdgeSchema` (MatchExecutionPlanner.java:4518). Also
-    //      the only path for bothE→bothV when the user wrote {class: ...}.
+    //      outE→inV / inE→outV because {@code addAliases} pre-populates via
+    //      {@code inferClassFromEdgeSchema}. Also the only path for
+    //      bothE→bothV when the user wrote {class: ...}.
     //   2. Defensive fallback for while-expression aliases skipped by
-    //      `addAliases` at the whileAliases filter (line 4495): derive from
-    //      the first edge's class name + direction. outE→inV uses the edge
-    //      class's `in` linked vertex class; inE→outV uses `out`;
+    //      {@code addAliases}'s whileAliases filter: derive from the first
+    //      edge's class name + direction. outE→inV uses the edge class's
+    //      {@code in} linked vertex class; inE→outV uses {@code out};
     //      bothE→bothV cannot infer (returns null).
     String effectiveTargetClass = aliasClasses != null
         ? aliasClasses.get(effectiveTargetAlias) : null;
@@ -2771,7 +2815,7 @@ public class MatchExecutionPlanner {
       effectiveTargetClass = linkedVertexClassForVertexStep(
           rawSecondName, extractEdgeClassName(edge.item.getMethod()), session);
     }
-    return Optional.of(new ChainedTarget(effectiveTargetAlias, effectiveTargetClass));
+    return new ChainedTarget(effectiveTargetAlias, effectiveTargetClass);
   }
 
   /**
@@ -2878,6 +2922,11 @@ public class MatchExecutionPlanner {
    * folded. Pre-condition: {@code maxHops >= 1}; the caller's gate excludes
    * {@code maxHops <= 0} (the rollback case).
    *
+   * <p>{@code chainShapeCache} memoizes the structural part of the chain
+   * detection per first-edge identity, so repeat sort-loop invocations of
+   * the same edge skip the lower-case method-name comparisons and the
+   * schema lookups. The dynamic visited-edge check is performed inline.
+   *
    * @return the cost adjusted for all detected chain hops up to
    *         {@code maxHops}; equals {@code baseCost} when no chain is
    *         detected
@@ -2888,19 +2937,26 @@ public class MatchExecutionPlanner {
       PatternNode firstNeighbor,
       int maxHops,
       Set<PatternEdge> visitedEdges,
-      Map<String, String> aliasClasses,
-      Map<String, SQLWhereClause> aliasFilters,
-      Map<String, Long> estimatedRootEntries,
-      DatabaseSessionEmbedded session) {
-    var firstHop = resolveChainedTarget(
-        firstEdge, firstNeighbor, visitedEdges, aliasClasses, session);
-    if (firstHop.isEmpty()) {
+      @Nullable Map<String, String> aliasClasses,
+      @Nullable Map<String, SQLWhereClause> aliasFilters,
+      @Nullable Map<String, Long> estimatedRootEntries,
+      @Nullable DatabaseSessionEmbedded session,
+      Map<PatternEdge, ChainedTarget> chainShapeCache) {
+    var firstHop = lookupOrDetectChainShape(
+        firstEdge, firstNeighbor, aliasClasses, session, chainShapeCache);
+    if (firstHop == null) {
+      return baseCost;
+    }
+    // Visited-edge check is dynamic and intentionally not cached: a chain
+    // whose downstream edge is already scheduled would double-count its
+    // selectivity through the cached structural answer.
+    if (visitedEdges.contains(firstNeighbor.out.iterator().next())) {
       return baseCost;
     }
     double cost = applyTargetSelectivity(
         baseCost,
-        firstHop.get().effectiveTargetAlias(),
-        firstHop.get().effectiveTargetClass(),
+        firstHop.effectiveTargetAlias(),
+        firstHop.effectiveTargetClass(),
         aliasFilters,
         estimatedRootEntries,
         session);
@@ -2915,13 +2971,14 @@ public class MatchExecutionPlanner {
         firstNeighbor.out.iterator().next().in;
     var extraHops = walkLinearChainExtension(
         firstDownstreamVertex,
-        firstHop.get().effectiveTargetClass(),
+        firstHop.effectiveTargetClass(),
         maxHops - 1,
         visitedEdges,
         firstEdge,
         firstNeighbor,
         aliasClasses,
-        session);
+        session,
+        chainShapeCache);
     for (var hop : extraHops) {
       cost *= estimateMethodFanOut(
           hop.edgeStep().item.getMethod(),
@@ -2984,8 +3041,16 @@ public class MatchExecutionPlanner {
       PatternEdge firstHopEdge,
       PatternNode firstHopNeighbor,
       @Nullable Map<String, String> aliasClasses,
-      @Nullable DatabaseSessionEmbedded session) {
+      @Nullable DatabaseSessionEmbedded session,
+      Map<PatternEdge, ChainedTarget> chainShapeCache) {
     if (remainingHops <= 0) {
+      return List.of();
+    }
+    // Fast-path: terminal vertices and branch points cannot extend the
+    // chain. Bail out before allocating the localVisited HashSet — the
+    // common case in pattern graphs whose tail vertex has no outgoing
+    // edges or fans out to multiple neighbors.
+    if (currentVertex.out.size() != 1) {
       return List.of();
     }
     var hops = new ArrayList<ChainHop>();
@@ -3006,12 +3071,19 @@ public class MatchExecutionPlanner {
         break;
       }
       var nextIntermediate = nextEdgeStep.in;
-      var nextSubChain = resolveChainedTarget(
-          nextEdgeStep, nextIntermediate, localVisited, aliasClasses, session);
-      if (nextSubChain.isEmpty()) {
+      // Reuse the structural-detection cache: identical pattern shape and
+      // class-resolution inputs across plan iterations. The visited-edge
+      // check uses the local set rather than the cached value.
+      var nextSubChain = lookupOrDetectChainShape(
+          nextEdgeStep, nextIntermediate, aliasClasses, session, chainShapeCache);
+      if (nextSubChain == null) {
         break;
       }
+      // detectChainShape verified nextIntermediate.out.size() == 1.
       var vertexStepEdge = nextIntermediate.out.iterator().next();
+      if (localVisited.contains(vertexStepEdge)) {
+        break;
+      }
       localVisited.add(nextEdgeStep);
       localVisited.add(vertexStepEdge);
 
@@ -3019,13 +3091,33 @@ public class MatchExecutionPlanner {
           nextEdgeStep,
           sourceClass,
           nextIntermediate.alias,
-          nextSubChain.get().effectiveTargetAlias(),
-          nextSubChain.get().effectiveTargetClass()));
+          nextSubChain.effectiveTargetAlias(),
+          nextSubChain.effectiveTargetClass()));
 
       currentVertex = vertexStepEdge.in;
-      sourceClass = nextSubChain.get().effectiveTargetClass();
+      sourceClass = nextSubChain.effectiveTargetClass();
     }
     return hops;
+  }
+
+  /**
+   * Cache-aware wrapper around {@link #detectChainShape}. {@code computeIfAbsent}
+   * cannot be used here because we want to memoize {@code null} results
+   * (known-not-chain edges) too; the {@code containsKey}/{@code put} pair
+   * disambiguates a missing entry from a cached negative.
+   */
+  @Nullable private static ChainedTarget lookupOrDetectChainShape(
+      PatternEdge edge,
+      PatternNode neighbor,
+      @Nullable Map<String, String> aliasClasses,
+      @Nullable DatabaseSessionEmbedded session,
+      Map<PatternEdge, ChainedTarget> chainShapeCache) {
+    if (chainShapeCache.containsKey(edge)) {
+      return chainShapeCache.get(edge);
+    }
+    var shape = detectChainShape(edge, neighbor, aliasClasses, session);
+    chainShapeCache.put(edge, shape);
+    return shape;
   }
 
   /**
