@@ -198,7 +198,7 @@ location) lives in the description-lifecycle table in
 | `[ ]` | Not started | Tracks, Phase 4 |
 | `[>]` | In progress | Phase 4 |
 | `[x]` | Completed | Tracks, Phase 4 |
-| `[~]` | Skipped | Tracks only (recommended by track review or execution agent) |
+| `[~]` | Skipped | Tracks only (recommended by track review or the orchestrator) |
 
 ### Scope indicators (required)
 

@@ -578,13 +578,21 @@ The post-commit handlers all share a common rollback step:
 ```bash
 # step_base_commit was captured at spawn time
 git revert -n {step_base_commit}..HEAD
-git commit -m "Revert step: <step description>
+git commit -m "$(cat <<'EOF'
+Revert step: <step description>
 
 reason: <slug>
 
 <one-sentence prose explanation, drawn from
-fix_result.{FAILURE|DESIGN_DECISION|RISK_UPGRADE}>"
+fix_result.{FAILURE|DESIGN_DECISION|RISK_UPGRADE}>
+EOF
+)"
 ```
+
+The HEREDOC form is required for any commit message containing a blank
+line — `git commit -m "…"` with literal embedded newlines is fragile
+across shells. This matches the project commit-message convention in
+the repo's user-global `CLAUDE.md` ("Committing changes with git").
 
 **Body format (load-bearing for Phase B Resume).** The first
 non-empty line of the body MUST be `reason: <slug>` where `<slug>`
@@ -633,16 +641,21 @@ mechanical fix can address. `fix_result.FAILURE` carries
 `what_was_attempted`, `why_it_failed`, `impact_on_remaining_steps`,
 and `recommended_action`.
 
-1. **Write the failed episode** to the step file from
+1. **Run the rollback** (revert + `Revert step:` commit) per the
+   common procedure above. The revert lands **before** any step-file
+   write so that the only crash-recoverable state is "Revert at tip
+   with step still `[ ]`" — Phase B Resume's Detection step 2
+   handles that exact state via the `failed-review-fix` slug branch
+   (which already covers "if no `[!]` entry exists, write it now").
+   Reversing this order — writing `[!]` first — would leave a
+   window where prior commits sit unreverted at HEAD with the step
+   already marked `[!]`; Detection step 3 would then misattribute
+   those orphan commits to the next `[ ]` step.
+2. **Write the failed episode** to the step file from
    `fix_result.FAILURE` (mark the step `[!]`). The episode's
    `what_was_attempted` should describe both the original
    implementation and the review-fix attempt that failed; the
-   `why_it_failed` field captures the underlying reason. This write
-   precedes the revert so that if the session dies between the two,
-   Phase B Resume sees the `[!]` and the prior commits and can
-   complete the rollback.
-2. **Run the rollback** (revert + `Revert step:` commit) per the
-   common procedure above.
+   `why_it_failed` field captures the underlying reason.
 3. **Insert `[ ]` retry/split rows** per the existing protocol —
    see §Step Failure for the formats.
 4. **Update the Progress section's step count** to reflect the
