@@ -808,4 +808,98 @@ public class MatchEdgeMethodChainCostTest extends DbTestBase {
         broadPos < selectivePos);
     session.commit();
   }
+
+  /**
+   * Scenario 11 — user-named intermediate edge alias with its own WHERE on
+   * a SECOND hop of a multi-hop chain. The fold must propagate that filter
+   * into the first edge's cost. Pins the contract that the second-hop
+   * intermediate alias's class is supplied (via {@code extractEdgeClassName}
+   * on its {@code outE} step) so {@code applyTargetSelectivity} can apply
+   * the user's WHERE — without that class, the call would short-circuit
+   * and the {@code as: e2, where: weight = 1} filter would be invisible to
+   * the cost model.
+   *
+   * <p>Both branches share identical first-hop and identical downstream
+   * vertex (no WHERE there). Selectivity difference lives ONLY in the
+   * second-hop intermediate edge alias's WHERE on the {@code weight}
+   * property. Without intermediate-alias class inference, both branches
+   * would tie on cost; with it, the selective branch sorts first.
+   */
+  @Test
+  public void testMultiHopIntermediateEdgeAliasFilterFoldsIntoCost() {
+    session.execute("CREATE class CC11Person extends V").close();
+    session.execute("CREATE property CC11Person.name STRING").close();
+
+    session.execute("CREATE class CC11Post extends V").close();
+    session.execute("CREATE property CC11Post.title STRING").close();
+
+    session.execute("CREATE class CC11Tag extends V").close();
+    session.execute("CREATE property CC11Tag.name STRING").close();
+
+    session.execute("CREATE class CC11Wrote extends E").close();
+    session.execute("CREATE property CC11Wrote.out LINK CC11Person").close();
+    session.execute("CREATE property CC11Wrote.in LINK CC11Post").close();
+
+    session.execute("CREATE class CC11HasTag extends E").close();
+    session.execute("CREATE property CC11HasTag.out LINK CC11Post").close();
+    session.execute("CREATE property CC11HasTag.in LINK CC11Tag").close();
+    session.execute("CREATE property CC11HasTag.weight INTEGER").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX CC11Tag set name = 'tag'").close();
+    for (int i = 0; i < 3; i++) {
+      session.execute("CREATE VERTEX CC11Person set name = 'p" + i + "'").close();
+      session.execute("CREATE VERTEX CC11Post set title = 'post" + i + "'").close();
+      session.execute(
+          "CREATE EDGE CC11Wrote FROM"
+              + " (SELECT FROM CC11Person WHERE name = 'p" + i + "')"
+              + " TO (SELECT FROM CC11Post WHERE title = 'post" + i + "')")
+          .close();
+      // 1 selective edge (weight=1) + 5 broad edges (weight=10..14)
+      session.execute(
+          "CREATE EDGE CC11HasTag FROM"
+              + " (SELECT FROM CC11Post WHERE title = 'post" + i + "')"
+              + " TO (SELECT FROM CC11Tag WHERE name = 'tag')"
+              + " SET weight = 1")
+          .close();
+      for (int w = 10; w < 15; w++) {
+        session.execute(
+            "CREATE EDGE CC11HasTag FROM"
+                + " (SELECT FROM CC11Post WHERE title = 'post" + i + "')"
+                + " TO (SELECT FROM CC11Tag WHERE name = 'tag')"
+                + " SET weight = " + w)
+            .close();
+      }
+    }
+    session.commit();
+
+    // Two two-hop chains. Diff is on the SECOND-hop intermediate edge alias's
+    // weight filter. Insertion order: broad first.
+    var query =
+        "MATCH {class: CC11Person, as: person}"
+            + ".outE('CC11Wrote').inV()"
+            + ".outE('CC11HasTag'){as: eBroad, where: (weight >= 10)}"
+            + ".inV(){as: broadTag},"
+            + " {as: person}"
+            + ".outE('CC11Wrote').inV()"
+            + ".outE('CC11HasTag'){as: eSelective, where: (weight = 1)}"
+            + ".inV(){as: selectiveTag}"
+            + " RETURN person.name, broadTag.name, selectiveTag.name";
+
+    session.begin();
+    var explainResult = session.query("EXPLAIN " + query).toList();
+    String plan = explainResult.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    int selectivePos = plan.indexOf("{selectiveTag}");
+    int broadPos = plan.indexOf("{broadTag}");
+    assertTrue("selectiveTag missing from plan:\n" + plan, selectivePos >= 0);
+    assertTrue("broadTag missing from plan:\n" + plan, broadPos >= 0);
+    assertTrue(
+        "Multi-hop fold must apply the user-named intermediate edge"
+            + " alias's WHERE on hop 2 — without extractEdgeClassName, the"
+            + " applyTargetSelectivity call short-circuits on null class"
+            + " and the weight filter never propagates. Plan was:\n" + plan,
+        selectivePos < broadPos);
+    session.commit();
+  }
 }
