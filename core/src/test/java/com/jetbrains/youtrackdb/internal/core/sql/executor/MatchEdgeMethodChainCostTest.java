@@ -4,9 +4,12 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import java.util.HashSet;
 import java.util.Set;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 
 /**
@@ -40,6 +43,20 @@ import org.junit.Test;
  * MAX_VALUE input, the helper would short-circuit and preserve it.
  */
 public class MatchEdgeMethodChainCostTest extends DbTestBase {
+
+  private Object savedChainFoldMaxHops;
+
+  @Before
+  public void saveChainFoldDefault() {
+    savedChainFoldMaxHops =
+        GlobalConfiguration.QUERY_MATCH_CHAIN_FOLD_MAX_HOPS.getValue();
+  }
+
+  @After
+  public void restoreChainFoldDefault() {
+    GlobalConfiguration.QUERY_MATCH_CHAIN_FOLD_MAX_HOPS
+        .setValue(savedChainFoldMaxHops);
+  }
 
   /**
    * Scenario 1 — pure {@code outE.inV} chain with two branches of
@@ -607,6 +624,188 @@ public class MatchEdgeMethodChainCostTest extends DbTestBase {
     assertNotNull(plan);
     assertTrue("tag alias missing from plan:\n" + plan, plan.contains("{tag}"));
     assertTrue("post alias missing from plan:\n" + plan, plan.contains("{post}"));
+    session.commit();
+  }
+
+  /**
+   * Scenario 9 — multi-hop chain fold. Two competing two-hop chains from
+   * {@code post} share identical first-hop fan-out and identical
+   * intermediate vertices (no WHERE on intermediates). The selectivity
+   * difference lives ONLY on the FINAL vertex (2 hops away from
+   * {@code post}). Single-hop fold cannot see the final vertex's WHERE
+   * because it only looks one hop ahead — so the two branches would tie
+   * on cost and TimSort would preserve insertion order. Multi-hop fold
+   * must walk the full chain and sort the selective branch first.
+   *
+   * <p>Insertion order is broad-first, selective-second. With the
+   * multi-hop fold enabled (default), the selective branch must end up
+   * scheduled before the broad one — proving the walk reached the final
+   * vertex's WHERE through two consecutive (outE, inV) sub-chains.
+   */
+  @Test
+  public void testMultiHopChainFoldSchedulesSelectiveBranchFirst() {
+    session.execute("CREATE class CC9Person extends V").close();
+    session.execute("CREATE property CC9Person.name STRING").close();
+
+    session.execute("CREATE class CC9Post extends V").close();
+    session.execute("CREATE property CC9Post.title STRING").close();
+
+    session.execute("CREATE class CC9Tag extends V").close();
+    session.execute("CREATE property CC9Tag.name STRING").close();
+
+    session.execute("CREATE class CC9Wrote extends E").close();
+    session.execute("CREATE property CC9Wrote.out LINK CC9Person").close();
+    session.execute("CREATE property CC9Wrote.in LINK CC9Post").close();
+
+    session.execute("CREATE class CC9HasTag extends E").close();
+    session.execute("CREATE property CC9HasTag.out LINK CC9Post").close();
+    session.execute("CREATE property CC9HasTag.in LINK CC9Tag").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX CC9Tag set name = 'targetTag'").close();
+    for (int i = 0; i < 50; i++) {
+      session.execute("CREATE VERTEX CC9Tag set name = 'tag" + i + "'").close();
+    }
+    for (int i = 0; i < 5; i++) {
+      session.execute("CREATE VERTEX CC9Person set name = 'person" + i + "'").close();
+    }
+    for (int p = 0; p < 5; p++) {
+      for (int q = 0; q < 3; q++) {
+        var postTitle = "p" + p + "_post" + q;
+        session.execute(
+            "CREATE VERTEX CC9Post set title = '" + postTitle + "'").close();
+        session.execute(
+            "CREATE EDGE CC9Wrote FROM"
+                + " (SELECT FROM CC9Person WHERE name = 'person" + p + "')"
+                + " TO (SELECT FROM CC9Post WHERE title = '" + postTitle + "')")
+            .close();
+        session.execute(
+            "CREATE EDGE CC9HasTag FROM"
+                + " (SELECT FROM CC9Post WHERE title = '" + postTitle + "')"
+                + " TO (SELECT FROM CC9Tag WHERE name = 'targetTag')")
+            .close();
+        for (int t = 0; t < 5; t++) {
+          session.execute(
+              "CREATE EDGE CC9HasTag FROM"
+                  + " (SELECT FROM CC9Post WHERE title = '" + postTitle + "')"
+                  + " TO (SELECT FROM CC9Tag WHERE name = 'tag" + t + "')")
+              .close();
+        }
+      }
+    }
+    session.commit();
+
+    // Two two-hop chains from {person}. WHERE differs only at the FINAL
+    // vertex (tag), 2 hops from person. Insertion order: broad first.
+    var query =
+        "MATCH {class: CC9Person, as: person}"
+            + ".outE('CC9Wrote').inV().outE('CC9HasTag').inV(){as: broadTag,"
+            + "  where: (name <> 'targetTag')},"
+            + " {as: person}"
+            + ".outE('CC9Wrote').inV().outE('CC9HasTag').inV(){as: selectiveTag,"
+            + "  where: (name = 'targetTag')}"
+            + " RETURN person.name, broadTag.name, selectiveTag.name";
+
+    session.begin();
+    var explainResult = session.query("EXPLAIN " + query).toList();
+    String plan = explainResult.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    int selectivePos = plan.indexOf("{selectiveTag}");
+    int broadPos = plan.indexOf("{broadTag}");
+    assertTrue("selectiveTag missing from plan:\n" + plan, selectivePos >= 0);
+    assertTrue("broadTag missing from plan:\n" + plan, broadPos >= 0);
+    assertTrue(
+        "Multi-hop fold should propagate the final vertex's WHERE back to"
+            + " the first edge's cost, so selectiveTag (2 hops away) sorts"
+            + " before broadTag despite insertion order. Plan was:\n" + plan,
+        selectivePos < broadPos);
+    session.commit();
+  }
+
+  /**
+   * Scenario 10 — knob {@code QUERY_MATCH_CHAIN_FOLD_MAX_HOPS = 1}
+   * downgrades the fold to legacy single-hop behaviour. Same query as
+   * scenario 9 (selectivity hidden 2 hops in), but with the knob set to
+   * 1 the fold cannot reach the final vertex. Both branches end up with
+   * identical first-hop costs, TimSort preserves insertion order, and
+   * the broad branch (inserted first) sorts before the selective branch.
+   *
+   * <p>Pins the rollback semantics of the knob — operators can downgrade
+   * to single-hop in production without code change if multi-hop ever
+   * causes a regression.
+   */
+  @Test
+  public void testMultiHopFoldDisabledByMaxHopsKnob() {
+    session.execute("CREATE class CC10Person extends V").close();
+    session.execute("CREATE property CC10Person.name STRING").close();
+
+    session.execute("CREATE class CC10Post extends V").close();
+    session.execute("CREATE property CC10Post.title STRING").close();
+
+    session.execute("CREATE class CC10Tag extends V").close();
+    session.execute("CREATE property CC10Tag.name STRING").close();
+
+    session.execute("CREATE class CC10Wrote extends E").close();
+    session.execute("CREATE property CC10Wrote.out LINK CC10Person").close();
+    session.execute("CREATE property CC10Wrote.in LINK CC10Post").close();
+
+    session.execute("CREATE class CC10HasTag extends E").close();
+    session.execute("CREATE property CC10HasTag.out LINK CC10Post").close();
+    session.execute("CREATE property CC10HasTag.in LINK CC10Tag").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX CC10Tag set name = 'targetTag'").close();
+    for (int i = 0; i < 50; i++) {
+      session.execute("CREATE VERTEX CC10Tag set name = 'tag" + i + "'").close();
+    }
+    for (int i = 0; i < 3; i++) {
+      session.execute("CREATE VERTEX CC10Person set name = 'p" + i + "'").close();
+      session.execute("CREATE VERTEX CC10Post set title = 'post" + i + "'").close();
+      session.execute(
+          "CREATE EDGE CC10Wrote FROM"
+              + " (SELECT FROM CC10Person WHERE name = 'p" + i + "')"
+              + " TO (SELECT FROM CC10Post WHERE title = 'post" + i + "')")
+          .close();
+      session.execute(
+          "CREATE EDGE CC10HasTag FROM"
+              + " (SELECT FROM CC10Post WHERE title = 'post" + i + "')"
+              + " TO (SELECT FROM CC10Tag WHERE name = 'targetTag')")
+          .close();
+      for (int j = 0; j < 5; j++) {
+        session.execute(
+            "CREATE EDGE CC10HasTag FROM"
+                + " (SELECT FROM CC10Post WHERE title = 'post" + i + "')"
+                + " TO (SELECT FROM CC10Tag WHERE name = 'tag" + j + "')")
+            .close();
+      }
+    }
+    session.commit();
+
+    // Downgrade to single-hop fold via knob
+    GlobalConfiguration.QUERY_MATCH_CHAIN_FOLD_MAX_HOPS.setValue(1);
+
+    var query =
+        "MATCH {class: CC10Person, as: person}"
+            + ".outE('CC10Wrote').inV().outE('CC10HasTag').inV(){as: broadTag,"
+            + "  where: (name <> 'targetTag')},"
+            + " {as: person}"
+            + ".outE('CC10Wrote').inV().outE('CC10HasTag').inV(){as: selectiveTag,"
+            + "  where: (name = 'targetTag')}"
+            + " RETURN person.name, broadTag.name, selectiveTag.name";
+
+    session.begin();
+    var explainResult = session.query("EXPLAIN " + query).toList();
+    String plan = explainResult.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    int selectivePos = plan.indexOf("{selectiveTag}");
+    int broadPos = plan.indexOf("{broadTag}");
+    assertTrue("selectiveTag missing from plan:\n" + plan, selectivePos >= 0);
+    assertTrue("broadTag missing from plan:\n" + plan, broadPos >= 0);
+    assertTrue(
+        "With maxHops=1 the fold cannot see the final vertex's WHERE,"
+            + " so both branches tie and TimSort preserves insertion"
+            + " order (broad first). Plan was:\n" + plan,
+        broadPos < selectivePos);
     session.commit();
   }
 }
