@@ -418,7 +418,7 @@ public class MatchEdgeMethodChainCostTest extends DbTestBase {
   /**
    * Scenario 5 — user-named intermediate edge alias with its own WHERE.
    * Pattern: {@code .outE('X'){as: e, where: weight > 5}.inV(){where: ...}}.
-   * The intermediate's filter is applied by the existing 8-arg
+   * The intermediate's filter is applied by the existing
    * {@code applyTargetSelectivity} call on alias {@code e}; the chain
    * fold then multiplies the downstream vertex's selectivity on top.
    * This exercises Design Record D3's independence-multiplication.
@@ -920,6 +920,129 @@ public class MatchEdgeMethodChainCostTest extends DbTestBase {
             + " applyTargetSelectivity call short-circuits on null class"
             + " and the weight filter never propagates. Plan was:\n" + plan,
         selectivePos < broadPos);
+    session.commit();
+  }
+
+  /**
+   * Scenario 11 — pathological knob values must not break the planner.
+   * Pins the {@code MAX_CHAIN_FOLD_HOPS} clamp applied when the knob is
+   * read in {@code getTopologicalSortedSchedule}: a misconfigured knob of
+   * {@code Integer.MAX_VALUE} would otherwise overflow the walk's
+   * bookkeeping arithmetic ({@code 2 * remainingHops + 2} going negative)
+   * and cause the planner to throw or hang.
+   *
+   * <p>The test runs a normal multi-hop chain query with the knob set to
+   * extreme values: {@code Integer.MAX_VALUE} (overflow probe),
+   * {@code Integer.MIN_VALUE} (negative probe — clamped to 0, full
+   * rollback) and a large but in-range value (cap probe). The query must
+   * complete and return correct results in every case; ordering is checked
+   * for the {@code Integer.MAX_VALUE} case where the fold should still fire
+   * (clamped down to {@code MAX_CHAIN_FOLD_HOPS} but well above what this
+   * 2-hop pattern needs).
+   */
+  @Test
+  public void testExtremeKnobValuesDoNotBreakPlanner() {
+    session.execute("CREATE class CC12Person extends V").close();
+    session.execute("CREATE property CC12Person.name STRING").close();
+
+    session.execute("CREATE class CC12Post extends V").close();
+    session.execute("CREATE property CC12Post.title STRING").close();
+
+    session.execute("CREATE class CC12Tag extends V").close();
+    session.execute("CREATE property CC12Tag.name STRING").close();
+
+    session.execute("CREATE class CC12Wrote extends E").close();
+    session.execute("CREATE property CC12Wrote.out LINK CC12Person").close();
+    session.execute("CREATE property CC12Wrote.in LINK CC12Post").close();
+
+    session.execute("CREATE class CC12HasTag extends E").close();
+    session.execute("CREATE property CC12HasTag.out LINK CC12Post").close();
+    session.execute("CREATE property CC12HasTag.in LINK CC12Tag").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX CC12Tag set name = 'targetTag'").close();
+    for (int i = 0; i < 5; i++) {
+      session.execute("CREATE VERTEX CC12Tag set name = 'tag" + i + "'").close();
+    }
+    for (int i = 0; i < 2; i++) {
+      session.execute("CREATE VERTEX CC12Person set name = 'p" + i + "'").close();
+      session.execute("CREATE VERTEX CC12Post set title = 'post" + i + "'").close();
+      session.execute(
+          "CREATE EDGE CC12Wrote FROM"
+              + " (SELECT FROM CC12Person WHERE name = 'p" + i + "')"
+              + " TO (SELECT FROM CC12Post WHERE title = 'post" + i + "')")
+          .close();
+      session.execute(
+          "CREATE EDGE CC12HasTag FROM"
+              + " (SELECT FROM CC12Post WHERE title = 'post" + i + "')"
+              + " TO (SELECT FROM CC12Tag WHERE name = 'targetTag')")
+          .close();
+      for (int j = 0; j < 3; j++) {
+        session.execute(
+            "CREATE EDGE CC12HasTag FROM"
+                + " (SELECT FROM CC12Post WHERE title = 'post" + i + "')"
+                + " TO (SELECT FROM CC12Tag WHERE name = 'tag" + j + "')")
+            .close();
+      }
+    }
+    session.commit();
+
+    var query =
+        "MATCH {class: CC12Person, as: person}"
+            + ".outE('CC12Wrote').inV().outE('CC12HasTag').inV(){as: broadTag,"
+            + "  where: (name <> 'targetTag')},"
+            + " {as: person}"
+            + ".outE('CC12Wrote').inV().outE('CC12HasTag').inV(){as: selectiveTag,"
+            + "  where: (name = 'targetTag')}"
+            + " RETURN person.name, broadTag.name, selectiveTag.name";
+
+    // Probe 1: Integer.MAX_VALUE — overflow surface for any
+    // arithmetic on remainingHops. Clamp must keep the planner alive
+    // and the fold should still fire (clamp value of 1000 ≫ this 2-hop
+    // chain's needs), so selective branch sorts first.
+    GlobalConfiguration.QUERY_MATCH_CHAIN_FOLD_MAX_HOPS.setValue(Integer.MAX_VALUE);
+    session.begin();
+    var resultMax = session.query(query).toList();
+    assertEquals(2 * 3, resultMax.size());
+    var explainMax = session.query("EXPLAIN " + query).toList();
+    String planMax = explainMax.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(planMax);
+    int selectivePosMax = aliasStepPosition(planMax, "selectiveTag");
+    int broadPosMax = aliasStepPosition(planMax, "broadTag");
+    assertTrue(planMax, selectivePosMax >= 0 && broadPosMax >= 0);
+    assertTrue(
+        "Integer.MAX_VALUE knob must be clamped to a sane upper bound; the"
+            + " fold must still fire and order selective before broad. Plan was:\n"
+            + planMax,
+        selectivePosMax < broadPosMax);
+    session.commit();
+
+    // Probe 2: Integer.MIN_VALUE — clamps to 0 (full rollback). Query
+    // must run; ordering reverts to insertion order (broad first).
+    GlobalConfiguration.QUERY_MATCH_CHAIN_FOLD_MAX_HOPS.setValue(Integer.MIN_VALUE);
+    session.begin();
+    var resultMin = session.query(query).toList();
+    assertEquals(2 * 3, resultMin.size());
+    session.commit();
+
+    // Probe 3: a large in-range value — exercises the clamp's ceiling
+    // path (input <= MAX_CHAIN_FOLD_HOPS, no clamping needed). Same
+    // semantics as default knob; selective branch first.
+    GlobalConfiguration.QUERY_MATCH_CHAIN_FOLD_MAX_HOPS.setValue(500);
+    session.begin();
+    var resultLarge = session.query(query).toList();
+    assertEquals(2 * 3, resultLarge.size());
+    var explainLarge = session.query("EXPLAIN " + query).toList();
+    String planLarge =
+        explainLarge.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(planLarge);
+    int selectivePosLarge = aliasStepPosition(planLarge, "selectiveTag");
+    int broadPosLarge = aliasStepPosition(planLarge, "broadTag");
+    assertTrue(planLarge, selectivePosLarge >= 0 && broadPosLarge >= 0);
+    assertTrue(
+        "Large but in-range knob (500) must not be clamped down and the"
+            + " fold should fire normally. Plan was:\n" + planLarge,
+        selectivePosLarge < broadPosLarge);
     session.commit();
   }
 }
