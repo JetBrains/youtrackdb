@@ -2710,13 +2710,17 @@ public class MatchExecutionPlanner {
     if (edge.item == null || edge.item.getMethod() == null) {
       return Optional.empty();
     }
-    var firstName = edge.item.getMethod().getMethodNameString();
-    if (firstName == null) {
-      return Optional.empty();
-    }
-    firstName = firstName.toLowerCase(Locale.ENGLISH);
-    if (!"oute".equals(firstName) && !"ine".equals(firstName)
-        && !"bothe".equals(firstName)) {
+    var rawFirstName = edge.item.getMethod().getMethodNameString();
+    // Sort-loop hot path: invoked on every candidate edge, including the very
+    // common single-step methods (.out / .in / .both). Reject those without
+    // allocating a lower-cased copy — String.equalsIgnoreCase short-circuits
+    // on length mismatch, so .out (len 3) vs .outE (len 4) bails out before
+    // any character comparison. Only on a positive match do we cache the
+    // lower-cased canonical form for `inferDownstreamVertexClassFromEdge`.
+    if (rawFirstName == null
+        || (!"outE".equalsIgnoreCase(rawFirstName)
+            && !"inE".equalsIgnoreCase(rawFirstName)
+            && !"bothE".equalsIgnoreCase(rawFirstName))) {
       return Optional.empty();
     }
 
@@ -2740,13 +2744,11 @@ public class MatchExecutionPlanner {
     if (downstreamEdge.item == null || downstreamEdge.item.getMethod() == null) {
       return Optional.empty();
     }
-    var secondName = downstreamEdge.item.getMethod().getMethodNameString();
-    if (secondName == null) {
-      return Optional.empty();
-    }
-    secondName = secondName.toLowerCase(Locale.ENGLISH);
-    if (!"inv".equals(secondName) && !"outv".equals(secondName)
-        && !"bothv".equals(secondName)) {
+    var rawSecondName = downstreamEdge.item.getMethod().getMethodNameString();
+    if (rawSecondName == null
+        || (!"inV".equalsIgnoreCase(rawSecondName)
+            && !"outV".equalsIgnoreCase(rawSecondName)
+            && !"bothV".equalsIgnoreCase(rawSecondName))) {
       return Optional.empty();
     }
 
@@ -2767,6 +2769,10 @@ public class MatchExecutionPlanner {
     String effectiveTargetClass = aliasClasses != null
         ? aliasClasses.get(effectiveTargetAlias) : null;
     if (effectiveTargetClass == null) {
+      // Lazy: lower-case only on the precedence-2 fallback path, since
+      // precedence-1 (addAliases-populated aliasClasses) covers the common
+      // production case and does not need the canonical form.
+      var firstName = rawFirstName.toLowerCase(Locale.ENGLISH);
       effectiveTargetClass = inferDownstreamVertexClassFromEdge(
           edge.item.getMethod(), firstName, session);
     }
