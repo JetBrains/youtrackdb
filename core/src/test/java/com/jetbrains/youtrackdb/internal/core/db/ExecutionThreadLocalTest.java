@@ -7,6 +7,8 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.thread.SoftThread;
+import org.junit.Assume;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
@@ -28,10 +30,22 @@ import org.junit.experimental.categories.Category;
 @Category(SequentialTest.class)
 public class ExecutionThreadLocalTest {
 
-  // Minimal SoftThread subclass for testing — never actually started, used
-  // only as a typed placeholder to drive the SoftThread branch of the
-  // dispatcher methods. Not final because two of the static-dispatcher tests
-  // anonymously subclass it to override run().
+  @Before
+  public void assumeInstanceInitialized() {
+    // ExecutionThreadLocal.INSTANCE is a static volatile that the engine-shutdown
+    // listener nullifies. Surefire's @Category(SequentialTest.class) keeps this class
+    // off the parallel runner, but worker reuse still means a previous test class
+    // could have triggered shutdown. Assume.assumeNotNull converts that situation
+    // into a documented skip rather than a confusing NPE in the static-dispatcher
+    // arms below.
+    Assume.assumeNotNull(ExecutionThreadLocal.INSTANCE);
+  }
+
+  // Minimal SoftThread subclass for testing — used as a typed placeholder to drive
+  // the SoftThread branch of the dispatcher methods. Most tests never call .start();
+  // the two static-dispatcher tests at the bottom of this class anonymously subclass
+  // this to override run() and DO start the thread to drive currentThread()-based
+  // dispatch.
   private static class TestSoftThread extends SoftThread {
 
     TestSoftThread(String name) {
@@ -40,12 +54,14 @@ public class ExecutionThreadLocalTest {
 
     @Override
     protected void execute() {
-      // unused — the test thread is never started
+      // unused — execute() is the SoftThread loop body; tests that .start() override
+      // run() instead so the dispatcher runs once and the thread terminates.
     }
   }
 
-  // Plain Thread (the fallback branch in the dispatcher methods). Like
-  // TestSoftThread, never started.
+  // Plain Thread (the fallback branch in the dispatcher methods). Never started —
+  // used only as a typed argument to setInterruptCurrentOperation(Thread) to pin
+  // the non-SoftThread arm.
   private static final class PlainTestThread extends Thread {
 
     PlainTestThread(String name) {
@@ -87,6 +103,17 @@ public class ExecutionThreadLocalTest {
         "Surefire worker is not a SoftThread; the fallback branch returns"
             + " false unconditionally",
         ExecutionThreadLocal.isInterruptCurrentOperation());
+  }
+
+  // setInterruptCurrentOperation(Thread) — null argument falls through the
+  // SoftThread instanceof check (instanceof on null is always false), so the
+  // dispatcher returns without throwing. Pinned as observed shape against a
+  // future refactor that might add an explicit null check.
+  @Test
+  public void instanceSetInterruptCurrentOperationOnNullIsNoOp() {
+    ExecutionThreadLocal.INSTANCE.setInterruptCurrentOperation(null);
+    // No assertion beyond no-throw — the contract IS the no-throw, since a
+    // null argument has no observable post-state.
   }
 
   // setInterruptCurrentOperation(Thread) — instance method on the

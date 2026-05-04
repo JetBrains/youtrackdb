@@ -24,6 +24,7 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.EmbeddedLinkBag;
 import java.util.HashSet;
@@ -371,7 +372,7 @@ public class EntityLinkSetImplTest extends DbTestBase {
   public void setDirtyDelegates() {
     session.begin();
     final var doc = (EntityImpl) session.newEntity();
-    final var rec = (com.jetbrains.youtrackdb.internal.core.record.RecordAbstract) doc;
+    final var rec = (RecordAbstract) doc;
     final var set = new EntityLinkSetImpl(doc);
     rec.unsetDirty();
     assertFalse(doc.isDirty());

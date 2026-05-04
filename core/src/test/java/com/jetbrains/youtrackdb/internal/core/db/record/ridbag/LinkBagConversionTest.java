@@ -24,6 +24,7 @@ import static org.junit.Assert.assertTrue;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
+import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedListImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
@@ -90,6 +91,26 @@ public class LinkBagConversionTest extends DbTestBase {
     assertTrue(bag.isToSerializeEmbedded());
     assertSame("embedded delegate must report INVALID pointer",
         LinkBagPointer.INVALID, bag.getPointer());
+  }
+
+  /**
+   * Boundary: {@code topThreshold == 0} keeps the embedded delegate. Pins the
+   * production predicate {@code embedded.size() >= topThreshold} (with init's threshold
+   * read as 0) against a future refactor that swaps to {@code > topThreshold}, which
+   * would silently divert this case to the b-tree branch. Distinct from the default-
+   * threshold test (40) which doesn't probe the equality boundary.
+   */
+  @Test
+  public void zeroThresholdYieldsEmbeddedDelegateAtBoundary() {
+    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(0);
+    final var sessionWithOverride = openDatabase();
+    try {
+      final var bag = new LinkBag(sessionWithOverride);
+      assertEquals(EmbeddedLinkBag.class, bag.getDelegate().getClass());
+      assertTrue(bag.isEmbedded());
+    } finally {
+      sessionWithOverride.close();
+    }
   }
 
   /**
@@ -239,8 +260,7 @@ public class LinkBagConversionTest extends DbTestBase {
   @Test
   public void setOwnerNonEntityRejected() {
     final var bag = new LinkBag(session);
-    final var fakeOwner =
-        new com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedListImpl<>(); // RecordElement, not Entity
+    final var fakeOwner = new EntityEmbeddedListImpl<>(); // RecordElement, not Entity
     final var ex = assertThrows(DatabaseException.class, () -> bag.setOwner(fakeOwner));
     assertTrue(ex.getMessage().contains("RidBag are supported only at entity root"));
   }

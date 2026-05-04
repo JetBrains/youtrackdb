@@ -58,6 +58,14 @@ public class CommandTimeoutCheckerTest implements SchedulerInternal {
     return t;
   }
 
+  /** Named-thread variant — used by tests that assert by thread name. */
+  private Thread spawn(Runnable body, String name) {
+    var t = new Thread(body, name);
+    spawnedWorkers.add(t);
+    t.start();
+    return t;
+  }
+
   @After
   public void clearInterrupt() {
     // Defensive: clears the interrupted flag if any test accidentally registers the
@@ -135,7 +143,7 @@ public class CommandTimeoutCheckerTest implements SchedulerInternal {
 
     var interrupted = new AtomicBoolean(false);
     var done = new CountDownLatch(1);
-    var worker = new Thread(() -> {
+    spawn(() -> {
       // Even though we register, the disabled checker must not interrupt this worker.
       disabled.startCommand(null);
       try {
@@ -146,7 +154,6 @@ public class CommandTimeoutCheckerTest implements SchedulerInternal {
       disabled.endCommand();
       done.countDown();
     });
-    worker.start();
 
     assertTrue("worker must finish on its own", done.await(2, TimeUnit.SECONDS));
     assertFalse("disabled checker must not interrupt the worker", interrupted.get());
@@ -193,7 +200,7 @@ public class CommandTimeoutCheckerTest implements SchedulerInternal {
     var checker = new CommandTimeoutChecker(200, this);
     var interrupted = new CountDownLatch(1);
 
-    var worker = new Thread(() -> {
+    spawn(() -> {
       // 1 ms explicit per-command timeout — should fire before the 200 ms default.
       checker.startCommand(1L);
       try {
@@ -203,7 +210,6 @@ public class CommandTimeoutCheckerTest implements SchedulerInternal {
       }
       checker.endCommand();
     });
-    worker.start();
 
     assertTrue("worker must be interrupted via the per-command timeout",
         interrupted.await(2, TimeUnit.SECONDS));
@@ -222,7 +228,7 @@ public class CommandTimeoutCheckerTest implements SchedulerInternal {
     var bystanderFinished = new CountDownLatch(1);
     var bystanderInterrupted = new AtomicBoolean(false);
 
-    var registered = new Thread(() -> {
+    spawn(() -> {
       checker.startCommand(null);
       try {
         Thread.sleep(2_000);
@@ -232,7 +238,7 @@ public class CommandTimeoutCheckerTest implements SchedulerInternal {
       checker.endCommand();
     }, "registered-worker");
 
-    var bystander = new Thread(() -> {
+    spawn(() -> {
       // Never calls startCommand — must not be interrupted.
       try {
         Thread.sleep(300);
@@ -241,9 +247,6 @@ public class CommandTimeoutCheckerTest implements SchedulerInternal {
       }
       bystanderFinished.countDown();
     }, "bystander");
-
-    registered.start();
-    bystander.start();
 
     assertTrue("registered worker must be interrupted on timeout",
         registeredInterrupted.await(2, TimeUnit.SECONDS));
@@ -266,7 +269,7 @@ public class CommandTimeoutCheckerTest implements SchedulerInternal {
     var phase2Interrupted = new AtomicBoolean(false);
     var done = new CountDownLatch(1);
 
-    var worker = new Thread(() -> {
+    spawn(() -> {
       checker.startCommand(null);
       // Phase 1: legitimate work, well under the timeout — endCommand cleans up.
       try {
@@ -285,7 +288,6 @@ public class CommandTimeoutCheckerTest implements SchedulerInternal {
       }
       done.countDown();
     });
-    worker.start();
 
     assertTrue(done.await(3, TimeUnit.SECONDS));
     assertFalse("post-endCommand sleep must not be interrupted",
@@ -307,7 +309,7 @@ public class CommandTimeoutCheckerTest implements SchedulerInternal {
     var secondInterrupted = new CountDownLatch(1);
     var done = new CountDownLatch(1);
 
-    var worker = new Thread(() -> {
+    spawn(() -> {
       // First registration — gets interrupted by the sweep.
       checker.startCommand(null);
       try {
@@ -330,7 +332,6 @@ public class CommandTimeoutCheckerTest implements SchedulerInternal {
       checker.endCommand();
       done.countDown();
     });
-    worker.start();
 
     assertTrue("first registration must be interrupted",
         firstInterrupted.await(2, TimeUnit.SECONDS));
@@ -338,6 +339,37 @@ public class CommandTimeoutCheckerTest implements SchedulerInternal {
         secondInterrupted.await(2, TimeUnit.SECONDS));
     assertTrue("worker must complete", done.await(3, TimeUnit.SECONDS));
 
+    checker.close();
+  }
+
+  /**
+   * Pins observed-shape behaviour when a per-command timeout of {@code Long.MAX_VALUE} is
+   * supplied: the production code stores {@code System.currentTimeMillis() + timeout}, which
+   * silently wraps to a large negative number. The next sweep then sees the deadline as
+   * already past and interrupts the worker immediately. This pin is observed-shape — a
+   * future correctness fix would clamp the addition before storing, in which case this
+   * worker would NOT be interrupted and the pin would fail.
+   */
+  // WHEN-FIXED: deferred-cleanup track — guard the deadline addition against overflow so a
+  // Long.MAX_VALUE per-command timeout means "effectively never" rather than "fire now".
+  @Test
+  public void perCommandTimeoutOfLongMaxValueOverflowsAndInterruptsImmediately()
+      throws InterruptedException {
+    var checker = new CommandTimeoutChecker(50, this);
+    var interrupted = new CountDownLatch(1);
+
+    spawn(() -> {
+      checker.startCommand(Long.MAX_VALUE);
+      try {
+        Thread.sleep(2_000);
+      } catch (InterruptedException e) {
+        interrupted.countDown();
+      }
+      checker.endCommand();
+    });
+
+    assertTrue("Long.MAX_VALUE timeout should overflow → immediate interrupt (observed shape)",
+        interrupted.await(2, TimeUnit.SECONDS));
     checker.close();
   }
 

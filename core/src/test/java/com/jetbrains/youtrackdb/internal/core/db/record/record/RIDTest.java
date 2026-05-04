@@ -133,6 +133,46 @@ public class RIDTest {
     assertEquals(-2, rid.getCollectionId());
   }
 
+  /**
+   * Boundary: combined-negative form {@code #-1:-1} — collectionId at -1 (within
+   * {@code [COLLECTION_MIN=-2, COLLECTION_MAX=32767]}) and position at -1 (the
+   * sentinel position retained as a {@link RecordId}, not coerced to a
+   * {@link ChangeableRecordId}). Pins both components carry their negative sentinels.
+   */
+  @Test
+  public void ofStringAcceptsCombinedNegativeSentinels() {
+    var rid = RID.of("#-1:-1");
+    assertEquals(RecordId.class, rid.getClass());
+    assertEquals(-1, rid.getCollectionId());
+    assertEquals(-1L, rid.getCollectionPosition());
+  }
+
+  /**
+   * Boundary: very large position values ({@code Long.MAX_VALUE}) parse without overflow.
+   * Falsifies a regression that swaps {@code Long.parseLong} for a narrower numeric type.
+   */
+  @Test
+  public void ofStringAcceptsLongMaxValuePosition() {
+    var rid = RID.of("#0:" + Long.MAX_VALUE);
+    assertEquals(0, rid.getCollectionId());
+    assertEquals(Long.MAX_VALUE, rid.getCollectionPosition());
+  }
+
+  /**
+   * Boundary: integer-overflow collectionId — values above {@code Integer.MAX_VALUE}
+   * are rejected before the COLLECTION_MAX check has a chance to run, since the
+   * collectionId field itself is a {@code short} ({@code COLLECTION_MAX = 32767}).
+   * Pins that {@link RID#of(String)} rejects {@code Integer.MAX_VALUE + 1L} (parses as
+   * a long that exceeds the short range) rather than silently truncating.
+   */
+  @Test
+  public void ofStringRejectsCollectionIdAboveIntegerMaxValue() {
+    final var overflow = "#" + (Integer.MAX_VALUE + 1L) + ":0";
+    // Either a parse-rejection or a range-rejection is acceptable; pin "rejected"
+    // not "silently accepted with truncation".
+    assertThrows(RuntimeException.class, () -> RID.of(overflow));
+  }
+
   // ---------- RID.of(String) — error paths ----------
 
   /** {@code null} → {@link ChangeableRecordId} default sentinel (no exception). */
