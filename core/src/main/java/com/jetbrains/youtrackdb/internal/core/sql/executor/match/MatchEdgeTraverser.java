@@ -510,21 +510,10 @@ public class MatchEdgeTraverser implements ExecutionStream {
    */
   boolean matchesClassCached(
       CommandContext context, String className, Result origin) {
-    if (className == null) {
-      return true;
-    }
-    if (origin == null) {
-      return false;
-    }
-
-    // Fast path: entity already materialised — reuse its cached schema class.
-    // This path cannot be memoised on collectionId alone because an already-
-    // loaded entity carries its exact class; we defer to the static path.
-    var identifiable = origin.asIdentifiableOrNull();
-    if (identifiable instanceof EntityImpl entity) {
-      var session = context.getDatabaseSession();
-      var clazz = entity.getImmutableSchemaClass(session);
-      return clazz != null && clazz.isSubClassOf(className);
+    var session = context.getDatabaseSession();
+    var fast = matchesClassFastPath(className, origin, session);
+    if (fast != null) {
+      return fast;
     }
 
     var rid = origin.getIdentity();
@@ -540,7 +529,6 @@ public class MatchEdgeTraverser implements ExecutionStream {
 
     // Resolve schema snapshot once per traverser.
     if (!schemaResolved) {
-      var session = context.getDatabaseSession();
       cachedSchema = session == null
           ? null
           : session.getMetadata().getImmutableSchemaSnapshot();
@@ -569,6 +557,48 @@ public class MatchEdgeTraverser implements ExecutionStream {
   }
 
   /**
+   * Shared fast-path arms for {@link #matchesClass} and
+   * {@link #matchesClassCached}: returns a definitive result for the three
+   * branches that have no memoization opportunity, or {@code null} when the
+   * caller must continue to the RID/schema-snapshot path.
+   *
+   * <ul>
+   *   <li>{@code Boolean.TRUE} when {@code className} is null (no constraint),
+   *   <li>{@code Boolean.FALSE} when {@code origin} is null,
+   *   <li>{@code Boolean.TRUE}/{@code FALSE} when {@code origin} is already
+   *       backed by a materialized {@link EntityImpl} — uses its cached
+   *       schema class, no I/O and no schema-snapshot lookup,
+   *   <li>{@code null} otherwise — caller proceeds with the RID-based path.
+   * </ul>
+   *
+   * <p>Extracted to keep these three arms in a single place; previously they
+   * were copy-pasted between the cached and uncached variants, leaving room
+   * for silent drift. The schema-snapshot arm is intentionally NOT shared
+   * because the cached variant memoizes it on {@code (className, collectionId)}
+   * while the static variant does not — that's the only behavioural difference
+   * between the two.
+   */
+  @Nullable private static Boolean matchesClassFastPath(
+      String className,
+      Result origin,
+      @Nullable DatabaseSessionEmbedded session) {
+    if (className == null) {
+      return Boolean.TRUE;
+    }
+    if (origin == null) {
+      return Boolean.FALSE;
+    }
+
+    var identifiable = origin.asIdentifiableOrNull();
+    if (identifiable instanceof EntityImpl entity) {
+      var clazz = entity.getImmutableSchemaClass(session);
+      return clazz != null && clazz.isSubClassOf(className);
+    }
+
+    return null;
+  }
+
+  /**
    * Checks whether the result's entity is an instance of (or subclass of) the given
    * class name. Returns `true` if no class constraint is specified.
    *
@@ -586,23 +616,10 @@ public class MatchEdgeTraverser implements ExecutionStream {
    */
   static boolean matchesClass(
       CommandContext context, String className, Result origin) {
-    if (className == null) {
-      return true;
-    }
-    if (origin == null) {
-      return false;
-    }
-
     var session = context.getDatabaseSession();
-
-    // Fast path: the result is already backed by a materialized EntityImpl
-    // (e.g. the caller already loaded it). Use its cached schema class;
-    // asIdentifiableOrNull() returns the underlying identifiable without
-    // triggering a load.
-    var identifiable = origin.asIdentifiableOrNull();
-    if (identifiable instanceof EntityImpl entity) {
-      var clazz = entity.getImmutableSchemaClass(session);
-      return clazz != null && clazz.isSubClassOf(className);
+    var fast = matchesClassFastPath(className, origin, session);
+    if (fast != null) {
+      return fast;
     }
 
     // Zero-I/O path: resolve the class from the RID's cluster ID via the
