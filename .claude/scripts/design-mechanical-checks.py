@@ -808,7 +808,12 @@ def parse_args() -> argparse.Namespace:
                          "design-mechanics.md) and scans the mechanics file for parenthetical "
                          "asides instead; cross-file link-resolution still runs. `both` runs the "
                          "design.md shape rules AND scans both files for parenthetical asides — "
-                         "use for phase1-creation and design-sync mutations that touch both files."))
+                         "use for phase1-creation, design-sync, length-trigger-crossing, and "
+                         "phase4-creation mutations that touch both files. (For phase4-creation, "
+                         "the --design-path and --design-mechanics-path point at the *-final.md "
+                         "variants; omit --plan-path and --backlog-path so the cross-file ref "
+                         "check is naturally skipped — Phase 4 produces a new artifact, not a "
+                         "modification of the original design.md.)"))
     return p.parse_args()
 
 

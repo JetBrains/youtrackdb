@@ -24,9 +24,9 @@ warning, or pass.
 - `mutation_kind` — one of `content-edit`, `section-add`,
   `section-remove`, `section-rename`, `section-move`,
   `structural-rewrite`, `length-trigger-crossing`,
-  `phase1-creation`, `design-sync`. (`mechanics-edit` does not
-  invoke this prompt — cold-read is deferred to the next
-  `design-sync`.)
+  `phase1-creation`, `design-sync`, `phase4-creation`.
+  (`mechanics-edit` does not invoke this prompt — cold-read is
+  deferred to the next `design-sync`.)
 - `plan_path` (optional) — absolute path to
   `implementation-plan.md`. Read **only** to verify
   `**Full design**` link resolution, never for context.
@@ -48,6 +48,23 @@ warning, or pass.
   the design.md TL;DR contradicts the mechanics, or names a
   mechanism that mechanics doesn't describe, flag it as a blocker
   — that's exactly what the sync was supposed to fix.
+- **`phase4-creation`**: `design-final.md` (and optionally
+  `design-mechanics-final.md`) was just produced as a Phase 4
+  committed artifact reflecting what was actually built. The paths
+  end in `-final.md` but the same shape rules apply. **Phase 4 is
+  committed to git**, so the bar is higher than Phase 1: the
+  artifact must stand on its own as documentation, with no
+  reliance on the working files (plan, backlog, tracks) since
+  those are deleted with the branch. **In addition to the standard
+  whole-doc cold-read**, verify (a) the doc opens with a
+  concept-first Overview that names what was built and any
+  high-level deviations from the original plan, (b) class /
+  workflow diagrams reflect actual implementation (the calling
+  prompt should have run a PSI verification pass — flag any
+  diagram element that looks aspirational rather than
+  implementation-grounded), and (c) no leaked working-file
+  identifiers (track numbers, step numbers, review-finding IDs)
+  remain in the prose.
 
 ## Reading rules
 

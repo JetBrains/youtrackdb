@@ -78,10 +78,13 @@ review gate.**
 The discipline applies to every situation that touches the
 design:
 
-- Initial creation in Phase 1
-- Interactive iteration during Phase 1 ("add a section about X")
-- Inline replanning during Phase 3 ESCALATE
-- Phase 4 production of `design-final.md`
+- Initial creation in Phase 1 (`phase1-creation`)
+- Interactive iteration during Phase 1 (`mechanics-edit`,
+  `design-sync`)
+- Inline replanning during Phase 3 ESCALATE (direct mutation
+  kinds — `content-edit`, `section-add`, etc.)
+- Phase 4 production of `design-final.md` /
+  `design-mechanics-final.md` (`phase4-creation`)
 
 The same gate fires every time. Without this discipline, the
 shape rules in the rest of this document are aspirational —
@@ -144,6 +147,7 @@ invokes the skill — not raw `Edit` / `Write`.
 | `section-move` | `design.md` | `design` | **Whole-doc** — verify the new placement makes sense in the reader journey |
 | `structural-rewrite` (multiple section adds/moves/renames) | `design.md` | `design` | **Whole-doc** |
 | `length-trigger-crossing` (file crosses the 2,000-line / 50,000-token trigger) | both files | `both` | **Whole-doc** — verify split into `design-mechanics.md` is correctly applied |
+| `phase4-creation` (Phase 4 production of `design-final.md` ± `design-mechanics-final.md`) | `design-final.md` + (optional) `design-mechanics-final.md` | `both` if mechanics-final exists, else `design` | **Whole-doc** on `design-final.md`. Plan/backlog ref propagation is **N/A** — Phase 4 produces a *new* committed artifact whose section structure may differ from the original `design.md`; the plan/backlog `**Full design**` refs continue to point at the original (frozen) `design.md`, not at the final variant. The skill omits `--plan-path` / `--backlog-path` so the cross-file ref check is naturally skipped. |
 
 **Periodic whole-doc check.** Every Nth design-touching mutation
 (default N=5, counted from the review log) triggers a whole-doc
@@ -719,9 +723,13 @@ that warrant dedicated sections:
     have a dedicated section. Omitting these is a structural review finding.
 15. **Frozen after Phase 1** — the original `design.md` (and
     `design-mechanics.md` if it exists) is never modified after
-    planning. Phase 4 produces `design-final.md` (actual design)
-    and `adr.md` (architecture decisions with actual outcomes) —
-    the only git-tracked workflow artifacts.
+    planning. Phase 4 produces `design-final.md` (actual design,
+    same shape rules) and `adr.md` (architecture decisions with
+    actual outcomes) — the only git-tracked workflow artifacts.
+    `design-final.md` goes through the mutation discipline via the
+    `phase4-creation` kind; if the original had a mechanics
+    companion, `design-mechanics-final.md` is created in the same
+    invocation under matching section names.
 
 ## Structure
 

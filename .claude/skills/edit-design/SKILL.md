@@ -11,9 +11,11 @@ bundles `(apply edit → auto-review → bounded iterate → present)` into one
 atomic action so the structural rules are self-enforcing.
 
 **You MUST use this skill — not raw `Edit`/`Write` — for every modification to
-`design.md` or `design-mechanics.md`.** That includes initial creation in
-Phase 1, interactive iteration ("add a section about X"), inline replanning
-during Phase 3 ESCALATE, and Phase 4 production of `design-final.md`.
+`design.md` / `design-mechanics.md` and for every Phase 4 creation of
+`design-final.md` / `design-mechanics-final.md`.** That includes initial
+creation in Phase 1 (`phase1-creation`), interactive iteration ("add a
+section about X"), inline replanning during Phase 3 ESCALATE, and Phase 4
+production of the final committed artifacts (`phase4-creation`).
 
 ## Two operational modes
 
@@ -28,6 +30,15 @@ the plan lifecycle:
   `content-edit`, `section-add`, `section-remove`, `section-rename`,
   `section-move`, `structural-rewrite`, `length-trigger-crossing`. Full
   discipline runs on every mutation.
+
+**Phase 4 special case.** Phase 4 produces `design-final.md` (and
+`design-mechanics-final.md` if the original had a mechanics companion).
+Use the `phase4-creation` kind — structurally similar to
+`phase1-creation` (one-shot creation of both files, full discipline) but
+targeting the `*-final.md` paths and skipping plan/backlog ref
+propagation (those refs point at the original `design.md`, not at the
+new final artifact). No follow-up `mechanics-edit` / `design-sync` cycle:
+Phase 4 is committed once.
 
 Full rationale, sub-phase diagram, and sync-trigger rules live in
 `design-document-rules.md § Two-mode editing — working vs sync`.
@@ -66,6 +77,7 @@ so the cold-read scope and check-set are correct; do not guess.
 | `section-move` | design.md | `design` | `whole-doc` |
 | `structural-rewrite` | design.md | `design` | `whole-doc` |
 | `length-trigger-crossing` | both files (split into design-mechanics) | `both` | `whole-doc` |
+| `phase4-creation` | `design-final.md` + (optional) `design-mechanics-final.md` | `both` if mechanics-final exists, else `design` | `whole-doc` on `design-final.md` (mechanics-final is exempt — agent-targeted long-form). Skip plan/backlog ref propagation: omit `--plan-path` / `--backlog-path` so the cross-file ref check is naturally skipped. |
 
 **Periodic whole-doc check.** Independent of mode: every Nth design-touching
 mutation (default `N=5`, counted from the review log) escalates the cold-read
@@ -90,6 +102,15 @@ will have Parts or ≥3 new domain terms), Class Design, Workflow, and
 TL;DR-shaped Part sections; seed `design-mechanics.md` with the long-form
 mechanism content that supports each design.md section. Section names match
 between the two files from the start.
+
+For `phase4-creation`: same as `phase1-creation` but the file paths are
+`design-final.md` and (optional) `design-mechanics-final.md`, and the
+content reflects what was *actually built* — not the planned design. The
+caller (`prompts/create-final-design.md`) is expected to have run the
+PSI-backed verification tables before invoking the skill, so each diagram
+element traces to a real code location. Do **not** pass `--plan-path` /
+`--backlog-path` (the cross-file ref check is naturally skipped — see the
+table above).
 
 For `design-sync`: see Step 1.5 below — sync has a distillation sub-step
 before the apply.

@@ -5,7 +5,11 @@ Read and follow the workflow for Phase 4 (Final Artifacts).
 Read these before doing anything else:
 1. `.claude/workflow/conventions.md` — shared formats, plan file structure
 2. `.claude/workflow/design-document-rules.md` — design document rules
+   (especially § Mutation discipline and the `phase4-creation` row in
+   the cold-read scope table)
 3. `.claude/workflow/workflow.md` — §Final Artifacts (Phase 4)
+4. `.claude/skills/edit-design/SKILL.md` — the orchestrator skill that
+   `design-final.md` creation routes through (see Step 3 below)
 
 **Step 2 — Read all workflow working files and the implemented code.**
 
@@ -91,36 +95,18 @@ Re-scan both artifacts before Step 4 (commit) with the grep in §2.3.
 
 ### Artifact 1: Final Design Document (`design-final.md`)
 
-Write `docs/adr/<dir-name>/design-final.md` reflecting the **actual
-implementation**. Same structure as `design.md` but based on real code:
+Produce `docs/adr/<dir-name>/design-final.md` reflecting the **actual
+implementation**. Same shape rules as the original `design.md` —
+concept-first Overview, Core Concepts vocabulary primer (when the doc
+has Parts or ≥3 new domain terms), Class Design, Workflow, per-section
+TL;DR + mechanism overview + edge cases + References footer. The
+canonical structure template lives in
+[`../design-document-rules.md`](../design-document-rules.md) §
+Structure; do **not** restate it here.
 
-```
-# <Feature Name> — Final Design
-
-## Overview
-<What was actually built. Note high-level deviations from the original plan.>
-
-## Class Design
-<Mermaid classDiagram(s) of actual classes/interfaces. Pair with prose.>
-
-## Workflow
-<Mermaid sequenceDiagram(s)/flowchart(s) of actual runtime behavior.
-Pair with prose.>
-
-## <Complex Topic>
-<How this was actually implemented, why it differs from the plan (if it does),
-gotchas discovered.>
-```
-
-Rules:
-- All diagrams must be Mermaid. Reflect reality, not the plan.
-- Pair every diagram with prose.
-- Keep diagrams focused (class ≤ ~12, sequence ≤ ~8 participants).
-- Complex parts (concurrency, crash recovery, performance paths) are mandatory.
-- Do NOT modify `design.md`.
-
-**Verification protocol:** Before writing each diagram, build a
-verification table to ensure the diagram reflects actual code:
+**Sub-step A — Verification protocol (before invoking the skill).**
+Build verification tables to ensure every diagram element traces to
+real code. PSI is required where reachable per the rule above.
 
 For class diagrams:
 ```
@@ -141,8 +127,49 @@ For workflow/sequence diagrams:
 
 Every element in the diagram must have a corresponding row. Do not
 include classes, methods, or flows that you have not verified exist in
-the current code. The tables do not appear in the final artifact — they
-are working notes that ensure accuracy.
+the current code. The tables do not appear in the final artifact —
+they are working notes that ensure accuracy.
+
+**Sub-step B — Invoke the edit-design skill.** With the verification
+tables in hand, route the artifact creation through the mutation
+discipline. Do **not** call `Write` / `Edit` directly on
+`design-final.md` — invoke
+[`.claude/skills/edit-design/SKILL.md`](../../skills/edit-design/SKILL.md)
+with:
+
+- `mutation_kind`: `phase4-creation`
+- `design_path`: `docs/adr/<dir-name>/design-final.md`
+- `design_mechanics_path`: `docs/adr/<dir-name>/design-mechanics-final.md`
+  if the original design had a mechanics companion (or if the final
+  content would cross the length trigger), else `null`
+- `target_file`: `both` when a mechanics-final companion exists, else
+  `design`
+- `plan_path` / `backlog_path`: **omit**. Phase 4 produces a new
+  committed artifact whose section structure may differ from the
+  original `design.md`; the plan/backlog `**Full design**` refs continue
+  to point at the (frozen) original. The cross-file ref check is
+  naturally skipped when these paths are absent.
+- `intended_edit`: full file content for both files. Section names match
+  between `design-final.md` and `design-mechanics-final.md` from the
+  start (same rule as Phase 1).
+
+The skill runs the standard atomic action — apply, mechanical checks
+(`--target=both` or `--target=design`), `whole-doc` cold-read on
+`design-final.md` via the design-review sub-agent, bounded iterate, and
+present diff + log entry. The cold-read for `phase4-creation` carries an
+extra check (per `prompts/design-review.md`): the artifact must stand on
+its own as committed documentation, with no leaked working-file
+identifiers (track / step / review-finding labels).
+
+Rules (these are enforced by the discipline; listed here for orientation):
+
+- All diagrams must be Mermaid. Reflect reality, not the plan.
+- Pair every diagram with prose.
+- Keep diagrams focused (class ≤ ~12 classes, sequence ≤ ~8 participants).
+- Complex parts (concurrency, crash recovery, performance paths) are
+  mandatory dedicated sections.
+- Do **NOT** modify the original `design.md` (and `design-mechanics.md`
+  if present) — those are frozen after Phase 1.
 
 ### Artifact 2: ADR (`adr.md`)
 
@@ -205,14 +232,21 @@ Rules:
 
 **Step 4 — Commit and complete.**
 
-Stage and commit both artifacts in a single commit:
+By this point the `edit-design` skill has already written
+`design-final.md` (and `design-mechanics-final.md` if applicable) to
+disk and presented the diff + review-log entry. `adr.md` was written
+directly. Stage and commit the final artifacts in a single commit:
 
 ```
 Add final workflow artifacts
 
 Post-implementation artifacts:
 - design-final.md: actual design reflecting implemented code
+- (optional) design-mechanics-final.md: long-form mechanism content
 - adr.md: architecture decision record with actual outcomes
 ```
+
+Do **not** stage `reviews/design-mutations.md` — it's an ephemeral
+working file (deleted with the branch).
 
 Inform the user that Phase 4 is complete and the workflow is done.
