@@ -4,6 +4,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -31,6 +33,7 @@ import org.junit.Test;
 public class CommandTimeoutCheckerTest implements SchedulerInternal {
 
   private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+  private final List<Thread> spawnedWorkers = new CopyOnWriteArrayList<>();
 
   @Override
   public ScheduledFuture<?> schedule(Runnable task, long delay, long period) {
@@ -42,6 +45,19 @@ public class CommandTimeoutCheckerTest implements SchedulerInternal {
     return scheduler.schedule(task, delay, TimeUnit.MILLISECONDS);
   }
 
+  /**
+   * Helper: start a worker thread tracked for {@code @After} cleanup. JUnit 4 instantiates
+   * a fresh test object per @Test, so without this discipline each test method would leak
+   * its spawned threads (and the per-instance {@link #scheduler}) into surefire JVM until
+   * process exit.
+   */
+  private Thread spawn(Runnable body) {
+    var t = new Thread(body);
+    spawnedWorkers.add(t);
+    t.start();
+    return t;
+  }
+
   @After
   public void clearInterrupt() {
     // Defensive: clears the interrupted flag if any test accidentally registers the
@@ -50,12 +66,26 @@ public class CommandTimeoutCheckerTest implements SchedulerInternal {
     Thread.interrupted();
   }
 
+  @After
+  public void joinSpawnedWorkersAndShutdownScheduler() throws InterruptedException {
+    // Join workers first so their final endCommand calls land before scheduler shutdown.
+    // Bounded join — a worker that is still sleeping at this point indicates a leaked
+    // spawn or a missing latch.countDown; the bound prevents the test class from hanging
+    // indefinitely.
+    for (var t : spawnedWorkers) {
+      t.join(2_000);
+    }
+    spawnedWorkers.clear();
+    scheduler.shutdownNow();
+    scheduler.awaitTermination(2, TimeUnit.SECONDS);
+  }
+
   @Test
   public void testTimeout() throws InterruptedException {
     var checker = new CommandTimeoutChecker(100, this);
     var latch = new CountDownLatch(10);
     for (var i = 0; i < 10; i++) {
-      new Thread(
+      spawn(
           () -> {
             checker.startCommand(null);
             try {
@@ -64,8 +94,7 @@ public class CommandTimeoutCheckerTest implements SchedulerInternal {
               latch.countDown();
             }
             checker.endCommand();
-          })
-          .start();
+          });
     }
 
     assertTrue(latch.await(2, TimeUnit.SECONDS));
@@ -77,7 +106,7 @@ public class CommandTimeoutCheckerTest implements SchedulerInternal {
     var checker = new CommandTimeoutChecker(1000, this);
     var latch = new CountDownLatch(10);
     for (var i = 0; i < 10; i++) {
-      new Thread(
+      spawn(
           () -> {
             checker.startCommand(null);
             try {
@@ -87,8 +116,7 @@ public class CommandTimeoutCheckerTest implements SchedulerInternal {
             }
             latch.countDown();
             checker.endCommand();
-          })
-          .start();
+          });
     }
 
     assertTrue(latch.await(2, TimeUnit.SECONDS));
@@ -128,13 +156,15 @@ public class CommandTimeoutCheckerTest implements SchedulerInternal {
   }
 
   @Test
-  public void disabledModeRejectsNegativeTimeoutSameAsZero() throws Exception {
+  public void disabledModeAcceptsNegativeTimeoutSameAsZero() throws Exception {
     // Negative timeouts behave identically to 0 — the if-> 0 branch goes false either way.
+    // The dispatcher silently accepts the negative value; "Accepts" (not "Rejects")
+    // matches the observed shape since no exception is thrown.
     var negative = new CommandTimeoutChecker(-1, this);
 
     var done = new CountDownLatch(1);
     var interrupted = new AtomicBoolean(false);
-    var worker = new Thread(() -> {
+    var worker = spawn(() -> {
       negative.startCommand(null);
       try {
         Thread.sleep(120);
@@ -144,7 +174,6 @@ public class CommandTimeoutCheckerTest implements SchedulerInternal {
       negative.endCommand();
       done.countDown();
     });
-    worker.start();
 
     assertTrue(done.await(2, TimeUnit.SECONDS));
     assertFalse("negative-timeout checker behaves as disabled", interrupted.get());
@@ -341,21 +370,25 @@ public class CommandTimeoutCheckerTest implements SchedulerInternal {
     var checker = new CommandTimeoutChecker(50, countingScheduler);
     assertEquals("ctor must register exactly one timer", 1, schedules.get());
 
-    // Allow the sweep to tick at least twice (50/10 = 5 ms period, very forgiving).
-    Thread.sleep(120);
+    // Poll for the first sweep tick instead of sleeping a fixed window. The fixed-delay
+    // period is 50/10 = 5 ms, but the executor's first thread can take ~50-100 ms on a
+    // contended runner, so the previous fixed Thread.sleep(120) was tight.
+    var deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+    while (sweeps.get() < 1 && System.nanoTime() < deadline) {
+      Thread.sleep(5);
+    }
     var sweepsBeforeClose = sweeps.get();
     assertTrue("sweep must have ticked at least once before close: " + sweepsBeforeClose,
         sweepsBeforeClose >= 1);
 
     checker.close();
 
-    // After close, the cancelled timer should produce no further sweeps.
+    // After close, the cancelled timer should produce no further sweeps. Drain a
+    // generous window — fixed-delay does not re-fire after cancel(), so any spillover
+    // is at most one in-flight invocation that managed to start before cancel().
     var snapshotAfterClose = sweeps.get();
     Thread.sleep(150);
     var snapshotLater = sweeps.get();
-    // Allow at most a small spillover (one in-flight invocation) and still call this a
-    // PASS — but in practice the cancelled fixed-delay task should produce zero further
-    // ticks.
     assertTrue("close must stop the periodic sweep (saw " + snapshotAfterClose + " → "
         + snapshotLater + ")",
         snapshotLater - snapshotAfterClose <= 1);

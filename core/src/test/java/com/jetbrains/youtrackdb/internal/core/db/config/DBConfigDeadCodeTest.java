@@ -18,6 +18,7 @@ package com.jetbrains.youtrackdb.internal.core.db.config;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
@@ -357,7 +358,7 @@ public class DBConfigDeadCodeTest {
     assertEquals("records with equal components must hash equally",
         a.hashCode(), b.hashCode());
     assertNotSame("two new() calls must return distinct instances", a, b);
-    assertFalse("differing port must break equality", a.equals(c));
-    assertFalse("differing address must break equality", a.equals(d));
+    assertNotEquals("differing port must break equality", a, c);
+    assertNotEquals("differing address must break equality", a, d);
   }
 }

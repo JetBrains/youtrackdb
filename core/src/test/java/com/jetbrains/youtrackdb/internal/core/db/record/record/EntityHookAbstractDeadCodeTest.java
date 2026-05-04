@@ -20,7 +20,6 @@ package com.jetbrains.youtrackdb.internal.core.db.record.record;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
@@ -125,6 +124,33 @@ public class EntityHookAbstractDeadCodeTest {
     Mockito.verifyNoInteractions(nonEntity);
   }
 
+  @Test
+  public void onTriggerDispatchesEachTypeToTheMatchingEntityCallbackWithEntityPassedThrough() {
+    // Positive complement of onTriggerWithNonEntityRecordIsSilentlyIgnoredForEveryHookType:
+    // every TYPE value drives a distinct on*Entity* callback when the record IS an Entity
+    // and the (default-true) class filter is satisfied. Pin per-arm with a unique mock per
+    // TYPE so that a swapped or renamed branch (e.g. BEFORE_UPDATE arm calling
+    // onBeforeEntityCreate) surfaces as an identity mismatch rather than a silent shrug.
+    // Sibling RecordHookAbstractDeadCodeTest covers the same shape for the record-side
+    // base; these two together pin the full dispatch surface.
+    var hook = new RecordingEntityHook();
+    var perTypeEntity = new EnumMap<TYPE, Entity>(TYPE.class);
+    for (var type : TYPE.values()) {
+      var entity = Mockito.mock(Entity.class);
+      perTypeEntity.put(type, entity);
+      hook.onTrigger(type, entity);
+    }
+    assertEquals(
+        "each of the 7 TYPE values must drive exactly one callback",
+        TYPE.values().length, hook.calls.size());
+    for (var type : TYPE.values()) {
+      assertSame(
+          "TYPE." + type
+              + " must dispatch to the matching on*Entity* callback with the entity passed through",
+          perTypeEntity.get(type), hook.calls.get(type));
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // The setIncludeClasses / setExcludeClasses mutual-exclusion contract
   // ---------------------------------------------------------------------------
@@ -211,6 +237,7 @@ public class EntityHookAbstractDeadCodeTest {
     bareHook.onAfterEntityUpdate(null);
     bareHook.onBeforeEntityDelete(null);
     bareHook.onAfterEntityDelete(null);
-    assertFalse("if we got here without exception, the empty defaults are intact", false);
+    // No assertion needed — JUnit reports the test as failed if any of the seven calls
+    // above throws. Reaching this line is the contract the test pins.
   }
 }

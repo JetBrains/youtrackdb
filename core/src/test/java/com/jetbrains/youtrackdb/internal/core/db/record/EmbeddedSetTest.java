@@ -573,8 +573,10 @@ public class EmbeddedSetTest extends DbTestBase {
     Assert.assertEquals(Set.of("a"), set);
     Assert.assertNotEquals("not a set", set);
     Assert.assertEquals(Set.of("a").hashCode(), set.hashCode());
-    Assert.assertNotNull(set.toString());
-    Assert.assertTrue(set.toString().contains("a"));
+    // Pin the exact toString format: "[a]" matches the AbstractCollection format. A
+    // weaker contains("a") check would pass for unrelated layouts (e.g. an identity
+    // hashCode embedded in the default Object.toString).
+    Assert.assertEquals(Set.of("a").toString(), set.toString());
     session.rollback();
   }
 

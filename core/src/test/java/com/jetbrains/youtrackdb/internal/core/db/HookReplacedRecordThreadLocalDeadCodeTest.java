@@ -113,16 +113,24 @@ public class HookReplacedRecordThreadLocalDeadCodeTest {
     // is load-bearing — a refactor that wraps/copies the record before storage would
     // silently break callers reading it back through getIfDefined().
     var local = new HookReplacedRecordThreadLocal();
-    var record = Mockito.mock(DBRecord.class);
+    try {
+      var record = Mockito.mock(DBRecord.class);
 
-    local.set(record);
-    assertTrue("isDefined() must report true after set", local.isDefined());
-    assertSame("getIfDefined() must return the exact stored reference",
-        record, local.getIfDefined());
+      local.set(record);
+      assertTrue("isDefined() must report true after set", local.isDefined());
+      assertSame("getIfDefined() must return the exact stored reference",
+          record, local.getIfDefined());
 
-    local.remove();
-    assertFalse("isDefined() must report false after remove", local.isDefined());
-    assertNull("getIfDefined() must return null after remove", local.getIfDefined());
+      local.remove();
+      assertFalse("isDefined() must report false after remove", local.isDefined());
+      assertNull("getIfDefined() must return null after remove", local.getIfDefined());
+    } finally {
+      // Defensive belt-and-braces: the test body's local.remove() is the contract under
+      // test, but if any assertion above fails before that line, the per-instance
+      // ThreadLocalMap entry survives until the surefire worker reuses the slot. Cap the
+      // leak.
+      local.remove();
+    }
   }
 
   @Test
@@ -131,14 +139,20 @@ public class HookReplacedRecordThreadLocalDeadCodeTest {
     // sibling thread. This guards against a future "improvement" that swaps
     // ThreadLocal for a shared map.
     var local = new HookReplacedRecordThreadLocal();
-    local.set(Mockito.mock(DBRecord.class));
+    try {
+      local.set(Mockito.mock(DBRecord.class));
 
-    var siblingObservation = new boolean[1];
-    var sibling = new Thread(() -> siblingObservation[0] = local.isDefined());
-    sibling.start();
-    sibling.join();
+      var siblingObservation = new boolean[1];
+      var sibling = new Thread(() -> siblingObservation[0] = local.isDefined());
+      sibling.start();
+      sibling.join();
 
-    assertFalse("sibling thread must see isDefined()==false even though current thread set",
-        siblingObservation[0]);
+      assertFalse("sibling thread must see isDefined()==false even though current thread set",
+          siblingObservation[0]);
+    } finally {
+      // Cap the per-instance ThreadLocalMap entry — see the explanation in the sibling
+      // setOnCurrentThread… test.
+      local.remove();
+    }
   }
 }

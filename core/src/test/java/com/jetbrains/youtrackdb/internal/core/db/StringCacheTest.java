@@ -19,13 +19,13 @@
 package com.jetbrains.youtrackdb.internal.core.db;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
-import java.util.HashSet;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -246,7 +246,10 @@ public class StringCacheTest {
     var executor = Executors.newFixedThreadPool(threads);
     var startGate = new CountDownLatch(1);
     var failure = new AtomicReference<Throwable>();
-    var distinct = new HashSet<String>();
+    // ConcurrentHashMap-backed Set replaces a synchronized(HashSet) block — same
+    // semantics, less hand-rolled coordination, and no risk of being mistaken for a
+    // workaround masking a production race in the cache itself.
+    Set<String> distinct = ConcurrentHashMap.newKeySet();
     Future<?>[] futures = new Future<?>[threads];
     try {
       for (int t = 0; t < threads; t++) {
@@ -257,9 +260,7 @@ public class StringCacheTest {
             for (int i = 0; i < keysPerThread; i++) {
               var key = ("t" + tid + "-" + i).getBytes(StandardCharsets.UTF_8);
               var v = cache.getString(key, 0, key.length);
-              synchronized (distinct) {
-                distinct.add(v);
-              }
+              distinct.add(v);
             }
           } catch (Throwable e) {
             failure.compareAndSet(null, e);
@@ -278,10 +279,18 @@ public class StringCacheTest {
     if (failure.get() != null) {
       throw new AssertionError("concurrent flood failure", failure.get());
     }
-    assertNotEquals("at least some distinct keys must have been observed",
-        0, distinct.size());
-    assertTrue("post-flood size must respect the capacity cap (no map corruption): "
-        + cache.size(),
-        cache.size() < capacity);
+    // Tightened invariants: every distinct key was uniquely shaped (t<tid>-<i>) so
+    // collisions are impossible; the cache must therefore have observed exactly
+    // threads*keysPerThread distinct interned strings. Pinning the exact count catches
+    // dropped puts under contention that the previous "> 0" lower bound could not.
+    assertEquals("every distinct key must be observed exactly once",
+        threads * keysPerThread, distinct.size());
+    // LRUCache.removeEldestEntry uses size > capacity, so steady-state size caps at
+    // capacity-1 — see capacityCapsCacheSizeAtOneBelowCtorArg in this class for the
+    // canonical pin of the off-by-one. Pin the exact value here: a regression that
+    // drops puts would land below this bound; a regression that off-by-one-bumps the
+    // cap would land above it.
+    assertEquals("steady-state cache size caps at capacity-1 (LRU off-by-one)",
+        capacity - 1, cache.size());
   }
 }

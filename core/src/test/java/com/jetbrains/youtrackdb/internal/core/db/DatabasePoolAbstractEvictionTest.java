@@ -1,13 +1,16 @@
 package com.jetbrains.youtrackdb.internal.core.db;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 import static org.mockito.Mockito.mock;
 
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import org.mockito.Mockito;
 
 /**
@@ -15,7 +18,18 @@ import org.mockito.Mockito;
  * scheduled when idle timeout is positive, and cancelled when the pool is closed. Also pins the
  * accessor and listener-callback shape on the dead-code-bound abstract class so a future
  * deletion either updates the pin in lockstep or fails loudly.
+ *
+ * <p>{@code @Category(SequentialTest)} — every {@link TestPool} construction registers a
+ * {@code YouTrackDBListener} on {@link YouTrackDBEnginesManager} and the listener is not
+ * removed by {@code DatabasePoolAbstract#close()}. The leak is benign in single-class runs
+ * but accumulates a stale listener per test method; serialising the test class avoids
+ * racing the engines-manager listener iteration with parallel surefire workers.
+ *
+ * <p>WHEN-FIXED: deferred-cleanup track — either delete the entire {@link DatabasePoolAbstract}
+ * surface (one dead subclass + one test subclass, the cheaper option) or unregister the
+ * listener inside {@code close()} so this annotation can be removed.
  */
+@Category(SequentialTest.class)
 public class DatabasePoolAbstractEvictionTest {
 
   /**
@@ -49,7 +63,7 @@ public class DatabasePoolAbstractEvictionTest {
   public void evictionIsScheduledAndCancelledOnClose() throws Exception {
     // Ensure the engines manager is up so the scheduled pool is available.
     var manager = YouTrackDBEnginesManager.instance();
-    assertThat(manager.getScheduledPool().isShutdown()).isFalse();
+    assertFalse(manager.getScheduledPool().isShutdown());
 
     // Create a pool with eviction enabled (100ms idle timeout, 50ms eviction interval).
     var pool = new TestPool(100, 50);
@@ -57,7 +71,7 @@ public class DatabasePoolAbstractEvictionTest {
       // Let the evictor fire at least once to prove it is scheduled and runs.
       Thread.sleep(150);
       // Pool should remain functional after evictor runs (no resources to evict is fine).
-      assertThat(pool.getPools()).isEmpty();
+      assertTrue("pool registry must remain empty", pool.getPools().isEmpty());
     } finally {
       // Close must cancel the eviction future so the evictor stops.
       pool.close();
@@ -71,12 +85,12 @@ public class DatabasePoolAbstractEvictionTest {
   @Test
   public void noEvictionWhenTimeoutIsZero() {
     var manager = YouTrackDBEnginesManager.instance();
-    assertThat(manager.getScheduledPool().isShutdown()).isFalse();
+    assertFalse(manager.getScheduledPool().isShutdown());
 
     // Zero idle timeout → no eviction scheduling.
     var pool = new TestPool(0, 0);
     try {
-      assertThat(pool.getPools()).isEmpty();
+      assertTrue("pool registry must remain empty", pool.getPools().isEmpty());
     } finally {
       pool.close();
     }
@@ -169,8 +183,7 @@ public class DatabasePoolAbstractEvictionTest {
       var pools = pool.getPools();
       try {
         pools.put("hijack", null);
-        org.junit.Assert.fail(
-            "getPools() must return an unmodifiable view; mutation should throw");
+        fail("getPools() must return an unmodifiable view; mutation should throw");
       } catch (UnsupportedOperationException expected) {
         // pinned
       }
@@ -188,7 +201,7 @@ public class DatabasePoolAbstractEvictionTest {
     var pool = new TestPool(0, 0);
     try {
       pool.remove("admin", "no-such-url");
-      assertThat(pool.getPools()).isEmpty();
+      assertTrue("pool registry must remain empty", pool.getPools().isEmpty());
     } finally {
       pool.close();
     }
@@ -203,7 +216,7 @@ public class DatabasePoolAbstractEvictionTest {
     var pool = new TestPool(0, 0);
     try {
       pool.onStorageRegistered(mock(AbstractStorage.class));
-      assertThat(pool.getPools()).isEmpty();
+      assertTrue("pool registry must remain empty", pool.getPools().isEmpty());
     } finally {
       pool.close();
     }
@@ -222,7 +235,7 @@ public class DatabasePoolAbstractEvictionTest {
     var pool = new TestPool(0, 0);
     try {
       pool.onStorageUnregistered(storage);
-      assertThat(pool.getPools()).isEmpty();
+      assertTrue("pool registry must remain empty", pool.getPools().isEmpty());
     } finally {
       pool.close();
     }

@@ -831,8 +831,10 @@ public class EntityEmbeddedMapImplTest extends DbTestBase {
     Assert.assertNotEquals("non-map comparand returns false", "x", map);
 
     Assert.assertEquals(Map.of("k", "v").hashCode(), map.hashCode());
-    Assert.assertNotNull(map.toString());
-    Assert.assertTrue(map.toString().contains("k"));
+    // Pin the exact toString format: "{k=v}" matches the AbstractMap format. A weaker
+    // contains("k") check would pass for unrelated layouts (e.g. an identity hashCode
+    // embedded in the default Object.toString).
+    Assert.assertEquals(Map.of("k", "v").toString(), map.toString());
     session.rollback();
   }
 

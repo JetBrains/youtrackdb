@@ -19,6 +19,7 @@
 package com.jetbrains.youtrackdb.internal.core.db.record;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
@@ -74,13 +75,23 @@ public class MultiValueChangeTimeLineTest {
     assertSame(third, view.get(2));
   }
 
-  /** {@code null} events are accepted (the implementation does not guard) — pin observed shape. */
+  /**
+   * {@code null} events are accepted (the implementation does not guard) — pin observed shape.
+   *
+   * <p>Production callers always construct a non-null event before invoking the API, so this
+   * lock-in only protects against an accidental change of the current contract. If a future
+   * maintainer chooses to add a null guard, this test fails loudly and the deliberate change
+   * is visible at the failure site.
+   *
+   * <p>WHEN-FIXED: deferred-cleanup track — if a null guard is added to
+   * {@code addCollectionChangeEvent}, replace this test with one asserting the rejection.
+   */
   @Test
   public void nullAppendIsAccepted() {
     var timeline = new MultiValueChangeTimeLine<Integer, String>();
     timeline.addCollectionChangeEvent(null);
     assertEquals(1, timeline.getMultiValueChangeEvents().size());
-    assertSame(null, timeline.getMultiValueChangeEvents().get(0));
+    assertNull(timeline.getMultiValueChangeEvents().get(0));
   }
 
   /**
