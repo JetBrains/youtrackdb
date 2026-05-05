@@ -232,7 +232,7 @@ original plan did not name explicitly.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [ ] Step implementation (1/7 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -257,43 +257,93 @@ original plan did not name explicitly.
 
 ## Steps
 
-- [ ] Step 1: Remeasure baseline + dead-code pins (`IndexConfigProperty` + cluster-selection trio + SPI service file)
+- [x] Step 1: Remeasure baseline + dead-code pins (`IndexConfigProperty` + cluster-selection trio + SPI service file)
+  - [x] Context: safe
   > **Risk:** medium — multi-file dead-code pins across 4 new test
   > classes (Track 15 Step 1 precedent: medium)
-  > **What:** Run `./mvnw -pl core -am clean package -P coverage` and
-  > write `track-16-baseline.md` with per-class uncov totals for
-  > `core/metadata/schema*`, `core/metadata/function`,
-  > `core/metadata/sequence`, `core/metadata/schema/clusterselection`,
-  > and the schema/validation + schema/schema sub-packages (the latter
-  > to confirm out-of-scope status). Author the four dead-code pin
-  > test classes:
-  > 1. `IndexConfigPropertyDeadCodeTest` — pin shape (modifiers, ctor
-  >    + 4 method signatures, self-recursive `copy()`); lockstep
-  >    deletion forwarded to Track 22 with `// WHEN-FIXED: Track 22 —
-  >    delete IndexConfigProperty class (0 prod refs)` marker.
-  > 2. `BalancedCollectionSelectionStrategyDeadCodeTest` — pin shape
-  >    (constructor, `getName() == "balanced"`, `getCluster(...)`);
-  >    lockstep with cluster-selection group.
-  > 3. `DefaultCollectionSelectionStrategyDeadCodeTest` — pin shape
-  >    (constructor, `getName() == "default"`, `getCluster(...)`);
-  >    lockstep with cluster-selection group.
-  > 4. `CollectionSelectionFactoryDeadCodeTest` — pin shape
-  >    (`registerStrategy()`, `getStrategy(String)`, `newInstance(String)`,
-  >    SPI service file presence assertion); lockstep with the two
-  >    strategy `*DeadCodeTest` files plus the `META-INF/services/
-  >    .../CollectionSelectionStrategy` service file (4-line / 3-entry
-  >    file). Pin asserts: file exists; first line matches Balanced;
-  >    second line matches Default; third line matches RoundRobin.
   >
-  > Each `*DeadCodeTest` class includes a `// WHEN-FIXED: Track 22`
-  > marker forwarding deletion contingency. Spot-check 2-3 existing
-  > `core/metadata/*Test.java` classes for inert-test bugs (Track 12
-  > lesson) — adversarial review iter-1 already confirmed
-  > `SchemaClassImplTest`, `CaseSensitiveClassNameTest`,
-  > `SchemaPropertyTypeConvertTest`, `DBSequenceTest`,
-  > `FunctionLibraryTest` are clean (A9). Step 1's episode records
-  > the baseline-remeasurement deltas vs the plan-cited figures and
-  > any new dead-code candidates surfaced by fresh PSI runs.
+  > **What was done:** Ran `./mvnw -pl core -am clean package -P coverage`
+  > and wrote `docs/adr/unit-test-coverage/_workflow/track-16-baseline.md`
+  > capturing per-class uncov for the four target packages
+  > (`core/metadata/schema*`, `core/metadata/function`,
+  > `core/metadata/sequence`, `core/metadata/schema/clusterselection`)
+  > plus per-class disposition tagging (live-drive / dead-code-pin /
+  > out-of-scope-by-design) and the per-step uncov budget for
+  > Steps 2–7. Authored four `*DeadCodeTest` classes pinning
+  > structural shape with `// WHEN-FIXED: Track 22` forwarding
+  > markers: `IndexConfigPropertyDeadCodeTest` (4 tests — ctor + five
+  > getters + self-recursive `copy()` identity contract);
+  > `BalancedCollectionSelectionStrategyDeadCodeTest` (5 tests —
+  > `NAME == "balanced"`, length-1 short-circuit, multi-cluster
+  > `min(approxCount)` selection via Mockito stubs, two-arg
+  > delegation); `DefaultCollectionSelectionStrategyDeadCodeTest` (4
+  > tests — `NAME == "default"`, two-arg always-first-cluster
+  > contract, four-arg ignore-of-`selection` parameter pinned);
+  > `CollectionSelectionFactoryDeadCodeTest` (10 tests — `registerStrategy()`,
+  > `getStrategy(String)`, `newInstance(String)` plus SPI service
+  > file existence + 3-entry membership assertion). Re-verified
+  > Phase A iter-1's A9 inert-test spot-check on `SchemaClassImplTest`,
+  > `CaseSensitiveClassNameTest`, `SchemaPropertyTypeConvertTest`,
+  > `DBSequenceTest`, `FunctionLibraryTest` — all clean. Coverage
+  > gate vs `origin/develop`: 100% line / 100% branch on the changed
+  > production lines (commit is purely test-additive). Spotless
+  > clean; 23/23 tests pass.
+  >
+  > **What was discovered:** Plan-cited uncov figures are stale
+  > by 15 tracks. Fresh per-package totals: `core/metadata/schema`
+  > 1 231 (plan said ~1 278), `function` 71 (plan said ~74),
+  > `sequence` 70 (plan said ~75) — closed by incidental traffic
+  > from Tracks 14–15. `core/metadata/schema/clusterselection` is
+  > unchanged at 18.
+  >
+  > `CollectionSelectionFactory` is partially live, not fully dead:
+  > the **class itself** is instantiated by `SchemaShared`'s
+  > `collectionSelectionFactory` field initializer, so the
+  > constructor is reachable. Only the `getStrategy(String)` +
+  > `registerStrategy()` + `newInstance(String)` triple plus the
+  > SPI loop is dead. The pin scopes accordingly to method-level
+  > rather than class-level — finer split than the plan's wording
+  > suggested.
+  >
+  > The plan's SPI-service-file ordering claim ("first line matches
+  > Balanced; second line matches Default; third line matches
+  > RoundRobin") disagrees with the on-disk file order, which is
+  > RoundRobin / Default / Balanced. The pin asserts set
+  > membership of all three FQCNs (with `assertEquals(3, entries.size())`
+  > + explicit `entries.contains(...)` triplet) rather than line
+  > ordering — strictly more falsifiable for the Track 22 deletion
+  > goal (any deletion of "balanced" or "default" entries is caught).
+  >
+  > **Cross-track impact:** Track 22's deferred-cleanup queue
+  > should record cluster-selection deletion at method-level
+  > granularity, not class-level. Lockstep group: Balanced + Default
+  > strategies + the three method/loop deletions inside
+  > `CollectionSelectionFactory` + the `balanced`/`default` SPI
+  > entries (RoundRobin entry stays). A wider follow-up sweep in
+  > Step 6 may flag the entire factory field+getter
+  > (`SchemaShared.collectionSelectionFactory` +
+  > `Schema.getCollectionSelectionFactory()`) as deletable — in
+  > which case the lockstep expands to whole-class deletion of
+  > `CollectionSelectionFactory`. Recorded as a minor refinement;
+  > no ADJUST or ESCALATE needed.
+  >
+  > **What changed from the plan:**
+  > - SPI-service-file pin uses set-membership assertion (3 FQCNs)
+  >   rather than line-order assertion. No effect on Steps 2–7.
+  > - Cluster-selection deletion target narrowed to method-level
+  >   (`getStrategy(String)` + `registerStrategy()` + SPI loop +
+  >   two SPI entries) — `CollectionSelectionFactory` class itself
+  >   is live via `SchemaShared` field init. Recorded in the four
+  >   `*DeadCodeTest` Javadocs and in `track-16-baseline.md`'s
+  >   cluster-selection disposition row; Track 22 backlog absorbs
+  >   the refinement at the deferred-cleanup absorption step.
+  >
+  > **Key files:**
+  > - `core/src/test/java/.../core/metadata/schema/IndexConfigPropertyDeadCodeTest.java` (new)
+  > - `core/src/test/java/.../core/metadata/schema/clusterselection/BalancedCollectionSelectionStrategyDeadCodeTest.java` (new)
+  > - `core/src/test/java/.../core/metadata/schema/clusterselection/DefaultCollectionSelectionStrategyDeadCodeTest.java` (new)
+  > - `core/src/test/java/.../core/metadata/schema/clusterselection/CollectionSelectionFactoryDeadCodeTest.java` (new)
+  > - `docs/adr/unit-test-coverage/_workflow/track-16-baseline.md` (new — workflow file)
 
 - [ ] Step 2: Schema property operations — `SchemaPropertyImpl` / `SchemaPropertyEmbedded` / `ImmutableSchemaProperty` / `GlobalPropertyImpl`
   > **Risk:** medium — multi-file tests via `DbTestBase` against
