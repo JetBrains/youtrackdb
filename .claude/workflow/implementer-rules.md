@@ -38,8 +38,8 @@ inputs**.
 
 - `repo_root` — absolute path to the working tree.
 - `plan_slim_path` — `/tmp/claude-code-plan-slim-$PPID.md`.
-- `step_file_path` — `docs/adr/<dir-name>/tracks/track-<N>.md`.
-- `design_path` — `docs/adr/<dir-name>/design.md` (read on demand only).
+- `step_file_path` — `docs/adr/<dir-name>/_workflow/tracks/track-<N>.md`.
+- `design_path` — `docs/adr/<dir-name>/_workflow/design.md` (read on demand only).
 
 **Variable inputs** (per spawn):
 
@@ -108,27 +108,40 @@ rules:
   working tree before any IDE-routed action; do not re-probe.
 - **Do not reference workflow-internal identifiers** (`Track N`,
   `Step N`, finding IDs, iteration counters, or named-only plan
-  invariants) in source code, Javadoc, test names, test
-  descriptions, or the commit message — see
-  [`conventions-execution.md`](conventions-execution.md) §2.3 for
-  the full Ephemeral identifier rule and rewrite examples.
+  invariants) in source code, Javadoc, test names, or test
+  descriptions — see
+  [`ephemeral-identifier-rule.md`](ephemeral-identifier-rule.md) for
+  the full Ephemeral identifier rule and rewrite examples (the §2.3
+  stub in `conventions-execution.md` is a quick recap with the
+  self-check grep).
+  Branch-only commit messages are exempt (they are squashed away on
+  merge); the rule applies to durable content only.
 
 **Sub-step 2 — Add or update tests.** Run module tests, verify
 Spotless on affected modules (`./mvnw -pl <module> spotless:apply`),
 verify coverage thresholds (85% line / 70% branch on changed code
 via the coverage gate command in §"Coverage gate command" below).
 Wait for test results before proceeding — never start the commit
-while a background test run is still streaming.
+while a background test run is still streaming. For long-running
+Maven builds (full `core` test suite or coverage profile), see
+§"Pacing long-running tasks" below before deciding how to wait.
 
 **Sub-step 3 — Stage explicit paths and commit** in one commit. No
 `git add -A`. No `--amend`. Apply the project's commit-message
 convention from `CLAUDE.md` (imperative summary under 50 chars, blank
-line, detailed why) and the Ephemeral identifier rule from
-[`conventions-execution.md`](conventions-execution.md) §2.3 (no
-`Track N` / `Step N` / finding IDs / iteration counters in the
-message body or subject). For `mode == FIX_REVIEW_FINDINGS`, prefix
-the commit subject with `Review fix:` per
-[`commit-conventions.md`](commit-conventions.md).
+line, detailed why). The Ephemeral identifier rule
+([`conventions-execution.md`](conventions-execution.md) §2.3) covers
+durable content only — branch-only commit messages may cite
+`Track N` / `Step N` / finding IDs / iteration counters when it
+makes the commit log easier to follow, since the squash-merge
+collapses them away (see
+[`commit-conventions.md`](commit-conventions.md) "Branch-only
+commit messages may cite workflow-internal identifiers"). For
+`mode == FIX_REVIEW_FINDINGS`, prefix the commit subject with
+`Review fix:` per [`commit-conventions.md`](commit-conventions.md);
+prefer describing the fix by what changed (behavior, file, class)
+over citing a finding ID, but a finding-ID reference is permitted
+when it aids review.
 
 **Return.** Emit the structured result block (see §Return contract
 below). The orchestrator parses the block; everything else in the
@@ -138,6 +151,58 @@ The implementer **MUST NOT** modify the step file, the plan file, the
 backlog, or any review file. All step-file mutations — episode write,
 risk-line rewrite, `[x]` mark, Progress count update, retry/split row
 inserts — are the orchestrator's responsibility.
+
+### Pacing long-running tasks — do not use `ScheduleWakeup`
+
+The implementer is spawned synchronously by the orchestrator via the
+Agent tool. The orchestrator parses **one** structured return block
+per spawn — the spawn either ends with a valid `RESULT: …` block or
+the orchestrator treats the return as a contract violation.
+
+`ScheduleWakeup` breaks this contract. It yields control back to the
+caller with no `RESULT` block, so the orchestrator sees the
+implementer return without a handoff — indistinguishable from a
+crash. The implementer is also left **idle** between scheduled wakes
+rather than actively running, so any subsequent SendMessage from the
+orchestrator is required to resume work — at which point the
+implementer's understanding of the prior in-flight Bash background
+task may be stale (the runtime may have garbage-collected the
+background task across the idle gap, leaving zero-byte output files
+and no live process).
+
+**Rule.** The implementer MUST NOT call `ScheduleWakeup`. Pacing is
+the orchestrator's job, not the implementer's. The implementer runs
+straight through sub-steps 1–3 and emits exactly one return block.
+
+**For long-running Maven runs** — full `core` test suite, coverage
+profile build, integration tests:
+
+- Prefer **foreground** Bash with the Bash tool's `timeout`
+  parameter set to the realistic upper bound (the parameter is in
+  milliseconds and caps at 600 000 ms / 10 minutes — this is the
+  Claude Code Bash-tool parameter, not the GNU `timeout` shell
+  command; for builds that may exceed that, split into stages —
+  e.g., compile first, then test, then coverage report — each stage
+  under 10 min).
+- If a build is long enough that the implementer should not block on
+  it (rare — the foreground 10-min path covers most module-scoped
+  runs), start it via Bash `run_in_background: true`. The runtime
+  fires a single completion notification when the command exits;
+  the implementer does not need to poll. While the build runs, the
+  implementer can do other read-only work that doesn't touch the
+  same module — re-reading the step file, the slim plan, or
+  `design.md` for context. Do **not** start a separate Bash call
+  to `tail -f` or `grep` the log file in a poll loop — `tail`/`grep`
+  return when the build finishes anyway, and the polling adds
+  nothing the completion notification doesn't already provide.
+- Do not chain multiple short `sleep`s with `ScheduleWakeup` between
+  them. Each `ScheduleWakeup` is a yield-and-idle, not a wait.
+
+If a build genuinely exceeds the realistic foreground budget for the
+implementer (rare — only the full `verify -P ci-integration-tests`
+or large coverage runs), return `RESULT: FAILED` with
+`recommended_action: split` and let the orchestrator decide whether
+to break the step into smaller, individually-verifiable pieces.
 
 ### When the failure mode is opaque — consider an IDE debug session
 
@@ -169,22 +234,92 @@ The implementer **MUST** stop and return early — without committing —
 in three cases. The orchestrator decides what happens next; the
 implementer never escalates directly to the user.
 
-**Always revert before returning.** Whichever case fires below, run
-`git reset --hard HEAD && git clean -fd` first so the orchestrator
-always observes a clean tree at the implementer's `HEAD`. The reset
-clears the working tree and the index; `git clean -fd` removes any
-untracked files or directories the implementer created (new test
-files, scratch output) — without it, the orchestrator's `git status`
-clean-tree assertions would fire a spurious contract violation
-whenever the implementer added a new file before bailing. Use
-`git reset --hard HEAD` rather than `git checkout -- .` for the
+**Always revert before returning.** Whichever case fires below, the
+implementer must roll back its in-progress changes so the orchestrator
+observes a clean tree at the implementer's `HEAD` — and it must
+preserve any untracked files that pre-existed the spawn (test
+fixtures, scratch logs, anything outside the workflow's tracked
+state).
+
+The orchestrator's working state — step file, review reports,
+design document, implementation backlog, baselines — is **tracked
+under `docs/adr/<dir>/_workflow/`** and committed by the orchestrator
+on the appropriate cadence (see `commit-conventions.md` § Push every
+commit). The orchestrator commits any pending workflow-file changes
+**before** spawning the implementer, so `HEAD` at spawn time
+already reflects the orchestrator's intended state. That means the
+implementer's `git reset --hard HEAD` rolls back tracked-file
+changes only as far as the most recent commit — which is the
+state the orchestrator wants to be in if the implementer bails.
+
+The required sequence (run on every early-return case below — design
+decision, risk upgrade, fundamental failure):
+
+1. **Snapshot pre-existing untracked files at the start of every
+   spawn**, before any code change. This is the first action of
+   sub-step 1, before reading the step file or making any edit:
+
+   ```bash
+   git -c core.quotepath=false ls-files --others --exclude-standard \
+     | LC_ALL=C sort \
+     > /tmp/claude-impl-preexisting-untracked-$PPID.txt
+   ```
+
+   `LC_ALL=C` keeps the sort byte-ordered so the later `comm -13`
+   (which requires its inputs sorted under the same collation) is
+   reliable regardless of the implementer's locale.
+   `core.quotepath=false` prevents Git from C-escaping non-ASCII
+   bytes in filenames; without it `comm -13` would compare quoted
+   strings to unquoted ones and the later `rm` would fail because
+   the path doesn't literally exist on disk.
+
+   The snapshot reflects the world the orchestrator handed you.
+
+2. **At revert time**, discard tracked-file changes and the index:
+
+   ```bash
+   git reset --hard HEAD
+   ```
+
+3. **Then surgically remove only the untracked files the implementer
+   created** in this spawn — `comm -13 <pre> <post>` lists files
+   present in the post-snapshot but absent from the pre-snapshot:
+
+   ```bash
+   git -c core.quotepath=false ls-files --others --exclude-standard \
+     | LC_ALL=C sort \
+     > /tmp/claude-impl-post-untracked-$PPID.txt
+   LC_ALL=C comm -13 \
+     /tmp/claude-impl-preexisting-untracked-$PPID.txt \
+     /tmp/claude-impl-post-untracked-$PPID.txt \
+     | while IFS= read -r file; do rm -v -- "$file"; done
+   ```
+
+   The `while IFS= read -r` loop handles paths with spaces and is
+   portable across GNU/BSD `xargs` differences. The loop is a
+   no-op when `comm` produces no output, so the empty-diff case is
+   handled implicitly.
+
+**Do NOT run `git clean -fd` (or `-fdx`).** It indiscriminately
+removes every untracked file in the worktree — including the
+orchestrator's workflow state — and the orchestrator depends on
+those files persisting across spawn boundaries. Past versions of
+this rulebook used `git clean -fd`; that was a bug that destroyed
+the orchestrator's cross-spawn state on every early-return. The
+snapshot-and-diff sequence above is the supported replacement.
+
+Use `git reset --hard HEAD` rather than `git checkout -- .` for the
 tracked half — the latter leaves a dirty index if the implementer
-had staged files before bailing. The semantic scope of the revert
-differs by mode (see §"Mode-specific scope of the local revert"
-below), but the command is the same. The orchestrator's pre-revert
-assertion in [`step-implementation.md`](step-implementation.md)
-§Post-Commit Handlers depends on this — a dirty tree at hand-off is
-a contract violation.
+had staged files before bailing.
+
+The semantic scope of the revert differs by mode (see §"Mode-specific
+scope of the local revert" below), but the command sequence above
+is the same. The orchestrator's pre-revert assertion in
+[`step-implementation-recovery.md`](step-implementation-recovery.md)
+§Post-Commit Handlers depends on this — a dirty tree at hand-off is a contract
+violation, and an orphaned implementer-created untracked file at
+hand-off would also be a contract violation (it would interfere with
+the next spawn's pre-snapshot).
 
 ### Design decision detected
 
@@ -208,9 +343,11 @@ What is **NOT** a design decision (handle autonomously):
 - Implementation details fully prescribed by the plan or by Decision
   Records in `adr.md` / the plan file.
 
-When a design decision is detected, run
-`git reset --hard HEAD && git clean -fd` to discard any in-progress
-changes (per the rule at the top of this section), then return
+When a design decision is detected, run the snapshot-and-diff revert
+sequence at the top of this section (snapshot pre-existing untracked
+files first, then `git reset --hard HEAD`, then `comm -13` against a
+post-snapshot to surgically remove only files this spawn created),
+then return
 `RESULT: DESIGN_DECISION_NEEDED` with `DESIGN_DECISION` populated: `context`,
 `alternatives` (≥2, with pros/cons), `recommendation`, and
 `exploration_notes` summarising what was already investigated (API
@@ -229,9 +366,10 @@ turns out to require lock-ordering changes, or the "internal helper
 addition" tagged `medium` actually changes a public-API serialized
 form.
 
-Run `git reset --hard HEAD && git clean -fd` to discard any
-in-progress changes (per the rule at the top of this section), then
-return `RESULT: RISK_UPGRADE_REQUESTED` with `RISK_UPGRADE` populated:
+Run the snapshot-and-diff revert sequence at the top of this section
+(snapshot pre-existing untracked files first, then `git reset --hard
+HEAD`, then `comm -13` against a post-snapshot to surgically remove
+only files this spawn created), then return `RESULT: RISK_UPGRADE_REQUESTED` with `RISK_UPGRADE` populated:
 `from`, `to`, `category` (one of: `concurrency`, `crash-safety`,
 `public-API`, `security`, `architecture`, `performance-hot-path` —
 see [`risk-tagging.md`](risk-tagging.md) for the full criteria), and
@@ -250,9 +388,10 @@ tests cannot be made to pass, coverage cannot be met, architectural
 problem revealed by the implementation, repeated test failures with
 a root cause outside the step's surface area.
 
-Run `git reset --hard HEAD && git clean -fd` to discard any
-in-progress changes (per the rule at the top of this section), then
-return `RESULT: FAILED` with `FAILURE` populated: `what_was_attempted`, `why_it_failed`,
+Run the snapshot-and-diff revert sequence at the top of this section
+(snapshot pre-existing untracked files first, then `git reset --hard
+HEAD`, then `comm -13` against a post-snapshot to surgically remove
+only files this spawn created), then return `RESULT: FAILED` with `FAILURE` populated: `what_was_attempted`, `why_it_failed`,
 `impact_on_remaining_steps`, and `recommended_action` (`retry` |
 `split` | `escalate`).
 
@@ -261,12 +400,14 @@ retry/split rows, and runs the two-failure detection on its side.
 
 ### Mode-specific scope of the local revert
 
-`git reset --hard HEAD && git clean -fd` resets to the **current
-commit** (and removes any untracked artefacts the implementer
-created), not to a pre-step state. The command is the same for
-every early-return case (design decision, risk upgrade, fundamental
-failure) and every mode, but the **semantic scope** of what gets
-cleaned up differs:
+The snapshot-and-diff revert sequence at the top of this section
+(snapshot, `git reset --hard HEAD`, `comm -13` cleanup) resets to
+the **current commit** and removes only the untracked artefacts
+this spawn created — not the orchestrator's pre-existing untracked
+state, and not changes from any prior commit. The sequence is the
+same for every early-return case (design decision, risk upgrade,
+fundamental failure) and every mode, but the **semantic scope** of
+what gets reverted differs:
 
 - **`mode=INITIAL`** or **`mode=WITH_GUIDANCE`**: `HEAD` is the
   step's pre-implementation state (the orchestrator's `step_base_commit`).
@@ -278,17 +419,17 @@ cleaned up differs:
   The implementer's reset clears only its in-progress fix attempt;
   the prior commits stay on disk. Rolling those back is the
   **orchestrator's** responsibility — see
-  [`step-implementation.md`](step-implementation.md) §Post-Commit
-  Handlers. The implementer must not run `git reset --hard
+  [`step-implementation-recovery.md`](step-implementation-recovery.md)
+  §Post-Commit Handlers. The implementer must not run `git reset --hard
   step_base_commit` or `git revert` to undo prior commits; that
   would silently destroy work the orchestrator may need.
 
-The implementer is therefore symmetric in code
-(`git reset --hard HEAD && git clean -fd` regardless of mode and
-regardless of which early-return case fired) but the
-orchestrator-side cleanup differs: pre-commit modes need no further
-work; post-commit mode requires the orchestrator's post-commit
-rollback to remove the prior step commits as well.
+The implementer is therefore symmetric in code (the snapshot-and-diff
+revert sequence regardless of mode and regardless of which
+early-return case fired) but the orchestrator-side cleanup differs:
+pre-commit modes need no further work; post-commit mode requires
+the orchestrator's post-commit rollback to remove the prior step
+commits as well.
 
 ---
 
@@ -400,8 +541,14 @@ duplicate the routing tables here. Pointers:
   raw Edit".
 - **Project conventions and PSI requirement for load-bearing audits**:
   [`conventions.md`](conventions.md) §1.4 *Tooling discipline*.
-- **Ephemeral identifier rule** for code, tests, and commit messages:
-  [`conventions-execution.md`](conventions-execution.md) §2.3.
+- **Ephemeral identifier rule** for durable content (code, tests,
+  PR title/body, `design-final.md`, `adr.md`):
+  [`ephemeral-identifier-rule.md`](ephemeral-identifier-rule.md) is
+  the full rule; the §2.3 stub in `conventions-execution.md` carries
+  the quick recap and the self-check grep. Branch-only commit
+  messages are exempt — see
+  [`commit-conventions.md`](commit-conventions.md) "Branch-only
+  commit messages may cite workflow-internal identifiers".
 - **Risk categories** referenced in `RISK_UPGRADE.category`:
   [`risk-tagging.md`](risk-tagging.md). The implementer reads only
   the category names; full criteria and override rules stay in

@@ -106,8 +106,31 @@ into `implementation-backlog.md` are reachable.
 
 **6. Resume or exit:**
 
-- **Review PASS** — update the plan file with the revised plan. End the
-  session. The next session picks up the revised plan and continues.
+- **Review PASS** — update the plan file with the revised plan, then
+  commit and push the workflow changes immediately so the next
+  implementer spawn doesn't lose them via `git reset --hard HEAD`:
+
+  ```bash
+  git add docs/adr/<dir-name>/_workflow/implementation-plan.md \
+          docs/adr/<dir-name>/_workflow/implementation-backlog.md \
+          docs/adr/<dir-name>/_workflow/tracks/track-*.md
+  git commit -m "Inline replan after Track <N>"
+  git push
+  ```
+
+  Stage only the paths that the revision actually touched (the
+  enumeration in [§Updating plan and backlog](#updating-plan-and-backlog)
+  tells you which files apply per case). Any `design.md` /
+  `design-mechanics.md` changes from step 3 land via the
+  `edit-design` skill, which writes a separate
+  `<plan-dir>/_workflow/reviews/design-mutations.md` log entry —
+  include those files in the commit too if they were touched.
+
+  This is a Workflow update commit (single-commit-per-replan; per
+  the table in `commit-conventions.md` § Commit type prefixes).
+  Resume orphan-detection treats it as scaffolding and does not
+  count it toward any `[x]` step. End the session after the push;
+  the next session picks up the revised plan and continues.
 
 - **Blockers persist after 3 iterations** — the plan is fundamentally broken
   at a level that incremental revision cannot fix. Advise the user to restart

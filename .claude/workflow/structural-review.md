@@ -87,7 +87,7 @@ issues.
 ## Review output
 
 The structural review document is saved to
-`docs/adr/<dir-name>/reviews/structural.md`:
+`docs/adr/<dir-name>/_workflow/reviews/structural.md`:
 
 ```markdown
 # Structural Review

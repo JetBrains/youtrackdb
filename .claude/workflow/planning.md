@@ -26,7 +26,7 @@ flowchart TD
     P1["Phase 1: Planning\nTracks + architecture notes\n+ design document"]
     P2["/review-plan\nPhase 2: Implementation Review\n1. Consistency review (interactive)\n2. Structural review (automatic)"]
     P3["/execute-tracks\nPhase 3: Execution\n(see workflow.md)\nIncludes replanning via ESCALATE"]
-    P4["Phase 4: Final Artifacts\ndesign-final.md + adr.md\n(only tracked files)"]
+    P4["Phase 4: Final Artifacts\ndesign-final.md + adr.md\n(only files that survive merge)"]
     DONE((Done))
 
     P0 -->|"user: create the plan"| P1
@@ -38,15 +38,18 @@ flowchart TD
     P4 --> DONE
 ```
 
-**Important:** The durable plan always lives in the **project's**
-`docs/adr/<dir-name>/` directory (e.g., `docs/adr/ytdb-123-add-auth/implementation-plan.md`).
-This is distinct from the global `~/.claude/plans/` where Claude Code stores
-ephemeral auto-named session plans. The project plan file is the single source
-of truth — it's human-readable, version-controlled, and serves as a lightweight
-ADR (Architecture Decision Record) after the feature is complete. Claude may
-internally use plan mode during any phase — that's fine, but insights must be
-captured in the project's track episodes (plan file) and step episodes (step
-files), never left only in `~/.claude/plans/`.
+**Important:** The plan and every other working file always live in the
+**project's** `docs/adr/<dir-name>/_workflow/` directory (e.g.,
+`docs/adr/ytdb-123-add-auth/_workflow/implementation-plan.md`). This is
+distinct from the global `~/.claude/plans/` where Claude Code stores
+ephemeral auto-named session plans. The project plan file is the single
+source of truth — it's human-readable, tracked in git for the branch
+lifetime so the draft PR shows progress, and removed in the Phase 4
+cleanup commit (only `design-final.md` and `adr.md` survive merge into
+`develop` as the durable lightweight ADR record). Claude may internally
+use plan mode during any phase — that's fine, but insights must be
+captured in the project's track episodes (plan file) and step episodes
+(step files), never left only in `~/.claude/plans/`.
 
 ---
 
@@ -77,13 +80,19 @@ incorporating all findings and decisions from the research phase.
 The plan file structure is defined in `conventions.md` (section 1.2). The key
 points:
 
-- `docs/adr/<dir-name>/implementation-plan.md` — strategic: goals, architecture,
+- `docs/adr/<dir-name>/_workflow/implementation-plan.md` — strategic: goals, architecture,
   tracks, track-level episodic summaries
-- `docs/adr/<dir-name>/design.md` — design-level: class diagrams, workflow
+- `docs/adr/<dir-name>/_workflow/design.md` — design-level: class diagrams, workflow
   diagrams, dedicated sections for complex/opaque parts
-- `docs/adr/<dir-name>/tracks/track-N.md` — tactical: decomposed steps, step
+- `docs/adr/<dir-name>/_workflow/tracks/track-N.md` — tactical: decomposed steps, step
   episodes (created during Phase 3)
-- `docs/adr/<dir-name>/reviews/structural.md` — structural review output
+- `docs/adr/<dir-name>/_workflow/reviews/structural.md` — structural review output
+
+The `_workflow/` directory is tracked under git for the branch
+lifetime (so the draft PR shows progress to teammates and so a
+disk-loss never destroys work) and is removed in the Phase 4
+cleanup commit before merge — see `conventions.md` §1.2 and
+`workflow.md` § Final Artifacts.
 
 Track files do not exist during Phase 1 (planning) or
 Phase 2 (structural review) — only scope indicators in the plan file exist
@@ -393,7 +402,7 @@ architecture, not premature step decomposition.
 ## Design Document
 
 The plan must be accompanied by a separate **design document** at
-`docs/adr/<dir-name>/design.md`. It explains the structural and behavioral
+`docs/adr/<dir-name>/_workflow/design.md`. It explains the structural and behavioral
 design (not code): class diagrams, workflow diagrams, and dedicated sections
 for complex/opaque parts (concurrency, crash recovery, performance paths).
 
@@ -406,7 +415,9 @@ complex parts each following the per-section shape (TL;DR +
 mechanism overview + edge cases + References footer). All
 diagrams paired with prose. Frozen after Phase 1 —
 `design-final.md` and `adr.md` are produced in Phase 4 as the
-only git-tracked workflow artifacts.
+only workflow artifacts that survive merge into `develop`
+(everything under `_workflow/` is tracked during the branch
+lifetime but removed in the Phase 4 cleanup commit).
 
 **Mutation discipline.** Every modification to `design.md` —
 whether the initial creation in this phase, a later interactive

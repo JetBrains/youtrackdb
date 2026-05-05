@@ -180,7 +180,8 @@ Tests configure YouTrackDB-specific system properties in `<argLine>`:
 - **Test count gate bypass**: Add `[no-test-number-check]` to the PR title to skip the test count gate. Use this only for intentional test refactorings that restructure or consolidate tests without reducing coverage.
 
 ### Workflow Artifacts
-- Some squashed commits include `docs/adr/<dir-name>/design-final.md` and `docs/adr/<dir-name>/adr.md` — post-implementation workflow artifacts documenting the final design and architectural decisions. These are the only workflow files tracked by git; all intermediate files (implementation plan, step files, reviews) exist only on the branch during development.
+- Some squashed commits include `docs/adr/<dir-name>/design-final.md` and `docs/adr/<dir-name>/adr.md` — post-implementation workflow artifacts documenting the final design and architectural decisions. These are the only workflow files that survive merge into `develop`.
+- During the branch's lifetime the implementation plan, design draft, step files, reviews, and other working files are tracked under `docs/adr/<dir-name>/_workflow/` so the draft PR shows real-time progress and a local-disk loss never destroys planning work. The entire `_workflow/` directory is removed in a single cleanup commit at the end of Phase 4 (after `design-final.md` and `adr.md` land), so the squash-merge into `develop` carries only the durable artifacts plus the implemented code. See `.claude/workflow/conventions.md` §1.2 and `.claude/workflow/workflow.md` § Final Artifacts for the full lifecycle.
 
 ## Key Entry Points
 

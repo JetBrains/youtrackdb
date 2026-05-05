@@ -44,11 +44,16 @@ Plan directory name: if "$ARGUMENTS" is non-empty, use it as the directory
 name. Otherwise, default to the current git branch name
 (`git branch --show-current`).
 
-The implementation plan is at: docs/adr/<dir-name>/implementation-plan.md
+The implementation plan is at:
+`docs/adr/<dir-name>/_workflow/implementation-plan.md`
+(every workflow file lives under `_workflow/`; the directory is
+removed in the Phase 4 cleanup commit before merge — see
+`conventions.md` §1.2 and `workflow.md` § Final Artifacts).
 
 Follow the startup protocol in `workflow.md`:
 
-1. Read the plan file at `docs/adr/<dir-name>/implementation-plan.md`.
+1. Read the plan file at
+   `docs/adr/<dir-name>/_workflow/implementation-plan.md`.
 2. Identify all tracks and their status (`[ ]` not started, `[x]` completed,
    `[~]` skipped).
 3. Determine session state and auto-resume:

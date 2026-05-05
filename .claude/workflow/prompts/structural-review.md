@@ -144,7 +144,7 @@ DESIGN DOCUMENT *(design-file for diagram/prose checks; plan-file for
 the Architecture-Notes/Decision-Records cross-reference. The final
 bullet's "track descriptions" half is sourced backlog-for-pending,
 plan-file-for-completed/skipped.)*
-- Does the design document exist at `docs/adr/<dir-name>/design.md`?
+- Does the design document exist at `docs/adr/<dir-name>/_workflow/design.md`?
 - Does it include an Overview section summarizing the design approach?
 - Does it include class diagrams (Mermaid `classDiagram`) when the plan
   introduces 2+ new classes/interfaces or modifies class relationships?
