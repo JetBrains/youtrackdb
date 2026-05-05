@@ -11,105 +11,17 @@ Execution-specific formats and rules. Loaded only during Phase 3
 These subsections extend the plan file structure defined in
 `conventions.md` §1.2.
 
-### After track completion (user-approved)
+The phase-specific plan-entry mutations (collapse-on-completion and
+strategy-refresh-line append) live with their owning phase
+documents — they are not loaded by every Phase 3 session:
 
-The track episode is written to the plan file **only after the user
-approves** the track results, and at the same time the description is
-**collapsed** to remove implementation detail that is now superseded by
-the committed code and step episodes (see workflow.md §Track Completion
-Protocol).
-
-**Always keep** (regardless of plan shape): the **intro paragraph** (the
-first paragraph of the original description, before any `**What**:` /
-`**How**:` / `**Constraints**:` / `**Interactions**:` subsection), the
-`**Track episode:**` block (written at collapse time), the `**Step
-file:**` pointer, and the `**Strategy refresh:**` line if present — the
-next session's strategy refresh appends it per §"After strategy refresh"
-below.
-
-**Always drop**: the `**Scope:**` line and the `**Depends on:**` line.
-
-Pending-track entries in the plan are written in the thin form during
-Phase 1, so there are no `**What**:` / `**How**:` / `**Constraints**:` /
-`**Interactions**:` subsections present in the plan-file entry to drop —
-the detailed description was removed from the backlog at Phase A start
-and already lives in the step file's `## Description` section; Phase C
-does not touch the backlog.
-
-```markdown
-- [x] Track 2: <title>
-  > <intro paragraph>
-  >
-  > **Track episode:**
-  > <strategic summary — length proportional to cross-track impact>
-  >
-  > **Step file:** `tracks/track-2.md` (4 steps, 0 failed)
-```
-
-**Track episode fields:**
-- Strategic summary covering: what was built, key discoveries, plan deviations
-  with cross-track impact. Length is proportional to cross-track impact — a
-  routine track may need only a couple of sentences, while a track with
-  architectural surprises should include enough detail for the next session's
-  strategy refresh to assess downstream impact without reading the step file.
-- Reference to the step file with step count and failure count
-- This is what future track sessions read from the plan file — the step
-  file is available for deeper investigation if needed
-
-**Why collapse:** Completed tracks accumulate in the plan file and are
-re-sent to every sub-agent as strategic context. Keeping the full
-implementation detail for completed tracks inflates every code-review
-sub-agent prompt by tens of thousands of tokens. The intro paragraph plus
-track episode is sufficient strategic context for reviewers of later
-tracks. For how sub-agents render the plan, see
-[`plan-slim-rendering.md`](plan-slim-rendering.md).
-
-### After strategy refresh
-
-The strategy refresh result is appended to the same track's block in the
-plan file, after the step file reference:
-
-```markdown
-- [x] Track 2: <title>
-  > <intro paragraph>
-  >
-  > **Track episode:**
-  > <strategic summary>
-  >
-  > **Step file:** `tracks/track-2.md` (4 steps, 0 failed)
-  >
-  > **Strategy refresh:** CONTINUE — no downstream impact detected.
-```
-
-For ADJUST, include a brief summary of what was adjusted:
-
-```markdown
-  > **Strategy refresh:** ADJUST — Track 4 description updated to account
-  > for the new `IndexStatistics` API shape discovered during this track.
-```
-
-For skipped tracks (`[~]`), the strategy refresh line follows the skip
-record. The plan entry holds only the intro paragraph (the
-`**What/How/Constraints/Interactions**` detail lived in
-`implementation-backlog.md` and `track-skip` removes that section at the
-same time it marks `[~]` — see `track-skip.md`). Skipped tracks never go
-through the Phase C collapse, so nothing further trims the plan entry:
-
-```markdown
-- [~] Track 3: <title>
-  > <description>
-  >
-  > **Skipped:** <reason>
-  >
-  > **Strategy refresh:** CONTINUE — no downstream impact from skipping.
-```
-
-For how sub-agents see this — `plan-slim-rendering.md` strips the
-implementation-detail subsections at prompt-assembly time so reviewers
-get a compact view without changing what's on disk.
-
-ESCALATE triggers inline replanning (see workflow.md), which restructures
-the plan file directly — no strategy refresh line is written.
+- **Track-completion collapse** (Phase C): see
+  [`track-code-review.md`](track-code-review.md) § Track Completion
+  step 4 — the "Always keep" / "Always drop" rule, the track-episode
+  fields, and the final on-disk form.
+- **Strategy refresh line** (State A): see
+  [`strategy-refresh.md`](strategy-refresh.md) step 5 — the line
+  format for CONTINUE / ADJUST and the `[~]`-track variant.
 
 ### Session state detection
 
@@ -190,10 +102,10 @@ level measured at sub-step 6 of step-implementation.md and recorded when
 the episode is written in sub-step 7. The agent marks it `[x]` with the
 measured level (`safe`, `info`, `warning`, or `critical`). If measurement
 failed (file missing or command error), record `- [x] Context: unavailable`.
-This sub-item is written to the step file on disk alongside the episode;
-like episodes, it is not committed to git. It must be marked before the
-step is considered complete — an unmarked context check means the agent
-skipped the check.
+This sub-item is written to the step file (under `_workflow/tracks/`)
+alongside the episode and is committed and pushed with the episode
+commit. It must be marked before the step is considered complete — an
+unmarked context check means the agent skipped the check.
 
 The **Risk:** line in each step's description blockquote names the step's
 risk level (`low`, `medium`, or `high`) and the triggering category (or
@@ -244,9 +156,9 @@ pending, active, and completed tracks. Phase A resume logic (see
 [`track-review.md`](track-review.md)) and inline replanning (see
 [`inline-replanning.md`](inline-replanning.md)) both read the same
 rules from here. Skipped tracks follow a separate retention rule —
-see §"After strategy refresh" above for the authoritative statement
-(the plan entry keeps only the intro paragraph; the `[~]` entry is
-never collapsed).
+see [`strategy-refresh.md`](strategy-refresh.md) step 5 for the
+authoritative statement on the `[~]`-track plan entry (intro
+paragraph + `**Skipped:**` + `**Strategy refresh:**`; never collapsed).
 
 | Phase | Authoritative location | Writer | Reader(s) |
 |---|---|---|---|
@@ -268,11 +180,12 @@ corresponding description row above.
 
 **Monotonic shrinkage:** The backlog grows only during Phase 1 or inline
 replanning, and shrinks as tracks enter Phase A or are skipped. Normal
-Phase A / B / C execution never adds entries. The file itself is never
-committed to git — it is a working file that persists on disk between
-sessions and is cleaned up when the branch is deleted after PR merge
-(see `conventions.md` §1.2: "Working files persist on disk between
-sessions and are never committed").
+Phase A / B / C execution never adds entries. The file lives under
+`docs/adr/<dir-name>/_workflow/` — tracked in git during the branch
+lifetime so changes are pushed to the draft PR for team visibility and
+disk-loss backup, and removed in the Phase 4 cleanup commit before
+merge (see `conventions.md` §1.2 for the full lifecycle and
+`workflow.md` § Final Artifacts for the cleanup procedure).
 
 ### Backlog section body extraction rule
 
@@ -324,110 +237,41 @@ to cross-track impact.
 
 ---
 
-## 2.3 Ephemeral identifier rule — don't leak workflow IDs into committed content
+## 2.3 Ephemeral identifier rule — pointer
 
-**Authoritative statement.** This is the single source of truth for the
-rule; every phase-specific prompt that touches committed content points
-here.
+The full rule (forbidden categories with examples, allowed list,
+rewrite examples, branch-only-commit exemption) lives in
+[`ephemeral-identifier-rule.md`](ephemeral-identifier-rule.md). Load
+that file when about to author durable content — source code, tests,
+Javadoc, PR title/body, `design-final.md`, or `adr.md`.
 
-`implementation-plan.md`, `implementation-backlog.md`,
-`tracks/track-N.md`, and `reviews/**` are working files — untracked, and
-deleted together with the branch after the PR is merged. Any identifier
-that lives only in those files becomes a dangling reference the moment
-the branch is gone. The same applies to review-loop counters and named
-invariants that live only in the plan. Therefore, **anything that goes
-into git must not cite those identifiers**.
+**Quick recap (do not rely on this list alone for borderline cases —
+read the full rule):**
 
-### Where the rule applies
+Forbidden in durable content:
+- Track / Step labels (`Track N`, `Step M`, `Track N Step M`)
+- Review finding IDs / prefixes (`CQ33`, `F-12`, `R-4`, …)
+- Review-loop iteration counters (`iteration 1`, `round 2`)
+- Named invariants cited by label only ("Single-authority invariant", …)
+- Plan-file Decision Record IDs not restated in `adr.md`
 
-- **Source code comments and Javadoc** — the most common leak. Comments
-  like `// added per Track 2 Step 1`, `// fixes CQ33`, or `// see
-  Single-authority invariant` tie the code to files that will not exist
-  on `main`.
-- **Commit messages** — even though per-commit messages are squashed on
-  merge (see CLAUDE.md §Git Conventions), the squashed commit message
-  is assembled from the PR title/description and inherits this content.
-  Individual commit messages are also visible in code review and PR
-  history before squashing.
-- **PR titles and descriptions** — stored in GitHub, keyed off by the
-  squashed commit message.
-- **`design-final.md`** and **`adr.md`** — the only workflow files
-  committed to git; see
-  [`prompts/create-final-design.md`](prompts/create-final-design.md)
-  for Phase-4-specific examples.
-- **Tests, test names, and test descriptions** — committed alongside
-  the code.
+Allowed: file paths, class/method/field names, commit SHAs,
+`adr.md`-defined DR IDs, issue tracker IDs (e.g. `YTDB-123`).
 
-It does **not** apply to the working files themselves: step files
-(`tracks/track-N.md`), review files, the plan, and the backlog all
-cite tracks, steps, findings, and iterations freely — that's exactly
-what those identifiers are for inside the workflow.
-
-### Forbidden
-
-- Track labels: `Track 1`, `Track N`, `Track N: <title>`
-- Step labels: `Step 1`, `Step N`, `Step M of Track N`
-- Compound labels: `Track 2 Step 1`, `Track 4 iteration 1`
-- Review finding IDs and prefixes: `CQ33`, `F-12`, `R-4`, `A-7`,
-  `S-2`, or any other `<PREFIX><number>` finding label from
-  `reviews/**`
-- Review-loop iteration counters: `iteration 1`, `round 2`, when they
-  refer to ephemeral review loops
-- Named invariants or rule names cited **by label only** —
-  "Single-authority invariant", "Load-bearing-file rule",
-  "Byte-identity discipline", etc. If the rule matters for a future
-  reader of committed content, either restate it in prose or cross-
-  reference the stable `.claude/workflow/` location that defines it
-  (e.g. `conventions.md` §1.2, `conventions-execution.md` §2.1).
-- Plan-file Decision Record IDs (`D1`, `D2`, …) that are **not**
-  restated in `adr.md`. IDs that ARE restated in `adr.md` are stable
-  (the ADR owns them post-implementation) and may be cited.
-
-### Allowed (these survive in git or are self-contained)
-
-- File paths under the project — source files, workflow docs in
-  `.claude/workflow/`, committed artifacts
-- Class, interface, method, and field names
-- Commit SHAs — the stable way to point at "where this was implemented"
-- `adr.md`-defined Decision Record IDs, when `adr.md` itself is the
-  reader's reachable context
-- Issue tracker IDs (e.g. `YTDB-123`) — these survive in the tracker
-
-### How to rewrite a forbidden reference
-
-Replace the ephemeral label with (a) a prose description of what was
-done, (b) the file/class that was modified, or (c) the commit SHA that
-implemented it.
-
-Examples:
-
-- ❌ `// added during Track 2 Step 1 to unblock Phase A resume`
-- ✅ `// part of the atomic step-file-write + backlog-section-remove
-      ordering that keeps Phase A resume idempotent`
-
-- ❌ `Review fix: address CQ72 (anchor drift in slim rendering)`
-- ✅ `Review fix: restore byte-identical phrasing at the two
-      cross-reference sites in plan-slim-rendering.md`
-
-- ❌ `// see Track 4 iteration 1 for context`
-- ✅ `// see commit abc1234 for the follow-up that restored these
-      sites; the first pass missed two of them`
-
-When in doubt: if a reader on `main` (without the branch, without the
-plan) couldn't resolve the reference, the reference is forbidden.
-
-### Self-check before commit
-
-Run a quick grep on staged files before committing — applies to code,
-tests, and the two Phase 4 artifacts:
+**Self-check before any code/test commit:**
 
 ```bash
-git diff --cached | grep -nE '\b(Track|Step)[ ]?[0-9]+|\b[A-Z]{1,3}[0-9]+\b'
+git diff --cached -- ':!docs/adr/*/_workflow' | grep -nE '\b(Track|Step)[ ]?[0-9]+|\b[A-Z]{1,3}[0-9]+\b'
 ```
 
-Anything this catches is either a genuine leak to rewrite or an
-allowed exception (e.g. issue tracker IDs, class names that happen to
-match the pattern) — inspect, then proceed.
+If the grep fires zero matches, the commit is clean and
+`ephemeral-identifier-rule.md` does not need to be loaded for that
+commit. If it fires any matches — load the full rule and consult its
+"How to rewrite a forbidden reference" section before resolving.
+
+**Branch-only commit messages are exempt.** Individual commit messages
+on the development branch may cite Track / Step / finding labels —
+they are squashed away on merge.
 
 ---
 
@@ -437,11 +281,17 @@ These rules are needed only when their specific phase or action runs — not
 at session startup. Load on demand:
 
 - **Commit message format** — follow the project's `CLAUDE.md` commit
-  conventions. Only code changes are committed; workflow files are never
-  committed (see §1.2 in `conventions.md`). For the execution-specific
-  prefixes (`Review fix:`) used during session resume, see
-  [`commit-conventions.md`](commit-conventions.md). Apply the Ephemeral
-  identifier rule (§2.3 above) to every commit message.
+  conventions. Both code changes and workflow-file changes (under
+  `_workflow/`) are committed during the branch lifetime; the
+  `_workflow/` directory is removed in the Phase 4 cleanup commit
+  before merge (see §1.2 in `conventions.md` and `workflow.md`
+  § Final Artifacts). Every commit is pushed immediately to the
+  branch's draft PR for team visibility; see
+  [`commit-conventions.md`](commit-conventions.md) for the push rule
+  and the execution-specific prefixes (`Review fix:`) used during
+  session resume. The Ephemeral identifier rule (§2.3 stub above; full
+  rule in [`ephemeral-identifier-rule.md`](ephemeral-identifier-rule.md))
+  applies to durable content — branch-only commit messages are exempt.
 - **Two-tier dimensional code review** (step-level and track-level
   sub-agent reviews, 4 baseline + up to 6 conditional, max 3 iterations):
   [`code-review-protocol.md`](code-review-protocol.md).

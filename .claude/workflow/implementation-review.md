@@ -128,7 +128,7 @@ Phase 1 (Planning) to rework the plan/design before re-entering.
 
 ### Review output
 
-Saved to `docs/adr/<dir-name>/reviews/consistency.md`.
+Saved to `docs/adr/<dir-name>/_workflow/reviews/consistency.md`.
 
 ---
 
@@ -178,7 +178,7 @@ the full structural review instead of the gate check.
 
 ### Review output
 
-Saved to `docs/adr/<dir-name>/reviews/structural.md`.
+Saved to `docs/adr/<dir-name>/_workflow/reviews/structural.md`.
 
 ---
 

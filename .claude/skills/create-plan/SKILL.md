@@ -27,7 +27,12 @@ Plan directory name: if "$ARGUMENTS" is non-empty, use it as the directory
 name. Otherwise, default to the current git branch name
 (`git branch --show-current`).
 
-The plan will be saved to: docs/adr/<dir-name>/implementation-plan.md
+The plan will be saved to:
+`docs/adr/<dir-name>/_workflow/implementation-plan.md`
+(the `_workflow/` subdir holds every ephemeral working file — plan,
+backlog, design, step files, reviews — and is removed in the Phase 4
+cleanup commit before merge; see `conventions.md` §1.2 and
+`workflow.md` § Final Artifacts).
 The codebase is at the current working directory.
 
 **Step 3 — Research phase (Phase 0).**
@@ -109,7 +114,7 @@ Help the user develop the plan:
    is strategic (what to test and why), not tactical (how to implement tests).
 8. Produce a **Design Document** (separate file) following the workflow rules
    in `planning.md` §Design Document. Write it to
-   `docs/adr/<dir-name>/design.md`. The design document must include:
+   `docs/adr/<dir-name>/_workflow/design.md`. The design document must include:
    - **Class diagrams** (Mermaid `classDiagram`) showing new/modified classes,
      interfaces, and their relationships
    - **Workflow diagrams** (Mermaid `sequenceDiagram` or `flowchart`) showing
@@ -123,15 +128,17 @@ Help the user develop the plan:
 Do NOT implement anything. Only research and plan.
 
 Write both the implementation plan to
-`docs/adr/<dir-name>/implementation-plan.md` AND the track-details
-backlog to `docs/adr/<dir-name>/implementation-backlog.md` using the
+`docs/adr/<dir-name>/_workflow/implementation-plan.md` AND the
+track-details backlog to
+`docs/adr/<dir-name>/_workflow/implementation-backlog.md` using the
 two structures below. The plan carries strategic context (Goals,
 Constraints, Architecture Notes, Decision Records) plus a thin
 checklist; the backlog carries each track's detailed
 `**What/How/Constraints/Interactions**` subsections and any
 track-level Mermaid diagrams. Splitting keeps `/execute-tracks`
 startup context small — see `.claude/workflow/conventions.md` §1.2 for
-the full rules (backlog file shape, lifecycle).
+the full rules (directory layout under `_workflow/`, backlog file
+shape, lifecycle).
 
 ```
 # <Feature Name>
@@ -214,8 +221,8 @@ layout exemplar; expand each track section to carry the full
 description content per planning.md §Track descriptions. -->
 ````
 
-Write the design document to `docs/adr/<dir-name>/design.md` using this
-structure:
+Write the design document to
+`docs/adr/<dir-name>/_workflow/design.md` using this structure:
 
 ```
 # <Feature Name> — Design
@@ -238,6 +245,55 @@ operations. Pair each diagram with prose explaining the flow.>
 ## <Complex Topic 2>
 <What the complex part is, why it is designed this way, gotchas/edge cases.>
 ```
+
+**Step 5 — Commit, push, and open the draft PR.**
+
+Once the user confirms the plan and design files look right, persist
+the work to GitHub so it survives local-disk loss and is visible to
+teammates as a draft PR:
+
+1. Stage and commit the `_workflow/` files in a single commit:
+   ```bash
+   git add docs/adr/<dir-name>/_workflow/
+   git commit -m "Add initial implementation plan and design"
+   ```
+2. Push the branch:
+   ```bash
+   git push -u origin <branch>
+   ```
+   (Use `git push` on subsequent pushes once upstream is set.)
+3. Ask the user **once**, before opening the PR:
+   *"Provide an issue prefix for the PR title (e.g. `YTDB-123`)?
+   Leave blank to skip."*
+   Branch names in this project often do not encode the issue
+   prefix; the user tracks it in the PR title instead.
+4. Compose the PR title:
+   - With a prefix `<P>`: `[<P>] <feature title>` — e.g.
+     `[YTDB-123] Index histogram for selective range scans`
+   - Without a prefix: `<feature title>`
+5. Compose the PR body from the plan: `## Motivation` (the plan's
+   Goals + Constraints, distilled into prose — apply the Ephemeral
+   identifier rule from `conventions-execution.md` §2.3 to the body
+   since PR titles and descriptions are durable), `## Plan` (one
+   line per track from the checklist, no internal IDs), and a
+   `## Status` line stating *"Draft — workflow scaffolding under
+   `docs/adr/<dir-name>/_workflow/` will be removed in the Phase 4
+   cleanup commit before merge."*
+6. Open the PR in **draft** mode using `gh`:
+   ```bash
+   gh pr create --draft --base develop \
+       --title "<title built above>" \
+       --body "$(cat <<'EOF'
+   ...
+   EOF
+   )"
+   ```
+   Print the resulting PR URL so the user can share it.
+
+CI does not run on draft PRs, so the per-commit pushes through the
+rest of the workflow carry no CI cost. The user manually flips the
+PR from draft to "ready for review" at the end of Phase 4 — Claude
+never runs `gh pr ready` automatically.
 
 When I'm satisfied, I'll run `/review-plan` to review the plan, then
 `/execute-tracks` to execute track by track.

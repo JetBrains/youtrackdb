@@ -55,7 +55,8 @@ warning, or pass.
   committed to git**, so the bar is higher than Phase 1: the
   artifact must stand on its own as documentation, with no
   reliance on the working files (plan, backlog, tracks) since
-  those are deleted with the branch. **In addition to the standard
+  those live under `_workflow/` and are removed by the Phase 4
+  cleanup commit before the PR is merged. **In addition to the standard
   whole-doc cold-read**, verify (a) the doc opens with a
   concept-first Overview that names what was built and any
   high-level deviations from the original plan, (b) class /

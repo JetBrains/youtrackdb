@@ -41,7 +41,7 @@ snapshot file; concurrent sessions do not collide.
 
 ### How the main agent generates it
 
-1. Read `docs/adr/<dir-name>/implementation-plan.md`.
+1. Read `docs/adr/<dir-name>/_workflow/implementation-plan.md`.
 2. Apply the rendering rule below, in-memory. Pending-track entries
    (`[ ]`) are already thin on disk (their detail lives in
    `implementation-backlog.md`), so the transform for that row is a
@@ -67,7 +67,7 @@ appear as title + intro paragraph + track episode (or Skipped reason) +
 strategy refresh only; the current track and other not-started tracks
 keep their title, intro paragraph, `**Scope:**`, and `**Depends on:**`.
 If this file is missing, fall back to
-  docs/adr/{dir-name}/implementation-plan.md
+  docs/adr/{dir-name}/_workflow/implementation-plan.md
 (full plan).
 ```
 

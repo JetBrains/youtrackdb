@@ -97,7 +97,7 @@ perspective on cross-track impact.
 
 ## Startup Protocol (Auto-Resume)
 
-1. **Read the plan file** at `docs/adr/<dir-name>/implementation-plan.md`
+1. **Read the plan file** at `docs/adr/<dir-name>/_workflow/implementation-plan.md`
    (not the backlog — startup reads only the plan;
    `implementation-backlog.md` is loaded later, when a track enters Phase A
    or is skipped).
@@ -122,7 +122,7 @@ perspective on cross-track impact.
    | Progress section | Resume action |
    |---|---|
    | `Review + decomposition` is `[ ]` | Enter `track-review.md` §Phase A Resume — Description-move recovery (often a no-op), then re-run only missing reviews and decompose. |
-   | `Review + decomposition` is `[x]`, steps partially complete | Resume from next `[ ]` step (see step-implementation.md §Phase B Resume for orphan commit recovery) |
+   | `Review + decomposition` is `[x]`, steps partially complete | Resume from next `[ ]` step (see step-implementation-recovery.md §Phase B Resume for orphan commit recovery) |
    | Steps contain `[!]` (failed) entries | Check if a retry `[ ]` step follows — if yes, resume from retry. If no retry step, present failed episode to user |
    | All steps `[x]`, code review `[ ]` or partial | Run Phase C from current iteration (single-step tracks skip code review but still run track completion — see track-code-review.md; includes track completion after review) |
    | All steps `[x]`, code review `[x]`, track still `[ ]` in plan | Resume track completion — compile episode, present to user for approval |
@@ -249,8 +249,13 @@ work when context consumption is at `warning` level or above.
 ### What to do before ending a session
 
 - Ensure all code changes are committed
-- Ensure all step episodes are written to the step file on disk
-- Update the **Progress** section in the step file on disk
+- Ensure all step episodes are written to the step file under
+  `_workflow/tracks/`, the **Progress** section is up to date, and
+  every workflow-file change has been committed (workflow files are
+  tracked under `_workflow/` — see `commit-conventions.md`)
+- Run `git push` so the branch's draft PR reflects the final state
+  of the session (every commit is pushed; this is the safety net
+  for unexpected session-end interruptions)
 - Inform the user of the session state so the next `/execute-tracks`
   auto-resumes correctly
 
@@ -283,7 +288,7 @@ Step-level failure handling (revert → failed episode → retry or split),
 the two-failure rule, and track-level failure escalation are all triggered
 inside Phase B.
 
-**Full protocol:** [`step-implementation.md`](step-implementation.md)
+**Full protocol:** [`step-implementation-recovery.md`](step-implementation-recovery.md)
 §Step Failure, §Two-Failure Rule, §Track-Level Failure.
 
 ---
@@ -321,10 +326,27 @@ Completion.
 
 ## Final Artifacts (Phase 4)
 
-After all tracks are complete, a separate session produces `design-final.md`
-and `adr.md` — the only workflow files committed to git. Tracked in the
-`## Final Artifacts` section of `implementation-plan.md` (see State D
-markers in the Startup Protocol table above).
+After all tracks are complete, a separate session produces
+`design-final.md` and `adr.md` — the two artifacts that survive
+merge into `develop`. Phase 4 lands two commits on the branch:
+
+1. **Final-artifacts commit.** Stage `design-final.md`,
+   `design-mechanics-final.md` (if applicable), and `adr.md`; commit
+   with the message defined in `prompts/create-final-design.md`
+   § Step 4; push.
+2. **Cleanup commit.** Run `git rm -r docs/adr/<dir-name>/_workflow/`
+   to remove every working file under the `_workflow/` subtree
+   (plan, backlog, design.md, design-mechanics.md, step files,
+   review files, design-mutations log). Commit with a message such
+   as `Remove workflow scaffolding`. Push.
+
+After both commits land, **inform the user that Phase 4 is complete
+and stop**. The user manually flips the draft PR to "ready for
+review" when satisfied — Claude does not run `gh pr ready`.
+
+Tracked in the `## Final Artifacts` section of
+`implementation-plan.md` (see State D markers in the Startup
+Protocol table above).
 
 **Full instructions:** [`prompts/create-final-design.md`](prompts/create-final-design.md)
 
@@ -342,7 +364,7 @@ For other workflow components, see:
 - **`commit-conventions.md`** — commit message type prefixes for session
   resume (review fix, episode, step file updates)
 - **`track-review.md`** — Phase A: review + decomposition
-- **`step-implementation.md`** — Phase B: step implementation
+- **`step-implementation.md`** — Phase B: step implementation (happy path)
 - **`track-code-review.md`** — Phase C: code review + track completion
 - **`research.md`** — Phase 0 (research: interactive exploration before planning)
 - **`planning.md`** — Phase 1 (planning)
@@ -361,5 +383,7 @@ On-demand reference documents (loaded only when their specific situation arises)
 - **`structural-review.md`** — structural review details (loaded by implementation-review.md)
 - **`track-skip.md`** — full track skip protocol (when `[~]` is triggered)
 - **`review-agent-selection.md`** — characteristic-based review agent selection (loaded by step-implementation.md and track-code-review.md)
-- **`risk-tagging.md`** — per-step risk criteria and lifecycle (loaded by `track-review.md` during Phase A decomposition; loaded by `step-implementation.md` only on the rare Phase B upgrade path; **not** loaded by Phase B normal execution or by Phase C — those phases consume the per-step `**Risk:**` tag from the step file directly)
+- **`risk-tagging.md`** — per-step risk criteria and lifecycle (loaded by `track-review.md` during Phase A decomposition; loaded by `step-implementation-recovery.md` only on the rare Phase B upgrade path; **not** loaded by Phase B normal execution or by Phase C — those phases consume the per-step `**Risk:**` tag from the step file directly)
 - **`implementer-rules.md`** — Phase B per-step implementer sub-agent rulebook (loaded only by the implementer; orchestrators do not load it)
+- **`step-implementation-recovery.md`** — Phase B Resume, non-`SUCCESS` orchestrator handlers, post-commit rollback handlers, Step Failure formats, Two-Failure Rule, Track-Level Failure (loaded by the Phase B orchestrator only when orphan commits are detected at startup or a non-`SUCCESS` implementer return arrives)
+- **`ephemeral-identifier-rule.md`** — full forbidden / allowed / rewrite rule for durable content (loaded only when about to author source code, tests, Javadoc, PR title/body, `design-final.md`, or `adr.md`; the §2.3 stub in `conventions-execution.md` plus the self-check grep are usually enough)

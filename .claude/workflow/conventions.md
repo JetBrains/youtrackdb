@@ -23,7 +23,7 @@ during Phase 3 execution.
 | **Sub-agent** | A spawned agent for self-contained tasks — review (technical/risk/adversarial, dimensional code review, test quality review) where fresh perspective matters, or implementation (Phase B per-step implementer) where context absorption matters. The orchestrator retains session-level state. |
 | **Orchestrator** | The session-level agent driving `/execute-tracks`. In Phase B owns sub-steps 4–7 of step implementation and all session-level decisions (cross-track impact, escalation, episode synthesis, context-level session-end gate). Distinct from the implementer. |
 | **Implementer** | A fresh sub-agent spawned per step in Phase B that performs sub-steps 1–3 of step implementation (implement, test, commit) and returns a structured handoff to the orchestrator. See [`implementer-rules.md`](implementer-rules.md). |
-| **Backlog** | `implementation-backlog.md` — the companion file to `implementation-plan.md` that holds the detailed `**What/How/Constraints/Interactions**` subsections and any track-level Mermaid diagrams for pending tracks. Written during Phase 1 alongside the plan (and extended by inline replanning); shrinks monotonically as tracks enter Phase A or are skipped; never committed to git. |
+| **Backlog** | `implementation-backlog.md` — the companion file to `implementation-plan.md` that holds the detailed `**What/How/Constraints/Interactions**` subsections and any track-level Mermaid diagrams for pending tracks. Written during Phase 1 alongside the plan (and extended by inline replanning); shrinks monotonically as tracks enter Phase A or are skipped. Lives under `_workflow/` (tracked on the branch for backup and team visibility, removed in Phase 4 cleanup before merge). |
 
 ---
 
@@ -35,16 +35,18 @@ defaulting to the current git branch name.
 
 ```
 docs/adr/<dir-name>/
-  ## Working files (untracked — on disk only, deleted with the branch)
-  implementation-plan.md          <- strategic: goals, architecture, tracks,
+  ## Ephemeral working files (tracked under _workflow/ during the branch
+  ## lifetime; removed in Phase 4 cleanup before merge)
+  _workflow/
+    implementation-plan.md        <- strategic: goals, architecture, tracks,
                                      track-level episodic summaries (thin
                                      checklist — description detail lives in
                                      implementation-backlog.md)
-  implementation-backlog.md       <- pending-track details (what/how/
+    implementation-backlog.md     <- pending-track details (what/how/
                                      constraints/interactions + any
                                      track-level diagrams); shrinks
                                      monotonically
-  design.md                       <- narrative: concept-first Overview
+    design.md                     <- narrative: concept-first Overview
                                      (first content), Core Concepts vocabulary
                                      primer (when doc has Parts or ≥3 new
                                      domain terms), class diagrams, workflow
@@ -55,7 +57,7 @@ docs/adr/<dir-name>/
                                      design-document-rules.md § Mutation
                                      discipline. Frozen between Phase 1 end
                                      and Phase 4 start.
-  design-mechanics.md             <- (optional, length-triggered) long-form
+    design-mechanics.md           <- (optional, length-triggered) long-form
                                      derivations, file:line citations,
                                      edit-list subsections, full state-
                                      machine tables. Created when design.md
@@ -63,21 +65,22 @@ docs/adr/<dir-name>/
                                      Section names match design.md so
                                      `**Full design**` refs in the plan
                                      resolve in either file.
-  tracks/
-    track-1.md                    <- tactical: decomposed steps, step episodes
-    track-2.md
-    ...
-  reviews/
-    structural.md                 <- Phase 2 structural-review output
-    consistency.md                <- Phase 2 consistency-review output
-    design-mutations.md           <- append-only log of every design.md
+    tracks/
+      track-1.md                  <- tactical: decomposed steps, step episodes
+      track-2.md
+      ...
+    reviews/
+      structural.md               <- Phase 2 structural-review output
+      consistency.md              <- Phase 2 consistency-review output
+      design-mutations.md         <- append-only log of every design.md
                                      mutation: diff summary, mechanical-check
                                      result, cold-read verdict, iteration
                                      count
-    track-1-technical.md
-    ...
+      track-1-technical.md
+      ...
 
-  ## Final artifacts (committed in Phase 4 — the only tracked files)
+  ## Final artifacts (committed in Phase 4 — the only files that survive
+  ## merge into develop)
   design-final.md                 <- post-implementation design reflecting
                                      what was actually built; same shape as
                                      design.md (mutation discipline applies)
@@ -85,9 +88,14 @@ docs/adr/<dir-name>/
                                      outcomes, aggregated from all episodes
 ```
 
-Working files persist on disk between sessions and are never committed.
-The user deletes them alongside the branch after the PR is merged.
-Only the two Phase 4 artifacts are committed to git.
+The `_workflow/` subtree is **tracked** in git during the branch lifetime —
+each session commits and pushes its workflow-file changes alongside its code
+commits, so the branch on GitHub always reflects the latest progress (useful
+for team visibility on a draft PR, and as a backup against local disk loss).
+At Phase 4, after `design-final.md` and `adr.md` are committed, the entire
+`_workflow/` directory is removed in a single cleanup commit so only the two
+durable artifacts survive the squash-merge into `develop`. See
+`workflow.md` § Final Artifacts for the cleanup procedure.
 
 ### Plan file content (`implementation-plan.md`)
 

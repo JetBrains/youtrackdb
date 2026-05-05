@@ -33,7 +33,7 @@ A track can be skipped (`[~]`) in two situations:
    removed in step 3 below.
 
    The authoritative retention rule for `[~]` entries lives in
-   `conventions-execution.md` §"After strategy refresh" — this process
+   [`strategy-refresh.md`](strategy-refresh.md) step 5 — this process
    step must not diverge from that rule.
 
    The skip record replaces both the track episode and step file
@@ -50,8 +50,8 @@ A track can be skipped (`[~]`) in two situations:
 
    When the last remaining `## Track M:` section is removed, leave
    the backlog file on disk with only its header — same empty-backlog
-   final-state rule that Phase A follows. Natural cleanup happens
-   when the branch is deleted after PR merge.
+   final-state rule that Phase A follows. The whole `_workflow/`
+   directory is removed by the Phase 4 cleanup commit before merge.
 
    **Backlog deletion is terminal.** Un-skipping a track via inline
    replanning requires re-authoring the plan entry's description
