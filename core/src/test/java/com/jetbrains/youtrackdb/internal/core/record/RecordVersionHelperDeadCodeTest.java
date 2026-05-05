@@ -39,9 +39,10 @@ import org.junit.Test;
  * method on this class outside its own source file across all five Maven modules (core, server,
  * driver, embedded, gremlin-annotations, docker-tests). The class is a static-method holder
  * — every public entry point is dead, the {@code SERIALIZED_SIZE} constant is unread, and the
- * protected default constructor is never invoked (zero subclasses). Phase A's PSI audit found
- * the same zero-call surface; this pin re-validates it via reflection so a future refactor that
- * silently re-uses any of these methods will trip the pinned signature.
+ * protected default constructor is never invoked (zero subclasses). The mcp-steroid PSI
+ * all-scope audit returns the same zero-call surface; this pin re-validates it via reflection
+ * so a future refactor that silently re-uses any of these methods will trip the pinned
+ * signature.
  *
  * <p>Each public static method is pinned individually so that a partial deletion (drop one
  * method, keep the rest) still leaves the pin set valid. Renames or signature drift on any
