@@ -6,12 +6,14 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGroupBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLetClause;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLimit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLProjection;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLTimeout;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLUnwind;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.List;
+import javax.annotation.Nullable;
 
 /**
  * Mutable container for all the state accumulated during query planning inside
@@ -177,9 +179,22 @@ public class QueryPlanningInfo {
 
   /**
    * Set to {@code true} when the ORDER BY has been satisfied by an index scan
-   * (so no in-memory sort is needed).
+   * or index-ordered MATCH traversal (so no in-memory sort is needed).
    */
   protected boolean orderApplied = false;
+
+  /**
+   * When non-null, the input to ORDER BY is sorted by this item (primary key).
+   * Passed to {@link OrderByStep} to enable early termination in the bounded heap.
+   */
+  @Nullable public SQLOrderByItem primaryKeySortedInput;
+
+  /**
+   * When {@code true}, upstream is an IndexOrderedEdgeStep that may produce
+   * pre-sorted output. OrderByStep checks a runtime context variable to
+   * decide between pass-through and normal sort.
+   */
+  public boolean indexOrderedUpstream;
 
   /**
    * Set to {@code true} once projection steps have been appended to the plan.
