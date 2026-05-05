@@ -322,7 +322,7 @@ jobs:
 
       - name: Upload draft release notes
         if: steps.decide.outputs.should_publish == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-notes
           path: /tmp/release-notes.md
