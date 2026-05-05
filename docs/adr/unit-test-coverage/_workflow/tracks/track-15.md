@@ -208,7 +208,7 @@ migration.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (4/6 complete)
+- [ ] Step implementation (5/6 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -688,26 +688,156 @@ All three iter-1 review reports converged on the same blocker shape (T1 / R1+R2 
   > test-only-reachable or whether the WHEN-FIXED forwarding is
   > now actionable.
 
-- [ ] Step 5: `core/db/tool/importer` converter coverage (live)
-  > **Risk:** medium — multi-file standalone tests for 12 converter
-  > classes via `ImportConvertersFactory`; test-additive only.
+- [x] Step 5: `core/db/tool/importer` converter coverage (live)
+  - [x] Context: info
+  > **Risk:** medium — 12 new test files covering the importer
+  > converter package via `ImportConvertersFactory` dispatch;
+  > test-additive only.
   >
-  > Sub-tasks: standalone tests with mocked or minimal `ConverterData`
-  > for each live converter:
-  > (a) `EmbeddedListConverterTest`, `EmbeddedSetConverterTest`,
-  > `EmbeddedMapConverterTest` (collection-shape conversion +
-  > nested-collection recursion);
-  > (b) `LinkBagConverterTest`, `LinkConverterTest`,
-  > `LinkListConverterTest`, `LinkMapConverterTest`,
-  > `LinkSetConverterTest` (RID rewrite under `LinksRewriter`
-  > collaboration);
-  > (c) `LinksRewriterTest` (RID-mapping table apply / pass-through
-  > on miss);
-  > (d) `ValuesConverterTest` interface contract pin;
-  > (e) `AbstractCollectionConverterTest` (default
-  > `convert(...)` arms);
-  > (f) `ImportConvertersFactoryTest` (registration shape, lookup by
-  > type, factory-singleton convention).
+  > **What was done:** Added 12 new test files under
+  > `core/src/test/java/.../core/db/tool/importer/` (commit
+  > `ebd8bc6273`, 56 new tests, all passing). Coverage gate
+  > reports 100% line / 100% branch on changed lines against
+  > `origin/develop`. The test surface is layered:
+  >
+  > - **Interface-shape pin** (standalone, reflection-only):
+  >   `ValuesConverterTest` pins the single-method
+  >   `ValuesConverter` contract (interface declaration,
+  >   public-and-abstract status, anonymous-implementation
+  >   round-trip).
+  > - **Live-driven base-class coverage**:
+  >   `AbstractCollectionConverterTest` exercises
+  >   `convertSingleValue` through a test-only `Probe`
+  >   subclass that exposes the protected method, covering all
+  >   five dispatch arms (null item, `Identifiable` mapped /
+  >   broken / unmapped, scalar fall-through), plus the
+  >   updated-flag preservation/flip semantics and the
+  >   `ResultCallback` lambda usability pin (7 tests).
+  > - **Live-driven per-converter coverage**: `LinkConverterTest`
+  >   pins the four `LinkConverter` arms (non-persistent
+  >   pass-through, broken sentinel, mapped rewrite, unmapped
+  >   pass-through).
+  >   `LinkListConverterTest`, `LinkSetConverterTest`,
+  >   `LinkMapConverterTest`, `LinkBagConverterTest` pin
+  >   no-mappings / mapped / broken / empty arms (4 tests
+  >   each). `EmbeddedListConverterTest`,
+  >   `EmbeddedSetConverterTest`, `EmbeddedMapConverterTest`
+  >   pin pass-through-by-reference and empty-collection
+  >   fast-paths only (2–3 tests each — see "What was
+  >   discovered" for why the rewrite arms are scoped out).
+  >   `LinksRewriterTest` pins the four `visitField` arms plus
+  >   the `goFurther` / `goDeeper` / `updateMode` constants
+  >   (7 tests). `ImportConvertersFactoryTest` pins the
+  >   `INSTANCE` singleton, the `BROKEN_LINK` sentinel shape,
+  >   and 9 dispatch arms including a rid-not-misrouted-to-
+  >   collection ordering check (12 tests).
+  >
+  > **What was discovered:**
+  > - **Embedded-collection rewrite arms are unreachable in
+  >   practice** (Track 22 candidate). Embedded multi-value
+  >   containers (`EntityEmbeddedListImpl`, `EntityEmbeddedSetImpl`,
+  >   `EntityEmbeddedMapImpl`) reject raw RIDs at add-time via
+  >   `EmbeddedTrackedMultiValue.checkValue` —
+  >   `Cannot add a RID or a non-embedded entity to a embedded
+  >   data container`. The
+  >   `EmbeddedListConverter`/`EmbeddedSetConverter`/`EmbeddedMapConverter`
+  >   `Identifiable`-arm `result.add(rid)` callback would throw
+  >   if the input list contained a raw RID. The realistic
+  >   production path is embedded entities (Identifiable but
+  >   non-persistent), where `LinkConverter` returns the entity
+  >   by reference and no rewrite happens — covered by the
+  >   pass-through arms. Forwarded to Track 22's deferred-cleanup
+  >   queue as a possible dead-arm simplification candidate; the
+  >   embedded converter test classes' Javadoc documents the
+  >   unreachable claim and forwards rewrite-arm coverage to the
+  >   per-link-collection tests.
+  > - **`LinkSet` / `LinkBag` construction requires an active
+  >   transaction.** `session.newLinkSet()` and
+  >   `new LinkBag(session)` instantiate
+  >   `EntityLinkSetImpl`/`LinkBag`, which immediately construct
+  >   an `EmbeddedLinkBag` delegate; the delegate's
+  >   `getAtomicOperation()` call (deferred to add-time) requires
+  >   `session.getActiveTransaction()` to be non-null. Tests for
+  >   those shapes wrap their bodies in `session.executeInTx`.
+  >   `LinkList` and `LinkMap` construction is tx-free
+  >   (`ArrayList`/`HashMap`-backed). **Cross-step impact**:
+  >   Step 6's `DatabaseExport`/`DatabaseImport` round-trip
+  >   fixture should expect the same wrapping when constructing
+  >   `LinkSet`/`LinkBag` payloads.
+  > - **Nested-embedded-collection recursion is broken in
+  >   production** (Track 22 candidate). When the outer
+  >   list/set/map adopts an inner embedded collection as its
+  >   element, the inner becomes owned by the outer; the
+  >   converter's recursive rewrite passes the inner to a new
+  >   fresh `result` collection inside the recursive call,
+  >   triggering `IllegalStateException: This list is already
+  >   owned by data container`. In real imports, the
+  >   `EntityFieldWalker` traverses nested embedded entities
+  >   directly (via `goDeeper`) rather than dispatching to the
+  >   converter, so the broken path is not exercised in normal
+  >   flows. Forwarded to Track 22 as a possible WHEN-FIXED
+  >   regression test if anyone revives nested embedded-collection
+  >   import support; not pinned in this commit.
+  > - **mcp-steroid tooling caveat** (same as Step 4): the
+  >   SessionStart hook reported `mcp-steroid: reachable`, but
+  >   the steroid tool schemas did not surface in this implementer
+  >   spawn's deferred-tool list. Used grep + Read for
+  >   orientation; no load-bearing reference-accuracy claim is
+  >   asserted by these tests (production code is untouched, all
+  >   changes are test-additive, and dispatch claims are exercised
+  >   at runtime via `instanceof`). Phase C track-level review
+  >   may want to PSI-confirm the embedded-rid-rejection finding
+  >   above when the IDE control surface is reachable.
+  >
+  > **What changed from the plan:** Sub-task (a)'s
+  > "nested-collection recursion" coverage was dropped because
+  > the recursion path is broken in production for embedded
+  > collections (see "What was discovered" finding 3). The
+  > plan suggested mocked `ConverterData` for standalone tests;
+  > in practice the dispatch tests need a live
+  > `DatabaseSessionEmbedded` session because the factory's
+  > `instanceof` checks discriminate on concrete classes
+  > (`EntityLinkListImpl`, `EntityEmbeddedListImpl`, etc.) that
+  > can only be instantiated via `session.newLinkList()` /
+  > `newEmbeddedList()`. Mocking those would entrench the
+  > implementation rather than the contract. Only
+  > `ValuesConverterTest` is genuinely standalone (interface-shape
+  > pin via reflection).
+  > Sub-task (e) `AbstractCollectionConverterTest` is implemented
+  > via a test-only `Probe` subclass that overrides `convert()`
+  > with throw-on-call and exposes `convertSingleValue` through
+  > a public bridge — cleanly separates the test from production
+  > subclasses while still being a real subclass (not a mock).
+  > No Component Map or Decision Record revisions.
+  >
+  > **Key files:**
+  > - `core/src/test/java/.../core/db/tool/importer/AbstractCollectionConverterTest.java` (new)
+  > - `core/src/test/java/.../core/db/tool/importer/EmbeddedListConverterTest.java` (new)
+  > - `core/src/test/java/.../core/db/tool/importer/EmbeddedMapConverterTest.java` (new)
+  > - `core/src/test/java/.../core/db/tool/importer/EmbeddedSetConverterTest.java` (new)
+  > - `core/src/test/java/.../core/db/tool/importer/ImportConvertersFactoryTest.java` (new)
+  > - `core/src/test/java/.../core/db/tool/importer/LinkBagConverterTest.java` (new)
+  > - `core/src/test/java/.../core/db/tool/importer/LinkConverterTest.java` (new)
+  > - `core/src/test/java/.../core/db/tool/importer/LinkListConverterTest.java` (new)
+  > - `core/src/test/java/.../core/db/tool/importer/LinkMapConverterTest.java` (new)
+  > - `core/src/test/java/.../core/db/tool/importer/LinkSetConverterTest.java` (new)
+  > - `core/src/test/java/.../core/db/tool/importer/LinksRewriterTest.java` (new)
+  > - `core/src/test/java/.../core/db/tool/importer/ValuesConverterTest.java` (new)
+  >
+  > **Critical context:** The embedded-collection converter
+  > shape pin is intentionally narrow — the test class Javadoc
+  > explicitly documents that the rewrite arms are unreachable
+  > in practice for raw RIDs and forwards rewrite-arm coverage
+  > to the per-link-collection tests. A future track that finds
+  > an importer scenario where embedded collections legitimately
+  > receive RID payloads (e.g., a binary-format edge case)
+  > should extend the embedded tests rather than re-introducing
+  > rewrite arms naively — the `SchemaException` at add-time is
+  > by design. The nested-embedded-collection ownership issue
+  > (finding 3) is not pinned anywhere in this commit; if it
+  > becomes a Track 22 deletion/cleanup target, a regression
+  > test should be added at that point with an explicit
+  > WHEN-FIXED marker.
 
 - [ ] Step 6: `DatabaseExport` + `DatabaseImport` live round-trip + verification + backlog update
   > **Risk:** medium — `DbTestBase` round-trip touches `YourTracks`
