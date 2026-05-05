@@ -232,7 +232,7 @@ original plan did not name explicitly.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/7 complete)
+- [ ] Step implementation (2/7 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -345,25 +345,84 @@ original plan did not name explicitly.
   > - `core/src/test/java/.../core/metadata/schema/clusterselection/CollectionSelectionFactoryDeadCodeTest.java` (new)
   > - `docs/adr/unit-test-coverage/_workflow/track-16-baseline.md` (new — workflow file)
 
-- [ ] Step 2: Schema property operations — `SchemaPropertyImpl` / `SchemaPropertyEmbedded` / `ImmutableSchemaProperty` / `GlobalPropertyImpl`
+- [x] Step 2: Schema property operations — `SchemaPropertyImpl` / `SchemaPropertyEmbedded` / `ImmutableSchemaProperty` / `GlobalPropertyImpl`
+  - [x] Context: safe
   > **Risk:** medium — multi-file tests via `DbTestBase` against
   > schema mutation API (Track 15 Step-N precedent: medium)
-  > **What:** Extend `AlterSchemaPropertyTest` and add new test
-  > classes targeting the live property surface — property add /
-  > drop / rename / collation / linked-class / linked-type / read-only
-  > / not-null / mandatory / regex / min / max / default-value
-  > flags; `getOriginalDefinition()`, `convertToType()`, `index()`
-  > on the property, custom attributes, `compareTo`, `equals`,
-  > `hashCode`. Index-creation assertions MUST call
-  > `session.getMetadata().getSchema().reload()` before reading the
-  > index back (R8 working note — disk-mode CI runs the
-  > `releaseSchemaWriteLock` → `saveInternal` path; memory-mode
-  > differs). Pin `ImmutableSchemaProperty` immutability shape via
-  > standalone tests (no DbTestBase — pure POJO assertions). Pin
-  > `GlobalPropertyImpl` round-trip via standalone tests. All schema
-  > mutations follow the R7 working note: prefer
-  > `session.executeInTx(...)`; do not cache `SchemaShared`
-  > references past a callback boundary.
+  >
+  > **What was done:** Added three new test classes targeting the
+  > live property-mutation surface in `core/metadata/schema`.
+  > `SchemaPropertyOperationsTest` (19 `@Test`) drives
+  > `SchemaPropertyImpl` + `SchemaPropertyEmbedded` mutators /
+  > readers via the public `SchemaProperty` interface (T3 trap rule):
+  > boolean flag round-trip; min / max / regexp / defaultValue /
+  > description set + null-clear; numeric min / max validation
+  > rejection; collate lifecycle including null-coerce-to-default
+  > arm; full custom-attribute lifecycle; the 13-arm
+  > `get(ATTRIBUTES)` bulk-get switch; the 14-arm
+  > `set(ATTRIBUTES, Object)` bulk-set switch including the
+  > `CUSTOM "name=value"` / quoted / empty / clear / bad-syntax
+  > sub-cases and the LINKEDTYPE-null clear path; `setType`
+  > compatible-cast (INTEGER→LONG) + incompatible-cast (INTEGER→LINK
+  > rejected) + same-type no-op; `setLinkedClass(null)` clear +
+  > `checkSupportLinkedClass` + `checkLinkTypeSupport` rejection
+  > arms; `createIndex` (three overloads) verified via
+  > `getImmutableSchemaSnapshot().indexExists(...)` per R8.
+  > `ImmutableSchemaPropertyShapeTest` (12 `@Test`) pins
+  > captured-at-snapshot-time semantics, the snapshot-stays-frozen
+  > contract across live mutation, every mutator (22 overloads)
+  > throwing `UnsupportedOperationException`, the 13-arm
+  > `get(ATTRIBUTES)` bulk-get, `equals` / `hashCode` on
+  > `(name, owner.name)` including the live-vs-snapshot
+  > `getBoundToSession` discipline, min / max-comparable lazy init
+  > for STRING + INTEGER and null-when-unset, lazy linked-class
+  > resolution, and `toString` format. `GlobalPropertyImplShapeTest`
+  > (5 `@Test`) pins both constructors, `fromEntity`/`toEntity`
+  > entity round-trip preserving `(name, type, id)`, and round-trip
+  > across 11 representative `PropertyTypeInternal` arms. Coverage
+  > gate vs `origin/develop`: 100% / 100% on changed lines. Spotless
+  > clean; 38/38 tests pass.
+  >
+  > **What was discovered:** Three findings, none escalating.
+  > 1) `SchemaPropertyImpl.get(ATTRIBUTES.LINKEDTYPE)` returns the
+  >    internal `PropertyTypeInternal` enum (delegates to
+  >    `getLinkedType()`), and `ImmutableSchemaProperty.get(ATTRIBUTES.TYPE)`
+  >    similarly returns `PropertyTypeInternal`, even though the
+  >    public-API contract on `SchemaProperty.get(...)` returns
+  >    `Object`. Test assertions use `PropertyTypeInternal.X`
+  >    accordingly; the contract drift is acceptable today (every
+  >    SQL-command consumer already casts) but is a candidate for
+  >    future API tightening — flagged to Track 22.
+  > 2) `compareTo` / `equals` / `hashCode` are defined on
+  >    `SchemaPropertyProxy` and `ImmutableSchemaProperty`, NOT on
+  >    `SchemaPropertyImpl`. Step 6 owns the proxy-boundary cases
+  >    per the track plan; immutable-snapshot equals/hashCode is
+  >    pinned here.
+  > 3) `getOriginalDefinition()` and `convertToType()` named in the
+  >    Step 2 description do not exist in the codebase (neither on
+  >    the impl nor on any interface) — the description was
+  >    aspirational. No test target exists.
+  >
+  > **Cross-track impact:** Minor — the
+  > `SchemaProperty.get(ATTRIBUTES.LINKEDTYPE)` / `(ATTRIBUTES.TYPE)`
+  > internal-enum exposure recorded for Track 22's deferred-cleanup
+  > queue as an API-tightening candidate (either narrow Javadoc to
+  > document the impl-actually-returns-PropertyTypeInternal contract,
+  > or introduce a get-public-type variant). Steps 4/5 will exercise
+  > the same path heavily through `PropertyTypeInternal.convert(...)`,
+  > so the live coverage stands. No ADJUST or ESCALATE.
+  >
+  > **What changed from the plan:**
+  > - `compareTo` / `equals` / `hashCode` for the live impl moved to
+  >   Step 6 (proxy-boundary scope) — `SchemaPropertyImpl` has no
+  >   such methods. Immutable-snapshot equals/hashCode pinned here.
+  > - `getOriginalDefinition()` / `convertToType()` references
+  >   dropped (no production target).
+  >
+  > **Key files:**
+  > - `core/src/test/java/.../core/metadata/schema/SchemaPropertyOperationsTest.java` (new)
+  > - `core/src/test/java/.../core/metadata/schema/ImmutableSchemaPropertyShapeTest.java` (new)
+  > - `core/src/test/java/.../core/metadata/schema/GlobalPropertyImplShapeTest.java` (new)
 
 - [ ] Step 3: Schema class operations — `SchemaClassImpl` / `SchemaClassEmbedded` / `SchemaImmutableClass` + `Internal` / `Proxy` boundary cases
   > **Risk:** medium — multi-file tests via `DbTestBase` against
