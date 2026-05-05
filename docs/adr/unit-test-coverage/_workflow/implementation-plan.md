@@ -1374,6 +1374,15 @@ flowchart TD
   > misses.
   >
   > **Step file:** `tracks/track-15.md` (6 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — discoveries are confined to
+  > `core/db/tool` and `core/record*`; all propagating items are already
+  > absorbed into Track 22's deferred-cleanup queue (8 dead-code lockstep
+  > groups + 1 WHEN-FIXED `OPPOSITE_LINK_CONTAINER_PREFIX` + 3 deferred
+  > suggestions CQ12/TC13/TC14). No impact on Tracks 16–21. PR #1022
+  > rulebook fix is merged into `develop` and pulled into this branch
+  > (verified `MUST NOT ScheduleWakeup` and `Do NOT run git clean -fd`
+  > present in `implementer-rules.md`).
 
 - [ ] Track 16: Metadata Schema & Functions
   > Write tests for schema management and function/sequence libraries.
