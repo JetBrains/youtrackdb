@@ -122,9 +122,12 @@ Spotless on affected modules (`./mvnw -pl <module> spotless:apply`),
 verify coverage thresholds (85% line / 70% branch on changed code
 via the coverage gate command in §"Coverage gate command" below).
 Wait for test results before proceeding — never start the commit
-while a background test run is still streaming. For long-running
-Maven builds (full `core` test suite or coverage profile), see
-§"Pacing long-running tasks" below before deciding how to wait.
+while a Maven run is still in flight. **Run every Maven invocation
+in foreground** (no `run_in_background: true`) per
+§"Pacing long-running tasks — foreground only" below; that section
+also defines the test-additive shortcut that skips the
+coverage-profile build when the step adds no production-source
+changes.
 
 **Sub-step 3 — Stage explicit paths and commit** in one commit. No
 `git add -A`. No `--amend`. Apply the project's commit-message
@@ -152,55 +155,62 @@ backlog, or any review file. All step-file mutations — episode write,
 risk-line rewrite, `[x]` mark, Progress count update, retry/split row
 inserts — are the orchestrator's responsibility.
 
-### Pacing long-running tasks — do not use `ScheduleWakeup`
+### Pacing long-running tasks — foreground only
 
 The implementer is spawned synchronously by the orchestrator via the
 Agent tool. The orchestrator parses **one** structured return block
 per spawn — the spawn either ends with a valid `RESULT: …` block or
 the orchestrator treats the return as a contract violation.
 
-`ScheduleWakeup` breaks this contract. It yields control back to the
-caller with no `RESULT` block, so the orchestrator sees the
-implementer return without a handoff — indistinguishable from a
-crash. The implementer is also left **idle** between scheduled wakes
-rather than actively running, so any subsequent SendMessage from the
-orchestrator is required to resume work — at which point the
-implementer's understanding of the prior in-flight Bash background
-task may be stale (the runtime may have garbage-collected the
-background task across the idle gap, leaving zero-byte output files
-and no live process).
+Two patterns break this contract by leaving the implementer **idle**
+between events: `ScheduleWakeup`, and starting a Maven build via
+Bash `run_in_background: true` and then polling for completion. In
+both cases the runtime can drop the wake-up / completion
+notification across the idle gap — the implementer's turn ends
+without emitting a `RESULT` block, indistinguishable from a crash,
+and any subsequent SendMessage from the orchestrator finds the
+background task long gone (zero-byte output, no live process). Past
+sessions repeatedly stranded on this exact pattern.
 
-**Rule.** The implementer MUST NOT call `ScheduleWakeup`. Pacing is
-the orchestrator's job, not the implementer's. The implementer runs
-straight through sub-steps 1–3 and emits exactly one return block.
+**Rules.** The implementer:
+
+- MUST NOT call `ScheduleWakeup`.
+- MUST NOT start Maven invocations with Bash `run_in_background: true`.
+- MUST NOT chain `sleep` / monitor poll loops waiting for a
+  background task to finish.
+
+Pacing is the orchestrator's job, not the implementer's. The
+implementer runs straight through sub-steps 1–3 and emits exactly
+one return block.
 
 **For long-running Maven runs** — full `core` test suite, coverage
 profile build, integration tests:
 
-- Prefer **foreground** Bash with the Bash tool's `timeout`
-  parameter set to the realistic upper bound (the parameter is in
+- Use **foreground** Bash with the Bash tool's `timeout` parameter
+  set to the realistic upper bound (the parameter is in
   milliseconds and caps at 600 000 ms / 10 minutes — this is the
   Claude Code Bash-tool parameter, not the GNU `timeout` shell
-  command; for builds that may exceed that, split into stages —
-  e.g., compile first, then test, then coverage report — each stage
-  under 10 min).
-- If a build is long enough that the implementer should not block on
-  it (rare — the foreground 10-min path covers most module-scoped
-  runs), start it via Bash `run_in_background: true`. The runtime
-  fires a single completion notification when the command exits;
-  the implementer does not need to poll. While the build runs, the
-  implementer can do other read-only work that doesn't touch the
-  same module — re-reading the step file, the slim plan, or
-  `design.md` for context. Do **not** start a separate Bash call
-  to `tail -f` or `grep` the log file in a poll loop — `tail`/`grep`
-  return when the build finishes anyway, and the polling adds
-  nothing the completion notification doesn't already provide.
-- Do not chain multiple short `sleep`s with `ScheduleWakeup` between
-  them. Each `ScheduleWakeup` is a yield-and-idle, not a wait.
+  command). Targeted reruns (`-Dtest='Foo,Bar'`) and module-scoped
+  test runs (`./mvnw -pl core test`) finish well inside this
+  budget.
+- For builds that genuinely exceed the foreground budget, **split
+  into foreground stages** — e.g., `./mvnw -pl core compile` first,
+  then `./mvnw -pl core test`, then a separate coverage-report
+  invocation — each stage under 10 min. The split keeps every
+  invocation foreground; do not work around the timeout by
+  switching to `run_in_background`.
+- **Test-additive steps skip the coverage-profile build entirely.**
+  When the step adds only test code (no production-source changes
+  in `git diff origin/develop -- core/src/main`), the coverage gate
+  trivially passes on changed lines because there are no changed
+  production lines. Run the targeted tests in foreground, confirm
+  Spotless, and commit — record the gate as `n/a (test-additive)`
+  in the `TEST_SUMMARY` and let the track's final-verification step
+  pick up per-package totals from a single full coverage run.
 
-If a build genuinely exceeds the realistic foreground budget for the
-implementer (rare — only the full `verify -P ci-integration-tests`
-or large coverage runs), return `RESULT: FAILED` with
+If even a staged sequence cannot fit the foreground budget (rare —
+only large `-P ci-integration-tests` runs or full multi-module
+coverage on a slow host), return `RESULT: FAILED` with
 `recommended_action: split` and let the orchestrator decide whether
 to break the step into smaller, individually-verifiable pieces.
 
@@ -513,7 +523,12 @@ FAILURE:                          # only if RESULT == FAILED
   is meaningful (e.g., last test run's pass count) and use `n/a`
   otherwise. On `DESIGN_DECISION_NEEDED` and `RISK_UPGRADE_REQUESTED`,
   the implementer has typically not run tests yet — every field may
-  be `n/a`.
+  be `n/a`. When the step is **test-additive** (no production-source
+  changes per the rule in §"Pacing long-running tasks — foreground
+  only" above), the coverage profile build is skipped — set
+  `line_coverage_changed` and `branch_coverage_changed` to
+  `n/a (test-additive)` and keep `passed` / `module` /
+  `spotless_applied` populated normally.
 - `EPISODE_DRAFT` is populated on `SUCCESS` only. The orchestrator
   finalises it (merging in cross-track-impact-check observations from
   sub-step 5) before writing the episode to the step file. On
