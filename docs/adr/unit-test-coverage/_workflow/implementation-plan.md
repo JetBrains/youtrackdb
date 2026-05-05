@@ -1254,21 +1254,126 @@ flowchart TD
   > changes; carry-forward patterns are already absorbed into Track 15's
   > "Carry forward Tracks 5–14 conventions" instruction.
 
-- [ ] Track 15: Record Implementation & DB Tool
+- [x] Track 15: Record Implementation & DB Tool
   > Write tests for the record implementation layer and database tool
   > utilities. EntityImpl is the core document model; DB tools handle
   > export, import, repair, and compare.
   >
-  > **Scope:** ~7 steps covering EntityImpl properties, EntityImpl
-  > serialization/comparison, EntityImpl embedded, record root, DB
-  > export, DB repair/compare, and verification.
-  > **Depends on:** Track 1
+  > **Track episode:**
+  > Added ~9,700 LOC of test code across 42 new/extended files covering
+  > `core/db/tool*` and `core/record*`. Purely test-additive: zero
+  > production code modified across all 6 step commits + 2 review-fix
+  > commits. Final aggregate coverage on the touched packages
+  > (post-iter-3): live-drive surfaces meet the 85% line / 70% branch
+  > bar; dead-code residues (530 of 889 `core/db/tool` uncov lines)
+  > are pinned via `*DeadCodeTest` shape pins for lockstep deletion in
+  > the deferred-cleanup track. Aggregate `core` module coverage drift
+  > is +0.3pp / +0.3pp; this track's value lives in the cross-track
+  > dead-code reframe (8 deletion lockstep groups) more than in raw
+  > coverage.
   >
-  > **Operational note:** Step 1's deferred-cleanup absorption
-  > updates to `implementation-backlog.md` were lost in the
-  > 2026-05-04 incident — re-add at Phase C from Step 1's episode
-  > prose. `track-15-baseline.md` was also lost; re-derive at
-  > Phase C from a fresh coverage run. See **Operational Notes**.
+  > **Reframe at Phase A**: three independent reviews
+  > (technical / risk / adversarial — all PSI-grounded) converged on
+  > two blockers and matching should-fix items. The original "drive
+  > EntityImpl + DB-tool round-trip" framing was reframed to dead-code
+  > pins + Track 22 deletion absorption after PSI all-scope
+  > `ReferencesSearch` confirmed every `core/db/tool` orphan
+  > (`DatabaseRepair`, `BonsaiTreeRepair`) plus the test-only-reachable
+  > trio (`DatabaseCompare`, `GraphRepair`, `CheckIndexTool`) and the
+  > `core/record*` chain-dead helpers (`RecordVersionHelper`,
+  > `RecordStringable`, `RecordListener`, 12 of 17 `EntityHelper`
+  > public methods, `EntityComparator`). Track 12's "MemoryStream
+  > caller migration" framing was unimplementable — closed via
+  > deletion (forwarded to Track 22) instead.
+  >
+  > **Step 4 incident and recovery**: First Step 4 attempt escalated
+  > `DESIGN_DECISION_NEEDED` after PSI re-confirmation contradicted
+  > Phase A's `RecordBytes.fromInputStream` dead claim — the 1-arg
+  > overload has a live caller at `JSONSerializerJackson:623`. The
+  > implementer's prescribed revert sequence ran `git clean -fd`,
+  > wiping 50+ untracked workflow files. Recovery used IntelliJ Local
+  > History + agent transcripts; PR #1022 on `develop` fixed the
+  > rulebook (forbid `ScheduleWakeup` + replace `git clean -fd` with
+  > snapshot-and-diff). Step 4 resumed via Alternative B: pin only the
+  > 2-arg `fromInputStream(InputStream, int)` overload as
+  > test-only-reachable in `RecordBytesTestOnlyOverloadTest` (NOT
+  > `*DeadCodeTest` — the 1-arg overload is live).
+  >
+  > **Production bugs pinned for the deferred-cleanup track (forwarded
+  > via WHEN-FIXED markers)**: `OPPOSITE_LINK_CONTAINER_PREFIX`
+  > should-be-final (0 writes per PSI). The MemoryStream-scratch-buffer
+  > body of `RecordBytes.fromInputStream(InputStream)` is queued for
+  > rewrite to `ByteArrayOutputStream` to sever the dependency.
+  >
+  > **Dead-code surface pinned for deferred-cleanup-track deletion**
+  > (8 lockstep groups): `core/db/tool` orphans, `core/db/tool`
+  > test-only-reachable trio (deletion contingent on retargeting test
+  > subclasses), `core/record` chain-dead helpers, 12 dead
+  > `EntityHelper` public methods (each pinned individually so partial
+  > deletion stays valid), `EntityComparator` (chain-dead AND
+  > test-only-reachable from one `tests/CRUDDocumentValidationTest`
+  > sort-stability assertion), `EntityImpl.hasSameContentOf(EntityImpl)`
+  > lockstep, `RecordBytes.fromInputStream(InputStream, int)` 2-arg
+  > overload, `RecordBytes.fromInputStream(InputStream)` body
+  > MemoryStream-scratch-buffer rewrite. The earlier "RecordBytes
+  > `fromInputStream` + `toStream(MemoryStream)` overload deletions"
+  > line item was RETRACTED — `toStream(MemoryStream)` does not exist
+  > on `RecordBytes`. `EntityHelper.RIDMapper` is no longer chain-dead
+  > after iter-1 introduced a live caller from
+  > `DatabaseExportImportRoundTripTest`'s round-trip harness.
+  >
+  > **Track-level code review (3 iterations, max reached; final
+  > PASS):**
+  > - Iter-1 (5 dimensions: CQ/BC/TB/TC/TS): 3 blockers / 27
+  >   should-fix / 24 suggestions. Applied 3 blockers + 4 should-fix
+  >   in commit `fb5881c66a`. The fix commit silently skipped TS1,
+  >   TC1, and CQ11 (the latter being a sweep miss on hyphenated
+  >   `Step-1`/`Step-2`, `Pre-Track-22`, and `Phase A` variants the
+  >   original regex did not match).
+  > - Iter-2 (5-dimension gate check): BC/TB PASS; CQ/TC/TS FAIL on
+  >   the 3 silently-skipped iter-1 items. Applied in commit
+  >   `bd95f88906`: TS1 (try/finally drop in
+  >   `EntityImplTest#testRemovingReadonlyField` + `#testUndo`), TC1
+  >   (`testVisitFieldOnNullValueReturnsNull` in `LinksRewriterTest`),
+  >   CQ11 (sweep 7 ephemeral-identifier residues across 4 files).
+  >   TC2 was REJECTED — production `LinkTrackedMultiValue.checkValue`
+  >   rejects null at write time, making the abstract-base null arm
+  >   structurally unreachable through the four Link converters. New
+  >   iter-2 suggestions deferred: CQ12 (231-line round-trip method
+  >   extraction), TC13 (Embedded Set/Map null-element symmetry).
+  > - Iter-3 (CQ/TC/TS gate check): PASS on all 3 dimensions.
+  >   CQ11/TS1/TC1 fixes VERIFIED. TC2 rejection stands with caveat
+  >   about `EntityLinkSetImpl` rejecting via NPE rather than
+  >   `checkValue`. New iter-3 suggestion TC14 (`EntityLinkSetImpl`
+  >   null-NPE pin) deferred.
+  > - Final state: 0 open blockers, 0 open should-fix; 3 deferred
+  >   suggestions (CQ12, TC13, TC14) absorbed into the deferred-
+  >   cleanup-track backlog block via commit `c23770e79a`.
+  >
+  > **Cross-track impact**: substantial. Track 22's deferred-cleanup
+  > absorption block grew by 8 dead-code deletion lockstep groups + 1
+  > production-fix WHEN-FIXED marker
+  > (`OPPOSITE_LINK_CONTAINER_PREFIX`) + 3 iter-2/iter-3
+  > suggestion-tier entries (CQ12, TC13, TC14). The earlier
+  > "RecordBytes `toStream(MemoryStream)` overload deletion" line was
+  > RETRACTED. The `EntityHelper.RIDMapper` chain-dead claim was
+  > retracted after the iter-1 round-trip harness introduced a live
+  > caller. No propagation to Tracks 16–21. No Component Map or
+  > Decision Record changes.
+  >
+  > **Patterns carried forward and codified**: dead-code reframe via
+  > all-scope PSI `ReferencesSearch` before driving "live coverage";
+  > per-method dead-code pinning so partial deletion stays valid;
+  > `*DeadCodeTest` vs `*TestOnlyOverloadTest` naming distinction (the
+  > latter when the surrounding class has live overloads); name-keyed
+  > `RIDMapper`-backed round-trip fidelity assertion (replaces
+  > size-only link checks in `DatabaseExportImportRoundTripTest`);
+  > broader ephemeral-identifier sweep regex
+  > (`Track[ -]?[0-9]+|Step[ -]?[0-9]+|\bPhase [A-Z]\b`) for iter-2
+  > gate checks to catch hyphenated variants the narrow iter-1 regex
+  > misses.
+  >
+  > **Step file:** `tracks/track-15.md` (6 steps, 0 failed)
 
 - [ ] Track 16: Metadata Schema & Functions
   > Write tests for schema management and function/sequence libraries.
