@@ -52,35 +52,14 @@ SUBSECTION_KEYWORDS: Set[str] = {
     "Strategy refresh",
 }
 
-# Per-status keep/drop rules. The spec table in plan-slim-rendering.md
-# §Rendering rule lists Keep and Drop keywords explicitly; the union
-# below covers every keyword in SUBSECTION_KEYWORDS so a keyword on the
-# "wrong" side of a status (e.g. Skipped on a [x] track) is silently
-# dropped rather than aborting on real-world plans whose [x] entries
-# were never collapsed on disk.
+# Per-status keep sets, from the spec table in plan-slim-rendering.md
+# §Rendering rule. Anything in SUBSECTION_KEYWORDS not listed here is
+# dropped — including keywords that the spec puts on the "wrong" side
+# of a status (e.g. Skipped on a [x] track), which is the correct
+# behaviour for real-world plans whose [x] entries were never
+# collapsed on disk.
 COMPLETED_KEEP: Set[str] = {"Track episode", "Strategy refresh"}
-COMPLETED_DROP: Set[str] = {
-    "Scope",
-    "Depends on",
-    "Step file",
-    "What",
-    "How",
-    "Constraints",
-    "Interactions",
-    "Skipped",
-}
-
 SKIPPED_KEEP: Set[str] = {"Skipped", "Strategy refresh"}
-SKIPPED_DROP: Set[str] = {
-    "Scope",
-    "Depends on",
-    "Step file",
-    "What",
-    "How",
-    "Constraints",
-    "Interactions",
-    "Track episode",
-}
 
 # Track header: `- [STATUS] Title`. Status is space, x, or ~. `[>]` is
 # Phase-4-only (per conventions.md §1.2) and never appears on a track
