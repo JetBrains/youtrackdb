@@ -235,6 +235,9 @@ original plan did not name explicitly.
 - [ ] Step implementation
 - [ ] Track-level code review
 
+## Base commit
+`7ccf28f311d8d11e0d944c3f6d6163efe9574a0d`
+
 ## Reviews completed
 - [x] Technical (iter-1: 0 blockers / 3 should-fix / 4 suggestions
       — see `reviews/track-16-technical.md`. iter-2 gate: PASS, 7
