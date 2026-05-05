@@ -166,18 +166,21 @@ straight through sub-steps 1–3 and emits exactly one return block.
 **For long-running Maven runs** — full `core` test suite, coverage
 profile build, integration tests:
 
-- Prefer **foreground** Bash with `timeout` set to the realistic
-  upper bound (Bash `timeout` caps at 600 000 ms / 10 minutes; for
-  builds that may exceed that, split into stages — e.g., compile
-  first, then test, then coverage report — each stage under 10 min).
+- Prefer **foreground** Bash with the Bash tool's `timeout`
+  parameter set to the realistic upper bound (the parameter is in
+  milliseconds and caps at 600 000 ms / 10 minutes — this is the
+  Claude Code Bash-tool parameter, not the GNU `timeout` shell
+  command; for builds that may exceed that, split into stages —
+  e.g., compile first, then test, then coverage report — each stage
+  under 10 min).
 - If background is genuinely needed (e.g., to keep the implementer
   responsive to other work during a long build), use Bash
   `run_in_background` with the `Monitor` tool's "until-loop" pattern
   inside a single Bash invocation:
-  `until grep -q "BUILD SUCCESS\\|BUILD FAILURE" {logfile}; do sleep
-  10; done` — the loop runs in one Bash call, the implementer waits
-  for the loop's exit, and the runtime delivers a single completion
-  notification rather than a sequence of wake-ups.
+  `until grep -Eq "BUILD SUCCESS|BUILD FAILURE" "{logfile}"; do
+  sleep 10; done` — the loop runs in one Bash call, the implementer
+  waits for the loop's exit, and the runtime delivers a single
+  completion notification rather than a sequence of wake-ups.
 - Do not chain multiple short `sleep`s with `ScheduleWakeup` between
   them. Each `ScheduleWakeup` is a yield-and-idle, not a wait.
 
@@ -232,9 +235,13 @@ loses cross-spawn state. The required sequence:
    sub-step 1, before reading the step file or making any edit:
 
    ```bash
-   git ls-files --others --exclude-standard | sort \
+   git ls-files --others --exclude-standard | LC_ALL=C sort \
      > /tmp/claude-impl-preexisting-untracked-$PPID.txt
    ```
+
+   `LC_ALL=C` keeps the sort byte-ordered so the later `comm -13`
+   (which requires its inputs sorted under the same collation) is
+   reliable regardless of the implementer's locale.
 
    The snapshot reflects the world the orchestrator handed you.
 
@@ -249,16 +256,18 @@ loses cross-spawn state. The required sequence:
    present in the post-snapshot but absent from the pre-snapshot:
 
    ```bash
-   git ls-files --others --exclude-standard | sort \
+   git ls-files --others --exclude-standard | LC_ALL=C sort \
      > /tmp/claude-impl-post-untracked-$PPID.txt
-   comm -13 \
+   LC_ALL=C comm -13 \
      /tmp/claude-impl-preexisting-untracked-$PPID.txt \
      /tmp/claude-impl-post-untracked-$PPID.txt \
-     | xargs -r -d '\n' rm -v --
+     | while IFS= read -r file; do rm -v -- "$file"; done
    ```
 
-   `xargs -r` handles the empty-input case (no new files to remove);
-   `-d '\n'` makes the listing newline-safe for paths with spaces.
+   The `while IFS= read -r` loop handles paths with spaces and is
+   portable across GNU/BSD `xargs` differences. The loop is a
+   no-op when `comm` produces no output, so the empty-diff case is
+   handled implicitly.
 
 **Do NOT run `git clean -fd` (or `-fdx`).** It indiscriminately
 removes every untracked file in the worktree — including the
