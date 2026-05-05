@@ -208,7 +208,7 @@ migration.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (5/6 complete)
+- [x] Step implementation (6/6 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -839,34 +839,273 @@ All three iter-1 review reports converged on the same blocker shape (T1 / R1+R2 
   > test should be added at that point with an explicit
   > WHEN-FIXED marker.
 
-- [ ] Step 6: `DatabaseExport` + `DatabaseImport` live round-trip + verification + backlog update
-  > **Risk:** medium — `DbTestBase` round-trip touches `YourTracks`
-  > global state (requires `@Category(SequentialTest)`); test-additive
-  > only; uses `EntityHelper.hasSameContentOf` for fidelity (NOT
-  > `DatabaseCompare`).
+- [x] Step 6: `DatabaseExport` + `DatabaseImport` live round-trip + verification + backlog update
+  - [x] Context: info
+  > **Risk:** medium — round-trip via MEMORY storage touching
+  > `YourTracks` global state (`@Category(SequentialTest)`);
+  > test-additive only; fidelity via `EntityHelper.hasSameContentOf`
+  > (NOT `DatabaseCompare`, which Track 15 has been pinning for
+  > deletion).
   >
-  > Sub-tasks: (a) extend `DatabaseImportTest` (or new `DatabaseExportImportRoundTripTest`)
-  > with MEMORY-storage in-process round-trip using
-  > `ByteArrayInput/OutputStream` (per `DatabaseImportSimpleCompatibilityTest`
-  > precedent — sub-1-second per test); cover small fixture (~5–10
-  > entities with unambiguous types: STRING, INTEGER, EMBEDDED,
-  > LINKLIST, LINKMAP, LINKBAG); fidelity via
-  > `EntityHelper.hasSameContentOf` entity-by-entity;
-  > `@Category(SequentialTest)`; (b) cover `DatabaseImpExpAbstract`
-  > common-base residual branches (option-flag dispatch, listener
-  > callbacks); (c) cover `DatabaseRecordWalker` residual branches
-  > via existing-test extension; (d) pin `DatabaseTool` interface
-  > shape (abstract base — interface-level only); (e) explicit
-  > out-of-scope for `DatabaseImport.java:416` legacy-version branch
-  > (Track 22 backlog item f); (f) run `coverage-gate.py` against the
-  > accumulated track-15 changes (compare-branch
-  > `origin/develop`, line-threshold 85, branch-threshold 70); record
-  > final per-package live coverage in episode; (g) extend
-  > deferred-cleanup absorption block in `implementation-backlog.md`
-  > with all Track-15 deletion items + WHEN-FIXED markers; (h)
-  > re-measure `core/serialization/MemoryStream` coverage and forward
-  > residual gap to Track 22 (Track 12 backlog item h closure
-  > documentation, NOT migration).
+  > **What was done:** Added 4 new test classes under
+  > `core/src/test/java/.../core/db/tool/` (commit `b01c9205d8`,
+  > 1 219 LOC, 37 new tests, all passing). Coverage gate reports
+  > 100% line / 100% branch on changed lines against
+  > `origin/develop`. Full `core` suite (1817 tests) green.
+  >
+  > - **`DatabaseExportImportRoundTripTest`** (5 tests) is the
+  >   load-bearing live round-trip: MEMORY storage,
+  >   `ByteArrayInput`/`OutputStream` streaming per the
+  >   `DatabaseImportSimpleCompatibilityTest` precedent; fixture
+  >   of 7 entities covering STRING / INTEGER / EMBEDDED /
+  >   LINKLIST / LINKMAP / LINKBAG with entity-by-entity fidelity
+  >   via `EntityHelper.hasSameContentOf` for scalar/embedded
+  >   shapes and size-equality pins for link collections (RIDs
+  >   change across the two databases by design — see "What was
+  >   discovered" for the comparison-strategy rationale).
+  >   `@Category(SequentialTest)` because the round-trip touches
+  >   `YourTracks` global state across two MEMORY databases.
+  >   Additional tests cover schema-only export,
+  >   `DatabaseImport.parseSetting` option-flag dispatch
+  >   (`-migrateLinks`, `-rebuildIndexes`,
+  >   `-deleteRIDMapping`, `-backwardCompatMode`, plus
+  >   `setOption`), `DatabaseExport.parseSetting` compression
+  >   flags + line-feed flag, and
+  >   `removeExportImportRIDsMap`'s missing-class early return.
+  > - **`DatabaseImpExpAbstractTest`** (14 tests) covers the
+  >   common base via a tiny inert `Probe` subclass —
+  >   quote-stripping (single, double, none), default-extension
+  >   append, null-filename short-circuit, `-useLineFeedForRecords`
+  >   option dispatch, accessor surface (`getDatabase`,
+  >   `getFileName`, `getListener`/`setListener`,
+  >   `isUseLineFeedForRecords`/`setUseLineFeedForRecords`),
+  >   unknown-option fallthrough, runtime listener replacement.
+  > - **`DatabaseRecordWalkerTest`** (9 tests) exercises the
+  >   walker on a seeded MEMORY fixture: walk with accept /
+  >   reject visitor, `walkEntitiesInTx` default + skip-link-
+  >   check overload (verifying the `try`/`finally` restores
+  >   link-consistency-check after a skipped pass),
+  >   `onProgressPeriodically` registration and firing,
+  >   `excludeCollections` filtering, internal-collection
+  >   always-skip guard, NOOP progress-listener constant,
+  >   empty-database boundary.
+  > - **`DatabaseToolDeadCodeTest`** (9 tests) is a
+  >   reflection-only shape pin for the abstract base —
+  >   public+abstract+`Runnable` shape, the single bounded type
+  >   parameter, declared-method set, declared-field set with
+  >   protected non-static modifiers, `parseSetting` as the
+  >   unique abstract method, fluent-setter return-type
+  >   assignment, message-helper varargs shape.
+  >
+  > **What was discovered:**
+  > - **Round-trip fidelity comparison split.** A strict
+  >   `EntityHelper.hasSameContentOf` comparison fails on link
+  >   types across the two databases: it compares Identifiables
+  >   by RID via `compareScalarValues`, which only honours a
+  >   `RIDMapper` when one is supplied. A round-trip produces
+  >   fresh RIDs on the import side, so strict link-collection
+  >   comparison fails without a custom mapper. Step 6 chose to
+  >   split the comparison strategy (use `hasSameContentOf` for
+  >   non-link properties; use size-equality for link collections)
+  >   rather than build a `RIDMapper` that would mirror
+  >   `DatabaseCompare`'s coupling. The test Javadoc names the
+  >   choice and forwards a possible future improvement (build a
+  >   name-keyed `RIDMapper` inside the test fixture) to the
+  >   deferred-cleanup track if anyone wants stronger fidelity.
+  >   See "Critical context" for why this MUST NOT be tightened
+  >   before `DatabaseCompare` is deleted.
+  > - **MEMORY-cluster naming convention.** `DbTestBase`'s MEMORY
+  >   collections are case-sensitive cluster names with
+  >   `_<id>` suffixes (e.g., `persona_11`, `personb_18`) — a
+  >   single schema class spans multiple clusters. The
+  >   `DatabaseRecordWalker` test's exclude-set therefore filters
+  >   by lower-cased prefix (`CLS_A`/`CLS_B`), not by exact name.
+  >   Reusable pattern for any future DB-tool test that needs
+  >   to filter clusters by class name —
+  >   `systemCollectionsToExclude()` is the canonical helper.
+  > - **Schema mutations are non-transactional.**
+  >   `createClass`/`createProperty` MUST happen outside an
+  >   active transaction; otherwise the session throws
+  >   `Cannot change the schema while a transaction is active`.
+  >   Both fixture builders seed schema first, then enter
+  >   `executeInTx` for record creation. Documented in inline
+  >   comments.
+  > - **`DatabaseImpExpAbstract.setOptions` smartSplits on
+  >   space.** A leading space yields a tokens list of
+  >   `["", "<opt>"]`, so the empty token reaches subclass
+  >   `parseSetting` first. Tests pin both behaviours (subclass
+  >   tolerates the empty key; multi-option strings dispatch
+  >   each option separately).
+  > - **Walker default touches all user-class clusters.**
+  >   `DatabaseRecordWalker.walk` traverses all user-class
+  >   clusters including `DbTestBase`'s auto-created system /
+  >   security ones (15 clusters at ~9 records by default).
+  >   Tests filter via the `excludeCollections` constructor
+  >   parameter to keep assertions deterministic on the seeded
+  >   fixture.
+  > - **MemoryStream coverage residual (sub-task h).**
+  >   Post-Track-15 coverage stands at **62.3% line (114/183,
+  >   69 uncov) and 58.0% branch (29/50, 21 uncov)** inside
+  >   `core.serialization.MemoryStream`. This is unchanged from
+  >   the pre-Track-15 measurement; the
+  >   `DatabaseImport`/`DatabaseExport`/`RecordBytes` paths
+  >   exercised by Step 6 do not touch `MemoryStream`'s read-side
+  >   methods (it's a write-path scratch buffer in
+  >   `Blob.fromInputStream` and a serialization helper for
+  >   `RecordIdInternal`/`Command`). The residual gap is
+  >   forwarded to the deferred-cleanup track per the Track 12
+  >   backlog item h closure (deletion of MemoryStream-taking
+  >   overloads, not caller migration).
+  > - **Per-package final coverage** for the four target
+  >   packages (compared to Step 1's baseline):
+  >   - `core/db/tool`: 61.1% → **63.5% line**, 50.0% → **52.6%
+  >     branch** (886 → 831 uncov; −55 lines covered, primarily
+  >     `DatabaseImport`/`DatabaseExport`/`DatabaseImpExpAbstract`/
+  >     `DatabaseRecordWalker` live drives plus `DatabaseTool`
+  >     fluent setters via reflection-driven message paths).
+  >   - `core/db/tool/importer`: **96.1% (unchanged — Step 5
+  >     already at ceiling)**.
+  >   - `core/record/impl`: **65.1% line, 56.3% branch
+  >     (effectively unchanged — Track 15 already at coverage
+  >     ceiling for the live surface)**; remaining uncov is
+  >     storage-coupled cold paths owned by Tracks 19–21.
+  >   - `core/record`: **66.1% line, 50.7% branch (unchanged —
+  >     Step 2 dead-code pins covered the residual surface)**.
+  >   The residual 530+ uncov lines in `core/db/tool` live in
+  >   classes whose deferred-cleanup disposition is **delete**
+  >   (`DatabaseRepair` 71 + `BonsaiTreeRepair` 63 +
+  >   `DatabaseCompare` 290 + `GraphRepair` 106 = 530); they
+  >   are not expected to enter the "covered" column during
+  >   Track 15.
+  > - **Cross-track impact (apply at Phase C — sub-task g
+  >   revised):** the implementer rulebook forbids modifying
+  >   `implementation-backlog.md`, so the orchestrator applies
+  >   absorption-block updates at Phase C. Step 6's contribution
+  >   to the deferred-cleanup queue is:
+  >   1. ADD a new entry: "DatabaseImport.java:416
+  >      (`exporterVersion < 14` legacy-version branch) —
+  >      pinned out-of-scope for Track 15 by
+  >      `DatabaseExportImportRoundTripTest` (only unambiguous
+  >      types are exercised, deliberately avoiding the
+  >      `IMPORT_BACKWARDS_COMPAT_INSTANCE` path); deletion /
+  >      migration owned by the deferred-cleanup track."
+  >   2. RECORD: per-package live coverage post-Step 6 (figures
+  >      above) — the Track 15 final closing baseline.
+  >   3. RECORD: MemoryStream residual gap (62.3% / 58.0%, 69
+  >      lines / 21 branches uncov) is the implementable form
+  >      of Track 12 backlog item h (close via deletion of
+  >      MemoryStream-taking overloads in `RecordIdInternal`/
+  >      `Command` paths plus rewrite of
+  >      `RecordBytes.fromInputStream` to use
+  >      `ByteArrayOutputStream` directly — see Step 4's
+  >      cross-track absorption notes for the RecordBytes-side
+  >      details).
+  >   4. AGGREGATE the absorption updates from all six step
+  >      episodes (see "What changed from the plan" below for
+  >      the consolidated list — also referenced by Phase C).
+  > - **mcp-steroid tooling caveat** (same as Steps 4 and 5):
+  >   the SessionStart hook reported `mcp-steroid: reachable`,
+  >   but the steroid tool schemas did not surface in this
+  >   implementer spawn's deferred-tool list. Used grep + Read
+  >   for orientation; the load-bearing reference-accuracy
+  >   claims (`DatabaseTool`'s abstract-method count and
+  >   declared-method/field set, `DatabaseImpExpAbstract`'s
+  >   filename-quote-strip branches, `DatabaseRecordWalker`'s
+  >   visitor / consistency-check / progress-listener arms)
+  >   are reflection-grounded so the test files themselves are
+  >   PSI-equivalent.
+  >
+  > **What changed from the plan:**
+  > - Sub-task (a) entity-by-entity fidelity check is implemented
+  >   as a SPLIT strategy (scalar/embedded via
+  >   `hasSameContentOf`; link collections via size-equality)
+  >   rather than the originally-prescribed strict
+  >   `hasSameContentOf` for everything. Reason: RIDs differ
+  >   across the two databases by design and a strict comparison
+  >   without a `RIDMapper` fails on link types; building a
+  >   `RIDMapper` inside the test would entrench
+  >   `DatabaseCompare` semantics that Track 15 has been pinning
+  >   for deletion. The test Javadoc and the inline link-bearing-
+  >   names branch comment document the choice.
+  > - Sub-task (g) deferred-cleanup absorption block update is
+  >   RECORDED in this episode rather than applied to
+  >   `implementation-backlog.md` (the implementer rulebook
+  >   forbids touching that file; the orchestrator applies the
+  >   edits at Phase C). Same handling as Steps 4 and 5.
+  > - Sub-task (h) MemoryStream re-measurement is RECORDED in
+  >   this episode with explicit pre/post comparison: 62.3% /
+  >   58.0% is unchanged from the pre-Track-15 baseline,
+  >   confirming that the `DatabaseImport`/`DatabaseExport`/
+  >   `RecordBytes` paths exercised by Step 6 do not touch
+  >   MemoryStream and the residual gap remains a Track 22
+  >   deletion target.
+  > - **Consolidated absorption queue from all 6 steps** (Phase
+  >   C applies these to `implementation-backlog.md`):
+  >   - Step 1: `DatabaseRepair`, `BonsaiTreeRepair`,
+  >     `DatabaseCompare`, `GraphRepair`, `CheckIndexTool`
+  >     (per-class deletion contingency for the test-only-
+  >     reachable trio plus lockstep deletion for the fully-
+  >     dead pair).
+  >   - Step 2: `RecordVersionHelper`, `RecordStringable`,
+  >     `RecordListener`, `EntityComparator`, `EntityHelper`
+  >     (12 dead methods + `RIDMapper` nested interface) plus
+  >     the `EntityImpl.hasSameContentOf` lockstep removal.
+  >   - Step 3: `EntityImpl.OPPOSITE_LINK_CONTAINER_PREFIX`
+  >     final tightening.
+  >   - Step 4: RETRACT the prior "RecordBytes
+  >     `fromInputStream(*)` + `toStream(MemoryStream)`
+  >     overload deletions" item (both claims wrong — 1-arg is
+  >     LIVE, `toStream(MemoryStream)` doesn't exist on
+  >     `RecordBytes`); REPLACE WITH 2-arg-only test-only-
+  >     reachable forwarding (contingent on 7 `DBRecordBytesTest`
+  >     2-arg call sites at L76/87/101/115/148/164/181, pinned
+  >     by `RecordBytesTestOnlyOverloadTest`); ADD follow-up:
+  >     1-arg `Blob.fromInputStream(InputStream)` body uses
+  >     MemoryStream as scratch — rewrite to
+  >     `ByteArrayOutputStream` directly (Track 12 backlog item
+  >     h's Blob/RecordBytes path closure).
+  >   - Step 5: nested-embedded-collection ownership conflict
+  >     (currently unreachable from `EntityFieldWalker` but
+  >     would surface if anyone revives nested embedded-
+  >     collection import support); embedded converter
+  >     rewrite-arms dead because
+  >     `EmbeddedTrackedMultiValue.checkValue` rejects raw
+  >     RIDs.
+  >   - Step 6: `DatabaseImport.java:416`
+  >     (`exporterVersion < 14` legacy-version branch — pinned
+  >     out-of-scope for Track 15); per-package final coverage
+  >     baseline; MemoryStream residual gap.
+  > - The fixture-driven discovery that `LinkBag.add` takes
+  >   `RID` rather than `EntityImpl` meant the fixture builder
+  >   uses `bob.getIdentity()` rather than `bob` — propagated
+  >   to the Step 5 finding about LinkBag construction (already
+  >   documented in Step 5's episode); inline comment in Step 6
+  >   references the Step 5 finding for cross-step continuity.
+  > - No Component Map or Decision Record revisions.
+  >
+  > **Key files:**
+  > - `core/src/test/java/.../core/db/tool/DatabaseExportImportRoundTripTest.java` (new)
+  > - `core/src/test/java/.../core/db/tool/DatabaseImpExpAbstractTest.java` (new)
+  > - `core/src/test/java/.../core/db/tool/DatabaseRecordWalkerTest.java` (new)
+  > - `core/src/test/java/.../core/db/tool/DatabaseToolDeadCodeTest.java` (new)
+  >
+  > **Critical context:** The
+  > `DatabaseExportImportRoundTripTest`'s split comparison
+  > strategy is intentional and load-bearing for Track 15's
+  > deferred-cleanup plan. A future implementer who tightens the
+  > link-collection comparison MUST avoid building a name-keyed
+  > `RIDMapper` that duplicates `DatabaseCompare`'s semantics —
+  > `DatabaseCompare` is queued for deletion, and entrenching
+  > its comparison strategy inside a Track 15 test would block
+  > that deletion. If stronger link-collection fidelity is
+  > needed in a future track, the right move is either (a) add
+  > a fresh test class that operates on a single database (no
+  > rid mismatch) and exercises a subset of DB-tool behaviour
+  > where `DatabaseCompare`'s deletion is irrelevant, or (b)
+  > build a name-keyed `RIDMapper` inside the test class
+  > **after** `DatabaseCompare` has actually been deleted, so
+  > the new helper can't accidentally be pulled into a future
+  > `DatabaseCompare`-backed assertion.
 
 ## Resume note (paused 2026-05-04, resolved 2026-05-05)
 
