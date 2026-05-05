@@ -169,15 +169,18 @@ public class MatchEdgeMethodInferenceAndAbortTest extends DbTestBase {
 
   /**
    * Verify that the planner infers the vertex class for inV() from the edge
-   * schema and applies index intersection, even without an explicit class:
-   * constraint on the vertex alias. Similar to the existing
+   * schema, applies index intersection, and schedules the selective branch
+   * before the broad one — all without an explicit class: constraint on the
+   * vertex alias. Similar to the existing
    * {@code testSelectivityInferredFromEdgeSchemaWithoutExplicitClass} but
    * using edge-method patterns (outE→inV instead of out).
    *
    * <p>Graph: posts with broad tags and a single selective tag. The selective
    * branch uses {@code name = 'targetTag'} which has an index on VITag.name.
-   * The planner must: (1) infer VITag from VIHasTag.in LINK, and (2) use the
-   * VITag_name index for intersection pre-filtering.
+   * The planner must: (1) infer VITag from VIHasTag.in LINK, (2) use the
+   * VITag_name index for intersection pre-filtering, and (3) fold the
+   * downstream vertex's WHERE into the first-edge cost via the edge-method
+   * chain-fold so the selective branch sorts before the broad one.
    */
   @Test
   public void testVertexClassInferenceEnablesIndexIntersection() {
@@ -254,21 +257,55 @@ public class MatchEdgeMethodInferenceAndAbortTest extends DbTestBase {
     String plan = explainResult.getFirst().getProperty("executionPlanAsString");
     assertNotNull(plan);
 
-    // Both aliases should appear in the plan
+    // Anchor that the query actually exercises the edge-method chain shape
+    // (.outE.inV) — a copy-paste refactor that downgraded the query to
+    // .out(...) would take the non-fold path, at which point the ordering
+    // assertion below could pass via unrelated heuristics without exercising
+    // the chain fold this test is meant to pin.
+    assertTrue(
+        "Query must exercise the .outE.inV chain shape that triggers the fold",
+        query.contains(".outE('VIHasTag').inV()"));
+
+    // Both aliases must be present — guards against a regression that drops
+    // a branch, which would otherwise make the selectivePos < broadPos check
+    // below vacuously true (indexOf returns -1 for missing substrings).
+    int selectivePos = plan.indexOf("{selectiveTag}");
+    int broadPos = plan.indexOf("{broadTag}");
     assertTrue(
         "selectiveTag should appear in plan, but plan was:\n" + plan,
-        plan.contains("{selectiveTag}"));
+        selectivePos >= 0);
     assertTrue(
         "broadTag should appear in plan, but plan was:\n" + plan,
-        plan.contains("{broadTag}"));
+        broadPos >= 0);
+
+    // The edge-method chain fold (outE→inV) folds the downstream vertex's
+    // WHERE selectivity into the first-edge cost. The selective branch
+    // (name = 'targetTag') must schedule before the broad branch
+    // (name <> 'targetTag') — proves the planner sees their cost difference
+    // even though the filter is on the inV() target, not the outE() hop.
+    assertTrue(
+        "Selective edge (selectiveTag) should be scheduled before broad edge"
+            + " (broadTag) after the edge-method chain fold, but plan was:\n"
+            + plan,
+        selectivePos < broadPos);
 
     // The index intersection proves class inference worked end-to-end:
     // the planner inferred VITag from VIHasTag.in LINK, found the
-    // VITag_name index, and attached it as an intersection descriptor
+    // VITag_name index, and attached it as an intersection descriptor.
+    // Anchor the intersection to the SELECTIVE branch (name = 'targetTag')
+    // by asserting its position falls between {selectiveTag} and {broadTag};
+    // without this positional check, the assertion could pass even if the
+    // planner mis-attached the index to the broad branch.
+    int intersectionPos = plan.indexOf("(intersection: index VITag_name)");
     assertTrue(
         "Plan should show index intersection for VITag_name (proves class"
             + " inference), but plan was:\n" + plan,
-        plan.contains("(intersection: index VITag_name)"));
+        intersectionPos >= 0);
+    assertTrue(
+        "Index intersection should attach to the selective branch — the"
+            + " intersection marker must appear between {selectiveTag} and"
+            + " {broadTag} in the plan. Plan was:\n" + plan,
+        intersectionPos > selectivePos && intersectionPos < broadPos);
 
     session.commit();
   }
