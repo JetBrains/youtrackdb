@@ -489,7 +489,7 @@ jobs:
           persist-credentials: false
 
       - name: Download release notes
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: release-notes
           path: /tmp
