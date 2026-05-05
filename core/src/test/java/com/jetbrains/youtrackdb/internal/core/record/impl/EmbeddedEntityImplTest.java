@@ -17,7 +17,7 @@ import org.junit.Test;
 public class EmbeddedEntityImplTest extends DbTestBase {
 
   /**
-   * Defensive {@code @After} (Track 5+ idiom) — rolls back any transaction the test forgot to
+   * Defensive {@code @After} (rollback safety net) — rolls back any transaction the test forgot to
    * close so subsequent tests start with a fresh session.
    */
   @After

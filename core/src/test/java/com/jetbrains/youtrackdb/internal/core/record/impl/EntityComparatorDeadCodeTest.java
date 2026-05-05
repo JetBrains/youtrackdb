@@ -25,7 +25,6 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrackdb.internal.common.util.Pair;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import java.lang.reflect.Constructor;
@@ -184,25 +183,24 @@ public class EntityComparatorDeadCodeTest {
   }
 
   @Test
-  public void chainDeadVia_EntityHelperSort_andTestOnlyReachableViaCRUDDocumentValidationTest() {
-    // This test is documentation-as-assertion — pin the deletion order:
+  public void chainDeadVia_EntityHelperSort_andTestOnlyReachableViaCRUDDocumentValidationTest()
+      throws NoSuchMethodException {
+    // Documentation-as-assertion: pin the deletion order:
     //
     //   1. delete EntityHelper.sort (dead per PSI; pinned in EntityHelperDeadCodeTest);
     //   2. delete this class (chain-dead once step 1 lands);
     //   3. drop or rewrite tests/CRUDDocumentValidationTest's comparator-stability check
     //      (the only test-only reference, identified by Phase A PSI audit).
     //
-    // The assertion below pins the load-bearing types referenced in the deletion plan so
-    // that a Spotless import-prune would not silently drop them from the import block; if
-    // any of these classes are renamed or moved, the test fails to compile and forces the
-    // pin authors to update the deletion plan.
-    assertSame("EntityHelper remains the chain-source — its sort() must be deleted first",
-        EntityHelper.class, EntityHelper.class);
-    assertSame("Pair<String,String> remains the order-criteria element type referenced from"
-        + " EntityComparator's ctor signature — pin the linkage",
-        Pair.class, Pair.class);
-    assertSame("CommandContext remains the database-session carrier the ctor reads from"
-        + " for Collator construction — pin the linkage",
-        CommandContext.class, CommandContext.class);
+    // We pin the chain-source via a reference-accurate signature lookup so that renaming
+    // EntityHelper.sort, Pair, or CommandContext fails the test rather than silently
+    // breaking the deletion plan. Class-literal-only assertions would not be falsifiable
+    // here — the imports above already keep the symbols load-bearing.
+    var sort = EntityHelper.class.getDeclaredMethod(
+        "sort", List.class, List.class, CommandContext.class);
+    assertSame("EntityHelper.sort must take Pair<String,String> order entries",
+        List.class, sort.getParameterTypes()[1]);
+    assertSame("EntityHelper.sort must remain context-aware via CommandContext",
+        CommandContext.class, sort.getParameterTypes()[2]);
   }
 }

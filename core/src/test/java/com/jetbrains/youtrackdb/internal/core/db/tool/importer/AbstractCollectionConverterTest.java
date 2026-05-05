@@ -16,8 +16,6 @@
  */
 package com.jetbrains.youtrackdb.internal.core.db.tool.importer;
 
-import static com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseImport.EXPORT_IMPORT_CLASS_NAME;
-import static com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseImport.EXPORT_IMPORT_INDEX_NAME;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
@@ -28,9 +26,6 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
-import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -58,7 +53,7 @@ import org.junit.Test;
 public class AbstractCollectionConverterTest extends DbTestBase {
 
   /**
-   * Defensive {@code @After} (Track 5+ idiom).
+   * Defensive {@code @After} (rollback safety net).
    */
   @After
   public void rollbackIfLeftOpen() {
@@ -69,23 +64,6 @@ public class AbstractCollectionConverterTest extends DbTestBase {
     if (tx != null && tx.isActive()) {
       tx.rollback();
     }
-  }
-
-  /**
-   * Sets up the export-import rid mapping schema with one mapping {@code from -> to}.
-   */
-  private void setupRidMapping(RID from, RID to) {
-    var schema = session.getMetadata().getSchema();
-    var cls = schema.createClass(EXPORT_IMPORT_CLASS_NAME);
-    cls.createProperty("key", PropertyType.STRING);
-    cls.createProperty("value", PropertyType.STRING);
-    cls.createIndex(EXPORT_IMPORT_INDEX_NAME, INDEX_TYPE.UNIQUE, "key");
-
-    session.executeInTx(tx -> {
-      var mapping = (EntityImpl) tx.newEntity(EXPORT_IMPORT_CLASS_NAME);
-      mapping.setProperty("key", from.toString());
-      mapping.setProperty("value", to.toString());
-    });
   }
 
   /**
@@ -149,7 +127,7 @@ public class AbstractCollectionConverterTest extends DbTestBase {
    */
   @Test
   public void testIdentifiableItemNoRewriteAddsRidAndPreservesUpdatedFlag() {
-    setupRidMapping(new RecordId(99, 0), new RecordId(99, 1));
+    ImporterTestFixtures.setupRidMapping(session, new RecordId(99, 0), new RecordId(99, 1));
 
     var probe = new Probe(new ConverterData(session, new HashSet<>()));
     var callback = new CapturingCallback();
@@ -170,7 +148,7 @@ public class AbstractCollectionConverterTest extends DbTestBase {
   public void testIdentifiableItemMappedFlipsUpdatedFlag() {
     var fromRid = new RecordId(10, 4);
     var toRid = new RecordId(10, 3);
-    setupRidMapping(fromRid, toRid);
+    ImporterTestFixtures.setupRidMapping(session, fromRid, toRid);
 
     var probe = new Probe(new ConverterData(session, new HashSet<>()));
     var callback = new CapturingCallback();
@@ -193,7 +171,7 @@ public class AbstractCollectionConverterTest extends DbTestBase {
     var brokenRid = new RecordId(7, 1);
     Set<RID> brokenRids = new HashSet<>();
     brokenRids.add(brokenRid);
-    setupRidMapping(new RecordId(99, 0), new RecordId(99, 1));
+    ImporterTestFixtures.setupRidMapping(session, new RecordId(99, 0), new RecordId(99, 1));
 
     var probe = new Probe(new ConverterData(session, brokenRids));
     var callback = new CapturingCallback();

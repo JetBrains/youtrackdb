@@ -16,8 +16,6 @@
  */
 package com.jetbrains.youtrackdb.internal.core.db.tool.importer;
 
-import static com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseImport.EXPORT_IMPORT_CLASS_NAME;
-import static com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseImport.EXPORT_IMPORT_INDEX_NAME;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertSame;
@@ -27,9 +25,6 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
-import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.HashSet;
 import java.util.Set;
 import org.junit.After;
@@ -46,7 +41,7 @@ import org.junit.Test;
 public class LinkBagConverterTest extends DbTestBase {
 
   /**
-   * Defensive {@code @After} (Track 5+ idiom).
+   * Defensive {@code @After} (rollback safety net).
    */
   @After
   public void rollbackIfLeftOpen() {
@@ -60,29 +55,12 @@ public class LinkBagConverterTest extends DbTestBase {
   }
 
   /**
-   * Sets up the export-import rid mapping schema with one mapping {@code from -> to}.
-   */
-  private void setupRidMapping(RID from, RID to) {
-    var schema = session.getMetadata().getSchema();
-    var cls = schema.createClass(EXPORT_IMPORT_CLASS_NAME);
-    cls.createProperty("key", PropertyType.STRING);
-    cls.createProperty("value", PropertyType.STRING);
-    cls.createIndex(EXPORT_IMPORT_INDEX_NAME, INDEX_TYPE.UNIQUE, "key");
-
-    session.executeInTx(tx -> {
-      var mapping = (EntityImpl) tx.newEntity(EXPORT_IMPORT_CLASS_NAME);
-      mapping.setProperty("key", from.toString());
-      mapping.setProperty("value", to.toString());
-    });
-  }
-
-  /**
    * A bag whose entries are not in the mapping table and not broken returns by reference.
    * The SELECT runs for each entry but finds no match.
    */
   @Test
   public void testLinkBagWithNoMappingsReturnedByReference() {
-    setupRidMapping(new RecordId(99, 0), new RecordId(99, 1));
+    ImporterTestFixtures.setupRidMapping(session, new RecordId(99, 0), new RecordId(99, 1));
 
     session.executeInTx(tx -> {
       var converter = new LinkBagConverter(new ConverterData(session, new HashSet<>()));
@@ -104,7 +82,7 @@ public class LinkBagConverterTest extends DbTestBase {
   public void testLinkBagWithMappedRidRewritesToFreshBag() {
     var fromRid = new RecordId(10, 4);
     var toRid = new RecordId(10, 3);
-    setupRidMapping(fromRid, toRid);
+    ImporterTestFixtures.setupRidMapping(session, fromRid, toRid);
 
     session.executeInTx(tx -> {
       var converter = new LinkBagConverter(new ConverterData(session, new HashSet<>()));
@@ -134,7 +112,7 @@ public class LinkBagConverterTest extends DbTestBase {
     var brokenRid = new RecordId(7, 1);
     Set<RID> brokenRids = new HashSet<>();
     brokenRids.add(brokenRid);
-    setupRidMapping(new RecordId(99, 0), new RecordId(99, 1));
+    ImporterTestFixtures.setupRidMapping(session, new RecordId(99, 0), new RecordId(99, 1));
 
     session.executeInTx(tx -> {
       var converter = new LinkBagConverter(new ConverterData(session, brokenRids));

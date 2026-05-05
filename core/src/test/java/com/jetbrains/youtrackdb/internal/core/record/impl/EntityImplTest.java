@@ -345,7 +345,7 @@ public class EntityImplTest extends DbTestBase {
   }
 
   /**
-   * Defensive {@code @After} that mirrors the Track 5+ idiom: roll back any transaction the test
+   * Defensive {@code @After} that wraps a rollback safety net: roll back any transaction the test
    * forgot to close so subsequent tests start with a fresh session. {@code session} is null only
    * if {@link DbTestBase#beforeTest()} failed before assigning it.
    */
@@ -717,8 +717,8 @@ public class EntityImplTest extends DbTestBase {
   // size() < threshold; once size() reaches the threshold and checkAndConvert
   // is invoked, the delegate flips from EmbeddedLinkBag to BTreeBasedLinkBag.
   // This test explicitly drives the boundary in-memory without depending on
-  // any disk-backed btree storage path (see Track 15 out-of-scope notes for
-  // disk-coupled link-bag paths in Tracks 19–21).
+  // any disk-backed btree storage path (the disk-coupled link-bag paths
+  // are exercised by the page-frame test suite).
   // ---------------------------------------------------------------------------
 
   /**
@@ -772,22 +772,23 @@ public class EntityImplTest extends DbTestBase {
   }
 
   // ---------------------------------------------------------------------------
-  // (d) Cyclic-embedded reference boundary test for toString / toMap / toJSON.
+  // (d) Deeply-nested embedded boundary test for toString / toMap / toJSON.
   // ---------------------------------------------------------------------------
 
   /**
-   * {@link EntityImpl#toString()} tracks an {@code inspected} set to detect cycles and emit
-   * {@code <recursion:rid=...>} instead of recursing forever (see {@code toString(Set<DBRecord>)}
-   * around lines 3955–4014 of {@code EntityImpl}). We construct a depth-3 nested embedded
-   * structure (a -> b -> c -> deep) plus a peer reference to verify deeply-nested embedded
-   * traversal terminates and produces a non-empty rendering. {@code toString}, {@code toJSON},
-   * and {@code toMap} must all complete without stack-overflow or infinite loop. We do not use
-   * {@code @Test(timeout=...)} here because JUnit runs timed tests on a separate thread and
-   * the session is not activated there; a regression would still manifest as a hung test or
-   * a {@link StackOverflowError}, which Surefire surfaces clearly.
+   * {@link EntityImpl#toString()} tracks an {@code inspected} set to bound recursion when
+   * embedded structures are walked (see {@code toString(Set<DBRecord>)} around lines
+   * 3955–4014 of {@code EntityImpl}). {@link EmbeddedEntityImpl#checkPropertyValue} rejects
+   * a true cycle at construction time, so we exercise the recursion guard via a depth-3
+   * nested acyclic structure (a -> b -> c -> deep) — that path is what regresses if the
+   * inspected-set logic is altered. {@code toString}, {@code toJSON}, and {@code toMap}
+   * must all complete without stack-overflow or infinite loop. We do not use
+   * {@code @Test(timeout=...)} here because JUnit runs timed tests on a separate thread
+   * and the session is not activated there; a regression would still manifest as a hung
+   * test or a {@link StackOverflowError}, which Surefire surfaces clearly.
    */
   @Test
-  public void testCyclicEmbeddedReferenceDoesNotInfiniteLoop() {
+  public void testDeeplyNestedEmbeddedReferenceDoesNotInfiniteLoop() {
     session.begin();
     try {
       // Build A.embedded -> B and a transitive back-reference B.peer -> A_proxy via an
@@ -874,7 +875,7 @@ public class EntityImplTest extends DbTestBase {
   //
   // Storage-coupled lazy deserialization paths (page-frame slot reads,
   // foreign-memory buffer reads beyond the existing EntityImplPageFrameTest
-  // coverage) belong to Tracks 19–21. They cannot be exercised here without
+  // coverage) belong to the page-frame test suite. They cannot be exercised here without
   // pulling in the page-frame fixture stack, which lives under
   // core/storage/cache/ and is out of scope for the record-impl test target.
   //
@@ -887,13 +888,13 @@ public class EntityImplTest extends DbTestBase {
    * Marker test documenting which {@link EntityImpl} surface is intentionally out of scope for
    * this class. Storage-coupled lazy deserialization (page-frame zero-copy reads, foreign-memory
    * buffer-backed property access beyond what {@code EntityImplPageFrameTest} already covers)
-   * is forwarded to Tracks 19–21 in the deferred-cleanup queue. This test asserts only the
+   * is forwarded to the page-frame test suite via the deferred-cleanup queue. This test asserts only the
    * forwarding contract: the page-frame test class still exists and continues to be the
    * reference for those paths.
    */
   @Test
   public void testStorageCoupledLazyPathsAreOutOfScopeForwardedToPageFrameSuite() {
-    // Forwarding pin — see Tracks 19–21 cleanup queue. The PageFrame integration test stays
+    // Forwarding pin — see the page-frame test suite (linked via the deferred-cleanup queue). The PageFrame integration test stays
     // authoritative for storage-coupled lazy paths; we only assert it still exists.
     Class<?> pageFrameTest;
     try {

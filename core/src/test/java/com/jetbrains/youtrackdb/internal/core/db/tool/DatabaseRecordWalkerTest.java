@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.db.tool;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
@@ -232,6 +232,16 @@ public class DatabaseRecordWalkerTest extends DbTestBase {
     // We pin the constant referenced by the implementation here so a refactor to a
     // different constant surfaces during review.
     assertEquals("internal", MetadataDefault.COLLECTION_INTERNAL_NAME);
+    // Resolve the cluster id of the 'internal' bucket up front. If it is absent
+    // from the schema for this fixture, the per-rid comparison in the walker
+    // callback below would compare against -1 and silently pass for every rid —
+    // a vacuous assertion. Pin presence so the test fails loudly in that case.
+    int internalId =
+        session.getCollectionIdByName(MetadataDefault.COLLECTION_INTERNAL_NAME);
+    assertNotEquals(
+        "the 'internal' collection must exist in the fixture for this assertion"
+            + " to be falsifiable",
+        -1, internalId);
     // Exclude system clusters but NOT 'internal' — verify the walker still skips it
     // because its inner-loop guard is independent of the excludeCollections set.
     var excluded = systemCollectionsToExclude();
@@ -240,13 +250,12 @@ public class DatabaseRecordWalkerTest extends DbTestBase {
 
     var visitedRids = new HashSet<Object>();
     walker.walk(rid -> {
-      // Verify no record came from the 'internal' cluster. The cluster ID for
-      // 'internal' is reachable via the session lookup; comparing against the
-      // visited rid's cluster ID rules out a leak through the inner-loop guard.
-      assertFalse(
+      // Verify no record came from the 'internal' cluster. The cluster ID was
+      // resolved above and is guaranteed non-(-1), so this comparison is
+      // genuinely load-bearing.
+      assertNotEquals(
           "no record from the internal collection should leak through the walk",
-          rid.getCollectionId() == session.getCollectionIdByName(
-              MetadataDefault.COLLECTION_INTERNAL_NAME));
+          internalId, rid.getCollectionId());
       visitedRids.add(rid);
       return true;
     });

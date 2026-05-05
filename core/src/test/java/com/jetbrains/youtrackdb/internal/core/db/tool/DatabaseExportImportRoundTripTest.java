@@ -8,6 +8,7 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
@@ -121,7 +122,7 @@ public class DatabaseExportImportRoundTripTest extends DbTestBase {
           withLinkMap.setProperty("contacts", linkMap, PropertyType.LINKMAP);
 
           // LinkBag entity — set-like multi-link bag. Construction requires an active
-          // transaction (verified by Step 5 in the importer-converter coverage track);
+          // transaction (verified by the importer-converter tests);
           // add() takes RID, not EntityImpl, so use getIdentity().
           var linkBag = new LinkBag(session);
           linkBag.add(bob.getIdentity());
@@ -147,29 +148,22 @@ public class DatabaseExportImportRoundTripTest extends DbTestBase {
         "DatabaseExport must produce at least the JSON envelope header",
         output.size() > 0);
 
-    // Capture the set of entity names we expect to see on the import side. This is
-    // sufficient to pin each source entity by name later and avoids the
-    // "record not bound to current session" error that would arise from caching
-    // a detached EntityImpl from a closed transaction.
+    // Capture the set of entity names we expect to see on the import side, plus
+    // the per-name RID on the source side. The RID map is the input to a
+    // RIDMapper (built below, after the import opens) — this is the
+    // EntityHelper.RIDMapper API surface, independent of DatabaseCompare's
+    // semantics, so passing a mapper here does not entrench the
+    // DatabaseCompare coupling that the rest of this fixture avoids.
     var sourceNames = new java.util.ArrayList<String>();
-    // Track which entities have a link-collection property so the comparison
-    // strategy can split per-name: scalar/embedded entities use
-    // EntityHelper.hasSameContentOf directly; link-collection entities use a
-    // size-equality pin (RID mismatch across databases would otherwise fail the
-    // strict content check; building a full source-to-import RID map for every
-    // referenced entity would entrench DatabaseCompare's coupling, exactly what
-    // this test fixture is designed to avoid — DatabaseCompare is pinned as
-    // test-only-reachable elsewhere in this track and queued for deletion).
-    var linkBearingNames = new java.util.HashSet<String>();
-    linkBearingNames.add("eve"); // friends LINKLIST
-    linkBearingNames.add("frank"); // contacts LINKMAP
-    linkBearingNames.add("grace"); // seen LINKBAG
+    var sourceRidByName = new java.util.HashMap<String, RID>();
     session.executeInTx(
         tx -> {
           var iterator = session.browseClass(TEST_CLASS);
           while (iterator.hasNext()) {
             var loaded = iterator.next();
-            sourceNames.add(loaded.getProperty("name"));
+            String pname = loaded.getProperty("name");
+            sourceNames.add(pname);
+            sourceRidByName.put(pname, loaded.getIdentity());
           }
         });
 
@@ -195,6 +189,27 @@ public class DatabaseExportImportRoundTripTest extends DbTestBase {
       // Schema fidelity check.
       var importSchema = importSession.getMetadata().getSchema();
       assertTrue(importSchema.existsClass(TEST_CLASS));
+
+      // Build the import-side name→RID map so we can construct a RIDMapper that
+      // translates source RIDs to import RIDs (link-bearing entities reference
+      // other entities by RID, and the RID space is reset by the import).
+      var importRidByName = new java.util.HashMap<String, RID>();
+      importSession.executeInTx(
+          tx -> {
+            var iter = importSession.browseClass(TEST_CLASS);
+            while (iter.hasNext()) {
+              var loaded = iter.next();
+              importRidByName.put(loaded.getProperty("name"), loaded.getIdentity());
+            }
+          });
+      // Reverse the source map so RID→name lookup is O(1).
+      var nameBySourceRid = new java.util.HashMap<RID, String>();
+      sourceRidByName.forEach((n, rid) -> nameBySourceRid.put(rid, n));
+      EntityHelper.RIDMapper ridMapper =
+          srcRid -> {
+            String pname = nameBySourceRid.get(srcRid);
+            return pname == null ? null : importRidByName.get(pname);
+          };
 
       // Entity-by-entity fidelity check via EntityHelper.hasSameContentOf — the
       // mandated comparison primitive. To avoid "record not bound to session"
@@ -229,48 +244,40 @@ public class DatabaseExportImportRoundTripTest extends DbTestBase {
               foundRef.set(true);
 
               session.activateOnCurrentThread();
-              session.executeInTx(
-                  txSource -> {
-                    var srcIter = session.browseClass(TEST_CLASS);
-                    EntityImpl sourceEntity = null;
-                    while (srcIter.hasNext()) {
-                      var candidate = srcIter.next();
-                      if (entityName.equals(candidate.getProperty("name"))) {
-                        sourceEntity = candidate;
-                        break;
+              try {
+                session.executeInTx(
+                    txSource -> {
+                      var srcIter = session.browseClass(TEST_CLASS);
+                      EntityImpl sourceEntity = null;
+                      while (srcIter.hasNext()) {
+                        var candidate = srcIter.next();
+                        if (entityName.equals(candidate.getProperty("name"))) {
+                          sourceEntity = candidate;
+                          break;
+                        }
                       }
-                    }
-                    assertNotNull(
-                        "source fixture is missing entity '" + entityName + "'", sourceEntity);
+                      assertNotNull(
+                          "source fixture is missing entity '" + entityName + "'", sourceEntity);
 
-                    if (linkBearingNames.contains(entityName)) {
-                      // Link-collection entities — verify size equality on the link
-                      // collection rather than full content equality. RIDs differ
-                      // across databases by design; a full-content comparison would
-                      // require a RIDMapper, which would entrench DatabaseCompare's
-                      // semantics inside this test (unwanted coupling — that class
-                      // is pinned as test-only-reachable and queued for deletion).
-                      Object srcLinks = collectionAtFirst(sourceEntity);
-                      Object impLinks = collectionAtFirst(importedRef.get());
-                      assertNotNull(
-                          "source link collection missing on '" + entityName + "'", srcLinks);
-                      assertNotNull(
-                          "imported link collection missing on '" + entityName + "'", impLinks);
-                      matchedRef.set(linkCollectionSize(srcLinks) == linkCollectionSize(impLinks));
-                    } else {
+                      // Full content equality for every entity, including link-bearing ones.
+                      // The ridMapper translates source RIDs (alice/bob/carol) into the
+                      // corresponding import-side RIDs so LINKLIST / LINKMAP / LINKBAG
+                      // payloads compare structurally, not by size alone.
                       matchedRef.set(
                           EntityHelper.hasSameContentOf(
                               sourceEntity,
                               session,
                               importedRef.get(),
                               importSession,
-                              null,
+                              ridMapper,
                               false));
-                    }
-                  });
-
-              // Reactivate the import session before the outer-tx commit unwinds.
-              importSession.activateOnCurrentThread();
+                    });
+              } finally {
+                // Reactivate the import session even if the inner lambda threw —
+                // otherwise the outer importSession.executeInTx unwinds with `session`
+                // (source) bound to the thread, corrupting both sessions' lifecycle.
+                importSession.activateOnCurrentThread();
+              }
             });
 
         assertTrue(
@@ -436,39 +443,6 @@ public class DatabaseExportImportRoundTripTest extends DbTestBase {
             });
     // Class absent at this point — early-return arm.
     importer.removeExportImportRIDsMap();
-  }
-
-  /**
-   * Returns the first non-name, non-age property value from the entity — used to
-   * locate the link-collection property irrespective of which name the fixture
-   * assigned to it (friends / contacts / seen).
-   */
-  private static Object collectionAtFirst(EntityImpl entity) {
-    for (var name : entity.getPropertyNames()) {
-      if ("name".equals(name) || "age".equals(name)) {
-        continue;
-      }
-      return entity.getProperty(name);
-    }
-    return null;
-  }
-
-  /**
-   * Returns the size of a link-collection value — handles {@code Collection},
-   * {@code Map}, and {@link LinkBag} shapes.
-   */
-  private static int linkCollectionSize(Object value) {
-    if (value instanceof java.util.Collection<?> c) {
-      return c.size();
-    }
-    if (value instanceof java.util.Map<?, ?> m) {
-      return m.size();
-    }
-    if (value instanceof LinkBag bag) {
-      return bag.size();
-    }
-    throw new AssertionError(
-        "unexpected link-collection shape: " + (value == null ? "null" : value.getClass()));
   }
 
   /**
