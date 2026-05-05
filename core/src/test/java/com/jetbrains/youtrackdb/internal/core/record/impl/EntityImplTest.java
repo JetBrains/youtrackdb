@@ -217,6 +217,8 @@ public class EntityImplTest extends DbTestBase {
       doc.undo("property"); // we decided undo readonly field
 
       db.commit();
+    } finally {
+      youTrackDB.drop(dbName);
     }
   }
 
@@ -278,6 +280,8 @@ public class EntityImplTest extends DbTestBase {
       assertEquals("My Name 4", doc.getProperty("name"));
       assertEquals("value1", doc.getProperty("property"));
       session.commit();
+    } finally {
+      youTrackDB.drop(dbName);
     }
   }
 
@@ -824,11 +828,11 @@ public class EntityImplTest extends DbTestBase {
   // ---------------------------------------------------------------------------
   // (e) OPPOSITE_LINK_CONTAINER_PREFIX should-be-final shape pin.
   //
-  // Pre-Track-22 PSI audit (mcp-steroid ReferencesSearch all-scope) showed
-  // 0 writes anywhere — the field is logically a constant but is declared
-  // mutable. Pin the OBSERVED shape (not-final) plus other invariants so
-  // that any change (final tightening OR a stray write) is caught and
-  // forwarded to the deferred-cleanup track.
+  // An mcp-steroid PSI all-scope ReferencesSearch shows 0 writes anywhere —
+  // the field is logically a constant but is declared mutable. Pin the
+  // OBSERVED shape (not-final) plus other invariants so that any change
+  // (final tightening OR a stray write) is caught and forwarded to the
+  // deferred-cleanup track.
   // ---------------------------------------------------------------------------
 
   /**

@@ -188,9 +188,9 @@ public class EntityComparatorDeadCodeTest {
     // Documentation-as-assertion: pin the deletion order:
     //
     //   1. delete EntityHelper.sort (dead per PSI; pinned in EntityHelperDeadCodeTest);
-    //   2. delete this class (chain-dead once step 1 lands);
+    //   2. delete this class (chain-dead once the sort method is removed);
     //   3. drop or rewrite tests/CRUDDocumentValidationTest's comparator-stability check
-    //      (the only test-only reference, identified by Phase A PSI audit).
+    //      (the only test-only reference, identified by mcp-steroid PSI all-scope audit).
     //
     // We pin the chain-source via a reference-accurate signature lookup so that renaming
     // EntityHelper.sort, Pair, or CommandContext fails the test rather than silently

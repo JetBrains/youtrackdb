@@ -64,6 +64,22 @@ public class LinksRewriterTest extends DbTestBase {
   }
 
   /**
+   * A null value (cleared / unset link payload, the most-frequent shape an importer encounters
+   * in real data) falls through every {@code instanceof} check inside {@code
+   * ImportConvertersFactory.getConverter}, so the factory returns a null converter and the
+   * visitor's pass-through arm returns the input unchanged. Pinning this exercises the
+   * {@code valuesConverter == null} branch with the canonical input that hits it most often.
+   */
+  @Test
+  public void testVisitFieldOnNullValueReturnsNull() {
+    var rewriter = new LinksRewriter(new ConverterData(session, new HashSet<>()));
+
+    var result = rewriter.visitField(session, null, null, null);
+
+    assertNull("null payload must pass through visitField unchanged", result);
+  }
+
+  /**
    * A scalar value (string) doesn't dispatch to any converter — the factory returns null and
    * the visitor returns the input unchanged. This is the pass-through arm exercised whenever
    * the field walker encounters non-link fields.

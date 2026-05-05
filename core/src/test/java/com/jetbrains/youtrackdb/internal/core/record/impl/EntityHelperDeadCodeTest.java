@@ -89,9 +89,9 @@ public class EntityHelperDeadCodeTest {
 
   // -------------------------------------------------------------------
   // Sub-task (a) — sort(List, List, CommandContext) is dead in production.
-  // Phase A confirmed PSI ReferencesSearch returned zero callers. The only caller was the
-  // SQL ORDER BY path, which has since been re-routed; the EntityComparator chain reachable
-  // from this method is itself chain-dead (pinned in EntityComparatorDeadCodeTest).
+  // PSI ReferencesSearch (mcp-steroid all-scope) returned zero callers. The only caller was
+  // the SQL ORDER BY path, which has since been re-routed; the EntityComparator chain
+  // reachable from this method is itself chain-dead (pinned in EntityComparatorDeadCodeTest).
   // -------------------------------------------------------------------
   @Test
   public void sortIsPublicStaticVoidWithExpectedSignature() throws Exception {
@@ -187,8 +187,9 @@ public class EntityHelperDeadCodeTest {
 
   // -------------------------------------------------------------------
   // Sub-task (f) — hasSameContentOf(5-arg) is chain-dead via DatabaseCompare (test-only-
-  // reachable per Step-1 pin) and EntityImpl.hasSameContentOf (also test-only-reachable).
-  // No live production callers reach this method.
+  // reachable per the dead-code pin in DatabaseCompareDeadCodeTest) and
+  // EntityImpl.hasSameContentOf (also test-only-reachable). No live production callers reach
+  // this method.
   // -------------------------------------------------------------------
   @Test
   public void hasSameContentOfFiveArgIsPublicStaticBooleanWithExpectedSignature() throws Exception {
@@ -325,9 +326,9 @@ public class EntityHelperDeadCodeTest {
   // -------------------------------------------------------------------
   @Test
   public void liveSurfaceRetainsItsFiveExpectedMethods() throws Exception {
-    // Each live method has direct production callers verified by Phase A's PSI audit
-    // (re-confirmed during Step-2 implementation). The deferred-cleanup track must NOT touch
-    // any of these — they stay covered by the existing live-surface tests.
+    // Each live method has direct production callers verified by mcp-steroid PSI all-scope
+    // ReferencesSearch. The deferred-cleanup track must NOT touch any of these — they stay
+    // covered by the existing live-surface tests.
     EntityHelper.class.getDeclaredMethod("getReservedAttributes");
     EntityHelper.class.getDeclaredMethod(
         "getFieldValue", DatabaseSessionEmbedded.class, Object.class, String.class);
