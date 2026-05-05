@@ -208,7 +208,7 @@ migration.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (3/6 complete)
+- [ ] Step implementation (4/6 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -527,27 +527,166 @@ All three iter-1 review reports converged on the same blocker shape (T1 / R1+R2 
   > `EntityImplPageFrameTest`'s existing scope) remain explicitly
   > out-of-scope for this track and are owned by Tracks 19–21.
 
-- [ ] Step 4: `core/record/impl` standalone helpers + iterators + `RecordBytes` MemoryStream-overload dead pins
-  > **Risk:** medium — multi-file standalone tests + dead-code pins
-  > across 6+ classes; test-additive only.
+- [x] Step 4: `core/record/impl` standalone helpers + iterators + `RecordBytes` test-only-overload pin
+  - [x] Context: info
+  > **Risk:** medium — multi-file standalone tests + a single
+  > test-only-reachable overload pin across 10 classes; test-additive
+  > only. Reframed mid-step from "dead-code pins" to
+  > "test-only-reachable pin" per the user-approved Alternative B
+  > resolution of the prior `DESIGN_DECISION_NEEDED` escalation
+  > (see Resume note below).
   >
-  > Sub-tasks: (a) standalone `EntityEntryTest` (POJO shape — getters,
-  > setters, equals, value-tracking flags); (b) standalone
-  > `SimpleMultiValueTrackerTest` (POJO change-tracking shape);
-  > (c) standalone `InPlaceResultTest` (POJO shape); (d) extend
-  > `EdgeFromLinkBagIteratorTest`, `VertexFromLinkBagIteratorTest`,
-  > and add coverage for `BidirectionalLinkToEntityIterator`,
-  > `BidirectionalLinksIterable`, `PreFilterableLinkBagIterable`,
-  > `EdgeIterator`/`Iterable` (close residual iterator branches —
-  > most have existing tests; cover empty / single / multi / `hasNext`
-  > exhaustion / `remove` UnsupportedOperation arms); (e) extend
-  > `DBRecordBytesTest` for live `RecordBytes` shape (constructor,
-  > `getRecord`, byte-array equality); (f) `RecordBytesDeadCodeTest`
-  > pinning the `fromInputStream(*)` and `toStream(MemoryStream)`
-  > overloads as dead (PSI 0 non-override callers — Track 12 backlog
-  > item h closes via deletion, not migration); (g) extend
-  > deferred-cleanup absorption block with the MemoryStream-overload
-  > deletion items.
+  > **What was done:** Added 9 new test files plus an extension of
+  > `DBRecordBytesTest` under
+  > `core/src/test/java/.../core/record/impl/` (commit
+  > `740155271d`). Standalone POJO-shape tests cover `EntityEntry`
+  > (value-tracking flag semantics, clone/clear/undo/transactionClear
+  > arms), `SimpleMultiValueTracker` (enable/disable gate,
+  > add/update/remove + `*NoDirty` arms, GC-survival short-circuit,
+  > `sourceFrom` slot copy), and `InPlaceResult` (tri-state enum
+  > constants, ordinals, `valueOf` round-trip). Iterator-shape
+  > coverage was added for the residual link/edge iterators that
+  > lacked direct tests:
+  > `BidirectionalLinkToEntityIterator` (BOTH-direction rejection,
+  > IN/OUT branch dispatch),
+  > `BidirectionalLinksIterable` (four `size()` arms,
+  > `isSizeable()` mirror),
+  > `EdgeIterator` (the five `loadEdge` arms — null /
+  > already-edge / RecordNotFound / vertex-throws / non-edge — plus
+  > five `size()` arms, `reset`/`isResetable`, `getMultiValue`),
+  > `EdgeIterable` (size and isSizeable arms), and
+  > `VertexFromLinkBagIterable` (the missing `Iterable` half;
+  > `VertexFromLinkBagIterator` was already covered).
+  > `DBRecordBytesTest` was extended with live-`RecordBytes`
+  > Blob-interface shape tests: 1-arg `fromInputStream(InputStream)`
+  > round-trip (the LIVE overload, with one production caller in
+  > `JSONSerializerJackson.java:623`), `toOutputStream`, type-flag
+  > checks, `as*`-cast guards, `setOwner`-throws contract, and a
+  > persist-and-reload round-trip. The new
+  > `RecordBytesTestOnlyOverloadTest` pins only the 2-arg
+  > `Blob.fromInputStream(InputStream, int)` overload as
+  > test-only-reachable (Track 14 `EntityHookAbstract` precedent —
+  > class is real, but the specific overload has zero non-test
+  > callers). The pin uses a falsifiable count-sentinel
+  > (`EXPECTED_TWO_ARG_CALL_SITES = 7`, scanning the
+  > comment-stripped `DBRecordBytesTest` source for 2-arg call
+  > shapes), and the WHEN-FIXED Javadoc names the seven specific
+  > line numbers in `DBRecordBytesTest` that need rewriting or
+  > removal when the overload is deleted (post-spotless:
+  > L76, L87, L101, L115, L148, L164, L181). All 98 new tests
+  > pass; the full `core` suite (1780 tests) is green; spotless
+  > clean; coverage gate reports 100% line / 100% branch on
+  > changed lines.
+  >
+  > **What was discovered:**
+  > - Spotless reformat shifted the `DBRecordBytesTest` 2-arg
+  >   call-site line numbers from the guidance-echoed
+  >   L77/88/102/116/149/165/182 down by 1 line each to
+  >   L76/87/101/115/148/164/181 (one extra blank line was
+  >   removed above the 2-arg-call-site region). The line numbers
+  >   in `RecordBytesTestOnlyOverloadTest`'s WHEN-FIXED Javadoc
+  >   were updated to match the post-spotless reality. The COUNT
+  >   of 7 call sites — the load-bearing assertion in the
+  >   sentinel — is unchanged.
+  > - `EdgeIterator.loadEdge` calls
+  >   `transaction.loadEntity(Identifiable)` — the
+  >   `Identifiable`-typed overload, NOT the `RID`-typed one.
+  >   `FrontendTransactionImpl` exposes both overloads; mock stubs
+  >   for `EdgeIteratorTest` and `EdgeIterableTest` needed
+  >   explicit `(Identifiable) rid` casts to bind to the right
+  >   overload. The pre-existing `EdgeFromLinkBagIteratorTest`
+  >   doesn't hit this trap because `EdgeFromLinkBagIterator`
+  >   iterates `RidPair` and calls `loadEntity(RID)`.
+  > - ASM is not on the test classpath; the initial sentinel
+  >   implementation that walked bytecode `INVOKE` instructions
+  >   was rewritten as a string scan over the comment-stripped
+  >   `DBRecordBytesTest` source. The text-scan is precise enough
+  >   for the simple call shapes the test uses (no nested-method-
+  >   call commas inside the 2-arg parameter lists).
+  > - **Cross-track impact (minor — apply at Phase C):** Track 22's
+  >   deferred-cleanup absorption block needs three updates. (1)
+  >   RETRACT the prior "RecordBytes `fromInputStream(*)` +
+  >   `toStream(MemoryStream)` overload deletions" line item —
+  >   both claims were wrong (1-arg is live; `toStream(MemoryStream)`
+  >   doesn't exist on `RecordBytes`). (2) REPLACE WITH:
+  >   "RecordBytes `Blob.fromInputStream(InputStream, int)` —
+  >   2-arg overload, test-only-reachable; deletion contingent on
+  >   rewriting/removing the seven `DBRecordBytesTest` 2-arg call
+  >   sites at L76/87/101/115/148/164/181, pinned by
+  >   `RecordBytesTestOnlyOverloadTest` with a count-sentinel."
+  >   (3) ADD a separate follow-up: "RecordBytes
+  >   `fromInputStream(InputStream)` (1-arg, LIVE; 1 production
+  >   caller at `JSONSerializerJackson.java:623`) — body uses
+  >   `MemoryStream` as a scratch buffer; rewrite to
+  >   `ByteArrayOutputStream` directly. This is the implementable
+  >   form of Track 12's MemoryStream backlog item h for the
+  >   Blob/RecordBytes path; the `RecordIdInternal`/`Command` path's
+  >   MemoryStream-taking overloads remain on Track 22's existing
+  >   scope per the step-file's MemoryStream forwarding note."
+  > - **mcp-steroid tooling caveat:** the SessionStart hook
+  >   reported `mcp-steroid: reachable`, but the steroid tools did
+  >   not surface in the implementer spawn's deferred-tool list.
+  >   Reference-accuracy claims in this step echo the prior
+  >   `DESIGN_DECISION_NEEDED`-spawn's PSI exploration_notes
+  >   (which were PSI-validated when generated) plus a grep
+  >   drift-check against the current tree to rule out changes
+  >   since. Phase C track-level review may want to re-verify
+  >   the three load-bearing claims via PSI when the IDE control
+  >   surface is reachable: (1) 1-arg
+  >   `Blob.fromInputStream(InputStream)` has exactly one
+  >   production caller (`JSONSerializerJackson.java:623`), (2)
+  >   2-arg `Blob.fromInputStream(InputStream, int)` has zero
+  >   production callers, (3) the seven `DBRecordBytesTest` 2-arg
+  >   call sites at L76/87/101/115/148/164/181 are the complete
+  >   set.
+  >
+  > **What changed from the plan:** Sub-task (f) was rewritten per
+  > Alternative B (approved during the 2026-05-04
+  > `DESIGN_DECISION_NEEDED` resolution): pin only the 2-arg
+  > overload in a NEW class `RecordBytesTestOnlyOverloadTest`
+  > (NOT `RecordBytesDeadCodeTest`), drop the
+  > `toStream(MemoryStream)` clause entirely (overload doesn't
+  > exist on `RecordBytes`), and cover the live 1-arg overload
+  > via `DBRecordBytesTest` extension under sub-task (e) rather
+  > than as a dead pin. Sub-task (g) was also revised: the
+  > original wording asked the implementer to extend the
+  > deferred-cleanup absorption block in
+  > `implementation-backlog.md`, but the rulebook forbids the
+  > implementer from modifying that file. The orchestrator
+  > applies those edits at Phase C; the implementer recorded the
+  > intended absorption updates in this episode (see "What was
+  > discovered" above). Steps 5 (importer converters) and 6
+  > (`DatabaseImport`/`Export` round-trip) are unaffected.
+  >
+  > **Key files:**
+  > - `core/src/test/java/.../core/record/impl/EntityEntryTest.java` (new)
+  > - `core/src/test/java/.../core/record/impl/SimpleMultiValueTrackerTest.java` (new)
+  > - `core/src/test/java/.../core/record/impl/InPlaceResultTest.java` (new)
+  > - `core/src/test/java/.../core/record/impl/BidirectionalLinkToEntityIteratorTest.java` (new)
+  > - `core/src/test/java/.../core/record/impl/BidirectionalLinksIterableTest.java` (new)
+  > - `core/src/test/java/.../core/record/impl/EdgeIteratorTest.java` (new)
+  > - `core/src/test/java/.../core/record/impl/EdgeIterableTest.java` (new)
+  > - `core/src/test/java/.../core/record/impl/VertexFromLinkBagIterableTest.java` (new)
+  > - `core/src/test/java/.../core/record/impl/DBRecordBytesTest.java` (modified — live `RecordBytes` Blob-interface shape coverage)
+  > - `core/src/test/java/.../core/record/impl/RecordBytesTestOnlyOverloadTest.java` (new)
+  >
+  > **Critical context:** The new pin file's WHEN-FIXED markers
+  > reference the POST-spotless line numbers
+  > (L76/87/101/115/148/164/181) of the seven 2-arg call sites in
+  > `DBRecordBytesTest`. If a future formatting change or
+  > test-content change shifts those line numbers again, the
+  > WHEN-FIXED Javadoc and the assertion-message text in
+  > `RecordBytesTestOnlyOverloadTest.testTwoArgOverloadCallSitesStillExistInDbRecordBytesTest`
+  > must be updated in lockstep — the SENTINEL TEST itself only
+  > checks the COUNT of 7 (immune to line-number drift), but the
+  > deferred-cleanup track reads the line-number list from the
+  > Javadoc to know which call sites to retarget. The
+  > `EXPECTED_TWO_ARG_CALL_SITES = 7` constant is the canonical
+  > signal — if a future track adds or removes a 2-arg call site
+  > without updating this constant the sentinel fires, forcing
+  > an explicit decision about whether the overload is still
+  > test-only-reachable or whether the WHEN-FIXED forwarding is
+  > now actionable.
 
 - [ ] Step 5: `core/db/tool/importer` converter coverage (live)
   > **Risk:** medium — multi-file standalone tests for 12 converter
@@ -599,7 +738,18 @@ All three iter-1 review reports converged on the same blocker shape (T1 / R1+R2 
   > residual gap to Track 22 (Track 12 backlog item h closure
   > documentation, NOT migration).
 
-## Resume note (paused 2026-05-04)
+## Resume note (paused 2026-05-04, resolved 2026-05-05)
+
+**Status:** RESOLVED. PR #1022 merged on `origin/develop` 2026-05-05
+(commit `17faefced2`); the unit-test-coverage branch's merge-base
+already equals that SHA so no rebase action was needed. Step 4 was
+respawned via Alternative B (single test-only-overload pin in
+`RecordBytesTestOnlyOverloadTest`) and committed at
+`740155271d`. The episode above captures what was done, what was
+discovered, and the cross-track absorption updates Phase C will
+apply to `implementation-backlog.md`. The remainder of this note
+is preserved as historical context for the deferred-cleanup
+track's audit trail.
 
 **Pause reason.** Phase B Step 4 was paused before respawning the
 implementer because the implementer rulebook contains two bugs that
