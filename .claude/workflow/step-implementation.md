@@ -32,6 +32,20 @@ Before spawning the first implementer:
    current SHA, then write it to the step file's `## Base commit`
    section (creating the section if it doesn't exist). Skip if
    `## Base commit` already has a SHA (resume case).
+
+   The step file change must be committed before the first
+   implementer spawn — the implementer's `git reset --hard HEAD`
+   would otherwise discard the `## Base commit` write. Stage and
+   commit:
+
+   ```bash
+   git add docs/adr/<dir-name>/_workflow/tracks/track-<N>.md
+   git commit -m "Record Phase B base commit for <track>"
+   git push
+   ```
+
+   Skip the commit on resume (when `## Base commit` already had a
+   SHA and no write happened).
 2. **Generate the slim plan snapshot** at
    `/tmp/claude-code-plan-slim-$PPID.md`. Read the plan, apply the
    rendering rule in [`plan-slim-rendering.md`](plan-slim-rendering.md),
@@ -39,7 +53,8 @@ Before spawning the first implementer:
    review sub-agents read this snapshot by path — it keeps the
    orchestrator's tool-call history from accumulating a plan copy per
    spawn. Regenerate the snapshot only if inline replanning
-   (ESCALATE) modifies the plan mid-session.
+   (ESCALATE) modifies the plan mid-session. The snapshot lives in
+   `/tmp` (not under `_workflow/`) and is not committed.
 3. **Detect orphan commits** per the §Phase B Resume protocol below
    before spawning the first implementer.
 
@@ -79,17 +94,57 @@ because of a context-level session-end gate or unexpected session
 termination.
 
 **Detection.** After identifying the next `[ ]` step, check for orphan
-commits — code commits that exist but have no corresponding episode in
+commits — commits that exist but have no corresponding episode in
 the step file on disk:
 
-1. Count the `[x]` steps in the step file. Scan
-   `git log --oneline {base_commit}..HEAD` for code commits.
-   Each completed step is expected to contribute exactly **one**
-   implementer commit plus **zero or more** `Review fix:` commits.
-   `Revert step:` commits and the implementer + `Review fix:`
-   commits they cancel form a self-contained "rolled back" group
-   that does not count toward any `[x]` step's expected commits;
-   anything else beyond the expected total is orphaned.
+1. Scan `git log --oneline {base_commit}..HEAD` and classify each
+   commit by subject prefix and the paths it touches (per
+   [`commit-conventions.md`](commit-conventions.md) § Commit type
+   prefixes). Each `[x]` step in the step file is expected to
+   contribute exactly **three** kinds of commit, in order:
+
+   - **Implementer code commit** — touches code (paths outside
+     `_workflow/`); subject is the imperative summary of the
+     step's change. Exactly **one** per `[x]` step.
+   - **`Review fix:` commits** — code commit prefixed
+     `Review fix:`. **Zero or more** per `[x]` step (one per
+     dim-review iteration that surfaced fixes).
+   - **Episode commit** — Workflow update touching only
+     `_workflow/tracks/track-<N>.md`, subject `Record episode for
+     <step description>`. Exactly **one** per `[x]` step.
+
+   Two other commit kinds appear in the log but **do not** count
+   toward any `[x]` step's expected total:
+
+   - **`Revert step:`** — a revert commit. With the implementer +
+     `Review fix:` commits it cancels, it forms a self-contained
+     "rolled back" group that is excluded from per-step counting.
+   - **Other Workflow update** — touches only `_workflow/` but is
+     not an episode commit (Phase 1 init, Phase A decomposition,
+     Phase B base-commit recording, plan-corrections application,
+     track-completion mark, inline-replanning update). These are
+     workflow scaffolding and may appear anywhere in the log
+     between or before `[x]` steps.
+
+   For K `[x]` steps, the expected per-step set is K × (1
+   implementer + N `Review fix:` + 1 episode), plus any number of
+   non-episode Workflow update commits and rolled-back groups.
+   Anything beyond this — typically an implementer commit (and
+   possibly trailing `Review fix:` commits) without a following
+   episode commit — is orphaned and belongs to the next `[ ]`
+   step.
+
+   **Crash between sub-step 7 (episode write) and sub-step 8
+   (episode commit).** If the step file shows `[x]` for the most
+   recent completed step but the corresponding episode commit is
+   missing from the log, the previous session wrote the episode
+   to disk but died before committing it. The working tree is
+   dirty with the unwritten episode. Recovery: stage and commit
+   the step file now (using the standard episode commit subject
+   `Record episode for <step description>`), push, then proceed
+   with the rest of resume. This must happen **before** spawning
+   the next implementer — the implementer's `git reset --hard
+   HEAD` would otherwise discard the episode write.
 2. If a `Revert step:` commit is present at the tip (or near the
    tip with no implementer commits after it), the previous session
    rolled the next `[ ]` step back via §Post-Commit Handlers but may
@@ -144,14 +199,14 @@ the step file on disk:
    **Unrecognised slug or missing `reason:` line.** Treat as a
    contract violation: present the revert commit and the step state
    to the user and ask how to proceed. Do not invent a slug.
-3. If the commit count exceeds the expected total without a
-   `Revert step:` at the tip (one implementer commit + any
-   `Review fix:` commits per `[x]` step):
-   - The previous session committed code for this step but didn't
-     write the episode.
+3. If implementer / `Review fix:` code commits are present after
+   the last episode commit (or after `{base_commit}` if no episode
+   commits exist yet) without a `Revert step:` at the tip:
+   - The previous session committed code for the next `[ ]` step
+     but didn't write the episode.
    - **Resume from the appropriate orchestrator handler** by checking
-     commit messages (see [`commit-conventions.md`](commit-conventions.md)
-     for the patterns):
+     the orphan commits' messages (see
+     [`commit-conventions.md`](commit-conventions.md) for the patterns):
      - If any orphan commit message contains `Review fix:` → the
        dimensional review loop already ran. Skip directly to
        `on_success` from the cross-track impact check (sub-step 5)
@@ -480,8 +535,9 @@ git commit -m "Record episode for <step description>"
 git push
 ```
 
-See `commit-conventions.md` § Push every commit and § Workflow
-update for the standard message form.
+See `commit-conventions.md` § Push every commit, and the
+"Workflow update" row in § Commit type prefixes for the standard
+message form.
 
 **Session-end gate.** After committing the episode: if the context
 level was `warning` or `critical`, do NOT spawn the implementer for

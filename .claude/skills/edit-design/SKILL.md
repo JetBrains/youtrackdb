@@ -319,10 +319,31 @@ Outcomes when the loop exits:
 
 ### Step 7: Append to the review log
 
-Determine the plan dir from `design_path`'s parent. Append to
-`<plan-dir>/reviews/design-mutations.md` (create the directory and file if
-they don't exist). Format per `design-document-rules.md § Mutation
-discipline § Review log`:
+Resolve the log path from `mutation_kind` and `design_path` using
+the rule below. The log always lives under `_workflow/reviews/` so
+the Phase 4 cleanup commit reliably removes it; never write the log
+to the top-level `<dir>/reviews/`.
+
+- **For all mutation kinds *except* `phase4-creation`**:
+  `design_path = docs/adr/<dir>/_workflow/design.md` (or
+  `design-mechanics.md`), so the plan dir is `design_path`'s parent
+  (`docs/adr/<dir>/_workflow/`) and the log lives at
+  `docs/adr/<dir>/_workflow/reviews/design-mutations.md`.
+- **For `phase4-creation`** (special case): `design_path =
+  docs/adr/<dir>/design-final.md` (top-level, intentionally
+  outside `_workflow/` because `design-final.md` itself is a
+  durable artifact). The log path is **not** derived from
+  `design_path`'s parent — instead, it is forced to
+  `<design_path's parent>/_workflow/reviews/design-mutations.md`,
+  i.e., `docs/adr/<dir>/_workflow/reviews/design-mutations.md`.
+  This appends to the existing Phase 1 / inline-replanning log
+  under `_workflow/`, preserving the full mutation history of the
+  design and ensuring the Phase 4 cleanup commit removes the
+  entire log along with everything else under `_workflow/`.
+
+Append to the resolved path (create the `_workflow/reviews/`
+directory and file if they don't exist). Format per
+`design-document-rules.md § Mutation discipline § Review log`:
 
 ```markdown
 ## Mutation N — <ISO date YYYY-MM-DD> — <mutation kind> (<design.md | design-final.md>)

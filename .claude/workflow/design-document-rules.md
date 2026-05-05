@@ -792,7 +792,10 @@ that warrant dedicated sections:
     `design-mechanics.md` if it exists) is never modified after
     planning. Phase 4 produces `design-final.md` (actual design,
     same shape rules) and `adr.md` (architecture decisions with
-    actual outcomes) — the only git-tracked workflow artifacts.
+    actual outcomes) — the only workflow artifacts that survive
+    merge into `develop` (everything under `_workflow/` is tracked
+    during the branch lifetime but removed in the Phase 4 cleanup
+    commit).
     `design-final.md` goes through the mutation discipline via the
     `phase4-creation` kind; if the original had a mechanics
     companion, `design-mechanics-final.md` is created in the same

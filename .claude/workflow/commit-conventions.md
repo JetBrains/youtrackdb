@@ -41,7 +41,7 @@ carries no CI cost.
 | **Step implementation** | Imperative summary of the change | `Add histogram header to leaf page` |
 | **Review fix** | `Review fix:` prefix | `Review fix: extract validation to helper method` |
 | **Step rollback** | `Revert step:` prefix | `Revert step: add histogram header to leaf page` |
-| **Workflow update** | Imperative summary of the workflow-file change (no special prefix; commit only touches paths under `_workflow/`) | `Add initial plan and design`, `Record episode for histogram leaf write step`, `Phase A review and decomposition for histogram track`, `Mark histogram-leaf track complete` |
+| **Workflow update** | Imperative summary of the workflow-file change (no special prefix; commit only touches paths under `_workflow/`) | `Add initial implementation plan and design`, `Phase A review and decomposition for histogram track`, `Record Phase B base commit for histogram track`, `Record episode for histogram leaf write step`, `Apply plan corrections from histogram-leaf review`, `Mark histogram-leaf track complete`, `Inline replan after Track 2` |
 | **Phase 4 final** | `Add final design and ADR` (the standard final-artifacts commit) | (defined verbatim in `prompts/create-final-design.md` § Step 4) |
 | **Phase 4 cleanup** | `Remove workflow scaffolding` — single commit that runs `git rm -r docs/adr/<dir>/_workflow/` after the final-artifacts commit | (see `workflow.md` § Final Artifacts) |
 
@@ -85,8 +85,8 @@ is permitted when it makes the commit log easier to follow.
 
 ## How these are used on resume
 
-When Phase B resumes and detects orphan commits (code committed but episode
-not written to the step file on disk), it scans
+When Phase B resumes and detects orphan code commits (committed but
+the matching episode commit is missing), it scans
 `git log --oneline {base_commit}..HEAD` and uses these patterns:
 
 1. **`Revert step:` commits** — the previous session rolled the step
@@ -99,14 +99,30 @@ not written to the step file on disk), it scans
    `failed-review-fix`; respawn-and-rederive for
    `late-design-decision`; verify-or-apply-upgrade for
    `late-risk-upgrade`).
-2. **`Review fix:` commits** — indicate the dim-review loop already
-   ran for that step. Resume from episode production.
-3. **Implementation commits** — anything else → dim-review loop has
-   not run. Resume from review.
+2. **Episode commits** (`Record episode for …`, Workflow update
+   touching only `_workflow/tracks/track-<N>.md`) — mark the
+   boundary between completed and in-progress steps. The most
+   recent episode commit is the last fully-finished step.
+3. **`Review fix:` commits** — indicate the dim-review loop already
+   ran for the step they belong to. When an orphan `Review fix:`
+   commit appears after the last episode commit, resume from
+   episode production.
+4. **Implementer code commits** — touch code (paths outside
+   `_workflow/`); subject is the imperative summary of the step's
+   change. When an orphan implementer commit appears after the
+   last episode commit without any `Review fix:` siblings, resume
+   from the dimensional review loop.
+5. **Other Workflow update commits** — touch only `_workflow/`
+   but are not episode commits (Phase 1 init, Phase A
+   decomposition, Phase B base-commit recording, plan-corrections
+   application, track-completion mark, inline-replanning update).
+   They are scaffolding and **not** orphans regardless of
+   position.
 
 The step file on disk is the source of truth for which steps are complete
-(have episodes). Any code commits beyond the last completed step's work
-are orphans for the next `[ ]` step. A `Revert step:` commit cancels
-the implementer + `Review fix:` commits it reverts — together they form
-a self-contained "attempted and rolled back" group that does not count
-toward any `[x]` step's expected commits.
+(have episodes). Any implementer or `Review fix:` code commits beyond
+the last episode commit are orphans for the next `[ ]` step. A
+`Revert step:` commit cancels the implementer + `Review fix:` commits
+it reverts — together they form a self-contained "attempted and rolled
+back" group that does not count toward any `[x]` step's expected
+commits.

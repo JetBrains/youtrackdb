@@ -108,10 +108,12 @@ rules:
   working tree before any IDE-routed action; do not re-probe.
 - **Do not reference workflow-internal identifiers** (`Track N`,
   `Step N`, finding IDs, iteration counters, or named-only plan
-  invariants) in source code, Javadoc, test names, test
-  descriptions, or the commit message — see
+  invariants) in source code, Javadoc, test names, or test
+  descriptions — see
   [`conventions-execution.md`](conventions-execution.md) §2.3 for
   the full Ephemeral identifier rule and rewrite examples.
+  Branch-only commit messages are exempt (they are squashed away on
+  merge); the rule applies to durable content only.
 
 **Sub-step 2 — Add or update tests.** Run module tests, verify
 Spotless on affected modules (`./mvnw -pl <module> spotless:apply`),
@@ -125,12 +127,19 @@ Maven builds (full `core` test suite or coverage profile), see
 **Sub-step 3 — Stage explicit paths and commit** in one commit. No
 `git add -A`. No `--amend`. Apply the project's commit-message
 convention from `CLAUDE.md` (imperative summary under 50 chars, blank
-line, detailed why) and the Ephemeral identifier rule from
-[`conventions-execution.md`](conventions-execution.md) §2.3 (no
-`Track N` / `Step N` / finding IDs / iteration counters in the
-message body or subject). For `mode == FIX_REVIEW_FINDINGS`, prefix
-the commit subject with `Review fix:` per
-[`commit-conventions.md`](commit-conventions.md).
+line, detailed why). The Ephemeral identifier rule
+([`conventions-execution.md`](conventions-execution.md) §2.3) covers
+durable content only — branch-only commit messages may cite
+`Track N` / `Step N` / finding IDs / iteration counters when it
+makes the commit log easier to follow, since the squash-merge
+collapses them away (see
+[`commit-conventions.md`](commit-conventions.md) "Branch-only
+commit messages may cite workflow-internal identifiers"). For
+`mode == FIX_REVIEW_FINDINGS`, prefix the commit subject with
+`Review fix:` per [`commit-conventions.md`](commit-conventions.md);
+prefer describing the fix by what changed (behavior, file, class)
+over citing a finding ID, but a finding-ID reference is permitted
+when it aids review.
 
 **Return.** Emit the structured result block (see §Return contract
 below). The orchestrator parses the block; everything else in the
@@ -173,14 +182,17 @@ profile build, integration tests:
   command; for builds that may exceed that, split into stages —
   e.g., compile first, then test, then coverage report — each stage
   under 10 min).
-- If background is genuinely needed (e.g., to keep the implementer
-  responsive to other work during a long build), use Bash
-  `run_in_background` with the `Monitor` tool's "until-loop" pattern
-  inside a single Bash invocation:
-  `until grep -Eq "BUILD SUCCESS|BUILD FAILURE" "{logfile}"; do
-  sleep 10; done` — the loop runs in one Bash call, the implementer
-  waits for the loop's exit, and the runtime delivers a single
-  completion notification rather than a sequence of wake-ups.
+- If a build is long enough that the implementer should not block on
+  it (rare — the foreground 10-min path covers most module-scoped
+  runs), start it via Bash `run_in_background: true`. The runtime
+  fires a single completion notification when the command exits;
+  the implementer does not need to poll. While the build runs, the
+  implementer can do other read-only work that doesn't touch the
+  same module — re-reading the step file, the slim plan, or
+  `design.md` for context. Do **not** start a separate Bash call
+  to `tail -f` or `grep` the log file in a poll loop — `tail`/`grep`
+  return when the build finishes anyway, and the polling adds
+  nothing the completion notification doesn't already provide.
 - Do not chain multiple short `sleep`s with `ScheduleWakeup` between
   them. Each `ScheduleWakeup` is a yield-and-idle, not a wait.
 
@@ -521,8 +533,12 @@ duplicate the routing tables here. Pointers:
   raw Edit".
 - **Project conventions and PSI requirement for load-bearing audits**:
   [`conventions.md`](conventions.md) §1.4 *Tooling discipline*.
-- **Ephemeral identifier rule** for code, tests, and commit messages:
+- **Ephemeral identifier rule** for durable content (code, tests,
+  PR title/body, `design-final.md`, `adr.md`):
   [`conventions-execution.md`](conventions-execution.md) §2.3.
+  Branch-only commit messages are exempt — see
+  [`commit-conventions.md`](commit-conventions.md) "Branch-only
+  commit messages may cite workflow-internal identifiers".
 - **Risk categories** referenced in `RISK_UPGRADE.category`:
   [`risk-tagging.md`](risk-tagging.md). The implementer reads only
   the category names; full criteria and override rules stay in

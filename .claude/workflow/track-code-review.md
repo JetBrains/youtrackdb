@@ -227,11 +227,15 @@ Iterate on the synthesized findings:
 
 1. If any findings need fixes:
    - Apply fixes as **additional commits** (never amend prior commits).
-     Commit messages and any new code comments must follow the Ephemeral
-     identifier rule in
-     [`conventions-execution.md`](conventions-execution.md) §2.3 — no
-     `Track N`, `Step N`, finding IDs, or review iteration counters
-     in the message or the diff.
+     The Ephemeral identifier rule in
+     [`conventions-execution.md`](conventions-execution.md) §2.3
+     applies to durable content — no `Track N`, `Step N`, finding
+     IDs, or review iteration counters in source code, tests, or
+     code comments. Branch-only commit messages are exempt and may
+     cite finding IDs when it makes the log easier to follow (per
+     [`commit-conventions.md`](commit-conventions.md) "Branch-only
+     commit messages may cite workflow-internal identifiers").
+     Push each commit immediately per the per-commit push rule.
    - Run tests to verify fixes don't break anything
    - **Update the Progress section** on disk to record the completed
      iteration (e.g., `- [ ] Track-level code review (1/3 iterations)`).
@@ -279,8 +283,26 @@ implementation plan:
      indicator, and dependency notation (typically depends on the current
      track). Follow the same format as other tracks in the plan.
 
-2. **Save plan changes** — update `implementation-plan.md` on disk.
-   Note the finding IDs that motivated each plan correction.
+2. **Save plan changes** — update `implementation-plan.md` (and
+   `implementation-backlog.md` if a new track's
+   `**What/How/Constraints/Interactions**` subsections need
+   somewhere to live) on disk. Note the finding IDs that motivated
+   each plan correction.
+
+3. **Commit and push the plan corrections** as a separate Workflow
+   update commit (per `commit-conventions.md` § Commit type
+   prefixes — "Workflow update" row), distinct from the
+   `Mark <track> complete` commit below:
+
+   ```bash
+   git add docs/adr/<dir-name>/_workflow/implementation-plan.md \
+           docs/adr/<dir-name>/_workflow/implementation-backlog.md
+   git commit -m "Apply plan corrections from <track> review"
+   git push
+   ```
+
+   Stage explicit paths only. Drop `implementation-backlog.md` from
+   the `git add` if no new track was added.
 
 If no findings were deferred, skip this section.
 
@@ -348,7 +370,25 @@ proceed directly to track completion **in the same session**.
    and keeps the plan file lean as tracks land. The strategy-refresh
    line is appended by the next session.
 
-5. **Session ends.** Strategy refresh happens next session.
+5. **Commit and push the track-completion changes** as a single
+   Workflow update commit. The plan-file edit (track episode + `[x]`
+   + collapsed description) and any final step-file Progress updates
+   from Phase C land together so the draft PR shows a clean track
+   boundary:
+
+   ```bash
+   git add docs/adr/<dir-name>/_workflow/implementation-plan.md \
+           docs/adr/<dir-name>/_workflow/tracks/track-<N>.md
+   git commit -m "Mark <track> complete"
+   git push
+   ```
+
+   This commit is registered as scaffolding in the resume orphan
+   detection (per `commit-conventions.md` § How these are used on
+   resume — entry 5, "Other Workflow update commits"). It does
+   **not** contribute to any `[x]` step's expected commit set.
+
+6. **Session ends.** Strategy refresh happens next session.
 
 **Why deferred write:** Writing the track episode and marking `[x]` before
 user approval creates a state that cannot be reliably resumed — if the

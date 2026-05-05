@@ -119,6 +119,31 @@ instruction — keep it intact when customising.
    blockquote. Mark `Review + decomposition` as `[x]` in the Progress
    section.
 
+6. **Commit and push the Phase A workflow updates.** All of Phase A's
+   on-disk writes — the step file (created in 2c, populated in step 5),
+   review files (written in step 3), and the backlog edit (the
+   Track N section removal in 2d) — must be committed before Phase B
+   spawns the first implementer for this track. The implementer's
+   revert path uses `git reset --hard HEAD`, which would otherwise
+   discard the uncommitted decomposition.
+
+   ```bash
+   git add docs/adr/<dir-name>/_workflow/tracks/track-<N>.md \
+           docs/adr/<dir-name>/_workflow/reviews/track-<N>-*.md \
+           docs/adr/<dir-name>/_workflow/implementation-backlog.md
+   git commit -m "Phase A review and decomposition for <track>"
+   git push
+   ```
+
+   This is a single Workflow update commit per the table in
+   `commit-conventions.md` § Commit type prefixes. Stage explicit
+   paths only — never `git add -A` — so unrelated files in the
+   working tree (e.g., scratch logs from prior debugging) don't get
+   pulled in. If a particular file does not exist (no review files
+   ran, or the backlog had no Track N section to begin with), drop
+   that path from the `git add` command rather than letting the
+   missing-path error stop the commit.
+
 ### Complexity Assessment and Which Reviews to Run
 
 Complexity determines which pre-execution reviews to run, not user
@@ -339,13 +364,20 @@ After writing the step file with all decomposed steps:
    - `Review + decomposition` marked `[x]` in Progress
    - All reviews recorded in Reviews completed
    - All steps listed as `[ ]` items
-2. **Inform the user** that Phase A is complete:
+2. **Verify the Phase A commit landed.** Run `git status --porcelain`;
+   the working tree must be clean. Run `git log -1 --oneline` and
+   confirm the tip is `Phase A review and decomposition for <track>`.
+   If the commit is missing (e.g., the session was interrupted
+   between step 5 and step 6 of §What You Do), run step 6 now —
+   the implementer's `git reset --hard HEAD` would otherwise
+   discard the decomposition.
+3. **Inform the user** that Phase A is complete:
    - How many steps were decomposed
    - Which reviews were run and key findings
    - Any concerns or risks noted during review
    - Instruct: "Clear session and re-run `/execute-tracks` to start
      Phase B (step implementation)."
-3. **End the session.** Do not proceed to Phase B in the same session.
+4. **End the session.** Do not proceed to Phase B in the same session.
 
 **Why:** Phase A is exploratory (reading code, validating assumptions).
 That "reviewer mindset" context is not helpful during implementation —
