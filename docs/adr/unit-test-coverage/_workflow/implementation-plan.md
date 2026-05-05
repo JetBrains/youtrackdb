@@ -78,6 +78,75 @@ measurement infrastructure).
     the rebase is auditable. If conflicts force non-trivial rework of
     already-committed steps, ESCALATE — the plan may need adjustment.
 
+### Operational Notes
+
+**`git clean -fd` incident (2026-05-04).** During Track 15 Step 4
+spawn the implementer escalated `RESULT: DESIGN_DECISION_NEEDED`
+and ran the rulebook's prescribed revert sequence
+`git reset --hard HEAD && git clean -fd`. The `git clean -fd`
+clause indiscriminately removes every untracked file in the
+worktree — by design, the workflow's working files (track step
+files, `reviews/`, `design.md`, `implementation-backlog.md`,
+baselines) live as **untracked-on-disk** so they're cleaned up
+alongside the branch on PR-merge. The revert wiped 50+ workflow
+files in one shot, plus rolled back the in-progress
+`implementation-plan.md` modifications (Track 13 + Track 14
+episodes and strategy-refresh lines) to the last committed state.
+
+**Recovery state (post-incident):**
+
+| File | Status | Recovery source |
+|---|---|---|
+| `implementation-plan.md` | Fully recovered | IntelliJ Local History (revision before the reset) |
+| `tracks/track-1.md` … `track-9.md`, `track-12.md`–`track-15.md` | Fully recovered | IntelliJ Local History |
+| `tracks/track-10.md`, `tracks/track-11.md` | Fully recovered | Agent transcripts (read-result history) |
+| `track-9-baseline.md`, `track-14-baseline.md` | Fully recovered | Local History / transcripts |
+| `design.md` | Fully recovered (336 lines, no gaps) | Agent transcripts |
+| `implementation-backlog.md` | 78% recovered (897 of 1149 lines; 252 lines in 3 gaps spanning Track 18 body, Tracks 19/20/21 entirely, two Track 22 inherited-DRY-scope subsections) | Agent transcripts (multi-read stitch) |
+| Track 15 Steps 2 + 3 episodes | Re-added from session context | Live orchestrator state |
+| `track-15-baseline.md` | **Lost** (no transcript ever read it) | Re-derive at Phase C from a fresh coverage run; aggregate values are preserved in Step 1's episode (76.0% line / 66.5% branch / 179 packages) |
+| 48 `reviews/` files | **Lost** (historical review reports for completed tracks) | Not reconstructable; track-level episodes in this plan preserve the strategic summary |
+| Track 15 Step 1's backlog absorption updates | **Lost** (added by Step 1 to the deferred-cleanup queue) | Re-derive at Phase C from Step 1's episode prose |
+
+**Reconstruct-on-demand tracks.** The 252 lost backlog lines fall in
+three gap regions covering Track 18's body, Tracks 19, 20, 21
+entirely, and two subsections of Track 22's inherited-DRY-scope
+queue. Each affected track entry below carries a
+`> **Operational note:**` pointer when its backlog section is gapped
+or its episode-state needs re-derivation. The reconstruction
+protocol:
+
+- When Phase A starts for an affected track, before reading the
+  backlog, the orchestrator regenerates the track's
+  `**What/How/Constraints/Interactions**` block from (a) the
+  track's `**Scope:**` indicator in this plan, (b) the design
+  document's Component Map cluster mapping for the target packages,
+  and (c) any cross-references from earlier track episodes (read
+  the `**Track episode:**` blocks of preceding tracks for context
+  on patterns and absorptions).
+- For Track 22's inherited-DRY-scope gaps: cross-reference the
+  `**Track episode:**` blocks for Tracks 7, 8, 9, 10, 11, 12, 13,
+  14 in this plan — each track's episode names the absorbed items
+  it forwarded to the deferred-cleanup queue. Stitching those
+  episode statements back into the backlog gives a faithful
+  reconstruction.
+- For Track 15 Step 1's missing backlog edits, re-derive at Track
+  15 Phase C using Step 1's episode prose (which lives in
+  `tracks/track-15.md` and names the per-class deletion contingency
+  for the test-only-reachable trio plus the lockstep deletion for
+  the fully-dead pair).
+
+**Rulebook fix in flight.** [PR #1022](https://github.com/JetBrains/youtrackdb/pull/1022)
+on `origin/develop` lands two corrections to
+`.claude/workflow/implementer-rules.md`: (1) forbid `ScheduleWakeup`
+inside the implementer (it yielded control without a `RESULT`
+block, which surfaced as a separate Phase B contract violation
+during the same session), and (2) replace `git clean -fd` with a
+snapshot-and-diff revert sequence that preserves the orchestrator's
+cross-spawn untracked state. Once the PR merges into `develop`,
+the next track's mandatory rebase pulls the fixed rulebook in;
+this Operational Notes section can be deleted at that point.
+
 ### Architecture Notes
 
 #### Component Map
@@ -240,19 +309,6 @@ flowchart TD
   > package and generates a sorted table of packages by uncovered line
   > count.
   >
-  > The script takes the same `--coverage-dir` input as the existing gate
-  > and outputs a markdown table with columns: package, line%, branch%,
-  > uncovered lines, total lines. It also prints aggregate totals for the
-  > entire module.
-  >
-  > After the script is written, run a baseline coverage build
-  > (`./mvnw -pl core -am clean package -P coverage`) and record the
-  > baseline numbers in a `coverage-baseline.md` file in this ADR
-  > directory.
-  >
-  > **Scope:** ~3 steps covering script implementation, baseline
-  > measurement, and documentation
-  >
   > **Track episode:**
   > Created coverage measurement infrastructure for all subsequent tracks.
   > Added `.github/scripts/coverage-analyzer.py` (185 lines) — parses
@@ -270,24 +326,6 @@ flowchart TD
   > Write unit tests for the `common` package's pure utility classes that
   > require no database session. These are self-contained classes with
   > clear inputs/outputs, making them ideal first targets.
-  >
-  > Target packages and their uncovered lines:
-  > - `common/util` (296 uncov, 26.4%) — ArrayUtils, Memory, Pair,
-  >   Triple, RawPair, Collections, ClassLoaderHelper
-  > - `common/collection` (360 uncov, 62.9%) — collection utilities
-  > - `common/types` (56 uncov, 34.9%) — type utilities
-  > - `common/comparator` (34 uncov, 72.4%) — comparator utilities
-  > - `common/factory` (27 uncov, 38.6%) — factory utilities
-  > - `common/exception` (29 uncov, 51.7%) — exception utilities
-  > - `common/stream` (43 uncov, 50.6%) — stream utilities
-  >
-  > All tests should be standalone (no DbTestBase). Use JUnit 4
-  > assertions. Focus on boundary conditions, null handling, and edge
-  > cases.
-  >
-  > **Scope:** ~5 steps covering util, collection, types/comparator/
-  > factory, exception/stream, and verification
-  > **Depends on:** Track 1 (for coverage measurement)
   >
   > **Track episode:**
   > Added 432 unit tests across 20 new and 4 extended test files for all 7
@@ -312,22 +350,6 @@ flowchart TD
   > parsing, and logging. Most of these are pure utilities but some have
   > external dependencies (file system, native libraries).
   >
-  > Target packages:
-  > - `common/parser` (368 uncov, 27.0%) — parsing utilities
-  > - `common/io` (224 uncov, 36.2%) — I/O utilities
-  > - `common/log` (161 uncov, 29.7%) — logging utilities
-  > - `common/profiler` (84+30 uncov, 44.4%) — profiler metrics
-  >
-  > Skip `common/console` (212 uncov, 0.0%) — console UI code that
-  > requires interactive terminal, not amenable to unit testing. Skip
-  > `common/jnr` (208 uncov, 24.1%) — JNR native wrappers that require
-  > native library presence. `common/serialization` is covered in
-  > Track 12 (Serialization — String & Core).
-  >
-  > **Scope:** ~4 steps covering parser, io, log/profiler, and
-  > verification
-  > **Depends on:** Track 1 (for coverage measurement)
-  >
   > **Track episode:**
   > Added ~250 unit tests across 11 test files (all new except IOUtilsTest
   > extended) covering common/parser (95.4%/90.4%), common/io (87.7%/79.2%),
@@ -350,20 +372,6 @@ flowchart TD
   > Write tests for concurrency primitives and direct memory management.
   > These require careful testing with thread synchronization.
   >
-  > Target packages:
-  > - `common/concur/lock` (405 uncov, 45.0%) — lock utilities
-  > - `common/concur/resource` (112 uncov, 49.1%) — resource management
-  > - `common/thread` (130 uncov, 36.0%) — thread utilities
-  > - `common/directmemory` (134 uncov, 68.5%) — direct memory tracking
-  >
-  > Use `ConcurrentTestHelper` from `test-commons` for multi-threaded
-  > tests. Focus on lock acquisition/release semantics, resource
-  > lifecycle, and memory allocation/deallocation paths.
-  >
-  > **Scope:** ~5 steps covering lock utilities, resource management,
-  > thread utilities, direct memory, and verification
-  > **Depends on:** Track 1 (for coverage measurement)
-  >
   > **Track episode:**
   > Added ~250 unit tests across 22 test files (19 new, 3 extended) for all
   > 4 target packages. Found and fixed 2 production bugs in
@@ -385,24 +393,6 @@ flowchart TD
 - [x] Track 5: SQL Operators & Filters
   > Write tests for SQL operator and filter classes — the lowest-coverage
   > area in the SQL layer (sql/operator at 20.9%, sql/filter at 39.9%).
-  >
-  > Target packages:
-  > - `core/sql/operator` (748 uncov, 20.9%) — SQL comparison operators
-  >   (Equals, ContainsKey, ContainsValue, ContainsText, Between, In,
-  >   Like, etc.)
-  > - `core/sql/operator/math` (83 uncov, 53.6%) — SQL math operators
-  > - `core/sql/filter` (579 uncov, 39.9%) — SQL filter evaluation
-  >   (SQLFilter, FilterOptimizer, SQLFilterCondition, SQLPredicate,
-  >   SQLTarget, etc.)
-  >
-  > Operators are self-contained: they take operands and return results.
-  > Tests should cover type coercion, null handling, and edge cases.
-  > Filter tests may need a database session for index analysis.
-  >
-  > **Scope:** ~6 steps covering comparison operators, math operators,
-  > SQLFilter/SQLFilterCondition, FilterOptimizer, remaining filters,
-  > and verification
-  > **Depends on:** Track 1
   >
   > **Track episode:**
   > Added ~560 unit tests across 10 test files (8 new, 2 extended) covering
@@ -442,28 +432,6 @@ flowchart TD
   > Write tests for SQL function implementations. Functions are
   > self-contained with clear `execute()` contracts, making them highly
   > testable.
-  >
-  > Target packages (all under `core/sql/functions/`):
-  > - `graph` (449 uncov, 53.4%) — graph traversal functions (Both,
-  >   BothE, BothV, In, InE, InV, Out, OutE, OutV, Move, PathFinder)
-  > - `coll` (198 uncov, 48.6%) — collection functions (Distinct, First,
-  >   Last, List, Set, Map, Intersect, UnionAll)
-  > - `misc` (196 uncov, 53.0%) — utility functions (Count, If, IfNull,
-  >   Coalesce, Date, UUID, Decode, Encode, Assert)
-  > - `math` (58 uncov, 73.9%) — math functions (Average, Max, Min, Sum)
-  > - `text` (30 uncov, 72.5%) — text functions (Concat, Format, Hash,
-  >   Length, Replace, Right, SubString, ToJSON)
-  > - `conversion` (29 uncov, 52.5%) — conversion functions (AsDate,
-  >   AsDateTime, AsDecimal, Convert)
-  > - `root/geo/result/sequence` (22 uncov) — remaining
-  >
-  > Graph functions require a database session (DbTestBase). Collection,
-  > misc, math, and text functions can often be tested standalone.
-  >
-  > **Scope:** ~6 steps covering graph functions, collection functions,
-  > misc functions, math/text/conversion, remaining functions, and
-  > verification
-  > **Depends on:** Track 1
   >
   > **Track episode:**
   > Added 940 `@Test` methods across 83 test files under
@@ -528,26 +496,6 @@ flowchart TD
 - [x] Track 7: SQL Methods & SQL Core
   > Write tests for SQL method implementations and the SQL root/query
   > packages.
-  >
-  > Target packages:
-  > - `core/sql/method/misc` (149 uncov, 58.6%) — string/collection
-  >   methods (Contains, Field, IndexOf, LastIndexOf, Normalize, Remove,
-  >   Size, Split, ToLowerCase, ToUpperCase, Trim, Type)
-  > - `core/sql/method` (62 uncov, 62.0%) — method infrastructure
-  > - `core/sql/method/sequence` (30 uncov, 23.1%) — sequence methods
-  >   (Current, Next, Reset)
-  > - `core/sql` (440 uncov, 39.7%) — SQL root package (SQLEngine,
-  >   SQLHelper, CommandExecutorSQLAbstract, etc.)
-  > - `core/sql/query` (297 uncov, 2.9%) — SQL query infrastructure
-  >   (nearly zero coverage)
-  >
-  > Methods are similar to functions: they take a value and parameters
-  > and return a result. The SQL root and query packages contain command
-  > execution infrastructure that needs a database session.
-  >
-  > **Scope:** ~5 steps covering method/misc, method/sequence, sql root,
-  > sql/query, and verification
-  > **Depends on:** Track 1
   >
   > **Track episode:**
   > Added ~1,200 unit tests across 41 test files (40 new, 1 extended) covering
@@ -638,88 +586,6 @@ flowchart TD
   > medium testability since most production classes here require a live
   > `DatabaseSessionEmbedded` to exercise their uncovered branches.
   >
-  > Target packages (in scope):
-  > - `core/sql/executor` (~1,703 uncov, 75.1%) — execution steps and
-  >   their associated planners/result wrappers:
-  >   - CRUD/write steps: CreateRecord, Delete, UpdateSet, UpdateMerge,
-  >     UpdateRemove, Upsert, CopyRecordContentBeforeUpdate, InsertValues
-  >   - Fetch steps: FetchFromClass, FetchFromCollection, FetchFromRids,
-  >     FetchFromVariable
-  >   - **FetchFromIndexStep** (1001 LOC) — handled separately due to size
-  >     and combinatorial WHERE-condition × index-definition surface
-  >   - Control flow: Filter, Limit, Skip, If, ForEach, ParallelExecStep
-  >   - Advanced: Unwind, Retry, Timeout, Let (Expression/Query, Global),
-  >     Batch
-  >   - **SelectExecutionPlanner** (3,741 LOC, 239 uncov) — exercised
-  >     end-to-end via `session.query(sql)` to drive its handle*/index-
-  >     selection branches; cannot be unit-tested via direct step
-  >     instantiation
-  >   - **Result types**: ResultInternal (282 uncov, single-largest gap),
-  >     UpdatableResult, TraverseResult — record wrappers used by every
-  >     step but classified neither as "step" nor "resultset"
-  > - `core/sql/executor/resultset` (~309 uncov, 49.2%) — split into:
-  >   - ExecutionStream wrappers (Filter/Map/FlatMap/Iterator/Limited/
-  >     Singleton/OnClose/Interrupt/Expire/Multiple/Empty/etc., ~30-70
-  >     LOC each)
-  >   - Result-collection impls (Link{List,Map,Set}ResultImpl + Embedded
-  >     {List,Map,Set}ResultImpl — six pure delegating wrappers,
-  >     ~1,190 LOC combined, instantiated only from
-  >     `ResultInternal.convert*()` paths)
-  > - `core/sql/executor/metadata` (61 uncov, 79.9%) — IndexCandidate /
-  >   IndexFinder helper chain
-  >
-  > Out of scope:
-  > - `core/sql/executor/match/**` (93.0%/79.3%, 191 uncov) — already
-  >   above the line target; remaining branches are hash-join internals
-  >   and integration-test territory. Existing 13 match tests cover the
-  >   shape adequately. Defer remaining gap to Track 22 sweep.
-  > - `SubQueryStep` — already has a 706-LOC `SubQueryStepTest` covering
-  >   predecessor draining, canBeCached matrix, copy semantics, and
-  >   prettyPrint indentation. Limit Track 8 to a coverage-delta gap-check.
-  > - `SQLScriptEngine`, `SQLScriptEngineFactory` — live in `core/sql/`
-  >   (Track 7's package), not in `core/sql/executor/*`. Track 7's
-  >   strategy refresh acknowledges this; defer to Track 9 / Track 22.
-  >   `CommandExecutorSQLAbstract`'s 2 trivial methods may be hit
-  >   incidentally; do not target it.
-  >
-  > **Test-strategy precedent (locks down ambiguity in original scope):**
-  > - **Default to DbTestBase** for executor step tests — this is a
-  >   per-track override of D2 (which still applies project-wide to
-  >   utility/method/function packages). 76% (72/94) of existing executor
-  >   tests already extend DbTestBase, including Track 7's just-landed
-  >   `ExpandStepTest`. Standalone tests are reserved for: pure pretty-
-  >   print/toString/cacheability tests, the six Link/Embedded collection
-  >   wrappers (which only delegate), and structural classes like
-  >   `IndexSearchDescriptorCost`. **D2 itself is unchanged** — only its
-  >   per-track default is inverted here.
-  > - **Direct-step tests** (stub `AbstractExecutionStep` upstream +
-  >   manually-built `ResultInternal` predecessors, à la `ExpandStepTest`/
-  >   `SubQueryStepTest`/`CartesianProductStepTest`) are the default for
-  >   step-internal branch coverage.
-  > - **SQL round-trip tests** (`session.query(sql)` / `.command(sql)`)
-  >   are reserved for SelectExecutionPlanner branch coverage and for
-  >   integration paths that direct-step tests cannot reach.
-  > - **Dead-code pinning** mirrors Track 7 Step 5: enumerate zero-caller
-  >   classes (`InfoExecutionPlan`, `InfoExecutionStep`, `TraverseResult`,
-  >   `BatchStep` are confirmed candidates), pin via WHEN-FIXED markers
-  >   pointing Track 22 to delete them, recompute the realistic 85% target
-  >   excluding dead LOC.
-  > - **Forward-to convention**: failures attributable to `record/impl`
-  >   (Track 14/15), `metadata/schema` (Track 16), or `core/db` (Track 14)
-  >   are pinned with `// forwards-to: Track NN` and worked around in the
-  >   executor test, mirroring Track 6's `Iterable` detach precedent.
-  >
-  > **Scope:** ~10 steps covering: (1) shared executor test fixture +
-  > dead-code pinning, (2) CRUD/write steps, (3) FetchFromClass /
-  > FetchFromCollection / FetchFromRids / FetchFromVariable, (4)
-  > FetchFromIndexStep (its own step), (5) control-flow steps + Parallel
-  > ExecStep, (6) advanced steps (Retry/Timeout/Let/Unwind/Batch), (7)
-  > Result types (ResultInternal/UpdatableResult/TraverseResult), (8)
-  > resultset ExecutionStream wrappers, (9) resultset Link/Embedded
-  > collection impls + metadata helpers, (10) SelectExecutionPlanner SQL
-  > round-trip + verification.
-  > **Depends on:** Track 1
-  >
   > **Track episode:**
   > Added ~19,971 lines of new tests across 52 files covering `core/sql/executor/*`,
   > `core/sql/executor/resultset/*`, and `core/sql/executor/metadata/*`. Purely
@@ -793,26 +659,6 @@ flowchart TD
 
 - [x] Track 9: Command & Script
   > Write tests for the command and script execution infrastructure.
-  >
-  > Target packages:
-  > - `core/command/script` (691 uncov, 31.4%) — script execution
-  >   (PolyglotScriptExecutor, DatabaseScriptManager, ScriptResultSets)
-  > - `core/command` (325 uncov, 48.7%) — command infrastructure
-  >   (CommandManager, CommandRequestText)
-  > - `core/command/traverse` (127 uncov, 62.9%) — traverse command
-  >   (Traverse, TraverseContext)
-  > - `core/command/script/formatter` (57 uncov, 36.0%) — script
-  >   formatting
-  > - `core/command/script/transformer` (37 uncov) — script result
-  >   transformation
-  >
-  > Script execution tests may need GraalVM polyglot context. Command
-  > and traverse tests need a database session. Focus on the command
-  > routing logic and traverse state machine.
-  >
-  > **Scope:** ~5 steps covering command infrastructure, traverse,
-  > script execution, script formatting/transformation, and verification
-  > **Depends on:** Track 1
   >
   > **Track episode:**
   > Landed comprehensive unit tests for the command and script subsystem
@@ -974,15 +820,6 @@ flowchart TD
 - [x] Track 11: Scheduler
   > Write tests for the task scheduler subsystem.
   >
-  > Target packages:
-  > - `core/schedule` (598 uncov, 45.7%) — task scheduling
-  >   (Scheduler, SchedulerImpl, ScheduledEvent, CronExpression)
-  >
-  > Schedule tests need the scheduler lifecycle (create, start, schedule
-  > event, verify execution, stop). CronExpression is a pure parsing
-  > class — good standalone test target. SchedulerImpl manages the
-  > timer thread and event queue.
-  >
   > **Track episode:**
   > Added ~3,375 LOC of test code across 8 new files + 1 shared fixture
   > covering `core/schedule` (CronExpression, ScheduledEvent / Builder,
@@ -1084,23 +921,6 @@ flowchart TD
   > Write tests for the string record serializer and core serialization
   > infrastructure. The string serializer has very low coverage (30.9%)
   > and is a legacy format.
-  >
-  > Target packages:
-  > - `core/serialization/serializer/record/string` (998 uncov, 30.9%)
-  >   — string record serializer (CSV-like format)
-  > - `core/serialization/serializer` (629 uncov, 41.4%) — serializer
-  >   infrastructure (SerializerFactory, record type dispatching)
-  > - `core/serialization` (277 uncov, 14.2%) — core serialization root
-  > - `common/serialization` (146 uncov, 34.5%) — common serialization
-  >   utilities
-  > - `core/serialization/serializer/record` (14 uncov, 0.0%) —
-  >   record serializer interface
-  > - `core/serialization/serializer/stream` (9 uncov, 60.9%) — stream
-  >   serializer
-  >
-  > Test approach: round-trip serialization — create objects, serialize,
-  > deserialize, verify equality. Cover type-specific paths (strings,
-  > numbers, dates, embedded documents, links, collections).
   >
   > **Track episode:**
   > Added ~8,400 LOC of test code across 24 new/modified test files
@@ -1249,659 +1069,308 @@ flowchart TD
   > (unicode / empty collections / negative offsets), and `// forwards-
   > to: Track NN` cross-track bug-pin convention.
 
-- [ ] Track 13: Serialization — Binary
+- [x] Track 13: Serialization — Binary
   > Write tests for the binary record serializer. Binary serialization
   > already has decent coverage (74.8%) but a large absolute gap (850
   > uncov) due to the codebase size.
   >
-  > Target packages:
-  > - `core/serialization/serializer/record/binary` (850 uncov, 74.8%)
-  >   — binary record serializer
-  > - `core/serialization/serializer/binary/impl/index` (165 uncov,
-  >   65.0%) — binary index serialization
-  > - `common/serialization/types` (129 uncov, 84.3%) — serialization
-  >   type utilities
-  > - `core/serialization/serializer/binary` (21 uncov, 65.6%) — binary
-  >   serializer root
-  > - `core/serialization/serializer/binary/impl` (14 uncov, 90.8%) —
-  >   binary impl
+  > **Track episode:**
+  > Added ~9,871 LOC of test code across 25 new test files covering the
+  > binary-serializer stack: V1 simple-type and collection round-trips
+  > with paired byte-shape pins, EntitySerializerDelta round-trips with
+  > wire-format markers, BinaryComparatorV0 cross-type and DATE paths,
+  > two index serializers (CompositeKey + IndexMultiValuKey) with
+  > WAL-overlay coverage, UUID/Null dispatcher contracts, and binary-
+  > serializer dead-code shape pins (`SerializableWrapper`,
+  > `RecordSerializationDebug`, `RecordSerializationDebugProperty`,
+  > `MockSerializer`). Two new shared fixtures extracted at iter-2:
+  > `BinaryComparatorV0TestFixture.field()` and
+  > `RecordSerializerBinaryTestFixture.runInTx()`. Purely test-additive
+  > across all 17 commits — zero production code modified.
   >
-  > Focus on uncovered type-specific serialization paths, edge cases
-  > in binary encoding (variable-length integers, null handling, embedded
-  > document nesting), and index key serialization.
+  > Production bugs / latent issues pinned with WHEN-FIXED markers
+  > (forwarded to the deferred-cleanup track): `BytesContainer` zero-
+  > capacity infinite-loop hang via the byte-array constructor;
+  > `SerializableWrapper.fromStream` security gap (no
+  > `ObjectInputFilter`, no class allow-list, no length cap on
+  > `ObjectInputStream.readObject()`); asymmetric version-byte handling
+  > in `RecordSerializerBinary.fromStream(byte[])` (unguarded
+  > `serializerByVersion[iSource[0]]` AIOOBE + Base64-of-input WARN-log
+  > path that amplifies log-injection); `BinarySerializerFactory.create()`
+  > registers a fresh `new NullSerializer()` rather than the singleton;
+  > `MockSerializer.preprocess` returns null instead of input;
+  > `RecordSerializationDebug*` carries `faildToRead` typo; cluster-id
+  > `(short)` cast in LinkSerializer / CompactedLinkSerializer is
+  > unreachable through public API but the silent truncation would
+  > surface if the upstream `RecordId.checkCollectionLimits` guard
+  > relaxed.
   >
-  > **Scope:** ~5 steps covering binary type paths, index serialization,
-  > edge cases, common types, and verification
-  > **Depends on:** Track 1
+  > Dead-code surface pinned for deletion (4 classes via `*DeadCodeTest`
+  > shape pins): `SerializableWrapper`, `RecordSerializationDebug`,
+  > `RecordSerializationDebugProperty`, `MockSerializer` (sentinel —
+  > needs lockstep removal of the `BinarySerializerFactory` registration
+  > for `PropertyTypeInternal.EMBEDDED` id `-10`).
+  >
+  > Track-level code review: 3 iterations (max reached). Iter-1: 0
+  > blockers / 31 should-fix / 33 suggestions across CQ/BC/TB/TC/SE/TS,
+  > fix sweep `dad3e0764c`. Iter-2: deferred-group fix sweep
+  > `ce8be16633` covering G5 (cluster-id boundary reframed as
+  > constructor-rejection + max-cluster round-trip), G6 / G7 (shared
+  > fixtures), G8 (split bundled `allObjectSize*` / `allDeserialize*`
+  > into 11 per-overload `@Test` methods), G9 (Mockito
+  > `preprocessReturnsNullEvenForNonNullInput` falsifiability pin), G12
+  > (VarInt 9-byte explicit decoded-value), G14 (empty-delta + dry-run
+  > null-target), G16 (V1 / Delta SECURITY javadoc), G17
+  > (`registerSerializer(null)` NPE), G18 (`Integer.MIN/MAX_VALUE` 5-byte
+  > canonical-length). Iter-3 gate-check: all 5 spawned dimensions
+  > (CQ/TB/TC/SE/TS) PASS, 6 new suggestions, cosmetic sweep
+  > `baf9284ab4` applied 3 trivial mechanical fixes (FQN imports +
+  > `assertNull`); 3 design-level suggestions (Javadoc shape, LinkBag
+  > middle-byte change-tracker pin gap, CompactedLinkSerializer
+  > WAL-overlay max-cluster pin gap) forwarded to the deferred-cleanup
+  > track absorption block (entries cc / dd / ee in the backlog).
+  >
+  > Cross-track impact: minor. All production-bug pins, dead-code shape
+  > pins, DRY/refactor candidates (`runInTx` helper, `field()` helper,
+  > `assertCanonicalBytes` helper, sibling `*SerializerTest` extension),
+  > and residual coverage gaps (B-tree-backed LinkBag/LinkSet write
+  > paths, `EntitySerializerDelta` dry-run path, `CompositeKeySerializer`
+  > Map-flatten preprocess negative branches) are absorbed into the
+  > deferred-cleanup track section of the backlog. Test-infrastructure
+  > precedents carried forward and extended with two new shared-fixture
+  > extractions for later serialization tracks.
+  >
+  > **Step file:** `tracks/track-13.md` (7 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact on Tracks 14–21.
+  > Track 13's binary-serializer scope is disjoint from Track 14's `core/db`
+  > scope. All production-bug pins, dead-code shape pins, and DRY/refactor
+  > candidates are already absorbed into the deferred-cleanup track section
+  > of the backlog. Test-infrastructure precedents from Tracks 5–13
+  > (`*DeadCodeTest` shape pinning, falsifiable-regression + WHEN-FIXED
+  > convention, `@After rollbackIfLeftOpen`, shared-fixture extraction at
+  > iter-2, `@Category(SequentialTest)` for static-state mutations,
+  > `Iterable` detach-after-commit, `// forwards-to: Track NN` cross-track
+  > bug pin) continue to apply. Track 14 leans on `DbTestBase` heavily
+  > (per-track decomposition call, not a D2 change).
 
-- [ ] Track 14: DB Core & Config
+- [x] Track 14: DB Core & Config
   > Write tests for the core database package — database lifecycle,
   > configuration, and record management.
   >
-  > Target packages:
-  > - `core/db` (1,268 uncov, 66.5%) — database operations
-  >   (DatabaseSessionEmbedded, SessionPoolImpl, document helpers)
-  > - `core/db/config` (130 uncov, 0.0%) — network/multicast/UDP
-  >   configuration (zero coverage)
-  > - `core/db/record` (404 uncov, 70.5%) — record management
-  > - `core/db/record/record` (71 uncov, 57.2%) — RID and record
-  >   internals
-  > - `core/db/record/ridbag` (23 uncov, 84.7%) — RID bag operations
+  > **Track episode:**
+  > Added ~8,903 LOC of test code across 30 new/extended test files
+  > covering `core/db`, `core/db/config`, `core/db/record`,
+  > `core/db/record/record`, and `core/db/record/ridbag`. Purely
+  > test-additive: zero production code modified across all 9 commits.
+  > Final aggregate coverage on the touched packages: `core/db` 71.6%/57.1%
+  > (+4.8pp/+4.5pp; falls 3.4pp/4.9pp short of the Step 1 acceptance band
+  > with the residual concentrated in `DatabaseSessionEmbedded`'s 636
+  > remaining uncov lines, out-of-scope-by-design per the Step 5
+  > coverage-gate framing for the 4 618-LOC class); `core/db/config` 0% →
+  > **95.4%/100.0%** (the dead-code shape pin drove every public-method
+  > branch); `core/db/record` 72.6% → **92.0%/80.0%**; `core/db/record/record`
+  > 58.4% → **89.2%/76.4%**; `core/db/record/ridbag` 84.0% → 87.3%/78.3%
+  > (B-tree conversion paths require storage-IT-level fixtures, forwarded).
+  > Aggregate `core` module: 75.1%/65.8% → **75.9%/66.4%** (+0.8pp/+0.6pp);
+  > Phase 1 cumulative through Track 14: +12.3pp line / +13.1pp branch.
   >
-  > DB tests require DbTestBase. Focus on session lifecycle, pool
-  > management, document CRUD, and configuration builders.
+  > **Reframe at Phase A**: three independent reviews (technical, risk,
+  > adversarial — all PSI-grounded) converged on two blockers and matching
+  > should-fix items. The original "drive `db/config` builder round-trips"
+  > framing was reframed to dead-code pins + Track 22 deletion absorption
+  > after PSI all-scope `ReferencesSearch` confirmed every public class in
+  > `core/db/config` (5 dead public classes + 3 dead Builders) has zero
+  > production callers across all 5 modules; the same applied to
+  > `DatabasePoolBase`, `RecordMultiValueHelper`, `HookReplacedRecordThreadLocal`,
+  > `DatabaseLifecycleListenerAbstract`, `LiveQueryBatchResultListener`, and
+  > the `EntityHookAbstract`/`RecordHookAbstract` test-only-reachable pair.
+  > No code fixes were needed for the Phase A blockers — the reframes
+  > absorbed directly into the step file's Description and into the Step
+  > decomposition.
   >
-  > **Scope:** ~6 steps covering session lifecycle, pool management,
-  > document operations, config builders, record internals, and
-  > verification
-  > **Depends on:** Track 1
+  > **Production bugs pinned with WHEN-FIXED markers** (forwarded to
+  > Track 22): `LRUCache.removeEldestEntry` off-by-one (`>=` instead of
+  > `>` caps `StringCache` at `cacheSize-1`); `DatabaseSessionEmbedded.
+  > setCustom(name, null)` latent NPE for any non-clear name (line
+  > 552–561 short-circuit chain); misleading TIMEZONE backward-compat
+  > comment plus the lowercase-input fallback to GMT; `setCustom`
+  > `"" + iValue` stringification bug for `char[]`; `SystemDatabase`
+  > latent shape where `openSystemDatabaseSession()` skips `init()`
+  > when the DB exists, leaving `serverId` null for callers expecting
+  > it populated; `CommandTimeoutChecker.startCommand(Long.MAX_VALUE)`
+  > deadline-addition overflow; `setParent`'s child-side null branches
+  > in `YouTrackDBConfigImpl`. Each pinned via falsifiable observed-shape
+  > regression so a production-side fix naturally breaks the pin.
+  >
+  > **Dead-code surface pinned for Track 22 deletion** (10 classes via
+  > `*DeadCodeTest` shape pins): entire `core/db/config` package
+  > (`MulticastConfguration`, `NodeConfiguration`,
+  > `UDPUnicastConfiguration` + their three Builders), `DatabasePoolBase`,
+  > `DatabasePoolAbstract` (1 dead subclass + 1 test subclass),
+  > `RecordMultiValueHelper`, `HookReplacedRecordThreadLocal`,
+  > `DatabaseLifecycleListenerAbstract`, `LiveQueryBatchResultListener`,
+  > `EntityHookAbstract`/`RecordHookAbstract` (test-only-reachable —
+  > deletion contingent on retargeting test subclasses at `RecordHook`
+  > directly).
+  >
+  > **Track-level code review**: 3 iterations, 6 dimensions
+  > (CQ/BC/TB/TC/TS/TX). Iter-1 surfaced 5 plan-level blockers (all
+  > absorbed as Description reframes — no code fixes) plus 12 should-fix
+  > items, fix commit `beb12a22d1`. Iter-2 gate check FAILed CQ/TC/TS/TX
+  > with mechanical sweeps the iter-1 fix missed (spawn-helper rollout,
+  > 5 boundary tests, defensive @Before assumeNotNull); applied in fix
+  > commit `587dfae4e6` (11 files, +241/-44). Iter-3 gate-check **PASSED
+  > all 6 dimensions**: 14/14 cumulative iter-1/iter-2 items VERIFIED;
+  > 6 new suggestion-tier findings (CQ20/CQ21/TB20/TB21/TC18/TX9)
+  > deferred to Track 22 backlog absorption block. Final state: 0 open
+  > blockers, 0 open should-fix.
+  >
+  > **Cross-track impact**: minor. No Component Map or Decision Record
+  > changes. Track 22's deferred-cleanup absorption block grew by ~10
+  > production-fix WHEN-FIXED markers + ~10 dead-code deletion items +
+  > 12 iter-2/iter-3 suggestion-tier entries (TS12-14, TC15-17, TX9,
+  > BC12-13, CQ20-21, TB20-21). No propagation to Tracks 15-21.
+  >
+  > **Patterns carried forward and codified**: corrected-baseline rule
+  > (Step 1 always re-measures live coverage rather than trusting
+  > plan-cited figures — Track 12 lesson); `*DeadCodeTest` shape-pin
+  > convention for classes pending deletion; `@Category(SequentialTest)`
+  > for static-state mutations (`SystemDatabase`, `ExecutionThreadLocal`,
+  > `HookReplacedRecordThreadLocal`); tracked-`spawn()` helper for
+  > worker-thread tests with `@After` join discipline (formalised in
+  > iter-2 fix); defensive `@Before Assume.assumeNotNull` for static
+  > volatile dispatchers vulnerable to engine-shutdown races; reflective
+  > field-stays-null pin pattern for dead-decoration `assertNotNull(probe)`
+  > replacement; observed-shape `Map.of(...).toString()` /
+  > `List.of(...).toString()` exact-equality for `toString()` contract
+  > pins (replaces vacuous `contains("k")` patterns).
+  >
+  > **Step file:** `tracks/track-14.md` (6 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — Track 14's discoveries are confined to
+  > the touched packages or queued in Track 22's deferred-cleanup block. No
+  > propagation to Tracks 15–21; no Component Map or Decision Record
+  > changes; carry-forward patterns are already absorbed into Track 15's
+  > "Carry forward Tracks 5–14 conventions" instruction.
 
 - [ ] Track 15: Record Implementation & DB Tool
   > Write tests for the record implementation layer and database tool
-  > utilities.
-  >
-  > Target packages:
-  > - `core/record/impl` (1,412 uncov, 62.6%) — record implementation
-  >   (EntityImpl property access, serialization, comparison, dirty
-  >   tracking, embedded documents)
-  > - `core/record` (90 uncov, 63.3%) — record root
-  > - `core/db/tool` (891 uncov, 60.8%) — database tools
-  >   (DatabaseExport, DatabaseRepair, DatabaseCompare)
-  > - `core/db/tool/importer` (73 uncov, 59.4%) — database import
-  >
-  > EntityImpl is the core document model — focus on property get/set,
-  > type conversion, dirty tracking, and comparison. DB tools handle
-  > export/import/repair — test with small databases.
+  > utilities. EntityImpl is the core document model; DB tools handle
+  > export, import, repair, and compare.
   >
   > **Scope:** ~7 steps covering EntityImpl properties, EntityImpl
   > serialization/comparison, EntityImpl embedded, record root, DB
-  > export, DB repair/compare, and verification
+  > export, DB repair/compare, and verification.
   > **Depends on:** Track 1
+  >
+  > **Operational note:** Step 1's deferred-cleanup absorption
+  > updates to `implementation-backlog.md` were lost in the
+  > 2026-05-04 incident — re-add at Phase C from Step 1's episode
+  > prose. `track-15-baseline.md` was also lost; re-derive at
+  > Phase C from a fresh coverage run. See **Operational Notes**.
 
 - [ ] Track 16: Metadata Schema & Functions
   > Write tests for schema management and function/sequence libraries.
-  >
-  > Target packages:
-  > - `core/metadata/schema` (1,278 uncov, 70.7%) — schema operations
-  >   (SchemaShared, SchemaPropertyImpl, SchemaClassImpl, cluster
-  >   selection strategies, schema proxies)
-  > - `core/metadata/function` (74 uncov, 72.2%) — function library
-  >   (FunctionLibraryImpl, DatabaseFunction)
-  > - `core/metadata/sequence` (75 uncov, 84.3%) — sequence library
-  >   (SequenceLibraryImpl, SequenceCached)
-  > - `core/metadata/schema/clusterselection` (18 uncov, 63.3%) —
-  >   cluster selection strategies
-  >
-  > Schema tests need a database session to create classes and
-  > properties. Focus on property type validation, index creation,
-  > cluster selection, and schema evolution.
+  > Schema operations (classes, properties, cluster selection) are the
+  > largest gap; function and sequence libraries are smaller but
+  > self-contained.
   >
   > **Scope:** ~6 steps covering schema property operations, schema
   > class operations, cluster selection, function library, sequence
-  > library, and verification
+  > library, and verification.
   > **Depends on:** Track 1
 
 - [ ] Track 17: Security
   > Write tests for the security subsystem — authentication,
   > authorization, token management, and encryption.
   >
-  > Target packages:
-  > - `core/metadata/security` (593 uncov, 72.3%) — security metadata
-  >   (Role, Identity, SecurityPolicyImpl, resource classes)
-  > - `core/security` (548 uncov, 32.1%) — core security
-  >   (SecurityManager, TokenSign, password hashing)
-  > - `core/security/authenticator` (140 uncov, 25.5%) —
-  >   authenticators (DefaultPassword, DatabaseUser)
-  > - `core/security/symmetrickey` (282 uncov, 26.6%) — symmetric key
-  >   security
-  > - `core/metadata/security/binary` (164 uncov, 0.0%) — binary
-  >   token serialization
-  > - `core/metadata/security/jwt` (10 uncov, 0.0%) — JWT tokens
-  > - `core/metadata/security/auth` (9 uncov, 0.0%) — auth info
-  > - `core/security/kerberos` (114 uncov, 0.0%) — Kerberos auth
-  >
-  > Security tests should cover password hashing, token sign/verify,
-  > role/permission checks, and authenticator chains. Kerberos tests
-  > may need to be limited (no Kerberos infrastructure in test env).
-  >
   > **Scope:** ~6 steps covering password/token, authenticators,
   > roles/permissions, symmetric key, binary tokens/JWT, and
-  > verification
+  > verification.
   > **Depends on:** Track 1
 
 - [ ] Track 18: Index
   > Write tests for the index management layer — index engines, index
   > iterators, and index operations.
   >
-  > Target packages:
-  > - `core/index` (1,031 uncov, 67.7%) — index management
-  >   (IndexManagerAbstract, IndexManagerEmbedded, index lifecycle,
-  >   index queries)
-  > - `core/index/engine` (126 uncov, 90.1%) — index engine (already
-  >   well covered, target remaining edge cases)
-  > - `core/index/engine/v1` (71 uncov, 86.1%) — v1 index engine
-  > - `core/index/iterator` (85 uncov, 43.3%) — index iterators
-  > - `core/index/comparator` (5 uncov, 50.0%) — index comparators
-  >
-  > Index tests need a database session with schema (create class,
-  > create property, create index). Focus on index lifecycle, range
-  > queries, composite keys, and iterator behavior.
-  >
   > **Scope:** ~5 steps covering index lifecycle, index queries,
-  > index iterators, edge cases, and verification
+  > index iterators, edge cases, and verification.
   > **Depends on:** Track 1
+  >
+  > **Operational note:** Backlog section partially recovered —
+  > only the header survived; body in a gap. Reconstruct at Phase A
+  > from the Scope indicator above + the design's Component Map
+  > cluster mapping for `core/index*`. See **Operational Notes**.
 
 - [ ] Track 19: Storage Fundamentals
   > Write tests for storage subsystem components that are more testable
-  > than the core cache/WAL/impl internals.
-  >
-  > Target packages:
-  > - `core/storage/config` (359 uncov, 62.5%) — storage configuration
-  > - `core/storage/memory` (124 uncov, 59.5%) — memory storage
-  > - `core/storage` (66 uncov, 38.9%) — storage root
-  > - `core/storage/fs` (62 uncov, 72.9%) — filesystem abstraction
-  > - `core/storage/disk` (159 uncov, 83.3%) — disk operations
-  > - `core/storage/collection/v2` (127 uncov, 90.3%) — collection v2
-  > - `core/storage/collection` (56 uncov, 89.2%) — collection root
-  > - `core/storage/ridbag` (86 uncov, 87.1%) — RID bag storage
-  > - `core/storage/ridbag/ridbagbtree` (274 uncov, 84.0%) — B-tree
-  >   RID bag
-  >
-  > Storage config and memory storage are testable in isolation.
-  > Collection and ridbag components have existing tests to extend.
+  > than the core cache/WAL/impl internals (storage config, memory
+  > storage, filesystem, disk, collections, ridbag).
   >
   > **Scope:** ~5 steps covering storage config, memory storage,
-  > filesystem/disk, collections, ridbag, and verification
+  > filesystem/disk, collections, ridbag, and verification.
   > **Depends on:** Track 1
+  >
+  > **Operational note:** Backlog section entirely in a gap —
+  > reconstruct at Phase A from the Scope indicator above + the
+  > design's Component Map cluster mapping for `core/storage/{config,
+  > memory,fs,disk,collection,ridbag}*`. See **Operational Notes**.
 
 - [ ] Track 20: Storage Cache & WAL
   > Write tests for the write cache (WOWCache), read cache, double-write
-  > log, and WAL components. These are complex concurrent subsystems.
-  >
-  > Target packages:
-  > - `core/storage/cache/local` (627 uncov, 68.7%) — WOWCache
-  > - `core/storage/cache/local/doublewritelog` (146 uncov, 51.5%) —
-  >   DoubleWriteLog implementations
-  > - `core/storage/cache` (78 uncov, 76.9%) — cache interfaces
-  > - `core/storage/cache/chm` (61 uncov, 89.3%) — LockFreeReadCache,
-  >   concurrent hash map cache
-  > - `core/storage/impl/local/paginated/wal/cas` (262 uncov, 76.7%)
-  >   — CAS-based WAL
-  > - `core/storage/impl/local/paginated/wal` (233 uncov, 64.5%) — WAL
-  >   core
-  >
-  > These tests need careful setup (page buffers, cache pointers, lock
-  > management). Focus on page lifecycle, cache eviction, double-write
-  > log recovery, and WAL segment management. Use existing test patterns
-  > from `CollectionPageTest` for low-level page tests.
+  > log, and WAL components. These are complex concurrent subsystems —
+  > expect to fall short of 85%/70% targets per D4.
   >
   > **Scope:** ~6 steps covering WOWCache lifecycle, read cache,
-  > double-write log, WAL segments, cache eviction, and verification
+  > double-write log, WAL segments, cache eviction, and verification.
   > **Depends on:** Track 1
+  >
+  > **Operational note:** Backlog section entirely in a gap —
+  > reconstruct at Phase A from the Scope indicator above + the
+  > design's Component Map cluster mapping for
+  > `core/storage/cache*` and `core/storage/impl/local/paginated/wal*`.
+  > See **Operational Notes**.
 
 - [ ] Track 21: Storage B-tree & Impl
   > Write tests for B-tree index storage and storage implementation
   > internals. These are the lowest-level storage components, tightly
-  > coupled to page-based I/O and WAL operations.
-  >
-  > Target packages:
-  > - `core/storage/impl/local` (1,190 uncov, 60.9%) — local storage
-  >   implementation
-  > - `core/storage/index/sbtree/multivalue/v2` (591 uncov, 13.3%) —
-  >   multivalue B-tree (very low coverage)
-  > - `core/storage/index/sbtree/singlevalue/v3` (437 uncov, 74.0%) —
-  >   singlevalue B-tree v3
-  > - `core/storage/index/sbtree/singlevalue/v1` (242 uncov, 0.0%) —
-  >   singlevalue B-tree v1 (zero coverage, may be legacy)
-  > - `core/storage/index/sbtree/local/v1` (102 uncov, 66.6%) — local
-  >   B-tree v1
-  > - `core/storage/index/sbtree/local/v2` (102 uncov, 66.9%) — local
-  >   B-tree v2
-  >
-  > Focus on B-tree key operations (put, get, range, delete), page
-  > splitting/merging, and storage impl lifecycle. Accept that some
-  > storage internals may stay below 85% — focus on the most impactful
-  > test cases.
+  > coupled to page-based I/O and WAL operations — expect to fall short
+  > of 85%/70% targets per D4.
   >
   > **Scope:** ~5 steps covering B-tree multivalue, B-tree singlevalue,
-  > B-tree local, storage impl, and verification
+  > B-tree local, storage impl, and verification.
   > **Depends on:** Track 1
+  >
+  > **Operational note:** Backlog section entirely in a gap —
+  > reconstruct at Phase A from the Scope indicator above + the
+  > design's Component Map cluster mapping for
+  > `core/storage/index/sbtree*` and `core/storage/impl/local*`.
+  > See **Operational Notes**.
 
 - [ ] Track 22: Transactions, Gremlin & Remaining Core
   > Write tests for transaction management, Gremlin integration, and
-  > all remaining uncovered core packages. This is the final sweep track.
-  >
-  > Target packages (major):
-  > - `core/tx` (572 uncov, 61.8%) — transaction management
-  > - `core/gremlin` (713+166+57+34 uncov) — Gremlin integration
-  >   (excluding schema classes per constraint 7)
-  > - `core/engine` (121+21+1 uncov) — engine lifecycle
-  > - `core/exception` (230 uncov, 40.9%) — exception hierarchy
-  >
-  > Target packages (smaller):
-  > - `core/id` (125 uncov, 64.2%) — ID generation
-  > - `core/compression/impl` (104 uncov, 0.0%) — compression
-  > - `core/config` (64 uncov, 66.1%) — configuration
-  > - `core/cache` (60 uncov, 71.4%) — cache utilities
-  > - Small packages: conflict, dictionary, servlet, replication, type,
-  >   collate, api/*
-  >
-  > TX tests need a database session to verify begin/commit/rollback
-  > semantics. Gremlin tests use GraphBaseTest. Engine lifecycle tests
-  > verify engine registration via SPI. Remaining packages are a mix
-  > of standalone and DB-dependent tests.
-  >
-  > **Additional DRY / cleanup scope inherited from earlier tracks:**
-  > - **From Track 7 iter-1 (CQ3, TS5):** Extract shared test fixtures to
-  >   `test-commons` (or a package-private `SqlTestFixtures` helper in
-  >   `core.sql`): `RecordingFunction` (currently duplicated across
-  >   SQLMethodRuntimeTest, SQLFunctionRuntimeTest, RuntimeResultTest,
-  >   SQLMethodFunctionDelegateTest), `StubParser` (duplicated in
-  >   SQLMethodRuntimeTest and SQLFunctionRuntimeTest), and
-  >   `StubMethod`/`ProbeMethod` (DefaultSQLMethodFactoryTest and
-  >   SQLMethodRuntimeTest). Consider a builder-pattern `RecordingFunctionBuilder`.
-  > - **From Track 7 iter-1 (TS3, TS6):** Split oversized test classes:
-  >   `SQLFunctionRuntimeTest` (997 lines) and `SQLMethodRuntimeTest`
-  >   (834 lines) each into 3 focused suites (setParameters / execute /
-  >   arity+lifecycle); `SQLEngineSpiCacheTest` (903 lines) into
-  >   factory-caching / dispatch / registration suites sharing the
-  >   `@After verifyNoStaticStateLeak` base.
-  > - **From Track 7 iter-1 (TS4, TS7, TS9):** Convert repetitive test
-  >   groups to `@Parameterized`: six `SQLMethodAs*Test` classes; 8
-  >   `concurrentLegacyResultSet*ThrowsUnsupported` methods in
-  >   `SqlQueryDeadCodeTest`; three sequence tests
-  >   (SQLMethodCurrent/Next/Reset) via shared abstract base.
-  > - **From Track 7 iter-1 (TX5):** Stage multi-threaded race-exercising
-  >   tests (CyclicBarrier + CountDownLatch + ConcurrentLinkedQueue) paired
-  >   with each WHEN-FIXED production-side race fix: CustomSQLFunctionFactory
-  >   HashMap, DefaultSQLMethodFactory HashMap, SQLEngine.registerOperator
-  >   non-atomic SORTED_OPERATORS clear, SQLEngine.scanForPlugins partial
-  >   cache clear.
-  > - **From Track 7 iter-1 (CQ1, TC3):** Normalize malformed nested-asterisk
-  >   Apache-2 license banner across 10 `sql/*Test.java` + `sql/query/*Test.java`
-  >   files to match the canonical single-asterisk banner. Add unicode /
-  >   surrogate-pair / Turkish-locale coverage to the string-method tests
-  >   (SQLMethodToLowerCase/ToUpperCase/Trim/Split/CharAt) so a regression
-  >   from `Locale.ENGLISH` pinning would be caught.
-  > - **From Track 8 Phase C iter-1 (CQ1/TS1, CQ2/TS2, CQ3):** Hoist the
-  >   duplicated Track-8 executor-test helpers into `TestUtilsFixture`:
-  >   (a) `protected BasicCommandContext newContext()` (duplicated in ~45
-  >   executor test files), (b) `protected ExecutionStepInternal
-  >   sourceStep(CommandContext, List<? extends Result>)`, (c)
-  >   `protected static List<Result> drain(ExecutionStream, CommandContext)`,
-  >   (d) `protected static String uniqueSuffix()`. Extract the
-  >   `streamOfInts` / `CloseTracker` / `NoOpStep` trio (duplicated across
-  >   `ExecutionStreamWrappersTest`, `ExpireTimeoutResultSetTest`,
-  >   `InterruptResultSetTest`) into a package-private helper alongside
-  >   `LinkTestFixtures` in `core/sql/executor/resultset/` (e.g.
-  >   `StreamTestFixtures`). Replace duplicates file-by-file.
-  > - **From Track 8 Phase C iter-1 (CQ4):** Replace inline fully-qualified
-  >   class names in Track-8 test files with explicit imports — chiefly
-  >   `SQLOrBlock` / `SQLNotBlock` in `FetchFromIndexStepTest`,
-  >   `DatabaseSessionEmbedded` and `ExecutionStreamProducer` in
-  >   `ExecutionStreamWrappersTest`, and the `RID` FQN in
-  >   `SmallPlannerBranchTest`.
-  > - **From Track 8 Phase C iter-1 (CQ8, TS8):** Audit Track-8 executor
-  >   tests for manual `try { … session.commit(); } catch { rollback; throw }`
-  >   boilerplate that duplicates the `TestUtilsFixture.rollbackIfLeftOpen`
-  >   safety net. Keep explicit `session.rollback()` only where the test
-  >   deliberately rolls back as a success-path expectation; drop the
-  >   duplicative catch in the rest.
-  > - **From Track 8 Phase C iter-1 (TC3, TC4, TC5, TC6, TC7, TC8, TC9,
-  >   TC12):** Eight executor corner-case pins deferred to the final sweep:
-  >   (TC3) `CreateRecordStep total<0` → empty stream; (TC4) `UpdateRemoveStep`
-  >   / `UpdateSetStep` / `UpdateMergeStep` / `UpdateContentStep`
-  >   non-`ResultInternal` pass-through path; (TC5) `FetchFromCollection`
-  >   unknown / negative collection ID; (TC6) `FetchFromClass` partial
-  >   `collections`-filter subset matrix (retain only a subclass's collection
-  >   id while excluding the parent's); (TC7) `LetExpressionStep` subquery-
-  >   throws exception propagation (parallel pin in `LetQueryStepTest`);
-  >   (TC8) direct `SkipExecutionStep → LimitExecutionStep` composition test
-  >   (SKIP 2 LIMIT 3 over 6 rows → rows 3-5); (TC9) `UpsertStep` multi-row
-  >   upstream matches behavior; (TC12) `InsertValuesStep` rows<tuples
-  >   boundary (only first N tuples applied).
-  > - **From Track 8 Phase C iter-1 (suggestion tier, 37 items absorbed):**
-  >   CQ5–CQ7, CQ9–CQ10 (test-class splits, field-access patterns, license
-  >   banner, generator unification); BC1–BC2 (deterministic-clock for
-  >   `AccumulatingTimeoutStep`, `reached[0]` assertion simplification);
-  >   TB8–TB9 (RID-equality pin in `ResultInternalTest`, WHEN-FIXED javadoc
-  >   marker on `onCloseIsNotIdempotentOnRepeatedClose`); TC13–TC21
-  >   (Unwind-absent-field, ForEach prev==null, EmbeddedList negative
-  >   indices, EmbeddedSet add(null), EmbeddedMap compute/merge exception,
-  >   LimitedExecutionStream limit==MAX_VALUE, UpdatableResult toJSON
-  >   round-trip, IfStep runtime nested-IF, RetryStep ExecutionThreadLocal
-  >   interrupt); TS3, TS6–TS7, TS9–TS14 (test-class splits for
-  >   `ResultInternalTest` / `FetchFromIndexStepTest` / `ExecutionStream
-  >   WrappersTest`, LinkTestFixtures rename, Step-9 Abstract*Base
-  >   rationale note, license banner consistency, short class-name
-  >   clarity, SoftThread cleanup comment, RetryStep residual rationale
-  >   update); TX1, TX3–TX8 (wall-clock determinism, AtomicBoolean/Integer
-  >   hygiene, TimeoutStep RETURN sendTimeout symmetry, RetryStep
-  >   concurrent-tx integration-test note, InterruptResultSet mid-iteration
-  >   interrupt, ParallelExecStep mid-sub-plan throws propagation).
-  > - **From Track 9 Phase A reviews (T1/R1, T2, T3, T4, R2):** Seven dead or
-  >   semi-dead command/script code regions pinned via `// WHEN-FIXED: Track 22`
-  >   markers in Track 9 Step 1 and Step 5; Track 22 deletes/simplifies:
-  >   (a) `CommandExecutorScript` (719 LOC — only reachable through
-  >   `SQLScriptEngine.eval(Reader, Bindings)` which has no production callers;
-  >   `CommandScript.execute` is a `List.of()` stub with no
-  >   `CommandManager.commandReqExecMap` routing);
-  >   (b) `CommandScript` (114 LOC — see (a));
-  >   (c) `CommandManager`'s class-based legacy dispatch cluster
-  >   (`commandReqExecMap` + `configCallbacks` + `registerExecutor(Class,Class,...)`
-  >   + `unregisterExecutor(Class)` + `getExecutor(CommandRequestInternal)` —
-  >   zero callers; the live path is `scriptExecutors` map + `getScriptExecutor`);
-  >   (d) `ScriptExecutorRegister` SPI (zero `META-INF/services` entries, zero
-  >   implementations in core);
-  >   (e) `ScriptInterceptor` + `ScriptInjection` SPIs if kept with zero-impl
-  >   register/unregister loops (consolidated SPI-wiring smoke tests will give
-  >   minimal positive coverage; remaining code is production-no-op);
-  >   (f) deprecated `ScriptManager.bind(...)` / `bindLegacyDatabaseAndUtil` +
-  >   `ScriptDocumentDatabaseWrapper` (261 LOC) + `ScriptYouTrackDbWrapper`
-  >   (42 LOC) — reachable only via `Jsr223ScriptExecutor.executeFunction` for
-  >   stored JS functions; Track 9 covers the live method subset via a stored-
-  >   function test and pins the rest;
-  >   (g) `SQLScriptEngine.eval(Reader, Bindings)` — routes to the dead
-  >   `CommandScript.execute` stub; only `eval(String, Bindings)` +
-  >   `convertToParameters` are live.
-  >   Also absorbed: `BasicCommandContext.copy()` null-child NPE (T4, Track 9
-  >   Step 2 pins via expect-NPE + WHEN-FIXED); `TraverseTest.java:56-72` dead
-  >   `activeTx*` local variables (T9, readability cleanup).
-  > - **From Track 9 Step 2 iter-1 dimensional review (5 agents; 0 blockers,
-  >   14 should-fix, 14 suggestions):** Most should-fix items fixed in-step
-  >   via commit `10eac73c8a`. Deferred to Track 22:
-  >   (TB-4) companion positive assertion for `$PARENT.unknownField` —
-  >   `BasicCommandContext` has no clean JavaBean field reachable via
-  >   `EntityHelper.getFieldValue` reflection, making a falsifiable positive
-  >   pin fragile; absorbed with the `copy()` T4 cleanup.
-  >   (TC-1) `getVariables()` self-overrides-child precedence test — minor
-  >   observable; no production caller depends on the direction today.
-  >   (TC-2) `setParentWithoutOverridingChild` test — isolated method, no
-  >   callers in core would regress; coverage via Track 22 when SQL
-  >   sub-query planners reachable through this method land.
-  >   (TC-3) direct `hasVariable` branch tests — indirectly covered by the
-  >   TB-3 tightening in `BasicCommandContextTest.testSetVariableExistingInParent`;
-  >   re-evaluate during Track 22 if JaCoCo still shows uncovered branches.
-  >   Plus ~13 suggestion-tier items (CQ-3..CQ-6 assertNotSame/assertNull
-  >   idiom consistency, TS4 shared stub helper, TS5 pre-existing no-javadoc
-  >   tests in `SqlScriptExecutorTest`, TS6 expose-wrapper naming, TS7
-  >   `_T4Pin` method-name suffix, TB-5 reference-identity mutation pin,
-  >   TB-6 setChild-null-idempotency, TB-7 toString regex relaxation, TC-8
-  >   convertToParameters single-null corner, TC-9 retry-conflict data
-  >   scenario, TC-10 parameterized positional scalars, TC-11 setChild
-  >   replacement observable) fold into existing Track 22 DRY/cleanup scope.
-  > - **From Track 9 Phase C iter-1 (CQ1, CQ2, CQ3):** Three DRY candidates
-  >   deferred after the Phase-C dimensional review of all Track 9 test
-  >   files (commit `f66b1bc474`):
-  >   (CQ1) Hoist the hand-rolled `@After rollbackIfLeftOpen` safety net
-  >   currently duplicated in `TraverseTest`, `TraverseContextTest`, and
-  >   the bespoke `restoreAllowedPackagesAndRollbackIfLeftOpen` on
-  >   `ScriptManagerTest` / `closeExecutor` on `PolyglotScriptExecutorTest`
-  >   into `TestUtilsFixture` so that `DbTestBase`-extending Track-9
-  >   tests inherit the sweep without redeclaring it. Covered in spirit
-  >   by the Track-8 `TestUtilsFixture` hoist entry above; explicitly
-  >   listed here so the Track-9 call sites are not forgotten.
-  >   (CQ2) Deduplicate the traverse-domain test fixture helpers shared
-  >   across `TraverseTest`, `TraverseContextTest`,
-  >   `TraverseRecordProcessTest`, `TraverseRecordSetProcessTest`, and
-  >   `TraverseMultiValueProcessTest` (common `newDocumentWith*(...)`
-  >   builders, `@After rollbackIfLeftOpen`, traversal-result extraction)
-  >   into a package-private `TraverseTestFixtures` helper alongside the
-  >   traverse tests.
-  >   (CQ3) Extract the `createStoredFunction(session, name, code, language)`
-  >   helper used across `Jsr223ScriptExecutorTest`,
-  >   `ScriptLegacyWrappersTest`, and `SQLScriptEngineTest` into a
-  >   package-private helper in `command/script/` (or `test-commons`)
-  >   so the Function-record construction boilerplate is written once.
-  > - **From Track 10 Phase A reviews (T1/R1, T2/R2, T4, T5, T10, R6):**
-  >   Two dead code regions pinned via `// WHEN-FIXED: Track 22` markers
-  >   in Track 10 Steps 2 and 3; Track 22 deletes/simplifies:
-  >   (a) **Entire `core/query/live/` package** (~660 LOC across
-  >   `LiveQueryHook` 164 LOC, `LiveQueryHookV2` 326 LOC,
-  >   `LiveQueryQueueThread` 107 LOC, `LiveQueryQueueThreadV2` 94 LOC,
-  >   `LiveQueryListener` 30 LOC, `LiveQueryListenerV2` 33 LOC) — all
-  >   public-static surface (`subscribe`/`unsubscribe`/`addOp`/
-  >   `notifyForTxChanges`/`removePendingDatabaseOps`/`calculateBefore`/
-  >   `calculateProjections`) has 0 production callers; only
-  >   `LiveQueryHookV2.unboxRidbags` is live via
-  >   `CopyRecordContentBeforeUpdateStep.java:52`. Cross-module grep
-  >   confirmed 0 callers in `server/`, `driver/`, `embedded/`,
-  >   `gremlin-annotations/`, `tests/`.
-  >   (b) **Orphan listener interfaces in `core/query/`**:
-  >   `BasicLiveQueryResultListener` (43 LOC),
-  >   `LiveQueryResultListener` (8 LOC),
-  >   `LiveQueryMonitor` (11 LOC) — zero production implementors.
-  >   (c) **Entire `core/fetch/` package** including `FetchHelper` (1027
-  >   LOC), `FetchPlan` (253 LOC), `FetchContext`, `FetchListener`,
-  >   `core/fetch/remote/RemoteFetchContext` + `RemoteFetchListener` —
-  >   cross-module grep confirmed 0 callers in `server/`, `driver/`,
-  >   `embedded/`, `gremlin-annotations/`, `tests/`; only
-  >   `DepthFetchPlanTest` (test-only) drives it in core. Historical
-  >   binary-protocol fetch path that's no longer wired in.
-  >   (d) **Bug fix in `LiveQueryHookV2.calculateProjections`** (lines
-  >   246-252): method always returns an empty `HashSet` or `null`,
-  >   meaning `calculateBefore`/`calculateAfter` always load ALL
-  >   properties regardless of subscriber projection — pre-existing bug
-  >   pinned via `LiveQueryDeadCodeTest` R6 marker.
-  >   (e) **Clean-up in `ExecutionStep.java:41`**: dead duplicate
-  >   `getSubSteps()` call (return value discarded) in the default
-  >   `toResult` method — harmless but wasteful; T5 pin marker.
-  >   (f) **Reconcile `LiveQueryQueueThread.run` vs
-  >   `LiveQueryQueueThreadV2.run` `InterruptedException` handling**
-  >   (V1 `break` @ line 62 vs V2 re-interrupt + `continue` @ lines
-  >   65-67) — T4 behavioral-inconsistency pin; if the subsystem is
-  >   kept (unlikely), pick one behavior and align.
-  >   Also absorbed: **`DepthFetchPlanTest` modernization** (T10) —
-  >   migrate from top-level `session.begin()`/`session.commit()` to
-  >   `session.executeInTx(...)` callback idiom for consistency with
-  >   Track 6–9 test style; fold into Track 22's DRY/cleanup queue.
-  > - **From Track 11 (Scheduler) Phase A reviews + Phase B step
-  >   episodes:** Deletions, production-bug WHEN-FIXED markers, and
-  >   refinements queued for Track 22, all pinned via `*DeadCodeTest`
-  >   classes and `// WHEN-FIXED:` test markers in
-  >   `core/src/test/java/.../schedule/`:
-  >   (a) **`CronExpression` secondary-surface dead-code deletions**
-  >   (pinned in `CronExpressionDeadCodeTest`): `getTimeBefore` (TODO
-  >   stub returns null), `getFinalFireTime` (TODO stub returns null),
-  >   `clone()` and the copy-constructor, `isSatisfiedBy`,
-  >   `getNextInvalidTimeAfter`, `getExpressionSummary`, **and the lazy
-  >   `TimeZone.getDefault()` fallback inside `getTimeZone()` only**
-  >   (refined from the original "`setTimeZone(non-UTC)` lazy fallback"
-  >   description — the public `setTimeZone(TimeZone)` setter is the
-  >   live shape used by both new tests and any production caller and
-  >   stays; only the implicit no-zone fallback is dead). Cross-module
-  >   grep should confirm zero callers before deletion.
-  >   (b) **Deprecated `Scheduler` interface methods** (pinned in
-  >   `SchedulerSurfaceDeadCodeTest`): `Scheduler.load`, `Scheduler.close`,
-  >   `Scheduler.create` (all `@Deprecated`) and their three
-  >   `SchedulerProxy` overrides — only the live `scheduleEvent` /
-  >   `removeEvent` / `getEvent` / `getEvents` are routed through
-  >   `DatabaseSessionEmbedded` hooks.
-  >   (c) **`ScheduledEvent` ctor silent `ParseException`** (T4 — pinned
-  >   as falsifiable regression in `ScheduledEventTest`): the
-  >   `new ScheduledEvent(EntityImpl)` constructor catches `ParseException`
-  >   and leaves `private CronExpression cron == null`; the next
-  >   `schedule()` NPEs at the cron usage site. Track 22 should rethrow
-  >   or surface the parse failure (consider also making the field
-  >   `volatile` or assigning it under `timerLock` to close the
-  >   non-`final`/non-`volatile` publication gap discovered during Step
-  >   2 review).
-  >   (d) **`ScheduledEvent.executeEventFunction` retry-loop bug** (T5 —
-  >   structurally pinned with rationale in the test class Javadoc):
-  >   the 10× retry loop runs unconditionally — there is no `break` on
-  >   success, and `catch NeedRetryException` is **inside** the inner
-  >   lambda so it never reaches the surrounding loop. The user-supplied
-  >   function is invoked once per cron firing (inside `computeInTx`),
-  >   but `event.save(session)` runs 10 times unconditionally in the
-  >   surrounding finally-block loop. Pinning the buggy "10 saves"
-  >   shape from outside the class requires either reflection on the
-  >   private inner-class method `ScheduledTimerTask#executeEventFunction`
-  >   or a custom `ScheduledEvent` subclass overriding `save` — both
-  >   coupled to the internal API. **Treat as a single coupled cleanup
-  >   in Track 22**: fix the loop break + relocate the
-  >   `NeedRetryException`/`RecordNotFoundException` catch to the
-  >   surrounding loop, and replace the falsifiable observable then
-  >   (e.g., per-call invocation counter on a `RecordingFunction`).
-  >   (e) **`CronExpression` parser leniency** (latent — Step 1
-  >   discovery): the day-of-month field silently drops trailing
-  >   garbage characters (e.g., `"0 0 12 5X * ?"` parses without throwing
-  >   and the `X` is ignored). Cross-module grep should confirm no
-  >   in-repo cron strings exploit this; if any do, fix them before
-  >   tightening the parser.
-  >   (f) **`ScheduledEvent.cron` field unsafe publication** (Step 2
-  >   discovery, paired with T4 above): the field is non-`final` and
-  >   non-`volatile` while the read site in `ScheduledTimerTask.schedule()`
-  >   takes `timerLock`. Bundle the publication fix with the silent-
-  >   `ParseException` fix in (c).
-  >   (g) **R6-acceptance residuals** (test-completeness gaps documented
-  >   in `SchedulerImplTest` Javadoc, not bug pins): two log-and-swallow
-  >   `catch (Exception)` branches in `SchedulerImpl` need
-  >   persistence-failure injection at integration scope; the
-  >   interrupt-during-run race lives inside the `ScheduledTimerTask`
-  >   private inner class and is exercised indirectly by `SchedulerTest`'s
-  >   second-level cron firings. No Track 22 deletion item — these
-  >   acceptances are recorded in the Phase B episode and the test
-  >   class Javadoc as out-of-scope-by-design.
-  >   No Track 11-specific DRY items: the Track 8 `TestUtilsFixture`
-  >   hoist already covers the schedule package's `@After
-  >   rollbackIfLeftOpen` use; the `SchedulerTestFixtures`
-  >   package-private helper consolidates the schedule-domain
-  >   builders/cleanup within the package and does not need promotion
-  >   to `test-commons`.
-  > - **From Track 12 (Serialization — String & Core) Phase A reviews +
-  >   Phase B step episodes:** Deletions, residual coverage gaps, and
-  >   refinements queued for Track 22, all pinned via `*DeadCodeTest`
-  >   classes (one per dead surface) under `core/src/test/java/.../
-  >   serialization/`:
-  >   (a) **`RecordSerializerCSVAbstract` instance API deletion**
-  >   (~866 LOC; pinned in `RecordSerializerCsvAbstractDeadCodeTest`):
-  >   the abstract instance methods (`fieldFromStream`, `fieldToStream`,
-  >   `embeddedCollectionFromStream`, `embeddedCollectionToStream`, etc.)
-  >   have **zero concrete subclasses or `new`-instantiations** anywhere
-  >   in the project after YTDB-86 removed `RecordSerializerSchemaAware2CSV`
-  >   in commit `24d5a3d967`. Only the static helper
-  >   `embeddedMapFromStream(...)` (used by `SQLHelper.parseValue` and
-  >   `EntityHelper`) is live and stays. Aggregate uncovered lines on
-  >   this class: 360 of 402 (89.6% uncovered) — dominates the residual
-  >   gap on `core/serialization/serializer/record/string`.
-  >   (b) **`RecordSerializerStringAbstract` abstract-instance API
-  >   deletion** (588 LOC, of which ~200 LOC are abstract instance
-  >   methods; pinned in `RecordSerializerStringAbstractDeadCodeTest`):
-  >   four unused public statics on the same class (zero callers in
-  >   `core/`, `server/`, `driver/`, `embedded/`, `gremlin-annotations/`,
-  >   `tests/`, `test-commons/`, `docker-tests/`). The live static
-  >   helpers (`getType(String)`, `getTypeValue(...)`, `simpleValue*`,
-  >   `embeddedMapFromStream(...)`) stay. After (a) and (b) deletions,
-  >   `RecordSerializerCsvAbstractEmbeddedMapTest` and
-  >   `RecordSerializerStringAbstractStaticsTest` /
-  >   `RecordSerializerStringAbstractSimpleValueTest` continue to pin
-  >   the live helper subset.
-  >   (c) **`JSONWriter` deletion** (511 LOC; pinned in
-  >   `JSONWriterDeadCodeTest`): zero callers in `core/`, `server/`,
-  >   `driver/`, `embedded/`, `gremlin-annotations/`, `tests/`,
-  >   `test-commons/`, `docker-tests/`. Despite living next to live
-  >   `JSONReader` (which has one production caller — `DatabaseImport`),
-  >   `JSONWriter` is fully orphaned and accounts for 158 of the 362
-  >   uncovered lines on `core/serialization/serializer`.
-  >   (d) **`Streamable` interface + `StreamableHelper` deletion**
-  >   (176 LOC of helper + the marker interface; pinned in
-  >   `StreamableInterfaceDeadCodeTest` and `StreamableHelperDeadCodeTest`):
-  >   the `Streamable` interface has **zero implementors** in the
-  >   project; `StreamableHelper.{toStream,fromStream}` are reachable
-  >   only through that dead interface. Cross-module grep confirms no
-  >   external callers. The `StreamableHelper$1` inner class (2 lines)
-  >   is part of the same dead surface.
-  >   (e) **`SerializationThreadLocal` listener / shutdown path
-  >   deletion** (54 LOC; pinned in
-  >   `SerializationThreadLocalDeadCodeTest`): the `addListener` /
-  >   `removeListener` API and the listener-dispatch shutdown path have
-  >   zero readers; only the per-thread `ThreadLocal<Map>` accessor
-  >   stays live. The `SerializationThreadLocal$1` synthetic inner class
-  >   accounts for 3 of the 3 uncovered lines on
-  >   `core/serialization/serializer/record`.
-  >   (f) **Residual coverage gap on `JSONSerializerJackson`'s
-  >   `IMPORT_BACKWARDS_COMPAT_INSTANCE` legacy 1.x export branches**
-  >   (~5 percentage points on the live class — outer-class coverage
-  >   80.0% line / 70.1% branch; pinned in
-  >   `JSONSerializerJacksonImportBackwardsCompatTest` Javadoc): the
-  >   pre-version-14 export branch at `DatabaseImport.java:416` is
-  >   reachable only through `DatabaseImport` of legacy 1.x export
-  >   files. Constructing the full 1.x schema/RID layout end-to-end is
-  >   disproportionate to the marginal coverage gain since the four
-  >   flag distinctions (`oldFieldTypesFormat`, `unescapedControlChars`,
-  >   `replacements`, `readAllowGraphStructure`) are already
-  >   individually pinned via the import-mode test files. Track 22 +
-  >   Track 15 (`db/tool` integration) jointly own the residual; if
-  >   the legacy 1.x exporter compatibility is dropped from the
-  >   product, the branch can be deleted outright.
-  >   (g) **Residual coverage gap on `StringSerializerHelper`** (live
-  >   class, 68.2% line / 60.3% branch; 182 of 573 lines uncovered):
-  >   Track 12's scope was "extensions" only — the existing
-  >   `StringSerializerHelperTest` baseline plus targeted new pins.
-  >   The remaining gap is in low-level parser branches (escape
-  >   handling, multi-quote splits, edge-case empty-string returns)
-  >   and in helper methods that are dead in the post-CSV-deletion
-  >   surface. After (a)–(c) deletions land, re-measure; if still
-  >   below target, decide between extending the test or marking
-  >   the residual lines as dead.
-  >   (h) **Residual coverage gap on `MemoryStream`** (62.3% line /
-  >   58.0% branch; 69 of 183 lines uncovered): per Phase A
-  >   cross-track decision, Track 12's `MemoryStreamTest` covers the
-  >   raw read/write/grow/move/copyFrom primitives only.
-  >   `RecordId*` and `RecordBytes` round-trips that exercise the
-  >   remaining surface are deferred to Track 14 (DB Core & Config) /
-  >   Track 15 (Record Implementation & DB Tool). `MemoryStream` is
-  >   `@Deprecated` but still used by `RecordId*` / `RecordBytes` /
-  >   `CommandRequestTextAbstract` / Track-9-pinned-dead `CommandScript`,
-  >   so deletion is gated on those callers being migrated first.
-  >   (i) **Residual coverage gap on `UnsafeBinaryConverter`** (live
-  >   class, 75.8% line / 50.0% branch; 31 of 128 lines uncovered):
-  >   the `Safe/UnsafeConverterTest` repair in Step 1 + extensions in
-  >   Step 3 cover the round-trip and offset edge cases; the residual
-  >   is the platform-detection cold path (`UnsafeBinaryConverter$1`
-  >   60.0% line — synthetic inner class for static initializer) and
-  >   `nativeAccelerationUsed` returns whose `MEMORY_USE_UNSAFE` toggle
-  >   is exercised process-wide. Re-measure after `BinaryConverterFactory`
-  >   pinning lands; if irreducible, mark as out-of-scope-by-design.
-  >   (j) **Residual coverage gap on `StreamSerializerRID`** (live
-  >   class, 82.6% line / 100.0% branch; 4 of 23 lines uncovered):
-  >   the `StreamSerializerRIDTest` extension in Step 3 covers the
-  >   primary serialize/deserialize round-trip; the 4 uncovered lines
-  >   are an unused two-arg constructor + a deprecated wrapper method
-  >   that delegates to the primary method. Pinned via shape assertion;
-  >   delete in the same sweep as (a)–(e).
-  >   (k) **Pre-existing inert converter tests are repaired**
-  >   (Step 1 — committed in `683189c1a3` + iter-1 review fix
-  >   `4ce8111501`): `SafeConverterTest`, `UnsafeConverterTest`, and
-  >   `AbstractConverterTest` were declaring eight `testPut*` methods
-  >   each but **zero `@Test` annotations**, so JUnit 4 silently never
-  >   ran any of them. The `@Test` annotations are now in place, the
-  >   `Assert.assertEquals(byte[], byte[])` calls (which resolved to
-  >   the `Object` overload — reference identity) are replaced with
-  >   `Assert.assertArrayEquals(expected, actual)`, and the scalar
-  >   argument order is corrected to `(expected, actual)`. The
-  >   abstract base now uses `protected final assertPut*RoundTrips()`
-  >   helpers + per-subclass `@Test public void put*RoundTrips()`
-  >   methods (codebase-idiomatic shape; precedent
-  >   `AbstractComparatorTest`). Result: 16 newly-active tests on the
-  >   `common/serialization` surface; baseline `common/serialization`
-  >   coverage corrected from the pre-fix inflated **34.5% line /
-  >   27.1% branch** to the actual post-fix **82.1% line / 61.4%
-  >   branch**, against which Track 12's other Steps were measured.
-  >   No Track 22 deletion item — this is a pure test-quality fix
-  >   recorded here for traceability.
-  >   No Track 12-specific DRY items: round-trip tests are scoped per
-  >   serializer instance (default vs. import vs. import-backcompat) and
-  >   do not share a builder; the `JSONSerializerJacksonInstance*Test`
-  >   classes deliberately do not subclass each other since the schema /
-  >   session setup differs by instance flag.
+  > all remaining uncovered core packages. This is the final sweep
+  > track and absorbs the deferred-cleanup queue accumulated by earlier
+  > tracks (production-bug fixes pinned via WHEN-FIXED markers,
+  > dead-code deletions, DRY/refactor candidates, residual coverage
+  > gaps). See `implementation-backlog.md` for the full inherited
+  > queue.
   >
   > **Scope:** ~6 steps covering transaction management, Gremlin
-  > integration, engine lifecycle, exception/compression/config, remaining
-  > small packages, and verification; plus ~2-3 steps absorbing the
-  > inherited DRY / cleanup scope above (Track 7 + Track 8 + Track 9 +
-  > Track 10 + Track 11 + Track 12 combined)
+  > integration, engine lifecycle, exception/compression/config,
+  > remaining small packages, and verification; plus ~2-3 steps
+  > absorbing the inherited DRY / cleanup scope from Tracks 7–13.
   > **Depends on:** Track 1
+  >
+  > **Operational note:** Backlog section's What/How/Constraints
+  > and a portion of the inherited-DRY-scope queue are recovered;
+  > two subsections of the inherited-DRY-scope queue (~150 lines)
+  > are in gaps. Stitch the gaps at Phase A by re-reading each of
+  > Tracks 7–14's `**Track episode:**` blocks above — every track
+  > episode names the items it forwarded to the deferred-cleanup
+  > queue. Track 15's lost Step 1 backlog edits also need
+  > absorbing here. See **Operational Notes**.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
