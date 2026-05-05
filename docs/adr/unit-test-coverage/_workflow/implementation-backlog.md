@@ -1073,6 +1073,106 @@ Natural cleanup happens when the branch is deleted after PR merge. -->
 >   actual predicate as `embedded.size() >= topThreshold` when the
 >   production code is `topThreshold >= 0`. No falsifiability impact —
 >   correct the Javadoc in lockstep with any LinkBag refactor.
+>
+> *From Track 15 (Record Implementation & DB Tool) Steps 1–6 + Phase C:*
+> Eight dead-code deletion items + ~14 production-fix WHEN-FIXED
+> markers + 3 iter-2/iter-3 suggestion-tier items absorbed.
+>
+> **Dead-code deletions (lockstep with `*DeadCodeTest` pin removal):**
+> - **(a) `core/db/tool` orphans** — `DatabaseRepair` (171 LOC, 0 main /
+>   0 test refs), `BonsaiTreeRepair` (124 LOC, 0/0). Both fully dead;
+>   delete with their `*DeadCodeTest` pins.
+> - **(b) `core/db/tool` test-only-reachable** — `DatabaseCompare` (0
+>   main / 36 test refs), `GraphRepair` (0 main / 3 test refs in
+>   `GraphRecoveringTest`), `CheckIndexTool` (0 main / 2 test refs in
+>   `CheckIndexToolTest`). Delete via two-step: rewrite or drop the
+>   test callers (named in each `*DeadCodeTest` Javadoc), then delete
+>   the production class + the pin together.
+> - **(c) `core/record` chain-dead helpers** — `RecordVersionHelper`
+>   (9 dead public static methods + dead `SERIALIZED_SIZE` + protected
+>   ctor), `RecordStringable` (interface, 0 implementers per
+>   `ClassInheritorsSearch`), `RecordListener` (interface, 0
+>   implementers). Delete with their per-method pin tests in
+>   `RecordVersionHelperDeadCodeTest` /
+>   `RecordStringableDeadCodeTest` / `RecordListenerDeadCodeTest`.
+> - **(d) `EntityHelper` 12 dead public methods** — `sort`,
+>   `getMapEntry`, `getResultEntry`, `evaluateFunction`,
+>   `hasSameContentItem`, both `hasSameContentOf` overloads
+>   (5+6-arg, chain-dead via `DatabaseCompare`),
+>   `compareMaps`/`compareCollections`/`compareSets`/`compareBags`,
+>   `isEntity(byte)`. Each is pinned individually in
+>   `EntityHelperDeadCodeTest` so partial deletion stays valid. Plus
+>   the inner `EntityHelper.RIDMapper` functional interface — but
+>   note iter-1 fix (commit `fb5881c66a`) introduced a live caller of
+>   `RIDMapper` from `DatabaseExportImportRoundTripTest`'s round-trip
+>   harness, so `RIDMapper` is no longer chain-dead. Update the dead-
+>   pin to drop `RIDMapper` from the deletion set, leaving the 12
+>   methods + the test-fixture-reachable `RIDMapper` retained.
+> - **(e) `EntityComparator`** — chain-dead via
+>   `EntityHelper.sort` AND test-only-reachable from one
+>   `tests/CRUDDocumentValidationTest` sort-stability assertion. Three
+>   landing sites named in `EntityComparatorDeadCodeTest`: drop
+>   `EntityHelper.sort`, drop `EntityComparator`, rewrite or drop the
+>   `tests/` assertion.
+> - **(f) `EntityImpl.hasSameContentOf(EntityImpl)`** — sole non-
+>   `DatabaseCompare` production-source caller of the dead
+>   `EntityHelper.hasSameContentOf` (5-arg). Has a single
+>   test-only-reachable caller in `tests/CRUDDocumentPhysicalTest`.
+>   Co-delete with the `EntityHelper` 5+6-arg helpers and rewrite the
+>   `tests/` caller's `hasSameContentOf` assertion in lockstep.
+> - **(g) `RecordBytes.fromInputStream(InputStream, int)` 2-arg
+>   overload** — test-only-reachable. Production callers: 0; test
+>   callers: 7 in `DBRecordBytesTest` lines L77, L88, L102, L116,
+>   L149, L165, L182. Deletion contingent on rewriting/dropping those
+>   7 sites. Pinned via `RecordBytesTestOnlyOverloadTest` (NOT
+>   `*DeadCodeTest` — the 1-arg `Blob.fromInputStream(InputStream)` is
+>   live via `JSONSerializerJackson:623`). The earlier "RecordBytes
+>   `fromInputStream` + `toStream(MemoryStream)` overload deletions"
+>   line item is RETRACTED — `toStream(MemoryStream)` does not exist
+>   on `RecordBytes` (only on `RecordIdInternal`/`RecordId`/
+>   `ContextualRecordId`/`ChangeableRecordId`/
+>   `CommandRequestTextAbstract`, all already in this absorption
+>   queue per the MemoryStream backlog item h).
+> - **(h) `RecordBytes.fromInputStream(InputStream)` body uses
+>   `MemoryStream` as a scratch buffer** — rewrite the 1-arg overload
+>   body to use `ByteArrayOutputStream` directly so the MemoryStream
+>   `RecordBytes` dependency is severed. Track 12's MemoryStream item
+>   h ("close via deletion, not migration") covers
+>   `RecordIdInternal`/`Command*` callers; this is the
+>   `RecordBytes`-side companion.
+>
+> **Production-bug pins (WHEN-FIXED markers in Track 15 tests, fix
+> in Track 22):**
+> - **(i) `OPPOSITE_LINK_CONTAINER_PREFIX` should-be-final** — the
+>   field is logically a constant but declared mutable; 0 writes per
+>   PSI. Tighten to `final` in lockstep with the
+>   `EntityImplTest.opposite_link_container_prefix_*` shape pins.
+>
+> **Iter-2 / iter-3 suggestions deferred to Track 22 absorption:**
+> - **CQ12** — `DatabaseExportImportRoundTripTest.
+>   roundTripPreservesEntityContentForUnambiguousTypes` is 231 lines
+>   spanning fixture build + export + RID-mapper construction + paired
+>   session activation + per-entity comparison. Extract two private
+>   helpers: `private RIDMapper buildNameKeyedRidMapper(...)` and
+>   `private void assertEntityRoundTrip(...)`. Leave the fixture-build
+>   block inline (it depends on a single transaction and on RIDs
+>   assigned in declaration order). Preserves the BC1 try/finally
+>   activation invariant inside the helper.
+> - **TC13** — `EmbeddedSetConverterTest` and `EmbeddedMapConverterTest`
+>   lack the null-element symmetry test that
+>   `EmbeddedListConverterTest.testListWithNullElementReturnedByReferenceWhenNoChange`
+>   has. Verify reachability of `add(null)` / `put(k, null)` on the
+>   embedded wrappers before adding (the abstract base's null arm may
+>   be unreachable through the wrappers' `checkValue` chain — same
+>   shape as the TC2 rejection on the four Link converters).
+> - **TC14** — `EntityLinkSetImpl.add(@Nullable Identifiable e)` rejects
+>   null via NPE (dereferences `e.getIdentity()`) rather than via
+>   `checkValue` like its siblings `EntityLinkListImpl` and
+>   `EntityLinkMapIml`. The `@Nullable` annotation on the parameter
+>   is misleading. Add a pin test `addNullThrowsNPE_pinsCurrentNullRejection`
+>   so a future "fix" that honours the annotation (silently skipping
+>   null) does not silently make `ImportConvertersFactory`'s abstract-
+>   base null arm reachable through LinkSet.
 
 > **How**:
 > - TX tests need a database session to verify begin/commit/rollback
