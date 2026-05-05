@@ -75,13 +75,23 @@ of the changes.
 3. Read the **step file** (`docs/adr/<dir-name>/_workflow/tracks/track-N.md`) — this
    provides the step descriptions and episodes.
 4. **Generate the slim plan snapshot** at
-   `/tmp/claude-code-plan-slim-$PPID.md`. Apply the rendering rule in
-   [`plan-slim-rendering.md`](plan-slim-rendering.md) to the plan read in
-   step 2, then write the snapshot. Sub-agents spawned for track-level
-   review will read this snapshot by path — this keeps the main agent's
-   tool-call history from accumulating a plan copy per sub-agent spawn.
-   Regenerate the snapshot if plan corrections are applied during the
-   review loop (before the next spawn batch).
+   `/tmp/claude-code-plan-slim-$PPID.md` by running:
+
+   ```bash
+   python3 .claude/scripts/render-slim-plan.py \
+       --plan-path docs/adr/<dir-name>/_workflow/implementation-plan.md
+   ```
+
+   The script implements the rule from
+   [`plan-slim-rendering.md`](plan-slim-rendering.md); do not re-derive
+   the transform inline. With no `--out` it writes
+   `/tmp/claude-code-plan-slim-<ppid>.md` using its parent (the
+   orchestrator) PID, matching the snapshot path convention.
+   Sub-agents spawned for track-level review will read this snapshot
+   by path — this keeps the main agent's tool-call history from
+   accumulating a plan copy per sub-agent spawn. Regenerate the
+   snapshot if plan corrections are applied during the review loop
+   (before the next spawn batch).
 5. Use `{base_commit}` when spawning all review sub-agents.
    All sub-agents review `git diff {base_commit}..HEAD`.
 

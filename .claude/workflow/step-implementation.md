@@ -72,14 +72,24 @@ Before spawning the first implementer:
    Skip the commit on resume (when `## Base commit` already had a
    SHA and no write happened).
 2. **Generate the slim plan snapshot** at
-   `/tmp/claude-code-plan-slim-$PPID.md`. Read the plan, apply the
-   rendering rule in [`plan-slim-rendering.md`](plan-slim-rendering.md),
-   and write the result. Both the implementer and any dimensional
-   review sub-agents read this snapshot by path — it keeps the
-   orchestrator's tool-call history from accumulating a plan copy per
-   spawn. Regenerate the snapshot only if inline replanning
-   (ESCALATE) modifies the plan mid-session. The snapshot lives in
-   `/tmp` (not under `_workflow/`) and is not committed.
+   `/tmp/claude-code-plan-slim-$PPID.md` by running:
+
+   ```bash
+   python3 .claude/scripts/render-slim-plan.py \
+       --plan-path docs/adr/<dir-name>/_workflow/implementation-plan.md
+   ```
+
+   The script implements the rule from
+   [`plan-slim-rendering.md`](plan-slim-rendering.md); do not re-derive
+   the transform inline. With no `--out` it writes
+   `/tmp/claude-code-plan-slim-<ppid>.md` using its parent (the
+   orchestrator) PID, matching the snapshot path convention. Both the
+   implementer and any dimensional review sub-agents read this
+   snapshot by path — it keeps the orchestrator's tool-call history
+   from accumulating a plan copy per spawn. Regenerate the snapshot
+   only if inline replanning (ESCALATE) modifies the plan mid-session.
+   The snapshot lives in `/tmp` (not under `_workflow/`) and is not
+   committed.
 3. **Detect orphan commits.** Run `git log --oneline
    {base_commit}..HEAD` and inspect the result. If it shows orphan
    implementer commits, orphan `Review fix:` commits, or a
@@ -166,9 +176,21 @@ of those branches. The implementer prompt template is in
 
 ## Implementer Prompt Template
 
-Each spawn uses `subagent_type: "general-purpose"` with
-`model: "opus"`. The prompt has a **stable static prefix** followed
-by the **per-step variable inputs**. The static block goes first for
+Each spawn uses `subagent_type: "general-purpose"`. Pick `model` from
+the step's risk tag at spawn time: `risk: low` spawns with
+`model: "sonnet"`; `risk: medium` and `risk: high` spawn with
+`model: "opus"`. See [`risk-tagging.md`](risk-tagging.md) §"Risk
+levels — quick reference" for the full allocation table.
+
+Every spawn re-reads the current risk tag, so a `low → high` upgrade
+per [`risk-tagging.md`](risk-tagging.md) §"Phase B upgrade" promotes
+the next respawn from Sonnet to Opus, and `WITH_GUIDANCE` /
+`FIX_REVIEW_FINDINGS` respawns at the same tag stay on whichever
+model the tag selects. Downgrades mid-Phase B are not permitted (see
+`risk-tagging.md`), so the model never demotes once a step has run.
+
+The prompt body has a **stable static prefix** followed by the
+**per-step variable inputs**. The static block goes first for
 predictability and to keep the variable section easy to spot in
 transcripts; whether the platform's prompt cache hits across
 sub-agent spawns depends on Claude Code's `cache_control` placement
