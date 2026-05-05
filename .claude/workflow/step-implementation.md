@@ -72,14 +72,24 @@ Before spawning the first implementer:
    Skip the commit on resume (when `## Base commit` already had a
    SHA and no write happened).
 2. **Generate the slim plan snapshot** at
-   `/tmp/claude-code-plan-slim-$PPID.md`. Read the plan, apply the
-   rendering rule in [`plan-slim-rendering.md`](plan-slim-rendering.md),
-   and write the result. Both the implementer and any dimensional
-   review sub-agents read this snapshot by path — it keeps the
-   orchestrator's tool-call history from accumulating a plan copy per
-   spawn. Regenerate the snapshot only if inline replanning
-   (ESCALATE) modifies the plan mid-session. The snapshot lives in
-   `/tmp` (not under `_workflow/`) and is not committed.
+   `/tmp/claude-code-plan-slim-$PPID.md` by running:
+
+   ```bash
+   python3 .claude/scripts/render-slim-plan.py \
+       --plan-path docs/adr/<dir-name>/_workflow/implementation-plan.md
+   ```
+
+   The script implements the rule from
+   [`plan-slim-rendering.md`](plan-slim-rendering.md); do not re-derive
+   the transform inline. With no `--out` it writes
+   `/tmp/claude-code-plan-slim-<ppid>.md` using its parent (the
+   orchestrator) PID, matching the snapshot path convention. Both the
+   implementer and any dimensional review sub-agents read this
+   snapshot by path — it keeps the orchestrator's tool-call history
+   from accumulating a plan copy per spawn. Regenerate the snapshot
+   only if inline replanning (ESCALATE) modifies the plan mid-session.
+   The snapshot lives in `/tmp` (not under `_workflow/`) and is not
+   committed.
 3. **Detect orphan commits.** Run `git log --oneline
    {base_commit}..HEAD` and inspect the result. If it shows orphan
    implementer commits, orphan `Review fix:` commits, or a

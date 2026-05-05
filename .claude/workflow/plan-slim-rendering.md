@@ -41,16 +41,25 @@ snapshot file; concurrent sessions do not collide.
 
 ### How the main agent generates it
 
-1. Read `docs/adr/<dir-name>/_workflow/implementation-plan.md`.
-2. Apply the rendering rule below, in-memory. Pending-track entries
-   (`[ ]`) are already thin on disk (their detail lives in
-   `implementation-backlog.md`), so the transform for that row is a
-   no-op.
-3. Write the result to `/tmp/claude-code-plan-slim-$PPID.md`.
+Run the pre-built renderer:
 
-This can be done in a single pass during the phase's startup. The main
-agent already needs to read the plan for state detection, so the
-additional cost is one transformation + one Write.
+```bash
+python3 .claude/scripts/render-slim-plan.py \
+    --plan-path docs/adr/<dir-name>/_workflow/implementation-plan.md
+```
+
+With no `--out`, the script writes
+`/tmp/claude-code-plan-slim-<ppid>.md` using its parent PID — i.e.,
+the orchestrator's PID — matching the snapshot path convention above.
+The script implements the rendering rule below; do **not** re-derive
+the transform inline (that's the whole reason this script exists). On
+malformed input the script exits non-zero with a line-numbered error
+on stderr — surface that to the user rather than continuing with a
+half-rendered snapshot.
+
+Pending-track entries (`[ ]`) are already thin on disk (their detail
+lives in `implementation-backlog.md`), so the transform for that row
+is a no-op — the script passes them through verbatim.
 
 ### How sub-agents use it
 
