@@ -260,13 +260,18 @@ decision, risk upgrade, fundamental failure):
    sub-step 1, before reading the step file or making any edit:
 
    ```bash
-   git ls-files --others --exclude-standard | LC_ALL=C sort \
+   git -c core.quotepath=false ls-files --others --exclude-standard \
+     | LC_ALL=C sort \
      > /tmp/claude-impl-preexisting-untracked-$PPID.txt
    ```
 
    `LC_ALL=C` keeps the sort byte-ordered so the later `comm -13`
    (which requires its inputs sorted under the same collation) is
    reliable regardless of the implementer's locale.
+   `core.quotepath=false` prevents Git from C-escaping non-ASCII
+   bytes in filenames; without it `comm -13` would compare quoted
+   strings to unquoted ones and the later `rm` would fail because
+   the path doesn't literally exist on disk.
 
    The snapshot reflects the world the orchestrator handed you.
 
@@ -281,7 +286,8 @@ decision, risk upgrade, fundamental failure):
    present in the post-snapshot but absent from the pre-snapshot:
 
    ```bash
-   git ls-files --others --exclude-standard | LC_ALL=C sort \
+   git -c core.quotepath=false ls-files --others --exclude-standard \
+     | LC_ALL=C sort \
      > /tmp/claude-impl-post-untracked-$PPID.txt
    LC_ALL=C comm -13 \
      /tmp/claude-impl-preexisting-untracked-$PPID.txt \
