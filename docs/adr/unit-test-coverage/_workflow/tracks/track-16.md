@@ -232,7 +232,7 @@ original plan did not name explicitly.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (3/7 complete)
+- [ ] Step implementation (4/7 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -496,30 +496,85 @@ original plan did not name explicitly.
   > was bypassed (tests run, Spotless clean, ephemeral-identifier
   > grep zero matches before commit).
 
-- [ ] Step 4: `PropertyTypeInternal` parameterized convert — numeric + datetime/binary families
+- [x] Step 4: `PropertyTypeInternal` parameterized convert — numeric + datetime/binary families
+  - [x] Context: info
   > **Risk:** medium — multi-shape parameterized tests over 8+
   > enum constants × ~5 input shapes per arm (R6 pre-emptive
   > structure)
-  > **What:** Add `PropertyTypeInternalNumericConvertTest` and
-  > `PropertyTypeInternalDateTimeBinaryConvertTest` — both
-  > `@RunWith(Parameterized.class)` with rows keyed by
-  > `(PropertyTypeInternal constant, input value, expected output,
-  > expected exception)`. Numeric class covers Boolean / Integer /
-  > Short / Long / Float / Double / Decimal / Byte arms with
-  > positive / negative / zero / overflow / underflow / null /
-  > wrong-type input shapes. DateTime/Binary class covers Date /
-  > DateTime / Custom / Binary arms with valid / out-of-range /
-  > null / mismatched-type input. Drives `PropertyTypeInternal.<X>.
-  > convert(Object, PropertyTypeInternal, SchemaClass,
-  > DatabaseSessionEmbedded)` and the static `convert(Object, Class,
-  > SchemaClass, DatabaseSessionEmbedded)` switch. Standalone tests
-  > where the convert path doesn't need a session; `DbTestBase`
-  > only when an entity-typed input requires record context.
-  > Existing `SchemaPropertyTypeConvertTest` (54 `@Test`, 456 LOC)
-  > and `TestSchemaPropertyTypeDetection` (43 `@Test`, 270 LOC) are
-  > extended where the existing scaffolding already provides
-  > parameterized infrastructure; new test classes only when
-  > existing classes are inappropriate.
+  >
+  > **What was done:** Added two standalone test classes (564 LOC,
+  > 80 `@Test` rows) pinning the per-arm
+  > `PropertyTypeInternal.convert(value, linkedType, linkedClass,
+  > session)` body for every numeric and datetime/binary enum
+  > constant. `PropertyTypeInternalNumericConvertTest` is
+  > `@RunWith(Parameterized.class)` over 63 rows keyed by
+  > `(label, arm, input, expected, expectsException)` covering
+  > BOOLEAN / INTEGER / SHORT / LONG / FLOAT / DOUBLE / BYTE /
+  > DECIMAL with five canonical input shapes per arm plus per-arm
+  > specials. `PropertyTypeInternalDateTimeBinaryConvertTest` uses
+  > 17 method-level `@Test` bodies (heterogeneous expected types
+  > don't fold cleanly into a parameterized schema) covering
+  > DATETIME / DATE / BINARY null / identity / Number /
+  > numeric-string / formatted-string / parse-failure / wrong-type
+  > arms. Both drive the per-arm convert directly with null session,
+  > linkedType, linkedClass — every numeric / datetime / binary arm
+  > operates on the input value alone, so no `DbTestBase` is
+  > required. 80/80 tests pass; Spotless clean; coverage gate
+  > trivially passes (no production code change).
+  >
+  > **What was discovered:** Three small contract pins worth
+  > recording.
+  > 1) `IOUtils.isLong` is digits-only — no leading sign or decimal
+  >    point. The DATETIME arm's "numeric String" short-circuit
+  >    therefore accepts `"0"` and `"1700000000000"` but routes
+  >    `"-5000"` into the `SimpleDateFormat` parse path (where it
+  >    fails and throws). The test row originally written for
+  >    `"-5000"` was replaced with the `"0"` boundary case after
+  >    the first run surfaced the parse failure.
+  > 2) The static `convert(session, value, targetClass)` dispatcher
+  >    at `PropertyTypeInternal:1699` has a **null-session NPE** on
+  >    its `IllegalArgumentException` catch
+  >    (`session.getDatabaseName()` unguarded). Driving the per-arm
+  >    convert directly with null session sidesteps it cleanly, and
+  >    the existing live-session `SchemaPropertyTypeConvertTest`
+  >    covers the dispatcher with non-null sessions. Practical
+  >    impact bounded (every production caller passes a non-null
+  >    session); candidate for Track 22 deferred-cleanup queue.
+  > 3) `BINARY.convert(byte[])` is identity (no defensive copy);
+  >    the sibling `copy(value, session)` is what clones the array.
+  >    Pinned via `assertSame` so a future regression introducing a
+  >    defensive copy on the convert path is a deliberate, visible
+  >    event.
+  >
+  > Implementer process note: the first spawn truncated again on a
+  > monitor-poll of a background Maven coverage build. SendMessage
+  > restarted the implementer with explicit foreground-Bash
+  > guidance per rulebook §Pacing long-running tasks; the
+  > restarted spawn completed cleanly and emitted the structured
+  > RESULT block.
+  >
+  > **Cross-track impact:** Track 22 deferred-cleanup queue gains
+  > one API-tightening / null-safety candidate:
+  > `PropertyTypeInternal:1699`'s static `convert(session, value,
+  > targetClass)` dispatcher catches `IllegalArgumentException` and
+  > then NPEs on `session.getDatabaseName()` when session is null.
+  > Reachable only via the static dispatcher; every production
+  > caller currently passes non-null. No effect on Steps 5–7.
+  >
+  > **What changed from the plan:**
+  > - Datetime/binary test uses method-level `@Test` rather than
+  >   `@RunWith(Parameterized.class)` because the three arms have
+  >   heterogeneous expected types (`Date` / `byte[]` / identity)
+  >   that don't fold cleanly into a single `(input, expected)`
+  >   schema — rationale captured in the class Javadoc.
+  > - Both classes are standalone (no `DbTestBase`) per the plan's
+  >   "Standalone tests where the convert path doesn't need a
+  >   session" guidance. The static dispatcher's null-session bug
+  >   above means the no-session path is the simpler test surface.
+  >
+  > **Key files:**
+  > - `core/src/test/java/.../core/metadata/schema/PropertyTypeInternalNumericConvertTest.java` (new)
+  > - `core/src/test/java/.../core/metadata/schema/PropertyTypeInternalDateTimeBinaryConvertTest.java` (new)
 
 - [ ] Step 5: `PropertyTypeInternal` parameterized convert — collection + link + embedded families *(parallel with Step 4)*
   > **Risk:** medium — multi-shape parameterized tests over 12+
