@@ -26,9 +26,44 @@ public class CoreMetrics {
               TimeInterval.of(1, TimeUnit.SECONDS),
               100.0));
 
+  // ---- Pre-filter index scan metrics ----
+
+  public static final MetricDefinition<MetricScope.Global, TimeRate> PREFILTER_SCAN_NANOS =
+      new MetricDefinition<>(
+          "PrefilterScanNanos",
+          "Pre-filter Scan Nanos Rate",
+          "Cumulative nanoseconds spent in index scans per second for the last 60 seconds",
+          MetricType.rate(
+              TimeInterval.of(60, TimeUnit.SECONDS),
+              TimeInterval.of(1, TimeUnit.SECONDS),
+              TimeUnit.SECONDS));
+
+  public static final MetricDefinition<MetricScope.Global, TimeRate> PREFILTER_SCAN_ENTRIES =
+      new MetricDefinition<>(
+          "PrefilterScanEntries",
+          "Pre-filter Scan Entries Rate",
+          "Cumulative index entries scanned per second for the last 60 seconds",
+          MetricType.rate(
+              TimeInterval.of(60, TimeUnit.SECONDS),
+              TimeInterval.of(1, TimeUnit.SECONDS),
+              TimeUnit.SECONDS));
+
+  public static final MetricDefinition<MetricScope.Global, Ratio> PREFILTER_EFFECTIVENESS =
+      new MetricDefinition<>(
+          "PrefilterEffectiveness",
+          "Pre-filter Effectiveness",
+          "The ratio of filtered entries to probed entries (in percents) for the last 60 seconds",
+          MetricType.ratio(
+              TimeInterval.of(60, TimeUnit.SECONDS),
+              TimeInterval.of(1, TimeUnit.SECONDS),
+              100.0));
+
   public static final Set<MetricDefinition<MetricScope.Global, ?>> GLOBAL_METRICS = Set.of(
       FILE_EVICTION_RATE,
-      CACHE_HIT_RATIO);
+      CACHE_HIT_RATIO,
+      PREFILTER_SCAN_NANOS,
+      PREFILTER_SCAN_ENTRIES,
+      PREFILTER_EFFECTIVENESS);
 
   // ===================== DATABASE ===================== //
 

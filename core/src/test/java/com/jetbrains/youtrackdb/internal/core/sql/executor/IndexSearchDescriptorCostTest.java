@@ -20,6 +20,7 @@
 
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.nullable;
@@ -1010,5 +1011,75 @@ public class IndexSearchDescriptorCostTest {
         any(CommandContext.class))).thenReturn(value);
     when(expr.isBaseIdentifier()).thenReturn(false);
     return expr;
+  }
+
+  // ── estimateSelectivity ──────────────────────────────────
+
+  /**
+   * estimateSelectivity with null key condition returns -1.0 (unknown).
+   */
+  @Test
+  public void estimateSelectivity_nullKeyCondition_returnsNegative() {
+    var desc = new IndexSearchDescriptor(index);
+    assertEquals(-1.0, desc.estimateSelectivity(ctx), 0.0);
+  }
+
+  /**
+   * estimateSelectivity with null statistics returns -1.0 (unknown).
+   */
+  @Test
+  public void estimateSelectivity_nullStats_returnsNegative() {
+    when(index.getStatistics(session)).thenReturn(null);
+    var desc = new IndexSearchDescriptor(
+        index,
+        binaryCondition("age", new SQLEqualsOperator(-1), 30),
+        null, null);
+    assertEquals(-1.0, desc.estimateSelectivity(ctx), 0.0);
+  }
+
+  /**
+   * estimateSelectivity with zero totalCount returns -1.0 (unknown).
+   */
+  @Test
+  public void estimateSelectivity_zeroTotalCount_returnsNegative() {
+    when(index.getStatistics(session)).thenReturn(
+        new IndexStatistics(0, 0, 0));
+    var desc = new IndexSearchDescriptor(
+        index,
+        binaryCondition("age", new SQLEqualsOperator(-1), 30),
+        null, null);
+    assertEquals(-1.0, desc.estimateSelectivity(ctx), 0.0);
+  }
+
+  /**
+   * estimateSelectivity with an equality condition returns a fraction
+   * in [0.0, 1.0]. The exact value depends on the histogram, but it
+   * must be clamped within bounds.
+   */
+  @Test
+  public void estimateSelectivity_equality_returnsFractionInRange() {
+    var desc = new IndexSearchDescriptor(
+        index,
+        binaryCondition("age", new SQLEqualsOperator(-1), 30),
+        null, null);
+    double sel = desc.estimateSelectivity(ctx);
+    assertThat(sel).isGreaterThanOrEqualTo(0.0);
+    assertThat(sel).isLessThanOrEqualTo(1.0);
+  }
+
+  /**
+   * estimateSelectivity and estimateHits must be consistent: the hit count
+   * should equal totalCount * selectivity (both rounded to at least 1).
+   */
+  @Test
+  public void estimateSelectivity_consistentWithEstimateHits() {
+    var desc = new IndexSearchDescriptor(
+        index,
+        binaryCondition("age", new SQLEqualsOperator(-1), 30),
+        null, null);
+    double sel = desc.estimateSelectivity(ctx);
+    long hits = desc.estimateHits(ctx);
+    long expectedHits = Math.max(1, (long) (stats.totalCount() * sel));
+    assertEquals(expectedHits, hits);
   }
 }

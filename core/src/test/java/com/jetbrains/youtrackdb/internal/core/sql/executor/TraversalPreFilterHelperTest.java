@@ -5,6 +5,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.common.profiler.metrics.TimeRate;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
@@ -28,9 +29,13 @@ public class TraversalPreFilterHelperTest {
 
   @After
   public void restoreDefaults() {
-    GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.setValue(100_000);
-    GlobalConfiguration.QUERY_PREFILTER_MAX_SELECTIVITY_RATIO.setValue(0.8);
-    GlobalConfiguration.QUERY_PREFILTER_MIN_LINKBAG_SIZE.setValue(50);
+    // resetToDefault() restores the auto-scaled value and the "never
+    // explicitly set" state so isChanged() returns false.
+    GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.resetToDefault();
+    GlobalConfiguration.QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO.resetToDefault();
+    GlobalConfiguration.QUERY_PREFILTER_MIN_LINKBAG_SIZE.resetToDefault();
+    GlobalConfiguration.QUERY_PREFILTER_INDEX_LOOKUP_MAX_SELECTIVITY
+        .resetToDefault();
   }
 
   // =========================================================================
@@ -80,14 +85,14 @@ public class TraversalPreFilterHelperTest {
   }
 
   /**
-   * A RidSet that covers more than {@link TraversalPreFilterHelper#maxSelectivityRatio()}
+   * A RidSet that covers more than {@link TraversalPreFilterHelper#edgeLookupMaxRatio()}
    * of the link bag fails — the filter rejects too few elements.
    */
   @Test
   public void passesRatioCheck_ridSetTooLargeRelativeToLinkBag_fails() {
     int linkBag = 1000;
     int ridSetSize =
-        (int) (linkBag * TraversalPreFilterHelper.maxSelectivityRatio()) + 1;
+        (int) (linkBag * TraversalPreFilterHelper.edgeLookupMaxRatio()) + 1;
     assertThat(TraversalPreFilterHelper.passesRatioCheck(ridSetSize, linkBag))
         .isFalse();
   }
@@ -108,7 +113,7 @@ public class TraversalPreFilterHelperTest {
   public void passesRatioCheck_exactlyAtBoundary_passes() {
     int linkBag = 1000;
     int ridSetSize =
-        (int) (linkBag * TraversalPreFilterHelper.maxSelectivityRatio());
+        (int) (linkBag * TraversalPreFilterHelper.edgeLookupMaxRatio());
     assertThat(TraversalPreFilterHelper.passesRatioCheck(ridSetSize, linkBag))
         .isTrue();
   }
@@ -127,11 +132,17 @@ public class TraversalPreFilterHelperTest {
 
   /**
    * The three adaptive-abort defaults must have their documented values.
+   * maxRidSetSize is auto-scaled from heap: 0.5% of maxMemory, clamped
+   * to [100K, 10M]. With the test JVM at -Xmx4096m (~4.3 GB), the
+   * formula yields ~21.5M which clamps to the 10M ceiling.
    */
   @Test
   public void defaults_haveExpectedValues() {
-    assertThat(TraversalPreFilterHelper.maxRidSetSize()).isEqualTo(100_000);
-    assertThat(TraversalPreFilterHelper.maxSelectivityRatio()).isEqualTo(0.8);
+    // Concrete expected value for the known 4 GB test heap — more
+    // falsifiable than duplicating the production formula.
+    assertThat(TraversalPreFilterHelper.maxRidSetSize())
+        .isEqualTo(10_000_000);
+    assertThat(TraversalPreFilterHelper.edgeLookupMaxRatio()).isEqualTo(0.8);
     assertThat(TraversalPreFilterHelper.minLinkBagSize()).isEqualTo(50);
   }
 
@@ -150,8 +161,8 @@ public class TraversalPreFilterHelperTest {
     assertThat(TraversalPreFilterHelper.shouldAbort(501)).isTrue();
     assertThat(TraversalPreFilterHelper.shouldAbort(499)).isFalse();
 
-    GlobalConfiguration.QUERY_PREFILTER_MAX_SELECTIVITY_RATIO.setValue(0.5);
-    assertThat(TraversalPreFilterHelper.maxSelectivityRatio()).isEqualTo(0.5);
+    GlobalConfiguration.QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO.setValue(0.5);
+    assertThat(TraversalPreFilterHelper.edgeLookupMaxRatio()).isEqualTo(0.5);
     assertThat(TraversalPreFilterHelper.passesRatioCheck(600, 1000)).isFalse();
     assertThat(TraversalPreFilterHelper.passesRatioCheck(500, 1000)).isTrue();
 
@@ -340,5 +351,119 @@ public class TraversalPreFilterHelperTest {
     var where = new SQLWhereClause(-1);
     assertThat(TraversalPreFilterHelper.findIndexForFilter(
         where, "EmptyClass", ctx)).isNull();
+  }
+
+  // =========================================================================
+  // Split config — edgeLookupMaxRatio and indexLookupMaxSelectivity
+  // =========================================================================
+
+  /**
+   * Runtime override of edgeLookupMaxRatio is immediately visible.
+   */
+  @Test
+  public void edgeLookupMaxRatio_runtimeOverride() {
+    GlobalConfiguration.QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO.setValue(0.6);
+    assertThat(TraversalPreFilterHelper.edgeLookupMaxRatio()).isEqualTo(0.6);
+  }
+
+  /**
+   * Runtime override of indexLookupMaxSelectivity is immediately visible.
+   */
+  @Test
+  public void indexLookupMaxSelectivity_runtimeOverride() {
+    GlobalConfiguration.QUERY_PREFILTER_INDEX_LOOKUP_MAX_SELECTIVITY
+        .setValue(0.99);
+    assertThat(TraversalPreFilterHelper.indexLookupMaxSelectivity())
+        .isEqualTo(0.99);
+  }
+
+  // =========================================================================
+  // Auto-scaled maxRidSetSize — boundary and override tests
+  // =========================================================================
+
+  /**
+   * Explicit setValue() override beats the auto-scaled default, and
+   * isChanged() returns true to reflect an operator-configured value.
+   */
+  @Test
+  public void maxRidSetSize_explicitOverrideBeatsAutoScale() {
+    GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.setValue(42);
+    assertThat(TraversalPreFilterHelper.maxRidSetSize()).isEqualTo(42);
+    assertThat(
+        GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.isChanged())
+        .isTrue();
+  }
+
+  /**
+   * resetToDefault() restores the auto-scaled value and clears the
+   * "explicitly set" flag so isChanged() returns false.
+   */
+  @Test
+  public void maxRidSetSize_resetToDefaultRestoresAutoScale() {
+    GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.setValue(42);
+    GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.resetToDefault();
+
+    // Concrete value for 4 GB test heap (hits the 10M ceiling).
+    assertThat(TraversalPreFilterHelper.maxRidSetSize())
+        .isEqualTo(10_000_000);
+    assertThat(
+        GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.isChanged())
+        .isFalse();
+  }
+
+  /**
+   * Verifies the shouldAbort guard works correctly at the auto-scale
+   * formula's floor and ceiling boundary values by exercising production
+   * code via setValue(). Each boundary is tested at the exact threshold
+   * and one above.
+   */
+  @Test
+  public void maxRidSetSize_shouldAbortAtBoundaryValues() {
+    // Floor value: the minimum the auto-scale formula can produce
+    GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.setValue(100_000);
+    assertThat(TraversalPreFilterHelper.maxRidSetSize()).isEqualTo(100_000);
+    assertThat(TraversalPreFilterHelper.shouldAbort(100_000)).isFalse();
+    assertThat(TraversalPreFilterHelper.shouldAbort(100_001)).isTrue();
+
+    // Ceiling value: the maximum the auto-scale formula can produce
+    GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.setValue(10_000_000);
+    assertThat(TraversalPreFilterHelper.maxRidSetSize())
+        .isEqualTo(10_000_000);
+    assertThat(TraversalPreFilterHelper.shouldAbort(10_000_000)).isFalse();
+    assertThat(TraversalPreFilterHelper.shouldAbort(10_000_001)).isTrue();
+
+    // Verify the actual auto-scaled default is within the documented bounds
+    GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.resetToDefault();
+    assertThat(TraversalPreFilterHelper.maxRidSetSize())
+        .isGreaterThanOrEqualTo(100_000)
+        .isLessThanOrEqualTo(10_000_000);
+  }
+
+  // ---- Scan metric resolve fallback (null registry in unit test env) ----
+
+  /**
+   * resolveScanNanos() must return a functional (non-null) TimeRate
+   * that either resolves from the live registry (Impl) or falls back
+   * to NOOP. Either way, record() must not throw.
+   */
+  @Test
+  public void resolveScanNanosReturnsFunctionalMetric() {
+    var metric = TraversalPreFilterHelper.resolveScanNanos();
+    assertThat(metric).isNotNull();
+    assertThat(metric).isInstanceOfAny(TimeRate.Impl.class, TimeRate.NOOP.getClass());
+    metric.record(12345);
+  }
+
+  /**
+   * resolveScanEntries() must return a functional (non-null) TimeRate
+   * that either resolves from the live registry (Impl) or falls back
+   * to NOOP. Either way, record() must not throw.
+   */
+  @Test
+  public void resolveScanEntriesReturnsFunctionalMetric() {
+    var metric = TraversalPreFilterHelper.resolveScanEntries();
+    assertThat(metric).isNotNull();
+    assertThat(metric).isInstanceOfAny(TimeRate.Impl.class, TimeRate.NOOP.getClass());
+    metric.record(100);
   }
 }

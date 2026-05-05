@@ -32,15 +32,15 @@ import org.junit.experimental.categories.Category;
 public class MatchEdgeMethodInferenceAndAbortTest extends DbTestBase {
 
   private Object savedMaxRidSetSize;
-  private Object savedMaxSelectivityRatio;
+  private Object savedEdgeLookupMaxRatio;
   private Object savedMinLinkBagSize;
 
   @Before
   public void saveConfigDefaults() {
     savedMaxRidSetSize =
         GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.getValue();
-    savedMaxSelectivityRatio =
-        GlobalConfiguration.QUERY_PREFILTER_MAX_SELECTIVITY_RATIO.getValue();
+    savedEdgeLookupMaxRatio =
+        GlobalConfiguration.QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO.getValue();
     savedMinLinkBagSize =
         GlobalConfiguration.QUERY_PREFILTER_MIN_LINKBAG_SIZE.getValue();
   }
@@ -49,8 +49,8 @@ public class MatchEdgeMethodInferenceAndAbortTest extends DbTestBase {
   public void restoreConfigDefaults() {
     GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE
         .setValue(savedMaxRidSetSize);
-    GlobalConfiguration.QUERY_PREFILTER_MAX_SELECTIVITY_RATIO
-        .setValue(savedMaxSelectivityRatio);
+    GlobalConfiguration.QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO
+        .setValue(savedEdgeLookupMaxRatio);
     GlobalConfiguration.QUERY_PREFILTER_MIN_LINKBAG_SIZE
         .setValue(savedMinLinkBagSize);
   }
@@ -268,7 +268,7 @@ public class MatchEdgeMethodInferenceAndAbortTest extends DbTestBase {
     assertTrue(
         "Plan should show index intersection for VITag_name (proves class"
             + " inference), but plan was:\n" + plan,
-        plan.contains("(intersection: index VITag_name)"));
+        plan.contains("(intersection: index VITag_name"));
 
     session.commit();
   }
@@ -431,7 +431,7 @@ public class MatchEdgeMethodInferenceAndAbortTest extends DbTestBase {
   }
 
   /**
-   * Verify that when {@code QUERY_PREFILTER_MAX_SELECTIVITY_RATIO} is set
+   * Verify that when {@code QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO} is set
    * very low (e.g., 0.01), the pre-filter is skipped because the ratio of
    * matching RIDs to link bag size exceeds the threshold, but correct results
    * are still produced.
@@ -482,8 +482,8 @@ public class MatchEdgeMethodInferenceAndAbortTest extends DbTestBase {
         plan.contains("(intersection:"));
     session.commit();
 
-    // Override selectivity ratio to 0.01 — almost no filter is selective enough
-    GlobalConfiguration.QUERY_PREFILTER_MAX_SELECTIVITY_RATIO.setValue(0.01);
+    // Override edge lookup max ratio to 0.01 — almost no filter is selective enough
+    GlobalConfiguration.QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO.setValue(0.01);
 
     session.begin();
     var result = session.query(query).toList();
