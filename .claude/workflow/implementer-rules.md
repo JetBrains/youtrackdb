@@ -110,8 +110,10 @@ rules:
   `Step N`, finding IDs, iteration counters, or named-only plan
   invariants) in source code, Javadoc, test names, or test
   descriptions — see
-  [`conventions-execution.md`](conventions-execution.md) §2.3 for
-  the full Ephemeral identifier rule and rewrite examples.
+  [`ephemeral-identifier-rule.md`](ephemeral-identifier-rule.md) for
+  the full Ephemeral identifier rule and rewrite examples (the §2.3
+  stub in `conventions-execution.md` is a quick recap with the
+  self-check grep).
   Branch-only commit messages are exempt (they are squashed away on
   merge); the rule applies to durable content only.
 
@@ -307,8 +309,8 @@ had staged files before bailing.
 The semantic scope of the revert differs by mode (see §"Mode-specific
 scope of the local revert" below), but the command sequence above
 is the same. The orchestrator's pre-revert assertion in
-[`step-implementation.md`](step-implementation.md) §Post-Commit
-Handlers depends on this — a dirty tree at hand-off is a contract
+[`step-implementation-recovery.md`](step-implementation-recovery.md)
+§Post-Commit Handlers depends on this — a dirty tree at hand-off is a contract
 violation, and an orphaned implementer-created untracked file at
 hand-off would also be a contract violation (it would interfere with
 the next spawn's pre-snapshot).
@@ -411,8 +413,8 @@ what gets reverted differs:
   The implementer's reset clears only its in-progress fix attempt;
   the prior commits stay on disk. Rolling those back is the
   **orchestrator's** responsibility — see
-  [`step-implementation.md`](step-implementation.md) §Post-Commit
-  Handlers. The implementer must not run `git reset --hard
+  [`step-implementation-recovery.md`](step-implementation-recovery.md)
+  §Post-Commit Handlers. The implementer must not run `git reset --hard
   step_base_commit` or `git revert` to undo prior commits; that
   would silently destroy work the orchestrator may need.
 
@@ -535,8 +537,10 @@ duplicate the routing tables here. Pointers:
   [`conventions.md`](conventions.md) §1.4 *Tooling discipline*.
 - **Ephemeral identifier rule** for durable content (code, tests,
   PR title/body, `design-final.md`, `adr.md`):
-  [`conventions-execution.md`](conventions-execution.md) §2.3.
-  Branch-only commit messages are exempt — see
+  [`ephemeral-identifier-rule.md`](ephemeral-identifier-rule.md) is
+  the full rule; the §2.3 stub in `conventions-execution.md` carries
+  the quick recap and the self-check grep. Branch-only commit
+  messages are exempt — see
   [`commit-conventions.md`](commit-conventions.md) "Branch-only
   commit messages may cite workflow-internal identifiers".
 - **Risk categories** referenced in `RISK_UPGRADE.category`:

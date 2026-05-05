@@ -73,8 +73,10 @@ at the end of Phase 4 (Step 5 below) before the PR is merged. Anything
 these final artifacts say must survive that deletion.
 
 **The authoritative rule, forbidden/allowed lists, and rewrite examples
-live in [`../conventions-execution.md`](../conventions-execution.md)
-§2.3.** Read that section and apply it to both artifacts.
+live in [`../ephemeral-identifier-rule.md`](../ephemeral-identifier-rule.md).**
+Read that file and apply it to both artifacts. (The §2.3 stub in
+`../conventions-execution.md` is a quick recap pointing at the same
+file.)
 
 Phase-4-specific reminders that follow from the shared rule:
 
@@ -93,7 +95,10 @@ Phase-4-specific reminders that follow from the shared rule:
   only the substance, plus a file/class reference or commit SHA if
   "where" still matters.
 
-Re-scan both artifacts before Step 4 (commit) with the grep in §2.3.
+Re-scan both artifacts before Step 4 (commit) with the self-check
+grep — see [`../ephemeral-identifier-rule.md`](../ephemeral-identifier-rule.md)
+§"Self-check before commit" (also restated in the §2.3 stub of
+`../conventions-execution.md`).
 
 ### Artifact 1: Final Design Document (`design-final.md`)
 
@@ -229,10 +234,10 @@ Rules:
 - No track details — captures decisions and outcomes, not execution process.
 - Aggregate from both episode levels — do not rely on track episodes alone,
   as they may omit step-level details.
-- Apply the Ephemeral identifier rule from the top of Step 3 (and
-  `../conventions-execution.md` §2.3) to the whole file — especially to
-  Decision Records ("Implemented in: …" lines) and Key Discoveries,
-  which are the two most frequent leak sites.
+- Apply the Ephemeral identifier rule from the top of Step 3 (full
+  rule in `../ephemeral-identifier-rule.md`) to the whole file —
+  especially to Decision Records ("Implemented in: …" lines) and Key
+  Discoveries, which are the two most frequent leak sites.
 
 **Step 4 — Commit the final artifacts.**
 

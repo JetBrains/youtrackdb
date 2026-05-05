@@ -227,11 +227,12 @@ Iterate on the synthesized findings:
 
 1. If any findings need fixes:
    - Apply fixes as **additional commits** (never amend prior commits).
-     The Ephemeral identifier rule in
-     [`conventions-execution.md`](conventions-execution.md) §2.3
-     applies to durable content — no `Track N`, `Step N`, finding
-     IDs, or review iteration counters in source code, tests, or
-     code comments. Branch-only commit messages are exempt and may
+     The Ephemeral identifier rule (full rule in
+     [`ephemeral-identifier-rule.md`](ephemeral-identifier-rule.md);
+     stub recap in `conventions-execution.md` §2.3) applies to
+     durable content — no `Track N`, `Step N`, finding IDs, or
+     review iteration counters in source code, tests, or code
+     comments. Branch-only commit messages are exempt and may
      cite finding IDs when it makes the log easier to follow (per
      [`commit-conventions.md`](commit-conventions.md) "Branch-only
      commit messages may cite workflow-internal identifiers").
@@ -341,18 +342,43 @@ proceed directly to track completion **in the same session**.
      §Inline Replanning).
 
 4. **Write the track episode, collapse the description, and mark `[x]`**
-   in the plan file on disk (only after user approval):
+   in the plan file on disk (only after user approval).
 
-   Apply the collapse rule from
-   [`conventions-execution.md`](conventions-execution.md) §2.1
-   "After track completion (user-approved)". Quick form: always keep
-   the intro paragraph + `**Track episode:**` block + `**Step file:**`
-   pointer; always drop `**Scope:**` and `**Depends on:**`. (The
-   `**Strategy refresh:**` line belongs to §2.1's "Always keep"
-   clause but is never yet on disk at Phase C collapse time; the next
-   session's strategy refresh appends it.) The collapse does not touch
-   `implementation-backlog.md` — Phase A already removed Track N's
-   section at the start of this track.
+   The track episode is written **only after user approval**, and at
+   the same time the description is **collapsed** to remove
+   implementation detail that is now superseded by the committed code
+   and step episodes.
+
+   **Always keep** (regardless of plan shape): the **intro paragraph**
+   (the first paragraph of the original description, before any
+   `**What**:` / `**How**:` / `**Constraints**:` / `**Interactions**:`
+   subsection), the `**Track episode:**` block (written at collapse
+   time), the `**Step file:**` pointer, and the `**Strategy refresh:**`
+   line if present — though that line is never yet on disk at Phase C
+   collapse time; the next session's strategy refresh appends it (see
+   [`strategy-refresh.md`](strategy-refresh.md)).
+
+   **Always drop**: the `**Scope:**` line and the `**Depends on:**`
+   line.
+
+   Pending-track entries in the plan are written in the thin form
+   during Phase 1, so there are no
+   `**What**: / **How**: / **Constraints**: / **Interactions**:`
+   subsections present in the plan-file entry to drop — the detailed
+   description was removed from the backlog at Phase A start and
+   already lives in the step file's `## Description` section. Phase C
+   does not touch the backlog.
+
+   **Track episode fields:**
+   - Strategic summary covering: what was built, key discoveries, plan
+     deviations with cross-track impact. Length is proportional to
+     cross-track impact — a routine track may need only a couple of
+     sentences, while a track with architectural surprises should
+     include enough detail for the next session's strategy refresh to
+     assess downstream impact without reading the step file.
+   - Reference to the step file with step count and failure count.
+   - This is what future track sessions read from the plan file — the
+     step file is available for deeper investigation if needed.
 
    Final on-disk form:
 
@@ -366,9 +392,17 @@ proceed directly to track completion **in the same session**.
      > **Step file:** `tracks/track-N.md` (M steps, K failed)
    ```
 
-   This shrinks completed-track entries from 100+ lines to ~10–15 lines
-   and keeps the plan file lean as tracks land. The strategy-refresh
-   line is appended by the next session.
+   This shrinks completed-track entries from 100+ lines to ~10–15
+   lines and keeps the plan file lean as tracks land. The
+   strategy-refresh line is appended by the next session.
+
+   **Why collapse:** Completed tracks accumulate in the plan file and
+   are re-sent to every sub-agent as strategic context. Keeping the
+   full implementation detail for completed tracks inflates every
+   code-review sub-agent prompt by tens of thousands of tokens. The
+   intro paragraph plus track episode is sufficient strategic context
+   for reviewers of later tracks. For how sub-agents render the plan,
+   see [`plan-slim-rendering.md`](plan-slim-rendering.md).
 
 5. **Commit and push the track-completion changes** as a single
    Workflow update commit. The plan-file edit (track episode + `[x]`
@@ -384,9 +418,11 @@ proceed directly to track completion **in the same session**.
    ```
 
    This commit is registered as scaffolding in the resume orphan
-   detection (per `commit-conventions.md` § How these are used on
-   resume — entry 5, "Other Workflow update commits"). It does
-   **not** contribute to any `[x]` step's expected commit set.
+   detection (see
+   [`step-implementation-recovery.md`](step-implementation-recovery.md)
+   §Resume-side commit-pattern reference — entry 5, "Other Workflow
+   update commits"). It does **not** contribute to any `[x]` step's
+   expected commit set.
 
 6. **Session ends.** Strategy refresh happens next session.
 

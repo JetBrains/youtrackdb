@@ -18,11 +18,13 @@ justified.
 
 - **Phase A (`track-review.md`)** — loaded when the decomposer assigns
   risk per step. Primary reader.
-- **Phase B (`step-implementation.md`)** — loaded only on the rare
-  upgrade path, when implementation reveals a step is more invasive
-  than the plan suggested. Normal Phase B execution does NOT load this
-  file; it reads the per-step `**Risk:**` line from the step file and
-  gates sub-step 4 on the tag value alone.
+- **Phase B (`step-implementation-recovery.md`)** — loaded only on
+  the rare upgrade path, when implementation reveals a step is more
+  invasive than the plan suggested. Normal Phase B execution does NOT
+  load this file; it reads the per-step `**Risk:**` line from the
+  step file and gates sub-step 4 on the tag value alone. The recovery
+  file is itself loaded on demand and is where the upgrade handlers
+  (`apply_upgrade_then_decide`, `rollback_and_upgrade`) live.
 - **Phase C (`track-code-review.md`)** — does NOT load this file. The
   Phase C synthesizer reads the per-step risk tags from the step file
   and treats `medium` and `high` step ranges as focal points; no
@@ -163,7 +165,7 @@ The orchestrator's response depends on **when** the upgrade surfaces:
   step, `mode=INITIAL` or `mode=WITH_GUIDANCE`) — the orchestrator
   rewrites the `**Risk:**` line and respawns from `mode=INITIAL`
   BEFORE running the dimensional review for that step. See
-  [`step-implementation.md`](step-implementation.md)
+  [`step-implementation-recovery.md`](step-implementation-recovery.md)
   §`apply_upgrade_then_decide`.
 - **Post-commit** (during a `mode=FIX_REVIEW_FINDINGS` respawn — the
   upgrade surfaces only when applying review findings) — the
@@ -173,7 +175,7 @@ The orchestrator's response depends on **when** the upgrade surfaces:
   attempt re-runs implementation with full dim-review pressure from
   the start at the new risk level — not stacked on top of an
   implementation that was already reviewed under the old tag. See
-  [`step-implementation.md`](step-implementation.md)
+  [`step-implementation-recovery.md`](step-implementation-recovery.md)
   §`rollback_and_upgrade`.
 
 In both cases, `medium → high` auto-applies; `low → high` pauses

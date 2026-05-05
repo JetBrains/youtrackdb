@@ -85,8 +85,8 @@ HEAD`) and returns `RESULT: FAILED` with a `FAILURE` block. The orchestrator
 writes the failed episode from `FAILURE` to the step file. If the failure
 arrived from a `mode=FIX_REVIEW_FINDINGS` respawn (post-commit), the
 orchestrator additionally runs the `Revert step:` rollback per
-[`step-implementation.md`](step-implementation.md) §Post-Commit Handlers
-before writing the episode.
+[`step-implementation-recovery.md`](step-implementation-recovery.md)
+§Post-Commit Handlers before writing the episode.
 
 The orchestrator then decides:
 - **Retry** with a different approach
@@ -95,7 +95,9 @@ The orchestrator then decides:
 - **Escalate** if the failure undermines the track's approach
 
 If the same step fails twice, stop and present the situation to the user
-(see [`step-implementation.md`](step-implementation.md) §Two-Failure Rule).
+(see
+[`step-implementation-recovery.md`](step-implementation-recovery.md)
+§Two-Failure Rule).
 
 Failed episodes are recorded in the step file with the `[!]` marker so
 future sessions and reviews can see what was attempted and why it didn't

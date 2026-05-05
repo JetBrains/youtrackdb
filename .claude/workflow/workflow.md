@@ -122,7 +122,7 @@ perspective on cross-track impact.
    | Progress section | Resume action |
    |---|---|
    | `Review + decomposition` is `[ ]` | Enter `track-review.md` §Phase A Resume — Description-move recovery (often a no-op), then re-run only missing reviews and decompose. |
-   | `Review + decomposition` is `[x]`, steps partially complete | Resume from next `[ ]` step (see step-implementation.md §Phase B Resume for orphan commit recovery) |
+   | `Review + decomposition` is `[x]`, steps partially complete | Resume from next `[ ]` step (see step-implementation-recovery.md §Phase B Resume for orphan commit recovery) |
    | Steps contain `[!]` (failed) entries | Check if a retry `[ ]` step follows — if yes, resume from retry. If no retry step, present failed episode to user |
    | All steps `[x]`, code review `[ ]` or partial | Run Phase C from current iteration (single-step tracks skip code review but still run track completion — see track-code-review.md; includes track completion after review) |
    | All steps `[x]`, code review `[x]`, track still `[ ]` in plan | Resume track completion — compile episode, present to user for approval |
@@ -288,7 +288,7 @@ Step-level failure handling (revert → failed episode → retry or split),
 the two-failure rule, and track-level failure escalation are all triggered
 inside Phase B.
 
-**Full protocol:** [`step-implementation.md`](step-implementation.md)
+**Full protocol:** [`step-implementation-recovery.md`](step-implementation-recovery.md)
 §Step Failure, §Two-Failure Rule, §Track-Level Failure.
 
 ---
@@ -364,7 +364,7 @@ For other workflow components, see:
 - **`commit-conventions.md`** — commit message type prefixes for session
   resume (review fix, episode, step file updates)
 - **`track-review.md`** — Phase A: review + decomposition
-- **`step-implementation.md`** — Phase B: step implementation
+- **`step-implementation.md`** — Phase B: step implementation (happy path)
 - **`track-code-review.md`** — Phase C: code review + track completion
 - **`research.md`** — Phase 0 (research: interactive exploration before planning)
 - **`planning.md`** — Phase 1 (planning)
@@ -383,5 +383,7 @@ On-demand reference documents (loaded only when their specific situation arises)
 - **`structural-review.md`** — structural review details (loaded by implementation-review.md)
 - **`track-skip.md`** — full track skip protocol (when `[~]` is triggered)
 - **`review-agent-selection.md`** — characteristic-based review agent selection (loaded by step-implementation.md and track-code-review.md)
-- **`risk-tagging.md`** — per-step risk criteria and lifecycle (loaded by `track-review.md` during Phase A decomposition; loaded by `step-implementation.md` only on the rare Phase B upgrade path; **not** loaded by Phase B normal execution or by Phase C — those phases consume the per-step `**Risk:**` tag from the step file directly)
+- **`risk-tagging.md`** — per-step risk criteria and lifecycle (loaded by `track-review.md` during Phase A decomposition; loaded by `step-implementation-recovery.md` only on the rare Phase B upgrade path; **not** loaded by Phase B normal execution or by Phase C — those phases consume the per-step `**Risk:**` tag from the step file directly)
 - **`implementer-rules.md`** — Phase B per-step implementer sub-agent rulebook (loaded only by the implementer; orchestrators do not load it)
+- **`step-implementation-recovery.md`** — Phase B Resume, non-`SUCCESS` orchestrator handlers, post-commit rollback handlers, Step Failure formats, Two-Failure Rule, Track-Level Failure (loaded by the Phase B orchestrator only when orphan commits are detected at startup or a non-`SUCCESS` implementer return arrives)
+- **`ephemeral-identifier-rule.md`** — full forbidden / allowed / rewrite rule for durable content (loaded only when about to author source code, tests, Javadoc, PR title/body, `design-final.md`, or `adr.md`; the §2.3 stub in `conventions-execution.md` plus the self-check grep are usually enough)

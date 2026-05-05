@@ -66,8 +66,8 @@ A blank line separates the slug from a one-sentence prose explanation
 drawn from the relevant `fix_result.{FAILURE|DESIGN_DECISION|RISK_UPGRADE}`
 field. The implementer never produces this commit type — it is
 exclusively an orchestrator-side operation. See
-[`step-implementation.md`](step-implementation.md) §Post-Commit
-Handlers for the full procedure and resume-dispatch table.
+[`step-implementation-recovery.md`](step-implementation-recovery.md)
+§Post-Commit Handlers for the full procedure and resume-dispatch table.
 
 **Branch-only commit messages may cite workflow-internal identifiers.**
 Individual commit messages on the development branch (`Track N`,
@@ -75,8 +75,10 @@ Individual commit messages on the development branch (`Track N`,
 iteration counters, named plan invariants) are squashed away on
 merge — the squashed commit message is built from the PR title and
 body, not from the individual commit messages, so these references
-do not survive into `develop`. The Ephemeral identifier rule in
-[`conventions-execution.md`](conventions-execution.md) §2.3 still
+do not survive into `develop`. The Ephemeral identifier rule (full
+rule in
+[`ephemeral-identifier-rule.md`](ephemeral-identifier-rule.md); stub
+in [`conventions-execution.md`](conventions-execution.md) §2.3)
 applies to durable content (source code, tests, PR title and body,
 `design-final.md`, `adr.md`). For `Review fix:` commits, prefer
 describing the fix by what changed (behavior, file, or class) over
@@ -85,44 +87,10 @@ is permitted when it makes the commit log easier to follow.
 
 ## How these are used on resume
 
-When Phase B resumes and detects orphan code commits (committed but
-the matching episode commit is missing), it scans
-`git log --oneline {base_commit}..HEAD` and uses these patterns:
-
-1. **`Revert step:` commits** — the previous session rolled the step
-   back after a non-`SUCCESS` review-fix attempt. The next `[ ]` step
-   was already cleanly returned to its pre-implementation state by
-   the revert. Read the `reason: <slug>` line in the body and
-   dispatch per the table in
-   [`step-implementation.md`](step-implementation.md) §Phase B
-   Resume — the bookkeeping differs by slug (write `[!]` for
-   `failed-review-fix`; respawn-and-rederive for
-   `late-design-decision`; verify-or-apply-upgrade for
-   `late-risk-upgrade`).
-2. **Episode commits** (`Record episode for …`, Workflow update
-   touching only `_workflow/tracks/track-<N>.md`) — mark the
-   boundary between completed and in-progress steps. The most
-   recent episode commit is the last fully-finished step.
-3. **`Review fix:` commits** — indicate the dim-review loop already
-   ran for the step they belong to. When an orphan `Review fix:`
-   commit appears after the last episode commit, resume from
-   episode production.
-4. **Implementer code commits** — touch code (paths outside
-   `_workflow/`); subject is the imperative summary of the step's
-   change. When an orphan implementer commit appears after the
-   last episode commit without any `Review fix:` siblings, resume
-   from the dimensional review loop.
-5. **Other Workflow update commits** — touch only `_workflow/`
-   but are not episode commits (Phase 1 init, Phase A
-   decomposition, Phase B base-commit recording, plan-corrections
-   application, track-completion mark, inline-replanning update).
-   They are scaffolding and **not** orphans regardless of
-   position.
-
-The step file on disk is the source of truth for which steps are complete
-(have episodes). Any implementer or `Review fix:` code commits beyond
-the last episode commit are orphans for the next `[ ]` step. A
-`Revert step:` commit cancels the implementer + `Review fix:` commits
-it reverts — together they form a self-contained "attempted and rolled
-back" group that does not count toward any `[x]` step's expected
-commits.
+The `git log` reading rules used by Phase B Resume — how to identify
+orphan implementer commits, `Review fix:` commits, episode commits,
+`Revert step:` commits, and scaffolding Workflow update commits —
+live with the resume procedure itself in
+[`step-implementation-recovery.md`](step-implementation-recovery.md)
+§Resume-side commit-pattern reference. They are loaded only when
+Phase B Resume runs.

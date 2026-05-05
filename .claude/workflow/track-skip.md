@@ -33,7 +33,7 @@ A track can be skipped (`[~]`) in two situations:
    removed in step 3 below.
 
    The authoritative retention rule for `[~]` entries lives in
-   `conventions-execution.md` §"After strategy refresh" — this process
+   [`strategy-refresh.md`](strategy-refresh.md) step 5 — this process
    step must not diverge from that rule.
 
    The skip record replaces both the track episode and step file
