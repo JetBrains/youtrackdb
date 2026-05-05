@@ -190,10 +190,10 @@ level measured at sub-step 6 of step-implementation.md and recorded when
 the episode is written in sub-step 7. The agent marks it `[x]` with the
 measured level (`safe`, `info`, `warning`, or `critical`). If measurement
 failed (file missing or command error), record `- [x] Context: unavailable`.
-This sub-item is written to the step file on disk alongside the episode;
-like episodes, it is not committed to git. It must be marked before the
-step is considered complete — an unmarked context check means the agent
-skipped the check.
+This sub-item is written to the step file (under `_workflow/tracks/`)
+alongside the episode and is committed and pushed with the episode
+commit. It must be marked before the step is considered complete — an
+unmarked context check means the agent skipped the check.
 
 The **Risk:** line in each step's description blockquote names the step's
 risk level (`low`, `medium`, or `high`) and the triggering category (or
@@ -268,11 +268,12 @@ corresponding description row above.
 
 **Monotonic shrinkage:** The backlog grows only during Phase 1 or inline
 replanning, and shrinks as tracks enter Phase A or are skipped. Normal
-Phase A / B / C execution never adds entries. The file itself is never
-committed to git — it is a working file that persists on disk between
-sessions and is cleaned up when the branch is deleted after PR merge
-(see `conventions.md` §1.2: "Working files persist on disk between
-sessions and are never committed").
+Phase A / B / C execution never adds entries. The file lives under
+`docs/adr/<dir-name>/_workflow/` — tracked in git during the branch
+lifetime so changes are pushed to the draft PR for team visibility and
+disk-loss backup, and removed in the Phase 4 cleanup commit before
+merge (see `conventions.md` §1.2 for the full lifecycle and
+`workflow.md` § Final Artifacts for the cleanup procedure).
 
 ### Backlog section body extraction rule
 
@@ -324,39 +325,45 @@ to cross-track impact.
 
 ---
 
-## 2.3 Ephemeral identifier rule — don't leak workflow IDs into committed content
+## 2.3 Ephemeral identifier rule — don't leak workflow IDs into durable content
 
 **Authoritative statement.** This is the single source of truth for the
-rule; every phase-specific prompt that touches committed content points
+rule; every phase-specific prompt that touches durable content points
 here.
 
 `implementation-plan.md`, `implementation-backlog.md`,
-`tracks/track-N.md`, and `reviews/**` are working files — untracked, and
-deleted together with the branch after the PR is merged. Any identifier
+`tracks/track-N.md`, and `reviews/**` live under
+`docs/adr/<dir-name>/_workflow/`. They are tracked on the branch during
+development, but the entire `_workflow/` directory is removed in the
+Phase 4 cleanup commit before the PR is merged — so any identifier
 that lives only in those files becomes a dangling reference the moment
-the branch is gone. The same applies to review-loop counters and named
-invariants that live only in the plan. Therefore, **anything that goes
-into git must not cite those identifiers**.
+`develop` swallows the squash. The same applies to review-loop counters
+and named invariants that live only in the plan. Therefore, **anything
+that survives merge into `develop` must not cite those identifiers**.
 
 ### Where the rule applies
 
 - **Source code comments and Javadoc** — the most common leak. Comments
   like `// added per Track 2 Step 1`, `// fixes CQ33`, or `// see
-  Single-authority invariant` tie the code to files that will not exist
-  on `main`.
-- **Commit messages** — even though per-commit messages are squashed on
-  merge (see CLAUDE.md §Git Conventions), the squashed commit message
-  is assembled from the PR title/description and inherits this content.
-  Individual commit messages are also visible in code review and PR
-  history before squashing.
-- **PR titles and descriptions** — stored in GitHub, keyed off by the
-  squashed commit message.
+  Single-authority invariant` tie the code to files that no longer
+  exist after the cleanup commit.
+- **PR titles and descriptions** — stored in GitHub, used as the body
+  of the squashed merge commit (per CLAUDE.md § Git Conventions).
 - **`design-final.md`** and **`adr.md`** — the only workflow files
-  committed to git; see
+  that survive merge into `develop`; see
   [`prompts/create-final-design.md`](prompts/create-final-design.md)
   for Phase-4-specific examples.
 - **Tests, test names, and test descriptions** — committed alongside
   the code.
+
+**Branch-only commit messages are exempt.** Individual commit messages
+on the development branch (Phase A/B/C session commits, step commits,
+review-fix commits, episode commits, workflow-file commits) may freely
+cite Track / Step / finding labels — they are squashed away on merge,
+the squashed message is assembled from the PR title and body (not from
+the individual commit messages), and the underlying workflow files are
+present in the branch tree at the time those commits are made. The
+forbidden list above is what lives durably on `develop`.
 
 It does **not** apply to the working files themselves: step files
 (`tracks/track-N.md`), review files, the plan, and the backlog all
@@ -419,10 +426,11 @@ plan) couldn't resolve the reference, the reference is forbidden.
 ### Self-check before commit
 
 Run a quick grep on staged files before committing — applies to code,
-tests, and the two Phase 4 artifacts:
+tests, and the two Phase 4 artifacts (NOT to commits that only stage
+files under `_workflow/`, which are themselves ephemeral):
 
 ```bash
-git diff --cached | grep -nE '\b(Track|Step)[ ]?[0-9]+|\b[A-Z]{1,3}[0-9]+\b'
+git diff --cached -- ':!docs/adr/*/_workflow' | grep -nE '\b(Track|Step)[ ]?[0-9]+|\b[A-Z]{1,3}[0-9]+\b'
 ```
 
 Anything this catches is either a genuine leak to rewrite or an
@@ -437,11 +445,16 @@ These rules are needed only when their specific phase or action runs — not
 at session startup. Load on demand:
 
 - **Commit message format** — follow the project's `CLAUDE.md` commit
-  conventions. Only code changes are committed; workflow files are never
-  committed (see §1.2 in `conventions.md`). For the execution-specific
-  prefixes (`Review fix:`) used during session resume, see
-  [`commit-conventions.md`](commit-conventions.md). Apply the Ephemeral
-  identifier rule (§2.3 above) to every commit message.
+  conventions. Both code changes and workflow-file changes (under
+  `_workflow/`) are committed during the branch lifetime; the
+  `_workflow/` directory is removed in the Phase 4 cleanup commit
+  before merge (see §1.2 in `conventions.md` and `workflow.md`
+  § Final Artifacts). Every commit is pushed immediately to the
+  branch's draft PR for team visibility; see
+  [`commit-conventions.md`](commit-conventions.md) for the push rule
+  and the execution-specific prefixes (`Review fix:`) used during
+  session resume. The Ephemeral identifier rule (§2.3 above) applies
+  to durable content — branch-only commit messages are exempt.
 - **Two-tier dimensional code review** (step-level and track-level
   sub-agent reviews, 4 baseline + up to 6 conditional, max 3 iterations):
   [`code-review-protocol.md`](code-review-protocol.md).

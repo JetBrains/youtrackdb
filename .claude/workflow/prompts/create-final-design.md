@@ -18,9 +18,9 @@ name. Otherwise, default to the current git branch name
 (`git branch --show-current`).
 
 Read:
-- `docs/adr/<dir-name>/implementation-plan.md` — full plan with track episodes
-- `docs/adr/<dir-name>/design.md` — original design document (do NOT modify)
-- `docs/adr/<dir-name>/tracks/track-*.md` — all step files with step
+- `docs/adr/<dir-name>/_workflow/implementation-plan.md` — full plan with track episodes
+- `docs/adr/<dir-name>/_workflow/design.md` — original design document (do NOT modify)
+- `docs/adr/<dir-name>/_workflow/tracks/track-*.md` — all step files with step
   episodes. Each step file begins with a `## Description` section
   carrying the track's original description (copied there at Phase A
   start from the backlog), so "what each track was supposed to do"
@@ -64,10 +64,12 @@ authoritative source for edge cases.
 
 ### Ephemeral identifier rule (applies to BOTH artifacts)
 
-`design-final.md` and `adr.md` are the **only** workflow files committed
-to git. Every other workflow file —  `implementation-plan.md`,
-`implementation-backlog.md`, `tracks/track-N.md`, `reviews/**` — is
-untracked and deleted when the branch is deleted after PR merge. Anything
+`design-final.md` and `adr.md` are the **only** workflow files that
+survive merge into `develop`. Every other workflow file —
+`implementation-plan.md`, `implementation-backlog.md`,
+`tracks/track-N.md`, `reviews/**` — lives under
+`docs/adr/<dir-name>/_workflow/` and is removed in the cleanup commit
+at the end of Phase 4 (Step 5 below) before the PR is merged. Anything
 these final artifacts say must survive that deletion.
 
 **The authoritative rule, forbidden/allowed lists, and rewrite examples
@@ -95,7 +97,8 @@ Re-scan both artifacts before Step 4 (commit) with the grep in §2.3.
 
 ### Artifact 1: Final Design Document (`design-final.md`)
 
-Produce `docs/adr/<dir-name>/design-final.md` reflecting the **actual
+Produce `docs/adr/<dir-name>/design-final.md` (the top-level final
+artifact, not under `_workflow/`) reflecting the **actual
 implementation**. Same shape rules as the original `design.md` —
 concept-first Overview, Core Concepts vocabulary primer (when the doc
 has Parts or ≥3 new domain terms), Class Design, Workflow, per-section
@@ -231,7 +234,7 @@ Rules:
   Decision Records ("Implemented in: …" lines) and Key Discoveries,
   which are the two most frequent leak sites.
 
-**Step 4 — Commit and complete.**
+**Step 4 — Commit the final artifacts.**
 
 By this point the `edit-design` skill has already written
 `design-final.md` (and `design-mechanics-final.md` if applicable) to
@@ -239,7 +242,7 @@ disk and presented the diff + review-log entry. `adr.md` was written
 directly. Stage and commit the final artifacts in a single commit:
 
 ```
-Add final workflow artifacts
+Add final design and ADR
 
 Post-implementation artifacts:
 - design-final.md: actual design reflecting implemented code
@@ -247,7 +250,42 @@ Post-implementation artifacts:
 - adr.md: architecture decision record with actual outcomes
 ```
 
-Do **not** stage `reviews/design-mutations.md` — it's an ephemeral
-working file (deleted with the branch).
+Stage **only** the top-level final artifacts in this commit
+(`design-final.md`, `design-mechanics-final.md` if present, and
+`adr.md`). Do **not** stage anything under
+`docs/adr/<dir-name>/_workflow/` — the ephemeral
+`reviews/design-mutations.md` log and every other working file under
+`_workflow/` are removed wholesale by the cleanup commit in Step 5
+below.
 
-Inform the user that Phase 4 is complete and the workflow is done.
+Push immediately after committing:
+
+```bash
+git push
+```
+
+**Step 5 — Cleanup commit: remove the workflow scaffolding.**
+
+After the final-artifacts commit lands, remove the entire `_workflow/`
+subtree in a single second commit so only `design-final.md`,
+`design-mechanics-final.md` (if present), and `adr.md` survive merge
+into `develop`:
+
+```bash
+git rm -r docs/adr/<dir-name>/_workflow/
+git commit -m "Remove workflow scaffolding"
+git push
+```
+
+This deletes plan, backlog, design.md, design-mechanics.md, every
+step file under `tracks/`, every review file under `reviews/`, and
+the design-mutations log in one commit. The squash-merge folds this
+deletion together with the rest of the branch's history; on
+`develop`, the final state is the two (or three) durable artifacts
+plus the implemented code.
+
+**Step 6 — Inform the user.**
+
+Tell the user Phase 4 is complete and the branch is ready for review.
+The user manually flips the draft PR to "ready for review" when
+satisfied — Claude does **not** run `gh pr ready` automatically.

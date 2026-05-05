@@ -38,8 +38,8 @@ inputs**.
 
 - `repo_root` — absolute path to the working tree.
 - `plan_slim_path` — `/tmp/claude-code-plan-slim-$PPID.md`.
-- `step_file_path` — `docs/adr/<dir-name>/tracks/track-<N>.md`.
-- `design_path` — `docs/adr/<dir-name>/design.md` (read on demand only).
+- `step_file_path` — `docs/adr/<dir-name>/_workflow/tracks/track-<N>.md`.
+- `design_path` — `docs/adr/<dir-name>/_workflow/design.md` (read on demand only).
 
 **Variable inputs** (per spawn):
 
@@ -222,13 +222,24 @@ implementer never escalates directly to the user.
 
 **Always revert before returning.** Whichever case fires below, the
 implementer must roll back its in-progress changes so the orchestrator
-observes a clean tree at the implementer's `HEAD` — but it must
-preserve any untracked files that pre-existed the spawn. The
-orchestrator keeps its working state (step files, review reports,
-the design document, the implementation backlog, baselines) as
-**untracked-on-disk files** under `docs/adr/<dir>/`. Those files
-must survive any implementer revert; otherwise the orchestrator
-loses cross-spawn state. The required sequence:
+observes a clean tree at the implementer's `HEAD` — and it must
+preserve any untracked files that pre-existed the spawn (test
+fixtures, scratch logs, anything outside the workflow's tracked
+state).
+
+The orchestrator's working state — step file, review reports,
+design document, implementation backlog, baselines — is **tracked
+under `docs/adr/<dir>/_workflow/`** and committed by the orchestrator
+on the appropriate cadence (see `commit-conventions.md` § Push every
+commit). The orchestrator commits any pending workflow-file changes
+**before** spawning the implementer, so `HEAD` at spawn time
+already reflects the orchestrator's intended state. That means the
+implementer's `git reset --hard HEAD` rolls back tracked-file
+changes only as far as the most recent commit — which is the
+state the orchestrator wants to be in if the implementer bails.
+
+The required sequence (run on every early-return case below — design
+decision, risk upgrade, fundamental failure):
 
 1. **Snapshot pre-existing untracked files at the start of every
    spawn**, before any code change. This is the first action of

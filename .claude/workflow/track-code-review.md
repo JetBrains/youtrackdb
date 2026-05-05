@@ -69,10 +69,10 @@ of the changes.
 
 1. Read the step file's `## Base commit` section to get the SHA recorded
    at the start of Phase B.
-2. Read the **implementation plan** (`docs/adr/<dir-name>/implementation-plan.md`)
+2. Read the **implementation plan** (`docs/adr/<dir-name>/_workflow/implementation-plan.md`)
    — this provides strategic context (goals, architecture notes, decision
    records, track episodes from completed tracks).
-3. Read the **step file** (`docs/adr/<dir-name>/tracks/track-N.md`) — this
+3. Read the **step file** (`docs/adr/<dir-name>/_workflow/tracks/track-N.md`) — this
    provides the step descriptions and episodes.
 4. **Generate the slim plan snapshot** at
    `/tmp/claude-code-plan-slim-$PPID.md`. Apply the rendering rule in
@@ -123,11 +123,11 @@ Read the slim plan snapshot at:
 Filtered view of the plan — completed tracks show title + intro +
 track episode + strategy refresh only; the current track and other
 not-started tracks are shown in full. If the snapshot is missing, fall
-back to docs/adr/{dir-name}/implementation-plan.md.
+back to docs/adr/{dir-name}/_workflow/implementation-plan.md.
 
 ## Track Steps (tactical context)
 Read the step file at:
-  docs/adr/{dir-name}/tracks/track-{N}.md
+  docs/adr/{dir-name}/_workflow/tracks/track-{N}.md
 The file begins with a `## Description` section carrying the track's
 original description — intro paragraph +
 **What/How/Constraints/Interactions** subsections + any track-level

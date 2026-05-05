@@ -130,15 +130,18 @@ line; a step that uncovered a concurrency bug needs a full explanation.
 ## Code commit and episode ordering
 
 Code changes are committed first (including any code review fix commits).
-After all code is committed, the episode is written to the step file on
-disk. Episodes are never committed — they are working files that persist
-between sessions and are aggregated into the ADR during Phase 4.
+After all code is committed, the orchestrator writes the episode to the
+step file (under `_workflow/tracks/`) and commits the step-file change
+in a follow-up commit (e.g., `Record episode for <step description>`),
+then pushes. Episodes live under `_workflow/` for the branch lifetime
+and are aggregated into the ADR during Phase 4; the entire `_workflow/`
+directory is removed by the Phase 4 cleanup commit before merge.
 
 ---
 
 ## Where episodes live
 
-Step-level episodes: **step file** (`docs/adr/<dir-name>/tracks/track-N.md`)
+Step-level episodes: **step file** (`docs/adr/<dir-name>/_workflow/tracks/track-N.md`)
 
 Track-level episodes: **plan file** (`implementation-plan.md`) under the
 track's checklist entry — a strategic summary synthesized from step episodes.

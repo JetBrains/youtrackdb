@@ -44,7 +44,7 @@ reordering, or (if severity is `skip`) a recommendation to skip the track.
 **Where things live during Phase A:** The track's detailed description
 (the `**What/How/Constraints/Interactions**` subsections plus any
 track-level component diagram) lives in the step file at
-`docs/adr/<dir-name>/tracks/track-N.md` under a `## Description` section —
+`docs/adr/<dir-name>/_workflow/tracks/track-N.md` under a `## Description` section —
 copied there at Phase A start. The plan file carries strategic context
 (Architecture Notes, Decision Records, Component Map) and track-level
 status + episodic memory.

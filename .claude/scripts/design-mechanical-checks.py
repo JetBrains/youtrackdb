@@ -8,13 +8,17 @@ checks (always run)`. Invoked by the `edit-design` skill after each edit to
 
 Usage:
     python3 .claude/scripts/design-mechanical-checks.py \
-        --design-path docs/adr/<dir>/design.md \
-        [--design-mechanics-path docs/adr/<dir>/design-mechanics.md] \
-        [--plan-path docs/adr/<dir>/implementation-plan.md] \
-        [--backlog-path docs/adr/<dir>/implementation-backlog.md] \
+        --design-path docs/adr/<dir>/_workflow/design.md \
+        [--design-mechanics-path docs/adr/<dir>/_workflow/design-mechanics.md] \
+        [--plan-path docs/adr/<dir>/_workflow/implementation-plan.md] \
+        [--backlog-path docs/adr/<dir>/_workflow/implementation-backlog.md] \
         [--changed-section "Section Title"] \
         [--target design|mechanics|both] \
         [--scope bounded|whole-doc]
+
+For Phase 4 the design path is `docs/adr/<dir>/design-final.md`
+(top-level, outside `_workflow/`); see edit-design/SKILL.md for the
+phase4-creation kind.
 
 Output: JSON to stdout. Exit code 0 on PASS, 1 on NEEDS REVISION (any blocker).
 """

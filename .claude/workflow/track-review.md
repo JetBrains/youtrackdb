@@ -57,7 +57,7 @@ instruction — keep it intact when customising.
       intro paragraph.
 
    b. **Read Track N's section from the backlog**
-      (`docs/adr/<dir-name>/implementation-backlog.md`). Read the
+      (`docs/adr/<dir-name>/_workflow/implementation-backlog.md`). Read the
       track's intro paragraph from the plan-file entry and the
       `**What/How/Constraints/Interactions**` subsections + any
       track-level `mermaid` block from the backlog's `## Track N:
@@ -66,7 +66,7 @@ instruction — keep it intact when customising.
       §2.1.
 
    c. **Create the step file atomically** at
-      `docs/adr/<dir-name>/tracks/track-N.md` in a single Write call
+      `docs/adr/<dir-name>/_workflow/tracks/track-N.md` in a single Write call
       that contains: `## Description` (populated with the copied intro
       + `**What/How/Constraints/Interactions**` subsections + any
       track-level diagram from sub-step (b)), `## Progress` (with all
@@ -89,13 +89,13 @@ instruction — keep it intact when customising.
       the backlog's opening `# <Feature> — Track Details` header.
 
       When the last remaining `## Track M:` section is removed, leave
-      the backlog file on disk with only its header. Natural cleanup
-      happens when the branch is deleted after PR merge, like every
-      other working file.
+      the backlog file on disk with only its header. The whole
+      `_workflow/` directory (including the empty backlog) is deleted
+      by the Phase 4 cleanup commit; no per-track removal is needed.
 
 3. **Run track-scoped reviews** as sub-agents (technical, risk, adversarial
    as warranted). After each review completes:
-   - Write the review file to `docs/adr/<dir-name>/reviews/track-N-<type>.md`
+   - Write the review file to `docs/adr/<dir-name>/_workflow/reviews/track-N-<type>.md`
    - Update the **Reviews completed** section in the step file
      (created atomically in sub-step 2c).
    - These files persist on disk between sessions — the next session can
@@ -156,8 +156,8 @@ instead of restating them.
 
 | Input | Value |
 |---|---|
-| `plan_path` | Absolute path to `docs/adr/<dir-name>/implementation-plan.md` — the strategic context (Goals, Constraints, Architecture Notes, Decision Records, Component Map). |
-| `step_file_path` | Absolute path to `docs/adr/<dir-name>/tracks/track-N.md` — once Phase A has written the step file, its `## Description` section is the authoritative source for the track's `**What/How/Constraints/Interactions**` subsections and any track-level diagram (per the lifecycle table in `conventions-execution.md` §2.1). |
+| `plan_path` | Absolute path to `docs/adr/<dir-name>/_workflow/implementation-plan.md` — the strategic context (Goals, Constraints, Architecture Notes, Decision Records, Component Map). |
+| `step_file_path` | Absolute path to `docs/adr/<dir-name>/_workflow/tracks/track-N.md` — once Phase A has written the step file, its `## Description` section is the authoritative source for the track's `**What/How/Constraints/Interactions**` subsections and any track-level diagram (per the lifecycle table in `conventions-execution.md` §2.1). |
 | `track_name` | The track heading as it appears in the plan file's checklist (e.g., `"Track 2: Execution workflow edits"`). |
 | `codebase_path` | Absolute path to the repository root — the sub-agent may Read any file under this path to validate code references. |
 | `prior_episodes` | Summary of track episodes from already-completed tracks. The episodes themselves also appear in the slim plan snapshot pointed at by `plan_path`, but they are passed as a **separate** value so each review prompt's `{prior_episodes}` placeholder resolves without forcing the sub-agent to re-parse the plan. Used for cross-track consistency checks. |
@@ -285,7 +285,7 @@ Must not modify the same files.
 #### Output
 
 Write decomposed steps to the **step file**
-(`docs/adr/<dir-name>/tracks/track-N.md`), creating it if it doesn't exist.
+(`docs/adr/<dir-name>/_workflow/tracks/track-N.md`), creating it if it doesn't exist.
 Scope indicators in the plan file are NOT replaced — step details live only
 in the step file.
 

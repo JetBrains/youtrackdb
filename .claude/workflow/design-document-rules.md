@@ -1,9 +1,11 @@
 # Design Document Rules
 
 The plan must be accompanied by a separate **design document** at
-`docs/adr/<dir-name>/design.md` that explains **what will be implemented at a
-design level** — not code, but the structural and behavioral design of the
-solution.
+`docs/adr/<dir-name>/_workflow/design.md` that explains **what will be
+implemented at a design level** — not code, but the structural and
+behavioral design of the solution. (Phase 4 promotes the post-implementation
+view of this design to the durable `docs/adr/<dir-name>/design-final.md`;
+the working `_workflow/` copy is removed in the Phase 4 cleanup commit.)
 
 ## Purpose
 
@@ -226,7 +228,7 @@ context to disambiguate.
 ### Review log
 
 Each mutation appends to
-`docs/adr/<dir-name>/reviews/design-mutations.md`. The minimum
+`docs/adr/<dir-name>/_workflow/reviews/design-mutations.md`. The minimum
 shape per entry is:
 
 ```markdown
@@ -252,8 +254,10 @@ line, a `SKIPPED` value for cold-read on `mechanics-edit`, and a
 entries. Use the skill's expanded format when writing the log;
 treat the shape above as the floor, not the ceiling.
 
-The review log is a working artifact (deleted with the branch),
-not committed — same lifecycle as other Phase working files.
+The review log is a working artifact under `_workflow/reviews/`
+(tracked on the branch for backup and visibility, removed by the
+Phase 4 cleanup commit before merge — same lifecycle as other
+working files).
 
 ### Cold-read sub-agent prompt
 
@@ -736,8 +740,9 @@ that warrant dedicated sections:
 
 ## Rules
 
-1. **Separate file** — the design document lives at `docs/adr/<dir-name>/design.md`,
-   not inside the implementation plan.
+1. **Separate file** — the design document lives at
+   `docs/adr/<dir-name>/_workflow/design.md`, not inside the
+   implementation plan.
 2. **All diagrams must be Mermaid** — use `classDiagram`, `sequenceDiagram`,
    `flowchart`, or `stateDiagram` as appropriate. No external tools or image files.
 3. **Design level, not code level** — describe classes, interfaces, relationships,

@@ -197,7 +197,7 @@ activities across steps loses all three benefits.
 
 ## Per-Step Orchestration Loop
 
-For each `[ ]` step in the step file, run sub-steps 1–7 to
+For each `[ ]` step in the step file, run sub-steps 1–8 to
 completion before moving to the next step. Sub-steps 1–3 run inside
 the implementer; sub-steps 4–7 run on the orchestrator side.
 
@@ -246,8 +246,8 @@ responsibility.
 
 repo_root: {repo_root}
 plan_slim_path: /tmp/claude-code-plan-slim-{PPID}.md
-step_file_path: docs/adr/{dir-name}/tracks/track-{N}.md
-design_path: docs/adr/{dir-name}/design.md
+step_file_path: docs/adr/{dir-name}/_workflow/tracks/track-{N}.md
+design_path: docs/adr/{dir-name}/_workflow/design.md
 
 ## Per-step variable inputs
 
@@ -338,11 +338,11 @@ finding ID prefixes, and gate format.
       intro + track episode + strategy refresh only; the current
       track and other not-started tracks are shown in full. If the
       snapshot is missing, fall back to
-      docs/adr/{dir-name}/implementation-plan.md.
+      docs/adr/{dir-name}/_workflow/implementation-plan.md.
 
       ## Track Steps (tactical context)
       Read the step file at:
-        docs/adr/{dir-name}/tracks/track-{N}.md
+        docs/adr/{dir-name}/_workflow/tracks/track-{N}.md
       The file begins with a `## Description` section carrying the
       track's original description — intro paragraph +
       **What/How/Constraints/Interactions** subsections + any
@@ -466,13 +466,30 @@ Mark the step as `[x]`. Update the **Progress** section's `Step
 implementation` count (e.g., `(3/5 complete)`). If this is the last
 step, mark `Step implementation` as `[x]`.
 
-**Session-end gate.** After writing the episode: if the context
+**Sub-step 8 — Commit and push the episode.** The step file is
+tracked under `_workflow/`, so the episode write produces a dirty
+working tree. Commit and push it as a separate workflow-update
+commit so the draft PR reflects the new state and so `HEAD` is
+clean before the next implementer is spawned (the implementer's
+revert path uses `git reset --hard HEAD`, which would otherwise
+roll back the unwritten episode):
+
+```bash
+git add docs/adr/<dir-name>/_workflow/tracks/track-<N>.md
+git commit -m "Record episode for <step description>"
+git push
+```
+
+See `commit-conventions.md` § Push every commit and § Workflow
+update for the standard message form.
+
+**Session-end gate.** After committing the episode: if the context
 level was `warning` or `critical`, do NOT spawn the implementer for
 the next step. Save all work and ask the user for a session refresh
 (see workflow.md §Context Consumption Check).
 
 **→ GATE: Step is now complete.** Do not spawn the next implementer
-until sub-steps 1–7 above are done.
+until sub-steps 1–8 above are done.
 
 ### `escalate_to_user_then_respawn(step, result)`
 
@@ -591,12 +608,16 @@ reason: <slug>
 fix_result.{FAILURE|DESIGN_DECISION|RISK_UPGRADE}>
 EOF
 )"
+git push
 ```
 
 The HEREDOC form is required for any commit message containing a blank
 line — `git commit -m "…"` with literal embedded newlines is fragile
 across shells. This matches the project commit-message convention in
-the repo's user-global `CLAUDE.md` ("Committing changes with git").
+the repo's user-global `CLAUDE.md` ("Committing changes with git"). The
+`git push` after the commit follows the per-commit push rule in
+`commit-conventions.md` § Push every commit (the revert is part of
+the visible branch history on the draft PR).
 
 **Body format (load-bearing for Phase B Resume).** The first
 non-empty line of the body MUST be `reason: <slug>` where `<slug>`

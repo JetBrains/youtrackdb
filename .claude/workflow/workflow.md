@@ -97,7 +97,7 @@ perspective on cross-track impact.
 
 ## Startup Protocol (Auto-Resume)
 
-1. **Read the plan file** at `docs/adr/<dir-name>/implementation-plan.md`
+1. **Read the plan file** at `docs/adr/<dir-name>/_workflow/implementation-plan.md`
    (not the backlog — startup reads only the plan;
    `implementation-backlog.md` is loaded later, when a track enters Phase A
    or is skipped).
@@ -249,8 +249,13 @@ work when context consumption is at `warning` level or above.
 ### What to do before ending a session
 
 - Ensure all code changes are committed
-- Ensure all step episodes are written to the step file on disk
-- Update the **Progress** section in the step file on disk
+- Ensure all step episodes are written to the step file under
+  `_workflow/tracks/`, the **Progress** section is up to date, and
+  every workflow-file change has been committed (workflow files are
+  tracked under `_workflow/` — see `commit-conventions.md`)
+- Run `git push` so the branch's draft PR reflects the final state
+  of the session (every commit is pushed; this is the safety net
+  for unexpected session-end interruptions)
 - Inform the user of the session state so the next `/execute-tracks`
   auto-resumes correctly
 
@@ -321,10 +326,27 @@ Completion.
 
 ## Final Artifacts (Phase 4)
 
-After all tracks are complete, a separate session produces `design-final.md`
-and `adr.md` — the only workflow files committed to git. Tracked in the
-`## Final Artifacts` section of `implementation-plan.md` (see State D
-markers in the Startup Protocol table above).
+After all tracks are complete, a separate session produces
+`design-final.md` and `adr.md` — the two artifacts that survive
+merge into `develop`. Phase 4 lands two commits on the branch:
+
+1. **Final-artifacts commit.** Stage `design-final.md`,
+   `design-mechanics-final.md` (if applicable), and `adr.md`; commit
+   with the message defined in `prompts/create-final-design.md`
+   § Step 4; push.
+2. **Cleanup commit.** Run `git rm -r docs/adr/<dir-name>/_workflow/`
+   to remove every working file under the `_workflow/` subtree
+   (plan, backlog, design.md, design-mechanics.md, step files,
+   review files, design-mutations log). Commit with a message such
+   as `Remove workflow scaffolding`. Push.
+
+After both commits land, **inform the user that Phase 4 is complete
+and stop**. The user manually flips the draft PR to "ready for
+review" when satisfied — Claude does not run `gh pr ready`.
+
+Tracked in the `## Final Artifacts` section of
+`implementation-plan.md` (see State D markers in the Startup
+Protocol table above).
 
 **Full instructions:** [`prompts/create-final-design.md`](prompts/create-final-design.md)
 
