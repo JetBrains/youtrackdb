@@ -32,11 +32,25 @@ justified.
 
 ## Risk levels — quick reference
 
-| Level | Step-level review (sub-step 4) | Track-level review treatment |
-|---|---|---|
-| `high` | Full dimensional review (4 baseline + conditional, up to 3 iterations) | Focal point |
-| `medium` | None | Focal point |
-| `low` | None | Default coverage |
+| Level | Implementer model | Step-level review (sub-step 4) | Track-level review treatment |
+|---|---|---|---|
+| `high` | `opus` | Full dimensional review (4 baseline + conditional, up to 3 iterations) | Focal point |
+| `medium` | `opus` | None | Focal point |
+| `low` | `sonnet` | None | Default coverage |
+
+The implementer-model column is read by the Phase B orchestrator when
+spawning the per-step implementer (see
+[`step-implementation.md`](step-implementation.md) §Implementer Prompt
+Template). The model is locked at spawn time and re-evaluated against
+the current risk tag on every respawn, so a `low → high` upgrade (see
+§"Phase B upgrade" below) automatically promotes the respawn from
+Sonnet to Opus. Downgrades mid-Phase B are not permitted, so the
+model never demotes once a step has run.
+
+Phase A reviews, the dimensional-review fan-out agents (which fire only
+on `risk: high` steps), the Phase C track-level review, and the Phase
+B/C orchestrators themselves remain on Opus regardless of step risk —
+review and orchestration capacity is not allocated by step tag.
 
 ## HIGH-risk triggers
 

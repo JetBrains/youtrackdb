@@ -166,9 +166,21 @@ of those branches. The implementer prompt template is in
 
 ## Implementer Prompt Template
 
-Each spawn uses `subagent_type: "general-purpose"` with
-`model: "opus"`. The prompt has a **stable static prefix** followed
-by the **per-step variable inputs**. The static block goes first for
+Each spawn uses `subagent_type: "general-purpose"`. Pick `model` from
+the step's risk tag: `risk: low` steps spawn with `model: "sonnet"`;
+`risk: medium` and `risk: high` steps spawn with `model: "opus"`. See
+[`risk-tagging.md`](risk-tagging.md) §"Risk levels — quick reference"
+for the full allocation table. The choice is locked at spawn time and
+re-evaluated against the current risk tag on every respawn — a
+`low → high` upgrade per
+[`risk-tagging.md`](risk-tagging.md) §"Phase B upgrade" automatically
+promotes the respawn to Opus, and `WITH_GUIDANCE` / `FIX_REVIEW_FINDINGS`
+respawns at the same tag stay on whichever model the tag selects.
+Downgrades mid-Phase B are not permitted (see `risk-tagging.md`), so
+the model never demotes once a step has run.
+
+The prompt body has a **stable static prefix** followed by the
+**per-step variable inputs**. The static block goes first for
 predictability and to keep the variable section easy to spot in
 transcripts; whether the platform's prompt cache hits across
 sub-agent spawns depends on Claude Code's `cache_control` placement
