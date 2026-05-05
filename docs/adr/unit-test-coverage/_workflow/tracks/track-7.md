@@ -1391,13 +1391,13 @@ LiveResultListener, LocalLiveResultListener.
   >
   > **Key files:**
   > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/operator/EntitySchemaOperatorsTest.java` (modified — added 1 regression test, ~60 LOC after review fix)
-  > - `docs/adr/unit-test-coverage/coverage-baseline.md` (modified — appended Post-Track-7 Measurement section with deltas, targets, and full per-package table)
+  > - `docs/adr/unit-test-coverage/_workflow/coverage-baseline.md` (modified — appended Post-Track-7 Measurement section with deltas, targets, and full per-package table)
   >
   > **Original decomposed checklist (archived for audit):**
   >   - Run coverage build: `./mvnw -pl core -am clean package -P coverage`.
   >   - Run analyzer: `python3 .github/scripts/coverage-analyzer.py --coverage-dir .coverage/reports` with focus on the five Track 7 target packages.
   >   - Run `python3 .github/scripts/coverage-gate.py --line-threshold 85 --branch-threshold 70 --compare-branch origin/develop --coverage-dir .coverage/reports` to ensure Track 7's changed lines meet 85%/70% gates.
-  >   - Update `docs/adr/unit-test-coverage/coverage-baseline.md` with post-Track-7 measurements (append a "post-Track-7" section; do not overwrite baseline).
+  >   - Update `docs/adr/unit-test-coverage/_workflow/coverage-baseline.md` with post-Track-7 measurements (append a "post-Track-7" section; do not overwrite baseline).
   >   - Run full `./mvnw -pl core clean test` — BUILD SUCCESS.
   >   - Apply `./mvnw -pl core spotless:apply`; commit any formatting drift.
   >   - Expected: ~0 new tests; this step produces the verification commit + the coverage-baseline update.
