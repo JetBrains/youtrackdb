@@ -232,7 +232,7 @@ original plan did not name explicitly.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (4/7 complete)
+- [ ] Step implementation (5/7 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -576,26 +576,73 @@ original plan did not name explicitly.
   > - `core/src/test/java/.../core/metadata/schema/PropertyTypeInternalNumericConvertTest.java` (new)
   > - `core/src/test/java/.../core/metadata/schema/PropertyTypeInternalDateTimeBinaryConvertTest.java` (new)
 
-- [ ] Step 5: `PropertyTypeInternal` parameterized convert — collection + link + embedded families *(parallel with Step 4)*
+- [x] Step 5: `PropertyTypeInternal` parameterized convert — collection + link + embedded families *(parallel)*
+  - [x] Context: info
   > **Risk:** medium — multi-shape parameterized tests over 12+
   > enum constants × ~5 input shapes per arm
-  > **What:** Add `PropertyTypeInternalCollectionConvertTest`,
-  > `PropertyTypeInternalLinkConvertTest`, and
-  > `PropertyTypeInternalEmbeddedConvertTest` — all
-  > `@RunWith(Parameterized.class)`. Collection class covers
-  > List / Set / Map arms with empty / single-element /
-  > multi-element / null-element / mismatched-element-type input.
-  > Link class covers Link / LinkList / LinkSet / LinkMap /
-  > LinkBag arms with valid-RID / wrong-class / null /
-  > mismatched-type input. Embedded class covers Embedded /
-  > EmbeddedList / EmbeddedSet / EmbeddedMap arms with
-  > entity-of-correct-class / entity-of-wrong-class / non-entity /
-  > null input. `DbTestBase` required for link/embedded paths
-  > (need RID + record context). Same convert(...) target as
-  > Step 4. Parallel with Step 4 because the test classes are
-  > disjoint in name and source files; both edit only their own
-  > new files (existing test classes are extended only by Step 4
-  > or Step 5, not both).
+  >
+  > **What was done:** Added three new standalone test classes
+  > (1 332 LOC, 75 `@Test`) pinning the per-arm `convert(value,
+  > linkedType, linkedClass, session)` body for every reference /
+  > container arm of `PropertyTypeInternal` that Step 4 did not
+  > cover. `PropertyTypeInternalCollectionConvertTest` covers
+  > `EMBEDDEDLIST` / `EMBEDDEDSET` / `EMBEDDEDMAP` (34 tests).
+  > `PropertyTypeInternalLinkConvertTest` covers `LINK` /
+  > `LINKLIST` / `LINKSET` / `LINKMAP` / `LINKBAG` (36 tests).
+  > `PropertyTypeInternalEmbeddedConvertTest` covers the EMBEDDED
+  > singleton arm (5 tests). All extend `DbTestBase` because the
+  > embedded / link arms require an active session for
+  > `newLinkList` / `newEmbeddedSet` / etc. 75/75 tests pass;
+  > Spotless clean; coverage gate trivially passes (purely
+  > test-additive — no production code change).
+  >
+  > **What was discovered:** Three contract clarifications worth
+  > recording.
+  > 1) `PropertyTypeInternal.convert` (the abstract base method)
+  >    returns `Object`, so the per-arm covariant returns
+  >    (`Map<String, Identifiable>` on LINKMAP, `Set<Identifiable>`
+  >    on LINKSET, etc.) are NOT visible at the call site through
+  >    the enum-constant receiver. Tests cast explicitly to the
+  >    appropriate generic-collection type. This is structural to
+  >    Java enum constants overriding an abstract base — not a
+  >    bug — but documented in the test class Javadoc.
+  > 2) `session.newEmbeddedEntity(linkedClass)` requires
+  >    `linkedClass` to be marked `abstract` — the runtime throws
+  >    "Embedded entities can be only of abstract classes". The
+  >    EMBEDDED convert tests therefore call `setAbstract(true)`
+  >    on the fixture class before allocating the embedded entity.
+  > 3) `session.newEntity()` and `session.newEntity(linkedClass)`
+  >    both require an active transaction — `FrontendTransactionNoTx`
+  >    rejects record creation outside tx with
+  >    `UnsupportedOperationException`. Three tests wrap in
+  >    `begin/rollback` for that reason; the rest of the link tests
+  >    use bare `RecordId(int, long)` literals which require no tx.
+  >
+  > **Cross-track impact:** Two minor candidates added to Track 22's
+  > deferred-cleanup queue: (a) the `session.newEmbeddedEntity`
+  > abstract-class requirement is enforced at runtime but not
+  > documented in the public-API Javadoc — Track 22 may want to
+  > tighten the contract; (b) `PropertyTypeInternal.convert`'s
+  > abstract-base `Object` return type forces every caller into a
+  > cast despite per-arm covariant returns — narrowing the base
+  > return type would cascade into a public-API change on every
+  > override (out of scope for Track 16). No effect on Steps 6/7.
+  >
+  > **What changed from the plan:**
+  > - Test classes use a mix of `@Test` methods and parameter-table
+  >   structure rather than uniform `@RunWith(Parameterized.class)`
+  >   — same rationale Step 4 applied to the datetime/binary class
+  >   (heterogeneous expected types don't fold cleanly into a
+  >   single `(input, expected)` schema).
+  > - The collection-test-class set of arms is now disjoint from
+  >   Step 4's numeric + datetime/binary scope, so Steps 4 and 5
+  >   together pin every `PropertyTypeInternal.convert(...)` per-arm
+  >   body.
+  >
+  > **Key files:**
+  > - `core/src/test/java/.../core/metadata/schema/PropertyTypeInternalCollectionConvertTest.java` (new)
+  > - `core/src/test/java/.../core/metadata/schema/PropertyTypeInternalLinkConvertTest.java` (new)
+  > - `core/src/test/java/.../core/metadata/schema/PropertyTypeInternalEmbeddedConvertTest.java` (new)
 
 - [ ] Step 6: `SchemaShared` + `ImmutableSchema` + cluster-selection live coverage + Schema proxy boundary cases
   > **Risk:** medium — multi-file tests via `DbTestBase` exercising
