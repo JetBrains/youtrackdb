@@ -24,10 +24,8 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrackdb.internal.common.util.Pair;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
@@ -370,20 +368,19 @@ public class EntityHelperDeadCodeTest {
   // delete EntityComparator together with the EntityHelper.sort method.
   // -------------------------------------------------------------------
   @Test
-  public void sortChainTargetEntityComparatorIsObservedInTheClasspath() {
+  public void sortChainTargetEntityComparatorIsObservedInTheClasspath() throws Exception {
     // Smoke test — load the chain target. If the deferred-cleanup track lands a deletion
     // of EntityComparator without dropping sort, the static initialiser of this test class
     // would still load fine but the deletion would be incomplete; the per-method sort pin
-    // above would still hold on the now-orphaned method. This assertion documents the
-    // expected co-deletion.
+    // above would still hold on the now-orphaned method. The reflective signature lookup
+    // pins EntityComparator's ctor against the same parameter types EntityHelper.sort
+    // produces, so renaming/replacing either side fails this test loudly.
     assertFalse("EntityComparator must remain a class until sort is deleted alongside it",
         EntityComparator.class.isInterface());
-    // Reference DBRecord/Pair to keep the imports load-bearing — they appear only in the
-    // class Javadoc above otherwise, and a Spotless rebuild could drop them.
-    assertSame("DBRecord remains the abstract record contract — referenced from javadoc above",
-        DBRecord.class, DBRecord.class);
-    assertSame("Pair<String,String> remains the order-criteria element type referenced in"
-        + " sort's signature — pin the linkage so a rename surfaces here",
-        Pair.class, Pair.class);
+    var ctor = EntityComparator.class.getDeclaredConstructor(List.class, CommandContext.class);
+    assertSame("EntityComparator's first ctor parameter must remain List<Pair<...>>",
+        List.class, ctor.getParameterTypes()[0]);
+    assertSame("EntityComparator's second ctor parameter must remain CommandContext",
+        CommandContext.class, ctor.getParameterTypes()[1]);
   }
 }

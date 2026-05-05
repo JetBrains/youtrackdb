@@ -21,7 +21,6 @@ package com.jetbrains.youtrackdb.internal.core.record;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
@@ -240,8 +239,9 @@ public class RecordVersionHelperDeadCodeTest {
     }
     assertEquals("field set must remain {SERIALIZED_SIZE}", Set.of("SERIALIZED_SIZE"),
         fieldNames);
-    assertNotNull("BinaryProtocol must remain reachable for the SERIALIZED_SIZE compile-time"
-        + " constant — pin the linkage so a refactor that breaks it surfaces here",
-        BinaryProtocol.class);
+    // The BinaryProtocol linkage is already pinned by
+    // serializedSizeIsPublicStaticFinalIntEqualToBinaryProtocolLong above (which asserts
+    // the field's runtime value equals BinaryProtocol.SIZE_LONG); a class-literal
+    // existence assertion here would be vacuous.
   }
 }

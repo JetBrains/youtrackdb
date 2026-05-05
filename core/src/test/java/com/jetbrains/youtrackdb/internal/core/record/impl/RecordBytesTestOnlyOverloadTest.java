@@ -65,7 +65,7 @@ import org.junit.Test;
  * fails when fewer than 7 call sites remain, prompting the deletion in
  * lockstep.
  *
- * <p>This pin is the implementable form of the Track 12 backlog item that
+ * <p>This pin is the implementable form of a deferred-cleanup item that
  * was originally framed as "migrate {@code MemoryStream} callers" — the
  * "migration" was actually unimplementable for this overload because there
  * are no production callers to migrate; the actionable closure is deletion.

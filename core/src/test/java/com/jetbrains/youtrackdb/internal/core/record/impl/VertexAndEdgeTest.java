@@ -536,8 +536,7 @@ public class VertexAndEdgeTest extends DbTestBase {
    * be exactly that class (not just an EntityImpl with vertex semantics) and must report the
    * same record-type byte through the instance method. The same shape is mirrored for
    * {@link EdgeEntityImpl} with constant {@code 'e'}. We assert both with
-   * {@code assertEquals(X.class, x.getClass())} (the load-bearing wrapper-type idiom from
-   * Track 11) — {@code instanceof} is NOT sufficient here because a regression that returned
+   * {@code assertEquals(X.class, x.getClass())} (the load-bearing wrapper-type idiom) — {@code instanceof} is NOT sufficient here because a regression that returned
    * a base {@link EntityImpl} with vertex flags flipped on would silently pass an
    * {@code instanceof Vertex} check.
    */

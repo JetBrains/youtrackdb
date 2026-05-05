@@ -52,7 +52,7 @@ import org.junit.Test;
 public class ImportConvertersFactoryTest extends DbTestBase {
 
   /**
-   * Defensive {@code @After} (Track 5+ idiom).
+   * Defensive {@code @After} (rollback safety net).
    */
   @After
   public void rollbackIfLeftOpen() {
