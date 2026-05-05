@@ -372,4 +372,5 @@ public class EntityImplInPlaceComparisonTest extends DbTestBase {
     assertTrue(loaded.comparePropertyTo("name", "BOB").isEmpty());
     session.rollback();
   }
+
 }

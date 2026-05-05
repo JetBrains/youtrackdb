@@ -76,15 +76,20 @@ public final class SQLBinaryCondition extends SQLBooleanExpression {
       return evaluateAllFunction(currentRecord, ctx);
     }
 
-    // In-place comparison fast path: avoid deserialization for simple
-    // "property <op> constant" patterns.  Collation is checked inside
-    // EntityImpl (both serialized and deserialized paths return FALLBACK
-    // for non-default collation), so no getCollate guard needed here.
+    // In-place comparison fast path: avoid full deserialization for simple
+    // "property <op> constant" patterns. Uses asIdentifiableOrNull() rather than
+    // asEntityOrNull() so a bare-RID Result from the lazy MATCH path does NOT
+    // trigger loadEntity here — such a Result fails the instanceof check and
+    // falls through to the standard path (left.execute → getProperty), which
+    // lazily loads only if a property is actually read. The fast path remains
+    // active for Results that already wrap a materialized EntityImpl (standard
+    // SELECT path), where the byte-level comparison avoids paying for full
+    // property-map deserialization just to evaluate one predicate.
     if (left.isBaseIdentifier()
         && left.mathExpression instanceof SQLBaseExpression baseExpr
         && right.isEarlyCalculated(ctx)
         && currentRecord instanceof ResultInternal ri
-        && ri.asEntityOrNull() instanceof EntityImpl entityImpl) {
+        && ri.asIdentifiableOrNull() instanceof EntityImpl entityImpl) {
       var propName = baseExpr.getIdentifier().getSuffix()
           .getIdentifier().getStringValue();
       var rightVal = right.execute(currentRecord, ctx);

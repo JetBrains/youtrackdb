@@ -8,6 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.id.ContextualRecordId;
@@ -154,8 +155,56 @@ public class SQLSuffixIdentifier extends SimpleNode {
         return result;
       }
       if (iCurrentRecord != null) {
-        if (iCurrentRecord.hasProperty(varName)) {
-          return iCurrentRecord.getProperty(varName);
+        // LET-variable shortcut: $-prefixed names fail EntityImpl
+        // .validatePropertyName at the base level (first char must be
+        // letter/_/@/~), so getProperty would throw. They never live on the
+        // entity — resolve from Result metadata / temporary properties
+        // directly without any record dispatch.
+        if (varName.startsWith("$")) {
+          if (iCurrentRecord instanceof ResultInternal resultInternal) {
+            if (resultInternal.getMetadataKeys().contains(varName)) {
+              return resultInternal.getMetadata(varName);
+            }
+            if (resultInternal.getTemporaryProperties().contains(varName)) {
+              return resultInternal.getTemporaryProperty(varName);
+            }
+          }
+          return null;
+        }
+
+        // Edge-management accessor names (out_*, in_*) are rejected by
+        // VertexEntityImpl.validatePropertyName and EdgeEntityImpl
+        // .validatePropertyName — getProperty would throw
+        // IllegalArgumentException on those record types. These names do
+        // appear in real SQL projections (e.g. `select out_[...].in_ from
+        // V`), so we route them through hasProperty-first, which does NOT
+        // run validatePropertyName and returns false safely when the entry
+        // is absent, true when present (e.g. `out_drives` on a vertex with
+        // a `drives` edge).
+        //
+        // KEEP IN SYNC: the only EntityImpl subclasses that override
+        // validatePropertyName today are VertexEntityImpl and
+        // EdgeEntityImpl, both rejecting the same out_/in_ prefixes. If a
+        // future subclass adds further reserved-name validation, extend
+        // this guard to cover those names — otherwise the getProperty-first
+        // branch below will throw on them.
+        if (varName.startsWith(Vertex.DIRECTION_OUT_PREFIX)
+            || varName.startsWith(Vertex.DIRECTION_IN_PREFIX)) {
+          if (iCurrentRecord.hasProperty(varName)) {
+            return iCurrentRecord.getProperty(varName);
+          }
+        } else {
+          // Hot path for regular property names: getProperty first — single
+          // dispatch in the common case (property exists with non-null
+          // value). Only call hasProperty when getProperty returns null, to
+          // disambiguate "absent" from "present-but-null". On a lazy bare-
+          // RID Result, getProperty materializes the entity in one step
+          // (loadLazyAndGetProperty caches it in this.identifiable), so the
+          // eventual hasProperty hits the hot path without reloading.
+          var propValue = iCurrentRecord.getProperty(varName);
+          if (propValue != null || iCurrentRecord.hasProperty(varName)) {
+            return propValue;
+          }
         }
 
         if (iCurrentRecord instanceof ResultInternal resultInternal
