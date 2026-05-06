@@ -43,12 +43,15 @@ fi
 
 # --- Per-session state file -------------------------------------------------
 
+# Walk up the process tree using `ps` so this works on macOS (BSD) and
+# Linux alike — `/proc/$pid/{comm,status}` is Linux-only.
 claude_pid=""
 pid=$$
 while [ "$pid" -gt 1 ] 2>/dev/null; do
-  comm=$(cat /proc/$pid/comm 2>/dev/null || echo "")
+  comm=$(ps -p "$pid" -o comm= 2>/dev/null | tr -d '[:space:]')
   if [ "$comm" = "claude" ]; then claude_pid=$pid; break; fi
-  pid=$(awk '/^PPid:/{print $2}' /proc/$pid/status 2>/dev/null || echo "1")
+  pid=$(ps -p "$pid" -o ppid= 2>/dev/null | tr -d '[:space:]')
+  [ -z "$pid" ] && pid=1
 done
 if [ -z "$claude_pid" ]; then claude_pid="$PPID"; fi
 
@@ -58,7 +61,8 @@ state_file="/tmp/mcp-steroid-grep-reminder-${claude_pid}.txt"
 
 now=$(date +%s)
 if [ -f "$state_file" ]; then
-  last=$(stat -c %Y "$state_file" 2>/dev/null || echo 0)
+  # Portable file-mtime read: GNU `stat -c %Y` on Linux, BSD `stat -f %m` on macOS.
+  last=$(stat -c %Y "$state_file" 2>/dev/null || stat -f %m "$state_file" 2>/dev/null || echo 0)
   if [ $((now - last)) -lt "$RATE_LIMIT_SECONDS" ]; then
     exit 0
   fi
