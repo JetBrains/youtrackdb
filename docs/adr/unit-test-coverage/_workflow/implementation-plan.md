@@ -1384,16 +1384,92 @@ flowchart TD
   > (verified `MUST NOT ScheduleWakeup` and `Do NOT run git clean -fd`
   > present in `implementer-rules.md`).
 
-- [ ] Track 16: Metadata Schema & Functions
+- [x] Track 16: Metadata Schema & Functions
   > Write tests for schema management and function/sequence libraries.
   > Schema operations (classes, properties, cluster selection) are the
   > largest gap; function and sequence libraries are smaller but
   > self-contained.
   >
-  > **Scope:** ~6 steps covering schema property operations, schema
-  > class operations, cluster selection, function library, sequence
-  > library, and verification.
-  > **Depends on:** Track 1
+  > **Track episode:**
+  > Added ~9,300 LOC of test code across 27 new/extended test files
+  > covering `core/metadata/schema*` (incl. `clusterselection`),
+  > `core/metadata/function`, and `core/metadata/sequence`. Purely
+  > test-additive: zero production code modified across all 7 step
+  > commits + 2 review-fix commits. Final aggregate coverage on the
+  > touched packages (post-iter-3): `core/metadata/schema` 71.7% →
+  > **84.8%/69.7%** (1231 → 662 uncov);
+  > `core/metadata/schema/clusterselection` 63.3% → **93.9%/75.0%**
+  > (18 → 3 uncov, 3 residual = dead-pinned LOC awaiting Track 22's
+  > lockstep delete); `core/metadata/function` 73.3% → **86.1%/77.8%**
+  > (71 → 37 uncov); `core/metadata/sequence` 85.4% →
+  > **90.6%/75.5%** (70 → 45 uncov). Aggregate `core` module: 76.1%/66.7%
+  > → **76.8%/67.4%** (+0.7pp / +0.7pp).
+  >
+  > **Track-level code review (3 iterations, max reached; final PASS):**
+  > - Iter-1 (6 dimensions: CQ/BC/TB/TC/TX/TS): 1 blocker + 14
+  >   should-fix + 17 suggestions. Applied in commit `075ed92aaf` —
+  >   tracked-`spawn()` + `@After` join discipline in both concurrency
+  >   tests; positive-latch rewrite of
+  >   `writersAreSerializedAcrossThreads` + `writerExcludesReader`;
+  >   `dropFunctionByNameThrowsNpeOnAbsentName` narrowed to
+  >   `NPE | DatabaseException`; `factoryRegisterDefaultFunctionsIsNoOp`
+  >   / `configIsNoOp` got observable post-state checks; equals
+  >   symmetry pinned both directions on `SchemaClassProxyBoundaryTest`;
+  >   `assertNotSame` swap on `SchemaImmutableClassShapeTest`;
+  >   reflective method/field-signature pins extended on three
+  >   `*DeadCodeTest` classes; precise `Mockito.times(1)` interaction
+  >   shape on `BalancedCollectionSelectionStrategyDeadCodeTest`.
+  > - Iter-2 (6-dim gate check): all PASS except TB (1 STILL OPEN —
+  >   `configIsNoOp` post-state pin structurally vacuous) plus 8 new
+  >   should-fix items across CQ / TB / TX. Applied in commit
+  >   `9409a1a66d` — TB STILL OPEN
+  >   (`configIsNoOpAndAdapterHasNoStateBeyondFunction` reflective
+  >   field-count pin), TB9 (`deprecatedCreateIsIdempotent` rewrite on
+  >   populated library), TX5 (one-sided-invariant doc-comment), TX6
+  >   (daemon thread + `!isAlive()` + `interrupt()` + `fail(...)`
+  >   discipline mirrored across both concurrency test files), CQ5
+  >   (static-imported JUnit asserts in three files).
+  > - Iter-3 (TB / TX / CQ gate check): **PASS** on all three. All
+  >   iter-1 + iter-2 findings VERIFIED; 0 STILL OPEN, 0 REGRESSION,
+  >   0 new findings on the focal dimensions. Review loop closed.
+  >
+  > **Cross-track impact (forwarded to Track 22 absorption queue):**
+  > - Dead-code deletion lockstep groups: `IndexConfigProperty` solo
+  >   delete (13 uncov, 0 prod refs); cluster-selection trio
+  >   (`Balanced`/`Default`CollectionSelectionStrategy +
+  >   `CollectionSelectionFactory.{getStrategy,registerStrategy,newInstance}`
+  >   methods + 2 SPI entries — refined to method-level granularity at
+  >   Step 1 because `CollectionSelectionFactory`'s constructor is
+  >   reachable via `SchemaShared`'s field initializer; RoundRobin entry
+  >   + class stay live).
+  > - Latent production issues pinned by current tests (no
+  >   `WHEN-FIXED` markers needed; observable behaviour is the pin):
+  >   `PropertyTypeInternal:1699` static `convert(session, value,
+  >   targetClass)` dispatcher null-session NPE;
+  >   `SchemaProperty.get(LINKEDTYPE/TYPE)` returning the internal
+  >   `PropertyTypeInternal` enum despite `Object` contract;
+  >   `session.newEmbeddedEntity(linkedClass)` undocumented
+  >   abstract-class requirement; `PropertyTypeInternal.convert`
+  >   abstract-base `Object` return widening;
+  >   `SchemaShared.releaseSchemaWriteLock(session, false)`
+  >   unconditional version bump; `FunctionLibraryImpl.dropFunction`
+  >   NPE-on-absent-name vs `SequenceLibraryImpl.dropSequence`
+  >   no-op asymmetry; `Function#execute(Object...)` deprecated
+  >   overload throws "No database session found" because
+  >   `executeInContext` reads `iContext.getDatabaseSession()` before
+  >   the callback short-circuit; pre-existing
+  >   `FunctionLibraryTest.testFunctionCreateDrop` inert final
+  >   assertion on a different name than was dropped.
+  > - Iter-2 deferred items: TC9/10/11 (`PropertyTypeInternal` Result-
+  >   arm coverage gaps for LINK / EMBEDDEDMAP / EMBEDDED), TS10
+  >   (pre-existing `FunctionLibraryTest` `test*` naming), plus ~17
+  >   suggestion-tier readability nits (BC5/6/7, CQ6/7/8/9, TC12/13,
+  >   TX7, TS5/6/7/8/9, TB10) absorbed into the Track 22 backlog
+  >   block via commit `acd42ee30a`.
+  >
+  > No upcoming-track assumption is invalidated.
+  >
+  > **Step file:** `tracks/track-16.md` (7 steps, 0 failed)
 
 - [ ] Track 17: Security
   > Write tests for the security subsystem — authentication,
