@@ -201,7 +201,7 @@ profile build, integration tests:
   switching to `run_in_background`.
 - **Test-additive steps skip the coverage-profile build entirely.**
   When the step adds only test code (no production-source changes
-  in `git diff origin/develop -- core/src/main`), the coverage gate
+  in `git diff origin/develop -- '**/src/main/**'`), the coverage gate
   trivially passes on changed lines because there are no changed
   production lines. Run the targeted tests in foreground, confirm
   Spotless, and commit — record the gate as `n/a (test-additive)`
