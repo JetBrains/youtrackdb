@@ -214,7 +214,7 @@ token management, and encryption.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/7 complete)
+- [ ] Step implementation (2/7 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -321,21 +321,76 @@ token management, and encryption.
   >
   > **Commit:** `6f0c668eaa`
 
-- [ ] Step 2: `core/security/authenticator` chain dispatch
+- [x] Step 2: `core/security/authenticator` chain dispatch
+  - [x] Context: safe
   > **Risk:** low — default (extends DbTestBase-driven authentication
   > tests, no new shared infrastructure)
   >
-  > Drive the default 3-entry chain through
-  > `DefaultSecuritySystem.initDefultAuthenticators` →
-  > `enabledAuthenticators` walk in `authenticate(session, username,
-  > password)`. Cover `SecurityAuthenticatorAbstract`,
-  > `DefaultPasswordAuthenticator`, `DatabaseUserAuthenticator`,
-  > `ServerConfigAuthenticator`, `SystemUserAuthenticator`,
-  > `TemporaryGlobalUser`. Construction + first-match + fall-through
-  > + try-each + `verifyTokenSign` integration. The reflective
-  > JSON-config extension chain is covered in Step 4. Extend or add
-  > targeted unit tests; `DbTestBase`-driven where the chain needs
-  > a session.
+  > **What was done:** Added four new test classes in
+  > `core/security/authenticator`. `SecurityAuthenticatorAbstractTest`
+  > uses a minimal concrete subclass to exercise every concrete
+  > method in the abstract base class: config map keys (`name`,
+  > `enabled`, `debug`, `caseSensitive`), `getAuthenticationHeader`
+  > with and without a db name, `getClientSubject`,
+  > `isSingleSignOnSupported`, `getUser`/`isAuthorized`/`authenticate`
+  > fall-throughs, and the `SecurityAuthenticator` +
+  > `SecurityComponent` interface shape pin.
+  > `DefaultPasswordAuthenticatorTest` drives the in-memory user-map
+  > path: config registration, null/unknown/case-insensitive
+  > `getUser`, `dispose`, and the `isPasswordValid` observable
+  > contract. `TemporaryGlobalUserTest` pins the POJO triple
+  > (constructor, setters, null fields, `GlobalUser` interface).
+  > `AuthenticatorChainDispatchTest` is a `DbTestBase` integration
+  > test that drives the default 3-entry chain through
+  > `DefaultSecuritySystem`: admin user authentication, unknown
+  > user, wrong-password null return, chain size/order assertion,
+  > `AuthenticationInfo` dispatch, `DatabaseUserAuthenticator` token
+  > sign/verify/tampered/invalid-`isValid` paths, and
+  > `SystemUserAuthenticator` null-args shape pins. All 1 809 core
+  > tests pass; Spotless clean.
+  >
+  > **What was discovered:**
+  > `DefaultPasswordAuthenticator.createServerUser()` reads the JSON
+  > `"password"` field but passes only `(session, name, userType)`
+  > to `ImmutableUser`, storing `""` as the password. The
+  > `isPasswordValid()` guard in `authenticate()` returns false for
+  > any user with an empty stored password, so `authenticate()`
+  > **always returns null for server users registered via the
+  > in-memory config map**. Pinned as observable behaviour in
+  > `DefaultPasswordAuthenticatorTest#authenticateShouldReturnNullForUserWithEmptyStoredPassword`.
+  > **Forward to Track 22 deferred-cleanup queue.**
+  >
+  > `DatabaseUserAuthenticator` test method names beginning with
+  > `"server"` caused `DbTestBase` database creation to fail
+  > (`YouTrackDBInternalEmbedded.checkDatabaseName` rejects names
+  > starting with `"server"`); renamed to `configAuthenticator*`.
+  >
+  > `DefaultSecuritySystem.getPrimaryAuthenticator()` is guarded by
+  > the `enabled` flag, which defaults to false in the embedded
+  > context (no `security.json`). The primary authenticator is null
+  > unless a full security config is loaded — pinned the null return
+  > in the test.
+  >
+  > **Cross-track forward:** Step 4 (`DefaultSecuritySystem`
+  > reflective reload paths) must synthesize a JSON config map and
+  > call `loadComponents()` (setting `enabled=true`) before calling
+  > `getPrimaryAuthenticator()` — bare instantiation always returns
+  > null. The empty-password `createServerUser` bug joins Step 1's
+  > SALT_CACHE finding in the Track 22 absorption block.
+  >
+  > **Critical context:** `DefaultPasswordAuthenticatorTest` names
+  > that map to db names must not begin with `"server"`, `"system"`,
+  > or other reserved words rejected by `checkDatabaseName`. Future
+  > `DbTestBase` subclasses in this package should follow the same
+  > caution.
+  >
+  > **Key files:**
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/security/authenticator/SecurityAuthenticatorAbstractTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/security/authenticator/DefaultPasswordAuthenticatorTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/security/authenticator/TemporaryGlobalUserTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/security/authenticator/AuthenticatorChainDispatchTest.java` (new)
+  >
+  > **Commit:** `7ab8540020`
 
 - [ ] Step 3: `core/metadata/security` live coverage gap (Roles + Policies + Identity + Resources + Auth-info)
   > **Risk:** low — default (extends existing tests, no new shared
