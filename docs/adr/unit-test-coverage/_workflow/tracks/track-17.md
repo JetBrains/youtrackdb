@@ -217,6 +217,9 @@ token management, and encryption.
 - [ ] Step implementation
 - [ ] Track-level code review
 
+## Base commit
+`aadb522a9adb485faddd90bd524a90a5b5a238d2`
+
 ## Reviews completed
 - [x] Technical (`reviews/track-17-technical.md`) — 2 blockers, 4 should-fix, 3 suggestions
 - [x] Risk (`reviews/track-17-risk.md`) — 0 blockers, 5 should-fix, 4 suggestions
