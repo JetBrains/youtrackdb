@@ -1104,6 +1104,98 @@ Natural cleanup happens when the branch is deleted after PR merge. -->
 >   null) does not silently make `ImportConvertersFactory`'s abstract-
 >   base null arm reachable through LinkSet.
 
+> *From Track 16 (Metadata Schema & Functions) Phase C:* Four
+> should-fix test-addition / pre-existing-naming items + ~17
+> suggestion-tier readability nits absorbed.
+>
+> **Should-fix tier (test-additions and pre-existing-code naming):**
+> - **TC9** — `PropertyTypeInternal.LINK.convert(...)` `Result` arm
+>   has three uncovered sub-paths
+>   (`isIdentifiable()→asIdentifiable()` short-circuit;
+>   `isProjection()→toMap()` recurse;
+>   neither→post-switch throw at `PropertyTypeInternal:861`). Add
+>   three tests under the appropriate link-convert test class with
+>   `ResultInternal` setup using `setIdentifiable(rid)` /
+>   `setProperty(...)`.
+> - **TC10** — `PropertyTypeInternal.EMBEDDEDMAP.convert(...)` `Result`
+>   arm has two uncovered sub-paths
+>   (projection→entries-from-property-names;
+>   non-projection→wrap-under-`"value"`-key). Add two tests under the
+>   appropriate embeddedmap-convert test class.
+> - **TC11** — `PropertyTypeInternal.EMBEDDED.convert(...)` String
+>   arm calls `JSONSerializerJackson.INSTANCE.fromString(...)` which
+>   throws on malformed JSON. Add an `assertThrows` test for the
+>   parse-failure path; tighten exception class once the first run
+>   reveals the surfaced type.
+> - **TS10** — pre-existing `testSimpleFunctionCreate`,
+>   `testDuplicateFunctionCreate`, `testFunctionCreateDrop` in
+>   `FunctionLibraryTest` use the legacy `test*` prefix while every
+>   Track 16-added test uses `actionDescribesExpectedOutcome` style.
+>   Either rename the three pre-existing methods or add per-method
+>   one-line comments explaining what they pin. Pre-existing code,
+>   acceptable to defer.
+>
+> **Suggestion tier (~17 items, low-priority readability /
+> diagnostic-clarity nits):**
+> - **BC5/6/7** — diagnostic-clarity nits in
+>   `SchemaSharedLockApiTest.multipleReadersAreConcurrent` (in-test
+>   join loop duplicates `@After` join);
+>   `bAttemptingAcquire` countdown ordering relative to
+>   `acquireSchemaWriteLock` in `writersAreSerializedAcrossThreads`
+>   (microsecond-scale window where A could exit the latch wait
+>   while B is still in JIT/scheduling); and
+>   `SchemaProxyBoundaryTest.inactiveSessionTriggersSessionNotActivatedException`
+>   could use an `assertFalse(t.isAlive())` after the in-test join
+>   for clearer diagnostic on a stuck worker.
+> - **CQ6/7/8/9** — fully-qualified-type usages in
+>   `FunctionLibraryTest` (`EntityImpl` cast),
+>   `PropertyTypeInternalLinkConvertTest` (`RID` field type),
+>   `ImmutableSchemaPropertyShapeTest` (`DefaultCollate`, `HashMap`
+>   inside lambdas), and `SchemaClassOperationsTest` (redundant
+>   `dbSession = session` aliases).
+> - **TC12/13** — `BalancedCollectionSelectionStrategyDeadCodeTest`
+>   REFRESH_TIMEOUT cache-hit branch (low priority — class is dead-
+>   code scheduled for deletion — line item 'Track 16 cluster-
+>   selection' below);
+>   `PropertyTypeInternalNumericConvertTest` boundary values
+>   (`Long.MAX_VALUE→Integer/Short`, `Double.NaN→Long`,
+>   `Double.POSITIVE_INFINITY→Long`).
+> - **TX7** — drop body-level join loop in
+>   `multipleReadersAreConcurrent` (5s+ latency penalty when a real
+>   failure occurs; the `failures` collector + `@After` join already
+>   handle the contract).
+> - **TS5/6/7/8/9** — DRY hoist candidates: extract
+>   `TrackedSpawnTestSupport` once N≥3 consumers exist (currently 2);
+>   collapse duplicated `classExposesExpectedPublicSurface` helpers
+>   in `BalancedCollectionSelectionStrategyDeadCodeTest` /
+>   `DefaultCollectionSelectionStrategyDeadCodeTest` (both scheduled
+>   for lockstep deletion); add `currentSnapshot()` /
+>   `snapshotClass(name)` helpers in `ImmutableSchemaShapeTest`;
+>   split `SchemaClassOperationsTest` (805 LOC, 31 tests) into
+>   thematic siblings; consider a shared row-schema for the
+>   `PropertyTypeInternal*ConvertTest` siblings.
+> - **TB10** — drop misleading "Void setters … pinned by absence of
+>   compile-time assertion" comment in
+>   `FunctionRecordRoundTripTest.settersAreFluentWhereTheyReturnFunctionAndOverwriteFields`,
+>   or add a reflective return-type pin on `setCode` / `setLanguage`.
+>
+> **Track 16 dead-code deletions (lockstep with `*DeadCodeTest`
+> pin removal):** the four dead-code pin classes added in Track 16
+> Step 1 carry the `WHEN-FIXED: Track 22` deletion-marker convention
+> already used by Tracks 9 / 12 / 14 / 15 — when the targets below
+> are deleted, drop the matching pin in the same commit:
+> - `IndexConfigPropertyDeadCodeTest` →
+>   `core/.../metadata/schema/IndexConfigProperty` (zero production
+>   callers per PSI find-usages).
+> - `BalancedCollectionSelectionStrategyDeadCodeTest`,
+>   `DefaultCollectionSelectionStrategyDeadCodeTest`,
+>   `CollectionSelectionFactoryDeadCodeTest` →
+>   `core/.../metadata/schema/clusterselection/{Balanced,Default}CollectionSelectionStrategy`
+>   plus the SPI factory entry pinning them in
+>   `META-INF/services/...CollectionSelectionStrategy`. The trio
+>   has zero production callers per PSI; the live cluster-selection
+>   path is the round-robin strategy.
+
 > **How**:
 > - TX tests need a database session to verify begin/commit/rollback
 >   semantics (`DbTestBase`).
