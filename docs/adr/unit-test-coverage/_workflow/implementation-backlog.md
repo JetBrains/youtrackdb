@@ -5,47 +5,6 @@ split-file plan format (see .claude/workflow/conventions.md §1.2).
 Deleting it flips subsequent workflow operations into legacy mode.
 Natural cleanup happens when the branch is deleted after PR merge. -->
 
-## Track 17: Security
-
-> **What**:
-> - `core/metadata/security` (593 uncov, 72.3%) — security metadata
->   (Role, Identity, SecurityPolicyImpl, resource classes)
-> - `core/security` (548 uncov, 32.1%) — core security
->   (SecurityManager, TokenSign, password hashing)
-> - `core/security/authenticator` (140 uncov, 25.5%) —
->   authenticators (DefaultPassword, DatabaseUser)
-> - `core/security/symmetrickey` (282 uncov, 26.6%) — symmetric key
->   security
-> - `core/metadata/security/binary` (164 uncov, 0.0%) — binary
->   token serialization
-> - `core/metadata/security/jwt` (10 uncov, 0.0%) — JWT tokens
-> - `core/metadata/security/auth` (9 uncov, 0.0%) — auth info
-> - `core/security/kerberos` (114 uncov, 0.0%) — Kerberos auth
->
-> **How**:
-> - Cover password hashing (PBKDF2 round-trip, salt handling),
->   token sign/verify (HMAC, JWT), role/permission checks (allow/deny
->   matrix), and authenticator chain dispatch (try-each, fall-through,
->   first-match).
-> - Symmetric key tests cover key creation, encrypt/decrypt round-trip,
->   key rotation, and serialization shape.
-> - Kerberos tests must be limited (no Kerberos infrastructure in test
->   env) — pin construction and rejection paths only.
-> - Binary token tests follow the round-trip pattern from Tracks 12–13.
-> - Carry forward Tracks 5–16 conventions.
->
-> **Constraints**:
-> - In-scope: only the listed `core/security*` and
->   `core/metadata/security*` packages.
-> - Do NOT introduce real network or external Kerberos KDC
->   dependencies — mock or skip those paths.
-> - Security-test secrets must be constants in the test, never read
->   from env vars or files outside the test module.
->
-> **Interactions**:
-> - Depends on Track 1 and benefits from Track 16 (schema for user/role
->   classes).
-
 ## Track 18: Index
 
 <<< RECOVERY GAP — original line not present in any agent transcript >>>

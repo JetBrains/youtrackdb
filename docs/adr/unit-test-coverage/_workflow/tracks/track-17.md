@@ -1,0 +1,363 @@
+# Track 17: Security
+
+## Description
+
+Write tests for the security subsystem — authentication, authorization,
+token management, and encryption.
+
+> **What** (per-package live targets — Phase A reviews refined the
+> backlog's class list; the legacy `O*` FQNs no longer exist after the
+> OrientDB → YouTrackDB rebrand and three of the originally-named
+> classes were phantoms):
+> - `core/metadata/security` (593 uncov, 72.3% — ALREADY-LIVE) — close
+>   the residual `SecurityShared`, `Role`, `Rule`, `Identity`,
+>   `SecurityPolicyImpl`, `SecurityResource*` JSON / role-resource /
+>   `permissionToString` / `SystemRole`-via-`SecuritySystemUserImpl` gaps;
+>   extend `SecurityResourceTest`, `SecurityEngineTest`,
+>   `SecurityPolicyTest`, `SecuritySharedTest`, `ImmutableUserTest`,
+>   `HashSaltTest`, `TestReaderDropClass` rather than create new classes
+>   (existing-classes-preferred).
+> - `core/security` (548 uncov, 32.1%) — `SecurityManager` (live core
+>   ~360 LOC: hash/PBKDF2/salt-cache/token-encryption-config),
+>   `PasswordValidator`, `TokenSign` + `TokenSignImpl` (HMAC sign/verify
+>   round-trip), `ParsedToken`, `GlobalUserImpl`, `Syslog`,
+>   `AuditingOperation` enum, `AuditingService` interface, `Security`
+>   facade, `SecurityComponent`, `DefaultKeyProvider`,
+>   `DefaultSecurityConfig`. Plus `DefaultSecuritySystem` (1 233 LOC,
+>   ~one-third of the package) — **target the JSON-config-driven
+>   reflective `reload` / `reloadComponent` / `reloadAuthMethods` /
+>   `getClass` / `loadAuthenticators` / `loadPasswordValidator` /
+>   `registerSecurityClass` paths in a dedicated step (highest-yield
+>   single test class for this package per Phase A T7)**. Extend
+>   `SecurityManagerTest` / `SchemaPropertyAccessTest` /
+>   `ResourceDerivedTest` rather than recreate.
+> - `core/security/authenticator` (140 uncov, 25.5%) — chain dispatch
+>   via `DefaultSecuritySystem.initDefultAuthenticators` (default 3-entry
+>   chain reachable through `DbTestBase`): `SecurityAuthenticatorAbstract`,
+>   `DefaultPasswordAuthenticator`, `DatabaseUserAuthenticator`,
+>   `ServerConfigAuthenticator`, `SystemUserAuthenticator`,
+>   `TemporaryGlobalUser`. The reflective extension chain
+>   (`reloadAuthMethods` reading JSON `authentication.authenticators[].class`
+>   via `Class.forName`) is covered in the `DefaultSecuritySystem`-reload
+>   step (above).
+> - `core/security/symmetrickey` (282 uncov, 26.6%) — **mixed live/dead
+>   split**: live core ~150 LOC (`SymmetricKey` 4 reachable constructors +
+>   `encrypt(byte[])` / `decrypt(String)` round-trip + a handful of
+>   getters, plus `JSONSerializerJackson` `toEntity`/`fromEntity` shape).
+>   Extend `SymmetricKeyTest`. Dead surface (~480 LOC) goes through the
+>   dead-code reframe step.
+> - `core/metadata/security/auth` (9 uncov, 0%) — three thin record-
+>   style value classes (`AuthenticationInfo`, `TokenAuthInfo`,
+>   `UserPasswordAuthInfo`); trivial constructor-and-getter tests. Live
+>   wiring exists (26 PSI refs on `AuthenticationInfo` across core+
+>   server) but no test currently constructs them.
+>
+> **What** (per-package dead-code-pin targets — applied per Track 14/15/16
+> precedent after Phase A PSI all-scope `ReferencesSearch` confirmed the
+> following classes have **zero non-self callers** across all 5+ modules
+> — `core` main, `server`, `driver`, `embedded`, `tests`,
+> `gremlin-annotations`):
+> - `core/security/kerberos` whole package (114 uncov, 0%):
+>   `KerberosCredentialInterceptor`, `Krb5ClientLoginModuleConfig`. PSI
+>   refs = 1 (= self) for both. The `CredentialInterceptor` SPI is
+>   uncalled (`SecurityManager.newCredentialInterceptor()` itself has 0
+>   callers). Pin via `*DeadCodeTest` reflective method-/field-signature
+>   shape pins (Track 14/15/16 precedent).
+> - `core/metadata/security/binary` whole package (164 uncov, 0%):
+>   `BinaryToken`, `BinaryTokenSerializer`, `BinaryTokenPayloadImpl`,
+>   `BinaryTokenPayloadDeserializer`, `DistributedBinaryTokenPayload`
+>   — all closed under self-reference; `DistributedBinaryTokenPayload`
+>   has 0 refs anywhere. Header comment of
+>   `DistributedBinaryTokenPayload` says *"may be removed if we do not
+>   support runtime compatibility with 3.1 or less"* — this is the
+>   intended outcome.
+> - `core/metadata/security/jwt` JWT-specific abstractions (10 uncov, 0%):
+>   `JsonWebToken` (interface, 0 implementers, 0 refs), `JwtPayload`
+>   (interface, 0 implementers, 1 self-ref). The generic token
+>   plumbing in the same `jwt/` package (`TokenHeader`, `TokenPayload`,
+>   `TokenMetaInfo`, `KeyProvider`, `BinaryTokenPayload` interface,
+>   `TokenPayloadDeserializer`) is **live** through `Token` /
+>   `TokenSignImpl` and is not in the dead-code list. Also dead:
+>   `YouTrackDBJwtHeader` (10 uncov; only referenced from the orphan
+>   `BinaryTokenSerializer`).
+> - `core/security` orphan SPI surface: `DefaultCI`,
+>   `SecurityManager.newCredentialInterceptor()`,
+>   `GlobalConfiguration.CLIENT_CREDENTIAL_INTERCEPTOR` (whole interceptor
+>   plug-in chain).
+> - `core/security/symmetrickey` orphan members: `SymmetricKeyCI` whole
+>   class, `SymmetricKeySecurity` whole class, `UserSymmetricKeyConfig`
+>   whole class, plus 18 of 31 public methods on `SymmetricKey` reachable
+>   only from those dead consumers (`fromConfig`, `fromString`,
+>   `fromFile`, `fromKeystore` family, `setDefaultCipherTransform`,
+>   `decryptAsString`, plus 12 dead getters/setters mirroring config
+>   accessors). Per-method pinning so partial deletion stays valid
+>   (Track 15 `EntityHelper` precedent — 12 methods pinned individually).
+>
+> Each dead-code class/method gets a `// WHEN-FIXED: Track 22 — delete
+> <class-or-method>` marker. Track 22's deferred-cleanup queue absorbs
+> ~12 lockstep deletion groups + 18 per-method `SymmetricKey` deletions
+> at Phase C strategy refresh.
+>
+> **How**:
+> - Cover password hashing (PBKDF2 round-trip with fixed inputs, salt
+>   handling, `SecurityManager.createHashWithSalt` / `checkPasswordWithSalt`
+>   self-describing-string round-trip — never assert a specific salt:
+>   iterations:hash byte literal); HMAC token sign/verify via
+>   `TokenSignImpl.signToken(byte[])` + `verifyTokenSign(ParsedToken)`
+>   round-trip (NOT a JWT-specific API — `JsonWebToken` and
+>   `TokenSign.parseWebToken` do not exist in this codebase);
+>   role/permission allow/deny matrix via `SecurityShared` / `SecurityEngine`
+>   driven by `DbTestBase`; authenticator chain dispatch through
+>   `DefaultSecuritySystem`'s default 3-entry chain.
+> - Symmetric key tests cover live constructors, `encrypt(byte[])` /
+>   `decrypt(String)` round-trip, JSON `toEntity`/`fromEntity` shape,
+>   and JCE-IV-auto-generation contract (assert `Base64.decode(iv).length
+>   == cipher block size` — DO NOT pin literal Base64 bytes; the IV is
+>   provider-generated and non-deterministic). Keystore loader
+>   (`fromKeystore(file, password, alias)`) tested with a fixture
+>   `.jks`/`.p12` file checked in under `core/src/test/resources/`.
+> - Kerberos tests are **dead-code shape pins only** — DO NOT call
+>   `KerberosCredentialInterceptor.intercept(...)` with valid args.
+>   Phase A established that `intercept` at line 145 calls
+>   `System.setProperty("java.security.krb5.conf", config)` *during the
+>   production method, before the LoginContext call* — this mutates
+>   JVM-global JAAS state for every concurrent test in the surefire
+>   fork (4 parallel threads default). Reflective shape pins on
+>   constructor + method signatures stay below the line-142 boundary;
+>   they exercise reflection machinery and the empty constructor only,
+>   never invoking `intercept`, `getServiceTicket`, or
+>   `Krb5ClientLoginModuleConfig.getAppConfigurationEntry` past their
+>   parameter-null guards.
+> - Dead-code reframe covers Kerberos / binary-token / JWT-abstractions /
+>   `CredentialInterceptor` SPI / orphan symmetric-key surface (~420
+>   uncov LOC). Reflective-method/field-signature shape pins per Track
+>   14/15/16 carry-forward; per-method pinning where partial deletion
+>   must stay valid (Track 15 `EntityHelper` precedent).
+> - **Existing-classes-preferred**: 13 existing test files (~2 653 LOC)
+>   already cover parts of the surface. Each step's design must list the
+>   candidate existing classes to extend before creating new ones.
+>   Specifically: `SecurityManagerTest`, `HashSaltTest`,
+>   `SchemaPropertyAccessTest`, `ResourceDerivedTest`,
+>   `SymmetricKeyTest`, `SecurityResourceTest`, `SecurityEngineTest`,
+>   `SecurityPolicyTest`, `SecuritySharedTest`, `ImmutableUserTest`,
+>   `TestReaderDropClass`. **Do NOT** extend `ColumnSecurityTest` (587
+>   LOC) or `PredicateSecurityTest` (658 LOC) — they are
+>   integration-style, conflating with their scope dilutes the unit-
+>   coverage goal.
+>
+> **Constraints**:
+> - In-scope: only the listed `core/security*` and `core/metadata/security*`
+>   packages.
+> - Do NOT introduce real network or external Kerberos KDC dependencies
+>   — and do NOT call `KerberosCredentialInterceptor.intercept(...)` at
+>   all, because the production method mutates JVM-global state before
+>   any rejection point. Tests stop at reflective shape pins.
+> - Security-test secrets must be constants in the test, never read from
+>   env vars or files outside the test module.
+> - PBKDF2 / HMAC / cipher tests assert **round-trip** properties, never
+>   literal byte/Base64 outputs (PBKDF2 salt is `SecureRandom`-generated;
+>   cipher IV is JCE-provider-generated; both are non-deterministic
+>   across runs).
+>
+> **Carry-forward conventions** (the load-bearing subset of Tracks 5–16
+> precedents that this track depends on):
+> - `*DeadCodeTest` reflective method-/field-signature shape pins for
+>   orphan classes (Tracks 9, 10, 12, 13, 14, 15, 16).
+> - Per-method dead pinning so partial deletion stays valid (Track 15
+>   `EntityHelper`, Track 16 `CollectionSelectionFactory`).
+> - `// WHEN-FIXED: Track 22 — delete <class-or-method>` markers on every
+>   dead-pinned surface, plus falsifiable-regression markers for any
+>   latent production issue we can pin observationally.
+> - `@After rollbackIfLeftOpen` safety net for any DbTestBase test
+>   (Tracks 8–16).
+> - Corrected-baseline rule (Track 12, codified Track 14): Step 1 must
+>   re-measure live coverage of the eight in-scope packages on the
+>   actual track-17 commit; a post-Track-16 patch may have shifted
+>   numbers by ~1–2 percentage points and the baseline numbers in this
+>   description are pre-Track-17 estimates.
+> - `@Category(SequentialTest)` is applied **selectively** — only on
+>   tests that mutate a JVM-global mutable static (e.g.,
+>   `SECURITY_USER_PASSWORD_SALT_CACHE_SIZE` reflection, JAAS
+>   `java.security.krb5.conf` system property) — not as a blanket
+>   discipline. Per Phase A T4: `SecurityManager.SALT_CACHE` is a
+>   `Collections.synchronizedMap`-wrapped LRU memo; pure
+>   `hash(p)` / `checkPassword(p, hash(p))` round-trip tests are race-
+>   safe and need no sequential discipline.
+> - `@BeforeClass` PBKDF2 iteration override (lower
+>   `SECURITY_USER_PASSWORD_SALT_ITERATIONS` to ~100 for the test class,
+>   restored in `@AfterClass`) to keep the suite fast; same shape as
+>   Track 12's stream-classloader save/restore (Phase A R6).
+> - Static-state inventory to handle (Phase A R4 / A3):
+>   `SecurityManager.SALT_CACHE` (class-load-time init from
+>   `GlobalConfiguration.SECURITY_USER_PASSWORD_SALT_CACHE_SIZE`),
+>   `SecurityManager.instance` (final singleton — harmless),
+>   `TokenSignImpl.threadLocalMac` (per-thread `Mac` cache; surefire
+>   workers reuse — clear only if the test injects a custom algorithm),
+>   `SecurityResource.cache` (interning ConcurrentHashMap),
+>   `PropertyAccess.NO_FILTER` + `SecurityResourceAll.INSTANCE` +
+>   `SecurityResourceServerOp.{SERVER, STATUS, REMOVE, ADMIN}` +
+>   `SecurityResourceDatabaseOp.{DB, COPY, DROP}` +
+>   `SecurityResourceSchema.INSTANCE` + `PropertyEncryptionNone.inst`
+>   (static singletons — harmless if tests use unique inputs).
+>
+> **Interactions**:
+> - Depends on Track 1 (coverage analyzer).
+> - Leans on Track 14's `YouTrackDBInternalEmbedded` instantiation
+>   pattern (`DefaultSecuritySystem.activate(YouTrackDBInternalEmbedded,
+>   SecurityConfig)` requires the embedded context that Track 14
+>   established) and Track 15's `DbTestBase` precedent.
+> - Forwards to Track 22 (deferred-cleanup queue): ~12 dead-code
+>   lockstep deletion groups + 18 per-method `SymmetricKey` pins + any
+>   latent production issues uncovered (e.g., `SecurityManager.SALT_CACHE`
+>   class-load-time staleness — pinned via observable behaviour, no
+>   `WHEN-FIXED` marker needed).
+
+## Progress
+- [x] Review + decomposition
+- [ ] Step implementation
+- [ ] Track-level code review
+
+## Reviews completed
+- [x] Technical (`reviews/track-17-technical.md`) — 2 blockers, 4 should-fix, 3 suggestions
+- [x] Risk (`reviews/track-17-risk.md`) — 0 blockers, 5 should-fix, 4 suggestions
+- [x] Adversarial (`reviews/track-17-adversarial.md`) — 2 blockers, 3 should-fix, 5 suggestions
+- [x] Iter-1 fix application (Description rewrite + step decomposition) — applied inline below; **iteration-2 gate verification by sub-agents was deferred due to context window pressure (Phase A session ended at 27%, warning level)**. Inline self-audit of each blocker:
+  - **T1 (phantom class names)**: Description's `**What:**` block now lists actual current FQNs (no `O*` prefix), drops `OJwtPayloadImpl` / `OServerUserAuthenticator` / `OKerberosAuthenticator` (none exist), and explicitly notes the rebrand-rename context.
+  - **T2 + R1 + R2 + R3 + A1 (dead-code reframe)**: Description split into "live targets" (~1 440 LOC) and "dead-code-pin targets" (~420 LOC); Step 6 dedicates a full step to 12 `*DeadCodeTest` classes + per-method `SymmetricKey` pins per Track 14/15/16 carry-forward.
+  - **A2 (Kerberos JVM-global hazard)**: Description's `**Constraints:**` and `**How:**` sections both prohibit invoking `KerberosCredentialInterceptor.intercept(...)` outright — tests stop at reflective shape pins, never reach line 145's `System.setProperty("java.security.krb5.conf", ...)`. Step 6's per-test-class line spells the same prohibition.
+  - **Should-fix items addressed in Description**: T3 (existing-classes-preferred enumeration in `**How:**`), T4 (selective `@Category(SequentialTest)` rule in Carry-forward), T5 (Kerberos prohibition above), T6 (dead-code reframe formally closes the coverage gap), T9 / R7 (carry-forward conventions enumerated), R4 / A3 (static-state inventory in Carry-forward), R5 (`DefaultSecuritySystem` reload paths placed in Step 4), R6 (`@BeforeClass` PBKDF2 iteration override in Carry-forward), R8 (HMAC reframe in `**How:**` — JWT API does not exist), R9 (Track 22 absorption in Step 7), A4 (7 steps not 6), A5 (binary-token framing rewritten), A6 (Track 14 fixture dependency in `**Interactions:**`), A7 (per-step existing-class enumeration), A8 (`AuditingService` / `SecuritySystemUserImpl` fold-in in Step 1).
+  - **Recommended next-session action**: optional iter-2 gate-verification sub-agent run (one per review type or one consolidated) to formally verify the fixes against PSI before Phase B starts. If the user accepts this self-audit, Phase A is complete and Phase B can begin in the next session.
+
+## Steps
+
+- [ ] Step 1: `core/security` core helpers (SecurityManager + PasswordValidator + TokenSign/TokenSignImpl + ParsedToken + small surface)
+  > **Risk:** medium — multi-file logic in core (no HIGH triggers — tests-only,
+  > capped at medium per risk-tagging Tests-only rule)
+  >
+  > Re-measure post-Track-16 baseline for the eight in-scope packages
+  > using the coverage analyzer (corrected-baseline rule); record
+  > deltas in step episode. Extend `SecurityManagerTest` (hash /
+  > PBKDF2 / salt round-trip with `@BeforeClass` iteration override)
+  > and `HashSaltTest`. Add standalone `TokenSignImplTest`
+  > (HMAC sign/verify round-trip via `signToken(byte[])` +
+  > `verifyTokenSign(ParsedToken)` — synthesize a key, sign known
+  > payload, construct `ParsedToken`, assert verify true; mutate
+  > signature byte, assert verify false), `PasswordValidatorTest`,
+  > `ParsedTokenTest`, `GlobalUserImplTest`, `DefaultKeyProviderTest`,
+  > and shape pins for `Security`, `SecurityComponent`,
+  > `DefaultSecurityConfig`, `Syslog`, `AuditingOperation`,
+  > `AuditingService` (cheap fold-ins — A8).
+
+- [ ] Step 2: `core/security/authenticator` chain dispatch
+  > **Risk:** low — default (extends DbTestBase-driven authentication
+  > tests, no new shared infrastructure)
+  >
+  > Drive the default 3-entry chain through
+  > `DefaultSecuritySystem.initDefultAuthenticators` →
+  > `enabledAuthenticators` walk in `authenticate(session, username,
+  > password)`. Cover `SecurityAuthenticatorAbstract`,
+  > `DefaultPasswordAuthenticator`, `DatabaseUserAuthenticator`,
+  > `ServerConfigAuthenticator`, `SystemUserAuthenticator`,
+  > `TemporaryGlobalUser`. Construction + first-match + fall-through
+  > + try-each + `verifyTokenSign` integration. The reflective
+  > JSON-config extension chain is covered in Step 4. Extend or add
+  > targeted unit tests; `DbTestBase`-driven where the chain needs
+  > a session.
+
+- [ ] Step 3: `core/metadata/security` live coverage gap (Roles + Policies + Identity + Resources + Auth-info)
+  > **Risk:** low — default (extends existing tests, no new shared
+  > infrastructure)
+  >
+  > Close the 593-uncov / 72.3% baseline gap. Extend
+  > `SecurityResourceTest`, `SecurityEngineTest`, `SecurityPolicyTest`,
+  > `SecuritySharedTest`, `ImmutableUserTest`, `HashSaltTest`,
+  > `TestReaderDropClass`. Target the residual gaps Phase A T3
+  > identified: JSON serialization, role-resource introspection,
+  > `Rule.permissionToString` corners, `SystemRole` integration via
+  > `SecuritySystemUserImpl`, `SecurityProxy`, `SecurityRole` enum,
+  > `SecurityShared` introspection, `Identity` value class. Plus
+  > `core/metadata/security/auth` value classes (`AuthenticationInfo`,
+  > `TokenAuthInfo`, `UserPasswordAuthInfo` — 9 uncov, trivial).
+
+- [ ] Step 4: `DefaultSecuritySystem` JSON-config-driven reflective reload paths
+  > **Risk:** medium — multi-file logic (introduces a synthesized-
+  > JSON-config test fixture pattern that may be reused across the
+  > track)
+  >
+  > Single high-yield test class targeting the 1 233-LOC class that
+  > dominates `core/security`'s 32.1% baseline. Synthesize
+  > `Map<String, Object>` security-config maps to drive: (a) `getClass`
+  > SPI lookup hit (registered class) + `Class.forName` fallback miss,
+  > (b) `loadAuthenticators` chain registration, (c)
+  > `loadPasswordValidator` happy + invalid-class paths,
+  > (d) `reloadComponent` for an authenticator,
+  > (e) `registerSecurityClass` / `unregisterSecurityClass` round-trip,
+  > (f) `loadAuditing` / `loadLdapImporter` happy + missing-class
+  > paths. The LDAP-importer JSON-extension branch may end at a
+  > Track 22 forward; the authenticator/password-validator paths must
+  > land in this step.
+
+- [ ] Step 5: `core/security/symmetrickey` live core (SymmetricKey + JSON ser-de + keystore loader)
+  > **Risk:** low — default (extends single test class with fixture
+  > files)
+  >
+  > Extend `SymmetricKeyTest`. Cover the live subset only: 4
+  > reachable constructors (default, `(String algorithm, String key,
+  > int size)`, `(SecretKey)`, `(String algorithm, String key)`),
+  > `encrypt(byte[])` / `decrypt(String)` round-trip,
+  > `JSONSerializerJackson` `toEntity`/`fromEntity` round-trip,
+  > equals/hashCode/toString shape, IV-shape property assertion
+  > (`Base64.decode(iv).length == cipherBlockSize`). Keystore loader
+  > tested with a fixture `.jks` or `.p12` file under
+  > `core/src/test/resources/security/`. Dead `SymmetricKey` methods
+  > and dead consumers go through Step 6.
+
+- [ ] Step 6: Dead-code reframe — `*DeadCodeTest` shape pins for orphan classes/methods
+  > **Risk:** high — security (Phase A discovered Kerberos JVM-global
+  > mutation hazard at line 145 of `KerberosCredentialInterceptor`;
+  > tests must stop at reflective shape pins, never invoke `intercept`).
+  > Plus introduces the `*DeadCodeTest` pattern across 12+ classes —
+  > shared test pattern that future cleanup tracks rely on. When in
+  > doubt, mark high (per risk-tagging.md).
+  >
+  > Twelve `*DeadCodeTest` classes with reflective method-/field-/
+  > constructor-signature shape pins, each carrying `// WHEN-FIXED:
+  > Track 22 — delete <class>` markers. Per-method pinning where
+  > partial deletion must stay valid (Track 15 EntityHelper precedent).
+  > Targets:
+  > - `KerberosCredentialInterceptorDeadCodeTest` — constructor +
+  >   `intercept(String, String, String)` + `getUsername` / `getPassword`
+  >   signatures + `principal` / `serviceTicket` field shape. **DO
+  >   NOT invoke `intercept` past parameter-null guards** (line 145
+  >   `System.setProperty("java.security.krb5.conf", ...)` mutates
+  >   JVM-global JAAS state for the surefire fork).
+  > - `Krb5ClientLoginModuleConfigDeadCodeTest` — constructor +
+  >   `getAppConfigurationEntry` shape (constructor itself is safe).
+  > - `BinaryTokenDeadCodeTest`, `BinaryTokenSerializerDeadCodeTest`,
+  >   `BinaryTokenPayloadImplDeadCodeTest`,
+  >   `BinaryTokenPayloadDeserializerDeadCodeTest`,
+  >   `DistributedBinaryTokenPayloadDeadCodeTest`.
+  > - `JsonWebTokenDeadCodeTest`, `JwtPayloadDeadCodeTest` (interface
+  >   shapes), `YouTrackDBJwtHeaderDeadCodeTest`.
+  > - `DefaultCIDeadCodeTest` + `SecurityManagerNewCredentialInterceptorDeadCodeTest`
+  >   (whole interceptor SPI).
+  > - `SymmetricKeyCIDeadCodeTest`, `SymmetricKeySecurityDeadCodeTest`,
+  >   `UserSymmetricKeyConfigDeadCodeTest`.
+  > - `SymmetricKeyDeadMethodsDeadCodeTest` — per-method shape pins
+  >   on the 18 dead `SymmetricKey` methods so partial deletion stays
+  >   valid.
+
+- [ ] Step 7: Verification + Track 22 absorption
+  > **Risk:** low — default (verification only; no test additions)
+  >
+  > Re-run the coverage analyzer on the eight in-scope packages,
+  > confirm aggregate uplift, write the post-track baseline. Append
+  > Track 22 absorption block to `implementation-backlog.md` (or
+  > directly to the plan's Track 22 entry) with: ~12 dead-code
+  > lockstep deletion groups, 18 per-method `SymmetricKey` deletions,
+  > ~5 production issues pinned by observable behaviour (no
+  > WHEN-FIXED markers needed for those — observable shape is the
+  > pin), plus suggestion-tier deferred items from Phase A reviews
+  > (R6 PBKDF2 micro-config, R7 carry-forward enumeration, A6 fixture
+  > deps, A7 existing-test reuse, A8 cheap fold-ins, A9 Track 22
+  > queue count).
