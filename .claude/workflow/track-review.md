@@ -37,6 +37,20 @@ rather than grep — see [`conventions.md`](conventions.md) §1.4
 unreachable). Run the preflight once before the first symbol audit;
 do not re-probe.
 
+Two recipes in [`conventions.md`](conventions.md) §1.4 *Recipes* are
+particularly load-bearing during Phase A:
+
+- **`hierarchy-search`** — when assessing a track that touches an SPI
+  or an interface with multiple implementers (storage engines, index
+  variants, SQL functions, collation strategies), load this recipe
+  to enumerate every implementer / override before approving the
+  track's scope. Grep on `extends X` or `implements Y` misses
+  indirect chains and generic supertypes.
+- **`call-hierarchy`** — when assessing a track that changes a
+  low-level signature, load this recipe to walk the upward call tree
+  and judge propagation distance. Immediate-callers grep is not
+  enough at depths >1.
+
 The Phase A review sub-agents you spawn (technical, risk, adversarial)
 all default to grep unless their prompts explicitly route them to
 PSI. The canonical prompts under `prompts/` already include this

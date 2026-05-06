@@ -43,6 +43,21 @@ instruction — keep it intact when customising. When mcp-steroid is
 unreachable, sub-agents fall back to grep and add reference-accuracy
 caveats to any finding that depends on a symbol search.
 
+### Pre-PR semantic pass via the `inspect-and-fix` recipe
+
+Phase C is the last gate before the cumulative track diff lands on
+the draft PR. When mcp-steroid is reachable, intersect IntelliJ's
+inspection set with the diff to surface semantic issues that Spotless
+and the coverage gate can't catch — redundant casts, atomic-on-
+volatile, suspicious `equals`/`hashCode`, format-string mismatches,
+thread-unsafe statics. Use the **`inspect-and-fix`** recipe (see
+[`conventions.md`](conventions.md) §1.4 *Recipes*); intersect the
+findings with `git diff {base_commit}..HEAD --name-only` so the
+report scopes to the cumulative track diff. **Report findings, never
+auto-apply.** Roll any inspection findings into the synthesised
+findings list above so they go through the same review-fix iteration
+as the dimensional review's output.
+
 After the review loop completes and any deferred findings are processed,
 this phase continues directly into track completion: compiling the track
 episode, presenting results to the user, and marking the track `[x]` upon

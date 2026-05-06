@@ -478,3 +478,17 @@ new SPI has no preexisting consumer, those statements need PSI-backed
 verification before they land in `implementation-plan.md` or
 `design.md` — they shape Phase A complexity assessment and step
 sizing, and silent grep misses become Phase A surprises.
+
+Three recipes in [`conventions.md`](conventions.md) §1.4 *Recipes*
+are particularly useful during planning:
+
+- **`hierarchy-search`** — when the Component Map names an SPI or
+  abstract class with multiple implementers, use this recipe to
+  enumerate them before deciding whether the contract change is
+  in-scope for one track or needs to fan out across several.
+- **`call-hierarchy`** — when a Decision Record contemplates
+  changing a low-level signature, use this recipe to estimate
+  caller-tree depth and refine the track's `**Scope:**` estimate.
+- **`project-dependencies`** — when sketching the Component Map
+  spans across modules, use this recipe to confirm the dependency
+  edges in the diagram match the Maven reactor.
