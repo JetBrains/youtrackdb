@@ -149,7 +149,7 @@ flowchart TD
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (0/6 complete)
+- [ ] Step implementation (1/6 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -220,32 +220,55 @@ visible TODO comment for Track 4.
 
 ## Steps
 
-- [ ] Step: Add `WriteCache.loadOrAdd` interface method and update test mocks
+- [x] Step: Add `WriteCache.loadOrAdd` interface method and update test mocks
+  - [x] Context: safe
   > **Risk:** medium — multi-file logic touching the `WriteCache`
   > interface (internal SPI) plus 4 test mocks; no behavioural change
   > yet because concrete impls land in Steps 2–3.
   >
-  > **What:** Add `CachePointer loadOrAdd(long fileId, long pageIndex,
-  > boolean verifyChecksums)` as an **abstract** (no `default`) method
-  > on `WriteCache`. The abstract declaration is the right choice
-  > because (a) it makes mock divergence a compile-time error rather
-  > than a silent runtime `UnsupportedOperationException`, and (b)
-  > the production impls land in the next two steps. Add stub overrides
-  > on `WOWCache` and `DirectMemoryOnlyDiskCache` that throw
-  > `UnsupportedOperationException("loadOrAdd not yet wired")` —
-  > the lambda-rewire in Step 4 only happens after the real impls
-  > exist, so production code still routes through the legacy
-  > `load` / `allocateNewPage` paths during this commit. Update all
-  > four test-mock implementations (`LockFreeReadCacheConcurrentTestIT.MockedWriteCache`,
-  > `AsyncReadCacheTestIT.MockedWriteCache`,
-  > `LockFreeReadCacheOptimisticTest.PageFrameWriteCache`,
-  > `LockFreeReadCacheBatchingTest.MockedWriteCache`) with stubs that
-  > delegate to the existing mock `load` / `allocateNewPage` so the
-  > test classes compile and existing tests still exercise their
-  > original paths.
+  > **What was done:** Added an abstract `WriteCache.loadOrAdd(fileId,
+  > pageIndex, verifyChecksums)` method to the cache interface, with
+  > stub implementations on `WOWCache` and `DirectMemoryOnlyDiskCache`
+  > that throw `UnsupportedOperationException("loadOrAdd not yet
+  > wired")`. Updated all four existing `WriteCache` test mocks
+  > (`LockFreeReadCacheConcurrentTestIT`, `AsyncReadCacheTestIT`,
+  > `LockFreeReadCacheOptimisticTest`,
+  > `LockFreeReadCacheBatchingTest`) with stubs that delegate to each
+  > mock's existing `load` so the test classes compile and keep
+  > exercising their original paths. The interface declaration is
+  > abstract (no `default`) per the step spec so any divergent
+  > mock/impl is a compile-time rather than runtime error. Added two
+  > focused unit tests (`WOWCacheLoadOrAddStubTest`,
+  > `DirectMemoryOnlyDiskCacheLoadOrAddStubTest`) covering the
+  > intentional throw behaviour of the production stubs to satisfy
+  > the changed-line coverage gate. Spotless applied; core unit suite
+  > green (9408 passing); coverage gate passes (100% line / no
+  > branches on the changed lines). Commit:
+  > `27671e3812dddd109f660d6d212c5b77213aabc9`.
   >
-  > **Files:** `WriteCache.java`, `WOWCache.java`,
-  > `DirectMemoryOnlyDiskCache.java`, the four test-mock files.
+  > **What was discovered:** The coverage gate flagged the two
+  > intentional `UnsupportedOperationException` throw lines as
+  > uncovered (0% on 2 lines); resolved by adding the two focused
+  > throw-assertion tests in the same commit. Steps 2–3 will replace
+  > the stubs with real implementations, at which point those tests
+  > should be deleted or rewritten to exercise the real behaviour.
+  >
+  > **Critical context:** The two new tests
+  > (`WOWCacheLoadOrAddStubTest`,
+  > `DirectMemoryOnlyDiskCacheLoadOrAddStubTest`) are intentionally
+  > disposable — they exist only to cover the placeholder throws in
+  > this commit. The Step 2 implementer should delete (or rewrite)
+  > `WOWCacheLoadOrAddStubTest` when `WOWCache.loadOrAdd` gets its
+  > real three-branch body, and the Step 3 implementer should do the
+  > same for `DirectMemoryOnlyDiskCacheLoadOrAddStubTest`. They live
+  > next to existing dedicated test classes for their respective
+  > caches and should not be confused with the broader cache-coverage
+  > tests landing in Track 2.
+  >
+  > **Key files:** `WriteCache.java`, `WOWCache.java`,
+  > `DirectMemoryOnlyDiskCache.java`, four test mocks (modified),
+  > `WOWCacheLoadOrAddStubTest.java`,
+  > `DirectMemoryOnlyDiskCacheLoadOrAddStubTest.java` (new).
 
 - [ ] Step: Implement `WOWCache.loadOrAdd` — three branches with dirty-write probe, per-branch lock policy, and totality contract
   > **Risk:** high — concurrency (per-branch lock ordering against
