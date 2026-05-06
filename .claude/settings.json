@@ -4,6 +4,10 @@
     "pr": ""
   },
   "model": "opus[1m]",
+  "statusLine": {
+    "type": "command",
+    "command": "bash ${CLAUDE_PROJECT_DIR}/.claude/scripts/statusline-command.sh"
+  },
   "hooks": {
     "SessionStart": [
       {

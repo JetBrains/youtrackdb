@@ -125,7 +125,7 @@ instruction — keep it intact when customising.
    - **Context consumption check** (mandatory after each review, except
      after the last action of the phase): run
      `cat /tmp/claude-code-context-usage-$PPID.txt`. If the level is
-     `warning` (≥25%) or `critical` (≥40%), do NOT start the next review
+     `warning` (≥30%) or `critical` (≥40%), do NOT start the next review
      or decomposition. Save all work and ask the user for a session
      refresh (see workflow.md §Context Consumption Check). If the level
      is `safe`/`info`, continue. If the file does not exist or the

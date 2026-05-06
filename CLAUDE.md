@@ -269,6 +269,55 @@ Tests configure YouTrackDB-specific system properties in `<argLine>`:
 1. **When modifying source code**: Review docs in `docs/` and module `README.md` files to see if any cover the area you changed. Update them if needed.
 2. **When adding new features**: If the feature affects public API, configuration, build process, or CI/CD, update the relevant docs.
 
+## Context Window Monitor
+
+Context window usage is tracked on-demand via a file written by the statusline script.
+
+### How it works
+- The statusline script (`${CLAUDE_PROJECT_DIR}/.claude/scripts/statusline-command.sh`) runs after every Claude response.
+- It receives context usage data from Claude Code's JSON payload (`context_window.used_percentage`).
+- It writes the current usage to a per-session file keyed by the root `claude` process PID.
+- No hooks or `additionalContext` are used — zero conversation pollution.
+
+### Checking context usage on demand
+```bash
+cat /tmp/claude-code-context-usage-$PPID.txt
+```
+Output example: `ctx: 7% level=safe`
+
+### Session isolation
+The file is keyed by the `claude` process PID. The statusline walks up the process tree to find the ancestor process named `claude`. The model's Bash tool is a direct child of that same process, so `$PPID` resolves to the same PID. This is safe with concurrent sessions — each gets its own file.
+
+### Levels
+
+| Level | Trigger | What it means |
+|---|---|---|
+| **safe** | <20% | Plenty of room. |
+| **info** | 20% (~200K of 1M) | Context growing. Delegate exploration to subagents, avoid reading large files, write decisions to files. |
+| **warning** | 30% (~300K of 1M) | Quality degradation likely. Save state to files, run `/compact` with key context, or delegate remaining work to subagents. |
+| **critical** | 40% (~400K of 1M) | Severe degradation. Stop immediately, save all state to `/tmp/claude-code-session-state.md`, tell the user to `/clear` and resume. |
+
+### Why these thresholds
+Calibrated for Claude Opus 4.7 on the 1M context window using published long-context retrieval data plus community Claude Code reports:
+- **Single-needle retrieval** holds at ~99% accuracy through 200K tokens, then drops to ~89% at 1M (Opus 4.7, NIAH-style benchmarks). Below 20% (≤200K) the model is essentially at full quality — no need to slow down.
+- **Multi-needle retrieval** (which agentic Claude Code work resembles, since it must recall multiple file paths, decisions, and conventions) drops from ~96% at 200K to ~56% at 1M for Opus 4.7. The published "effective context for production multi-needle workloads" sits in the **200–400K** band — this maps directly to the warning (300K) → critical (400K) boundary.
+- **Auto-compaction** triggers around 83–95% in Claude Code, but quality has already significantly degraded by then — the critical threshold fires well before that point so the session can be saved and restarted cleanly.
+- **Self-reported degradation** (Claude observing its own behavior in long Claude Code sessions): noticeable circular reasoning and forgotten earlier decisions begin around 40–50% on Opus 4.6 with the 1M window. Opus 4.7 improves long-context tracking (Anthropic's own claim: "most consistent long-context performance of any model tested"), but the underlying multi-needle drop curve hasn't been eliminated, so the critical 40% line stays put.
+
+Sources: GitHub issue [anthropics/claude-code#34685](https://github.com/anthropics/claude-code/issues/34685); [Claude Opus 4.7 launch notes](https://platform.claude.com/docs/en/about-claude/models/whats-new-claude-4-7); [Long-Context Retrieval 2026 (digitalapplied.com)](https://www.digitalapplied.com/blog/long-context-retrieval-needle-in-haystack-2026); community guides like spacecake.ai's Claude Code context management.
+
+### Configuration
+- Statusline script: `${CLAUDE_PROJECT_DIR}/.claude/scripts/statusline-command.sh`
+- Context file: `/tmp/claude-code-context-usage-<claude_pid>.txt`
+- Wired via: `${CLAUDE_PROJECT_DIR}/.claude/settings.json` (under `statusLine`)
+
+The thresholds in this section MUST stay in sync with:
+- `.claude/scripts/statusline-command.sh` — the line that writes `level=...`
+- `.claude/workflow/workflow.md` — § Context Consumption Check (the level table)
+- `.claude/workflow/track-review.md` and `.claude/workflow/track-code-review.md` — the inline "warning (≥30%) or critical (≥40%)" gates
+
+If you change a threshold here, grep for the others and update them in the same commit.
+
 ## MCP Steroid — IntelliJ IDE Control
 
 When the `localhost-6315` MCP server (mcp-steroid) is connected, its skill guides are exposed as MCP resources and fetched via `steroid_fetch_resource` (resolve the exact `mcp-steroid://` URI from the server's resource list if needed — upstream source: https://github.com/jonnyzzz/mcp-steroid/tree/main/prompts/src/main/prompts/skill). Do NOT vendor or copy these guides into the project — fetch lazily; some are large (the Spring guide is ~100 KB).
