@@ -254,7 +254,7 @@ line, a `SKIPPED` value for cold-read on `mechanics-edit`, and a
 entries. Use the skill's expanded format when writing the log;
 treat the shape above as the floor, not the ceiling.
 
-The mutation log is a working artifact under `_workflow/` (tracked
+The review log is a working artifact under `_workflow/` (tracked
 on the branch for backup and visibility, removed by the Phase 4
 cleanup commit before merge — same lifecycle as other working
 files). It is the only on-disk review artifact the workflow keeps,

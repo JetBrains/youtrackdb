@@ -317,7 +317,7 @@ Outcomes when the loop exits:
   proceed to Step 7. The mutation can stand; the residual findings
   carry forward to the next mutation as known debt.
 
-### Step 7: Append to the mutation log
+### Step 7: Append to the review log
 
 Resolve the log path from `mutation_kind` and `design_path` using
 the rule below. The log always lives under `_workflow/` so the
