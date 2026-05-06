@@ -458,10 +458,15 @@ user instead of proceeding.
    "If blockers persist after 3 iterations, note them" branch).
 3. If `recommended_action: escalate`, present the situation to the
    user and consider entering ESCALATE per
-   [`inline-replanning.md`](inline-replanning.md). For `retry` /
-   `split`, both reduce to "no further automatic attempts at this
+   [`inline-replanning.md`](inline-replanning.md). For `retry`, the
+   recommendation reduces to "no further automatic attempts at this
    set of findings"; the user decides whether to re-spawn with
    guidance or accept the unfixed state at track completion.
+   `recommended_action: split` is **forbidden at `level=track`** per
+   [`implementer-rules.md`](implementer-rules.md) §Fundamental
+   failure — if surfaced, treat as a contract violation: present the
+   return block verbatim to the user (do not respawn) alongside the
+   same options ESCALATE / accept-as-unfixed.
 
 ### `RISK_UPGRADE_REQUESTED` (contract violation)
 

@@ -490,11 +490,21 @@ Run the snapshot-and-diff revert sequence at the top of this section
 (snapshot pre-existing untracked files first, then `git reset --hard
 HEAD`, then `comm -13` against a post-snapshot to surgically remove
 only files this spawn created), then return `RESULT: FAILED` with `FAILURE` populated: `what_was_attempted`, `why_it_failed`,
-`impact_on_remaining_steps`, and `recommended_action` (`retry` |
-`split` | `escalate`).
+`impact_on_remaining_steps`, and `recommended_action`. Allowed values
+for `recommended_action` are level-conditional:
+
+- At `level=step`: `retry` | `split` | `escalate`.
+- At `level=track`: `retry` | `escalate` only. **`split` is
+  forbidden** — step-splitting is a Phase B planning operation
+  against per-step risk tags and has no analogue at Phase C, where
+  the failure is against the cumulative track diff. Returning
+  `recommended_action: split` from a `level=track` spawn is a
+  contract violation; the orchestrator surfaces the return to the
+  user instead of dispatching.
 
 The orchestrator writes the failed episode to the step file, inserts
-retry/split rows, and runs the two-failure detection on its side.
+retry/split rows, and runs the two-failure detection on its side
+(`level=step` only — Phase C does not insert retry/split rows).
 
 ### Mode-specific scope of the local revert
 
@@ -635,6 +645,12 @@ FAILURE:                          # only if RESULT == FAILED
                                   # "impact on remaining findings /
                                   # remaining iterations"
   recommended_action: retry | split | escalate
+                                  # split is forbidden at level=track
+                                  # — step-splitting does not apply to
+                                  # the cumulative track diff (see
+                                  # §Fundamental failure above).
+                                  # Allowed values at level=track:
+                                  # retry | escalate.
 ```
 
 ### Field rules
@@ -682,6 +698,12 @@ FAILURE:                          # only if RESULT == FAILED
   invariant weakened, new dependency surfaced, API shape clarified
   differently than expected. Empty is fine; the orchestrator does
   not require a hint per spawn.
+- `FAILURE.recommended_action` is level-conditional. At `level=step`
+  it is one of `retry | split | escalate`. At `level=track` it is
+  one of `retry | escalate` — **`split` is forbidden** (see
+  §"Fundamental failure" above). Returning `split` from a
+  `level=track` spawn is a contract violation; the orchestrator
+  surfaces the return to the user instead of dispatching.
 
 ---
 
