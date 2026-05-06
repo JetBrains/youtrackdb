@@ -214,7 +214,7 @@ token management, and encryption.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (6/7 complete)
+- [x] Step implementation
 - [ ] Track-level code review
 
 ## Base commit
@@ -727,17 +727,173 @@ token management, and encryption.
   > **Commits:** `7ae307140b` (initial), `3ccd8a65fb` (Review fix:
   > tighten), `224d6d9a73` (Review fix: clean up FQN imports).
 
-- [ ] Step 7: Verification + Track 22 absorption
+- [x] Step 7: Verification + Track 22 absorption
+  - [x] Context: info
   > **Risk:** low — default (verification only; no test additions)
   >
-  > Re-run the coverage analyzer on the eight in-scope packages,
-  > confirm aggregate uplift, write the post-track baseline. Append
-  > Track 22 absorption block to `implementation-backlog.md` (or
-  > directly to the plan's Track 22 entry) with: ~12 dead-code
-  > lockstep deletion groups, 18 per-method `SymmetricKey` deletions,
-  > ~5 production issues pinned by observable behaviour (no
-  > WHEN-FIXED markers needed for those — observable shape is the
-  > pin), plus suggestion-tier deferred items from Phase A reviews
-  > (R6 PBKDF2 micro-config, R7 carry-forward enumeration, A6 fixture
-  > deps, A7 existing-test reuse, A8 cheap fold-ins, A9 Track 22
-  > queue count).
+  > **What was done:** Ran `./mvnw -pl core -am clean package
+  > -P coverage -DskipITs` to produce fresh JaCoCo numbers for the
+  > eight in-scope security packages. Confirmed Track 17 is purely
+  > test-additive (zero production-source changes from `aadb522a`
+  > through HEAD via `git diff aadb522a..HEAD --
+  > '**/src/main/**'`). Ran the coverage gate
+  > (`coverage-gate.py --compare-branch origin/develop`) — PASSED
+  > (100% line / 100% branch on changed lines, trivially
+  > `n/a (test-additive)` on the cumulative diff). Ran the coverage
+  > analyzer and extracted per-package totals. Wrote
+  > `track-17-baseline.md` (post-track baseline, 196 lines)
+  > following the `track-14-baseline.md` / `track-16-baseline.md`
+  > shape: base + measurement-time SHAs, JaCoCo report path,
+  > aggregate line / branch coverage, per-package pre→post-Track-17
+  > delta table for all eight security packages, narrative on
+  > by-design residuals, cumulative uplift vs prior baselines. Ran
+  > Spotless on `core` (clean, 0 files changed). All 16 725 core
+  > tests pass.
+  >
+  > **What was discovered:**
+  > Post-Track-17 aggregate: **77.7% line / 68.1% branch** (+1.6 pp
+  > / +1.4 pp vs post-Track-16 76.1% / 66.7%). Eight-package net
+  > uncov reduction: 1 852 → 1 045 lines (−807). Largest gains:
+  > `core/security` +48.9 pp line (33% → 82%),
+  > `core/security/authenticator` +53.2 pp line (25% → 79%),
+  > `core/metadata/security/binary` +89.6 pp line (0% → 90%). The
+  > `core/metadata/security` package gained only +2.3 pp line
+  > (72% → 75%) because its residuals are in `SecurityShared`'s
+  > transactional methods which require heavier `DbTestBase`
+  > integration fixtures beyond Track 17's scope. Three packages
+  > sit below the project gate by design (kerberos 28%,
+  > symmetrickey 43%, binary 90% — kerberos and binary still meet
+  > the project gate on the live subset, since the residual is the
+  > pinned dead surface): all queued for Track 22 deletion. The
+  > `jwt` and `auth` sub-packages are at 100% / 100%.
+  >
+  > Cumulative-core uplift since Phase 1 baseline (63.6% line /
+  > 53.3% branch / 177 packages): Tracks 1–17 raised aggregate line
+  > coverage by **+14.1 pp** and branch coverage by **+14.8 pp**
+  > while adding one new package.
+  >
+  > **What changed from the plan:** The Step 7 description (and the
+  > plan's Track 17 entry) cited "18 per-method `SymmetricKey`
+  > deletions" for the Track 22 absorption block. The corrected
+  > count from Step 6's PSI enumeration is **21** (20 dead public
+  > methods + 1 dead protected-static `separateAlgorithm`). The
+  > baseline file and the cross-track-forward block below reflect
+  > the corrected count; Phase C's `Apply plan corrections` commit
+  > should update the plan's Track 22 entry from 18 → 21 alongside
+  > applying the absorption block to `implementation-backlog.md`.
+  >
+  > **Cross-track forward (Track 22 absorption block — apply to
+  > `implementation-backlog.md` during Phase C):**
+  >
+  > *A. ~12 dead-code lockstep deletion groups (whole-class):*
+  > 1. **Kerberos pair**: `KerberosCredentialInterceptor` +
+  >    `Krb5ClientLoginModuleConfig`. Kerberos-pair deletion unlocks
+  >    item 4 (CI plug-in chain).
+  > 2. **Binary-token quintet**: `BinaryToken` +
+  >    `BinaryTokenSerializer` + `BinaryTokenPayloadImpl` +
+  >    `BinaryTokenPayloadDeserializer` + `DistributedBinaryTokenPayload`.
+  >    Includes BC3 deferral: the 30-second `isCloseToExpire`
+  >    window in `BinaryTokenDeadCodeTest` deferred alongside the
+  >    whole-class deletion (no point fixing a timing window in a
+  >    test that should be deleted).
+  > 3. **JWT trio**: `JsonWebToken` + `JwtPayload` +
+  >    `YouTrackDBJwtHeader`. Gated on binary-token quintet
+  >    deletion (`BinaryTokenSerializer` references
+  >    `YouTrackDBJwtHeader`).
+  > 4. **CI plug-in chain**: `DefaultCI` whole class +
+  >    `SecurityManager.newCredentialInterceptor()` method +
+  >    `GlobalConfiguration.CLIENT_CREDENTIAL_INTERCEPTOR` config
+  >    slot. Gated on Kerberos-pair deletion.
+  > 5. **Symmetric-key trio**: `SymmetricKeyCI` +
+  >    `SymmetricKeySecurity` + `UserSymmetricKeyConfig`
+  >    (`SymmetricKeySecurity` and `UserSymmetricKeyConfig` delete
+  >    as a lockstep pair).
+  >
+  > *B. 21 per-method `SymmetricKey` deletions — PSI-confirmed
+  > safe-deletion order:*
+  > - **Phase 1 — after `SymmetricKeyCI` deleted** (7 methods):
+  >   `setDefaultCipherTransform(String)`, `fromString(String)`,
+  >   `fromFile(String, String)`,
+  >   `fromKeystore(String, String, String, String)`,
+  >   `fromKeystore(InputStream, String, String, String)`,
+  >   `fromStream(InputStream, String, String)`,
+  >   `separateAlgorithm(String)` (protected-static).
+  > - **Phase 2 — after `SymmetricKeySecurity` +
+  >   `UserSymmetricKeyConfig` deleted** (2 methods):
+  >   `fromConfig(SecurityConfig, String)`,
+  >   `decryptAsString(String)`.
+  > - **Phase 3 — independent (zero callers, any order)**:
+  >   6 dead getters (`getName`, `getPassword`, `getKeyAlgorithm`,
+  >   `getKeystore`, `getKeystorePassword`, `getKeyId`) +
+  >   6 remaining dead setters (`setName(String)`,
+  >   `setPassword(String)`, `setKeyAlgorithm(String)`,
+  >   `setKeystore(String)`, `setKeystorePassword(String)`,
+  >   `setKeyId(String)`); `setDefaultCipherTransform` is in Phase
+  >   1 above. (The plan's "18" figure becomes **21** when the
+  >   protected-static `separateAlgorithm` and the two
+  >   getter/setter pairs missed in Phase A's enumeration are
+  >   counted.)
+  >
+  > *C. ~5 latent production issues pinned by observable behaviour
+  > (no `WHEN-FIXED` markers — observable shape is the pin):*
+  > 1. **`SecurityManager.SALT_CACHE` algorithm-omission bug**
+  >    (Step 1): cache key omits the algorithm; a verify call
+  >    under one algorithm can short-circuit on a cached PBKDF2
+  >    result computed under a different algorithm. Fix: include
+  >    the algorithm in the cache key.
+  > 2. **`DefaultPasswordAuthenticator.createServerUser`
+  >    empty-password bug** (Step 2): JSON `"password"` field is
+  >    read but not passed to `ImmutableUser`; stored password is
+  >    always `""`; `authenticate()` always returns null for
+  >    in-memory-config users.
+  > 3. **`SecuritySystemUserImpl.populateSystemRoles` NPE in the
+  >    `databaseName`-non-empty branch** (Step 3):
+  >    `getProperty(SystemRole.DB_FILTER)` returns null for
+  >    regular-database roles; iteration NPEs without a null
+  >    check. Only safe on the system database where roles have
+  >    `dbFilter` populated.
+  > 4. **`UserSymmetricKeyConfig` line 133 NPE in the
+  >    no-recognized-keys branch** (Step 6): falls through to a
+  >    null dereference when `props` is non-null but contains none
+  >    of `key` / `keyFile` / `keyStore`. Dead-code path (the
+  >    class itself is dead), but the defect exists in the shipped
+  >    bytecode.
+  > 5. **BC3 — `BinaryTokenDeadCodeTest.isCloseToExpire` 30-second
+  >    TOCTOU window** (Step 6 dim-review iter-2): low-risk race
+  >    on a heavily-loaded CI host. Deferred alongside the
+  >    binary-token cluster's whole-class deletion.
+  >
+  > *D. Suggestion-tier deferred items from Phase A reviews:*
+  > - **R6**: extract the `@BeforeClass` PBKDF2 iteration override
+  >   (lower `SECURITY_USER_PASSWORD_SALT_ITERATIONS` to ~100,
+  >   restored in `@AfterClass`) into a shared rule / base class
+  >   for future security tests to avoid copy-paste. Currently
+  >   inline in `SecurityManagerTest`.
+  > - **R7**: verify Track 17 carry-forward conventions
+  >   (selective `@Category(SequentialTest)` discipline,
+  >   static-state inventory, `@After rollbackIfLeftOpen` safety
+  >   net, corrected-baseline rule) against Track 22's test
+  >   approach.
+  > - **A6**: extract `enableAndPrepareSystem()` /
+  >   `buildAuthenticationConfig()` helpers from
+  >   `DefaultSecuritySystemReloadTest` to a shared fixture class
+  >   when Track 22 adds more `DefaultSecuritySystem` tests (e.g.,
+  >   the import-LDAP happy path).
+  > - **A7**: Track 22 should prefer extending existing test
+  >   classes (`DefaultSecuritySystemReloadTest`,
+  >   `AuthenticatorChainDispatchTest`, `SymmetricKeyTest`,
+  >   `SecuritySharedTest`) over creating new classes.
+  > - **A8**: deferred live paths to fold in when building the
+  >   deletion scaffold — `SecurityShared` transactional methods
+  >   plus the `DefaultSecuritySystem` import-LDAP happy path.
+  > - **A9**: verify Track 22 queue count at Phase A: ~12 lockstep
+  >   groups + 21 per-method `SymmetricKey` pins + 5 latent issues
+  >   + suggestion tier = the full absorption inventory above.
+  >
+  > **Critical context:** none.
+  >
+  > **Key files:**
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/security/...` — no source changes (verification step).
+  > - `docs/adr/unit-test-coverage/_workflow/track-17-baseline.md` (new)
+  >
+  > **Commit:** `45b5caea0b` (Record post-Track-17 coverage baseline)
