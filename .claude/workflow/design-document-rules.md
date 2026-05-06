@@ -357,7 +357,14 @@ current state of `design-mechanics.md`:
 The sync's cold-read sub-agent gets an extended instruction:
 *"Verify that every TL;DR and mechanism overview in design.md
 accurately summarizes the current mechanics file's content for
-the same-named section."*
+the same-named section."* It also runs the Human-reader
+cold-read additions (audience-fit, glossary-introduction,
+why-before-what, navigability — see
+[`prompts/design-review.md`](prompts/design-review.md)
+§ Human-reader cold-read additions), since the rewritten
+Overview is a freshly human-facing artifact that can drift in
+vocabulary or audience fit while mechanics evolves between
+syncs.
 
 **Staleness reconciliation.** Because `design.md` is frozen
 between syncs while mechanics evolves, the user's feedback may

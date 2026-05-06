@@ -43,8 +43,8 @@ warning, or pass.
   (a) the design.md is internally coherent on its own (a fresh
   reader can navigate it); (b) every
   `Mechanics: design-mechanics.md §"…"` link resolves to a
-  matching section in mechanics. **Plus the Creation cold-read
-  additions (§ below).**
+  matching section in mechanics. **Plus the Human-reader
+  cold-read additions (§ below).**
 - **`design-sync`**: this sync re-distilled `design.md` from the
   current state of `design-mechanics.md`. **In addition to the
   standard whole-doc cold-read**, verify that every TL;DR and
@@ -52,7 +52,8 @@ warning, or pass.
   current mechanics file's content for the same-named section. If
   the design.md TL;DR contradicts the mechanics, or names a
   mechanism that mechanics doesn't describe, flag it as a blocker
-  — that's exactly what the sync was supposed to fix.
+  — that's exactly what the sync was supposed to fix. **Plus the
+  Human-reader cold-read additions (§ below).**
 - **`phase4-creation`**: `design-final.md` (and optionally
   `design-mechanics-final.md`) was just produced as a Phase 4
   committed artifact reflecting what was actually built. The
@@ -65,7 +66,7 @@ warning, or pass.
   by the Phase 4 cleanup commit before merge.
 
   **In addition to the standard whole-doc cold-read AND the
-  Creation cold-read additions (§ below)**, verify:
+  Human-reader cold-read additions (§ below)**, verify:
 
   (a) **Plan-deviation surfacing** — the Overview names what
       was built and any high-level deviations from the original
@@ -82,17 +83,31 @@ warning, or pass.
       numbers, step numbers, or review-finding IDs in the
       prose.
 
-### Creation cold-read additions
+### Human-reader cold-read additions
 
-Applies to mutation kinds `phase1-creation` and `phase4-creation`.
+Applies to mutation kinds `phase1-creation`, `phase4-creation`,
+and `design-sync`. All three produce a freshly-written
+`design.md` (or `design-final.md`) Overview that humans will
+read.
 
 These checks address human-readability gaps that the standard
 comprehension questions miss when the reviewer agent shares
-training-derived vocabulary with the doc author. Both creation
-kinds produce documents read by humans (PR reviewers, the user,
-the architect, future re-readers, decision auditors) in addition
-to agents — so the cold-read must assess prose against a human
-reader, not against the reviewer's own training.
+training-derived vocabulary with the doc author. The documents
+produced by these mutation kinds are read by humans (PR
+reviewers, the user, the architect, future re-readers, decision
+auditors) in addition to agents — so the cold-read must assess
+prose against a human reader, not against the reviewer's own
+training.
+
+`design-sync` is included because mechanics evolves freely
+between syncs while `design.md` stays frozen; when sync
+re-distills the Overview, it can introduce undefined domain
+terms, lose an audience anchor, or shift to mechanism-first
+ordering without any single working-mode edit visibly causing
+the drift. The TL;DR-vs-mechanics instruction in the
+`design-sync` block above catches alignment drift between the
+two files; these checks catch human-readability drift in the
+freshly-rewritten Overview itself.
 
 **In addition to the standard whole-doc cold-read**, verify:
 
@@ -110,40 +125,52 @@ reader, not against the reviewer's own training.
     not merely mentioned in passing). For each, determine
     whether it is (i) defined inline at first use, (ii) defined
     in a `## Core Concepts` section that the Overview points
-    to, or (iii) explicitly marked as prerequisite knowledge
-    for the named audience. Anything load-bearing that fails
-    all three is a finding. Severity: **blocker** if a reader
-    without the term cannot follow the Overview's main
-    argument; **should-fix** if the term appears in a
-    supporting clause but the main argument survives without
-    it. Apply the same check to the opening of each `##`
-    section's mechanism overview, scoped to terms newly
-    introduced in that section.
+    to, or (iii) explicitly listed as assumed knowledge in the
+    audience anchor or a prerequisites bullet (e.g., *"Audience:
+    storage engineers familiar with WAL and page caches"* — the
+    listed prerequisites count as defined-by-reference for that
+    audience). Anything load-bearing that fails all three is a
+    finding. Severity: **blocker** if a reader without the term
+    cannot follow the Overview's main argument; **should-fix**
+    if the term appears in a supporting clause but the main
+    argument survives without it. Apply the same check to the
+    opening of each `##` section's mechanism overview, scoped
+    to terms newly introduced in that section.
 
-(c) **Why-before-what** — for the Overview and the opening
-    paragraphs of each `##` section, motivation precedes
-    mechanism. Quote the opening 1-2 paragraphs and assess:
-    does the reader learn *why this section exists / why this
-    mechanism matters* before encountering the mechanism
-    itself? A section that opens with "this design replaces X
-    with Y" without first establishing why X needed replacing
-    is a should-fix.
+(c) **Why-before-what** — the Overview and the opening
+    paragraphs of each `##` section open with motivation
+    before mechanism. **Excluded** from this check: shape-exempt
+    reference sections (Core Concepts, Class Design, Workflow,
+    Part-level TL;DR per design-document-rules.md § Mechanical
+    checks) — these are intentionally mechanism-first and
+    naming a motivation paragraph in them adds noise rather
+    than clarity. For everything else, quote the opening 1-2
+    paragraphs and assess: does the reader learn *why this
+    section exists / why this mechanism matters* before
+    encountering the mechanism itself? A section that opens
+    with "this design replaces X with Y" without first
+    establishing why X needed replacing is a should-fix.
 
 (d) **Navigability** — section headers communicate purpose,
     not just a mechanism name; each section's opening sentence
     or TL;DR lets a skimming reader decide whether to drill
     in; cross-references to deeper detail (Mechanics links,
     references to sibling Parts) are present where a reader
-    would need them.
+    would need them. Severity: **should-fix** — these are
+    quality concerns, not comprehension blockers (a reader can
+    still follow an opaquely-named section by reading its
+    body, but the doc is harder to scan).
 
 **Reviewer tone**: the "one sentence answers / don't pad"
 guidance under § Tone and depth is relaxed for findings under
-(a), (b), and (c). Quote the prose, list undefined terms, and
-explain *for which target audience* the prose breaks down.
-Compressed reviewer feedback under-reports these failure modes
-— a one-sentence "the Overview is hard to follow" finding is
-not actionable; a finding that lists six undefined APIs and
-identifies the absent audience anchor is.
+(a), (b), (c), and (d). Quote the prose, list undefined terms,
+name the section whose header reads opaquely or whose
+cross-references are missing, and explain *for which target
+audience* the prose breaks down. Compressed reviewer feedback
+under-reports these failure modes — a one-sentence "the
+Overview is hard to follow" finding is not actionable; a
+finding that lists six undefined APIs and identifies the
+absent audience anchor is.
 
 ## Reading rules
 
@@ -247,6 +274,13 @@ Produce exactly the following Markdown, no preamble:
 - [<severity>] <description>
 ...
 
+(For `phase1-creation`, `phase4-creation`, and `design-sync`,
+findings under the Human-reader cold-read additions go in the
+same list but prefix each with the dimension label and use
+multi-line bullets to fit the evidence required by the Tone
+exception — e.g. `[blocker] (a) Audience-fit: <quoted prose +
+named audience + why it breaks down>`.)
+
 ## Verdict
 
 [PASS / NEEDS REVISION]
@@ -286,10 +320,13 @@ attempt the fix automatically.>
 ## Tone and depth
 
 - One sentence answers where one suffices. Don't pad.
-  - **Exception**: findings under the Creation cold-read
-    additions (§ above, applies to `phase1-creation` and
-    `phase4-creation`) require evidence — quote the prose, list
-    undefined terms, name the target audience the prose fails.
+  - **Exception**: findings under the Human-reader cold-read
+    additions (§ above, applies to `phase1-creation`,
+    `phase4-creation`, and `design-sync`) require evidence —
+    quote the prose, list undefined terms, name the target
+    audience the prose fails, and (for navigability findings)
+    name the section whose header reads opaquely or whose
+    cross-references are missing.
 - Cite, don't paraphrase the whole section.
 - If a question can't be answered from the document, say
   "Insufficient — see finding below" and add the corresponding
