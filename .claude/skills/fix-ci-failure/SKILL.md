@@ -110,7 +110,7 @@ CI gates enforce policies on PRs. When a gate fails:
    - Consistency checks between redundant data structures
    - State checks in methods that assume a specific lifecycle stage (e.g., `assert !closed`)
    Do NOT add assertions that duplicate existing validation, have side effects, or are tautological.
-   If the assertion condition is complex, extract it to a package-private helper method to get full JaCoCo coverage (see CLAUDE.md tip #10).
+   If the assertion condition is complex, extract it to a package-private helper method to get full JaCoCo coverage (see `.claude/docs/architecture.md` § Codebase-specific tips → "JaCoCo and Java `assert` statements").
 6. **Improve testability of internal classes** when needed to write effective tests or add meaningful assertions. You may refactor classes under `com.jetbrains.youtrackdb.internal` (e.g., extract methods, increase visibility from private to package-private, add package-private accessors for state verification) but **never modify the public API** under `com.jetbrains.youtrackdb.api`. Any testability change must not alter the class's external behavior.
 7. Run `./mvnw -pl {module} spotless:apply` to fix formatting.
 

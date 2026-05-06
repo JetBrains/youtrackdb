@@ -72,7 +72,7 @@ fi
 
 touch "$state_file"
 
-msg='mcp-steroid is reachable — for reference-accuracy Java symbol questions (callers/overrides/usages, type hierarchies), prefer PSI find-usages via steroid_execute_code over grep. Grep is still correct for filename globs, unique string literals, and orientation reads. See project CLAUDE.md § MCP Steroid (sub-sections "Grep vs PSI — when to switch" and "Loading discipline") for the full routing rules.'
+msg='mcp-steroid is reachable — for reference-accuracy Java symbol questions (callers/overrides/usages, type hierarchies), prefer PSI find-usages via steroid_execute_code over grep. Grep is still correct for filename globs, unique string literals, and orientation reads. See project CLAUDE.md § MCP Steroid → "Grep vs PSI — when to switch" (full table in .claude/docs/mcp-steroid/grep-vs-psi.md) and .claude/docs/mcp-steroid/skills.md for the full routing rules.'
 
 if command -v jq >/dev/null 2>&1; then
   jq -n --arg msg "$msg" \
