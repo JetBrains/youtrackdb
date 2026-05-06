@@ -169,8 +169,8 @@ rules:
   calls — the native tool bypasses IntelliJ and leaves PSI / search
   indices stale. Single-site edits stay on `Edit`. See
   `conventions.md` §1.4 *Other mcp-steroid routes* and the project's
-  `CLAUDE.md` § MCP Steroid → "Load when relevant" →
-  `apply-patch-tool-description` for the rule.
+  `.claude/docs/mcp-steroid/skills.md` → `apply-patch-tool-description`
+  for the rule.
 - **Single-test reruns** (`-Dtest=Foo#bar`) and **compile-fix loops**
   route through `steroid_execute_code` when mcp-steroid is
   reachable; full-suite runs and coverage profiles stay on Bash

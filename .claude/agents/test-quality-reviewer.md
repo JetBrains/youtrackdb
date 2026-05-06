@@ -213,7 +213,7 @@ Recommend adding Java `assert` statements in production code **only where they a
 1. Reference the specific production code location (file + line)
 2. Show the exact assert statement to add
 3. Explain what invariant it protects and what bug it would catch during testing
-4. If the assertion condition involves complex logic, recommend extracting it to a helper method (per CLAUDE.md tip #10 about JaCoCo and assertions)
+4. If the assertion condition involves complex logic, recommend extracting it to a helper method (per `.claude/docs/architecture.md` § Codebase-specific tips → "JaCoCo and Java `assert` statements")
 
 ### 5. Test Isolation and Independence
 

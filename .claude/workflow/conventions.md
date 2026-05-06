@@ -377,11 +377,12 @@ PSI audits.
 
 ### Recipes — load on demand for specific operations
 
-The project's `CLAUDE.md` § MCP Steroid → Recipes catalogues several
-pre-built scripts that automate common IDE-routed operations through
-`steroid_execute_code`. Fetch the named `mcp-steroid://` resource via
-`steroid_fetch_resource` and adapt the script template — do not
-rederive the IntelliJ API calls from memory.
+The project's `CLAUDE.md` § MCP Steroid → Recipes lists the catalogue
+of pre-built scripts that automate common IDE-routed operations
+through `steroid_execute_code`; the full trigger list and use cases
+live in `.claude/docs/mcp-steroid/recipes.md`. Fetch the named
+`mcp-steroid://` resource via `steroid_fetch_resource` and adapt the
+script template — do not rederive the IntelliJ API calls from memory.
 
 Recipes most relevant to the workflow:
 
@@ -399,5 +400,5 @@ Recipes most relevant to the workflow:
 
 The recipe table is **illustrative, not exhaustive** — load only the
 recipe(s) the current step / iteration needs, never pre-load the
-whole catalogue. The project's `CLAUDE.md` § MCP Steroid → Recipes
-is the last authoritative source for the trigger list and use cases.
+whole catalogue. `.claude/docs/mcp-steroid/recipes.md` is the last
+authoritative source for the trigger list and use cases.
