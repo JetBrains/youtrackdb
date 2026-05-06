@@ -232,7 +232,7 @@ original plan did not name explicitly.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (5/7 complete)
+- [ ] Step implementation (6/7 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -644,35 +644,80 @@ original plan did not name explicitly.
   > - `core/src/test/java/.../core/metadata/schema/PropertyTypeInternalLinkConvertTest.java` (new)
   > - `core/src/test/java/.../core/metadata/schema/PropertyTypeInternalEmbeddedConvertTest.java` (new)
 
-- [ ] Step 6: `SchemaShared` + `ImmutableSchema` + cluster-selection live coverage + Schema proxy boundary cases
+- [x] Step 6: `SchemaShared` + `ImmutableSchema` + cluster-selection live coverage + Schema proxy boundary cases
+  - [x] Context: safe
   > **Risk:** medium — multi-file tests via `DbTestBase` exercising
   > `SchemaShared` public lock API + interface-dispatched proxies
-  > **What:** New `SchemaSharedLockApiTest` covering the 5
-  > public lock-API methods (`acquireSchemaReadLock`,
-  > `releaseSchemaReadLock`, `acquireSchemaWriteLock(session)`,
-  > `releaseSchemaWriteLock(session)`, `releaseSchemaWriteLock(session,
-  > save)`) — direct invocation is allowed per A7 (the public
-  > methods are part of the contract); the private
-  > `ReentrantReadWriteLock` field stays untouched. Tests use a
-  > worker-thread `spawn()` helper with `@After` join discipline
-  > (Track 14 carry-forward) to verify read-write lock semantics
-  > (multiple readers concurrent; writer exclusive) and the
-  > save-on-release path. Add `ImmutableSchemaShapeTest` (standalone)
-  > pinning the immutable schema's class-list / global-property-list
-  > / version round-trip. Add `RoundRobinCollectionSelectionStrategyTest`
-  > driving the live strategy via `SchemaClassImpl`'s hardwired
-  > instantiation: create a class, observe round-robin cluster
-  > selection across N inserts. The factory dispatch path
-  > (`CollectionSelectionFactory.getStrategy(name)`) is dead-pinned in
-  > Step 1 — this step does NOT exercise it. Add proxy boundary
-  > tests via the public `Schema` / `SchemaClass` / `SchemaProperty`
-  > / `FunctionLibrary` / `SequenceLibrary` interface (T3 trap
-  > note): inactive-session rejection (`session.assertIfNotActive`
-  > assertion fires), `SchemaClassProxy.createProperty(...)` returns
-  > a proxy that re-wraps a fresh `SchemaPropertyImpl`, and
-  > non-isomorphic delegation cases (e.g.,
-  > `SchemaPropertyProxy.compareTo` falling through to the underlying
-  > `SchemaPropertyImpl`'s implementation).
+  >
+  > **What was done:** Added four new test classes (1256 inserted
+  > lines, 48 `@Test` methods) pinning the live coverage surface in
+  > `core/metadata/schema` for `SchemaShared`, `ImmutableSchema`,
+  > `RoundRobinCollectionSelectionStrategy`, and the schema-level
+  > proxy. `SchemaSharedLockApiTest` (10) drives the 5 public
+  > lock-API methods directly: reentrant read/write locks,
+  > multi-reader concurrency, writer-excludes-reader exclusion, the
+  > `iSave=false` branch (snapshot drop without save), the
+  > `iSave=true` branch (`saveInternal` + version bump under
+  > embedded storage), serialised cross-thread writers, and
+  > `createGlobalProperty` routing. Worker threads use a `spawn()`
+  > helper with bounded `@After` join discipline.
+  > `ImmutableSchemaShapeTest` (15) pins captured-at-snapshot-time
+  > semantics (class list, global-property list, version, identity),
+  > every mutator overload (10+) throwing
+  > `UnsupportedOperationException`, idempotent `makeSnapshot()`,
+  > `getClassByCollectionId`, `getClassesRelyOnCollection`,
+  > simple-name-based `getClass(Class<?>)`, and `indexExists` /
+  > `getIndexDefinition` round-trip across a forced fresh snapshot.
+  > `SchemaProxyBoundaryTest` (18) covers the schema-level
+  > `SchemaProxy` (complementing Step 3's `SchemaClassProxy`
+  > boundary test): every `createClass` / `createAbstractClass` /
+  > `getOrCreateClass` overload returning `SchemaClassProxy`,
+  > `getClass` / `getClassByCollectionId` / `getClassInternal`
+  > returning proxies for live entries and null for missing,
+  > `makeSnapshot` / `reload` / `countClasses` /
+  > `getCollectionSelectionFactory` / blob-collection round-trip,
+  > and inactive-session rejection from a worker thread.
+  > `RoundRobinCollectionSelectionStrategyTest` (5) exercises the
+  > strategy `NAME`, the length-1 short-circuit arm, the
+  > multi-collection `ThreadLocalRandom`-backed pick (verified via
+  > 1000-trial coverage assertion), the two-arg delegating form, and
+  > `SchemaClassImpl`'s hardwired strategy class identity. All 48
+  > tests pass; Spotless clean.
+  >
+  > **What was discovered:** Three small contract clarifications
+  > worth recording. (1) `SchemaShared.releaseSchemaWriteLock(session,
+  > false)` still increments the schema version even on the
+  > `iSave=false` branch — the version bump is unconditional inside
+  > the `modificationCounter==1` block, independent of `iSave`. The
+  > test pins this explicitly so a future "skip version bump on
+  > no-save" refactor would be a deliberate, visible change.
+  > (2) The `Schema` interface only exposes 6
+  > `createClass`/`createAbstractClass` overloads; the
+  > `(String, SchemaClass, int[])`, `(String, int[], SchemaClass...)`
+  > and `(String, int, SchemaClass...)` overloads live on
+  > `SchemaInternal`. Tests cast through `SchemaInternal` to
+  > exercise those — the proxy implements `SchemaInternal` directly,
+  > so the cast is fine. (3) `SchemaShared.getGlobalProperties()`
+  > returns a sparse list — uninitialised id slots are null. Tests
+  > must filter nulls before stream-matching by name. Pinned in the
+  > schema-proxy boundary test comment.
+  >
+  > **Cross-track impact (recorded for absorption):** Track 22
+  > deferred-cleanup queue may consider documenting (or making
+  > opt-in) the `releaseSchemaWriteLock(session, false)` version-bump
+  > behavior — currently the `iSave` parameter only controls
+  > persistence (`saveInternal` vs `snapshot=null`), not the version
+  > increment. The behavior is pinned by `SchemaSharedLockApiTest`,
+  > so a future decoupling must explicitly update the test. Not a
+  > blocker for any upcoming track; recorded for the absorption
+  > sweep. No upcoming-track assumption is invalidated — recommendation
+  > is **Continue**.
+  >
+  > **Key files:**
+  > - `core/src/test/java/.../core/metadata/schema/SchemaSharedLockApiTest.java` (new)
+  > - `core/src/test/java/.../core/metadata/schema/ImmutableSchemaShapeTest.java` (new)
+  > - `core/src/test/java/.../core/metadata/schema/SchemaProxyBoundaryTest.java` (new)
+  > - `core/src/test/java/.../core/metadata/schema/clusterselection/RoundRobinCollectionSelectionStrategyTest.java` (new)
 
 - [ ] Step 7: Function library + DBSequence half-step + final verification
   > **Risk:** medium — multi-file test additions + final coverage
