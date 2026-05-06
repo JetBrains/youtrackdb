@@ -172,6 +172,21 @@ Review the following code changes from your specialized perspective.
 - Any files under generated-sources/ or generated-test-sources/
 - Generated Gremlin DSL classes
 
+## Tooling
+Use **mcp-steroid PSI find-usages / find-implementations / type-hierarchy
+via `steroid_execute_code`, not grep**, for any reference-accuracy
+question about a Java symbol in this diff (callers/overrides/usages of
+a method, field, class, or annotation; whether a slot is genuinely
+unused; whether a renamed symbol still has stale references). Grep is
+acceptable for filename globs, unique string literals, and orientation
+reads, but the load-bearing answer behind a finding must be PSI-backed
+when the mcp-steroid MCP server is reachable per the SessionStart hook
+(`steroid_list_projects` once at the start confirms the open project
+matches the working tree). Fall back to grep with an explicit
+reference-accuracy caveat in the finding only when mcp-steroid is
+unreachable. See `~/.claude/CLAUDE.md` "MCP Steroid" / "Grep vs PSI —
+when to switch" for the full routing rule.
+
 ## Diff
 {DIFF}
 ```

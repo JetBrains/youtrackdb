@@ -34,6 +34,22 @@ architecture notes.
 - Removed tracks that are no longer needed
 - Clear rationale for each change
 
+**Tooling — PSI for code references in the revised plan.** Replans
+routinely add new claims about the codebase (a Component Map entry
+names a class, a Decision Record cites a method, an Invariant points
+at an enforcement site, an Integration Point names callers). Those
+are reference-accuracy facts and must be verified through mcp-steroid
+PSI find-usages / find-implementations / type-hierarchy via
+`steroid_execute_code`, not grep, when the mcp-steroid MCP server is
+reachable per the SessionStart hook — same rule as Phase 1 planning
+(see [`planning.md`](planning.md) §"Tooling — PSI-backed Component
+Map and integration points" and [`conventions.md`](conventions.md)
+§1.4 *Tooling discipline*). Run `steroid_list_projects` once before
+the first symbol audit; do not re-probe. Fall back to grep with an
+explicit reference-accuracy caveat in any plan claim that depends on
+a symbol search only when mcp-steroid is unreachable. Silent grep
+misses become Phase A surprises in the revised tracks.
+
 Decision Record revisions follow this format:
 ```markdown
 #### D3: <Decision title> (revised after Track N)

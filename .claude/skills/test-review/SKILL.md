@@ -160,6 +160,22 @@ Review the following code changes from your specialized test quality perspective
 - Any files under generated-sources/ or generated-test-sources/
 - Generated Gremlin DSL classes
 
+## Tooling
+Use **mcp-steroid PSI find-usages / find-implementations / type-hierarchy
+via `steroid_execute_code`, not grep**, for any reference-accuracy
+question while reviewing test quality (which production methods this
+test exercises and where else they're called; whether an assertion's
+expected value matches the contract observed at every override of an
+SPI; whether a test fixture's helper has additional consumers that
+constrain its shape). Grep is acceptable for filename globs, unique
+string literals, and orientation reads, but the load-bearing answer
+behind a finding must be PSI-backed when the mcp-steroid MCP server is
+reachable per the SessionStart hook (`steroid_list_projects` once at
+the start confirms the open project matches the working tree). Fall
+back to grep with an explicit reference-accuracy caveat in the finding
+only when mcp-steroid is unreachable. See `~/.claude/CLAUDE.md` "MCP
+Steroid" / "Grep vs PSI — when to switch" for the full routing rule.
+
 ## Diff
 {DIFF}
 ```

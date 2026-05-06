@@ -215,6 +215,23 @@ whenever code or tests were modified.
    ## Skip These Files (generated code)
    - core/.../sql/parser/*, generated-sources/*, Gremlin DSL
 
+   ## Tooling
+   Use **mcp-steroid PSI find-usages / find-implementations / type-
+   hierarchy via `steroid_execute_code`, not grep**, for any reference-
+   accuracy question about a Java symbol in this fix (callers/overrides
+   /usages of a method, field, class, or annotation; whether the fix
+   leaves stale references; whether a new helper duplicates an existing
+   one; whether a test exercises the same code path the production fix
+   touches). Grep is acceptable for filename globs, unique string
+   literals, and orientation reads, but the load-bearing answer behind
+   a finding must be PSI-backed when the mcp-steroid MCP server is
+   reachable per the SessionStart hook (`steroid_list_projects` once at
+   the start confirms the open project matches the working tree). Fall
+   back to grep with an explicit reference-accuracy caveat in the
+   finding only when mcp-steroid is unreachable. See
+   `~/.claude/CLAUDE.md` "MCP Steroid" / "Grep vs PSI — when to switch"
+   for the full routing rule.
+
    ## Diff
    {git diff develop...HEAD}
    ```
