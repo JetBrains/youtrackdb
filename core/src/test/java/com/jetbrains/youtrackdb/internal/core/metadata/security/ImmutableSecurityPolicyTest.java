@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.security;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -9,6 +10,18 @@ import org.junit.Test;
  * constructor and the all-args constructor used by in-memory snapshots.
  */
 public class ImmutableSecurityPolicyTest extends DbTestBase {
+
+  /**
+   * Roll back any transaction left open by a failing test before the database is dropped.
+   * JUnit 4 runs subclass {@code @After} methods before superclass ones, so this fires
+   * ahead of the database teardown. Carry-forward convention from Tracks 8–16.
+   */
+  @After
+  public void rollbackIfLeftOpen() {
+    if (session != null && !session.isClosed() && session.isTxActive()) {
+      session.rollback();
+    }
+  }
 
   // ─── Direct all-args constructor ─────────────────────────────────────────
 

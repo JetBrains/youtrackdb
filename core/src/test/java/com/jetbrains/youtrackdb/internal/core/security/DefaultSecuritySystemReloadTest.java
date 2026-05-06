@@ -1,10 +1,12 @@
 package com.jetbrains.youtrackdb.internal.core.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.security.authenticator.DatabaseUserAuthenticator;
 import com.jetbrains.youtrackdb.internal.core.security.authenticator.SecurityAuthenticatorAbstract;
@@ -12,6 +14,7 @@ import com.jetbrains.youtrackdb.internal.core.security.authenticator.ServerConfi
 import com.jetbrains.youtrackdb.internal.core.security.authenticator.SystemUserAuthenticator;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -19,6 +22,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import org.junit.rules.TemporaryFolder;
 
 /**
@@ -47,7 +51,18 @@ import org.junit.rules.TemporaryFolder;
  * {@code ${YOUTRACKDB_HOME}/config/security.json} location; the production code
  * swallows that IOException, but pinning a real temp file keeps test output
  * clean and exercises the persistence side of {@code setSection}.
+ *
+ * <p>Tagged {@link SequentialTest} because {@link #redirectSecurityFile} mutates
+ * the JVM-global {@link GlobalConfiguration#SERVER_SECURITY_FILE} slot for every
+ * test in the class. Although only this class writes the slot today, surefire
+ * runs {@code parallel=classes} with {@code threadCountClasses=4}; future tests
+ * in the same package that happen to read the slot during the parallel-class
+ * window would observe the polluted value, so the category is the safe default
+ * matching the discipline already applied on
+ * {@code SecurityManagerNewCredentialInterceptorDeadCodeTest} and
+ * {@code KerberosCredentialInterceptorDeadCodeTest}.
  */
+@Category(SequentialTest.class)
 public class DefaultSecuritySystemReloadTest extends DbTestBase {
 
   @Rule
@@ -380,7 +395,10 @@ public class DefaultSecuritySystemReloadTest extends DbTestBase {
   @Test
   public void reloadPasswordValidatorWithDisabledSectionDoesNotInstall() {
     // The isEnabled(passwdValEntity) gate skips installation entirely when
-    // the section's "enabled" key is false.
+    // the section's "enabled" key is false. With no validator installed,
+    // validatePassword falls through silently — a previously-rejected password
+    // ("anybad" matches the TestPasswordValidator's reject rule) must now be
+    // accepted, which is the falsifiable signal that no validator is wired in.
     var sys = enableAndPrepareSystem();
 
     Map<String, Object> pwCfg = new HashMap<>();
@@ -389,38 +407,42 @@ public class DefaultSecuritySystemReloadTest extends DbTestBase {
 
     sys.reloadComponent(session, null, "passwordValidator", pwCfg);
 
-    // No validator installed; validatePassword is a no-op.
-    sys.validatePassword("alice", "anybad");
+    assertThatNoException().isThrownBy(() -> sys.validatePassword("alice", "anybad"));
   }
 
   @Test
   public void reloadPasswordValidatorWithMissingClassLogsAndSkips() {
     // Missing "class" key returns null from getClass → the error-log branch
-    // ("PasswordValidator class property is missing") fires; no installation.
+    // ("PasswordValidator class property is missing") fires; no installation
+    // happens, so the prior validator (or absence of one) remains. The
+    // assertion pins "missing class is silently swallowed" — a future
+    // implementation that throws would flip this to a failure.
     var sys = enableAndPrepareSystem();
 
     Map<String, Object> pwCfg = new HashMap<>();
     pwCfg.put("enabled", true);
     // No "class" key.
 
-    sys.reloadComponent(session, null, "passwordValidator", pwCfg);
-
-    sys.validatePassword("alice", "anything");
+    assertThatNoException()
+        .isThrownBy(() -> sys.reloadComponent(session, null, "passwordValidator", pwCfg));
+    assertThatNoException().isThrownBy(() -> sys.validatePassword("alice", "anything"));
   }
 
   @Test
   public void reloadPasswordValidatorWithNonValidatorClassLogsAndSkips() {
     // The isAssignableFrom guard rejects classes that don't implement
-    // PasswordValidator.
+    // PasswordValidator. The reject branch logs and returns; no installation.
     var sys = enableAndPrepareSystem();
 
     Map<String, Object> pwCfg = new HashMap<>();
     pwCfg.put("enabled", true);
     pwCfg.put("class", NotAnAuthenticator.class.getName());
 
-    sys.reloadComponent(session, null, "passwordValidator", pwCfg);
-
-    sys.validatePassword("alice", "anything");
+    assertThatNoException()
+        .isThrownBy(() -> sys.reloadComponent(session, null, "passwordValidator", pwCfg));
+    // No validator installed → any password (including the one the test
+    // validator would have rejected) is accepted.
+    assertThatNoException().isThrownBy(() -> sys.validatePassword("alice", "anybad"));
   }
 
   @Test
@@ -501,42 +523,47 @@ public class DefaultSecuritySystemReloadTest extends DbTestBase {
   @Test
   public void reloadLdapImporterWithMissingClassIsNoOp() {
     // The "ldapImporter class property is missing" branch fires when the
-    // section has enabled=true but no "class" key.
+    // section has enabled=true but no "class" key. The implementation logs
+    // and returns silently; the falsifiable contract is "no exception".
     var sys = enableAndPrepareSystem();
 
     Map<String, Object> ldapCfg = new HashMap<>();
     ldapCfg.put("enabled", true);
     // No "class" key.
 
-    sys.reloadComponent(session, null, "ldapImporter", ldapCfg);
-    // No exception thrown; component left null.
+    assertThatNoException()
+        .isThrownBy(() -> sys.reloadComponent(session, null, "ldapImporter", ldapCfg));
   }
 
   @Test
   public void reloadLdapImporterWithDisabledSectionDoesNotInstall() {
-    // The isEnabled(ldapImportEntity) gate skips installation entirely.
+    // The isEnabled(ldapImportEntity) gate skips installation entirely. Pin
+    // the silent-skip contract via assertThatNoException so a future
+    // implementation that throws on the disabled-section path surfaces here.
     var sys = enableAndPrepareSystem();
 
     Map<String, Object> ldapCfg = new HashMap<>();
     ldapCfg.put("enabled", false);
     ldapCfg.put("class", TestImportLDAP.class.getName());
 
-    sys.reloadComponent(session, null, "ldapImporter", ldapCfg);
-    // No exception thrown; component left null.
+    assertThatNoException()
+        .isThrownBy(() -> sys.reloadComponent(session, null, "ldapImporter", ldapCfg));
   }
 
   @Test
   public void reloadLdapImporterWithNonComponentClassLogsAndSkips() {
     // The isAssignableFrom guard rejects classes that don't implement
-    // SecurityComponent.
+    // SecurityComponent. The reject branch must log and return silently —
+    // pin via assertThatNoException so a future implementation that throws
+    // would surface here.
     var sys = enableAndPrepareSystem();
 
     Map<String, Object> ldapCfg = new HashMap<>();
     ldapCfg.put("enabled", true);
     ldapCfg.put("class", NotAnAuthenticator.class.getName());
 
-    sys.reloadComponent(session, null, "ldapImporter", ldapCfg);
-    // No exception thrown.
+    assertThatNoException()
+        .isThrownBy(() -> sys.reloadComponent(session, null, "ldapImporter", ldapCfg));
   }
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -596,8 +623,8 @@ public class DefaultSecuritySystemReloadTest extends DbTestBase {
     // unregisterSecurityClass on a class that was never registered should
     // be a silent no-op (HashMap.remove on a missing key returns null).
     var sys = securitySystem();
-    sys.unregisterSecurityClass(TestAuthenticator.class);
-    // No exception means the contract holds.
+    assertThatNoException()
+        .isThrownBy(() -> sys.unregisterSecurityClass(TestAuthenticator.class));
   }
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -799,8 +826,8 @@ public class DefaultSecuritySystemReloadTest extends DbTestBase {
     // defaults.
 
     @Override
-    public com.jetbrains.youtrackdb.internal.core.security.SecurityUser authenticate(
-        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session,
+    public SecurityUser authenticate(
+        DatabaseSessionEmbedded session,
         String username, String password) {
       return null;
     }
@@ -818,7 +845,7 @@ public class DefaultSecuritySystemReloadTest extends DbTestBase {
 
     @Override
     public void config(
-        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session,
+        DatabaseSessionEmbedded session,
         Map<String, Object> jsonConfig,
         SecuritySystem security) {
     }
@@ -852,7 +879,7 @@ public class DefaultSecuritySystemReloadTest extends DbTestBase {
 
     @Override
     public void config(
-        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session,
+        DatabaseSessionEmbedded session,
         Map<String, Object> jsonConfig,
         SecuritySystem security) {
     }
@@ -880,7 +907,7 @@ public class DefaultSecuritySystemReloadTest extends DbTestBase {
 
     @Override
     public void config(
-        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session,
+        DatabaseSessionEmbedded session,
         Map<String, Object> jsonConfig,
         SecuritySystem security) {
     }
@@ -896,7 +923,7 @@ public class DefaultSecuritySystemReloadTest extends DbTestBase {
 
     @Override
     public void changeConfig(
-        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session,
+        DatabaseSessionEmbedded session,
         SecurityUser user,
         String databaseName,
         Map<String, Object> cfg) {
@@ -909,19 +936,19 @@ public class DefaultSecuritySystemReloadTest extends DbTestBase {
 
     @Override
     public void log(
-        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session,
+        DatabaseSessionEmbedded session,
         AuditingOperation operation, String message) {
     }
 
     @Override
     public void log(
-        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session,
+        DatabaseSessionEmbedded session,
         AuditingOperation operation, SecurityUser user, String message) {
     }
 
     @Override
     public void log(
-        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session,
+        DatabaseSessionEmbedded session,
         AuditingOperation operation, String dbName, SecurityUser user,
         String message) {
     }
@@ -940,7 +967,7 @@ public class DefaultSecuritySystemReloadTest extends DbTestBase {
 
     @Override
     public void config(
-        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session,
+        DatabaseSessionEmbedded session,
         Map<String, Object> jsonConfig,
         SecuritySystem security) {
     }
@@ -968,12 +995,29 @@ public class DefaultSecuritySystemReloadTest extends DbTestBase {
   /**
    * Reference to {@link ServerConfigAuthenticator} / {@link SystemUserAuthenticator}
    * / {@link DatabaseUserAuthenticator} kept so the {@code initDefultAuthenticators}
-   * fallback test pins the simple-name list the chain installs by default.
+   * fallback test pins the simple-name list the chain installs by default. Wired into
+   * {@link #defaultAuthenticatorChainTypesMatchProductionDefaults} so removing or
+   * reordering the chain in production surfaces here.
    */
-  @SuppressWarnings("unused")
   private static final Class<?>[] DEFAULT_CHAIN_TYPES = {
       ServerConfigAuthenticator.class,
       SystemUserAuthenticator.class,
       DatabaseUserAuthenticator.class,
   };
+
+  @Test
+  public void defaultAuthenticatorChainTypesMatchProductionDefaults() {
+    // Pin the simple-name list of {@link #DEFAULT_CHAIN_TYPES} against the canonical
+    // 3-entry chain installed by initDefultAuthenticators (note the deliberate typo
+    // in the production method name). This guards against accidental reorder /
+    // removal in the source list and complements the runtime assertion in
+    // reloadAuthenticationWithoutAuthenticatorsKeyInstallsDefaultChain.
+    var simpleNames = Arrays.stream(DEFAULT_CHAIN_TYPES)
+        .map(Class::getSimpleName)
+        .toArray();
+    assertThat(simpleNames).containsExactly(
+        "ServerConfigAuthenticator",
+        "SystemUserAuthenticator",
+        "DatabaseUserAuthenticator");
+  }
 }

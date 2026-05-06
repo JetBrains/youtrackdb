@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Token;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.jwt.TokenHeader;
+import java.util.Base64;
 import org.junit.Test;
 
 /**
@@ -234,5 +235,63 @@ public class TokenSignImplTest {
     final var payload = "ctx-payload".getBytes();
     final var sig = sign.signToken(header, payload);
     assertThat(sign.verifyTokenSign(new ParsedToken(stubToken(header), payload, sig))).isTrue();
+  }
+
+  /**
+   * Latent-bug pin for {@link TokenSignImpl#readKeyFromConfig}. Production source
+   * (lines 130–143) reads:
+   *
+   * <pre>
+   * if (configKey == null || configKey.length() == 0) {
+   *   if (configKey != null &amp;&amp; configKey.length() &gt; 0) {  // UNREACHABLE — negation of outer
+   *     key = Base64.getUrlDecoder().decode(configKey);
+   *   }
+   * }
+   * </pre>
+   *
+   * <p>The inner condition is the logical negation of the outer condition, so the
+   * Base64-decode branch is never reached even when {@code NETWORK_TOKEN_SECRETKEY}
+   * is configured to a non-null non-empty value. As a result, every
+   * {@link TokenSignImpl} instance falls through to the {@link
+   * java.security.SecureRandom}-derived key path. The observable consequence:
+   * <strong>two TokenSignImpl instances configured with the same
+   * {@code NETWORK_TOKEN_SECRETKEY} produce mutually-unverifiable signatures.</strong>
+   * Tokens cannot be verified across server restarts or across servers in a cluster
+   * regardless of operator configuration.
+   *
+   * <p>WHEN-FIXED: Track 22 — fix the readKeyFromConfig nesting so the configured
+   * secret key is honoured (e.g., flatten to a single conditional that decodes when
+   * {@code configKey} is non-null and non-empty). Once fixed, this test’s
+   * cross-instance verification must succeed; flip the .isFalse() assertion below
+   * to .isTrue().
+   */
+  @Test
+  public void readKeyFromConfigIgnoresConfiguredSecretKeyLatentBugPin() {
+    // Build two ContextConfigurations sharing the SAME NETWORK_TOKEN_SECRETKEY.
+    // A correct implementation would decode the configured key and produce two
+    // TokenSignImpl instances with identical underlying HMAC keys; the current
+    // implementation discards the configured value and seeds each instance with
+    // its own SecureRandom-derived key.
+    final var sharedSecret = Base64.getUrlEncoder().encodeToString(testKey());
+
+    final var ctxA = new ContextConfiguration();
+    ctxA.setValue(GlobalConfiguration.NETWORK_TOKEN_SECRETKEY, sharedSecret);
+    final var ctxB = new ContextConfiguration();
+    ctxB.setValue(GlobalConfiguration.NETWORK_TOKEN_SECRETKEY, sharedSecret);
+
+    final var signA = new TokenSignImpl(ctxA);
+    final var signB = new TokenSignImpl(ctxB);
+
+    final var header = stubHeader();
+    final var payload = "cross-instance-payload".getBytes();
+
+    final var signatureFromA = signA.signToken(header, payload);
+    final var crossVerified = signB.verifyTokenSign(
+        new ParsedToken(stubToken(header), payload, signatureFromA));
+
+    // WHEN-FIXED: Track 22 — once readKeyFromConfig honours the configured
+    // secret key, this assertion must flip from .isFalse() to .isTrue() because
+    // signA and signB will share the same underlying HMAC key.
+    assertThat(crossVerified).isFalse();
   }
 }

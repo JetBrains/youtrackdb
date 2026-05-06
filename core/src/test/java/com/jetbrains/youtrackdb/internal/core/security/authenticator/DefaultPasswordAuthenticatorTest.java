@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.security.authenticator;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatNoException;
 
 import com.jetbrains.youtrackdb.internal.core.security.SecurityManager;
 import com.jetbrains.youtrackdb.internal.core.security.SecurityUser;
@@ -158,12 +159,13 @@ public class DefaultPasswordAuthenticatorTest {
 
   @Test
   public void disposeShouldRunWithoutException() {
-    // dispose() nulls out the internal map; it must not throw.
+    // dispose() nulls out the internal map; it must not throw. The falsifiable
+    // signal is "no exception" — a future implementation that throws on the
+    // double-dispose case (or any other regression) would fail here.
     var auth = new DefaultPasswordAuthenticator();
     auth.config(null, configWith("u",
         SecurityManager.createHashWithSalt("pw")), null);
-    auth.dispose(); // must not throw
-    assertThat(auth).isNotNull();
+    assertThatNoException().isThrownBy(auth::dispose);
   }
 
   @Test

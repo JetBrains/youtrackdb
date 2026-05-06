@@ -6,6 +6,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Security;
+import java.lang.reflect.Method;
+import java.util.Arrays;
+import java.util.Map;
+import java.util.stream.Collectors;
 import org.junit.Test;
 
 /**
@@ -24,7 +28,7 @@ public class SecuritySurfaceShapeTest {
     // Security is a deprecated facade with a small set of authenticate/allow methods.
     // Pin the type and a couple of representative methods.
     assertThat(Security.class.isInterface()).isTrue();
-    assertThat(java.util.Arrays.stream(Security.class.getDeclaredMethods())
+    assertThat(Arrays.stream(Security.class.getDeclaredMethods())
         .anyMatch(m -> m.getName().equals("authenticate"))).isTrue();
   }
 
@@ -39,7 +43,7 @@ public class SecuritySurfaceShapeTest {
         SecurityComponent.class.getDeclaredMethod(
             "config",
             DatabaseSessionEmbedded.class,
-            java.util.Map.class,
+            Map.class,
             SecuritySystem.class);
     assertThat(active.getReturnType()).isEqualTo(void.class);
     assertThat(dispose.getReturnType()).isEqualTo(void.class);
@@ -73,7 +77,7 @@ public class SecuritySurfaceShapeTest {
     // The 1-, 2-, and 3-arg log overloads form the contract Syslog implementations honour.
     final var methods = Syslog.class.getDeclaredMethods();
     final var arities =
-        java.util.Arrays.stream(methods)
+        Arrays.stream(methods)
             .filter(m -> m.getName().equals("log"))
             .map(m -> m.getParameterCount())
             .sorted()
@@ -119,9 +123,9 @@ public class SecuritySurfaceShapeTest {
     // changeConfig. Pin both the inheritance and the method-name set.
     assertThat(SecurityComponent.class.isAssignableFrom(AuditingService.class)).isTrue();
     final var names =
-        java.util.Arrays.stream(AuditingService.class.getDeclaredMethods())
-            .map(java.lang.reflect.Method::getName)
-            .collect(java.util.stream.Collectors.toSet());
+        Arrays.stream(AuditingService.class.getDeclaredMethods())
+            .map(Method::getName)
+            .collect(Collectors.toSet());
     assertThat(names).contains("changeConfig", "getConfig", "log");
   }
 }

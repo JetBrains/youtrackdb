@@ -1,5 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.security;
 
+import static org.junit.Assert.assertThrows;
+
 import com.jetbrains.youtrackdb.internal.core.exception.SecurityException;
 import org.junit.Assert;
 import org.junit.Test;
@@ -89,31 +91,20 @@ public class SecurityResourceTest {
     Assert.assertEquals(
         SecurityResourceServerOp.ADMIN, SecurityResource.parseResource("server.admin"));
 
-    try {
-      SecurityResource.parseResource("database.class.person.foo.bar");
-      Assert.fail();
-    } catch (Exception e) {
-    }
-    try {
-      SecurityResource.parseResource("database.collection.person.foo");
-      Assert.fail();
-    } catch (Exception e) {
-    }
-    try {
-      SecurityResource.parseResource("database.function.foo.bar");
-      Assert.fail();
-    } catch (Exception e) {
-    }
-    try {
-      SecurityResource.parseResource("database.foo");
-      Assert.fail();
-    } catch (Exception e) {
-    }
-    try {
-      SecurityResource.parseResource("server.foo");
-      Assert.fail();
-    } catch (Exception e) {
-    }
+    // The five negative shapes below all reach SecurityResource's
+    // SecurityException-throwing branch; narrowing the catch to that exact type
+    // means an unrelated RuntimeException (e.g., a future NPE in parseResource)
+    // would no longer be silently swallowed by the test.
+    assertThrows(SecurityException.class,
+        () -> SecurityResource.parseResource("database.class.person.foo.bar"));
+    assertThrows(SecurityException.class,
+        () -> SecurityResource.parseResource("database.collection.person.foo"));
+    assertThrows(SecurityException.class,
+        () -> SecurityResource.parseResource("database.function.foo.bar"));
+    assertThrows(SecurityException.class,
+        () -> SecurityResource.parseResource("database.foo"));
+    assertThrows(SecurityException.class,
+        () -> SecurityResource.parseResource("server.foo"));
   }
 
   @Test
@@ -233,18 +224,17 @@ public class SecurityResourceTest {
   }
 
   /**
-   * Verifies that getInstance returns null for a resource string that cannot be parsed rather
-   * than throwing (the cache insert is skipped on parse failure).
+   * Pins the {@link SecurityResource#getInstance} contract for a resource string
+   * that cannot be parsed: the underlying {@code parseResource} call throws
+   * {@link SecurityException}, and {@code getInstance} propagates it (the cache
+   * insert is skipped on parse failure but the exception is not swallowed). The
+   * previous test version accepted both "returns null" and "throws" as passing,
+   * which made it tautological; this pinning forces the actual contract to
+   * surface in case the implementation flips behaviour.
    */
   @Test
-  public void testGetInstanceReturnsNullOnParseException() {
-    // "database.foo" is invalid and throws SecurityException during parse, so getInstance
-    // must catch it and return null (or propagate — actual behaviour: propagates).
-    try {
-      SecurityResource.getInstance("database.foo.invalid.extra.parts.overflow");
-      // If it doesn't throw, it returned null — acceptable if parse returns null
-    } catch (SecurityException e) {
-      // Expected — the parse method propagates SecurityException
-    }
+  public void testGetInstancePropagatesSecurityExceptionOnInvalidResourceString() {
+    assertThrows(SecurityException.class,
+        () -> SecurityResource.getInstance("database.foo.invalid.extra.parts.overflow"));
   }
 }

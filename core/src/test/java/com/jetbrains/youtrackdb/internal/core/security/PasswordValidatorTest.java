@@ -2,6 +2,8 @@ package com.jetbrains.youtrackdb.internal.core.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import java.util.Map;
 import org.junit.Test;
 
 /**
@@ -32,8 +34,8 @@ public class PasswordValidatorTest {
 
           @Override
           public void config(
-              com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session,
-              java.util.Map<String, Object> jsonConfig,
+              DatabaseSessionEmbedded session,
+              Map<String, Object> jsonConfig,
               SecuritySystem security) {
           }
 

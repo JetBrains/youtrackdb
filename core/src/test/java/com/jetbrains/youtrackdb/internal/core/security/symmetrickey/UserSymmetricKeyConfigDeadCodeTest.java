@@ -230,4 +230,38 @@ public class UserSymmetricKeyConfigDeadCodeTest {
           expected.getMessage().contains("keyStore.keyAlias"));
     }
   }
+
+  // -------------------------------------------------------------------
+  // Latent-bug pin: line 133 NPE in the no-recognised-keys fall-through branch.
+  // When the properties map is non-null but contains none of `key`, `keyFile`,
+  // or `keyStore`, the constructor falls through to the keyStore else-branch
+  // where it dereferences a null `ksMap` (line 133 in the production source).
+  // The current observable is NullPointerException; the documented contract for
+  // an unrecognised properties map should be SecurityException with a
+  // diagnostic message.
+  //
+  // WHEN-FIXED: Track 22 — either delete UserSymmetricKeyConfig outright (the
+  // class is dead-pinned in this test) or, if the production fix lands first,
+  // replace this test's assertThrows(NullPointerException.class, ...) with
+  // assertThrows(SecurityException.class, ...) and assert the message mentions
+  // the missing key / keyFile / keyStore property.
+  // -------------------------------------------------------------------
+  @Test
+  public void unrecognizedPropertiesKeyNpesOnLine133LatentBugPin() {
+    var config = new HashMap<String, Object>();
+    var props = new HashMap<String, Object>();
+    // Non-null props with NONE of key / keyFile / keyStore present.
+    props.put("unrelated", "value");
+    config.put("properties", props);
+
+    try {
+      new UserSymmetricKeyConfig(config);
+      fail("unrecognised properties keys must currently NPE on the dead-code path");
+    } catch (NullPointerException expected) {
+      // Pin the current observable. WHEN-FIXED: Track 22 — flip to
+      // SecurityException once the constructor either rejects the unrecognised
+      // input cleanly or the class is deleted outright.
+      // No message assertion: NPE diagnostic depends on the JVM.
+    }
+  }
 }

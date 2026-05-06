@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.security.authenticator;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatNoException;
 
 import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.UserPasswordAuthInfo;
@@ -71,19 +72,23 @@ public class SecurityAuthenticatorAbstractTest {
     // The "debug" and "caseSensitive" keys must be accepted without throwing.
     // The visible effect of caseSensitive=false surfaces in DefaultPasswordAuthenticator
     // (covered in DefaultPasswordAuthenticatorTest). Here we only pin that parsing
-    // the flags does not throw.
+    // the flags does not throw — a future implementation that rejects unknown
+    // keys would surface here.
     var auth = new StubAuthenticator();
-    auth.config(null, Map.of("debug", true, "caseSensitive", false), null);
-    assertThat(auth).isNotNull();
+    assertThatNoException().isThrownBy(
+        () -> auth.config(null, Map.of("debug", true, "caseSensitive", false), null));
   }
 
   @Test
   public void activeAndDisposeShouldBeNoOps() {
-    // The base implementation has empty bodies — must not throw.
+    // The base implementation has empty bodies — must not throw. The falsifiable
+    // signal is "no exception"; a regression that adds throwing logic would fail
+    // here.
     var auth = new StubAuthenticator();
-    auth.active();
-    auth.dispose();
-    assertThat(auth).isNotNull();
+    assertThatNoException().isThrownBy(() -> {
+      auth.active();
+      auth.dispose();
+    });
   }
 
   @Test

@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
@@ -146,5 +147,49 @@ public class ImmutableUserTest extends DbTestBase {
   @Test
   public void testSecuritySystemUserImplConstantValue() {
     assertEquals("SYSTEM_USER", SecuritySystemUserImpl.SYSTEM_USER);
+  }
+
+  /**
+   * Latent-bug pin for {@link SecuritySystemUserImpl#populateSystemRoles} — the
+   * {@code databaseName != null && !databaseName.isEmpty()} branch reads
+   * {@code entity.getProperty(SystemRole.DB_FILTER)} and then iterates the result
+   * with no null check. Regular-database roles have no {@code dbFilter} property,
+   * so {@code getProperty} returns null and the {@code for (var dbName : dbNames)}
+   * loop NullPointerExceptions.
+   *
+   * <p>This test pins the CURRENT (buggy) observable: constructing
+   * {@link SecuritySystemUserImpl} with a non-empty database name against a regular
+   * database that lacks dbFilter produces a NullPointerException. After the
+   * production fix (null guard before iteration), the constructor must succeed
+   * silently and the assertion type below must change.
+   *
+   * <p>WHEN-FIXED: Track 22 — add a null check before the for-each on
+   * {@code dbNames} in the {@code databaseName}-non-empty branch; replace this
+   * test's assertThrows with a successful construction + role-set inspection.
+   */
+  @Test
+  public void testSecuritySystemUserImplWithNonEmptyDbNameNpesOnRegularDbRolesLatentBugPin() {
+    session.begin();
+    EntityImpl userEntity;
+    try (var rs = session.getActiveTransaction().query("SELECT FROM OUser WHERE name = ?",
+        adminUser)) {
+      userEntity = rs.hasNext() ? (EntityImpl) rs.next().asEntity() : null;
+    }
+    assertNotNull("admin user entity must exist", userEntity);
+
+    // Non-empty dbName routes into the buggy branch; the admin user's roles in a
+    // regular database have no DB_FILTER property, so the for-each on null NPEs.
+    final var entityForLambda = userEntity;
+    try {
+      // WHEN-FIXED: Track 22 — once populateSystemRoles guards against null
+      // dbNames in the non-empty-dbName branch, this constructor will succeed
+      // and the assertThrows must be replaced by a positive assertion on the
+      // resulting roles set.
+      assertThrows(
+          NullPointerException.class,
+          () -> new SecuritySystemUserImpl(session, entityForLambda, "someTargetDb"));
+    } finally {
+      session.commit();
+    }
   }
 }

@@ -3,10 +3,23 @@ package com.jetbrains.youtrackdb.internal.core.metadata.security;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.List;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
 
 public class SecuritySharedTest extends DbTestBase {
+
+  /**
+   * Roll back any transaction left open by a failing test before the database is dropped.
+   * JUnit 4 runs subclass {@code @After} methods before superclass ones, so this fires
+   * ahead of the database teardown. Carry-forward convention from Tracks 8–16.
+   */
+  @After
+  public void rollbackIfLeftOpen() {
+    if (session != null && !session.isClosed() && session.isTxActive()) {
+      session.rollback();
+    }
+  }
 
   @Test
   public void testCreateSecurityPolicy() {
@@ -103,8 +116,10 @@ public class SecuritySharedTest extends DbTestBase {
     session.commit();
   }
 
-  /// Verifies that dropUser correctly deletes a previously created user and returns true,
-  /// and returns false when attempting to drop a non-existent user.
+  /**
+   * Verifies that dropUser correctly deletes a previously created user and returns true,
+   * and returns false when attempting to drop a non-existent user.
+   */
   @Test
   public void testDropUser() {
     var security = session.getSharedContext().getSecurity();
@@ -124,9 +139,11 @@ public class SecuritySharedTest extends DbTestBase {
     session.commit();
   }
 
-  /// Verifies that incrementVersion (which recalculates filtered properties via an
-  /// internal query) does not leak an implicit transaction when called outside an
-  /// active transaction.
+  /**
+   * Verifies that incrementVersion (which recalculates filtered properties via an
+   * internal query) does not leak an implicit transaction when called outside an
+   * active transaction.
+   */
   @Test
   public void testIncrementVersionOutsideTxDoesNotLeakTransaction() {
     var security = session.getSharedContext().getSecurity();
@@ -144,8 +161,10 @@ public class SecuritySharedTest extends DbTestBase {
         session.isTxActive());
   }
 
-  /// Verifies that getAllUsers returns a non-empty list containing at least the admin user
-  /// that is created by DbTestBase when the database is set up.
+  /**
+   * Verifies that getAllUsers returns a non-empty list containing at least the admin user
+   * that is created by DbTestBase when the database is set up.
+   */
   @Test
   public void testGetAllUsersReturnsAtLeastAdminUser() {
     var security = session.getSharedContext().getSecurity();
@@ -163,8 +182,10 @@ public class SecuritySharedTest extends DbTestBase {
     Assert.assertTrue("admin user must appear in getAllUsers", foundAdmin);
   }
 
-  /// Verifies that getAllRoles returns the default roles created for the test database
-  /// (admin, reader, writer at minimum).
+  /**
+   * Verifies that getAllRoles returns the default roles created for the test database
+   * (admin, reader, writer at minimum).
+   */
   @Test
   public void testGetAllRolesReturnsDefaultRoles() {
     var security = session.getSharedContext().getSecurity();
@@ -182,8 +203,10 @@ public class SecuritySharedTest extends DbTestBase {
     Assert.assertTrue(foundReader);
   }
 
-  /// Verifies that dropRole correctly removes a previously created role,
-  /// and that the role is no longer visible after the transaction commits.
+  /**
+   * Verifies that dropRole correctly removes a previously created role,
+   * and that the role is no longer visible after the transaction commits.
+   */
   @Test
   public void testDropRoleRemovesRole() {
     var security = session.getSharedContext().getSecurity();
@@ -207,8 +230,10 @@ public class SecuritySharedTest extends DbTestBase {
     session.commit();
   }
 
-  /// Verifies that createRole with a parent establishes the inheritance chain accessible
-  /// via getParentRole() on the returned role object.
+  /**
+   * Verifies that createRole with a parent establishes the inheritance chain accessible
+   * via getParentRole() on the returned role object.
+   */
   @Test
   public void testCreateRoleWithParentSetsInheritance() {
     var security = session.getSharedContext().getSecurity();
@@ -222,7 +247,9 @@ public class SecuritySharedTest extends DbTestBase {
     Assert.assertEquals("reader", childRole.getParentRole().getName(session));
   }
 
-  /// Verifies that getRoleRID returns the same RID as the Role loaded via getRole.
+  /**
+   * Verifies that getRoleRID returns the same RID as the Role loaded via getRole.
+   */
   @Test
   public void testGetRoleRidMatchesLoadedRole() {
     var security = session.getSharedContext().getSecurity();
@@ -238,8 +265,10 @@ public class SecuritySharedTest extends DbTestBase {
     Assert.assertEquals(role.getIdentity().getIdentity(), rid);
   }
 
-  /// Verifies that SecurityProxy correctly delegates getRole and createUser to SecurityShared
-  /// without introducing an extra layer of indirection visible to callers.
+  /**
+   * Verifies that SecurityProxy correctly delegates getRole and createUser to SecurityShared
+   * without introducing an extra layer of indirection visible to callers.
+   */
   @Test
   public void testSecurityProxyDelegatesGetRoleAndGetUser() {
     var securityInternal = (SecurityInternal) session.getSharedContext().getSecurity();
@@ -256,8 +285,10 @@ public class SecuritySharedTest extends DbTestBase {
     Assert.assertEquals(adminUser, user.getName(session));
   }
 
-  /// Verifies that SecurityProxy.getAllUsers and getAllRoles return the same content as
-  /// direct calls to SecurityShared to confirm delegation is correct.
+  /**
+   * Verifies that SecurityProxy.getAllUsers and getAllRoles return the same content as
+   * direct calls to SecurityShared to confirm delegation is correct.
+   */
   @Test
   public void testSecurityProxyGetAllUsersAndGetAllRoles() {
     var securityInternal = (SecurityInternal) session.getSharedContext().getSecurity();
@@ -270,23 +301,43 @@ public class SecuritySharedTest extends DbTestBase {
     Assert.assertFalse("SecurityProxy.getAllRoles must not be empty", roles.isEmpty());
   }
 
-  /// Verifies that getSecurityPolicies returns an empty map for a role that has no policies
-  /// bound to it.
+  /**
+   * Verifies that getSecurityPolicies returns the bound policies for a role and that a
+   * newly-created role with no explicit binding has no entries. {@link DbTestBase} creates
+   * the standard default roles which already have a {@code database.class.*.*} policy
+   * bound, so we exercise both branches here: the reader role's map contains the default
+   * binding, and a freshly-created role has an empty map.
+   */
   @Test
-  public void testGetSecurityPoliciesEmptyForRoleWithNoPolicies() {
+  public void testGetSecurityPoliciesReturnsBoundPoliciesAndEmptyForNewRole() {
     var security = session.getSharedContext().getSecurity();
 
+    // Reader role has the default database.class.*.* binding from DB creation.
     session.begin();
     var readerRole = security.getRole(session, "reader");
-    // reader role initially has no policies in a fresh DB
-    var policies = security.getSecurityPolicies(session, readerRole);
+    var readerPolicies = security.getSecurityPolicies(session, readerRole);
     session.commit();
 
-    // May not be empty if previous tests left state, but must not throw
-    Assert.assertNotNull(policies);
+    Assert.assertNotNull(readerPolicies);
+    Assert.assertFalse(
+        "reader role must carry the default database.class.*.* policy created by DbTestBase",
+        readerPolicies.isEmpty());
+
+    // A freshly-created role with no explicit policy binding must report an empty map.
+    session.begin();
+    var fresh = security.createRole(session, "freshRoleNoPolicy");
+    var freshPolicies = security.getSecurityPolicies(session, fresh);
+    session.commit();
+
+    Assert.assertNotNull(freshPolicies);
+    Assert.assertTrue(
+        "newly-created role with no explicit policy binding must have no policies",
+        freshPolicies.isEmpty());
   }
 
-  /// Verifies that the version increments after each call to incrementVersion.
+  /**
+   * Verifies that the version increments after each call to incrementVersion.
+   */
   @Test
   public void testGetVersionIncrementsAfterIncrementVersion() {
     var security = session.getSharedContext().getSecurity();

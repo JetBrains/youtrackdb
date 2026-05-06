@@ -4,9 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Tests password hashing and verification using supported hash algorithms, plus the public
@@ -15,7 +17,18 @@ import org.junit.Test;
  * default is 65 536 iterations, which would make every PBKDF2 round-trip in this class
  * cost tens of milliseconds; 100 iterations is still meaningful for a round-trip property
  * test but runs in microseconds. {@code @AfterClass} restores the original value.
+ *
+ * <p>Tagged {@link SequentialTest} because {@code @BeforeClass} mutates the JVM-global
+ * {@link GlobalConfiguration#SECURITY_USER_PASSWORD_SALT_ITERATIONS} slot for the whole
+ * class lifetime. Surefire runs {@code parallel=classes} with {@code threadCountClasses=4};
+ * sibling test classes (e.g. {@code HashSaltTest}, {@code DefaultPasswordAuthenticatorTest})
+ * call {@link SecurityManager#createHashWithSalt} which reads the slot at runtime and
+ * would observe the polluted iteration count during the parallel-class window without this
+ * category. Matches the discipline already applied on
+ * {@code SecurityManagerNewCredentialInterceptorDeadCodeTest} and
+ * {@code KerberosCredentialInterceptorDeadCodeTest} for the same JVM-global-mutation reason.
  */
+@Category(SequentialTest.class)
 public class SecurityManagerTest {
 
   private static int originalIterations;
@@ -230,4 +243,61 @@ public class SecurityManagerTest {
     final var hash = SecurityManager.createHash("input", null);
     assertThat(hash).hasSize(64);
   }
+
+  @Test
+  public void saltCacheCurrentlyConfusesAlgorithmsLatentBugPin() {
+    // Latent production bug: SecurityManager.SALT_CACHE keys on
+    // hashedPassword|salt|iterations|bytes and OMITS the algorithm. Therefore a hash
+    // produced under PBKDF2-SHA1 can be "verified" successfully under PBKDF2-SHA256
+    // because the cache short-circuits on a key that does not distinguish the two
+    // algorithms.
+    //
+    // The assertion below pins the CURRENT (buggy) observable: a hash produced under
+    // PBKDF2-SHA1 verifies as TRUE under PBKDF2-SHA256 — algorithm confusion through
+    // the cache. After the production fix (cache key includes the algorithm),
+    // verifyUnderSha256 must become false because the cache miss forces a real
+    // PBKDF2-SHA256 computation that does not match the SHA1-derived hash.
+    //
+    // WHEN-FIXED: Track 22 — once the cache key includes the algorithm, this
+    // assertion must be flipped from .isTrue() to .isFalse().
+    final var pwd = "shared-pwd-" + System.nanoTime();
+    final var sha1Hash =
+        SecurityManager.createHashWithSalt(pwd, 100, SecurityManager.PBKDF2_ALGORITHM);
+    final boolean verifyUnderSha256 = SecurityManager.checkPasswordWithSalt(
+        pwd, sha1Hash, SecurityManager.PBKDF2_SHA256_ALGORITHM);
+    // WHEN-FIXED: Track 22 — flip to .isFalse() once SALT_CACHE keys include the algorithm.
+    assertThat(verifyUnderSha256).isTrue();
+  }
+
+  @Test
+  public void shouldLeakNumberFormatExceptionOnNonNumericIterations() {
+    // Production bug class: checkPasswordWithSalt parses the iterations field with
+    // Integer.parseInt and does NOT wrap NumberFormatException — the documented
+    // contract is IllegalArgumentException for malformed inputs (see the
+    // assertThatThrownBy on "no-colons-here" above). This test pins the current
+    // observable so a future production fix that wraps NumberFormatException into
+    // IllegalArgumentException flips the assertion type and signals the change.
+    //
+    // WHEN-FIXED: Track 22 — wrap NumberFormatException as IllegalArgumentException;
+    // change the .isInstanceOf(NumberFormatException.class) below to
+    // .isInstanceOf(IllegalArgumentException.class).
+    assertThatThrownBy(
+        () -> SecurityManager.checkPasswordWithSalt(
+            "p", "deadbeef:cafebabe:not-a-number"))
+        .isInstanceOf(NumberFormatException.class);
+  }
+
+  @Test
+  public void shouldLeakIllegalArgumentExceptionOnNonHexHashChars() {
+    // hexToByteArray throws when the hash field contains non-hex characters. The
+    // call surfaces as IllegalArgumentException (StringBuilder/Integer.parseInt path)
+    // — distinct from the structural "does not contain the requested parts" message.
+    // We pin only that an IllegalArgumentException leaks (not the specific text)
+    // because the exact message depends on the failing parse step.
+    assertThatThrownBy(
+        () -> SecurityManager.checkPasswordWithSalt(
+            "p", "zzzz:cafebabe:100"))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
 }
