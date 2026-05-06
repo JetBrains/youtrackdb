@@ -249,6 +249,16 @@ public class LockFreeReadCacheConcurrentTestIT {
       return cachePointer;
     }
 
+    /**
+     * Stub for the new total primitive introduced in Track 1: delegates to the existing mock
+     * {@link #load} so this test class compiles while still exercising its original load path.
+     */
+    @Override
+    public CachePointer loadOrAdd(
+        final long fileId, final long pageIndex, final boolean verifyChecksums) {
+      return load(fileId, pageIndex, new ModifiableBoolean(), verifyChecksums);
+    }
+
     @Override
     public void addPageIsBrokenListener(final PageIsBrokenListener listener) {
     }

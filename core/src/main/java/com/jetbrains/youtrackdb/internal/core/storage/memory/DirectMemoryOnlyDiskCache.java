@@ -260,6 +260,16 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     throw new UnsupportedOperationException();
   }
 
+  // Stub for the new total cache primitive introduced in Track 1 of the
+  // read-cache concurrency fix. The in-memory parallel implementation
+  // lands in the next step; this declaration only satisfies the
+  // WriteCache interface so production code keeps compiling.
+  @Override
+  public CachePointer loadOrAdd(
+      final long fileId, final long pageIndex, final boolean verifyChecksums) {
+    throw new UnsupportedOperationException("loadOrAdd not yet wired");
+  }
+
   private MemoryFile getFile(final int fileId) {
     final var memoryFile = files.get(fileId);
 

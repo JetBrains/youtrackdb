@@ -1356,6 +1356,18 @@ public final class WOWCache extends AbstractWriteCache
     return pageIndex;
   }
 
+  // Stub for the new total cache primitive introduced in Track 1 of the
+  // read-cache concurrency fix. The real three-branch implementation
+  // (load / one-page extend / multi-page gap-fill) lands in the next step;
+  // this declaration only satisfies the WriteCache interface so production
+  // code keeps compiling while it still routes through the legacy
+  // load / allocateNewPage paths.
+  @Override
+  public CachePointer loadOrAdd(
+      final long fileId, final long pageIndex, final boolean verifyChecksums) {
+    throw new UnsupportedOperationException("loadOrAdd not yet wired");
+  }
+
   @Override
   public void addOnlyWriters(final long fileId, final long pageIndex) {
     exclusiveWriteCacheSize.incrementAndGet();

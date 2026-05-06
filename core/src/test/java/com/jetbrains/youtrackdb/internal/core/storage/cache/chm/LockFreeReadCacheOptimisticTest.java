@@ -244,6 +244,15 @@ public class LockFreeReadCacheOptimisticTest {
       return cachePointer;
     }
 
+    /**
+     * Stub for the new total primitive introduced in Track 1: delegates to the existing mock
+     * {@link #load} so this test class compiles while still exercising its original load path.
+     */
+    @Override
+    public CachePointer loadOrAdd(long fileId, long pageIndex, boolean verifyChecksums) {
+      return load(fileId, pageIndex, new ModifiableBoolean(), verifyChecksums);
+    }
+
     @Override
     public void addPageIsBrokenListener(PageIsBrokenListener listener) {
     }

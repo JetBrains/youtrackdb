@@ -128,6 +128,25 @@ public interface WriteCache {
       long fileId, long startPageIndex, ModifiableBoolean cacheHit, boolean verifyChecksums)
       throws IOException;
 
+  /**
+   * Total page-access primitive: returns a usable {@link CachePointer} for the given
+   * {@code (fileId, pageIndex)} regardless of whether the page already exists on disk.
+   *
+   * <p>Behaviour is implementation-specific (see {@code WOWCache} for the disk engine and
+   * {@code DirectMemoryOnlyDiskCache} for the in-memory engine), but the contract is uniform:
+   * the method never returns {@code null} for any open, non-deleted file. Concrete branches
+   * (load existing / one-page extend / multi-page gap-fill) and the caller-side concurrency
+   * preconditions are documented on the implementing classes once they land in subsequent
+   * steps of the read-cache concurrency fix.
+   *
+   * @param fileId external file id of the target page
+   * @param pageIndex zero-based page index inside that file
+   * @param verifyChecksums whether checksum verification is enforced on the load branch
+   * @return a non-null {@link CachePointer} positioned at the target page
+   * @throws IOException if the underlying disk I/O fails
+   */
+  CachePointer loadOrAdd(long fileId, long pageIndex, boolean verifyChecksums) throws IOException;
+
   void flush(long fileId);
 
   void flush();
