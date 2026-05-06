@@ -214,7 +214,7 @@ token management, and encryption.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/7 complete)
+- [ ] Step implementation (3/7 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -392,20 +392,68 @@ token management, and encryption.
   >
   > **Commit:** `7ab8540020`
 
-- [ ] Step 3: `core/metadata/security` live coverage gap (Roles + Policies + Identity + Resources + Auth-info)
+- [x] Step 3: `core/metadata/security` live coverage gap (Roles + Policies + Identity + Resources + Auth-info)
+  - [x] Context: safe
   > **Risk:** low — default (extends existing tests, no new shared
   > infrastructure)
   >
-  > Close the 593-uncov / 72.3% baseline gap. Extend
-  > `SecurityResourceTest`, `SecurityEngineTest`, `SecurityPolicyTest`,
-  > `SecuritySharedTest`, `ImmutableUserTest`, `HashSaltTest`,
-  > `TestReaderDropClass`. Target the residual gaps Phase A T3
-  > identified: JSON serialization, role-resource introspection,
-  > `Rule.permissionToString` corners, `SystemRole` integration via
-  > `SecuritySystemUserImpl`, `SecurityProxy`, `SecurityRole` enum,
-  > `SecurityShared` introspection, `Identity` value class. Plus
-  > `core/metadata/security/auth` value classes (`AuthenticationInfo`,
-  > `TokenAuthInfo`, `UserPasswordAuthInfo` — 9 uncov, trivial).
+  > **What was done:** Added 4 new test classes and extended 3
+  > existing ones in `core/metadata/security` targeting the 593-uncov
+  > baseline gap. New classes: `RuleAndResourceGenericTest` (`Rule`
+  > bitmask logic, `ResourceGeneric` static lookup,
+  > `Role.permissionToString` corners), `ImmutableSecurityPolicyTest`
+  > (both constructors, immutability contract),
+  > `SecurityRoleAndIdentityShapeTest` (`SecurityRole` / `Identity` /
+  > `SystemRole` interface/class shape pins), `AuthInfoTest` in
+  > `auth/` sub-package (all three auth value classes:
+  > `AuthenticationInfo`, `TokenAuthInfo`, `UserPasswordAuthInfo`).
+  > Extended `SecuritySharedTest` with `getAllUsers`/`getAllRoles`,
+  > `dropRole`, `createRole` with parent, `getRoleRID`,
+  > `SecurityProxy` delegation, `getVersion` increment. Extended
+  > `SecurityResourceTest` with wildcard / schema / systemcollections
+  > paths, `equals`/`hashCode`, and introspection getters. Extended
+  > `ImmutableUserTest` with `SecuritySystemUserImpl` constructor
+  > tests using the null-safe empty-dbName branch. All 1 798 core
+  > tests pass; Spotless clean.
+  >
+  > **What was discovered:**
+  > `SecuritySystemUserImpl.populateSystemRoles` has a latent NPE in
+  > the `databaseName`-non-empty branch:
+  > `List<String> dbNames = entity.getProperty(SystemRole.DB_FILTER);
+  > for (var dbName : dbNames)` — **no null check before iteration**.
+  > Regular-database roles have no `dbFilter` property, so
+  > `getProperty` returns null and iteration NPEs. The null-safe
+  > else-branch (empty/null `dbName`) is guarded correctly. This is
+  > a production bug; `SecuritySystemUserImpl` is only safe on the
+  > system database where roles have `dbFilter` set. **Forward to
+  > Track 22 deferred-cleanup queue** (no `WHEN-FIXED` marker —
+  > observable shape is the pin).
+  >
+  > **Cross-track forward:** Track 22 deferred-cleanup queue now has
+  > three items pinned via observable behaviour: (a) SALT_CACHE
+  > algorithm-omission bug (Step 1), (b)
+  > `DefaultPasswordAuthenticator` empty-password
+  > `createServerUser` bug (Step 2), (c) `SecuritySystemUserImpl.
+  > populateSystemRoles` NPE in `databaseName`-non-empty branch
+  > (this step).
+  >
+  > **Critical context:** `SecuritySystemUserImpl` tests must use
+  > empty-string `dbName` (not a specific db name) when running
+  > against a regular database — the `databaseName`-non-empty code
+  > path NPEs because regular roles have no `dbFilter` property.
+  > Future tests requiring the filtered path need to construct role
+  > entities with the `dbFilter` property explicitly set.
+  >
+  > **Key files:**
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/metadata/security/RuleAndResourceGenericTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/metadata/security/ImmutableSecurityPolicyTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/metadata/security/SecurityRoleAndIdentityShapeTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/metadata/security/auth/AuthInfoTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/metadata/security/SecurityResourceTest.java` (modified)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/metadata/security/SecuritySharedTest.java` (modified)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/metadata/security/ImmutableUserTest.java` (modified)
+  >
+  > **Commit:** `00b37fff7c`
 
 - [ ] Step 4: `DefaultSecuritySystem` JSON-config-driven reflective reload paths
   > **Risk:** medium — multi-file logic (introduces a synthesized-
