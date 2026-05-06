@@ -233,7 +233,7 @@ original plan did not name explicitly.
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation (7/7 complete)
-- [ ] Track-level code review (2/3 iterations)
+- [x] Track-level code review (3/3 iterations — iter-3 gate PASS on TB/TX/CQ; see `reviews/track-16-codereview-iter3.md`)
 
 ## Base commit
 `7ccf28f311d8d11e0d944c3f6d6163efe9574a0d`
