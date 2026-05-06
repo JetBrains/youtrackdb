@@ -102,10 +102,11 @@ training.
 `design-sync` is included because mechanics evolves freely
 between syncs while `design.md` stays frozen; when sync
 re-distills the Overview, it can introduce undefined domain
-terms, lose an audience anchor, or shift to mechanism-first
-ordering without any single working-mode edit visibly causing
-the drift. The TL;DR-vs-mechanics instruction in the
-`design-sync` block above catches alignment drift between the
+terms, lose its audience framing (the prose cues that signal
+the intended reader), or shift to mechanism-first ordering
+without any single working-mode edit visibly causing the drift.
+The TL;DR-vs-mechanics instruction in the `design-sync` block
+above catches alignment drift between the
 two files; these checks catch human-readability drift in the
 freshly-rewritten Overview itself.
 
@@ -116,8 +117,11 @@ freshly-rewritten Overview itself.
     prose against *that* reader, not against your own training
     as a coding-aware agent. If the doc doesn't name or imply
     an audience, flag it as a blocker and request the doc
-    author add an audience anchor in the Overview's first
-    paragraph.
+    author establish the intended reader within the prose of
+    the Overview's first paragraph. **Not** a standalone
+    `Audience:` block — per design-document-rules.md § Overview,
+    the audience model must be self-evident from the prose; a
+    metadata-style audience block is forbidden.
 
 (b) **Glossary-introduction** — walk through the Overview and
     list every internal API, type, or domain concept used in
@@ -125,13 +129,15 @@ freshly-rewritten Overview itself.
     not merely mentioned in passing). For each, determine
     whether it is (i) defined inline at first use, (ii) defined
     in a `## Core Concepts` section that the Overview points
-    to, or (iii) explicitly listed as assumed knowledge in the
-    audience anchor or a prerequisites bullet (e.g., *"Audience:
-    storage engineers familiar with WAL and page caches"* — the
-    listed prerequisites count as defined-by-reference for that
-    audience). Anything load-bearing that fails all three is a
-    finding. Severity: **blocker** if a reader without the term
-    cannot follow the Overview's main argument; **should-fix**
+    to, or (iii) named as prerequisite knowledge in the
+    Overview's prose (e.g., a sentence like *"This design
+    assumes familiarity with WAL semantics and the disk-cache
+    layer"* makes those terms defined-by-reference for the
+    implied audience — same prose-only constraint as (a); no
+    standalone `Audience:` or `Prerequisites:` block).
+    Anything load-bearing that fails all three is a finding.
+    Severity: **blocker** if a reader without the term cannot
+    follow the Overview's main argument; **should-fix**
     if the term appears in a supporting clause but the main
     argument survives without it. Apply the same check to the
     opening of each `##` section's mechanism overview, scoped
@@ -170,7 +176,7 @@ audience* the prose breaks down. Compressed reviewer feedback
 under-reports these failure modes — a one-sentence "the
 Overview is hard to follow" finding is not actionable; a
 finding that lists six undefined APIs and identifies the
-absent audience anchor is.
+absent audience framing is.
 
 ## Reading rules
 
