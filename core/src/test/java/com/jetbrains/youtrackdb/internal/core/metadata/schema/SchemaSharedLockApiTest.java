@@ -53,10 +53,13 @@ public class SchemaSharedLockApiTest extends DbTestBase {
 
   /**
    * Tracked worker spawn helper. Surefire reuses worker threads across @Test methods, so any
-   * thread spawned here is registered for bounded join in the @After hook.
+   * thread spawned here is registered for bounded join in the @After hook. Workers are marked
+   * daemon so a leaked worker (e.g., a misconfigured latch path that the @After hook cannot
+   * unblock) cannot keep the surefire forked JVM alive past the test method.
    */
   private Thread spawn(Runnable body, String name) {
     var t = new Thread(body, name);
+    t.setDaemon(true);
     spawnedWorkers.add(t);
     t.start();
     return t;
@@ -64,13 +67,22 @@ public class SchemaSharedLockApiTest extends DbTestBase {
 
   @After
   public void joinSpawnedWorkers() throws InterruptedException {
-    // Bounded join — a worker still alive at this point indicates a missing latch.countDown
-    // or a stuck lock acquisition. The bound prevents a misconfigured test from hanging the
-    // entire surefire JVM.
+    // Bounded join — a worker still alive after the bound indicates a missing latch.countDown
+    // or a stuck lock acquisition. Failing the test loudly here surfaces the misconfiguration
+    // instead of letting the leaked worker silently linger as a daemon.
+    var leaked = new java.util.ArrayList<String>();
     for (var t : spawnedWorkers) {
       t.join(5_000);
+      if (t.isAlive()) {
+        leaked.add(t.getName());
+        t.interrupt();
+      }
     }
     spawnedWorkers.clear();
+    if (!leaked.isEmpty()) {
+      fail("workers did not join within 5s — likely a missing latch.countDown or stuck "
+          + "acquire: " + leaked);
+    }
   }
 
   @Test
@@ -324,6 +336,13 @@ public class SchemaSharedLockApiTest extends DbTestBase {
     // still serialize the createClass map mutations). The serialization invariant is observable
     // only by checking that B's acquire returns AFTER A's release — captured here via an
     // AtomicBoolean flipped in A's finally block before B.acquire returns.
+    //
+    // One-sided invariant: aReleased.set(true) runs BEFORE the actual ReentrantReadWriteLock
+    // unlock (releaseSchemaWriteLock performs version++ then lock.writeLock().unlock() in its
+    // own finally — see SchemaShared#releaseSchemaWriteLock). A bEnteredWhileAHeld == true
+    // result is therefore conclusive proof of broken exclusion, but a false result is not a
+    // proof of correct serialization — only the absence of a detected breakage. The test is
+    // a positive smoke gate, not a full serialization invariant pin.
     var schemaShared = session.getSharedContext().getSchema();
     var versionBefore = schemaShared.getVersion();
     var failures = new CopyOnWriteArrayList<Throwable>();

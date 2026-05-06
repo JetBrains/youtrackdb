@@ -25,6 +25,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.util.CallableFunction;
@@ -263,7 +264,7 @@ public class FunctionRecordRoundTripTest extends DbTestBase {
     try {
       @SuppressWarnings("deprecation")
       var unused = f.execute("alpha", "beta", "gamma");
-      org.junit.Assert.fail(
+      fail(
           "Expected the no-context overload to throw on getDatabaseSession() — actual: "
               + unused);
     } catch (RuntimeException expected) {

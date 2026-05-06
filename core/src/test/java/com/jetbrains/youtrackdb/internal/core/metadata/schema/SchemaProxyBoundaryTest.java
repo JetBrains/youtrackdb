@@ -61,12 +61,13 @@ public class SchemaProxyBoundaryTest extends DbTestBase {
 
   /**
    * Tracked worker spawn helper — registers each worker for bounded join in the {@code @After}
-   * hook. Keeps the surefire JVM safe against a leaked daemon-less worker if a test's
-   * synchronization path misbehaves (e.g., the inactive-session assert is removed and the
-   * worker silently completes the lookup instead of throwing).
+   * hook. Workers are marked daemon so a leaked worker (e.g., the inactive-session assert is
+   * removed and the worker silently completes the lookup instead of throwing) cannot keep the
+   * surefire forked JVM alive past the test method.
    */
   private Thread spawn(Runnable body, String name) {
     var t = new Thread(body, name);
+    t.setDaemon(true);
     spawnedWorkers.add(t);
     t.start();
     return t;
@@ -74,10 +75,19 @@ public class SchemaProxyBoundaryTest extends DbTestBase {
 
   @After
   public void joinSpawnedWorkers() throws InterruptedException {
+    var leaked = new java.util.ArrayList<String>();
     for (var t : spawnedWorkers) {
       t.join(5_000);
+      if (t.isAlive()) {
+        leaked.add(t.getName());
+        t.interrupt();
+      }
     }
     spawnedWorkers.clear();
+    if (!leaked.isEmpty()) {
+      fail("workers did not join within 5s — likely a missing latch.countDown or stuck "
+          + "acquire: " + leaked);
+    }
   }
 
   @Test

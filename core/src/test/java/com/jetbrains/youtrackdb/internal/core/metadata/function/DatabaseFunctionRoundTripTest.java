@@ -27,6 +27,8 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
+import java.lang.reflect.Modifier;
+import java.util.Arrays;
 import java.util.List;
 import org.junit.Test;
 
@@ -253,21 +255,35 @@ public class DatabaseFunctionRoundTripTest extends DbTestBase {
   }
 
   /**
-   * {@code config(args)} is documented as a no-op; pin the no-op contract by checking the
-   * adapter's observable state ({@code getResult} / {@code getName}) is unchanged across the
-   * call so a future change that stashes config-time state is a deliberate, visible event.
+   * {@code config(args)} is documented as a no-op. Observing the no-op contract via
+   * {@code getResult()} / {@code getName(session)} is structurally vacuous because both
+   * observables are constants (the former is hard-coded {@code return null} and the latter
+   * reads {@code f.getName()} from a final field) — a regression that stashed config-time
+   * state in a new private field would be invisible to either getter.
+   *
+   * <p>The pin is therefore structural: assert the adapter has exactly one non-synthetic
+   * field — the final {@code Function f} reference — so there is nowhere to stash config-time
+   * state. A future change that adds a {@code private Object[] cfg} field to absorb config()
+   * arguments would FAIL this assertion. The {@code config(...)} call below exercises the
+   * line so coverage stays positive.
    */
   @Test
-  public void configIsNoOp() {
+  public void configIsNoOpAndAdapterHasNoStateBeyondFunction() throws NoSuchMethodException {
+    var fields = Arrays.stream(DatabaseFunction.class.getDeclaredFields())
+        .filter(f -> !f.isSynthetic())
+        .toList();
+    assertEquals("DatabaseFunction must have exactly one non-synthetic field — adding a new "
+        + "field is the only way config(args) could stash state",
+        1, fields.size());
+    var only = fields.get(0);
+    assertEquals("the only field must be the underlying Function reference named 'f'",
+        "f", only.getName());
+    assertTrue("the only field must be final so reassignment is impossible",
+        Modifier.isFinal(only.getModifiers()));
+
     var lib = session.getMetadata().getFunctionLibrary();
     var stored = lib.createFunction("ConfigBoilerplateFn");
     var dbFn = new DatabaseFunction(stored);
-    var resultBefore = dbFn.getResult();
-    var nameBefore = dbFn.getName(session);
-    dbFn.config(new Object[] {"any", "args"});
-    assertEquals("config must not alter the adapter's stored result",
-        resultBefore, dbFn.getResult());
-    assertEquals("config must not alter the adapter's reported name",
-        nameBefore, dbFn.getName(session));
+    dbFn.config(new Object[] {"any", "args"}); // exercises the no-op for line coverage
   }
 }

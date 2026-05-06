@@ -6,6 +6,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
@@ -152,7 +153,7 @@ public class FunctionLibraryTest extends DbTestBase {
     var library = session.getMetadata().getFunctionLibrary();
     try {
       library.dropFunction(session, "NoSuchFunctionEverRegistered");
-      org.junit.Assert.fail(
+      fail(
           "Expected NullPointerException (or DatabaseException wrapping it) when dropping a"
               + " non-existent function by name; production has no defensive null guard");
     } catch (NullPointerException expected) {

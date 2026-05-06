@@ -187,16 +187,30 @@ public class SequenceLibraryProxyTest extends DbTestBase {
 
   /**
    * The deprecated {@code create()} re-runs the schema initialisation (the {@code OSequence}
-   * class is created if absent). It is idempotent — pin the no-throw contract.
+   * class is created if absent). It is idempotent: a second call must not double-register or
+   * wipe existing sequences.
+   *
+   * <p>Pin idempotency on a populated library — calling {@code create()} on an empty library
+   * cannot distinguish "no-op" from "wipes everything" because the post-condition (count 0)
+   * is identical to the pre-condition. Populating a sequence first makes the assertion
+   * load-bearing: a regression that wipes the library on each {@code create()} would FAIL the
+   * count check, and a regression that double-registers would also FAIL it.
    */
   @Test
   @SuppressWarnings("deprecation")
   public void deprecatedCreateIsIdempotent() {
     var library = session.getMetadata().getSequenceLibrary();
+    library.createSequence(
+        "IdemSeq", DBSequence.SEQUENCE_TYPE.ORDERED,
+        new DBSequence.CreateParams().setDefaults());
+    long countAfterCreate = library.getSequenceCount();
     library.create();
     library.create();
-    // No throw, no observable side-effect on the empty library.
-    assertEquals(0, library.getSequenceCount());
+    assertEquals("create() must be idempotent on a populated library — neither wipe nor "
+        + "double-register the existing entries",
+        countAfterCreate, library.getSequenceCount());
+    assertNotNull("existing sequence must remain visible after re-create",
+        library.getSequence("IDEMSEQ"));
   }
 
   /**

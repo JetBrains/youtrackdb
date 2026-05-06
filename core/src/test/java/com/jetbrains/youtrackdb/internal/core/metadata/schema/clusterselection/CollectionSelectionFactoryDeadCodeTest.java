@@ -21,6 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema.clusterselection;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
@@ -145,7 +146,7 @@ public class CollectionSelectionFactoryDeadCodeTest {
     assertEquals("returned instance must be the BalancedCollectionSelectionStrategy class",
         BalancedCollectionSelectionStrategy.class, s1.getClass());
     assertNotNull("second getStrategy call must also be non-null", s2);
-    org.junit.Assert.assertNotSame(
+    assertNotSame(
         "factory javadoc says strategies are stateful and not reused — must be fresh per call",
         s1, s2);
   }
