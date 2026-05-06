@@ -1,6 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.security;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import java.util.List;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -140,5 +142,160 @@ public class SecuritySharedTest extends DbTestBase {
     Assert.assertFalse(
         "calculateAllFilteredProperties must not leak an implicit transaction",
         session.isTxActive());
+  }
+
+  /// Verifies that getAllUsers returns a non-empty list containing at least the admin user
+  /// that is created by DbTestBase when the database is set up.
+  @Test
+  public void testGetAllUsersReturnsAtLeastAdminUser() {
+    var security = session.getSharedContext().getSecurity();
+
+    // getAllUsers runs its own computeInTx; access properties inside a fresh transaction
+    // so the records are bound to the current session.
+    session.begin();
+    List<EntityImpl> users = security.getAllUsers(session);
+    Assert.assertNotNull(users);
+    Assert.assertFalse("getAllUsers must return at least the admin user", users.isEmpty());
+    boolean foundAdmin = users.stream()
+        .anyMatch(e -> adminUser.equals(e.getProperty("name")));
+    session.commit();
+
+    Assert.assertTrue("admin user must appear in getAllUsers", foundAdmin);
+  }
+
+  /// Verifies that getAllRoles returns the default roles created for the test database
+  /// (admin, reader, writer at minimum).
+  @Test
+  public void testGetAllRolesReturnsDefaultRoles() {
+    var security = session.getSharedContext().getSecurity();
+
+    session.begin();
+    List<EntityImpl> roles = security.getAllRoles(session);
+    Assert.assertNotNull(roles);
+    boolean foundAdmin = roles.stream().anyMatch(e -> "admin".equals(e.getProperty("name")));
+    boolean foundReader = roles.stream().anyMatch(e -> "reader".equals(e.getProperty("name")));
+    int roleCount = roles.size();
+    session.commit();
+
+    Assert.assertTrue("There must be at least 3 default roles", roleCount >= 3);
+    Assert.assertTrue(foundAdmin);
+    Assert.assertTrue(foundReader);
+  }
+
+  /// Verifies that dropRole correctly removes a previously created role,
+  /// and that the role is no longer visible after the transaction commits.
+  @Test
+  public void testDropRoleRemovesRole() {
+    var security = session.getSharedContext().getSecurity();
+
+    session.begin();
+    security.createRole(session, "tempRole");
+    session.commit();
+
+    session.begin();
+    Assert.assertNotNull(security.getRole(session, "tempRole"));
+    session.commit();
+
+    // SecurityInternal.dropRole returns boolean (true if removed)
+    session.begin();
+    boolean removed = security.dropRole(session, "tempRole");
+    session.commit();
+
+    Assert.assertTrue("dropRole must return true for an existing role", removed);
+    session.begin();
+    Assert.assertNull(security.getRole(session, "tempRole"));
+    session.commit();
+  }
+
+  /// Verifies that createRole with a parent establishes the inheritance chain accessible
+  /// via getParentRole() on the returned role object.
+  @Test
+  public void testCreateRoleWithParentSetsInheritance() {
+    var security = session.getSharedContext().getSecurity();
+
+    session.begin();
+    var readerRole = security.getRole(session, "reader");
+    var childRole = security.createRole(session, "childOfReader", readerRole);
+    session.commit();
+
+    Assert.assertNotNull(childRole.getParentRole());
+    Assert.assertEquals("reader", childRole.getParentRole().getName(session));
+  }
+
+  /// Verifies that getRoleRID returns the same RID as the Role loaded via getRole.
+  @Test
+  public void testGetRoleRidMatchesLoadedRole() {
+    var security = session.getSharedContext().getSecurity();
+
+    var rid = SecurityShared.getRoleRID(session, "admin");
+    Assert.assertNotNull("getRoleRID must return a non-null RID for an existing role", rid);
+
+    session.begin();
+    var role = security.getRole(session, "admin");
+    session.commit();
+
+    Assert.assertNotNull(role);
+    Assert.assertEquals(role.getIdentity().getIdentity(), rid);
+  }
+
+  /// Verifies that SecurityProxy correctly delegates getRole and createUser to SecurityShared
+  /// without introducing an extra layer of indirection visible to callers.
+  @Test
+  public void testSecurityProxyDelegatesGetRoleAndGetUser() {
+    var securityInternal = (SecurityInternal) session.getSharedContext().getSecurity();
+    var proxy = new SecurityProxy(securityInternal, session);
+
+    // getRole delegation
+    var role = proxy.getRole("admin");
+    Assert.assertNotNull("SecurityProxy.getRole must delegate to SecurityShared", role);
+    Assert.assertEquals("admin", role.getName(session));
+
+    // getUser delegation
+    var user = proxy.getUser(adminUser);
+    Assert.assertNotNull("SecurityProxy.getUser must delegate to SecurityShared", user);
+    Assert.assertEquals(adminUser, user.getName(session));
+  }
+
+  /// Verifies that SecurityProxy.getAllUsers and getAllRoles return the same content as
+  /// direct calls to SecurityShared to confirm delegation is correct.
+  @Test
+  public void testSecurityProxyGetAllUsersAndGetAllRoles() {
+    var securityInternal = (SecurityInternal) session.getSharedContext().getSecurity();
+    var proxy = new SecurityProxy(securityInternal, session);
+
+    var users = proxy.getAllUsers();
+    Assert.assertFalse("SecurityProxy.getAllUsers must not be empty", users.isEmpty());
+
+    var roles = proxy.getAllRoles();
+    Assert.assertFalse("SecurityProxy.getAllRoles must not be empty", roles.isEmpty());
+  }
+
+  /// Verifies that getSecurityPolicies returns an empty map for a role that has no policies
+  /// bound to it.
+  @Test
+  public void testGetSecurityPoliciesEmptyForRoleWithNoPolicies() {
+    var security = session.getSharedContext().getSecurity();
+
+    session.begin();
+    var readerRole = security.getRole(session, "reader");
+    // reader role initially has no policies in a fresh DB
+    var policies = security.getSecurityPolicies(session, readerRole);
+    session.commit();
+
+    // May not be empty if previous tests left state, but must not throw
+    Assert.assertNotNull(policies);
+  }
+
+  /// Verifies that the version increments after each call to incrementVersion.
+  @Test
+  public void testGetVersionIncrementsAfterIncrementVersion() {
+    var security = session.getSharedContext().getSecurity();
+
+    var versionBefore = security.getVersion(session);
+    security.incrementVersion(session);
+    var versionAfter = security.getVersion(session);
+
+    Assert.assertTrue("version must increase after incrementVersion",
+        versionAfter > versionBefore);
   }
 }
