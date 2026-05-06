@@ -38,8 +38,7 @@ The questions and grep-miss cases listed above are **illustrative,
 not exhaustive**. The operative criterion is reference accuracy —
 would a missed or spurious match make a thread-reachability,
 synchronizer-implementer, or lock-site claim wrong? When in doubt,
-route through PSI. `~/.claude/CLAUDE.md` (sections "MCP Steroid"
-and "Grep vs PSI — when to switch") is the last authoritative
+route through PSI. `CLAUDE.md` § MCP Steroid → "Grep vs PSI — when to switch" is the last authoritative
 source for edge cases.
 
 **How to invoke:**

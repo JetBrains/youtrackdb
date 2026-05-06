@@ -249,11 +249,12 @@ load when running a review loop.
 
 ## 1.4 Tooling discipline — prefer mcp-steroid PSI for Java symbol audits
 
-The user's global rules in `~/.claude/CLAUDE.md` (sections "MCP Steroid"
-and "Grep vs PSI — when to switch") are the single authoritative source
-for when to route through the IntelliJ IDE via mcp-steroid versus when
-to fall back to `grep`/`rg`/Bash. This subsection is a project-level
-reminder that those rules apply to **every phase of the workflow** —
+The project's `CLAUDE.md` § MCP Steroid (sub-sections "Session-start
+preflight" and "Grep vs PSI — when to switch") is the single
+authoritative source for when to route through the IntelliJ IDE via
+mcp-steroid versus when to fall back to `grep`/`rg`/Bash. This
+subsection is a workflow-level reminder that those rules apply to
+**every phase of the workflow** —
 research, planning, Phase A review, Phase B implementation, Phase C
 code review, Phase 4 final artifacts — and to **every sub-agent** the
 workflow spawns.
@@ -293,9 +294,9 @@ The examples listed above are **illustrative, not exhaustive**. The
 operative test is the criterion ("would a missed or spurious reference
 corrupt the result?"), not the example set. When a case isn't listed,
 apply the criterion; when in doubt, treat the audit as load-bearing
-and route through PSI. `~/.claude/CLAUDE.md` (sections "MCP Steroid"
-and "Grep vs PSI — when to switch") is the last authoritative source
-for edge cases.
+and route through PSI. The project's `CLAUDE.md` § MCP Steroid
+(sub-sections "Session-start preflight" and "Grep vs PSI — when to
+switch") is the last authoritative source for edge cases.
 
 This rule applies to design and research sessions too. Design
 conclusions often hinge on reference-accuracy facts that grep can
@@ -315,17 +316,18 @@ canonical review prompts under `prompts/` already embed this
 instruction; custom delegations and on-the-fly prompts must do the
 same.
 
-### Other mcp-steroid routes (Maven, refactoring)
+### Other mcp-steroid routes (Maven, refactoring, multi-site edits)
 
-The user-global rules also cover when to route Maven runs and Java
-refactors through the IDE. Two project-relevant defaults:
+The project's `CLAUDE.md` § MCP Steroid also covers when to route
+Maven runs, Java refactors, and multi-site text edits through the
+IDE. Three project-relevant defaults:
 
 - **Single-test reruns** during step implementation (e.g. `-Dtest=Foo#bar`
   after a focused fix) and **compile-fix loops** benefit from
   `steroid_execute_code` — the IDE returns parsed test results and
   filtered compiler output. Full-suite runs, coverage profiles, JMH
   benchmarks, and integration-test suites stay on Bash `./mvnw` per the
-  Maven-routing rule in `~/.claude/CLAUDE.md`.
+  Maven-routing rule in the project's `CLAUDE.md` § MCP Steroid.
 - **Renames, moves, signature changes, extract-method, pull-up/push-down,
   and any refactor that touches more than one reference site** route
   through the IDE refactoring engine via mcp-steroid, not raw `Edit`.
@@ -333,14 +335,54 @@ refactors through the IDE. Two project-relevant defaults:
   `Edit`. After an IDE refactor, run Spotless on the affected modules
   and re-run the relevant tests — the engine doesn't enforce project
   formatting.
+- **Multi-site / multi-file literal-text edits that don't need symbol
+  resolution** (e.g. updating a recurring string literal, switching a
+  Javadoc tag across many files, fixing the same boilerplate at several
+  call sites) route through the dedicated **`steroid_apply_patch`** tool
+  rather than 2+ chained native `Edit` calls. The native tool bypasses
+  IntelliJ — VFS, PSI, and search indices go stale until something
+  forces a refresh; `steroid_apply_patch` is atomic, all-or-nothing
+  pre-flight, and fits the ~60 s MCP timeout even on large patches. Use
+  the dedicated tool, not `steroid_execute_code`'s `applyPatch { }`
+  DSL — the latter requires kotlinc compile and risks blowing the
+  timeout. Single-site edits stay on `Edit`.
 
-The two examples above are **illustrative, not exhaustive** — they
+The three examples above are **illustrative, not exhaustive** — they
 name the project-relevant defaults, not the full set of cases where
-mcp-steroid is the right route. The full Maven and refactoring
-routing tables live in `~/.claude/CLAUDE.md` (sections "Maven — when
-to route through mcp-steroid" and "Refactoring — IDE refactor vs raw
-Edit"); when a situation isn't covered here, that file is the last
-authoritative source.
+mcp-steroid is the right route. The full Maven, refactoring, and
+multi-site-edit routing tables live in the project's `CLAUDE.md`
+§ MCP Steroid (sub-sections "Maven — when to route through
+mcp-steroid", "Refactoring — IDE refactor vs raw Edit", and the
+`apply-patch-tool-description` load-on-demand entry); when a
+situation isn't covered here, that file is the last authoritative
+source.
 
-Both routes require the same `steroid_list_projects` preflight as PSI
-audits.
+All three routes require the same `steroid_list_projects` preflight as
+PSI audits.
+
+### Recipes — load on demand for specific operations
+
+The project's `CLAUDE.md` § MCP Steroid → Recipes catalogues several
+pre-built scripts that automate common IDE-routed operations through
+`steroid_execute_code`. Fetch the named `mcp-steroid://` resource via
+`steroid_fetch_resource` and adapt the script template — do not
+rederive the IntelliJ API calls from memory.
+
+Recipes most relevant to the workflow:
+
+| Workflow situation | Recipe(s) to load |
+|---|---|
+| About to delete a method / field / class — confirm no remaining production callers (`mode=FIX_REVIEW_FINDINGS` cleanup, deprecated-API removal, internal-helper pruning) | `mcp-steroid://ide/safe-delete` |
+| Phase A track review needs the full implementer / override map of an SPI before a contract change | `mcp-steroid://ide/hierarchy-search` |
+| Phase A track review or inline replanning needs the upward-caller tree for a low-level signature, not just immediate callers | `mcp-steroid://ide/call-hierarchy` |
+| IDE-routed Maven test failed — read structured per-test details / statistics instead of parsing surefire XML | `mcp-steroid://test/failure-details`, `mcp-steroid://test/statistics`, `mcp-steroid://test/find-recent-test-run` |
+| Phase C pre-PR pass — surface semantic issues Spotless and the coverage gate won't catch (redundant casts, atomic-on-volatile, format-string mismatches) on the cumulative track diff | `mcp-steroid://ide/inspect-and-fix`, `mcp-steroid://lsp/code-action` |
+| Module-graph question during research / planning ("does X depend on Y?", "what depends on lucene?") | `mcp-steroid://ide/project-dependencies` |
+| Class-shape refactor — extract interface, pull-up / push-down members, formalize an SPI contract | `mcp-steroid://ide/extract-interface`, `mcp-steroid://ide/pull-up-members`, `mcp-steroid://ide/push-down-members` |
+| Add / remove / reorder a parameter on a method with many overrides | `mcp-steroid://ide/change-signature` |
+| Implementer hits an opaque test failure (concurrency hang, mid-operation state corruption) and the stack trace doesn't explain it | `mcp-steroid://debugger/overview` (then per-step recipes — `add-breakpoint`, `debug-run-configuration`, `wait-for-suspend`, `evaluate-expression`, `step-over`) |
+
+The recipe table is **illustrative, not exhaustive** — load only the
+recipe(s) the current step / iteration needs, never pre-load the
+whole catalogue. The project's `CLAUDE.md` § MCP Steroid → Recipes
+is the last authoritative source for the trigger list and use cases.

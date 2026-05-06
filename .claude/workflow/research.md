@@ -93,3 +93,9 @@ PSI-backed when the IDE is reachable.
 When routing exploration to a sub-agent (Explore or any other),
 explicitly instruct it to use mcp-steroid PSI find-usages for symbol
 questions — sub-agents default to grep otherwise.
+
+For module-graph questions during research ("does `embedded` depend
+on `server`?", "what depends on `lucene`?", "is the Maven module
+boundary where the prose says it is?") load the
+**`project-dependencies`** recipe in [`conventions.md`](conventions.md)
+§1.4 *Recipes* rather than reading several `pom.xml` files by hand.

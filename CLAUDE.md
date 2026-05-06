@@ -268,3 +268,175 @@ Tests configure YouTrackDB-specific system properties in `<argLine>`:
 
 1. **When modifying source code**: Review docs in `docs/` and module `README.md` files to see if any cover the area you changed. Update them if needed.
 2. **When adding new features**: If the feature affects public API, configuration, build process, or CI/CD, update the relevant docs.
+
+## MCP Steroid — IntelliJ IDE Control
+
+When the `localhost-6315` MCP server (mcp-steroid) is connected, its skill guides are exposed as MCP resources and fetched via `steroid_fetch_resource` (resolve the exact `mcp-steroid://` URI from the server's resource list if needed — upstream source: https://github.com/jonnyzzz/mcp-steroid/tree/main/prompts/src/main/prompts/skill). Do NOT vendor or copy these guides into the project — fetch lazily; some are large (the Spring guide is ~100 KB).
+
+The MCP server registry itself lives in user-global `~/.claude.json` under `mcpServers["localhost-6315"]` — the project does not own that entry. Everything else (rules, hooks, settings) is project-scoped under `.claude/`.
+
+### Session-start preflight (mandatory)
+
+A SessionStart hook (`.claude/hooks/mcp-steroid-probe.sh`, wired in `.claude/settings.json`) auto-probes mcp-steroid liveness at every session start and emits an `mcp-steroid:` status line as additional context at turn 1. **That status is the canonical IDE state for the entire session — treat it as load-bearing and do not re-probe.**
+
+For any session that may involve Java code analysis (research, planning, or refactoring), the routing rules are:
+
+- **`mcp-steroid: reachable`** → run `steroid_list_projects` once before the first symbol-related action. The hook only checks port liveness, not cwd-vs-open-project alignment, so this one tool call is still required to confirm the right project is open. If the relevant project is open and matches the working tree, route every symbol-usage question through PSI for the rest of the session.
+- **`mcp-steroid: NOT reachable`** → IDE control is unavailable. Symbol audits use grep with explicit reference-accuracy caveats documented in every audit conclusion that depends on the result.
+- **cwd mismatch** (`steroid_list_projects` reports a different open project than the working tree) → ask the user to switch the open project before running any load-bearing symbol audit. Do not silently fall back to grep.
+
+**Design and research sessions are NOT exempt.** Design conclusions often hinge on reference-accuracy facts that grep can silently miss — e.g., "this method has no production callers", "this field is referenced only inside its declaring class", "this slot has no consumer that needs it." The cost of one `steroid_list_projects` call is trivial and amortizes across every subsequent symbol question, even when the session never edits code.
+
+### Load when relevant
+
+| Trigger | Skill |
+|---|---|
+| First use of mcp-steroid in a session — base mental model | `coding-with-intellij` |
+| Onboarding to the IDE-control API | `coding-with-intellij-intro` |
+| Wrapping read/write actions correctly | `coding-with-intellij-context-api` |
+| Common idioms when scripting the IDE | `coding-with-intellij-patterns` |
+| Navigating Java symbols/usages via PSI (instead of grep) | `coding-with-intellij-psi` |
+| Rename/extract/move-class refactors across a large module | `coding-with-intellij-refactoring` |
+| Editing files the IDE has cached, or VFS-related issues | `coding-with-intellij-vfs` |
+| Avoiding EDT / Read-Action / threading errors | `coding-with-intellij-threading` |
+| Multi-site / multi-file literal-text edit through the IDE — replaces 2+ chained native `Edit` calls. Use the dedicated `steroid_apply_patch` tool, not `steroid_execute_code`'s `applyPatch { }` DSL (no kotlinc compile, fits the ~60s MCP per-tool timeout) | `apply-patch-tool-description` |
+| Before first `steroid_execute_code` call | `execute-code-overview`, `execute-code-tool-description` |
+| Reading run/test output back | `execute-code-feedback` |
+| Maven projects (e.g. YouTrackDB — `./mvnw`) | `execute-code-maven` |
+| Gradle projects (only if `build.gradle*` exists) | `execute-code-gradle` |
+| Diagnosing a Java runtime bug where the stack trace + test output don't explain the failure (concurrency hangs, unexpected branch taken, mid-operation state corruption) — only when mcp-steroid is reachable and the project is open. Skip for clean assertion failures or compile errors where the stack trace tells the whole story. | `debugger/overview` (then per-step recipes — `add-breakpoint`, `debug-run-configuration`, `wait-for-suspend`, `evaluate-expression`, `step-over`) |
+
+### Skip by default
+- `coding-with-intellij-spring` — only load if the active project actually has `org.springframework` deps. Not relevant for YouTrackDB.
+- `debug-remote-ide-skill` — only for debugging an IntelliJ plugin running in a second IDE instance. Not a typical workflow.
+
+### Loading discipline
+- Load only the skills needed for the current task; don't pre-load the whole set.
+- Prefer mcp-steroid IDE operations (PSI search, refactor, execute-code) over raw `grep`/`Edit`/`Bash` when the IDE is connected and the task benefits.
+
+### Grep vs PSI — when to switch (for Java code)
+
+Default to PSI for **symbol-level questions**, default to grep for **textual / filename / one-shot questions**. Concretely:
+
+| Use `grep`/`rg`/Bash when… | Use mcp-steroid PSI when… |
+|---|---|
+| Filename or path globs (`**/*Test.java`) | Finding callers / usages of a method, field, or class |
+| Searching for a unique literal (config key, error message, log string, annotation value) | Walking a call chain or building a "who-touches-X" set for an audit / refactor |
+| You already have the exact file open and just need a line number | Finding overrides / implementations of an interface or abstract method |
+| Files outside the IDE-indexed project (build artifacts, logs, generated `target/`, scratch files) | Type hierarchy: subclasses, supertypes, sealed permits |
+| One-off check where false positives are obvious by eye | Anything where missed or spurious matches would corrupt a refactor (rename, move, signature change) |
+
+**Rule of thumb:** if the answer to your search needs to be **complete and reference-accurate** (every caller, every override), use PSI. If it just needs to surface a candidate or two for human inspection, grep is fine.
+
+**Common grep traps PSI avoids:**
+- Identifier appears inside Javadoc/comments/string literals — grep counts them, PSI doesn't.
+- Method called via interface or generic supertype — text search of the concrete name misses the polymorphic call sites; PSI's reference resolution catches them.
+- Two unrelated symbols share a name (e.g. `size()` on dozens of types) — grep can't tell them apart; PSI scopes by declaration.
+- Symbol was renamed in a recent commit — grep on the old name returns stale results from comments and tests; PSI follows the actual binding.
+
+**Load-bearing audits require PSI.** If a search result will inform a deletion, rename, signature change, or any action where a missed reference would break production code, **PSI is required when the IDE is open** — grep is not acceptable for the audit that drives the change. Grep is fine for orientation (initial sketch, narrowing the search space) but the load-bearing audit must be reference-accurate. Examples of load-bearing questions: *"Are there any production callers of X before we delete it?"* / *"Is field Y referenced anywhere outside its declaring class?"* / *"What consumes the version field on this config blob?"* The cost of a missed polymorphic call site is "tests pass at the deletion commit but production breaks at runtime" — exactly the failure mode PSI exists to prevent.
+
+**Delegating to a sub-agent doesn't bypass the PSI requirement.** When passing a symbol-usage question to Explore (or any sub-agent), the prompt MUST explicitly say *"use mcp-steroid PSI find-usages, not grep, for these reference-accuracy questions"* — sub-agents default to Bash/grep, so an unannotated delegation routes through grep regardless of the question's shape. The routing decision lives at the orchestrator's level, not at the sub-agent's; making it explicit in the prompt is the only way to enforce it.
+
+**Cost awareness:** PSI calls are slower per-call than grep. Don't use PSI for file globbing or for searching strings/comments — grep wins there.
+
+### Maven — when to route through mcp-steroid
+
+**Default:** keep `./mvnw` invocations on Bash. They're durable across IDE restarts, support `run_in_background` for streaming, and integrate with project-specific scripts (`coverage-gate.py`, CI flags, JMH profiles).
+
+**Switch to `steroid_execute_code` when noise reduction is worth the IDE coupling:**
+
+| Use mcp-steroid execute-code when… | Stay on Bash `./mvnw` when… |
+|---|---|
+| Running a single test class or method (`-Dtest=Foo#bar`) — IDE returns a parsed test tree with per-method status and split stack traces | Full-suite runs (`./mvnw clean package`, `verify`) — same Maven, same noise, but Bash survives IDE crashes |
+| Compile-fix loops where you want just the compiler errors, not the surrounding Maven INFO/download chatter | Coverage runs (`-P coverage`) — must pair with `coverage-gate.py` driven by Bash |
+| Quick post-edit "did this still compile?" check on a single module | Integration tests (`-P ci-integration-tests`), Docker tests, JMH benchmarks |
+| Re-running the failing test after a fix, where seeing structured pass/fail matters | Anything that runs >5 min — IDE liveness becomes a risk, and Bash + `run_in_background` is more robust |
+
+**Preflight before routing Maven through mcp-steroid:** confirm via `steroid_list_projects` that the relevant project is open in the IDE *and* matches the working tree (cwd / worktree). If the project isn't open or points at a different checkout, fall back to Bash — don't open it just for a one-shot run.
+
+**Two-call launch+poll pattern is mandatory** (single-call doesn't work):
+- The MCP HTTP transport cancels in-flight tool calls after ~60 s. A Maven test on a fresh checkout often takes 30–120 s, so a single script that launches and `await`s the run will be cancelled mid-run by the client even though the IDE-side script timeout is much larger.
+- **Call 1 (launch, returns immediately):** build a `MavenRunnerParameters`, then `MavenRunConfigurationType.createRunnerAndConfigurationSettings(...)` + `RunManager.addConfiguration` + `ProgramRunnerUtil.executeConfiguration(...)` dispatched on `Dispatchers.EDT`. Give the run config a unique name (e.g. `"Maven test (MCP)"`) so call 2 can find it.
+- **Call 2 (poll, re-issue every 20–30 s):** look up `RunContentManager.getInstance(project).allDescriptors`, find the one with the matching `displayName`, read `descriptor.processHandler.isProcessTerminated` / `exitCode`, and parse the surefire `<TestClass>.txt` files under `<module>/target/surefire-reports/` for the `Tests run: …` summary line. Each script returns in <2 s — well under the cancel window.
+- **Don't use `MavenRunConfigurationType.runConfiguration(...)` directly** — that convenience overload calls `ApplicationManager.getApplication().invokeAndWait(...)` internally and can block the script's coroutine dispatcher.
+- **Don't use SMT listeners or `messageBus.connect()`** — SMT events do not fire reliably for Maven surefire, and a long-lived connection is brittle across retries. Polling the descriptor's `ProcessHandler` is the canonical signal.
+- On failure with no surefire output, dump the tail (~60 lines) of the Build view's `ConsoleViewImpl.editor.document.text` so you see `BUILD FAILURE`, missing-artifact errors, or compile errors without a follow-up call.
+
+**Hard rules for IDE-routed Maven:**
+- **`-am` (also-make) is BANNED.** It walks the upstream graph and OOM-kills the IDE container. Pin to the targeted submodule with `-pl <module>`. If the build then complains about a missing in-reactor sibling artifact (`Could not resolve artifact …:sibling:jar:X`), run a separate `install -pl <missing-module> -DskipTests` round through the same launch+poll shape; for missing parent POMs (`Could not resolve parent POM`) use `install -pl . -N -DskipTests` (the `-N` flag installs only the root, not the reactor). Stop after at most two install rounds — beyond that, escalate rather than chain installs.
+- **Read only the surefire `Tests run:` summary line per class**, not the full Maven console. Spring/heavy tests generate 100 KB+ of output and will overflow the response. The `<TestClass>.txt` first line is the same number a human reads from the Run tool window.
+- **One test class per `-Dtest=…`.** Don't run `-Dtest=A,B,C,D` — token overflow on long output. If you need several classes, launch them sequentially.
+- **After editing `pom.xml` or any reactor POM**, re-import via `MavenProjectsManager.scheduleUpdateAllMavenProjects(MavenSyncSpec.full("post-pom-edit", explicit = true))` and `Observation.awaitConfiguration(project)` *before* running tests or inspections. Without it, the IDE shows phantom "cannot resolve symbol" errors from undownloaded deps. Note: `MavenSyncSpec` is in package `org.jetbrains.idea.maven.buildtool` (not `.project`).
+
+**Don't use mcp-steroid for:** dependency resolution debugging (`./mvnw dependency:tree`), Spotless apply/check, version bumps, or anything where you'll want to grep the full output afterward — Bash is simpler and the output is right there.
+
+**JDK selection** is a Bash-tool problem, not an IDE one: when Maven fails with `Unsupported class file major version`, `Fatal error compiling`, or parent-POM resolution errors on a fresh container, set `JAVA_HOME` in the shell *before* the next Maven invocation. Pick the lowest available JDK ≥ the project's `<java.version>` / `<maven.compiler.release>` requirement (don't trial-and-error upward from the lowest). For YouTrackDB: project requires JDK 21+, set `JAVA_HOME=/usr/lib/jvm/temurin-21-jdk-*` if the default differs.
+
+### Refactoring — IDE refactor vs raw Edit (Java)
+
+**Default:** for any refactor that updates more than one reference site, route through the IDE refactoring engine via mcp-steroid. Raw `Edit`/`sed`/text replace can silently break references — overload resolution, generic dispatch, string-literal class names, Javadoc `{@link}`, and cross-module callers all bite differently than a grep would suggest.
+
+| Use IDE refactoring (mcp-steroid) when… | Use `steroid_apply_patch` / raw `Edit` / Bash when… |
+|---|---|
+| Rename method, field, class, package, or type parameter | Renaming a local variable inside one method |
+| Move class or method between modules / packages | Editing a method body without changing its signature |
+| Change signature (add/remove/reorder parameters, change return type) | Touching a private member used only inside one class |
+| Extract method / extract variable / inline | Adjusting comments, Javadoc text, formatting |
+| Pull up / push down / change inheritance | Editing config, build files, generated files (the IDE refuses on generated paths anyway) |
+| Anything where compile-failure due to a missed reference would cost more than the IDE round-trip | One-off test scaffolding inside a single new file you just created |
+
+**Preflight before refactoring through mcp-steroid:**
+- Confirm via `steroid_list_projects` that the relevant project is open *and* matches the working tree (cwd / worktree). If the IDE is pointing at a different checkout, the refactor will modify the wrong files. Fall back to manual edits or ask the user to switch the open project.
+- Make sure the working tree is clean (or at least committed) before running an IDE refactor — the engine writes across many files at once, and reverting is far easier with a clean baseline.
+- After the refactor, run Spotless (`./mvnw -pl <module> spotless:apply`) and the affected module's tests; the IDE engine doesn't enforce project formatting rules.
+
+**Don't route through the IDE refactoring engine for:** Spotless-only fixes, import reordering, formatting-only changes, edits to generated parser code (`internal/core/sql/parser/**`), or files explicitly excluded from the IDE's project model. Reach for `steroid_apply_patch` (atomic multi-site literal-text replace, all-or-nothing pre-flight, fits the ~60 s MCP timeout even on large patches) over chained native `Edit` calls — the native tool bypasses IntelliJ entirely and leaves VFS / PSI / search indices stale until something forces a refresh.
+
+**Why this matters for YouTrackDB specifically:** the `core` module spans hundreds of public APIs with the `internal/api` split, generated SQL parser code, a custom TinkerPop fork (`io.youtrackdb` shadowing `org.apache.tinkerpop` symbols), and Gremlin DSL classes generated by an annotation processor. Text rename in this codebase regularly hits one of these traps — IDE refactoring resolves them via reference binding rather than name matching.
+
+### Recipes
+
+Each recipe assumes mcp-steroid is reachable, the relevant project is open, and the working tree matches (preflight already done per the rules above). Skip the recipe when those don't hold.
+
+Each recipe points at one or more `mcp-steroid://` resources — **fetch them via `steroid_fetch_resource` and adapt the script template** rather than rederiving the IntelliJ API calls from memory. The resources are working scripts kept in sync with the platform; reconstructing them by hand is how subtle API drift creeps in.
+
+**Safe delete (production-caller gate)**
+- Trigger: about to remove a method, field, or class that may still be referenced — especially across the `api`/`internal` boundary or in deprecated public API.
+- Resource: `mcp-steroid://ide/safe-delete` (uses `ReferencesSearch` + `SafeDeleteProcessor`). Run with the dry-run/preview path first; review the caller list; re-run for real only if the list is empty or expected.
+- Use case: deprecated public API removal, pruning unused `internal` helpers, API-surface tightening during rollback-log / foreign-memory migrations.
+
+**Inheritance hierarchy search (SPI implementer / override map)**
+- Trigger: questions of the form "every implementer of X" or "every override of Y" before changing an interface or abstract class.
+- Resource: `mcp-steroid://ide/hierarchy-search` (uses `ClassInheritorsSearch` + `OverridingMethodsSearch`).
+- Use case: enumerating SPI implementers (`IndexEngine`, `StorageComponent`, engine subclasses, collation strategies, SQL functions) before contract changes — grep on `extends X` misses indirect chains and generic supertypes.
+
+**Call hierarchy (multi-hop upward impact)**
+- Trigger: changing a low-level signature where you need the caller *tree*, not just immediate callers.
+- Resource: `mcp-steroid://ide/call-hierarchy` (uses `MethodReferencesSearch`); adapt to recurse upward, bounded by depth or until reaching test code / public API.
+- Use case: signature changes on `WOWCache.store`, `WriteAheadLog.log`, `Index.put`, `AbstractStorage.flush` — assessing propagation distance before committing.
+
+**Structured test failure details / statistics**
+- Trigger: an IDE-routed Maven test run just failed, or you want the slow-test list / pass-fail breakdown without parsing surefire XML.
+- Resources: `mcp-steroid://test/failure-details` (message + stack + duration), `mcp-steroid://test/statistics` (totals + slowest tests). Pair with `mcp-steroid://test/find-recent-test-run` or `mcp-steroid://test/inspect-test-results` when you need to locate the run first. All read `RunContentManager` → `SMTRunnerConsoleView` → `SMTestProxy`.
+- Use case: flaky-test investigations (LinksConsistencyException, IC11 dedup, FreezeAndDBRecordInsert crash), CI triage, identifying slow tests in the `core` suite.
+
+**IntelliJ inspections on changed code (pre-PR pass)**
+- Trigger: about to open a PR; want to surface semantic issues Spotless and `coverage-gate.py` won't catch (redundant casts, unused declarations, atomic-on-volatile, suspicious `equals`/`hashCode`, format-string mismatches, thread-unsafe statics).
+- Resources: `mcp-steroid://ide/inspect-and-fix` (`InspectionEngine` + quick-fix application), `mcp-steroid://ide/inspection-summary` (enabled inspection list), `mcp-steroid://lsp/code-action` (per-position quick-fixes / intentions). Intersect the run with `git diff --name-only origin/develop...HEAD`; report findings, never auto-apply without user review.
+- Use case: storage- and concurrency-heavy code where the grep-level review misses semantic issues; cheap last pass before push.
+
+**Project / module dependency graph**
+- Trigger: module-graph question ("does `embedded` depend on `server`?", "what depends on `lucene`?", "is the new arrow in this design doc actually wired?") that would otherwise require reading several `pom.xml` files.
+- Resource: `mcp-steroid://ide/project-dependencies` (iterates `ModuleManager.modules` and each module's `OrderEnumerator`).
+- Use case: scoping a change to the correct module before editing, confirming the `lucene` exclusion still holds, sanity-checking dependency arrows in design docs and ADRs.
+
+**Class-shape refactors (extract-interface / pull-up / push-down)**
+- Trigger: consolidating duplicated logic between sibling classes (e.g., `EngineLocalPaginated` vs `EngineMemory`), or formalizing an SPI contract by extracting an interface.
+- Resources: `mcp-steroid://ide/extract-interface`, `mcp-steroid://ide/pull-up-members`, `mcp-steroid://ide/push-down-members`. Dry-run first, review the move plan, re-run for real on a clean working tree, finish with `./mvnw -pl <module> spotless:apply` and the module's test suite.
+- Use case: rollback-log architecture work, separating public contracts from internal implementations, reducing copy-paste across storage engines or index variants.
+
+**Add parameter via change-signature**
+- Trigger: adding a new parameter to a method with many overrides (SPI interfaces, abstract storage methods, heavily-overridden hooks).
+- Resource: `mcp-steroid://ide/change-signature` (uses `ChangeSignatureProcessor` to update every overrider and call site in one shot).
+- Use case: extending contracts like `IndexEngine.put` or `StorageComponent.flush` where raw text replace would miss polymorphic call sites and `super.method(...)` chains in subclasses.

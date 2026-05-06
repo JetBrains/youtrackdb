@@ -50,6 +50,15 @@ explicit reference-accuracy caveat in any plan claim that depends on
 a symbol search only when mcp-steroid is unreachable. Silent grep
 misses become Phase A surprises in the revised tracks.
 
+When the replan is triggered by a discovery in an already-completed
+track ("we changed X, but Y still depends on the old contract") or
+needs to scope new tracks against the upward call chain of a
+low-level signature, load the **`call-hierarchy`** recipe (see
+[`conventions.md`](conventions.md) §1.4 *Recipes*). Multi-hop
+impact at the depth of "callers of callers of X" is exactly the
+question grep cannot answer reliably and is the most common reason
+inline-replan estimates underscope.
+
 Decision Record revisions follow this format:
 ```markdown
 #### D3: <Decision title> (revised after Track N)

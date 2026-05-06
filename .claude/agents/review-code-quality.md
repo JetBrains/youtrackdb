@@ -36,8 +36,7 @@ The check categories listed above are **illustrative, not
 exhaustive**. The operative criterion is reference accuracy —
 would a missed or spurious match make an API-boundary,
 duplication, or consistency finding wrong? When in doubt, route
-through PSI. `~/.claude/CLAUDE.md` (sections "MCP Steroid" and
-"Grep vs PSI — when to switch") is the last authoritative source
+through PSI. `CLAUDE.md` § MCP Steroid → "Grep vs PSI — when to switch" is the last authoritative source
 for edge cases.
 
 **How to invoke:**

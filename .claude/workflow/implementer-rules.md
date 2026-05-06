@@ -43,9 +43,12 @@ is referenced from each spawn — live in
 (Phase C, `level=track`).
 
 The implementer's environment auto-loads the user-global rules in
-`~/.claude/CLAUDE.md` and the project rules in the repo's `CLAUDE.md`.
-Beyond those and this file, the implementer reads the step file, the
-slim plan snapshot, and `design.md` (only if the step requires it).
+`~/.claude/CLAUDE.md` (cross-project conventions only — concurrent
+agent file isolation, context-window monitor, etc.) and the project
+rules in the repo's `CLAUDE.md` (which owns the MCP Steroid / PSI /
+Maven / refactoring rules). Beyond those and this file, the
+implementer reads the step file, the slim plan snapshot, and
+`design.md` (only if the step requires it).
 
 ---
 
@@ -147,22 +150,44 @@ rules:
 
 - Defensive assertions where they cost nothing.
 - **Reference-accuracy questions go through PSI** (callers,
-  overrides, "is X still used?") per the rules in
-  `~/.claude/CLAUDE.md` "Grep vs PSI". Grep is acceptable for
-  orientation, filename globs, or unique string literals; PSI is
-  required when a missed reference would corrupt a refactor.
+  overrides, "is X still used?") per the rules in the project's
+  `CLAUDE.md` § MCP Steroid → "Grep vs PSI — when to switch". Grep
+  is acceptable for orientation, filename globs, or unique string
+  literals; PSI is required when a missed reference would corrupt a
+  refactor.
 - **Refactors that touch more than one reference site** route
   through the IDE refactoring engine via mcp-steroid, not raw
-  `Edit` — see `~/.claude/CLAUDE.md` "Refactoring — IDE refactor
-  vs raw Edit" for the routing table.
+  `Edit` — see the project's `CLAUDE.md` § MCP Steroid →
+  "Refactoring — IDE refactor vs raw Edit" for the routing table.
+  The `change-signature`, `extract-interface`, `pull-up-members`,
+  and `push-down-members` recipes (catalogued in `conventions.md`
+  §1.4 *Recipes*) cover the common cases.
+- **Multi-site / multi-file literal-text edits that don't need
+  symbol resolution** (recurring string literal, repeated boilerplate
+  across call sites, Javadoc tag swap) route through the dedicated
+  `steroid_apply_patch` tool rather than 2+ chained native `Edit`
+  calls — the native tool bypasses IntelliJ and leaves PSI / search
+  indices stale. Single-site edits stay on `Edit`. See
+  `conventions.md` §1.4 *Other mcp-steroid routes* and the project's
+  `CLAUDE.md` § MCP Steroid → "Load when relevant" →
+  `apply-patch-tool-description` for the rule.
 - **Single-test reruns** (`-Dtest=Foo#bar`) and **compile-fix loops**
   route through `steroid_execute_code` when mcp-steroid is
   reachable; full-suite runs and coverage profiles stay on Bash
-  `./mvnw` per `~/.claude/CLAUDE.md` "Maven — when to route
-  through mcp-steroid".
-- The user-global preflight applies: `steroid_list_projects` once
-  at the start of the spawn confirms the open project matches the
-  working tree before any IDE-routed action; do not re-probe.
+  `./mvnw` per the project's `CLAUDE.md` § MCP Steroid → "Maven —
+  when to route through mcp-steroid". When an IDE-routed test run
+  fails, the `test/failure-details` and `test/statistics` recipes
+  (see `conventions.md` §1.4 *Recipes*) read structured per-test
+  outcomes back from the IDE without re-parsing surefire XML.
+- **Before deleting a method, field, or class** that may still be
+  referenced anywhere — load the `safe-delete` recipe (see
+  `conventions.md` §1.4 *Recipes*) and run it in dry-run mode
+  before the deletion. The recipe enumerates remaining production
+  callers via PSI; an empty list is the green light to proceed.
+- The session-start preflight from the project's `CLAUDE.md` § MCP
+  Steroid applies: `steroid_list_projects` once at the start of the
+  spawn confirms the open project matches the working tree before
+  any IDE-routed action; do not re-probe.
 - **Do not reference workflow-internal identifiers** (`Track N`,
   `Step N`, finding IDs, iteration counters, or named-only plan
   invariants) in source code, Javadoc, test names, or test
@@ -712,10 +737,10 @@ FAILURE:                          # only if RESULT == FAILED
 The implementer relies on the existing rules verbatim — do not
 duplicate the routing tables here. Pointers:
 
-- **PSI vs grep, IDE refactoring, Maven routing**: `~/.claude/CLAUDE.md`
-  sections "MCP Steroid", "Grep vs PSI — when to switch", "Maven —
-  when to route through mcp-steroid", "Refactoring — IDE refactor vs
-  raw Edit".
+- **PSI vs grep, IDE refactoring, Maven routing**: the project's
+  `CLAUDE.md` § MCP Steroid (sub-sections "Grep vs PSI — when to
+  switch", "Maven — when to route through mcp-steroid", "Refactoring —
+  IDE refactor vs raw Edit").
 - **Project conventions and PSI requirement for load-bearing audits**:
   [`conventions.md`](conventions.md) §1.4 *Tooling discipline*.
 - **Ephemeral identifier rule** for durable content (code, tests,

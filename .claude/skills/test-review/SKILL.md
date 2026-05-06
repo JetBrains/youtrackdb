@@ -173,8 +173,7 @@ behind a finding must be PSI-backed when the mcp-steroid MCP server is
 reachable per the SessionStart hook (`steroid_list_projects` once at
 the start confirms the open project matches the working tree). Fall
 back to grep with an explicit reference-accuracy caveat in the finding
-only when mcp-steroid is unreachable. See `~/.claude/CLAUDE.md` "MCP
-Steroid" / "Grep vs PSI — when to switch" for the full routing rule.
+only when mcp-steroid is unreachable. See `CLAUDE.md` § MCP Steroid → "Grep vs PSI — when to switch" for the full routing rule.
 
 ## Diff
 {DIFF}

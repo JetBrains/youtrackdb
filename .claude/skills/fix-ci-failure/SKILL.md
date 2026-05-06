@@ -229,7 +229,7 @@ whenever code or tests were modified.
    the start confirms the open project matches the working tree). Fall
    back to grep with an explicit reference-accuracy caveat in the
    finding only when mcp-steroid is unreachable. See
-   `~/.claude/CLAUDE.md` "MCP Steroid" / "Grep vs PSI — when to switch"
+   `CLAUDE.md` § MCP Steroid → "Grep vs PSI — when to switch"
    for the full routing rule.
 
    ## Diff

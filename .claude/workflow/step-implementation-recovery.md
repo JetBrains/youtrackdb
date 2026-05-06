@@ -386,7 +386,7 @@ git push
 The HEREDOC form is required for any commit message containing a blank
 line — `git commit -m "…"` with literal embedded newlines is fragile
 across shells. This matches the project commit-message convention in
-the repo's user-global `CLAUDE.md` ("Committing changes with git"). The
+the repo's `CLAUDE.md` ("Committing changes with git"). The
 `git push` after the commit follows the per-commit push rule in
 `commit-conventions.md` § Push every commit (the revert is part of
 the visible branch history on the draft PR).

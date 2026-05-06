@@ -90,8 +90,7 @@ caveat to any challenge that depends on a symbol search.
 The cases listed above are **illustrative, not exhaustive**. The
 operative criterion is reference accuracy — would a missed or
 spurious reference change the challenge's verdict? When in doubt,
-route through PSI. `~/.claude/CLAUDE.md` (sections "MCP Steroid" and
-"Grep vs PSI — when to switch") is the last authoritative source
+route through PSI. `CLAUDE.md` § MCP Steroid → "Grep vs PSI — when to switch" is the last authoritative source
 for edge cases.
 
 **How to invoke:**

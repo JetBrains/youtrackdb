@@ -154,8 +154,7 @@ The grep-miss cases listed above are **illustrative, not exhaustive**.
 The operative criterion is reference accuracy — would a missed or
 spurious match make a finding wrong (phantom reference reported, or
 real mismatch hidden)? When in doubt, route through PSI.
-`~/.claude/CLAUDE.md` (sections "MCP Steroid" and "Grep vs PSI — when
-to switch") is the last authoritative source for edge cases.
+`CLAUDE.md` § MCP Steroid → "Grep vs PSI — when to switch" is the last authoritative source for edge cases.
 
 **How to invoke:**
 - The MCP server is `mcp-steroid`. Its tools are deferred, so load their schemas via ToolSearch first.
