@@ -210,8 +210,7 @@ orchestrator. Read the rulebook before starting any work:
 The rulebook defines what you do, the three early-return cases
 (design decision, risk upgrade, failure), and the return contract
 your output must end with. Do not modify the step file, the plan,
-the backlog, or any review file — those are the orchestrator's
-responsibility.
+or the backlog — those are the orchestrator's responsibility.
 
 ## Stable inputs (static)
 

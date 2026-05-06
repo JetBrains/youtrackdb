@@ -128,7 +128,12 @@ Phase 1 (Planning) to rework the plan/design before re-entering.
 
 ### Review output
 
-Saved to `docs/adr/<dir-name>/_workflow/reviews/consistency.md`.
+Findings are presented to the user inline during the iteration loop;
+plan and design fixes are applied via `Edit` to
+`implementation-plan.md`, `implementation-backlog.md`, and the design
+document. The review itself is not persisted to disk — once the gate
+passes, the conversation is the only record, and the durable trace is
+the resulting plan/design state plus the gate-PASS commit.
 
 ---
 
@@ -178,7 +183,9 @@ the full structural review instead of the gate check.
 
 ### Review output
 
-Saved to `docs/adr/<dir-name>/_workflow/reviews/structural.md`.
+Same as the consistency review above — findings ride in the conversation
+during the loop; the durable trace is the plan-file edits and the
+gate-PASS state, not a saved review document.
 
 ---
 

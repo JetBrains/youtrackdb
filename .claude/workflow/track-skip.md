@@ -61,10 +61,7 @@ A track can be skipped (`[~]`) in two situations:
 4. **Delete the step file** (`tracks/track-N.md`) from disk if one
    exists (e.g., Phase A created it before the skip was decided).
 
-5. **Delete review files** (`reviews/track-N-*.md`) from disk if any
-   exist.
-
-6. **Strategy refresh** treats `[~]` tracks the same as `[x]` tracks
+5. **Strategy refresh** treats `[~]` tracks the same as `[x]` tracks
    for State A detection (see workflow.md §Startup Protocol). A
    skipped track's `**Skipped:**` line serves as its episode — the
    next session's strategy refresh reads it to assess downstream
@@ -83,7 +80,7 @@ user confirms):
 - Write the `[~]` marker and skip record to the plan file on disk
 - Remove Track N's section from `implementation-backlog.md` (no-op
   if the section is already gone)
-- Delete any partially-created step file and review files from disk
+- Delete any partially-created step file from disk
 - The session continues: if strategy refresh was already done, proceed to
   the next `[ ]` track's Phase A. If no more tracks remain, proceed to
   Phase 4 detection.
@@ -97,5 +94,5 @@ If the user says "skip Track N" at session start:
 - Write the `[~]` marker and skip record on disk (user provides the reason)
 - Remove Track N's section from `implementation-backlog.md` (no-op
   if the section is already gone)
-- Delete any step file and review files for that track from disk
+- Delete any step file for that track from disk
 - Continue with normal startup protocol for the next track

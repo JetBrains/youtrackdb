@@ -5,7 +5,7 @@ rule; every phase-specific prompt that touches durable content points
 here.
 
 `implementation-plan.md`, `implementation-backlog.md`,
-`tracks/track-N.md`, and `reviews/**` live under
+`tracks/track-N.md`, and `design-mutations.md` live under
 `docs/adr/<dir-name>/_workflow/`. They are tracked on the branch during
 development, but the entire `_workflow/` directory is removed in the
 Phase 4 cleanup commit before the PR is merged — so any identifier
@@ -56,9 +56,13 @@ present in the branch tree at the time those commits are made. The
 forbidden list above is what lives durably on `develop`.
 
 It does **not** apply to the working files themselves: step files
-(`tracks/track-N.md`), review files, the plan, and the backlog all
-cite tracks, steps, findings, and iterations freely — that's exactly
-what those identifiers are for inside the workflow.
+(`tracks/track-N.md`), the plan, and the backlog all cite tracks,
+steps, findings, and iterations freely — that's exactly what those
+identifiers are for inside the workflow. Review findings themselves
+no longer have a separate on-disk home (they ride in the orchestrator's
+conversation context for the iteration loop), so the rule against
+citing finding IDs in durable content remains, just without a working
+file to cite from.
 
 ## Forbidden
 
@@ -66,8 +70,8 @@ what those identifiers are for inside the workflow.
 - Step labels: `Step 1`, `Step N`, `Step M of Track N`
 - Compound labels: `Track 2 Step 1`, `Track 4 iteration 1`
 - Review finding IDs and prefixes: `CQ33`, `F-12`, `R-4`, `A-7`,
-  `S-2`, or any other `<PREFIX><number>` finding label from
-  `reviews/**`
+  `S-2`, or any other `<PREFIX><number>` finding label produced by
+  the workflow's review loops
 - Review-loop iteration counters: `iteration 1`, `round 2`, when they
   refer to ephemeral review loops
 - Named invariants or rule names cited **by label only** —

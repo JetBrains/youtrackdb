@@ -86,34 +86,21 @@ issues.
 
 ## Review output
 
-The structural review document is saved to
-`docs/adr/<dir-name>/_workflow/reviews/structural.md`:
+The structural review is not persisted to disk. Findings are presented
+inline during the iteration loop, accepted fixes are applied directly
+to `implementation-plan.md` (and `implementation-backlog.md` when
+relevant), and the gate-PASS state plus the resulting commit are the
+durable trace. A typical iteration looks like:
 
-```markdown
-# Structural Review
+```
+Iteration 1
+  Finding S1 [blocker]  → ACCEPTED → reorder Track 3 before Track 2
+  Finding S2 [should-fix] → REJECTED — Tracks 1 and 3 are independent
 
-## Iteration 1
-
-### Finding S1 [blocker] → FIXED
-**Location**: Track 2 scope indicator
-**Issue**: Track 2's scope mentions "wiring IndexStatistics" but
-IndexStatistics is introduced in Track 3 — ordering violation.
-**Proposed fix**: Reorder Track 3 before Track 2, or extract the
-IndexStatistics interface into Track 1's scope.
-**Resolution**: Accepted — moved IndexStatistics to Track 1's scope.
-
-### Finding S2 [should-fix] → REJECTED
-**Location**: Track 1 description
-**Issue**: Missing interaction note with Track 3.
-**Proposed fix**: Add interaction note.
-**Resolution**: Rejected — Tracks 1 and 3 are independent.
-
-## Iteration 2 (Gate Verification)
-
-- S1: VERIFIED
-- S2: REJECTED (no action needed)
-- No new findings.
-- **Summary: PASS**
+Iteration 2 (Gate Verification)
+  S1: VERIFIED
+  S2: REJECTED (no action needed)
+  No new findings → PASS
 ```
 
 When the structural review passes, proceed to Phase 3 execution

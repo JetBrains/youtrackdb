@@ -150,10 +150,10 @@ when it aids review.
 below). The orchestrator parses the block; everything else in the
 implementer's output is ignored.
 
-The implementer **MUST NOT** modify the step file, the plan file, the
-backlog, or any review file. All step-file mutations — episode write,
-risk-line rewrite, `[x]` mark, Progress count update, retry/split row
-inserts — are the orchestrator's responsibility.
+The implementer **MUST NOT** modify the step file, the plan file, or
+the backlog. All step-file mutations — episode write, risk-line
+rewrite, `[x]` mark, Progress count update, retry/split row inserts —
+are the orchestrator's responsibility.
 
 ### Pacing long-running tasks — foreground only
 

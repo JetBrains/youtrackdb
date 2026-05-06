@@ -65,18 +65,15 @@ docs/adr/<dir-name>/
                                      Section names match design.md so
                                      `**Full design**` refs in the plan
                                      resolve in either file.
+    design-mutations.md           <- append-only log of every design.md
+                                     mutation: diff summary, mechanical-check
+                                     result, cold-read verdict, iteration
+                                     count. Read by `edit-design`'s
+                                     `design-sync` step to find the last
+                                     sync point.
     tracks/
       track-1.md                  <- tactical: decomposed steps, step episodes
       track-2.md
-      ...
-    reviews/
-      structural.md               <- Phase 2 structural-review output
-      consistency.md              <- Phase 2 consistency-review output
-      design-mutations.md         <- append-only log of every design.md
-                                     mutation: diff summary, mechanical-check
-                                     result, cold-read verdict, iteration
-                                     count
-      track-1-technical.md
       ...
 
   ## Final artifacts (committed in Phase 4 — the only files that survive
