@@ -214,7 +214,7 @@ token management, and encryption.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (4/7 complete)
+- [ ] Step implementation (5/7 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -535,20 +535,65 @@ token management, and encryption.
   >
   > **Commit:** `059812cb05`
 
-- [ ] Step 5: `core/security/symmetrickey` live core (SymmetricKey + JSON ser-de + keystore loader)
+- [x] Step 5: `core/security/symmetrickey` live core (SymmetricKey + JSON ser-de + keystore loader)
+  - [x] Context: info
   > **Risk:** low — default (extends single test class with fixture
   > files)
   >
-  > Extend `SymmetricKeyTest`. Cover the live subset only: 4
-  > reachable constructors (default, `(String algorithm, String key,
-  > int size)`, `(SecretKey)`, `(String algorithm, String key)`),
-  > `encrypt(byte[])` / `decrypt(String)` round-trip,
-  > `JSONSerializerJackson` `toEntity`/`fromEntity` round-trip,
-  > equals/hashCode/toString shape, IV-shape property assertion
-  > (`Base64.decode(iv).length == cipherBlockSize`). Keystore loader
-  > tested with a fixture `.jks` or `.p12` file under
-  > `core/src/test/resources/security/`. Dead `SymmetricKey` methods
-  > and dead consumers go through Step 6.
+  > **What was done:** Extended `SymmetricKeyTest` with 9 new tests
+  > covering the 4 live reachable constructors (no-arg,
+  > `(String,String,int)`, `(SecretKey)`, `(String,String)`),
+  > `encrypt(byte[])` / `decrypt(String)` round-trip, the
+  > Base64-encoded JSON-document encoding shape (all 4 required
+  > fields: `algorithm`, `transform`, `payload`, `iv`), the IV-length
+  > invariant (16 bytes = AES block size for AES/CBC), and `Object`
+  > identity semantics for `equals`/`hashCode`/`toString`. Applied
+  > Spotless. All 12 `SymmetricKeyTest` tests pass; 187 total
+  > security tests pass on the cumulative track diff.
+  >
+  > **What was discovered:** PSI `find-usages` confirmed that **all**
+  > `fromKeystore` overloads (`String` path variant and `InputStream`
+  > variant) are reachable only from `SymmetricKeyCI`, which is
+  > itself a dead consumer. Similarly, `fromConfig`, `fromString`,
+  > and `fromFile` are reachable only from `SymmetricKeyCI` and
+  > `SymmetricKeySecurity` (both dead). **No live consumer exists
+  > for any of these static factory methods.** Therefore, keystore
+  > fixture and tests move entirely to Step 6's dead-code reframe
+  > per the step description's explicit reconciliation rule. The
+  > Step 5 description's "fixture `.jks`/`.p12` under
+  > `core/src/test/resources/security/`" is not added — Step 6's
+  > shape pins exercise reflective signature alone, no JCE
+  > invocation.
+  >
+  > Tested-and-removed: `AES/CBC/PKCS5Padding` wrong-key decryption
+  > does **not** reliably throw — the PKCS5 padding check can pass
+  > with garbage bytes, so a "different key must throw" test is
+  > non-deterministic. Removed the
+  > `encryptedPayloadShouldNotBeDecryptableWithDifferentKey` test;
+  > the round-trip test is the canonical property pin.
+  >
+  > **What changed from the plan:** Keystore fixture and
+  > `fromKeystore` tests move to **Step 6** (not Step 5) because
+  > PSI confirmed all `fromKeystore` overloads are dead-consumer-only.
+  > Step 6 will include these as dead-code shape pins (reflective
+  > signatures, no JCE invocation, no fixture file required) rather
+  > than live-path tests. This is explicitly anticipated in the step
+  > description's reconciliation rule.
+  >
+  > **Cross-track forward:** Step 6 must include:
+  > `fromKeystore(String, String, String, String)` shape pin
+  > (SymmetricKeyCI caller confirmed dead),
+  > `fromKeystore(InputStream, String, String, String)` shape pin
+  > (self-only ref), `fromConfig` / `fromString` / `fromFile` /
+  > `fromStream` shape pins (`SymmetricKeyCI` / `SymmetricKeySecurity`
+  > callers confirmed dead). The keystore fixture file
+  > (`.jks`/`.p12`) originally described for Step 5 is **not needed**
+  > because the keystore loader goes into dead-code pins.
+  >
+  > **Key files:**
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/security/symmetrickey/SymmetricKeyTest.java` (modified)
+  >
+  > **Commit:** `f281c2fec8`
 
 - [ ] Step 6: Dead-code reframe — `*DeadCodeTest` shape pins for orphan classes/methods
   > **Risk:** high — security (Phase A discovered Kerberos JVM-global
