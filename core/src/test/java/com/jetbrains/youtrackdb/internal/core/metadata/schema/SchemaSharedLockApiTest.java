@@ -13,8 +13,6 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import org.junit.After;
 import org.junit.Test;
 
@@ -41,9 +39,9 @@ import org.junit.Test;
  * </ul>
  *
  * <p>The {@code SchemaShared} reference is fetched fresh from {@code session.getSharedContext()}
- * for each test method (not cached on the test instance) — the R7 working note explicitly warns
- * against keeping a {@code SchemaShared} reference past an {@code executeInTx} callback under
- * {@code -Dyoutrackdb.test.env=ci}.
+ * for each test method (not cached on the test instance). Caching a {@code SchemaShared} reference
+ * past an {@code executeInTx} callback flakes under {@code -Dyoutrackdb.test.env=ci} because the
+ * disk-mode storage path may rebuild the shared context.
  *
  * <p>Concurrent reader / writer tests use a tracked {@code spawn()} helper with bounded
  * {@code @After} join discipline so a leaked worker cannot hang the surefire JVM if a latch
@@ -105,9 +103,10 @@ public class SchemaSharedLockApiTest extends DbTestBase {
     var schemaShared = session.getSharedContext().getSchema();
     var bothInside = new CountDownLatch(2);
     var releaseGate = new CountDownLatch(1);
-    var bothCompleted = new AtomicBoolean(false);
-    var reader1Failed = new AtomicReference<Throwable>();
-    var reader2Failed = new AtomicReference<Throwable>();
+    // Symmetric collector — earlier check-then-set on two slots could clobber concurrent
+    // failures because both readers run the SAME Runnable and could observe an empty first slot
+    // simultaneously. CopyOnWriteArrayList captures every failure regardless of arrival order.
+    var failures = new CopyOnWriteArrayList<Throwable>();
 
     Runnable reader = () -> {
       try {
@@ -121,11 +120,7 @@ public class SchemaSharedLockApiTest extends DbTestBase {
           schemaShared.releaseSchemaReadLock();
         }
       } catch (Throwable t) {
-        if (reader1Failed.get() == null) {
-          reader1Failed.set(t);
-        } else {
-          reader2Failed.set(t);
-        }
+        failures.add(t);
       }
     };
 
@@ -134,7 +129,6 @@ public class SchemaSharedLockApiTest extends DbTestBase {
 
     assertTrue("both readers must hold the read lock concurrently within 5s",
         bothInside.await(5, TimeUnit.SECONDS));
-    bothCompleted.set(true);
     releaseGate.countDown();
 
     // Drain the workers before assertions — the @After hook also joins, but waiting here lets
@@ -143,11 +137,9 @@ public class SchemaSharedLockApiTest extends DbTestBase {
       t.join(5_000);
     }
 
-    assertTrue("reader-1 must have completed without exception, got: "
-        + reader1Failed.get(), reader1Failed.get() == null);
-    assertTrue("reader-2 must have completed without exception, got: "
-        + reader2Failed.get(), reader2Failed.get() == null);
-    assertTrue(bothCompleted.get());
+    if (!failures.isEmpty()) {
+      fail("reader threads failed: " + failures);
+    }
   }
 
   @Test
@@ -159,7 +151,12 @@ public class SchemaSharedLockApiTest extends DbTestBase {
     var schemaShared = session.getSharedContext().getSchema();
     var writerHolding = new CountDownLatch(1);
     var readerEntered = new AtomicBoolean(false);
-    var writerHeldDuringReader = new AtomicBoolean(true);
+    // Positive observable that the reader actually reached acquireSchemaReadLock(). Without it,
+    // a slow CI scheduler could leave the reader still inside writerHolding.await() when the
+    // 200ms sleep elapses, making readerEntered==false an artifact of scheduling rather than
+    // proof of exclusion. Spinning until this flag flips guarantees the reader is queued on the
+    // RW lock before we observe readerEntered.
+    var readerAtLockAttempt = new AtomicBoolean(false);
 
     Runnable reader = () -> {
       try {
@@ -167,6 +164,7 @@ public class SchemaSharedLockApiTest extends DbTestBase {
         // guarantee the reader was contended.
         assertTrue("writerHolding must fire within 5s",
             writerHolding.await(5, TimeUnit.SECONDS));
+        readerAtLockAttempt.set(true);
         schemaShared.acquireSchemaReadLock();
         try {
           readerEntered.set(true);
@@ -185,12 +183,19 @@ public class SchemaSharedLockApiTest extends DbTestBase {
     schemaShared.acquireSchemaWriteLock(session);
     try {
       writerHolding.countDown();
-      // Give the reader 200ms to attempt entry; it MUST be blocked.
+      // Bounded spin until the reader has visibly reached acquireSchemaReadLock() — guarantees
+      // the "must NOT have entered" assertion below is observed against an actively-blocked
+      // reader, not a still-scheduling one.
+      long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+      while (!readerAtLockAttempt.get() && System.nanoTime() < deadline) {
+        Thread.onSpinWait();
+      }
+      assertTrue("reader must reach acquireSchemaReadLock() before the exclusion check fires",
+          readerAtLockAttempt.get());
+      // Give the contended acquire 200ms to (incorrectly) succeed; it MUST stay blocked.
       Thread.sleep(200);
       assertFalse("reader must NOT have entered while writer holds the lock",
           readerEntered.get());
-      // Snapshot the "writer-held while reader was queued" assertion before releasing.
-      writerHeldDuringReader.set(true);
     } finally {
       // Use the no-save form to skip persistence for this lock-only test.
       schemaShared.releaseSchemaWriteLock(session, false);
@@ -198,7 +203,6 @@ public class SchemaSharedLockApiTest extends DbTestBase {
 
     readerThread.join(5_000);
     assertTrue("reader must enter once writer releases", readerEntered.get());
-    assertTrue(writerHeldDuringReader.get());
   }
 
   @Test
@@ -314,25 +318,42 @@ public class SchemaSharedLockApiTest extends DbTestBase {
 
   @Test
   public void writersAreSerializedAcrossThreads() throws InterruptedException {
-    // Two competing writers must not run in parallel. Pin: both writers create distinct classes;
-    // the schema must contain BOTH after both writers complete (no lost update). Class-creation
-    // count gives a deterministic invariant — if writers raced and one was lost, we would see 1
-    // class instead of 2.
+    // Pin: while writer A holds the schema write lock, writer B's acquireSchemaWriteLock(session)
+    // MUST block until A releases. The earlier "both classes exist" assertion was satisfiable
+    // even under a hypothetical no-op write lock (because lower-level CHM synchronization could
+    // still serialize the createClass map mutations). The serialization invariant is observable
+    // only by checking that B's acquire returns AFTER A's release — captured here via an
+    // AtomicBoolean flipped in A's finally block before B.acquire returns.
     var schemaShared = session.getSharedContext().getSchema();
-    var attemptCount = new AtomicInteger();
+    var versionBefore = schemaShared.getVersion();
     var failures = new CopyOnWriteArrayList<Throwable>();
-    var startGate = new CountDownLatch(1);
+    var aHolding = new CountDownLatch(1);
+    var bAttemptingAcquire = new CountDownLatch(1);
+    var aReleased = new AtomicBoolean(false);
+    var bEnteredWhileAHeld = new AtomicBoolean(false);
     var done = new CountDownLatch(2);
 
     Runnable writerA = () -> {
       try {
-        // Each writer reopens its own session — schema mutations from a non-test thread require
-        // an active session.
         try (var s = openDatabase()) {
           s.activateOnCurrentThread();
-          assertTrue(startGate.await(5, TimeUnit.SECONDS));
-          s.getMetadata().getSchema().createClass("WriterARace");
-          attemptCount.incrementAndGet();
+          var sa = s.getSharedContext().getSchema();
+          sa.acquireSchemaWriteLock(s);
+          try {
+            aHolding.countDown();
+            // Wait for B to be queued on the write lock — without this, A could release before
+            // B even attempts acquire and the test would not exercise contention at all.
+            assertTrue("writer B must reach acquireSchemaWriteLock within 5s",
+                bAttemptingAcquire.await(5, TimeUnit.SECONDS));
+            // Hold for an additional 200ms after B is queued. If exclusion is broken, B's
+            // acquire would return during this window.
+            Thread.sleep(200);
+            // Mutate inside the held window so the version-bump invariant below stays valid.
+            s.getMetadata().getSchema().createClass("WriterARace");
+          } finally {
+            aReleased.set(true);
+            sa.releaseSchemaWriteLock(s, true);
+          }
         }
       } catch (Throwable t) {
         failures.add(t);
@@ -344,9 +365,21 @@ public class SchemaSharedLockApiTest extends DbTestBase {
       try {
         try (var s = openDatabase()) {
           s.activateOnCurrentThread();
-          assertTrue(startGate.await(5, TimeUnit.SECONDS));
-          s.getMetadata().getSchema().createClass("WriterBRace");
-          attemptCount.incrementAndGet();
+          assertTrue("writer A must hold the write lock within 5s",
+              aHolding.await(5, TimeUnit.SECONDS));
+          var sb = s.getSharedContext().getSchema();
+          bAttemptingAcquire.countDown();
+          sb.acquireSchemaWriteLock(s); // MUST block until A releases.
+          try {
+            // If aReleased is false here, B entered while A was still holding the lock — this
+            // is the breakage signal. The test asserts the negation outside.
+            if (!aReleased.get()) {
+              bEnteredWhileAHeld.set(true);
+            }
+            s.getMetadata().getSchema().createClass("WriterBRace");
+          } finally {
+            sb.releaseSchemaWriteLock(s, true);
+          }
         }
       } catch (Throwable t) {
         failures.add(t);
@@ -357,13 +390,13 @@ public class SchemaSharedLockApiTest extends DbTestBase {
 
     spawn(writerA, "lock-test-writerA");
     spawn(writerB, "lock-test-writerB");
-    startGate.countDown();
-    assertTrue("both writers must complete within 10s", done.await(10, TimeUnit.SECONDS));
+    assertTrue("both writers must complete within 15s", done.await(15, TimeUnit.SECONDS));
 
     if (!failures.isEmpty()) {
       fail("writer threads failed: " + failures);
     }
-    assertEquals("both writers must have completed", 2, attemptCount.get());
+    assertFalse("writer B must NOT enter while writer A holds the schema write lock",
+        bEnteredWhileAHeld.get());
 
     // Reload schema on the main session before asserting — disk-mode CI runs the
     // saveInternal → reload path; memory-mode is in-memory. Reload normalises both modes.
@@ -372,8 +405,13 @@ public class SchemaSharedLockApiTest extends DbTestBase {
         session.getMetadata().getSchema().existsClass("WriterARace"));
     assertTrue("WriterBRace must be present after both writers committed",
         session.getMetadata().getSchema().existsClass("WriterBRace"));
-    assertTrue("schema version must reflect at least two write-lock cycles",
-        schemaShared.getVersion() >= 2);
+    // Each successful save-form release increments the version at least once. The exact count
+    // is not pinned — opening a second session via openDatabase() can itself trigger an
+    // internal schema reload that bumps the version, so the "exactly +2" form is too strict
+    // for the multi-session pathway.
+    assertTrue("schema version must reflect at least two write-lock cycles, before="
+        + versionBefore + " after=" + schemaShared.getVersion(),
+        schemaShared.getVersion() >= versionBefore + 2);
   }
 
   @Test

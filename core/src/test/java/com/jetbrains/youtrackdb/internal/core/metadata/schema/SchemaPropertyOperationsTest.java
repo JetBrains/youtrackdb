@@ -45,10 +45,10 @@ import org.junit.Test;
  * {@link SchemaPropertyEmbedded} (mutators via {@code session.checkSecurity} → write-lock →
  * {@code …Internal} → release pattern). All assertions drive the public {@link SchemaProperty}
  * interface obtained from {@code session.getMetadata().getSchema()...} so that the dispatch
- * traverses the {@code SchemaClassProxy} / {@code SchemaPropertyProxy} → impl chain (Track 16
- * design note T3 — the proxy super-method-dispatch trap; PSI find-usages on individual proxy
- * methods returns 0 direct production callers because all calls flow through the public
- * interface).
+ * traverses the {@code SchemaClassProxy} / {@code SchemaPropertyProxy} → impl chain. PSI
+ * find-usages on individual proxy methods returns zero direct production callers because every
+ * production call flows through the public {@code SchemaClass} / {@code SchemaProperty}
+ * interfaces; pinning behaviour through the interface is what exercises the proxy dispatch.
  *
  * <p>This class deliberately complements {@link AlterSchemaPropertyTest}: that class covers
  * renaming, the linkmap-with-linked-type / linked-class rejections, removing a linked class via
@@ -59,11 +59,14 @@ import org.junit.Test;
  * the index-creation paths (delegated through {@code SchemaClassImpl.createIndex} via the
  * property-level overloads).
  *
- * <p>Per the R7 working note the schema reference is re-fetched via
- * {@code session.getMetadata().getSchema()} after each mutation rather than cached across a
- * transaction boundary; per the R8 working note any test that asserts on a fresh index reads
- * back through the immutable schema snapshot's {@code indexExists} predicate, which is
- * portable across the disk / memory storage modes.
+ * <p>The schema reference is re-fetched via {@code session.getMetadata().getSchema()} after
+ * each mutation rather than cached across a transaction boundary — caching across an
+ * {@code executeInTx} boundary flakes under {@code -Dyoutrackdb.test.env=ci} because the
+ * disk-mode storage path may rebuild the shared context. Tests that assert on a fresh index
+ * read back through the immutable schema snapshot's {@code indexExists} predicate, which is
+ * portable across the disk / memory storage modes (the disk path runs
+ * {@code SchemaShared.releaseSchemaWriteLock → saveInternal} while the memory path runs
+ * {@code reload}; the snapshot predicate normalises both).
  */
 public class SchemaPropertyOperationsTest extends DbTestBase {
 
@@ -429,8 +432,8 @@ public class SchemaPropertyOperationsTest extends DbTestBase {
   @Test
   public void createIndexUniqueRoundTrip() {
     // The property-level createIndex(INDEX_TYPE) returns the full-name index id; the index is
-    // observable via the immutable schema snapshot's indexExists predicate (R8 working note —
-    // the snapshot is the portable assertion path across the disk / memory storage modes).
+    // observable via the immutable schema snapshot's indexExists predicate — the snapshot is
+    // the portable assertion path across the disk and memory storage modes.
     Schema schema = session.getMetadata().getSchema();
     var cls = schema.createClass("Idx");
     var prop = cls.createProperty("name", PropertyType.STRING);

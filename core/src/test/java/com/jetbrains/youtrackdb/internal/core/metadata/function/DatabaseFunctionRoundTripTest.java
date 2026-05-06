@@ -69,15 +69,19 @@ public class DatabaseFunctionRoundTripTest extends DbTestBase {
 
   /**
    * {@code registerDefaultFunctions} is documented as a no-op; the body has zero observable
-   * side-effects. Pin so a future "register everything as defaults" change is a deliberate,
-   * visible event.
+   * side-effects. Pin the no-op contract by snapshotting the function-library name set before
+   * and after the call so a future "register everything as defaults" change becomes a visible
+   * test failure rather than a silent regression.
    */
   @Test
   public void factoryRegisterDefaultFunctionsIsNoOp() {
     var factory = new DatabaseFunctionFactory();
+    var library = session.getMetadata().getFunctionLibrary();
+    var namesBefore = List.copyOf(library.getFunctionNames());
     factory.registerDefaultFunctions(session);
-    // No throw, no state change observable from outside — the contract.
-    assertTrue(true);
+    var namesAfter = List.copyOf(library.getFunctionNames());
+    assertEquals("registerDefaultFunctions must not alter the function-library name set",
+        namesBefore, namesAfter);
   }
 
   /**
@@ -249,16 +253,21 @@ public class DatabaseFunctionRoundTripTest extends DbTestBase {
   }
 
   /**
-   * {@code config(args)} is documented as a no-op; pin so a future change that reads
-   * configured params is a deliberate event.
+   * {@code config(args)} is documented as a no-op; pin the no-op contract by checking the
+   * adapter's observable state ({@code getResult} / {@code getName}) is unchanged across the
+   * call so a future change that stashes config-time state is a deliberate, visible event.
    */
   @Test
   public void configIsNoOp() {
     var lib = session.getMetadata().getFunctionLibrary();
     var stored = lib.createFunction("ConfigBoilerplateFn");
     var dbFn = new DatabaseFunction(stored);
+    var resultBefore = dbFn.getResult();
+    var nameBefore = dbFn.getName(session);
     dbFn.config(new Object[] {"any", "args"});
-    // No throw, no state change.
-    assertTrue(true);
+    assertEquals("config must not alter the adapter's stored result",
+        resultBefore, dbFn.getResult());
+    assertEquals("config must not alter the adapter's reported name",
+        nameBefore, dbFn.getName(session));
   }
 }

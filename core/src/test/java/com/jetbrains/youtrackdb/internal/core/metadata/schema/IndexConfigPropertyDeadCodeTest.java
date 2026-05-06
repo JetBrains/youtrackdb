@@ -20,6 +20,8 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
@@ -62,17 +64,28 @@ import org.mockito.Mockito;
 public class IndexConfigPropertyDeadCodeTest {
 
   @Test
-  public void classIsPublicNonAbstractAndNonFinal() {
-    // Public so it could be returned across packages; non-abstract because it is a concrete
-    // value carrier; non-final today (no production subclasses, but we do not preemptively
-    // forbid them by pinning final). Pin all three so a Track 22 deletion that flips one of
-    // them is surfaced as an intentional contract change rather than an accidental rename.
+  public void classExposesExpectedPublicSurface() throws NoSuchMethodException {
+    // Modifier check (public, not abstract, not final) plus a positive pin on the public method
+    // surface — the modifiers alone would not catch a partial deletion of one of the five
+    // getters or the copy() method (the class skeleton would still satisfy public + non-final).
+    // Reflective signature lookups give a falsifiable check that survives source-level edits:
+    // any deferred-cleanup pass that drops a single member without removing the class outright
+    // fails this test, surfacing as a deliberate intent change rather than a silent green pass.
     var clazz = IndexConfigProperty.class;
     var mods = clazz.getModifiers();
     assertTrue("must be public", Modifier.isPublic(mods));
-    assertTrue("must NOT be abstract", !Modifier.isAbstract(mods));
-    assertTrue("must NOT be final (no current production subclasses, but no preemptive ban)",
-        !Modifier.isFinal(mods));
+    assertFalse("must NOT be abstract", Modifier.isAbstract(mods));
+    assertFalse("must NOT be final (no current production subclasses, but no preemptive ban)",
+        Modifier.isFinal(mods));
+    assertNotNull("five-arg constructor must exist",
+        clazz.getConstructor(String.class, PropertyTypeInternal.class, PropertyTypeInternal.class,
+            Collate.class, INDEX_BY.class));
+    assertNotNull("getName must exist", clazz.getMethod("getName"));
+    assertNotNull("getType must exist", clazz.getMethod("getType"));
+    assertNotNull("getLinkedType must exist", clazz.getMethod("getLinkedType"));
+    assertNotNull("getCollate must exist", clazz.getMethod("getCollate"));
+    assertNotNull("getIndexBy must exist", clazz.getMethod("getIndexBy"));
+    assertNotNull("copy must exist", clazz.getMethod("copy"));
   }
 
   @Test

@@ -79,11 +79,12 @@ import org.junit.Test;
  *   </li>
  * </ul>
  *
- * <p>Per the R7 working note the schema reference is re-fetched via
- * {@code session.getMetadata().getSchema()} after each mutation rather than cached across a
- * transaction boundary; per the R8 working note any test that asserts on a fresh index reads
- * back through the immutable schema snapshot's {@code indexExists} predicate, which is portable
- * across the disk / memory storage modes.
+ * <p>The schema reference is re-fetched via {@code session.getMetadata().getSchema()} after
+ * each mutation rather than cached across a transaction boundary — caching across an
+ * {@code executeInTx} boundary flakes under {@code -Dyoutrackdb.test.env=ci} because the
+ * disk-mode storage path may rebuild the shared context. Tests that assert on a fresh index
+ * read back through the immutable schema snapshot's {@code indexExists} predicate, which is
+ * portable across the disk / memory storage modes.
  */
 public class SchemaClassOperationsTest extends DbTestBase {
 
@@ -276,7 +277,8 @@ public class SchemaClassOperationsTest extends DbTestBase {
     clsImpl.set(dbSession, ATTRIBUTES.SUPERCLASSES, "BulkP1, BulkP2");
 
     // Re-fetch the class via the public Schema interface to confirm the impl-level mutation is
-    // visible through the proxy chain (T3 trap rule).
+    // visible through the proxy chain — pinning behaviour through the public interface is the
+    // only path that exercises the SchemaClassProxy → impl dispatch.
     var refetched = session.getMetadata().getSchema().getClass("BulkSet");
     assertTrue(refetched.isStrictMode());
     assertEquals("via-bulk", refetched.getDescription());

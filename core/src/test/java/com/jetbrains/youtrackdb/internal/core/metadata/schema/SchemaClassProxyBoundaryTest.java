@@ -204,10 +204,15 @@ public class SchemaClassProxyBoundaryTest extends DbTestBase {
     var otherProxy = session.getMetadata().getSchema().getClass("EqProxyOther");
     assertNotEquals(proxy1, otherProxy);
 
-    // Snapshot-of-same-class — NOT equal because BoundToSession differs (snapshot returns null).
+    // Snapshot-of-same-class — NOT equal in either direction because BoundToSession differs
+    // (snapshot returns null). Pin both directions explicitly: a one-direction-only check
+    // (proxy.equals(snapshot) only) would let a regression in SchemaImmutableClass.equals that
+    // accidentally treated session-bound peers as equal pass silently.
     var snapshot = session.getMetadata().getImmutableSchemaSnapshot().getClass("EqProxy");
-    assertFalse("proxy.equals(snapshot) must be false (different BoundToSession)",
-        proxy1.equals(snapshot));
+    assertNotEquals("proxy.equals(snapshot) must be false (different BoundToSession)",
+        proxy1, snapshot);
+    assertNotEquals("snapshot.equals(proxy) must also be false (symmetric)",
+        snapshot, proxy1);
 
     // Reflexive identity short-circuit.
     assertEquals(proxy1, proxy1);
@@ -315,11 +320,14 @@ public class SchemaClassProxyBoundaryTest extends DbTestBase {
     assertNotEquals("same property name on a different class must NOT be equal",
         pA1, pB);
 
-    // Snapshot equivalent — different BoundToSession.
+    // Snapshot equivalent — different BoundToSession. Pin both directions so a regression in
+    // ImmutableSchemaProperty.equals that accepts session-bound peers is caught.
     var snapPropA = session.getMetadata().getImmutableSchemaSnapshot()
         .getClass("OwnerEqA").getProperty("p");
-    assertFalse("proxy-prop must NOT equal snapshot-prop (different BoundToSession)",
-        pA1.equals(snapPropA));
+    assertNotEquals("proxy-prop must NOT equal snapshot-prop (different BoundToSession)",
+        pA1, snapPropA);
+    assertNotEquals("snapshot-prop.equals(proxy-prop) must also be false (symmetric)",
+        snapPropA, pA1);
 
     // Reflexive.
     assertEquals(pA1, pA1);
@@ -545,7 +553,8 @@ public class SchemaClassProxyBoundaryTest extends DbTestBase {
   public void getCollectionSelectionExposesRoundRobinStrategy() {
     // SchemaClassProxy.getCollectionSelection delegates to delegate.getCollectionSelection() —
     // the live SchemaClassImpl hard-codes a RoundRobin strategy in its field initializer
-    // (the Balanced / Default strategies are dead-code-pinned). Pin the strategy class.
+    // (the Balanced and Default strategies are SPI-loadable but no production code path
+    // selects them). Pin the strategy class.
     Schema schema = session.getMetadata().getSchema();
     var cls = schema.createClass("ProxyStrategy");
     var strategy = ((SchemaClassInternal) cls).getCollectionSelection();
@@ -570,8 +579,8 @@ public class SchemaClassProxyBoundaryTest extends DbTestBase {
     assertTrue(clsInternal.getClassInvolvedIndexes(session, "f").isEmpty());
     assertFalse(clsInternal.areIndexed(session, "f"));
 
-    // Add an index — assert visibility through the immutable schema snapshot's indexExists path
-    // (the portable check across the disk / memory storage modes per the R8 working note).
+    // Add an index — assert visibility through the immutable schema snapshot's indexExists
+    // path; the snapshot predicate is portable across the disk and memory storage modes.
     cls.createIndex("ProxyIdx.fIdx",
         com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE.NOTUNIQUE,
         "f");

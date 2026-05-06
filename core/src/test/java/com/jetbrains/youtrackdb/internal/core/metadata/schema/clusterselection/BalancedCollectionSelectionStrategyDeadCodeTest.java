@@ -20,8 +20,9 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema.clusterselection;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
-import static org.mockito.ArgumentMatchers.anyInt;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.CollectionSelectionStrategy;
@@ -78,13 +79,34 @@ import org.mockito.Mockito;
 public class BalancedCollectionSelectionStrategyDeadCodeTest {
 
   @Test
-  public void classIsPublicNonAbstractAndImplementsCollectionSelectionStrategy() {
+  public void classExposesExpectedPublicSurface()
+      throws NoSuchMethodException, NoSuchFieldException {
+    // Modifier check + positive method-surface pin — modifiers alone would not catch a partial
+    // deletion of getName / getCollection / NAME, since the class skeleton would still satisfy
+    // public + non-final + implements CollectionSelectionStrategy. Reflective signature lookups
+    // give a falsifiable check that survives a partial deletion of the public surface.
     var clazz = BalancedCollectionSelectionStrategy.class;
     var mods = clazz.getModifiers();
     assertTrue("must be public", Modifier.isPublic(mods));
-    assertTrue("must NOT be abstract", !Modifier.isAbstract(mods));
+    assertFalse("must NOT be abstract", Modifier.isAbstract(mods));
     assertTrue("must implement CollectionSelectionStrategy",
         CollectionSelectionStrategy.class.isAssignableFrom(clazz));
+    assertNotNull("public no-arg constructor must exist", clazz.getConstructor());
+    assertNotNull("public NAME constant must exist", clazz.getField("NAME"));
+    assertNotNull("getName() must exist", clazz.getMethod("getName"));
+    assertNotNull("getCollection(DatabaseSessionEmbedded, SchemaClass, int[], EntityImpl) must"
+        + " exist",
+        clazz.getMethod("getCollection",
+            com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded.class,
+            com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.class,
+            int[].class,
+            com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl.class));
+    assertNotNull("getCollection(DatabaseSessionEmbedded, SchemaClass, EntityImpl) two-arg form"
+        + " must exist",
+        clazz.getMethod("getCollection",
+            com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded.class,
+            com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.class,
+            com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl.class));
   }
 
   @Test
@@ -136,10 +158,12 @@ public class BalancedCollectionSelectionStrategyDeadCodeTest {
 
     assertEquals("must pick the cluster id with the smallest approximate row count",
         7, picked);
-    // Pin that the session was queried at least once per cluster id — not the precise count
-    // (the strategy may short-circuit a future optimisation), but enough to prove the
-    // session interaction is the load-bearing observable.
-    Mockito.verify(session, Mockito.atLeastOnce()).getApproximateCollectionCount(anyInt());
+    // Pin the precise interaction shape: the strategy queries the session exactly once per
+    // cluster id (3 calls for a 3-element array). atLeastOnce() would accept a single short-
+    // circuiting call and silently let a regression through.
+    Mockito.verify(session, Mockito.times(1)).getApproximateCollectionCount(5);
+    Mockito.verify(session, Mockito.times(1)).getApproximateCollectionCount(7);
+    Mockito.verify(session, Mockito.times(1)).getApproximateCollectionCount(9);
   }
 
   @Test

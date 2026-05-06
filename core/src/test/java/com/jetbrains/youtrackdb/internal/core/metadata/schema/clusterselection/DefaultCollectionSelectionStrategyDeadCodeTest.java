@@ -20,6 +20,8 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema.clusterselection;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -66,13 +68,28 @@ import org.mockito.Mockito;
 public class DefaultCollectionSelectionStrategyDeadCodeTest {
 
   @Test
-  public void classIsPublicNonAbstractAndImplementsCollectionSelectionStrategy() {
+  public void classExposesExpectedPublicSurface()
+      throws NoSuchMethodException, NoSuchFieldException {
+    // Modifier check + positive method-surface pin — modifiers alone would not catch a partial
+    // deletion of getName / getCollection / NAME, since the class skeleton would still satisfy
+    // public + non-final + implements CollectionSelectionStrategy.
     var clazz = DefaultCollectionSelectionStrategy.class;
     var mods = clazz.getModifiers();
     assertTrue("must be public", Modifier.isPublic(mods));
-    assertTrue("must NOT be abstract", !Modifier.isAbstract(mods));
+    assertFalse("must NOT be abstract", Modifier.isAbstract(mods));
     assertTrue("must implement CollectionSelectionStrategy",
         CollectionSelectionStrategy.class.isAssignableFrom(clazz));
+    assertNotNull("public no-arg constructor must exist", clazz.getConstructor());
+    assertNotNull("public NAME constant must exist", clazz.getField("NAME"));
+    assertNotNull("getName() must exist", clazz.getMethod("getName"));
+    assertNotNull("getCollection(DatabaseSessionEmbedded, SchemaClass, int[], EntityImpl)"
+        + " must exist",
+        clazz.getMethod("getCollection", DatabaseSessionEmbedded.class, SchemaClass.class,
+            int[].class, EntityImpl.class));
+    assertNotNull("getCollection(DatabaseSessionEmbedded, SchemaClass, EntityImpl) two-arg"
+        + " form must exist",
+        clazz.getMethod("getCollection", DatabaseSessionEmbedded.class, SchemaClass.class,
+            EntityImpl.class));
   }
 
   @Test

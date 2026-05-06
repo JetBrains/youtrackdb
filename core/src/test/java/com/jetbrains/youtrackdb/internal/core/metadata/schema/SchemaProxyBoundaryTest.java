@@ -13,7 +13,10 @@ import com.jetbrains.youtrackdb.internal.core.exception.SessionNotActivatedExcep
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
+import org.junit.After;
 import org.junit.Test;
 
 /**
@@ -53,6 +56,29 @@ import org.junit.Test;
  * </ul>
  */
 public class SchemaProxyBoundaryTest extends DbTestBase {
+
+  private final List<Thread> spawnedWorkers = new CopyOnWriteArrayList<>();
+
+  /**
+   * Tracked worker spawn helper — registers each worker for bounded join in the {@code @After}
+   * hook. Keeps the surefire JVM safe against a leaked daemon-less worker if a test's
+   * synchronization path misbehaves (e.g., the inactive-session assert is removed and the
+   * worker silently completes the lookup instead of throwing).
+   */
+  private Thread spawn(Runnable body, String name) {
+    var t = new Thread(body, name);
+    spawnedWorkers.add(t);
+    t.start();
+    return t;
+  }
+
+  @After
+  public void joinSpawnedWorkers() throws InterruptedException {
+    for (var t : spawnedWorkers) {
+      t.join(5_000);
+    }
+    spawnedWorkers.clear();
+  }
 
   @Test
   public void getMetadataGetSchemaReturnsASchemaProxy() {
@@ -340,8 +366,10 @@ public class SchemaProxyBoundaryTest extends DbTestBase {
     var caught = new AtomicReference<Class<? extends Throwable>>();
 
     // Spawn a worker that has NOT activated the session — calling existsClass on the proxy
-    // must throw SessionNotActivatedException via the assert.
-    var t = new Thread(() -> {
+    // must throw SessionNotActivatedException via the assert. The tracked spawn() + @After
+    // join discipline guards against a worker that silently completes the lookup (the very
+    // regression this test is designed to surface) leaking past the test boundary.
+    var t = spawn(() -> {
       try {
         // Use existsClass (not createClass) — existsClass is a read-only path; if the assert
         // is removed by a future regression, the underlying SchemaShared.existsClass would
@@ -354,7 +382,6 @@ public class SchemaProxyBoundaryTest extends DbTestBase {
         failure.set(th);
       }
     }, "SchemaProxyBoundaryTest-inactive-thread");
-    t.start();
     t.join(5_000);
 
     assertNotNull("inactive-session call must have thrown — got null failure",

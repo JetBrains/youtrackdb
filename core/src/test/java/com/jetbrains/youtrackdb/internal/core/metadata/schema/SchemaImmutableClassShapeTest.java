@@ -23,6 +23,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
@@ -204,9 +205,12 @@ public class SchemaImmutableClassShapeTest extends DbTestBase {
     assertEquals("changed-desc", freshSnapshot.getDescription());
     assertTrue(freshSnapshot.isStrictMode());
 
-    // The original snapshot reference is not the same instance as the fresh one — snapshot objects
-    // are rebuilt on each call to getImmutableSchemaSnapshot.
-    assertNotEquals(System.identityHashCode(snapshot), System.identityHashCode(freshSnapshot));
+    // The original snapshot reference is not the same instance as the fresh one — snapshot
+    // objects are rebuilt on each call to getImmutableSchemaSnapshot. assertNotSame is the
+    // load-bearing primitive here (System.identityHashCode is not guaranteed unique, so an
+    // identity-hash comparison can flake on rare collisions).
+    assertNotSame("snapshot must be a fresh instance after schema mutation",
+        snapshot, freshSnapshot);
   }
 
   @Test

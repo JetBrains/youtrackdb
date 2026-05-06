@@ -141,28 +141,37 @@ public class FunctionLibraryTest extends DbTestBase {
    * NPEs because {@code function} is null.
    *
    * <p>Pin the contract so a future change that adds a defensive null check is a deliberate,
-   * visible event. The exception type may be {@link NullPointerException} directly or a
-   * {@link DatabaseException} wrapping it depending on which storage / TX path surfaces the
-   * NPE first; the test accepts both shapes.
+   * visible event. The exception is either a direct {@link NullPointerException} or a
+   * {@link DatabaseException} whose cause chain contains the NPE — the storage/TX path
+   * determines which surface fires first, but a broader catch is rejected because it would
+   * mask a future regression that swapped the NPE for an unrelated runtime error (e.g., an
+   * {@code IllegalStateException} from a tx-state check) without surfacing the contract drift.
    */
   @Test
   public void dropFunctionByNameThrowsNpeOnAbsentName() {
     var library = session.getMetadata().getFunctionLibrary();
     try {
       library.dropFunction(session, "NoSuchFunctionEverRegistered");
+      org.junit.Assert.fail(
+          "Expected NullPointerException (or DatabaseException wrapping it) when dropping a"
+              + " non-existent function by name; production has no defensive null guard");
     } catch (NullPointerException expected) {
-      // Direct NPE inside the executeInTx callback.
-      return;
+      // Direct NPE inside the executeInTx callback — the documented contract.
     } catch (DatabaseException expected) {
-      // Wrapped by the TX layer.
-      return;
-    } catch (RuntimeException expected) {
-      // Any other RuntimeException is also acceptable as the contract here is "no defensive
-      // guard"; the exact subclass depends on the storage path.
-      return;
+      // The TX layer may wrap the NPE; require it stays visible in the cause chain so a
+      // hypothetical refactor that swaps the wrapped exception for an unrelated error fails
+      // this test instead of silently passing.
+      Throwable cur = expected;
+      boolean foundNpe = false;
+      while (cur != null) {
+        if (cur instanceof NullPointerException) {
+          foundNpe = true;
+          break;
+        }
+        cur = cur.getCause();
+      }
+      assertTrue("DatabaseException must wrap the documented NPE: " + expected, foundNpe);
     }
-    org.junit.Assert.fail(
-        "Expected an exception when dropping a non-existent function by name");
   }
 
   /**
