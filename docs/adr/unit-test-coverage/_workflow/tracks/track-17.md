@@ -214,7 +214,7 @@ token management, and encryption.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (3/7 complete)
+- [ ] Step implementation (4/7 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -455,23 +455,85 @@ token management, and encryption.
   >
   > **Commit:** `00b37fff7c`
 
-- [ ] Step 4: `DefaultSecuritySystem` JSON-config-driven reflective reload paths
+- [x] Step 4: `DefaultSecuritySystem` JSON-config-driven reflective reload paths
+  - [x] Context: safe
   > **Risk:** medium — multi-file logic (introduces a synthesized-
   > JSON-config test fixture pattern that may be reused across the
   > track)
   >
-  > Single high-yield test class targeting the 1 233-LOC class that
-  > dominates `core/security`'s 32.1% baseline. Synthesize
-  > `Map<String, Object>` security-config maps to drive: (a) `getClass`
-  > SPI lookup hit (registered class) + `Class.forName` fallback miss,
-  > (b) `loadAuthenticators` chain registration, (c)
-  > `loadPasswordValidator` happy + invalid-class paths,
-  > (d) `reloadComponent` for an authenticator,
-  > (e) `registerSecurityClass` / `unregisterSecurityClass` round-trip,
-  > (f) `loadAuditing` / `loadLdapImporter` happy + missing-class
-  > paths. The LDAP-importer JSON-extension branch may end at a
-  > Track 22 forward; the authenticator/password-validator paths must
-  > land in this step.
+  > **What was done:** Added `DefaultSecuritySystemReloadTest`, a
+  > single high-yield JUnit-4 + `DbTestBase` test class targeting the
+  > JSON-config-driven reflective reload paths in
+  > `DefaultSecuritySystem` (1 233 LOC, the largest class in
+  > `core/security`). 39 tests synthesise `Map<String, Object>`
+  > security-config maps and drive them through the public
+  > `reload(...)` and `reloadComponent(...)` entry points to exercise:
+  > (a) `getClass` SPI lookup hit (via `registerSecurityClass`) plus
+  > `Class.forName` fallback path (and its silent miss branch);
+  > (b) `loadAuthenticators` chain registration with custom plugin,
+  > `allowDefault` append, `enabled=false` skip, missing-name log,
+  > `isAssignableFrom` reject, and the no-authenticators-key fallback
+  > to `initDefultAuthenticators` that installs the canonical 3-entry
+  > chain; (c) `reloadPasswordValidator` happy path plus
+  > dispose-and-replace, missing-class, non-validator-class, and
+  > disabled-section branches; (d) `reloadAuditingService` happy +
+  > reject + disabled branches; (e) `reloadImportLDAP` error branches
+  > (happy path deferred to Track 22 forward per the step
+  > description); (f) `reloadComponent` null-name and null-`jsonConfig`
+  > guards; (g) `register`/`unregisterSecurityClass` round-trip;
+  > (h) `getConfig` / `getComponentConfig` section read-back;
+  > (i) `getAuthenticationHeader` aggregation when enabled vs default
+  > Basic when disabled; (j) `close()` clearing the authenticator
+  > list. Test plugin classes (`TestAuthenticator`,
+  > `TestPasswordValidator`, `LenientPasswordValidator`,
+  > `TestAuditingService`, `TestImportLDAP`, `NotAnAuthenticator`)
+  > are public static nested types resolvable by `Class.forName` via
+  > their JVM names. A `TemporaryFolder` rule redirects `setSection`'s
+  > persistence path to a per-test scratch file so `reloadComponent`
+  > does not write to `${YOUTRACKDB_HOME}/config/security.json`. All
+  > 39 tests pass; Spotless clean.
+  >
+  > **What was discovered:** The `setSection` helper at line 901 of
+  > `DefaultSecuritySystem` writes the entire `configEntity` to disk
+  > on every `reloadComponent` call. Without an override of
+  > `GlobalConfiguration.SERVER_SECURITY_FILE`, the path resolves to
+  > the literal string `"null/config/security.json"` (the
+  > `SystemVariableResolver` returns null for an unset
+  > `YOUTRACKDB_HOME`) — production code swallows the resulting
+  > `IOException`. Tests therefore must redirect
+  > `SERVER_SECURITY_FILE` to a writable temp file so they exercise
+  > both the in-memory section update and its persistence side
+  > without polluting the build tree. **No latent bug**; observable
+  > behaviour is the redirect requirement, not a defect to pin.
+  >
+  > Inline confirmation of the Step 2 carry-forward note: the
+  > embedded `DefaultSecuritySystem` starts with `enabled=false`
+  > (no `security.json` loaded), so `reloadComponent`'s enabled-only
+  > branches of `reloadPasswordValidator` / `reloadImportLDAP` /
+  > `reloadAuditingService` are unreachable until
+  > `reload(session, {"enabled": true})` flips the flag. The new
+  > helper `enableAndPrepareSystem()` codifies this two-step setup
+  > for future tests in this package.
+  >
+  > **Cross-track forward:** The `enableAndPrepareSystem()` helper,
+  > the `buildAuthenticationConfig()` helper, and the `TemporaryFolder`
+  > + `SERVER_SECURITY_FILE` redirect pattern are reusable for any
+  > subsequent step that needs a JSON-driven security configuration
+  > in test code. Track 22 deferred-cleanup queue acquires no new
+  > entries from this step.
+  >
+  > **Critical context:** Future tests in this package that call
+  > `reloadComponent` must redirect
+  > `GlobalConfiguration.SERVER_SECURITY_FILE` to a temp path in
+  > `@Before` and restore it in `@After` (the
+  > `DefaultSecuritySystemReloadTest` pattern). Otherwise
+  > `setSection` writes a phantom `security.json` relative to the
+  > resolved (or null) `YOUTRACKDB_HOME`.
+  >
+  > **Key files:**
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/security/DefaultSecuritySystemReloadTest.java` (new)
+  >
+  > **Commit:** `059812cb05`
 
 - [ ] Step 5: `core/security/symmetrickey` live core (SymmetricKey + JSON ser-de + keystore loader)
   > **Risk:** low — default (extends single test class with fixture
