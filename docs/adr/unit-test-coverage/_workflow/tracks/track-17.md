@@ -214,7 +214,7 @@ token management, and encryption.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [ ] Step implementation (1/7 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -233,23 +233,93 @@ token management, and encryption.
 
 ## Steps
 
-- [ ] Step 1: `core/security` core helpers (SecurityManager + PasswordValidator + TokenSign/TokenSignImpl + ParsedToken + small surface)
+- [x] Step 1: `core/security` core helpers (SecurityManager + PasswordValidator + TokenSign/TokenSignImpl + ParsedToken + small surface)
+  - [x] Context: safe
   > **Risk:** medium — multi-file logic in core (no HIGH triggers — tests-only,
   > capped at medium per risk-tagging Tests-only rule)
   >
-  > Re-measure post-Track-16 baseline for the eight in-scope packages
-  > using the coverage analyzer (corrected-baseline rule); record
-  > deltas in step episode. Extend `SecurityManagerTest` (hash /
-  > PBKDF2 / salt round-trip with `@BeforeClass` iteration override)
-  > and `HashSaltTest`. Add standalone `TokenSignImplTest`
-  > (HMAC sign/verify round-trip via `signToken(byte[])` +
-  > `verifyTokenSign(ParsedToken)` — synthesize a key, sign known
-  > payload, construct `ParsedToken`, assert verify true; mutate
-  > signature byte, assert verify false), `PasswordValidatorTest`,
-  > `ParsedTokenTest`, `GlobalUserImplTest`, `DefaultKeyProviderTest`,
-  > and shape pins for `Security`, `SecurityComponent`,
-  > `DefaultSecurityConfig`, `Syslog`, `AuditingOperation`,
-  > `AuditingService` (cheap fold-ins — A8).
+  > **What was done:** Re-measured the post-Track-16 baseline for the
+  > eight in-scope security packages from the existing `jacoco.xml` on
+  > `aadb522a` (corrected-baseline rule). Extended
+  > `SecurityManagerTest` with a `@BeforeClass` PBKDF2 iteration
+  > override (lowered to 100, restored in `@AfterClass`) plus 17 new
+  > tests covering hash/PBKDF2/salt round-trips for both PBKDF2-SHA1
+  > and PBKDF2-SHA256, prefix-driven dispatch in `checkPassword`,
+  > null/empty/unsupported-algorithm error paths, byte-to-hex edge
+  > cases, deterministic SHA-256 helpers, and the singleton-instance
+  > contract. Extended `HashSaltTest` with explicit-algorithm
+  > overloads and the `<hexHash>:<hexSalt>:<iterations>` shape pin.
+  > Added six new test classes: `TokenSignImplTest` (HMAC
+  > sign/verify round-trip via `signToken(byte[])` +
+  > `verifyTokenSign(ParsedToken)` with anonymous `Token` /
+  > `TokenHeader` stubs because `BinaryToken` and `JsonWebToken` are
+  > dead-pinned in Step 6 — covers signature mutation, payload
+  > mutation, `ContextConfiguration` constructor, and
+  > unknown-algorithm rejection); `PasswordValidatorTest`
+  > (interface-shape pin + checked-exception declaration);
+  > `ParsedTokenTest` (3-tuple value-class with reference-identity
+  > contract); `GlobalUserImplTest` (POJO getters/setters +
+  > `GlobalUser` interface contract); `DefaultKeyProviderTest`
+  > (HmacSHA256 `SecretKeySpec` wrapping + same-key-for-any-header
+  > invariant); `SecuritySurfaceShapeTest` (cheap fold-in shape pins
+  > for `Security`, `SecurityComponent`, `DefaultSecurityConfig`,
+  > `Syslog`, `AuditingOperation` enum, `AuditingService`). All 55
+  > tests pass; Spotless clean.
+  >
+  > **What was discovered:** Latent issue in
+  > `SecurityManager.SALT_CACHE` — the cache key is
+  > `hashedPassword | salt | iterations | bytes` and **omits the
+  > algorithm**. As a result, a verify call under one algorithm can
+  > short-circuit on a cached PBKDF2 result computed under a
+  > different algorithm (e.g., `createHashWithSalt` under
+  > PBKDF2-SHA1 populates the cache, and a
+  > `checkPasswordWithSalt` under `"FAKE-ALG-DOES-NOT-EXIST"` with
+  > the same `password+salt+iters+bytes` returns true via cache hit
+  > instead of throwing). Pinned via observable behaviour by routing
+  > `shouldWrapUnknownAlgorithmInSecurityException` through
+  > `createHashWithSalt` (fresh password forces a cache miss) rather
+  > than `checkPasswordWithSalt`. **Forward to Track 22
+  > deferred-cleanup queue** — no `WHEN-FIXED` marker (observable
+  > shape is the pin).
+  >
+  > Corrected-baseline measurements (post-Track-16, pre-Track-17):
+  > `core.metadata.security` 72.3%/56.3% (593 uncov / 2 138 total),
+  > `core.security` **33.1%/22.4% (540 uncov / 807 total — drift from
+  > Phase A's 32.1%/548 estimate)**, `core.security.symmetrickey`
+  > 26.6%/9.4% (282/384), `core.security.authenticator` 25.5%/15.0%
+  > (140/188), `core.security.kerberos` 0%/0% (114/114),
+  > `core.metadata.security.binary` 0%/0% (164/164),
+  > `core.metadata.security.jwt` 0%/100% (10/10),
+  > `core.metadata.security.auth` 0%/100% (9/9). Aggregate target
+  > ~1 860 LOC across the 8 packages.
+  >
+  > `InvalidPasswordException` extends `BaseException`
+  > (`RuntimeException`) but is declared in `throws` on
+  > `PasswordValidator.validatePassword` — pinned the declaration via
+  > reflection in `PasswordValidatorTest`.
+  >
+  > `DefaultSecurityConfig.getSyslog()` throws
+  > `UnsupportedOperationException` — pinned as observable behaviour
+  > because callers use that as the "no syslog configured" signal.
+  >
+  > **Cross-track forward:** the latent SALT_CACHE
+  > algorithm-omitted finding goes to Track 22's deferred-cleanup
+  > queue; recorded for Step 7's absorption block. Step 6's
+  > `*DeadCodeTest` pattern can reuse the anonymous `Token` /
+  > `TokenHeader` stub idiom from `TokenSignImplTest` whenever it
+  > needs a `Token` instance without `DatabaseSession` plumbing.
+  >
+  > **Key files:**
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/security/SecurityManagerTest.java` (modified)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/metadata/security/HashSaltTest.java` (modified)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/security/TokenSignImplTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/security/PasswordValidatorTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/security/ParsedTokenTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/security/GlobalUserImplTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/security/DefaultKeyProviderTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/security/SecuritySurfaceShapeTest.java` (new)
+  >
+  > **Commit:** `6f0c668eaa`
 
 - [ ] Step 2: `core/security/authenticator` chain dispatch
   > **Risk:** low — default (extends DbTestBase-driven authentication
