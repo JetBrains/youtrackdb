@@ -102,6 +102,25 @@ the orchestrator does after the flow completes:
 - Manual re-entry: marks `## Plan Review` as `[x]` (re-stamping with the
   fresh iteration count), commits, ends the session.
 
+### Precondition (both entry points)
+
+Before starting the flow, check that the three plan-review files have
+no uncommitted changes:
+
+```bash
+git status --porcelain \
+  docs/adr/<dir-name>/_workflow/implementation-plan.md \
+  docs/adr/<dir-name>/_workflow/implementation-backlog.md \
+  docs/adr/<dir-name>/_workflow/design.md
+```
+
+If the output is non-empty, halt and ask the user to commit (or stash)
+those edits first — uncommitted changes to these files would otherwise
+be bundled into the audit-trail commit alongside the auto-fixes,
+muddling the trace. Other dirty paths in the working tree are safe to
+ignore (the audit-trail `git add` is path-scoped to the three files
+above).
+
 ---
 
 ## Step 1: Consistency Review
@@ -463,10 +482,13 @@ When both reviews pass:
    Escalated: <IDs, or 'none'>"
    git push
    ```
-3. Inform the user that Phase 2 passed and the next `/execute-tracks`
-   session will enter State B (Phase A of Track 1). Remind them that
-   technical/risk/adversarial reviews will happen per-track during
-   execution.
+3. Inform the user that Phase 2 passed. The next `/execute-tracks`
+   session will resume per the startup protocol — typically State B
+   (Phase A of Track 1) for a fresh plan, or whichever state was
+   active before the manual re-validation (e.g., State A if a track
+   was just completed but not yet strategy-refreshed). Remind them
+   that technical/risk/adversarial reviews will happen per-track
+   during execution.
 4. **End the session.** Do not proceed to Phase A of Track 1 in the
    same session — the session boundary is mandatory (see
    `workflow.md` §Session Boundary Rules).

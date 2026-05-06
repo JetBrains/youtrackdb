@@ -49,10 +49,12 @@ to verify pending-track descriptions; pass its absolute path as the
 
 ## What this skill does
 
-1. Confirm via `git status --porcelain` that the working tree is clean
-   (the autonomous flow commits the resulting plan/backlog/design
-   updates as a single workflow-update commit; a dirty tree confuses
-   the audit-trail commit).
+1. Run the clean-tree precondition from
+   [`implementation-review.md`](../../workflow/implementation-review.md)
+   § How to run > Precondition — path-scoped to the three workflow
+   files (plan, backlog, design). Halt and ask the user to commit or
+   stash if any of the three are dirty. Other dirty paths in the
+   working tree are safe to ignore.
 2. Load `.claude/workflow/implementation-review.md` and follow its
    §"Step 1: Consistency Review" → §"Step 2: Structural Review" → §
    "Completion" sections in order. The orchestration is identical to
