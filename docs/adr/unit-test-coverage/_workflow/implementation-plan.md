@@ -1488,14 +1488,104 @@ flowchart TD
   > falsifiable-regression + WHEN-FIXED-marker convention, and
   > `@After rollbackIfLeftOpen` safety net.
 
-- [ ] Track 17: Security
+- [x] Track 17: Security
   > Write tests for the security subsystem — authentication,
   > authorization, token management, and encryption.
   >
-  > **Scope:** ~6 steps covering password/token, authenticators,
-  > roles/permissions, symmetric key, binary tokens/JWT, and
-  > verification.
-  > **Depends on:** Track 1
+  > **Track episode:**
+  > Added ~9,800 LOC of test code across 37 new/extended test files
+  > covering the eight in-scope security packages (`core/security`,
+  > `core/security/authenticator`, `core/security/symmetrickey`,
+  > `core/security/kerberos`, `core/metadata/security`,
+  > `core/metadata/security/auth`, `core/metadata/security/binary`,
+  > `core/metadata/security/jwt`). Purely test-additive: zero
+  > production source modified across all 7 step commits + 3
+  > step-level review-fix commits + 1 Phase C iter-1 review-fix
+  > commit. Final aggregate coverage on the touched packages
+  > post-Phase-C: **77.7% line / 68.1% branch** (+1.6 pp / +1.4 pp
+  > vs post-Track-16 baseline). Per-package highlights: `core/security`
+  > 33.3% → 82% (+48.9 pp); `core/security/authenticator` 25.5% →
+  > 79% (+53.2 pp); `core/metadata/security/binary` 0% → 90%
+  > (+89.6 pp); `core/metadata/security/jwt` and
+  > `core/metadata/security/auth` 0% → 100%. Three packages sit
+  > below the project gate by design (kerberos 28%, symmetrickey
+  > 43%, binary 90% on live subset) — all queued for Track 22
+  > deletion.
+  >
+  > **Phase C track-level code review (2 iterations, PASS at iter-2):**
+  > - Iter-1 (7 dimensions: CQ/BC/TB/TC/TX/SE/TS): 16 in-scope
+  >   findings applied in commit `7a569757cc` —
+  >   `@Category(SequentialTest)` on `SecurityManagerTest` and
+  >   `DefaultSecuritySystemReloadTest` (cross-reviewer consensus
+  >   for the parallel-class JVM-global-mutation race);
+  >   falsifiable observable pins for the 4 documented latent bugs
+  >   that the plan's "pinned by observable behaviour" claim did
+  >   not actually exercise (SALT_CACHE algorithm-omission,
+  >   `populateSystemRoles` NPE, `UserSymmetricKeyConfig` line 133
+  >   NPE) plus the new `TokenSignImpl.readKeyFromConfig` latent
+  >   bug discovered mid-review; `@After rollbackIfLeftOpen` on
+  >   two missed `DbTestBase` subclasses; six
+  >   `DefaultSecuritySystemReloadTest` no-op tests tightened
+  >   with `assertThatNoException`; tautological assertions
+  >   replaced; malformed salted-hash inputs pinned; inline FQN
+  >   cleanup; non-standard `///` Javadoc converted to `/** */`;
+  >   dead `DEFAULT_CHAIN_TYPES` field wired into a chain-ordering
+  >   pin.
+  > - Iter-2 (gate-check fan-out across all 7 dimensions): every
+  >   dimension PASS; 7 new suggestion-tier observations
+  >   (FQN/naming/style — absorbed into Track 22 D-block).
+  >
+  > **NEW latent production bug discovered during Phase C iter-1
+  > review** (`TokenSignImpl.readKeyFromConfig`): the inner
+  > condition is the logical negation of the outer guard, making
+  > the `Base64` decode unreachable. A non-null
+  > `NETWORK_TOKEN_SECRETKEY` configured at the operator's request
+  > is silently ignored — every `TokenSignImpl` falls through to a
+  > per-instance `SecureRandom` key. **Tokens cannot be verified
+  > across server restarts or cluster nodes regardless of
+  > operator configuration.** Pinned via
+  > `TokenSignImplTest.readKeyFromConfigIgnoresConfiguredSecretKeyLatentBugPin`
+  > with WHEN-FIXED Track 22 marker. Added as latent-issue C6 to
+  > Track 22's absorption block; Track 17's "5 latent issues"
+  > became 6.
+  >
+  > **Phase C synthesis correction** (worth surfacing): the
+  > original synthesis claim "DbTestBase provides fresh DB per
+  > test, so reader role has no policies" was incorrect —
+  > `SecurityShared` populates the reader role with a default
+  > `database.class.*.*` policy at DB creation. The implementer
+  > rewrote the test to pin both branches (default-bound reader;
+  > empty freshly-created role) — strictly more coverage than the
+  > synthesis proposed. Recorded so future Phase C synthesis
+  > work knows to verify role-creation defaults against
+  > `SecurityShared` rather than assume freshness implies
+  > emptiness.
+  >
+  > **Cross-track impact** (committed to
+  > `implementation-backlog.md` Track 22 in `6df674f6cf`):
+  > - 5 dead-code lockstep deletion groups (kerberos pair,
+  >   binary-token quintet, JWT trio, CI plug-in chain,
+  >   symmetric-key trio).
+  > - 21 per-method `SymmetricKey` deletions in 3 PSI-confirmed
+  >   lockstep phases (corrected from the original "18" estimate
+  >   during Step 7).
+  > - 6 latent production issues pinned by observable behaviour
+  >   (SALT_CACHE bug; `createServerUser` empty-password;
+  >   `populateSystemRoles` NPE; `UserSymmetricKeyConfig` NPE;
+  >   deprecated `Function#execute` always-throws; **NEW**:
+  >   `TokenSignImpl.readKeyFromConfig` unreachable inner branch).
+  > - Suggestion-tier deferrals: PBKDF2 iteration-override
+  >   extraction; `DefaultSecuritySystem` helper extraction;
+  >   existing-class-preferred Track 22 discipline; deferred live
+  >   paths; plus Phase C iter-1 additions — ~400 LOC
+  >   `Token`/`TokenHeader` stub extraction (TS-5/CQ1/CQ2);
+  >   `rollbackIfLeftOpen` hoist into `DbTestBase` (CQ3); BC4
+  >   5-min TOCTOU window deferred alongside binary-token cluster
+  >   deletion; minor FQN/naming/style nits.
+  >
+  > No upcoming-track assumption is invalidated.
+  >
+  > **Step file:** `tracks/track-17.md` (7 steps, 0 failed)
 
 - [ ] Track 18: Index
   > Write tests for the index management layer — index engines, index
