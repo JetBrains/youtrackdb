@@ -149,8 +149,11 @@ flowchart TD
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [ ] Step implementation (0/6 complete)
 - [ ] Track-level code review
+
+## Base commit
+`7319340d3078b9855d4a43c94d5bc746d9ed08b6`
 
 ## Reviews completed
 - [x] Technical: PASS at iteration 1 (10 findings; 4 should-fix and 4 suggestions folded into the decomposition below; 2 deferred to Track 4 with notes)
