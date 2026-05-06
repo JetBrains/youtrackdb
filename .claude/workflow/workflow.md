@@ -7,9 +7,22 @@ that reads the plan, determines where execution left off, and either performs
 a strategy refresh or begins/resumes track execution.
 
 There are no agent teams or sub-teams. You execute tracks directly. Sub-agents
-are used only for self-contained review tasks (technical/risk/adversarial
-reviews, code review, track-level code review) where fresh perspective or
-parallel execution is valuable.
+are used for two distinct purposes:
+
+1. **Self-contained review tasks** (technical/risk/adversarial
+   reviews, step-level dim review, track-level code review) where
+   fresh perspective or parallel execution is valuable.
+2. **Code-touching implementation work** delegated to the
+   **implementer** sub-agent. The implementer runs at two levels:
+   `level=step` for Phase B per-step implementation
+   (`step-implementation.md`) and `level=track` for Phase C
+   per-iteration review-fix application
+   (`track-code-review.md`). Both share the same rulebook
+   ([`implementer-rules.md`](implementer-rules.md)) and prompt
+   template; the level switch is a single variable input. The
+   orchestrator never edits source files itself in either Phase B
+   or Phase C — Maven, Spotless, source-file reads, and IDE traffic
+   are absorbed by the implementer's context.
 
 ### Terminology: Phases 0/1/2/3/4 vs Phases A/B/C
 

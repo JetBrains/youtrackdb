@@ -1,9 +1,33 @@
 # Track Execution — Phase C: Code Review + Track Completion
 
+Phase C is a **two-actor phase**, mirroring Phase B's split:
+
+- The **orchestrator** (this document) drives the per-iteration loop:
+  spawn the review fan-out sub-agents, synthesise findings, classify
+  in-scope vs deferred, spawn the per-iteration **implementer** to
+  apply in-scope fixes, dispatch on its return, run the gate-check
+  fan-out, manage iteration counts, run the context check, apply
+  plan corrections, compile the track episode, present results to
+  the user, mark the track `[x]` upon approval.
+- The **implementer** (a fresh sub-agent spawned per iteration that
+  has fixes to apply, see [`implementer-rules.md`](implementer-rules.md))
+  performs sub-steps 1–3 of fix application — read the cumulative
+  track diff and the synthesised findings, apply the fixes, run
+  tests + Spotless + the coverage gate, stage and commit a
+  `Review fix:` commit. The implementer's output is the same
+  structured handoff used at `level=step`, with `level=track`
+  selecting the variant defined in
+  [`implementer-rules.md`](implementer-rules.md) §Inputs and
+  §Return contract.
+
 After all steps are committed, review the full track diff using sub-agents.
 These are deliberately sub-agents — fresh eyes catch systematic issues that
 the main agent, having read every step episode and skimmed the cumulative
-diff, can normalise away.
+diff, can normalise away. Delegating fix application to a per-iteration
+implementer keeps the cumulative review sub-agent fan-out, source-file
+reads, Spotless and Maven traffic out of the orchestrator's tool-call
+history — exactly the rationale that justified the Phase B split (PR
+#1021); the same shape applies here.
 
 ## Tooling — PSI for cross-step reference accuracy
 
@@ -233,28 +257,53 @@ Present the synthesized findings list to proceed to the review loop.
 
 ## Review loop
 
-Iterate on the synthesized findings:
+Iterate on the synthesized findings. Each iteration that has fixes to
+apply spawns a **fresh per-iteration implementer** (`level=track`,
+`mode=FIX_REVIEW_FINDINGS`) per §Implementer Spawns below; the
+orchestrator never edits source files itself in Phase C.
 
-1. If any findings need fixes:
-   - Apply fixes as **additional commits** (never amend prior commits).
-     The Ephemeral identifier rule (full rule in
-     [`ephemeral-identifier-rule.md`](ephemeral-identifier-rule.md);
-     stub recap in `conventions-execution.md` §2.3) applies to
-     durable content — no `Track N`, `Step N`, finding IDs, or
-     review iteration counters in source code, tests, or code
-     comments. Branch-only commit messages are exempt and may
-     cite finding IDs when it makes the log easier to follow (per
-     [`commit-conventions.md`](commit-conventions.md) "Branch-only
-     commit messages may cite workflow-internal identifiers").
-     Push each commit immediately per the per-commit push rule.
-   - Run tests to verify fixes don't break anything
+1. **Classify findings.** From the synthesised list, separate
+   in-scope findings (to apply now) from deferred findings (to push
+   to other tracks via plan corrections — see §Plan Corrections from
+   Deferred Findings below). The implementer receives only the
+   in-scope subset.
+2. **If any in-scope findings need fixes:**
+   - **Spawn the per-iteration implementer** with `level=track`,
+     `mode=FIX_REVIEW_FINDINGS`, `base_commit` (read from the step
+     file's `## Base commit`), and the iteration's in-scope findings
+     as `findings`. Use the prompt template in
+     [`step-implementation.md`](step-implementation.md) §Implementer
+     Prompt Template — the same template both phases share. See
+     §Implementer Spawns below for the per-iteration variable inputs.
+   - **Dispatch on the structured return:**
+
+     ```
+     match result.RESULT:
+         SUCCESS                  -> on_iteration_success(result)
+         DESIGN_DECISION_NEEDED   -> escalate_to_user_then_respawn(result)
+         RISK_UPGRADE_REQUESTED   -> contract violation — surface to user
+         FAILED                   -> handle_iteration_failure(result)
+     ```
+
+     The three normal handlers and the contract-violation path are
+     spelled out in §Phase C Implementer Handlers below.
+   - On `SUCCESS`: the implementer has already pushed a `Review fix:`
+     commit and run tests + Spotless + coverage gate. The orchestrator
+     does **not** re-run tests or re-stage files; it proceeds to the
+     gate check.
    - **Update the Progress section** on disk to record the completed
      iteration (e.g., `- [ ] Track-level code review (1/3 iterations)`).
+     Commit and push the Progress update as a Workflow update commit
+     (per [`commit-conventions.md`](commit-conventions.md) § Commit
+     type prefixes — "Workflow update" row).
    - Spawn **fresh sub-agents** to verify (gate check) — only re-run the
      review dimension(s) that had open findings. For example, if only
      crash-safety code findings and test-completeness findings remain,
      spawn only `review-crash-safety` and `review-test-completeness`.
      If findings span all dimensions, re-run all originally selected agents.
+     The gate-check sub-agents review the new HEAD (after the
+     `Review fix:` commit), which they reach via the same
+     `git diff {base_commit}..HEAD` instruction.
    - **Context consumption check** (mandatory after each iteration,
      except the last): run
      `cat /tmp/claude-code-context-usage-$PPID.txt`. If the level is
@@ -265,14 +314,170 @@ Iterate on the synthesized findings:
      `safe`/`info`, continue to the next iteration. If the file does
      not exist or the command fails, this is **not an error** — treat
      as `safe` and continue.
-2. Max 3 iterations **total across sessions** — on resume, read the
+3. Max 3 iterations **total across sessions** — on resume, read the
    iteration count from the Progress section to determine how many remain.
    The iteration count is shared across all review dimensions (not
    independent counters).
-3. If blockers persist after 3 iterations, note them — they'll be presented
-   to the user during track completion (below).
-4. When all reviews pass (or max iterations reached), mark
+4. If blockers persist after 3 iterations, or if any iteration ended
+   in a non-`SUCCESS` return that exited the loop, note the unfixed
+   findings — they'll be presented to the user during track completion
+   (below).
+5. When all reviews pass (or max iterations reached), mark
    `Track-level code review` as `[x]` in the step file's Progress section.
+
+---
+
+## Implementer Spawns
+
+Each Phase C implementer spawn uses `subagent_type: "general-purpose"`
+and `model: "opus"`. (Track-level fix application operates on the
+cumulative track diff and may surface cross-step interactions; the
+risk tag, which would otherwise gate the model choice in Phase B, is
+locked per-step at end-of-Phase-B and does not inform the
+track-level model. Always spawn Opus.)
+
+Use the **shared Implementer Prompt Template** in
+[`step-implementation.md`](step-implementation.md) §Implementer Prompt
+Template — the static prefix is identical across both levels. Phase C
+populates the variable section as follows:
+
+| Field | Value |
+|---|---|
+| `level` | `track` |
+| `base_commit` | SHA from the step file's `## Base commit` section. |
+| `mode` | `FIX_REVIEW_FINDINGS` (or `WITH_GUIDANCE` after a design-decision escalation per §Phase C Implementer Handlers below). |
+| `step_index` / `step_description` / `risk_tag` | **Omit** — the level-conditional fields are not populated at `level=track`. |
+| `findings` | The iteration's in-scope synthesised findings (only when `mode=FIX_REVIEW_FINDINGS`). |
+| `Guidance` / `exploration_notes_echo` | The user's chosen alternative + the prior `exploration_notes` (only when `mode=WITH_GUIDANCE`). |
+
+The implementer's contract — what it reads, what it commits, when it
+must early-return, and what fields its return block carries — is the
+same rulebook used at `level=step`. The contract differences for
+track-level work (cumulative diff target, no `RISK_UPGRADE_REQUESTED`,
+`FIX_NOTES` instead of `EPISODE_DRAFT`, no orchestrator-side
+rollback on `FAILED`) are documented inline in
+[`implementer-rules.md`](implementer-rules.md). The orchestrator does
+not need to load that file; the implementer reads it on every spawn.
+
+Each implementer's `Review fix:` commit is pushed by the implementer
+itself (per the per-commit push rule in
+[`commit-conventions.md`](commit-conventions.md) § Push every commit).
+The Ephemeral identifier rule applies to durable content (source code,
+tests, comments) but not to branch-only commit messages — the
+implementer may cite finding IDs in its `Review fix:` commit subject
+or body when it makes the log easier to follow.
+
+---
+
+## Phase C Implementer Handlers
+
+The implementer's structured return drives one of three
+orchestrator-side handlers (success / escalate / failure), plus a
+fourth `RISK_UPGRADE_REQUESTED` contract-violation path that aborts
+to the user rather than running a handler. None of the three
+handlers roll back prior `Review fix:` commits — see
+[`implementer-rules.md`](implementer-rules.md) §"Mode-specific scope
+of the local revert" `level=track` row for the rationale (prior
+iterations' fixes have already passed their gate check; a failed
+iteration does not invalidate them).
+
+### `on_iteration_success(result)`
+
+The implementer's `Review fix:` commit is on disk and pushed;
+`result.COMMIT` is its SHA. `result.FIX_NOTES` carries the
+implementer's per-iteration notes (which findings were addressed,
+which were skipped, what was discovered). Stash `FIX_NOTES` and
+`CROSS_TRACK_HINTS` for inclusion in the eventual track episode (see
+§Track Completion below). Proceed to the Progress update + gate-check
+fan-out per the review loop above.
+
+### `escalate_to_user_then_respawn(result)`
+
+Triggered when `result.RESULT == DESIGN_DECISION_NEEDED`. The
+implementer has run the snapshot-and-diff revert sequence per
+[`implementer-rules.md`](implementer-rules.md) §Detection rules, so
+the working tree is clean at HEAD (no commit was produced).
+`result.DESIGN_DECISION` is populated.
+
+Verify `git status` is clean before continuing — a dirty tree at
+this point is a contract violation; surface the discrepancy to the
+user instead of proceeding.
+
+1. Present `result.DESIGN_DECISION` to the user via
+   [`design-decision-escalation.md`](design-decision-escalation.md).
+2. On user response, respawn the implementer with:
+   - `level=track`
+   - `mode=WITH_GUIDANCE`
+   - `Guidance:` set to the user's chosen alternative + any
+     additional direction
+   - `exploration_notes_echo` set to
+     `result.DESIGN_DECISION.exploration_notes`
+
+   The original `findings:` list is **intentionally not** carried
+   into the `WITH_GUIDANCE` respawn — `findings:` is populated only
+   in `mode=FIX_REVIEW_FINDINGS` per the matrix in
+   [`implementer-rules.md`](implementer-rules.md) §Inputs. The
+   user's `Guidance:` is decisive about what to do with the
+   surfaced design question; the implementer does not need the
+   raw findings list to apply the chosen alternative. If the
+   guidance leaves part of the original findings unaddressed, the
+   gate-check fan-out re-surfaces them in the next iteration.
+3. The respawn's result re-enters the dispatch above. No iteration
+   count increment for the escalation respawn — the user-decided
+   alternative continues the same iteration.
+
+### `handle_iteration_failure(result)`
+
+Triggered when `result.RESULT == FAILED`. The implementer has run
+the snapshot-and-diff revert sequence per
+[`implementer-rules.md`](implementer-rules.md) §Detection rules, so
+the working tree is clean at HEAD; no `Review fix:` commit was
+produced this iteration. `result.FAILURE` carries
+`what_was_attempted`, `why_it_failed`, `impact_on_remaining_steps`
+(at `level=track` this is "impact on remaining findings"), and
+`recommended_action`.
+
+Verify `git status` is clean before continuing — a dirty tree at
+this point is a contract violation; surface the discrepancy to the
+user instead of proceeding.
+
+1. **Record the failure** — update the step file's Progress section
+   to mark the track-level code review entry with the failure (e.g.,
+   `- [ ] Track-level code review (FAILED at iteration N/3)`) and
+   commit the Progress update as a Workflow update commit. Embed the
+   `FAILURE` fields (`what_was_attempted`, `why_it_failed`,
+   `impact_on_remaining_findings`, `recommended_action`) verbatim in
+   the commit message body so the git history preserves the failure
+   context for the draft PR — review findings are not persisted to a
+   separate file (per [`track-review.md`](track-review.md) §Phase A,
+   the durable trace is step-file edits plus the workflow-update
+   commit).
+2. **Exit the iteration loop.** Do not respawn the implementer for
+   the same findings. The remaining findings are now "unfixed" and
+   are presented to the user during track completion (the existing
+   "If blockers persist after 3 iterations, note them" branch).
+3. If `recommended_action: escalate`, present the situation to the
+   user and consider entering ESCALATE per
+   [`inline-replanning.md`](inline-replanning.md). For `retry`, the
+   recommendation reduces to "no further automatic attempts at this
+   set of findings"; the user decides whether to re-spawn with
+   guidance or accept the unfixed state at track completion.
+   `recommended_action: split` is **forbidden at `level=track`** per
+   [`implementer-rules.md`](implementer-rules.md) §Fundamental
+   failure — if surfaced, treat as a contract violation: present the
+   return block verbatim to the user (do not respawn) alongside the
+   same options ESCALATE / accept-as-unfixed.
+
+### `RISK_UPGRADE_REQUESTED` (contract violation)
+
+`RESULT: RISK_UPGRADE_REQUESTED` is **forbidden at `level=track`**
+per [`implementer-rules.md`](implementer-rules.md) §"Risk upgrade
+required (level=step only)". If a Phase C implementer returns this
+value, treat it as a contract violation: surface the return block
+verbatim to the user, do not respawn automatically, and let the
+user decide whether to enter ESCALATE
+([`inline-replanning.md`](inline-replanning.md)) or to proceed to
+track completion with the iteration's findings unfixed.
 
 ---
 
@@ -324,11 +529,19 @@ If no findings were deferred, skip this section.
 After the review loop completes and any plan corrections are committed,
 proceed directly to track completion **in the same session**.
 
-1. **Compile the track episode** from all step episodes in the step file.
-   The track episode is a strategic summary — what was built, key
-   discoveries, plan deviations with cross-track impact. If findings were
-   deferred to other tracks, mention the plan corrections and which
-   tracks were affected.
+1. **Compile the track episode** from all step episodes in the step
+   file plus any per-iteration `FIX_NOTES` and `CROSS_TRACK_HINTS`
+   stashed by the review loop's `on_iteration_success` handler. The
+   track episode is a strategic summary — what was built, key
+   discoveries (including any surfaced during the review-fix
+   iterations), plan deviations with cross-track impact, and which
+   review-fix iterations applied non-trivial changes (cite the
+   `Review fix:` commit subjects when they aid the strategic
+   narrative; do not embed finding IDs in the durable text per the
+   Ephemeral identifier rule). If findings were deferred to other
+   tracks, mention the plan corrections and which tracks were
+   affected. If any iteration ended in a non-`SUCCESS` return, name
+   the unfixed findings and why they were not addressed.
 
 2. **Present track results to the user** (do NOT write to plan file yet):
    - Track episode (compiled but not yet persisted)
@@ -344,10 +557,18 @@ proceed directly to track completion **in the same session**.
 
 3. **Wait for user response:**
    - **Approved** — proceed to step 4.
-   - **Fixes needed** — apply the user's specific fixes as additional
-     commits. Re-run track-level code review if fixes are substantial.
-     Re-compile the track episode if fixes changed outcomes.
-     Present updated results and wait again.
+   - **Fixes needed** — package the user's specific fixes as a
+     synthesised findings list (each item: location, issue, proposed
+     fix) and **spawn a fresh implementer** with `level=track`,
+     `mode=FIX_REVIEW_FINDINGS`, and the user-provided findings.
+     Use the same prompt template, validity matrix, and handler
+     dispatch as §Implementer Spawns and §Phase C Implementer
+     Handlers above. The implementer's `Review fix:` commit lands
+     on top of HEAD; the orchestrator does not touch source files
+     itself. Re-run track-level code review if the user's fixes are
+     substantial enough that a gate-check run alone won't catch
+     potential regressions. Re-compile the track episode if fixes
+     changed outcomes. Present updated results and wait again.
    - **Fundamental rework** — trigger ESCALATE (see workflow.md
      §Inline Replanning).
 

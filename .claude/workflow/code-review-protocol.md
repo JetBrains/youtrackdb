@@ -45,9 +45,14 @@ See [`track-code-review.md`](track-code-review.md) §Single-Step Track.
 
 - **Step-level:** see [`step-implementation.md`](step-implementation.md)
   §Per-Step Orchestration Loop sub-step 4 — the dimensional review
-  loop, run by the orchestrator on the implementer's commit.
+  loop, run by the orchestrator on the implementer's commit. Fixes
+  for findings are delegated to a respawn of the per-step
+  implementer at `level=step, mode=FIX_REVIEW_FINDINGS`.
 - **Track-level:** see [`track-code-review.md`](track-code-review.md)
-  (includes track completion).
+  (includes track completion). Fixes for findings are delegated to a
+  fresh per-iteration implementer at
+  `level=track, mode=FIX_REVIEW_FINDINGS`; the orchestrator never
+  edits source files itself in Phase C.
 
 ---
 

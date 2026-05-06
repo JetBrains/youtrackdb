@@ -200,10 +200,31 @@ prefixes):
    touching only `_workflow/tracks/track-<N>.md`) — mark the
    boundary between completed and in-progress steps. The most
    recent episode commit is the last fully-finished step.
-3. **`Review fix:` commits** — indicate the dim-review loop already
-   ran for the step they belong to. When an orphan `Review fix:`
-   commit appears after the last episode commit, resume from
-   episode production.
+3. **`Review fix:` commits** — indicate that a review-fix
+   implementer applied changes. The same prefix is used at both
+   levels (`level=step` in Phase B and `level=track` in Phase C); the
+   discriminator is **position**:
+   - **Phase B (`level=step`) `Review fix:` commits** appear
+     interleaved with episode commits (one episode commit follows
+     each completed step's implementer + Review-fix commits). They
+     belong to the step whose implementer commit immediately
+     precedes them.
+   - **Phase C (`level=track`) `Review fix:` commits** appear
+     strictly **after the last episode commit** — Phase B is fully
+     done before Phase C runs (the `Step implementation` row in the
+     Progress section is `[x]` before any Phase C spawn). They do
+     not belong to any step; they are track-level fix commits.
+
+   When an orphan Phase B `Review fix:` commit appears after the
+   last episode commit during Phase B Resume, resume from episode
+   production. Phase B Resume **never** encounters Phase C-fix
+   `Review fix:` commits because Phase B Resume only runs while a
+   `[ ]` step exists, and Phase C cannot have started yet. Phase C
+   resume is owned by [`track-code-review.md`](track-code-review.md);
+   it reads the Progress section's iteration count, treats the
+   current HEAD as the gate-check target, and does not need to
+   classify orphan commits since the orchestrator never edits
+   source files itself.
 4. **Implementer code commits** — touch code (paths outside
    `_workflow/`); subject is the imperative summary of the step's
    change. When an orphan implementer commit appears after the
@@ -212,17 +233,23 @@ prefixes):
 5. **Other Workflow update commits** — touch only `_workflow/`
    but are not episode commits (Phase 1 init, Phase A
    decomposition, Phase B base-commit recording, plan-corrections
-   application, track-completion mark, inline-replanning update).
-   They are scaffolding and **not** orphans regardless of
-   position.
+   application, track-completion mark, inline-replanning update,
+   Phase C iteration-count Progress updates, Phase C iteration-
+   failure Progress updates with the `FAILURE` fields embedded in
+   the commit message body). They are scaffolding and **not**
+   orphans regardless of position.
 
 The step file on disk is the source of truth for which steps are
-complete (have episodes). Any implementer or `Review fix:` code
-commits beyond the last episode commit are orphans for the next
-`[ ]` step. A `Revert step:` commit cancels the implementer +
-`Review fix:` commits it reverts — together they form a
-self-contained "attempted and rolled back" group that does not count
-toward any `[x]` step's expected commits.
+complete (have episodes). During Phase B Resume specifically, any
+implementer or Phase B `Review fix:` code commits beyond the last
+episode commit are orphans for the next `[ ]` step. A `Revert step:`
+commit cancels the implementer + Phase B `Review fix:` commits it
+reverts — together they form a self-contained "attempted and rolled
+back" group that does not count toward any `[x]` step's expected
+commits. This orphan-classification rule does not extend to Phase C
+resume — Phase C-fix `Review fix:` commits are valid track-level
+fix commits, not orphans, and Phase C resume relies on the Progress
+section's iteration count rather than orphan detection.
 
 ---
 
