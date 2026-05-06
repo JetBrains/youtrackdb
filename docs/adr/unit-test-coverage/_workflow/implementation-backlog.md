@@ -1155,6 +1155,171 @@ Natural cleanup happens when the branch is deleted after PR merge. -->
 >   has zero production callers per PSI; the live cluster-selection
 >   path is the round-robin strategy.
 
+> *From Track 17 (Security) Steps 1–7 + Phase C:* Test-additive coverage
+> for the security subsystem (37 new/extended test files, ~9 600 LOC,
+> zero production-source changes). The Track 22 absorption inventory
+> from Track 17 is:
+>
+> *A. Dead-code lockstep deletion groups (whole-class, 5 groups):*
+> 1. **Kerberos pair**: `KerberosCredentialInterceptor` +
+>    `Krb5ClientLoginModuleConfig`. Zero production callers per PSI;
+>    the `CredentialInterceptor` SPI itself is uncalled. Kerberos-pair
+>    deletion unlocks group 4 below.
+> 2. **Binary-token quintet**: `BinaryToken` +
+>    `BinaryTokenSerializer` + `BinaryTokenPayloadImpl` +
+>    `BinaryTokenPayloadDeserializer` + `DistributedBinaryTokenPayload`.
+>    Includes the BC3 + BC4 deferrals: 30-second `isCloseToExpire`
+>    window (Phase B Step 6 iter-2) and 5-minute sibling TOCTOU window
+>    (Phase C iter-1 BC4) in `BinaryTokenDeadCodeTest`. No point
+>    fixing timing windows in a test that should be deleted.
+> 3. **JWT trio**: `JsonWebToken` + `JwtPayload` +
+>    `YouTrackDBJwtHeader`. Gated on the binary-token quintet
+>    (`BinaryTokenSerializer` references `YouTrackDBJwtHeader`).
+> 4. **CI plug-in chain**: `DefaultCI` whole class +
+>    `SecurityManager.newCredentialInterceptor()` method +
+>    `GlobalConfiguration.CLIENT_CREDENTIAL_INTERCEPTOR` config slot.
+>    Gated on the Kerberos pair deletion.
+> 5. **Symmetric-key trio**: `SymmetricKeyCI` +
+>    `SymmetricKeySecurity` + `UserSymmetricKeyConfig`
+>    (`SymmetricKeySecurity` and `UserSymmetricKeyConfig` delete as a
+>    lockstep pair).
+>
+> *B. 21 per-method `SymmetricKey` deletions — PSI-confirmed safe
+> deletion order (live class with 21 dead public/protected methods,
+> per-method pinning so partial deletion stays valid):*
+> - **Phase 1 — after `SymmetricKeyCI` deleted** (7 methods):
+>   `setDefaultCipherTransform(String)`, `fromString(String)`,
+>   `fromFile(String, String)`,
+>   `fromKeystore(String, String, String, String)`,
+>   `fromKeystore(InputStream, String, String, String)`,
+>   `fromStream(InputStream, String, String)`,
+>   `separateAlgorithm(String)` (protected-static).
+> - **Phase 2 — after `SymmetricKeySecurity` +
+>   `UserSymmetricKeyConfig` deleted** (2 methods):
+>   `fromConfig(SecurityConfig, String)`,
+>   `decryptAsString(String)`.
+> - **Phase 3 — independent (zero callers, any order)** (12 methods):
+>   6 dead getters (`getName`, `getPassword`, `getKeyAlgorithm`,
+>   `getKeystore`, `getKeystorePassword`, `getKeyId`) +
+>   6 dead setters (`setName`, `setPassword`, `setKeyAlgorithm`,
+>   `setKeystore`, `setKeystorePassword`, `setKeyId`).
+>
+> *C. Latent production issues pinned by observable behaviour
+> (6 issues, with `// WHEN-FIXED: Track 22 — <fix>` markers in tests):*
+> 1. **`SecurityManager.SALT_CACHE` algorithm-omission bug**
+>    (Step 1 + Phase C iter-1 F3): cache key omits the algorithm; a
+>    verify call under one algorithm short-circuits on a cached
+>    PBKDF2 result computed under a different algorithm. Pin:
+>    `SecurityManagerTest.saltCacheCurrentlyConfusesAlgorithmsLatentBugPin`.
+>    Fix: include the algorithm in the cache key.
+> 2. **`DefaultPasswordAuthenticator.createServerUser` empty-password
+>    bug** (Step 2): JSON `"password"` field is read but not passed
+>    to `ImmutableUser`; stored password is always `""`;
+>    `authenticate()` always returns null for in-memory-config users.
+> 3. **`SecuritySystemUserImpl.populateSystemRoles` NPE** (Step 3 +
+>    Phase C iter-1 F4): the `databaseName`-non-empty branch reads
+>    `getProperty(SystemRole.DB_FILTER)` which returns null for
+>    regular-database roles; the for-each NPEs without a null check.
+>    Pin: `ImmutableUserTest.testSecuritySystemUserImplWithNonEmptyDbNameNpesOnRegularDbRolesLatentBugPin`.
+>    Only safe on the system database where roles have `dbFilter`
+>    populated.
+> 4. **`UserSymmetricKeyConfig` line 133 NPE** (Step 6 + Phase C iter-1
+>    F5): the no-recognized-keys branch falls through to a null
+>    dereference when `props` is non-null but contains none of `key`
+>    / `keyFile` / `keyStore`. Dead-code path (the class itself is
+>    queued for deletion in group A.5), but the defect exists in the
+>    shipped bytecode. Pin:
+>    `UserSymmetricKeyConfigDeadCodeTest.unrecognizedPropertiesKeyNpesOnLine133LatentBugPin`.
+> 5. **`Function#execute(Object...)` deprecated overload always throws
+>    "No database session found"** (forwarded from Track 16): because
+>    `executeInContext` reads `iContext.getDatabaseSession()` before
+>    the callback short-circuit.
+> 6. **`TokenSignImpl.readKeyFromConfig` unreachable inner branch**
+>    (Phase C iter-1 F6 — NEW finding): the inner `if (configKey != null
+>    && configKey.length() > 0)` is the logical negation of the outer
+>    guard, so a non-null non-empty `NETWORK_TOKEN_SECRETKEY` is
+>    silently ignored — every `TokenSignImpl` falls through to a
+>    `SecureRandom`-derived key. **Tokens cannot be verified across
+>    server restarts or cluster nodes regardless of operator
+>    configuration.** Pin:
+>    `TokenSignImplTest.readKeyFromConfigIgnoresConfiguredSecretKeyLatentBugPin`.
+>    Fix: invert the inner condition (or restructure as a guard chain)
+>    so the configured Base64 key path is reachable.
+>
+> *D. Suggestion-tier deferred items from Track 17 reviews:*
+> - **R6 (Phase A) + iter-1 F1 reinforcement**: extract the
+>   `@BeforeClass` PBKDF2 iteration override (lower
+>   `SECURITY_USER_PASSWORD_SALT_ITERATIONS` to ~100, restored in
+>   `@AfterClass`, gated by `@Category(SequentialTest)`) into a shared
+>   rule / base class so future security tests avoid copy-paste.
+>   Currently inline in `SecurityManagerTest`.
+> - **R7**: verify Track 17 carry-forward conventions (selective
+>   `@Category(SequentialTest)` discipline, static-state inventory,
+>   `@After rollbackIfLeftOpen` safety net, corrected-baseline rule)
+>   against Track 22's test approach.
+> - **A6**: extract `enableAndPrepareSystem()` /
+>   `buildAuthenticationConfig()` helpers from
+>   `DefaultSecuritySystemReloadTest` to a shared fixture class when
+>   Track 22 adds more `DefaultSecuritySystem` tests (e.g., the
+>   import-LDAP happy path).
+> - **A7**: Track 22 should prefer extending existing test classes
+>   (`DefaultSecuritySystemReloadTest`,
+>   `AuthenticatorChainDispatchTest`, `SymmetricKeyTest`,
+>   `SecuritySharedTest`) over creating new classes.
+> - **A8**: deferred live paths to fold in when building the deletion
+>   scaffold — `SecurityShared` transactional methods plus the
+>   `DefaultSecuritySystem` import-LDAP happy path.
+> - **A9**: verify Track 22 queue count at Phase A: 5 lockstep groups
+>   + 21 per-method `SymmetricKey` pins + 6 latent issues +
+>   suggestion tier = the full absorption inventory above.
+> - **Phase C iter-1 TS-5 / CQ1 / CQ2**: extract a shared
+>   `TokenStubs` (`stubToken(...)` / `stubHeader(...)` builders) and
+>   `TestTokenHeader` POJO under
+>   `core/src/test/java/.../security/testutil/`. Currently ~400 LOC
+>   of duplicated anonymous `Token` / `TokenHeader` stubs across
+>   `TokenSignImplTest`, `ParsedTokenTest`, `DefaultKeyProviderTest`,
+>   `AuthenticatorChainDispatchTest`, `AuthInfoTest`. A single
+>   signature change on the `Token` interface currently requires
+>   editing all five files.
+> - **Phase C iter-1 CQ3**: hoist the `@After rollbackIfLeftOpen()`
+>   helper into `DbTestBase` (or extract a JUnit 4 `@Rule`
+>   `RollbackOnLeftOpen`). Currently duplicated verbatim across
+>   `ImmutableUserTest`, `AuthenticatorChainDispatchTest`,
+>   `DefaultSecuritySystemReloadTest`, `SecuritySharedTest`,
+>   `ImmutableSecurityPolicyTest`, plus several pre-existing tests.
+> - **Phase C iter-1 CQ15 / CQ16 / TS-11 / TS-12 / TS-13**: residual
+>   inline FQN cleanups — `SecurityUser` and `DatabaseSessionEmbedded`
+>   in `TokenSignImplTest` / `SecurityAuthenticatorAbstractTest`,
+>   `org.junit.Assert.fail` static import in `PasswordValidatorTest`,
+>   `java.util.Optional` / `java.util.Set` /
+>   `DatabaseSessionEmbedded` in `AuthInfoTest` /
+>   `SecurityRoleAndIdentityShapeTest`. Defer for batch consistency
+>   with the FQN audit Track 22 already plans.
+> - **Phase C iter-1 TS-4**: `SymmetricKeyTest` extends `DbTestBase`
+>   but never uses the database session; the per-method DB
+>   create/drop cycle adds latency for no functional reason. Drop
+>   the inheritance during Track 22 cleanup or add the
+>   `rollbackIfLeftOpen` net for future-author safety.
+> - **Phase C iter-1 TS-7 / TS-8 / TS-10**: minor naming /
+>   consistency nits — `configAuthenticator*` prefix in
+>   `AuthenticatorChainDispatchTest` is ambiguous;
+>   `SymmetricKeyDeadMethodsDeadCodeTest` bundles 21 method pins
+>   into one class (the only `*DeadCodeTest` that does so);
+>   inconsistent license-header preamble across the 16 dead-code
+>   pin files. All cosmetic; address as part of the wider Track 22
+>   convention sweep.
+>
+> **Track 17 dead-code deletions (lockstep with `*DeadCodeTest`
+> pin removal):** the 16 `*DeadCodeTest` files added in Track 17
+> Step 6 carry the `WHEN-FIXED: Track 22` deletion-marker convention
+> already used by Tracks 9 / 12 / 14 / 15 / 16 — when the production
+> targets in groups A.1–A.5 above are deleted, drop the matching pin
+> file(s) in the same commit. The 21 per-method pins inside
+> `SymmetricKeyDeadMethodsDeadCodeTest` are removed in three lockstep
+> phases per group B above (do NOT delete the file as a whole — the
+> live `SymmetricKey` class survives until Track 22 closes the
+> remaining live methods).
+
 > **How**:
 > - TX tests need a database session to verify begin/commit/rollback
 >   semantics (`DbTestBase`).

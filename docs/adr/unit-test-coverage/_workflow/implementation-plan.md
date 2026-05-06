@@ -1566,8 +1566,14 @@ flowchart TD
   >
   > **Scope:** ~6 steps covering transaction management, Gremlin
   > integration, engine lifecycle, exception/compression/config,
-  > remaining small packages, and verification; plus ~2-3 steps
-  > absorbing the inherited DRY / cleanup scope from Tracks 7–13.
+  > remaining small packages, and verification; plus ~3-4 steps
+  > absorbing the inherited DRY / cleanup scope from Tracks 7–17
+  > (security adds 5 dead-code lockstep groups + 21 per-method
+  > `SymmetricKey` pins + 6 latent production issues, including the
+  > newly-discovered `TokenSignImpl.readKeyFromConfig` unreachable
+  > inner branch — tokens currently cannot be verified across server
+  > restarts because configured `NETWORK_TOKEN_SECRETKEY` is silently
+  > ignored).
   > **Depends on:** Track 1
   >
   > **Operational note:** Backlog section's What/How/Constraints
@@ -1577,7 +1583,10 @@ flowchart TD
   > Tracks 7–14's `**Track episode:**` blocks above — every track
   > episode names the items it forwarded to the deferred-cleanup
   > queue. Track 15's lost Step 1 backlog edits also need
-  > absorbing here. See **Operational Notes**.
+  > absorbing here. See **Operational Notes**. Track 16 and Track 17
+  > absorption blocks are committed in the backlog under
+  > `## Track 22` (Track 17 is the most recent, including the new
+  > C6 latent issue raised during Phase C iter-1 review).
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
