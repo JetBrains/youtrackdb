@@ -964,4 +964,239 @@ public class DBSequenceTest {
     sequences.dropSequence("MYSEQ");
     db.commit();
   }
+
+  // --------------------------------------------------------------------------
+  // Residual coverage: the next/current-after-reset, getName, maxRetry,
+  // SEQUENCE_TYPE round-trip, CreateParams round-trip, and SequenceCached
+  // initial-cache cases that the original suite did not exercise.
+  // --------------------------------------------------------------------------
+
+  /**
+   * {@code reset()} on an ordered sequence rewinds the value to {@code start}; a subsequent
+   * {@code current()} returns {@code start}. Pin the {@code SequenceOrdered.resetWork} arm —
+   * the original suite never calls {@code reset} so the method body was uncovered.
+   */
+  @Test
+  public void shouldResetOrderedSequenceToStart() {
+    sequences.createSequence(
+        "resetSeq", DBSequence.SEQUENCE_TYPE.ORDERED,
+        new DBSequence.CreateParams().setDefaults());
+    var seq = sequences.getSequence("RESETSEQ");
+    assertThat(seq.next(db)).isEqualTo(1);
+    assertThat(seq.next(db)).isEqualTo(2);
+    assertThat(seq.next(db)).isEqualTo(3);
+
+    var resetValue = seq.reset(db);
+    assertThat(resetValue).isEqualTo(0);
+    assertThat(seq.current(db)).isEqualTo(0);
+    assertThat(seq.next(db)).isEqualTo(1);
+  }
+
+  /**
+   * {@code reset()} on a cached sequence rewinds {@code value} to {@code start} and re-allocates
+   * the cache. Pin the {@code SequenceCached.resetWork} arm.
+   */
+  @Test
+  public void shouldResetCachedSequenceToStart() {
+    db.begin();
+    sequences.createSequence(
+        "resetCachedSeq", DBSequence.SEQUENCE_TYPE.CACHED,
+        new DBSequence.CreateParams().setDefaults().setCacheSize(3));
+    db.commit();
+
+    db.begin();
+    var seq = sequences.getSequence("RESETCACHEDSEQ");
+    assertThat(seq.next(db)).isEqualTo(1);
+    assertThat(seq.next(db)).isEqualTo(2);
+    db.commit();
+
+    db.begin();
+    var resetValue = seq.reset(db);
+    assertThat(resetValue).isEqualTo(0);
+    assertThat(seq.next(db)).isEqualTo(1);
+    db.commit();
+  }
+
+  /**
+   * {@code getName(session)} reads the persisted {@code FIELD_NAME} via an entity load — pin
+   * so the read-side path is exercised independent of {@code getSequenceName(EntityImpl)}.
+   * The read must happen inside a transaction (the storage layer rejects no-tx reads).
+   */
+  @Test
+  public void shouldReturnPersistedSequenceName() {
+    sequences.createSequence(
+        "namedSeq", DBSequence.SEQUENCE_TYPE.ORDERED,
+        new DBSequence.CreateParams().setDefaults());
+    var seq = sequences.getSequence("NAMEDSEQ");
+    db.executeInTx(tx -> assertThat(seq.getName(db)).isEqualTo("namedSeq"));
+  }
+
+  /**
+   * {@code setMaxRetry(int)} round-trips through {@code getMaxRetry()}. The default is the
+   * global config value {@code SEQUENCE_MAX_RETRY}; pin a custom override and the read-back
+   * to lock the in-memory contract.
+   */
+  @Test
+  public void shouldRoundTripMaxRetrySetter() {
+    sequences.createSequence(
+        "retrySeq", DBSequence.SEQUENCE_TYPE.ORDERED,
+        new DBSequence.CreateParams().setDefaults());
+    var seq = sequences.getSequence("RETRYSEQ");
+    assertThat(seq.getMaxRetry()).isEqualTo(1_000);
+    seq.setMaxRetry(42);
+    assertThat(seq.getMaxRetry()).isEqualTo(42);
+  }
+
+  /**
+   * {@link DBSequence.SEQUENCE_TYPE#getVal()} and {@link DBSequence.SEQUENCE_TYPE#fromVal(byte)}
+   * round-trip both enum values. Pin both arms — the existing suite uses the enum names but
+   * never exercises the byte serialisation.
+   */
+  @Test
+  public void shouldRoundTripSequenceTypeByteValue() {
+    assertThat(DBSequence.SEQUENCE_TYPE.fromVal(DBSequence.SEQUENCE_TYPE.CACHED.getVal()))
+        .isEqualTo(DBSequence.SEQUENCE_TYPE.CACHED);
+    assertThat(DBSequence.SEQUENCE_TYPE.fromVal(DBSequence.SEQUENCE_TYPE.ORDERED.getVal()))
+        .isEqualTo(DBSequence.SEQUENCE_TYPE.ORDERED);
+  }
+
+  /**
+   * {@link DBSequence.SEQUENCE_TYPE#fromVal(byte)} on an unknown discriminator throws
+   * {@link SequenceException}. Pin the throw arm so a future "default to CACHED" change is a
+   * deliberate, visible event.
+   */
+  @Test(expected = SequenceException.class)
+  public void shouldThrowOnUnknownSequenceTypeByteValue() {
+    DBSequence.SEQUENCE_TYPE.fromVal((byte) 7);
+  }
+
+  /**
+   * {@link DBSequence.CreateParams} setters round-trip through their getters. The original
+   * suite uses the fluent setters but never asserts the read-back independently — pin the
+   * (set, get) symmetry for every accessor on the params record.
+   */
+  @Test
+  public void shouldRoundTripCreateParamsAccessors() {
+    var params = new DBSequence.CreateParams()
+        .setStart(7L)
+        .setIncrement(3)
+        .setCacheSize(50)
+        .setLimitValue(99L)
+        .setOrderType(SequenceOrderType.ORDER_NEGATIVE)
+        .setRecyclable(true)
+        .setTurnLimitOff(true)
+        .setCurrentValue(11L);
+
+    assertThat(params.getStart()).isEqualTo(7L);
+    assertThat(params.getIncrement()).isEqualTo(3);
+    assertThat(params.getCacheSize()).isEqualTo(50);
+    assertThat(params.getLimitValue()).isEqualTo(99L);
+    assertThat(params.getOrderType()).isEqualTo(SequenceOrderType.ORDER_NEGATIVE);
+    assertThat(params.getRecyclable()).isTrue();
+    assertThat(params.getTurnLimitOff()).isTrue();
+    assertThat(params.getCurrentValue()).isEqualTo(11L);
+  }
+
+  /**
+   * {@link DBSequence.CreateParams#resetNull()} clears every nullable field. Pin so the
+   * {@code resetNull} contract (used by the {@code testTurnLimitOff*} tests) is verified
+   * directly through the accessors.
+   */
+  @Test
+  public void shouldClearAllParamsViaResetNull() {
+    var params = new DBSequence.CreateParams()
+        .setStart(7L)
+        .setIncrement(3)
+        .setCacheSize(50)
+        .setLimitValue(99L)
+        .setOrderType(SequenceOrderType.ORDER_NEGATIVE)
+        .setRecyclable(true);
+    params.resetNull();
+    assertThat(params.getStart()).isNull();
+    assertThat(params.getIncrement()).isNull();
+    assertThat(params.getCacheSize()).isNull();
+    assertThat(params.getLimitValue()).isNull();
+    assertThat(params.getOrderType()).isNull();
+    assertThat(params.getRecyclable()).isNull();
+    // turnLimitOff is reset to false (not null) — pinned per the implementation.
+    assertThat(params.getTurnLimitOff()).isFalse();
+  }
+
+  /**
+   * {@link SequenceHelper#getSequenceTyeFromString(String)} round-trips the enum name. The
+   * helper is used by SQL-command parsing of {@code TYPE CACHED} / {@code TYPE ORDERED}
+   * clauses; pin both arms.
+   */
+  @Test
+  public void shouldRoundTripSequenceTypeFromString() {
+    assertThat(SequenceHelper.getSequenceTyeFromString("CACHED"))
+        .isEqualTo(DBSequence.SEQUENCE_TYPE.CACHED);
+    assertThat(SequenceHelper.getSequenceTyeFromString("ORDERED"))
+        .isEqualTo(DBSequence.SEQUENCE_TYPE.ORDERED);
+  }
+
+  /**
+   * {@code SequenceCached.next} drives the {@code next() == start + N*increment} invariant.
+   * Pin a long sequence of {@code next()} calls (across cache refills) to lock the linear
+   * progression — distinct from the existing {@code shouldCache} test which only walks five
+   * values.
+   */
+  @Test
+  public void shouldMaintainLinearProgressionAcrossCacheRefills() {
+    var params = new DBSequence.CreateParams()
+        .setDefaults()
+        .setStart(100L)
+        .setIncrement(7)
+        .setCacheSize(3); // small cache forces multiple refills
+
+    db.begin();
+    sequences.createSequence("linearSeq", DBSequence.SEQUENCE_TYPE.CACHED, params);
+    db.commit();
+
+    db.begin();
+    var seq = sequences.getSequence("LINEARSEQ");
+    // After N next() calls: value == start + N * increment.
+    for (var n = 1; n <= 12; n++) {
+      assertThat(seq.next(db)).isEqualTo(100L + (long) n * 7);
+    }
+    db.commit();
+  }
+
+  /**
+   * {@code SequenceLibraryImpl.getSequenceCount} reflects the library state — also exercised
+   * via the proxy in {@link SequenceLibraryProxyTest}, but pinned here directly against the
+   * library returned by {@code session.getMetadata().getSequenceLibrary()} for the
+   * residual-coverage budget.
+   */
+  @Test
+  public void shouldReportZeroSequenceCountForFreshLibrary() {
+    assertThat(sequences.getSequenceCount()).isEqualTo(0);
+  }
+
+  /**
+   * Sequence creation followed by drop within an explicit transaction returns the count to
+   * zero — pin the close-the-loop contract.
+   */
+  @Test
+  public void shouldDecrementSequenceCountAfterDrop() {
+    sequences.createSequence(
+        "countSeq", DBSequence.SEQUENCE_TYPE.ORDERED,
+        new DBSequence.CreateParams().setDefaults());
+    assertThat(sequences.getSequenceCount()).isEqualTo(1);
+    db.begin();
+    sequences.dropSequence("countSeq");
+    db.commit();
+    assertThat(sequences.getSequenceCount()).isEqualTo(0);
+  }
+
+  /**
+   * {@code SequenceLibraryImpl.dropSequence} is a no-op on an absent name — the lookup
+   * short-circuits before {@code session.delete} is called. Pinned here for symmetry with the
+   * proxy-level test in {@link SequenceLibraryProxyTest}.
+   */
+  @Test
+  public void shouldHandleDropAbsentSequenceCleanly() {
+    sequences.dropSequence("ABSENT");
+    assertThat(sequences.getSequenceCount()).isEqualTo(0);
+  }
 }
