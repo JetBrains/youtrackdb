@@ -104,22 +104,28 @@ the orchestrator does after the flow completes:
 
 ### Precondition (both entry points)
 
-Before starting the flow, check that the three plan-review files have
-no uncommitted changes:
+Before starting the flow, check that the plan-review files have no
+uncommitted changes:
 
 ```bash
 git status --porcelain \
   docs/adr/<dir-name>/_workflow/implementation-plan.md \
   docs/adr/<dir-name>/_workflow/implementation-backlog.md \
-  docs/adr/<dir-name>/_workflow/design.md
+  docs/adr/<dir-name>/_workflow/design.md \
+  docs/adr/<dir-name>/_workflow/design-mechanics.md \
+  docs/adr/<dir-name>/_workflow/design-mutations.md
 ```
+
+The last two paths are checked when present — `design-mechanics.md`
+exists only when the length trigger has fired, and `design-mutations.md`
+is created on the first `edit-design` run. Non-existent paths produce
+no output, so listing them is safe.
 
 If the output is non-empty, halt and ask the user to commit (or stash)
 those edits first — uncommitted changes to these files would otherwise
 be bundled into the audit-trail commit alongside the auto-fixes,
 muddling the trace. Other dirty paths in the working tree are safe to
-ignore (the audit-trail `git add` is path-scoped to the three files
-above).
+ignore (the audit-trail `git add` is path-scoped to the files above).
 
 ---
 
@@ -471,11 +477,16 @@ broken that incremental revision cannot fix it.
 When both reviews pass:
 
 1. Update `## Plan Review` with the audit summary (see §Audit trail).
-2. Stage and commit the plan/backlog/design changes:
+2. Stage and commit the plan/backlog/design changes. The
+   `design*.md` glob picks up `design.md` plus
+   `design-mechanics.md` and `design-mutations.md` when
+   `edit-design` touched them during the review (`design.md`
+   always exists post-Phase-1, so the glob always matches at least
+   one path):
    ```bash
    git add docs/adr/<dir-name>/_workflow/implementation-plan.md \
            docs/adr/<dir-name>/_workflow/implementation-backlog.md \
-           docs/adr/<dir-name>/_workflow/design.md
+           docs/adr/<dir-name>/_workflow/design*.md
    git commit -m "Plan review autonomous fixes for <plan-name>
 
    Auto-fixed: <IDs>

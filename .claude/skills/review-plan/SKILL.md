@@ -51,10 +51,11 @@ to verify pending-track descriptions; pass its absolute path as the
 
 1. Run the clean-tree precondition from
    [`implementation-review.md`](../../workflow/implementation-review.md)
-   § How to run > Precondition — path-scoped to the three workflow
-   files (plan, backlog, design). Halt and ask the user to commit or
-   stash if any of the three are dirty. Other dirty paths in the
-   working tree are safe to ignore.
+   § How to run > Precondition — path-scoped to the workflow files
+   the audit-trail commit will touch (plan, backlog, design,
+   design-mechanics, design-mutations). Halt and ask the user to
+   commit or stash if any of those are dirty. Other dirty paths in
+   the working tree are safe to ignore.
 2. Load `.claude/workflow/implementation-review.md` and follow its
    §"Step 1: Consistency Review" → §"Step 2: Structural Review" → §
    "Completion" sections in order. The orchestration is identical to
