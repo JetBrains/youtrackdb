@@ -42,18 +42,31 @@ fi
 
 # Write context usage to a per-session file for on-demand reading by the model.
 # Walk up the process tree to find the root `claude` process PID — same key
-# the model uses via $PPID from its Bash tool.
+# the model uses via $PPID from its Bash tool. Uses `ps` (portable across
+# Linux/macOS) rather than /proc (Linux-only).
 if [ -n "$used_pct" ]; then
   claude_pid=""
   pid=$$
   while [ "$pid" -gt 1 ] 2>/dev/null; do
-    comm=$(cat /proc/$pid/comm 2>/dev/null || echo "")
-    if [ "$comm" = "claude" ]; then claude_pid=$pid; break; fi
-    pid=$(awk '/^PPid:/{print $2}' /proc/$pid/status 2>/dev/null || echo "1")
+    ps_out=$(ps -p "$pid" -o ppid=,comm= 2>/dev/null)
+    [ -z "$ps_out" ] && break
+    ppid=$(printf "%s" "$ps_out" | awk '{print $1}')
+    comm=$(printf "%s" "$ps_out" | awk '{print $2}')
+    # macOS ps prints comm as a full path; strip to basename for the match.
+    comm_base=$(basename "$comm" 2>/dev/null)
+    if [ "$comm_base" = "claude" ]; then claude_pid=$pid; break; fi
+    pid=$ppid
   done
   if [ -n "$claude_pid" ]; then
-    printf "ctx: %s%% level=%s" "$pct_int" \
-      "$([ "$pct_int" -ge 40 ] && echo critical || ([ "$pct_int" -ge 30 ] && echo warning || ([ "$pct_int" -ge 20 ] && echo info || echo safe)))" \
+    level="safe"
+    if [ "$pct_int" -ge 40 ]; then
+      level="critical"
+    elif [ "$pct_int" -ge 30 ]; then
+      level="warning"
+    elif [ "$pct_int" -ge 20 ]; then
+      level="info"
+    fi
+    printf "ctx: %s%% level=%s" "$pct_int" "$level" \
       > "/tmp/claude-code-context-usage-${claude_pid}.txt"
   fi
 fi
