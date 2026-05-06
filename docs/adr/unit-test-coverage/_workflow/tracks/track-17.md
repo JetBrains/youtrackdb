@@ -214,7 +214,7 @@ token management, and encryption.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (5/7 complete)
+- [ ] Step implementation (6/7 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -595,7 +595,8 @@ token management, and encryption.
   >
   > **Commit:** `f281c2fec8`
 
-- [ ] Step 6: Dead-code reframe — `*DeadCodeTest` shape pins for orphan classes/methods
+- [x] Step 6: Dead-code reframe — `*DeadCodeTest` shape pins for orphan classes/methods
+  - [x] Context: warning
   > **Risk:** high — security (Phase A discovered Kerberos JVM-global
   > mutation hazard at line 145 of `KerberosCredentialInterceptor`;
   > tests must stop at reflective shape pins, never invoke `intercept`).
@@ -603,32 +604,128 @@ token management, and encryption.
   > shared test pattern that future cleanup tracks rely on. When in
   > doubt, mark high (per risk-tagging.md).
   >
-  > Twelve `*DeadCodeTest` classes with reflective method-/field-/
-  > constructor-signature shape pins, each carrying `// WHEN-FIXED:
-  > Track 22 — delete <class>` markers. Per-method pinning where
-  > partial deletion must stay valid (Track 15 EntityHelper precedent).
-  > Targets:
-  > - `KerberosCredentialInterceptorDeadCodeTest` — constructor +
-  >   `intercept(String, String, String)` + `getUsername` / `getPassword`
-  >   signatures + `principal` / `serviceTicket` field shape. **DO
-  >   NOT invoke `intercept` past parameter-null guards** (line 145
-  >   `System.setProperty("java.security.krb5.conf", ...)` mutates
-  >   JVM-global JAAS state for the surefire fork).
-  > - `Krb5ClientLoginModuleConfigDeadCodeTest` — constructor +
-  >   `getAppConfigurationEntry` shape (constructor itself is safe).
-  > - `BinaryTokenDeadCodeTest`, `BinaryTokenSerializerDeadCodeTest`,
-  >   `BinaryTokenPayloadImplDeadCodeTest`,
-  >   `BinaryTokenPayloadDeserializerDeadCodeTest`,
-  >   `DistributedBinaryTokenPayloadDeadCodeTest`.
-  > - `JsonWebTokenDeadCodeTest`, `JwtPayloadDeadCodeTest` (interface
-  >   shapes), `YouTrackDBJwtHeaderDeadCodeTest`.
-  > - `DefaultCIDeadCodeTest` + `SecurityManagerNewCredentialInterceptorDeadCodeTest`
-  >   (whole interceptor SPI).
-  > - `SymmetricKeyCIDeadCodeTest`, `SymmetricKeySecurityDeadCodeTest`,
-  >   `UserSymmetricKeyConfigDeadCodeTest`.
-  > - `SymmetricKeyDeadMethodsDeadCodeTest` — per-method shape pins
-  >   on the 18 dead `SymmetricKey` methods so partial deletion stays
-  >   valid.
+  > **What was done:** Added 16 `*DeadCodeTest` classes (109 tests
+  > total post-fix) reflectively pinning the orphan classes and
+  > methods across `core/security/kerberos`,
+  > `core/metadata/security/binary`, `core/metadata/security/jwt`
+  > (JWT-specific abstractions only), `core/security` (`DefaultCI` +
+  > `SecurityManager.newCredentialInterceptor` /
+  > `CLIENT_CREDENTIAL_INTERCEPTOR`), and `core/security/symmetrickey`
+  > (`SymmetricKeyCI`, `SymmetricKeySecurity`, `UserSymmetricKeyConfig`,
+  > plus per-method pins for the 20 dead `SymmetricKey` methods —
+  > 6 dead getters, 7 dead setters, 6 dead static factories,
+  > `decryptAsString`, plus `separateAlgorithm` per per-method-pinning
+  > precedent). Each test class carries a `// WHEN-FIXED: Track 22 —
+  > delete <class-or-method>` marker. The Kerberos pin strictly
+  > stays below the line-145 `System.setProperty` boundary by
+  > exercising only parameter-null guards and reflective signatures,
+  > with `@Before`/`@After` save-restore of `java.security.krb5.conf`
+  > as a defensive net. PSI all-scope `ReferencesSearch` verified
+  > every target's dead classification before pinning.
+  >
+  > **Dimensional review (3 iterations, blocker resolved):**
+  > Iter-1 (7 dimensions: CQ/BC/TB/TC/SE/TS/TX): 1 blocker (5-reviewer
+  > convergence on missing `@Category(SequentialTest)` for
+  > `SecurityManagerNewCredentialInterceptorDeadCodeTest`) + 5
+  > should-fix + ~10 suggestions. Applied in commit `3ccd8a65fb` —
+  > added the `SequentialTest` category + Javadoc rationale + a new
+  > behavioural pin (`factoryReturnsNullForClassThatDoesNotImplementCredentialInterceptor`
+  > pinning the `isAssignableFrom` guard); fixed the JWT "12
+  > methods" → 13 comment; corrected the
+  > `SymmetricKeyDeadMethodsDeadCodeTest` Javadoc count (6 dead
+  > getters, 7 dead setters with `setDefaultCipherTransform` listed);
+  > added the `separateAlgorithm` per-method shape pin; rewrote 9
+  > `msg == null || msg.contains(...)` sites across 5 files into
+  > `assertNotNull` + `assertTrue(msg.contains(...))`; added
+  > `@Category(SequentialTest)` + `@Before`/`@After` save-restore on
+  > `KerberosCredentialInterceptorDeadCodeTest`; added a new
+  > `keyFile`-without-`keyAlgorithm` error pin in
+  > `UserSymmetricKeyConfigDeadCodeTest`; replaced `s3cr3t` literal
+  > and `/tmp/...` paths with unambiguous fictional values.
+  > Iter-2 (7-dim gate check): 6/7 PASS, only CQ remained with 3
+  > suggestion-tier cosmetic items (CQ4 inline `java.util.Arrays`
+  > in 2 files, CQ5 inline `YouTrackDBJwtHeader` FQN in 2 files,
+  > CQ7 107-char import). Iter-3 (final cleanup, applied in commit
+  > `224d6d9a73`): added declared imports for `Arrays` and
+  > `YouTrackDBJwtHeader`; dropped the cross-reference `{@link …}`
+  > from `SymmetricKeyCIDeadCodeTest`'s Javadoc to eliminate the
+  > overlong import. All targeted tests pass (33/33 on the touched
+  > files), Spotless clean. **Review loop closed; only BC3 (a
+  > 30-second TOCTOU race in `BinaryTokenDeadCodeTest`'s
+  > `isCloseToExpire` test) is deferred to Step 7 absorption — not
+  > applied here by design.**
+  >
+  > **What was discovered:** The plan's "18 dead `SymmetricKey`
+  > methods" was off; PSI enumeration found **20** dead public
+  > methods (6 getters + 7 setters + 6 static factories +
+  > `decryptAsString`) plus the protected-static
+  > `separateAlgorithm(String)` (only caller is dead `SymmetricKeyCI`).
+  > All 21 are pinned individually so partial deletion stays valid
+  > (Track 15 `EntityHelper` precedent). The `SecurityManager`
+  > `newCredentialInterceptor()` factory has a third behavioural
+  > branch (`Class.forName` succeeds but `isAssignableFrom` returns
+  > false → null instead of `ClassCastException`) that the iter-1
+  > implementer missed and was added in iter-2.
+  >
+  > **What changed from the plan:** Plan said "twelve `*DeadCodeTest`
+  > classes" but the explicit class list enumerates 16. Created all
+  > 16 explicitly named classes. `SymmetricKey` dead-method count
+  > grew from 18 (plan) → 20 (PSI) → 21 (with `separateAlgorithm`).
+  > Step 7 absorption block must reflect the corrected count.
+  >
+  > **Critical context:**
+  > - Kerberos pin discipline: `KerberosCredentialInterceptor.intercept(...)`
+  >   is **never** invoked past its parameter-null guards. Two test
+  >   methods snapshot `java.security.krb5.conf` before/after a
+  >   guarded `intercept()` call to prove the JVM-global mutation at
+  >   line 145 is gated. The `@Before`/`@After` save-restore + the
+  >   `@Category(SequentialTest)` annotation are belt-and-braces
+  >   protection against any future regression that drops the
+  >   production-side null guards.
+  > - `SecurityManagerNewCredentialInterceptorDeadCodeTest` mutates
+  >   `GlobalConfiguration.CLIENT_CREDENTIAL_INTERCEPTOR` (a
+  >   JVM-global volatile static); `@Category(SequentialTest)` is
+  >   load-bearing for the surefire-fork (4 parallel threads default)
+  >   isolation guarantee — do not remove.
+  >
+  > **Cross-track forward (Track 22 deferred-cleanup queue):**
+  > - 12-cluster dead-code group (whole-class deletions): Kerberos
+  >   pair (`KerberosCredentialInterceptor` + `Krb5ClientLoginModuleConfig`),
+  >   binary-token quintet (`BinaryToken` + `BinaryTokenSerializer` +
+  >   `BinaryTokenPayloadImpl` + `BinaryTokenPayloadDeserializer` +
+  >   `DistributedBinaryTokenPayload`), JWT trio (`JsonWebToken` +
+  >   `JwtPayload` + `YouTrackDBJwtHeader`), CI plug-in chain
+  >   (`DefaultCI` + `SecurityManager.newCredentialInterceptor()` +
+  >   `GlobalConfiguration.CLIENT_CREDENTIAL_INTERCEPTOR` slot),
+  >   symmetric-key trio (`SymmetricKeyCI` + `SymmetricKeySecurity` +
+  >   `UserSymmetricKeyConfig`).
+  > - 21 per-method `SymmetricKey` deletion entries (corrected from
+  >   the plan's 18). PSI-confirmed safe-deletion order: drop
+  >   `SymmetricKeyCI` first → enables `setDefaultCipherTransform`,
+  >   `fromString`, `fromFile`, `fromKeystore` family, `fromStream`,
+  >   `separateAlgorithm` deletions. Drop `SymmetricKeySecurity` →
+  >   enables `fromConfig` + `decryptAsString` deletions. Drop
+  >   `UserSymmetricKeyConfig` with `SymmetricKeySecurity` (same
+  >   lockstep group). The 13 setter/getter pairs with zero callers
+  >   delete independently.
+  > - Deferred to Step 7 / Track 22: BC3 — relax the 30-second
+  >   `isCloseToExpire` window in `BinaryTokenDeadCodeTest` (low
+  >   risk on a heavily-loaded CI host) — defer alongside the
+  >   binary-token cluster's whole-class deletion.
+  > - Latent production issues (no `WHEN-FIXED` markers — observable
+  >   shape is the pin): `UserSymmetricKeyConfig` line 133 NPE in
+  >   the no-recognized-keys branch (dead-code, only triggered if
+  >   `props` is non-null but contains none of `key`/`keyFile`/
+  >   `keyStore`).
+  >
+  > **Key files (cumulative across 3 commits):**
+  > - 16 new test classes under `core/src/test/java/.../security/...`
+  >   (binary, jwt, kerberos, symmetrickey, plus core/security
+  >   `DefaultCIDeadCodeTest` and
+  >   `SecurityManagerNewCredentialInterceptorDeadCodeTest`).
+  >
+  > **Commits:** `7ae307140b` (initial), `3ccd8a65fb` (Review fix:
+  > tighten), `224d6d9a73` (Review fix: clean up FQN imports).
 
 - [ ] Step 7: Verification + Track 22 absorption
   > **Risk:** low — default (verification only; no test additions)
