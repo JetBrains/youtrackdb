@@ -48,8 +48,8 @@ for authoritative-location rules across phases.>
 `abc1234`
 
 ## Reviews completed
-- [x] Technical
-- [x] Risk
+- [x] Technical: PASS at iteration 2 (3 findings, 2 accepted, 1 rejected)
+- [x] Risk: PASS at iteration 1 (1 finding, 1 accepted)
 
 ## Steps
 - [x] Step: <description>
