@@ -287,7 +287,24 @@ The squash-merge folds this deletion together with the rest of the
 branch's history; on `develop`, the final state is the two (or three)
 durable artifacts plus the implemented code.
 
-**Step 6 — Inform the user.**
+**Step 6 — Run self-improvement reflection.**
+
+Load `../self-improvement-reflection.md` on-demand and follow it.
+Phase 4 friction worth recording typically lives in the
+`design-final.md` / `adr.md` templates, the cleanup-commit
+mechanics, the Ephemeral identifier rule's interaction with
+durable artifacts, or the Phase 4 resume markers. Reflection runs
+before the user-visible "Phase 4 complete" message in Step 7. If
+the user approves any proposed issues, write them under
+`workflow-issues/`, commit + push, then proceed to Step 7.
+
+`workflow-issues/` is at the repository root and survives merge
+into `develop` — unlike everything under
+`docs/adr/<dir-name>/_workflow/`, it is **not** deleted by the
+Step 5 cleanup commit. The reflection commit sits on top of the
+cleanup commit and is part of the durable record.
+
+**Step 7 — Inform the user.**
 
 Tell the user Phase 4 is complete and the branch is ready for review.
 The user manually flips the draft PR to "ready for review" when

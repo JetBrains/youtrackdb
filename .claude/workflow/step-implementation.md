@@ -571,7 +571,19 @@ code changes committed to git):
    - Any unresolved code review findings.
    - Instruct: "Clear session and re-run `/execute-tracks` to start
      Phase C (track-level code review)."
-3. **End the session.** Do not proceed to Phase C in the same
+3. **Run self-improvement reflection.** Load
+   `.claude/workflow/self-improvement-reflection.md` on-demand and
+   follow it. Phase B friction worth recording typically lives in
+   the implementer rulebook, cross-track impact handling, the
+   step-level review-agent selection, recovery from non-`SUCCESS`
+   returns, or risk-tagging edge cases that surfaced during
+   execution. Reflection is **mandatory** even if Phase B ended on
+   a context-window warning, the two-failure rule, or any other
+   early-exit path — those exits are themselves the kind of
+   friction reflection is meant to capture. If the user approves
+   any proposed issues, write them under `workflow-issues/`,
+   commit + push, then proceed to Step 4.
+4. **End the session.** Do not proceed to Phase C in the same
    session.
 
 **Why.** Phase B accumulates implementation-flavoured context — the

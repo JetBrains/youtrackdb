@@ -500,6 +500,14 @@ When both reviews pass:
    was just completed but not yet strategy-refreshed). Remind them
    that technical/risk/adversarial reviews will happen per-track
    during execution.
-4. **End the session.** Do not proceed to Phase A of Track 1 in the
+4. **Run self-improvement reflection.** Load
+   `.claude/workflow/self-improvement-reflection.md` on-demand and
+   follow it. Reflection runs even when Phase 2 passed cleanly —
+   ambiguity in `implementation-review.md` itself, classifier
+   misfires, or sub-agent prompt issues are exactly the kind of
+   workflow-process friction this step is meant to capture. If the
+   user approves any proposed issues, write them under
+   `workflow-issues/`, commit + push, then proceed to Step 5.
+5. **End the session.** Do not proceed to Phase A of Track 1 in the
    same session — the session boundary is mandatory (see
    `workflow.md` §Session Boundary Rules).

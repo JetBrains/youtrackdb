@@ -297,6 +297,12 @@ work when context consumption is at `warning` level or above.
   `_workflow/tracks/`, the **Progress** section is up to date, and
   every workflow-file change has been committed (workflow files are
   tracked under `_workflow/` — see `commit-conventions.md`)
+- Run **self-improvement reflection** per
+  [`self-improvement-reflection.md`](self-improvement-reflection.md).
+  This is mandatory for every phase (State 0, A, B, C, 4) and runs
+  even on early-exit sessions (context warning, ESCALATE,
+  two-failure rule). The phase docs invoke it as the second-to-last
+  step before "End the session".
 - Run `git push` so the branch's draft PR reflects the final state
   of the session (every commit is pushed; this is the safety net
   for unexpected session-end interruptions)
@@ -324,6 +330,7 @@ User interaction points:
 | **Track complete (end of Phase C)** | Track episode, step episodes, git log of commits, plan corrections | Approve, request fixes, or rework |
 | **Step failure (2nd attempt)** | What failed twice, what was tried, options | Retry differently, adjust, or escalate |
 | **Design decision needed** | Alternatives with trade-offs, recommendation | Choose an alternative or provide guidance |
+| **Self-improvement reflection (every session end)** | 0..N proposed `workflow-issues/` files (capped at 3), each with title + one-line summary; existing-issue recurrences logged automatically | Pick which proposals to write (numbers, "all", or "none") |
 
 ---
 
@@ -432,3 +439,4 @@ On-demand reference documents (loaded only when their specific situation arises)
 - **`implementer-rules.md`** — Phase B per-step implementer sub-agent rulebook (loaded only by the implementer; orchestrators do not load it)
 - **`step-implementation-recovery.md`** — Phase B Resume, non-`SUCCESS` orchestrator handlers, post-commit rollback handlers, Step Failure formats, Two-Failure Rule, Track-Level Failure (loaded by the Phase B orchestrator only when orphan commits are detected at startup or a non-`SUCCESS` implementer return arrives)
 - **`ephemeral-identifier-rule.md`** — full forbidden / allowed / rewrite rule for durable content (loaded only when about to author source code, tests, Javadoc, PR title/body, `design-final.md`, or `adr.md`; the §2.3 stub in `conventions-execution.md` plus the self-check grep are usually enough)
+- **`self-improvement-reflection.md`** — mandatory final step at the end of every `/execute-tracks` session (State 0, Phase A, Phase B, Phase C, Phase 4). Reflects on workflow-process friction encountered in the session and proposes durable issue files under `workflow-issues/` for future agents to fix. Loaded on-demand at end-of-session by every phase doc.
