@@ -228,7 +228,7 @@ context to disambiguate.
 ### Review log
 
 Each mutation appends to
-`docs/adr/<dir-name>/_workflow/reviews/design-mutations.md`. The minimum
+`docs/adr/<dir-name>/_workflow/design-mutations.md`. The minimum
 shape per entry is:
 
 ```markdown
@@ -254,10 +254,12 @@ line, a `SKIPPED` value for cold-read on `mechanics-edit`, and a
 entries. Use the skill's expanded format when writing the log;
 treat the shape above as the floor, not the ceiling.
 
-The review log is a working artifact under `_workflow/reviews/`
-(tracked on the branch for backup and visibility, removed by the
-Phase 4 cleanup commit before merge — same lifecycle as other
-working files).
+The mutation log is a working artifact under `_workflow/` (tracked
+on the branch for backup and visibility, removed by the Phase 4
+cleanup commit before merge — same lifecycle as other working
+files). It is the only on-disk review artifact the workflow keeps,
+because `edit-design`'s `design-sync` step re-reads it to find the
+last sync point and walk every `mechanics-edit` since then.
 
 ### Cold-read sub-agent prompt
 

@@ -123,8 +123,8 @@ into `implementation-backlog.md` are reachable.
   tells you which files apply per case). Any `design.md` /
   `design-mechanics.md` changes from step 3 land via the
   `edit-design` skill, which writes a separate
-  `<plan-dir>/_workflow/reviews/design-mutations.md` log entry —
-  include those files in the commit too if they were touched.
+  `<plan-dir>/_workflow/design-mutations.md` log entry — include those
+  files in the commit too if they were touched.
 
   This is a Workflow update commit (single-commit-per-replan; per
   the table in `commit-conventions.md` § Commit type prefixes).

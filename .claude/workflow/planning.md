@@ -86,7 +86,9 @@ points:
   diagrams, dedicated sections for complex/opaque parts
 - `docs/adr/<dir-name>/_workflow/tracks/track-N.md` — tactical: decomposed steps, step
   episodes (created during Phase 3)
-- `docs/adr/<dir-name>/_workflow/reviews/structural.md` — structural review output
+- `docs/adr/<dir-name>/_workflow/design-mutations.md` — append-only mutation log
+  for `design.md` / `design-mechanics.md`; read by `edit-design`'s
+  `design-sync` step
 
 The `_workflow/` directory is tracked under git for the branch
 lifetime (so the draft PR shows progress to teammates and so a

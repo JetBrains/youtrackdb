@@ -67,7 +67,7 @@ authoritative source for edge cases.
 `design-final.md` and `adr.md` are the **only** workflow files that
 survive merge into `develop`. Every other workflow file —
 `implementation-plan.md`, `implementation-backlog.md`,
-`tracks/track-N.md`, `reviews/**` — lives under
+`tracks/track-N.md`, `design-mutations.md` — lives under
 `docs/adr/<dir-name>/_workflow/` and is removed in the cleanup commit
 at the end of Phase 4 (Step 5 below) before the PR is merged. Anything
 these final artifacts say must survive that deletion.
@@ -259,7 +259,7 @@ Stage **only** the top-level final artifacts in this commit
 (`design-final.md`, `design-mechanics-final.md` if present, and
 `adr.md`). Do **not** stage anything under
 `docs/adr/<dir-name>/_workflow/` — the ephemeral
-`reviews/design-mutations.md` log and every other working file under
+`design-mutations.md` log and every other working file under
 `_workflow/` are removed wholesale by the cleanup commit in Step 5
 below.
 
@@ -283,11 +283,10 @@ git push
 ```
 
 This deletes plan, backlog, design.md, design-mechanics.md, every
-step file under `tracks/`, every review file under `reviews/`, and
-the design-mutations log in one commit. The squash-merge folds this
-deletion together with the rest of the branch's history; on
-`develop`, the final state is the two (or three) durable artifacts
-plus the implemented code.
+step file under `tracks/`, and the design-mutations log in one commit.
+The squash-merge folds this deletion together with the rest of the
+branch's history; on `develop`, the final state is the two (or three)
+durable artifacts plus the implemented code.
 
 **Step 6 — Inform the user.**
 

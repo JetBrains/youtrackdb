@@ -236,7 +236,7 @@ yet.
    next review iteration (Phase C), no further decomposition (Phase A).
 2. **Save all work:**
    - Ensure all code changes are committed
-   - Ensure all progress is written to the step/review files on disk
+   - Ensure all progress is written to the step file on disk
    - Update the **Progress** section in the step file on disk
 3. **Ask the user for a session refresh:**
    - Inform them of current progress and what remains
@@ -337,7 +337,7 @@ merge into `develop`. Phase 4 lands two commits on the branch:
 2. **Cleanup commit.** Run `git rm -r docs/adr/<dir-name>/_workflow/`
    to remove every working file under the `_workflow/` subtree
    (plan, backlog, design.md, design-mechanics.md, step files,
-   review files, design-mutations log). Commit with a message such
+   design-mutations log). Commit with a message such
    as `Remove workflow scaffolding`. Push.
 
 After both commits land, **inform the user that Phase 4 is complete

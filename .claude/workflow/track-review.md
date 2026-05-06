@@ -21,8 +21,8 @@ Phase C includes both the track-level code review and track completion
 > **In this phase, you are a reviewer and planner, not an implementer. You
 > NEVER edit source code, test files, or build files. You explore the
 > codebase (read-only) to validate the track's approach and decompose it
-> into steps. The only files you write are: the step file
-> (`tracks/track-N.md`) and review files (`reviews/track-N-*.md`).**
+> into steps. The only file you write is the step file
+> (`tracks/track-N.md`).**
 
 ### Tooling — PSI is required for symbol audits in Phase A
 
@@ -95,11 +95,19 @@ instruction — keep it intact when customising.
 
 3. **Run track-scoped reviews** as sub-agents (technical, risk, adversarial
    as warranted). After each review completes:
-   - Write the review file to `docs/adr/<dir-name>/_workflow/reviews/track-N-<type>.md`
    - Update the **Reviews completed** section in the step file
-     (created atomically in sub-step 2c).
-   - These files persist on disk between sessions — the next session can
-     skip completed reviews and only re-run missing ones.
+     (created atomically in sub-step 2c) with a one-line summary —
+     review type, iteration count at PASS, and a brief tally of
+     findings that drove plan/step edits (e.g.,
+     `- [x] Technical: PASS at iteration 2 (3 findings, 2 accepted, 1 rejected)`).
+   - The findings themselves are not persisted to a separate file —
+     they ride in the orchestrator's conversation context for the
+     iteration loop, and the durable trace is the resulting step-file
+     edits (decomposition, risk tags, description tweaks). Phase A
+     resume gates on the **Reviews completed** checkboxes in the step
+     file: a checkbox is `[x]` only after the gate for that review type
+     has passed, so an interrupted iteration leaves the entry `[ ]` and
+     the next session re-runs that review type from iteration 1.
    - **Context consumption check** (mandatory after each review, except
      after the last action of the phase): run
      `cat /tmp/claude-code-context-usage-$PPID.txt`. If the level is
@@ -120,16 +128,14 @@ instruction — keep it intact when customising.
    section.
 
 6. **Commit and push the Phase A workflow updates.** All of Phase A's
-   on-disk writes — the step file (created in 2c, populated in step 5),
-   review files (written in step 3), and the backlog edit (the
-   Track N section removal in 2d) — must be committed before Phase B
-   spawns the first implementer for this track. The implementer's
-   revert path uses `git reset --hard HEAD`, which would otherwise
-   discard the uncommitted decomposition.
+   on-disk writes — the step file (created in 2c, populated in step 5)
+   and the backlog edit (the Track N section removal in 2d) — must be
+   committed before Phase B spawns the first implementer for this
+   track. The implementer's revert path uses `git reset --hard HEAD`,
+   which would otherwise discard the uncommitted decomposition.
 
    ```bash
    git add docs/adr/<dir-name>/_workflow/tracks/track-<N>.md \
-           docs/adr/<dir-name>/_workflow/reviews/track-<N>-*.md \
            docs/adr/<dir-name>/_workflow/implementation-backlog.md
    git commit -m "Phase A review and decomposition for <track>"
    git push
@@ -139,10 +145,10 @@ instruction — keep it intact when customising.
    `commit-conventions.md` § Commit type prefixes. Stage explicit
    paths only — never `git add -A` — so unrelated files in the
    working tree (e.g., scratch logs from prior debugging) don't get
-   pulled in. If a particular file does not exist (no review files
-   ran, or the backlog had no Track N section to begin with), drop
-   that path from the `git add` command rather than letting the
-   missing-path error stop the commit.
+   pulled in. If a particular file does not exist (e.g., the backlog
+   had no Track N section to begin with), drop that path from the
+   `git add` command rather than letting the missing-path error stop
+   the commit.
 
 ### Complexity Assessment and Which Reviews to Run
 

@@ -24,7 +24,12 @@ name. Otherwise, default to the current git branch name
 Plan file: docs/adr/<dir-name>/_workflow/implementation-plan.md
 Backlog file: docs/adr/<dir-name>/_workflow/implementation-backlog.md
 Design document: docs/adr/<dir-name>/_workflow/design.md
-Review output directory: docs/adr/<dir-name>/_workflow/reviews/
+
+Phase 2 reviews are not persisted to disk. Findings ride in the
+conversation context during the iteration loop, accepted fixes are
+applied to the plan/backlog/design document via `Edit`, and the
+durable trace is the resulting plan/design state plus the workflow-update
+commit that lands once the gates pass.
 
 The backlog file holds pending-track
 `**What/How/Constraints/Interactions**` detail and any track-level
@@ -67,8 +72,9 @@ to verify pending-track descriptions; pass its absolute path as the
    If fixes significantly restructure the plan or design document
    (tracks reordered, classes/flows redesigned, scope indicators changed
    substantially), re-run the full consistency review instead of the gate.
-9. When the gate is clean, save the review document to
-   docs/adr/<dir-name>/_workflow/reviews/consistency.md.
+9. When the gate is clean, summarise the consistency-review outcome in
+   the conversation (findings count, accepted/rejected, gate verdict)
+   and proceed to Step 2.
 
 Finding IDs are cumulative across iterations (CR1, CR2, ... CR6, CR7).
 
@@ -86,8 +92,8 @@ review without waiting for user confirmation.
     - The design document path
     - The workflow directory path
 11. Receive the findings report.
-12. **If no blockers**: save the review document to
-    docs/adr/<dir-name>/_workflow/reviews/structural.md and proceed to completion.
+12. **If no blockers**: summarise the structural-review outcome in the
+    conversation (no findings) and proceed to completion.
 13. **If blockers found**: present findings to the user grouped by severity.
     For each finding, show:
     - The issue
@@ -107,8 +113,8 @@ review without waiting for user confirmation.
     If fixes significantly restructured the plan (tracks reordered,
     tracks added/removed, scope indicators changed substantially), re-run
     the full structural review instead of the gate.
-18. When the gate is clean, save the review document to
-    docs/adr/<dir-name>/_workflow/reviews/structural.md.
+18. When the gate is clean, summarise the structural-review outcome
+    in the conversation (findings count, accepted/rejected, gate verdict).
 
 Finding IDs are cumulative across iterations (S1, S2, ... S6, S7).
 

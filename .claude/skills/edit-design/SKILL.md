@@ -155,7 +155,7 @@ Sync re-distills `design.md` from the current state of
 `design-mechanics.md`. The agent does the distillation:
 
 1. Read the most recent `design-sync` entry in
-   `<plan-dir>/reviews/design-mutations.md` to find the last sync point.
+   `<plan-dir>/design-mutations.md` to find the last sync point.
 2. Walk every `mechanics-edit` entry after that point — each entry's "Diff
    summary" tells you what changed in mechanics.
 3. For each section in mechanics whose content moved since the last sync,
@@ -317,32 +317,32 @@ Outcomes when the loop exits:
   proceed to Step 7. The mutation can stand; the residual findings
   carry forward to the next mutation as known debt.
 
-### Step 7: Append to the review log
+### Step 7: Append to the mutation log
 
 Resolve the log path from `mutation_kind` and `design_path` using
-the rule below. The log always lives under `_workflow/reviews/` so
-the Phase 4 cleanup commit reliably removes it; never write the log
-to the top-level `<dir>/reviews/`.
+the rule below. The log always lives under `_workflow/` so the
+Phase 4 cleanup commit reliably removes it; never write the log to
+the top-level `<dir>/`.
 
 - **For all mutation kinds *except* `phase4-creation`**:
   `design_path = docs/adr/<dir>/_workflow/design.md` (or
   `design-mechanics.md`), so the plan dir is `design_path`'s parent
   (`docs/adr/<dir>/_workflow/`) and the log lives at
-  `docs/adr/<dir>/_workflow/reviews/design-mutations.md`.
+  `docs/adr/<dir>/_workflow/design-mutations.md`.
 - **For `phase4-creation`** (special case): `design_path =
   docs/adr/<dir>/design-final.md` (top-level, intentionally
   outside `_workflow/` because `design-final.md` itself is a
   durable artifact). The log path is **not** derived from
   `design_path`'s parent — instead, it is forced to
-  `<design_path's parent>/_workflow/reviews/design-mutations.md`,
-  i.e., `docs/adr/<dir>/_workflow/reviews/design-mutations.md`.
+  `<design_path's parent>/_workflow/design-mutations.md`,
+  i.e., `docs/adr/<dir>/_workflow/design-mutations.md`.
   This appends to the existing Phase 1 / inline-replanning log
   under `_workflow/`, preserving the full mutation history of the
   design and ensuring the Phase 4 cleanup commit removes the
   entire log along with everything else under `_workflow/`.
 
-Append to the resolved path (create the `_workflow/reviews/`
-directory and file if they don't exist). Format per
+Append to the resolved path (create the `_workflow/` directory and
+file if they don't exist). Format per
 `design-document-rules.md § Mutation discipline § Review log`:
 
 ```markdown
