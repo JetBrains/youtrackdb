@@ -1470,6 +1470,23 @@ flowchart TD
   > No upcoming-track assumption is invalidated.
   >
   > **Step file:** `tracks/track-16.md` (7 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact on Tracks 17–21.
+  > Track 16's discoveries (cluster-selection trio + IndexConfigProperty
+  > deletion lockstep groups, ~17 suggestion-tier readability nits, latent
+  > schema/function/sequence-library production issues pinned by
+  > observable behaviour) are already absorbed into Track 22's
+  > deferred-cleanup queue via commit `acd42ee30a`. Track 17 (Security)
+  > targets a disjoint package surface (`core/security`,
+  > `core/metadata/security`, token/encryption). Carry forward to Track 17:
+  > corrected-baseline rule, dead-code reframe via all-scope PSI
+  > `ReferencesSearch` before driving live coverage, `*DeadCodeTest`
+  > reflective method/field-signature shape pins,
+  > `@Category(SequentialTest)` + `@Before Assume.assumeNotNull` for
+  > static volatile dispatchers (relevant to `OSecurity*` singletons),
+  > tracked-`spawn()` + `@After` join discipline for concurrency tests,
+  > falsifiable-regression + WHEN-FIXED-marker convention, and
+  > `@After rollbackIfLeftOpen` safety net.
 
 - [ ] Track 17: Security
   > Write tests for the security subsystem — authentication,
