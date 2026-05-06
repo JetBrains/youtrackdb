@@ -275,7 +275,14 @@ profile build, integration tests:
   production lines. Run the targeted tests in foreground, confirm
   Spotless, and commit — record the gate as `n/a (test-additive)`
   in the `TEST_SUMMARY` and let the track's final-verification step
-  pick up per-package totals from a single full coverage run.
+  pick up per-package totals from a single full coverage run. Note
+  that the check is against `origin/develop`, i.e. the **cumulative**
+  branch diff. At `level=track` this shortcut therefore only fires
+  for test-only tracks (where Phase B itself touched no production
+  source); for any track whose Phase B steps added production code,
+  the cumulative diff is non-empty and the implementer must run the
+  full coverage profile build even when the iteration's own diff is
+  test-only.
 
 If even a staged sequence cannot fit the foreground budget (rare —
 only large `-P ci-integration-tests` runs or full multi-module
@@ -516,9 +523,17 @@ what gets reverted differs:
   step_base_commit` or `git revert` to undo prior commits; that
   would silently destroy work the orchestrator may need.
 - **`level=track`, `mode=FIX_REVIEW_FINDINGS`** or **`mode=WITH_GUIDANCE`**:
-  `HEAD` is the most recent commit on the track — typically the
-  last episode commit from Phase B, or a prior iteration's
-  `Review fix:` commit if this is iteration 2 or 3. The implementer's
+  `HEAD` is the most recent commit on the track. At iteration 1 this
+  is the last episode commit from Phase B (or, if findings were
+  deferred, the `Apply plan corrections` Workflow update commit
+  sitting on top of it). At iterations 2 and 3 it is the prior
+  iteration's `Record Phase C iteration N` Workflow update commit,
+  which itself sits on top of that iteration's `Review fix:` commit
+  (the orchestrator records Progress as a Workflow update commit
+  immediately after each successful fix iteration; see
+  [`track-code-review.md`](track-code-review.md) §Review loop). The
+  implementer commits on top of HEAD whatever it is and does not
+  need to inspect the prior commit's subject. The implementer's
   reset clears only its in-progress fix attempt; nothing else is
   rolled back. Phase C does **not** roll back prior iterations'
   successful `Review fix:` commits on a `FAILED` return — the

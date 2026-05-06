@@ -285,8 +285,8 @@ orchestrator never edits source files itself in Phase C.
          FAILED                   -> handle_iteration_failure(result)
      ```
 
-     The four handlers are spelled out in §Phase C Implementer
-     Handlers below.
+     The three normal handlers and the contract-violation path are
+     spelled out in §Phase C Implementer Handlers below.
    - On `SUCCESS`: the implementer has already pushed a `Review fix:`
      commit and run tests + Spotless + coverage gate. The orchestrator
      does **not** re-run tests or re-stage files; it proceeds to the
@@ -371,12 +371,15 @@ or body when it makes the log easier to follow.
 
 ## Phase C Implementer Handlers
 
-The implementer's structured return drives one of four
-orchestrator-side handlers. None of them roll back prior `Review fix:`
-commits — see [`implementer-rules.md`](implementer-rules.md)
-§"Mode-specific scope of the local revert" `level=track` row for the
-rationale (prior iterations' fixes have already passed their gate
-check; a failed iteration does not invalidate them).
+The implementer's structured return drives one of three
+orchestrator-side handlers (success / escalate / failure), plus a
+fourth `RISK_UPGRADE_REQUESTED` contract-violation path that aborts
+to the user rather than running a handler. None of the three
+handlers roll back prior `Review fix:` commits — see
+[`implementer-rules.md`](implementer-rules.md) §"Mode-specific scope
+of the local revert" `level=track` row for the rationale (prior
+iterations' fixes have already passed their gate check; a failed
+iteration does not invalidate them).
 
 ### `on_iteration_success(result)`
 
@@ -409,6 +412,16 @@ user instead of proceeding.
      additional direction
    - `exploration_notes_echo` set to
      `result.DESIGN_DECISION.exploration_notes`
+
+   The original `findings:` list is **intentionally not** carried
+   into the `WITH_GUIDANCE` respawn — `findings:` is populated only
+   in `mode=FIX_REVIEW_FINDINGS` per the matrix in
+   [`implementer-rules.md`](implementer-rules.md) §Inputs. The
+   user's `Guidance:` is decisive about what to do with the
+   surfaced design question; the implementer does not need the
+   raw findings list to apply the chosen alternative. If the
+   guidance leaves part of the original findings unaddressed, the
+   gate-check fan-out re-surfaces them in the next iteration.
 3. The respawn's result re-enters the dispatch above. No iteration
    count increment for the escalation respawn — the user-decided
    alternative continues the same iteration.
