@@ -29,6 +29,7 @@ import static org.junit.Assert.assertTrue;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Token;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.jwt.BinaryTokenPayload;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.jwt.TokenHeader;
+import com.jetbrains.youtrackdb.internal.core.metadata.security.jwt.YouTrackDBJwtHeader;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -145,8 +146,7 @@ public class BinaryTokenDeadCodeTest {
   // -------------------------------------------------------------------
   @Test
   public void delegatingGettersForwardToPayloadFieldsAndHeaderField() {
-    var header =
-        new com.jetbrains.youtrackdb.internal.core.metadata.security.jwt.YouTrackDBJwtHeader();
+    var header = new YouTrackDBJwtHeader();
     header.setAlgorithm("HS256");
     var payload = new BinaryTokenPayloadImpl();
     payload.setUserName("alice");

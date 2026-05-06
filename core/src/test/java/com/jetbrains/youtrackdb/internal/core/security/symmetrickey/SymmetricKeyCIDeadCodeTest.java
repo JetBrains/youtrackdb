@@ -28,7 +28,6 @@ import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.internal.core.exception.SecurityException;
 import com.jetbrains.youtrackdb.internal.core.security.CredentialInterceptor;
-import com.jetbrains.youtrackdb.internal.core.security.SecurityManagerNewCredentialInterceptorDeadCodeTest;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
@@ -38,8 +37,8 @@ import org.junit.Test;
  * Shape pin for {@link SymmetricKeyCI}, the symmetric-key flavour of the
  * {@link CredentialInterceptor} SPI. PSI all-scope {@code ReferencesSearch} confirms
  * <strong>zero</strong> non-self references to the class — no production code instantiates it,
- * and the SPI loader (see {@link SecurityManagerNewCredentialInterceptorDeadCodeTest}) has zero
- * callers.
+ * and the {@code newCredentialInterceptor()} loader (pinned in
+ * {@code SecurityManagerNewCredentialInterceptorDeadCodeTest}) has zero callers.
  *
  * <p>The class is also the only on-tree caller of several dead {@link SymmetricKey} static
  * factories ({@code fromString}, {@code fromFile}, {@code fromKeystore},

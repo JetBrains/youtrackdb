@@ -30,6 +30,7 @@ import java.io.DataInputStream;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.Arrays;
 import org.junit.Test;
 
 /**
@@ -82,6 +83,6 @@ public class BinaryTokenPayloadDeserializerDeadCodeTest {
     assertSame("deserialize must return BinaryTokenPayload",
         BinaryTokenPayload.class, m.getReturnType());
     assertTrue("deserialize must declare IOException",
-        java.util.Arrays.asList(m.getExceptionTypes()).contains(IOException.class));
+        Arrays.asList(m.getExceptionTypes()).contains(IOException.class));
   }
 }

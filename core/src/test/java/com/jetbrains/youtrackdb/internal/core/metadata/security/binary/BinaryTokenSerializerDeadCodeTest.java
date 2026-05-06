@@ -27,11 +27,13 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.core.metadata.security.jwt.TokenMetaInfo;
+import com.jetbrains.youtrackdb.internal.core.metadata.security.jwt.YouTrackDBJwtHeader;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.Arrays;
 import org.junit.Test;
 
 /**
@@ -118,7 +120,7 @@ public class BinaryTokenSerializerDeadCodeTest {
     assertTrue("serialize must be public", Modifier.isPublic(m.getModifiers()));
     assertSame("serialize must return void", void.class, m.getReturnType());
     assertTrue("serialize must declare IOException",
-        java.util.Arrays.asList(m.getExceptionTypes()).contains(IOException.class));
+        Arrays.asList(m.getExceptionTypes()).contains(IOException.class));
   }
 
   // -------------------------------------------------------------------
@@ -131,7 +133,7 @@ public class BinaryTokenSerializerDeadCodeTest {
     assertTrue("deserialize must be public", Modifier.isPublic(m.getModifiers()));
     assertSame("deserialize must return BinaryToken", BinaryToken.class, m.getReturnType());
     assertTrue("deserialize must declare IOException",
-        java.util.Arrays.asList(m.getExceptionTypes()).contains(IOException.class));
+        Arrays.asList(m.getExceptionTypes()).contains(IOException.class));
   }
 
   // -------------------------------------------------------------------
@@ -143,8 +145,7 @@ public class BinaryTokenSerializerDeadCodeTest {
   public void serialiseDeserialiseRoundTripPreservesPayloadFields() throws Exception {
     var serializer = new BinaryTokenSerializer();
 
-    var header =
-        new com.jetbrains.youtrackdb.internal.core.metadata.security.jwt.YouTrackDBJwtHeader();
+    var header = new YouTrackDBJwtHeader();
     header.setType("YouTrackDB");
     header.setKeyId("dafault"); // matches the serializer's default key table (typo retained)
     header.setAlgorithm("HmacSHA256");
