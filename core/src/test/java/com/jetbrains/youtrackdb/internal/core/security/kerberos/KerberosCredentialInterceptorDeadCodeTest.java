@@ -27,12 +27,17 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.exception.SecurityException;
 import com.jetbrains.youtrackdb.internal.core.security.CredentialInterceptor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.Arrays;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Shape pin for {@link KerberosCredentialInterceptor}'s dead surface. PSI all-scope
@@ -55,8 +60,36 @@ import org.junit.Test;
  *
  * <p>Standalone: no database session needed; pure reflection plus two safe-throw paths against
  * the parameter-null guard.
+ *
+ * <p>Tagged {@link SequentialTest} as a defensive measure: the boundary-safety tests observe
+ * {@code java.security.krb5.conf} (a JVM-global system property) on entry and re-check it on
+ * exit. A concurrent surefire fork mutating that property mid-test would invalidate the
+ * before/after comparison and produce a false-positive failure. Sequential gating guarantees a
+ * stable observation window. The {@code @Before}/{@code @After} pair additionally save and
+ * restore the property so a future test that mutates it does not pollute later tests in the
+ * same fork.
  */
+@Category(SequentialTest.class)
 public class KerberosCredentialInterceptorDeadCodeTest {
+
+  /** Snapshot of {@code java.security.krb5.conf} so each test restores it on exit. */
+  private String savedKrb5Conf;
+  private boolean krb5ConfWasSet;
+
+  @Before
+  public void saveKrb5Conf() {
+    savedKrb5Conf = System.getProperty("java.security.krb5.conf");
+    krb5ConfWasSet = savedKrb5Conf != null;
+  }
+
+  @After
+  public void restoreKrb5Conf() {
+    if (krb5ConfWasSet) {
+      System.setProperty("java.security.krb5.conf", savedKrb5Conf);
+    } else {
+      System.clearProperty("java.security.krb5.conf");
+    }
+  }
 
   // -------------------------------------------------------------------
   // Class-shape pin: confirm the interceptor remains a public concrete class implementing the
@@ -131,7 +164,7 @@ public class KerberosCredentialInterceptorDeadCodeTest {
     assertSame("intercept third parameter must be String (spn)",
         String.class, m.getParameterTypes()[2]);
     assertTrue("intercept must declare SecurityException in throws clause",
-        java.util.Arrays.asList(m.getExceptionTypes()).contains(SecurityException.class));
+        Arrays.asList(m.getExceptionTypes()).contains(SecurityException.class));
   }
 
   // -------------------------------------------------------------------
@@ -150,9 +183,9 @@ public class KerberosCredentialInterceptorDeadCodeTest {
       interceptor.intercept(null, null, null);
       fail("intercept(null, null, null) must throw SecurityException at the principal guard");
     } catch (SecurityException expected) {
+      assertNotNull("SecurityException must carry a diagnostic message", expected.getMessage());
       assertTrue("the message must mention the principal guard",
-          expected.getMessage() == null
-              || expected.getMessage().contains("Principal cannot be null"));
+          expected.getMessage().contains("Principal cannot be null"));
     }
     String afterJaas = System.getProperty("java.security.krb5.conf");
     // Either both are null or both are equal — the guard short-circuited the mutation.
@@ -182,9 +215,9 @@ public class KerberosCredentialInterceptorDeadCodeTest {
       interceptor.intercept(null, "principal@EXAMPLE", null);
       fail("intercept(null, principal, null) must throw SecurityException at the url-or-spn guard");
     } catch (SecurityException expected) {
+      assertNotNull("SecurityException must carry a diagnostic message", expected.getMessage());
       assertTrue("the message must mention the url-or-spn guard",
-          expected.getMessage() == null
-              || expected.getMessage().contains("URL and SPN"));
+          expected.getMessage().contains("URL and SPN"));
     }
     String afterJaas = System.getProperty("java.security.krb5.conf");
     if (beforeJaas == null) {

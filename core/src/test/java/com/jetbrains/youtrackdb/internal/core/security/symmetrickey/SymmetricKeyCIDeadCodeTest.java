@@ -28,17 +28,18 @@ import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.internal.core.exception.SecurityException;
 import com.jetbrains.youtrackdb.internal.core.security.CredentialInterceptor;
+import com.jetbrains.youtrackdb.internal.core.security.SecurityManagerNewCredentialInterceptorDeadCodeTest;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.Arrays;
 import org.junit.Test;
 
 /**
  * Shape pin for {@link SymmetricKeyCI}, the symmetric-key flavour of the
  * {@link CredentialInterceptor} SPI. PSI all-scope {@code ReferencesSearch} confirms
  * <strong>zero</strong> non-self references to the class — no production code instantiates it,
- * and the SPI loader (see
- * {@link com.jetbrains.youtrackdb.internal.core.security.SecurityManagerNewCredentialInterceptorDeadCodeTest})
- * has zero callers.
+ * and the SPI loader (see {@link SecurityManagerNewCredentialInterceptorDeadCodeTest}) has zero
+ * callers.
  *
  * <p>The class is also the only on-tree caller of several dead {@link SymmetricKey} static
  * factories ({@code fromString}, {@code fromFile}, {@code fromKeystore},
@@ -90,7 +91,7 @@ public class SymmetricKeyCIDeadCodeTest {
     assertTrue("intercept must be public", Modifier.isPublic(m.getModifiers()));
     assertSame("intercept must return void", void.class, m.getReturnType());
     assertTrue("intercept must declare SecurityException in throws",
-        java.util.Arrays.asList(m.getExceptionTypes()).contains(SecurityException.class));
+        Arrays.asList(m.getExceptionTypes()).contains(SecurityException.class));
   }
 
   // -------------------------------------------------------------------
@@ -104,9 +105,9 @@ public class SymmetricKeyCIDeadCodeTest {
       ci.intercept(null, null, null);
       fail("intercept(null, null, null) must throw SecurityException at the username guard");
     } catch (SecurityException expected) {
+      assertNotNull("SecurityException must carry a diagnostic message", expected.getMessage());
       assertTrue("the message must reference the username guard",
-          expected.getMessage() == null
-              || expected.getMessage().contains("username is not valid"));
+          expected.getMessage().contains("username is not valid"));
     }
   }
 
@@ -120,9 +121,9 @@ public class SymmetricKeyCIDeadCodeTest {
       ci.intercept("any-url", "alice", null);
       fail("intercept(*, alice, null) must throw SecurityException at the password guard");
     } catch (SecurityException expected) {
+      assertNotNull("SecurityException must carry a diagnostic message", expected.getMessage());
       assertTrue("the message must reference the password guard",
-          expected.getMessage() == null
-              || expected.getMessage().contains("password is not valid"));
+          expected.getMessage().contains("password is not valid"));
     }
   }
 }

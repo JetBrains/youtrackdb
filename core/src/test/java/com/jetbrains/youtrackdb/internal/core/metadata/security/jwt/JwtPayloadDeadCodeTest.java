@@ -20,12 +20,13 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.security.jwt;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 import org.junit.Test;
@@ -61,7 +62,7 @@ public class JwtPayloadDeadCodeTest {
   // -------------------------------------------------------------------
   // Method-shape pin: pin every JWT-claim getter / setter declared on JwtPayload (issuer,
   // issuedAt, notBefore, userName setter, audience, tokenId, database, databaseType). All
-  // 12 methods stay together — partial deletion is not meaningful for a JWT claim set.
+  // 13 methods stay together — partial deletion is not meaningful for a JWT claim set.
   // -------------------------------------------------------------------
   @Test
   public void allDeclaredMethodsArePinnedAsAbstractMembersOfTheJwtClaimSet() {
@@ -71,7 +72,7 @@ public class JwtPayloadDeadCodeTest {
     for (Method m : JwtPayload.class.getDeclaredMethods()) {
       assertTrue("each declared method must be abstract",
           Modifier.isAbstract(m.getModifiers()));
-      var params = java.util.Arrays.stream(m.getParameterTypes())
+      var params = Arrays.stream(m.getParameterTypes())
           .map(Class::getSimpleName).reduce((a, b) -> a + "," + b).orElse("");
       sigs.add(m.getName() + "(" + params + "):" + m.getReturnType().getSimpleName());
     }
@@ -114,8 +115,8 @@ public class JwtPayloadDeadCodeTest {
   public void interfaceDeclaresNoDefaultMethodsConfirmingItHasNoStandaloneSemantics()
       throws Exception {
     for (Method m : JwtPayload.class.getDeclaredMethods()) {
-      assertSame("each method must be a pure abstract declaration (no default body)",
-          false, m.isDefault());
+      assertFalse("each method must be a pure abstract declaration (no default body)",
+          m.isDefault());
     }
   }
 }

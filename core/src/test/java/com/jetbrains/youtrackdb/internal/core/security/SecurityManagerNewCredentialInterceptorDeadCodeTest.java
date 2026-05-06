@@ -26,11 +26,13 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Shape pin for the dead {@link SecurityManager#newCredentialInterceptor()} factory and the
@@ -56,7 +58,14 @@ import org.junit.Test;
  * with {@link GlobalConfiguration#CLIENT_CREDENTIAL_INTERCEPTOR}, {@link CredentialInterceptor}
  * (the SPI), {@link DefaultCI} (the no-op default), and the dead Kerberos / SymmetricKey CI
  * implementations.
+ *
+ * <p>Tagged {@link SequentialTest} because every test in this class mutates the JVM-global
+ * {@code GlobalConfiguration.CLIENT_CREDENTIAL_INTERCEPTOR} slot. The {@code @Before}/{@code @After}
+ * save-and-restore pair preserves the slot value across each test, but a concurrent surefire
+ * fork reading the configuration during the mutation window would observe the polluted value —
+ * the sequential category prevents that race.
  */
+@Category(SequentialTest.class)
 public class SecurityManagerNewCredentialInterceptorDeadCodeTest {
 
   /** Snapshot of {@code CLIENT_CREDENTIAL_INTERCEPTOR} so each test restores it on exit. */
@@ -118,6 +127,22 @@ public class SecurityManagerNewCredentialInterceptorDeadCodeTest {
         "com.example.does.not.exist.NeverDefined");
     var ci = SecurityManager.instance().newCredentialInterceptor();
     assertNull("an unresolvable class name must yield null, not a throw", ci);
+  }
+
+  // -------------------------------------------------------------------
+  // Behavioural pin: the configured class resolves but does not implement CredentialInterceptor.
+  // The factory's isAssignableFrom(...) guard short-circuits the newInstance() call and returns
+  // null instead of letting the cast throw ClassCastException at runtime. The pin protects the
+  // guard against accidental deletion — without it, dropping the assignability check would leave
+  // the test suite green even though the factory now throws on misconfiguration.
+  // -------------------------------------------------------------------
+  @Test
+  public void factoryReturnsNullForClassThatDoesNotImplementCredentialInterceptor() {
+    GlobalConfiguration.CLIENT_CREDENTIAL_INTERCEPTOR.setValue(String.class.getName());
+    var ci = SecurityManager.instance().newCredentialInterceptor();
+    assertNull(
+        "a resolvable class that is NOT a CredentialInterceptor must yield null, not a throw",
+        ci);
   }
 
   // -------------------------------------------------------------------

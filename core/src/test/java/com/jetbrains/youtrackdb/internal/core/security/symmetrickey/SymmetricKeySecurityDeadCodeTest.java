@@ -88,9 +88,10 @@ public class SymmetricKeySecurityDeadCodeTest {
       sks.authenticate(null, "alice", "pwd");
       fail("authenticate(*, alice, pwd) on null-delegate must throw SecurityAccessException");
     } catch (SecurityAccessException expected) {
+      assertNotNull("SecurityAccessException must carry a diagnostic message",
+          expected.getMessage());
       assertTrue("the message must mention the null delegate guard",
-          expected.getMessage() == null
-              || expected.getMessage().contains("Delegate is null"));
+          expected.getMessage().contains("Delegate is null"));
     }
   }
 

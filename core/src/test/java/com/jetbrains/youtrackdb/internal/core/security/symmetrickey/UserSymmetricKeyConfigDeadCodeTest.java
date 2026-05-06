@@ -21,6 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.security.symmetrickey;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -142,9 +143,31 @@ public class UserSymmetricKeyConfigDeadCodeTest {
       new UserSymmetricKeyConfig(config);
       fail("missing keyAlgorithm with key set must throw SecurityException");
     } catch (SecurityException expected) {
+      assertNotNull("SecurityException must carry a diagnostic message", expected.getMessage());
       assertTrue("the message must mention keyAlgorithm",
-          expected.getMessage() == null
-              || expected.getMessage().contains("keyAlgorithm"));
+          expected.getMessage().contains("keyAlgorithm"));
+    }
+  }
+
+  // -------------------------------------------------------------------
+  // Boundary pin: 'keyFile' supplied without 'keyAlgorithm' → SecurityException at line 122.
+  // Mirrors the 'key'-without-'keyAlgorithm' test above so the second arm of the
+  // missing-keyAlgorithm guard is also pinned.
+  // -------------------------------------------------------------------
+  @Test
+  public void keyFileBranchWithoutKeyAlgorithmThrowsSecurityException() {
+    var config = new HashMap<String, Object>();
+    var props = new HashMap<String, Object>();
+    props.put("keyFile", "/etc/keys/symmetric.key");
+    config.put("properties", props);
+
+    try {
+      new UserSymmetricKeyConfig(config);
+      fail("missing keyAlgorithm with keyFile set must throw SecurityException");
+    } catch (SecurityException expected) {
+      assertNotNull("SecurityException must carry a diagnostic message", expected.getMessage());
+      assertTrue("the message must mention keyAlgorithm",
+          expected.getMessage().contains("keyAlgorithm"));
     }
   }
 
@@ -158,9 +181,9 @@ public class UserSymmetricKeyConfigDeadCodeTest {
       new UserSymmetricKeyConfig(config);
       fail("missing 'properties' field must throw SecurityException");
     } catch (SecurityException expected) {
+      assertNotNull("SecurityException must carry a diagnostic message", expected.getMessage());
       assertTrue("the message must mention 'properties is null'",
-          expected.getMessage() == null
-              || expected.getMessage().contains("properties is null"));
+          expected.getMessage().contains("properties is null"));
     }
   }
 
@@ -180,9 +203,9 @@ public class UserSymmetricKeyConfigDeadCodeTest {
       new UserSymmetricKeyConfig(config);
       fail("missing keyStore.file must throw SecurityException");
     } catch (SecurityException expected) {
+      assertNotNull("SecurityException must carry a diagnostic message", expected.getMessage());
       assertTrue("the message must mention keyStore.file",
-          expected.getMessage() == null
-              || expected.getMessage().contains("keyStore.file"));
+          expected.getMessage().contains("keyStore.file"));
     }
   }
 
@@ -202,9 +225,9 @@ public class UserSymmetricKeyConfigDeadCodeTest {
       new UserSymmetricKeyConfig(config);
       fail("missing keyStore.keyAlias must throw SecurityException");
     } catch (SecurityException expected) {
+      assertNotNull("SecurityException must carry a diagnostic message", expected.getMessage());
       assertTrue("the message must mention keyStore.keyAlias",
-          expected.getMessage() == null
-              || expected.getMessage().contains("keyStore.keyAlias"));
+          expected.getMessage().contains("keyStore.keyAlias"));
     }
   }
 }

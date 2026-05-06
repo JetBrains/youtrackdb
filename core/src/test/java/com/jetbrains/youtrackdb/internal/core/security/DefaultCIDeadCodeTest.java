@@ -79,9 +79,13 @@ public class DefaultCIDeadCodeTest {
   @Test
   public void interceptStoresUsernameAndPasswordVerbatim() {
     var ci = new DefaultCI();
-    ci.intercept("any-url", "alice", "s3cr3t");
+    // Use an obviously-fake password literal so static analysers and human reviewers don't
+    // flag this site as a credential leak. The string is opaque — DefaultCI does not interpret
+    // it.
+    ci.intercept("any-url", "alice", "FAKE-INTERCEPTED-PW");
     assertEquals("getUsername must echo the intercepted user", "alice", ci.getUsername());
-    assertEquals("getPassword must echo the intercepted password", "s3cr3t", ci.getPassword());
+    assertEquals("getPassword must echo the intercepted password",
+        "FAKE-INTERCEPTED-PW", ci.getPassword());
   }
 
   // -------------------------------------------------------------------

@@ -71,8 +71,11 @@ public class Krb5ClientLoginModuleConfigDeadCodeTest {
         .getDeclaredConstructor(String.class, String.class, String.class);
     assertTrue("3-arg constructor must be public", Modifier.isPublic(ctor.getModifiers()));
     assertEquals("3-arg constructor must take three parameters", 3, ctor.getParameterCount());
-    // Exercise it: pure in-memory options map — does not touch JVM-global state.
-    var cfg = new Krb5ClientLoginModuleConfig("principal@EXAMPLE", "/tmp/cc", "/tmp/keytab.kt");
+    // Exercise it: pure in-memory options map — does not touch JVM-global state, does not open
+    // any file handle, does not spawn any I/O. The /nonexistent paths below are only stored in
+    // the JAAS options map; the production constructor never tries to read them.
+    var cfg = new Krb5ClientLoginModuleConfig(
+        "principal@EXAMPLE", "/nonexistent/krb5-cc", "/nonexistent/krb5.keytab");
     assertNotNull("3-arg constructor must yield a usable instance", cfg);
   }
 
@@ -89,10 +92,13 @@ public class Krb5ClientLoginModuleConfigDeadCodeTest {
     assertEquals("4-arg constructor must take four parameters", 4, ctor.getParameterCount());
     assertSame("4-arg constructor's boolean parameter must be primitive boolean",
         boolean.class, ctor.getParameterTypes()[1]);
-    // Exercise it with both branches of the useTicketCache toggle.
-    var cfgTrue = new Krb5ClientLoginModuleConfig("principal@EXAMPLE", true, "/tmp/cc", null);
+    // Exercise it with both branches of the useTicketCache toggle. The /nonexistent path is
+    // only stored in the JAAS options map — the constructor performs no I/O.
+    var cfgTrue = new Krb5ClientLoginModuleConfig(
+        "principal@EXAMPLE", true, "/nonexistent/krb5-cc", null);
     assertNotNull(cfgTrue);
-    var cfgFalse = new Krb5ClientLoginModuleConfig("principal@EXAMPLE", false, "/tmp/cc", null);
+    var cfgFalse = new Krb5ClientLoginModuleConfig(
+        "principal@EXAMPLE", false, "/nonexistent/krb5-cc", null);
     assertNotNull(cfgFalse);
   }
 
@@ -110,7 +116,8 @@ public class Krb5ClientLoginModuleConfigDeadCodeTest {
         Modifier.isPublic(m.getModifiers()));
     assertSame("getAppConfigurationEntry must return AppConfigurationEntry[]",
         AppConfigurationEntry[].class, m.getReturnType());
-    var cfg = new Krb5ClientLoginModuleConfig("principal@EXAMPLE", "/tmp/cc", "/tmp/keytab.kt");
+    var cfg = new Krb5ClientLoginModuleConfig(
+        "principal@EXAMPLE", "/nonexistent/krb5-cc", "/nonexistent/krb5.keytab");
     AppConfigurationEntry[] entries = cfg.getAppConfigurationEntry("any-name");
     assertNotNull("getAppConfigurationEntry must never return null", entries);
     assertEquals("the entry array must have exactly one element",

@@ -53,14 +53,14 @@ import org.junit.Test;
  *       {@code fromString(String, String)}, {@code fromFile(String, String)},
  *       {@code fromKeystore(String, String, String, String)},
  *       {@code fromKeystore(InputStream, String, String, String)},
- *       {@code fromStream(String, InputStream)}.</li>
+ *       {@code fromStream(String, InputStream)}, {@code separateAlgorithm(String)}.</li>
  *   <li>Drop {@link SymmetricKeySecurity} → delete {@code fromConfig(SymmetricKeyConfig)},
  *       {@code decryptAsString(String)}.</li>
- *   <li>Independent (no remaining callers): the 7 dead getters
+ *   <li>Independent (no remaining callers): the 6 dead getters
  *       (getDefaultCipherTransform, getIteration, getKeySize, getSaltLength,
- *       getSeedAlgorithm, getSeedPhrase) and 7 dead setters (setIteration, setKeyAlgorithm,
- *       setKeySize, setSaltLength, setSeedAlgorithm, setSeedPhrase) — all are pure field
- *       accessors with no callers.</li>
+ *       getSeedAlgorithm, getSeedPhrase) and 7 dead setters (setDefaultCipherTransform,
+ *       setIteration, setKeyAlgorithm, setKeySize, setSaltLength, setSeedAlgorithm,
+ *       setSeedPhrase) — all are pure field accessors with no callers.</li>
  * </ul>
  */
 public class SymmetricKeyDeadMethodsDeadCodeTest {
@@ -371,6 +371,30 @@ public class SymmetricKeyDeadMethodsDeadCodeTest {
     assertTrue("decryptAsString must be public", Modifier.isPublic(mods));
     assertSame("decryptAsString must return String", String.class, m.getReturnType());
     assertSame("decryptAsString must take a String parameter",
+        String.class, m.getParameterTypes()[0]);
+  }
+
+  // ===================================================================
+  // Group 5 — Dead protected static helper. Only caller is dead SymmetricKeyCI.
+  // ===================================================================
+
+  // -------------------------------------------------------------------
+  // separateAlgorithm(String) — protected static helper that splits a JCE cipher transformation
+  // (e.g. "AES/CBC/PKCS5Padding") on '/' and returns the leading algorithm token. PSI all-scope
+  // ReferencesSearch confirms the only on-tree caller is SymmetricKeyCI (itself dead-pinned).
+  // Per the per-method-pinning precedent, every dead method gets its own atomic shape pin so
+  // partial deletion stays valid.
+  // -------------------------------------------------------------------
+  @Test
+  public void separateAlgorithmIsProtectedStaticReturningStringTakingString() throws Exception {
+    Method m = SymmetricKey.class.getDeclaredMethod("separateAlgorithm", String.class);
+    int mods = m.getModifiers();
+    assertTrue("separateAlgorithm must be protected", Modifier.isProtected(mods));
+    assertTrue("separateAlgorithm must be static", Modifier.isStatic(mods));
+    assertSame("separateAlgorithm must return String", String.class, m.getReturnType());
+    assertEquals("separateAlgorithm must take exactly one parameter",
+        1, m.getParameterCount());
+    assertSame("separateAlgorithm must take a String parameter",
         String.class, m.getParameterTypes()[0]);
   }
 }
