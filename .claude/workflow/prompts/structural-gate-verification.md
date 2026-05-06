@@ -62,7 +62,12 @@ For REJECTED findings:
 
 Output:
 - For each finding under re-check: the verification certificate above
-- New findings (if any) in the same format, with cumulative numbering
-  (continue from the highest finding number)
+- New findings (if any) in the same format as the structural review's
+  finding template — including `**Classification**: mechanical |
+  design-decision` and `**Justification**:` fields per the rules in
+  `prompts/structural-review.md` § Classification rules. Bloat
+  findings are always `mechanical`; ordering, sizing, and
+  contradiction findings are `design-decision`. Cumulative numbering
+  (continue from the highest finding number).
 - Summary: PASS (all verified/rejected, no new blockers) or FAIL (with
   list of remaining blockers)

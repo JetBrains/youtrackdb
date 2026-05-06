@@ -118,22 +118,39 @@ on the size of the inline-replanning revision (see
 ([`.claude/skills/edit-design/SKILL.md`](../skills/edit-design/SKILL.md)),
 not direct `Edit` / `Write` calls.
 
-**4. Review** — spawn a sub-agent to validate the revised plan using the
-structural review protocol from Phase 2 (see `structural-review.md`).
-The invocation passes `plan_path` + `backlog_path` per the path-passing
-rule in `.claude/skills/review-plan/SKILL.md`. The sub-agent receives
-the full plan file including both completed track episodes and the
+**4. Review (advisory preview)** — spawn a sub-agent to run the
+structural review protocol from Phase 2 (see `structural-review.md`)
+on the revised plan. This is a fail-fast preview, **not the gate** —
+the definitive gate is the State 0 re-run on the next
+`/execute-tracks` session, which runs consistency + structural
+together (see [`implementation-review.md`](implementation-review.md)
+§ Replanning). The preview exists so you don't end the session and
+clear context only to learn on the next invocation that the revision
+was structurally broken. The invocation passes `plan_path` +
+`backlog_path` per the path-passing rule in
+`.claude/skills/review-plan/SKILL.md`. The sub-agent receives the
+full plan file including both completed track episodes and the
 proposed revisions, plus the backlog so pending-track details split
 into `implementation-backlog.md` are reachable.
 
-**5. Iterate** — if the review finds blockers, revise and re-review. Maximum
-3 iterations.
+**5. Iterate** — if the preview finds structural blockers, revise and
+re-preview. Maximum 3 iterations. Consistency findings (phantom
+references, flow-trace mismatches) are **not** surfaced by this
+preview — they will appear in the next-session State 0 re-run.
 
 **6. Resume or exit:**
 
-- **Review PASS** — update the plan file with the revised plan, then
-  commit and push the workflow changes immediately so the next
-  implementer spawn doesn't lose them via `git reset --hard HEAD`:
+- **Review PASS** — update the plan file with the revised plan **and
+  reset the `## Plan Review` section** to
+  `- [ ] Plan review (consistency + structural) — autonomous; runs as
+  the first phase of /execute-tracks`. The reset routes the next
+  `/execute-tracks` session through State 0, which re-runs Phase 2
+  against the revised plan and catches any consistency drift the
+  replan introduced (see
+  [`implementation-review.md`](implementation-review.md) § Replanning
+  for the contract). Then commit and push the workflow changes
+  immediately so the next implementer spawn doesn't lose them via
+  `git reset --hard HEAD`:
 
   ```bash
   git add docs/adr/<dir-name>/_workflow/implementation-plan.md \
@@ -155,7 +172,8 @@ into `implementation-backlog.md` are reachable.
   the table in `commit-conventions.md` § Commit type prefixes).
   Resume orphan-detection treats it as scaffolding and does not
   count it toward any `[x]` step. End the session after the push;
-  the next session picks up the revised plan and continues.
+  the next `/execute-tracks` session enters State 0, re-runs Phase 2
+  against the revised plan, then resumes track execution.
 
 - **Blockers persist after 3 iterations** — the plan is fundamentally broken
   at a level that incremental revision cannot fix. Advise the user to restart

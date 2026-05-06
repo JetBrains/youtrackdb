@@ -29,9 +29,15 @@ are used for two distinct purposes:
 The overall workflow has five phases:
 - **Phase 0 (Research)**: `/create-plan` — interactive research and exploration (same session as Phase 1)
 - **Phase 1 (Planning)**: `/create-plan` — develop the implementation plan and design document, informed by Phase 0 findings
-- **Phase 2 (Implementation Review)**: `/review-plan` — two-step review:
-  (1) consistency review (design doc ↔ code ↔ plan, interactive),
-  (2) structural review (plan-internal quality, automatic)
+- **Phase 2 (Implementation Review)**: runs **autonomously** as the first
+  phase of `/execute-tracks` when the startup protocol detects State 0
+  (plan file's `## Plan Review` checklist entry is `[ ]`). Two-step review:
+  (1) consistency review (design doc ↔ code ↔ plan, autonomous classifier
+  with user escalation only for design decisions),
+  (2) structural review (plan-internal quality, autonomous classifier).
+  Optionally re-invoked via `/review-plan` for manual re-runs after inline
+  replanning. Full orchestration in `implementation-review.md` (loaded
+  on-demand only when State 0 is active).
 - **Phase 3 (Execution)**: `/execute-tracks` — implement and review tracks
 - **Phase 4 (Final Artifacts)**: `/execute-tracks` (State D) — produce `design-final.md` and `adr.md` (follows `prompts/create-final-design.md`)
 
@@ -67,12 +73,14 @@ flowchart TD
 
     START --> READ
 
+    READ -->|"Plan review not yet done\n(## Plan Review is [ ])"| P2["State 0: Autonomous Plan Review\n(implementation-review.md)"]
     READ -->|"Track just completed\n(no strategy refresh yet)"| SR["Strategy Refresh\n(CONTINUE / ADJUST / ESCALATE)"]
     READ -->|"Fresh start"| PA["Phase A: Review +\nDecomposition"]
     READ -->|"Phase A done,\nsteps incomplete"| PB["Phase B: Step\nImplementation"]
     READ -->|"All steps done,\ncode review incomplete\nor track not marked [x]"| PC["Phase C: Code Review\n+ Track Completion"]
     READ -->|"All tracks done,\nPhase 4 not complete"| P4["Phase 4: Final\nArtifacts"]
 
+    P2 --> END_P2["Session ends\n(plan review complete)"]
     SR -->|CONTINUE / ADJUST| PA
     SR -->|ESCALATE| REPLAN["Inline Replanning"]
 
@@ -90,6 +98,7 @@ flowchart TD
 
     P4 --> END_P4["Session ends\n(Phase 4 complete)"]
 
+    END_P2 -->|"Next session"| START
     END_A -->|"Next session"| START
     END_B -->|"Next session"| START
     END_TRACK -->|"Next session"| START
@@ -124,11 +133,17 @@ perspective on cross-track impact.
 
    | Plan file state | Step file state | Session state |
    |---|---|---|
-   | Last completed/skipped track (`[x]` or `[~]`) has no `**Strategy refresh:**` line | — | **State A**: strategy refresh first |
-   | All `[x]`/`[~]` tracks have `**Strategy refresh:**`; next track is `[ ]` | No step file | **State B**: fresh start (Phase A) |
-   | A track is `[ ]` | Step file exists | **State C**: mid-track resume |
+   | `## Plan Review` checklist entry is `[ ]` (or section missing entirely) | — | **State 0**: autonomous plan review (load `implementation-review.md` and follow it) |
+   | `## Plan Review` is `[x]`; last completed/skipped track has no `**Strategy refresh:**` line | — | **State A**: strategy refresh first |
+   | `## Plan Review` is `[x]`; all `[x]`/`[~]` tracks have `**Strategy refresh:**`; next track is `[ ]` | No step file | **State B**: fresh start (Phase A) |
+   | `## Plan Review` is `[x]`; a track is `[ ]` | Step file exists | **State C**: mid-track resume |
    | All tracks `[x]` or `[~]`; Phase 4 is `[ ]` or `[>]` | — | **State D**: Phase 4 (final artifacts) |
    | All tracks `[x]` or `[~]`; Phase 4 is `[x]` | — | **Done** |
+
+   State 0 is checked **first** — plan review must complete before any
+   track-level work begins. After State 0 passes, the session ends and
+   the next `/execute-tracks` invocation re-evaluates the table starting
+   from State A.
 
    **State C sub-states** (from step file Progress section):
 
@@ -149,12 +164,21 @@ perspective on cross-track impact.
    | `[ ]` | Start Phase 4: mark `[>]`, follow `prompts/create-final-design.md` |
    | `[>]` | Resume Phase 4: check which artifacts exist. If both exist, review and complete. Otherwise, restart from Step 3 of `create-final-design.md` |
 
+   **State 0** (autonomous plan review): load `implementation-review.md`
+   on-demand and follow the autonomous orchestration loop there
+   (consistency review → structural review, classifier-driven
+   auto-fix vs. user escalation). End the session after the gate
+   passes.
+
 4. **Inform the user** of the auto-resume decision:
-   - Which track you're working on and why
+   - Which track you're working on and why (or that plan review is
+     pending if State 0)
    - If resuming mid-track: which steps are done, which is next
    - If strategy refresh is needed: do it and present results before
      proceeding
    - If Phase 4: whether starting fresh or resuming an interrupted session
+   - If State 0: that the autonomous plan review is about to run and
+     only design-decision findings will be surfaced
 
    The user can override: reorder tracks, skip a track, or choose a different
    resume point. But by default, you proceed without waiting for confirmation.
@@ -188,6 +212,13 @@ not at startup.
 
 Phase boundaries are **mandatory** session boundaries. Each session handles
 exactly one phase:
+
+- **After State 0 (autonomous plan review)** — both consistency and
+  structural reviews have passed, the plan/backlog/design have been
+  fixed (mechanical fixes auto-applied; design decisions resolved by
+  the user), `## Plan Review` is marked `[x]` with the audit summary,
+  and the workflow-update commit has been pushed. Session ends. Next
+  session starts Phase A of Track 1.
 
 - **After Phase A (review + decomposition)** — step file is written to disk
   with all steps as `[ ]` and `Review + decomposition` marked `[x]`. Session
@@ -285,9 +316,10 @@ User interaction points:
 
 | When | What you present | What the user decides |
 |---|---|---|
-| **Session start** | Auto-resume decision (which track, which phase) | Confirm or override |
+| **Session start** | Auto-resume decision (which track, which phase, or State 0 plan review) | Confirm or override |
+| **State 0 design-decision findings** | Batched list of CR/S findings the consistency and/or structural sub-agents classified as `design-decision`, with proposed alternatives and recommendation | Resolve each finding (choose alternative, provide guidance, defer) |
 | **Strategy refresh** | Assessment report (CONTINUE / ADJUST / ESCALATE) | Accept or override |
-| **Phase A/B complete** | Phase summary, what was done, next phase | User clears session, re-runs `/execute-tracks` |
+| **Phase A/B complete (and State 0 complete)** | Phase summary, what was done, next phase | User clears session, re-runs `/execute-tracks` |
 | **Cross-track impact** | Which tracks affected, what broke, recommendation | Continue, pause, or escalate |
 | **Track complete (end of Phase C)** | Track episode, step episodes, git log of commits, plan corrections | Approve, request fixes, or rework |
 | **Step failure (2nd attempt)** | What failed twice, what was tried, options | Retry differently, adjust, or escalate |
@@ -381,7 +413,7 @@ For other workflow components, see:
 - **`track-code-review.md`** — Phase C: code review + track completion
 - **`research.md`** — Phase 0 (research: interactive exploration before planning)
 - **`planning.md`** — Phase 1 (planning)
-- **`implementation-review.md`** — Phase 2 (implementation review: consistency + structural)
+- **`implementation-review.md`** — Phase 2 (autonomous implementation review: consistency + structural). **Loaded on-demand only when State 0 is active** (the startup protocol routes there when `## Plan Review` is `[ ]`); also loaded on manual `/review-plan` invocation. Non-State-0 sessions never read this file.
 - **`prompts/create-final-design.md`** — Phase 4 (final artifacts: `design-final.md`, `adr.md`)
 
 On-demand reference documents (loaded only when their specific situation arises):

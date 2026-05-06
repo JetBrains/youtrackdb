@@ -1,6 +1,6 @@
 ---
 name: execute-tracks
-description: "Execute implementation plan tracks phase by phase (review, implement, code review). Use after /create-plan and /review-plan to implement the planned work."
+description: "Execute the implementation plan: autonomous plan review (Phase 2) on first invocation, then track-by-track execution (Phase A review + decomposition, Phase B implementation, Phase C code review). Use after /create-plan to implement the planned work."
 argument-hint: "[plan-directory-name]"
 user-invocable: true
 ---
@@ -19,6 +19,7 @@ Read these workflow documents in order before starting:
    (ESCALATE), track completion protocol
 
 After determining which phase to execute, load the phase-specific document:
+- State 0 (autonomous plan review): `.claude/workflow/implementation-review.md`
 - Phase A: `.claude/workflow/track-review.md`
 - Phase B: `.claude/workflow/step-implementation.md`
 - Phase C: `.claude/workflow/track-code-review.md`
@@ -29,6 +30,8 @@ Do NOT load phase documents you won't use this session. Prompt files
 (in `.claude/workflow/prompts/`) are read only when spawning the specific
 sub-agent that needs them — `create-final-design.md` is the one exception
 because Phase 4 is main-agent work rather than a sub-agent spawn.
+`implementation-review.md` is loaded only when State 0 fires; non-
+State-0 sessions never read it.
 
 On-demand reference documents (load only when the situation arises):
 - `strategy-refresh.md` — load when entering State A (strategy refresh)
@@ -57,6 +60,10 @@ Follow the startup protocol in `workflow.md`:
 2. Identify all tracks and their status (`[ ]` not started, `[x]` completed,
    `[~]` skipped).
 3. Determine session state and auto-resume:
+   - **State 0** (`## Plan Review` is `[ ]` or section missing): load
+     `implementation-review.md` on-demand and run the autonomous plan
+     review (consistency + structural). End session after the audit
+     summary lands.
    - **State A** (track just completed, needs strategy refresh): perform
      strategy refresh, then proceed to Phase A of the next track.
    - **State B** (fresh start): identify first uncompleted track, begin
@@ -74,13 +81,17 @@ Follow the startup protocol in `workflow.md`:
      `adr.md`. Mark the Phase 4 checklist entry `[>]` when starting and
      `[x]` when the commit lands. See workflow.md §Startup Protocol for
      the `[ ]` / `[>]` resume-action table.
+
+   State 0 is checked **before** State A/B/C — plan review must
+   complete before any track-level work begins.
 4. Inform the user of the auto-resume decision. The user can override, but
    by default proceed without waiting for confirmation.
 5. Load the phase-specific workflow document and execute that phase only.
 6. After the phase completes, end the session. Instruct the user to clear
    context and re-run `/execute-tracks` for the next phase.
 
-Each session handles exactly ONE PHASE of one track (or Phase 4):
+Each session handles exactly ONE PHASE of one track (or Phase 4 / State 0):
+- State 0 (autonomous plan review) → end session after `## Plan Review` is `[x]`
 - Phase A → end session
 - Phase B → end session (or mid-phase checkpoint if 5+ steps done)
 - Phase C → end session
@@ -89,6 +100,7 @@ Each session handles exactly ONE PHASE of one track (or Phase 4):
 
 User interaction happens at specific points:
 - Session start: auto-resume decision (confirm or override)
+- State 0 design-decision findings: resolve each escalated finding (only design-decision; mechanical fixes apply autonomously)
 - Strategy refresh: accept recommendation or override
 - Phase complete: user clears session, re-runs `/execute-tracks`
 - Cross-track impact detected: continue, pause, or escalate

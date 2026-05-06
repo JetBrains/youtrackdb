@@ -65,6 +65,56 @@ Inputs:
 
 ---
 
+## Intent-axis pre-screen (run BEFORE generating findings)
+
+Phase 2 runs autonomously: the orchestrator applies your `mechanical`
+findings without asking the user, and only escalates `design-decision`
+findings. A finding fired against a target-state claim (a `[ ]` track is
+meant to create what the design claims; the current code naturally
+won't match yet) would either be auto-fixed wrong (silently rewriting
+the plan toward current code) or escalated as a non-issue. Both are
+broken outcomes — the pre-screen is what prevents them.
+
+**Pre-screen rule.** Before emitting any finding, classify each plan or
+design claim along the **intent axis**:
+
+- **Current-state claim** — the plan/design says something about code
+  that should already exist at the time of writing (Component Map
+  describing a current module's role, design.md class diagram showing
+  pre-existing classes, Architecture Notes referencing today's SPI, an
+  invariant tagged `ENFORCED`). Discrepancies with these become
+  findings — emit normally.
+- **Target-state claim** — the plan/design says something about code a
+  `[ ]` track will create (`**What**:` bullets in the backlog,
+  forward-looking Decision Records describing the post-implementation
+  shape, design.md sections describing the post-implementation state,
+  invariants tagged `ASPIRATIONAL`). The current code naturally won't
+  match — **do NOT emit a finding** unless the target is unreachable
+  from the current code (in which case emit a `design-decision`
+  finding so the user can resolve the gap).
+
+The same rule already applies to invariants via the
+`ENFORCED / ASPIRATIONAL / VIOLATED` tagging. The pre-screen extends
+it to all design.md / Component Map / track-description claims.
+
+**How to determine intent for each claim:**
+- If the claim is inside a backlog `**What/How/Constraints/Interactions**`
+  subsection for a `[ ]` track → target-state.
+- If the claim is in a Decision Record's "Implemented in: Track N" line
+  for a `[ ]` track → target-state.
+- If the claim is in design.md and a `[ ]` track's description names
+  the same component, class, or flow as something to be created or
+  modified → target-state for that aspect; current-state for any
+  pre-existing surrounding context.
+- Otherwise (Component Map of pre-existing modules, references to
+  today's SPI, infrastructure mentioned without a track creating it) →
+  current-state.
+
+When in doubt, treat as current-state — the orchestrator will see the
+finding and the classification rules below will route it correctly.
+
+---
+
 ## Review Criteria
 
 ### DESIGN ↔ CODE CONSISTENCY
@@ -289,6 +339,10 @@ For each issue found, produce a finding:
 **Evidence**: <what you found in the code vs. what the document says —
   summarize from the certificate>
 **Proposed fix**: <concrete change to the plan/design text>
+**Classification**: mechanical | design-decision
+**Justification**: <one-line citation of the rule from §Classification rules
+  below — e.g., "current-state claim, single unambiguous correct rendering"
+  or "missing DR for non-obvious choice; user has the rationale">
 
 Severity guide:
 - **blocker**: A factual error that would cause the execution agent to make
@@ -298,3 +352,66 @@ Severity guide:
   block execution (slightly outdated method signature, missing cross-reference)
 - **suggestion**: An improvement that would strengthen the documents
   (additional diagram, clarifying note about existing code behavior)
+
+---
+
+## Classification rules
+
+Severity (`blocker | should-fix | suggestion`) tells the user how
+urgent the finding is. **Classification** (`mechanical |
+design-decision`) tells the orchestrator who decides — itself or the
+user. The two axes are orthogonal: a blocker can be mechanical
+(phantom reference) and a suggestion can be design-decision (consider
+extracting a separate track).
+
+### `mechanical` — orchestrator applies the fix without asking
+
+ALL of these must hold:
+
+1. The plan/design claim is about **current state** (the intent-axis
+   pre-screen passed it through as a current-state claim, not a
+   target-state claim).
+2. There is exactly **one unambiguous correct rendering** of the truth —
+   rename to the actual class, update to the real signature, fix the
+   participant name in a sequenceDiagram, drop a phantom reference,
+   replace a renamed identifier with its current name.
+3. Applying the fix **doesn't change what the plan is trying to
+   achieve**. Only the description is updated; the plan's goals,
+   scope, and architecture are unchanged.
+
+Typical mechanical cases:
+- Phantom reference to a class/method/field that should already exist —
+  fix by updating to the actual identifier or dropping the reference.
+- Outdated method signature on existing code — fix by matching the
+  current signature.
+- Workflow diagram showing an existing call flow with a renamed
+  participant — fix by renaming the participant in the diagram.
+- Component Map listing a module that's been split or merged — fix by
+  matching the actual module structure.
+
+### `design-decision` — orchestrator escalates to the user
+
+ANY of these triggers `design-decision`:
+
+- The discrepancy reveals a **missing Decision Record** for a
+  non-obvious choice. The user has the rationale, alternatives, and
+  trade-offs; the orchestrator does not.
+- The discrepancy is a **contradiction between two tracks** (Track 1
+  assumes X, Track 3 assumes not-X). Which one is right is a design
+  call.
+- An **`ASPIRATIONAL` invariant has no implementing track**. Do we add
+  a track or change the invariant? Both are plausible.
+- A **`VIOLATED` invariant** exists. Do we fix the code (track scope
+  expansion) or restate the invariant (design retreat)?
+- **Design ↔ code mismatch where the plan describes a target state**
+  AND the target is unreachable from the current code (the
+  intent-axis pre-screen surfaced it as needing escalation). The
+  user must pick: keep the target shape, change it, or restructure
+  the track that delivers it.
+- **Multiple plausible fix renderings** exist. Even if the claim is
+  about current state, if the orchestrator can't pick a single
+  correct fix without making a design choice, escalate.
+
+When in doubt between the two classifications, choose
+`design-decision` — over-escalating costs one user round-trip, under-
+escalating risks silently rewriting the plan.

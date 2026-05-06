@@ -163,7 +163,7 @@ paragraph + `**Skipped:**` + `**Strategy refresh:**`; never collapsed).
 | Phase | Authoritative location | Writer | Reader(s) |
 |---|---|---|---|
 | Pre-Phase-1 | (none) | — | — |
-| Phase 1 write | `implementation-backlog.md` | Phase 1 agent (via `create-plan/SKILL.md`) | Phase 2 consistency + structural reviews |
+| Phase 1 write | `implementation-backlog.md` | Phase 1 agent (via `create-plan/SKILL.md`) | Phase 2 autonomous plan review (consistency + structural sub-agents) |
 | Phase A start — before step-file write | `implementation-backlog.md` | (inherited from Phase 1) | Phase A orchestration (reads the track's backlog section) |
 | Phase A mid — step file has `## Description`, backlog entry still present | **step file** (Phase A writes the step file first, then removes the backlog entry — the step file takes authority the moment it is written, so an interrupted session always resumes against a single source) | Phase A orchestration (wrote the step file) | Phase A resume logic (idempotent re-entry); Phase A review sub-agents |
 | Phase A end | step file | Phase A orchestration (backlog section already removed) | Phase A review sub-agents (Track 3 prompts) |
