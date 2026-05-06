@@ -189,8 +189,14 @@ the next respawn from Sonnet to Opus, and `WITH_GUIDANCE` /
 model the tag selects. Downgrades mid-Phase B are not permitted (see
 `risk-tagging.md`), so the model never demotes once a step has run.
 
+The same template is used by Phase C with `level=track` (see
+[`track-code-review.md`](track-code-review.md) §Implementer Spawns
+for the Phase C model selection — `model: "opus"` always, since
+Phase C fixes operate on the cumulative track diff and there is no
+per-step risk tag to consult).
+
 The prompt body has a **stable static prefix** followed by the
-**per-step variable inputs**. The static block goes first for
+**per-spawn variable inputs**. The static block goes first for
 predictability and to keep the variable section easy to spot in
 transcripts; whether the platform's prompt cache hits across
 sub-agent spawns depends on Claude Code's `cache_control` placement
@@ -200,10 +206,10 @@ so do not rely on caching as a load-bearing optimisation here.
 ```
 ## Workflow Context (static — same on every spawn this session)
 
-You are the **per-step implementer** in Phase B of a structured
-development workflow. You implement one step (sub-steps 1–3:
-implement, test, commit) and return a structured handoff to the
-orchestrator. Read the rulebook before starting any work:
+You are the **implementer** in a structured development workflow.
+You apply a code change (sub-steps 1–3: implement/fix, test, commit)
+and return a structured handoff to the orchestrator. Read the
+rulebook before starting any work:
 
   Rulebook: .claude/workflow/implementer-rules.md
 
@@ -219,15 +225,19 @@ plan_slim_path: /tmp/claude-code-plan-slim-{PPID}.md
 step_file_path: docs/adr/{dir-name}/_workflow/tracks/track-{N}.md
 design_path: docs/adr/{dir-name}/_workflow/design.md
 
-## Per-step variable inputs
+## Per-spawn variable inputs
+
+level: {step | track}
+base_commit: {base_commit}
+mode: {INITIAL | WITH_GUIDANCE | FIX_REVIEW_FINDINGS}
+
+# Level-conditional fields — only populated when level == step.
 
 step_index: {step_index}
 step_description: {step_description}
 risk_tag: {risk_tag}
-base_commit: {base_commit}
-mode: {INITIAL | WITH_GUIDANCE | FIX_REVIEW_FINDINGS}
 
-# Mode-conditional fields below — only populated when relevant.
+# Mode-conditional fields — only populated when relevant.
 
 Guidance: {populated only when mode == WITH_GUIDANCE}
 exploration_notes_echo: {populated only when mode == WITH_GUIDANCE}
@@ -236,13 +246,20 @@ findings: {populated only when mode == FIX_REVIEW_FINDINGS}
 ## Instructions
 
 Read the rulebook at the path above, then perform sub-steps 1–3 for
-the step at step_index. Return the structured block defined in the
-rulebook's §Return contract. Do not return free-form prose after the
-block — the orchestrator parses only the block.
+the spawn (the step at step_index when level=step; the cumulative
+track diff base_commit..HEAD when level=track). Return the
+structured block defined in the rulebook's §Return contract. Do not
+return free-form prose after the block — the orchestrator parses
+only the block.
 ```
 
 The orchestrator substitutes `{repo_root}`, `{PPID}`, `{dir-name}`,
-`{N}`, and the per-step variable values when composing each prompt.
+`{N}`, and the per-spawn variable values when composing each prompt.
+Phase B always passes `level: step` and populates `step_index`,
+`step_description`, and `risk_tag`; Phase C always passes
+`level: track` and leaves the three step-conditional fields out
+(see the validity matrix in
+[`implementer-rules.md`](implementer-rules.md) §Inputs).
 
 **Why the rulebook is referenced by path, not inlined.** Inlining the
 rulebook on every spawn would re-embed it in the orchestrator's

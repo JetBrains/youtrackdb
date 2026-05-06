@@ -39,19 +39,25 @@ carries no CI cost.
 | Commit type | Message pattern | Example |
 |---|---|---|
 | **Step implementation** | Imperative summary of the change | `Add histogram header to leaf page` |
-| **Review fix** | `Review fix:` prefix | `Review fix: extract validation to helper method` |
+| **Review fix** | `Review fix:` prefix — produced by the implementer at both `level=step` (Phase B dim-review fix) and `level=track` (Phase C track-level fix). Phase B vs Phase C is distinguished by **position** (Phase C fix commits appear strictly after the last episode commit). | `Review fix: extract validation to helper method` |
 | **Step rollback** | `Revert step:` prefix | `Revert step: add histogram header to leaf page` |
-| **Workflow update** | Imperative summary of the workflow-file change (no special prefix; commit only touches paths under `_workflow/`) | `Add initial implementation plan and design`, `Phase A review and decomposition for histogram track`, `Record Phase B base commit for histogram track`, `Record episode for histogram leaf write step`, `Apply plan corrections from histogram-leaf review`, `Mark histogram-leaf track complete`, `Inline replan after Track 2` |
+| **Workflow update** | Imperative summary of the workflow-file change (no special prefix; commit only touches paths under `_workflow/`) | `Add initial implementation plan and design`, `Phase A review and decomposition for histogram track`, `Record Phase B base commit for histogram track`, `Record episode for histogram leaf write step`, `Apply plan corrections from histogram-leaf review`, `Mark histogram-leaf track complete`, `Inline replan after Track 2`, `Record Phase C iteration 1 for histogram track`, `Record Phase C iteration failure for histogram track` |
 | **Phase 4 final** | `Add final design and ADR` (the standard final-artifacts commit) | (defined verbatim in `prompts/create-final-design.md` § Step 4) |
 | **Phase 4 cleanup** | `Remove workflow scaffolding` — single commit that runs `git rm -r docs/adr/<dir>/_workflow/` after the final-artifacts commit | (see `workflow.md` § Final Artifacts) |
 
 **Step rollback (`Revert step:`) commits** are produced **only by the
-Phase B orchestrator** when a `FIX_REVIEW_FINDINGS` respawn returns a
-non-`SUCCESS` result. The orchestrator runs
+Phase B orchestrator** when a `FIX_REVIEW_FINDINGS` respawn at
+`level=step` returns a non-`SUCCESS` result. The orchestrator runs
 `git revert -n {step_base_commit}..HEAD` to stage the reversal of all
 step-related commits (the original implementer commit plus any prior
 `Review fix:` commits from the same dim-review loop), then commits
-once with the `Revert step:` prefix.
+once with the `Revert step:` prefix. **Phase C never produces
+`Revert step:` commits** — Phase C does not roll back across
+iterations on a `FAILED` return; the failed iteration is treated as
+a no-op and the loop exits with the unfixed findings surfaced to the
+user at track completion (see
+[`track-code-review.md`](track-code-review.md) §Phase C Implementer
+Handlers).
 
 The body is load-bearing for Phase B Resume. The **first non-empty
 body line MUST be** `reason: <slug>` where `<slug>` is one of:

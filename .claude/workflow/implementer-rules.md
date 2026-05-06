@@ -1,25 +1,46 @@
-# Phase B Implementer — Rulebook
+# Implementer — Rulebook
 
-This document is the rulebook for the **per-step implementer sub-agent**
-spawned by the Phase B orchestrator. The implementer performs sub-steps
-1–3 of step implementation (implement code, write/run tests, commit) and
-returns a structured handoff to the orchestrator. The orchestrator owns
-sub-steps 4–7 and all session-level decisions.
+This document is the rulebook for the **implementer sub-agent**
+spawned by the orchestrator at two distinct levels:
 
-The rulebook for the orchestrator side — startup, per-step orchestration
-loop, dimensional review fan-out, episode finalisation — lives in
-[`step-implementation.md`](step-implementation.md). The two documents are
-the only Phase B entry points; everything else is loaded on demand.
+- **`level: step`** — the per-step implementer spawned by the Phase B
+  orchestrator (`step-implementation.md`). Performs sub-steps 1–3 of
+  step implementation (implement code, write/run tests, commit) and
+  returns a structured handoff. The Phase B orchestrator owns
+  sub-steps 4–7 and all session-level decisions.
+- **`level: track`** — the per-iteration implementer spawned by the
+  Phase C orchestrator (`track-code-review.md`) to apply track-level
+  code-review fixes (and user-requested fixes during track
+  completion). Operates only in `mode=FIX_REVIEW_FINDINGS` or
+  `mode=WITH_GUIDANCE` — the cumulative track diff already exists at
+  HEAD, so there is no `INITIAL` mode at this level. The Phase C
+  orchestrator owns the review fan-out, gate verification, plan
+  corrections, and track completion.
+
+Most of the rulebook is shared across both levels. Where the two
+diverge — diff target, allowed return values, episode draft shape — the
+divergence is called out inline as "Phase B (level=step)" /
+"Phase C (level=track)" rather than split into parallel sections.
+
+The rulebook for the orchestrator side — Phase B startup, per-step
+orchestration loop, dimensional review fan-out, episode finalisation,
+Phase C review loop, track completion — lives in
+[`step-implementation.md`](step-implementation.md) and
+[`track-code-review.md`](track-code-review.md). Together with this
+rulebook they are the only entry points; everything else is loaded on
+demand.
 
 ---
 
 ## Loading discipline
 
-This file is read **only by the per-step implementer sub-agent** on
-each spawn. Orchestrators do not load it. The orchestrator's
-specification — including the implementer prompt template and how this
-rulebook is referenced from each spawn — lives in
-[`step-implementation.md`](step-implementation.md).
+This file is read **only by the implementer sub-agent** on each spawn,
+at either level. Orchestrators do not load it. The orchestrator
+specifications — including the prompt template and how this rulebook
+is referenced from each spawn — live in
+[`step-implementation.md`](step-implementation.md) (Phase B,
+`level=step`) and [`track-code-review.md`](track-code-review.md)
+(Phase C, `level=track`).
 
 The implementer's environment auto-loads the user-global rules in
 `~/.claude/CLAUDE.md` and the project rules in the repo's `CLAUDE.md`.
@@ -31,10 +52,10 @@ slim plan snapshot, and `design.md` (only if the step requires it).
 ## Inputs the orchestrator passes on each spawn
 
 The implementer prompt has a **stable static prefix** (workflow context
-+ rulebook path + project paths) followed by **per-step variable
++ rulebook path + project paths) followed by **per-spawn variable
 inputs**.
 
-**Stable inputs** (same across spawns within a Phase B session):
+**Stable inputs** (same across spawns within a session):
 
 - `repo_root` — absolute path to the working tree.
 - `plan_slim_path` — `/tmp/claude-code-plan-slim-$PPID.md`.
@@ -43,18 +64,22 @@ inputs**.
 
 **Variable inputs** (per spawn):
 
-- `step_index` — the integer N identifying which step in the file is
-  being implemented.
-- `step_description` — copied inline from the step file's
-  `- [ ] Step: …` line.
-- `risk_tag` — `low` | `medium` | `high`.
-- `base_commit` — SHA recorded at Phase B startup.
+- `level` — `step` (Phase B per-step implementation) or `track` (Phase
+  C per-iteration fix application). Selects which fields below are
+  populated and which `mode` values are valid.
+- `base_commit` — SHA recorded at Phase B startup. Used at both levels:
+  Phase B reads it for orchestrator bookkeeping; Phase C also derives
+  the cumulative track diff from `git diff {base_commit}..HEAD`.
 - `mode` — one of:
-  - `INITIAL` — first attempt at the step.
+  - `INITIAL` — first attempt at the step. Valid only at `level=step`.
   - `WITH_GUIDANCE` — respawn after a design-decision escalation.
-    `Guidance:` and `exploration_notes_echo` are populated.
-  - `FIX_REVIEW_FINDINGS` — respawn to apply dimensional review
-    findings on top of the existing commit. `findings:` is populated.
+    Valid at both levels. `Guidance:` and `exploration_notes_echo`
+    are populated.
+  - `FIX_REVIEW_FINDINGS` — respawn to apply review findings on top
+    of the existing HEAD. Valid at both levels. `findings:` is
+    populated. At `level=step` the fixes apply on top of the prior
+    step's commit; at `level=track` they apply on top of the most
+    recent commit on the track (the cumulative track HEAD).
 - `Guidance:` (only in `WITH_GUIDANCE`) — the user's chosen
   alternative + any additional direction.
 - `exploration_notes_echo` (only in `WITH_GUIDANCE`) — the
@@ -62,28 +87,60 @@ inputs**.
   `DESIGN_DECISION_NEEDED` return, so the new implementer skips
   re-derivation.
 - `findings:` (only in `FIX_REVIEW_FINDINGS`) — the synthesised
-  dimensional-review findings the implementer must address.
+  review findings the implementer must address. At `level=step` these
+  are dimensional-review findings against the step's commit; at
+  `level=track` they are cross-step findings synthesised from the
+  track-level review fan-out.
+
+**Step-level-only inputs** (populated only when `level=step`):
+
+- `step_index` — the integer N identifying which step in the file is
+  being implemented.
+- `step_description` — copied inline from the step file's
+  `- [ ] Step: …` line.
+- `risk_tag` — `low` | `medium` | `high`.
+
+At `level=track` these three fields are absent. The track-level
+implementer reads the step file for cross-step context (episodes,
+risk tags, descriptions) but does not focus on a single step.
+
+**Mode/level validity matrix:**
+
+| Level | `INITIAL` | `WITH_GUIDANCE` | `FIX_REVIEW_FINDINGS` |
+|---|---|---|---|
+| `step` | yes | yes | yes |
+| `track` | **no** (the cumulative diff already exists at HEAD) | yes | yes |
 
 ---
 
 ## What the implementer does (sub-steps 1–3, expanded)
 
-The orchestrator's per-step workflow has seven sub-steps; the
-implementer owns sub-steps 1–3 below. Reading the step file and the
-slim plan are **preconditions** to sub-step 1, not separate sub-steps.
-Run sub-steps 1–3 in order, to completion, then emit the return
-contract. Any detection rule in the next section may interrupt the
-flow with an early return — in that case skip the remaining sub-steps
-and emit the return contract instead of continuing.
+The Phase B orchestrator's per-step workflow has seven sub-steps and
+the Phase C orchestrator's review iteration is a parallel three-step
+loop; the implementer owns sub-steps 1–3 at both levels — read the
+target, change/fix the code, run tests + spotless + coverage gate,
+commit. Reading the step file and the slim plan are **preconditions**
+to sub-step 1, not separate sub-steps. Run sub-steps 1–3 in order, to
+completion, then emit the return contract. Any detection rule in the
+next section may interrupt the flow with an early return — in that
+case skip the remaining sub-steps and emit the return contract
+instead of continuing.
 
 **Preconditions.**
 
-- Read the step file at `step_file_path`; locate the step at
-  `step_index`; confirm intent and check the `**Risk:**` line. If
-  `mode == FIX_REVIEW_FINDINGS`, also locate the prior commit's diff
-  so the fixes land on top of it.
+- Read the step file at `step_file_path`.
+  - At `level=step`: locate the step at `step_index`; confirm intent
+    and check the `**Risk:**` line. If `mode == FIX_REVIEW_FINDINGS`,
+    also locate the prior commit's diff so the fixes land on top of
+    it.
+  - At `level=track`: read the file for cross-step context — the
+    `## Description` section (track intent), the per-step `**Risk:**`
+    lines (focal points), and the step episodes (what each step did
+    and discovered). Then read `git diff {base_commit}..HEAD` to load
+    the cumulative track diff that the findings refer to. There is no
+    `step_index` to focus on.
 - Read the slim plan at `plan_slim_path` for strategic context. Read
-  `design_path` only if the step requires it.
+  `design_path` only if the change requires it.
 
 **Sub-step 1 — Implement the change.** Apply the existing project
 rules:
@@ -140,20 +197,31 @@ makes the commit log easier to follow, since the squash-merge
 collapses them away (see
 [`commit-conventions.md`](commit-conventions.md) "Branch-only
 commit messages may cite workflow-internal identifiers"). For
-`mode == FIX_REVIEW_FINDINGS`, prefix the commit subject with
+`mode == FIX_REVIEW_FINDINGS` or `mode == WITH_GUIDANCE` with a
+fix-applied outcome at `level=track`, prefix the commit subject with
 `Review fix:` per [`commit-conventions.md`](commit-conventions.md);
 prefer describing the fix by what changed (behavior, file, class)
 over citing a finding ID, but a finding-ID reference is permitted
-when it aids review.
+when it aids review. The same `Review fix:` prefix applies at both
+levels — Phase B Resume distinguishes Phase B vs Phase C fix commits
+by **position** (Phase C fix commits appear strictly after the last
+episode commit, since Phase B is fully done before Phase C runs);
+see [`commit-conventions.md`](commit-conventions.md) and
+[`step-implementation-recovery.md`](step-implementation-recovery.md)
+§Resume-side commit-pattern reference.
 
 **Return.** Emit the structured result block (see §Return contract
 below). The orchestrator parses the block; everything else in the
 implementer's output is ignored.
 
 The implementer **MUST NOT** modify the step file, the plan file, or
-the backlog. All step-file mutations — episode write, risk-line
-rewrite, `[x]` mark, Progress count update, retry/split row inserts —
-are the orchestrator's responsibility.
+the backlog. At `level=step` all step-file
+mutations — episode write, risk-line rewrite, `[x]` mark, Progress
+count update, retry/split row inserts — are the Phase B
+orchestrator's responsibility. At `level=track` all plan/backlog
+mutations — Progress section iteration count, plan corrections from
+deferred findings, track episode, `[x]` mark on the plan track entry —
+are the Phase C orchestrator's responsibility.
 
 ### Pacing long-running tasks — foreground only
 
@@ -199,8 +267,9 @@ profile build, integration tests:
   invocation — each stage under 10 min. The split keeps every
   invocation foreground; do not work around the timeout by
   switching to `run_in_background`.
-- **Test-additive steps skip the coverage-profile build entirely.**
-  When the step adds only test code (no production-source changes
+- **Test-additive spawns skip the coverage-profile build entirely.**
+  When the spawn (a step at `level=step` or a fix iteration at
+  `level=track`) adds only test code (no production-source changes
   in `git diff origin/develop -- '**/src/main/**'`), the coverage gate
   trivially passes on changed lines because there are no changed
   production lines. Run the targeted tests in foreground, confirm
@@ -211,8 +280,9 @@ profile build, integration tests:
 If even a staged sequence cannot fit the foreground budget (rare —
 only large `-P ci-integration-tests` runs or full multi-module
 coverage on a slow host), return `RESULT: FAILED` with
-`recommended_action: split` and let the orchestrator decide whether
-to break the step into smaller, individually-verifiable pieces.
+`recommended_action: split` (at `level=step`) or
+`recommended_action: escalate` (at `level=track`, where step-level
+splits do not apply) and let the orchestrator decide how to proceed.
 
 ### When the failure mode is opaque — consider an IDE debug session
 
@@ -368,13 +438,24 @@ and respawns the implementer with `mode=WITH_GUIDANCE` and the
 `exploration_notes_echo` populated, so the new implementer does not
 redo the exploration.
 
-### Risk upgrade required
+### Risk upgrade required (level=step only)
 
 Implementation reveals that the step is more invasive than its
 tagged risk — for example, the "trivial refactor" tagged `low`
 turns out to require lock-ordering changes, or the "internal helper
 addition" tagged `medium` actually changes a public-API serialized
 form.
+
+**This case is `level=step` only.** At `level=track` there is no
+per-step risk to upgrade — risk tags are locked at the end of
+Phase B per [`risk-tagging.md`](risk-tagging.md) §Risk locking.
+Returning `RESULT: RISK_UPGRADE_REQUESTED` from a `level=track`
+spawn is a contract violation; the orchestrator surfaces the
+return to the user instead of dispatching. If applying a Phase C
+fix surfaces an issue that genuinely demands re-running an earlier
+step's implementation under heavier review, return `RESULT: FAILED`
+with `recommended_action: escalate` and let the orchestrator
+trigger inline replanning.
 
 Run the snapshot-and-diff revert sequence at the top of this section
 (snapshot pre-existing untracked files first, then `git reset --hard
@@ -419,27 +500,39 @@ same for every early-return case (design decision, risk upgrade,
 fundamental failure) and every mode, but the **semantic scope** of
 what gets reverted differs:
 
-- **`mode=INITIAL`** or **`mode=WITH_GUIDANCE`**: `HEAD` is the
-  step's pre-implementation state (the orchestrator's `step_base_commit`).
-  The reset returns the working tree to that pristine state — the
-  orchestrator sees a clean tree at `step_base_commit`. Correct.
-- **`mode=FIX_REVIEW_FINDINGS`**: `HEAD` is the prior `SUCCESS`
-  commit (the original implementer commit, possibly with earlier
-  `Review fix:` commits on top from prior dim-review iterations).
-  The implementer's reset clears only its in-progress fix attempt;
-  the prior commits stay on disk. Rolling those back is the
-  **orchestrator's** responsibility — see
+- **`level=step`, `mode=INITIAL`** or **`mode=WITH_GUIDANCE`**: `HEAD`
+  is the step's pre-implementation state (the orchestrator's
+  `step_base_commit`). The reset returns the working tree to that
+  pristine state — the orchestrator sees a clean tree at
+  `step_base_commit`. Correct.
+- **`level=step`, `mode=FIX_REVIEW_FINDINGS`**: `HEAD` is the prior
+  `SUCCESS` commit (the original implementer commit, possibly with
+  earlier `Review fix:` commits on top from prior dim-review
+  iterations). The implementer's reset clears only its in-progress
+  fix attempt; the prior commits stay on disk. Rolling those back
+  is the Phase B **orchestrator's** responsibility — see
   [`step-implementation-recovery.md`](step-implementation-recovery.md)
   §Post-Commit Handlers. The implementer must not run `git reset --hard
   step_base_commit` or `git revert` to undo prior commits; that
   would silently destroy work the orchestrator may need.
+- **`level=track`, `mode=FIX_REVIEW_FINDINGS`** or **`mode=WITH_GUIDANCE`**:
+  `HEAD` is the most recent commit on the track — typically the
+  last episode commit from Phase B, or a prior iteration's
+  `Review fix:` commit if this is iteration 2 or 3. The implementer's
+  reset clears only its in-progress fix attempt; nothing else is
+  rolled back. Phase C does **not** roll back prior iterations'
+  successful `Review fix:` commits on a `FAILED` return — the
+  earlier fixes remain valid (they passed their gate check) and
+  the failed iteration is treated as a no-op. See
+  [`track-code-review.md`](track-code-review.md) §Review loop and
+  the `level=track` row in §Return contract field rules below.
 
 The implementer is therefore symmetric in code (the snapshot-and-diff
-revert sequence regardless of mode and regardless of which
-early-return case fired) but the orchestrator-side cleanup differs:
-pre-commit modes need no further work; post-commit mode requires
-the orchestrator's post-commit rollback to remove the prior step
-commits as well.
+revert sequence regardless of level, mode, and early-return case)
+but the orchestrator-side cleanup differs: pre-commit modes (Phase B
+`INITIAL`/`WITH_GUIDANCE`) need no further work; Phase B
+`FIX_REVIEW_FINDINGS` requires the post-commit rollback to remove
+the prior step commits; Phase C never rolls back across spawns.
 
 ---
 
@@ -471,7 +564,7 @@ TOOLING_NOTES:
   psi_audits: <N>
   notes: <one-liner if anything unusual happened, otherwise "none">
 
-EPISODE_DRAFT:
+EPISODE_DRAFT:                    # populated only at level=step
   what_was_done: |
     <factual summary, 2–6 sentences>
   what_was_discovered: |
@@ -481,9 +574,26 @@ EPISODE_DRAFT:
   critical_context: |
     <or "none". Use sparingly.>
 
+FIX_NOTES:                        # populated only at level=track
+  what_was_fixed: |
+    <factual summary of which findings the iteration addressed,
+    1–4 sentences. Cite finding IDs (CQ7, BC3, …) freely — these
+    are branch-only-commit-message-scope identifiers and never
+    leak into durable content.>
+  what_was_skipped: |
+    <or "none". Findings the implementer chose not to address
+    inside this iteration — typically because they would expand
+    the fix beyond track scope. The Phase C orchestrator may fold
+    these into plan corrections.>
+  what_was_discovered: |
+    <or "none". Cross-step or cross-track observations surfaced
+    while applying fixes.>
+
 CROSS_TRACK_HINTS: |
-  <free-form: anything that might affect upcoming tracks. The
-  orchestrator consumes this in sub-step 5. Empty is fine.>
+  <free-form: anything that might affect upcoming tracks. At
+  level=step the Phase B orchestrator consumes this in sub-step 5.
+  At level=track the Phase C orchestrator folds this into the
+  eventual track episode. Empty is fine.>
 
 # --- Conditional sections, only present when relevant ---
 
@@ -496,6 +606,7 @@ DESIGN_DECISION:                  # only if RESULT == DESIGN_DECISION_NEEDED
   exploration_notes: ...          # echoed back on respawn
 
 RISK_UPGRADE:                     # only if RESULT == RISK_UPGRADE_REQUESTED
+                                  # — forbidden at level=track
   from: low | medium
   to: medium | high
   category: concurrency | crash-safety | public-API | security |
@@ -505,17 +616,22 @@ RISK_UPGRADE:                     # only if RESULT == RISK_UPGRADE_REQUESTED
 FAILURE:                          # only if RESULT == FAILED
   what_was_attempted: |
   why_it_failed: |
-  impact_on_remaining_steps: |
+  impact_on_remaining_steps: |    # at level=track this is
+                                  # "impact on remaining findings /
+                                  # remaining iterations"
   recommended_action: retry | split | escalate
 ```
 
 ### Field rules
 
 - `RESULT` is the dispatch tag — the orchestrator routes on it. Pick
-  exactly one value.
+  exactly one value. `RISK_UPGRADE_REQUESTED` is **forbidden at
+  `level=track`** (see §Risk upgrade required above).
 - `COMMIT` is empty when `RESULT != SUCCESS`. On `SUCCESS`, it is the
-  SHA of the implementer's commit (or, for `mode=FIX_REVIEW_FINDINGS`,
-  the SHA of the `Review fix:` commit applied on top).
+  SHA of the implementer's commit. At `level=step` with
+  `mode=INITIAL`/`WITH_GUIDANCE` it is the step's primary commit; at
+  `level=step` with `mode=FIX_REVIEW_FINDINGS` and at `level=track`
+  it is the SHA of the `Review fix:` commit applied on top.
 - `FILES_TOUCHED` lists every path in the diff with a `(new)` or
   `(modified)` annotation. On `FAILED`, list paths the implementer
   attempted to modify even though they are now reverted.
@@ -529,19 +645,28 @@ FAILURE:                          # only if RESULT == FAILED
   `line_coverage_changed` and `branch_coverage_changed` to
   `n/a (test-additive)` and keep `passed` / `module` /
   `spotless_applied` populated normally.
-- `EPISODE_DRAFT` is populated on `SUCCESS` only. The orchestrator
-  finalises it (merging in cross-track-impact-check observations from
-  sub-step 5) before writing the episode to the step file. On
-  `FAILED`, the orchestrator uses `FAILURE` instead of
-  `EPISODE_DRAFT`. On `DESIGN_DECISION_NEEDED` and
-  `RISK_UPGRADE_REQUESTED`, omit `EPISODE_DRAFT` — the eventual
-  respawn produces the authoritative draft once the step actually
-  completes.
-- `CROSS_TRACK_HINTS` is a free-form note for the orchestrator's
-  cross-track impact check (sub-step 5). Anything that might affect
-  upcoming tracks goes here — invariant weakened, new dependency
-  surfaced, API shape clarified differently than expected. Empty is
-  fine; the orchestrator does not require a hint per step.
+- `EPISODE_DRAFT` is populated on `SUCCESS` only and only at
+  `level=step`. The Phase B orchestrator finalises it (merging in
+  cross-track-impact-check observations from sub-step 5) before
+  writing the episode to the step file. On `FAILED`, the
+  orchestrator uses `FAILURE` instead of `EPISODE_DRAFT`. On
+  `DESIGN_DECISION_NEEDED` and `RISK_UPGRADE_REQUESTED`, omit
+  `EPISODE_DRAFT` — the eventual respawn produces the authoritative
+  draft once the step actually completes. **Omit at `level=track`** —
+  use `FIX_NOTES` instead.
+- `FIX_NOTES` is populated on `SUCCESS` only and only at
+  `level=track`. The Phase C orchestrator folds it into the eventual
+  track episode (compiled at track completion). On `FAILED`, the
+  orchestrator uses `FAILURE` instead. **Omit at `level=step`** —
+  use `EPISODE_DRAFT` instead.
+- `CROSS_TRACK_HINTS` is a free-form note for the orchestrator. At
+  `level=step` the Phase B orchestrator consumes it in sub-step 5
+  (cross-track impact check). At `level=track` the Phase C
+  orchestrator folds it into the track episode and any plan
+  corrections. Anything that might affect upcoming tracks goes here —
+  invariant weakened, new dependency surfaced, API shape clarified
+  differently than expected. Empty is fine; the orchestrator does
+  not require a hint per spawn.
 
 ---
 
