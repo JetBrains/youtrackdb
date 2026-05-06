@@ -122,9 +122,24 @@ durable artifacts survive the squash-merge into `develop`. See
   > **Scope:** ~N steps covering X, Y, Z
   > **Depends on:** Track 1 (when applicable)
 
+## Plan Review
+- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
 ```
+
+The `## Plan Review` section is the State 0 marker the
+`/execute-tracks` startup protocol reads (see
+[`workflow.md`](workflow.md) §Startup Protocol). When the entry is
+`[ ]` (or the section is missing entirely on a pre-existing plan),
+`/execute-tracks` loads `implementation-review.md` and runs the
+autonomous plan review before any track work begins. After the
+review passes, the section is overwritten with the audit summary
+(see [`implementation-review.md`](implementation-review.md) §Audit
+trail for the format) and the entry becomes `[x]`. A user may
+manually re-set the entry to `[ ]` (or invoke `/review-plan`) after
+inline replanning to force a re-validation.
 
 **Planning rule:** If a track would need more than ~5-7 steps or internal
 phasing, split it into separate dependent tracks. Track sequencing and

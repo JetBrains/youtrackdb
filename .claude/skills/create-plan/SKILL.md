@@ -184,6 +184,9 @@ shape, lifecycle).
   > **Scope:** ~N steps covering A, B
   > **Depends on:** Track 1
 
+## Plan Review
+- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
 ```
@@ -295,5 +298,8 @@ rest of the workflow carry no CI cost. The user manually flips the
 PR from draft to "ready for review" at the end of Phase 4 — Claude
 never runs `gh pr ready` automatically.
 
-When I'm satisfied, I'll run `/review-plan` to review the plan, then
-`/execute-tracks` to execute track by track.
+When I'm satisfied, I'll run `/execute-tracks` to start track execution.
+The autonomous plan review (Phase 2 — consistency + structural) runs as
+its first phase and ends the session before track work begins. I can
+also run `/review-plan` manually at any time to re-validate the plan
+(useful after inline replanning produces a revised plan).

@@ -1,18 +1,35 @@
 # Implementation Review (Phase 2)
 
+> **Loaded on-demand.** This document is read only when the
+> `/execute-tracks` startup protocol detects **State 0** (the plan
+> file's `## Plan Review` checklist entry is `[ ]`), or when the user
+> manually invokes `/review-plan` to re-validate after inline
+> replanning. Non-State-0 sessions never load this file, so its
+> length carries no per-session cost.
+
 ## Overview
 
-Phase 2 validates the plan before execution begins. It runs two steps
-in sequence:
+Phase 2 validates the plan before track execution begins. It runs **autonomously** —
+the orchestrator applies mechanical fixes itself and escalates only **design-level**
+decisions to the user (missing Decision Records, track contradictions, target-state
+vs. current-state ambiguity, ASPIRATIONAL/VIOLATED invariants). Two steps run in
+sequence:
 
 1. **Consistency Review** — reads the design document, implementation plan,
    backlog, and actual codebase to find gaps and inconsistencies between
-   them. Findings are presented to the user for feedback. Iterates until
-   clean.
+   them. Each finding carries a `Classification: mechanical | design-decision`
+   tag emitted by the sub-agent. Mechanical fixes apply automatically; design
+   decisions are batched and escalated to the user once at the end of the step.
 2. **Structural Review** — validates plan-internal structure (dependency
-   ordering, track sizing, scope indicators, architecture notes). Runs
-   **automatically** after consistency review passes — no user interaction
-   unless blockers are found.
+   ordering, track sizing, scope indicators, architecture notes, bloat).
+   All bloat findings are classified `mechanical` by construction; ordering
+   and contradiction findings classify as `design-decision`. Same
+   autonomous flow.
+
+After both steps pass, the orchestrator marks `## Plan Review` as `[x]` in the
+plan file (with a brief audit summary), commits the workflow update, and ends
+the session. The next `/execute-tracks` invocation enters State B (Phase A of
+Track 1).
 
 **Division of labor with the design mutation discipline.** Phase 2
 does **not** separately review the narrative quality of `design.md`
@@ -30,35 +47,60 @@ mutation action's responsibility.
 
 ```mermaid
 flowchart TD
-    START["/review-plan"]
+    START["/execute-tracks State 0\n(or /review-plan manual)"]
     CR["Step 1: Consistency Review\n(reads code + design + plan)"]
-    CR_FIND["Present findings to user"]
-    CR_FIX["Apply accepted fixes"]
-    CR_GATE["Gate verification"]
-    SR["Step 2: Structural Review\n(plan-internal quality)\nRuns automatically"]
-    SR_BLOCKER["Present blockers to user"]
-    SR_FIX["Apply fixes"]
+    CR_CLASSIFY["Classify findings:\nmechanical | design-decision"]
+    CR_AUTO["Auto-apply mechanical fixes\n(Edit / edit-design)"]
+    CR_ESC{"Any design-decision\nfindings?"}
+    CR_USER["Batch-escalate to user\n(present alternatives,\napply user resolutions)"]
+    CR_GATE["Gate verification\n(verify fixes,\ncatch regressions)"]
+    SR["Step 2: Structural Review\n(plan-internal quality)"]
+    SR_CLASSIFY["Classify findings:\nmechanical | design-decision"]
+    SR_AUTO["Auto-apply mechanical fixes"]
+    SR_ESC{"Any design-decision\nfindings?"}
+    SR_USER["Batch-escalate to user"]
     SR_GATE["Gate verification"]
-    DONE["Phase 2 PASS\nReady for /execute-tracks"]
+    AUDIT["Write audit summary\nto ## Plan Review"]
+    DONE["Phase 2 PASS\nCommit + push\nEnd session"]
 
     START --> CR
-    CR --> CR_FIND
-    CR_FIND -->|"Fixes needed"| CR_FIX --> CR_GATE
-    CR_FIND -->|"All clean"| SR
+    CR --> CR_CLASSIFY
+    CR_CLASSIFY --> CR_AUTO
+    CR_AUTO --> CR_ESC
+    CR_ESC -->|No| CR_GATE
+    CR_ESC -->|Yes| CR_USER --> CR_GATE
     CR_GATE -->|"PASS"| SR
-    CR_GATE -->|"FAIL (max 3 iter)"| CR_FIND
-    SR -->|"No blockers"| DONE
-    SR -->|"Blockers found"| SR_BLOCKER
-    SR_BLOCKER --> SR_FIX --> SR_GATE
-    SR_GATE -->|"PASS"| DONE
-    SR_GATE -->|"FAIL (max 3 iter)"| SR_BLOCKER
+    CR_GATE -->|"FAIL (max 3 iter)"| CR_CLASSIFY
+    SR --> SR_CLASSIFY
+    SR_CLASSIFY --> SR_AUTO
+    SR_AUTO --> SR_ESC
+    SR_ESC -->|No| SR_GATE
+    SR_ESC -->|Yes| SR_USER --> SR_GATE
+    SR_GATE -->|"PASS"| AUDIT
+    SR_GATE -->|"FAIL (max 3 iter)"| SR_CLASSIFY
+    AUDIT --> DONE
 ```
 
 ## How to run
 
-Start a new Claude Code session and run `/review-plan` (optionally pass a
-directory name; if omitted, the current git branch is used). The slash
-command is implemented by the skill at `.claude/skills/review-plan/SKILL.md`.
+Phase 2 has two entry points:
+
+1. **Autonomous (default).** Triggered by `/execute-tracks` when the startup
+   protocol detects State 0 (plan file's `## Plan Review` entry is `[ ]` or
+   missing). The orchestrator loads this document on-demand and runs the flow
+   below.
+2. **Manual re-run.** The user runs `/review-plan` to re-validate the plan
+   after inline replanning produced a revised plan, or to audit the plan
+   independently. The skill at `.claude/skills/review-plan/SKILL.md` loads
+   this document and runs the same flow regardless of the current `## Plan
+   Review` checkbox state.
+
+Both entry points share the same orchestration. The only difference is what
+the orchestrator does after the flow completes:
+- Autonomous entry: marks `## Plan Review` as `[x]`, commits, ends the
+  session so the next `/execute-tracks` enters Phase A of Track 1.
+- Manual re-entry: marks `## Plan Review` as `[x]` (re-stamping with the
+  fresh iteration count), commits, ends the session.
 
 ---
 
@@ -102,38 +144,60 @@ alongside the plan.
 
 **Prompt file:** [`prompts/consistency-review.md`](prompts/consistency-review.md)
 
+The prompt embeds the **intent-axis pre-screen** (current-state vs.
+target-state) and the **classification rules** (see §Mechanical vs.
+design-decision classifier below). Each finding the sub-agent emits
+carries a `Classification` field — the orchestrator routes on that
+field, not on severity.
+
 ### Gate verification
 
 **Prompt file:** [`prompts/consistency-gate-verification.md`](prompts/consistency-gate-verification.md)
 
-### Review iteration
-
-The consistency review iterates with user feedback:
+### Autonomous orchestration loop
 
 ```
-Iteration 1: Full review → findings → present to user → user decisions → apply fixes
-Iteration 2: Gate check → verify fixes + catch regressions → if blockers, present to user
-Iteration 3: Gate check → if still blockers, escalate to user
+Iteration 1 (full review):
+  1. Spawn the consistency sub-agent with plan, backlog, design, codebase.
+  2. Receive findings, each tagged Classification: mechanical | design-decision.
+  3. Apply ALL mechanical fixes immediately:
+     - Plan/backlog edits: native Edit.
+     - design.md edits: route through the edit-design skill (mutation
+       discipline — see §Mutation discipline for design.md fixes below).
+  4. If any design-decision findings remain: batch-present to the user
+     once (single message listing all open design questions with proposed
+     alternatives). Wait for user resolutions. Apply user-approved fixes
+     using the same plan-vs-design routing.
+  5. Spawn the gate verification sub-agent with the updated artifacts and
+     the iteration's findings.
+
+Iteration 2-3 (gate, then full re-review if structure changed):
+  - If the gate finds new findings, classify and re-route as in iteration 1.
+  - If iteration 1 fixes significantly restructured the plan or design
+    (tracks reordered, classes/flows redesigned, scope indicators changed
+    substantially), re-run the FULL consistency review instead of the gate
+    to catch cascading inconsistencies.
+
+Cap: 3 iterations. Findings IDs cumulative (CR1, CR2, ... CR6, CR7).
 ```
 
-Max 3 iterations. Finding IDs: `CR1, CR2, ...` (cumulative).
-
-If consistency fixes significantly restructure the plan or design document
-(tracks reordered, classes/flows redesigned, scope indicators changed
-substantially), re-run the full consistency review instead of the gate
-check to catch cascading inconsistencies.
-
-If blockers persist after 3 iterations, escalate to the user and return to
-Phase 1 (Planning) to rework the plan/design before re-entering.
+If blockers persist after 3 iterations, escalate to the user with the
+remaining open findings and recommend returning to Phase 1 (Planning) to
+rework the plan/design before re-entering.
 
 ### Review output
 
-Findings are presented to the user inline during the iteration loop;
-plan and design fixes are applied via `Edit` to
-`implementation-plan.md`, `implementation-backlog.md`, and the design
-document. The review itself is not persisted to disk — once the gate
-passes, the conversation is the only record, and the durable trace is
-the resulting plan/design state plus the gate-PASS commit.
+Findings ride in the orchestrator's conversation context for the
+iteration loop; plan and design fixes are applied via Edit / edit-design
+to `implementation-plan.md`, `implementation-backlog.md`, and the
+design document. The review itself is not persisted to a separate file —
+once the gate passes, the conversation is the only in-flight record,
+and the durable trace is:
+
+- The resulting plan/design state.
+- The gate-PASS commit.
+- The audit summary written into the plan file's `## Plan Review`
+  section (see §Audit trail below).
 
 ---
 
@@ -142,14 +206,11 @@ the resulting plan/design state plus the gate-PASS commit.
 Runs **automatically** after the consistency review passes. Validates
 plan-internal structure without reading the codebase.
 
-If the structural review finds no blockers, it completes silently and
-Phase 2 passes. If blockers are found, they are presented to the user.
-
 ### What it checks
 
 Dependency ordering, track sizing, scope indicators, architecture notes
 completeness, design document structure, decision traceability, internal
-consistency.
+consistency, and plan-file bloat.
 
 Each pending track's detailed description (the subject of TRACK
 DESCRIPTIONS checks, plus several cross-file bullets in TRACK SIZING,
@@ -167,30 +228,245 @@ backlog alongside the plan.
 
 **Prompt file:** [`prompts/structural-gate-verification.md`](prompts/structural-gate-verification.md)
 
-### Review iteration
+### Autonomous orchestration loop
+
+Same shape as the consistency review:
 
 ```
-Iteration 1: Full review → if no blockers, PASS. If blockers → present to user → fixes
-Iteration 2: Gate check → if PASS, done. If blockers → present to user → fixes
-Iteration 3: Gate check → if still blockers, escalate
-```
+Iteration 1 (full review):
+  1. Spawn the structural sub-agent with plan, backlog, design.
+  2. Receive findings, each tagged Classification: mechanical | design-decision.
+     Per-prompt rule: ALL bloat findings classify as mechanical; track-ordering
+     and contradiction findings classify as design-decision (see §Mechanical
+     vs. design-decision classifier below).
+  3. Apply mechanical fixes immediately (Edit for plan/backlog, edit-design
+     for design.md).
+  4. Batch-escalate any design-decision findings to the user once. Apply
+     user-approved fixes.
+  5. Spawn the gate verification sub-agent with the updated artifacts and
+     the iteration's findings.
 
-Max 3 iterations. Finding IDs: `S1, S2, ...` (cumulative).
+Iteration 2-3: gate or full re-review (re-run full review if fixes
+significantly restructured the plan).
+
+Cap: 3 iterations. Findings IDs cumulative (S1, S2, ... S6, S7).
+```
 
 If structural fixes significantly restructure the plan (tracks reordered,
 tracks added/removed, scope indicators changed substantially), re-run
-the full structural review instead of the gate check.
+the full structural review instead of the gate check to catch cascading
+issues.
 
 ### Review output
 
-Same as the consistency review above — findings ride in the conversation
-during the loop; the durable trace is the plan-file edits and the
-gate-PASS state, not a saved review document.
+Same as the consistency review — findings ride in the conversation
+during the loop; the durable trace is the plan-file edits, the gate-PASS
+commit, and the audit-summary entry in `## Plan Review`.
+
+---
+
+## Mechanical vs. design-decision classifier
+
+The classifier lives in the review prompts so the sub-agent emits the
+classification alongside each finding. The orchestrator trusts the
+sub-agent's tag and routes on it.
+
+### `mechanical` — orchestrator applies the fix without asking
+
+ALL of these must hold for a consistency finding to classify as
+`mechanical`:
+
+1. The plan/design claim is about **current state** — code that should
+   already exist at the time of writing, not code a track will create.
+   (Aspirational claims about target state are pre-filtered; see
+   §Intent-axis pre-screen below.)
+2. There is exactly one unambiguous correct rendering — rename to the
+   actual class, update to the real signature, fix the participant
+   name in a sequenceDiagram, drop a phantom reference, etc.
+3. Applying the fix doesn't change what the plan is trying to achieve.
+   Only the description is updated; the plan's goals, scope, and
+   architecture are unchanged.
+
+For structural findings, **all bloat findings** are mechanical by
+construction (DR length, intro length, component-intent length,
+integration-point length, plan/design duplication, superseded DR
+retained, plan-file budget, missing track-reference annotation,
+scope-indicator format). The fix follows the rule mechanically —
+trim back to the four-bullet form, move long-form material to
+`design.md`, replace duplicated body with a one-line link, delete the
+superseded DR, etc.
+
+### `design-decision` — orchestrator escalates to the user
+
+ANY of these triggers `design-decision`:
+
+- The discrepancy reveals a **missing Decision Record** for a non-obvious
+  choice. The user has the rationale; the orchestrator does not.
+- The discrepancy is a **contradiction between two tracks** (Track 1
+  assumes X, Track 3 assumes not-X). Which one is right is a design
+  call.
+- An **ASPIRATIONAL invariant has no implementing track**. Do we add a
+  track or change the invariant? Both are plausible.
+- A **VIOLATED invariant** exists. Do we fix the code (track scope
+  expansion) or restate the invariant (design retreat)?
+- **Design ↔ code mismatch where the plan describes a target state**
+  (a `[ ]` track is meant to create what the design claims) and the
+  divergence is whether to keep the target shape or change it. The
+  pre-screening rule (§Intent-axis pre-screen) catches the
+  no-divergence case; what reaches this rule is genuine design choice.
+- **Track ordering** issues where reordering changes the contract
+  (e.g., Track B's scope mentions wiring X, but X is introduced in
+  Track C — does B move after C, or does X move into B?).
+
+The classifier rules belong in the prompt files — the orchestrator
+does not re-classify; it acts on the tag.
+
+### Intent-axis pre-screen (consistency review only)
+
+Before emitting any finding, the consistency sub-agent classifies each
+plan/design claim along the **intent axis**:
+
+- **Current-state claim** — the plan/design says something about code
+  that should already exist (Component Map describing a current
+  module's role, design.md class diagram describing pre-existing
+  classes, Architecture Notes referencing today's SPI). Discrepancies
+  here become findings.
+- **Target-state claim** — the plan/design says something about code
+  a `[ ]` track will create (`**What**:` bullets in the backlog,
+  forward-looking Decision Records, design.md sections describing
+  the post-implementation state). The current code naturally won't
+  match — this is **not a finding** unless the target is unreachable
+  from the current code (in which case the finding is
+  `design-decision`).
+
+The same rule already applies to invariants via the
+`ENFORCED / ASPIRATIONAL / VIOLATED` tagging. The pre-screen extends
+the same idea to all claims: a divergence with target-state code is
+expected and silenced; a divergence with current-state code is a
+finding.
+
+---
+
+## Audit trail
+
+Two durable traces survive the autonomous flow:
+
+### 1. The `## Plan Review` section in the plan file
+
+Before Phase 2 runs (or after `/create-plan` produced the initial
+plan), the section reads:
+
+```markdown
+## Plan Review
+- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+```
+
+After Phase 2 passes, the orchestrator overwrites the section with:
+
+```markdown
+## Plan Review
+- [x] Plan review (consistency + structural) — passed at iteration <N>
+
+**Auto-fixed (mechanical)**: <CR/S finding IDs with one-line summaries>.
+
+**Escalated (design decisions)**: <CR/S finding IDs with one-line user resolutions, or "none">.
+```
+
+If the user re-runs `/review-plan` later, the orchestrator overwrites
+this section again with the new iteration's audit. The `[x]` checkbox
+is what the startup protocol's State 0 detection reads.
+
+If the section is missing entirely (a pre-existing plan from before
+this convention), the orchestrator treats it as `[ ]` and runs the
+autonomous flow, then writes the section for the first time at the
+end. Pre-existing plans don't break.
+
+### 2. The workflow-update commit
+
+After Phase 2 passes, the orchestrator stages the plan, backlog, and
+design files, and commits with the message:
+
+```
+Plan review autonomous fixes for <plan-name>
+
+Auto-fixed: <CR/S IDs>
+Escalated: <CR/S IDs, or "none">
+```
+
+This is a single Workflow update commit per the table in
+`commit-conventions.md` § Commit type prefixes. Push after commit.
+
+---
+
+## Mutation discipline for design.md fixes
+
+Every fix that touches `design.md` (or `design-mechanics.md`) routes
+through the `edit-design` skill — see [`design-document-rules.md`](design-document-rules.md)
+§ Mutation discipline. The skill applies the mechanical checks +
+cold-read sub-agent gate before the change stands.
+
+The autonomous flow handles this by invoking `edit-design` for each
+design.md mechanical fix; the cold-read sub-agent is the safety net
+for narrative breakage. If the cold-read rejects the mutation, the
+orchestrator escalates that specific fix to the user (effectively
+re-classifying it from `mechanical` to `design-decision`).
+
+Plan-file and backlog edits use `Edit` directly — no mutation
+discipline applies to those files.
+
+---
+
+## Replanning
+
+**Not a separate phase.** Replanning is handled within Phase 3
+by the execution agent's ESCALATE flow (see "Inline Replanning
+(ESCALATE)" in `workflow.md`).
+
+**Why:** The execution agent reads all track episodes from the plan file
+and can read/write it directly. It has the context to revise the plan
+within the session. A separate phase would add unnecessary context loss.
+
+**What happens on ESCALATE:**
+1. Execution agent stops starting new steps.
+2. Presents full situation to user (all episodes, what broke, what
+   assumptions failed).
+3. Proposes revised plan (new/modified tracks, reordering, removed
+   tracks).
+4. Spawns a structural review sub-agent to validate the revised plan
+   (uses the same prompt as Phase 2 Step 2; classifier still applies).
+5. On review PASS — updates the plan file with the revised plan and
+   ends the session. Sets `## Plan Review` back to `[ ]` so the next
+   `/execute-tracks` re-runs the full Phase 2 flow against the revised
+   plan, picking up any new consistency issues introduced by the
+   replan.
+6. On review FAIL with persistent blockers — advises user to restart
+   from Phase 1 (`/create-plan`) with accumulated episodes as input.
+
+The only case that exits to Phase 1 is when the plan is so fundamentally
+broken that incremental revision cannot fix it.
 
 ---
 
 ## Completion
 
-When both reviews pass, Phase 2 is complete. Proceed to Phase 3 execution
-(`/execute-tracks`). Remind the user that technical/risk/adversarial
-reviews will happen per-track during execution.
+When both reviews pass:
+
+1. Update `## Plan Review` with the audit summary (see §Audit trail).
+2. Stage and commit the plan/backlog/design changes:
+   ```bash
+   git add docs/adr/<dir-name>/_workflow/implementation-plan.md \
+           docs/adr/<dir-name>/_workflow/implementation-backlog.md \
+           docs/adr/<dir-name>/_workflow/design.md
+   git commit -m "Plan review autonomous fixes for <plan-name>
+
+   Auto-fixed: <IDs>
+   Escalated: <IDs, or 'none'>"
+   git push
+   ```
+3. Inform the user that Phase 2 passed and the next `/execute-tracks`
+   session will enter State B (Phase A of Track 1). Remind them that
+   technical/risk/adversarial reviews will happen per-track during
+   execution.
+4. **End the session.** Do not proceed to Phase A of Track 1 in the
+   same session — the session boundary is mandatory (see
+   `workflow.md` §Session Boundary Rules).

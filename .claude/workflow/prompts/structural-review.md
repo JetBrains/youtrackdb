@@ -242,6 +242,9 @@ For each issue found, produce a finding in this format:
 **Location**: <where in the plan>
 **Issue**: <what's wrong>
 **Proposed fix**: <concrete change to the plan text>
+**Classification**: mechanical | design-decision
+**Justification**: <one-line citation of the rule from §Classification
+  rules below>
 
 Severity guide:
 - blocker: Plan cannot be executed correctly (dependency cycle, missing track
@@ -253,3 +256,69 @@ Severity guide:
   exceeds the overall budget**)
 - suggestion: Improvement that isn't strictly necessary (better wording,
   optional diagram that would help)
+
+---
+
+## Classification rules
+
+Severity (`blocker | should-fix | suggestion`) tells the user how
+urgent the finding is. **Classification** (`mechanical |
+design-decision`) tells the orchestrator who decides — itself or the
+user. The two axes are orthogonal.
+
+### `mechanical` — orchestrator applies the fix without asking
+
+**All BLOAT findings are `mechanical` by construction.** The fix
+follows the rule mechanically — trim back to the four-bullet form,
+move long-form material to `design.md`, replace duplicated body with
+a one-line link, delete the superseded DR, etc.
+
+Specifically:
+- DR length, invariant length, integration-point length,
+  component-intent length — `mechanical`.
+- Plan/design duplication — `mechanical` (replace with link).
+- Superseded DR retained — `mechanical` (delete).
+- Plan-file budget exceeded — `mechanical` (apply per-section trims).
+- Missing track-reference annotation on a Decision Record where the
+  matching track is obvious from the DR's topic — `mechanical`.
+- Scope-indicator format issues (missing `**Scope:**` line, missing
+  `**Depends on:**` annotation when a dependency is implied by the
+  description) — `mechanical`.
+
+Other findings classify as `mechanical` only when the fix is a single
+unambiguous edit that doesn't change plan intent — e.g., an obvious
+typo in a track number reference, a missing required heading.
+
+### `design-decision` — orchestrator escalates to the user
+
+ANY of these triggers `design-decision`:
+
+- **Track ordering** issues where reordering changes the contract.
+  E.g., Track B's scope mentions wiring X, but X is introduced in
+  Track C — does B move after C, or does X move into B? The user
+  picks.
+- **Track sizing** — a track that exceeds ~5-7 steps and needs to be
+  split. Where the split goes is a design call.
+- **Track contradictions** — Track 1 assumes X, Track 3 assumes
+  not-X. Which is right is a design call.
+- **Missing Decision Record** for a non-obvious choice. The user has
+  the rationale.
+- **Implausible scope indicator** — the description implies more work
+  than the scope claims. Either the description scopes down or the
+  indicator scopes up; the user decides which.
+- **Architecture Notes gaps** — missing Component Map, missing
+  Invariants, missing Integration Points, missing Non-Goals where
+  the scope boundary is ambiguous. Filling these requires the user's
+  rationale.
+- **Design document gaps** — missing Overview, missing class diagram
+  when 2+ new classes are introduced, missing workflow diagram when
+  a new flow is introduced, missing dedicated section for
+  concurrency / crash recovery / performance. The content of those
+  sections is a design call.
+- **Decision-traceability gaps** — a track implements a non-obvious
+  choice but no DR exists. The user must articulate the alternatives
+  and rationale.
+
+When in doubt between the two classifications, choose
+`design-decision` — over-escalating costs one user round-trip, under-
+escalating risks silently rewriting the plan.

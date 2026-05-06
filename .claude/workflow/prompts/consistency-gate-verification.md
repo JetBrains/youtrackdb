@@ -88,7 +88,11 @@ For REJECTED findings, verify the rejection reason with a lighter check:
 
 Output:
 - For each finding under re-check: the verification certificate above
-- New findings (if any) in the same format with cumulative numbering
-  (continue from the highest CR number)
+- New findings (if any) in the same format as the consistency review's
+  finding template — including `**Classification**: mechanical |
+  design-decision` and `**Justification**:` fields per the rules in
+  `prompts/consistency-review.md` § Classification rules. Apply the
+  intent-axis pre-screen before emitting any new finding. Cumulative
+  numbering (continue from the highest CR number).
 - Summary: PASS (all verified/rejected, no new blockers) or FAIL (with
   list of remaining blockers)

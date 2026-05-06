@@ -35,6 +35,17 @@ table-form summary and the per-section rationale). Detection is
 mechanical — line-count and pattern-match on the plan file, no
 codebase read required — and the findings carry the severities below.
 
+**All bloat findings are classified `mechanical`** by the autonomous
+Phase 2 orchestrator (see
+[`prompts/structural-review.md`](prompts/structural-review.md) §
+Classification rules). The fix follows the rule mechanically — trim
+to the four-bullet form, move long-form material to `design.md`,
+replace the duplicated body with a one-line link, delete the
+superseded DR — and the orchestrator applies it without asking the
+user. Findings escalate as `design-decision` only when the structural
+issue is ordering / sizing / contradiction / decision-traceability,
+not bloat.
+
 | Category | Severity | Trigger | Fix |
 |---|---|---|---|
 | **DR-length** | should-fix | Decision Record body exceeds ~30 lines | Trim DR back to the four-bullet form; move long-form material to a `design.md` section and link from `**Full design**`. |
@@ -66,15 +77,28 @@ After fixes are applied, the structural review re-runs to verify.
 
 ## Review iteration
 
-The structural review iterates until clean:
+The structural review iterates until clean. Each finding carries a
+`Classification` field (`mechanical | design-decision`) emitted by the
+sub-agent — the orchestrator auto-applies `mechanical` fixes and
+batches `design-decision` findings for a single user-resolution pass
+per iteration:
 
 ```
-Iteration 1: Full review → findings → user decisions → apply fixes
-Iteration 2: Gate check → verify fixes + catch regressions → if blockers, loop
+Iteration 1: Full review → classify findings →
+             auto-apply mechanical fixes (Edit / edit-design) →
+             escalate design-decision findings to user once →
+             apply user resolutions
+Iteration 2: Gate check → verify fixes + catch regressions →
+             if new findings, classify and re-route as in iteration 1
 Iteration 3: Gate check → if still blockers, escalate to user
 ```
 
 Max 3 iterations. Finding IDs are cumulative (S1, S2, ... S6, S7).
+Classification rules live in
+[`prompts/structural-review.md`](prompts/structural-review.md)
+§ Classification rules (bloat findings → `mechanical` by construction;
+ordering, sizing, contradiction, decision-traceability findings →
+`design-decision`).
 
 If blockers persist after 3 iterations, escalate to the user and return to
 Phase 1 (Planning) to rework the plan before re-entering structural review.
@@ -86,20 +110,26 @@ issues.
 
 ## Review output
 
-The structural review is not persisted to disk. Findings are presented
-inline during the iteration loop, accepted fixes are applied directly
-to `implementation-plan.md` (and `implementation-backlog.md` when
-relevant), and the gate-PASS state plus the resulting commit are the
-durable trace. A typical iteration looks like:
+The structural review is not persisted to disk. Mechanical fixes are
+applied autonomously to `implementation-plan.md` (and
+`implementation-backlog.md` when relevant); design-decision findings
+ride in the orchestrator's conversation context until escalated and
+resolved. The durable trace is the gate-PASS state, the resulting
+commit, and the audit-summary entry in the plan file's `## Plan
+Review` section (see
+[`implementation-review.md`](implementation-review.md) §Audit trail).
+A typical iteration looks like:
 
 ```
 Iteration 1
-  Finding S1 [blocker]  → ACCEPTED → reorder Track 3 before Track 2
-  Finding S2 [should-fix] → REJECTED — Tracks 1 and 3 are independent
+  Finding S1 [blocker, mechanical]      → AUTO-FIX → delete superseded DR D2 (replaced by D5)
+  Finding S2 [should-fix, mechanical]   → AUTO-FIX → trim D3 from 42 lines to 18; move worked example to design.md §Histogram Build
+  Finding S3 [should-fix, design-decision] → ESCALATE → user resolves Track 2 vs. Track 4 contradiction by reordering
 
 Iteration 2 (Gate Verification)
   S1: VERIFIED
-  S2: REJECTED (no action needed)
+  S2: VERIFIED
+  S3: VERIFIED
   No new findings → PASS
 ```
 

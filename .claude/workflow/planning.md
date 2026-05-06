@@ -14,8 +14,11 @@ session. Phase 1 is preceded by Phase 0 (Research) in the same session.
 - **Phase 1 (Planning):** Develop a plan informed by Phase 0 findings.
   Produce tracks with architecture notes, scope indicators, and design document.
 - **Phase 2 (Implementation Review):** See
-  [`implementation-review.md`](implementation-review.md) — two-step review:
-  (1) consistency review (design doc ↔ code ↔ plan), (2) structural review.
+  [`implementation-review.md`](implementation-review.md) — autonomous
+  two-step review run as the first phase of `/execute-tracks` (State 0):
+  (1) consistency review (design doc ↔ code ↔ plan), (2) structural
+  review. Mechanical findings auto-fixed; only design-decision findings
+  escalated to the user. Optionally re-invoked via `/review-plan`.
 - **Phase 3 (Execution):** See [`workflow.md`](workflow.md).
 - **Phase 4 (Final Artifacts):** See [`workflow.md`](workflow.md)
   §Final Artifacts.
@@ -24,8 +27,8 @@ session. Phase 1 is preceded by Phase 0 (Research) in the same session.
 flowchart TD
     P0["/create-plan\nPhase 0: Research\nInteractive exploration\n+ code & internet research"]
     P1["Phase 1: Planning\nTracks + architecture notes\n+ design document"]
-    P2["/review-plan\nPhase 2: Implementation Review\n1. Consistency review (interactive)\n2. Structural review (automatic)"]
-    P3["/execute-tracks\nPhase 3: Execution\n(see workflow.md)\nIncludes replanning via ESCALATE"]
+    P2["/execute-tracks State 0\n(or /review-plan)\nPhase 2: Implementation Review\n1. Consistency review (autonomous)\n2. Structural review (autonomous)\nDesign decisions → user escalation"]
+    P3["/execute-tracks State A/B/C\nPhase 3: Execution\n(see workflow.md)\nIncludes replanning via ESCALATE"]
     P4["Phase 4: Final Artifacts\ndesign-final.md + adr.md\n(only files that survive merge)"]
     DONE((Done))
 
