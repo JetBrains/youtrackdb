@@ -344,6 +344,21 @@ public class IndexOneValueTxTest extends DbTestBase {
   // -----------------------------------------------------------------------
 
   /**
+   * Captures the RID of an existing committed entry under the given key. The cleared-TX
+   * tests below reuse this RID for their TX-side OPERATION.PUT so the value points at a
+   * real, committed record — future RID-validation tightening (e.g. rejecting the
+   * {@code #-1:-1} sentinel) will not silently invalidate these tests.
+   */
+  private RID capturedRidForCommittedKey(String committedKey) {
+    session.begin();
+    var index = session.getSharedContext().getIndexManager().getIndex(IDX_NAME);
+    var captured = (RID) index.get(session, committedKey);
+    session.rollback();
+    assertNotNull("baseline lookup of '" + committedKey + "' must yield a RID", captured);
+    return captured;
+  }
+
+  /**
    * When the TX index changes have {@code cleared == true} (the production
    * {@code FrontendTransactionImpl} sets this when an OPERATION.CLEAR is recorded), the
    * {@code IndexOneValue.streamEntriesBetween} branch at the {@code if (indexChanges.cleared)}
@@ -353,10 +368,13 @@ public class IndexOneValueTxTest extends DbTestBase {
    * <p>The cleared flag is set by issuing an OPERATION.CLEAR via the public
    * {@code FrontendTransaction.addIndexEntry} API; a subsequent OPERATION.PUT for "delta"
    * leaves {@code cleared == true} but populates {@code changesPerKey} so the TX stream is
-   * non-empty.
+   * non-empty. The PUT uses a real committed RID (captured before the CLEAR) so the test
+   * survives any future RID-validation tightening that would reject {@code #-1:-1}.
    */
   @Test
   public void streamEntriesBetween_clearedTxChanges_returnsOnlyTxAddedKeys() {
+    var capturedRid = capturedRidForCommittedKey("alpha");
+
     session.begin();
     var index = session.getSharedContext().getIndexManager().getIndex(IDX_NAME);
     var tx = session.getTransactionInternal();
@@ -365,12 +383,7 @@ public class IndexOneValueTxTest extends DbTestBase {
     // (which would also flush committed storage). The CLEAR op flips the flag; the PUT
     // afterwards populates the changesPerKey map so the TX stream emits one entry.
     tx.addIndexEntry(index, IDX_NAME, OPERATION.CLEAR, null, null);
-
-    // Fabricate a single TX-only entry. Use a placeholder RID — the test only checks key
-    // membership, never dereferences the value.
-    var placeholderRid =
-        com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal.fromString("#-1:-1", false);
-    tx.addIndexEntry(index, IDX_NAME, OPERATION.PUT, "delta", placeholderRid);
+    tx.addIndexEntry(index, IDX_NAME, OPERATION.PUT, "delta", capturedRid);
 
     var keys = new ArrayList<String>();
     try (Stream<RawPair<Object, RID>> s =
@@ -381,6 +394,91 @@ public class IndexOneValueTxTest extends DbTestBase {
 
     assertEquals(
         "cleared TX must drop committed keys and yield only TX-added 'delta'",
+        List.of("delta"), keys);
+  }
+
+  /**
+   * {@code IndexOneValue.streamEntries(keys, asc=true)} cleared-TX branch: when
+   * {@code indexChanges.cleared == true}, the ascending key-list query must drop
+   * committed entries and yield only the TX-added key. Asks for both "delta" (TX-PUT) and
+   * "alpha" (committed-only); only "delta" must appear.
+   */
+  @Test
+  public void streamEntries_clearedTxChanges_returnsOnlyTxAddedKeys() {
+    var capturedRid = capturedRidForCommittedKey("alpha");
+
+    session.begin();
+    var index = session.getSharedContext().getIndexManager().getIndex(IDX_NAME);
+    var tx = session.getTransactionInternal();
+
+    tx.addIndexEntry(index, IDX_NAME, OPERATION.CLEAR, null, null);
+    tx.addIndexEntry(index, IDX_NAME, OPERATION.PUT, "delta", capturedRid);
+
+    var keys = new ArrayList<String>();
+    try (Stream<RawPair<Object, RID>> s =
+        index.streamEntries(session, List.of("delta", "alpha"), true)) {
+      s.forEach(p -> keys.add((String) p.first()));
+    }
+    session.rollback();
+
+    assertEquals(
+        "cleared TX streamEntries must drop committed keys and yield only TX-added 'delta'",
+        List.of("delta"), keys);
+  }
+
+  /**
+   * {@code IndexOneValue.streamEntriesMajor} cleared-TX branch: when
+   * {@code indexChanges.cleared == true}, the major (>= fromKey) ascending stream must drop
+   * committed entries and yield only the TX-added key.
+   */
+  @Test
+  public void streamEntriesMajor_clearedTxChanges_returnsOnlyTxAddedKeys() {
+    var capturedRid = capturedRidForCommittedKey("alpha");
+
+    session.begin();
+    var index = session.getSharedContext().getIndexManager().getIndex(IDX_NAME);
+    var tx = session.getTransactionInternal();
+
+    tx.addIndexEntry(index, IDX_NAME, OPERATION.CLEAR, null, null);
+    tx.addIndexEntry(index, IDX_NAME, OPERATION.PUT, "delta", capturedRid);
+
+    var keys = new ArrayList<String>();
+    try (Stream<RawPair<Object, RID>> s =
+        index.streamEntriesMajor(session, "alpha", true, true)) {
+      s.forEach(p -> keys.add((String) p.first()));
+    }
+    session.rollback();
+
+    assertEquals(
+        "cleared TX streamEntriesMajor must drop committed keys and yield only TX-added 'delta'",
+        List.of("delta"), keys);
+  }
+
+  /**
+   * {@code IndexOneValue.streamEntriesMinor} cleared-TX branch: when
+   * {@code indexChanges.cleared == true}, the minor (<= toKey) ascending stream must drop
+   * committed entries and yield only the TX-added key.
+   */
+  @Test
+  public void streamEntriesMinor_clearedTxChanges_returnsOnlyTxAddedKeys() {
+    var capturedRid = capturedRidForCommittedKey("alpha");
+
+    session.begin();
+    var index = session.getSharedContext().getIndexManager().getIndex(IDX_NAME);
+    var tx = session.getTransactionInternal();
+
+    tx.addIndexEntry(index, IDX_NAME, OPERATION.CLEAR, null, null);
+    tx.addIndexEntry(index, IDX_NAME, OPERATION.PUT, "delta", capturedRid);
+
+    var keys = new ArrayList<String>();
+    try (Stream<RawPair<Object, RID>> s =
+        index.streamEntriesMinor(session, "zzz", true, true)) {
+      s.forEach(p -> keys.add((String) p.first()));
+    }
+    session.rollback();
+
+    assertEquals(
+        "cleared TX streamEntriesMinor must drop committed keys and yield only TX-added 'delta'",
         List.of("delta"), keys);
   }
 }

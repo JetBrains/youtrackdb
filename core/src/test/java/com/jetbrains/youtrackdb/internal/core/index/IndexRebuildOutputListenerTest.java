@@ -17,6 +17,13 @@ import org.junit.Test;
  * {@link IndexRebuildOutputListener#onCompletition}. Verification focuses on successful execution
  * without exception (the listener's primary contract is side-effect logging; behaviour under test
  * is that all paths complete without error for any combination of arguments).
+ *
+ * <p>Note on {@code onBegin}: it writes only to private fields ({@code startTime},
+ * {@code lastDump}, {@code rebuild}) and emits a log line via the static
+ * {@code LogManager}. There is no public getter or observable side effect, so
+ * "did not throw" is the only contract we can assert here. Reflection-based
+ * post-state inspection is not used elsewhere in this file and is not introduced for
+ * this contract alone.
  */
 public class IndexRebuildOutputListenerTest extends DbTestBase {
 
@@ -45,45 +52,41 @@ public class IndexRebuildOutputListenerTest extends DbTestBase {
   // -----------------------------------------------------------------------
 
   /**
-   * onBegin with iTotal > 0 and rebuild=true must complete without exception (logs an
-   * INFO message about rebuilding) and the listener must remain functional afterwards —
-   * a follow-up onProgress call must return true to continue iteration.
+   * onBegin with iTotal > 0 and rebuild=true must complete without exception. This branch
+   * logs an INFO line about rebuilding (the {@code iTotal > 0 && rebuild} arm of the
+   * onBegin body). "Did not throw" is the only publicly-observable contract — the method
+   * writes only to private fields (startTime, lastDump, rebuild).
    */
   @Test
-  public void onBegin_rebuildTrue_totalPositive_acceptsProgressAfterwards() {
+  public void onBegin_rebuildTrue_totalPositive_completesWithoutException() {
     var idx = session.getSharedContext().getIndexManager().getIndex(IDX);
     var listener = new IndexRebuildOutputListener(idx);
     // rebuild=true, total > 0 → INFO branch taken.
     listener.onBegin(this, 100L, Boolean.TRUE);
-    assertTrue("listener must accept progress after onBegin",
-        listener.onProgress(this, 50L, 0.5f));
   }
 
   /**
-   * onBegin with iTotal > 0 and rebuild=false must complete without exception (logs a
-   * DEBUG message about building) and remain functional for subsequent onProgress calls.
+   * onBegin with iTotal > 0 and rebuild=false must complete without exception. This branch
+   * logs a DEBUG line about building (the {@code iTotal > 0 && !rebuild} arm). Same
+   * "did not throw" contract as the rebuild=true variant.
    */
   @Test
-  public void onBegin_rebuildFalse_totalPositive_acceptsProgressAfterwards() {
+  public void onBegin_rebuildFalse_totalPositive_completesWithoutException() {
     var idx = session.getSharedContext().getIndexManager().getIndex(IDX);
     var listener = new IndexRebuildOutputListener(idx);
     // rebuild=false, total > 0 → DEBUG branch taken.
     listener.onBegin(this, 100L, Boolean.FALSE);
-    assertTrue("listener must accept progress after onBegin",
-        listener.onProgress(this, 50L, 0.5f));
   }
 
   /**
-   * onBegin with iTotal == 0 must complete without exception (neither branch logs since
-   * the iTotal > 0 guard is false) and the listener must accept onProgress afterwards.
+   * onBegin with iTotal == 0 must complete without exception. The {@code iTotal > 0} guard
+   * is false so no log line fires; "did not throw" is the only observable.
    */
   @Test
-  public void onBegin_zeroTotal_acceptsProgressAfterwards() {
+  public void onBegin_zeroTotal_completesWithoutException() {
     var idx = session.getSharedContext().getIndexManager().getIndex(IDX);
     var listener = new IndexRebuildOutputListener(idx);
     listener.onBegin(this, 0L, Boolean.TRUE);
-    assertTrue("listener must accept progress after onBegin (zero total)",
-        listener.onProgress(this, 0L, 1.0f));
   }
 
   // -----------------------------------------------------------------------

@@ -6,6 +6,7 @@ import static org.junit.Assert.assertTrue;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import org.junit.Test;
 
 /**
@@ -124,10 +125,10 @@ public class IndexComparatorTest {
    */
   @Test
   public void testCompositeKeyCompareToAlwaysGreaterKey() {
-    var normal = new com.jetbrains.youtrackdb.internal.core.index.CompositeKey();
+    var normal = new CompositeKey();
     normal.addKey("z");
 
-    var withSentinel = new com.jetbrains.youtrackdb.internal.core.index.CompositeKey();
+    var withSentinel = new CompositeKey();
     withSentinel.addKey(new AlwaysGreaterKey());
 
     // normal < withSentinel because AlwaysGreaterKey is always greater
@@ -155,10 +156,10 @@ public class IndexComparatorTest {
    */
   @Test
   public void testCompositeKeyCompareToAlwaysLessKey() {
-    var normal = new com.jetbrains.youtrackdb.internal.core.index.CompositeKey();
+    var normal = new CompositeKey();
     normal.addKey("a");
 
-    var withSentinel = new com.jetbrains.youtrackdb.internal.core.index.CompositeKey();
+    var withSentinel = new CompositeKey();
     withSentinel.addKey(new AlwaysLessKey());
 
     // normal > withSentinel because AlwaysLessKey is always less
