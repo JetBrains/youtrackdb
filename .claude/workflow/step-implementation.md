@@ -76,20 +76,23 @@ Before spawning the first implementer:
 
    ```bash
    python3 .claude/scripts/render-slim-plan.py \
-       --plan-path docs/adr/<dir-name>/_workflow/implementation-plan.md
+       --plan-path docs/adr/<dir-name>/_workflow/implementation-plan.md \
+       --out /tmp/claude-code-plan-slim-$PPID.md
    ```
 
    The script implements the rule from
    [`plan-slim-rendering.md`](plan-slim-rendering.md); do not re-derive
-   the transform inline. With no `--out` it writes
-   `/tmp/claude-code-plan-slim-<ppid>.md` using its parent (the
-   orchestrator) PID, matching the snapshot path convention. Both the
-   implementer and any dimensional review sub-agents read this
-   snapshot by path — it keeps the orchestrator's tool-call history
-   from accumulating a plan copy per spawn. Regenerate the snapshot
-   only if inline replanning (ESCALATE) modifies the plan mid-session.
-   The snapshot lives in `/tmp` (not under `_workflow/`) and is not
-   committed.
+   the transform inline. **Always pass `--out` explicitly** with
+   `$PPID` — the orchestrator's PID inside its bash shell. The script
+   does not auto-derive this path because, when invoked via the Bash
+   tool, the script's parent is the bash shell, not the orchestrator,
+   so any default would silently drift to the wrong PID and sub-agents
+   would see a missing snapshot. Both the implementer and any
+   dimensional review sub-agents read this snapshot by path — it keeps
+   the orchestrator's tool-call history from accumulating a plan copy
+   per spawn. Regenerate the snapshot only if inline replanning
+   (ESCALATE) modifies the plan mid-session. The snapshot lives in
+   `/tmp` (not under `_workflow/`) and is not committed.
 3. **Detect orphan commits.** Run `git log --oneline
    {base_commit}..HEAD` and inspect the result. If it shows orphan
    implementer commits, orphan `Review fix:` commits, or a

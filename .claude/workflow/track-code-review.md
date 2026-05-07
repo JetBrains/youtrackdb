@@ -118,19 +118,22 @@ of the changes.
 
    ```bash
    python3 .claude/scripts/render-slim-plan.py \
-       --plan-path docs/adr/<dir-name>/_workflow/implementation-plan.md
+       --plan-path docs/adr/<dir-name>/_workflow/implementation-plan.md \
+       --out /tmp/claude-code-plan-slim-$PPID.md
    ```
 
    The script implements the rule from
    [`plan-slim-rendering.md`](plan-slim-rendering.md); do not re-derive
-   the transform inline. With no `--out` it writes
-   `/tmp/claude-code-plan-slim-<ppid>.md` using its parent (the
-   orchestrator) PID, matching the snapshot path convention.
-   Sub-agents spawned for track-level review will read this snapshot
-   by path — this keeps the main agent's tool-call history from
-   accumulating a plan copy per sub-agent spawn. Regenerate the
-   snapshot if plan corrections are applied during the review loop
-   (before the next spawn batch).
+   the transform inline. **Always pass `--out` explicitly** with
+   `$PPID` — the orchestrator's PID inside its bash shell. The script
+   does not auto-derive this path because, when invoked via the Bash
+   tool, the script's parent is the bash shell, not the orchestrator,
+   so any default would silently drift to the wrong PID and sub-agents
+   would see a missing snapshot. Sub-agents spawned for track-level
+   review will read this snapshot by path — this keeps the main
+   agent's tool-call history from accumulating a plan copy per
+   sub-agent spawn. Regenerate the snapshot if plan corrections are
+   applied during the review loop (before the next spawn batch).
 5. Use `{base_commit}` when spawning all review sub-agents.
    All sub-agents review `git diff {base_commit}..HEAD`.
 
