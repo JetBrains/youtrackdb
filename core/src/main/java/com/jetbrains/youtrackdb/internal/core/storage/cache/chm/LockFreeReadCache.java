@@ -155,6 +155,11 @@ public final class LockFreeReadCache implements ReadCache {
       final LogSequenceNumber startLSN) {
     final var cacheEntry = doLoad(fileId, (int) pageIndex, writeCache, verifyChecksums);
 
+    // TODO: collapse this null branch once `addPage`/`allocateNewPage` are deleted.
+    // doLoad now delegates to WriteCache#loadOrAdd, which is total — the returned
+    // CacheEntry is never null on the rewired path. The guard is kept here as a
+    // defensive belt during the migration window and removed alongside the
+    // addPage/allocateNewPage write-side API.
     if (cacheEntry != null) {
       cacheEntry.acquireExclusiveLock();
       writeCache.updateDirtyPagesTable(cacheEntry.getCachePointer(), startLSN);
@@ -275,14 +280,18 @@ public final class LockFreeReadCache implements ReadCache {
                         // releaseFromWrite's isNewlyAllocatedPage() check publishes it on
                         // the dirty-page list. Reading filledUpTo is cheap (in-memory size
                         // probe under filesLock.readLock) and racing with a concurrent
-                        // allocator is harmless: invariant I4 (per-component locks) keeps
-                        // two callers from targeting the same (fileId, pageIndex) from
-                        // different transactions, so a worst-case stale snapshot only
+                        // allocator is harmless: per-component locks (BTree mutex,
+                        // position-map mutex, etc.) serialize concurrent allocators on the
+                        // same fileId, so two transactions cannot concurrently target the
+                        // same (fileId, pageIndex). A worst-case stale snapshot only
                         // mis-flags as new a page that was just freshly allocated by the
                         // same transaction — which is still correct.
                         final var preCallFilledUpTo = writeCache.getFilledUpTo(fileId);
                         final var pointer =
                             writeCache.loadOrAdd(fileId, pageIndex, verifyChecksums);
+                        assert pointer != null
+                            : "WriteCache.loadOrAdd contract violation: null CachePointer for"
+                                + " fileId=" + fileId + " pageIndex=" + pageIndex;
 
                         cacheSize.incrementAndGet();
                         final var newEntry =

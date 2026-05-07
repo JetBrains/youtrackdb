@@ -21,6 +21,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -367,11 +368,11 @@ public class LockFreeReadCacheBatchingTest {
   }
 
   /**
-   * loadForWrite also calls doLoad internally, so cache hits through loadForWrite should
-   * correctly interact with the batching mechanism (afterRead is called on hits).
+   * loadOrAddForWrite also calls doLoad internally, so cache hits through loadOrAddForWrite
+   * should correctly interact with the batching mechanism (afterRead is called on hits).
    */
   @Test
-  public void testLoadForWriteWithBatching() {
+  public void testLoadOrAddForWriteWithBatching() {
     // Load page (miss)
     var entry = readCache.loadForRead(0, 0, writeCache, false);
     readCache.releaseFromRead(entry);
@@ -386,6 +387,93 @@ public class LockFreeReadCacheBatchingTest {
 
     readCache.assertSize();
     readCache.assertConsistency();
+  }
+
+  // --- markAllocated branch contract on the write-load path ---
+  //
+  // The write-load primitive must flag the resulting CacheEntry as newly allocated whenever
+  // the requested pageIndex sits at-or-beyond the file's filledUpTo (an extend or gap-fill),
+  // and must NOT set the flag when the page was already on disk (existing page). The flag is
+  // load-bearing: releaseFromWrite uses isNewlyAllocatedPage() to decide whether to publish a
+  // dirty-page record even when the caller passes changed=false. Without these tests, every
+  // existing test ran with filledUpTo == 0 (the mock default), so the markAllocated line
+  // fired unconditionally and a deletion of the line would have passed the entire test suite.
+
+  /**
+   * On the write-load path, when {@code pageIndex >= filledUpTo} (the extend branch), the
+   * returned CacheEntry must be flagged as newly allocated. With the flag set, a subsequent
+   * {@code releaseFromWrite} call with {@code changed=false} must still publish the page on
+   * the dirty-page list — verified here by counting {@link
+   * MockedWriteCache#storeCount}.
+   */
+  @Test
+  public void testWriteLoadFlagsExtendedPageAsNewlyAllocated() {
+    // filledUpTo defaults to 0 — every pageIndex is in the extend branch.
+    var entry = readCache.loadOrAddForWrite(0, 5, writeCache, false, null);
+    Assert.assertTrue(
+        "extend-branch entry must be flagged newly allocated before releaseFromWrite",
+        entry.isNewlyAllocatedPage());
+
+    int storesBefore = writeCache.storeCount.get();
+    readCache.releaseFromWrite(entry, writeCache, /*changed=*/false);
+    Assert.assertEquals(
+        "releaseFromWrite must publish the dirty page exactly once when the entry is flagged"
+            + " newly allocated, even with changed=false",
+        storesBefore + 1, writeCache.storeCount.get());
+  }
+
+  /**
+   * On the write-load path, when {@code pageIndex < filledUpTo} (existing page on disk), the
+   * returned CacheEntry must NOT be flagged as newly allocated. This is the test that
+   * discriminates the markAllocated conditional — a regression that always set the flag would
+   * fire here.
+   */
+  @Test
+  public void testWriteLoadDoesNotFlagExistingPageAsNewlyAllocated() {
+    writeCache.setFilledUpTo(0L, 10L);
+
+    var entry = readCache.loadOrAddForWrite(0, 3, writeCache, false, null);
+    Assert.assertFalse(
+        "existing-page entry must NOT be flagged newly allocated",
+        entry.isNewlyAllocatedPage());
+
+    readCache.releaseFromWrite(entry, writeCache, /*changed=*/false);
+  }
+
+  /**
+   * Boundary case: when {@code pageIndex == filledUpTo} (one-page extend), the returned entry
+   * must still be flagged as newly allocated. This pins the {@code >=} (not {@code >})
+   * inequality in the markAllocated guard — a regression that swapped the operator would
+   * mis-classify the boundary page as existing and lose its dirty-publish.
+   */
+  @Test
+  public void testWriteLoadFlagsBoundaryPageAsNewlyAllocated() {
+    writeCache.setFilledUpTo(0L, 5L);
+
+    var entry = readCache.loadOrAddForWrite(0, 5, writeCache, false, null);
+    Assert.assertTrue(
+        "boundary-page entry (pageIndex == filledUpTo) must be flagged newly allocated",
+        entry.isNewlyAllocatedPage());
+
+    readCache.releaseFromWrite(entry, writeCache, /*changed=*/false);
+  }
+
+  /**
+   * Read-path contract: the read-load primitive must never flag the resulting CacheEntry as
+   * newly allocated, even when {@code pageIndex < filledUpTo}. The markAllocated logic lives
+   * solely on the write-load primitive; pinning this here prevents a future refactor from
+   * accidentally bleeding the flag-set into the read-only path.
+   */
+  @Test
+  public void testReadLoadDoesNotFlagPageAsNewlyAllocatedUnderProperFilledUpTo() {
+    writeCache.setFilledUpTo(0L, 10L);
+
+    var entry = readCache.loadForRead(0, 5, writeCache, false);
+    Assert.assertFalse(
+        "read-load must never flag the entry as newly allocated",
+        entry.isNewlyAllocatedPage());
+
+    readCache.releaseFromRead(entry);
   }
 
   /**
@@ -1159,6 +1247,22 @@ public class LockFreeReadCacheBatchingTest {
     private final int storageId;
     final AtomicInteger closeCount = new AtomicInteger();
     final AtomicInteger deleteCount = new AtomicInteger();
+    /**
+     * Counts {@link #store} invocations so tests can verify whether {@code releaseFromWrite}
+     * actually published a dirty page. Used by the markAllocated branch tests to discriminate
+     * the "newly-allocated" vs "existing" loadOrAddForWrite paths: with the flag set, a
+     * {@code releaseFromWrite(entry, writeCache, false)} call must still trigger
+     * {@code store}; without it, the call must be a no-op.
+     */
+    final AtomicInteger storeCount = new AtomicInteger();
+    /**
+     * Per-fileId logical page count returned from {@link #getFilledUpTo}. Tests use
+     * {@link #setFilledUpTo} to simulate a non-empty file so the loadOrAddForWrite
+     * "existing page" branch can be exercised; without an explicit override the default of
+     * 0 is returned (matching the previous mock behavior, which makes every page index
+     * &gt;= filledUpTo and therefore "newly allocated").
+     */
+    private final Map<Long, Long> filledUpToByFile = new ConcurrentHashMap<>();
 
     MockedWriteCache(final ByteBufferPool byteBufferPool) {
       this(byteBufferPool, 0);
@@ -1174,6 +1278,15 @@ public class LockFreeReadCacheBatchingTest {
 
     ByteBufferPool byteBufferPool() {
       return byteBufferPool;
+    }
+
+    /**
+     * Sets the value {@link #getFilledUpTo} should return for a given fileId. Used by tests
+     * that need to discriminate the loadOrAddForWrite extend-vs-existing branch — the
+     * existing-page branch only fires when {@code pageIndex < filledUpTo}.
+     */
+    void setFilledUpTo(final long fileId, final long value) {
+      filledUpToByFile.put(fileId, value);
     }
 
     @Override
@@ -1243,6 +1356,7 @@ public class LockFreeReadCacheBatchingTest {
     @Override
     public void store(
         final long fileId, final long pageIndex, final CachePointer dataPointer) {
+      storeCount.incrementAndGet();
     }
 
     @Override
@@ -1287,7 +1401,7 @@ public class LockFreeReadCacheBatchingTest {
 
     @Override
     public long getFilledUpTo(final long fileId) {
-      return 0;
+      return filledUpToByFile.getOrDefault(fileId, 0L);
     }
 
     @Override

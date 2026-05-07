@@ -58,6 +58,19 @@ public interface ReadCache {
     return addFile(fileName, fileId, writeCache);
   }
 
+  /**
+   * Loads the page at {@code pageIndex} in {@code fileId} for write access, allocating it on
+   * disk if it does not yet exist. Unlike a pure load, this primitive is total: it returns a
+   * usable {@link CacheEntry} for any open, non-deleted file regardless of whether
+   * {@code pageIndex} is already on disk. When the page is freshly extended (or sits in a
+   * just-filled gap), the returned entry is flagged as newly allocated so that
+   * {@link #releaseFromWrite} publishes it on the write cache's dirty-page list.
+   *
+   * <p>The caller receives the entry already write-pinned and with its dirty-pages-table
+   * record installed against {@code startLSN}.
+   *
+   * @see WriteCache#loadOrAdd
+   */
   CacheEntry loadOrAddForWrite(
       long fileId,
       long pageIndex,

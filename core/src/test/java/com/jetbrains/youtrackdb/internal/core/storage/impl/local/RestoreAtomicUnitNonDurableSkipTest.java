@@ -103,7 +103,7 @@ public class RestoreAtomicUnitNonDurableSkipTest {
 
   /**
    * Verifies that UpdatePageRecord for a non-durable file is skipped — no restoreFileById,
-   * no loadForWrite, no exception thrown.
+   * no loadOrAddForWrite, no exception thrown.
    */
   @Test
   public void testUpdatePageRecordSkippedForNonDurableFile() throws Exception {
@@ -119,7 +119,7 @@ public class RestoreAtomicUnitNonDurableSkipTest {
     final var atLeastOnePageUpdate = new ModifiableBoolean();
     storage.restoreAtomicUnit(atomicUnit, atLeastOnePageUpdate);
 
-    // Non-durable file should NOT trigger restoreFileById or loadForWrite
+    // Non-durable file should NOT trigger restoreFileById or loadOrAddForWrite
     verify(writeCache, never()).restoreFileById(ND_EXTERNAL_ID);
     verify(readCache, never()).loadOrAddForWrite(
         eq(ND_EXTERNAL_ID), anyLong(), any(), anyBoolean(), any());
@@ -219,7 +219,7 @@ public class RestoreAtomicUnitNonDurableSkipTest {
     // Configure writeCache for durable file processing
     when(writeCache.externalFileId(DURABLE_INTERNAL_ID)).thenReturn(DURABLE_EXTERNAL_ID);
 
-    // Configure readCache.loadForWrite to return a mock CacheEntry for the durable file.
+    // Configure readCache.loadOrAddForWrite to return a mock CacheEntry for the durable file.
     // The CacheEntry → CachePointer → ByteBuffer chain must be set up so DurablePage can
     // read the page LSN (needed by restoreAtomicUnit's comparison logic).
     final var cacheEntry =

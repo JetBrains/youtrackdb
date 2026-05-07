@@ -609,7 +609,7 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     when(restoreWriteCache.fileNameById(durableFileId))
         .thenReturn("durable-file.dat");
 
-    // restoreAtomicUnit calls loadForWrite for PageOperation
+    // restoreAtomicUnit calls loadOrAddForWrite for PageOperation
     var restoreCacheEntry = createCacheEntryWithBuffer(durableFileId, 0);
     when(restoreReadCache.loadOrAddForWrite(
         eq(durableFileId), eq(0L), eq(restoreWriteCache), anyBoolean(), any()))
@@ -652,7 +652,7 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
    * SF9 — Verifies the deletedNonDurableFileIds skip path in restoreAtomicUnit():
    * when WAL records reference a non-durable file ID that was deleted during crash
    * recovery, restoreAtomicUnit() must skip those records without calling
-   * readCache.addFile, readCache.deleteFile, or readCache.loadForWrite for that file.
+   * readCache.addFile, readCache.deleteFile, or readCache.loadOrAddForWrite for that file.
    * This tests the last line of defense in crash recovery — even if stale WAL records
    * exist for non-durable files, they must not be replayed.
    */
@@ -744,7 +744,7 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
         "durable-file.dat", durableFileId, restoreWriteCache);
 
     // Non-durable file must have been skipped entirely — no addFile, no
-    // loadForWrite, no deleteFile for the non-durable file ID
+    // loadOrAddForWrite, no deleteFile for the non-durable file ID
     verify(restoreReadCache, never()).addFile(
         eq("nd-file.dat"), anyLong(), any());
     verify(restoreReadCache, never()).loadOrAddForWrite(

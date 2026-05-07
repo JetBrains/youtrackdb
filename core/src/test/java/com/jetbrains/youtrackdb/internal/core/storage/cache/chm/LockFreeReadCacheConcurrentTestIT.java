@@ -57,7 +57,7 @@ public class LockFreeReadCacheConcurrentTestIT {
 
   /**
    * Concurrent reads + writes with eviction on a small cache. Multiple threads call
-   * loadForRead/loadForWrite on a 4MB cache (small enough to force frequent eviction). Verifies: no
+   * loadForRead/loadOrAddForWrite on a 4MB cache (small enough to force frequent eviction). Verifies: no
    * exceptions, no data corruption, cache internal consistency after all threads complete, and that
    * memory usage stays within bounds.
    */
