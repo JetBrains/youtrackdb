@@ -61,12 +61,16 @@ public class IndexManagerEmbeddedTest extends DbTestBase {
   }
 
   /**
-   * Calling addCollectionToIndex for an index name that does not exist must throw
-   * IndexException (NullPointerException from index.getCollections() propagates as
-   * RuntimeException; in practice the manager propagates it as-is).
+   * Calling addCollectionToIndex for an index name that does not exist throws
+   * NullPointerException because the manager looks up the index by name (which returns null)
+   * and then dereferences {@code index.getCollections()}. We pin the exact exception type
+   * rather than the broader RuntimeException so a future hardening pass that adds a
+   * defensive null-check (and changes the contract to IndexException) is forced to update
+   * this test deliberately. WHEN-FIXED: tighten to the new defensive-check exception type
+   * if/when the manager guards the null index lookup.
    */
-  @Test(expected = RuntimeException.class)
-  public void addCollectionToIndex_unknownIndexName_throwsException() {
+  @Test(expected = NullPointerException.class)
+  public void addCollectionToIndex_unknownIndexName_throwsNullPointerException() {
     var mgr = (IndexManagerEmbedded) session.getSharedContext().getIndexManager();
     session.addCollection("imeColl2");
     // "NoSuchIdx" does not exist → index lookup returns null → NPE

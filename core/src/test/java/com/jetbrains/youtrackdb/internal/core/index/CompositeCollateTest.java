@@ -12,7 +12,6 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeIntern
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import java.util.Arrays;
 import java.util.List;
-import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -28,7 +27,11 @@ public class CompositeCollateTest extends DbTestBase {
 
   @Before
   public void setUp() {
-    session.begin();
+    // No transaction is needed here: every test below operates purely on the CompositeCollate
+    // API (transform, equals, addCollate) and SQLEngine.getCollate, which are session-static.
+    // Wrapping the test body in a TX would only mask leaks if a future test accidentally
+    // started using DB state; if that happens, re-introduce session.begin/rollback at that
+    // point.
     ownerDef = new CompositeIndexDefinition("testClass");
     ownerDef.addIndex(
         new PropertyIndexDefinition("testClass", "f1", PropertyTypeInternal.STRING));
@@ -40,11 +43,6 @@ public class CompositeCollateTest extends DbTestBase {
     collate.addCollate(SQLEngine.getCollate(CaseInsensitiveCollate.NAME));
     // default (identity) collate at position 1
     collate.addCollate(SQLEngine.getCollate(DefaultCollate.NAME));
-  }
-
-  @After
-  public void tearDown() {
-    session.rollback();
   }
 
   // ---- getName ---------------------------------------------------------------

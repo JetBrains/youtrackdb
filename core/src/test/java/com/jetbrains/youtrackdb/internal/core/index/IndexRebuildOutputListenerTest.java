@@ -46,37 +46,44 @@ public class IndexRebuildOutputListenerTest extends DbTestBase {
 
   /**
    * onBegin with iTotal > 0 and rebuild=true must complete without exception (logs an
-   * INFO message about rebuilding).
+   * INFO message about rebuilding) and the listener must remain functional afterwards —
+   * a follow-up onProgress call must return true to continue iteration.
    */
   @Test
-  public void onBegin_rebuildTrue_totalPositive_completesWithoutException() {
+  public void onBegin_rebuildTrue_totalPositive_acceptsProgressAfterwards() {
     var idx = session.getSharedContext().getIndexManager().getIndex(IDX);
     var listener = new IndexRebuildOutputListener(idx);
     // rebuild=true, total > 0 → INFO branch taken.
     listener.onBegin(this, 100L, Boolean.TRUE);
+    assertTrue("listener must accept progress after onBegin",
+        listener.onProgress(this, 50L, 0.5f));
   }
 
   /**
    * onBegin with iTotal > 0 and rebuild=false must complete without exception (logs a
-   * DEBUG message about building).
+   * DEBUG message about building) and remain functional for subsequent onProgress calls.
    */
   @Test
-  public void onBegin_rebuildFalse_totalPositive_completesWithoutException() {
+  public void onBegin_rebuildFalse_totalPositive_acceptsProgressAfterwards() {
     var idx = session.getSharedContext().getIndexManager().getIndex(IDX);
     var listener = new IndexRebuildOutputListener(idx);
     // rebuild=false, total > 0 → DEBUG branch taken.
     listener.onBegin(this, 100L, Boolean.FALSE);
+    assertTrue("listener must accept progress after onBegin",
+        listener.onProgress(this, 50L, 0.5f));
   }
 
   /**
    * onBegin with iTotal == 0 must complete without exception (neither branch logs since
-   * the iTotal > 0 guard is false).
+   * the iTotal > 0 guard is false) and the listener must accept onProgress afterwards.
    */
   @Test
-  public void onBegin_zeroTotal_completesWithoutException() {
+  public void onBegin_zeroTotal_acceptsProgressAfterwards() {
     var idx = session.getSharedContext().getIndexManager().getIndex(IDX);
     var listener = new IndexRebuildOutputListener(idx);
     listener.onBegin(this, 0L, Boolean.TRUE);
+    assertTrue("listener must accept progress after onBegin (zero total)",
+        listener.onProgress(this, 0L, 1.0f));
   }
 
   // -----------------------------------------------------------------------
@@ -103,36 +110,41 @@ public class IndexRebuildOutputListenerTest extends DbTestBase {
 
   /**
    * onCompletition with rebuild=true and a non-empty index must log the INFO message about
-   * indexed items and complete without exception.
+   * indexed items, complete without exception, and remain idempotent — a second invocation
+   * must not throw.
    */
   @Test
-  public void onCompletition_rebuildTrue_nonEmptyIndex_completesWithoutException() {
+  public void onCompletition_rebuildTrue_nonEmptyIndex_isIdempotent() {
     var idx = session.getSharedContext().getIndexManager().getIndex(IDX);
     var listener = new IndexRebuildOutputListener(idx);
     listener.onBegin(this, 3L, Boolean.TRUE);
     // iSucceed=true, index has 3 entries — the idxSize > 0 + rebuild=true INFO branch fires.
     listener.onCompletition(session, this, true);
+    // Calling onCompletition again must remain a safe no-op (idempotent contract).
+    listener.onCompletition(session, this, true);
   }
 
   /**
    * onCompletition with rebuild=false and a non-empty index must complete without exception
-   * (takes the DEBUG branch for idxSize > 0 + rebuild=false).
+   * (takes the DEBUG branch for idxSize > 0 + rebuild=false) and is idempotent.
    */
   @Test
-  public void onCompletition_rebuildFalse_nonEmptyIndex_completesWithoutException() {
+  public void onCompletition_rebuildFalse_nonEmptyIndex_isIdempotent() {
     var idx = session.getSharedContext().getIndexManager().getIndex(IDX);
     var listener = new IndexRebuildOutputListener(idx);
     listener.onBegin(this, 3L, Boolean.FALSE);
     // rebuild=false → idxSize > 0 + rebuild=false DEBUG branch fires.
     listener.onCompletition(session, this, true);
+    listener.onCompletition(session, this, true);
   }
 
   /**
    * onCompletition with an empty index (idxSize == 0) must complete without exception
-   * (neither INFO nor DEBUG branch inside onCompletition fires).
+   * (neither INFO nor DEBUG branch inside onCompletition fires) and remain idempotent under
+   * a second invocation.
    */
   @Test
-  public void onCompletition_emptyIndex_completesWithoutException() {
+  public void onCompletition_emptyIndex_isIdempotent() {
     // Create a separate class+index with no records.
     var emptyClass = "IrolEmptyCls";
     var emptyIdx = emptyClass + ".v";
@@ -144,6 +156,7 @@ public class IndexRebuildOutputListenerTest extends DbTestBase {
     var listener = new IndexRebuildOutputListener(idx);
     listener.onBegin(this, 0L, Boolean.TRUE);
     // idxSize == 0 → no log output, must not throw.
+    listener.onCompletition(session, this, false);
     listener.onCompletition(session, this, false);
   }
 }

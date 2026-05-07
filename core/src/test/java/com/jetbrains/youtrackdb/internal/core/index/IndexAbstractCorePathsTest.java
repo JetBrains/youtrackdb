@@ -4,12 +4,15 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import org.junit.Test;
@@ -27,8 +30,9 @@ import org.junit.Test;
  */
 public class IndexAbstractCorePathsTest extends DbTestBase {
 
+  // Inline class names per test keep each fixture independent. Constants would only be useful
+  // if multiple tests shared the same class — which they don't here.
   private static final String CLASS_NAME = "AbsCorePathsTest";
-  private static final String IDX_NAME = CLASS_NAME + ".prop";
 
   // -----------------------------------------------------------------------
   //  Key normalization: enhanceToCompositeKeyBetweenAsc / Desc
@@ -41,10 +45,6 @@ public class IndexAbstractCorePathsTest extends DbTestBase {
    */
   @Test
   public void enhanceToCompositeKeyBetweenAsc_inclusive_usesHighestBoundary() {
-    session.createClass(CLASS_NAME).createProperty("prop", PropertyType.STRING);
-    session.getMetadata().getSchema().getClass(CLASS_NAME)
-        .createIndex(IDX_NAME, SchemaClass.INDEX_TYPE.UNIQUE, "prop");
-
     // Create a composite index on two string properties to exercise the enhancement path.
     var multiClass = session.createClass("AbsCorePathsTestMulti");
     multiClass.createProperty("a", PropertyType.STRING);
@@ -254,12 +254,13 @@ public class IndexAbstractCorePathsTest extends DbTestBase {
     var index = (IndexAbstract) session.getSharedContext().getIndexManager()
         .getIndex("AbsCoreFullKey.ab");
 
-    // Two-component key for a 2-field index: already full, no padding needed.
+    // Two-component key for a 2-field index: already full, no padding needed. The production
+    // contract is that enhanceCompositeKey returns the original reference unchanged, not a
+    // re-wrapped equal CompositeKey — pin the reference identity so a future refactor that
+    // creates a fresh CompositeKey of the same shape would fail this assertion.
     var full = new CompositeKey(List.of("hello", "world"));
-    assertFalse("full key should be returned unchanged (not re-wrapped)",
-        index.enhanceToCompositeKeyBetweenAsc(full, true) != full
-            && ((CompositeKey) index.enhanceToCompositeKeyBetweenAsc(full, true)).getKeys().size()
-                > 2);
+    Object enhanced = index.enhanceToCompositeKeyBetweenAsc(full, true);
+    assertSame("full key must be returned by reference (not re-wrapped)", full, enhanced);
   }
 
   // -----------------------------------------------------------------------
@@ -305,8 +306,8 @@ public class IndexAbstractCorePathsTest extends DbTestBase {
     var index = (IndexAbstract) session.getSharedContext().getIndexManager().getIndex(idxName);
     var algorithm = index.getAlgorithm();
 
-    assertNotNull("algorithm must not be null", algorithm);
-    assertFalse("algorithm must not be empty", algorithm.isEmpty());
+    assertEquals("default UNIQUE index must report BTREE algorithm",
+        DefaultIndexFactory.BTREE_ALGORITHM, algorithm);
   }
 
   /**
@@ -330,7 +331,7 @@ public class IndexAbstractCorePathsTest extends DbTestBase {
     assertFalse("collections set must not be empty for an automatic index", collections.isEmpty());
     // The internal cluster name is stored as "<lowercased-class-name>_<N>". Verify that at
     // least one collection name starts with the lowercase class-name prefix.
-    var lowerCls = clsName.toLowerCase(java.util.Locale.ENGLISH);
+    var lowerCls = clsName.toLowerCase(Locale.ENGLISH);
     assertTrue("collections must contain a cluster name derived from the class name",
         collections.stream().anyMatch(c -> c.startsWith(lowerCls)));
   }
@@ -470,17 +471,12 @@ public class IndexAbstractCorePathsTest extends DbTestBase {
   }
 
   // -----------------------------------------------------------------------
-  //  interpretTxKeyChanges — base-class passthrough
+  //  get() — no-result branch on a UNIQUE index
   // -----------------------------------------------------------------------
 
   /**
-   * {@code IndexAbstract.interpretTxKeyChanges} (the base implementation in NOTUNIQUE indexes)
-   * returns the raw entry list from the changes-per-key record. This verifies that the
-   * NOTUNIQUE override delegates to {@code changes.getEntriesAsList()} rather than any
-   * interpretation logic.
-   *
-   * <p>We exercise this via a NOTUNIQUE index's TX stream, which internally calls
-   * {@code interpretTxKeyChanges} during TX accumulation.
+   * IndexOneValue.get() returns null when the key is absent from a UNIQUE index. This is the
+   * no-result branch of {@code getRids → findFirst()}.
    */
   @Test
   public void getInternal_noResult_returnsNull() {
@@ -585,7 +581,7 @@ public class IndexAbstractCorePathsTest extends DbTestBase {
 
     session.begin();
     var index = session.getSharedContext().getIndexManager().getIndex(idxName);
-    var keys = new java.util.ArrayList<String>();
+    var keys = new ArrayList<String>();
     try (var s = index.descStream(session)) {
       s.forEach(p -> keys.add((String) p.first()));
     }
@@ -620,7 +616,7 @@ public class IndexAbstractCorePathsTest extends DbTestBase {
 
     session.begin();
     var index = session.getSharedContext().getIndexManager().getIndex(idxName);
-    var keys = new java.util.ArrayList<String>();
+    var keys = new ArrayList<String>();
     try (var s = index.streamEntries(session, List.of("apple", "cherry"), true)) {
       s.forEach(p -> keys.add((String) p.first()));
     }

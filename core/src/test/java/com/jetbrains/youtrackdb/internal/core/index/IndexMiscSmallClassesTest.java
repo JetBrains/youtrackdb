@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.index;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
@@ -111,9 +112,9 @@ public class IndexMiscSmallClassesTest {
   public void indexUpdateAction_changed_createsNewInstanceEachTime() {
     var a1 = IndexUpdateAction.changed("v");
     var a2 = IndexUpdateAction.changed("v");
-    // Different objects, but same value.
-    assertFalse("changed() must not return the same instance twice",
-        a1 == a2);
+    // Different objects, but same value. assertNotSame is the canonical reference-inequality
+    // idiom; assertFalse on `a1 == a2` works but is non-idiomatic.
+    assertNotSame("changed() must allocate a fresh instance per call", a1, a2);
     assertEquals("both instances must report the same value", a1.getValue(), a2.getValue());
   }
 
@@ -245,13 +246,13 @@ public class IndexMiscSmallClassesTest {
 
   /**
    * {@code IndexException(IndexException)} copy constructor propagates the original exception
-   * details.
+   * message — the copy is a faithful clone of the original.
    */
   @Test
-  public void indexException_copyConstructor_propagatesDetails() {
+  public void indexException_copyConstructor_propagatesMessage() {
     var original = new IndexException("original error");
     var copy = new IndexException(original);
-    assertNotNull("copy exception must not be null", copy);
+    assertEquals("copy must preserve message", original.getMessage(), copy.getMessage());
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -282,12 +283,24 @@ public class IndexMiscSmallClassesTest {
   }
 
   /**
-   * {@code IndexEngineException(IndexEngineException)} copy constructor.
+   * {@code IndexEngineException(IndexEngineException)} copy constructor propagates the
+   * original error text and the dbName field. Note: the copy chain through CoreException
+   * currently re-appends {@code DB Name="…"} a second time because the super-call passes
+   * the already-formatted {@code exception.getMessage()} into BaseException, which then
+   * re-formats it via the overridden {@code CoreException.getMessage()}. We assert the
+   * original error text and the dbName are present rather than full-string equality, so
+   * this test pins observable behaviour without locking in the double-append. WHEN-FIXED:
+   * if the CoreException copy chain is hardened to avoid the re-format, tighten this to
+   * assertEquals(original.getMessage(), copy.getMessage()).
    */
   @Test
-  public void indexEngineException_copyConstructor_propagatesDetails() {
+  public void indexEngineException_copyConstructor_propagatesMessage() {
     var original = new IndexEngineException("db", "original engine error");
     var copy = new IndexEngineException(original);
-    assertNotNull("copy of IndexEngineException must not be null", copy);
+    var copyMessage = copy.getMessage();
+    assertTrue("copy must contain the original error text",
+        copyMessage.contains("original engine error"));
+    assertTrue("copy must preserve the dbName tag",
+        copyMessage.contains("DB Name=\"db\""));
   }
 }

@@ -23,14 +23,9 @@ public class IndexComparatorTest {
   private static final RID DUMMY_RID = RecordIdInternal.fromString("#1:1", false);
 
   // ---- AscComparator ---------------------------------------------------------
-
-  /**
-   * Verifies that AscComparator.INSTANCE is a singleton and compares equal to itself.
-   */
-  @Test
-  public void testAscComparatorSingleton() {
-    assertEquals(AscComparator.INSTANCE, AscComparator.INSTANCE);
-  }
+  // Note: a "singleton tautology" test (assertEquals(INSTANCE, INSTANCE)) was removed —
+  // any non-null object equals itself, so the assertion is uninformative. The behaviour
+  // tests below cover the comparator's actual contract.
 
   /**
    * Verifies that AscComparator returns 0 for entries with equal integer keys.
@@ -74,14 +69,7 @@ public class IndexComparatorTest {
   }
 
   // ---- DescComparator --------------------------------------------------------
-
-  /**
-   * Verifies that DescComparator.INSTANCE is a singleton.
-   */
-  @Test
-  public void testDescComparatorSingleton() {
-    assertEquals(DescComparator.INSTANCE, DescComparator.INSTANCE);
-  }
+  // Singleton-tautology test removed for the same reason as the Asc variant above.
 
   /**
    * Verifies that DescComparator returns 0 for entries with equal integer keys.

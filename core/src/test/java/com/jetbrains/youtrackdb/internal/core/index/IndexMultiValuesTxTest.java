@@ -10,6 +10,7 @@ import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -354,5 +355,41 @@ public class IndexMultiValuesTxTest extends DbTestBase {
 
     assertNotNull(alphaResult);
     assertEquals("'alpha' with no TX changes must return 2 committed RIDs", 2, alphaResult.size());
+  }
+
+  // -----------------------------------------------------------------------
+  //  cleared-TX branch — IndexMultiValues.streamEntriesBetween must drop committed entries
+  //  and yield ONLY the TX stream when indexChanges.cleared == true.
+  // -----------------------------------------------------------------------
+
+  /**
+   * When the TX index changes have {@code cleared == true} (set by an OPERATION.CLEAR via
+   * the public {@code FrontendTransaction.addIndexEntry} API), {@code IndexMultiValues
+   * .streamEntriesBetween}'s {@code if (indexChanges.cleared)} branch returns ONLY the TX
+   * stream — committed multi-value entries (alpha×2, beta, gamma×2) must NOT appear, and the
+   * freshly-PUT TX-only key "delta" must.
+   */
+  @Test
+  public void streamEntriesBetween_clearedTxChanges_returnsOnlyTxAddedKeys() {
+    session.begin();
+    var index = session.getSharedContext().getIndexManager().getIndex(IDX_NAME);
+    var tx = session.getTransactionInternal();
+
+    tx.addIndexEntry(index, IDX_NAME, OPERATION.CLEAR, null, null);
+
+    var placeholderRid =
+        com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal.fromString("#-1:-1", false);
+    tx.addIndexEntry(index, IDX_NAME, OPERATION.PUT, "delta", placeholderRid);
+
+    var keys = new ArrayList<String>();
+    try (Stream<RawPair<Object, RID>> s =
+        index.streamEntriesBetween(session, "alpha", true, "zzz", true, true)) {
+      s.forEach(p -> keys.add((String) p.first()));
+    }
+    session.rollback();
+
+    assertEquals(
+        "cleared TX must drop committed keys and yield only TX-added 'delta'",
+        List.of("delta"), keys);
   }
 }

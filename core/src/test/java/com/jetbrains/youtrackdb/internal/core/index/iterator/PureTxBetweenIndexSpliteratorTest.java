@@ -271,12 +271,19 @@ public class PureTxBetweenIndexSpliteratorTest extends DbTestBase {
     var index = (Index) session.getSharedContext().getIndexManager().getIndex(NOTUNIQUE_IDX);
     var keys =
         collectKeys(index.streamEntriesBetween(session, "delta", true, "epsilon", true, false));
+    // Match the single-value backward pattern: scan a range that includes the renamed-away
+    // key and verify it is NOT present in the TX-aware stream. The original "gamma"
+    // entry must be excluded because the TX has issued DELETE(gamma) before PUT(dzz).
+    var renamedAwayKeys =
+        collectKeys(index.streamEntriesBetween(session, "fzz", true, "hzz", true, false));
     session.rollback();
 
     // Keys expected: delta, dzz (TX-only), epsilon.
     assertTrue("must contain 'dzz' (TX-only rename)", keys.contains("dzz"));
     assertTrue("must contain 'delta'", keys.contains("delta"));
     assertTrue("must contain 'epsilon'", keys.contains("epsilon"));
+    assertFalse("renamed-away 'gamma' must NOT appear in [fzz, hzz]",
+        renamedAwayKeys.contains("gamma"));
   }
 
   /**
@@ -291,6 +298,10 @@ public class PureTxBetweenIndexSpliteratorTest extends DbTestBase {
 
     var index = (Index) session.getSharedContext().getIndexManager().getIndex(NOTUNIQUE_IDX);
     var keys = collectKeys(index.streamEntriesMajor(session, "delta", true, false));
+    // Verify the renamed-away key 'alpha' is excluded by querying a range that includes it.
+    // Mirrors the single-value backward pattern at backwardSpliterator_singleValue_*.
+    var rangeIncludingAlpha =
+        collectKeys(index.streamEntriesBetween(session, "alpha", true, "alpha", true, false));
     session.rollback();
 
     // All entries >= 'delta': delta, epsilon, gamma, zzz.
@@ -298,6 +309,8 @@ public class PureTxBetweenIndexSpliteratorTest extends DbTestBase {
     assertTrue("must contain 'delta'", keys.contains("delta"));
     assertTrue("must contain 'epsilon'", keys.contains("epsilon"));
     assertTrue("must contain 'gamma'", keys.contains("gamma"));
+    assertTrue("renamed-away 'alpha' must NOT appear when the range targets 'alpha'",
+        rangeIncludingAlpha.isEmpty());
   }
 
   /**
@@ -312,12 +325,17 @@ public class PureTxBetweenIndexSpliteratorTest extends DbTestBase {
 
     var index = (Index) session.getSharedContext().getIndexManager().getIndex(NOTUNIQUE_IDX);
     var keys = collectKeys(index.streamEntriesMinor(session, "beta", true, false));
+    // Verify renamed-away key 'gamma' is excluded by querying its target range.
+    var rangeIncludingGamma =
+        collectKeys(index.streamEntriesBetween(session, "gamma", true, "gamma", true, false));
     session.rollback();
 
     // All entries <= 'beta': aaa (TX-only), alpha, beta.
     assertTrue("must contain 'aaa' (TX-only rename)", keys.contains("aaa"));
     assertTrue("must contain 'alpha'", keys.contains("alpha"));
     assertTrue("must contain 'beta'", keys.contains("beta"));
+    assertTrue("renamed-away 'gamma' must NOT appear when the range targets 'gamma'",
+        rangeIncludingGamma.isEmpty());
   }
 
   /**

@@ -35,6 +35,13 @@ import org.junit.Test;
  * <p>WHEN-FIXED: pending dead-code cleanup — delete this test file in lockstep with
  * {@code IndexCursor}, {@code IndexAbstractCursor}, {@code IndexCursorStream}, and
  * {@code IndexKeyCursor}.
+ *
+ * <p><b>Naming convention deviation</b>: this is a multi-class {@code *ClusterDeadCodeTest}
+ * file rather than per-class {@code *DeadCodeTest} files (the prevailing precedent for
+ * dead-code shape pins). The deviation is intentional: the four classes form one logical
+ * cleanup unit and must be deleted together to satisfy the lockstep semantics of the
+ * deferred-cleanup queue. Future similar lockstep groups should follow the
+ * {@code *ClusterDeadCodeTest} form; isolated dead classes keep the per-class pattern.
  */
 public class IndexCursorClusterDeadCodeTest {
 
@@ -118,10 +125,15 @@ public class IndexCursorClusterDeadCodeTest {
 
   /**
    * Pins the declared public method names on {@code IndexAbstractCursor} so that a rename
-   * or addition is caught before deletion.
+   * or addition is caught before deletion. Also pins the direct supertype to {@code Object} —
+   * a future refactor that pushes any of these methods up into a new abstract parent would
+   * shrink the {@code getDeclaredMethods()} set and silently weaken the surface pin.
    */
   @Test
   public void indexAbstractCursor_publicDeclaredMethodSurface() {
+    assertSame("IndexAbstractCursor must extend Object directly",
+        Object.class, IndexAbstractCursor.class.getSuperclass());
+
     var expected = new TreeSet<>(Set.of(
         "toValues",
         "toEntries",

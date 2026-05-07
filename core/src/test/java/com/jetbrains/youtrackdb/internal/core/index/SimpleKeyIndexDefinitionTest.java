@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.collate.CaseInsensitiveCollate;
 import com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import java.util.Arrays;
@@ -264,8 +265,8 @@ public class SimpleKeyIndexDefinitionTest extends DbTestBase {
    */
   @Test(expected = IllegalArgumentException.class)
   public void testSetCollateNullThrows() {
-    simpleKeyIndexDefinition
-        .setCollate((com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate) null);
+    // Cast disambiguates between setCollate(Collate) and setCollate(String) overloads.
+    simpleKeyIndexDefinition.setCollate((Collate) null);
   }
 
   // ---- setNullValuesIgnored / isNullValuesIgnored ----------------------------

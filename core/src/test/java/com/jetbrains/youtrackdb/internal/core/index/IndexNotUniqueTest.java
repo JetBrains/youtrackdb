@@ -207,10 +207,12 @@ public class IndexNotUniqueTest extends DbTestBase {
     }
     session.rollback();
 
-    assertEquals("must return 3 entries", 3, keys.size());
-    // Verify descending: "beta" >= "alpha", so "beta" must come first (or equal).
-    assertTrue("first entry must be 'beta' in descending order", keys.get(0).equals("beta"));
-    assertFalse("last entries must be 'alpha'", keys.get(keys.size() - 1).equals("beta"));
+    // Pin the full descending sequence: committed [alpha, alpha, beta] must be emitted as
+    // [beta, alpha, alpha]. Asserting the entire list catches pairwise ordering breaks that
+    // a first-and-last spot check would miss.
+    assertEquals(
+        "descending order over committed [alpha, alpha, beta] must be [beta, alpha, alpha]",
+        List.of("beta", "alpha", "alpha"), keys);
   }
 
   // -----------------------------------------------------------------------

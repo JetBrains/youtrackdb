@@ -11,6 +11,7 @@ import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
@@ -104,17 +105,29 @@ public class IndexOneValueTxTest extends DbTestBase {
    */
   @Test
   public void getRids_withTxRename_returnsUpdatedValue() {
+    // Capture the RID of the committed "alpha" record before any TX, so we can verify that
+    // the post-rename "zzz" lookup returns the SAME RID — pinning identity, not just
+    // existence.
+    Object alphaRidBeforeRename;
+    session.begin();
+    var index = session.getSharedContext().getIndexManager().getIndex(IDX_NAME);
+    alphaRidBeforeRename = index.get(session, "alpha");
+    session.rollback();
+    assertNotNull("baseline lookup of 'alpha' must yield a RID", alphaRidBeforeRename);
+
     session.begin();
     session.execute("UPDATE " + CLASS_NAME + " SET name='zzz' WHERE name='alpha'").close();
 
-    var index = session.getSharedContext().getIndexManager().getIndex(IDX_NAME);
-    // After rename: "alpha" should not be found, "zzz" should be found.
+    index = session.getSharedContext().getIndexManager().getIndex(IDX_NAME);
+    // After rename: "alpha" should not be found, "zzz" should be found and must point at
+    // the same RID we captured before.
     Object alphaResult = index.get(session, "alpha");
     Object zzzResult = index.get(session, "zzz");
     session.rollback();
 
     assertNull("'alpha' must be null after TX rename", alphaResult);
-    assertNotNull("'zzz' must be found after TX rename", zzzResult);
+    assertEquals("'zzz' must resolve to the renamed entity's RID",
+        alphaRidBeforeRename, zzzResult);
   }
 
   /**
@@ -323,5 +336,51 @@ public class IndexOneValueTxTest extends DbTestBase {
     session.rollback();
 
     assertNotNull("'gamma' must be present after TX remove+put round-trip", result);
+  }
+
+  // -----------------------------------------------------------------------
+  //  cleared-TX branch — IndexOneValue.streamEntriesBetween must drop committed entries
+  //  and yield ONLY the TX stream when indexChanges.cleared == true.
+  // -----------------------------------------------------------------------
+
+  /**
+   * When the TX index changes have {@code cleared == true} (the production
+   * {@code FrontendTransactionImpl} sets this when an OPERATION.CLEAR is recorded), the
+   * {@code IndexOneValue.streamEntriesBetween} branch at the {@code if (indexChanges.cleared)}
+   * guard returns ONLY the TX stream — the committed alpha/beta/gamma/delta/epsilon entries
+   * must NOT appear, and the freshly-PUT TX-only key must.
+   *
+   * <p>The cleared flag is set by issuing an OPERATION.CLEAR via the public
+   * {@code FrontendTransaction.addIndexEntry} API; a subsequent OPERATION.PUT for "delta"
+   * leaves {@code cleared == true} but populates {@code changesPerKey} so the TX stream is
+   * non-empty.
+   */
+  @Test
+  public void streamEntriesBetween_clearedTxChanges_returnsOnlyTxAddedKeys() {
+    session.begin();
+    var index = session.getSharedContext().getIndexManager().getIndex(IDX_NAME);
+    var tx = session.getTransactionInternal();
+
+    // Mark the TX index changes as "cleared" without going through SQL TRUNCATE
+    // (which would also flush committed storage). The CLEAR op flips the flag; the PUT
+    // afterwards populates the changesPerKey map so the TX stream emits one entry.
+    tx.addIndexEntry(index, IDX_NAME, OPERATION.CLEAR, null, null);
+
+    // Fabricate a single TX-only entry. Use a placeholder RID — the test only checks key
+    // membership, never dereferences the value.
+    var placeholderRid =
+        com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal.fromString("#-1:-1", false);
+    tx.addIndexEntry(index, IDX_NAME, OPERATION.PUT, "delta", placeholderRid);
+
+    var keys = new ArrayList<String>();
+    try (Stream<RawPair<Object, RID>> s =
+        index.streamEntriesBetween(session, "alpha", true, "zzz", true, true)) {
+      s.forEach(p -> keys.add((String) p.first()));
+    }
+    session.rollback();
+
+    assertEquals(
+        "cleared TX must drop committed keys and yield only TX-added 'delta'",
+        List.of("delta"), keys);
   }
 }

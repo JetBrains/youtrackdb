@@ -8,6 +8,8 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine;
+import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
+import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import org.junit.Test;
 
@@ -133,24 +135,29 @@ public class DefaultIndexFactoryTest extends DbTestBase {
 
   /**
    * createIndexEngine for a single-value (non-multivalue) BTREE index on a memory/disk storage
-   * must return a BTreeSingleValueIndexEngine instance.
+   * must return a BTreeSingleValueIndexEngine instance — pin the type so a future refactor
+   * that returns a different (or null) engine for the SV path is caught here.
    */
   @Test
   public void createIndexEngine_singleValueBtree_returnsSingleValueEngine() {
     var storage = session.getStorage();
     var engine = factory.createIndexEngine(storage, buildEngineData(0, "sv_engine_test", false));
     assertNotNull("createIndexEngine must not return null for single-value BTREE", engine);
+    assertTrue("Single-value BTREE must return BTreeSingleValueIndexEngine",
+        engine instanceof BTreeSingleValueIndexEngine);
   }
 
   /**
    * createIndexEngine for a multivalue BTREE index on a memory/disk storage must return a
-   * BTreeMultiValueIndexEngine instance.
+   * BTreeMultiValueIndexEngine instance — pin the type for the same reason as the SV variant.
    */
   @Test
   public void createIndexEngine_multivalueBtree_returnsMultiValueEngine() {
     var storage = session.getStorage();
     var engine = factory.createIndexEngine(storage, buildEngineData(1, "mv_engine_test", true));
     assertNotNull("createIndexEngine must not return null for multi-value BTREE", engine);
+    assertTrue("Multi-value BTREE must return BTreeMultiValueIndexEngine",
+        engine instanceof BTreeMultiValueIndexEngine);
   }
 
   /**
