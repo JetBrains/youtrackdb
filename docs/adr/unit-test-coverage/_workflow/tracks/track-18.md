@@ -259,7 +259,7 @@ iterators, and index operations.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (3/5 complete)
+- [ ] Step implementation (4/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -447,48 +447,70 @@ iterators, and index operations.
   > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/ClassIndexManagerTest.java` (new)
   > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/IndexRebuildOutputListenerTest.java` (new)
 
-- [ ] Step 4: Cover index implementations (`IndexUnique`,
+- [x] Step 4: Cover index implementations (`IndexUnique`,
       `IndexNotUnique`, `IndexOneValue`, `IndexMultiValues`,
       `IndexAbstract` non-histogram surface,
       `IndexStreamSecurityDecorator`, `IndexKeyUpdater`,
       `IndexUpdateAction`, `IndexMetadata`, exceptions)
+  - [x] Context: safe
   > **Risk:** low — default (test-additive only; no production-code
   > changes; no shared test-fixture changes).
   >
-  > **Targets (post-Track-17 uncovered slices):**
-  > - `IndexAbstract` — ~108 uncovered lines after Track-16's
-  >   histogram delegation territory is excluded (load / `init` /
-  >   flush, key normalization, `recreateIndexBoundary`, clear /
-  >   drop, configuration deserialization, non-histogram
-  >   `InvalidIndexEngineIdException` retry classification).
-  > - `IndexUnique` (~uniqueness-violation, RID-ID conflict,
-  >   transactional commit / rollback paths).
-  > - `IndexNotUnique` (~80 uncovered lines: collated key
-  >   compare-and-update branches, RID-set merge in transactional
-  >   stash).
-  > - `IndexOneValue` (~101 uncovered lines: descending iteration
-  >   helper paths, `getInternal` no-result branch, transactional
-  >   accumulator merge).
-  > - `IndexMultiValues` (~102 uncovered lines: similar shape to
-  >   `IndexOneValue` but with multi-value containers).
-  > - `IndexStreamSecurityDecorator` (filter-bypass / `peek` paths
-  >   under restricted user role).
-  > - `IndexKeyUpdater`, `IndexUpdateAction`, `IndexMetadata`,
-  >   exception types (mostly small fan-out).
+  > **What was done:** Created 6 new test classes (87 tests):
+  > `IndexAbstractCorePathsTest` (24 tests — composite key enhancement
+  > asc/desc helpers, `getConfiguration`, `getAlgorithm`,
+  > `getCollections`, `isAutomatic`, `getKeyTypes`, `equals`/`hashCode`,
+  > `compareTo`, `loadMetadataFromMap` round-trip, `getInternal` null
+  > return, `dropIndex`, `stream`, `descStream`, `streamEntries`);
+  > `IndexNotUniqueTest` (13 tests — `getRids` no-TX / TX PUT merge /
+  > TX REMOVE, `streamEntries`, `streamEntriesBetween` /
+  > `streamEntriesMajor` / `streamEntriesMinor` with TX renames, `size`,
+  > `canBeUsedInEqualityOperators`, `interpretTxKeyChanges` multiple
+  > PUTs); `IndexOneValueTxTest` (12 tests — `get` existing/missing,
+  > `getRids` with TX rename / remove, `descStream` with / without TX,
+  > `streamEntries` with TX, `txCommit` / `txRollback`,
+  > `getRidsIgnoreTx`, `calculateTxIndexEntry` PUT-after-REMOVE);
+  > `IndexMultiValuesTxTest` (13 tests — `getRids` no-TX / TX rename /
+  > TX remove all, `descStream` with / without TX, `streamEntries` TX
+  > merge, `streamEntriesBetween` / `streamEntriesMajor` /
+  > `streamEntriesMinor`, `size` with TX, `calculateTxValue` null
+  > return); `IndexStreamSecurityDecoratorTest` (6 tests —
+  > `decorateStream` / `decorateRidStream` no-active-predicate-roles
+  > bypass for UNIQUE / NOTUNIQUE, `streamEntriesBetween`
+  > pass-through, `getRidsIgnoreTx` pass-through);
+  > `IndexMiscSmallClassesTest` (18 standalone no-DB tests —
+  > `IndexUpdateAction` predicates / singletons / changed factory,
+  > `IndexMetadata` constructor / mutators / `isMultivalue` /
+  > `equals` / `hashCode`, `IndexException` 3 constructors,
+  > `IndexEngineException` 3 constructors). All 87 tests pass; full
+  > core suite (1 876 tests) clean; coverage gate PASSED. Commit
+  > `add74c4847`.
   >
-  > **Excluded (Track-16 territory):** `IndexAbstract.getStatistics`,
-  > `getHistogram`, `analyzeHistogram`, `setBulkLoading`,
-  > `buildHistogramAfterFill`, plus their retry-on-
-  > `InvalidIndexEngineIdException` paths. Do NOT add tests to
-  > `IndexAbstractHistogramDelegationTest` — that file is owned by
-  > Track 16's contract.
+  > **What was discovered:**
+  > - `SchemaClass.dropIndex()` does not exist on the `SchemaClass`
+  >   API; the correct call is
+  >   `session.getSharedContext().getIndexManager().dropIndex(session, idxName)`.
+  > - Collection names stored in the index are internal cluster names
+  >   formatted as `<lowercase-class-name>_N` (e.g.
+  >   `abscorepathstestcoll_5`), not the schema class name. Assertions
+  >   checking collection membership must use `startsWith(lowerCls)`
+  >   not `contains(className)`.
+  > - `LIMIT 1` in SQL `UPDATE` does not reliably produce exactly 1
+  >   TX index change entry. Tests that need single-entry TX state
+  >   must rename/update the unique "beta"-style record rather than
+  >   trying to limit a bulk update.
+  > - `IndexStreamSecurityDecorator`'s className==null bypass path is
+  >   not reachable via automatic schema-defined indexes; the
+  >   no-active-predicate-roles fast-return (admin user) covers the
+  >   effective bypass path instead.
   >
-  > **Extension candidates first (Constraint 6):** `UniqueIndexTest`,
-  > `BigKeyIndexTest`, `TxUniqueIndexWithCollationTest`,
-  > `TxNonUniqueIndexWithCollationTest`. **New classes:**
-  > `IndexNotUniqueTest`, `IndexOneValueTxTest`,
-  > `IndexMultiValuesTxTest`, `IndexStreamSecurityDecoratorTest`,
-  > `IndexAbstractCorePathsTest` (for the non-histogram remainder).
+  > **Key files:**
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/IndexAbstractCorePathsTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/IndexNotUniqueTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/IndexOneValueTxTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/IndexMultiValuesTxTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/IndexStreamSecurityDecoratorTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/IndexMiscSmallClassesTest.java` (new)
 
 - [ ] Step 5: Engine top-up (`engine/`, `engine/v1/`) + comparator /
       multivalue gap closure + Track-18 verification
