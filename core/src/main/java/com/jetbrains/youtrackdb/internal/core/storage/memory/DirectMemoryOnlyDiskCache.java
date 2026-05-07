@@ -184,6 +184,19 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     }
   }
 
+  /**
+   * Read-cache "load for write" entry point on the in-memory engine.
+   *
+   * <p><b>Divergence from the disk engine.</b> On the disk engine the read-cache wrappers
+   * route through {@code LockFreeReadCache.data.compute} and bottom out on the total
+   * {@code WriteCache.loadOrAdd} primitive (so the wrappers are total too). The in-memory
+   * engine bypasses {@code LockFreeReadCache} entirely &mdash; this method is a direct map
+   * probe via {@link #doLoad}, and it deliberately keeps {@code null}-on-miss semantics. The
+   * total contract is offered only on {@link #loadOrAdd} (write-cache primitive); read-cache
+   * misses against an unallocated page index continue to surface as {@code null} so existing
+   * callers that distinguish "page does not exist" from "page exists but is empty" keep
+   * working unchanged.
+   */
   @Nullable @Override
   public CacheEntry loadForWrite(
       final long fileId,
@@ -202,6 +215,13 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     return cacheEntry;
   }
 
+  /**
+   * Read-cache "load for read" entry point on the in-memory engine.
+   *
+   * <p><b>Divergence from the disk engine.</b> See {@link #loadForWrite} for the rationale:
+   * the in-memory read-cache wrappers stay {@code null}-on-miss, while the write-cache
+   * primitive {@link #loadOrAdd} is total.
+   */
   @Nullable @Override
   public CacheEntry loadForRead(
       final long fileId,
@@ -260,14 +280,78 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     throw new UnsupportedOperationException();
   }
 
-  // Stub for the new total cache primitive introduced in Track 1 of the
-  // read-cache concurrency fix. The in-memory parallel implementation
-  // lands in the next step; this declaration only satisfies the
-  // WriteCache interface so production code keeps compiling.
+  /**
+   * In-memory parallel of the disk engine's {@code WOWCache.loadOrAdd}: a total page-access
+   * primitive that returns a usable {@link CachePointer} for the given
+   * {@code (fileId, pageIndex)} regardless of whether the page already exists in the
+   * per-file map. The method never returns {@code null} for any open, non-deleted file.
+   *
+   * <p><b>Branch collapse.</b> The disk engine's three branches (load existing /
+   * one-page extend / multi-page gap-fill) collapse to a single conceptual operation here:
+   * the in-memory engine has no on-disk representation, so "load" and "extend / gap-fill"
+   * differ only in whether the per-file map already has an entry for the target page index.
+   * The atomic install-or-fetch is delegated to {@link MemoryFile#loadOrAddPage}, which
+   * uses {@link java.util.concurrent.ConcurrentSkipListMap#computeIfAbsent} to publish each
+   * freshly-installed entry as a single visible transition (mapping function runs under the
+   * per-key bin lock; other threads observing the key see either no entry or a fully
+   * initialised one &mdash; never an in-flight half-state).
+   *
+   * <p><b>Gap-fill.</b> When {@code pageIndex} exceeds the current high watermark, every
+   * intermediate index in {@code [currentSize, pageIndex]} is installed as an empty page;
+   * only the target page's pointer is returned to the caller. This matches the disk
+   * engine's gap-fill contract (recovery-only path under normal callers) so the WAL replay
+   * loop can target arbitrary pageIndex values without divergence between engines.
+   *
+   * <p><b>Magic stamp.</b> Each freshly-installed page frame is zero-filled by
+   * {@code pageFramePool.acquire} and stamped with {@link LogSequenceNumber}{@code (-1,-1)}
+   * before publication, mirroring the magic-stamped empty-buffer contract on the disk
+   * engine's extend / gap-fill branches. Callers that read the LSN immediately after
+   * {@code loadOrAdd} on a fresh page see {@code (-1,-1)} on both engines uniformly.
+   *
+   * <p><b>Read-cache divergence.</b> Only this method (the {@code WriteCache} primitive)
+   * is total on the in-memory engine. The {@link ReadCache} entry points
+   * {@link #loadForRead} and {@link #loadForWrite} keep their {@code null}-on-miss
+   * semantics because the in-memory engine bypasses {@code LockFreeReadCache.data.compute}
+   * and so cannot fold the totality contract into the read-cache wrappers without
+   * rewriting unrelated callers. The disk engine's read-cache wrappers (which DO go through
+   * {@code data.compute}) inherit totality from {@link #loadOrAdd} on that engine; the
+   * in-memory engine does not.
+   *
+   * <p><b>Referrer accounting.</b> The returned {@link CachePointer} has its
+   * readers-referrer count incremented exactly once before return, matching
+   * {@code WOWCache.loadOrAdd}. Callers must call
+   * {@link CachePointer#decrementReadersReferrer()} when they are done with the pointer.
+   *
+   * @param fileId external file id of the target page; must be open and registered
+   * @param pageIndex zero-based page index inside that file; must be non-negative
+   * @param verifyChecksums ignored on the in-memory engine (no on-disk image to verify)
+   * @return a non-null {@link CachePointer} positioned at the target page
+   * @throws IllegalArgumentException if {@code pageIndex < 0} or the file does not exist
+   */
   @Override
   public CachePointer loadOrAdd(
       final long fileId, final long pageIndex, final boolean verifyChecksums) {
-    throw new UnsupportedOperationException("loadOrAdd not yet wired");
+    if (pageIndex < 0) {
+      throw new IllegalArgumentException("Illegal page index value " + pageIndex);
+    }
+    final var intId = extractFileId(fileId);
+    // Fail fast on a deleted/never-registered fileId. The contract for loadOrAdd matches
+    // WOWCache: an unknown fileId surfaces an IllegalArgumentException raw to the caller as
+    // a caller-bug signal; the totality contract holds only for open, non-deleted files.
+    // Probe the per-storage map directly rather than going through getFile() so the engine-
+    // specific StorageException does not leak into a contract that promises the disk-engine
+    // IllegalArgumentException shape.
+    final var memoryFile = files.get(intId);
+    if (memoryFile == null) {
+      throw new IllegalArgumentException(
+          "File with id " + intId + " not found in DirectMemoryOnlyDiskCache");
+    }
+    final var cacheEntry = memoryFile.loadOrAddPage(pageIndex, this);
+    final var cachePointer = cacheEntry.getCachePointer();
+    // Bump the readers-referrer count to match WOWCache.loadOrAdd's contract: the caller
+    // owns a single readers reference and must call decrementReadersReferrer() to release.
+    cachePointer.incrementReadersReferrer();
+    return cachePointer;
   }
 
   private MemoryFile getFile(final int fileId) {
