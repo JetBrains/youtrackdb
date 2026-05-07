@@ -149,7 +149,7 @@ flowchart TD
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (4/6 complete)
+- [ ] Step implementation (5/6 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -730,27 +730,127 @@ visible TODO comment for Track 4.
   > `AtomicOperationBinaryTrackingWALSkipTest.java` (renames + comment
   > updates).
 
-- [ ] Step: Migrate `silentLoadForRead` to a new non-extending `WriteCache.loadIfPresent` overload
+- [x] Step: Migrate `silentLoadForRead` to a new non-extending `WriteCache.loadIfPresent` overload
+  - [x] Context: safe
   > **Risk:** medium — adds one method to the `WriteCache` interface
   > and migrates one production reader (`silentLoadForRead`) plus its
   > test mocks; no concurrency change beyond what Step 4 established.
   >
-  > **What:** Add `WriteCache.loadIfPresent(long fileId, long pageIndex,
-  > boolean verifyChecksums) → CachePointer | null` returning null when
-  > the page does not exist on disk and is not in the dirty-write map.
-  > Implement on `WOWCache` (probe `writeCachePages` first, then
-  > `loadFileContent` — this is essentially today's `load` semantics
-  > exposed under a different name) and on `DirectMemoryOnlyDiskCache`
-  > (probe the `MemoryFile` map; null on miss). Update the four test
-  > mocks. Migrate `LockFreeReadCache.silentLoadForRead`'s
+  > **What was done:** Added a non-extending probe primitive
+  > `WriteCache.loadIfPresent(fileId, pageIndex, verifyChecksums) →
+  > CachePointer | null`. Implemented in `WOWCache` (mirrors
+  > today's `load` lock policy and dirty-write-priority +
+  > on-disk-fallback semantics, drops the `cacheHit` out-parameter,
+  > returns null on miss without extending) and in
+  > `DirectMemoryOnlyDiskCache` (throws
+  > `UnsupportedOperationException` matching its existing `load()`
+  > contract — the in-memory engine's `silentLoadForRead` bypasses
+  > the `WriteCache` layer and probes `MemoryFile` directly via
+  > `doLoad`). Migrated `LockFreeReadCache.silentLoadForRead`'s
   > `data.compute` lambda from `writeCache.load(...)` to
-  > `writeCache.loadIfPresent(...)`. After this step, no production
-  > caller of `WriteCache.load` remains — Track 4 deletes the legacy
-  > method.
+  > `writeCache.loadIfPresent(...)`; removed the now-unused
+  > `ModifiableBoolean` import. Updated four `WriteCache` test
+  > mocks (`AsyncReadCacheTestIT`, `LockFreeReadCacheBatchingTest`,
+  > `LockFreeReadCacheConcurrentTestIT`,
+  > `LockFreeReadCacheOptimisticTest`) with `loadIfPresent` stubs
+  > delegating to `load` by default. Added a dedicated
+  > `WOWCacheLoadIfPresentTest` with five smoke tests (hit branch
+  > on disk, miss on fresh file, miss on non-empty file,
+  > dirty-write priority, idempotent re-probe). Extended
+  > `MockedWriteCache` in `LockFreeReadCacheBatchingTest` with
+  > `loadCount`, `loadIfPresentCount`, and a
+  > `setLoadIfPresentReturnsNull` toggle, plus three new tests
+  > pinning that `silentLoadForRead` routes through `loadIfPresent`
+  > (not the legacy `load`), surfaces null on miss, and honours
+  > the cached-hit fast path. Full `core` unit suite green
+  > (9499 / 9499 passed, 56 skipped); spotless clean; coverage
+  > gate 89.4% line / 78.3% branch on changed code (above
+  > 85% / 70% thresholds). Commit:
+  > `5728cca28d74b6d163906a789ddab7d9b7e12aa1`.
   >
-  > **Files:** `WriteCache.java`, `WOWCache.java`,
-  > `DirectMemoryOnlyDiskCache.java`, `LockFreeReadCache.java`, the
-  > four test-mock files.
+  > **What was discovered:**
+  > 1. **In-memory engine `WriteCache.load` already throws
+  >    `UnsupportedOperationException`.** The in-memory
+  >    `silentLoadForRead` bypasses the `WriteCache` layer entirely
+  >    (delegates to `loadForRead`, which probes
+  >    `MemoryFile.loadPage` directly). `loadIfPresent` on
+  >    `DirectMemoryOnlyDiskCache` therefore mirrors that contract
+  >    (also throws `UnsupportedOperationException`) so an unwired
+  >    future caller surfaces immediately rather than silently
+  >    masquerading as a miss.
+  > 2. **The plan undercounted the migration's scope by one site.**
+  >    Only `LockFreeReadCache.silentLoadForRead` calls
+  >    `writeCache.load` in production code (verified via grep —
+  >    mcp-steroid was unreachable this session, so the absence
+  >    claim is grep-based). After this commit no production caller
+  >    of `WriteCache.load` remains, exactly as the plan intended.
+  > 3. **The mock null-return toggle is needed to disambiguate
+  >    routing.** The `MockedWriteCache` stub for `loadIfPresent`
+  >    must default to delegating to `load` (always-allocate) so
+  >    existing tests keep working, but the `silentLoadForRead`
+  >    routing test then needs the null-return toggle to pin that
+  >    the legacy `load` primitive is no longer invoked — without
+  >    the toggle, a regression that restored `writeCache.load()`
+  >    would silently pass because the mock's `loadIfPresent` and
+  >    `load` have the same default body. The
+  >    `setLoadIfPresentReturnsNull` mode disambiguates: under it,
+  >    a `silentLoadForRead` invocation must drive
+  >    `loadIfPresentCount` up by one, leave `loadCount` untouched,
+  >    and return null.
+  > 4. **`ModifiableBoolean` became an unused import** in
+  >    `LockFreeReadCache` once the `silentLoadForRead` lambda no
+  >    longer constructed one for the discarded `cacheHit`
+  >    out-parameter; removed.
+  > 5. **Cross-track impact (Continue):** the upcoming write-side
+  >    API collapse track gains a delete target — `WriteCache.load`
+  >    has no remaining production callers, so deletion alongside
+  >    `addPage` / `allocateNewPage` is purely mechanical (remove
+  >    from the interface, delete the body in `WOWCache`, the UOE
+  >    throw in `DirectMemoryOnlyDiskCache`, and the four test-mock
+  >    stubs that delegate to it). The new `loadIfPresent` stubs in
+  >    those mocks should keep working unchanged. Step 6 of this
+  >    same track inherits a small spec confirmation: the
+  >    `@Deprecated` javadoc list already includes
+  >    `WriteCache.load` per the step's plan text, so this discovery
+  >    confirms rather than alters the spec. The
+  >    `getFilledUpTo`-tightening track is unaffected
+  >    (`loadIfPresent` does not call `getFilledUpTo`). The
+  >    cache-coverage track gains a small additional surface — the
+  >    `loadIfPresent` multi-thread / eviction races and the
+  >    `silentLoadForRead`-vs-`loadOrAddForWrite` contention test
+  >    belong with the broader cache-coverage work scoped there.
+  >
+  > **What changed from the plan:** none. The step's spec called
+  > for adding `loadIfPresent` and migrating `silentLoadForRead`;
+  > both done. The `DirectMemoryOnlyDiskCache` "implementation" is a
+  > UOE throw rather than a probe of `MemoryFile`, matching the
+  > engine's existing pattern for `WriteCache.load` — this matches
+  > the spec's "probe the `MemoryFile` map; null on miss" intent in
+  > the only meaningful sense (the in-memory engine's
+  > `silentLoadForRead` never reaches this code path).
+  >
+  > **Critical context:** Track 4 can now delete `WriteCache.load`
+  > alongside the `addPage` / `allocateNewPage` cleanup — no
+  > production callers remain. Step 6 inherits one extra
+  > deprecation note: `WriteCache.load` should carry an
+  > `@Deprecated` Javadoc pointing readers at `loadIfPresent`
+  > (silent read) and `loadOrAdd` (extend / gap-fill) so future
+  > callers route correctly during the deprecation window.
+  >
+  > **Key files:** `WriteCache.java` (modified — `loadIfPresent`
+  > signature + Javadoc), `WOWCache.java` (modified —
+  > `loadIfPresent` body matching today's `load` semantics),
+  > `DirectMemoryOnlyDiskCache.java` (modified — UOE throw matching
+  > `load`'s contract), `LockFreeReadCache.java` (modified —
+  > `silentLoadForRead` lambda rewire + import cleanup),
+  > `AsyncReadCacheTestIT.java`,
+  > `LockFreeReadCacheConcurrentTestIT.java`,
+  > `LockFreeReadCacheOptimisticTest.java` (modified — `WriteCache`
+  > mock stubs), `LockFreeReadCacheBatchingTest.java` (modified —
+  > mock stubs + 3 new routing tests + `MockedWriteCache`
+  > extensions: `loadIfPresentCount`, `loadCount`,
+  > `setLoadIfPresentReturnsNull`), `WOWCacheLoadIfPresentTest.java`
+  > (new — five smoke tests).
 
 - [ ] Step: Deprecate legacy methods, add primitive javadoc, add smoke / gap-fill unit tests
   > **Risk:** low — pure annotations + Javadoc + targeted tests. No
