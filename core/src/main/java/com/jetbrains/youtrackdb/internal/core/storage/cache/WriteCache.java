@@ -129,6 +129,27 @@ public interface WriteCache {
       throws IOException;
 
   /**
+   * Non-extending probe: returns the existing on-disk (or dirty-write-cache) page for
+   * {@code (fileId, pageIndex)} if one exists, otherwise {@code null}. Unlike {@link #load} this
+   * method drops the {@code cacheHit} out-parameter (the silent read path does not track cache
+   * hits) and unlike {@link #loadOrAdd} it never extends the file or stamps a fresh empty buffer
+   * on miss &mdash; it is the read-only probe primitive used by
+   * {@code LockFreeReadCache.silentLoadForRead} for diagnostic readers (e.g. backup,
+   * restore-mode probes) that must observe a page only if it already exists. Implementations
+   * must preserve the dirty-page-priority order documented on {@link #load}: a more recent
+   * dirty pointer in the write cache shadows an older on-disk version.
+   *
+   * @param fileId external file id of the target page
+   * @param pageIndex zero-based page index inside that file
+   * @param verifyChecksums whether checksum verification is enforced on the load branch
+   * @return a {@link CachePointer} positioned at the target page, or {@code null} if the page
+   *     does not exist on disk and is not in the dirty-write map
+   * @throws IOException if the underlying disk I/O fails
+   */
+  CachePointer loadIfPresent(long fileId, long pageIndex, boolean verifyChecksums)
+      throws IOException;
+
+  /**
    * Total page-access primitive: returns a usable {@link CachePointer} for the given
    * {@code (fileId, pageIndex)} regardless of whether the page already exists on disk.
    *

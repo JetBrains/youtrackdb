@@ -476,6 +476,89 @@ public class LockFreeReadCacheBatchingTest {
     readCache.releaseFromRead(entry);
   }
 
+  // --- silentLoadForRead non-extending-probe migration tests ---
+
+  /**
+   * Migration contract: {@code silentLoadForRead} must route through the non-extending
+   * probe {@code WriteCache.loadIfPresent}, NOT the legacy {@code load} primitive. The
+   * mock flips {@code loadIfPresent} into "miss" mode so it returns {@code null} without
+   * delegating to {@code load}; under that configuration, the silent read must drive
+   * {@code loadIfPresentCount} up by one and leave {@code loadCount} untouched. A future
+   * refactor that accidentally restored the legacy {@code load} call would produce a
+   * non-null entry (because mock {@code load} always allocates) and bump {@code loadCount}
+   * — both assertions below catch that regression. The production {@code WOWCache.load}
+   * silently extends a freshly-allocated empty page, breaking the silent-read diagnostic
+   * contract on which backup and restore-mode probes depend.
+   */
+  @Test
+  public void testSilentLoadForReadRoutesThroughLoadIfPresent() {
+    final var initialLoadCount = writeCache.loadCount.get();
+    final var initialLoadIfPresentCount = writeCache.loadIfPresentCount.get();
+    writeCache.setLoadIfPresentReturnsNull(true);
+    try {
+      final var entry = readCache.silentLoadForRead(0L, 0, writeCache, false);
+      Assert.assertNull(
+          "loadIfPresent in miss-mode returns null; silentLoadForRead must surface that null",
+          entry);
+    } finally {
+      writeCache.setLoadIfPresentReturnsNull(false);
+    }
+
+    Assert.assertEquals(
+        "silentLoadForRead must invoke loadIfPresent exactly once",
+        initialLoadIfPresentCount + 1,
+        writeCache.loadIfPresentCount.get());
+    Assert.assertEquals(
+        "silentLoadForRead must NOT invoke the legacy extending load primitive",
+        initialLoadCount,
+        writeCache.loadCount.get());
+  }
+
+  /**
+   * Non-extending semantics: when {@code WriteCache.loadIfPresent} reports "page not
+   * present" (returns {@code null}), {@code silentLoadForRead} must surface that
+   * {@code null} to the caller without installing a {@code CacheEntry}. This pins the
+   * core property the silent-read path needs from the migration: a probe that faithfully
+   * answers "no such page" instead of magic-stamping a fresh empty buffer.
+   */
+  @Test
+  public void testSilentLoadForReadReturnsNullWhenLoadIfPresentMisses() {
+    writeCache.setLoadIfPresentReturnsNull(true);
+    try {
+      final var entry = readCache.silentLoadForRead(0L, 0, writeCache, false);
+      Assert.assertNull(
+          "silentLoadForRead must propagate the loadIfPresent null on miss",
+          entry);
+    } finally {
+      writeCache.setLoadIfPresentReturnsNull(false);
+    }
+  }
+
+  /**
+   * Cached-hit fast path on {@code silentLoadForRead}: a page already present in the
+   * read-cache map must be returned without re-invoking {@code loadIfPresent} (or any
+   * other write-cache load primitive). Pins the existing {@code data.get} fast-path
+   * inside the silent-read loop — a regression that bypasses the cache and always
+   * routes to the write-cache layer would inflate {@code loadIfPresentCount} on the
+   * second call.
+   */
+  @Test
+  public void testSilentLoadForReadHonoursCachedHitFastPath() {
+    // Prime the cache via the read-side primitive; this installs an entry under (0, 0).
+    final var primer = readCache.loadForRead(0, 0, writeCache, false);
+    readCache.releaseFromRead(primer);
+    final var loadIfPresentBefore = writeCache.loadIfPresentCount.get();
+
+    final var entry = readCache.silentLoadForRead(0L, 0, writeCache, false);
+    Assert.assertNotNull(entry);
+    readCache.releaseFromRead(entry);
+
+    Assert.assertEquals(
+        "cached hit must not invoke loadIfPresent",
+        loadIfPresentBefore,
+        writeCache.loadIfPresentCount.get());
+  }
+
   /**
    * High cache churn (many more distinct pages than cache capacity) with batched read events
    * must not cause memory leaks or policy inconsistencies.
@@ -1256,11 +1339,28 @@ public class LockFreeReadCacheBatchingTest {
      */
     final AtomicInteger storeCount = new AtomicInteger();
     /**
+     * Counts {@link #load} invocations so {@code silentLoadForRead} regression tests can pin
+     * that the silent path no longer routes through this (extending) primitive.
+     */
+    final AtomicInteger loadCount = new AtomicInteger();
+    /**
+     * Counts {@link #loadIfPresent} invocations so {@code silentLoadForRead} regression tests
+     * can pin that the silent path now routes through this non-extending probe.
+     */
+    final AtomicInteger loadIfPresentCount = new AtomicInteger();
+    /**
+     * When set, {@link #loadIfPresent} returns {@code null} instead of allocating a fresh
+     * pointer. Lets {@code silentLoadForRead} regression tests exercise the "page not present"
+     * code path the migration newly enables, without poisoning unrelated tests that still
+     * rely on the always-allocate {@link #load} default.
+     */
+    private volatile boolean loadIfPresentReturnsNull;
+    /**
      * Per-fileId logical page count returned from {@link #getFilledUpTo}. Tests use
      * {@link #setFilledUpTo} to simulate a non-empty file so the loadOrAddForWrite
      * "existing page" branch can be exercised; without an explicit override the default of
-     * 0 is returned (matching the previous mock behavior, which makes every page index
-     * &gt;= filledUpTo and therefore "newly allocated").
+     * 0 is returned, which makes every page index &gt;= filledUpTo and therefore
+     * "newly allocated".
      */
     private final Map<Long, Long> filledUpToByFile = new ConcurrentHashMap<>();
 
@@ -1287,6 +1387,16 @@ public class LockFreeReadCacheBatchingTest {
      */
     void setFilledUpTo(final long fileId, final long value) {
       filledUpToByFile.put(fileId, value);
+    }
+
+    /**
+     * Switches {@link #loadIfPresent} to "miss" mode (returns {@code null}). Used by
+     * {@code silentLoadForRead} regression tests to pin that the silent path now routes
+     * through the non-extending probe and therefore correctly surfaces a {@code null} on
+     * miss instead of magic-stamping a fresh empty buffer.
+     */
+    void setLoadIfPresentReturnsNull(final boolean value) {
+      this.loadIfPresentReturnsNull = value;
     }
 
     @Override
@@ -1374,6 +1484,7 @@ public class LockFreeReadCacheBatchingTest {
         final long startPageIndex,
         final ModifiableBoolean cacheHit,
         final boolean verifyChecksums) {
+      loadCount.incrementAndGet();
       final var pointer = byteBufferPool.acquireDirect(true, Intention.TEST);
       final var cachePointer =
           new CachePointer(pointer, byteBufferPool, fileId, (int) startPageIndex);
@@ -1388,6 +1499,23 @@ public class LockFreeReadCacheBatchingTest {
     @Override
     public CachePointer loadOrAdd(
         final long fileId, final long pageIndex, final boolean verifyChecksums) {
+      return load(fileId, pageIndex, new ModifiableBoolean(), verifyChecksums);
+    }
+
+    /**
+     * Stub for the non-extending silent-read probe. By default delegates to {@link #load} so
+     * the mock keeps its always-allocate semantics for tests that don't care about the
+     * probe-vs-extend distinction. {@link #setLoadIfPresentReturnsNull} flips it to a true
+     * "miss" probe (returns {@code null}) so {@code silentLoadForRead} regression tests can
+     * exercise the "page not present" code path.
+     */
+    @Override
+    public CachePointer loadIfPresent(
+        final long fileId, final long pageIndex, final boolean verifyChecksums) {
+      loadIfPresentCount.incrementAndGet();
+      if (loadIfPresentReturnsNull) {
+        return null;
+      }
       return load(fileId, pageIndex, new ModifiableBoolean(), verifyChecksums);
     }
 

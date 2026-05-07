@@ -383,6 +383,16 @@ public class AsyncReadCacheTestIT {
       return load(fileId, pageIndex, new ModifiableBoolean(), verifyChecksums);
     }
 
+    /**
+     * Stub for the non-extending silent-read probe: delegates to {@link #load} so the mock
+     * keeps its always-allocate semantics while satisfying the {@link WriteCache} contract.
+     */
+    @Override
+    public CachePointer loadIfPresent(
+        final long fileId, final long pageIndex, final boolean verifyChecksums) {
+      return load(fileId, pageIndex, new ModifiableBoolean(), verifyChecksums);
+    }
+
     @Override
     public void flush(final long fileId) {
     }

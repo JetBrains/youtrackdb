@@ -253,6 +253,15 @@ public class LockFreeReadCacheOptimisticTest {
       return load(fileId, pageIndex, new ModifiableBoolean(), verifyChecksums);
     }
 
+    /**
+     * Stub for the non-extending silent-read probe: delegates to {@link #load} so the mock
+     * keeps its always-allocate semantics while satisfying the {@link WriteCache} contract.
+     */
+    @Override
+    public CachePointer loadIfPresent(long fileId, long pageIndex, boolean verifyChecksums) {
+      return load(fileId, pageIndex, new ModifiableBoolean(), verifyChecksums);
+    }
+
     @Override
     public void addPageIsBrokenListener(PageIsBrokenListener listener) {
     }

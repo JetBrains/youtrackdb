@@ -9,7 +9,6 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.PageFramePool;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.MetricsRegistry;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Ratio;
-import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
@@ -201,9 +200,15 @@ public final class LockFreeReadCache implements ReadCache {
                 (fId, pIdx, entry) -> {
                   if (entry == null) {
                     try {
+                      // Non-extending probe: a silent reader must not stamp a fresh empty
+                      // buffer for an unallocated page. loadIfPresent honours the same
+                      // dirty-write-priority + on-disk-fallback discipline as the legacy
+                      // load() but returns null instead of magic-stamping a new page on
+                      // miss, so silentLoadForRead can faithfully report "no such page"
+                      // (the contract its diagnostic callers — backup, restore-mode probes
+                      // — depend on).
                       final var pointer =
-                          writeCache.load(
-                              fileId, pageIndex, new ModifiableBoolean(), verifyChecksums);
+                          writeCache.loadIfPresent(fileId, pageIndex, verifyChecksums);
                       if (pointer == null) {
                         return null;
                       }

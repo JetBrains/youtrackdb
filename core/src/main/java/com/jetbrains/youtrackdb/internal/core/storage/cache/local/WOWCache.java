@@ -1323,6 +1323,62 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
+  /**
+   * Non-extending probe shared by the silent-read code path. Mirrors {@link #load}'s
+   * dirty-write-priority + on-disk-fallback semantics under the {@code lockManager}
+   * shared lock for the {@link PageKey}, but drops the {@code cacheHit} out-parameter
+   * (the silent reader does not track cache hits) and crucially never extends the file
+   * or returns a magic-stamped empty buffer on miss &mdash; that branch belongs to
+   * {@link #loadOrAdd}.
+   *
+   * <p><b>Returns null when:</b> the page is not in the dirty {@code writeCachePages}
+   * map and {@link #loadFileContent} reports the on-disk file is shorter than the
+   * requested {@code pageIndex} (and the double-write log has nothing for that page
+   * either).
+   *
+   * <p><b>Lock ordering:</b> identical to {@link #load} &mdash; acquire
+   * {@link #filesLock} read lock, then the per-{@link PageKey} {@code lockManager}
+   * shared lock; release in reverse order.
+   */
+  @Override
+  public CachePointer loadIfPresent(
+      final long fileId, final long pageIndex, final boolean verifyChecksums) throws IOException {
+    final var intId = extractFileId(fileId);
+    filesLock.acquireReadLock();
+    try {
+      checkForClose();
+
+      final var pageKey = new PageKey(intId, pageIndex);
+      final var pageLock = lockManager.acquireSharedLock(pageKey);
+
+      // Dirty-write priority: a more recent in-memory pointer shadows the on-disk image.
+      final var pagePointer = writeCachePages.get(pageKey);
+
+      if (pagePointer == null) {
+        try {
+          // On-disk fallback. loadFileContent returns null when the file is shorter than
+          // the requested page (and the double-write log has no copy either) — propagate
+          // that null straight back to the caller. Unlike loadOrAdd, we do not extend.
+          final var filePagePointer = loadFileContent(intId, pageIndex, verifyChecksums);
+          if (filePagePointer != null) {
+            filePagePointer.incrementReadersReferrer();
+          }
+
+          return filePagePointer;
+        } finally {
+          pageLock.unlock();
+        }
+      }
+
+      pagePointer.incrementReadersReferrer();
+      pageLock.unlock();
+
+      return pagePointer;
+    } finally {
+      filesLock.releaseReadLock();
+    }
+  }
+
   @Override
   public int allocateNewPage(final long fileId) throws IOException {
     int pageIndex;

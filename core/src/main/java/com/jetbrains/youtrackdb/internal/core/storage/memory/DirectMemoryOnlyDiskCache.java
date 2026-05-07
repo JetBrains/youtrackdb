@@ -673,6 +673,24 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     throw new UnsupportedOperationException();
   }
 
+  /**
+   * Non-extending probe primitive on the in-memory engine.
+   *
+   * <p>The in-memory engine's silent-read path (see
+   * {@link #silentLoadForRead}) bypasses {@code WriteCache.load} / {@code loadIfPresent}
+   * entirely: it goes through the {@code ReadCache} surface ({@link #loadForRead}) which
+   * probes the {@link MemoryFile} map directly. This implementation therefore mirrors the
+   * existing {@link #load} contract by throwing {@link UnsupportedOperationException} so a
+   * future caller that wires the in-memory engine into a code path expecting the
+   * {@code WriteCache} silent-probe primitive surfaces the unwired call site immediately
+   * rather than silently returning {@code null} and corrupting the diagnostic.
+   */
+  @Override
+  public CachePointer loadIfPresent(
+      final long fileId, final long pageIndex, final boolean verifyChecksums) {
+    throw new UnsupportedOperationException();
+  }
+
   @Override
   public long getExclusiveWriteCachePagesSize() {
     return 0;
