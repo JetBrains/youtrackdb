@@ -303,6 +303,15 @@ flowchart LR
   > / pass-on-fix verification.
   > **Depends on:** Track 1, Track 4
 
+## Plan Review
+- [x] Plan review (consistency + structural) — passed at iteration 2
+
+**Auto-fixed (mechanical)**: CR1 (corrected in-scope file paths for `LockFreeReadCache`, `WOWCache`, `DirectMemoryOnlyDiskCache`, `StorageComponent`, `AbstractStorage`); CR2 [blocker] (off-by-one fix: 17→16 `StorageComponent.getFilledUpTo` callers, 10→9 pure-sizing); CR3 (`StorageComponent.addPage` count clarified as 19 external + 1 internal; flagged `loadOrAddPageForWrite` already exists); CR4 (backlog Track 4 §What now lists adding `AtomicOperation.loadOrAddPageForWrite`); CR5 (backlog Track 1 §What surfaces the explicit `loadForWrite` → `loadOrAddForWrite` rename + adds `ReadCache.java` to in-scope files); CR6 (`DirectMemoryOnlyDiskCache` dual `ReadCache`/`WriteCache` role made explicit); CR7 (design.md `EnsureValidPageInFileTask` → `EnsurePageIsValidInFileTask`); CR8 (`backupPagesWithChanges` line annotation: method @ :1387, call @ :1404); CR9 (class diagram: `SegmentedMap<PageKey,CacheEntry>` → `ConcurrentLongIntHashMap~CacheEntry~`); CR10 (Phase A audit note for concrete lock-field names per component); CR11 [should-fix iter-2] (added `paginated/` segment to atomicoperations paths); CR12 [iter-2] (removed `SharedLinkBagBTree` from Track 3 — its 3 sites are probe sites in Track 4); S1 (cross-file `allocateNewPage`-deletion-timing contradiction reconciled — Track 1 deprecates, Track 4 deletes); S2–S5 (Track 1/2/3/4 plan-file intros trimmed to ≤3 sentences); S6 (`StorageComponent` Component-Map bullet trimmed to ≤5 lines, links to design §"Allocation discovery surface").
+
+**Escalated (design decisions)**: none — all findings classified mechanical and auto-applied; S7 (suggestion to reshape D5 rejected-alternative DR) rejected with sound rationale.
+
+**Audit-trail backfill note:** the consistency + structural reviews ran during plan creation (committed in `02cd718e0d` alongside `_workflow/reviews/consistency.md` and `_workflow/reviews/structural.md`) but the `## Plan Review` checklist entry was missing from the plan file. This entry was backfilled retroactively after the reviews' PASS verdicts were re-confirmed; no fresh autonomous Phase 2 work was needed.
+
 ## Final Artifacts
 
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
