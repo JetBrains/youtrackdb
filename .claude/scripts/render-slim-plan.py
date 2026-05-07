@@ -10,13 +10,15 @@ detail.
 Usage:
     python3 .claude/scripts/render-slim-plan.py \\
         --plan-path docs/adr/<dir>/_workflow/implementation-plan.md \\
-        [--out /tmp/claude-code-plan-slim-$PPID.md] \\
+        --out /tmp/claude-code-plan-slim-$PPID.md \\
         [--quiet]
 
-If --out is omitted the script writes to
-`/tmp/claude-code-plan-slim-<ppid>.md` where `<ppid>` is this process's
-parent PID — matching the convention in plan-slim-rendering.md so
-concurrent sessions do not collide.
+`--out` is required. Callers must pass the orchestrator-scoped path
+`/tmp/claude-code-plan-slim-$PPID.md` so the snapshot lands where
+sub-agents look for it (per the convention in plan-slim-rendering.md).
+The script does not infer the orchestrator PID — when invoked through
+the Bash tool, this process's parent is the bash shell, not the
+orchestrator, so any auto-derived path would silently drift.
 
 Output:
     Stdout: one-line summary of tracks rendered (suppressed by --quiet).
@@ -29,7 +31,6 @@ Exit codes:
 """
 
 import argparse
-import os
 import re
 import sys
 from typing import List, Optional, Set, Tuple
@@ -376,11 +377,15 @@ def main() -> int:
     )
     parser.add_argument(
         "--out",
-        default=None,
+        required=True,
         help=(
-            "Path to write the slim snapshot. Default: "
-            "/tmp/claude-code-plan-slim-<ppid>.md (uses this process's "
-            "parent PID)."
+            "Path to write the slim snapshot. Required — pass "
+            "/tmp/claude-code-plan-slim-$PPID.md from the orchestrator's "
+            "shell so the snapshot lands at the path sub-agents read. "
+            "The script does not infer this path: when invoked via the "
+            "Bash tool, getppid() returns the bash shell, not the "
+            "orchestrator, so any auto-derived default would silently "
+            "drift."
         ),
     )
     parser.add_argument(
@@ -391,8 +396,6 @@ def main() -> int:
     args = parser.parse_args()
 
     out_path = args.out
-    if out_path is None:
-        out_path = f"/tmp/claude-code-plan-slim-{os.getppid()}.md"
 
     try:
         with open(args.plan_path, "r", encoding="utf-8") as f:

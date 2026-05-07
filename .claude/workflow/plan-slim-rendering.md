@@ -45,14 +45,21 @@ Run the pre-built renderer:
 
 ```bash
 python3 .claude/scripts/render-slim-plan.py \
-    --plan-path docs/adr/<dir-name>/_workflow/implementation-plan.md
+    --plan-path docs/adr/<dir-name>/_workflow/implementation-plan.md \
+    --out /tmp/claude-code-plan-slim-$PPID.md
 ```
 
-With no `--out`, the script writes
-`/tmp/claude-code-plan-slim-<ppid>.md` using its parent PID — i.e.,
-the orchestrator's PID — matching the snapshot path convention above.
-The script implements the rendering rule below; do **not** re-derive
-the transform inline (that's the whole reason this script exists). On
+`--out` is required and must be the orchestrator-scoped path
+`/tmp/claude-code-plan-slim-$PPID.md`. The shell variable `$PPID`
+resolves to the orchestrator process ID inside the Bash invocation,
+matching the snapshot path convention above. The script does **not**
+auto-derive this path: when invoked through the Bash tool, the
+script's parent process is the bash shell that launched it, not the
+orchestrator, so any default based on `getppid()` would silently drift
+to the wrong PID and every downstream sub-agent would see a missing
+snapshot. Pass `--out` explicitly on every invocation. The script
+implements the rendering rule below; do **not** re-derive the
+transform inline (that's the whole reason this script exists). On
 malformed input the script exits non-zero with a line-numbered error
 on stderr — surface that to the user rather than continuing with a
 half-rendered snapshot.
