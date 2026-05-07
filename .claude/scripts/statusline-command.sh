@@ -32,10 +32,34 @@ build_bar() {
   printf "%s" "$bar"
 }
 
+# Determine threshold level. Also used for the on-disk usage file below.
 if [ -n "$used_pct" ]; then
   pct_int=$(printf "%.0f" "$used_pct")
+  if [ "$pct_int" -ge 40 ]; then
+    level="critical"
+  elif [ "$pct_int" -ge 30 ]; then
+    level="warning"
+  elif [ "$pct_int" -ge 20 ]; then
+    level="info"
+  else
+    level="safe"
+  fi
+
+  # Map level → ANSI colour for the progress bar, honouring NO_COLOR
+  # (non-TTY consumers like log capture and snapshot tests).
+  ctx_color=""
+  ctx_reset=""
+  if [ -z "$NO_COLOR" ]; then
+    case "$level" in
+      critical) ctx_color=$'\033[31m' ;;   # red
+      warning)  ctx_color=$'\033[33m' ;;   # yellow
+      info)     ctx_color=$'\033[2;32m' ;; # dim green
+      safe)     ctx_color=$'\033[32m' ;;   # green
+    esac
+    ctx_reset=$'\033[0m'
+  fi
   bar=$(build_bar "$pct_int")
-  ctx_str="[${bar}] ${pct_int}%"
+  ctx_str="${ctx_color}[${bar}] ${pct_int}%${ctx_reset}"
 else
   ctx_str="[----------] --%"
 fi
@@ -58,14 +82,6 @@ if [ -n "$used_pct" ]; then
     pid=$ppid
   done
   if [ -n "$claude_pid" ]; then
-    level="safe"
-    if [ "$pct_int" -ge 40 ]; then
-      level="critical"
-    elif [ "$pct_int" -ge 30 ]; then
-      level="warning"
-    elif [ "$pct_int" -ge 20 ]; then
-      level="info"
-    fi
     printf "ctx: %s%% level=%s" "$pct_int" "$level" \
       > "/tmp/claude-code-context-usage-${claude_pid}.txt"
   fi
