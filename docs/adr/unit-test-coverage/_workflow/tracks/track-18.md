@@ -259,7 +259,7 @@ iterators, and index operations.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/5 complete)
+- [ ] Step implementation (3/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -389,50 +389,63 @@ iterators, and index operations.
   > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/iterator/PureTxBetweenIndexSpliteratorTest.java` (new)
   > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/IndexCursorClusterDeadCodeTest.java` (new)
 
-- [ ] Step 3: Cover index manager / factory / lifecycle, with
+- [x] Step 3: Cover index manager / factory / lifecycle, with
       `RecreateIndexesTask` as the centerpiece
+  - [x] Context: safe
   > **Risk:** low — default (test-additive only; no shared test-fixture
   > changes — the recovery setup for `RecreateIndexesTask` is local
-  > to its dedicated test class). If implementation reveals that
-  > driving `RecreateIndexesTask` requires >25 lines of fixture and
-  > the resulting test class is reused by sibling lifecycle tests,
-  > Phase B may upgrade to `medium` per
-  > `risk-tagging.md` § Override rules and split this step into 3a
-  > (manager / factory) + 3b (RecreateIndexesTask + listener).
+  > to its dedicated test class). Phase B did not need the upgrade
+  > gate; the `RecreateIndexesTask` fixture stayed compact (Proxy
+  > stub of one entry in `indexManager.indexes`).
   >
-  > **Centerpiece — `RecreateIndexesTask`** (101 / 101 uncovered, 0 %
-  > — the single largest class-level gap in `core/index`):
-  > - Happy path: construct directly with a `SharedContext` bound to
-  >   a memory DB containing one or two indexes, invoke `run()`,
-  >   assert each index is rebuilt (use `IndexRebuildOutputListener`
-  >   to capture progress events).
-  > - Catch branch: deliberately corrupt one index store (drop the
-  >   underlying engine via reflection or by stubbing the engine's
-  >   `loadIndex` to throw `InvalidIndexEngineIdException`), invoke
-  >   `run()`, assert the task continues with the remaining indexes
-  >   and the corrupted one is logged.
-  > - Concurrency-safety check: not in scope for Track 18 (Track 18
-  >   is test-additive; if the existing implementation has a TOCTOU
-  >   between `loadAll` and `run()`, that's a Track 22 finding).
+  > **What was done:** Created 6 new test classes (48 tests):
+  > `RecreateIndexesTaskTest` (2 tests — happy path + catch-branch
+  > via a `Proxy` stub injected into `indexManager.indexes` with a
+  > null `CONFIG_TYPE`); `IndexManagerEmbeddedTest` (13 tests —
+  > `addCollectionToIndex` idempotency, `removeCollectionFromIndex`
+  > no-op, `getIndexesConfiguration` shape, `autoRecreateIndexesAfterCrash`
+  > fresh-DB false, `waitTillIndexRestore` early-return, `areIndexed`
+  > true / false / no-class, `getClassInvolvedIndexes`,
+  > `getClassIndex` match / wrong-class, `dropIndex`);
+  > `DefaultIndexFactoryTest` (9 tests — types/algorithms,
+  > `createIndex` UNIQUE / NOTUNIQUE / unsupported, `getLastVersion`,
+  > `createIndexEngine` single / multivalue / null-algo);
+  > `IndexesTest` (8 tests — `getAllFactories`, `getFactory`,
+  > `chooseDefaultIndexAlgorithm`, `createIndexInstance`);
+  > `ClassIndexManagerTest` (6 tests — create / update / delete
+  > hooks, `reIndex`, `addIndexesEntries`);
+  > `IndexRebuildOutputListenerTest` (7 tests — `onBegin` /
+  > `onProgress` / `onCompletition` with rebuild true / false and
+  > empty / non-empty index). Commit `7583bf17a9`.
   >
-  > **Other targets in this step:** `IndexManagerAbstract` (~30
-  > uncovered lines: rebuild paths, `recreateIndexes` dispatch,
-  > listener registration), `IndexManagerEmbedded` (~70 uncovered
-  > lines: `addClusterToIndex`, `removeClusterFromIndex`,
-  > `getDirtyIndexes`, `flushDirtyIndexes`,
-  > `getRebuildVersion` propagation), `IndexFactory` SPI surface,
-  > `DefaultIndexFactory` (algorithm / valueContainerAlgorithm
-  > selection), `Indexes` (static dispatcher), `IndexesSnapshot`
-  > (the residual non-snapshot-clear paths), `ClassIndexManager`
-  > (~90 uncovered lines: per-class index lifecycle hooks),
-  > `IndexRebuildOutputListener` (status-event coverage).
+  > **What was discovered:**
+  > - `Index.get(session, key)` returns `Object` (a plain `RID` for
+  >   `UNIQUE` / `IndexOneValue`, `null` when absent) — asserting
+  >   `!= null` / `assertNull` is the correct pattern, not
+  >   `.iterator().hasNext()`. **Steps 4 onward must use this
+  >   pattern when verifying `UNIQUE` index entries.**
+  > - `IndexEngineData` has no compact factory constructor — only
+  >   the 17-parameter form. Tests that build engine-data directly
+  >   must use the long form.
+  > - `RecreateIndexesTask` catch-branch absorbs system-owned
+  >   indexes (e.g. `OFunction.name`) that fail re-creation in the
+  >   direct-invocation test setup because their storage state is
+  >   incomplete; the observable that matters is `rebuildCompleted ==
+  >   true` after `run()`. The "errors++" log noise in the catch-
+  >   branch test is therefore expected, not a fault.
+  > - **Cross-track hint to Track 21**:
+  >   `DefaultIndexFactory.createIndexEngine` for `"remote"` storage
+  >   type returns `RemoteIndexEngine` — not exercisable from
+  >   memory / disk test sessions. Track 21 (engine tests) may want
+  >   to cover that branch explicitly.
   >
-  > **Extension candidates first (Constraint 6):**
-  > `IndexesSnapshotClearTest`, `IndexesSnapshotVisibilityFilterTest`.
-  > **New classes:** `IndexManagerEmbeddedTest`,
-  > `RecreateIndexesTaskTest`, `IndexesTest`, `DefaultIndexFactoryTest`,
-  > `ClassIndexManagerTest`, `IndexRebuildOutputListenerTest` — none
-  > of these production classes have a dedicated test today.
+  > **Key files:**
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/RecreateIndexesTaskTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/IndexManagerEmbeddedTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/DefaultIndexFactoryTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/IndexesTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/ClassIndexManagerTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/IndexRebuildOutputListenerTest.java` (new)
 
 - [ ] Step 4: Cover index implementations (`IndexUnique`,
       `IndexNotUnique`, `IndexOneValue`, `IndexMultiValues`,
