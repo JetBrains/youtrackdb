@@ -1243,6 +1243,82 @@ Natural cleanup happens when the branch is deleted after PR merge. -->
 > `*DeadCodeTest` pins are added with the existing
 > `WHEN-FIXED: Track 22` marker convention.
 
+> *From Track 18 (Index) Phase C iter-2 gate-check (suggestions, all
+> non-blocking — gate PASSED on every dimension):* Seven items
+> surfaced when the iter-2 gate-check fanned out across code-quality
+> / test-behavior / test-completeness on commit `84e117de31`. All
+> are pure test-additive / stylistic and were absorbed here rather
+> than burning Track 18's iter-3 counter on non-blocking work.
+>
+> **A. Cleared-TX branch coverage gaps** (test-completeness suggestions —
+> tighten falsifiability under future cleared-branch refactors):
+>
+> 1. **TC16** — add `IndexOneValue.stream(session)` cleared-TX
+>    coverage. Production guard at `IndexOneValue:421` (`if
+>    (indexChanges.cleared) return ... txStream`) is currently
+>    untested; the iter-2 fan-out covered `streamEntries(keys,asc)`,
+>    `streamEntriesMajor`, `streamEntriesMinor` but not the
+>    whole-index `stream` variant. Mirror the existing
+>    `streamEntries_clearedTxChanges_returnsOnlyTxAddedKeys` shape
+>    in `IndexOneValueTxTest`.
+> 2. **TC17** — add `IndexOneValue.descStream(session)` cleared-TX
+>    coverage. `IndexMultiValuesTxTest` gained
+>    `descStream_clearedTxChanges_returnsOnlyTxAddedKeys` in iter-2;
+>    `IndexOneValueTxTest` lacks the symmetric counterpart.
+>    Production guard at `IndexOneValue:461`. Same shape as TC16.
+> 3. **TC18** — add `IndexMultiValues.stream(session)` cleared-TX
+>    coverage. Production guard at `IndexMultiValues:521`. Mirror
+>    the new `descStream_clearedTxChanges` test in
+>    `IndexMultiValuesTxTest`, swapping `index.descStream(session)`
+>    for `index.stream(session)`.
+> 4. **TC19** (minor) — add `IndexOneValue.getRids` inverse-cleared
+>    coverage. Production at `IndexOneValue:117-122` reads
+>    `if (!indexChanges.cleared) ... else rid = null` — the cleared
+>    short-circuit returns null and is currently uncovered. Add a
+>    test that asserts `getRids(session, "alpha")` is empty after
+>    `addIndexEntry CLEAR + PUT` for a different key.
+>
+> All four items reuse the `capturedRidForCommittedKey` /
+> `addIndexEntry CLEAR + PUT delta` setup pattern iter-2 introduced
+> in those test files; expect each test to be ~10 lines.
+>
+> **B. Code-quality polish** (suggestions — non-blocking, pick up if
+> Track 22 touches the cleared-TX test files for any other reason):
+>
+> 5. **CQ15** — `IndexOneValueTxTest` lacks the
+>    `descStream_clearedTxChanges_returnsOnlyTxAddedKeys` test that
+>    `IndexMultiValuesTxTest` gained in iter-2. Symmetric to TC17;
+>    addressing TC17 closes CQ15 automatically. Listed separately
+>    because it surfaced under code-quality (asymmetric coverage)
+>    rather than as a falsifiability gap.
+> 6. **CQ16** — extract a shared cleared-TX setup helper. Across
+>    `IndexOneValueTxTest` (4 cleared-TX tests) and
+>    `IndexMultiValuesTxTest` (5 cleared-TX tests), every test
+>    repeats the same 6-line setup (`capturedRidForCommittedKey` →
+>    `session.begin()` → resolve `index` and `tx` → CLEAR delta →
+>    PUT delta → try-with-resources stream call → `assertEquals(...
+>    List.of("delta") ...)`). Extract `Index
+>    prepareClearedTxWithDeltaPut()` (returning the index with
+>    cleared-TX state already set up) and a `drainKeys(stream)`
+>    helper. ~9 copies × 6 lines collapse to ~3 helper lines per
+>    test.
+> 7. **CQ17** — `IndexMultiValuesTxTest:379-380`'s helper writes
+>    `assertTrue("baseline collection for '" + committedKey + "'
+>    must be non-empty", !collection.isEmpty())`. The same file
+>    already imports and uses `assertFalse`; rewrite as
+>    `assertFalse("...", collection.isEmpty())` for idiom parity.
+>
+> **Tracking note.** All seven items are pure test-additive (no
+> production-code change) and trivial in isolation. They are listed
+> separately rather than rolled into the dead-code lockstep block
+> above because they don't gate any production deletion — Track 22
+> may pick them up opportunistically when it visits the index test
+> files for the dead-code deletions, or skip them entirely if the
+> deferred-cleanup budget is tight (the index package's coverage
+> miss is already documented as known scope per Track 18's Step 5
+> baseline; closing TC16-19 would lift it slightly without changing
+> the strategic outcome).
+
 > **How**:
 > - TX tests need a database session to verify begin/commit/rollback
 >   semantics (`DbTestBase`).

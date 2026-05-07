@@ -260,14 +260,21 @@ iterators, and index operations.
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review (2/3 iterations — iter-2 commit
-      `84e117de31` landed, applying all 7 in-scope iter-1 gate-check
-      findings (TC13/TB17/CQ14 joint, TB18, TB19, TC14, TC15, CQ12,
-      CQ13). Targeted re-runs of the 5 modified test classes:
-      55/55 passed (one combined `mvn -Dtest=...` cycle); spotless
-      clean across 1262 files. Gate check on the new HEAD pending
-      — 3 dimensions to re-run (code-quality, test-behavior,
-      test-completeness).)
+- [x] Track-level code review (gate PASSED at iteration 2 of 3 — all
+      three iter-1 gate-check dimensions returned PASS on the iter-2
+      HEAD. CQ12 / CQ13 / CQ14 fixed; TB17 / TB18 / TB19 fixed; TC13
+      blocker resolved (assertion now anchored on
+      `rebuildCompleted == true`); TC14 fan-out covers the 3
+      `IndexOneValue` / 4 `IndexMultiValues` cleared-TX guard sites
+      named in the iter-1 prescription; TC15 sentinel RID replaced
+      everywhere via the `capturedRidForCommittedKey` helper. Iter-2
+      gate-check surfaced 7 new suggestions — CQ15 (descStream
+      symmetry) / CQ16 (cleared-TX setup helper extraction) / CQ17
+      (`assertFalse` idiom) / TC16 (`IndexOneValue.stream` cleared) /
+      TC17 (`IndexOneValue.descStream` cleared) / TC18
+      (`IndexMultiValues.stream` cleared) / TC19
+      (`IndexOneValue.getRids` inverse-cleared) — all non-blocking
+      and forwarded to Track 22's deferred-cleanup queue.)
 
 ## Base commit
 `04a1f5072a0172b111da7454b3421c78a934ecac`
@@ -411,6 +418,75 @@ iterators, and index operations.
       3 gate-check dimensions (code-quality, test-behavior,
       test-completeness) on the new HEAD; iter-3 only if a fresh
       blocker appears.
+
+- [x] Track-level code review iter-2 — 3 gate-check dimensions
+      re-ran on iter-2 HEAD (commit `84e117de31`, "Review fix:
+      Track 18 review iter-2 — invariant strengthening + cleared-TX
+      fan-out"). Implementer applied all 7 in-scope iter-1
+      gate-check findings in a single Opus spawn (55/55 targeted
+      tests passed in one combined `mvn -Dtest=...` cycle, spotless
+      clean across 1262 files). All three gate-check dimensions
+      returned **PASS**:
+      - **Code quality** (PASS): CQ12 fixed (FQCN gone via TC15's
+        captured-RID approach — no import needed in the end since
+        every FQCN call site was rewritten to use the captured RID),
+        CQ13 fixed (`CompositeKey` import added, 4 FQCN sites
+        collapsed in `IndexComparatorTest`), CQ14 fixed (test
+        renames + Javadoc rewrite in `RecreateIndexesTaskTest`).
+        New suggestions: CQ15 (asymmetric — IndexOneValueTxTest
+        lacks the `descStream_clearedTxChanges` test that
+        IndexMultiValuesTxTest gained), CQ16 (~9 cleared-TX tests
+        share the same 6-line setup → extract a helper), CQ17
+        (`assertTrue("...", !c.isEmpty())` should be
+        `assertFalse(c.isEmpty(), "...")` in the MultiValues
+        helper).
+      - **Test behavior** (PASS): TB17 / TB18 / TB19 all genuinely
+        fixed. TB17's load-bearing observable for the
+        catch-continue contract is now `rebuildCompleted == true`
+        (assignment at `RecreateIndexesTask.recreateIndexes` runs
+        only after the for-loop exits normally past every entry —
+        confirmed via PSI). The two `AtomicBoolean` flags fire in
+        the snapshot phase
+        (`IndexManagerEmbedded.getIndexesConfiguration`) and the
+        rewritten Javadoc honestly narrows their scope to that
+        phase. TB18's Javadoc accurately states the call site of
+        `Index.getConfiguration` (PSI confirms 2 production
+        callers, only `getIndexesConfiguration:482` is on the
+        recreation path). TB19's three `onBegin_*` tests are
+        renamed back to `_completesWithoutException`, the
+        tautological `assertTrue(onProgress(...))` is dropped, and
+        an inline rationale documents that "did not throw" is the
+        only public contract because `onBegin` writes to private
+        fields. No new test-behavior issues.
+      - **Test completeness** (PASS): TC13 blocker resolved
+        (post-loop `rebuildCompleted == true` assertion is
+        falsifiable under catch-missing / catch-rethrowing
+        mutation; both `firstFlag` and `secondFlag` augment the
+        snapshot-phase coverage but are not load-bearing for
+        catch-continue). TC14 fan-out adds 3 new tests in
+        `IndexOneValueTxTest` (`streamEntries(keys, asc)`,
+        `streamEntriesMajor`, `streamEntriesMinor`) and 4 new
+        tests in `IndexMultiValuesTxTest` (the same three plus
+        `descStream`); each is falsifiable —
+        `assertEquals(List.of("delta"), keys)` would fail under
+        cleared-branch removal because the merge fallback would
+        emit the committed alpha×2/beta/gamma×2 entries. TC15's
+        `#-1:-1` sentinel is gone from every executable cleared-TX
+        path; only Javadoc explanatory references remain. New
+        suggestions: TC16 (`IndexOneValue.stream` whole-index
+        cleared branch uncovered), TC17
+        (`IndexOneValue.descStream` whole-index cleared branch —
+        IndexMultiValues has it, IndexOneValue does not), TC18
+        (`IndexMultiValues.stream` whole-index cleared branch
+        uncovered), TC19 (`IndexOneValue.getRids` inverse-cleared
+        branch uncovered — `if (!cleared) ... else rid = null`).
+
+      **Disposition.** All 7 new suggestions (CQ15-17 / TC16-19)
+      are non-blocking and absorbed into Track 22's deferred
+      cleanup queue via a Workflow update commit on
+      `implementation-backlog.md`. The gate is PASS on all three
+      dimensions; iteration 3 is **not** consumed — the iteration
+      counter ends at 2 of 3.
 
 ## Steps
 
