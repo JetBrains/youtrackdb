@@ -33,26 +33,28 @@ build_bar() {
 }
 
 # Determine threshold level and ANSI colour for the progress bar.
-# Colour scheme: green for safe/info, yellow for warning, red for critical.
-# Threshold table: see CLAUDE.md § Context Window Monitor.
-pct_int=""
-level=""
+# Colour scheme: green for safe, dim-green for info, yellow for warning, red for critical.
 if [ -n "$used_pct" ]; then
   pct_int=$(printf "%.0f" "$used_pct")
   if [ "$pct_int" -ge 40 ]; then
     level="critical"
-    ctx_color=$'\033[31m'  # red
+    ctx_color=$'\033[31m'    # red
   elif [ "$pct_int" -ge 30 ]; then
     level="warning"
-    ctx_color=$'\033[33m'  # yellow
+    ctx_color=$'\033[33m'    # yellow
   elif [ "$pct_int" -ge 20 ]; then
     level="info"
-    ctx_color=$'\033[32m'  # green
+    ctx_color=$'\033[2;32m'  # dim green
   else
     level="safe"
-    ctx_color=$'\033[32m'  # green
+    ctx_color=$'\033[32m'    # green
   fi
   ctx_reset=$'\033[0m'
+  # Honour NO_COLOR for non-TTY consumers (log capture, snapshot tests).
+  if [ -n "$NO_COLOR" ]; then
+    ctx_color=""
+    ctx_reset=""
+  fi
   bar=$(build_bar "$pct_int")
   ctx_str="${ctx_color}[${bar}] ${pct_int}%${ctx_reset}"
 else
