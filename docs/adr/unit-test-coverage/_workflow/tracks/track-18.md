@@ -260,9 +260,14 @@ iterators, and index operations.
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review (1/3 iterations — gate FAILED on
-      test-behavior + test-completeness; iter-2 fix plan recorded
-      in "Reviews completed" below)
+- [ ] Track-level code review (2/3 iterations — iter-2 commit
+      `84e117de31` landed, applying all 7 in-scope iter-1 gate-check
+      findings (TC13/TB17/CQ14 joint, TB18, TB19, TC14, TC15, CQ12,
+      CQ13). Targeted re-runs of the 5 modified test classes:
+      55/55 passed (one combined `mvn -Dtest=...` cycle); spotless
+      clean across 1262 files. Gate check on the new HEAD pending
+      — 3 dimensions to re-run (code-quality, test-behavior,
+      test-completeness).)
 
 ## Base commit
 `04a1f5072a0172b111da7454b3421c78a934ecac`
