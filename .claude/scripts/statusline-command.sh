@@ -32,10 +32,29 @@ build_bar() {
   printf "%s" "$bar"
 }
 
+# Determine threshold level and ANSI colour for the progress bar.
+# Colour scheme: green for safe/info, yellow for warning, red for critical.
+# Threshold table: see CLAUDE.md § Context Window Monitor.
+pct_int=""
+level=""
 if [ -n "$used_pct" ]; then
   pct_int=$(printf "%.0f" "$used_pct")
+  if [ "$pct_int" -ge 40 ]; then
+    level="critical"
+    ctx_color=$'\033[31m'  # red
+  elif [ "$pct_int" -ge 30 ]; then
+    level="warning"
+    ctx_color=$'\033[33m'  # yellow
+  elif [ "$pct_int" -ge 20 ]; then
+    level="info"
+    ctx_color=$'\033[32m'  # green
+  else
+    level="safe"
+    ctx_color=$'\033[32m'  # green
+  fi
+  ctx_reset=$'\033[0m'
   bar=$(build_bar "$pct_int")
-  ctx_str="[${bar}] ${pct_int}%"
+  ctx_str="${ctx_color}[${bar}] ${pct_int}%${ctx_reset}"
 else
   ctx_str="[----------] --%"
 fi
@@ -58,14 +77,6 @@ if [ -n "$used_pct" ]; then
     pid=$ppid
   done
   if [ -n "$claude_pid" ]; then
-    level="safe"
-    if [ "$pct_int" -ge 40 ]; then
-      level="critical"
-    elif [ "$pct_int" -ge 30 ]; then
-      level="warning"
-    elif [ "$pct_int" -ge 20 ]; then
-      level="info"
-    fi
     printf "ctx: %s%% level=%s" "$pct_int" "$level" \
       > "/tmp/claude-code-context-usage-${claude_pid}.txt"
   fi
