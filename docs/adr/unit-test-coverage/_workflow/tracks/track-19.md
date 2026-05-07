@@ -207,6 +207,9 @@ storage, filesystem, disk, collections, ridbag).
 - [ ] Step implementation
 - [ ] Track-level code review
 
+## Base commit
+`141f874b6b`
+
 ## Reviews completed
 - [x] Technical: PASS at iteration 2 (10 findings, all 10 accepted, 0 rejected). Iter-2 gate verified each fix via PSI; no regressions, no new findings.
 
