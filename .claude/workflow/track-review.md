@@ -56,7 +56,103 @@ all default to grep unless their prompts explicitly route them to
 PSI. The canonical prompts under `prompts/` already include this
 instruction — keep it intact when customising.
 
+### Track Pre-Flight — Summary and Clarifications
+
+Before Phase A's reviews and decomposition begin, the orchestrator
+presents a summary of the track to the user and offers a chance to
+amend the plan/backlog entry or attach clarifications that ride into
+Phase A. The gate fires once per fresh Phase A entry — State B fresh
+starts and State A → Phase A after strategy refresh. State C resume
+(the step file already has a populated `## Description`) **skips**
+the gate; the user saw the summary in the original session and the
+description is already authoritative.
+
+**1. Build the summary.** Read the plan-file Track N entry (title,
+intro paragraph, scope indicators, any inline notes) and the backlog's
+`## Track N:` section (`**What/How/Constraints/Interactions**` plus
+any `mermaid` diagram, per the "Backlog section body extraction rule"
+in [`conventions-execution.md`](conventions-execution.md) §2.1).
+Render the summary inline in the reply to the user; do not write to
+disk yet — the step file is created in §What You Do sub-step 2c
+after this gate clears.
+
+**2. Ask the user.** Present the summary and use `AskUserQuestion`
+with three options:
+
+- **Proceed** — start Phase A with the track as summarised.
+- **Amend** — modify the plan-file entry and/or the backlog section
+  in place. Light edits only (see step 3 below for the boundary).
+- **Clarify** — attach guidance, must-/must-not- considerations, or
+  open questions to be carried into Phase A. Clarifications do not
+  modify the plan or backlog; they are appended to the step file's
+  `## Description` as a `### Clarifications` subsection in sub-step
+  2c.
+
+`AskUserQuestion` captures one option per round, so combining
+**Amend** and **Clarify** spans multiple rounds. Each round: the
+user picks one option; the orchestrator applies it (edit the
+plan/backlog for **Amend**, append to the clarifications buffer for
+**Clarify**); then re-render the summary from the (now-updated)
+files and re-ask. Loop until the user picks **Proceed**.
+
+**3. Apply amendments — light only.** Light amendments edit the
+plan-file Track N entry and/or the backlog's `## Track N:` section
+directly via `Edit` (or `steroid_apply_patch` when more than two
+sites are touched). These are markdown edits — no IntelliJ PSI/VFS
+refresh concern applies, so the project CLAUDE.md "always route file
+edits through MCP Steroid" rule is satisfied with native `Edit` for
+single-site changes here. Acceptable scope:
+
+- Track title, intro paragraph
+- Scope indicators in the plan entry
+- `**What/How/Constraints/Interactions**` subsections in the backlog
+- The track's `mermaid` diagram in the backlog
+
+If the user requests anything in the list below, do **NOT** apply it
+in this gate — route to inline replanning per
+[`inline-replanning.md`](inline-replanning.md) (trigger: "user
+requests escalation during track review"):
+
+- Decision Records, Architecture Notes, Goals, or Constraints in the
+  plan file
+- Track ordering, dependencies, or new/removed tracks
+- Cross-track interaction surfaces (i.e., the change would affect
+  another track's scope)
+- Anything the user describes as "fundamental rework"
+
+When the gate ESCALATEs, inform the user, restate any captured
+clarifications so the user can fold them into the replan if still
+relevant, then load `inline-replanning.md` and proceed.
+
+After all amendments land in this round, run a single Workflow update
+commit:
+
+```bash
+git add docs/adr/<dir-name>/_workflow/implementation-plan.md \
+        docs/adr/<dir-name>/_workflow/implementation-backlog.md
+git commit -m "Apply pre-Phase-A amendments to Track <N>"
+git push
+```
+
+Stage only the files actually edited — drop the path that wasn't
+touched. If the round produced no amendments (the user only
+clarified), skip this commit entirely.
+
+**4. Capture clarifications.** Keep a clarifications buffer in the
+orchestrator's conversation context — a bullet list of the user's
+notes plus any orchestrator-stated interpretations the user
+confirmed. The buffer is non-empty only if the user picked **Clarify**
+at least once during the loop. When the user picks **Proceed**, the
+buffer flows verbatim into the step file's `## Description` in
+sub-step 2c (see §What You Do).
+
+**5. Proceed.** Continue to §What You Do sub-step 1 below.
+
 ### What You Do
+
+> The Track Pre-Flight gate above must clear before sub-step 1 starts.
+> On State C resume the gate is skipped (see §Phase A Resume —
+> Description-move recovery).
 
 1. **Assess track complexity** to determine which reviews to run (see
    §Complexity Assessment below).
@@ -83,9 +179,13 @@ instruction — keep it intact when customising.
       `docs/adr/<dir-name>/_workflow/tracks/track-N.md` in a single Write call
       that contains: `## Description` (populated with the copied intro
       + `**What/How/Constraints/Interactions**` subsections + any
-      track-level diagram from sub-step (b)), `## Progress` (with all
-      three entries as `[ ]`: `Review + decomposition`, `Step
-      implementation`, `Track-level code review`), an empty
+      track-level diagram from sub-step (b), **followed by a
+      `### Clarifications` subsection containing the verbatim
+      clarifications buffer captured by the Track Pre-Flight gate when
+      that buffer is non-empty; omit the subsection entirely when the
+      buffer is empty**), `## Progress` (with all three entries as
+      `[ ]`: `Review + decomposition`, `Step implementation`,
+      `Track-level code review`), an empty
       `## Reviews completed`, and an empty `## Steps` placeholder.
       Items 4–5 below populate `## Steps`; Phase B writes
       `## Base commit` at its session start. Do NOT create an empty
@@ -349,6 +449,20 @@ routes here), the main agent observes two states — the step file's
 `## Description` section and the backlog's `## Track N:` section — and
 picks the resume action from the decision table below.
 
+The **Track Pre-Flight gate** does not re-fire on resume once the
+step file exists. The gate runs once per fresh Phase A entry and
+persists its outcome through
+the step file's `## Description` (which holds any `### Clarifications`
+captured during the gate) and through any plan/backlog edits already
+committed in the original session. The first row below — step file
+missing — is the only row that re-runs the gate, because the original
+session was interrupted before sub-step 2c wrote the step file.
+Clarifications captured in that prior session lived only in the
+orchestrator's conversation context and are lost; the re-fired gate
+sees the post-amendment plan/backlog (any committed amendments
+persist) but the user must re-enter any clarifications they had
+given previously.
+
 The table is **idempotent**: running the indicated action produces the
 steady-state even if the table is re-entered multiple times. The
 **non-re-copy rule** (never overwrite a non-empty `## Description`
@@ -360,7 +474,7 @@ was interrupted and State C resumed here).
 
 | Step file state | Backlog state | Resume action |
 |---|---|---|
-| Missing | `## Track N:` section present | Fresh Phase A: run §What You Do sub-steps (a)-(d) from the top. Sub-step (c)'s single-Write rule rules out an on-disk step file with an empty `## Description`, so this row cannot represent a partial (c); it only represents an interruption at or before (b). |
+| Missing | `## Track N:` section present | Fresh Phase A: run the Track Pre-Flight gate, then §What You Do sub-steps (a)-(d) from the top. Sub-step (c)'s single-Write rule rules out an on-disk step file with an empty `## Description`, so this row cannot represent a partial (c); it only represents an interruption at or before (b). Pre-flight amendments committed by an earlier interrupted session are already on disk; the re-fired gate sees the post-amendment state in the plan/backlog. |
 | Present, `## Description` populated | `## Track N:` section still present | Partial interruption after (c), before (d) completed. Run sub-step (d) **verbatim** and remove the backlog section using the "Backlog section body extraction rule" in `conventions-execution.md` §2.1. Do NOT re-copy into the step file's `## Description`. |
 | Present, `## Description` populated | No `## Track N:` section | Steady state. No description mutation needed. Resume from the next incomplete Phase A activity (reviews not yet run, decomposition not yet written). |
 
