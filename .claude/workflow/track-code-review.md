@@ -578,8 +578,9 @@ manual and requires user approval — do not auto-respawn.
      | grep -v ' grep '
    ```
 
-   and terminate orphaned PIDs with `kill -TERM <pid>` (then
-   `kill -KILL <pid>` if they survive). Two patterns are
+   and terminate orphaned PIDs with `kill -TERM <pid>`. Wait a few
+   seconds for graceful cleanup (releasing file locks, flushing logs),
+   then escalate to `kill -KILL <pid>` only if they survive. Two patterns are
    particularly common after a `RESULT_MISSING` exit:
    - a defunct `[java]` zombie from an interrupted Maven fork
      (still listed but consuming no CPU; reaped by killing its
