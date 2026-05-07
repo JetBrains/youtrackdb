@@ -204,7 +204,7 @@ storage, filesystem, disk, collections, ridbag).
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [ ] Step implementation (1/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -215,13 +215,30 @@ storage, filesystem, disk, collections, ridbag).
 
 ## Steps
 
-- [ ] Step: Storage top-level shell + storage.config
-  > **Risk:** low — default (purely test-additive; new tests for `core.storage` data classes plus a new DbTestBase + AtomicOperation test class for `CollectionBasedStorageConfiguration` — no production source touched, no shared test infrastructure modified).
+- [x] Step: Storage top-level shell + storage.config
+  - [x] Context: info
+  > **Risk:** low — default (purely test-additive; new tests for `core.storage` data classes plus a new per-method-lifecycle test class for `CollectionBasedStorageConfiguration` — no production source touched, no shared test infrastructure modified).
   >
-  > **Scope:** Two halves landed in one commit.
-  > - **(1a) `core.storage` top-level** — standalone JUnit 4. `Externalizable` round-trip on `PhysicalPosition` (the dominant 52-uncov contributor), `RawBuffer` equality/hash-code, plus targeted top-ups on `RecordMetadata` and `RawPageBuffer`. New test classes only when no existing host (e.g. `StorageReadResultTest`) fits.
-  > - **(1b) `core.storage.config.CollectionBasedStorageConfiguration`** — new test class modelled on `LocalPaginatedCollectionAbstract`: memory-mode `YouTrackDBImpl` in `@BeforeClass`, drive `setProperty` / `preload*` / `recalculateLocale` / `dropProperty` via `atomicOperationsManager.executeInsideAtomicOperation`. Mark `@Category(SequentialTest.class)` (static-DB pattern).
-  > - **Verification:** `./mvnw -pl core test -Dtest=<new test classes>`; `coverage-gate.py` against changed lines; spotless apply.
+  > **What was done:** Added two new test classes (~1,000 LOC, 63 tests, commit `72eeb9032f`):
+  > - `PhysicalPositionTest` (446 lines, 31 tests) — standalone JUnit 4 covering `Externalizable` round-trip (writeExternal/readExternal preserves all four fields), `SerializableStream` round-trip (toStream/fromStream), equals/hashCode contract incl. cross-field discrimination, copyFrom semantics, toString format pin, `RecordMetadata` getter coverage. Targets the 52-uncov `PhysicalPosition` shape.
+  > - `CollectionBasedStorageConfigurationTest` (~555 lines, 32 tests) — per-method `@Before`/`@After` lifecycle: each test creates a fresh memory DB, opens session, extracts `CollectionBasedStorageConfiguration` via reflection on `AbstractStorage.configuration`, runs assertions inside an `AtomicOperation`, then drops the DB. Covers property get/set/remove/clear, schemaRecordId, indexMgrRecordId, conflictStrategy, charset, dateFormat / dateTimeFormat, timeZone, locale (language+country), validation, uuid, recordSerializer / version, version, binaryFormatVersion, name, creationVersion, configurationUpdateListener pause/fire semantics. `tearDown` swallows `drop()`/`close()` exceptions so per-method cleanup always proceeds even if a test left the DB unopenable. Coverage-gate PASSED (100% line / 100% branch on 6 changed lines — diff is test-additive only).
+  >
+  > **What was discovered:**
+  > - **Latent production deadlock in `CollectionBasedStorageConfiguration.setMinimumCollections`** (`core/src/main/java/.../CollectionBasedStorageConfiguration.java:323`): acquires `lock.writeLock()` then calls `getContextConfiguration()` which tries to acquire `lock.readLock()` on the same non-reentrant `ScalableRWLock`. The Javadoc on `readMinimumCollections` (lines 338-342) explicitly documents the reentrancy trap and works around it by accessing `configuration` directly — but `setMinimumCollections` itself fails to apply that workaround. Symptom observed during Phase B authoring: `JUnitTestListener` deadlock-watchdog dumps diagnostics and halts the surefire JVM after 900 s ("VM crash or System.exit called?", `Tests run: 0`). Documented in a comment block in the test class with a `WHEN-FIXED:` marker; no executable pin because the only available pin would leak a daemon thread spinning in `Thread.yield()` (the `ScalableRWLock` fast path does not respond to interrupt), burning CPU during following tests. **Forwarded to Track 22's deferred-cleanup queue** — fix: replace the `getContextConfiguration()` call inside `setMinimumCollections` (line 326) with a direct `configuration.setValue(...)` call mirroring `readMinimumCollections` (line 346).
+  > - **Latent production bug in `CollectionBasedStorageConfiguration.removeProperty`** (`...:1257`): does not invalidate the in-memory `PROPERTIES` cache map. `dropProperty` (line 1738) removes from the persistent `btree` but does not call `properties.remove(name)`, unlike `doSetProperty`'s `properties.put(...)` (line 1095) and `clearProperties`'s `properties.clear()` (line 1247). Consequence: after `setProperty(k, v)` + `removeProperty(k)`, `getProperty(k)` still returns `v` until the cache is rebuilt by a reload. Pinned by `testRemovePropertyDoesNotInvalidateInMemoryCache` and `testRemovePropertyRemovesFromPersistentBtree`, both with `WHEN-FIXED:` markers that flip to the corrected assertions when the cache is invalidated. **Forwarded to Track 22.**
+  > - **Class-static `@BeforeClass` + memory DB pattern is incompatible with surefire** when `-Dyoutrackdb.memory.directMemory.trackMode=true` is in the argLine (always, in `core/pom.xml:49`). Holding the storage reference until JVM shutdown causes the page tracker to detect unreleased pages and abort the JVM with `System.exit(1)` before any test runs (`Tests run: 0` despite the class loading successfully). The first attempt at `CollectionBasedStorageConfigurationTest` used `@BeforeClass`/`@AfterClass` (modelled on `LocalPaginatedCollectionAbstract`) and triggered this exact failure; the rewrite to per-method `@Before`/`@After` resolves it. The precedent works because it uses `DatabaseType.DISK`, not `MEMORY` — disk lifecycle releases pages incrementally, memory mode does not.
+  > - **`testSetRecordSerializerVersion` poisons the DB**: setting the serializer version to 2 makes the DB unopenable on the next `session.init()` ("Persistent record serializer version is not support by the current implementation"). `tearDown`'s `drop()` reopens the DB internally and fails. Mitigated by capturing the original version in the test, asserting the round-trip, then restoring before tearDown — plus the tearDown swallows drop exceptions. Useful pattern for any test that mutates configuration in ways that affect openability.
+  >
+  > **What changed from the plan:**
+  > - The plan prescribed `@BeforeClass` + `LocalPaginatedCollectionAbstract`-style class-static lifecycle for the config test. **Rejected** — see "Class-static + memory DB" finding above. Replaced with per-method `@Before`/`@After`. **Affects Step 2 (memory storage) and Step 4 (collections + ridbag) directly:** any DB-mode test (memory or disk) using a single class-static instance must verify it does not trip the page-tracker, otherwise default to per-method lifecycle. Disk-mode tests with a class-static lifecycle are acceptable per the precedent.
+  > - The plan listed `setMinimumCollections` as one of the methods to exercise — **dropped** (deadlock pin only, no assertion-firing test). `getMinimumCollections` is exercised transitively by other tests (auto-init from locale tests).
+  > - The `@Category(SequentialTest.class)` marker was DROPPED for the config test: per-method lifecycle creates an isolated DB per test, so nothing leaks across methods within the class. Surefire's `parallel=classes` still serializes the class against any other class running concurrently. The plan's blanket prescription to mark sequential is too aggressive for this pattern.
+  >
+  > **Key files:**
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/PhysicalPositionTest.java` (new, 446 lines, 31 tests)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/config/CollectionBasedStorageConfigurationTest.java` (new, ~555 lines, 32 tests)
+  >
+  > **Critical context:** Two latent production bugs (the `setMinimumCollections` deadlock and the `removeProperty` cache-staleness) MUST land in Track 22's deferred-cleanup queue. Phase C of Track 19 (or Track 22's Phase A) needs to commit them to `implementation-backlog.md`'s Track-22 absorption block alongside the existing entries (Track-15/16/17/18 forwarded items). The per-method-lifecycle pattern for memory DB tests is a **cross-track signal to Step 2 / Step 4** — re-evaluate any precedent before reusing it. Step 5's coverage re-measurement will pick up `core.storage.config` and `core.storage` top-level numbers; expect substantial gains in both.
 
 - [ ] Step: Memory storage — MemoryFile, DirectMemoryOnlyDiskCache, DirectMemoryStorage paths
   > **Risk:** low — default (purely test-additive; same-package tests for two directly-constructible classes plus DbTestBase extensions for the engine-level paths).
