@@ -88,15 +88,20 @@ with three options:
   `## Description` as a `### Clarifications` subsection in sub-step
   2c.
 
-A single round may combine **Amend** and **Clarify**. Apply
-amendments first, then capture clarifications, then re-render the
-summary from the (now-updated) files and re-ask. Loop until the user
-picks **Proceed**.
+`AskUserQuestion` captures one option per round, so combining
+**Amend** and **Clarify** spans multiple rounds. Each round: the
+user picks one option; the orchestrator applies it (edit the
+plan/backlog for **Amend**, append to the clarifications buffer for
+**Clarify**); then re-render the summary from the (now-updated)
+files and re-ask. Loop until the user picks **Proceed**.
 
 **3. Apply amendments — light only.** Light amendments edit the
 plan-file Track N entry and/or the backlog's `## Track N:` section
 directly via `Edit` (or `steroid_apply_patch` when more than two
-sites are touched). Acceptable scope:
+sites are touched). These are markdown edits — no IntelliJ PSI/VFS
+refresh concern applies, so the project CLAUDE.md "always route file
+edits through MCP Steroid" rule is satisfied with native `Edit` for
+single-site changes here. Acceptable scope:
 
 - Track title, intro paragraph
 - Scope indicators in the plan entry
@@ -451,6 +456,11 @@ captured during the gate) and through any plan/backlog edits already
 committed in the original session. The first row below — step file
 missing — is the only row that re-runs the gate, because the original
 session was interrupted before sub-step 2c wrote the step file.
+Clarifications captured in that prior session lived only in the
+orchestrator's conversation context and are lost; the re-fired gate
+sees the post-amendment plan/backlog (any committed amendments
+persist) but the user must re-enter any clarifications they had
+given previously.
 
 The table is **idempotent**: running the indicated action produces the
 steady-state even if the table is re-entered multiple times. The

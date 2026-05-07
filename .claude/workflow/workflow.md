@@ -84,6 +84,7 @@ flowchart TD
     SR -->|CONTINUE / ADJUST| PREFLIGHT
     SR -->|ESCALATE| REPLAN["Inline Replanning"]
     PREFLIGHT -->|Proceed| PA["Phase A: Review +\nDecomposition"]
+    PREFLIGHT -->|"Amend / Clarify\n(re-render summary,\nre-ask)"| PREFLIGHT
     PREFLIGHT -->|"ESCALATE\n(deep amendment)"| REPLAN
 
     REPLAN -->|"Revised plan"| END_S["Session ends"]
@@ -332,7 +333,7 @@ User interaction points:
 | **Session start** | Auto-resume decision (which track, which phase, or State 0 plan review) | Confirm or override |
 | **State 0 design-decision findings** | Batched list of CR/S findings the consistency and/or structural sub-agents classified as `design-decision`, with proposed alternatives and recommendation | Resolve each finding (choose alternative, provide guidance, defer) |
 | **Strategy refresh** | Assessment report (CONTINUE / ADJUST / ESCALATE) | Accept or override |
-| **Track pre-flight (start of fresh Phase A)** | Track summary built from the plan-file entry + backlog Track N section (intro, **What/How/Constraints/Interactions**, scope indicators, optional diagram) | Proceed; amend (light edits to plan/backlog applied directly); or clarify (notes attached to the step file's `## Description`). Deep amendments ESCALATE to inline replanning. Skipped on State C resume. |
+| **Track pre-flight (start of fresh Phase A)** | Track summary built from the plan-file entry + backlog Track N section (intro, **What/How/Constraints/Interactions**, scope indicators, optional diagram) | Proceed; amend (light edits to plan/backlog applied directly); or clarify (notes captured for inclusion in the step file's `## Description`, written at Phase A sub-step 2c). Deep amendments ESCALATE to inline replanning. Skipped on State C resume. |
 | **Phase A/B complete (and State 0 complete)** | Phase summary, what was done, next phase | User clears session, re-runs `/execute-tracks` |
 | **Cross-track impact** | Which tracks affected, what broke, recommendation | Continue, pause, or escalate |
 | **Track complete (end of Phase C)** | Track episode, step episodes, git log of commits, plan corrections | Approve, request fixes, or rework |

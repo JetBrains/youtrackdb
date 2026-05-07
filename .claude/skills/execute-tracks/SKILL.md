@@ -103,7 +103,7 @@ User interaction happens at specific points:
 - Session start: auto-resume decision (confirm or override)
 - State 0 design-decision findings: resolve each escalated finding (only design-decision; mechanical fixes apply autonomously)
 - Strategy refresh: accept recommendation or override
-- Track pre-flight (start of fresh Phase A): proceed, amend the plan/backlog (light edits only), or attach clarifications to the step file's Description; deep amendments ESCALATE to inline replanning. Skipped on State C resume.
+- Track pre-flight (start of fresh Phase A): proceed, amend the plan/backlog (light edits only), or capture clarifications for inclusion in the step file's Description (written at Phase A sub-step 2c); deep amendments ESCALATE to inline replanning. Skipped on State C resume.
 - Phase complete: user clears session, re-runs `/execute-tracks`
 - Cross-track impact detected: continue, pause, or escalate
 - Track complete: approve, request fixes, or request rework
