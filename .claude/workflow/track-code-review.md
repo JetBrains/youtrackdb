@@ -363,8 +363,16 @@ orchestrator never edits source files itself in Phase C.
    independent counters). Iterations short-circuited via the
    pre-spawn budget split in step 2 each consume one counter — a
    24-finding set split into a 12+12 sequence consumes 2 of 3
-   iterations on the in-scope findings alone, leaving exactly one
-   iteration for any gate-check carry-over.
+   iterations on the in-scope findings alone, leaving only one
+   iteration for any gate-check carry-over from **either** chunk.
+   This is tight: if iteration 1's gate-check surfaces new fixable
+   findings and iteration 2 is already full at 12 carry-overs, the
+   single remaining iteration must absorb gate-check carry from
+   both prior iterations and may exhaust the budget. When the
+   pre-spawn finding-set is large enough that a 2-chunk split is
+   forced, expect blockers-persist exit at the end and surface the
+   residual findings at track completion rather than treating the
+   third iteration as a guaranteed cleanup slot.
 5. If blockers persist after 3 iterations, or if any iteration ended
    in a non-`SUCCESS` return that exited the loop, note the unfixed
    findings — they'll be presented to the user during track completion
@@ -623,9 +631,30 @@ manual and requires user approval — do not auto-respawn.
      + the coverage gate, commits as `Review fix: <subject>` per
      [`commit-conventions.md`](commit-conventions.md), and
      proceeds to the gate-check fan-out as if the iteration had
-     returned `SUCCESS`. **This is the only Phase C case where the
-     orchestrator commits source-file changes directly** — note
-     the deviation in the eventual track episode so the audit
+     returned `SUCCESS`. **Apply the test-additive carve-out** from
+     [`implementer-rules.md`](implementer-rules.md) §Pacing
+     long-running tasks → "Test-additive spawns skip the
+     coverage-profile build entirely": when
+     `git diff origin/develop -- '**/src/main/**'` is empty for the
+     cumulative branch diff, record the gate as `n/a (test-additive)`
+     and skip the coverage profile build — running it on a test-only
+     iteration is wasted budget. **If we reached this handler via
+     the dirty-tree-at-FAILED redirect from `handle_iteration_failure`
+     above** (i.e., `result.RESULT == FAILED` with a populated
+     `result.FAILURE` block, not a true `RESULT_MISSING` where no
+     RESULT block was parsed), fold the implementer's
+     `FAILURE.what_was_attempted` / `FAILURE.why_it_failed` /
+     `FAILURE.recommended_action` fields into the `Review fix:`
+     commit message body verbatim so the git history preserves the
+     budget-pressure context — the implementer's own pre-exit
+     diagnosis is the most authoritative record of what happened
+     and must not be discarded just because the iteration was
+     finalised by the orchestrator. For a true `RESULT_MISSING`
+     entry the FAILURE block doesn't exist; record what was visible
+     (the implementer's last visible message excerpt from step 3)
+     in the commit message body instead. **This is the only Phase C case
+     where the orchestrator commits source-file changes directly** —
+     note the deviation in the eventual track episode so the audit
      trail is preserved.
    - **Discard.** Run the snapshot-and-diff revert on the
      implementer's behalf and treat the iteration as `FAILED`

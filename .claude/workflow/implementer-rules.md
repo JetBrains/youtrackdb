@@ -336,7 +336,8 @@ profile build, integration tests:
   Steroid → "Maven — when to route through mcp-steroid",
   single-test re-runs and short targeted lists belong on the IDE
   route. The `test/failure-details` and `test/statistics` recipes
-  (catalogued in `conventions.md` §1.4 *Recipes*) return structured
+  (catalogued in `conventions.md` §1.4 → "Recipes" subsection)
+  return structured
   per-test outcomes from `RunContentManager` rather than streaming
   surefire stdout into the conversation — typically a 10–25× context
   saving on a failing run, which is the lever that prevents the
