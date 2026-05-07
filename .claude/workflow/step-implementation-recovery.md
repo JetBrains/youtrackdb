@@ -59,8 +59,9 @@ the step file on disk:
    contribute exactly **three** kinds of commit, in order:
 
    - **Implementer code commit** — touches code (paths outside
-     `_workflow/`); subject is the imperative summary of the
-     step's change. Exactly **one** per `[x]` step.
+     `_workflow/` and outside `workflow-issues/`); subject is the
+     imperative summary of the step's change. Exactly **one** per
+     `[x]` step.
    - **`Review fix:` commits** — code commit prefixed
      `Review fix:`. **Zero or more** per `[x]` step (one per
      dim-review iteration that surfaced fixes).
@@ -74,10 +75,12 @@ the step file on disk:
    - **`Revert step:`** — a revert commit. With the implementer +
      `Review fix:` commits it cancels, it forms a self-contained
      "rolled back" group that is excluded from per-step counting.
-   - **Other Workflow update** — touches only `_workflow/` but is
-     not an episode commit (Phase 1 init, Phase A decomposition,
-     Phase B base-commit recording, plan-corrections application,
-     track-completion mark, inline-replanning update). These are
+   - **Other Workflow update** — touches only `_workflow/` or
+     `workflow-issues/` but is not an episode commit (Phase 1 init,
+     Phase A decomposition, Phase B base-commit recording,
+     plan-corrections application, track-completion mark,
+     inline-replanning update, end-of-session self-improvement
+     reflection commits which touch `workflow-issues/`). These are
      workflow scaffolding and may appear anywhere in the log
      between or before `[x]` steps.
 
@@ -226,18 +229,21 @@ prefixes):
    classify orphan commits since the orchestrator never edits
    source files itself.
 4. **Implementer code commits** — touch code (paths outside
-   `_workflow/`); subject is the imperative summary of the step's
-   change. When an orphan implementer commit appears after the
-   last episode commit without any `Review fix:` siblings, resume
-   from the dimensional review loop.
-5. **Other Workflow update commits** — touch only `_workflow/`
-   but are not episode commits (Phase 1 init, Phase A
-   decomposition, Phase B base-commit recording, plan-corrections
-   application, track-completion mark, inline-replanning update,
-   Phase C iteration-count Progress updates, Phase C iteration-
-   failure Progress updates with the `FAILURE` fields embedded in
-   the commit message body). They are scaffolding and **not**
-   orphans regardless of position.
+   `_workflow/` and outside `workflow-issues/`); subject is the
+   imperative summary of the step's change. When an orphan
+   implementer commit appears after the last episode commit
+   without any `Review fix:` siblings, resume from the
+   dimensional review loop.
+5. **Other Workflow update commits** — touch only `_workflow/` or
+   `workflow-issues/` but are not episode commits (Phase 1 init,
+   Phase A decomposition, Phase B base-commit recording,
+   plan-corrections application, track-completion mark,
+   inline-replanning update, Phase C iteration-count Progress
+   updates, Phase C iteration-failure Progress updates with the
+   `FAILURE` fields embedded in the commit message body,
+   end-of-session self-improvement reflection commits which touch
+   `workflow-issues/`). They are scaffolding and **not** orphans
+   regardless of position.
 
 The step file on disk is the source of truth for which steps are
 complete (have episodes). During Phase B Resume specifically, any

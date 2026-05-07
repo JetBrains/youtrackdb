@@ -670,7 +670,16 @@ proceed directly to track completion **in the same session**.
    update commits"). It does **not** contribute to any `[x]` step's
    expected commit set.
 
-6. **Session ends.** Strategy refresh happens next session.
+6. **Run self-improvement reflection.** Load
+   `.claude/workflow/self-improvement-reflection.md` on-demand and
+   follow it. Phase C friction worth recording typically lives in
+   the track-level review-iteration loop, the dimensional review
+   agent selection, the deferred-finding → plan-correction handoff,
+   the implementer-driven review-fix application, or the track
+   episode template. If the user approves any proposed issues,
+   write the chosen `workflow-issues/*.md` files, commit + push
+   per the protocol §Commit format, then proceed to Step 7.
+7. **Session ends.** Strategy refresh happens next session.
 
 **Why deferred write:** Writing the track episode and marking `[x]` before
 user approval creates a state that cannot be reliably resumed — if the
