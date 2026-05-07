@@ -1711,6 +1711,17 @@ flowchart TD
   > Track 22 absorption may close it via TC16-19 if budget permits.
   >
   > **Step file:** `tracks/track-18.md` (5 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact on Tracks 19–22.
+  > Track 18 was purely test-additive (zero production source modified). Cross-track
+  > hints to Track 21 (BTree `doClearTree` error paths, `RemoteIndexEngine` factory branch,
+  > `BTreeEngineConstructorValidationTest` shape pins) ride in the Track-18 episode for
+  > Track 21's Phase A to read; Track 22's absorption queue (TC16-19 cleared-TX gaps,
+  > CQ15-17 DRY findings, dead-code lockstep groups `{IndexCursor, IndexAbstractCursor,
+  > IndexCursorStream}` and `{IndexKeyCursor}`) was committed in `7d995d45a2`. Track 19's
+  > scope (`core/storage/{config,memory,fs,disk,collection,ridbag}*`) is functionally
+  > independent of `core/index*`, so the residual `core/index` gate miss does not
+  > invalidate any Track 19 assumption.
 
 - [ ] Track 19: Storage Fundamentals
   > Write tests for storage subsystem components that are more testable
@@ -1789,6 +1800,9 @@ flowchart TD
   > absorption blocks are committed in the backlog under
   > `## Track 22` (Track 17 is the most recent, including the new
   > C6 latent issue raised during Phase C iter-1 review).
+
+## Plan Review
+- [x] Plan review (consistency + structural) — implicit; this plan predates the State 0 marker added later to the workflow. Validated retroactively through 18 successfully completed tracks (Tracks 1–18, all `[x]` with passing track-level dimensional reviews). Marker added at start of Track 19 Phase A so future startup-protocol auto-resume reads cleanly.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
