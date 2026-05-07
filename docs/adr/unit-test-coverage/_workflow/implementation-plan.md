@@ -1586,6 +1586,12 @@ flowchart TD
   > No upcoming-track assumption is invalidated.
   >
   > **Step file:** `tracks/track-17.md` (7 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact on Tracks 18–21.
+  > Track 17 was purely test-additive (zero production source modified) and
+  > all cross-track items (5 dead-code groups, 21 `SymmetricKey` deletions,
+  > 6 latent production issues incl. C6 `TokenSignImpl.readKeyFromConfig`)
+  > are already absorbed into Track 22's queue via commit `6df674f6cf`.
 
 - [ ] Track 18: Index
   > Write tests for the index management layer — index engines, index
