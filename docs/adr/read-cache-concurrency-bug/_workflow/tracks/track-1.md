@@ -149,7 +149,7 @@ flowchart TD
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/6 complete)
+- [ ] Step implementation (2/6 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -270,50 +270,127 @@ visible TODO comment for Track 4.
   > `WOWCacheLoadOrAddStubTest.java`,
   > `DirectMemoryOnlyDiskCacheLoadOrAddStubTest.java` (new).
 
-- [ ] Step: Implement `WOWCache.loadOrAdd` — three branches with dirty-write probe, per-branch lock policy, and totality contract
+- [x] Step: Implement `WOWCache.loadOrAdd` — three branches with dirty-write probe, per-branch lock policy, and totality contract
+  - [x] Context: info
   > **Risk:** high — concurrency (per-branch lock ordering against
   > `lockManager` / `flushExclusiveWriteCache` / `doRemoveCachePages`),
   > crash-safety (page-level extend with `EnsurePageIsValidInFileTask`
   > submission), performance hot path (cache primitive). The totality
   > contract here is the keystone of D1.
   >
-  > **What:** Real implementation of `WOWCache.loadOrAdd`. Read
-  > `AsyncFile.size` once into `currentSize`. Branch:
-  > (a) `pageIndex < currentSize` → **load branch.** Acquire
-  > `lockManager.acquireSharedLock(pageKey)` (matching today's
-  > `WOWCache.load`); probe `writeCachePages.get(pageKey)` first and
-  > return the dirty in-memory pointer if present (per the dirty-write
-  > priority rule, review note 1). On miss call `loadFileContent`
-  > exactly as today. **Totality fallback** (review note 3): if
-  > `loadFileContent` returns null because `fileClassic.getFileSize()`
-  > lags `AsyncFile.size`, return a magic-stamped empty `CachePointer`
-  > **without** bumping `AsyncFile.size` (the page is already logically
-  > allocated; only the disk-side stamp is missing). Magic-check
-  > failure on the load path propagates as `StorageException`
-  > (unchanged); see `ISSUE-ensurevalidpagetask-torn-write.md` for the
-  > orthogonal durability gap.
-  > (b) `pageIndex == currentSize` → **one-page extend.** Skip the
-  > `lockManager` shared lock (review note 2). Call
-  > `AsyncFile.allocateSpace(pageSize)`, submit
-  > `EnsurePageIsValidInFileTask(fileId, pageIndex)` to the single-
-  > threaded `wowCacheFlushExecutor`, return a magic-stamped empty
-  > `CachePointer`.
-  > (c) `pageIndex > currentSize` → **gap-fill (recovery only).** Skip
-  > the `lockManager` shared lock. Batched
-  > `AsyncFile.allocateSpace((pageIndex - currentSize + 1) * pageSize)`,
-  > submit `EnsurePageIsValidInFileTask` per gap page in
-  > `[currentSize, pageIndex]`, return only the target's
-  > magic-stamped empty `CachePointer`.
-  > **Exception contract:** `IllegalArgumentException` from
-  > `loadFileContent` on a concurrently-deleted file propagates raw
-  > (caller-bug surface); the totality contract holds for any open,
-  > non-deleted fileId. **Non-durable files**: extend / gap-fill submit
-  > `EnsurePageIsValidInFileTask` exactly as today's `allocateNewPage`
-  > — no behavioural change, regression-test tracked in Track 2.
-  > Replace the stub from Step 1; do **not** yet rewire the
-  > `LockFreeReadCache` lambdas (Step 4).
+  > **What was done:** Replaced the placeholder `WOWCache.loadOrAdd`
+  > stub from the prior step with the real three-branch implementation
+  > plus a focused smoke-test class. The dispatcher reads
+  > `AsyncFile.size` once into `currentSize`, then dispatches:
+  > (a) `pageIndex < currentSize` → **load branch** — acquires the
+  > per-`PageKey` shared `lockManager` lock (matching today's
+  > `WOWCache.load`), probes `writeCachePages` first for dirty-write
+  > priority, falls through to `loadFileContent`, and (defensively)
+  > returns a magic-stamped (LSN(-1,-1)) empty buffer **without**
+  > bumping `AsyncFile.size` if `loadFileContent` ever yields null on
+  > a logically-allocated page; (b) `pageIndex == currentSize` →
+  > **one-page extend** — skips the `lockManager` lock, atomic
+  > `AsyncFile.allocateSpace`, single `EnsurePageIsValidInFileTask`
+  > on the FIFO `wowCacheFlushExecutor`, returns an empty
+  > `CachePointer`; (c) `pageIndex > currentSize` → **recovery-only
+  > multi-page gap-fill** — same lock policy as extend, one batched
+  > `allocateSpace` plus one task per gap page in
+  > `[currentSize, pageIndex]`, returns only the target's pointer.
+  > `IllegalArgumentException` propagates raw on a deleted/unknown
+  > fileId via an explicit guard at the dispatch prelude. The
+  > disposable `WOWCacheLoadOrAddStubTest` was deleted and replaced
+  > with `WOWCacheLoadOrAddTest` (eight tests) covering all three
+  > branches, the boundary `pageIndex == currentSize` on a non-empty
+  > file, the smallest non-trivial gap-fill (loop runs twice),
+  > idempotent re-call (no double-allocation), negative-pageIndex
+  > argument rejection, and deleted-file `IllegalArgumentException`
+  > propagation; each test asserts the precise post-state including
+  > LSN(-1,-1) on extend / gap-fill returned pointers. The
+  > `DirectMemoryOnlyDiskCache.loadOrAdd` stub and the
+  > `LockFreeReadCache` lambdas remain on the legacy path, as
+  > specified by the next two steps. Two commits land for this step:
+  > original
+  > `4f18e2046b1fb560c116a3d152b7db5008ab152d` (three-branch
+  > implementation + smoke tests) and review-fix
+  > `5583a4340e7de62d3f6fa61dad0d28860b77e836` (folded the
+  > dimensional review findings — see below). 9-agent step-level
+  > dimensional review at iteration 1 returned 4 FAIL gates
+  > (test-behavior, test-completeness, test-concurrency,
+  > test-structure) plus should-fix items in code-quality,
+  > bugs-concurrency, and performance; iteration 2 gate check on the
+  > review-fix commit returned PASS across all five re-checked
+  > dimensions.
   >
-  > **Files:** `WOWCache.java`.
+  > **What was discovered:**
+  > 1. **The Phase A "totality fallback" assumption was wrong.** Phase
+  >    A review note 3 said `loadFileContent` returns null when
+  >    `fileClassic.getFileSize() < pageEndPosition` because the queued
+  >    `EnsurePageIsValidInFileTask` has not yet stamped. In fact
+  >    `loadFileContent` reads the in-memory `AsyncFile.size` (the same
+  >    value the dispatcher just read as `currentSize`) — given
+  >    `pageIndex < currentSize`, the null branch is structurally
+  >    unreachable. The implementation kept the totality fallback as
+  >    documented defensive dead code; the inline comment + Javadoc
+  >    were updated to reflect this. The actual on-disk-lag race
+  >    (`fileChannel.read` returning a zero-filled buffer that fails
+  >    magic verification under `StoreAndThrow`) exists but is
+  >    orthogonal, tracked in
+  >    `ISSUE-ensurevalidpagetask-torn-write.md` per the plan's
+  >    non-goals.
+  > 2. **`assert` was not enough — converted to hard throws.** The
+  >    extend / gap-fill `assert allocatedIndex == pageIndex` and
+  >    `assert allocatedStartIndex == currentSize` checks would silently
+  >    pass under production `-da` and risk silent cache corruption if
+  >    invariant I4 (per-component locks serialize concurrent
+  >    allocators) is ever violated by a future caller. Both were
+  >    converted to `IllegalStateException` throws so an I4 violation
+  >    fails fast.
+  > 3. **Dispatch prelude double-acquire vs today's `allocateNewPage`.**
+  >    The first cut took two `files.acquire`/`files.release` cycles
+  >    (one to read `AsyncFile.size`, one inside the branch helper).
+  >    Refactored to hold a single `ClosableEntry` across the call:
+  >    load branch releases before delegating to `loadFileContent`
+  >    (which re-acquires internally); extend / gap-fill helpers
+  >    receive the `AsyncFile` reference. Halves per-call
+  >    `ClosableLinkedContainer` traffic.
+  > 4. **`Intention` enum mismatch.** The empty-`CachePointer`
+  >    construction was using `Intention.ADD_NEW_PAGE_IN_FILE` (the
+  >    disk-stamp path's bucket); swapped to
+  >    `Intention.ADD_NEW_PAGE_IN_DISK_CACHE` to match the legacy
+  >    `LockFreeReadCache.addNewPagePointerToTheCache` install
+  >    pattern.
+  > 5. **`flush(fileId)` needed before the on-disk-fallback test.**
+  >    Without an explicit drain of `wowCacheFlushExecutor`, the
+  >    implicit "executor has stamped by now" assumption made the
+  >    load-branch test timing-coupled — added a flush call and
+  >    documented the rationale.
+  > 6. **`EnsurePageIsValidInFileTask` itself writes LSN(-1,-1).** The
+  >    reviewer suggested distinguishing on-disk pages from the
+  >    totality-fallback empty buffer via LSN value; this is infeasible
+  >    because `writeValidPageInFile` itself stamps freshly-extended
+  >    pages with LSN(-1,-1). The on-disk-fallback test relies on
+  >    `assertNotSame` identity to distinguish the two paths; the
+  >    Javadoc records this rationale.
+  > 7. **Cross-track impact (Continue):** two minor follow-up notes
+  >    for upcoming steps. (a) The new Javadoc hedge "until the cache
+  >    rewiring step lands, only unit tests exercise this method" will
+  >    become stale once production callers exist (the cache-rewiring
+  >    step in this same track) — that step's implementer should drop
+  >    the hedge from `loadOrAdd`'s Javadoc and from the extend-branch
+  >    helper Javadoc. (b) The deferred totality-fallback test seam
+  >    belongs in the dedicated cache-coverage track once a future
+  >    change makes the fallback reachable. Neither observation
+  >    invalidates an upcoming track's assumption or changes the
+  >    dependency ordering. Two iteration-2 non-blocking findings
+  >    (TB-009 weak branch discrimination on the idempotent-re-call
+  >    test; TB-010 imprecise exception-message assertion on the
+  >    deleted-file test) are natural fits for the dedicated
+  >    cache-coverage track's broader test work.
+  >
+  > **Key files:** `WOWCache.java` (modified — three-branch
+  > dispatcher + helpers + Javadoc), `WOWCacheLoadOrAddTest.java`
+  > (new — eight smoke tests), `WOWCacheLoadOrAddStubTest.java`
+  > (deleted — disposable stub-coverage test from the prior step).
 
 - [ ] Step: Implement `DirectMemoryOnlyDiskCache.loadOrAdd` — in-memory parallel with `MemoryFile` atomicity audit
   > **Risk:** high — concurrency (in-memory `MemoryFile` install /
