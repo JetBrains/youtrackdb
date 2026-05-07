@@ -5,110 +5,6 @@ split-file plan format (see .claude/workflow/conventions.md §1.2).
 Deleting it flips subsequent workflow operations into legacy mode.
 Natural cleanup happens when the branch is deleted after PR merge. -->
 
-## Track 18: Index
-
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-<<< RECOVERY GAP — original line not present in any agent transcript >>>
-> **Interactions**:
-> - Depends on Track 1.
-
 ## Track 22: Transactions, Gremlin & Remaining Core
 
 > **What** (core target packages — the main sweep):
@@ -1319,6 +1215,33 @@ Natural cleanup happens when the branch is deleted after PR merge. -->
 > phases per group B above (do NOT delete the file as a whole — the
 > live `SymmetricKey` class survives until Track 22 closes the
 > remaining live methods).
+>
+> *From Track 18 (Index) Phase A technical review (iter-1, finding T2):*
+> Four dead-code classes in `core/index` discovered during Track 18
+> Phase A by PSI `ReferencesSearch` (all-scope): all four have **0
+> production references** and form an isolated dead cluster. Track 18
+> covers these via a `*DeadCodeTest` shape pin (per Track-17
+> precedent) instead of synthesising live coverage.
+>
+> 1. **`com.jetbrains.youtrackdb.internal.core.index.IndexCursor`** —
+>    interface; only implementer is `IndexAbstractCursor` which itself
+>    is dead (see #2). 0 production references.
+> 2. **`com.jetbrains.youtrackdb.internal.core.index.IndexAbstractCursor`** —
+>    abstract class; only subclass is `IndexCursorStream` which is
+>    dead (see #3). 0 production references outside the dead chain.
+> 3. **`com.jetbrains.youtrackdb.internal.core.index.iterator.IndexCursorStream`** —
+>    concrete; 0 callers. Bundled with #1 + #2 in a single
+>    lockstep deletion (the three together are one dead cluster).
+> 4. **`com.jetbrains.youtrackdb.internal.core.index.IndexKeyCursor`** —
+>    interface; 0 implementers, 0 callers. Independent of cluster
+>    #1/#2/#3 — separate lockstep deletion.
+>
+> **Lockstep deletion** (executed by Track 22): drop production
+> classes #1+#2+#3 in one commit alongside the matching
+> `*DeadCodeTest` pins from Track 18 Step 2; drop production class
+> #4 in the same or a sibling commit. Track 18's Step 2
+> `*DeadCodeTest` pins are added with the existing
+> `WHEN-FIXED: Track 22` marker convention.
 
 > **How**:
 > - TX tests need a database session to verify begin/commit/rollback
