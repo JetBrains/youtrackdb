@@ -149,7 +149,7 @@ flowchart TD
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/6 complete)
+- [ ] Step implementation (3/6 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -392,32 +392,171 @@ visible TODO comment for Track 4.
   > (new — eight smoke tests), `WOWCacheLoadOrAddStubTest.java`
   > (deleted — disposable stub-coverage test from the prior step).
 
-- [ ] Step: Implement `DirectMemoryOnlyDiskCache.loadOrAdd` — in-memory parallel with `MemoryFile` atomicity audit
+- [x] Step: Implement `DirectMemoryOnlyDiskCache.loadOrAdd` — in-memory parallel with `MemoryFile` atomicity audit
+  - [x] Context: info
   > **Risk:** high — concurrency (in-memory `MemoryFile` install /
   > publish ordering); the in-memory engine bypasses
   > `LockFreeReadCache.data.compute`, so the install-then-publish
   > atomicity must come from `MemoryFile`'s own primitives.
   >
-  > **What:** Real implementation of `DirectMemoryOnlyDiskCache.loadOrAdd`.
-  > In the in-memory engine the load / extend / gap-fill branches
-  > collapse to "if the page exists in the per-`MemoryFile` map,
-  > return it; else allocate a magic-stamped empty buffer and install
-  > it." Use `MemoryFile`'s existing per-file map operation that
-  > guarantees install-before-publish atomicity (audit
-  > `DirectMemoryOnlyDiskCache.MemoryFile` and document the
-  > installation primitive in the method javadoc). Multi-page gap-fill
-  > installs empty buffers for every page in
-  > `[currentSize, pageIndex]`. **Scope decision** (review note 5):
-  > only `WriteCache.loadOrAdd` is total on this engine; the existing
-  > `ReadCache.loadForRead` / `loadOrAddForWrite` keep their
-  > `null`-on-miss semantics. The disk-engine vs in-memory-engine
-  > divergence on the `ReadCache` API is documented in this method's
-  > javadoc and in the in-memory `loadForRead` / `loadOrAddForWrite`
-  > javadoc.
-  > Replace the stub from Step 1; do **not** yet rewire the
-  > `LockFreeReadCache` lambdas (Step 4).
+  > **What was done:** Replaced the placeholder
+  > `DirectMemoryOnlyDiskCache.loadOrAdd` stub with the real in-memory
+  > parallel of the disk engine's `WOWCache.loadOrAdd`. The dispatch
+  > prelude rejects negative `pageIndex` and a deleted/never-registered
+  > fileId with `IllegalArgumentException` (symmetric with the disk
+  > engine's contract); on a valid `(fileId, pageIndex)` it delegates
+  > to a new `MemoryFile.loadOrAddPage` primitive. The primitive takes
+  > `clearLock.readLock`, fast-paths the "page already installed" case
+  > via `content.get`, then iterates `[currentSize, pageIndex - 1]`
+  > calling `installEmptyPage` on every gap index, and finally installs
+  > the target index — also via `installEmptyPage`. The
+  > readers-referrer count is bumped before `clearLock.readLock` is
+  > released, so a concurrent
+  > `MemoryFile.clear()` / `deleteFile` / `truncateFile` cannot race
+  > with the post-install bump. `installEmptyPage` itself materialises
+  > a fresh `CachePointer` eagerly, stamps the buffer with a class-
+  > level `MAGIC_EMPTY_LSN = LogSequenceNumber(-1, -1)` constant, and
+  > publishes via `content.putIfAbsent` with explicit
+  > `decrementReferrer` on the publish-loss path — the same eager-
+  > construct + atomic-publish pattern that already lives in
+  > `MemoryFile.addNewPage`. Updated Javadoc on
+  > `DirectMemoryOnlyDiskCache.loadOrAdd`, `MemoryFile.loadOrAddPage`,
+  > and the in-memory `loadForRead` / `loadForWrite` to document the
+  > read-cache divergence note (only the WriteCache primitive is total
+  > on the in-memory engine because the engine bypasses
+  > `LockFreeReadCache.data.compute`). Deleted the disposable
+  > `DirectMemoryOnlyDiskCacheLoadOrAddStubTest`. Added
+  > `DirectMemoryOnlyDiskCacheLoadOrAddTest` covering: extend, load-
+  > branch idempotence, gap-fill, smallest-non-trivial gap-fill
+  > boundary, extend-on-non-empty parity, negative-index argument
+  > rejection, deleted-file `IllegalArgumentException`, never-
+  > registered-fileId `IllegalArgumentException`, `verifyChecksums=true`
+  > behaviour parity, post-LSN-region zero-fill, cross-file isolation,
+  > 16-thread same-index install-then-publish atomicity (via
+  > `pool.invokeAll` so every Future is in-hand before shutdown), a
+  > 60-iteration overlapping-gap-fill stress harness with 6 threads on
+  > targets `{3, 5, 7, 9, 11, 4}`, and a `clear()`-vs-`loadOrAdd` race
+  > test that rotates `deleteFile` + `addFile` under continuous
+  > installer pressure. Two commits land for this step:
+  > `9abf9a1216` (initial three-branch implementation +
+  > eight smoke / concurrency tests) and review-fix
+  > `fde8155b9b` (folded the iteration-1 dimensional review findings —
+  > see below). Iteration-2 gate check on the cumulative diff returned
+  > PASS verdicts on six of seven re-checked dimensions; the seventh
+  > (test-completeness) flagged residual hardening items that fit
+  > Track 2 (cache test coverage) — see "Critical context" below.
   >
-  > **Files:** `DirectMemoryOnlyDiskCache.java`.
+  > **What was discovered:**
+  > 1. **The original `ConcurrentSkipListMap.computeIfAbsent` dispatch
+  >    was structurally unsafe under contention.** The first cut put the
+  >    `CachePointer` materialisation inside the `computeIfAbsent`
+  >    mapping function on the assumption — carried over from
+  >    `ConcurrentHashMap`'s contract — that the function runs at most
+  >    once per absent key under a per-bin lock. The OpenJDK
+  >    `ConcurrentSkipListMap` contract is the opposite: *"The function
+  >    is NOT guaranteed to be applied once atomically only if the
+  >    value is not present."* Under contention, two threads can both
+  >    observe `doGet(key) == null`, both run the lambda, both
+  >    `framePool.acquire`, both `incrementReferrer`, and only one wins
+  >    the `doPut(... onlyIfAbsent=true)` race. The losers' frames
+  >    leak. The fix uses the eager-construct + `putIfAbsent` +
+  >    `decrementReferrer`-on-loss shape that already lives in
+  >    `MemoryFile.addNewPage`; convergent design once the invariant is
+  >    stated correctly. The cache primitive is not yet on a hot
+  >    production path (PSI confirms `WriteCache.loadOrAdd` has zero
+  >    external production callers at this commit), so the eager-
+  >    materialisation cost lands only on contended same-key races,
+  >    which are vanishingly rare in normal workloads.
+  > 2. **The readers-referrer increment had to move INSIDE
+  >    `MemoryFile.loadOrAddPage`** to close a use-after-free window
+  >    against `MemoryFile.clear()`. The first cut bumped the count
+  >    in `DirectMemoryOnlyDiskCache.loadOrAdd` AFTER the primitive
+  >    returned — by which point `clearLock.readLock` was released and
+  >    a concurrent `clear()` could decrement the in-cache referrer to
+  >    0, releasing the frame to the pool before the bump revived a
+  >    recycled pointer. Moving the bump under the readLock for both
+  >    the load-fast-path and the install-target-page path closes the
+  >    window.
+  > 3. **`MAGIC_EMPTY_LSN` is now a class-level constant.** The first
+  >    cut allocated `new LogSequenceNumber(-1, -1)` per install
+  >    inside the lambda — avoidable young-gen pressure that mattered
+  >    on WAL-replay gap-fill (N pages per call). Hoisting to a
+  >    constant eliminated per-install allocation.
+  > 4. **`ReadCache.loadForRead` / `loadForWrite` divergence is now
+  >    explicit.** The in-memory engine bypasses
+  >    `LockFreeReadCache.data.compute`, so the totality contract from
+  >    the new `WriteCache.loadOrAdd` cannot fold into the read-cache
+  >    wrappers without touching unrelated callers. Javadoc on both
+  >    sides records the asymmetry.
+  > 5. **The license-block paste artefact in the new test file** was
+  >    inconsistent with sibling tests in the same package; removed.
+  > 6. **`pool.invokeAll`** replaces the `synchronized List` +
+  >    `pool.shutdownNow()` shape in both concurrency tests because
+  >    the old shape could leak a pointer if a worker was cancelled
+  >    between `loadOrAdd` succeeding and the list-add running.
+  >    `invokeAll` guarantees every Future is in-hand before shutdown.
+  > 7. **Iteration-2 residual findings** — the test-completeness
+  >    reviewer flagged three follow-up items that did not gate the
+  >    iteration but should be picked up in Track 2 (cache test
+  >    coverage): (a) the `verifyChecksums=true` parity test pins only
+  >    the extend branch, not the load and gap-fill branches; (b) the
+  >    new `clear()`-race test rotates `deleteFile` (which removes the
+  >    `MemoryFile` from the engine's `files` map BEFORE calling
+  >    `clear()`), so the same-`MemoryFile`-instance window — which the
+  >    `clearLock` discipline is precisely there to protect — is
+  >    actually exercised by `truncateFile`-vs-`loadOrAdd`, not the
+  >    current rotation; (c) the multi-target gap-fill stress test
+  >    contends gap-fill loop pages but not the target-publish race
+  >    itself, since each thread targets a distinct index. The bugs-
+  >    concurrency reviewer also asked for an iteration-counter
+  >    assertion on the `clear()`-race test (TB-9) so it cannot
+  >    silently no-op under scheduler drift, and the test-concurrency
+  >    reviewer asked for explicit `framePool` leak accounting (TXN-7)
+  >    so a future regression that drops the loser-side
+  >    `decrementReferrer` would surface as a pool-allocation
+  >    growth assertion. None of these are blockers; all five are
+  >    natural fits for Track 2's broader cache test coverage work
+  >    (see "Cross-track impact" below).
+  > 8. **Cross-track impact (Continue):** Step 4 (LockFreeReadCache
+  >    rewire) does not invoke `MemoryFile.loadOrAddPage` directly — it
+  >    routes through `writeCache.loadOrAdd` on
+  >    `DirectMemoryOnlyDiskCache`, which already returns a
+  >    `CachePointer` with the readers-referrer bumped exactly once.
+  >    No duplicate-increment hazard for Step 4. If a future track
+  >    ever migrates a caller off
+  >    `DirectMemoryOnlyDiskCache.loadOrAdd` to call
+  >    `MemoryFile.loadOrAddPage` directly, the implementer must NOT
+  >    add a second `incrementReadersReferrer` outside the readLock —
+  >    the primitive already bumps. No upstream-track assumption is
+  >    weakened.
+  >
+  > **What changed from the plan:** none. The step's spec called for
+  > a `MemoryFile` install primitive that "guarantees install-before-
+  > publish atomicity"; the eager-construct + `putIfAbsent` +
+  > `decrementReferrer`-on-loss pattern is the canonical primitive for
+  > that on `ConcurrentSkipListMap`, and the rest of the
+  > implementation matches the plan exactly. No upcoming step's
+  > assumptions are invalidated.
+  >
+  > **Critical context:** The five iteration-2 follow-up items
+  > (verifyChecksums load/gap-fill branches, truncate-vs-loadOrAdd
+  > same-instance race, target-publish stress, clear-race iteration
+  > counter, framePool leak accounting) are explicit non-blocker
+  > residuals deferred to Track 2 (cache test coverage). The
+  > implementation contract — install-then-publish atomicity, gap-fill
+  > ordering, readLock-bump discipline — has at least one race-positive
+  > test exercising it; the residuals are about hardening the
+  > regression net, not about an untested contract. Track 2 is the
+  > right home for them per the plan's track scope.
+  >
+  > **Key files:** `DirectMemoryOnlyDiskCache.java` (modified — full
+  > `loadOrAdd` body + read-cache divergence Javadoc),
+  > `MemoryFile.java` (modified — new `loadOrAddPage` primitive +
+  > `installEmptyPage` install-then-publish helper +
+  > `MAGIC_EMPTY_LSN` constant),
+  > `DirectMemoryOnlyDiskCacheLoadOrAddTest.java` (new — 13 tests),
+  > `DirectMemoryOnlyDiskCacheLoadOrAddStubTest.java` (deleted —
+  > disposable Step 1 stub-coverage test).
 
 - [ ] Step: Rewire `LockFreeReadCache.doLoad` to delegate to `loadOrAdd`, preserve `markAllocated`, preserve cached-hit fast path; rename `loadForWrite` → `loadOrAddForWrite`
   > **Risk:** high — concurrency (cache `data.compute` lambda on the
