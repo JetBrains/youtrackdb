@@ -149,7 +149,7 @@ flowchart TD
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (3/6 complete)
+- [ ] Step implementation (4/6 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -558,47 +558,177 @@ visible TODO comment for Track 4.
   > `DirectMemoryOnlyDiskCacheLoadOrAddStubTest.java` (deleted —
   > disposable Step 1 stub-coverage test).
 
-- [ ] Step: Rewire `LockFreeReadCache.doLoad` to delegate to `loadOrAdd`, preserve `markAllocated`, preserve cached-hit fast path; rename `loadForWrite` → `loadOrAddForWrite`
+- [x] Step: Rewire `LockFreeReadCache.doLoad` to delegate to `loadOrAdd`, preserve `markAllocated`, preserve cached-hit fast path; rename `loadForWrite` → `loadOrAddForWrite`
+  - [x] Context: warning
   > **Risk:** high — concurrency (cache `data.compute` lambda on the
   > read AND write hot path), crash-safety (newly-allocated lifecycle
   > feeds the dirty-page list), wide-blast-radius rename across 17
   > production+test call sites.
   >
-  > **What:** Inside `LockFreeReadCache.doLoad`, change the
-  > `data.compute(fileId, pageIndex, λ)` lambda body to call
-  > `writeCache.loadOrAdd(fileId, pageIndex, verifyChecksums)` instead
-  > of `writeCache.load(...)`. **Preserve the existing `data.get`
-  > shortcut for cached hits at line 249** (review note 8) — the
-  > `data.compute` segment write lock fires only on miss, exactly as
-  > today. **Newly-allocated lifecycle** (review note 4): when the
-  > write-path lambda observes that `loadOrAdd` returned a fresh
-  > extension/gap-fill `CachePointer` (i.e., `pageIndex >= currentSize`
-  > inferred from the returned pointer's properties or by checking
-  > `pageIndex >= writeCache.getFilledUpTo(fileId)` before the call —
-  > pin the exact mechanism in implementation), call
-  > `cacheEntry.markAllocated()` so that `releaseFromWrite`'s
-  > `isNewlyAllocatedPage()` check correctly registers the page on the
-  > dirty list. **Rename** `ReadCache.loadForWrite` →
-  > `ReadCache.loadOrAddForWrite` across the interface, both impls
-  > (`LockFreeReadCache`, `DirectMemoryOnlyDiskCache`), and all 17 call
-  > sites (production: `AtomicOperationBinaryTracking.java:851`,
-  > `DiskStorage.java:1818`, `AbstractStorage.java:5392, :5463`;
-  > tests: 5 sites in `AtomicOperationBinaryTrackingWALSkipTest.java`,
-  > 4 in `RestoreAtomicUnitPageOperationTest.java`, 4 in
-  > `RestoreAtomicUnitNonDurableSkipTest.java`). Recovery loops
-  > (`AbstractStorage.restoreAtomicUnit`,
-  > `DiskStorage.restoreFromIncrementalBackup`) still wrap the result
-  > in `if (cacheEntry == null) { do/while allocateNewPage ... }`;
-  > because `loadOrAddForWrite` is now total, the `null` branch is
-  > unreachable but harmless. **Add a `// TODO Track 4`** comment in
-  > those two recovery sites pointing at the deferred collapse
-  > (review note: R4 — keeps the dead branch visible to maintainers
-  > during the Track 1 → Track 4 window).
+  > **What was done:** Rewired `LockFreeReadCache.doLoad`'s
+  > `data.compute` lambda from `writeCache.load(...)` to the new total
+  > `writeCache.loadOrAdd(fileId, pageIndex, verifyChecksums)`
+  > primitive. Preserved the cached-hit `data.get` fast path so the
+  > segment write lock still fires only on miss, exactly as before.
+  > Pinned the markAllocated mechanism by snapshotting
+  > `writeCache.getFilledUpTo(fileId)` BEFORE the `loadOrAdd` call
+  > (`preCallFilledUpTo`) and calling `newEntry.markAllocated()` when
+  > `pageIndex >= preCallFilledUpTo` — so `releaseFromWrite`'s
+  > `isNewlyAllocatedPage()` check continues to publish freshly
+  > extended/gap-filled pages on the dirty list. The post-compute
+  > `if (cacheEntry == null) return null` branch was deleted (loadOrAdd
+  > is total). Renamed `ReadCache.loadForWrite` →
+  > `ReadCache.loadOrAddForWrite` via the IDE rename refactor across 23
+  > sites (4 production + 17 test + 2 Javadoc `{@link}` references) —
+  > the step description undercounted by 6, all sites updated atomically.
+  > Added forward-looking TODO comments (no workflow-internal
+  > identifiers) at 4 reconciliation sites whose `if (cacheEntry == null)
+  > { do/while allocateNewPage ... }` blocks are now unreachable but
+  > kept as defensive belts during the migration window:
+  > `AbstractStorage.restoreAtomicUnit` (UpdatePageRecord branch ~:5392
+  > and PageOperation branch ~:5468),
+  > `DiskStorage.restoreFromIncrementalBackup` (~:1818), and
+  > `AtomicOperationBinaryTracking.commitChanges` (~:850, added in the
+  > review-fix commit). The same TODO with site-adapted wording was
+  > added to `LockFreeReadCache.loadOrAddForWrite`'s defensive
+  > null-guard (kept rather than removed for consistency with the four
+  > reconciliation sites). Added a Java `assert pointer != null` after
+  > `loadOrAdd` returns inside the lambda — names the totality contract
+  > at the call site so a future regression surfaces cleanly under
+  > `-ea` rather than NPE-ing several frames downstream. Added Javadoc
+  > to `ReadCache.loadOrAddForWrite` documenting the totality contract
+  > and the markAllocated-driven dirty-publish behavior with an
+  > `@see WriteCache#loadOrAdd` cross-reference. Reworded the
+  > snapshot-rationale comment to remove the "invariant I4" workflow
+  > label and replace it with a self-contained statement
+  > ("per-component locks (BTree mutex, position-map mutex, etc.)
+  > serialize concurrent allocators on the same fileId, so two
+  > transactions cannot concurrently target the same `(fileId,
+  > pageIndex)`"). Two commits land for this step: the original rewire
+  > `e61e503e2dc0583685c19e2c1f00570f38e0ddf0` and the review-fix
+  > `41d22b9b792002f54e0b80b40369afb9ef327932` (folded the iter-1
+  > 9-agent dimensional review findings — see below). The 9-agent step-
+  > level dimensional review at iteration 1 returned 1 critical
+  > (markAllocated branch unverified by any test), several should-fix,
+  > and several recommended findings; iteration-2 gate check on the
+  > review-fix commit returned PASS verdicts across all 7 re-checked
+  > dimensions (code-quality, bugs-concurrency, test-behavior,
+  > test-completeness, test-concurrency, test-structure, test-crash-
+  > safety) with only 4 new suggestion-level findings (none blockers,
+  > none should-fix).
   >
-  > **Files:** `LockFreeReadCache.java`, `ReadCache.java`,
-  > `DirectMemoryOnlyDiskCache.java`,
-  > `AtomicOperationBinaryTracking.java`, `DiskStorage.java`,
-  > `AbstractStorage.java`, plus the 13 test files listed above.
+  > **What was discovered:**
+  > 1. **The markAllocated branch was structurally unverified by any
+  >    existing test.** The review surfaced this as the iter-1 critical
+  >    finding, confirmed by three independent reviewers via mutation
+  >    analysis. Every existing `MockedWriteCache.getFilledUpTo`
+  >    returned `0` unconditionally, so the `if (pageIndex >=
+  >    preCallFilledUpTo) markAllocated()` branch fired on every miss
+  >    and a deletion-mutation of the line passed the entire suite.
+  >    Fix: extended `MockedWriteCache` with a `setFilledUpTo(long
+  >    fileId, long value)` helper backed by a `ConcurrentHashMap` plus
+  >    a `storeCount` `AtomicInteger` on the `store` method, and added
+  >    4 falsifiable tests in `LockFreeReadCacheBatchingTest` that pin
+  >    each branch of the contract (extend / load-existing / boundary /
+  >    read-path-no-flag). Mutation kill matrix verified: deleting the
+  >    line, swapping `>=` to `>`, inverting the guard, or bleeding the
+  >    flag-set into the read path each fail at least one of the four
+  >    tests.
+  > 2. **PSI find-usages reported 23 reference sites for
+  >    `ReadCache.loadForWrite`, not the 17 the step description
+  >    cited.** The IDE rename refactor handled all 23 atomically (4
+  >    production + 17 test + 2 Javadoc `{@link}` references); a
+  >    grep-based rename would have either missed or broken the
+  >    Javadoc links. The 6-site delta is a pure undercount in the
+  >    step description, not a plan deviation.
+  > 3. **The post-compute `if (cacheEntry == null)` guard was deleted
+  >    in the lambda but kept defensively at the four reconciliation
+  >    sites and at the `LockFreeReadCache.loadOrAddForWrite` body.**
+  >    The choice to keep all four reconciliation sites + the impl's
+  >    defensive guard was driven by consistency: removing one but not
+  >    the others would split the migration story. The next track
+  >    collapses all five together when `addPage`/`allocateNewPage` are
+  >    deleted from the write-side API.
+  > 4. **A test-crash-safety `assert` on the markAllocated decision
+  >    invariant was deferred** because the only available predicate
+  >    is tautological (it would restate the just-executed branch) or
+  >    LSN-based (LSN(-1,-1) is shared between in-memory extend
+  >    pointers and on-disk freshly-extended pages per the prior step's
+  >    discovery, producing false positives). The `assert pointer !=
+  >    null` for the `loadOrAdd` totality contract was added; the
+  >    decision-invariant assert was not.
+  > 5. **A performance optimization was deferred.** The lambda now
+  >    calls `getFilledUpTo` AND `loadOrAdd`, each of which
+  >    independently takes `filesLock.readLock` and looks up the file
+  >    handle. The redundancy could be folded into a richer
+  >    `loadOrAdd` return value (`{CachePointer, boolean
+  >    freshlyAllocated}` or similar) but signature changes mid-track
+  >    are invasive — flagged as a future cleanup track.
+  > 6. **Cross-track impact (Continue):** the upcoming write-side API
+  >    collapse track must now collapse 4 do/while reconciliation
+  >    sites (not 3) — `AtomicOperationBinaryTracking.commitChanges`
+  >    received the same TODO comment as the three recovery sites in
+  >    the review-fix commit. The upcoming `getFilledUpTo` access-
+  >    tightening track must keep `getFilledUpTo` reachable from
+  >    inside the cache package — the rewired lambda reads it on every
+  >    miss (one in-memory size probe under `filesLock.readLock`,
+  >    cost-comparable to the previous `writeCache.load` probe). Step
+  >    5 (`silentLoadForRead` migration) is unaffected — that lambda
+  >    is unchanged in this step. Step 6 (deprecation Javadoc)
+  >    inherits a new totality contract on `LockFreeReadCache.doLoad`:
+  >    the lambda no longer returns null on the miss path; the
+  >    deprecation Javadoc on `allocateNewPage` should mention this.
+  > 7. **Iter-2 deferred-suggestions punch list (Track 2 hardening):**
+  >    (a) `LockFreeReadCacheConcurrentTestIT.java:60` Javadoc line
+  >    exceeds 100-char limit after the rename; hand-wrap it. (b) Drop
+  >    the "matching the previous mock behavior" framing in the
+  >    `MockedWriteCache.filledUpToByFile` Javadoc — it references
+  >    implicit history a future reader has no anchor for. (c) Add a
+  >    symmetric `storeCount == storesBefore` assertion to
+  >    `testWriteLoadDoesNotFlagExistingPageAsNewlyAllocated` to pin
+  >    that `releaseFromWrite(_, _, false)` is a no-op when the flag
+  >    is not set. (d) Improve
+  >    `testReadLoadDoesNotFlagPageAsNewlyAllocatedUnderProperFilledUpTo`
+  >    to use extend-branch parameters (`filledUpTo=0, pageIndex=5`)
+  >    so the test actually discriminates the read-vs-write contract;
+  >    the current parameters land in the load-existing branch where
+  >    no path sets the flag.
+  >
+  > **What changed from the plan:** none. The 23-vs-17 site count is
+  > a pure undercount in the step description; the IDE rename refactor
+  > handled all sites correctly. The TODO comment at the four
+  > reconciliation sites is forward-looking and uses production-API
+  > language only, no workflow-internal identifiers.
+  >
+  > **Critical context:** The four iter-2 suggestion-level residuals
+  > listed in (7) above are explicit non-blocker hardening items
+  > deferred to the cache-coverage track that follows. The
+  > implementation contract — totality of `loadOrAdd`, markAllocated
+  > on extend/gap-fill, read-path no-flag — has at least one
+  > falsifiable test exercising it; the residuals are about hardening
+  > the regression net, not about an untested contract. The
+  > `MockedWriteCache.storeCount` and `setFilledUpTo` infrastructure
+  > added here is the foundation that future cache-coverage tests
+  > will build on.
+  >
+  > **Key files:** `LockFreeReadCache.java` (modified — lambda rewire,
+  > markAllocated mechanism, defensive null-guard TODO, totality
+  > assert, snapshot-rationale comment), `ReadCache.java` (modified —
+  > rename + Javadoc on `loadOrAddForWrite`),
+  > `DirectMemoryOnlyDiskCache.java` (modified — rename + Javadoc
+  > `{@link}` updates), `AbstractStorage.java` (modified — rename +
+  > 2× TODO comment), `DiskStorage.java` (modified — rename + TODO
+  > comment), `AtomicOperationBinaryTracking.java` (modified — rename
+  > + TODO comment added in review-fix), `LockFreeReadCacheBatchingTest.java`
+  > (modified — testLoadOrAddForWriteWithBatching rename + 4 new
+  > markAllocated branch-discrimination tests + MockedWriteCache
+  > extensions: `setFilledUpTo`, `storeCount`),
+  > `LockFreeReadCacheConcurrentTestIT.java`,
+  > `AsyncReadCacheTestIT.java` (renames),
+  > `RestoreAtomicUnitNonDurableSkipTest.java`,
+  > `RestoreAtomicUnitPageOperationTest.java`,
+  > `AtomicOperationBinaryTrackingWALSkipTest.java` (renames + comment
+  > updates).
 
 - [ ] Step: Migrate `silentLoadForRead` to a new non-extending `WriteCache.loadIfPresent` overload
   > **Risk:** medium — adds one method to the `WriteCache` interface
