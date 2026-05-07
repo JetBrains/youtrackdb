@@ -449,8 +449,9 @@ routes here), the main agent observes two states — the step file's
 `## Description` section and the backlog's `## Track N:` section — and
 picks the resume action from the decision table below.
 
-The **Track Pre-Flight gate** does not re-fire on resume. The gate
-runs once per fresh Phase A entry and persists its outcome through
+The **Track Pre-Flight gate** does not re-fire on resume once the
+step file exists. The gate runs once per fresh Phase A entry and
+persists its outcome through
 the step file's `## Description` (which holds any `### Clarifications`
 captured during the gate) and through any plan/backlog edits already
 committed in the original session. The first row below — step file
