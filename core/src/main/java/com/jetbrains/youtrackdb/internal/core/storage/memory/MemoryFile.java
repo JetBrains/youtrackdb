@@ -16,6 +16,15 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public final class MemoryFile {
 
+  /**
+   * Magic-stamp LSN written into every freshly-installed in-memory page before publication so
+   * callers reading the LSN immediately after {@code loadOrAddPage} see {@code (-1,-1)} on both
+   * engines uniformly. Hoisted to a class-level constant to avoid per-install allocation: gap-fill
+   * stamps every page in the gap with this value, and replaying a long WAL gap can install many
+   * pages in one call.
+   */
+  private static final LogSequenceNumber MAGIC_EMPTY_LSN = new LogSequenceNumber(-1, -1);
+
   private final int id;
   private final int storageId;
 
@@ -40,36 +49,43 @@ public final class MemoryFile {
   /**
    * Total install-or-fetch primitive at an explicit page index.
    *
-   * <p>The atomicity contract is: from the caller's point of view, after this method returns,
-   * {@code (pageIndex, returnedEntry)} is observable in {@link #content} as a single transition;
-   * no other thread can ever see an "in-flight" entry whose buffer or referrer count has not yet
-   * been initialised. The primitive is the in-memory parallel of the disk engine's
+   * <p>The atomicity contract from the caller's point of view: after this method returns,
+   * every index in {@code [currentSize, pageIndex]} has an installed entry; the loop installs
+   * the gap pages {@code [currentSize, pageIndex - 1]} and the target page is installed after
+   * the loop. The returned entry's {@link CachePointer} has its readers-referrer count
+   * incremented exactly once before publication, so the caller owns a single readers
+   * reference. The primitive is the in-memory parallel of the disk engine's
    * {@code WOWCache.loadOrAdd}: it covers the load / one-page extend / multi-page gap-fill
    * branches uniformly.
    *
-   * <p><b>Atomicity mechanism.</b> Each gap page (and the target page) is published via the
-   * single-call atomic primitive {@link ConcurrentSkipListMap#computeIfAbsent}. The mapping
-   * function runs while the bin is locked: a fresh {@link CachePointer} is materialised,
-   * stamped with {@code LSN(-1,-1)} (matching the magic-stamped empty-buffer contract on the
-   * disk engine's extend / gap-fill branches), and its referrer count is incremented before
-   * the {@link CacheEntry} is returned to the map. Only after the mapping function exits does
-   * the entry become visible to other readers. A concurrent {@code computeIfAbsent} on the
-   * same key observes the already-published entry and skips installation. {@code clearLock}'s
-   * read-side guards against {@link #clear()} running concurrently — the clear writer drops
-   * every page in one critical section and is mutually exclusive with all installers.
+   * <p><b>Atomicity mechanism.</b> {@link ConcurrentSkipListMap#computeIfAbsent} is <i>not</i>
+   * guaranteed to apply its mapping function exactly once even when the value is absent
+   * (multiple threads can both observe a miss, both materialise a candidate, and only one
+   * publishes via the underlying {@code putIfAbsent}). Each gap page (and the target page) is
+   * therefore published with an explicit {@code putIfAbsent}-with-release-on-loss pattern: the
+   * candidate {@link CachePointer} is constructed eagerly outside the publish step, the
+   * publish itself is the single atomic point, and the loser of any concurrent install race
+   * releases its candidate's freshly-acquired {@code pageFrame} via {@code decrementReferrer}
+   * before returning the winner's entry. {@code clearLock}'s read-side serialises every
+   * installer against {@link #clear()} (the clear writer drops every page in one critical
+   * section); read locks do not exclude installers from each other, so the publish-or-release
+   * dance above is the actual install-then-publish atomicity contract on the same key.
    *
-   * <p><b>Gap-fill semantics.</b> When {@code pageIndex >= currentSize}, every index in
-   * {@code [currentSize, pageIndex]} gets an empty page installed (via the same atomic
-   * primitive); the helper iterates from {@code currentSize} upward so the final
-   * {@link #size()} reads back as {@code pageIndex + 1}. Intermediate gap pages are never
-   * returned to the caller; their referrer count starts at 1 (the in-cache reference held by
-   * the map itself), matching today's {@link #addNewPage} contract. Only the target page's
-   * referrer count is bumped on the way out (handled by the caller).
+   * <p><b>Gap-fill semantics.</b> When {@code pageIndex >= currentSize}, the helper iterates
+   * indices {@code [currentSize, pageIndex - 1]} and installs an empty page at each; the
+   * target page at {@code pageIndex} is installed after the loop. The iteration is in
+   * ascending order so {@link #size()} advances monotonically as observed by other threads;
+   * no-one ever sees a non-contiguous tail. Intermediate gap pages are never returned to the
+   * caller; their referrer count starts at 1 (the in-cache reference held by the map itself),
+   * matching today's {@link #addNewPage} contract. The target page's readers-referrer is
+   * bumped before the read-lock is released, before any concurrent {@link #clear()} can drop
+   * the page.
    *
    * @param pageIndex zero-based target page index
    * @param readCache back-reference threaded into the freshly-installed {@link CacheEntryImpl}
    *     instances (used by the cache for release callbacks)
-   * @return the existing or freshly-installed {@link CacheEntry} for {@code pageIndex}
+   * @return the existing or freshly-installed {@link CacheEntry} for {@code pageIndex} with
+   *     its {@link CachePointer}'s readers-referrer count already incremented exactly once
    */
   public CacheEntry loadOrAddPage(final long pageIndex, final ReadCache readCache) {
     if (pageIndex < 0) {
@@ -78,15 +94,19 @@ public final class MemoryFile {
     clearLock.readLock().lock();
     try {
       // Fast path: target already installed. The map is concurrent so the get is lock-free
-      // and reflects the latest committed mapping.
+      // and reflects the latest committed mapping. The readers-referrer is bumped while the
+      // clearLock readLock is held, which prevents a concurrent clear() / deleteFile() /
+      // truncateFile() from observing readers==0 and recycling the frame between our get
+      // and our increment.
       final var existing = content.get(pageIndex);
       if (existing != null) {
+        existing.getCachePointer().incrementReadersReferrer();
         return existing;
       }
-      // Install gap pages [currentSize..pageIndex-1] one at a time using the same atomic
-      // primitive as the target installation. We re-read currentSize each iteration so that
-      // a concurrent installer's progress is observed (computeIfAbsent on an already-present
-      // index is a no-op that returns the existing entry, which we discard for gap pages).
+      // Install gap pages [currentSize, pageIndex - 1] one at a time. We snapshot size() once
+      // and increment locally; concurrent installers' progress at the same indices is observed
+      // via installEmptyPage's idempotence — putIfAbsent is a no-op when the key is already
+      // present, returning the existing entry, which we discard for gap pages.
       // Iterate in ascending order so size() advances monotonically as observed by other
       // threads — no-one ever sees a non-contiguous tail.
       var currentSize = size();
@@ -94,43 +114,53 @@ public final class MemoryFile {
         installEmptyPage(currentSize, readCache);
         currentSize++;
       }
-      // Atomic install for the target index. computeIfAbsent runs the mapping function while
-      // the bin is locked; the resulting entry is published atomically when the function
-      // returns. A concurrent caller targeting the same index will observe whichever entry
-      // wins the race.
-      return installEmptyPage(pageIndex, readCache);
+      // Install the target index. installEmptyPage publishes the candidate with putIfAbsent;
+      // a concurrent caller targeting the same index observes whichever entry wins the race
+      // and the loser's pageFrame is released back to the pool before return.
+      final var target = installEmptyPage(pageIndex, readCache);
+      // Bump the readers-referrer for the target before releasing clearLock, so a concurrent
+      // clear() / deleteFile() / truncateFile() cannot drop the page out from under us.
+      target.getCachePointer().incrementReadersReferrer();
+      return target;
     } finally {
       clearLock.readLock().unlock();
     }
   }
 
   /**
-   * Atomically installs a freshly-created {@link CacheEntry} for {@code index} if no entry
-   * exists yet, returning the installed (or pre-existing) entry. The mapping function inside
-   * {@link ConcurrentSkipListMap#computeIfAbsent} runs under the per-key bin lock: the fresh
-   * {@link CachePointer} acquires its referrer count and the in-buffer LSN is stamped before
-   * the entry becomes visible to other threads. This matches the disk engine's
-   * "magic-stamped empty buffer" contract on the extend / gap-fill branches.
+   * Installs a freshly-created {@link CacheEntry} for {@code index} if no entry exists yet,
+   * returning the installed (or pre-existing) entry. The candidate is built eagerly: a
+   * pageFrame is acquired from the pool, stamped with {@link #MAGIC_EMPTY_LSN}, wrapped in a
+   * {@link CachePointer} with referrer count 1, and bound into a {@link CacheEntryImpl}. The
+   * publish step is the single atomic point — {@link ConcurrentSkipListMap#putIfAbsent} —
+   * and the loser of any concurrent install race releases its candidate's pageFrame via
+   * {@link CachePointer#decrementReferrer()} before returning the winner's entry. This
+   * matches the disk engine's "magic-stamped empty buffer" contract on the extend / gap-fill
+   * branches and never leaks a frame even under contention on the same key.
    */
   private CacheEntry installEmptyPage(final long index, final ReadCache readCache) {
-    return content.computeIfAbsent(index, k -> {
-      final var framePool = ByteBufferPool.instance(null).pageFramePool();
-      final var pageFrame =
-          framePool.acquire(true, Intention.ADD_NEW_PAGE_IN_MEMORY_STORAGE);
-      // Stamp the empty buffer with LSN(-1,-1) so callers that read the LSN before the first
-      // mutation see the magic-stamp value the disk engine writes on extend/gap-fill.
-      DurablePage.setLogSequenceNumberForPage(
-          pageFrame.getBuffer(), new LogSequenceNumber(-1, -1));
-      final var cachePointer =
-          new CachePointer(pageFrame, framePool, id, (int) k.longValue());
-      cachePointer.incrementReferrer();
-      return new CacheEntryImpl(
-          DirectMemoryOnlyDiskCache.composeFileId(storageId, id),
-          (int) k.longValue(),
-          cachePointer,
-          true,
-          readCache);
-    });
+    final var framePool = ByteBufferPool.instance(null).pageFramePool();
+    final var pageFrame = framePool.acquire(true, Intention.ADD_NEW_PAGE_IN_MEMORY_STORAGE);
+    // Stamp the empty buffer with LSN(-1,-1) so callers that read the LSN before the first
+    // mutation see the magic-stamp value the disk engine writes on extend/gap-fill.
+    DurablePage.setLogSequenceNumberForPage(pageFrame.getBuffer(), MAGIC_EMPTY_LSN);
+    final var cachePointer = new CachePointer(pageFrame, framePool, id, (int) index);
+    cachePointer.incrementReferrer();
+    final var freshEntry =
+        new CacheEntryImpl(
+            DirectMemoryOnlyDiskCache.composeFileId(storageId, id),
+            (int) index,
+            cachePointer,
+            true,
+            readCache);
+    final var existing = content.putIfAbsent(index, freshEntry);
+    if (existing != null) {
+      // Lost the publish race: another installer beat us to this key. Release the
+      // freshly-acquired pageFrame back to the pool and return the winner's entry.
+      cachePointer.decrementReferrer();
+      return existing;
+    }
+    return freshEntry;
   }
 
   public CacheEntry addNewPage(ReadCache readCache) {

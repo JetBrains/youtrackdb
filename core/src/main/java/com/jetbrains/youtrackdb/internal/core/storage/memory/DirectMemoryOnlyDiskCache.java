@@ -291,16 +291,17 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
    * the in-memory engine has no on-disk representation, so "load" and "extend / gap-fill"
    * differ only in whether the per-file map already has an entry for the target page index.
    * The atomic install-or-fetch is delegated to {@link MemoryFile#loadOrAddPage}, which
-   * uses {@link java.util.concurrent.ConcurrentSkipListMap#computeIfAbsent} to publish each
-   * freshly-installed entry as a single visible transition (mapping function runs under the
-   * per-key bin lock; other threads observing the key see either no entry or a fully
-   * initialised one &mdash; never an in-flight half-state).
+   * builds each candidate eagerly and publishes via
+   * {@link java.util.concurrent.ConcurrentSkipListMap#putIfAbsent}; the loser of any
+   * concurrent install race releases its candidate's freshly-acquired {@code pageFrame} back
+   * to the pool before returning the winner's entry so no frame leaks under contention.
    *
-   * <p><b>Gap-fill.</b> When {@code pageIndex} exceeds the current high watermark, every
-   * intermediate index in {@code [currentSize, pageIndex]} is installed as an empty page;
-   * only the target page's pointer is returned to the caller. This matches the disk
-   * engine's gap-fill contract (recovery-only path under normal callers) so the WAL replay
-   * loop can target arbitrary pageIndex values without divergence between engines.
+   * <p><b>Gap-fill.</b> After this call returns, every index in
+   * {@code [currentSize, pageIndex]} has an installed entry; the gap loop installs pages
+   * {@code [currentSize, pageIndex - 1]} and the target page is installed afterwards. Only
+   * the target page's pointer is returned to the caller. This matches the disk engine's
+   * gap-fill contract (recovery-only path under normal callers) so the WAL replay loop can
+   * target arbitrary pageIndex values without divergence between engines.
    *
    * <p><b>Magic stamp.</b> Each freshly-installed page frame is zero-filled by
    * {@code pageFramePool.acquire} and stamped with {@link LogSequenceNumber}{@code (-1,-1)}
@@ -317,9 +318,11 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
    * {@code data.compute}) inherit totality from {@link #loadOrAdd} on that engine; the
    * in-memory engine does not.
    *
-   * <p><b>Referrer accounting.</b> The returned {@link CachePointer} has its
-   * readers-referrer count incremented exactly once before return, matching
-   * {@code WOWCache.loadOrAdd}. Callers must call
+   * <p><b>Referrer accounting.</b> {@link MemoryFile#loadOrAddPage} bumps the returned
+   * {@link CachePointer}'s readers-referrer count exactly once before publication and
+   * before releasing the per-file {@code clearLock} read lock; no concurrent {@code clear()}
+   * / {@code deleteFile()} / {@code truncateFile()} can recycle the frame between
+   * publication and the increment. Callers must call
    * {@link CachePointer#decrementReadersReferrer()} when they are done with the pointer.
    *
    * @param fileId external file id of the target page; must be open and registered
@@ -346,12 +349,13 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
       throw new IllegalArgumentException(
           "File with id " + intId + " not found in DirectMemoryOnlyDiskCache");
     }
+    // The MemoryFile primitive returns the entry with its CachePointer's readers-referrer
+    // already incremented exactly once (and the increment ran under the per-file clearLock
+    // readLock so a concurrent clear()/deleteFile()/truncateFile() cannot recycle the frame
+    // between publication and the increment). The caller owns a single readers reference
+    // and must call decrementReadersReferrer() to release.
     final var cacheEntry = memoryFile.loadOrAddPage(pageIndex, this);
-    final var cachePointer = cacheEntry.getCachePointer();
-    // Bump the readers-referrer count to match WOWCache.loadOrAdd's contract: the caller
-    // owns a single readers reference and must call decrementReadersReferrer() to release.
-    cachePointer.incrementReadersReferrer();
-    return cachePointer;
+    return cacheEntry.getCachePointer();
   }
 
   private MemoryFile getFile(final int fileId) {

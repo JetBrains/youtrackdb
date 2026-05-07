@@ -1,25 +1,6 @@
-/*
- *
- *
- *  *
- *  *  Licensed under the Apache License, Version 2.0 (the "License");
- *  *  you may not use this file except in compliance with the License.
- *  *  You may obtain a copy of the License at
- *  *
- *  *       http://www.apache.org/licenses/LICENSE-2.0
- *  *
- *  *  Unless required by applicable law or agreed to in writing, software
- *  *  distributed under the License is distributed on an "AS IS" BASIS,
- *  *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  *  See the License for the specific language governing permissions and
- *  *  limitations under the License.
- *  *
- *
- *
- */
-
 package com.jetbrains.youtrackdb.internal.core.storage.memory;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
@@ -30,14 +11,19 @@ import static org.junit.Assert.fail;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.After;
 import org.junit.Before;
@@ -79,8 +65,12 @@ public class DirectMemoryOnlyDiskCacheLoadOrAddTest {
   /**
    * Extend branch: a fresh file has zero pages; calling {@code loadOrAdd(fileId, 0)} must
    * install a fresh empty page, advance the high-watermark to one, and return a non-null
-   * {@link CachePointer} with a clean buffer stamped {@code LSN(-1, -1)}. Mirrors the
-   * disk engine's extend-branch contract on the in-memory engine.
+   * {@link CachePointer} with a clean buffer stamped {@code LSN(-1, -1)}. The buffer beyond
+   * the LSN region must also be zero-filled (the {@code framePool.acquire(true, ...)}
+   * contract): a regression flipping the zero-fill flag would silently leave the page with
+   * stale residue from a prior allocation, which would corrupt {@code DurablePage}'s
+   * "all data is zero on a fresh page" assumption. Mirrors the disk engine's extend-branch
+   * contract on the in-memory engine.
    */
   @Test
   public void extendBranchAllocatesAndReturnsMagicStampedPointer() {
@@ -100,6 +90,10 @@ public class DirectMemoryOnlyDiskCacheLoadOrAddTest {
           "the returned pointer must reference the requested page index",
           0,
           pointer.getPageIndex());
+      // The post-LSN page region must be zero-filled. Without this assertion a regression
+      // flipping framePool.acquire(true, ...) to acquire(false, ...) would not be caught by
+      // the LSN assertion alone.
+      assertPostLsnRegionIsZeroFilled(buffer);
     } finally {
       pointer.decrementReadersReferrer();
     }
@@ -145,6 +139,8 @@ public class DirectMemoryOnlyDiskCacheLoadOrAddTest {
    * must install pages 0..5 inclusive (six pages) and return the target pointer only.
    * The intermediate gap pages must be observable via subsequent {@code loadOrAdd} calls
    * (they are installed in the per-file map, just not returned by the gap-fill caller).
+   * Each gap probe also asserts the returned pointer's page index matches the requested
+   * index — a regression returning the wrong page would otherwise pass the LSN check.
    */
   @Test
   public void gapFillBranchAllocatesEntireGapAndReturnsTargetPointer() {
@@ -178,6 +174,10 @@ public class DirectMemoryOnlyDiskCacheLoadOrAddTest {
       try {
         assertNotNull("gap page " + i + " must be installed and observable", gapPointer);
         assertEquals(
+            "gap page " + i + " must be returned for the requested index",
+            i,
+            gapPointer.getPageIndex());
+        assertEquals(
             "gap page " + i + " must have LSN(-1,-1) like the target",
             new LogSequenceNumber(-1, -1),
             DurablePage.getLogSequenceNumberFromPage(gapPointer.getBuffer()));
@@ -194,10 +194,10 @@ public class DirectMemoryOnlyDiskCacheLoadOrAddTest {
   /**
    * Smallest non-trivial gap-fill: starting from {@code currentSize == 1} after one
    * extend, a {@code loadOrAdd(fileId, 2)} call exercises the gap-fill branch where the
-   * loop runs exactly twice (over pages 1 and 2). Verifies the inclusive
-   * {@code [currentSize, pageIndex]} range against an off-by-one bug at the boundary
-   * (a smaller test than the wide gap-fill above so an off-by-one in either direction
-   * shows up clearly).
+   * loop runs exactly once (over page 1) and the target (page 2) is installed after the
+   * loop. Verifies the inclusive {@code [currentSize, pageIndex]} post-state against an
+   * off-by-one bug at the boundary (a smaller test than the wide gap-fill above so an
+   * off-by-one in either direction shows up clearly).
    */
   @Test
   public void gapFillOfExactlyOnePageBoundary() {
@@ -214,6 +214,40 @@ public class DirectMemoryOnlyDiskCacheLoadOrAddTest {
     }
     assertEquals(
         "size must advance to exactly pageIndex + 1 pages (3) after a 1-page gap-fill",
+        3L,
+        cache.getFilledUpTo(fileId));
+  }
+
+  /**
+   * Extend on a non-empty file: after seeding pages 0 and 1 via two extend calls, calling
+   * {@code loadOrAdd(fileId, 2)} must take the extend branch (zero-iteration gap-fill loop)
+   * and advance the high-watermark from 2 to 3. Mirrors the disk engine's
+   * {@code WOWCacheLoadOrAddTest.extendBranchExtendsByOneOnNonEmptyFile} parity test so a
+   * regression that broke the {@code currentSize == pageIndex} dispatch on a non-fresh file
+   * would surface here.
+   */
+  @Test
+  public void extendBranchOnNonEmptyFileAdvancesByOnePage() {
+    cache.loadOrAdd(fileId, 0L, false).decrementReadersReferrer();
+    cache.loadOrAdd(fileId, 1L, false).decrementReadersReferrer();
+    assertEquals(
+        "two extends on a fresh file must advance the watermark to 2 pages",
+        2L,
+        cache.getFilledUpTo(fileId));
+
+    final var target = cache.loadOrAdd(fileId, 2L, false);
+    try {
+      assertNotNull("extend branch on a non-empty file must return a usable pointer", target);
+      assertEquals("returned pointer is the requested target index", 2, target.getPageIndex());
+      assertEquals(
+          "extend on a non-empty file still stamps the new page with LSN(-1,-1)",
+          new LogSequenceNumber(-1, -1),
+          DurablePage.getLogSequenceNumberFromPage(target.getBuffer()));
+    } finally {
+      target.decrementReadersReferrer();
+    }
+    assertEquals(
+        "extend branch must advance the watermark from 2 to 3 (zero-iteration gap-fill loop)",
         3L,
         cache.getFilledUpTo(fileId));
   }
@@ -257,16 +291,96 @@ public class DirectMemoryOnlyDiskCacheLoadOrAddTest {
   }
 
   /**
+   * Never-registered fileId: a fabricated external fileId built from an arbitrary intId
+   * that was never returned from {@code addFile} must surface an
+   * {@link IllegalArgumentException} (caller-bug signal), and the message must include the
+   * fabricated intId so the operator can correlate the exception with the offending caller.
+   */
+  @Test
+  public void loadOrAddOnNeverRegisteredFileIdPropagatesIllegalArgumentException() {
+    final int fabricatedIntId = 9999;
+    final long fabricatedFileId =
+        DirectMemoryOnlyDiskCache.composeFileId(STORAGE_ID, fabricatedIntId);
+    final var thrown =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> cache.loadOrAdd(fabricatedFileId, 0L, false));
+    assertNotNull("exception must carry a message", thrown.getMessage());
+    assertTrue(
+        "exception message must include the fabricated intId for operator triage",
+        thrown.getMessage().contains(Integer.toString(fabricatedIntId)));
+  }
+
+  /**
+   * verifyChecksums flag: the in-memory engine has no on-disk image to verify, so the flag
+   * is documented as ignored. Pin the contract: calling with {@code verifyChecksums == true}
+   * on a fresh file must extend identically to {@code verifyChecksums == false} (same
+   * watermark advance, same magic-stamped LSN). A regression that started honouring the
+   * flag on the in-memory engine — for example by throwing or by short-circuiting the
+   * extend — would surface here.
+   */
+  @Test
+  public void verifyChecksumsTrueIsIgnoredOnInMemoryEngine() {
+    final var pointer = cache.loadOrAdd(fileId, 0L, /* verifyChecksums= */ true);
+    try {
+      assertNotNull("verifyChecksums=true must not change the totality contract", pointer);
+      assertEquals(
+          "verifyChecksums flag must not affect the magic-stamped LSN",
+          new LogSequenceNumber(-1, -1),
+          DurablePage.getLogSequenceNumberFromPage(pointer.getBuffer()));
+      assertEquals("returned pointer indexes the requested page", 0, pointer.getPageIndex());
+    } finally {
+      pointer.decrementReadersReferrer();
+    }
+    assertEquals(
+        "verifyChecksums=true still extends to one page on the in-memory engine",
+        1L,
+        cache.getFilledUpTo(fileId));
+  }
+
+  /**
+   * Cross-file isolation: a {@code loadOrAdd} against fileA must not install pages in fileB.
+   * A regression that stored the per-file map at the cache level (instead of per
+   * {@code MemoryFile}) would silently bleed pages between files and corrupt every caller
+   * that distinguishes "this file has N pages" from "another file has M pages". This test
+   * pins the per-file ownership contract.
+   */
+  @Test
+  public void loadOrAddIsScopedToTheTargetFileOnly() {
+    final var fileIdB = cache.addFile("loadOrAdd-other.dat");
+    final var pA = cache.loadOrAdd(fileId, 7L, false);
+    try {
+      assertEquals(
+          "fileA must extend to 8 pages after a gap-fill targeting index 7",
+          8L,
+          cache.getFilledUpTo(fileId));
+      assertEquals(
+          "fileB must remain at 0 pages — gap-fill on fileA must not touch fileB",
+          0L,
+          cache.getFilledUpTo(fileIdB));
+    } finally {
+      pA.decrementReadersReferrer();
+    }
+  }
+
+  /**
    * Concurrent installers on the same {@code (fileId, pageIndex)}: N threads call
    * {@code loadOrAdd} on a single freshly-opened file, all targeting the same page index.
    * Exactly one entry must end up in the per-file map (verified by all returned pointers
    * being identity-equal and the watermark being 1). This is the install-then-publish
-   * atomicity contract from the Phase A review note 5: only one thread wins the
-   * {@code computeIfAbsent} race; the others observe the already-published entry.
+   * atomicity contract from the Phase A review note 5: only one thread wins the publish
+   * race; the others observe the already-published entry and the loser threads release
+   * their freshly-acquired pageFrames back to the pool inside {@code installEmptyPage}.
    *
    * <p>Without atomic install-then-publish, this test would fail intermittently with
    * either a duplicate-pointer return (two threads materialised pointers and both saw a
    * miss) or a torn entry (one thread saw the entry mid-construction).
+   *
+   * <p>The test uses {@code invokeAll} so every {@code Future} is in-hand before the
+   * executor is shut down. A previous shape that pushed pointers into a list inside the
+   * worker risked a race window where the {@code loadOrAdd} succeeded (incrementing the
+   * readers referrer) but the worker was cancelled before the list-add ran — that would
+   * leak a pointer into the process-wide {@code pageFramePool}.
    */
   @Test
   public void concurrentLoadOrAddOnSameIndexInstallsExactlyOneEntry() throws Exception {
@@ -274,37 +388,29 @@ public class DirectMemoryOnlyDiskCacheLoadOrAddTest {
     final var pool = Executors.newFixedThreadPool(threads);
     try {
       final var startGate = new CountDownLatch(1);
-      final var doneGate = new CountDownLatch(threads);
-      final List<CachePointer> returned = new ArrayList<>(threads);
-      final var failure = new AtomicReference<Throwable>();
+      final List<Callable<CachePointer>> tasks = new ArrayList<>(threads);
       for (int i = 0; i < threads; i++) {
-        pool.submit(
+        tasks.add(
             () -> {
-              try {
-                startGate.await();
-                final var p = cache.loadOrAdd(fileId, 0L, false);
-                synchronized (returned) {
-                  returned.add(p);
-                }
-              } catch (final Throwable t) {
-                failure.compareAndSet(null, t);
-              } finally {
-                doneGate.countDown();
-              }
+              startGate.await();
+              return cache.loadOrAdd(fileId, 0L, false);
             });
       }
       startGate.countDown();
-      assertTrue(
-          "all installers must finish within the bounded wait window",
-          doneGate.await(10, TimeUnit.SECONDS));
-      if (failure.get() != null) {
-        fail("concurrent loadOrAdd surfaced unexpected exception: " + failure.get());
-      }
+      final var futures = pool.invokeAll(tasks, 10, TimeUnit.SECONDS);
 
+      final List<CachePointer> returned = new ArrayList<>(threads);
       try {
+        for (final var f : futures) {
+          // Each Future is in-hand by virtue of invokeAll's contract — fetching the value
+          // here can throw if the worker raised, in which case fail explicitly so the
+          // executor's shutdownNow does not silently swallow the exception.
+          returned.add(f.get(1, TimeUnit.SECONDS));
+        }
         assertEquals("every thread must receive a non-null pointer", threads, returned.size());
-        // Identity equality across all returned pointers proves only one entry was installed:
-        // computeIfAbsent's mapping function ran exactly once even though N threads raced.
+        // Identity equality across all returned pointers proves only one entry was
+        // installed: the publish race elected exactly one winner even though N threads
+        // raced.
         final var first = returned.get(0);
         final Set<CachePointer> distinct = new HashSet<>();
         for (final var p : returned) {
@@ -335,78 +441,79 @@ public class DirectMemoryOnlyDiskCacheLoadOrAddTest {
   }
 
   /**
-   * Concurrent installers on distinct gap pages: thread A targets {@code pageIndex == 5}
-   * (forces gap-fill of pages 0..5), thread B targets {@code pageIndex == 3} (potential
-   * mid-gap install). The two operations must converge to a consistent state: every
-   * index in 0..5 has exactly one installed entry, and the watermark is 6 — proving that
-   * concurrent gap-fills do not double-install on a contended index. Without atomic
-   * {@code computeIfAbsent}, thread B could install a fresh entry over the one thread A
-   * was about to publish, yielding two pointers for index 3 (the second one would leak
-   * its referrer count).
+   * Stress harness for concurrent gap-fills with overlapping ranges across multiple
+   * iterations. Each iteration opens a fresh file, fans out 6 worker threads with
+   * overlapping target indices ({@code {3, 5, 7, 9, 11, 4}}), waits on a start gate, then
+   * verifies that every index in {@code [0, 11]} has exactly one entry — every probe pair
+   * returns the same {@link CachePointer} instance. The iteration cleans up the freshly-
+   * added file via {@code deleteFile} so each pass exercises a fresh
+   * {@link MemoryFile#loadOrAddPage} state machine.
+   *
+   * <p>Without the {@code putIfAbsent}-with-release-on-loss pattern in
+   * {@link MemoryFile#installEmptyPage}, two threads racing on the same mid-gap index
+   * could both pass the {@code computeIfAbsent} miss check and both materialise a
+   * {@code CachePointer} (incrementing the referrer count of each pageFrame to 1) — only
+   * one would publish, but the other's frame would leak into the process-wide
+   * {@code pageFramePool}. The probe-pair {@code assertSame} catches the duplicate-publish
+   * shape; running 60 iterations with overlapping targets stresses the install race far
+   * harder than the prior 2-thread shape.
    */
   @Test
   public void concurrentGapFillsConvergeWithoutDoubleInstall() throws Exception {
-    final var pool = Executors.newFixedThreadPool(2);
+    final int iterations = 60;
+    final long[] targets = {3L, 5L, 7L, 9L, 11L, 4L};
+    final long maxTarget = 11L;
+    final ExecutorService pool = Executors.newFixedThreadPool(targets.length);
     try {
-      final var startGate = new CountDownLatch(1);
-      final var doneGate = new CountDownLatch(2);
-      final var pointersByIndex = new ConcurrentHashMap<Long, Set<CachePointer>>();
-      final var failure = new AtomicReference<Throwable>();
-      for (final long target : new long[] {5L, 3L}) {
-        pool.submit(
-            () -> {
-              try {
-                startGate.await();
-                final var p = cache.loadOrAdd(fileId, target, false);
-                pointersByIndex
-                    .computeIfAbsent(target, k -> ConcurrentHashMap.newKeySet())
-                    .add(p);
-              } catch (final Throwable t) {
-                failure.compareAndSet(null, t);
-              } finally {
-                doneGate.countDown();
-              }
-            });
-      }
-      startGate.countDown();
-      assertTrue(
-          "both gap-fill threads must finish within the bounded wait window",
-          doneGate.await(10, TimeUnit.SECONDS));
-      if (failure.get() != null) {
-        fail("concurrent gap-fill surfaced unexpected exception: " + failure.get());
-      }
-
-      // After both calls return, the watermark must be 6 (high water = max(5, 3) + 1).
-      // Lower target's gap-fill could install pages 0..3 and the higher target's call
-      // installs whichever pages are still missing in 0..5 — convergence is order-
-      // independent because computeIfAbsent is atomic per key.
-      assertEquals(
-          "watermark must converge to max-target + 1 regardless of thread interleaving",
-          6L,
-          cache.getFilledUpTo(fileId));
-
-      // Each index 0..5 must have exactly one entry. Probe via a load-branch loadOrAdd
-      // (which returns the installed pointer); the returned pointer must be stable across
-      // multiple probes — proving no torn / duplicate install on any contended index.
-      try {
-        for (int i = 0; i < 6; i++) {
-          final var probe1 = cache.loadOrAdd(fileId, i, false);
-          final var probe2 = cache.loadOrAdd(fileId, i, false);
+      for (int it = 0; it < iterations; it++) {
+        final long iterFileId = cache.addFile("concurrent-gapfill-" + it + ".dat");
+        try {
+          final var startGate = new CountDownLatch(1);
+          final List<Callable<CachePointer>> tasks = new ArrayList<>(targets.length);
+          for (final long target : targets) {
+            tasks.add(
+                () -> {
+                  startGate.await();
+                  return cache.loadOrAdd(iterFileId, target, false);
+                });
+          }
+          startGate.countDown();
+          final List<Future<CachePointer>> futures = pool.invokeAll(tasks, 10, TimeUnit.SECONDS);
+          final List<CachePointer> workerPointers = new ArrayList<>(targets.length);
           try {
-            assertSame(
-                "page " + i + " must be installed exactly once (load-branch identity check)",
-                probe1,
-                probe2);
+            for (final var f : futures) {
+              workerPointers.add(f.get(1, TimeUnit.SECONDS));
+            }
+            assertEquals(
+                "iteration " + it + ": watermark must converge to maxTarget + 1",
+                maxTarget + 1,
+                cache.getFilledUpTo(iterFileId));
+            // Every index in [0, maxTarget] must be installed exactly once. Two probes
+            // back-to-back must return the same instance — the load-branch identity check
+            // is the cheap proof that no double-install happened on a contended index.
+            for (long i = 0; i <= maxTarget; i++) {
+              final var probe1 = cache.loadOrAdd(iterFileId, i, false);
+              final var probe2 = cache.loadOrAdd(iterFileId, i, false);
+              try {
+                assertSame(
+                    "iteration " + it + ", page " + i + ": double-install detected — "
+                        + "back-to-back load probes must return the same instance",
+                    probe1,
+                    probe2);
+              } finally {
+                probe1.decrementReadersReferrer();
+                probe2.decrementReadersReferrer();
+              }
+            }
           } finally {
-            probe1.decrementReadersReferrer();
-            probe2.decrementReadersReferrer();
+            for (final var p : workerPointers) {
+              p.decrementReadersReferrer();
+            }
           }
-        }
-      } finally {
-        for (final var s : pointersByIndex.values()) {
-          for (final var p : s) {
-            p.decrementReadersReferrer();
-          }
+        } finally {
+          // Free the freshly-added file before the next iteration; deleteFile drops every
+          // installed page and removes the file from the metadata maps.
+          cache.deleteFile(iterFileId);
         }
       }
     } finally {
@@ -414,5 +521,131 @@ public class DirectMemoryOnlyDiskCacheLoadOrAddTest {
       assertTrue(
           "executor must terminate cleanly", pool.awaitTermination(5, TimeUnit.SECONDS));
     }
+  }
+
+  /**
+   * Race between concurrent installers and a destructive {@code deleteFile} loop. N
+   * installer threads loop calling {@code loadOrAdd} on the same {@code (fileId, 0)}
+   * (each call decrements the readers referrer immediately on success), while one
+   * destroyer thread loops {@code cache.deleteFile(...)} then re-adds the file under the
+   * same name (rotating the int fileId on each cycle). The installers must never see an
+   * exception other than {@link IllegalArgumentException} (raised when the file was
+   * deleted between the metadata probe and the per-{@link MemoryFile} install). At the
+   * end, the cache must be in a consistent state — the most recently-added file responds
+   * correctly to {@code loadOrAdd}.
+   *
+   * <p>This test pins the {@code clearLock.readLock} discipline introduced by the SF1
+   * fix: bumping the readers-referrer must happen INSIDE
+   * {@link MemoryFile#loadOrAddPage} while the readLock is held, so a concurrent
+   * {@link MemoryFile#clear()} cannot drop the in-cache referrer to zero (recycling the
+   * frame to the pool) between publication and the increment. A regression that hoisted
+   * the increment back outside the read-lock would surface here as either an
+   * {@code IllegalStateException} ("Invalid direct memory state, number of readers
+   * cannot be zero") or as a use-after-free on the recycled frame.
+   */
+  @Test
+  public void clearAndLoadOrAddRaceLeavesCacheConsistent() throws Exception {
+    final int installerThreads = 4;
+    final int rotations = 50;
+    final var pool = Executors.newFixedThreadPool(installerThreads + 1);
+    try {
+      final var stop = new AtomicBoolean(false);
+      final var fileIdRef = new AtomicReference<>(fileId);
+      final var unexpected = new ConcurrentLinkedQueue<Throwable>();
+      final var startGate = new CountDownLatch(1);
+      final var installerDone = new CountDownLatch(installerThreads);
+
+      // Installers: loop loadOrAdd / decrementReadersReferrer until the destroyer signals
+      // stop. IAE on a deleted file is tolerated (the file may have been dropped between
+      // our metadata read and our install); any other exception fails the test.
+      for (int t = 0; t < installerThreads; t++) {
+        pool.submit(
+            () -> {
+              try {
+                startGate.await();
+                while (!stop.get()) {
+                  try {
+                    final var p = cache.loadOrAdd(fileIdRef.get(), 0L, false);
+                    p.decrementReadersReferrer();
+                  } catch (final IllegalArgumentException ignored) {
+                    // Tolerated: file was deleted between fileIdRef read and the install.
+                  }
+                }
+              } catch (final Throwable t1) {
+                unexpected.add(t1);
+              } finally {
+                installerDone.countDown();
+              }
+            });
+      }
+
+      // Destroyer: rotate deleteFile + addFile a fixed number of times. After the last
+      // rotation the new fileId is the visible one; installers exit on stop.
+      pool.submit(
+          () -> {
+            try {
+              startGate.await();
+              for (int r = 0; r < rotations; r++) {
+                final var existing = fileIdRef.get();
+                cache.deleteFile(existing);
+                final var fresh = cache.addFile(FILE_NAME + "-rot-" + r);
+                fileIdRef.set(fresh);
+              }
+            } catch (final Throwable t1) {
+              unexpected.add(t1);
+            } finally {
+              stop.set(true);
+            }
+          });
+
+      startGate.countDown();
+      assertTrue(
+          "installer threads must finish within the bounded wait window",
+          installerDone.await(20, TimeUnit.SECONDS));
+
+      if (!unexpected.isEmpty()) {
+        final var first = unexpected.poll();
+        fail("clear/loadOrAdd race surfaced unexpected exception: " + first);
+      }
+
+      // Final consistency probe: the surviving fileId must accept loadOrAdd cleanly.
+      final var surviving = cache.loadOrAdd(fileIdRef.get(), 0L, false);
+      try {
+        assertNotNull("surviving file must accept loadOrAdd after the race", surviving);
+        assertEquals(
+            "surviving file's high-watermark must reflect the final extend",
+            1L,
+            cache.getFilledUpTo(fileIdRef.get()));
+      } finally {
+        surviving.decrementReadersReferrer();
+      }
+    } finally {
+      pool.shutdownNow();
+      assertTrue(
+          "executor must terminate cleanly", pool.awaitTermination(5, TimeUnit.SECONDS));
+    }
+  }
+
+  /**
+   * Asserts the page region beyond {@link DurablePage#NEXT_FREE_POSITION} is zero-filled
+   * — the contract of a freshly-acquired pageFrame from the zero-fill pool. The first 24
+   * bytes (magic / crc32 / LSN) are intentionally not checked here because the LSN field
+   * is overwritten with the magic-stamp value before publication; callers that want the
+   * full-page zero check should test the buffer before publication, which is unreachable
+   * from a black-box test.
+   */
+  private static void assertPostLsnRegionIsZeroFilled(final ByteBuffer buffer) {
+    final int from = DurablePage.NEXT_FREE_POSITION;
+    final int len = buffer.capacity() - from;
+    final byte[] actual = new byte[len];
+    final var view = buffer.duplicate();
+    view.position(from);
+    view.get(actual);
+    final byte[] expected = new byte[len];
+    assertArrayEquals(
+        "post-LSN page region must be zero-filled (regression catches a flipped "
+            + "framePool.acquire(true, ...) zero-fill flag)",
+        expected,
+        actual);
   }
 }
