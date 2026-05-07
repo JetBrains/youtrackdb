@@ -848,7 +848,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
             final var filePageChanges = filePageChangesEntry.getValue();
 
             var cacheEntry =
-                readCache.loadForWrite(
+                readCache.loadOrAddForWrite(
                     fileId, pageIndex, writeCache, filePageChanges.verifyCheckSum, fileStartLSN);
             if (cacheEntry == null) {
               if (!filePageChanges.isNew) {

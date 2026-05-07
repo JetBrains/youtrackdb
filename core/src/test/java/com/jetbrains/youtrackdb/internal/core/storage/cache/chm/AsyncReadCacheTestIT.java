@@ -211,7 +211,7 @@ public class AsyncReadCacheTestIT {
         final var pageIndex = random.nextInt(pageLimit);
 
         final var cacheEntry =
-            readCache.loadForWrite(fileId, pageIndex, writeCache, true, null);
+            readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, true, null);
         readCache.releaseFromWrite(cacheEntry, writeCache, true);
         pageCounter++;
       }
@@ -252,7 +252,7 @@ public class AsyncReadCacheTestIT {
       while (pageCounter < pageCount) {
         final var pageIndex = random.nextInt();
         assert pageIndex < pageLimit;
-        final var cacheEntry = readCache.loadForWrite(0, pageIndex, writeCache, true, null);
+        final var cacheEntry = readCache.loadOrAddForWrite(0, pageIndex, writeCache, true, null);
         readCache.releaseFromWrite(cacheEntry, writeCache, true);
         pageCounter++;
       }

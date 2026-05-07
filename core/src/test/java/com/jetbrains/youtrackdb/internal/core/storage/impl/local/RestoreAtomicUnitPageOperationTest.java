@@ -105,7 +105,7 @@ public class RestoreAtomicUnitPageOperationTest {
     pageOp.setLsn(walLsn);
 
     var cacheEntry = createCacheEntryWithLsn(DURABLE_EXTERNAL_ID, 0, pageLsn);
-    when(readCache.loadForWrite(
+    when(readCache.loadOrAddForWrite(
         eq(DURABLE_EXTERNAL_ID), eq(0L), eq(writeCache), eq(true), any()))
         .thenReturn(cacheEntry);
 
@@ -145,7 +145,7 @@ public class RestoreAtomicUnitPageOperationTest {
     pageOp.setLsn(walLsn);
 
     var cacheEntry = createCacheEntryWithLsn(DURABLE_EXTERNAL_ID, 0, pageLsn);
-    when(readCache.loadForWrite(
+    when(readCache.loadOrAddForWrite(
         eq(DURABLE_EXTERNAL_ID), eq(0L), eq(writeCache), eq(true), any()))
         .thenReturn(cacheEntry);
 
@@ -196,7 +196,7 @@ public class RestoreAtomicUnitPageOperationTest {
     storage.restoreAtomicUnit(atomicUnit, atLeastOnePageUpdate);
 
     // No cache operations should occur
-    verify(readCache, never()).loadForWrite(
+    verify(readCache, never()).loadOrAddForWrite(
         eq(ND_EXTERNAL_ID), anyLong(), any(), anyBoolean(), any());
     verify(pageOp, never()).redo(any(DurablePage.class));
 
@@ -221,7 +221,7 @@ public class RestoreAtomicUnitPageOperationTest {
     pageOp.setLsn(walLsn);
 
     var cacheEntry = createCacheEntryWithLsn(DURABLE_EXTERNAL_ID, 0, pageLsn);
-    when(readCache.loadForWrite(
+    when(readCache.loadOrAddForWrite(
         eq(DURABLE_EXTERNAL_ID), eq(0L), eq(writeCache), eq(true), any()))
         .thenReturn(cacheEntry);
 

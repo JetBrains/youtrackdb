@@ -58,7 +58,7 @@ public interface ReadCache {
     return addFile(fileName, fileId, writeCache);
   }
 
-  CacheEntry loadForWrite(
+  CacheEntry loadOrAddForWrite(
       long fileId,
       long pageIndex,
       WriteCache writeCache,

@@ -147,7 +147,7 @@ public final class LockFreeReadCache implements ReadCache {
   }
 
   @Override
-  public CacheEntry loadForWrite(
+  public CacheEntry loadOrAddForWrite(
       final long fileId,
       final long pageIndex,
       final WriteCache writeCache,
@@ -268,15 +268,29 @@ public final class LockFreeReadCache implements ReadCache {
                   (fId, pIdx, entry) -> {
                     if (entry == null) {
                       try {
+                        // Snapshot the file's current logical page count BEFORE delegating
+                        // to loadOrAdd. If pageIndex >= filledUpTo, loadOrAdd will take the
+                        // one-page-extend or multi-page gap-fill branch and the resulting
+                        // CacheEntry must be flagged as freshly-allocated so that
+                        // releaseFromWrite's isNewlyAllocatedPage() check publishes it on
+                        // the dirty-page list. Reading filledUpTo is cheap (in-memory size
+                        // probe under filesLock.readLock) and racing with a concurrent
+                        // allocator is harmless: invariant I4 (per-component locks) keeps
+                        // two callers from targeting the same (fileId, pageIndex) from
+                        // different transactions, so a worst-case stale snapshot only
+                        // mis-flags as new a page that was just freshly allocated by the
+                        // same transaction — which is still correct.
+                        final var preCallFilledUpTo = writeCache.getFilledUpTo(fileId);
                         final var pointer =
-                            writeCache.load(
-                                fileId, pageIndex, new ModifiableBoolean(), verifyChecksums);
-                        if (pointer == null) {
-                          return null;
-                        }
+                            writeCache.loadOrAdd(fileId, pageIndex, verifyChecksums);
 
                         cacheSize.incrementAndGet();
-                        return new CacheEntryImpl(fileId, pageIndex, pointer, true, this);
+                        final var newEntry =
+                            new CacheEntryImpl(fileId, pageIndex, pointer, true, this);
+                        if (pageIndex >= preCallFilledUpTo) {
+                          newEntry.markAllocated();
+                        }
+                        return newEntry;
                       } catch (final IOException e) {
                         throw BaseException.wrapException(
                             new StorageException(writeCache.getStorageName(),
@@ -289,10 +303,6 @@ public final class LockFreeReadCache implements ReadCache {
                       return entry;
                     }
                   });
-
-          if (cacheEntry == null) {
-            return null;
-          }
 
           if (cacheEntry.acquireEntry()) {
             if (read[0]) {

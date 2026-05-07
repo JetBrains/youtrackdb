@@ -371,7 +371,7 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
 
     // Mock cache application for the existing non-durable file's page
     var ndCacheEntry = createCacheEntryWithBuffer(fullFileId, 0);
-    when(readCache.loadForWrite(
+    when(readCache.loadOrAddForWrite(
         anyLong(), anyLong(), any(), anyBoolean(), any()))
         .thenAnswer(invocation -> {
           long fId = invocation.getArgument(0);
@@ -611,7 +611,7 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
 
     // restoreAtomicUnit calls loadForWrite for PageOperation
     var restoreCacheEntry = createCacheEntryWithBuffer(durableFileId, 0);
-    when(restoreReadCache.loadForWrite(
+    when(restoreReadCache.loadOrAddForWrite(
         eq(durableFileId), eq(0L), eq(restoreWriteCache), anyBoolean(), any()))
         .thenReturn(restoreCacheEntry);
 
@@ -633,7 +633,7 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     restoreMethod.invoke(storage, atomicUnit, atLeastOnePageUpdate);
 
     // Durable file's page must have been loaded for write (= restored)
-    verify(restoreReadCache).loadForWrite(
+    verify(restoreReadCache).loadOrAddForWrite(
         eq(durableFileId), eq(0L), eq(restoreWriteCache), eq(true), any());
     assertThat(atLeastOnePageUpdate.getValue()).isTrue();
 
@@ -642,7 +642,7 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
         "durable-file.dat", durableFileId, restoreWriteCache);
 
     // Non-durable file must NOT have been restored (no WAL records reference it)
-    verify(restoreReadCache, never()).loadForWrite(
+    verify(restoreReadCache, never()).loadOrAddForWrite(
         eq(ndFileId), anyLong(), eq(restoreWriteCache), anyBoolean(), any());
     verify(restoreReadCache, never()).addFile(
         eq("nd-file.dat"), anyLong(), any());
@@ -747,7 +747,7 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     // loadForWrite, no deleteFile for the non-durable file ID
     verify(restoreReadCache, never()).addFile(
         eq("nd-file.dat"), anyLong(), any());
-    verify(restoreReadCache, never()).loadForWrite(
+    verify(restoreReadCache, never()).loadOrAddForWrite(
         eq(ndFileId), anyLong(), any(), anyBoolean(), any());
     verify(restoreReadCache, never()).deleteFile(eq(ndFileId), any());
 

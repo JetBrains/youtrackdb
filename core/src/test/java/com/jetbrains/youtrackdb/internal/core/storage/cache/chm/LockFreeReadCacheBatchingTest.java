@@ -377,7 +377,7 @@ public class LockFreeReadCacheBatchingTest {
     readCache.releaseFromRead(entry);
 
     // Write-load the same page (cache hit, goes through afterRead)
-    entry = readCache.loadForWrite(0, 0, writeCache, false, null);
+    entry = readCache.loadOrAddForWrite(0, 0, writeCache, false, null);
     readCache.releaseFromWrite(entry, writeCache, false);
 
     // Read-load again (cache hit)

@@ -5389,7 +5389,12 @@ public abstract class AbstractStorage
           final var pageIndex = updatePageRecord.getPageIndex();
           fileId = writeCache.externalFileId(writeCache.internalFileId(fileId));
 
-          var cacheEntry = readCache.loadForWrite(fileId, pageIndex, writeCache, true, null);
+          var cacheEntry = readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, true, null);
+          // TODO: collapse this null branch once `addPage`/`allocateNewPage` are deleted.
+          // loadOrAddForWrite is now total (it returns a usable entry for the requested
+          // pageIndex on every call), so the do/while reconciliation loop below is
+          // unreachable. The block is kept here as a defensive belt during the migration
+          // window and removed alongside the addPage/allocateNewPage write-side API.
           if (cacheEntry == null) {
             do {
               if (cacheEntry != null) {
@@ -5460,7 +5465,12 @@ public abstract class AbstractStorage
           final var pageIndex = pageOp.getPageIndex();
           fileId = writeCache.externalFileId(writeCache.internalFileId(fileId));
 
-          var cacheEntry = readCache.loadForWrite(fileId, pageIndex, writeCache, true, null);
+          var cacheEntry = readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, true, null);
+          // TODO: collapse this null branch once `addPage`/`allocateNewPage` are deleted.
+          // loadOrAddForWrite is now total (it returns a usable entry for the requested
+          // pageIndex on every call), so the do/while reconciliation loop below is
+          // unreachable. The block is kept here as a defensive belt during the migration
+          // window and removed alongside the addPage/allocateNewPage write-side API.
           if (cacheEntry == null) {
             do {
               if (cacheEntry != null) {

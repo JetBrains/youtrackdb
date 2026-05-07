@@ -198,7 +198,7 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
    * working unchanged.
    */
   @Nullable @Override
-  public CacheEntry loadForWrite(
+  public CacheEntry loadOrAddForWrite(
       final long fileId,
       final long pageIndex,
       final WriteCache writeCache,
@@ -218,7 +218,7 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
   /**
    * Read-cache "load for read" entry point on the in-memory engine.
    *
-   * <p><b>Divergence from the disk engine.</b> See {@link #loadForWrite} for the rationale:
+   * <p><b>Divergence from the disk engine.</b> See {@link #loadOrAddForWrite} for the rationale:
    * the in-memory read-cache wrappers stay {@code null}-on-miss, while the write-cache
    * primitive {@link #loadOrAdd} is total.
    */
@@ -311,7 +311,7 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
    *
    * <p><b>Read-cache divergence.</b> Only this method (the {@code WriteCache} primitive)
    * is total on the in-memory engine. The {@link ReadCache} entry points
-   * {@link #loadForRead} and {@link #loadForWrite} keep their {@code null}-on-miss
+   * {@link #loadForRead} and {@link #loadOrAddForWrite} keep their {@code null}-on-miss
    * semantics because the in-memory engine bypasses {@code LockFreeReadCache.data.compute}
    * and so cannot fold the totality contract into the read-cache wrappers without
    * rewriting unrelated callers. The disk engine's read-cache wrappers (which DO go through

@@ -109,7 +109,7 @@ public class LockFreeReadCacheConcurrentTestIT {
                     int fileId = rng.nextInt(fileCount);
                     int pageIndex = rng.nextInt(pageLimit);
                     var cacheEntry =
-                        readCache.loadForWrite(fileId, pageIndex, writeCache, true, null);
+                        readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, true, null);
                     assertThat(cacheEntry).isNotNull();
                     assertThat(cacheEntry.getFileId()).isEqualTo(fileId);
                     assertThat(cacheEntry.getPageIndex()).isEqualTo(pageIndex);

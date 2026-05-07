@@ -121,7 +121,7 @@ public class RestoreAtomicUnitNonDurableSkipTest {
 
     // Non-durable file should NOT trigger restoreFileById or loadForWrite
     verify(writeCache, never()).restoreFileById(ND_EXTERNAL_ID);
-    verify(readCache, never()).loadForWrite(
+    verify(readCache, never()).loadOrAddForWrite(
         eq(ND_EXTERNAL_ID), anyLong(), any(), anyBoolean(), any());
 
     assertFalse("No page update should occur for non-durable file only",
@@ -230,7 +230,7 @@ public class RestoreAtomicUnitNonDurableSkipTest {
         java.nio.ByteBuffer.allocateDirect(PAGE_SIZE).order(java.nio.ByteOrder.nativeOrder());
     when(cacheEntry.getCachePointer()).thenReturn(cachePointer);
     when(cachePointer.getBuffer()).thenReturn(buffer);
-    when(readCache.loadForWrite(
+    when(readCache.loadOrAddForWrite(
         eq(DURABLE_EXTERNAL_ID), eq(0L), eq(writeCache), anyBoolean(), any()))
         .thenReturn(cacheEntry);
 
@@ -245,11 +245,11 @@ public class RestoreAtomicUnitNonDurableSkipTest {
 
     // Non-durable file must not trigger any cache operations
     verify(writeCache, never()).restoreFileById(ND_EXTERNAL_ID);
-    verify(readCache, never()).loadForWrite(
+    verify(readCache, never()).loadOrAddForWrite(
         eq(ND_EXTERNAL_ID), anyLong(), any(), anyBoolean(), any());
 
     // Durable file must be processed
-    verify(readCache).loadForWrite(
+    verify(readCache).loadOrAddForWrite(
         eq(DURABLE_EXTERNAL_ID), eq(0L), eq(writeCache), eq(true), any());
 
     assertTrue("Durable page update should set atLeastOnePageUpdate",
