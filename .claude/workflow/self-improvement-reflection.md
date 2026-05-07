@@ -113,9 +113,9 @@ session. Say so explicitly to the user and end the session.
    - *"What would I want a future agent in my exact position to know,
      that the current docs do not tell them?"*
 
-2. **Check filename collisions only.** List `workflow-issues/*.md`
-   to find existing filenames so the new file's date+slug does not
-   collide. Do **not** content-dedupe against existing files. If
+2. **Check filename collisions only.** List the `workflow-issues/`
+   directory to find existing filenames so the new file's date+slug
+   does not collide. Do **not** content-dedupe against existing files. If
    the same friction has already been filed and is still pending
    triage, file it again — the implementer dedupes at triage time.
    Cheap text-match dedup is fragile and not worth the protocol
@@ -163,7 +163,7 @@ session. Say so explicitly to the user and end the session.
 ## Issue file format
 
 Filename: `workflow-issues/<YYYY-MM-DD>-<short-slug>.md`. The date is
-the session date. The slug is 3–6 lowercase words separated by dashes
+the session date. The slug is 3–8 lowercase words separated by dashes
 that capture the friction (e.g.,
 `phase-c-review-fix-loop-stalls-on-spotless`,
 `risk-tagging-rule-misses-generated-code`). If the date+slug already
@@ -246,8 +246,8 @@ Severity guide:
 
 ## Commit format
 
-When the agent writes one or more issue files, commit them in **one**
-Workflow update commit. The commit message follows the
+When the agent writes one or more issue files, stage and commit them
+in **one** Workflow update commit, then push. The commit message follows the
 imperative-summary form defined in `commit-conventions.md` § Commit
 type prefixes (Workflow update row) — no `[workflow]` prefix, no
 special tag:
