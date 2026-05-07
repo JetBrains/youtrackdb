@@ -259,7 +259,7 @@ iterators, and index operations.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (4/5 complete)
+- [x] Step implementation
 - [ ] Track-level code review
 
 ## Base commit
@@ -512,39 +512,72 @@ iterators, and index operations.
   > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/IndexStreamSecurityDecoratorTest.java` (new)
   > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/IndexMiscSmallClassesTest.java` (new)
 
-- [ ] Step 5: Engine top-up (`engine/`, `engine/v1/`) + comparator /
+- [x] Step 5: Engine top-up (`engine/`, `engine/v1/`) + comparator /
       multivalue gap closure + Track-18 verification
+  - [x] Context: safe
   > **Risk:** low — default (test-additive only; final-step
   > verification reads the JaCoCo XML and writes a baseline file —
   > no production-code or shared-fixture changes).
   >
-  > **Targets:**
-  > - `core/index/engine` (134 uncov / 1 451 — already 90.8 % line,
-  >   84.6 % branch): branch fan-out at the `BaseIndexEngine` SPI
-  >   surface (`getValueContainerAlgorithm`, `acquireAtomicExclusiveLock`
-  >   error paths, `delete` / `clear` / `flush` non-happy branches),
-  >   plus any uncovered methods in the engine factories.
-  > - `core/index/engine/v1` (71 uncov / 526 — 86.5 % line, 82.5 %
-  >   branch): branch top-up on the V1 `BTreeIndexEngine`
-  >   delegation surface — exercising the public methods with a
-  >   real DB will transitively exercise `core/storage/index/sbtree/...`
-  >   delegate calls, which is helpful for Track 21 and **expected**;
-  >   do NOT stub the storage layer.
-  > - `core/index/comparator` (5 uncov / 10 — 50 % line, 100 %
-  >   branch): trivial top-up on the four comparator classes.
-  > - `core/index/multivalue` (1 uncov / 3 — 66.7 % line, 100 %
-  >   branch): single-line top-up.
+  > **What was done:** Added two new test classes targeting branch-
+  > coverage gaps in the engine packages:
+  > `BTreeEngineConstructorValidationTest` (14 tests) — version-guard
+  > branches for both `BTreeSingleValueIndexEngine` (IllegalStateException
+  > for versions ≠ 3 / 4) and `BTreeMultiValueIndexEngine`
+  > (IllegalArgumentException for versions 1 / 2 / 3,
+  > IllegalStateException for unknown versions), plus `isMultiValue()`
+  > defaults and `getEngineAPIVersion()` from the V1 base;
+  > `UniqueIndexEngineValidatorTest` (6 tests) — all four observable
+  > branches of `UniqueIndexEngineValidator.validate()`: null oldValue
+  > (fresh insert), same RID (IGNORE sentinel), different RID with
+  > null / false `MERGE_KEYS` (`RecordDuplicatedException`), and
+  > different RID with `MERGE_KEYS=true` (allowed). Ran the full
+  > coverage profile build (`./mvnw -pl core -am clean package -P
+  > coverage`) and recorded the per-package report to
+  > `docs/adr/unit-test-coverage/_workflow/track-18-baseline.md`. Full
+  > core suite (1 876 tests) green. Commit `ffd64f4d9e`.
   >
-  > **Verification:** at end of step, run
-  > `./mvnw -pl core -am clean package -P coverage`, then
-  > `python3 .github/scripts/coverage-analyzer.py
-  > --coverage-dir .coverage/reports/youtrackdb-core` to assert each
-  > Track-18 in-scope package meets 85 % line / 70 % branch (or
-  > document any miss + recovery plan inline). Write the resulting
-  > per-package report to
-  > `docs/adr/unit-test-coverage/_workflow/track-18-baseline.md`.
+  > **What was discovered:**
+  > - **`internal.core.index` missed the 85% line / 70% branch
+  >   gate.** Final per-package coverage: **80.3% line / 69.4%
+  >   branch** — short by ~4.7 pp line and ~0.6 pp branch. The five
+  >   other in-scope packages (`iterator`, `comparator`, `multivalue`,
+  >   `engine`, `engine/v1`) all meet or exceed the gate.
+  > - Largest contributors to the `core/index` gap (per
+  >   `track-18-baseline.md`):
+  >   - `IndexAbstract` (~93 uncov lines — engine-init and rebuild
+  >     paths requiring a fully-booted DB rather than a unit fixture).
+  >   - `ClassIndexManager` (~90 uncov — `addIndexesEntries` SQL path).
+  >   - `CompositeIndexDefinition$CompositeWrapperMap` (~51 uncov —
+  >     inner map-view; `entrySet` / `keySet` not invoked by any test
+  >     today).
+  >   - `RecreateIndexesTask` (~45 uncov — catch-branch only partially
+  >     exercised by the proxy stub).
+  > - **Recovery candidates** (logged in `track-18-baseline.md` for
+  >   Phase C): ~3–4 extension tests targeting `CompositeWrapperMap`
+  >   `entrySet` / `keySet` and the `IndexAbstract` full-bootstrap /
+  >   `recreateIndexBoundary` paths. The aggregate per-package gate
+  >   is an internal Track-18 target (per the step file's
+  >   Constraints) — the changed-line gate trivially passes for this
+  >   test-additive track. Phase C decides whether to demand
+  >   remediation tests or to record the miss.
+  > - **Cross-track hint to Track 21**:
+  >   `BTreeSingleValueIndexEngine` and `BTreeMultiValueIndexEngine`
+  >   `doClearTree` "removed 0 entries" error paths remain uncovered —
+  >   live production code that requires actual B-tree data with
+  >   page-cursor invalidation to trigger. Track 21 (storage / sbtree
+  >   tests) can cover them transitively.
+  > - The BTree version-guard constructor branches are now shape-
+  >   pinned; Track 21 does not need to re-test them.
   >
-  > **Extension candidates first (Constraint 6):** existing engine
-  > tests under `core/src/test/.../core/index/engine/{,v1}` (35 + 4
-  > files — see `engine/` test subdir). **New classes only when no
-  > existing test class covers the targeted method.**
+  > **Key files:**
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/engine/UniqueIndexEngineValidatorTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/engine/v1/BTreeEngineConstructorValidationTest.java` (new)
+  > - `docs/adr/unit-test-coverage/_workflow/track-18-baseline.md` (new)
+  >
+  > **Critical context:** `internal.core.index` ended at **80.3% / 69.4%**,
+  > below the 85% / 70% per-package target. Phase C must decide whether
+  > to absorb the gap or trigger remediation tests; recovery candidates
+  > are listed in the baseline file. The five other in-scope packages
+  > meet the gate. The cumulative `core` module coverage advanced to
+  > **78.2% line / 68.5% branch** (+0.5 pp / +0.4 pp over post-Track-17).
