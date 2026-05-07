@@ -251,6 +251,20 @@ track diff base_commit..HEAD when level=track). Return the
 structured block defined in the rulebook's §Return contract. Do not
 return free-form prose after the block — the orchestrator parses
 only the block.
+
+**Mandatory RESULT block on every exit.** Emit the structured
+RESULT block before exiting for any reason — successful completion,
+detection-rule early return, fundamental failure, context-window
+exhaustion, message-budget pressure, tool-call-budget pressure, or
+runtime error in any tool call. A return with no parsable RESULT
+block (or a truncated one) is a contract violation that prevents
+the orchestrator from recovering. When an exit is forced before
+sub-steps 1–3 complete, emit RESULT: FAILED with the cause stated
+in FAILURE.why_it_failed, every touched path listed in
+FILES_TOUCHED (even if not yet reverted), and recommended_action:
+retry. The orchestrator can recover from honest partial-failure but
+not from silence. See the rulebook's §Return contract for the full
+clause.
 ```
 
 The orchestrator substitutes `{repo_root}`, `{PPID}`, `{dir-name}`,

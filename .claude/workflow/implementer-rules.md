@@ -271,6 +271,16 @@ sessions repeatedly stranded on this exact pattern.
 - MUST NOT start Maven invocations with Bash `run_in_background: true`.
 - MUST NOT chain `sleep` / monitor poll loops waiting for a
   background task to finish.
+- MUST NOT use **self-referential `pgrep -f` poll loops**. A pattern
+  like `until ! pgrep -f "surefire"; do sleep 5; done` matches its
+  own shell because the shell's argv contains the literal
+  `surefire`, so the loop never terminates and runs forever after
+  the implementer exits — exactly the runaway poll observed in the
+  Track-18 incident (2026-05-07). If a poll loop is genuinely
+  unavoidable, exclude the shell's own pid (`pgrep -f surefire |
+  grep -v $$`) or prefer `tail --pid=N` / `wait`. The cleanest
+  path is to not use a poll loop at all — foreground Bash already
+  blocks until the test run finishes, which is the rule above.
 
 Pacing is the orchestrator's job, not the implementer's. The
 implementer runs straight through sub-steps 1–3 and emits exactly
@@ -308,6 +318,32 @@ profile build, integration tests:
   the cumulative diff is non-empty and the implementer must run the
   full coverage profile build even when the iteration's own diff is
   test-only.
+- **Prefer targeted `-Dtest=…` re-runs during fix iteration.** When
+  applying review findings (`mode=FIX_REVIEW_FINDINGS` at either
+  level), re-run only the test classes the fix actually touched —
+  `./mvnw -pl <module> test -Dtest='Foo,Bar,Baz'` rather than the
+  full module suite. Targeted re-runs finish in seconds, fit
+  comfortably inside the foreground Bash budget, and keep the
+  implementer's context lean: a 1500-test module re-run on a
+  failing assertion can dump tens of thousands of tokens of stack
+  traces into the conversation, and the Track-18 implementer
+  exhausted its message budget on exactly this pattern
+  (2026-05-07). Reserve the full module suite for one final
+  pre-commit verification, and only when the cumulative diff
+  genuinely justifies it; routine fix iterations do not.
+- **Route targeted re-runs through `steroid_execute_code` when
+  mcp-steroid is reachable.** Per the project's `CLAUDE.md` § MCP
+  Steroid → "Maven — when to route through mcp-steroid",
+  single-test re-runs and short targeted lists belong on the IDE
+  route. The `test/failure-details` and `test/statistics` recipes
+  (catalogued in `conventions.md` §1.4 *Recipes*) return structured
+  per-test outcomes from `RunContentManager` rather than streaming
+  surefire stdout into the conversation — typically a 10–25× context
+  saving on a failing run, which is the lever that prevents the
+  message-budget exhaustion mode the targeted-rerun rule above is
+  also targeting. Full-module verification, coverage-profile builds,
+  and integration tests stay on Bash per the project rule, even
+  when the IDE is reachable.
 
 If even a staged sequence cannot fit the foreground budget (rare —
 only large `-P ci-integration-tests` runs or full multi-module
@@ -591,6 +627,46 @@ the prior step commits; Phase C never rolls back across spawns.
 The implementer's return is a **single structured block**. The
 orchestrator parses it; everything else in the implementer's output is
 informational and ignored.
+
+**Silent exit is forbidden.** The implementer MUST emit a `RESULT:`
+block before exiting for **any** reason — successful completion,
+detection-rule early return (design decision, risk upgrade,
+fundamental failure), context-window exhaustion, message-budget
+pressure, tool-call-budget pressure, or unrecoverable runtime error
+in any tool call. A return whose text contains no parsable `RESULT:`
+block (or a block truncated mid-field) is a contract violation: the
+orchestrator cannot dispatch on missing data, the implementer's last
+actions are by definition uncommitted, and recovery requires manual
+inspection of the working tree (see
+[`track-code-review.md`](track-code-review.md) §Phase C Implementer
+Handlers → `RESULT_MISSING` for the orchestrator-side handler).
+
+When an exit is forced before sub-steps 1–3 complete, the priority
+order is: **(1) emit `RESULT: FAILED` first**, with the cause stated
+honestly in `FAILURE.why_it_failed` (e.g., "ran out of message
+budget after applying 7 of 22 findings; tests not yet re-run; tree
+dirty"), `FAILURE.what_was_attempted` populated, and
+`FAILURE.recommended_action: retry`. List every path the
+implementer touched in `FILES_TOUCHED` even when not yet reverted —
+the orchestrator uses `FILES_TOUCHED` to decide between
+commit-as-is, re-spawn, and discard. **(2) Then run the revert
+sequence** per §"Detection rules — return early without committing"
+if time and budget still permit. If the revert cannot complete,
+leaving a dirty tree at HEAD on a `FAILED` return is itself a
+contract violation that the orchestrator's
+`handle_iteration_failure` path surfaces to the user (see
+[`track-code-review.md`](track-code-review.md) §Phase C Implementer
+Handlers → `handle_iteration_failure` "Verify `git status` is clean
+before continuing"); the user then chooses among the same
+commit-as-is / re-spawn / discard options as the `RESULT_MISSING`
+path. Both paths converge on the same recovery flow, so an honest
+partial-progress `FAILED` (even with a dirty tree) is strictly
+better than a silent exit. The §"Detection rules" section still
+governs **deliberate** early-returns (design decision, risk upgrade,
+fundamental failure under normal budget) — those have time to
+revert and must do so; this clause governs the **unplanned-exit**
+case where the priority is preserving the RESULT contract over the
+cleanup contract.
 
 ```
 RESULT: SUCCESS | DESIGN_DECISION_NEEDED | RISK_UPGRADE_REQUESTED | FAILED
