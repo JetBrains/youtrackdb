@@ -122,8 +122,24 @@ public interface WriteCache {
 
   void checkCacheOverflow() throws InterruptedException;
 
+  /**
+   * @deprecated Use {@link #loadOrAdd(long, long, boolean)} instead. This method is the legacy
+   *     allocator that exposes the new {@code pageIndex} before the cache entry is installed,
+   *     creating the race documented in the read-cache concurrency fix design. Final deletion
+   *     is deferred until the write-side API collapse that migrates all replay-loop callers
+   *     to {@link ReadCache#loadOrAddForWrite}.
+   */
+  @Deprecated
   int allocateNewPage(final long fileId) throws IOException;
 
+  /**
+   * @deprecated Use {@link #loadIfPresent(long, long, boolean)} for silent (non-extending) reads
+   *     or {@link #loadOrAdd(long, long, boolean)} for allocating reads. This method carries the
+   *     {@code cacheHit} out-parameter that the new primitives drop; it has no remaining
+   *     production callers as of the read-cache concurrency fix and will be deleted alongside
+   *     {@link #allocateNewPage} in the write-side API collapse.
+   */
+  @Deprecated
   CachePointer load(
       long fileId, long startPageIndex, ModifiableBoolean cacheHit, boolean verifyChecksums)
       throws IOException;
@@ -153,17 +169,67 @@ public interface WriteCache {
    * Total page-access primitive: returns a usable {@link CachePointer} for the given
    * {@code (fileId, pageIndex)} regardless of whether the page already exists on disk.
    *
-   * <p>Behaviour is implementation-specific (see {@code WOWCache} for the disk engine and
-   * {@code DirectMemoryOnlyDiskCache} for the in-memory engine), but the contract is uniform:
-   * the method never returns {@code null} for any open, non-deleted file. Concrete branches
-   * (load existing / one-page extend / multi-page gap-fill) and the caller-side concurrency
-   * preconditions are documented on the implementing classes once they land in subsequent
-   * steps of the read-cache concurrency fix.
+   * <p>The method dispatches to one of three branches depending on whether
+   * {@code pageIndex} is less than, equal to, or greater than the current in-memory file
+   * size (in pages):
+   * <ul>
+   *   <li><b>Load existing</b> ({@code pageIndex < currentSize}) &mdash; returns the
+   *       existing on-disk (or dirty-write-cache) page. On the disk engine this acquires
+   *       the per-{@link com.jetbrains.youtrackdb.internal.core.storage.cache.local.PageKey}
+   *       shared {@code lockManager} lock (same policy as the legacy {@code load});
+   *       the in-memory engine has no equivalent lock.</li>
+   *   <li><b>One-page extend</b> ({@code pageIndex == currentSize}) &mdash; atomically
+   *       extends the file by one page via {@code AsyncFile.allocateSpace}, submits an
+   *       {@link com.jetbrains.youtrackdb.internal.core.storage.cache.local.EnsurePageIsValidInFileTask}
+   *       on the single-threaded FIFO {@code wowCacheFlushExecutor}, and returns a
+   *       freshly-allocated magic-stamped empty {@link CachePointer}.
+   *       The {@code lockManager} shared lock is <b>not</b> taken on this branch: the
+   *       freshly-installed pointer is published only after the caller's outer
+   *       {@code data.compute} segment write lock releases it.</li>
+   *   <li><b>Multi-page gap-fill</b> ({@code pageIndex > currentSize}; recovery only)
+   *       &mdash; allocates space for the entire gap in one batched call, submits one
+   *       {@code EnsurePageIsValidInFileTask} per gap page in {@code [currentSize,
+   *       pageIndex]}, and returns only the target page's {@link CachePointer}. Gap-fill
+   *       is the recovery-only branch; callers under normal operation always target
+   *       {@code pagesSize + 1} (from the component's {@code entryPoint}), so
+   *       {@code pageIndex > currentSize} can only occur during WAL replay.
+   *       The {@code lockManager} shared lock is not taken here either, for the same
+   *       reason as the extend branch.</li>
+   * </ul>
+   *
+   * <p><b>Caller precondition.</b> For the disk engine: the segment write lock for the
+   * {@code (fileId, pageIndex)} key must be held by the caller &mdash; that is, the call
+   * must originate from inside a {@code LockFreeReadCache.data.compute} lambda. The
+   * in-memory engine ({@code DirectMemoryOnlyDiskCache}) enforces its own install-or-fetch
+   * atomicity via {@code MemoryFile.loadOrAddPage} without a segment lock.
+   *
+   * <p><b>Totality contract.</b> The method never returns {@code null} for any open,
+   * non-deleted file. An {@link IllegalArgumentException} is thrown &mdash; not a null
+   * return &mdash; if the file has been concurrently deleted or was never registered;
+   * that is a caller-bug signal. Any {@link java.io.IOException} from the underlying disk
+   * I/O propagates raw.
+   *
+   * <p><b>Runtime invariant.</b> Under normal (non-recovery) operation the caller computes
+   * the target {@code pageIndex} from {@code entryPoint.pagesSize + 1}: the logical page
+   * count on the component's {@code EntryPoint} metadata page, which is bumped only on
+   * commit inside the same WAL atomic unit. This guarantees {@code pageIndex ==
+   * currentSize} on the extend branch; the gap-fill branch is structurally unreachable
+   * until the write-side API collapse rewires the WAL replay loops.
+   *
+   * <p><b>FIFO + monotonic submission.</b> {@code EnsurePageIsValidInFileTask} submissions
+   * for a given {@code fileId} are monotonically increasing in {@code pageIndex} by
+   * construction (the per-component lock serializes concurrent allocators). Combined with
+   * the single-threaded FIFO executor, this guarantees that every gap page in
+   * {@code [old_size, pageIndex]} is stamped in order; no interior zero page can survive
+   * across a crash. See design.md §"Crash safety" for the three crash scenarios and
+   * their walk-throughs.
    *
    * @param fileId external file id of the target page
-   * @param pageIndex zero-based page index inside that file
+   * @param pageIndex zero-based page index inside that file; must be &ge; 0
    * @param verifyChecksums whether checksum verification is enforced on the load branch
    * @return a non-null {@link CachePointer} positioned at the target page
+   * @throws IllegalArgumentException if {@code pageIndex < 0} or the file is deleted /
+   *     never registered
    * @throws IOException if the underlying disk I/O fails
    */
   CachePointer loadOrAdd(long fileId, long pageIndex, boolean verifyChecksums) throws IOException;

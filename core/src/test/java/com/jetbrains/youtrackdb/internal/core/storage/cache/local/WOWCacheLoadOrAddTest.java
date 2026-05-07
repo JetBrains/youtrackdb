@@ -454,4 +454,99 @@ public class WOWCacheLoadOrAddTest {
         3L,
         wowCache.getFilledUpTo(fileId));
   }
+
+  /**
+   * WAL-replay recovery simulation (gap-fill branch, {@code pageIndex >> currentSize}).
+   *
+   * <p>This test exercises the gap-fill branch as the WAL replay loop would in practice:
+   * a component's {@code entryPoint.pagesSize} on disk records that the file was extended
+   * to page {@code N}, but on reopen {@code AsyncFile.size} (re-initialized from the
+   * physical disk length) may lag behind &mdash; so the replay loop calls
+   * {@code loadOrAdd(fileId, N)} with {@code pageIndex > currentSize}. Here we simulate
+   * that by extending two pages first (so {@code currentSize == 2}), then making a
+   * synthetic recovery call with {@code pageIndex == 10} to trigger a gap of 8 pages.
+   * The contract: all pages in {@code [2, 10]} are allocated on disk
+   * ({@code AsyncFile.size} advances to 11), exactly one magic-stamped empty
+   * {@link com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer} is returned
+   * (for the target page only), and the pointer carries LSN {@code (-1,-1)}. See design.md
+   * §"Crash safety" scenario B for the walk-through.
+   */
+  @Test
+  public void recoverySimulationGapFillWithLargeGap() throws IOException {
+    final var fileId = wowCache.addFile(FILE_NAME);
+    // Establish currentSize == 2 via two sequential extend calls.
+    wowCache.loadOrAdd(fileId, 0L, false).decrementReadersReferrer();
+    wowCache.loadOrAdd(fileId, 1L, false).decrementReadersReferrer();
+    assertEquals(
+        "two extends must advance AsyncFile.size to 2 pages",
+        2L,
+        wowCache.getFilledUpTo(fileId));
+
+    // Simulate WAL replay targeting pageIndex=10 while currentSize==2 (gap of 8 pages).
+    final var pointer = wowCache.loadOrAdd(fileId, 10L, false);
+    try {
+      assertNotNull(
+          "gap-fill recovery call must return a non-null pointer for the target page",
+          pointer);
+      assertEquals(
+          "target page's magic-stamped buffer must carry LSN(-1,-1)",
+          new LogSequenceNumber(-1, -1),
+          DurablePage.getLogSequenceNumberFromPage(pointer.getBuffer()));
+    } finally {
+      pointer.decrementReadersReferrer();
+    }
+    // All pages [0..10] inclusive = 11 pages must be allocated.
+    assertEquals(
+        "gap-fill must advance AsyncFile.size to pageIndex + 1 pages",
+        11L,
+        wowCache.getFilledUpTo(fileId));
+  }
+
+  /**
+   * Crash-safety scenario B (load branch after on-disk magic stamp is in place).
+   *
+   * <p>This test simulates the scenario documented in design.md §"Crash safety" scenario B:
+   * a TX was committed, the {@code EnsurePageIsValidInFileTask} ran and stamped the page on
+   * disk, and on the next reopen the page already exists on disk when {@code loadOrAdd} is
+   * called with that index. The load branch ({@code pageIndex < currentSize}) must fire and
+   * return the existing disk-resident page, not allocate a fresh extend. Specifically:
+   * <ol>
+   *   <li>Extend page 0 (first TX), flush to ensure the disk stamp has landed.</li>
+   *   <li>Remove it from the dirty write-cache (via a second cache open / flush cycle) so
+   *       the load falls through to {@code loadFileContent} on disk.</li>
+   *   <li>Call {@code loadOrAdd(fileId, 0)} again; it must take the load branch and return
+   *       a non-null pointer without advancing {@code AsyncFile.size}.</li>
+   * </ol>
+   * After the flush the page exists on disk; re-calling {@code loadOrAdd} on the same index
+   * must be a pure load (file size stays at 1), demonstrating that crash-safety scenario B
+   * resolves via the load branch, not a second extend.
+   */
+  @Test
+  public void crashSafetyScenarioBLoadAfterOnDiskStamp() throws IOException {
+    final var fileId = wowCache.addFile(FILE_NAME);
+    // First call: extend branch fires, magic-stamps in memory, queues EnsurePageIsValidInFileTask.
+    wowCache.loadOrAdd(fileId, 0L, false).decrementReadersReferrer();
+    assertEquals(
+        "extend must advance AsyncFile.size to 1 page",
+        1L,
+        wowCache.getFilledUpTo(fileId));
+
+    // Flush so the EnsurePageIsValidInFileTask writes the magic stamp to disk and the page
+    // can be loaded via loadFileContent on the next call.
+    wowCache.flush(fileId);
+
+    // Second call on the same index: load branch fires (pageIndex < currentSize == 1).
+    // File size must stay at 1 page — no double-extend.
+    final var loaded = wowCache.loadOrAdd(fileId, 0L, false);
+    try {
+      assertNotNull(
+          "load branch after on-disk stamp must return a non-null pointer", loaded);
+    } finally {
+      loaded.decrementReadersReferrer();
+    }
+    assertEquals(
+        "second loadOrAdd on an already-stamped page must not advance AsyncFile.size",
+        1L,
+        wowCache.getFilledUpTo(fileId));
+  }
 }

@@ -460,6 +460,13 @@ public final class LockFreeReadCache implements ReadCache {
     cacheEntry.releaseEntry();
   }
 
+  /**
+   * @deprecated Use {@link #loadOrAddForWrite(long, long, WriteCache, boolean, LogSequenceNumber)}
+   *     instead. This method calls the legacy {@link WriteCache#allocateNewPage} which exposes the
+   *     new page index before the cache entry is installed, creating the race documented in the
+   *     read-cache concurrency fix design. Final deletion lands in the write-side API collapse.
+   */
+  @Deprecated
   @Override
   public CacheEntry allocateNewPage(
       long fileId, final WriteCache writeCache, final LogSequenceNumber startLSN)

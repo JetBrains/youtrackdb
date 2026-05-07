@@ -275,6 +275,13 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     return cacheEntry;
   }
 
+  /**
+   * @deprecated Use {@link #loadOrAdd(long, long, boolean)} instead. The in-memory engine never
+   *     had a working implementation (this always throws {@link UnsupportedOperationException});
+   *     callers should migrate to {@link #loadOrAdd} which is total on this engine. Final
+   *     deletion lands in the write-side API collapse.
+   */
+  @Deprecated
   @Override
   public int allocateNewPage(final long fileId) {
     throw new UnsupportedOperationException();

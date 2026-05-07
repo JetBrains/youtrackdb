@@ -1379,6 +1379,14 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
+  /**
+   * @deprecated Use {@link #loadOrAdd(long, long, boolean)} instead. This method is the legacy
+   *     disk-engine allocator that pre-publishes the new {@code pageIndex} before the
+   *     {@link com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer} is installed,
+   *     creating the race documented in the read-cache concurrency fix design. Final deletion
+   *     lands in the write-side API collapse.
+   */
+  @Deprecated
   @Override
   public int allocateNewPage(final long fileId) throws IOException {
     int pageIndex;
