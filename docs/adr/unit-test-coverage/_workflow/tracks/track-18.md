@@ -259,7 +259,7 @@ iterators, and index operations.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/5 complete)
+- [ ] Step implementation (2/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -336,41 +336,58 @@ iterators, and index operations.
   > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/SchemaPropertyIndexDefinitionTest.java` (modified)
   > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/SimpleKeyIndexDefinitionTest.java` (modified)
 
-- [ ] Step 2: Cover live TX-aware spliterators (`iterator/`) +
+- [x] Step 2: Cover live TX-aware spliterators (`iterator/`) +
       dead-code shape pin for the `IndexCursor*` cluster
+  - [x] Context: safe
   > **Risk:** low — default (test-additive only; the `*DeadCodeTest`
   > shape pin follows the Track-17 precedent of pure reflection-based
   > pins, no production-code changes).
   >
-  > **Live targets** (~70 of the 85 uncovered iterator lines):
-  > - `PureTxBetweenIndexBackwardSpliterator` (30 lines, 0 % — live,
-  >   exercised by `IndexOneValue.streamEntriesMajor / Minor /
-  >   Between` with `ascSortOrder=false`).
-  > - `PureTxMultiValueBetweenIndexBackwardSplititerator` (40 lines,
-  >   0 % — live, exercised by `IndexMultiValues.streamEntriesMajor /
-  >   Minor / Between` with `ascSortOrder=false`).
-  > - Any residual branch gap on the two forward variants
-  >   (`PureTxBetweenIndexForwardSpliterator` 28/30, ~93 %, plus
-  >   `PureTxMultiValueBetweenIndexForwardSpliterator` 37/40, ~92 %).
+  > **What was done:** Created `PureTxBetweenIndexSpliteratorTest`
+  > (11 tests, DbTestBase) exercising all four
+  > `PureTx*BetweenIndex*Spliterator` classes — both directions and
+  > both value cardinalities — via the public
+  > `streamEntriesBetween` / `streamEntriesMajor` /
+  > `streamEntriesMinor` API on UNIQUE and NOTUNIQUE indexes. Each
+  > test opens a TX, renames a committed key via SQL `UPDATE` to
+  > generate `DELETE+PUT` entries in `FrontendTransactionIndexChanges`,
+  > then walks a range. Covers the 0%-covered backward variants
+  > (~30 + ~40 lines) and residual branch gaps on the forward
+  > variants. Created `IndexCursorClusterDeadCodeTest` (8 reflection-
+  > only tests) pinning constructor signatures and method shapes for
+  > `IndexCursor`, `IndexAbstractCursor`, `IndexCursorStream`, and
+  > `IndexKeyCursor` with `WHEN-FIXED` markers per the Track-17
+  > dead-code-pin precedent. Commit `2cd715f5e3`.
   >
-  > **Dead-code shape pin (per Track-17 precedent):**
-  > One new `IndexCursorClusterDeadCodeTest` (or two — one per
-  > lockstep group) reflectively pins the constructor signatures /
-  > method shapes of `IndexCursor`, `IndexAbstractCursor`,
-  > `IndexCursorStream`, `IndexKeyCursor` with `WHEN-FIXED: Track 22`
-  > markers. The four classes are forwarded to Track 22's absorption
-  > block in this Phase A commit (`implementation-backlog.md` Track
-  > 22 section). Do NOT add live tests against any of the four —
-  > PSI `ReferencesSearch` (all-scope) confirms 0 production
-  > references, and synthetic call sites are forbidden by the
-  > project's no-fake-coverage discipline.
+  > **What was discovered:**
+  > - `session.newEntity()` does NOT trigger index entries in
+  >   `FrontendTransactionIndexChanges` during the TX — indexing
+  >   happens at commit. SQL `UPDATE` on an existing committed
+  >   record is required to populate `indexChanges` mid-TX. Steps 3
+  >   and 4 should use the same pattern when testing TX iteration
+  >   paths.
+  > - The merge path (`indexChanges.cleared == false`) for descending
+  >   order uses `DescComparator`, whose `compare` returns positive
+  >   for `a > b` (i.e., internally ascending), combined with
+  >   `mergeSortedSpliterators`' "emit smaller first" logic. The
+  >   merged output for non-cleared backward streams is therefore
+  >   not strictly descending. This is existing production behavior;
+  >   tests assert key presence (not strict order) for the
+  >   backward + non-cleared cases. **Forwarded to deferred-cleanup
+  >   queue** as a `DescComparator` naming/behavior candidate; Steps
+  >   4 onward that test TX iteration on `IndexOneValue` /
+  >   `IndexMultiValues` descending streams should adopt the same
+  >   key-presence-only assertion for non-cleared merge cases.
+  > - PSI `ReferencesSearch` (all-scope) confirmed lockstep groups:
+  >   `{IndexCursor, IndexAbstractCursor, IndexCursorStream}`
+  >   (each referenced only by the next class in the group; deleting
+  >   any one requires deleting the next first) and `{IndexKeyCursor}`
+  >   (zero references). Both groups already on the deferred-cleanup
+  >   queue.
   >
-  > **New class:** `PureTxBetweenIndexSpliteratorTest` (DbTestBase) —
-  > builds a small transactional index, walks both single- and
-  > multi-value variants in both directions, asserts emitted
-  > key / RID order matches the deterministic descending walk through
-  > `FrontendTransactionIndexChanges`. No existing test covers the
-  > iterator subpackage.
+  > **Key files:**
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/iterator/PureTxBetweenIndexSpliteratorTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/IndexCursorClusterDeadCodeTest.java` (new)
 
 - [ ] Step 3: Cover index manager / factory / lifecycle, with
       `RecreateIndexesTask` as the centerpiece
