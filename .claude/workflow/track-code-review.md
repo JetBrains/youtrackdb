@@ -282,7 +282,28 @@ orchestrator never edits source files itself in Phase C.
    to other tracks via plan corrections — see §Plan Corrections from
    Deferred Findings below). The implementer receives only the
    in-scope subset.
-2. **If any in-scope findings need fixes:**
+2. **Pre-spawn budget check.** If the in-scope subset has ≥ ~15
+   findings or spans ≥ ~10 distinct source files, split the work
+   across multiple iterations rather than one mega-iteration. Pick
+   the highest-severity subset that fits the budget (typical safe
+   shape: 8–12 findings touching ≤ 6–8 files, leaving room for
+   targeted re-runs of the touched test classes per
+   [`implementer-rules.md`](implementer-rules.md) §Pacing
+   long-running tasks → "Prefer targeted `-Dtest=…` re-runs"). The
+   remaining findings re-surface in iteration 2's gate-check
+   fan-out and consume an iteration counter normally — they are not
+   lost. This is a soft-pacing rule, not a hard split: when the
+   findings are genuinely independent and the diff is small (e.g.,
+   20 identical-pattern Javadoc fixes touching 10 files), one large
+   iteration is still fine. The Track-18 incident (2026-05-07) — a
+   22-finding × 14-file spawn that ran an Opus implementer out of
+   message budget mid-iteration — motivated this rule. **The
+   thresholds (~15 findings / ~10 files) are heuristics, not
+   contract gates** — when the finding-set is borderline, prefer
+   splitting; when an iteration count is already tight (2 of 3 used)
+   and the remaining findings genuinely cohere, accept the larger
+   spawn and document the choice.
+3. **If any in-scope findings need fixes:**
    - **Spawn the per-iteration implementer** with `level=track`,
      `mode=FIX_REVIEW_FINDINGS`, `base_commit` (read from the step
      file's `## Base commit`), and the iteration's in-scope findings
@@ -293,15 +314,22 @@ orchestrator never edits source files itself in Phase C.
    - **Dispatch on the structured return:**
 
      ```
-     match result.RESULT:
-         SUCCESS                  -> on_iteration_success(result)
-         DESIGN_DECISION_NEEDED   -> escalate_to_user_then_respawn(result)
-         RISK_UPGRADE_REQUESTED   -> contract violation — surface to user
-         FAILED                   -> handle_iteration_failure(result)
+     match result:
+         result.RESULT == SUCCESS                  -> on_iteration_success(result)
+         result.RESULT == DESIGN_DECISION_NEEDED   -> escalate_to_user_then_respawn(result)
+         result.RESULT == RISK_UPGRADE_REQUESTED   -> contract violation — surface to user
+         result.RESULT == FAILED                   -> handle_iteration_failure(result)
+         <no parsable RESULT block>                -> handle_result_missing(result_text)
      ```
 
-     The three normal handlers and the contract-violation path are
-     spelled out in §Phase C Implementer Handlers below.
+     The three normal handlers and the two contract-violation paths
+     are spelled out in §Phase C Implementer Handlers below. The
+     `RESULT_MISSING` path covers implementers that exited mid-flight
+     without emitting the contract block — typically due to
+     message-budget exhaustion or a tool-call crash; per
+     [`implementer-rules.md`](implementer-rules.md) §Return contract,
+     silent exit is forbidden, but the orchestrator must still be
+     able to recover when it happens.
    - On `SUCCESS`: the implementer has already pushed a `Review fix:`
      commit and run tests + Spotless + coverage gate. The orchestrator
      does **not** re-run tests or re-stage files; it proceeds to the
@@ -329,15 +357,27 @@ orchestrator never edits source files itself in Phase C.
      `safe`/`info`, continue to the next iteration. If the file does
      not exist or the command fails, this is **not an error** — treat
      as `safe` and continue.
-3. Max 3 iterations **total across sessions** — on resume, read the
+4. Max 3 iterations **total across sessions** — on resume, read the
    iteration count from the Progress section to determine how many remain.
    The iteration count is shared across all review dimensions (not
-   independent counters).
-4. If blockers persist after 3 iterations, or if any iteration ended
+   independent counters). Iterations short-circuited via the
+   pre-spawn budget split in step 2 each consume one counter — a
+   24-finding set split into a 12+12 sequence consumes 2 of 3
+   iterations on the in-scope findings alone, leaving only one
+   iteration for any gate-check carry-over from **either** chunk.
+   This is tight: if iteration 1's gate-check surfaces new fixable
+   findings and iteration 2 is already full at 12 carry-overs, the
+   single remaining iteration must absorb gate-check carry from
+   both prior iterations and may exhaust the budget. When the
+   pre-spawn finding-set is large enough that a 2-chunk split is
+   forced, expect blockers-persist exit at the end and surface the
+   residual findings at track completion rather than treating the
+   third iteration as a guaranteed cleanup slot.
+5. If blockers persist after 3 iterations, or if any iteration ended
    in a non-`SUCCESS` return that exited the loop, note the unfixed
    findings — they'll be presented to the user during track completion
    (below).
-5. When all reviews pass (or max iterations reached), mark
+6. When all reviews pass (or max iterations reached), mark
    `Track-level code review` as `[x]` in the step file's Progress section.
 
 ---
@@ -389,8 +429,10 @@ or body when it makes the log easier to follow.
 The implementer's structured return drives one of three
 orchestrator-side handlers (success / escalate / failure), plus a
 fourth `RISK_UPGRADE_REQUESTED` contract-violation path that aborts
-to the user rather than running a handler. None of the three
-handlers roll back prior `Review fix:` commits — see
+to the user rather than running a handler, plus a fifth
+`RESULT_MISSING` recovery path for the case where the implementer
+exited mid-flight without emitting the contract block at all. None
+of the five paths roll back prior `Review fix:` commits — see
 [`implementer-rules.md`](implementer-rules.md) §"Mode-specific scope
 of the local revert" `level=track` row for the rationale (prior
 iterations' fixes have already passed their gate check; a failed
@@ -452,9 +494,18 @@ produced this iteration. `result.FAILURE` carries
 (at `level=track` this is "impact on remaining findings"), and
 `recommended_action`.
 
-Verify `git status` is clean before continuing — a dirty tree at
-this point is a contract violation; surface the discrepancy to the
-user instead of proceeding.
+Verify `git status` is clean before continuing. A dirty tree at this
+point is a contract violation, but per
+[`implementer-rules.md`](implementer-rules.md) §Return contract this
+violation is **expected** when the implementer hit a budget-pressure
+exit and prioritised emitting `RESULT: FAILED` over completing the
+revert sequence. **Route a dirty tree at FAILED through the same
+recovery flow as `RESULT_MISSING`**: kill background tasks, inspect
+the tree, and present the user with commit-as-is / re-spawn /
+discard (see §`handle_result_missing` below for the full procedure).
+The implementer's `FILES_TOUCHED` and `FAILURE.why_it_failed` are
+authoritative inputs to the user's choice — do not discard them. If
+`git status` is clean, proceed with the steps below.
 
 1. **Record the failure** — update the step file's Progress section
    to mark the track-level code review entry with the failure (e.g.,
@@ -493,6 +544,134 @@ verbatim to the user, do not respawn automatically, and let the
 user decide whether to enter ESCALATE
 ([`inline-replanning.md`](inline-replanning.md)) or to proceed to
 track completion with the iteration's findings unfixed.
+
+### `handle_result_missing(result_text)` (contract violation, recovery required)
+
+The implementer's return text contains **no parsable `RESULT:` block**
+(or the block is truncated mid-field). This is a contract violation
+per [`implementer-rules.md`](implementer-rules.md) §Return contract —
+the implementer is required to emit a RESULT block before any exit,
+including context/budget exhaustion. The most common causes are:
+
+- the implementer ran out of message budget mid-iteration (the
+  Track-18 incident, 2026-05-07: ~213k cache_read peak from
+  foreground Maven runs dumping stack traces, implementer truncated
+  while applying the 22nd of 22 findings and never reached its own
+  return block);
+- a runtime crash or timeout in a tool call (Bash 600 s timeout
+  fired in foreground, Agent runtime dropped a wake-up
+  notification, MCP server became unresponsive mid-call);
+- the implementer left a runaway poll loop or background task alive
+  that the system terminated externally.
+
+The orchestrator cannot dispatch on missing data and the
+implementer's last actions are by definition uncommitted (a
+successful commit always emits `RESULT: SUCCESS`). Recovery is
+manual and requires user approval — do not auto-respawn.
+
+1. **Kill any background tasks the implementer may have left
+   alive.** Run
+
+   ```bash
+   ps -o pid,ppid,cmd -e \
+     | grep -E 'mvnw|surefire|java.*test|pgrep -f' \
+     | grep -v ' grep '
+   ```
+
+   and terminate orphaned PIDs with `kill -TERM <pid>`. Wait a few
+   seconds for graceful cleanup (releasing file locks, flushing logs),
+   then escalate to `kill -KILL <pid>` only if they survive. Two patterns are
+   particularly common after a `RESULT_MISSING` exit:
+   - a defunct `[java]` zombie from an interrupted Maven fork
+     (still listed but consuming no CPU; reaped by killing its
+     parent);
+   - a runaway `pgrep -f "surefire"` poll loop whose own shell
+     command line matches the search pattern, so the loop never
+     exits — see [`implementer-rules.md`](implementer-rules.md)
+     §Pacing long-running tasks → forbidden self-referential
+     pgrep. Untouched, this loop runs forever and consumes a CPU.
+
+2. **Inspect the tree.** Run `git status --short` and
+   `git diff --stat`. Three states are possible:
+
+   - **Clean tree** — implementer reverted before exiting (or
+     never began applying fixes). Skip to step 3 with the **discard**
+     option pre-selected; the iteration is effectively a no-op.
+   - **Dirty tree, edits look correct on inspection** — the
+     implementer applied fixes but never committed (the most
+     common Track-18 shape). The **commit-as-is** option is
+     viable if the orchestrator can verify the edits independently.
+   - **Dirty tree, edits look incomplete or wrong** — the
+     implementer was mid-edit when its budget ran out. Recovery
+     is most likely **re-spawn from a clean state**.
+
+3. **Present the situation to the user with three options.**
+   Include the inspection output (a `git status --short` excerpt
+   and the implementer's last visible message, truncated to a few
+   hundred characters) so the user can choose informedly.
+
+   - **Re-spawn finalizer.** Clean the tree on the implementer's
+     behalf (run the snapshot-and-diff revert sequence per
+     [`implementer-rules.md`](implementer-rules.md) §Detection
+     rules — the implementer never reached its own revert path,
+     so the orchestrator owns the cleanup this once), then
+     re-spawn a fresh implementer with the original findings. **If
+     the original findings list was large** (≥ ~15 items or ≥ ~10
+     files, the same heuristic as §Review loop step 2's pre-spawn
+     budget check), halve the in-scope subset on the respawn so
+     the new spawn doesn't repeat the budget exhaustion. The
+     halved-off findings re-surface in the next iteration's
+     gate-check fan-out.
+   - **Commit-as-is.** Only when the dirty tree's edits look
+     complete and correct on inspection, and when the orchestrator
+     is in a position to verify them itself. The orchestrator
+     stages explicit paths (no `git add -A`), runs Spotless +
+     targeted tests of the touched test classes (per
+     [`implementer-rules.md`](implementer-rules.md) §Pacing
+     long-running tasks → "Prefer targeted `-Dtest=…` re-runs")
+     + the coverage gate, commits as `Review fix: <subject>` per
+     [`commit-conventions.md`](commit-conventions.md), and
+     proceeds to the gate-check fan-out as if the iteration had
+     returned `SUCCESS`. **Apply the test-additive carve-out** from
+     [`implementer-rules.md`](implementer-rules.md) §Pacing
+     long-running tasks → "Test-additive spawns skip the
+     coverage-profile build entirely": when
+     `git diff origin/develop -- '**/src/main/**'` is empty for the
+     cumulative branch diff, record the gate as `n/a (test-additive)`
+     and skip the coverage profile build — running it on a test-only
+     iteration is wasted budget. **If we reached this handler via
+     the dirty-tree-at-FAILED redirect from `handle_iteration_failure`
+     above** (i.e., `result.RESULT == FAILED` with a populated
+     `result.FAILURE` block, not a true `RESULT_MISSING` where no
+     RESULT block was parsed), fold the implementer's
+     `FAILURE.what_was_attempted` / `FAILURE.why_it_failed` /
+     `FAILURE.recommended_action` fields into the `Review fix:`
+     commit message body verbatim so the git history preserves the
+     budget-pressure context — the implementer's own pre-exit
+     diagnosis is the most authoritative record of what happened
+     and must not be discarded just because the iteration was
+     finalised by the orchestrator. For a true `RESULT_MISSING`
+     entry the FAILURE block doesn't exist; record what was visible
+     (the implementer's last visible message excerpt from step 3)
+     in the commit message body instead. **This is the only Phase C case
+     where the orchestrator commits source-file changes directly** —
+     note the deviation in the eventual track episode so the audit
+     trail is preserved.
+   - **Discard.** Run the snapshot-and-diff revert on the
+     implementer's behalf and treat the iteration as `FAILED`
+     with `recommended_action: escalate`. The remaining findings
+     are surfaced at track completion via the existing "blockers
+     persist after N iterations" branch.
+
+4. **Iteration counter accounting.** A `RESULT_MISSING` recovery
+   consumes one iteration counter regardless of which option the
+   user picks — the implementer was spawned, ran, and produced a
+   commit's worth of state on disk; that has the same impact on
+   the budget as a `FAILED` return. Update the Progress section
+   with the new counter and a note (e.g.,
+   `- [ ] Track-level code review (1/3 iterations, iteration 1
+   recovered from RESULT_MISSING via commit-as-is)`) and commit it
+   as a Workflow update commit before the next action.
 
 ---
 
