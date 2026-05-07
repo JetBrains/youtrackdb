@@ -100,7 +100,7 @@ fi
 # primary status line if the helper errors out.
 if [ -n "$transcript_path" ]; then
   script_dir=$(dirname "$0")
-  stats_line=$(python3 "${script_dir}/session-stats.py" "$transcript_path" 2>/dev/null || true)
+  stats_line=$(python3 "${script_dir}/session-stats.py" "$transcript_path" 2>/dev/null)
   if [ -n "$stats_line" ]; then
     printf "\n%s" "$stats_line"
   fi

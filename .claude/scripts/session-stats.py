@@ -4,7 +4,7 @@ Code statusline.
 
 Output (single line, second line of the statusline):
 
-  $0.123 (mo:$4.56)  in:1.2K out:8K read:230K w5m:40K w1h:0  r/5m:5.7x r/1h:-
+  $0.123 (mo:$4.56)  in:1.2K out:8.0K read:230K w5m:40K w1h:0  r/5m:5.7x r/1h:-
 
 The current session aggregates the orchestrator transcript plus every
 sub-agent transcript under <transcript-stem>/subagents/. The monthly figure
@@ -22,10 +22,11 @@ Two non-obvious mechanics, both required to match ccusage:
      forked sessions share message IDs). Without dedup the cost is inflated
      several-fold.
 
-Per-file totals are cached under /tmp/claude-code-stats-cache/<sha1>.json
+Per-file totals are cached under ~/.cache/claude-code-stats/transcripts/<sha1>.json
 keyed by (mtime, size). Each cache entry stores a {record_id: bucket_data}
-map so dedup happens implicitly on cross-file merge: later inserts of the
-same key overwrite with identical data.
+map; cross-file merge uses first-occurrence-wins (`setdefault`). The mtime/size
+cache key guarantees colliding entries already hold identical content, so
+the choice between first- and last-wins is immaterial for correctness.
 """
 from __future__ import annotations
 
@@ -45,8 +46,7 @@ import urllib.request
 # pricing so cold-start estimates aren't wildly off.
 #
 # 1 h cache write = 2.0× input price (Anthropic published ratio); LiteLLM
-# only publishes the 5 m write rate, so 1 h is derived as 2.0× input
-# (equivalently 1.6× of write_5m).
+# only publishes the 5 m write rate, so 1 h is derived as 2.0× input.
 FALLBACK_PRICES = {
     "claude-opus-4-7":           {"in":  5.0, "out": 25.0, "read": 0.50, "write_5m": 6.25, "write_1h": 10.0},
     "claude-opus-4-6":           {"in":  5.0, "out": 25.0, "read": 0.50, "write_5m": 6.25, "write_1h": 10.0},
@@ -66,7 +66,14 @@ PRICING_TTL_SECONDS = 24 * 3600
 PRICING_RETRY_AFTER_FAILURE = 300  # don't pound the network if offline
 PRICING_FETCH_TIMEOUT = 2.0
 
-CACHE_DIR = pathlib.Path("/tmp/claude-code-stats-cache")
+# Per-user cache (not /tmp): avoids any cross-user races on a shared host
+# and sidesteps the symlink-following / torn-write hazards of a shared
+# CACHE_DIR. The /tmp cost is repaid by writing predictable JSON keyed by
+# transcript-path SHA1, which would let any local user pre-create entries
+# (or symlinks) for another user's session.
+CACHE_DIR = pathlib.Path.home() / ".cache" / "claude-code-stats" / "transcripts"
+# Bump on layout / dedup changes; older cache files are silently re-read
+# from scratch and the stale entries are unlinked lazily by _load_cache.
 CACHE_VERSION = 6
 PROJECTS_ROOT = pathlib.Path.home() / ".claude" / "projects"
 
@@ -136,19 +143,54 @@ def _fetch_litellm_prices():
             LITELLM_URL, headers={"User-Agent": "claude-code-stats/1.0"}
         )
         with urllib.request.urlopen(req, timeout=PRICING_FETCH_TIMEOUT) as resp:
-            data = json.loads(resp.read())
+            # Cap defensively. The live LiteLLM JSON is ~150 KB; a multi-MB
+            # response from a compromised upstream or a transient HTML error
+            # page would otherwise inflate the helper's RSS for every render
+            # until the cache is refreshed.
+            data = json.loads(resp.read(2 * 1024 * 1024))
     except Exception:  # noqa: BLE001 — network/parse errors → fall through
         return None
     parsed = _parse_litellm(data)
     return parsed or None
 
 
+def _atomic_write_json(target, payload):
+    """Write `payload` as JSON to `target` atomically.
+
+    Two non-obvious requirements:
+
+      1. **Per-process temp filename.** A shared `<target>.tmp` would let two
+         concurrent statusline renders open the same inode with O_TRUNC and
+         interleave bytes — the resulting cache file is torn JSON which the
+         next read silently treats as a cache miss. Recovery is automatic
+         but defeats the incremental-aggregation optimisation.
+
+      2. **O_NOFOLLOW + 0600.** Even though the cache directory is per-user
+         under ~/.cache, defence in depth: if someone ever creates a symlink
+         at `<target>.<pid>.tmp` pointing at a sensitive file, the open
+         refuses to follow it.
+
+    Caller is responsible for ensuring `target.parent` exists.
+    """
+    tmp = target.parent / f"{target.name}.{os.getpid()}.tmp"
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW
+    fd = os.open(tmp, flags, 0o600)
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(payload, f)
+    except Exception:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
+    os.replace(tmp, target)
+
+
 def _save_pricing_cache(parsed):
     try:
         PRICING_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        tmp = PRICING_CACHE_FILE.with_suffix(".tmp")
-        tmp.write_text(json.dumps(parsed))
-        os.replace(tmp, PRICING_CACHE_FILE)
+        _atomic_write_json(PRICING_CACHE_FILE, parsed)
     except OSError:
         pass
 
@@ -194,11 +236,19 @@ def _load_pricing():
 _LIVE_PRICES = _load_pricing()
 
 
+_UNKNOWN_PRICE = {"in": 0.0, "out": 0.0, "read": 0.0, "write_5m": 0.0, "write_1h": 0.0}
+
+
 def _model_pricing(m):
     """Per-1M price dict for a model id. Tries live LiteLLM data, then the
-    hardcoded fallback, with longest-prefix matching for dated SKUs."""
+    hardcoded fallback, with longest-prefix matching for dated SKUs.
+
+    Returns a zero-cost price for unknown / missing model ids rather than
+    silently charging the most-expensive default — a future model SKU we
+    haven't catalogued yet would otherwise be priced as Opus on every
+    record. Tokens still accumulate; only the cost contribution is zero."""
     if not m:
-        m = DEFAULT_MODEL
+        return _UNKNOWN_PRICE
     if m in _LIVE_PRICES:
         return _LIVE_PRICES[m]
     if m in FALLBACK_PRICES:
@@ -210,7 +260,7 @@ def _model_pricing(m):
     for k in sorted(FALLBACK_PRICES.keys(), key=len, reverse=True):
         if m.startswith(k):
             return FALLBACK_PRICES[k]
-    return FALLBACK_PRICES[DEFAULT_MODEL]
+    return _UNKNOWN_PRICE
 
 
 def _record_from_line(raw):
@@ -262,6 +312,12 @@ def _load_cache(cache_file):
     except (OSError, ValueError):
         return None
     if data.get("v") != CACHE_VERSION:
+        # Unlink stale entries lazily as we encounter them so a CACHE_VERSION
+        # bump doesn't accumulate orphans forever in the per-user cache dir.
+        try:
+            cache_file.unlink()
+        except OSError:
+            pass
         return None
     return data
 
@@ -269,18 +325,18 @@ def _load_cache(cache_file):
 def _store_cache(cache_file, payload):
     try:
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        # Atomic write — concurrent statuslines from other Claude processes
-        # may update the same key, but both compute identical content for the
-        # same (mtime, size).
-        tmp = cache_file.with_suffix(".tmp")
-        tmp.write_text(json.dumps(payload))
-        os.replace(tmp, cache_file)
+        _atomic_write_json(cache_file, payload)
     except OSError:
         pass
 
 
 def aggregate_file(path):
-    """Return {record_id: [month, in, out, read, w5, w1, cost]} for one file."""
+    """Return {record_id: [month, model, in, out, read, w5, w1]} for one file.
+
+    Cost is recomputed at sum time by `_sum_records` against the current
+    price table, so a price refresh takes effect on the next render without
+    requiring per-file cache invalidation.
+    """
     try:
         st = path.stat()
     except OSError:
@@ -292,7 +348,7 @@ def aggregate_file(path):
         return cached.get("rs") or {}
 
     prev_offset = cached.get("offset", 0) or 0
-    records = dict(cached.get("rs") or {})
+    records = cached.get("rs") or {}
     if st.st_size < prev_offset:
         # File shrank (rotation/truncation) — re-read from start.
         prev_offset = 0
@@ -302,17 +358,24 @@ def aggregate_file(path):
         with path.open("rb") as f:
             f.seek(prev_offset)
             chunk = f.read()
+        # Re-stat after the read so the persisted (mtime, size) reflects
+        # bytes we actually consumed. The file may have grown between the
+        # initial stat and the read, in which case the pre-read snapshot
+        # would record `size < offset` and a future call could land on a
+        # spurious truncation reset (see the `st.st_size < prev_offset`
+        # branch above).
+        st_after = path.stat()
     except OSError:
         return records
 
     last_nl = chunk.rfind(b"\n")
     if last_nl < 0:
-        # Nothing complete to consume; persist the unchanged stat so future
+        # Nothing complete to consume; persist the post-read stat so future
         # calls skip the read until the file actually changes.
         _store_cache(cache_file, {
             "v": CACHE_VERSION,
-            "mtime": st.st_mtime,
-            "size": st.st_size,
+            "mtime": st_after.st_mtime,
+            "size": st_after.st_size,
             "offset": prev_offset,
             "rs": records,
         })
@@ -334,8 +397,8 @@ def aggregate_file(path):
 
     _store_cache(cache_file, {
         "v": CACHE_VERSION,
-        "mtime": st.st_mtime,
-        "size": st.st_size,
+        "mtime": st_after.st_mtime,
+        "size": st_after.st_size,
         "offset": prev_offset + consumed_bytes,
         "rs": records,
     })
@@ -391,12 +454,20 @@ def session_totals(transcript_path):
 
 
 def month_totals():
-    """Sum every record across all projects whose timestamp is this month."""
+    """Sum every record across all projects whose UTC timestamp is this month.
+
+    Both the bucket key (`ts[:7]` of the JSONL `timestamp` field, which
+    Claude Code emits as a `Z`-suffixed UTC ISO-8601 string) and `cur_month`
+    must be in the same timezone, otherwise records near the month boundary
+    fall on the wrong side. We standardise on UTC.
+    """
     if not PROJECTS_ROOT.is_dir():
         return _zero()
-    now = _dt.datetime.now()
+    now = _dt.datetime.now(_dt.timezone.utc)
     cur_month = f"{now.year:04d}-{now.month:02d}"
-    month_start_ts = _dt.datetime(now.year, now.month, 1).timestamp()
+    month_start_ts = _dt.datetime(
+        now.year, now.month, 1, tzinfo=_dt.timezone.utc
+    ).timestamp()
     merged = {}
     for proj in PROJECTS_ROOT.iterdir():
         if not proj.is_dir():
