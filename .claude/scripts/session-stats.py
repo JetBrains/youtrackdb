@@ -148,7 +148,10 @@ def _fetch_litellm_prices():
             # page would otherwise inflate the helper's RSS for every render
             # until the cache is refreshed.
             data = json.loads(resp.read(2 * 1024 * 1024))
-    except Exception:  # noqa: BLE001 — network/parse errors → fall through
+    except (OSError, ValueError, TimeoutError):
+        # OSError covers urllib.error.URLError + ssl.SSLError + socket-level
+        # failures; ValueError covers json.JSONDecodeError; TimeoutError covers
+        # the urlopen timeout. All non-fatal — fall through to cache/fallback.
         return None
     parsed = _parse_litellm(data)
     return parsed or None
@@ -289,15 +292,18 @@ def _record_from_line(raw):
     ts = obj.get("timestamp") or ""
     month = ts[:7] if len(ts) >= 7 else ""
     model = msg.get("model") or DEFAULT_MODEL
-    in_t = usage.get("input_tokens", 0) or 0
-    out_t = usage.get("output_tokens", 0) or 0
-    read_t = usage.get("cache_read_input_tokens", 0) or 0
+    # `… or 0` (without the explicit default) handles both missing keys and
+    # explicit nulls in one expression — the API emits `null` for some
+    # token fields rather than omitting them.
+    in_t = usage.get("input_tokens") or 0
+    out_t = usage.get("output_tokens") or 0
+    read_t = usage.get("cache_read_input_tokens") or 0
     cc = usage.get("cache_creation") or {}
-    w5 = cc.get("ephemeral_5m_input_tokens", 0) or 0
-    w1 = cc.get("ephemeral_1h_input_tokens", 0) or 0
+    w5 = cc.get("ephemeral_5m_input_tokens") or 0
+    w1 = cc.get("ephemeral_1h_input_tokens") or 0
     if not (w5 or w1):
         # Older turns only emit the top-level total; treat as 5 m.
-        w5 = usage.get("cache_creation_input_tokens", 0) or 0
+        w5 = usage.get("cache_creation_input_tokens") or 0
     return f"{msg_id}:{req_id}", [month, model, in_t, out_t, read_t, w5, w1]
 
 
@@ -406,15 +412,11 @@ def aggregate_file(path):
 
 
 def _sum_records(records):
-    """Sum an iterable of [month, model, in, out, read, w5, w1] applying current prices."""
+    """Sum a {record_id: [month, model, in, out, read, w5, w1]} dict applying current prices."""
     out = _zero()
-    if isinstance(records, dict):
-        seq = records.values()
-    else:
-        seq = records
     # Pricing-dict cache, since one model dominates a typical aggregation pass.
     price_cache = {}
-    for v in seq:
+    for v in records.values():
         # v = [month, model, in, out, read, w5, w1]
         model = v[1]
         in_t, out_t, read_t, w5, w1 = v[2], v[3], v[4], v[5], v[6]
@@ -483,7 +485,7 @@ def month_totals():
             for k, v in aggregate_file(jsonl).items():
                 if v[0] == cur_month:
                     merged.setdefault(k, v)
-    return _sum_records(merged.values())
+    return _sum_records(merged)
 
 
 def fmt_tokens(n):
