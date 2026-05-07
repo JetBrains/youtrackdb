@@ -149,7 +149,7 @@ flowchart TD
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (5/6 complete)
+- [x] Step implementation
 - [ ] Track-level code review
 
 ## Base commit
@@ -852,34 +852,101 @@ visible TODO comment for Track 4.
   > `setLoadIfPresentReturnsNull`), `WOWCacheLoadIfPresentTest.java`
   > (new — five smoke tests).
 
-- [ ] Step: Deprecate legacy methods, add primitive javadoc, add smoke / gap-fill unit tests
+- [x] Step: Deprecate legacy methods, add primitive javadoc, add smoke / gap-fill unit tests
+  - [x] Context: safe
   > **Risk:** low — pure annotations + Javadoc + targeted tests. No
   > production behavioural change beyond the `@Deprecated` flag (which
   > is a compile-time signal, not a runtime change).
   >
-  > **What:** Mark `WriteCache.allocateNewPage`, `WriteCache.load`,
-  > `ReadCache.allocateNewPage`, `LockFreeReadCache.allocateNewPage`,
-  > `WOWCache.allocateNewPage`, `DirectMemoryOnlyDiskCache.allocateNewPage`
-  > as `@Deprecated` with a Javadoc note pointing at `loadOrAdd` /
-  > `loadIfPresent` (final deletion in Track 4). Expand
-  > `WriteCache.loadOrAdd`'s javadoc per review note 9: caller-must-
-  > hold-segment-write-lock-for-disk-engine-installs, totality contract
-  > (with the IllegalArgumentException-on-deleted-file caveat),
+  > **What was done:** Marked six legacy methods as `@Deprecated`
+  > with Javadoc pointing callers at the new primitives:
+  > `WriteCache.allocateNewPage` (→ `loadOrAdd`), `WriteCache.load`
+  > (→ `loadIfPresent` / `loadOrAdd`), `ReadCache.allocateNewPage`,
+  > `LockFreeReadCache.allocateNewPage`, `WOWCache.allocateNewPage`,
+  > and `DirectMemoryOnlyDiskCache.allocateNewPage` — each citing the
+  > write-side API collapse as the deletion milestone (deletion
+  > deferred until replay-loop callers migrate). Expanded
+  > `WriteCache.loadOrAdd`'s Javadoc with the full per-branch
+  > contract (load / extend / gap-fill), caller precondition
+  > (segment write lock for the disk engine), totality contract
+  > (with the `IllegalArgumentException`-on-deleted-file caveat),
   > runtime invariant (callers know target pageIndex from
-  > `entryPoint.pagesSize + 1`), gap-fill is recovery-only, per-branch
-  > `lockManager` policy, FIFO+monotonic submission expectation, link
-  > to `design.md` §"Crash safety" scenarios. Add 2 smoke unit tests
-  > that exercise `WOWCache.loadOrAdd`'s three branches against a real
-  > `WOWCache` against a tmp-dir storage: (i) load branch with the
-  > totality fallback (logical pages > physical pages), (ii) gap-fill
-  > branch with `pageIndex >> currentSize` reachable only via
-  > synthetic caller (since real recovery doesn't reach gap-fill until
-  > Track 4 — review notes A6, R7). Comprehensive cache-coverage
-  > tests, MT stress, eviction/flush races, non-durable extension all
-  > land in Track 2.
+  > `entryPoint.pagesSize + 1`; gap-fill is recovery-only),
+  > FIFO + monotonic `EnsurePageIsValidInFileTask` submission
+  > expectation, and a reference to `design.md` §"Crash safety".
+  > Added two smoke tests to `WOWCacheLoadOrAddTest`: a WAL-replay
+  > recovery simulation (gap-fill `pageIndex=10` from
+  > `currentSize=2`, representing replay targeting a lagging
+  > `AsyncFile.size`) and a crash-safety scenario B test (load
+  > branch fires correctly after on-disk magic stamp; file size
+  > stays at one page — no double-extend). All ten
+  > `WOWCacheLoadOrAddTest` cases pass; full `core` suite green
+  > (9497 / 9497 passed); coverage gate 90.7% line / 82.6% branch
+  > on changed code (above 85% / 70% thresholds); spotless clean.
+  > Commit: `bf9c39f8a34ad582ebc89b3346065f05206644a9`.
   >
-  > **Files:** `WriteCache.java`, `ReadCache.java`,
-  > `LockFreeReadCache.java`, `WOWCache.java`,
-  > `DirectMemoryOnlyDiskCache.java`, plus a new test file under
-  > `core/src/test/java/.../storage/cache/local/` for the 2 smoke
-  > tests.
+  > **What was discovered:**
+  > 1. **Ephemeral-identifier self-check caught seven workflow-label
+  >    references** (`Track 4`) drafted into the new Javadoc; all
+  >    replaced with prose ("write-side API collapse") before commit
+  >    so the deprecation notes survive the squash-merge as durable
+  >    documentation rather than referencing a workflow-internal
+  >    label.
+  > 2. **The totality-fallback smoke test (i) from the step spec is
+  >    not directly reachable** — exercising the `load` branch with
+  >    `loadFileContent` returning null requires a reflection seam or
+  >    subclass override since the in-memory `AsyncFile.size` is the
+  >    same value `loadFileContent` reads. This matches the prior
+  >    step's discovery (note 1 in Step 2's episode) that the
+  >    "totality fallback" branch is structurally unreachable in
+  >    normal operation. The step delivered the gap-fill smoke test
+  >    plus a crash-safety load-after-stamp test instead, capturing
+  >    what is actually reachable; the full reflection-seam test is
+  >    deferred to the cache-coverage track per its scope.
+  > 3. **`crashSafetyScenarioBLoadAfterOnDiskStamp` confirms
+  >    design.md §"Crash safety" scenario B in code:** a second
+  >    `loadOrAdd` on an already-flushed page correctly takes the
+  >    load branch, file size stays at one page, no double-extend.
+  > 4. **Cross-track impact (Continue):** the upcoming write-side
+  >    API collapse can now delete all six `@Deprecated` methods in
+  >    one sweep — each Javadoc already names the collapse as the
+  >    deletion milestone, so a follow-up reader has a clear
+  >    pointer. The cache-coverage track gains the
+  >    totality-fallback seam item (load branch with
+  >    `loadFileContent` returning null) as an explicit residual
+  >    that requires a reflection hook or subclass override to
+  >    exercise. No upstream-track assumption is weakened.
+  >
+  > **What changed from the plan:** The two new smoke tests were
+  > added to the existing `WOWCacheLoadOrAddTest` rather than a new
+  > test file. The step spec said "new test file" but
+  > `WOWCacheLoadOrAddTest` was created in Step 2 alongside the
+  > three-branch implementation, making it the natural home for
+  > additional `loadOrAdd` smoke tests. No upcoming step assumptions
+  > are affected. Separately, the implementation commit's subject
+  > line accidentally used the workflow-update prefix (`Record
+  > episode for ...`) rather than an imperative description of the
+  > code change; a non-blocking branch-hygiene observation, since
+  > the squash-merge collapses individual commit messages and the
+  > diff content is correct.
+  >
+  > **Critical context:** Track 1 closes here. The cache primitive
+  > rewrite is functionally complete: `loadOrAdd` is the sole
+  > extending primitive (Step 1 + Step 2 + Step 3); `loadForRead` /
+  > `loadOrAddForWrite` route through it (Step 4); `silentLoadForRead`
+  > routes through the new non-extending `loadIfPresent` (Step 5);
+  > legacy methods are deprecated with deletion deferred to the
+  > write-side API collapse (this step). The track-level code
+  > review (Phase C) reviews the cumulative diff
+  > `7319340d..HEAD` against all six baseline + conditional
+  > dimensional reviewers, with Steps 2, 3, and 4 (risk: high) plus
+  > Step 5 (risk: medium) as the focal points.
+  >
+  > **Key files:** `WriteCache.java` (modified — `@Deprecated` on
+  > `load` / `allocateNewPage` + expanded `loadOrAdd` Javadoc),
+  > `ReadCache.java`, `LockFreeReadCache.java`, `WOWCache.java`,
+  > `DirectMemoryOnlyDiskCache.java` (modified — `@Deprecated` on
+  > legacy `allocateNewPage` overrides),
+  > `WOWCacheLoadOrAddTest.java` (modified — two new smoke tests:
+  > WAL-replay gap-fill recovery, crash-safety scenario B
+  > load-after-on-disk-stamp).
