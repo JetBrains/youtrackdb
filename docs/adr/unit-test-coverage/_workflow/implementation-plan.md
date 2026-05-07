@@ -1593,18 +1593,124 @@ flowchart TD
   > 6 latent production issues incl. C6 `TokenSignImpl.readKeyFromConfig`)
   > are already absorbed into Track 22's queue via commit `6df674f6cf`.
 
-- [ ] Track 18: Index
+- [x] Track 18: Index
   > Write tests for the index management layer — index engines, index
   > iterators, and index operations.
   >
-  > **Scope:** ~5 steps covering index lifecycle, index queries,
-  > index iterators, edge cases, and verification.
-  > **Depends on:** Track 1
+  > **Track episode:**
+  > Added ~1,400 LOC of test code across 18 new test classes and 4
+  > extended ones (~390 new tests) covering the six in-scope index
+  > packages (`core/index`, `core/index/iterator`, `core/index/comparator`,
+  > `core/index/multivalue`, `core/index/engine`, `core/index/engine/v1`).
+  > Purely test-additive: zero production source modified across 18
+  > Track-18 commits (1 Phase A decomposition + 1 base-commit record
+  > + 5 step impl + 5 step-episode workflow updates + 2 Phase C
+  > review-fix commits + 4 Phase C workflow-update commits). Full
+  > core suite (1 876 tests) green throughout.
   >
-  > **Operational note:** Backlog section partially recovered —
-  > only the header survived; body in a gap. Reconstruct at Phase A
-  > from the Scope indicator above + the design's Component Map
-  > cluster mapping for `core/index*`. See **Operational Notes**.
+  > **Coverage outcome** (per `track-18-baseline.md` measured at end
+  > of Phase B Step 5; iter-1 / iter-2 added tests on top, so the
+  > end-of-track numbers are slightly above this snapshot):
+  > Aggregate `core` module **78.2% line / 68.5% branch** (+0.5 pp /
+  > +0.4 pp vs post-Track-17). Cumulative gain since Phase 1
+  > (63.6% / 53.3%): **+14.6 pp line / +15.2 pp branch.** Per-package
+  > gates: 5 of 6 PASS (`core/index/iterator` 86.0% / 89.5%;
+  > `comparator` 100% / 100%; `multivalue` 100% / 100%; `engine`
+  > 90.9% / 85.1%; `engine/v1` 87.1% / 85.4%); `core/index` MISSES
+  > at **80.3% / 69.4%** (short by ~4.7 pp line, ~0.6 pp branch).
+  > Largest contributors: `IndexAbstract` (~93 uncov — engine-init /
+  > rebuild paths needing a fully-booted DB), `ClassIndexManager`
+  > (~90 uncov — `addIndexesEntries` SQL path), `CompositeIndexDefinition$CompositeWrapperMap`
+  > (~51 uncov — inner map-view), `RecreateIndexesTask` (~45 uncov —
+  > catch-branch only partially exercised by the proxy stub).
+  >
+  > **Phase C track-level code review (2 iterations, gate PASS at
+  > iter-2):**
+  > - **Iter-1** (5 dimensions: code-quality, bugs/concurrency,
+  >   test-behavior, test-completeness, test-structure): 28 distinct
+  >   findings synthesised → 22 in-scope + 8 deferred to Track 22.
+  >   Iter-1 fixes landed in `d914bfd067` (14 test files, 379 inserts
+  >   / 145 deletes; 56 index-package classes, 1 304 tests, 0
+  >   failures). Phase C implementer hit a contract violation
+  >   mid-iteration (silent exit, no `RESULT` block, leftover stuck
+  >   Maven test + self-referential `pgrep -f surefire` poll loop) —
+  >   root cause + workflow-fix proposal documented in
+  >   `WORKFLOW_ISSUE_implementer_silent_exit.md`. Orchestrator
+  >   recovered via finalizer + direct commit. The rulebook fix later
+  >   landed on `develop` as PR #1043 (commit `c49a897a53`, picked up
+  >   on the next Phase A rebase) and the recovery path is now part
+  >   of the codified protocol.
+  > - **Iter-2 gate-check** (3 dimensions re-run on commit
+  >   `84e117de31`): all three returned **PASS**. The 7 in-scope
+  >   iter-1 gate-check findings — TC13 / TB17 / CQ14 (joint), TB18,
+  >   TB19, TC14, TC15, CQ12, CQ13 — were genuinely fixed in a
+  >   single Opus spawn (55/55 targeted tests passed; spotless clean).
+  >   7 new suggestion-tier findings (CQ15-17 / TC16-19) absorbed
+  >   into Track 22's deferred-cleanup queue; iteration 3 was **not**
+  >   consumed.
+  >
+  > **Key technical discoveries:**
+  > - **TC13's load-bearing observable for catch-continue is
+  >   `rebuildCompleted == true`**, not the per-stub
+  >   `AtomicBoolean configRequested` flags. Both flags fire during
+  >   the snapshot phase
+  >   (`IndexManagerEmbedded.getIndexesConfiguration` calls each
+  >   Index's `getConfiguration()` BEFORE the recreation loop runs);
+  >   they prove snapshot-phase visitation, not loop-body
+  >   catch-absorption. The strengthened test in
+  >   `RecreateIndexesTaskTest` correctly anchors on
+  >   `rebuildCompleted`, and the rewritten Javadoc honestly narrows
+  >   the AtomicBoolean claim. PSI-confirmed via
+  >   `ReferencesSearch` on `Index.getConfiguration` (2 production
+  >   callers — only the snapshot-phase one is on the recreation
+  >   path).
+  > - **Cleared-TX branch is duplicated 5+ times per index class.**
+  >   The iter-1 prescription enumerated only `streamEntriesBetween`;
+  >   iter-2 covered `streamEntries(keys, asc)` /
+  >   `streamEntriesMajor` / `streamEntriesMinor` for both
+  >   `IndexOneValue` and `IndexMultiValues`, plus `descStream` for
+  >   `IndexMultiValues`. Four whole-index variants remain uncovered
+  >   (`IndexOneValue.stream`, `IndexOneValue.descStream`,
+  >   `IndexMultiValues.stream`, `IndexOneValue.getRids`
+  >   inverse-cleared) — surfaced as TC16-19 and forwarded to Track
+  >   22.
+  > - **`IndexRebuildOutputListener.onBegin` has no public
+  >   observable.** It writes only to private fields (`startTime`,
+  >   `lastDump`, `rebuild`); the only meaningful contract without
+  >   reflection is "did not throw". Iter-2 documented this scope
+  >   explicitly to prevent a future reviewer from re-introducing
+  >   the tautological `assertTrue(onProgress(...))` follow-up.
+  >
+  > **Cross-track impact** (committed to `implementation-backlog.md`
+  > Track 22 absorption queue in `7d995d45a2`):
+  > - **Dead-code lockstep groups** (carried from Phase A):
+  >   `{IndexCursor, IndexAbstractCursor, IndexCursorStream}` (one
+  >   lockstep, 3 classes) plus `{IndexKeyCursor}` (separate).
+  >   `*DeadCodeTest` shape pins are in place per Track-17
+  >   precedent.
+  > - **Phase C iter-2 absorption** (new): TC16 / TC17 / TC18 / TC19
+  >   cleared-TX coverage gaps + CQ15 (descStream symmetry) + CQ16
+  >   (cleared-TX setup helper extraction) + CQ17 (`assertFalse`
+  >   idiom). All 7 are pure test-additive, picked up
+  >   opportunistically when Track 22 visits the index test files.
+  >
+  > **Cross-track hints to Track 21** (storage / sbtree):
+  > - `BTreeSingleValueIndexEngine` and `BTreeMultiValueIndexEngine`
+  >   `doClearTree` "removed 0 entries" error paths remain uncovered
+  >   — require actual B-tree data with page-cursor invalidation.
+  >   Track 21 covers them transitively.
+  > - `DefaultIndexFactory.createIndexEngine("remote", ...)` returns
+  >   `RemoteIndexEngine` — not exercisable from memory/disk test
+  >   sessions. Track 21 may want to cover that branch explicitly.
+  > - The BTree version-guard constructor branches are now
+  >   shape-pinned in `BTreeEngineConstructorValidationTest`; Track
+  >   21 does not need to re-test them.
+  >
+  > No upcoming-track assumption is invalidated. The `core/index`
+  > gate miss is documented as known scope per Step 5's baseline;
+  > Track 22 absorption may close it via TC16-19 if budget permits.
+  >
+  > **Step file:** `tracks/track-18.md` (5 steps, 0 failed)
 
 - [ ] Track 19: Storage Fundamentals
   > Write tests for storage subsystem components that are more testable
