@@ -32,28 +32,31 @@ build_bar() {
   printf "%s" "$bar"
 }
 
-# Determine threshold level and ANSI colour for the progress bar.
-# Colour scheme: green for safe, dim-green for info, yellow for warning, red for critical.
+# Determine threshold level. Also used for the on-disk usage file below.
 if [ -n "$used_pct" ]; then
   pct_int=$(printf "%.0f" "$used_pct")
   if [ "$pct_int" -ge 40 ]; then
     level="critical"
-    ctx_color=$'\033[31m'    # red
   elif [ "$pct_int" -ge 30 ]; then
     level="warning"
-    ctx_color=$'\033[33m'    # yellow
   elif [ "$pct_int" -ge 20 ]; then
     level="info"
-    ctx_color=$'\033[2;32m'  # dim green
   else
     level="safe"
-    ctx_color=$'\033[32m'    # green
   fi
-  ctx_reset=$'\033[0m'
-  # Honour NO_COLOR for non-TTY consumers (log capture, snapshot tests).
-  if [ -n "$NO_COLOR" ]; then
-    ctx_color=""
-    ctx_reset=""
+
+  # Map level → ANSI colour for the progress bar, honouring NO_COLOR
+  # (non-TTY consumers like log capture and snapshot tests).
+  ctx_color=""
+  ctx_reset=""
+  if [ -z "$NO_COLOR" ]; then
+    case "$level" in
+      critical) ctx_color=$'\033[31m' ;;   # red
+      warning)  ctx_color=$'\033[33m' ;;   # yellow
+      info)     ctx_color=$'\033[2;32m' ;; # dim green
+      safe)     ctx_color=$'\033[32m' ;;   # green
+    esac
+    ctx_reset=$'\033[0m'
   fi
   bar=$(build_bar "$pct_int")
   ctx_str="${ctx_color}[${bar}] ${pct_int}%${ctx_reset}"
