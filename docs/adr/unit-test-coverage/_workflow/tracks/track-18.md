@@ -259,7 +259,7 @@ iterators, and index operations.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [ ] Step implementation (1/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -282,38 +282,59 @@ iterators, and index operations.
 
 ## Steps
 
-- [ ] Step 1: Cover `core/index` definitions cluster (composite key,
+- [x] Step 1: Cover `core/index` definitions cluster (composite key,
       property definitions, simple-key, multivalue, comparator,
       collate)
+  - [x] Context: safe
   > **Risk:** low — default (test-additive only; no production-code
   > changes; no shared test-fixture changes — every new test extends
   > the existing `DbTestBase` precedent or stands alone).
   >
-  > **Targets** (production lines uncovered post-Track-17 baseline):
-  > - `CompositeKey` (compare / equals / hashCode / size / asCompositeKey
-  >   — the genuinely standalone surface).
-  > - `CompositeCollate`, `comparator/{,Ascending,Descending}*` (~5
-  >   uncovered lines + small branch fan-out — trivial top-up).
-  > - `CompositeIndexDefinition`, `PropertyIndexDefinition`,
-  >   `PropertyMapIndexDefinition`, `PropertyListIndexDefinition`,
-  >   `PropertyLinkBag(Secondary)IndexDefinition`,
-  >   `SimpleKeyIndexDefinition` (DbTestBase; `getDocumentValueToIndex`
-  >   / `createValue` / `toMap` / `serializeToMap` paths;
-  >   `SimpleKeyIndexDefinition` carries the largest single
-  >   uncovered slice in this cluster — ~60 lines).
-  > - `IndexDefinitionFactory` (definition resolution paths).
-  > - `AbstractIndexDefinition` (template-method default-implementations).
-  > - `core/index/multivalue` (single 1-line gap).
+  > **What was done:** Created 4 new test classes (`CompositeCollateTest`,
+  > `IndexComparatorTest` under `comparator/`, `MultiValuesTransformerTest`
+  > under `multivalue/`, `IndexDefinitionFactoryTest`) and extended 4
+  > existing ones (`CompositeKeyTest`, `SimpleKeyIndexDefinitionTest`,
+  > `SchemaPropertyIndexDefinitionTest`, `CompositeIndexDefinitionTest`)
+  > with 192 passing tests. Coverage: composite-key compare / equals /
+  > hashCode / size / `asCompositeKey`; `CompositeCollate` transform and
+  > equality; `AscComparator`, `DescComparator`, `AlwaysGreaterKey`,
+  > `AlwaysLessKey`; `MultiValuesTransformer` identity cast;
+  > `IndexDefinitionFactory` field-name extraction plus single / multi /
+  > map / list / linkbag definition creation; `SimpleKeyIndexDefinition`
+  > `toCreateIndexDDL` / `withCollates` / `isAutomatic` and the
+  > `AbstractIndexDefinition.setCollate(null)` guard +
+  > `setNullValuesIgnored` toggle; `PropertyIndexDefinition`
+  > `toCreateIndexDDL` / `getFieldsToIndex`-with-collate;
+  > `CompositeIndexDefinition` `toCreateIndexDDL` / `getCollate`. Commit
+  > `c6f9c77dc6`.
   >
-  > **Extension candidates first (Constraint 6):**
-  > `CompositeIndexDefinitionTest`, `SchemaPropertyIndexDefinitionTest`,
-  > `SimpleKeyIndexDefinitionTest`, `CompositeKeyTest`,
-  > `SchemaPropertyMapIndexDefinitionTest`,
-  > `SchemaPropertyListIndexDefinitionTest`,
-  > `SchemaPropertyEmbeddedLinkBagIndexDefinitionTest`,
-  > `SchemaPropertyEmbeddedLinkBagSecondaryIndexDefinitionTest`. New
-  > classes only for `CompositeCollate`, the `comparator/` package,
-  > and the `multivalue/` 1-line gap (no existing tests cover them).
+  > **What was discovered:**
+  > - Two API mismatches confirmed via compile errors: (1)
+  >   `SchemaClass.createProperty` has no session-first overload — schema
+  >   operations must execute outside an active transaction (a session-active
+  >   transaction yields `SchemaException`). Future Steps 3 and 4 must call
+  >   `session.begin()` only after schema setup. (2)
+  >   `IndexDefinitionFactory.createSingleFieldIndexDefinition` takes 7
+  >   args including a `String indexKind` between `linkedType` and
+  >   `INDEX_BY`.
+  > - `CompositeKey.extractFieldName(...)` empty-guard (`length == 0`)
+  >   never fires for whitespace-only input because `Pattern.split` yields
+  >   `["", ""]` not `[]`; the test pins the four-token reassembly path
+  >   instead.
+  > - `PropertyMapIndexDefinition` requires a non-null `INDEX_BY`
+  >   argument — passing `null` throws NPE. Step 4 must supply
+  >   `INDEX_BY.KEY` or `INDEX_BY.VALUE` when exercising the map-index
+  >   path.
+  >
+  > **Key files:**
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/CompositeCollateTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/IndexDefinitionFactoryTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/comparator/IndexComparatorTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/multivalue/MultiValuesTransformerTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/CompositeIndexDefinitionTest.java` (modified)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/CompositeKeyTest.java` (modified)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/SchemaPropertyIndexDefinitionTest.java` (modified)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/SimpleKeyIndexDefinitionTest.java` (modified)
 
 - [ ] Step 2: Cover live TX-aware spliterators (`iterator/`) +
       dead-code shape pin for the `IndexCursor*` cluster
