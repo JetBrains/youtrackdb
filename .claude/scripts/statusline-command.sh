@@ -11,6 +11,7 @@ input=$(cat)
 model=$(echo "$input" | jq -r '.model.display_name // "Unknown Model"')
 used_pct=$(echo "$input" | jq -r '.context_window.used_percentage // empty')
 cwd=$(echo "$input" | jq -r '.workspace.current_dir // .cwd // ""')
+transcript_path=$(echo "$input" | jq -r '.transcript_path // empty')
 
 # Git branch (skip optional locks to avoid contention)
 branch=""
@@ -92,4 +93,15 @@ if [ -n "$branch" ]; then
   printf "%s  |  ctx: %s  |  %s" "$model" "$ctx_str" "$branch"
 else
   printf "%s  |  ctx: %s" "$model" "$ctx_str"
+fi
+
+# Second line: cost (current session + calendar month) and per-session token
+# totals across orchestrator + sub-agents. Best-effort — never break the
+# primary status line if the helper errors out.
+if [ -n "$transcript_path" ]; then
+  script_dir=$(dirname "$0")
+  stats_line=$(python3 "${script_dir}/session-stats.py" "$transcript_path" 2>/dev/null)
+  if [ -n "$stats_line" ]; then
+    printf "\n%s" "$stats_line"
+  fi
 fi

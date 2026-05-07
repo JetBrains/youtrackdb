@@ -32,18 +32,6 @@
           }
         ]
       }
-    ],
-    "Stop": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PROJECT_DIR}/.claude/hooks/report-workflow-cost.py",
-            "timeout": 10
-          }
-        ]
-      }
     ]
   }
 }
