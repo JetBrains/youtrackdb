@@ -73,8 +73,10 @@ GENERIC_FALLBACK = "Other (general-purpose)"
 def model_key(m):
     if m in PRICES:
         return m
-    # match by prefix family (e.g., claude-opus-4-7-foo -> claude-opus-4-7)
-    for k in PRICES:
+    # match by prefix family (e.g., claude-opus-4-7-foo -> claude-opus-4-7).
+    # Sort longest-first so a more specific key (claude-haiku-4-5-20251001)
+    # wins over a shorter prefix (claude-haiku-4-5) if both are present.
+    for k in sorted(PRICES.keys(), key=len, reverse=True):
         if m and m.startswith(k):
             return k
     return DEFAULT_MODEL
@@ -123,9 +125,13 @@ def sum_usage(jsonl):
                 w5 = u.get("cache_creation_input_tokens", 0)
             cost = (in_t * p["in"] + out_t * p["out"] + read_t * p["read"]
                     + w5 * p["write_5m"] + w1 * p["write_1h"]) / 1_000_000
-            a["in"] += in_t; a["out"] += out_t; a["read"] += read_t
-            a["w5"] += w5;   a["w1"] += w1
-            a["cost"] += cost; a["turns"] += 1
+            a["in"] += in_t
+            a["out"] += out_t
+            a["read"] += read_t
+            a["w5"] += w5
+            a["w1"] += w1
+            a["cost"] += cost
+            a["turns"] += 1
             a["model"] = model
     return a
 
@@ -143,13 +149,13 @@ def fmt_ratio(read, write):
 
 def fmt_row(label, a, indent=2):
     pad = " " * indent
-    return (f"{pad}{label:<46} model={a['model'] or '-':<26} "
-            f"turns={a['turns']:>3}  "
-            f"in={fmt_int(a['in']):>9}  read={fmt_int(a['read']):>11}  "
-            f"w5m={fmt_int(a['w5']):>9}  w1h={fmt_int(a['w1']):>7}  "
+    return (f"{pad}{label:<60} model={a['model'] or '-':<26} "
+            f"turns={a['turns']:>4}  "
+            f"in={fmt_int(a['in']):>10}  read={fmt_int(a['read']):>13}  "
+            f"w5m={fmt_int(a['w5']):>11}  w1h={fmt_int(a['w1']):>10}  "
             f"r/5m={fmt_ratio(a['read'], a['w5'])}  "
             f"r/1h={fmt_ratio(a['read'], a['w1'])}  "
-            f"out={fmt_int(a['out']):>7}  ${a['cost']:>7.3f}")
+            f"out={fmt_int(a['out']):>10}  ${a['cost']:>8.3f}")
 
 
 def add(acc, a):
@@ -164,7 +170,7 @@ def main():
         try:
             payload = json.load(sys.stdin)
             main_jsonl = pathlib.Path(payload["transcript_path"]).expanduser()
-        except Exception:
+        except (json.JSONDecodeError, KeyError, TypeError):
             print(f"usage: {sys.argv[0]} <session.jsonl>", file=sys.stderr)
             sys.exit(2)
 
@@ -198,13 +204,15 @@ def main():
     for label in sorted(groups):
         items = groups[label]
         sub_total = {k: 0 for k in ("in", "out", "read", "w5", "w1", "turns")}
-        sub_total["cost"] = 0.0; sub_total["model"] = None
+        sub_total["cost"] = 0.0
+        sub_total["model"] = None
         print(f"\n[{label}]  ({len(items)} sub-agent(s))", file=sys.stderr)
         for sub, agent_type, desc in items:
             a = sum_usage(sub)
             row_label = f"{agent_type or '?'}: {desc[:34]}"
             print(fmt_row(row_label, a), file=sys.stderr)
-            add(sub_total, a); sub_total["model"] = a["model"]
+            add(sub_total, a)
+            sub_total["model"] = a["model"]
         print(fmt_row(f"-- subtotal ({label})", sub_total, indent=2),
               file=sys.stderr)
         add(grand, sub_total)
