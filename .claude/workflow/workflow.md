@@ -75,14 +75,16 @@ flowchart TD
 
     READ -->|"Plan review not yet done\n(## Plan Review is [ ])"| P2["State 0: Autonomous Plan Review\n(implementation-review.md)"]
     READ -->|"Track just completed\n(no strategy refresh yet)"| SR["Strategy Refresh\n(CONTINUE / ADJUST / ESCALATE)"]
-    READ -->|"Fresh start"| PA["Phase A: Review +\nDecomposition"]
+    READ -->|"Fresh start"| PREFLIGHT["Track Pre-Flight\n(summary + amend / clarify / proceed)"]
     READ -->|"Phase A done,\nsteps incomplete"| PB["Phase B: Step\nImplementation"]
     READ -->|"All steps done,\ncode review incomplete\nor track not marked [x]"| PC["Phase C: Code Review\n+ Track Completion"]
     READ -->|"All tracks done,\nPhase 4 not complete"| P4["Phase 4: Final\nArtifacts"]
 
     P2 --> END_P2["Session ends\n(plan review complete)"]
-    SR -->|CONTINUE / ADJUST| PA
+    SR -->|CONTINUE / ADJUST| PREFLIGHT
     SR -->|ESCALATE| REPLAN["Inline Replanning"]
+    PREFLIGHT -->|Proceed| PA["Phase A: Review +\nDecomposition"]
+    PREFLIGHT -->|"ESCALATE\n(deep amendment)"| REPLAN
 
     REPLAN -->|"Revised plan"| END_S["Session ends"]
     REPLAN -->|"Plan fundamentally broken"| EXIT_P1["Advise: restart\nfrom /create-plan"]
@@ -179,6 +181,11 @@ perspective on cross-track impact.
    - If Phase 4: whether starting fresh or resuming an interrupted session
    - If State 0: that the autonomous plan review is about to run and
      only design-decision findings will be surfaced
+   - If the next phase is a fresh Phase A (State B, or State A → Phase A
+     after strategy refresh): note that the Track Pre-Flight gate will
+     run before reviews start — see `track-review.md` §Track Pre-Flight.
+     The gate is **skipped** on State C resume because the step file's
+     `## Description` is already authoritative.
 
    The user can override: reorder tracks, skip a track, or choose a different
    resume point. But by default, you proceed without waiting for confirmation.
@@ -325,6 +332,7 @@ User interaction points:
 | **Session start** | Auto-resume decision (which track, which phase, or State 0 plan review) | Confirm or override |
 | **State 0 design-decision findings** | Batched list of CR/S findings the consistency and/or structural sub-agents classified as `design-decision`, with proposed alternatives and recommendation | Resolve each finding (choose alternative, provide guidance, defer) |
 | **Strategy refresh** | Assessment report (CONTINUE / ADJUST / ESCALATE) | Accept or override |
+| **Track pre-flight (start of fresh Phase A)** | Track summary built from the plan-file entry + backlog Track N section (intro, **What/How/Constraints/Interactions**, scope indicators, optional diagram) | Proceed; amend (light edits to plan/backlog applied directly); or clarify (notes attached to the step file's `## Description`). Deep amendments ESCALATE to inline replanning. Skipped on State C resume. |
 | **Phase A/B complete (and State 0 complete)** | Phase summary, what was done, next phase | User clears session, re-runs `/execute-tracks` |
 | **Cross-track impact** | Which tracks affected, what broke, recommendation | Continue, pause, or escalate |
 | **Track complete (end of Phase C)** | Track episode, step episodes, git log of commits, plan corrections | Approve, request fixes, or rework |

@@ -102,7 +102,11 @@ completed or skipped a track (State A in workflow.md §Startup Protocol).
    [`workflow.md`](workflow.md) §Inline Replanning), which restructures
    the plan file directly — no strategy refresh line is written.
 
-6. **Proceed** to Phase A of the next track in the same session.
+6. **Proceed** to Phase A of the next track in the same session. Phase A
+   begins with the Track Pre-Flight gate (see
+   [`track-review.md`](track-review.md) §Track Pre-Flight), which presents
+   the next track's summary to the user and offers amend / clarify /
+   proceed options before reviews start.
 
    **Note:** Strategy refresh + Phase A share a single session — this is
    the only exception to mandatory phase boundaries. Strategy refresh is

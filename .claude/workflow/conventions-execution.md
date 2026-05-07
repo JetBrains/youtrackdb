@@ -36,8 +36,11 @@ detection is used.
 ## Description
 <assembled at Phase A start — intro paragraph from the plan entry plus
 `**What/How/Constraints/Interactions**` + optional diagram from the
-backlog. See the "Description lifecycle" subsection at the end of §2.1
-for authoritative-location rules across phases.>
+backlog, optionally followed by a `### Clarifications` subsection
+populated from the Track Pre-Flight gate (omitted when the gate
+captured no clarifications). See the "Description lifecycle"
+subsection at the end of §2.1 for authoritative-location rules across
+phases.>
 
 ## Progress
 - [x] Review + decomposition
@@ -79,11 +82,14 @@ The **Description** section carries the track's full description —
 intro paragraph (sourced from the plan-file entry), `**What**:` /
 `**How**:` / `**Constraints**:` / `**Interactions**:` subsections, and
 any track-level Mermaid diagram (both sourced from
-`implementation-backlog.md`). Phase A orchestration writes the section
-once at the start of the track, concatenating the plan-entry intro
-with the backlog-section body; it is re-written only if
-[`inline-replanning.md`](inline-replanning.md) updates a mid-execution
-track's description. Phase B and Phase C sub-agents that already read
+`implementation-backlog.md`), optionally followed by a
+`### Clarifications` subsection populated from the Track Pre-Flight
+gate (see [`track-review.md`](track-review.md) §Track Pre-Flight).
+Phase A orchestration writes the section once at the start of the
+track, concatenating the plan-entry intro with the backlog-section
+body and the (possibly empty) clarifications buffer; it is re-written
+only if [`inline-replanning.md`](inline-replanning.md) updates a
+mid-execution track's description. Phase B and Phase C sub-agents that already read
 the step file see the description here automatically — see the
 Description lifecycle subsection below for the authoritative-location
 rules across phases.
@@ -149,8 +155,9 @@ require escalation.
 ### Description lifecycle
 
 A track's detailed description (the `**What/How/Constraints/Interactions**`
-subsections plus any track-level Mermaid diagram) travels between files
-as the track moves through the workflow. The table below is the
+subsections plus any track-level Mermaid diagram, plus any
+`### Clarifications` captured by the Track Pre-Flight gate) travels
+between files as the track moves through the workflow. The table below is the
 canonical reference for where that content lives at each phase for
 pending, active, and completed tracks. Phase A resume logic (see
 [`track-review.md`](track-review.md)) and inline replanning (see
