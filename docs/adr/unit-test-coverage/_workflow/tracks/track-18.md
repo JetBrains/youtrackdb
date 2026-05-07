@@ -260,7 +260,9 @@ iterators, and index operations.
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review (1/3 iterations)
+- [ ] Track-level code review (1/3 iterations — gate FAILED on
+      test-behavior + test-completeness; iter-2 fix plan recorded
+      in "Reviews completed" below)
 
 ## Base commit
 `04a1f5072a0172b111da7454b3421c78a934ecac`
@@ -279,6 +281,131 @@ iterators, and index operations.
       storage coverage in Step 5). PSI `ReferencesSearch` (all-scope)
       backed every reference-accuracy claim; mcp-steroid was reachable
       throughout.
+
+- [/] Track-level code review iter-1 — 5 dimensions (code-quality,
+      bugs/concurrency, test-behavior, test-completeness,
+      test-structure). 28 distinct findings synthesised → 22 in-scope
+      + 8 deferred to Track 22. Iter-1 fixes landed in commit
+      `2d024fbb36` (Review fix: Track 18 review iter-1 — assertion
+      strengthening + cleared-TX branch + cleanups). 14 test files
+      modified, 379 inserts / 145 deletes; 56 index-package classes,
+      1304 tests, 0 failures, 0 errors, 1 skipped; spotless clean;
+      coverage gate: n/a (test-additive iteration).
+
+      The Phase C implementer hit a contract violation mid-iteration
+      (silent exit, no `RESULT:` block, leftover stuck Maven test
+      and self-referential `pgrep -f surefire` poll loop). Root
+      cause + workflow-fix proposal documented in
+      `WORKFLOW_ISSUE_implementer_silent_exit.md` at the project
+      root. The orchestrator recovered by spawning a finalizer
+      implementer (which also hit a hallucinated-auto-background
+      issue) and finally by running spotless + tests + commit
+      directly in the orchestrator after confirming the on-disk
+      diff matched the synthesised findings list verbatim.
+
+- [ ] Track-level code review iter-2 — 3 gate-check dimensions
+      re-ran on the iter-1 commit (`2d024fbb36`):
+      - **Code quality**: GATE PASS — 3 minor stylistic items only
+        (CQ12 `RecordIdInternal` FQCN→import in the new cleared-TX
+        tests, CQ13 pre-existing `CompositeKey` FQCN in
+        `IndexComparatorTest`, CQ14 misleading test name +
+        Javadoc on `run_brokenIndexBeforeGoodIndex_*`).
+      - **Test behavior**: GATE FAIL — 2 should-fix:
+        * **TB17** `RecreateIndexesTaskTest.run_brokenIndexBeforeGoodIndex_*`
+          loop-continuation assertion is tautological. The test
+          re-injects `goodIndex` into `indexManager.indexes` before
+          `task.run()`; `existsIndex(...)` is just `containsKey(...)`
+          per `IndexManagerAbstract:188`, so the assertion would
+          pass even if the production loop aborted at the broken
+          stub. **Same defect** also applies to the original
+          `run_withOneBrokenIndexConfig_taskContinuesAndRebuildCompleted`
+          (`PersonRIT2.name` was registered by `cls.createIndex`
+          and never removed).
+        * **TB19** Three `IndexRebuildOutputListenerTest.onBegin_*`
+          tests assert `assertTrue(listener.onProgress(...))` — but
+          `onProgress` returns `true` unconditionally
+          (`IndexRebuildOutputListener.java:73-99`); the assertion
+          verifies `onProgress`'s return, not any side-effect of
+          `onBegin`. Mutation: empty `onBegin` body still passes
+          all 3 tests.
+        * Plus **TB18** (minor) — class-level Javadoc on
+          `RecreateIndexesTaskTest` claims `getConfiguration` is
+          called inside the catch-protected loop body, but PSI
+          `ReferencesSearch` shows it is only called at
+          `IndexManagerEmbedded.getIndexesConfiguration:482`,
+          BEFORE the loop. The `configRequested` AtomicBoolean
+          fires there, not inside the catch.
+      - **Test completeness**: GATE FAIL — 1 blocker, 1 should-fix:
+        * **TC13 (BLOCKER)** Same root cause as TB17 — the new
+          "broken-before-good" test is not falsifiable to the
+          regression it claims to catch.
+        * **TC14** Cleared-TX branch coverage is method-shaped, not
+          contract-shaped. F3 added the cleared-branch test only
+          for `streamEntriesBetween`; the same `if
+          (indexChanges.cleared)` guard is duplicated in 5+ other
+          methods per class — `streamEntries(keys)`,
+          `streamEntriesMajor`, `streamEntriesMinor`, plus
+          `descStream` paths in `IndexMultiValues`
+          (`IndexOneValue` lines 190/247/306; `IndexMultiValues`
+          lines 229/286/344/392/521/611). Each branch has
+          independent control flow.
+        * Plus **TC15** (minor) — cleared-TX test uses `#-1:-1`
+          sentinel RID; using a real committed RID would be more
+          future-proof.
+
+      **Iter-2 fix plan** (load this list into the next
+      `/execute-tracks` session for the iter-2 implementer spawn):
+      1. **TC13 / TB17 / CQ14 (joint fix)** — strengthen
+         `RecreateIndexesTaskTest` loop-continuation invariant.
+         Recommended pattern: inject *two* broken stubs each with
+         its own `AtomicBoolean configRequested` flag, then
+         `task.run()` + assert both flags are true. This directly
+         proves the loop continues past at least one failure to
+         reach a subsequent entry, and is independent of HashMap
+         iteration order. Apply the same pattern to
+         `run_withOneBrokenIndexConfig_*` (or fold it into the
+         strengthened test). Rename the test to something
+         order-agnostic (e.g.
+         `run_twoBrokenStubs_loopVisitsBothPastFirstFailure`) and
+         rewrite the Javadoc to match.
+      2. **TB19** — rename the 3 `onBegin_*_acceptsProgressAfterwards`
+         tests back to `onBegin_*_completesWithoutException` (the
+         pre-iter-1 names) and document inline that
+         `IndexRebuildOutputListener.onBegin` has no
+         publicly-observable post-state (writes only to private
+         fields), so "did not throw" is the only meaningful
+         contract. Drop the spurious `onProgress` follow-up call.
+         Optional: use reflection to assert `startTime > 0` and
+         `rebuild` field captured the argument, if reflection is
+         already used elsewhere in the file.
+      3. **TB18** — fix class Javadoc on `RecreateIndexesTaskTest`
+         to correctly state where `getConfiguration` is called
+         (in `IndexManagerEmbedded.getIndexesConfiguration` BEFORE
+         the loop, not inside it).
+      4. **TC14** — add 5 new cleared-TX tests per class
+         (`streamEntries(keys, asc)`, `streamEntriesMajor`,
+         `streamEntriesMinor`; plus `descStream` path in
+         `IndexMultiValues`). Reuse the same `addIndexEntry CLEAR
+         + PUT delta` setup from the existing
+         `streamEntriesBetween_clearedTxChanges_returnsOnlyTxAddedKeys`.
+      5. **CQ12** — add `import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;`
+         to `IndexOneValueTxTest` and `IndexMultiValuesTxTest`,
+         shorten the inline FQCN to `RecordIdInternal.fromString`.
+      6. **CQ13** — add `import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;`
+         to `IndexComparatorTest` and shorten the 4 FQCN call
+         sites.
+      7. **TC15** — capture an existing committed RID in the
+         cleared-TX tests instead of using `#-1:-1`. Capture
+         `index.get(session, "alpha")` before the CLEAR, use that
+         RID in the subsequent PUT.
+
+      All 7 fix items are mechanical or follow established
+      patterns elsewhere in the same files; iter-2 should land in
+      a single fresh implementer spawn with a focused prompt and
+      `model: "opus"`. After iter-2 commits, re-run the same
+      3 gate-check dimensions (code-quality, test-behavior,
+      test-completeness) on the new HEAD; iter-3 only if a fresh
+      blocker appears.
 
 ## Steps
 
