@@ -402,8 +402,9 @@ After writing the step file with all decomposed steps:
    follow it. Phase A friction worth recording typically lives in
    the review-iteration loop, the technical/risk/adversarial sub-agent
    prompts, the decomposition rules, or the step-file template. If
-   the user approves any proposed issues, write them under
-   `workflow-issues/`, commit + push, then proceed to Step 5.
+   the user approves any proposed issues, write the chosen
+   `workflow-issues/*.md` files, commit + push per the protocol
+   §Commit format, then proceed to Step 5.
 5. **End the session.** Do not proceed to Phase B in the same session.
 
 **Why:** Phase A is exploratory (reading code, validating assumptions).

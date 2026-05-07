@@ -677,8 +677,8 @@ proceed directly to track completion **in the same session**.
    agent selection, the deferred-finding → plan-correction handoff,
    the implementer-driven review-fix application, or the track
    episode template. If the user approves any proposed issues,
-   write them under `workflow-issues/`, commit + push, then
-   proceed to Step 7.
+   write the chosen `workflow-issues/*.md` files, commit + push
+   per the protocol §Commit format, then proceed to Step 7.
 7. **Session ends.** Strategy refresh happens next session.
 
 **Why deferred write:** Writing the track episode and marking `[x]` before

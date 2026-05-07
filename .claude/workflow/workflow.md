@@ -330,7 +330,7 @@ User interaction points:
 | **Track complete (end of Phase C)** | Track episode, step episodes, git log of commits, plan corrections | Approve, request fixes, or rework |
 | **Step failure (2nd attempt)** | What failed twice, what was tried, options | Retry differently, adjust, or escalate |
 | **Design decision needed** | Alternatives with trade-offs, recommendation | Choose an alternative or provide guidance |
-| **Self-improvement reflection (every session end)** | 0..N proposed `workflow-issues/` files (capped at 3), each with title + one-line summary; existing-issue recurrences logged automatically | Pick which proposals to write (numbers, "all", or "none") |
+| **Self-improvement reflection (every session end)** | 0..N proposed `workflow-issues/` files (capped at 3), each with title + one-line summary | Pick which proposals to write (numbers, "all", or "none") |
 
 ---
 
@@ -380,7 +380,8 @@ Completion.
 
 After all tracks are complete, a separate session produces
 `design-final.md` and `adr.md` — the two artifacts that survive
-merge into `develop`. Phase 4 lands two commits on the branch:
+merge into `develop`. Phase 4 lands two or three commits on the
+branch (the third is conditional on reflection output):
 
 1. **Final-artifacts commit.** Stage `design-final.md`,
    `design-mechanics-final.md` (if applicable), and `adr.md`; commit
@@ -391,10 +392,20 @@ merge into `develop`. Phase 4 lands two commits on the branch:
    (plan, backlog, design.md, design-mechanics.md, step files,
    design-mutations log). Commit with a message such
    as `Remove workflow scaffolding`. Push.
+3. **Self-improvement reflection commit (conditional).** If the
+   end-of-session reflection produces approved issues, stage the
+   new `workflow-issues/*.md` files and commit per
+   `self-improvement-reflection.md` §Commit format; push. Skipped
+   when reflection produces no approved issues.
 
-After both commits land, **inform the user that Phase 4 is complete
-and stop**. The user manually flips the draft PR to "ready for
-review" when satisfied — Claude does not run `gh pr ready`.
+After all landed commits are pushed, **inform the user that Phase 4
+is complete and stop** — and, if `workflow-issues/` is non-empty,
+remind them to triage and remove the remaining files before
+flipping the PR to ready-for-review (the buffer is branch-local
+and should not land on `develop`; see `workflow-issues/README.md`).
+The user manually flips the draft PR to
+"ready for review" when satisfied — Claude does not run `gh pr
+ready`.
 
 Tracked in the `## Final Artifacts` section of
 `implementation-plan.md` (see State D markers in the Startup

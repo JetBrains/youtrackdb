@@ -506,8 +506,9 @@ When both reviews pass:
    ambiguity in `implementation-review.md` itself, classifier
    misfires, or sub-agent prompt issues are exactly the kind of
    workflow-process friction this step is meant to capture. If the
-   user approves any proposed issues, write them under
-   `workflow-issues/`, commit + push, then proceed to Step 5.
+   user approves any proposed issues, write the chosen
+   `workflow-issues/*.md` files, commit + push per the protocol
+   §Commit format, then proceed to Step 5.
 5. **End the session.** Do not proceed to Phase A of Track 1 in the
    same session — the session boundary is mandatory (see
    `workflow.md` §Session Boundary Rules).

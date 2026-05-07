@@ -581,8 +581,9 @@ code changes committed to git):
    a context-window warning, the two-failure rule, or any other
    early-exit path — those exits are themselves the kind of
    friction reflection is meant to capture. If the user approves
-   any proposed issues, write them under `workflow-issues/`,
-   commit + push, then proceed to Step 4.
+   any proposed issues, write the chosen `workflow-issues/*.md`
+   files, commit + push per the protocol §Commit format, then
+   proceed to Step 4.
 4. **End the session.** Do not proceed to Phase C in the same
    session.
 

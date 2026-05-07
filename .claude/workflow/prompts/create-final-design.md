@@ -295,17 +295,28 @@ Phase 4 friction worth recording typically lives in the
 mechanics, the Ephemeral identifier rule's interaction with
 durable artifacts, or the Phase 4 resume markers. Reflection runs
 before the user-visible "Phase 4 complete" message in Step 7. If
-the user approves any proposed issues, write them under
-`workflow-issues/`, commit + push, then proceed to Step 7.
+the user approves any proposed issues, write the chosen
+`workflow-issues/*.md` files, commit + push per the protocol
+§Commit format, then proceed to Step 7.
 
-`workflow-issues/` is at the repository root and survives merge
-into `develop` — unlike everything under
-`docs/adr/<dir-name>/_workflow/`, it is **not** deleted by the
-Step 5 cleanup commit. The reflection commit sits on top of the
-cleanup commit and is part of the durable record.
+`workflow-issues/` is at the repository root and is **not** deleted
+by the Step 5 cleanup commit, but it is also **not** intended to
+land on `develop` — it is a branch-local pending-triage buffer that
+the implementer empties before merging the PR. Step 7 reminds the
+user of this sweep.
 
 **Step 7 — Inform the user.**
 
 Tell the user Phase 4 is complete and the branch is ready for review.
 The user manually flips the draft PR to "ready for review" when
 satisfied — Claude does **not** run `gh pr ready` automatically.
+
+If `workflow-issues/` is non-empty, list the remaining files and
+remind the user:
+
+> Triage and remove any remaining `workflow-issues/*.md` files
+> before flipping the PR to ready-for-review. They are a
+> branch-local pending-triage buffer and should not land on
+> `develop`. See `workflow-issues/README.md` §"Triage procedure".
+
+If `workflow-issues/` is empty, no reminder is needed.

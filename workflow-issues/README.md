@@ -1,17 +1,18 @@
-# `workflow-issues/` — Workflow Self-Improvement Backlog
+# `workflow-issues/` — Pending-Triage Buffer
 
-Each file in this directory describes one problem encountered while
-running the YouTrackDB engineering workflow (`/create-plan`,
-`/execute-tracks`, `/review-plan`, etc.). Files are produced by the
-**self-improvement reflection** step that runs at the end of every
-`/execute-tracks` session — see
+Each file in this directory describes one workflow-process problem
+encountered while running the YouTrackDB engineering workflow
+(`/create-plan`, `/execute-tracks`, `/review-plan`, etc.). Files are
+produced by the **self-improvement reflection** step that runs at the
+end of every `/execute-tracks` session — see
 [`.claude/workflow/self-improvement-reflection.md`](../.claude/workflow/self-improvement-reflection.md)
 for the protocol.
 
-The directory is durable: unlike `docs/adr/<dir-name>/_workflow/`
-files, `workflow-issues/` is **not** removed by the Phase 4 cleanup
-commit and survives merge into `develop`. A workflow issue filed in
-one ADR branch is just as valid for the next ADR.
+This directory is a **branch-local pending-triage buffer**, not a
+durable backlog. The implementer working on the branch is responsible
+for moving each file into the project's real issue tracker (YouTrack)
+and deleting it from the worktree. The directory must be empty before
+the PR is merged — files are not intended to land on `develop`.
 
 ## Scope — what belongs here
 
@@ -35,30 +36,27 @@ template are documented in
 [`self-improvement-reflection.md`](../.claude/workflow/self-improvement-reflection.md)
 §"Issue file format".
 
-## Status field
+## Triage procedure (implementer)
 
-- `open` — filed, not yet picked up.
-- `in-progress` — an agent is working on the fix.
-- `fixed` — workflow change has landed; file kept as a record of
-  *why* the rule exists.
-- `wontfix` / `superseded-by: <other>.md` — closed without a fix,
-  with a one-line reason.
+The implementer triages files at their own pace during the branch's
+lifetime. For each file:
 
-Files are not deleted when they reach `fixed`. Periodic cleanup
-(every few months, by the user) can archive long-fixed files into
-`workflow-issues/archive/`.
+1. Read it. The frontmatter (`severity`, `phase`,
+   `source-session`) plus the **Symptom**, **Reproduction context**,
+   **Why it's a problem**, and **Proposed fix** sections are
+   structured so the body can be pasted into a YouTrack issue
+   description with minimal editing.
+2. File a YouTrack issue. Include the workflow file path(s) named
+   in **Reproduction context** and the **Proposed fix** verbatim
+   (or refined as the implementer sees fit).
+3. Delete the local file: `git rm
+   workflow-issues/<YYYY-MM-DD>-<slug>.md`. Commit the deletion
+   with a message such as `Triage <slug> to <YT-XXXX>`.
 
-## Picking up a fix
+### Before merging the PR
 
-Any agent — a fresh `/execute-tracks` session that finishes early, a
-dedicated workflow-improvement session, or the user themselves — can
-pick up an `open` issue. The procedure:
-
-1. Set frontmatter `status: in-progress`.
-2. Implement the workflow change described in **Proposed fix**, on a
-   branch named after the issue or as part of an existing branch
-   that touches the same area.
-3. Verify the **Acceptance criteria**.
-4. Set frontmatter `status: fixed` in the same commit that lands the
-   workflow change. Reference the issue file path in the commit
-   message.
+Sweep the directory and confirm it is empty (or contains only files
+the implementer has explicitly decided to defer to a follow-up
+branch). Phase 4 of `/execute-tracks` reminds the user of this
+sweep at the end of the final-artifacts session — but the
+responsibility is the implementer's, not the workflow's.
