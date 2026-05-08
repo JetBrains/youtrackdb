@@ -1624,6 +1624,65 @@ Natural cleanup happens when the branch is deleted after PR merge. -->
 >     Track 22 may absorb these in a single style/cleanup commit or
 >     leave them as-is; none affect correctness.
 
+> *From Track 21 (Storage B-tree & Impl) Phase B:* Test-additive coverage track with zero
+> production-source changes. Track 22 inherits the following absorption items.
+>
+> *Dead-code deletion groups (forwarded per Track 17/18/20 precedent):*
+> 1. **`DecimalKeyNormalizer.java:43–101` dead-helper deletion** — three private methods
+>    (`scaleToDecimal128`, `clampAndRound`, `ensureExactRounding`) unreachable from any
+>    production caller (confirmed by grep at Step 2). Deletion will lift
+>    `nkbtree/normalizers` branch% from 23.3% to ≥70%. The `unsigned()` helper is live and
+>    stays. No WHEN-FIXED pin was added for these helpers since they are structural dead code
+>    (method-level, not assert-phantom), not a regression risk.
+> 2. **`sbtree/singlevalue/v1` deletion lockstep group** — delete
+>    `CellBTreeBucketSingleValueV1.java` + `CellBTreeSingleValueEntryPointV1.java` (242 LOC,
+>    0 main + 0 test refs; PSI-confirmed at Phase A). Atomically also delete the new
+>    `CellBTreeBucketSingleValueV1DeadCodeTest` and
+>    `CellBTreeSingleValueEntryPointV1DeadCodeTest` added by Track 21 (shape pins whose only
+>    purpose is to serve as the deletion marker). No legacy test files to delete for v1
+>    single-value (the v1 bucket/entry-point classes had no pre-existing tests).
+> 3. **`sbtree/local/v1` deletion lockstep group** — delete `SBTreeBucketV1.java` +
+>    `SBTreeNullBucketV1.java` + `SBTreeValue.java` (`SBTreeValue` has 8 main refs but all
+>    intra-v1-package; transitively dead once the bucket pair is removed). Atomically also
+>    delete the legacy test files `SBTreeLeafBucketV1Test.java`, `SBTreeNonLeafBucketV1Test.java`,
+>    `SBTreeNullBucketV1Test.java` (these are pre-existing coverage tests of dead code) and
+>    the new `SBTreeBucketV1DeadCodeTest`, `SBTreeNullBucketV1DeadCodeTest`,
+>    `SBTreeValueDeadCodeTest` added by Track 21 (shape pins acting as deletion markers). One
+>    coordinated commit per Track 17/18 precedent.
+>
+> *Production bugs pinned with WHEN-FIXED markers (fix the pin lockstep with the production
+> change):*
+> 4. **`StorageStartupMetadata.makeDirty` precondition gap** — calling `makeDirty(version)`
+>    on an uninitialised instance (before `create()` or `open()`) falls past the volatile
+>    early-return into `update(serialize())` which calls `channel.truncate(0)` on a null
+>    channel and throws NPE. Current behaviour pinned by
+>    `StorageStartupMetadataTest.testMakeDirtyOnUninitialisedThrows` (WHEN-FIXED marker). The
+>    `clearDirty` asymmetry (no-op due to `!dirtyFlag` early return) pinned by
+>    `testClearDirtyOnUninitialisedFails`. Fix: add an explicit state guard at the top of
+>    `makeDirty` (and `clearDirty`) — `if (channel == null) throw new
+>    IllegalStateException("channel not initialised — call create() or open() first")` — so
+>    misuse is diagnosed without reading an NPE stack trace.
+>
+> *Coverage gap notes (informational for Track 22 IT expansion):*
+> 5. **`paginated` top-level branch% gap** (65.3% vs ≥70% target; D4-accepted in Track 21)
+>    — recovery/legacy paths in `StorageStartupMetadata.open()` exercised only by the IT
+>    suite (`LocalPaginatedStorageRestoreFromWALIT`, `StorageTestIT`). Candidates for IT
+>    expansion: (a) `StorageTestIT` scenarios that corrupt the metadata file and verify the
+>    backup-restore recovery path; (b) test that writes a size-9 or size-1 legacy metadata
+>    file and verifies `open()` reads the older format correctly.
+> 6. **`multivalue/v2` assert-phantom branch tracking** (47 assert statements in the
+>    package): raw JaCoCo branch% is 69.2%; `coverage-gate.py` strips assert-line branches
+>    and the gate PASSES. Future top-up of `multivalue/v2` branch% should use
+>    `coverage-gate.py` as the authoritative gate, not raw JaCoCo, to avoid chasing phantom
+>    gaps.
+>
+> *Test conventions codified by Track 21:*
+> 7. **`@Category(SequentialTest.class)` for `GlobalConfiguration` mutations** — any test
+>    class that mutates `GlobalConfiguration.BTREE_MAX_KEY_SIZE` (or other process-wide
+>    `GlobalConfiguration` values) must carry `@Category(SequentialTest.class)` to prevent
+>    parallel surefire thread pollution. `BTreeLifecycleTest` carries this; Track 22 should
+>    audit other B-tree test classes for similar mutations.
+
 > **How**:
 > - TX tests need a database session to verify begin/commit/rollback
 >   semantics (`DbTestBase`).
