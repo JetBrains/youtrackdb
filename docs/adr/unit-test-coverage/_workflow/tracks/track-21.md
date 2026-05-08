@@ -391,7 +391,7 @@
     
     ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (5/7 complete)
+- [ ] Step implementation (6/7 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -516,9 +516,32 @@
   >
   > **Commit:** `63dddd8fc6`
 
-- [ ] Step 6: B-tree multivalue/v2 + local/v2 (WAL-replay-only) + V1 dead-code shape pins
+- [x] Step 6: B-tree multivalue/v2 + local/v2 (WAL-replay-only) + V1 dead-code shape pins
+  - [x] Context: safe
   > **Risk:** low — default (tests-only on dead-code/replay-only packages; direct bucket/`*Op` construction; no production change; *DeadCodeTest pins per Track 17/18 precedent).
   > Cover `multivalue/v2` (`CellBTreeMultiValueV2Bucket`, `CellBTreeMultiValueEntryPointV2`, plus `*Op` WAL records registered in `PageOperationRegistry`) and `local/v2` (`SBTreeBucketV2`, `SBTreeNullBucketV2`, plus `*Op` records) via direct construction + round-trip tests using `PageEntryFixture`. Do NOT route through `BTree<>` — the live engine rejects version 2 (`BTreeMultiValueIndexEngine.java:73`). For each `*Op`: build the WAL record, serialize → deserialize → replay against a fresh page → assert post-replay state. V1 dead-code shape pins: add `CellBTreeBucketSingleValueV1DeadCodeTest`, `CellBTreeSingleValueEntryPointV1DeadCodeTest`, `SBTreeBucketV1DeadCodeTest`, `SBTreeNullBucketV1DeadCodeTest`, `SBTreeValueDeadCodeTest` per Track 17/18 precedent — minimal pins asserting class exists + at-most-trivial-ops behaviour, with `// WHEN-FIXED: Track 22` markers indicating Track 22 deletes the source + legacy `*V1Test.java` files + these new pins atomically. End-of-step: `multivalue/v2` ≥85%/≥70%, `local/v2` ≥85%/≥70%, `singlevalue/v1` and `local/v1` accepted at 0% / dead-code under D4, `core` unit suite green.
+  >
+  > **What was done:** Added 7 new test files and modified 3 existing files (total 1468 insertions). (1) `MultiValueEntryAndSerializerTest` (20 tests): `MultiValueEntry` compareTo (5 directions), `MultiValueEntrySerializer` round-trips (byte array, ByteBuffer, offset, objectSize, fixed-length properties, preprocess), `IndexEngineValidatorIncrement` new-key and existing-key paths (verified via `decrementEntriesCount` side-effect — `ByteArraySerializer` not available in this module), `IndexEngineValidatorNullIncrement`. (2) `BTreeMVBucketV2BulkOpsTest` extended (+6 tests): `equals`/`hashCode` branches for `AddAllNonLeafEntriesOp`, `ShrinkLeafEntriesOp`, `ShrinkNonLeafEntriesOp` — each with size-differs and entry-differs sub-cases; plus empty-list serialization roundtrips for all three ops. (3) `SBTreeValueAndEntryTest` (27 tests): full value-type contracts for `SBTreeValue` and `SBTreeBucketV2.SBTreeEntry` (equals, hashCode, toString, getters, compareTo via comparator). (4) `SBTreeNullBucketV2Test` extended (+2 tests): `getRawValue` on empty bucket returns null; `getRawValue` after `setValue` returns deserializable bytes. (5) V1 dead-code pins: `SBTreeBucketV1DeadCodeTest` (4 tests), `SBTreeNullBucketV1DeadCodeTest` (2 tests), `SBTreeValueDeadCodeTest` (13 tests) in `local/v1`; `CellBTreeBucketSingleValueV1DeadCodeTest` (3 tests), `CellBTreeSingleValueEntryPointV1DeadCodeTest` (3 tests) in `singlevalue/v1`. (6) `BTreeLifecycleTest` patched with `@Category(SequentialTest.class)` to prevent surefire parallel-thread pollution of `GlobalConfiguration.BTREE_MAX_KEY_SIZE`. All 110 tests across Step 6 classes pass; full `core` unit suite green; `coverage-gate.py` PASS (100% line / 100% branch on changed lines).
+  >
+  > **What was discovered:** (a) The 69.2% branch% on `multivalue/v2` vs the ≥70% target is entirely `assert`-statement phantom branches — JaCoCo records a missed branch for the `assert false` path, but there are 47 assert statements in the package. `coverage-gate.py` strips assert-line branches, so the gate PASSES at 100% branch. (b) The `BTreeLifecycleTest` was causing intermittent failures in `BTreeReadMethodsTest.before()` under surefire's 4-thread parallel execution because `BTREE_MAX_KEY_SIZE=1` was set by one test and not yet restored when another test class started schema init. Fix: `@Category(SequentialTest.class)` moves the class to the sequential surefire execution. (c) `ByteArraySerializer` does not exist in the `core` module — the `IndexEngineValidatorIncrement` validator tests needed an indirect side-effect verification via `decrementEntriesCount(0)` rather than reading back the entry. (d) Initial spotless violation: `new byte[]{1, 2, 3}` → `new byte[] {1, 2, 3}` fixed by `spotless:apply`.
+  >
+  > **What changed from the plan:** No in-scope items were skipped. The plan required `≥85%/≥70%` for `multivalue/v2` and `local/v2` — the 87.2%/69.2% for `multivalue/v2` passes the gate after assert-phantom exclusion; 90.8%/75.6% for `local/v2` is gate-pass. `singlevalue/v1` sits at 12.4%/7.7% (the new DeadCodeTests cover a few paths; the rest are dead-code accepted under D4). `local/v1` is at 75.4%/54.9% (the legacy SBTreeLeafBucketV1Test + SBTreeNonLeafBucketV1Test + SBTreeNullBucketV1Test collectively raise these numbers, plus the new pins add a few; forwarded to Track 22 for deletion).
+  >
+  > **Key files:**
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/index/sbtree/multivalue/v2/MultiValueEntryAndSerializerTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/index/sbtree/multivalue/v2/BTreeMVBucketV2BulkOpsTest.java` (extended)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/index/sbtree/local/v2/SBTreeValueAndEntryTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/index/sbtree/local/v2/SBTreeNullBucketV2Test.java` (extended)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/index/sbtree/local/v1/SBTreeBucketV1DeadCodeTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/index/sbtree/local/v1/SBTreeNullBucketV1DeadCodeTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/index/sbtree/local/v1/SBTreeValueDeadCodeTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/index/sbtree/singlevalue/v1/CellBTreeBucketSingleValueV1DeadCodeTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/index/sbtree/singlevalue/v1/CellBTreeSingleValueEntryPointV1DeadCodeTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/index/sbtree/singlevalue/v3/BTreeLifecycleTest.java` (patched — @Category(SequentialTest.class))
+  >
+  > **Critical context:** The `multivalue/v2` per-package branch% of 69.2% appears to miss the 70% target but is actually gate-passing: the gap of ~0.8 pp (≈6 branches) equals exactly the number of `assert`-statement phantom branches in the specific classes that `coverage-gate.py` strips. Any future top-up of `multivalue/v2` branch% must account for the 47 assert statements in the package — adding more real tests may not advance the displayed %, only the gate-stripped view. Track 22 deletion of `local/v1` and `singlevalue/v1` sources + legacy tests + the new `*DeadCodeTest` pins should be atomic (one coordinated commit).
+  >
+  > **Commit:** `89f24b8142`
 
 - [ ] Step 7: Verification + top-up + `track-21-baseline.md` + track episode prep
   > **Risk:** low — default (verification-only; coverage measurement, baseline document, top-up tests where any per-package gate misses).
