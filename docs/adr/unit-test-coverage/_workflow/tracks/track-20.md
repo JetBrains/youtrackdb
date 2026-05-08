@@ -299,7 +299,7 @@ fall short of 85%/70% targets per Decision Record D4 in
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/6 complete)
+- [ ] Step implementation (2/6 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -397,7 +397,8 @@ fall short of 85%/70% targets per Decision Record D4 in
   > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/wal/common/CommonWALRecordsTest.java` (new)
   > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/wal/common/deque/MPSCFAAArrayDequeueTest.java` (new)
 
-- [ ] Step: CAS-WAL (`paginated.wal.cas`)
+- [x] Step: CAS-WAL (`paginated.wal.cas`)
+  - [x] Context: safe
   > **Risk:** low — default (test-additive only; direct construction
   > of `CASDiskWriteAheadLog` in a temp directory plus standalone
   > tests for record helpers; no shared test infrastructure
@@ -432,6 +433,45 @@ fall short of 85%/70% targets per Decision Record D4 in
   > ≥ 85% line / ≥ 70% branch; falsifiability rule respected; any
   > surfaced production-bug shape pinned with WHEN-FIXED marker
   > forwarded to Track 22.
+  >
+  > **What was done:** Added two new test classes for the
+  > `paginated.wal.cas` package: `WALHelperClassesTest` (10 tests)
+  > covering `EventWrapper`, `WrittenUpTo`, `WALChannelFile`, and
+  > `WALFile` static factories; and `CASDiskWriteAheadLogLifecycleTest`
+  > (20 tests) covering `CASDiskWriteAheadLog`'s log/flush/read
+  > round-trip, log/flush/next, begin/end/activeSegment,
+  > `appendNewSegment`, `nonActiveSegments` (both overloads),
+  > `cutAllSegmentsSmallerThan`, `cutTill`,
+  > `addCutTillLimit`/`removeCutTillLimit` symmetry and null checks,
+  > `addEventAt` (pre-flush and post-flush) — `EventWrapper`'s CAS is
+  > reached by an 8-thread concurrent-fire test with `CountDownLatch`
+  > barrier — checkpoint listener add/remove, `moveLsnAfter`,
+  > `delete()`, and `size()` growth. All 30 tests pass. Test record
+  > ID 460 allocated from the `[460, 510]` window in
+  > `CoverageTestWALRecordIds`. Spotless applied; zero
+  > production-source changes. Total ~1 053 LoC across both files
+  > (well under the 800 LOC threshold that would have triggered the
+  > 2a/2b split).
+  >
+  > **What was discovered:**
+  > - `CASDiskWriteAheadLogIT.TestRecord` uses ID 511, not 500 as
+  >   one might assume from the file-name pattern. The currently
+  >   reserved test-record IDs are: 460 (this step), 500
+  >   (`CASDiskWriteAheadLogCloseTest`), 511 (`CASDiskWriteAheadLogIT`).
+  >   Remaining clear slots in the documented window are `[461, 499]`
+  >   and `[501, 510]`. **Cross-track impact (sub-step 5): minor —
+  >   Continue.** Track 21 and Track 22 test-only WAL record
+  >   allocations should consult `CoverageTestWALRecordIds`.
+  > - One step is sufficient for this scope; no 2a/2b split needed.
+  >
+  > **What changed from the plan:** none. Two classes (helpers +
+  > lifecycle) were created instead of folding them into one — this
+  > matches the plan's intent (helpers + lifecycle were both listed)
+  > and keeps each class focused.
+  >
+  > **Key files:**
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/wal/cas/WALHelperClassesTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/wal/cas/CASDiskWriteAheadLogLifecycleTest.java` (new)
 
 - [ ] Step: Double-write log (`cache.local.doublewritelog`)
   > **Risk:** low — default (test-additive only; direct construction
