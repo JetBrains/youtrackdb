@@ -299,7 +299,7 @@ fall short of 85%/70% targets per Decision Record D4 in
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/6 complete)
+- [ ] Step implementation (3/6 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -473,7 +473,8 @@ fall short of 85%/70% targets per Decision Record D4 in
   > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/wal/cas/WALHelperClassesTest.java` (new)
   > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/wal/cas/CASDiskWriteAheadLogLifecycleTest.java` (new)
 
-- [ ] Step: Double-write log (`cache.local.doublewritelog`)
+- [x] Step: Double-write log (`cache.local.doublewritelog`)
+  - [x] Context: safe
   > **Risk:** low — default (test-additive only; direct construction
   > of `DoubleWriteLogGL` in a temp directory; page-level pattern
   > for entry / record formats where applicable).
@@ -497,6 +498,43 @@ fall short of 85%/70% targets per Decision Record D4 in
   > `doublewritelog` ≥ 70% line / ≥ 52% branch (D4-accepted ceiling);
   > falsifiability rule respected; any surfaced production-bug shape
   > pinned with WHEN-FIXED marker forwarded to Track 22.
+  >
+  > **What was done:** Added `DoubleWriteLogGLTest.java` (26 tests,
+  > 804 LoC) in the `cache.local.doublewritelog` test package.
+  > Tests cover: `open()` initial segment creation, the `EXTENSION`
+  > constant value, `write()` return-value semantics (false on first
+  > write / no tail segments; true on rotation when tail segments
+  > exist; false in restore mode; false during active checkpoint),
+  > `write()` with multiple buffers in one call, `loadPage()` null
+  > before restore mode, null for unknown page in restore mode,
+  > correct single-page round-trip, correct multi-page buffer
+  > round-trip, `truncate()` removing tail segments in normal mode,
+  > `truncate()` no-op in restore mode, `restoreModeOff()` clearing
+  > the page map, `close()` deleting all segment files,
+  > `startCheckpoint()` rotating the current non-empty segment,
+  > nested checkpoint counter controlling the overflow flag, and
+  > all nine interface methods on `DoubleWriteLogNoOP`. All 26 tests
+  > pass under surefire; Spotless applied; zero production-source
+  > changes.
+  >
+  > **What was discovered:**
+  > - No production bugs surfaced — all tested paths behave as
+  >   documented.
+  > - The page-level direct-memory pattern was NOT needed for the
+  >   write path. `DoubleWriteLogGL.write()` operates on disk-channel
+  >   `ByteBuffer`s (heap-allocated), not cache-managed pages.
+  >   `ByteBufferPool` is still touched where `loadPage()` returns a
+  >   `Pointer` via `acquireDirect()`. The step description permitted
+  >   this ("page-level pattern for entry / record formats if they're
+  >   page-shaped"; they are not for DWL).
+  >
+  > **What changed from the plan:** none. Restore-mode and
+  > segment-rotation recovery branches remain IT-shadowed by
+  > `DoubleWriteLogGLTestIT` per the D4 ceiling (~70% / ~52%) — the
+  > step targets are met without forcing surefire into IT territory.
+  >
+  > **Key files:**
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/local/doublewritelog/DoubleWriteLogGLTest.java` (new)
 
 - [ ] Step: WOWCache lifecycle + cache top-level + three named concurrency shapes
   > **Risk:** low — default (test-additive only; direct construction
