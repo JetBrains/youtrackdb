@@ -302,6 +302,9 @@ fall short of 85%/70% targets per Decision Record D4 in
 - [ ] Step implementation
 - [ ] Track-level code review
 
+## Base commit
+`dc48664853`
+
 ## Reviews completed
 - [x] Technical: PASS at iteration 2 (6 findings — F1 should-fix accepted, F3/F4/F5 suggestions accepted, F6/F7 noted-no-action). Iter-2 gate verified each fix via PSI (`WOWCache.fileIdByName` external-ID return at WOWCache.java:853; cache.local helpers all package-private; `FileSegment` zero references project-wide); no regressions.
 - [x] Risk: PASS at iteration 2 (7 findings — R1/R2/R3/R4 should-fix accepted, R5/R6/R7 suggestions accepted). Iter-2 gate verified D4 ceilings (`cache.local` ~78%/~62%, `doublewritelog` ~70%/~52%), `[600, 699]` test-record ID range with `Track20WALTestRecordIds` constants class, `MemoryFile.clear` constraint scoped to informational, falsifiability rule + WAL toString chain rule live in Constraints, build cost discipline + SequentialTest fix instructions in Step 4; no regressions.
