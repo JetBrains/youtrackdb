@@ -391,7 +391,7 @@
     
     ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/7 complete)
+- [ ] Step implementation (3/7 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -449,9 +449,34 @@
   >
   > **Commit:** `e1fa5bc693`
 
-- [ ] Step 3: `storage/impl/local` helpers + `paginated` top-level (`StaleTransactionMonitor` MT probe inclusive)
+- [x] Step 3: `storage/impl/local` helpers + `paginated` top-level (`StaleTransactionMonitor` MT probe inclusive)
+  - [x] Context: safe
   > **Risk:** medium — concurrency test infrastructure (CyclicBarrier MT probe pattern for `StaleTransactionMonitor.start()` idempotency is reusable test infra; helpers tests follow standard DbTestBase + standalone patterns).
   > Cover `StaleTransactionMonitor` (368 LOC; volatile `ScheduledFuture<?>` + non-atomic start guard at lines 86, 120-126, 142, 363) — extend `StaleTransactionMonitorTest` with: (1) `start()` idempotency under `CyclicBarrier`-synchronised concurrent calls, asserting at-most-one schedule (CountDownLatch start gate, `AtomicReference<Throwable>` for thread errors, < 5 s timeout); (2) `stop()` after never-started; (3) `WarnState` cycle-counter shape pins. Cover `TsMinHolder` (189 LOC), `AtomicOperationIdGen` (20 LOC), `WALVacuum` (15 LOC), `CollectionBrowse{Entry,Page}` and `paginated` top-level seven non-WAL/non-atomicops classes (`LinkBag{Delete,Update}SerializationOperation`, `RecordOperationMetadata`, `RecordSerialization{Context,Operation}`, `StorageStartupMetadata`, `StorageTransaction`, `EnterpriseStorageOperationListener`) via standalone or `DbTestBase` as appropriate. WAL-record additions: NONE expected (use existing types); if any new test-record IDs are needed define `Track21WALTestRecordIds` in `[700, 799]`. End-of-step: helper-package gates met, `paginated` top-level ≥85%/≥70%; `core` unit suite green.
+  >
+  > **What was done:** Added 11 new test files and extended `StaleTransactionMonitorTest` with two MT probes (CyclicBarrier idempotent-start race + repeated start/stop cycles). New files cover `AtomicOperationIdGen`, `WALVacuum`, `CollectionBrowseEntry`, `CollectionBrowsePage` in `storage/impl/local` plus all seven non-WAL/non-atomicops top-level classes in `storage/impl/local/paginated` (`EnterpriseStorageOperationListener`, `LinkBag{Delete,Update}SerializationOperation`, `RecordOperationMetadata`, `RecordSerializationContext`, `StorageStartupMetadata`, `StorageTransaction`). Tests follow Track 19/20 patterns (Mockito `CALLS_REAL_METHODS` for `AbstractStorage` where deepening the mock surface; `doReturn`-style stubs with default-null for void collaborators; per-test UUID-suffixed temp directories with explicit `@After` cleanup for `StorageStartupMetadata` file IO). All 137 targeted tests pass; full `core` suite via the coverage-profile build green; `coverage-gate.py` PASS on changed lines (100.0% line / 100.0% branch).
+  >
+  > **What was discovered:** `StorageStartupMetadata.makeDirty(version)` on an uninitialised instance falls past the volatile early-return into `update(serialize())` which calls `channel.truncate(0)` on a null channel and throws NPE — the lifecycle contract is "create() or open() before makeDirty()", and the NPE is the de facto signal (pinned by `testMakeDirtyOnUninitialisedThrows`). `clearDirty` on the same instance is a no-op because the early-return at the volatile flag fires (flag is `false` on a fresh instance) — asymmetry pinned by `testClearDirtyOnUninitialisedFails`. `AbsoluteChange`'s constructor clamps a negative initial value to zero via private `checkPositive`, so the "negative counter" branch in `LinkBagUpdateSerializationOperation.execute` is defensive-only — pinned by `testAbsoluteChangeFloorIsZero`. `paginated` top-level branch% landed at **65.3%**, below the ≥70% target; the gap concentrates in `StorageStartupMetadata` corruption-recovery / backup-restore paths plus the `LinkBagUpdate` per-pair conditional ladder. Step 7 verification can decide top-up vs D4 acceptance. No upcoming-track assumption weakened — recommendation: **Continue**.
+  >
+  > **What changed from the plan:** No in-scope items were skipped or substituted. `Track21WALTestRecordIds` was not needed (no new WAL records added — matching the plan's "NONE expected" prediction). The `paginated` branch% gap is forwarded to Step 7 verification.
+  >
+  > **Key files:**
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/StaleTransactionMonitorTest.java` (modified — MT probes added)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AtomicOperationIdGenTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/CollectionBrowseEntryTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/CollectionBrowsePageTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/WALVacuumTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/EnterpriseStorageOperationListenerTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/LinkBagDeleteSerializationOperationTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/LinkBagUpdateSerializationOperationTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/RecordOperationMetadataTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/RecordSerializationContextTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/StorageStartupMetadataTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/StorageTransactionTest.java` (new)
+  >
+  > **Critical context:** The `StaleTransactionMonitor` MT probe (`testStartIdempotentUnderConcurrentRace`) deliberately uses a loose **at-least-1 / at-most-N** assertion because the production guard is a non-atomic read-then-set under `stateLock` — tightening to at-most-1 would falsely fail until the production code is hardened to `AtomicReference` / `compareAndSet`. The test comment documents this; Step 4 (AbstractStorage slices) and Step 7 (verification top-up) should respect this convention. Track 22 absorption candidate: tighten `StorageStartupMetadata.makeDirty` precondition into an explicit `IllegalStateException` (or state guard) so misuse is diagnosed without reading an NPE stack trace.
+  >
+  > **Commit:** `089417119b`
 
 - [ ] Step 4: `AbstractStorage` public-API slices — toward ~75% line / ~62% branch on `storage/impl/local`
   > **Risk:** medium — test-isolation discipline (per-test database-name UUID requirement; pattern is shared across Step 4 tests and serves as canonical example for Track 22 storage-test absorption).
