@@ -1723,19 +1723,51 @@ flowchart TD
   > independent of `core/index*`, so the residual `core/index` gate miss does not
   > invalidate any Track 19 assumption.
 
-- [ ] Track 19: Storage Fundamentals
+- [x] Track 19: Storage Fundamentals
   > Write tests for storage subsystem components that are more testable
   > than the core cache/WAL/impl internals (storage config, memory
   > storage, filesystem, disk, collections, ridbag).
   >
-  > **Scope:** ~5 steps covering storage config, memory storage,
-  > filesystem/disk, collections, ridbag, and verification.
-  > **Depends on:** Track 1
+  > **Track episode:**
+  > Test-additive coverage track across nine `core/storage/*` packages,
+  > ~7,200 lines of new test code (28+ files: 12 new, 16+ extended; 386+
+  > new tests). Three test patterns landed: standalone JUnit 4 (data
+  > classes, page-level helpers, fs wrappers, reflection-based static
+  > helpers), `DbTestBase + AtomicOperation` (config / memory-storage /
+  > ridbag iterator), and the page-level direct-memory pattern
+  > (`ByteBufferPool` → `CachePointer` → exclusive lock → ops →
+  > `decrementReferrer` in `finally`). Per-package coverage gates were
+  > met or accepted under D4 storage-internal allowance for
+  > `core.storage.config` (68.2/51.4 — `toStream`/`copy` need disk-mode
+  > backup tests, blocked by item 1 below), `core.storage.fs` (83.0/81.8
+  > — three branches fundamentally untestable from unit scope), and
+  > `core.storage.ridbag` (90.0/67.9 — phantom-assert branches plus
+  > rollback-scenario paths blocked by item 1 below). Phase C ran two
+  > iterations (iter-3 reserve unused) closing direct-memory safety
+  > (TX1/TC4/TX2/TS1/TX3 — try/finally discipline plus per-file
+  > `withTwoPages` helpers), critical falsifiability gaps (the toString
+  > smoke-pin sweep tightening 24+ assertions to op-specific field
+  > values), and a license-header malformation. Both gate checks PASS;
+  > 293/293 tests pass at iter-2; Spotless clean.
+  > **Cross-track impact (forwarded to Track 22):** four production-bug
+  > pins with `WHEN-FIXED:` markers — (1) `CollectionBasedStorageConfiguration.setMinimumCollections`
+  > deadlock (Step 1, commentary-only — daemon-thread-leak risk),
+  > (2) `CollectionBasedStorageConfiguration.removeProperty` cache
+  > staleness (Step 1, executable assertions), (3) `AbstractLinkBag.EnhancedIterator.reset()`
+  > stale `nextPair` (iter-1 PSI investigation; two-line fix),
+  > (4) `DiskStorage.XXHashOutputStream.write(byte[], int, int)` length
+  > vs end-index mismatch (iter-1 PSI investigation; latent because
+  > all current callers pass `off == 0` but a future non-zero-offset
+  > caller would silently corrupt backup hashes). Plus three suggestion-
+  > tier items (TS12 stale Javadoc, TS13 shutdownNow await,
+  > PageOperation toString chain non-accumulation). All recorded in
+  > `implementation-backlog.md` Track 22 absorption block. **Note**:
+  > the step-file's `## Base commit` records `141f874b6b` (a pre-rebase
+  > SHA); the actual on-branch Phase B parent is `ea9e82198f`. This
+  > didn't affect correctness (Phase C used the actual parent) but
+  > should be addressed as a workflow self-improvement.
   >
-  > **Operational note:** Backlog section entirely in a gap —
-  > reconstruct at Phase A from the Scope indicator above + the
-  > design's Component Map cluster mapping for `core/storage/{config,
-  > memory,fs,disk,collection,ridbag}*`. See **Operational Notes**.
+  > **Step file:** `tracks/track-19.md` (5 steps, 0 failed)
 
 - [ ] Track 20: Storage Cache & WAL
   > Write tests for the write cache (WOWCache), read cache, double-write
