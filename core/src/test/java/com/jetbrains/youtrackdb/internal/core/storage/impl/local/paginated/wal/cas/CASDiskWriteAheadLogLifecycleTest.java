@@ -144,6 +144,15 @@ public class CASDiskWriteAheadLogLifecycleTest {
 
       assertNotNull(end);
       assertEquals(1L, end.getSegment());
+      // Pin end.getPosition() to the records offset — the constructor places the
+      // StartWALRecord at RECORDS_OFFSET (CASDiskWriteAheadLog.java:293) and the post-init
+      // end LSN points to that same offset. Without pinning the position, a regression that
+      // left end at 0 (or some sentinel) would still pass the segment check.
+      assertEquals(
+          "end.getPosition() must equal RECORDS_OFFSET — the constructor logs StartWALRecord"
+              + " at that offset and end is published past it; got " + end,
+          CASWALPage.RECORDS_OFFSET,
+          end.getPosition());
     } finally {
       wal.close();
     }
@@ -179,21 +188,34 @@ public class CASDiskWriteAheadLogLifecycleTest {
   // ---------------------------------------------------------------------------
 
   /**
-   * Verifies that a record logged via {@link CASDiskWriteAheadLog#log(WriteableWALRecord)} can
-   * be read back from disk with its payload intact after a flush. Pins the deserialized record's
-   * {@code data} field and LSN — equality alone would not catch a corrupt round-trip.
+   * Verifies that a record logged via {@link CASDiskWriteAheadLog#log(WriteableWALRecord)} is
+   * durably persisted across a close-and-reopen cycle: after {@code flush()}, the WAL is
+   * closed, then re-opened against the same on-disk directory and storage name; the record
+   * is read back and its payload pinned. Without the close-and-reopen step a serializer
+   * regression that kept the record only in the in-memory queue (or skipped fsync) would
+   * still pass — the assertions would all hit the same in-memory state the writer just
+   * produced. Pins the deserialized record's {@code data} field and LSN — equality alone
+   * would not catch a corrupt round-trip.
    */
   @Test
   public void logFlushAndReadRoundTrip() throws IOException {
-    final var wal = createWAL("logReadTest");
+    final var storageName = "logReadTest";
+    final var expected = record(32, 1001L);
+
+    // --- Write phase: log + flush, then close.
+    final LogSequenceNumber lsn;
+    final var writeWal = createWAL(storageName);
     try {
-      final var expected = record(32, 1001L);
-      final var lsn = wal.log(expected);
+      lsn = writeWal.log(expected);
+      writeWal.flush();
+    } finally {
+      writeWal.close();
+    }
 
-      wal.flush();
-
-      // read() must return the logged record at the expected LSN.
-      final var results = wal.read(lsn, 10);
+    // --- Read phase: re-open the WAL from disk and read the record back.
+    final var readWal = createWAL(storageName);
+    try {
+      final var results = readWal.read(lsn, 10);
       assertFalse("read() returned empty for a freshly flushed LSN", results.isEmpty());
 
       // Locate our payload record (read may return EmptyWALRecord as first/last entry).
@@ -204,13 +226,13 @@ public class CASDiskWriteAheadLogLifecycleTest {
           break;
         }
       }
-      assertNotNull("LifecycleTestRecord not found in read() result", actual);
+      assertNotNull("LifecycleTestRecord not found in read() result after reopen", actual);
 
       // Pin the specific data field to falsify the round-trip assertion.
       assertArrayEquals(expected.data, actual.data);
       assertEquals(lsn, actual.getLsn());
     } finally {
-      wal.close();
+      readWal.close();
     }
   }
 
@@ -361,6 +383,48 @@ public class CASDiskWriteAheadLogLifecycleTest {
     }
   }
 
+  /**
+   * Verifies the load-bearing contract of {@code addCutTillLimit}: while a limit is active at
+   * a position inside segment 1, {@code cutAllSegmentsSmallerThan(2L)} must NOT delete the
+   * segment 1 file; once the limit is removed, the same call must delete it. The earlier
+   * {@code addAndRemoveCutTillLimitIsSymmetric} only checks "doesn't throw", which would still
+   * pass if both methods became no-ops while the active-limit gate stopped working.
+   */
+  @Test
+  public void cutAllSegmentsSmallerThanIsBlockedByActiveCutTillLimit() throws IOException {
+    final var wal = createWAL("cutLimitEnforceTest");
+    try {
+      final var lsnInSeg1 = wal.log(record(8, 5201L));
+      wal.flush();
+      wal.appendNewSegment();
+      wal.flush();
+
+      final var seg1File =
+          testDirectory.resolve(ContextConfiguration.WAL_DEFAULT_NAME + ".1.wal");
+      assertTrue("Segment 1 WAL file must exist before the limit is exercised",
+          Files.exists(seg1File));
+
+      // Active limit at an LSN inside segment 1 must prevent segment 1 from being cut.
+      wal.addCutTillLimit(lsnInSeg1);
+      try {
+        wal.cutAllSegmentsSmallerThan(2L);
+        assertTrue(
+            "Segment 1 file must NOT be deleted while a cutTillLimit at segment 1 is active",
+            Files.exists(seg1File));
+      } finally {
+        wal.removeCutTillLimit(lsnInSeg1);
+      }
+
+      // After the limit is removed, the same call must delete segment 1.
+      wal.cutAllSegmentsSmallerThan(2L);
+      assertFalse(
+          "Segment 1 file must be deleted after the cutTillLimit is removed",
+          Files.exists(seg1File));
+    } finally {
+      wal.close();
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Tests: appendNewSegment / activeSegment / nonActiveSegments
   // ---------------------------------------------------------------------------
@@ -427,7 +491,16 @@ public class CASDiskWriteAheadLogLifecycleTest {
 
   /**
    * Verifies that {@link CASDiskWriteAheadLog#nonActiveSegments(long)} returns only non-active
-   * segments at or after the specified starting segment. Segments below the start are excluded.
+   * segments at or after the specified starting segment. Segments below the start are excluded,
+   * and the active segment itself is also excluded (the implementation breaks out of the loop on
+   * the first segment id {@code >= currentSegment}).
+   *
+   * <p>After {@code appendNewSegment()} the active segment is 2, so {@code nonActiveSegments(2L)}
+   * filters out segment 1 (below the start) and segment 2 (the active one) — the result must be
+   * an empty array. We pin the exact length so a regression that returns segment 1 (because the
+   * lower bound stops being honoured) or returns segment 2 (because the active-segment cap stops
+   * being honoured) fails the test, instead of being silently swallowed by an empty-loop
+   * iteration.
    */
   @Test
   public void nonActiveSegmentsByFromSegment() throws IOException {
@@ -438,10 +511,16 @@ public class CASDiskWriteAheadLogLifecycleTest {
       wal.appendNewSegment();
       wal.flush();
 
-      // fromSegment=2 must not return segment 1 (below the start).
+      // fromSegment=2 with active segment 2: the only candidate is segment 2 itself (excluded
+      // because it equals currentSegment). Segment 1 is below the start, so also excluded.
       final var files = wal.nonActiveSegments(2L);
+      assertEquals(
+          "nonActiveSegments(2) with active segment 2 must return an empty array — "
+              + "segment 1 is below the start, segment 2 is the active segment",
+          0,
+          files.length);
+      // Defence in depth: if a regression returns segment 1, surface the file name explicitly.
       for (final File f : files) {
-        // Each file name encodes the segment ID; segment 1 files end with ".1.wal".
         assertFalse(
             "nonActiveSegments(2) must not include segment 1 files, but found: " + f.getName(),
             f.getName().contains(".1.wal"));
@@ -522,19 +601,27 @@ public class CASDiskWriteAheadLogLifecycleTest {
 
   /**
    * Verifies that {@link CASDiskWriteAheadLog#addEventAt(LogSequenceNumber, Runnable)} fires
-   * the event after the WAL is flushed past the given LSN. The latch times out with a
-   * 5-second budget to avoid hanging the build; an expired latch means the event was never
-   * fired, which is a failure.
+   * the event exactly once after the WAL is flushed past the given LSN. The latch times out
+   * with a 5-second budget to avoid hanging the build; an expired latch means the event was
+   * never fired, which is a failure. The {@code callCount} pin guards against a regression
+   * that fires the event more than once: {@code CountDownLatch.countDown()} is a no-op past
+   * zero, so a duplicate fire would otherwise pass silently.
    */
   @Test
   public void addEventAtFiresAfterFlush() throws IOException, InterruptedException {
     final var wal = createWAL("eventTest");
     try {
       final var latch = new CountDownLatch(1);
+      final var callCount = new AtomicInteger(0);
       final var lsn = wal.log(record(8, 11001L));
 
       // Register the event before flushing — the WAL may not have written lsn yet.
-      wal.addEventAt(lsn, latch::countDown);
+      wal.addEventAt(
+          lsn,
+          () -> {
+            callCount.incrementAndGet();
+            latch.countDown();
+          });
 
       // Flush forces the WAL to write past lsn, which must fire the event.
       wal.flush();
@@ -542,6 +629,9 @@ public class CASDiskWriteAheadLogLifecycleTest {
       // Allow up to 5 s for the executor to deliver the event asynchronously.
       final var fired = latch.await(5, TimeUnit.SECONDS);
       assertTrue("Event registered via addEventAt() was not fired within 5 s after flush", fired);
+      // Pin the exactly-once contract — countDown past zero is a no-op so a duplicate fire
+      // would otherwise be invisible to the latch.
+      assertEquals("addEventAt must fire the runnable exactly once", 1, callCount.get());
     } finally {
       wal.close();
     }
@@ -551,7 +641,8 @@ public class CASDiskWriteAheadLogLifecycleTest {
    * Verifies that {@link CASDiskWriteAheadLog#addEventAt(LogSequenceNumber, Runnable)} fires
    * immediately (synchronously or via the commit executor) when the LSN is already flushed
    * before the event is registered. Pins the counter at 1 to falsify a "fires multiple times"
-   * regression.
+   * regression and uses a {@link CountDownLatch} to wait for the asynchronous delivery instead
+   * of a {@code Thread.sleep} polling loop.
    */
   @Test
   public void addEventAtFiresImmediatelyWhenLsnAlreadyFlushed()
@@ -562,16 +653,20 @@ public class CASDiskWriteAheadLogLifecycleTest {
       // Flush before registering the event.
       wal.flush();
 
+      final var latch = new CountDownLatch(1);
       final var callCount = new AtomicInteger(0);
       // The LSN is already past the flushed point — event must fire immediately.
-      wal.addEventAt(lsn, callCount::incrementAndGet);
+      wal.addEventAt(
+          lsn,
+          () -> {
+            callCount.incrementAndGet();
+            latch.countDown();
+          });
 
-      // Allow up to 2 s for the executor to deliver the event.
-      final long deadline = System.currentTimeMillis() + 2_000L;
-      while (callCount.get() == 0 && System.currentTimeMillis() < deadline) {
-        Thread.sleep(10);
-      }
-
+      // Wait up to 2 s for the executor to deliver the event — replaces a Thread.sleep poll.
+      assertTrue(
+          "Event must fire within 2 s after addEventAt() for an already-flushed LSN",
+          latch.await(2, TimeUnit.SECONDS));
       // The event must have been fired exactly once.
       assertEquals(1, callCount.get());
     } finally {
@@ -587,24 +682,46 @@ public class CASDiskWriteAheadLogLifecycleTest {
    * Verifies that {@link CASDiskWriteAheadLog#addCheckpointListener(CheckpointRequestListener)}
    * registers the listener and
    * {@link CASDiskWriteAheadLog#removeCheckpointListener(CheckpointRequestListener)} unregisters
-   * it. After removal the listener must not receive further checkpoint requests. This exercises
-   * the {@code CopyOnWriteArrayList} management code in the WAL.
+   * it.  Reflectively reads the underlying {@code CopyOnWriteArrayList} so the round-trip
+   * cannot be silently passed by both methods being no-op stubs — without this check, a
+   * regression that turned both into no-ops would still see {@code requestCount == 0} and
+   * pass.
+   *
+   * <p>The configured WAL has {@code keepSingleWALSegment=false} and {@code walSizeLimit=-1},
+   * so the production paths that drive {@code requestCheckpoint()} (in {@code log()} on lines
+   * 1016-1024) are inert; we cannot trigger a real checkpoint without a heavyweight invasive
+   * setup, hence the structural check on the listener list itself.
    */
   @Test
-  public void addAndRemoveCheckpointListener() throws IOException {
+  public void addAndRemoveCheckpointListener() throws IOException, ReflectiveOperationException {
     final var wal = createWAL("checkpointListenerTest");
     try {
       final var requestCount = new AtomicInteger(0);
       final CheckpointRequestListener listener = requestCount::incrementAndGet;
 
-      // After adding, the listener is registered — no direct observation available, but
-      // the remove call proves the round-trip is consistent.
-      wal.addCheckpointListener(listener);
-      wal.removeCheckpointListener(listener);
+      // Read the private list field reflectively so we can pin presence/absence directly.
+      final var listField =
+          CASDiskWriteAheadLog.class.getDeclaredField("checkpointRequestListeners");
+      listField.setAccessible(true);
+      @SuppressWarnings("unchecked")
+      final var listeners = (java.util.List<CheckpointRequestListener>) listField.get(wal);
 
-      // If remove works correctly the list is empty and no NPE / AIOOBE occurs.
-      // Pin: requestCount must still be 0 because keepSingleWALSegment is false and
-      // walSizeLimit is -1 — no checkpoint request is triggered in this test.
+      assertFalse(
+          "Listener must not be registered before addCheckpointListener() is called",
+          listeners.contains(listener));
+
+      wal.addCheckpointListener(listener);
+      assertTrue(
+          "Listener must be present in checkpointRequestListeners after addCheckpointListener()",
+          listeners.contains(listener));
+
+      wal.removeCheckpointListener(listener);
+      assertFalse(
+          "Listener must be absent from checkpointRequestListeners after removeCheckpointListener()",
+          listeners.contains(listener));
+
+      // Belt and braces: requestCount must still be 0 because keepSingleWALSegment is false
+      // and walSizeLimit is -1 — no checkpoint request is triggered by this test.
       assertEquals(0, requestCount.get());
     } finally {
       wal.close();

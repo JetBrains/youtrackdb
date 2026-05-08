@@ -1,9 +1,11 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.chm.writequeue;
 
+import java.util.HashSet;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -115,10 +117,14 @@ public class MPSCLinkedQueueTest {
    * field has not yet been written by the producer (the MPSC linked-list's known "lazySet" window).
    * This is the branch that drives the 1 uncovered line in the package.
    *
-   * <p>The test uses a {@link CountDownLatch} start barrier for synchronised burst (per the
-   * "no Thread.sleep" convention), verifies zero element loss, and completes within 5 seconds.
+   * <p>Beyond a count-only check, the consumer tracks every polled item in a {@link HashSet}
+   * and asserts that each item is unique — a regression that re-delivers a node would otherwise
+   * pass the count check by under-counting the "missing" items. Producer-side {@link Throwable}s
+   * are captured in an {@link AtomicReference} so an exception cannot be silently swallowed when
+   * the daemon thread exits. The {@code @Test(timeout)} caps the worst case at 10 s so a
+   * regression that hangs the consumer cannot stall the build forever.
    */
-  @Test
+  @Test(timeout = 10_000)
   public void testMpscConcurrencySmoke() throws InterruptedException {
     final int producerCount = 4;
     final int itemsPerProducer = 500;
@@ -127,6 +133,7 @@ public class MPSCLinkedQueueTest {
     final var queue = new MPSCLinkedQueue<Integer>();
     final var startLatch = new CountDownLatch(1);
     final var producersDone = new CountDownLatch(producerCount);
+    final var producerError = new AtomicReference<Throwable>();
 
     final var executor = Executors.newFixedThreadPool(producerCount);
 
@@ -139,8 +146,11 @@ public class MPSCLinkedQueueTest {
           for (int i = 0; i < itemsPerProducer; i++) {
             queue.offer(producerId * itemsPerProducer + i);
           }
-        } catch (InterruptedException e) {
-          Thread.currentThread().interrupt();
+        } catch (Throwable e) {
+          producerError.compareAndSet(null, e);
+          if (e instanceof InterruptedException) {
+            Thread.currentThread().interrupt();
+          }
         } finally {
           producersDone.countDown();
         }
@@ -151,6 +161,9 @@ public class MPSCLinkedQueueTest {
     startLatch.countDown();
 
     // Consumer: keep polling until totalItems are received, with a 5 s timeout.
+    // Every item is recorded in `seen` so that any duplicate delivery (which would otherwise
+    // mask itself by under-counting some other item) fails the test immediately.
+    final var seen = new HashSet<Integer>();
     final var received = new AtomicInteger(0);
     final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
     while (received.get() < totalItems) {
@@ -160,6 +173,9 @@ public class MPSCLinkedQueueTest {
       }
       final var item = queue.poll();
       if (item != null) {
+        if (!seen.add(item)) {
+          Assert.fail("Duplicate item polled: " + item);
+        }
         received.incrementAndGet();
       } else {
         Thread.yield();
@@ -171,8 +187,22 @@ public class MPSCLinkedQueueTest {
         producersDone.await(5, TimeUnit.SECONDS));
     executor.shutdown();
 
+    Assert.assertNull("Producer thread threw: " + producerError.get(), producerError.get());
+
     Assert.assertEquals("All offered items must be consumed exactly once",
         totalItems, received.get());
+    Assert.assertEquals("Each polled item must be unique", totalItems, seen.size());
+
+    // Pin specific sentinels from each producer's range — a regression that drops a whole
+    // producer's contribution while picking up duplicates from another would still match
+    // totalItems on the count-only check.
+    for (int p = 0; p < producerCount; p++) {
+      final int base = p * itemsPerProducer;
+      Assert.assertTrue("missing first ID from producer " + p, seen.contains(base));
+      Assert.assertTrue("missing last ID from producer " + p,
+          seen.contains(base + itemsPerProducer - 1));
+    }
+
     Assert.assertTrue("Queue must be empty after all items are consumed", queue.isEmpty());
   }
 

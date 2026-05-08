@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -18,6 +19,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Test;
 import org.mockito.Mockito;
 
@@ -156,17 +158,23 @@ public class WOWCacheConcurrencyShapesTest {
   }
 
   /**
-   * Pins the <i>current</i> behaviour of {@code addOnlyWriters} when called twice with the
-   * same {@code PageKey}: the set holds the key once (set semantics) but the counter
-   * increments twice. The asymmetry is the orphan-PageKey shape — the counter
-   * over-counts vs the set, and the next paired remove drops the counter without finding
-   * the key in the set.
+   * Pins the <i>current</i> behaviour of {@code addOnlyWriters} under concurrent contention on
+   * the same {@code PageKey}: N writer threads call {@code addOnlyWriters(fileId, pageIndex)}
+   * with identical arguments. The {@code ConcurrentSkipListSet} de-duplicates the key so its
+   * cardinality stays at 1, but the {@code AtomicLong} counter is incremented once per call,
+   * so it ends at exactly N — the orphan-PageKey shape that the production fix in Track 22
+   * is meant to close.
+   *
+   * <p>The probe uses a {@link CyclicBarrier} to synchronise the offer point so all writers
+   * race the {@code add(pageKey)} call site simultaneously, maximising the chance of observing
+   * the drift. Worker errors are captured in an {@link AtomicReference} so a thread-side
+   * exception cannot be silently swallowed when the daemon thread exits.
    *
    * <p><b>WHEN-FIXED:</b> if {@code addOnlyWriters} is made idempotent (skip the
    * {@code incrementAndGet} when the key already exists) — e.g., by guarding both updates
    * under {@code lockManager.acquireExclusiveLock(pageKey)} and re-checking {@code add()}'s
-   * boolean return — the counter will increment exactly once per unique key. Flip the
-   * counter-equals-2 assertion to counter-equals-1 when the fix lands. Forward to Track 22.
+   * boolean return — the counter will end at exactly 1. Flip the {@code counter == writers}
+   * assertion to {@code counter == 1} when the fix lands. Forward to Track 22.
    */
   @Test(timeout = 5_000)
   public void testAddOnlyWritersDoubleAddCounterDriftPinsCurrentBehaviour() throws Exception {
@@ -177,20 +185,47 @@ public class WOWCacheConcurrencyShapesTest {
     setField(cache, "exclusiveWriteCacheSize", counter);
     setField(cache, "exclusiveWritePages", pages);
 
+    final int writers = 8;
     final long fileId = ((long) 1 << 32) | 7L;
-    final long pageIndex = 99L;
-    cache.addOnlyWriters(fileId, pageIndex);
-    cache.addOnlyWriters(fileId, pageIndex);
+    final long sharedPageIndex = 99L;
+    final var barrier = new CyclicBarrier(writers);
+    final var done = new CountDownLatch(writers);
+    final var errorRef = new AtomicReference<Throwable>();
 
-    // Set semantics: still only one key
-    assertEquals("Set must hold the duplicated key only once", 1, pages.size());
+    var executor = Executors.newFixedThreadPool(writers);
+    try {
+      for (int t = 0; t < writers; t++) {
+        executor.submit(
+            () -> {
+              try {
+                barrier.await(2, TimeUnit.SECONDS);
+                cache.addOnlyWriters(fileId, sharedPageIndex);
+              } catch (Throwable e) {
+                errorRef.compareAndSet(null, e);
+              } finally {
+                done.countDown();
+              }
+            });
+      }
+      assertTrue(
+          "All writer threads must finish within 5 s",
+          done.await(5, TimeUnit.SECONDS));
+    } finally {
+      executor.shutdownNow();
+    }
 
-    // WHEN-FIXED: change to assertEquals(1L, ...) once addOnlyWriters becomes idempotent
-    // — see the class-level comment for shape 1.
+    assertNull("No worker thread should have thrown: " + errorRef.get(), errorRef.get());
+
+    // Set semantics: ConcurrentSkipListSet de-duplicates, so size stays at 1.
+    assertEquals("Set must hold the contended key only once", 1, pages.size());
+
+    // WHEN-FIXED: change to assertEquals(1L, counter.get()) once addOnlyWriters becomes
+    // idempotent — see the class-level comment for shape 1.
     assertEquals(
-        "Current behaviour: counter increments per call, NOT per unique key — drift of 1"
-            + " against the set cardinality",
-        2L, counter.get());
+        "Current behaviour: counter increments per call under contention, NOT per unique"
+            + " key — drift of (writers - 1) against the set cardinality",
+        (long) writers,
+        counter.get());
   }
 
   // ---------------------------------------------------------------------------
@@ -267,6 +302,7 @@ public class WOWCacheConcurrencyShapesTest {
     final int iterations = 500;
     var leakedAtLeastOnce = new AtomicInteger();
     var done = new CountDownLatch(2);
+    var threadErrors = new AtomicReference<Throwable>();
 
     var reader = new Thread(
         () -> {
@@ -280,6 +316,8 @@ public class WOWCacheConcurrencyShapesTest {
                 }
               }
             }
+          } catch (Throwable t) {
+            threadErrors.compareAndSet(null, t);
           } finally {
             done.countDown();
           }
@@ -295,6 +333,8 @@ public class WOWCacheConcurrencyShapesTest {
               nameIdMap.put(name, id);
               idNameMap.put(id, name);
             }
+          } catch (Throwable t) {
+            threadErrors.compareAndSet(null, t);
           } finally {
             done.countDown();
           }
@@ -306,6 +346,7 @@ public class WOWCacheConcurrencyShapesTest {
     assertTrue(
         "Both threads must finish within 3s",
         done.await(3, TimeUnit.SECONDS));
+    assertNull("MT thread threw: " + threadErrors.get(), threadErrors.get());
 
     // The MT loop is reinforcement only — the structural pin above is what fails first if
     // the production fix lands. We do not assert leakedAtLeastOnce > 0 here because the
@@ -387,11 +428,14 @@ public class WOWCacheConcurrencyShapesTest {
             + " update this assertion accordingly (Track 22).",
         firstPointer, writeCachePages.get(key));
 
-    // Document which JVM mode we ran under so the assertion above is correctly framed.
-    // Both modes preserve firstPointer; this is an informational note, not a separate
-    // assertion (the load-bearing pin is the assertSame above).
-    assertTrue(
-        "Probe ran under -ea=" + assertFiredUnderEa + "; both modes pin firstPointer",
-        true);
+    // Note: both JVM modes (-ea on / -ea off) preserve firstPointer in writeCachePages.
+    // The assertSame above is the load-bearing pin; the assertFiredUnderEa local is kept
+    // only to make the two execution paths explicit in the source for future readers.
+    // It is intentionally not asserted on — the contract under test is the post-condition
+    // on writeCachePages, not which path the JVM took to reach it.
+    // Reference the local to make the "intentional read" obvious to any future reader.
+    if (assertFiredUnderEa) {
+      // -ea on: second store threw before doPutInCache.
+    }
   }
 }

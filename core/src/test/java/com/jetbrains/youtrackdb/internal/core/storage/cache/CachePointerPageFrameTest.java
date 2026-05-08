@@ -14,6 +14,7 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocat
 import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
 import com.jetbrains.youtrackdb.internal.common.directmemory.PageFramePool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.Pointer;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.assertj.core.api.Assertions;
 import org.junit.AfterClass;
@@ -332,7 +333,7 @@ public class CachePointerPageFrameTest {
     allocator.checkMemoryLeaks();
   }
 
-  @Test
+  @Test(timeout = 10_000)
   public void testOptimisticReadDetectsCoordinateChangeAcrossThreads() throws Exception {
     // Verifies that tryOptimisticRead()/validate() on a PageFrame correctly detects
     // coordinate changes made by another thread under exclusive lock. The writer thread
@@ -365,7 +366,9 @@ public class CachePointerPageFrameTest {
       writerDone.countDown();
     });
     writerThread.start();
-    writerDone.await();
+    // Bounded wait — a regression in StampedLock acquire/release must not hang the build.
+    Assert.assertTrue("writer thread must finish in 5 s",
+        writerDone.await(5, TimeUnit.SECONDS));
 
     // The reader's optimistic stamp must be invalidated because the writer acquired
     // the exclusive lock (which bumps the StampedLock's write-stamp sequence).
@@ -628,7 +631,7 @@ public class CachePointerPageFrameTest {
     assertTrue("toString() must contain CachePointer", str.contains("CachePointer"));
   }
 
-  @Test
+  @Test(timeout = 30_000)
   public void testConcurrentOptimisticReadDuringExclusiveWrite() throws Exception {
     // Verifies that optimistic reads during concurrent exclusive writes either observe
     // consistent coordinates (and validate succeeds) or detect the write (validation
@@ -688,6 +691,10 @@ public class CachePointerPageFrameTest {
     readerThread.start();
     writerThread.join(10_000);
     readerThread.join(10_000);
+
+    // Bounded waits — assert both threads actually completed instead of silently moving on.
+    Assert.assertFalse("writer thread did not complete within 10 s", writerThread.isAlive());
+    Assert.assertFalse("reader thread did not complete within 10 s", readerThread.isAlive());
 
     assertNull("No torn reads should be observed: " + errors.get(), errors.get());
 

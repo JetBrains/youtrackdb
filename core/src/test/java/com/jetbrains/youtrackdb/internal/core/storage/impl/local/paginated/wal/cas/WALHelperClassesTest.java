@@ -2,18 +2,24 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.channels.NonWritableChannelException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -92,9 +98,12 @@ public class WALHelperClassesTest {
   /**
    * Verifies that {@link EventWrapper} enforces the single-fire guarantee under concurrent
    * calls. Multiple threads race on {@link EventWrapper#fire()}; the wrapped event must be
-   * executed exactly once regardless of which thread wins the CAS.
+   * executed exactly once regardless of which thread wins the CAS. The {@code @Test(timeout)}
+   * caps any worst-case hang at 10 s so a regression cannot stall the build, and the
+   * {@code errorRef} captures any thread-side {@link Throwable} so that an exception in a
+   * worker thread cannot be silently swallowed when the daemon thread exits.
    */
-  @Test
+  @Test(timeout = 10_000)
   public void eventWrapperFiresOnceFromMultipleThreads() throws InterruptedException {
     final var callCount = new AtomicInteger(0);
     final var wrapper = new EventWrapper(callCount::incrementAndGet);
@@ -102,22 +111,30 @@ public class WALHelperClassesTest {
     final int threadCount = 8;
     final var startLatch = new CountDownLatch(1);
     final var doneLatch = new CountDownLatch(threadCount);
+    final var errorRef = new AtomicReference<Throwable>();
 
     for (int t = 0; t < threadCount; t++) {
       final var thread = new Thread(() -> {
         try {
           startLatch.await();
-        } catch (InterruptedException e) {
-          Thread.currentThread().interrupt();
+          wrapper.fire();
+        } catch (Throwable e) {
+          errorRef.compareAndSet(null, e);
+          if (e instanceof InterruptedException) {
+            Thread.currentThread().interrupt();
+          }
+        } finally {
+          doneLatch.countDown();
         }
-        wrapper.fire();
-        doneLatch.countDown();
       });
       thread.start();
     }
 
     startLatch.countDown();
-    doneLatch.await();
+    assertTrue(
+        "All worker threads must finish within 5 s",
+        doneLatch.await(5, TimeUnit.SECONDS));
+    assertNull("Worker thread threw: " + errorRef.get(), errorRef.get());
 
     // Exactly one thread must have executed the runnable.
     assertEquals(1, callCount.get());
@@ -244,8 +261,9 @@ public class WALHelperClassesTest {
   /**
    * Verifies that {@link WALFile#createWriteWALFile} creates or truncates the file and
    * {@link WALFile#createReadWALFile} opens it read-only. A read-only channel must not
-   * accept writes — attempting to write to it should throw an exception, confirming the
-   * channel mode is correctly set.
+   * accept writes — attempting {@link WALFile#write(ByteBuffer)} on the read-mode file
+   * must throw {@link NonWritableChannelException}, confirming the channel mode is
+   * actually read-only and not just nominally distinguished by the factory name.
    */
   @Test
   public void walFileStaticFactoriesCreateCorrectChannelModes() throws IOException {
@@ -264,6 +282,15 @@ public class WALHelperClassesTest {
       final var buf = ByteBuffer.allocate(payload.length);
       rf.readBuffer(buf);
       assertArrayEquals(payload, buf.array());
+
+      // Attempting to write through the read-mode channel must throw — the underlying
+      // FileChannel is opened with StandardOpenOption.READ only.
+      try {
+        rf.write(ByteBuffer.wrap(new byte[] {1, 2, 3}));
+        fail("Writing to a read-mode WALFile must throw NonWritableChannelException");
+      } catch (NonWritableChannelException expected) {
+        // Pass — the read channel rejected the write as required.
+      }
     }
   }
 
