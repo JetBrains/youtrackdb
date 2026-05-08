@@ -391,7 +391,7 @@
     
     ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (6/7 complete)
+- [x] Step implementation (7/7 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -543,7 +543,22 @@
   >
   > **Commit:** `89f24b8142`
 
-- [ ] Step 7: Verification + top-up + `track-21-baseline.md` + track episode prep
+- [x] Step 7: Verification + top-up + `track-21-baseline.md` + track episode prep
+  - [x] Context: safe
   > **Risk:** low — default (verification-only; coverage measurement, baseline document, top-up tests where any per-package gate misses).
   > Run `./mvnw -pl core -am clean package -P coverage` and `coverage-analyzer.py` to produce the post-Track-21 baseline. For each in-scope package: confirm gate met or D4-accepted with rationale (if a gate falls short of the committed target, add focused top-up tests within this step). Write `docs/adr/unit-test-coverage/_workflow/track-21-baseline.md` mirroring the Track 19/20 baseline structure (aggregate, per-package table, gate-result block, gate command). Record any deferred items in `implementation-backlog.md` Track 22 absorption block (dead-helper deletions, WHEN-FIXED pins surfaced during Phase B, DRY/cleanup follow-ups). End-of-step: `coverage-gate.py` reports gate PASS or D4-accepted on changed lines; baseline file committed; `core` unit suite green.
+  >
+  > **What was done:** Ran the full coverage-profile build (`./mvnw -pl core -am clean package -P coverage`); full `core` unit suite green (0 failures / 0 errors). Measured post-Track-21 aggregate: **79.5% line / 69.4% branch** (+0.5 pp line / +0.4 pp branch from the post-Track-20 baseline of 79.0% / 69.0%). `coverage-gate.py` PASSED at 100.0% line / 100.0% branch on changed lines vs `origin/develop` (test-additive track). Evaluated each in-scope per-package gate: `singlevalue/v3` **85.9%/72.7% PASS**; `multivalue/v2` **87.2%/69.2% PASS** (assert-stripped); `local/v2` **90.8%/75.6% PASS**; small packages (`sbtree` top-level, `singlevalue` top-level, `index/engine`, `index/versionmap`) all at 100%/100% PASS; `nkbtree.normalizers` **74.7%/23.3% D4-accepted** (dead-helper ceiling, deletion forwarded to Track 22); `impl/local` top-level **63.3%/59.3% D4-accepted** (IT-shadow per the original ~75% target rationale); `paginated` top-level **88.4%/65.3% D4-accepted** (line target met; branch gap in `StorageStartupMetadata.open()` legacy/recovery paths reachable only via IT suite). Wrote `docs/adr/unit-test-coverage/_workflow/track-21-baseline.md` mirroring the Track 19/20 baseline structure (aggregate, per-package table, gate-result block, gate command). Updated `implementation-backlog.md` Track 22 absorption block with 7 Track-21-sourced items.
+  >
+  > **What was discovered:** The `paginated` top-level branch% of 65.3% (Step 3 flagged this as a Step 7 decision point) is driven by `StorageStartupMetadata.open()` — 15 missed branches across legacy-format paths (`size<9`, `size==9`, checksum-failure+backup, atomic-move fallback, version validation); 1 assert statement accounts for 2 phantom branches; the remaining ~23 missed branches are real recovery paths not reachable from fresh-directory surefire tests. **D4 acceptance with IT-shadow rationale is the documented outcome.** No upcoming-track assumption weakened — recommendation: **Continue**.
+  >
+  > **What changed from the plan:** No in-scope items were skipped. The plan's `paginated` top-level `≥85%/≥70%` target is partially met (line 88.4% exceeds; branch 65.3% falls short by 4.7 pp) — D4 acceptance is the documented disposition, as Step 3's episode anticipated.
+  >
+  > **Key files:**
+  > - `docs/adr/unit-test-coverage/_workflow/track-21-baseline.md` (new)
+  > - `docs/adr/unit-test-coverage/_workflow/implementation-backlog.md` (modified — 7 Track-21 absorption items)
+  >
+  > **Critical context:** Track 22 absorption block now carries 7 Track-21-sourced items: three deletion lockstep groups (`DecimalKeyNormalizer` dead helpers, `sbtree/singlevalue/v1`, `sbtree/local/v1`), the `StorageStartupMetadata.makeDirty` WHEN-FIXED precondition pin, two IT-expansion coverage-gap notes (`paginated` top-level + `impl/local` top-level), and the `@Category(SequentialTest)` convention for `GlobalConfiguration`-mutating test classes. The `multivalue/v2` assert-phantom branch detail (~6 phantom branches concealed in the displayed 69.2%) is essential context for any Track 22 work that targets that package's branch%.
+  >
+  > **Commit:** `350e642fd5`
 
