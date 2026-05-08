@@ -1319,6 +1319,92 @@ Natural cleanup happens when the branch is deleted after PR merge. -->
 > baseline; closing TC16-19 would lift it slightly without changing
 > the strategic outcome).
 
+> *From Track 19 (Storage Fundamentals) Phase B + Phase C:* Test-
+> additive coverage track with zero production-source changes.
+> Track 22 inherits four production-bug pins (with `WHEN-FIXED:
+> Track 22 — <fix>` markers) and three suggestion-tier items.
+>
+> *Production bugs pinned with WHEN-FIXED markers (4 issues, fix the
+> pin lockstep with the production change):*
+> 1. **`CollectionBasedStorageConfiguration.setMinimumCollections`
+>    deadlock** (Step 1): write-lock → `getContextConfiguration()` →
+>    read-lock on the same non-reentrant `ScalableRWLock` — deadlocks.
+>    Pinned in commentary only (`CollectionBasedStorageConfigurationTest`)
+>    because an executable pin would leak a daemon thread spinning in
+>    `Thread.yield()`. Fix: replace the `getContextConfiguration()`
+>    call inside `setMinimumCollections` (line 326) with a direct
+>    `configuration.setValue(...)` call mirroring `readMinimumCollections`
+>    line 346 precedent.
+> 2. **`CollectionBasedStorageConfiguration.removeProperty` cache
+>    staleness** (Step 1): does not invalidate the in-memory
+>    `PROPERTIES` cache map. Pinned by
+>    `testRemovePropertyDoesNotInvalidateInMemoryCache` and
+>    `testRemovePropertyRemovesFromPersistentBtree` with WHEN-FIXED
+>    inversion. Fix: add `properties.remove(name)` to `dropProperty`
+>    (line 1738) symmetrically to `doSetProperty`'s `properties.put`
+>    (line 1095).
+> 3. **`AbstractLinkBag.EnhancedIterator.reset()` stale `nextPair`**
+>    (Phase C iter-1, surfaced by TB1/BC1 falsifiability tightening):
+>    `reset()` only re-creates the spliterator at lines 797-799; does
+>    NOT clear or re-prime the cached `nextPair` field. After one
+>    `next()` on a 2-element bag, post-reset traversal yields 3
+>    elements (stale `nextPair` leaks an extra). Pin:
+>    `LinkBagIteratorOpsTest.testEnhancedIteratorResetRestartsTraversal`
+>    with `assertNotEquals` and `postResetCount == 3` WHEN-FIXED
+>    assertions. Fix: in `reset()`, add `nextPair = null;
+>    spliterator.tryAdvance(p -> nextPair = p);` mirroring the
+>    constructor.
+> 4. **`DiskStorage.XXHashOutputStream.write(byte[], int, int)`
+>    length/end-index mismatch** (Phase C iter-1, surfaced by TB2/TC3
+>    hash-state tightening): the hash update at lines 1979-1982 calls
+>    `xxHash64.update(bts, st, end - st)` (interpreting the third
+>    parameter as an end-INDEX), but `super.write(bts, st, end)`
+>    passes the third parameter verbatim as a length. With the
+>    standard `(b, off, len)` calling convention, hash sees `len -
+>    off` bytes while the underlying stream gets `len` bytes. Latent
+>    today because all production callers pass `off == 0`
+>    (DataOutputStream wraps the writer). No executable pin (would
+>    require a non-zero-offset caller, which doesn't exist in
+>    production). Fix: align the two — change
+>    `xxHash64.update(bts, st, end - st)` to
+>    `xxHash64.update(bts, st, end)` (interpreting `end` as a length,
+>    matching `super.write` and the standard contract).
+>
+> *Track 22 absorption work for Track 19 forwards:*
+> - For items 1, 2, 3: land the production fix + flip the WHEN-FIXED
+>   pin to its correct-behaviour assertion in the same commit.
+> - For item 4: add a non-zero-offset hash-update test to
+>   `DiskStorageStaticHelpersTest` (would surface today's bug
+>   immediately) before applying the fix; flip the test to assert
+>   correct hash semantics in the same commit.
+>
+> *Suggestion-tier deferred items from Track 19 reviews:*
+> - **TS12 (Phase C iter-2 gate)**: stale Javadoc reference in
+>   `AsyncFileTest` lines 30-36 — the comment mentions a
+>   `testCopyToCopiesAllData` test that does not exist in the file.
+>   Either drop the second sentence of the Javadoc or rewrite to
+>   describe the actual code (e.g., name `testReplaceContentWith` as
+>   the only second-AsyncFile case).
+> - **TS13 (Phase C iter-2 gate)**: `executor.shutdownNow()` in
+>   `AsyncFileTest.@After` does not await termination. Comment claims
+>   "AsyncFile worker threads release file channels before the delete
+>   races" but `shutdownNow()` only interrupts; on a thread blocked
+>   in a write, the interrupt does not synchronously close the
+>   channel. Every test calls `file.close()` before returning so the
+>   race window is small in practice. Either follow `shutdownNow()`
+>   with `executor.awaitTermination(5, TimeUnit.SECONDS)` or soften
+>   the comment to "best-effort — every test also calls
+>   `file.close()` synchronously which is the actual channel-release
+>   barrier."
+> - **PageOperation toString chain non-accumulation** (Phase C iter-2
+>   implementer note): `PageOperation` / `AbstractPageWALRecord` /
+>   `LogSequenceNumber` `toString()` chain replaces rather than
+>   appends — each subclass `@Override` shows only its own appended
+>   string, NOT the parent's fields. As a code-quality cleanup (not
+>   a bug fix) Track 22 may consider rewriting the chain so each
+>   subclass appends, making debug log output more diagnostic. Out
+>   of scope for Track 19's coverage focus; pure suggestion tier.
+
 > **How**:
 > - TX tests need a database session to verify begin/commit/rollback
 >   semantics (`DbTestBase`).
