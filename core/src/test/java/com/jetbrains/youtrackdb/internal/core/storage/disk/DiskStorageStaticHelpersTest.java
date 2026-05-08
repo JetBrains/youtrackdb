@@ -246,11 +246,14 @@ public class DiskStorageStaticHelpersTest {
    * {@code ByteArrayOutputStream} contains the expected bytes.
    *
    * <p>Exercises the three write paths ({@code write(byte[])},
-   * {@code write(byte[], int, int)}, {@code write(int)}) that contribute to
-   * incremental hash computation.
+   * {@code write(byte[], int, int)}, {@code write(int)}) that contribute to incremental
+   * hash computation. Renamed from {@code xxHashOutputStream_writeDelegatesAndHashUpdates}
+   * to reflect what is actually asserted: byte-stream delegation. The hash-update
+   * contract is pinned by the companion test
+   * {@link #xxHashOutputStream_hashStateAdvancesAfterWrites}.
    */
   @Test
-  public void xxHashOutputStream_writeDelegatesAndHashUpdates() throws Exception {
+  public void xxHashOutputStream_writeDelegatesToWrappedStream() throws Exception {
     var clazz = Class.forName(
         "com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage$XXHashOutputStream");
     Constructor<?> ctor = clazz.getDeclaredConstructor(java.io.OutputStream.class);
@@ -262,8 +265,9 @@ public class DiskStorageStaticHelpersTest {
 
     // write(byte[])
     xxOut.write(new byte[] {1, 2, 3});
-    // write(byte[], int, int)
-    xxOut.write(new byte[] {4, 5, 6, 7}, 1, 2); // writes bytes 5, 6
+    // write(byte[], int, int) — production override delegates super.write(bts, st, end)
+    // verbatim, so this writes 2 bytes from offset 1: {5, 6}.
+    xxOut.write(new byte[] {4, 5, 6, 7}, 1, 2);
     // write(int)
     xxOut.write(0xFF);
     // close — should not throw
@@ -278,5 +282,75 @@ public class DiskStorageStaticHelpersTest {
     assertEquals((byte) 5, bytes[3]);
     assertEquals((byte) 6, bytes[4]);
     assertEquals((byte) 0xFF, bytes[5]);
+  }
+
+  /**
+   * Pins the hash-update contract of {@code XXHashOutputStream}: every {@code write}
+   * overload must mutate the internal {@code xxHash64} state. Without this assertion,
+   * removing every {@code xxHash64.update(...)} call from the three write overrides
+   * would still pass {@link #xxHashOutputStream_writeDelegatesToWrappedStream} —
+   * yet the wrapper's whole purpose is to compute an incremental hash that production
+   * reads back at {@link
+   * com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage}'s
+   * {@code writeBackupMetadata} (around line 1025) for the backup metadata footer.
+   *
+   * <p>Each of the three write overloads is checked independently: the hash value
+   * must (a) change away from the seed-only state after {@code write(byte[])},
+   * (b) change again after {@code write(byte[], int, int)}, and (c) change a third
+   * time after {@code write(int)}. Reading {@code xxHash64.getValue()} reflectively
+   * via the private field keeps the test independent of any future renames of the
+   * field — and avoids brittleness against the seed value (which is a private
+   * constant). The test is independent of byte-level delegation and therefore
+   * complements (not duplicates) the companion delegation test.
+   */
+  @Test
+  public void xxHashOutputStream_hashStateAdvancesAfterWrites() throws Exception {
+    var clazz = Class.forName(
+        "com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage$XXHashOutputStream");
+    Constructor<?> ctor = clazz.getDeclaredConstructor(java.io.OutputStream.class);
+    ctor.setAccessible(true);
+
+    var underlying = new ByteArrayOutputStream();
+    @SuppressWarnings("resource")
+    java.io.OutputStream xxOut = (java.io.OutputStream) ctor.newInstance(underlying);
+
+    var hashField = clazz.getDeclaredField("xxHash64");
+    hashField.setAccessible(true);
+    var streamingHash = hashField.get(xxOut);
+    // Look up getValue() on the public abstract class, not the JNI subclass — the JNI
+    // subclass is in an unexported module, so reflective invocation against its declared
+    // method throws IllegalAccessException ("cannot access a member of class
+    // StreamingXXHash64JNI with modifiers public synchronized") despite setAccessible.
+    var getValue = Class.forName("net.jpountz.xxhash.StreamingXXHash64").getMethod("getValue");
+
+    // Hash state at construction time — the seed-only baseline. We capture this
+    // by calling getValue() on a fresh stream; whatever the seed produces is the
+    // baseline. We don't hardcode the seed — it's a private constant subject to
+    // change, and pinning it here would couple this test to that constant.
+    long initialHash = (long) getValue.invoke(streamingHash);
+
+    // write(byte[]) — must advance the hash.
+    xxOut.write(new byte[] {1, 2, 3});
+    long afterByteArray = (long) getValue.invoke(streamingHash);
+    assertTrue(
+        "write(byte[]) must update xxHash64 — hash should differ from initial",
+        afterByteArray != initialHash);
+
+    // write(byte[], int, int) — must advance the hash again.
+    xxOut.write(new byte[] {4, 5, 6, 7}, 1, 2);
+    long afterByteArrayOffsetLen = (long) getValue.invoke(streamingHash);
+    assertTrue(
+        "write(byte[], int, int) must update xxHash64 — hash should differ from prior",
+        afterByteArrayOffsetLen != afterByteArray);
+
+    // write(int) — must advance the hash a third time.
+    xxOut.write(0xFF);
+    long afterInt = (long) getValue.invoke(streamingHash);
+    assertTrue(
+        "write(int) must update xxHash64 — hash should differ from prior",
+        afterInt != afterByteArrayOffsetLen);
+
+    // close — does not throw.
+    xxOut.close();
   }
 }

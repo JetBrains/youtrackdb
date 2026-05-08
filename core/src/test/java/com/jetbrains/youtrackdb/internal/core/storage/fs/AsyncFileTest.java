@@ -445,8 +445,12 @@ public class AsyncFileTest {
 
   @Test
   public void testReadDoesNotThrowOnEof() throws Exception {
-    // Verifies that read() with throwOnEof=false stops silently at EOF rather
-    // than propagating an EOFException.
+    // Verifies that read() with throwOnEof=false stops silently at EOF rather than
+    // propagating an EOFException, AND that the bytes successfully read before EOF
+    // match what was written. Without the post-read content check, this test could
+    // not distinguish "EOF handled silently" from "junk data returned" — a
+    // regression that turned the EOF branch into a hard failure but left the
+    // assertion intact would still pass otherwise.
     final AsyncFile file = new AsyncFile(
         buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
     file.create();
@@ -463,12 +467,67 @@ public class AsyncFileTest {
     // Should complete without EOFException
     file.read(pos, result, false);
 
+    // Verify the first 128 bytes of the result match the data we wrote — this is
+    // the assertion that distinguishes a silent-EOF success from a silent-EOF that
+    // also corrupted the buffer somehow.
+    final var first128 = new byte[128];
+    result.position(0);
+    result.get(first128);
+    Assert.assertArrayEquals(
+        "First 128 bytes read back must match what was written", data, first128);
+
     file.close();
+  }
+
+  /**
+   * Pins the throwOnEof=true branch of {@link AsyncFile#read(long, ByteBuffer, boolean)}.
+   * The complementary {@code testReadDoesNotThrowOnEof} only covers the silent-EOF path;
+   * removing the {@code throw new EOFException(...)} statement from the production read
+   * loop would not fail any pre-existing test.
+   *
+   * <p>This test allocates 128 bytes, writes them, extends the logical file by another
+   * 128 bytes (so {@code checkPosition} passes for a 256-byte read), then asks for 256
+   * bytes with {@code throwOnEof=true}: the read must throw {@link
+   * java.io.EOFException} because the second half is past the end of the file's actual
+   * content (the channel's read() returns -1 once it crosses the OS-level file end).
+   */
+  @Test
+  public void testReadThrowsOnEofWhenRequested() throws Exception {
+    final AsyncFile file = new AsyncFile(
+        buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+    file.create();
+
+    final var pos = file.allocateSpace(128);
+    final var data = new byte[128];
+    new java.util.Random().nextBytes(data);
+    file.write(pos, ByteBuffer.wrap(data));
+
+    // Extend the logical size so checkPosition passes for a 256-byte read.
+    file.allocateSpace(128);
+    final var result = ByteBuffer.allocate(256).order(ByteOrder.nativeOrder());
+
+    try {
+      file.read(pos, result, /* throwOnEof= */ true);
+      Assert.fail("Expected EOFException when reading past end with throwOnEof=true");
+    } catch (java.io.EOFException expected) {
+      // Pin the message format — production builds the message from the file path so
+      // diagnostic logs identify the file. A regression that swallowed the file path
+      // would still throw EOFException but with a less useful message.
+      Assert.assertNotNull("EOFException must carry a non-null message", expected.getMessage());
+      Assert.assertTrue(
+          "EOFException message must mention the end of file",
+          expected.getMessage().toLowerCase(java.util.Locale.ROOT).contains("end of file"));
+    } finally {
+      file.close();
+    }
   }
 
   @Test
   public void testWriteToClosedFileThrowsStorageException() throws Exception {
-    // Verifies that write() on a closed AsyncFile throws StorageException (via checkForClose).
+    // Verifies that write() on a closed AsyncFile throws StorageException (via
+    // checkForClose). The message-content assertion narrows the failure mode so that
+    // a StorageException raised for an unrelated reason (e.g. an NPE wrapped at a
+    // different site) would not satisfy the test.
     final AsyncFile file = new AsyncFile(
         buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
     file.create();
@@ -479,13 +538,18 @@ public class AsyncFileTest {
       file.write(pos, ByteBuffer.allocate(128));
       Assert.fail("Expected StorageException for write on closed file");
     } catch (com.jetbrains.youtrackdb.internal.core.exception.StorageException e) {
-      // expected
+      Assert.assertNotNull("StorageException must carry a message", e.getMessage());
+      Assert.assertTrue(
+          "Message must explicitly indicate the file is closed: " + e.getMessage(),
+          e.getMessage().toLowerCase(java.util.Locale.ROOT).contains("is closed"));
     }
   }
 
   @Test
   public void testReadToClosedFileThrowsStorageException() throws Exception {
-    // Verifies that read() on a closed AsyncFile throws StorageException (via checkForClose).
+    // Verifies that read() on a closed AsyncFile throws StorageException (via
+    // checkForClose). The message-content assertion narrows the failure mode the
+    // same way as testWriteToClosedFileThrowsStorageException.
     final AsyncFile file = new AsyncFile(
         buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
     file.create();
@@ -498,14 +562,19 @@ public class AsyncFileTest {
       file.read(pos, ByteBuffer.allocate(128), true);
       Assert.fail("Expected StorageException for read on closed file");
     } catch (com.jetbrains.youtrackdb.internal.core.exception.StorageException e) {
-      // expected
+      Assert.assertNotNull("StorageException must carry a message", e.getMessage());
+      Assert.assertTrue(
+          "Message must explicitly indicate the file is closed: " + e.getMessage(),
+          e.getMessage().toLowerCase(java.util.Locale.ROOT).contains("is closed"));
     }
   }
 
   @Test
   public void testWriteOutOfBoundsThrowsStorageException() throws Exception {
     // Verifies that write() at an offset beyond the allocated size throws
-    // StorageException (via checkPosition).
+    // StorageException (via checkPosition). The message-content assertion ensures the
+    // StorageException is the position-validation exception rather than an unrelated
+    // failure mode that also happens to wrap as StorageException.
     final AsyncFile file = new AsyncFile(
         buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
     file.create();
@@ -514,7 +583,10 @@ public class AsyncFileTest {
       file.write(0, ByteBuffer.allocate(128));
       Assert.fail("Expected StorageException for out-of-bounds write");
     } catch (com.jetbrains.youtrackdb.internal.core.exception.StorageException e) {
-      // expected
+      Assert.assertNotNull("StorageException must carry a message", e.getMessage());
+      Assert.assertTrue(
+          "Message must mention the requested position: " + e.getMessage(),
+          e.getMessage().toLowerCase(java.util.Locale.ROOT).contains("position"));
     } finally {
       file.close();
     }
@@ -522,7 +594,10 @@ public class AsyncFileTest {
 
   @Test
   public void testCreateAlreadyOpenedThrowsStorageException() throws Exception {
-    // Verifies that calling create() on an already-open AsyncFile throws StorageException.
+    // Verifies that calling create() on an already-open AsyncFile throws
+    // StorageException — not some other StorageException that happens to be triggered
+    // by the underlying filesystem state. The message-content assertion narrows the
+    // failure mode.
     final AsyncFile file = new AsyncFile(
         buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
     file.create();
@@ -530,7 +605,10 @@ public class AsyncFileTest {
       file.create();
       Assert.fail("Expected StorageException for double create");
     } catch (com.jetbrains.youtrackdb.internal.core.exception.StorageException e) {
-      // expected
+      Assert.assertNotNull("StorageException must carry a message", e.getMessage());
+      Assert.assertTrue(
+          "Message must indicate the file is already opened: " + e.getMessage(),
+          e.getMessage().toLowerCase(java.util.Locale.ROOT).contains("already opened"));
     } finally {
       file.close();
     }
@@ -606,7 +684,13 @@ public class AsyncFileTest {
       file.write(-1, ByteBuffer.allocate(1));
       Assert.fail("Expected StorageException for negative offset write");
     } catch (StorageException e) {
-      // expected — checkPosition() rejects offset < 0
+      // The checkPosition() guard rejects offset < 0 with the same "outside of allocated
+      // file position" message used for offset >= fileSize. The message-content assertion
+      // narrows the failure mode so an unrelated StorageException would not satisfy it.
+      Assert.assertNotNull("StorageException must carry a message", e.getMessage());
+      Assert.assertTrue(
+          "Message must mention the requested position: " + e.getMessage(),
+          e.getMessage().toLowerCase(java.util.Locale.ROOT).contains("position"));
     } finally {
       file.close();
     }

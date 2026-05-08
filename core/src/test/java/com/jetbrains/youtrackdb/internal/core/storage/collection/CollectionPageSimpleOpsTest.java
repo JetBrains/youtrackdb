@@ -48,14 +48,52 @@ public class CollectionPageSimpleOpsTest {
     var pointer = BUFFER_POOL.acquireDirect(true, Intention.TEST);
     var cachePointer = new CachePointer(pointer, BUFFER_POOL, 0, 0);
     cachePointer.incrementReferrer();
-    CacheEntry entry = new CacheEntryImpl(0, 0, cachePointer, false, null);
-    entry.acquireExclusiveLock();
-    return entry;
+    try {
+      CacheEntry entry = new CacheEntryImpl(0, 0, cachePointer, false, null);
+      entry.acquireExclusiveLock();
+      return entry;
+    } catch (RuntimeException | Error e) {
+      // If CacheEntryImpl constructor or acquireExclusiveLock throws, we still own the
+      // referrer increment from above — release it before propagating so the page tracker
+      // (enabled via -Dyoutrackdb.memory.directMemory.trackMode=true) does not report a
+      // leaked direct-memory page at JVM shutdown and abort surefire with System.exit(1).
+      cachePointer.decrementReferrer();
+      throw e;
+    }
   }
 
   private void releaseEntry(CacheEntry entry) {
-    entry.releaseExclusiveLock();
-    entry.getCachePointer().decrementReferrer();
+    try {
+      entry.releaseExclusiveLock();
+    } finally {
+      // Run the referrer release in finally so a buggy redo that corrupted entry state
+      // (causing releaseExclusiveLock to throw) does not leak the direct-memory referrer
+      // — see TX3 in the Track 19 Phase C iter-1 review findings for the full rationale.
+      entry.getCachePointer().decrementReferrer();
+    }
+  }
+
+  /**
+   * Allocates a pair of cache entries for a two-page redo test, runs the action, and releases
+   * both entries deterministically — even if entry-2 allocation throws (which would otherwise
+   * leak entry-1's referrer and trigger the page-tracker JVM abort under
+   * {@code -Dyoutrackdb.memory.directMemory.trackMode=true}).
+   *
+   * <p>The {@code try} block opens immediately after entry-1 is allocated, so a failure in
+   * entry-2 setup unwinds through the {@code finally} that releases entry-1.
+   */
+  private void withTwoPages(java.util.function.BiConsumer<CacheEntry, CacheEntry> action) {
+    var entry1 = createRawCacheEntry();
+    try {
+      var entry2 = createRawCacheEntry();
+      try {
+        action.accept(entry1, entry2);
+      } finally {
+        releaseEntry(entry2);
+      }
+    } finally {
+      releaseEntry(entry1);
+    }
   }
 
   // --- Record ID tests ---
@@ -100,9 +138,10 @@ public class CollectionPageSimpleOpsTest {
 
   @Test
   public void testInitOpRedoCorrectness() {
-    var entry1 = createRawCacheEntry();
-    var entry2 = createRawCacheEntry();
-    try {
+    // Use withTwoPages so a failure between the two acquireDirect() calls cannot leak
+    // entry1's referrer (which would trigger the page-tracker JVM abort under
+    // -Dyoutrackdb.memory.directMemory.trackMode=true).
+    withTwoPages((entry1, entry2) -> {
       // Apply init directly
       var page1 = new CollectionPage(entry1);
       page1.init();
@@ -117,10 +156,7 @@ public class CollectionPageSimpleOpsTest {
       Assert.assertEquals(page1.getFreeSpace(), page2.getFreeSpace());
       Assert.assertEquals(page1.getPageIndexesLength(), page2.getPageIndexesLength());
       Assert.assertEquals(page1.getRecordsCount(), page2.getRecordsCount());
-    } finally {
-      releaseEntry(entry1);
-      releaseEntry(entry2);
-    }
+    });
   }
 
   @Test
@@ -200,9 +236,7 @@ public class CollectionPageSimpleOpsTest {
 
   @Test
   public void testDeleteRecordRedoWithPreserveTrue() {
-    var entry1 = createRawCacheEntry();
-    var entry2 = createRawCacheEntry();
-    try {
+    withTwoPages((entry1, entry2) -> {
       // Set up pages with a record
       var page1 = new CollectionPage(entry1);
       page1.init();
@@ -226,17 +260,12 @@ public class CollectionPageSimpleOpsTest {
       Assert.assertEquals(page1.getFreeSpace(), page2.getFreeSpace());
       Assert.assertTrue(page1.isDeleted(0));
       Assert.assertTrue(page2.isDeleted(0));
-    } finally {
-      releaseEntry(entry1);
-      releaseEntry(entry2);
-    }
+    });
   }
 
   @Test
   public void testDeleteRecordRedoWithPreserveFalse() {
-    var entry1 = createRawCacheEntry();
-    var entry2 = createRawCacheEntry();
-    try {
+    withTwoPages((entry1, entry2) -> {
       var page1 = new CollectionPage(entry1);
       page1.init();
       var record = new byte[] {10, 20, 30};
@@ -256,10 +285,7 @@ public class CollectionPageSimpleOpsTest {
       Assert.assertEquals(page1.getRecordsCount(), page2.getRecordsCount());
       Assert.assertEquals(page1.getFreeSpace(), page2.getFreeSpace());
       Assert.assertEquals(page1.getPageIndexesLength(), page2.getPageIndexesLength());
-    } finally {
-      releaseEntry(entry1);
-      releaseEntry(entry2);
-    }
+    });
   }
 
   @Test
@@ -330,9 +356,7 @@ public class CollectionPageSimpleOpsTest {
 
   @Test
   public void testSetRecordVersionRedoCorrectness() {
-    var entry1 = createRawCacheEntry();
-    var entry2 = createRawCacheEntry();
-    try {
+    withTwoPages((entry1, entry2) -> {
       var page1 = new CollectionPage(entry1);
       page1.init();
       page1.appendRecord(1L, new byte[] {1, 2, 3}, -1,
@@ -352,10 +376,7 @@ public class CollectionPageSimpleOpsTest {
       op.redo(page2);
 
       Assert.assertEquals(page1.getRecordVersion(0), page2.getRecordVersion(0));
-    } finally {
-      releaseEntry(entry1);
-      releaseEntry(entry2);
-    }
+    });
   }
 
   @Test
@@ -449,9 +470,7 @@ public class CollectionPageSimpleOpsTest {
 
   @Test
   public void testDoDefragmentationRedoCorrectness() {
-    var entry1 = createRawCacheEntry();
-    var entry2 = createRawCacheEntry();
-    try {
+    withTwoPages((entry1, entry2) -> {
       // Set up pages with fragmented state: add 3 records, delete the middle one
       var page1 = new CollectionPage(entry1);
       page1.init();
@@ -485,10 +504,7 @@ public class CollectionPageSimpleOpsTest {
       Assert.assertEquals(page1.getFreePosition(), page2.getFreePosition());
       Assert.assertEquals(page1.getFreeSpace(), page2.getFreeSpace());
       Assert.assertEquals(page1.getRecordsCount(), page2.getRecordsCount());
-    } finally {
-      releaseEntry(entry1);
-      releaseEntry(entry2);
-    }
+    });
   }
 
   // --- No registration during redo path ---

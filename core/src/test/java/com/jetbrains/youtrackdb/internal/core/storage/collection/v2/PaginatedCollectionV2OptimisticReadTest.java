@@ -1073,22 +1073,49 @@ public class PaginatedCollectionV2OptimisticReadTest {
   }
 
   /**
-   * close() must flush and close the file cleanly.  After calling close() the
-   * collection is re-created and opened to allow tearDown to proceed normally.
+   * Pins the close() contract: close() must flush in-memory state to disk and release the
+   * collection's file handles cleanly.
+   *
+   * <p>The original version of this test only asserted "close() does not throw" — that
+   * assertion was satisfied by an empty close() body, leaving the actual flush-and-close
+   * contract unverified. This test now reads the inserted record back AFTER close() and a
+   * fresh open() and asserts the bytes match what was written: this fails if close() left
+   * state un-flushed (the new collection instance would not see the record) or if close()
+   * left file handles in a state that reopen() rejects.
+   *
+   * <p>The companion test {@code testOpenReloadsStateFromDisk} covers the related but
+   * distinct scenario where the entire DB is closed and reopened (full read-cache
+   * eviction). This test covers the narrower scope: close()-only on the collection,
+   * with the underlying database still open, exercising the flush-and-close path
+   * without involving DB-level eviction.
    */
   @Test
   public void testCloseAndReopen() throws IOException {
     // Insert a record so there is something to flush.
-    atomicOps().calculateInsideAtomicOperation(
-        op -> collection.createRecord(new byte[] {1, 2, 3}, (byte) 1, null, op));
+    final byte[] data = {1, 2, 3};
+    final var pos = atomicOps().calculateInsideAtomicOperation(
+        op -> collection.createRecord(data, (byte) 1, null, op));
 
     // close() must not throw.
     collection.close();
 
-    // Re-open so @After tearDown can drop the DB cleanly.
+    // Re-open. If close() did not flush the record's storage state to the underlying
+    // pages (or if it left file handles in a bad state), the open() call below will
+    // either throw or the readRecord() that follows will return stale/null data.
     collection = new PaginatedCollectionV2("optReadCollection", storage);
     collection.configure(55, "optReadCollection");
     atomicOps().executeInsideAtomicOperation(op -> collection.open(op));
+
+    // Read back the previously-inserted record to verify close() did persist the state.
+    // A close() that didn't actually do anything (empty body) would leave the new
+    // collection instance unaware of the pre-close insert; readRecord would either
+    // return null or throw, and this assertion would fail.
+    final var buf = atomicOps().calculateInsideAtomicOperation(
+        op -> collection.readRecord(pos.collectionPosition, op)).toRawBuffer();
+    Assert.assertNotNull("Record must be readable after close+reopen", buf);
+    Assert.assertArrayEquals(
+        "Record bytes after close+reopen must match what was inserted before close",
+        data, buf.buffer());
   }
 
   /**

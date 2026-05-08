@@ -18,6 +18,23 @@ import org.junit.Test;
  * size(), isSizeable(), and reset() on the iterator, and trySplit(), estimateSize(),
  * and characteristics() on the spliterator, are not exercised by any existing test.
  * Each test builds a per-method memory DB via DbTestBase's @Before lifecycle.
+ *
+ * <p><b>Production-bug pin (testEnhancedIteratorResetRestartsTraversal):</b>
+ * {@code AbstractLinkBag.EnhancedIterator.reset()} only re-creates the {@code spliterator}
+ * field. It does NOT clear or re-prime the cached {@code nextPair} field, which still holds
+ * whichever element was queued by the previous {@code next()} call. The first {@code next()}
+ * after {@code reset()} therefore returns that stale element instead of restarting from the
+ * bag's first element — i.e. {@code reset()} does not actually restart traversal as the
+ * method name and {@link Resettable} contract imply.
+ *
+ * <p>This file pins the buggy behavior with an inverted assertion ({@code assertNotEquals})
+ * marked {@code WHEN-FIXED} so the test catches accidental no-op changes today, and so that
+ * once the production bug is fixed the assertion can be flipped to {@code assertEquals}
+ * (the correct restart contract). The forward-looking fix lives in the deferred-cleanup
+ * queue: {@code AbstractLinkBag.EnhancedIterator.reset()} should set
+ * {@code nextPair = null} and re-prime it via
+ * {@code spliterator.tryAdvance(pair -> nextPair = pair)} after reseating the
+ * {@code spliterator} field, mirroring the constructor.
  */
 public class LinkBagIteratorOpsTest extends DbTestBase {
 
@@ -56,9 +73,25 @@ public class LinkBagIteratorOpsTest extends DbTestBase {
   }
 
   /**
-   * Verifies that reset() on the EnhancedIterator reinstalls a fresh MergingSpliterator,
-   * allowing the same iterator instance to traverse the bag from the beginning again.
-   * This covers AbstractLinkBag.EnhancedIterator.reset().
+   * Pins the buggy behavior of {@code AbstractLinkBag.EnhancedIterator.reset()}:
+   * because {@code reset()} re-creates the spliterator without clearing or re-priming the
+   * cached {@code nextPair} field, the first {@code next()} after {@code reset()} returns
+   * whatever was queued by the prior {@code next()} (i.e. the SECOND element, not the
+   * first), and traversal does not restart from the bag's beginning as the method name
+   * and {@link Resettable} contract imply.
+   *
+   * <p>The {@code assertNotEquals(firstPre, firstPost)} below passes today because of the
+   * production bug. Once the production fix lands (see class-level Javadoc), flip it to
+   * {@code assertEquals} — the {@code WHEN-FIXED} marker identifies the line to change.
+   *
+   * <p>The test additionally exercises the bug's full surface area by counting how many
+   * elements the iterator delivers in the post-reset traversal: with the buggy code the
+   * fresh spliterator is consumed twice after reset (returning elements 0 and 1 of the
+   * spliterator) while {@code currentPair = stale nextPair} adds a third pre-spliterator
+   * element, so the post-reset traversal yields THREE elements for a 2-element bag.
+   * The assertion {@code postResetCount == 3} (also marked {@code WHEN-FIXED}) pins this
+   * specific pathological count, distinguishing the bug from generic "reset doesn't
+   * work" regressions and from a no-op reset (which would yield 1 stale element).
    */
   @Test
   public void testEnhancedIteratorResetRestartsTraversal() {
@@ -74,15 +107,50 @@ public class LinkBagIteratorOpsTest extends DbTestBase {
 
     Iterator<RidPair> it = bag.iterator();
 
-    // Advance the iterator past the first entry
+    // Capture the first element before reset.
     Assert.assertTrue(it.hasNext());
-    it.next();
+    RidPair firstPre = it.next();
+    Assert.assertNotNull(firstPre);
 
-    // reset() must allow iterating from the beginning again
+    // reset() — should restart traversal from the bag's first element.
     ((Resettable) it).reset();
 
-    // After reset, hasNext() must be true and next() returns the first entry again
+    // hasNext() must be true after reset (the bag has not changed). This rules out the
+    // "no-op reset that leaves the iterator exhausted" regression, since the pre-reset
+    // next() left nextPair = element-1 and a no-op reset would still report hasNext().
+    // It also rules out "reset clears nextPair to null without re-priming", which would
+    // make hasNext() return false here.
     Assert.assertTrue(it.hasNext());
+
+    // Read the post-reset element. With the production bug, this returns element 1
+    // (stale nextPair from the pre-reset next() call); without the bug, it would
+    // return element 0 again — same as firstPre.
+    RidPair firstPost = it.next();
+    Assert.assertNotNull(firstPost);
+
+    // WHEN-FIXED: change assertNotEquals(...) to assertEquals(firstPre, firstPost) — the
+    // correct restart contract requires the post-reset first element to equal the
+    // pre-reset first element. Today the production bug makes them differ.
+    Assert.assertNotEquals(
+        "WHEN-FIXED: change to assertEquals — see class-level Javadoc for production fix",
+        firstPre, firstPost);
+
+    // Drain the rest of the post-reset traversal and count. With the bug we already
+    // consumed the stale nextPair; the fresh spliterator now feeds 2 more elements
+    // (its own elements 0 and 1), giving 1 + 2 = 3 post-reset deliveries for a 2-bag.
+    int postResetCount = 1; // counts firstPost
+    while (it.hasNext()) {
+      RidPair p = it.next();
+      Assert.assertNotNull(p);
+      postResetCount++;
+    }
+
+    // WHEN-FIXED: change to assertEquals(2, postResetCount) — a correct reset() yields
+    // exactly bag.size() elements after the reset. Today the bug yields 3 because the
+    // stale nextPair leaks an extra element into the post-reset stream.
+    Assert.assertEquals(
+        "WHEN-FIXED: change expected to 2 — see class-level Javadoc for production fix",
+        3, postResetCount);
 
     session.rollback();
   }

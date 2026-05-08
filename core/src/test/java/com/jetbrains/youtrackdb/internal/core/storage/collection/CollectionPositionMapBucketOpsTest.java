@@ -55,14 +55,51 @@ public class CollectionPositionMapBucketOpsTest {
     var pointer = BUFFER_POOL.acquireDirect(true, Intention.TEST);
     var cachePointer = new CachePointer(pointer, BUFFER_POOL, 0, 0);
     cachePointer.incrementReferrer();
-    CacheEntry entry = new CacheEntryImpl(0, 0, cachePointer, false, null);
-    entry.acquireExclusiveLock();
-    return entry;
+    try {
+      CacheEntry entry = new CacheEntryImpl(0, 0, cachePointer, false, null);
+      entry.acquireExclusiveLock();
+      return entry;
+    } catch (RuntimeException | Error e) {
+      // If CacheEntryImpl constructor or acquireExclusiveLock throws, we still own the
+      // referrer increment from above — release it before propagating so the page tracker
+      // (enabled via -Dyoutrackdb.memory.directMemory.trackMode=true) does not report a
+      // leaked direct-memory page at JVM shutdown and abort surefire with System.exit(1).
+      cachePointer.decrementReferrer();
+      throw e;
+    }
   }
 
   private void releaseEntry(CacheEntry entry) {
-    entry.releaseExclusiveLock();
-    entry.getCachePointer().decrementReferrer();
+    try {
+      entry.releaseExclusiveLock();
+    } finally {
+      // Run the referrer release in finally so a buggy redo that corrupted entry state
+      // (causing releaseExclusiveLock to throw) does not leak the direct-memory referrer.
+      entry.getCachePointer().decrementReferrer();
+    }
+  }
+
+  /**
+   * Allocates a pair of cache entries for a two-page redo test, runs the action, and releases
+   * both entries deterministically — even if entry-2 allocation throws (which would otherwise
+   * leak entry-1's referrer and trigger the page-tracker JVM abort under
+   * {@code -Dyoutrackdb.memory.directMemory.trackMode=true}).
+   *
+   * <p>The {@code try} block opens immediately after entry-1 is allocated, so a failure in
+   * entry-2 setup unwinds through the {@code finally} that releases entry-1.
+   */
+  private void withTwoPages(java.util.function.BiConsumer<CacheEntry, CacheEntry> action) {
+    var entry1 = createRawCacheEntry();
+    try {
+      var entry2 = createRawCacheEntry();
+      try {
+        action.accept(entry1, entry2);
+      } finally {
+        releaseEntry(entry2);
+      }
+    } finally {
+      releaseEntry(entry1);
+    }
   }
 
   // --- Record ID tests ---
@@ -91,9 +128,10 @@ public class CollectionPositionMapBucketOpsTest {
 
   @Test
   public void testInitRedoCorrectness() {
-    var entry1 = createRawCacheEntry();
-    var entry2 = createRawCacheEntry();
-    try {
+    // Use withTwoPages so a failure between the two acquireDirect() calls cannot leak
+    // entry1's referrer (which would trigger the page-tracker JVM abort under
+    // -Dyoutrackdb.memory.directMemory.trackMode=true).
+    withTwoPages((entry1, entry2) -> {
       var page1 = new CollectionPositionMapBucket(entry1);
       page1.init();
 
@@ -101,10 +139,7 @@ public class CollectionPositionMapBucketOpsTest {
       new CollectionPositionMapBucketInitOp(0, 0, 0, new LogSequenceNumber(0, 0)).redo(page2);
 
       Assert.assertEquals(page1.getSize(), page2.getSize());
-    } finally {
-      releaseEntry(entry1);
-      releaseEntry(entry2);
-    }
+    });
   }
 
   // --- AllocateOp ---
@@ -122,9 +157,7 @@ public class CollectionPositionMapBucketOpsTest {
 
   @Test
   public void testAllocateRedoDeterministic() {
-    var entry1 = createRawCacheEntry();
-    var entry2 = createRawCacheEntry();
-    try {
+    withTwoPages((entry1, entry2) -> {
       var page1 = new CollectionPositionMapBucket(entry1);
       page1.init();
       var idx1 = page1.allocate();
@@ -137,10 +170,7 @@ public class CollectionPositionMapBucketOpsTest {
       Assert.assertEquals(idx1, 0); // First allocate always returns 0
       Assert.assertEquals(page1.getSize(), page2.getSize());
       Assert.assertEquals(page1.getStatus(0), page2.getStatus(0));
-    } finally {
-      releaseEntry(entry1);
-      releaseEntry(entry2);
-    }
+    });
   }
 
   // --- SetOp ---
@@ -177,9 +207,7 @@ public class CollectionPositionMapBucketOpsTest {
 
   @Test
   public void testSetRedoCorrectness() {
-    var entry1 = createRawCacheEntry();
-    var entry2 = createRawCacheEntry();
-    try {
+    withTwoPages((entry1, entry2) -> {
       var page1 = new CollectionPositionMapBucket(entry1);
       page1.init();
       page1.allocate();
@@ -198,10 +226,7 @@ public class CollectionPositionMapBucketOpsTest {
       Assert.assertEquals(e1.getPageIndex(), e2.getPageIndex());
       Assert.assertEquals(e1.getRecordPosition(), e2.getRecordPosition());
       Assert.assertEquals(e1.getRecordVersion(), e2.getRecordVersion());
-    } finally {
-      releaseEntry(entry1);
-      releaseEntry(entry2);
-    }
+    });
   }
 
   // --- RemoveOp ---
@@ -224,9 +249,7 @@ public class CollectionPositionMapBucketOpsTest {
 
   @Test
   public void testRemoveRedoCorrectness() {
-    var entry1 = createRawCacheEntry();
-    var entry2 = createRawCacheEntry();
-    try {
+    withTwoPages((entry1, entry2) -> {
       var page1 = new CollectionPositionMapBucket(entry1);
       page1.init();
       page1.allocate();
@@ -242,10 +265,7 @@ public class CollectionPositionMapBucketOpsTest {
 
       Assert.assertEquals(page1.getStatus(0), page2.getStatus(0));
       Assert.assertEquals(page1.getRecordVersionAt(0), page2.getRecordVersionAt(0));
-    } finally {
-      releaseEntry(entry1);
-      releaseEntry(entry2);
-    }
+    });
   }
 
   /**
@@ -300,9 +320,7 @@ public class CollectionPositionMapBucketOpsTest {
 
   @Test
   public void testUpdateVersionRedoCorrectness() {
-    var entry1 = createRawCacheEntry();
-    var entry2 = createRawCacheEntry();
-    try {
+    withTwoPages((entry1, entry2) -> {
       var page1 = new CollectionPositionMapBucket(entry1);
       page1.init();
       page1.allocate();
@@ -318,10 +336,7 @@ public class CollectionPositionMapBucketOpsTest {
 
       Assert.assertEquals(55L, page1.getRecordVersionAt(0));
       Assert.assertEquals(55L, page2.getRecordVersionAt(0));
-    } finally {
-      releaseEntry(entry1);
-      releaseEntry(entry2);
-    }
+    });
   }
 
   // --- Redo suppression ---

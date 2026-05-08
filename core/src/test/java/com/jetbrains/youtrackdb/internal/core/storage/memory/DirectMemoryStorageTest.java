@@ -62,9 +62,23 @@ public class DirectMemoryStorageTest {
       var storages = (java.util.Map<String, AbstractStorage>) storagesField.get(ytdb.internal);
       var storage = (DirectMemoryStorage) storages.get(dbName);
 
-      action.accept(storage);
-
-      ytdb.drop(dbName);
+      try {
+        action.accept(storage);
+      } finally {
+        // Drop must run even when the action throws — six tests use
+        // @Test(expected = UnsupportedOperationException.class) and explicitly throw out of
+        // the action. Without this finally block, drop() never runs for those, the
+        // try-with-resources ytdb.close() takes the slow path that does not release
+        // direct-memory pages incrementally, and the page tracker (enabled via
+        // -Dyoutrackdb.memory.directMemory.trackMode=true in core/pom.xml) calls
+        // System.exit(1) at JVM shutdown — aborting the surefire JVM and masking the
+        // real failure as "Tests run: 0".
+        try {
+          ytdb.drop(dbName);
+        } catch (Exception ignored) {
+          // Drop failure during cleanup must not mask the original action exception.
+        }
+      }
     }
   }
 

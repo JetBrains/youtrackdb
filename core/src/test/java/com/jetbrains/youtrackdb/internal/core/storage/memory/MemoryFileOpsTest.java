@@ -43,13 +43,20 @@ public class MemoryFileOpsTest {
     var readCache = mock(ReadCache.class);
     var file = new MemoryFile(/* storageId= */ 1, /* id= */ 2);
 
-    // Add three pages and verify the count tracks each addition.
-    for (int i = 1; i <= 3; i++) {
-      file.addNewPage(readCache);
-      assertEquals("Expected " + i + " page(s) in file", i, file.getUsedMemory());
+    try {
+      // Add three pages and verify the count tracks each addition.
+      for (int i = 1; i <= 3; i++) {
+        file.addNewPage(readCache);
+        assertEquals("Expected " + i + " page(s) in file", i, file.getUsedMemory());
+      }
+    } finally {
+      // clear() calls decrementReferrer() for each entry, releasing direct memory correctly.
+      // Run in finally so an assertion failure between pages does not leak the referrers
+      // — under -Dyoutrackdb.memory.directMemory.trackMode=true (set in core/pom.xml) the
+      // page tracker calls System.exit(1) at JVM shutdown if any non-zero referrer survives,
+      // aborting the surefire JVM and masking the real failure as "Tests run: 0".
+      file.clear();
     }
-    // clear() calls decrementReferrer() for each entry, releasing direct memory correctly.
-    file.clear();
   }
 
   // ---------------------------------------------------------------------------
@@ -90,9 +97,14 @@ public class MemoryFileOpsTest {
     // decrementReferrer() for each entry — do NOT pre-decrement here or clear() will go negative.
     file.addNewPage(readCache);
 
-    assertEquals("File with one page must report size 1", 1, file.size());
-    // clear() releases the cache pointer referrer; no double-free needed here.
-    file.clear();
+    try {
+      assertEquals("File with one page must report size 1", 1, file.size());
+    } finally {
+      // clear() releases the cache pointer referrer; run in finally so a size-1 assertion
+      // failure does not leak the direct-memory referrer (see testGetUsedMemoryAfterAddingPages
+      // for the full rationale on the trackMode=true JVM-abort trap).
+      file.clear();
+    }
     assertEquals("File after clear must report size 0", 0, file.size());
   }
 
@@ -126,12 +138,52 @@ public class MemoryFileOpsTest {
     var file = new MemoryFile(/* storageId= */ 1, /* id= */ 6);
 
     var added = file.addNewPage(readCache);
-    var loaded = file.loadPage(0);
+    try {
+      var loaded = file.loadPage(0);
 
-    assertNotNull("loadPage must return an entry that was previously added", loaded);
-    assertEquals("loadPage must return the same entry that was added", added, loaded);
+      assertNotNull("loadPage must return an entry that was previously added", loaded);
+      assertEquals("loadPage must return the same entry that was added", added, loaded);
+    } finally {
+      // clear() calls decrementReferrer() for the entry, releasing direct memory correctly.
+      // Run in finally so a loadPage-returns-different-entry assertion failure does not leak
+      // the direct-memory referrer (see testGetUsedMemoryAfterAddingPages for the full
+      // rationale on the trackMode=true JVM-abort trap).
+      file.clear();
+    }
+  }
 
-    // clear() calls decrementReferrer() for the entry, releasing direct memory correctly.
+  // ---------------------------------------------------------------------------
+  // clear — leaked-handle (warn) branch
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Verifies that {@code clear()} does NOT throw when at least one cache entry has a non-zero
+   * {@code usagesCount} (i.e. the entry is "leaked" — still considered in use by the caller).
+   *
+   * <p>{@code MemoryFile.clear()} contains a critical safety branch (the
+   * {@code thereAreNotReleased = true} path) that is documented in its Javadoc as intentionally
+   * NOT throwing on this condition — throwing here would "poison the YouTrackDB instance for all
+   * subsequent operations" because storage deletion would fail and the storage would remain in a
+   * half-deleted state. This test pins the no-throw contract so a future change that reverted to
+   * throwing (or flipped polarity to skip the safety branch entirely) would be caught.
+   *
+   * <p>The leaked-handle condition is reproduced by calling {@code incrementUsages()} on the
+   * entry (which {@code MemoryFile.clear()} reads via {@code getUsagesCount() > 0} to detect a
+   * leak) and then calling {@code clear()} without the matching {@code decrementUsages()}.
+   * Asserting the absence of an exception during {@code clear()} pins the no-throw contract.
+   */
+  @Test
+  public void testClearWithUnreleasedEntryDoesNotThrow() {
+    var readCache = mock(ReadCache.class);
+    var file = new MemoryFile(/* storageId= */ 1, /* id= */ 7);
+
+    var entry = file.addNewPage(readCache);
+    // Bump usagesCount so the leak-detection branch (`thereAreNotReleased`) in clear() fires
+    // — we deliberately do NOT call decrementUsages() here; the leak is the point of the test.
+    entry.incrementUsages();
+
+    // Contract: clear() must NOT throw on the leaked-handle path —
+    // see Javadoc on MemoryFile.clear().
     file.clear();
   }
 }
