@@ -3,6 +3,8 @@ package com.jetbrains.youtrackdb.internal.core.index;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.config.IndexEngineData;
@@ -11,6 +13,8 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.storage.Storage;
+import com.jetbrains.youtrackdb.internal.core.storage.index.engine.RemoteIndexEngine;
 import org.junit.Test;
 
 /**
@@ -171,5 +175,25 @@ public class DefaultIndexFactoryTest extends DbTestBase {
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         true, -1, 1, false, (byte) 0, (byte) 0, true, null, true, 1, null, null, null);
     factory.createIndexEngine(storage, data);
+  }
+
+  /**
+   * createIndexEngine for a storage whose {@code getType()} returns {@code "remote"} must
+   * return a {@link RemoteIndexEngine} regardless of the algorithm or multivalue flag.
+   * The remote storage type is used by non-embedded (client/server) connections, where index
+   * operations are forwarded to the server rather than executed locally.
+   */
+  @Test
+  public void createIndexEngine_remoteStorage_returnsRemoteIndexEngine() {
+    var remoteStorage = mock(Storage.class);
+    when(remoteStorage.getType()).thenReturn("remote");
+    when(remoteStorage.getName()).thenReturn("remote-db");
+
+    var data = buildEngineData(99, "remote_engine_test", false);
+    var engine = factory.createIndexEngine(remoteStorage, data);
+
+    assertNotNull("createIndexEngine must not return null for remote storage", engine);
+    assertTrue("Remote storage type must produce a RemoteIndexEngine",
+        engine instanceof RemoteIndexEngine);
   }
 }
