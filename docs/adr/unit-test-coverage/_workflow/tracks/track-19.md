@@ -204,7 +204,7 @@ storage, filesystem, disk, collections, ridbag).
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/5 complete)
+- [ ] Step implementation (2/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -240,15 +240,30 @@ storage, filesystem, disk, collections, ridbag).
   >
   > **Critical context:** Two latent production bugs (the `setMinimumCollections` deadlock and the `removeProperty` cache-staleness) MUST land in Track 22's deferred-cleanup queue. Phase C of Track 19 (or Track 22's Phase A) needs to commit them to `implementation-backlog.md`'s Track-22 absorption block alongside the existing entries (Track-15/16/17/18 forwarded items). The per-method-lifecycle pattern for memory DB tests is a **cross-track signal to Step 2 / Step 4** — re-evaluate any precedent before reusing it. Step 5's coverage re-measurement will pick up `core.storage.config` and `core.storage` top-level numbers; expect substantial gains in both.
 
-- [ ] Step: Memory storage — MemoryFile, DirectMemoryOnlyDiskCache, DirectMemoryStorage paths
+- [x] Step: Memory storage — MemoryFile, DirectMemoryOnlyDiskCache, DirectMemoryStorage paths
+  - [x] Context: safe
   > **Risk:** low — default (purely test-additive; same-package tests for two directly-constructible classes plus DbTestBase extensions for the engine-level paths).
   >
-  > **Scope:**
-  > - `MemoryFile` (6 uncov) — standalone same-package tests, extending `MemoryFileClearTest`'s precedent.
-  > - `DirectMemoryOnlyDiskCache` (86 uncov — the heaviest in-package class; **package-private** ctor) — same-package tests in `c.j.y.internal.core.storage.memory`.
-  > - `DirectMemoryStorage`-level paths (engine lifecycle, drop semantics) via DbTestBase memory mode — extend `MemoryStorageDropTest` / `StorageDeleteErrorHandlingTest`.
-  > - `@Category(SequentialTest.class)` only on tests that keep a class-static `YouTrackDB`.
-  > - **Verification:** as Step 1.
+  > **What was done:** Added three new test classes (~1,160 LOC, 78 tests, commit `212fe9ff62`) in the `c.j.y.internal.core.storage.memory` package targeting the 117 uncov lines across the three classes:
+  > - `MemoryFileOpsTest` (137 lines, 6 tests) — standalone same-package, exercises `getUsedMemory()`, `size()` (empty + post-clear), and `loadPage()` (miss + hit). Models on `MemoryFileClearTest`'s precedent.
+  > - `DirectMemoryOnlyDiskCacheTest` (746 lines, 57 tests) — same-package construction (package-private ctor) drives every method on the class: metadata; full file-management surface (`addFile` overloads + duplicate-name / duplicate-ID exception paths, `bookFileId`, `fileIdByName` / `loadFile`, `rename`/`truncate`/`delete`); all page operations (`allocateNewPage`, `loadForWrite/Read/Silent` miss + hit, `releaseFromWrite/Read`, `getFilledUpTo`); bulk operations (`close`/`clear`/`delete`/`deleteStorage`/`closeStorage`); all no-op stubs and `UnsupportedOperationException` stubs.
+  > - `DirectMemoryStorageTest` (275 lines, 15 tests) — per-test `YouTrackDBImpl` lifecycle (matches Step 1's cross-track signal — class-static + memory-mode trips the page tracker). Covers `getType`/`getURL`, all six backup/restore `UnsupportedOperationException` methods, and five protected stubs via reflection (`readIv`, `getIv`, `initIv`, `copyWALToBackup`, `createWalTempDirectory`, `createWalFromIBUFiles`) plus `flushAllData`.
+  >
+  > Coverage-gate PASSED (100% line / 100% branch on 6 changed production lines — diff is test-additive only). Targeted tests: 78/78 PASS.
+  >
+  > **What was discovered:**
+  > - **`DirectMemoryOnlyDiskCache.fileIdByName()` returns the internal (lower-32-bit) ID, not the composed external ID** that `addFile()` and `bookFileId()` return. Tests comparing the two must extract the internal ID via `internalFileId()` first. This is a non-obvious API asymmetry on `DirectMemoryOnlyDiskCache` — likely a small documentation gap rather than a bug, but worth noting for future cache-API tests.
+  > - **`MemoryFile.addNewPage()` increments the cache-pointer referrer internally, and `MemoryFile.clear()` decrements it for each entry.** Manually decrementing `cachePointer.decrementReferrer()` before calling `clear()` produces a negative-referrer `IllegalStateException`. Pattern: do not pre-decrement — let `clear()` do the release. Discovered while authoring `MemoryFileOpsTest`.
+  > - **Pre-existing flaky failures** under the parallel coverage profile (`BinaryConverterFactoryTest`, `GranularTickerTest`, `BTreeOptimisticReadTest`, `LinkBagAtomicUpdateTest`, `SharedLinkBagBTreeOptimisticReadTest`) appear in the full coverage suite but pass when run in isolation — consistent with parallel-execution interference, not caused by Step 2. Same flakes were observed during Step 1 and earlier tracks.
+  >
+  > **What changed from the plan:** No plan changes. The per-test `YouTrackDBImpl` lifecycle for `DirectMemoryStorageTest` matches the Step-1 cross-track signal exactly. `@Category(SequentialTest.class)` was not needed for any new class: the two same-package classes are stateless standalone, and `DirectMemoryStorageTest` builds a fresh storage per test method.
+  >
+  > **Key files:**
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/memory/MemoryFileOpsTest.java` (new, 137 lines, 6 tests)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/memory/DirectMemoryOnlyDiskCacheTest.java` (new, 746 lines, 57 tests)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/memory/DirectMemoryStorageTest.java` (new, 275 lines, 15 tests)
+  >
+  > **Critical context:** Two cross-track signals to Track 20 (Storage Cache & WAL): (1) `fileIdByName()` returns the internal ID while every other ID-returning method on the disk-cache surface returns the composed external ID — any cache/WAL test that compares the two must extract `internalFileId()` first; (2) `MemoryFile.clear()` releases referrers itself — manual `decrementReferrer()` before `clear()` is a double-free trap. Recorded here for Track 20's Phase A to read.
 
 - [ ] Step: FS wrappers + disk storage
   > **Risk:** low — default (purely test-additive; standalone fs tests plus reflection-based static-helper tests and a disk-mode DbTestBase shell).
