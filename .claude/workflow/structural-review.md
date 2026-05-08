@@ -3,11 +3,12 @@
 ## Goal
 
 Validate the plan's internal structure and completeness across the plan
-file and backlog. This is a lightweight check that does NOT read the
-codebase — it catches plan-level defects (dependency cycles, missing
+file and the step files. This is a lightweight check that does NOT read
+the codebase — it catches plan-level defects (dependency cycles, missing
 descriptions, contradictions, **bloat**) cheaply. Pending-track
-`**What/How/Constraints/Interactions**` detail lives in
-`implementation-backlog.md`; the review reads both files.
+`**What/How/Constraints/Interactions**` detail lives in each track's
+`tracks/track-N.md` `## Description`; the review reads the plan file
+plus every pending track's step file.
 
 The review also enforces the per-section budgets defined in
 `planning.md` § Architecture Notes format. Plan-file bloat is paid by
@@ -111,12 +112,12 @@ issues.
 ## Review output
 
 The structural review is not persisted to disk. Mechanical fixes are
-applied autonomously to `implementation-plan.md` (and
-`implementation-backlog.md` when relevant); design-decision findings
-ride in the orchestrator's conversation context until escalated and
-resolved. The durable trace is the gate-PASS state, the resulting
-commit, and the audit-summary entry in the plan file's `## Plan
-Review` section (see
+applied autonomously to `implementation-plan.md` (and the relevant
+`tracks/track-N.md` files when track descriptions need updates);
+design-decision findings ride in the orchestrator's conversation
+context until escalated and resolved. The durable trace is the
+gate-PASS state, the resulting commit, and the audit-summary entry in
+the plan file's `## Plan Review` section (see
 [`implementation-review.md`](implementation-review.md) §Audit trail).
 A typical iteration looks like:
 

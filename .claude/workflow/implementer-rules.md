@@ -239,13 +239,14 @@ see [`commit-conventions.md`](commit-conventions.md) and
 below). The orchestrator parses the block; everything else in the
 implementer's output is ignored.
 
-The implementer **MUST NOT** modify the step file, the plan file, or
-the backlog. At `level=step` all step-file
+The implementer **MUST NOT** modify the step file or the plan file.
+At `level=step` all step-file
 mutations — episode write, risk-line rewrite, `[x]` mark, Progress
 count update, retry/split row inserts — are the Phase B
-orchestrator's responsibility. At `level=track` all plan/backlog
+orchestrator's responsibility. At `level=track` all plan and step-file
 mutations — Progress section iteration count, plan corrections from
-deferred findings, track episode, `[x]` mark on the plan track entry —
+deferred findings (which may add a new step file or update an
+existing one), track episode, `[x]` mark on the plan track entry —
 are the Phase C orchestrator's responsibility.
 
 ### Pacing long-running tasks — foreground only
@@ -390,9 +391,9 @@ preserve any untracked files that pre-existed the spawn (test
 fixtures, scratch logs, anything outside the workflow's tracked
 state).
 
-The orchestrator's working state — step file, review reports,
-design document, implementation backlog, baselines — is **tracked
-under `docs/adr/<dir>/_workflow/`** and committed by the orchestrator
+The orchestrator's working state — step files, review reports,
+design document, baselines — is **tracked under
+`docs/adr/<dir>/_workflow/`** and committed by the orchestrator
 on the appropriate cadence (see `commit-conventions.md` § Push every
 commit). The orchestrator commits any pending workflow-file changes
 **before** spawning the implementer, so `HEAD` at spawn time

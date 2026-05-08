@@ -36,7 +36,7 @@ the plan lifecycle:
 Use the `phase4-creation` kind — structurally similar to
 `phase1-creation` (one-shot creation, full discipline; one or both
 files depending on whether a mechanics companion is needed) but
-targeting the `*-final.md` paths and skipping plan/backlog ref
+targeting the `*-final.md` paths and skipping plan / step-file ref
 propagation (those refs point at the original `design.md`, not at the
 new final artifact). No follow-up `mechanics-edit` / `design-sync` cycle:
 Phase 4 is committed once.
@@ -53,7 +53,7 @@ The invoking agent supplies these when calling the skill:
 | `design_path` | Absolute path to `design.md` (or `design-final.md` in Phase 4). |
 | `design_mechanics_path` | Absolute path to `design-mechanics.md` (or `null` if no companion). |
 | `plan_path` | Absolute path to `implementation-plan.md` (for `**Full design**` link resolution). |
-| `backlog_path` | Absolute path to `implementation-backlog.md` (same purpose). |
+| `tracks_dir` | Absolute path to the `tracks/` directory containing every `tracks/track-N.md` step file (same purpose — each step file's `## Description` may carry `**Full design**` references that the cross-file ref check has to resolve). |
 | `target` | `design`, `mechanics`, or `both` — the file(s) the edit touches. Threaded through to the script's `--target` flag verbatim. (No `.md` suffix — the script's argparse choices are `design`/`mechanics`/`both`.) |
 | `intended_edit` | Either `(old_string, new_string)` for a focused edit, or full new content for a section-add / section-rewrite / file creation. |
 | `mutation_kind` | One of the values listed in the mode table above. |
@@ -80,12 +80,12 @@ mechanics companion) or `both` if the mutation also propagates into
 | `design-sync` | both files (re-distill design.md from updated mechanics) | `both` | `whole-doc` on design.md, plus mechanics-link-resolution sweep |
 | `content-edit` | design.md | `design` | `bounded` — changed section + 1-2 surrounding sections + Overview + (when present) Core Concepts |
 | `section-add` | design.md | `design` | `bounded` — new section + Overview + (when present) Core Concepts + structure roadmap |
-| `section-remove` | design.md (+ plan/backlog ref cleanup — `**Full design**` lines pointing at the removed section must be updated in the same mutation, otherwise `**Full design**` link resolution fails) | `design` | `whole-doc` |
-| `section-rename` | design.md + (when mechanics exists) the matching section in `design-mechanics.md` + plan/backlog ref propagation | `design \| both` | `whole-doc` |
+| `section-remove` | design.md (+ plan / step-file ref cleanup — `**Full design**` lines pointing at the removed section must be updated in the same mutation, otherwise `**Full design**` link resolution fails) | `design` | `whole-doc` |
+| `section-rename` | design.md + (when mechanics exists) the matching section in `design-mechanics.md` + plan / step-file ref propagation | `design \| both` | `whole-doc` |
 | `section-move` | design.md | `design` | `whole-doc` |
 | `structural-rewrite` | design.md + (when mechanics exists and any rename or split propagates) the matching sections in `design-mechanics.md` | `design \| both` | `whole-doc` |
 | `length-trigger-crossing` | both files (split into design-mechanics) | `both` | `whole-doc` |
-| `phase4-creation` | `design-final.md` + (optional) `design-mechanics-final.md` | `both` if mechanics-final exists, else `design` | `whole-doc` on `design-final.md` (mechanics-final is exempt — agent-targeted long-form). Skip plan/backlog ref propagation: omit `--plan-path` / `--backlog-path` so the cross-file ref check is naturally skipped. |
+| `phase4-creation` | `design-final.md` + (optional) `design-mechanics-final.md` | `both` if mechanics-final exists, else `design` | `whole-doc` on `design-final.md` (mechanics-final is exempt — agent-targeted long-form). Skip plan / step-file ref propagation: omit `--plan-path` / `--tracks-dir` so the cross-file ref check is naturally skipped. |
 
 **Periodic whole-doc check.** Independent of mode: every Nth design-touching
 mutation (default `N=5`, counted from the review log) escalates the cold-read
@@ -139,7 +139,7 @@ content reflects what was *actually built* — not the planned design. The
 caller (`prompts/create-final-design.md`) is expected to have run the
 PSI-backed verification tables before invoking the skill, so each diagram
 element traces to a real code location. Do **not** pass `--plan-path` /
-`--backlog-path` (the cross-file ref check is naturally skipped — see the
+`--tracks-dir` (the cross-file ref check is naturally skipped — see the
 table above).
 
 For `design-sync`: see Step 1.5 below — sync has a distillation sub-step
@@ -170,8 +170,10 @@ Sync re-distills `design.md` from the current state of
 5. For sections **removed** in mechanics: remove from `design.md` (or, if
    the section was renamed, propagate the rename and update the
    `Mechanics:` link).
-6. **Update plan/backlog `**Full design**` refs** for any section that was
-   added/removed/renamed in this sync.
+6. **Update plan / step-file `**Full design**` refs** for any section
+   that was added/removed/renamed in this sync — the plan-file checklist
+   entries' Decision Records and every step file's `## Description` may
+   carry references to the affected section.
 
 Apply the distilled `design.md` to disk via `Edit`/`Write`.
 
@@ -192,7 +194,7 @@ python3 .claude/scripts/design-mechanical-checks.py \
     --design-path <design_path> \
     --design-mechanics-path <design_mechanics_path or omit> \
     --plan-path <plan_path or omit> \
-    --backlog-path <backlog_path or omit> \
+    --tracks-dir <tracks_dir or omit> \
     --changed-section "<title>" \
     --target <design|mechanics|both> \
     --scope <bounded|whole-doc>
@@ -257,7 +259,7 @@ sub-agent via the `Agent` tool:
 - bounded_scope: <changed_section name + surrounding section names, when bounded>
 - mutation_kind: <kind>
 - plan_path: <abs path or "(none)">
-- backlog_path: <abs path or "(none)">
+- tracks_dir: <abs path or "(none)">
 ```
 
 For `design-sync`, also include in the prompt body: *"This sync re-distills
@@ -444,11 +446,12 @@ the meaning of the request.
 
 ## When NOT to use this skill
 
-- Edits to `implementation-plan.md`, `implementation-backlog.md`, or any
-  other workflow file. Those have their own gates (Phase 2 structural
-  review). The `**Full design**` ref-propagation that lands in plan and
-  backlog during a `section-rename` or `design-sync` is part of this
-  skill's scope, but isolated plan-only edits are not.
+- Edits to `implementation-plan.md`, the per-track step files under
+  `tracks/`, or any other workflow file. Those have their own gates
+  (Phase 2 structural review). The `**Full design**` ref-propagation
+  that lands in the plan and the step files during a `section-rename`
+  or `design-sync` is part of this skill's scope, but isolated plan-only
+  or step-file-only edits are not.
 - Edits to source code, tests, or docs outside `docs/adr/<plan-dir>/`.
 - Pre-Phase-1 scratch notes that haven't been promoted to `design.md`
   yet — only the canonical paths above trigger the discipline.
@@ -484,8 +487,8 @@ design.md". The skill:
 2. Reads `design-mechanics.md` to see the current state.
 3. Distills `design.md` — updates each affected section's TL;DR +
    overview + edge cases + references to match current mechanics.
-4. Updates plan/backlog `**Full design**` refs for any renamed/added/
-   removed sections.
+4. Updates plan / step-file `**Full design**` refs for any renamed /
+   added / removed sections.
 5. Runs mechanical checks with `--target=both`.
 6. Spawns cold-read with `whole-doc` scope, including the sync-specific
    "verify design.md reflects current mechanics" instruction.
@@ -506,8 +509,8 @@ companion, so the rename has to propagate. The skill:
    `design-document-rules.md` § Length-triggered split into
    `design-mechanics.md`.
 3. Updates every `**Full design**: design.md §"DPB (D33)"` line in
-   `implementation-plan.md` and `implementation-backlog.md` to use the
-   new name.
+   `implementation-plan.md` and in every `tracks/track-N.md` step file
+   to use the new name.
 4. Runs mechanical checks with `--target=both`, `--scope=whole-doc` —
    confirms zero broken refs. (`both` because mechanics was touched;
    the cold-read scope table resolves `design \| both` to `both` for
@@ -517,7 +520,7 @@ companion, so the rename has to propagate. The skill:
 
 If the design has **no** `design-mechanics.md` companion, step 2 is
 skipped and step 4 runs with `--target=design`. Step 3 still runs —
-plan/backlog ref propagation is independent of whether mechanics
+plan / step-file ref propagation is independent of whether mechanics
 exists.
 
 ## Reference

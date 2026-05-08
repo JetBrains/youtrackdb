@@ -36,11 +36,13 @@ detection is used.
 # Track N: <title>
 
 ## Description
-<assembled at Phase A start — intro paragraph from the plan entry plus
-`**What/How/Constraints/Interactions**` + optional diagram from the
-backlog, optionally followed by a `### Clarifications` subsection
-populated from the Track Pre-Flight gate (omitted when the gate
-captured no clarifications). See the "Description lifecycle"
+<written at Phase 1 by `create-plan` — intro paragraph from the plan
+entry plus `**What**:` / `**How**:` / `**Constraints**:` /
+`**Interactions**:` subsections plus any optional track-level Mermaid
+diagram. The Track Pre-Flight gate (see
+[`track-review.md`](track-review.md) §Track Pre-Flight) may amend this
+section and/or append a `### Clarifications` subsection (omitted when
+the gate captured no clarifications). See the "Description lifecycle"
 subsection at the end of §2.1 for authoritative-location rules across
 phases.>
 
@@ -81,20 +83,20 @@ phases.>
 ````
 
 The **Description** section carries the track's full description —
-intro paragraph (sourced from the plan-file entry), `**What**:` /
+intro paragraph (mirroring the plan-file entry's intro), `**What**:` /
 `**How**:` / `**Constraints**:` / `**Interactions**:` subsections, and
-any track-level Mermaid diagram (both sourced from
-`implementation-backlog.md`), optionally followed by a
-`### Clarifications` subsection populated from the Track Pre-Flight
-gate (see [`track-review.md`](track-review.md) §Track Pre-Flight).
-Phase A orchestration writes the section once at the start of the
-track, concatenating the plan-entry intro with the backlog-section
-body and the (possibly empty) clarifications buffer; it is re-written
-only if [`inline-replanning.md`](inline-replanning.md) updates a
-mid-execution track's description. Phase B and Phase C sub-agents that already read
-the step file see the description here automatically — see the
-Description lifecycle subsection below for the authoritative-location
-rules across phases.
+any track-level Mermaid diagram. Phase 1 writes this section directly
+when it creates the step file, so by the time `/execute-tracks` enters
+Phase A the description is already on disk. The Track Pre-Flight gate
+(see [`track-review.md`](track-review.md) §Track Pre-Flight) may amend
+the section in place and/or append a `### Clarifications` subsection
+populated from the gate's clarifications buffer (omitted when the buffer
+is empty). Inline replanning (see
+[`inline-replanning.md`](inline-replanning.md)) is the only other writer
+mid-execution. Phase B and Phase C sub-agents that already read the step
+file see the description here automatically — see the Description
+lifecycle subsection below for the authoritative-location rules across
+phases.
 
 The **Progress** section tracks which phase the track is in. The execution
 agent updates it at each phase transition:
@@ -158,8 +160,8 @@ require escalation.
 
 A track's detailed description (the `**What/How/Constraints/Interactions**`
 subsections plus any track-level Mermaid diagram, plus any
-`### Clarifications` captured by the Track Pre-Flight gate) travels
-between files as the track moves through the workflow. The table below is the
+`### Clarifications` captured by the Track Pre-Flight gate) lives in the
+step file from the moment Phase 1 creates it. The table below is the
 canonical reference for where that content lives at each phase for
 pending, active, and completed tracks. Phase A resume logic (see
 [`track-review.md`](track-review.md)) and inline replanning (see
@@ -174,55 +176,24 @@ gate per the rule above.
 | Phase | Authoritative location | Writer | Reader(s) |
 |---|---|---|---|
 | Pre-Phase-1 | (none) | — | — |
-| Phase 1 write | `implementation-backlog.md` | Phase 1 agent (via `create-plan/SKILL.md`) | Phase 2 autonomous plan review (consistency + structural sub-agents) |
-| Phase A start — before step-file write | `implementation-backlog.md` | (inherited from Phase 1) | Phase A orchestration (reads the track's backlog section) |
-| Phase A mid — step file has `## Description`, backlog entry still present | **step file** (Phase A writes the step file first, then removes the backlog entry — the step file takes authority the moment it is written, so an interrupted session always resumes against a single source) | Phase A orchestration (wrote the step file) | Phase A resume logic (idempotent re-entry); Phase A review sub-agents |
-| Phase A end | step file | Phase A orchestration (backlog section already removed) | Phase A review sub-agents (Track 3 prompts) |
+| Phase 1 write | step file (`tracks/track-N.md`) | Phase 1 agent (via `create-plan/SKILL.md`) | Phase 2 autonomous plan review (consistency + structural sub-agents) |
+| Phase A | step file | (stable; Track Pre-Flight may amend `## Description` and/or append `### Clarifications`) | Phase A orchestration; Phase A review sub-agents |
 | Phase B / Phase C | step file | (stable — only inline replan rewrites) | Phase B implementer + Phase B/C code-review sub-agents |
-| Phase C after collapse | step file + plan intro paragraph | Phase C collapse (writes intro + episode) | future-track sessions (as strategic context) |
-| Skipped at or before Phase A | plan file entry (retained under `[~]`) + (backlog entry removed; step file never created) | `track-skip` | next session's Track Pre-Flight Panel 1 / future sessions |
-| Skipped after Phase A (rare) | plan file entry (retained under `[~]`) + step file (retained so the skip is traceable) | `track-skip` | next session's Track Pre-Flight Panel 1 / future sessions |
+| Phase C after collapse | plan intro paragraph + plan-resident track episode (the step file remains on disk until Phase 4 cleanup but is no longer load-bearing strategic context) | Phase C collapse (writes intro + episode) | future-track sessions (as strategic context) |
+| Skipped | plan file entry (retained under `[~]`) + step file deleted | `track-skip` | next session's Track Pre-Flight Panel 1 / future sessions |
 | Inline replan | per authoritative-location rule in [`inline-replanning.md`](inline-replanning.md) | inline-replanning orchestration | — |
 
-Track-level Mermaid diagrams follow the same trajectory as the
-description (backlog → step file at Phase A; never rendered in the
-plan file). The writer and readers at each phase are the same as the
+Track-level Mermaid diagrams live inside the step file's `## Description`
+under the `**Interactions**:` blockquote (never rendered in the plan
+file). The writer and readers at each phase are the same as the
 corresponding description row above.
 
-**Monotonic shrinkage:** The backlog grows only during Phase 1 or inline
-replanning, and shrinks as tracks enter Phase A or are skipped. Normal
-Phase A / B / C execution never adds entries. The file lives under
-`docs/adr/<dir-name>/_workflow/` — tracked in git during the branch
-lifetime so changes are pushed to the draft PR for team visibility and
-disk-loss backup, and removed in the Phase 4 cleanup commit before
-merge (see `conventions.md` §1.2 for the full lifecycle and
-`workflow.md` § Final Artifacts for the cleanup procedure).
-
-### Backlog section body extraction rule
-
-Track N's section body in `implementation-backlog.md` is everything
-between the `## Track N: <title>` header line and the next
-`## Track M: <title>` header line (or EOF, if Track N is the last
-section), excluding the `## Track N:` header line itself. Optional
-trailing blank lines between Track N's content and the next
-`## Track M:` header are stripped from the extracted body so repeated
-extract-then-insert cycles do not accumulate whitespace.
-
-Do **NOT** use line-count deletion to implement the removal — that
-approach breaks when track-level `mermaid` diagrams or
-multi-paragraph blockquotes change a section's line count between
-when the agent originally read it and when the removal runs. Always
-search for the header boundary at removal time.
-
-This is the single authoritative definition used wherever the workflow
-reads or removes a track's backlog section: Phase A description-move
-(see [`track-review.md`](track-review.md) §What You Do item 2,
-sub-step (d)), `track-skip` backlog cleanup (see
-[`track-skip.md`](track-skip.md)), and inline-replanning updates (see
-[`inline-replanning.md`](inline-replanning.md)). All three entry points
-apply the rule verbatim — keeping the extraction logic identical
-across them avoids accidental divergence when section bodies contain
-track-level `mermaid` diagrams or multi-paragraph blockquotes.
+**Step files live under `docs/adr/<dir-name>/_workflow/tracks/`** —
+tracked in git during the branch lifetime so changes are pushed to the
+draft PR for team visibility and disk-loss backup, and removed alongside
+the rest of `_workflow/` in the Phase 4 cleanup commit before merge
+(see `conventions.md` §1.2 for the full lifecycle and `workflow.md`
+§ Final Artifacts for the cleanup procedure).
 
 ---
 

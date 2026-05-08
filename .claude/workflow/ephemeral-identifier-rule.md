@@ -4,8 +4,8 @@
 rule; every phase-specific prompt that touches durable content points
 here.
 
-`implementation-plan.md`, `implementation-backlog.md`,
-`tracks/track-N.md`, and `design-mutations.md` live under
+`implementation-plan.md`, `tracks/track-N.md`, `design.md`,
+`design-mechanics.md`, and `design-mutations.md` live under
 `docs/adr/<dir-name>/_workflow/`. They are tracked on the branch during
 development, but the entire `_workflow/` directory is removed in the
 Phase 4 cleanup commit before the PR is merged — so any identifier
@@ -56,13 +56,13 @@ present in the branch tree at the time those commits are made. The
 forbidden list above is what lives durably on `develop`.
 
 It does **not** apply to the working files themselves: step files
-(`tracks/track-N.md`), the plan, and the backlog all cite tracks,
-steps, findings, and iterations freely — that's exactly what those
-identifiers are for inside the workflow. Review findings themselves
-no longer have a separate on-disk home (they ride in the orchestrator's
-conversation context for the iteration loop), so the rule against
-citing finding IDs in durable content remains, just without a working
-file to cite from.
+(`tracks/track-N.md`) and the plan all cite tracks, steps, findings,
+and iterations freely — that's exactly what those identifiers are
+for inside the workflow. Review findings themselves no longer have a
+separate on-disk home (they ride in the orchestrator's conversation
+context for the iteration loop), so the rule against citing finding
+IDs in durable content remains, just without a working file to cite
+from.
 
 ## Forbidden
 
@@ -103,8 +103,8 @@ implemented it.
 Examples:
 
 - ❌ `// added during Track 2 Step 1 to unblock Phase A resume`
-- ✅ `// part of the atomic step-file-write + backlog-section-remove
-      ordering that keeps Phase A resume idempotent`
+- ✅ `// part of the description-amendment + clarifications-append
+      ordering that keeps Phase A pre-flight resume idempotent`
 
 - ❌ `Review fix: address CQ72 (anchor drift in slim rendering)`
 - ✅ `Review fix: restore byte-identical phrasing at the two

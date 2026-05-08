@@ -30,7 +30,7 @@ name. Otherwise, default to the current git branch name
 The plan will be saved to:
 `docs/adr/<dir-name>/_workflow/implementation-plan.md`
 (the `_workflow/` subdir holds every ephemeral working file — plan,
-backlog, design, step files, reviews — and is removed in the Phase 4
+design, step files, reviews — and is removed in the Phase 4
 cleanup commit before merge; see `conventions.md` §1.2 and
 `workflow.md` § Final Artifacts).
 The codebase is at the current working directory.
@@ -87,15 +87,16 @@ Help the user develop the plan:
    workflow rules:
    - Every track gets an **intro paragraph** in the plan checklist
      entry (a short paragraph of high-level context) and a matching
-     `## Track N: <title>` section in `implementation-backlog.md`
-     carrying the detailed `**What**:` / `**How**:` /
-     `**Constraints**:` / `**Interactions**:` subsections (no length
-     cap on the detail). See `planning.md` §Track descriptions for
-     what each subsection should cover.
-   - Include a track-level Mermaid component diagram in the backlog
-     (immediately after the `**Interactions**:` blockquote) when the
-     track has 3+ internal components with non-trivial interactions.
-     Track-level diagrams are **never rendered in the plan file**.
+     `tracks/track-N.md` step file whose `## Description` section
+     carries the same intro paragraph followed by detailed `**What**:`
+     / `**How**:` / `**Constraints**:` / `**Interactions**:`
+     subsections (no length cap on the detail). See `planning.md`
+     §Track descriptions for what each subsection should cover.
+   - Include a track-level Mermaid component diagram in the step
+     file's `## Description` (immediately after the
+     `**Interactions**:` blockquote) when the track has 3+ internal
+     components with non-trivial interactions. Track-level diagrams
+     are **never rendered in the plan file**.
    - Track sizing rule: if a track would need more than ~5-7 steps, split
      it into separate dependent tracks. The execution agent handles
      sequencing and episode propagation between dependent tracks.
@@ -127,18 +128,19 @@ Help the user develop the plan:
 
 Do NOT implement anything. Only research and plan.
 
-Write both the implementation plan to
-`docs/adr/<dir-name>/_workflow/implementation-plan.md` AND the
-track-details backlog to
-`docs/adr/<dir-name>/_workflow/implementation-backlog.md` using the
-two structures below. The plan carries strategic context (Goals,
+Write the implementation plan to
+`docs/adr/<dir-name>/_workflow/implementation-plan.md` AND one step
+file per planned track at
+`docs/adr/<dir-name>/_workflow/tracks/track-N.md` using the two
+structures below. The plan carries strategic context (Goals,
 Constraints, Architecture Notes, Decision Records) plus a thin
-checklist; the backlog carries each track's detailed
+checklist; each step file carries that track's detailed
 `**What/How/Constraints/Interactions**` subsections and any
-track-level Mermaid diagrams. Splitting keeps `/execute-tracks`
-startup context small — see `.claude/workflow/conventions.md` §1.2 for
-the full rules (directory layout under `_workflow/`, backlog file
-shape, lifecycle).
+track-level Mermaid diagram in its `## Description` section. Keeping
+per-track detail out of the plan keeps `/execute-tracks` startup
+context small — see `.claude/workflow/conventions.md` §1.2 (directory
+layout under `_workflow/`) and `conventions-execution.md` §2.1
+(step-file shape and description lifecycle).
 
 ```
 # <Feature Name>
@@ -176,11 +178,11 @@ shape, lifecycle).
 
 ## Checklist
 - [ ] Track 1: <title>
-  > <intro paragraph — high-level context; detailed description in implementation-backlog.md>
+  > <intro paragraph — high-level context; detailed description in tracks/track-1.md>
   > **Scope:** ~N steps covering X, Y, Z
 
 - [ ] Track 2: <title>
-  > <intro paragraph — high-level context; detailed description in implementation-backlog.md>
+  > <intro paragraph — high-level context; detailed description in tracks/track-2.md>
   > **Scope:** ~N steps covering A, B
   > **Depends on:** Track 1
 
@@ -191,10 +193,17 @@ shape, lifecycle).
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
 ```
 
-````markdown
-# <Feature Name> — Track Details
+Each step file (`tracks/track-N.md`) is created with `## Description`
+fully populated and the remaining sections as `[ ]` placeholders that
+Phase A → C will fill:
 
-## Track 1: <title>
+````markdown
+# Track N: <title>
+
+## Description
+<intro paragraph — same as the plan checklist entry's intro, so the
+step file is self-sufficient context for Phase B/C sub-agents that
+don't read the plan>
 
 > **What**:
 > - <bullet list of concrete deliverables>
@@ -212,17 +221,19 @@ shape, lifecycle).
 <optional track-level component diagram (≤10 nodes); see planning.md>
 ```
 
-## Track 2: <title>
+## Progress
+- [ ] Review + decomposition
+- [ ] Step implementation
+- [ ] Track-level code review
 
-> **What**: …
-> **How**: …
-> **Constraints**: …
-> **Interactions**: …
+## Reviews completed
 
-<!-- The Track 2 above uses a condensed one-line-per-label style as a
-layout exemplar; expand each track section to carry the full
-description content per planning.md §Track descriptions. -->
+## Steps
 ````
+
+The `## Base commit` section is added by Phase B at session start and
+is omitted from the Phase 1 skeleton. The full step-file shape across
+phases is documented in `conventions-execution.md` §2.1.
 
 Write the design document to
 `docs/adr/<dir-name>/_workflow/design.md` using this structure:

@@ -35,15 +35,16 @@ directory name. Otherwise, default to the current git branch name
 (`git branch --show-current`).
 
 Plan file: `docs/adr/<dir-name>/_workflow/implementation-plan.md`
-Backlog file: `docs/adr/<dir-name>/_workflow/implementation-backlog.md`
+Step files directory: `docs/adr/<dir-name>/_workflow/tracks/`
 Design document: `docs/adr/<dir-name>/_workflow/design.md`
 
-The backlog file holds pending-track
-`**What/How/Constraints/Interactions**` detail and any track-level
-Mermaid diagrams (see `conventions-execution.md` §2.1 for the
-Description lifecycle). Phase 2 sub-agents read it alongside the plan
-to verify pending-track descriptions; pass its absolute path as the
-`backlog_path` argument on each sub-agent spawn.
+Each `tracks/track-N.md` step file's `## Description` section holds
+that pending track's `**What/How/Constraints/Interactions**` detail and
+any track-level Mermaid diagram (see `conventions-execution.md` §2.1
+for the Description lifecycle). Phase 2 sub-agents read every pending
+track's step file alongside the plan to verify pending-track
+descriptions; pass the absolute step-files directory path as the
+`tracks_dir` argument on each sub-agent spawn.
 
 ---
 
@@ -52,22 +53,22 @@ to verify pending-track descriptions; pass its absolute path as the
 1. Run the clean-tree precondition from
    [`implementation-review.md`](../../workflow/implementation-review.md)
    § How to run > Precondition — path-scoped to the workflow files
-   the audit-trail commit will touch (plan, backlog, design,
-   design-mechanics, design-mutations). Halt and ask the user to
-   commit or stash if any of those are dirty. Other dirty paths in
-   the working tree are safe to ignore.
+   the audit-trail commit will touch (plan, every step file under
+   `tracks/`, design, design-mechanics, design-mutations). Halt and ask
+   the user to commit or stash if any of those are dirty. Other dirty
+   paths in the working tree are safe to ignore.
 2. Load `.claude/workflow/implementation-review.md` and follow its
    §"Step 1: Consistency Review" → §"Step 2: Structural Review" → §
    "Completion" sections in order. The orchestration is identical to
    the autonomous State 0 path inside `/execute-tracks`.
-3. Apply mechanical fixes via `Edit` (plan/backlog) or the
+3. Apply mechanical fixes via `Edit` (plan / step files) or the
    `edit-design` skill (design.md — mutation discipline).
 4. Batch-escalate any `design-decision` findings to the user once per
    step. Apply user-resolved fixes the same way.
 5. After both reviews pass, overwrite the plan file's `## Plan Review`
    section with the audit summary (`[x]` + auto-fixed/escalated
    listings) per `implementation-review.md` § Audit trail.
-6. Commit the plan/backlog/design updates with the message
+6. Commit the plan / step-file / design updates with the message
    `Plan review autonomous fixes for <plan-name>` and push.
 7. End the session.
 

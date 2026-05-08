@@ -79,8 +79,8 @@ Decision Record revisions follow this format:
 
 **File-location mechanics.** Each proposed track revision lands in a
 specific file on disk depending on the track's current status. See
-[§Updating plan and backlog](#updating-plan-and-backlog) below for the
-authoritative rule per case.
+[§Updating plan and step files](#updating-plan-and-step-files) below
+for the authoritative rule per case.
 
 **Design coherence.** When the revision invalidates a Decision
 Record's `**Full design**` link, adds a new design section, or
@@ -133,11 +133,11 @@ together (see [`implementation-review.md`](implementation-review.md)
 § Replanning). The preview exists so you don't end the session and
 clear context only to learn on the next invocation that the revision
 was structurally broken. The invocation passes `plan_path` +
-`backlog_path` per the path-passing rule in
+`tracks_dir` per the path-passing rule in
 `.claude/skills/review-plan/SKILL.md`. The sub-agent receives the
 full plan file including both completed track episodes and the
-proposed revisions, plus the backlog so pending-track details split
-into `implementation-backlog.md` are reachable.
+proposed revisions, plus the step-file directory so pending-track
+details (each track's `## Description`) are reachable.
 
 **5. Iterate** — if the preview finds structural blockers, revise and
 re-preview. Maximum 3 iterations. Consistency findings (phantom
@@ -160,14 +160,14 @@ preview — they will appear in the next-session State 0 re-run.
 
   ```bash
   git add docs/adr/<dir-name>/_workflow/implementation-plan.md \
-          docs/adr/<dir-name>/_workflow/implementation-backlog.md \
           docs/adr/<dir-name>/_workflow/tracks/track-*.md
   git commit -m "Inline replan after Track <N>"
   git push
   ```
 
   Stage only the paths that the revision actually touched (the
-  enumeration in [§Updating plan and backlog](#updating-plan-and-backlog)
+  enumeration in
+  [§Updating plan and step files](#updating-plan-and-step-files)
   tells you which files apply per case). Any `design.md` /
   `design-mechanics.md` changes from step 3 land via the
   `edit-design` skill, which writes a separate
@@ -187,39 +187,43 @@ preview — they will appear in the next-session State 0 re-run.
 
 ---
 
-## Updating plan and backlog
+## Updating plan and step files
 
 When a revision drafted during step 3 of [§Process](#process) lands —
 whether during the propose step itself or after review passes — each
-affected track must be written to its authoritative file location. The "Description
-lifecycle" table in `conventions-execution.md` §2.1 is the authority for
-non-inline-replan phases (Phase A start, Phase A mid, Phase C after
-collapse, Skipped at or before Phase A); this section is the authority
-for inline-replan revisions. If the two ever diverge, a future plan
-correction must resync them.
+affected track must be written to its authoritative file location. The
+"Description lifecycle" table in `conventions-execution.md` §2.1 is the
+authority for non-inline-replan phases (Phase 1 write, Phase A,
+Phase C after collapse, Skipped at or before Phase A); this section is
+the authority for inline-replan revisions. If the two ever diverge, a
+future plan correction must resync them.
 
 Enumerate by case — each case names the plan status at the moment of
 revision and the file(s) that carry the new description:
 
 1. **New track.** Add a thin checklist entry (title + intro paragraph +
    `**Scope:**` + optional `**Depends on:**`) to
-   `implementation-plan.md`, and add the full
-   `**What/How/Constraints/Interactions**` subsections (plus any
-   track-level Mermaid diagram) to `implementation-backlog.md`.
+   `implementation-plan.md`, and create a new
+   `tracks/track-N.md` step file whose `## Description` carries the
+   intro paragraph + the full `**What/How/Constraints/Interactions**`
+   subsections + any track-level Mermaid diagram. Use the same
+   step-file shape `create-plan` produces at Phase 1 (see
+   [`conventions-execution.md`](conventions-execution.md) §2.1
+   *Step file content* for the template) — `## Progress`,
+   `## Reviews completed`, and `## Steps` start as `[ ]` placeholders.
 
-2. **Revising a not-yet-started track** (status `[ ]`, no step file yet).
-   Update that track's section in `implementation-backlog.md`. The
-   plan-file checklist entry keeps its intro paragraph + `**Scope:**` +
-   `**Depends on:**` unchanged unless the intro itself is being revised.
+2. **Revising a not-yet-started track** (status `[ ]`, no Phase A
+   reviews recorded yet). Update the step file's `## Description`
+   section. The plan-file checklist entry keeps its intro paragraph
+   + `**Scope:**` + `**Depends on:**` unchanged unless the intro
+   itself is being revised.
 
-3. **Revising a mid-execution track** (status `[ ]` with a step file on
-   disk — the execution workflow never sets `[>]` on a track). Update
-   the step file's `## Description` section. The backlog entry was
-   already removed at Phase A start (see `track-review.md` sub-step (d)),
-   so the step file is now the single authoritative location for this
-   track's description — do NOT add a new backlog entry. If the
-   revision changes the intro paragraph, update the plan-file checklist
-   entry's intro paragraph to match.
+3. **Revising a mid-execution track** (status `[ ]` with Phase A
+   reviews recorded and/or steps decomposed in the step file — the
+   execution workflow never sets `[>]` on a track). Update the step
+   file's `## Description` section. If the revision changes the intro
+   paragraph, update the plan-file checklist entry's intro paragraph
+   to match.
 
 4. **Revising a completed track** (status `[x]`). This is rare — code
    for `[x]` tracks is already merged, so a revision typically means
@@ -230,18 +234,19 @@ revision and the file(s) that carry the new description:
    scope becomes a new track (case 1).
 
 5. **Revising a skipped track** (status `[~]`). Update the plan entry.
-   Skipped tracks never retain a backlog entry after the skip (see
+   Skipped tracks never retain a step file after the skip (see
    `track-skip.md` step 3), so the plan entry is always an
    authoritative location. If the track was skipped **after** Phase A
    began — the "Skipped after Phase A" sub-case in the Description
    lifecycle table in `conventions-execution.md` §2.1, where the step
    file is retained so the skip is traceable — also update the step
-   file's `## Description`. Per `track-skip.md`'s "Backlog deletion is
-   terminal" warning, a reader un-skipping a `[~]` track must re-author
-   the description from scratch — the backlog is not a recovery source
-   after skip, and the revision here is the re-authoring.
+   file's `## Description`. Per `track-skip.md`'s "Step-file deletion
+   is terminal" warning, a reader un-skipping a `[~]` track must
+   re-author the description from scratch — the deleted step file is
+   not a recovery source after skip, and the revision here is the
+   re-authoring.
 
-6. **Removing a track.** Remove the plan entry. If the backlog section
-   still exists (the track had not yet entered Phase A and was not yet
-   skipped), remove it too using the "Backlog section body extraction
-   rule" in `conventions-execution.md` §2.1.
+6. **Removing a track.** Remove the plan entry and delete the step
+   file at `tracks/track-N.md` if it still exists. (If the track had
+   already been skipped, its step file was deleted then; case 6
+   becomes a no-op for the step file.)

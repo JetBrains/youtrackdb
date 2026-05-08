@@ -67,11 +67,13 @@ tracks, attach clarifications to the upcoming track, or escalate to
 inline replanning before sub-agents start reading the plan.
 
 The gate fires once per fresh Phase A entry. State C resume (the
-step file already has a populated `## Description`) **skips** the
-gate; the user saw it in the original session and the description
-is already authoritative. The gate is also re-runnable on session
-resume (step file still missing) — the resume idempotency rule at
-the end of this section governs that case.
+step file's `## Description` already carries the agreed-upon track
+plan, including any prior clarifications) **skips** the gate; the
+user saw it in the original session and the description is already
+authoritative. The gate is also re-runnable on session resume (no
+review has yet been recorded in `## Reviews completed` — see
+§Phase A Resume) — the resume idempotency rule at the end of this
+section governs that case.
 
 **1. Build Panel 1 — strategy assessment (look-back).**
 
@@ -107,12 +109,13 @@ on-disk strategy-refresh line.
 **2. Build Panel 2 — track summary (look-forward).**
 
 Read the plan-file Track N entry (title, intro paragraph, scope
-indicators, any inline notes) and the backlog's `## Track N:`
-section (`**What/How/Constraints/Interactions**` plus any `mermaid`
-diagram, per the "Backlog section body extraction rule" in
-[`conventions-execution.md`](conventions-execution.md) §2.1).
-Render the summary inline. The step file is created in §What You
-Do sub-step 2c after this gate clears — do not write it yet.
+indicators, any inline notes) and the upcoming track's step file
+`## Description` section
+(`**What/How/Constraints/Interactions**` plus any `mermaid`
+diagram, written by `create-plan` at Phase 1 and possibly amended
+by prior Pre-Flight rounds or inline replanning, including any
+`### Clarifications` subsection from a prior gate session).
+Render the summary inline.
 
 **3. Ask the user.** This step runs only if step 1 did not exit
 the gate — i.e., Panel 1 was skipped (no anchor track), Panel 1's
@@ -127,26 +130,28 @@ Render Panel 1 (if active) followed by Panel 2, and use
 - **Proceed** — accept the assessment (CONTINUE) and start Phase A
   with the upcoming track as summarised.
 - **Adjust** — modify any remaining track's plan-file entry and/or
-  backlog section. Light edits only (see step 4 below for the
-  boundary). Reordering remaining `[ ]` tracks is a light edit; if
-  the reorder changes which track is "next", re-render Panel 2
-  with the new upcoming track's summary before re-asking.
+  step file's `## Description`. Light edits only (see step 4 below
+  for the boundary). Reordering remaining `[ ]` tracks is a light
+  edit; if the reorder changes which track is "next", re-render
+  Panel 2 with the new upcoming track's summary before re-asking.
 - **Clarify** — attach guidance, must-/must-not- considerations,
   or open questions to be carried into Phase A. Clarifications
   target the **upcoming track only**; they do not modify the plan
-  or backlog and are appended to the step file's `## Description`
-  as a `### Clarifications` subsection in sub-step 2c.
+  or other tracks' step files and are written into the upcoming
+  track's step file's `## Description` as a `### Clarifications`
+  subsection on Proceed (see step 6 below).
 - **ESCALATE** — request "fundamental rework" → route to inline
   replanning.
 
 `AskUserQuestion` captures one option per round, so a user who
 wants to combine **Adjust** and **Clarify** spans multiple rounds.
 Each round: the user picks one option; the orchestrator applies it
-(edit the plan/backlog for **Adjust**, append to the clarifications
-buffer for **Clarify**); then re-render Panel 1 (re-running the
-strategy assessment if Panel 1 is active and the adjustment touched
-a remaining track) and Panel 2 from the (now-updated) files; re-ask.
-Loop until the user picks **Proceed** or **ESCALATE**.
+(edit the plan/step file for **Adjust**, append to the
+clarifications buffer for **Clarify**); then re-render Panel 1
+(re-running the strategy assessment if Panel 1 is active and the
+adjustment touched a remaining track) and Panel 2 from the
+(now-updated) files; re-ask. Loop until the user picks **Proceed**
+or **ESCALATE**.
 
 **4. Apply amendments — light vs deep boundary.**
 
@@ -158,8 +163,9 @@ native `Edit` for single-site changes here):
 
 - Track title, intro paragraph
 - Scope indicators in the plan-file checklist entries
-- `**What/How/Constraints/Interactions**` subsections in the backlog
-- Track-level `mermaid` diagrams in the backlog
+- `**What/How/Constraints/Interactions**` subsections in the step
+  file's `## Description`
+- Track-level `mermaid` diagrams in the step file's `## Description`
 - Reordering of remaining `[ ]` tracks within the plan checklist
   (only if dependencies still hold; re-render Panel 2 if the
   reorder changes the upcoming track)
@@ -187,9 +193,9 @@ notes plus any orchestrator-stated interpretations the user
 confirmed. The buffer is non-empty only if the user picked
 **Clarify** at least once during the loop. When the user picks
 **Proceed**, the buffer flows verbatim into the step file's
-`## Description` in sub-step 2c (see §What You Do).
+`## Description` in step 6 below.
 
-**6. Persist amendments + strategy-refresh line.**
+**6. Persist amendments + clarifications + strategy-refresh line.**
 
 After the user picks **Proceed**, write the on-disk artifacts of
 this round:
@@ -228,51 +234,73 @@ this round:
   track — there is no anchor block) or when the gate ESCALATEd
   (inline replanning restructures the plan directly).
 
-- **Plan/backlog amendments** (any `Adjust` rounds in the loop):
+- **Clarifications subsection** (buffer non-empty): write the
+  buffer as a `### Clarifications` subsection at the end of the
+  upcoming track's step file's `## Description`. **If a
+  `### Clarifications` subsection already exists** (e.g., a prior
+  gate session committed clarifications and was interrupted before
+  any review ran, then re-fired on resume per §Phase A Resume),
+  **delete the existing subsection first and replace it with the
+  new buffer** — the gate's output reflects this session's
+  decision, not a layered history. Panel 2 already surfaced any
+  prior on-disk clarifications in the summary, so anything still
+  relevant can be re-stated by the user during the loop. If the
+  buffer is empty, skip this edit. An existing
+  `### Clarifications` subsection on disk from a prior session is
+  preserved as-is in this case (the user neither re-clarified nor
+  asked for it to be removed).
+
+- **Plan/step-file amendments** (any `Adjust` rounds in the loop):
   the edits already landed in the working tree during step 4. They
-  are committed alongside the strategy-refresh line below.
+  are committed alongside the strategy-refresh line and any
+  clarifications below.
 
 After all artifacts are in place, run a single Workflow update
 commit:
 
 ```bash
 git add docs/adr/<dir-name>/_workflow/implementation-plan.md \
-        docs/adr/<dir-name>/_workflow/implementation-backlog.md
+        docs/adr/<dir-name>/_workflow/tracks/track-<N>.md
 git commit -m "Apply pre-flight amendments before Track <N>"
 git push
 ```
 
 Stage only the files actually edited — drop the path that wasn't
-touched. If the round produced no amendments and no strategy-refresh
-line (the user only clarified, and Panel 1 was skipped or its
-outcome already on disk from a prior interrupted session — see
-resume idempotency below), skip this commit entirely.
+touched. If the round produced no amendments, no clarifications,
+and no strategy-refresh line (the gate was a pure no-op — only
+possible when Panel 1 was skipped or its outcome was already on
+disk from a prior interrupted session, and the user picked
+Proceed without Adjust/Clarify rounds), skip this commit
+entirely.
 
 **7. Resume idempotency.** If the merged gate is re-entered on a
-session resume (step file still missing — see the resume table at
-the end of this section), the gate checks for a `**Strategy
-refresh:**` line under the just-completed/skipped track's block
-before running Panel 1. If the line exists, Panel 1 is **skipped**
-on resume — the earlier session's assessment is the historical
-record and is preserved. The Pre-Flight loop runs on Panel 2 only.
-Plan/backlog edits committed in the previous session persist;
-clarifications captured in the previous session lived only in
-conversation context and are lost — the user must re-enter them
-if still relevant.
+session resume (no review has been recorded in `## Reviews
+completed` yet — see §Phase A Resume), the gate checks for a
+`**Strategy refresh:**` line under the just-completed/skipped
+track's block before running Panel 1. If the line exists, Panel 1
+is **skipped** on resume — the earlier session's assessment is the
+historical record and is preserved. The Pre-Flight loop runs on
+Panel 2 only. Plan/step-file edits committed in the previous
+session persist; clarifications captured in the previous session
+lived only in conversation context and are lost — the user must
+re-enter them if still relevant. (An on-disk `### Clarifications`
+subsection committed by the prior session does persist; step 6's
+replace-then-write rule governs how it interacts with this
+session's buffer.)
 
 **Partial-commit asymmetry.** A prior session may have committed
-step 4 plan/backlog edits but died before step 6 wrote the
+step 4 plan/step-file edits but died before step 6 wrote the
 strategy-refresh line. On resume the line is missing, so the gate
 re-runs Panel 1; the committed edits are the new baseline (they
 do not appear as a diff against the original plan).
 
 To surface any such prior amendments, the orchestrator MUST run
-the following before Panel 1 starts on a resume entry (step file
-missing):
+the following before Panel 1 starts on a resume entry (no review
+recorded yet):
 
 ```bash
 git log --oneline -10 -- docs/adr/<dir-name>/_workflow/implementation-plan.md \
-                          docs/adr/<dir-name>/_workflow/implementation-backlog.md
+                          docs/adr/<dir-name>/_workflow/tracks/track-<N>.md
 ```
 
 If the output contains a recent `Apply pre-flight amendments
@@ -288,68 +316,24 @@ output so the user does not re-issue them in this round's
 ### What You Do
 
 > The Track Pre-Flight gate above must clear before sub-step 1 starts.
-> On State C resume the gate is skipped (see §Phase A Resume —
-> Description-move recovery).
+> On State C resume the gate is skipped (see §Phase A Resume).
 
-1. **Assess track complexity** to determine which reviews to run (see
+1. **Read the plan file** for strategic context (Goals, Architecture
+   Notes, Decision Records, Component Map) and the **step file**
+   (`docs/adr/<dir-name>/_workflow/tracks/track-N.md`) for the track's
+   detailed description. The step file already exists from Phase 1
+   and may carry pre-flight amendments and a `### Clarifications`
+   subsection committed by the gate above; both phases of consumption
+   route through the same file.
+
+2. **Assess track complexity** to determine which reviews to run (see
    §Complexity Assessment below).
-
-2. **Move the track description into the step file** (Phase A's first
-   on-disk write — this extends today's "create the step file early"
-   pattern so reviews can update the Reviews section and Phase B/C
-   sub-agents find the description in the file they already read).
-
-   a. **Read the plan file** for strategic context (Goals, Architecture
-      Notes, Decision Records, Component Map) and the current track's
-      intro paragraph.
-
-   b. **Read Track N's section from the backlog**
-      (`docs/adr/<dir-name>/_workflow/implementation-backlog.md`). Read the
-      track's intro paragraph from the plan-file entry and the
-      `**What/How/Constraints/Interactions**` subsections + any
-      track-level `mermaid` block from the backlog's `## Track N:
-      <title>` section. The section body is defined by the "Backlog
-      section body extraction rule" in `conventions-execution.md`
-      §2.1.
-
-   c. **Create the step file atomically** at
-      `docs/adr/<dir-name>/_workflow/tracks/track-N.md` in a single Write call
-      that contains: `## Description` (populated with the copied intro
-      + `**What/How/Constraints/Interactions**` subsections + any
-      track-level diagram from sub-step (b), **followed by a
-      `### Clarifications` subsection containing the verbatim
-      clarifications buffer captured by the Track Pre-Flight gate when
-      that buffer is non-empty; omit the subsection entirely when the
-      buffer is empty**), `## Progress` (with all three entries as
-      `[ ]`: `Review + decomposition`, `Step implementation`,
-      `Track-level code review`), an empty
-      `## Reviews completed`, and an empty `## Steps` placeholder.
-      Items 4–5 below populate `## Steps`; Phase B writes
-      `## Base commit` at its session start. Do NOT create an empty
-      shell and append the description in a second Write — the single
-      atomic Write closes the window in which the description has been
-      pulled out of its source but has not yet landed on disk.
-      Subsequent phases may Edit the file normally; only the initial
-      creation must be atomic.
-
-   d. **Remove Track N's section from the backlog.** Delete per the
-      "Backlog section body extraction rule" in
-      `conventions-execution.md` §2.1 — that rule states the
-      header-boundary algorithm and the line-count-deletion
-      prohibition once as the single authoritative source. Preserve
-      the backlog's opening `# <Feature> — Track Details` header.
-
-      When the last remaining `## Track M:` section is removed, leave
-      the backlog file on disk with only its header. The whole
-      `_workflow/` directory (including the empty backlog) is deleted
-      by the Phase 4 cleanup commit; no per-track removal is needed.
 
 3. **Run track-scoped reviews** as sub-agents (technical, risk, adversarial
    as warranted). After each review completes:
-   - Update the **Reviews completed** section in the step file
-     (created atomically in sub-step 2c) with a one-line summary —
-     review type, iteration count at PASS, and a brief tally of
-     findings that drove plan/step edits (e.g.,
+   - Update the **Reviews completed** section in the step file with a
+     one-line summary — review type, iteration count at PASS, and a
+     brief tally of findings that drove plan/step edits (e.g.,
      `- [x] Technical: PASS at iteration 2 (3 findings, 2 accepted, 1 rejected)`).
    - The findings themselves are not persisted to a separate file —
      they ride in the orchestrator's conversation context for the
@@ -378,16 +362,15 @@ output so the user does not re-issue them in this round's
    blockquote. Mark `Review + decomposition` as `[x]` in the Progress
    section.
 
-6. **Commit and push the Phase A workflow updates.** All of Phase A's
-   on-disk writes — the step file (created in 2c, populated in step 5)
-   and the backlog edit (the Track N section removal in 2d) — must be
-   committed before Phase B spawns the first implementer for this
-   track. The implementer's revert path uses `git reset --hard HEAD`,
-   which would otherwise discard the uncommitted decomposition.
+6. **Commit and push the Phase A workflow updates.** Phase A's on-disk
+   writes — the populated `## Steps` section and the `[x]` mark in
+   `## Progress` — must be committed before Phase B spawns the first
+   implementer for this track. The implementer's revert path uses
+   `git reset --hard HEAD`, which would otherwise discard the
+   uncommitted decomposition.
 
    ```bash
-   git add docs/adr/<dir-name>/_workflow/tracks/track-<N>.md \
-           docs/adr/<dir-name>/_workflow/implementation-backlog.md
+   git add docs/adr/<dir-name>/_workflow/tracks/track-<N>.md
    git commit -m "Phase A review and decomposition for <track>"
    git push
    ```
@@ -396,10 +379,7 @@ output so the user does not re-issue them in this round's
    `commit-conventions.md` § Commit type prefixes. Stage explicit
    paths only — never `git add -A` — so unrelated files in the
    working tree (e.g., scratch logs from prior debugging) don't get
-   pulled in. If a particular file does not exist (e.g., the backlog
-   had no Track N section to begin with), drop that path from the
-   `git add` command rather than letting the missing-path error stop
-   the commit.
+   pulled in.
 
 ### Complexity Assessment and Which Reviews to Run
 
@@ -575,55 +555,54 @@ The scope indicators serve as a starting point, not a binding contract. You
 may produce more or fewer steps than the indicator suggested, or cover
 different aspects, based on what is actually needed.
 
-### Phase A Resume — Description-move recovery
+### Phase A Resume
 
-The description-move in §What You Do sub-steps (b)-(d) performs two
-on-disk mutations: the atomic step-file write in (c) and the
-backlog-section removal in (d). Either operation may be interrupted by
-a session termination. When `/execute-tracks` auto-resumes into Phase A
+The step file already exists from Phase 1 with `## Description`
+populated, so Phase A resume's only concerns are (1) what state the
+Track Pre-Flight gate left behind and (2) which Phase A activities
+have completed. When `/execute-tracks` auto-resumes into Phase A
 (the Startup Protocol's State C `Review + decomposition is [ ]` row
-routes here), the main agent observes two states — the step file's
-`## Description` section and the backlog's `## Track N:` section — and
-picks the resume action from the decision table below.
+routes here), the main agent applies the rules below.
 
-The **Track Pre-Flight gate** does not re-fire on resume once the
-step file exists. The gate runs once per fresh Phase A entry and
-persists its outcome through the step file's `## Description`
-(which holds any `### Clarifications` captured during the gate),
-through any plan/backlog edits already committed in the original
-session, and (when Panel 1 was active) through the
-`**Strategy refresh:**` line on the just-completed/skipped track's
-block. The first row below — step file missing — is the only row
-that re-runs the gate, because the original session was interrupted
-before sub-step 2c wrote the step file. The re-fired gate honours
-the resume idempotency rule in §Track Pre-Flight step 7: if the
-strategy-refresh line is already on disk, Panel 1 is skipped and
-only Panel 2 is presented. Clarifications captured in that prior
-session lived only in the orchestrator's conversation context and
-are lost; the re-fired gate sees the post-amendment plan/backlog
-(any committed amendments persist) but the user must re-enter any
+**Track Pre-Flight gate.** The gate re-fires on resume only when no
+review has been recorded in the step file's `## Reviews completed`
+section yet. Once any review has been recorded, the gate's outcome
+(amendments + clarifications) is baked into the step file the
+reviews ran against — re-firing would invalidate that work. The
+re-fired gate honours the resume idempotency rule in §Track
+Pre-Flight step 7: if a `**Strategy refresh:**` line is already on
+disk under the just-completed/skipped track's block, Panel 1 is
+skipped and only Panel 2 is presented. Clarifications captured in
+the prior session lived only in the orchestrator's conversation
+context and are lost; the re-fired gate sees committed amendments
+on disk (an on-disk `### Clarifications` subsection persists and
+interacts with this round's buffer per §Track Pre-Flight step 6's
+replace-then-write rule), but the user must re-enter any
 clarifications they had given previously.
 
-The table is **idempotent**: running the indicated action produces the
-steady-state even if the table is re-entered multiple times. The
-**non-re-copy rule** (never overwrite a non-empty `## Description`
-from the plan + backlog) is what protects any post-Phase-A edits to
-the step file's description — e.g., a later inline-replan that
-revises a mid-execution track — from being silently undone if Phase A
-is re-entered later (most commonly because an earlier Phase A session
-was interrupted and State C resumed here).
+**Uncommitted gate state.** Before re-firing the gate, run
+`git status --porcelain docs/adr/<dir-name>/_workflow/implementation-plan.md
+docs/adr/<dir-name>/_workflow/tracks/track-<N>.md`. If either path is
+dirty, the previous session was interrupted between applying
+amendments and committing them. Surface the diff to the user and ask
+whether to keep or revert the uncommitted changes before continuing —
+silently committing them would smuggle un-reviewed edits into the
+gate's audit trail, and silently reverting them would lose user-
+approved amendments.
 
-| Step file state | Backlog state | Resume action |
+**Resume actions** (after the gate has cleared, or skipped because
+reviews are already in progress):
+
+| `## Reviews completed` state | `## Steps` state | Action |
 |---|---|---|
-| Missing | `## Track N:` section present | Fresh Phase A: run the Track Pre-Flight gate, then §What You Do sub-steps (a)-(d) from the top. Sub-step (c)'s single-Write rule rules out an on-disk step file with an empty `## Description`, so this row cannot represent a partial (c); it only represents an interruption at or before (b). Pre-flight amendments committed by an earlier interrupted session are already on disk; the re-fired gate sees the post-amendment state in the plan/backlog. |
-| Present, `## Description` populated | `## Track N:` section still present | Partial interruption after (c), before (d) completed. Run sub-step (d) **verbatim** and remove the backlog section using the "Backlog section body extraction rule" in `conventions-execution.md` §2.1. Do NOT re-copy into the step file's `## Description`. |
-| Present, `## Description` populated | No `## Track N:` section | Steady state. No description mutation needed. Resume from the next incomplete Phase A activity (reviews not yet run, decomposition not yet written). |
+| Empty | Empty | Re-fire the gate (per the rules above), then run §What You Do sub-steps 1-6 from the top. |
+| One or more reviews recorded as `[x]` | Empty | Skip the gate. Resume reviews from the next missing review type (§What You Do sub-step 3 onward). |
+| All planned reviews recorded | Non-empty `[ ]` items | Skip the gate. Decomposition has run; resume from sub-step 6 (commit) if not yet committed, otherwise the step file is already in steady state and `/execute-tracks` should route to Phase B on the next invocation. |
 
-After the resume action completes, Phase A continues normally — the
-§Complexity Assessment, review loop, and §Step Decomposition proceed
-exactly as on a fresh start (skipping any reviews already recorded in
-the step file's `## Reviews completed` section, and reusing already-
-decomposed steps if the `## Steps` section is non-empty).
+The non-re-copy rule (no operation re-derives `## Description` from
+external sources during Phase A) protects any amendments / inline-
+replan rewrites the step file may have accumulated since Phase 1 from
+being silently overwritten on resume.
 
 ---
 

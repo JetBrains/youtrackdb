@@ -65,8 +65,8 @@ on stderr — surface that to the user rather than continuing with a
 half-rendered snapshot.
 
 Pending-track entries (`[ ]`) are already thin on disk (their detail
-lives in `implementation-backlog.md`), so the transform for that row
-is a no-op — the script passes them through verbatim.
+lives in `tracks/track-N.md` `## Description`), so the transform for
+that row is a no-op — the script passes them through verbatim.
 
 ### How sub-agents use it
 
@@ -111,7 +111,7 @@ Sub-agents run in separate processes and don't inherit the main agent's
 
    | Status | Keep | Drop |
    |---|---|---|
-   | `[ ]` (not started or in-progress current track) | Everything in the entry verbatim — title line, intro paragraph, `**Scope:**`, optional `**Depends on:**`. The detailed `**What/How/Constraints/Interactions**` content lives in `implementation-backlog.md`, not in the plan-file entry; the transform is a no-op. | Nothing |
+   | `[ ]` (not started or in-progress current track) | Everything in the entry verbatim — title line, intro paragraph, `**Scope:**`, optional `**Depends on:**`. The detailed `**What/How/Constraints/Interactions**` content lives in `tracks/track-N.md` `## Description`, not in the plan-file entry; the transform is a no-op. | Nothing |
    | `[x]` (completed) | Title line, **intro paragraph** (the first quoted block before any `**Keyword**:` subsection), **Track episode**, **Strategy refresh** line (if present) | **Scope** line, **Depends on** line, **Step file** pointer line |
    | `[~]` (skipped) | Title line, **intro paragraph**, **Skipped:** reason, **Strategy refresh** line (if present) | **Scope** line, **Depends on** line |
 

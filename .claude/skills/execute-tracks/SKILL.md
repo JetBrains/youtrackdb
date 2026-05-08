@@ -103,7 +103,7 @@ Each session handles exactly ONE PHASE of one track (or Phase 4 / State 0):
 User interaction happens at specific points:
 - Session start: auto-resume decision (confirm or override)
 - State 0 design-decision findings: resolve each escalated finding (only design-decision; mechanical fixes apply autonomously)
-- Track Pre-Flight (State A — pre-Phase-A): two-panel gate. Panel 1 (strategy assessment, look-back) is shown when an earlier track has just completed/skipped — accept the CONTINUE/ADJUST recommendation or override; an ESCALATE recommendation routes to inline replanning. Panel 2 (upcoming track summary, look-forward) always renders. Options on the combined gate: Proceed; Adjust (light edits to any remaining track including reorder); Clarify (notes for the upcoming track's step-file Description); ESCALATE → inline replanning. Skipped on State C resume.
+- Track Pre-Flight (State A — pre-Phase-A): two-panel gate. Panel 1 (strategy assessment, look-back) is shown when an earlier track has just completed/skipped — accept the CONTINUE/ADJUST recommendation or override; an ESCALATE recommendation routes to inline replanning. Panel 2 (upcoming track summary, look-forward) always renders. Options on the combined gate: Proceed; Adjust (light edits to any remaining track's plan / step file including reorder); Clarify (notes written into the upcoming track's step-file Description as a `### Clarifications` subsection on Proceed); ESCALATE → inline replanning. Skipped on State C resume.
 - Phase complete: user clears session, re-runs `/execute-tracks`
 - Cross-track impact detected: continue, pause, or escalate
 - Track complete: approve, request fixes, or request rework
