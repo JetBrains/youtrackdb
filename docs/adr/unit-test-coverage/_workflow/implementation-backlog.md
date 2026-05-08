@@ -1506,6 +1506,123 @@ Natural cleanup happens when the branch is deleted after PR merge. -->
 >    appends its own fields rather than replacing the whole string)
 >    remains a Track 22 suggestion-tier item. No test flipping needed;
 >    the existing Track 20 tests already avoid the trap.
+>
+> *Track 20 Phase C deferred suggestions (track-level review surfaced
+> ~27 suggestion-tier items beyond the should-fix items applied across
+> two iterations; the most significant are recorded below — see the
+> `Review fix:` commits on the branch for the full list and the
+> Phase C track episode for the synthesis summary):*
+> 9. **`DoubleWriteLogGLTest` is 805 LoC / 26 tests in one flat class**
+>    (Phase C `review-test-structure` TS4 + `review-code-quality` CQ5):
+>    the `DoubleWriteLogNoOP` block (~9 tests, 100 LoC at the file
+>    tail) is a clean candidate to extract as a separate
+>    `DoubleWriteLogNoOPTest` class. The remaining 17 tests can stay
+>    or be split further (lifecycle vs write-read). Same shape as
+>    `CASDiskWriteAheadLogLifecycleTest` (758 LoC, TS5) — both deferred
+>    here. Pure refactor; Track 22 may consolidate in one cleanup commit.
+> 10. **`TrackingWriteCache` inline stub in `LockFreeReadCacheFileOpsTest`
+>     (~250 LoC, half the file)** (Phase C TS6): extract to a top-level
+>     test fixture class — likely
+>     `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/chm/TrackingWriteCache.java`
+>     — keeping only the stub-tracking counters package-visible.
+>     Eliminates 250 LoC of empty `WriteCache` interface stubs and
+>     enables reuse if Track 21 / Track 22 needs a similar stub.
+> 11. **Page-level test fixture duplication across `BoundedBuffer*`,
+>     `CacheEntryImplTest`, `LockFreeReadCacheFileOpsTest`'s stub**
+>     (Phase C TS7): all four implement the same Track 19 page-level
+>     pattern (acquireDirect → CachePointer → incrementReadersReferrer
+>     → register for tearDown decrement). A small `PageEntryFixture`
+>     utility under `test-commons` (or in the `cache` test package)
+>     would centralise the boilerplate.
+> 12. **`BoundedBuffer*Test` are 100% sequential — lock-free MPSC
+>     contract not exercised under contention** (Phase C
+>     `review-test-concurrency` TX7): `BoundedBufferDrainTest` and
+>     `BoundedBufferRingTest` never spawn a thread, so the
+>     `Buffer.FAILED` branch (CAS lost), the lazy-publish race in
+>     `drainTo`, and the "producer fills past capacity while consumer
+>     drains" interleaving are never reached. A regression that swaps
+>     `compareAndSet` for `set` in `offer`, or that drops `lazySet`
+>     for the slot publish in the constructor, would still pass every
+>     existing test. Track 22 should add an MT probe (≥4 producers
+>     racing offer + 1 consumer racing drainTo, `CountDownLatch`
+>     start gate, < 5 s timeout, capture thread errors via
+>     `AtomicReference<Throwable>`). See the spawn template in
+>     iteration 1's F11 (the new MT-on-same-key probe in
+>     `WOWCacheConcurrencyShapesTest`) for the canonical pattern.
+> 13. **Direct-memory pool cleanup gaps**
+>     (Phase C `review-bugs-concurrency` BC3 + `review-performance` PF3
+>     + `review-crash-safety` CS5): `LockFreeReadCacheFileOpsTest`,
+>     `BoundedBufferRingTest`, `BoundedBufferDrainTest`, and
+>     `CacheEntryImplTest` allocate per-test `ByteBufferPool` plus
+>     `DirectMemoryAllocator` but `@After` does not call
+>     `bufferPool.clear()` or `allocator.checkMemoryLeaks()`. Bounded
+>     leak per class (≤ 256 × 4 KiB = 1 MiB on `LockFreeReadCacheFileOpsTest`,
+>     smaller elsewhere; JVM Cleaner reclaims on GC) — tolerable today
+>     but inconsistent with the codified Track 19 pattern in
+>     `CachePointerPageFrameTest:88-89`. Add the cleanup pair across
+>     the four classes for hygiene.
+> 14. **`LockFreeReadCacheFileOpsTest` swallowed `StorageException` in
+>     tearDown** (Phase C CS6): `readCache.clear()` throws
+>     `StorageException` if any entry is still acquired (the very
+>     thing the test exists to catch); the current tearDown wraps it
+>     in `catch (StorageException ignored)`, masking the regression.
+>     Track 22 should `Assert.fail(e.getMessage())` (or at minimum log
+>     to stderr) so a referrer-leak surfaces as a CI failure.
+> 15. **`AbstractPageWALRecord.toString()` and `Cursor`/`Node.toString()`
+>     no longer pinned by tests after iter-2** (Phase C iter-2 gate
+>     check TC-iter3-2): iter-2 deleted four substring-only
+>     `toString().contains(...)` tests on `Cursor` and `Node` (per the
+>     R3 forbidden-as-primary-assertion rule). The deletions did not
+>     introduce a new test gap because the deleted tests were
+>     substring-only (weakly falsifiable), but if recovery diagnostics
+>     scrape these strings, a refactor that drops `itemIndex` /
+>     `deqidx` / `enqidx` from the output now passes. Track 22 may add
+>     a single canonical-form `assertEquals(...)` pin per class as
+>     diagnostic-output guard, paired with the wider toString
+>     replace-vs-append cleanup at item 8 above. Suggestion tier only.
+> 16. **`exactBufferSizeOffersFitInSingleNode` test name overstates
+>     production invariant** (Phase C iter-2 gate check TC-iter3-1):
+>     `Node.enqidx` initialises to 1, so an offer of `BUFFER_SIZE = 1024`
+>     items fills slots 1..1023 in node 1 and the 1024th offer triggers
+>     a fresh node. The test still passes for the right reason (1024
+>     polls succeed, then null), but the docstring claim "must fit in a
+>     single node" is wrong. Track 22 should rename to
+>     `exactBufferSizeOffersDrainCleanly` and rewrite the comment, or
+>     strengthen with a reflective node-count probe. Cosmetic — does
+>     not affect coverage.
+> 17. **Production assert / `equals` reflection-fragility hardening**
+>     (Phase C `review-crash-safety` CS4, `review-code-quality` CQ7,
+>     `review-test-structure` TS12): `WOWCacheConcurrencyShapesTest`
+>     reflectively `setField(cache, "exclusiveWriteCacheSize", ...)`
+>     etc. on a Mockito spy. A field rename throws
+>     `NoSuchFieldException` (loud — fine), but a **type change** (e.g.,
+>     `AtomicLong` → `LongAdder`) succeeds silently due to type-erasure
+>     on generic fields, leaving the WHEN-FIXED pin broken. Track 22
+>     should either add explicit `assertSame(AtomicLong.class,
+>     WOWCache.class.getDeclaredField("exclusiveWriteCacheSize").getType())`
+>     pre-flight checks, or — when the production fix lands and the
+>     pin flips — replace the reflective injection with a real
+>     `WOWCache` constructor invocation.
+> 18. **Smaller suggestion-tier items absorbed without restating in
+>     full here** (Phase C dimensions code-quality, test-behavior,
+>     test-completeness, test-structure): `assertNotEquals` on byte[]
+>     should be `assertNotSame` in `ActiveWALRecordsRoundTripTest:108`
+>     (CQ10 / TB12); `hashCode` non-zero rather than exact-value pin in
+>     `CachePointerPageFrameTest:616` (TB13); seven `DoubleWriteLogNoOP`
+>     coverage-only no-exception tests could be parametrised
+>     (TB14); redundant equals tests in `PageDataVerificationErrorTest`
+>     (TB15); `EventWrapper` null-Runnable + `WALChannelFile.position()`
+>     past-EOF (TC4); `FrequencySketch` `tableMask == 0` boundary (TC5);
+>     `BoundedBuffer.offer` null entry + FAILED branch (TC6); test-method
+>     naming consistency (CQ8 / TS8); `BUFFER_SIZE` magic number in
+>     `BoundedBufferRingTest` (CQ9); `BLOCK_SIZE` comment imprecision
+>     in `DoubleWriteLogGLTest` (CQ11); `String` concat in `fileIdByName`
+>     MT loop (PF5); fsync-without-verification note for
+>     `WALHelperClassesTest` (CS7); `WALHelperClassesTest.deleteTestDir`
+>     null-safety on `dir.listFiles()` (TS11); `CASDiskWriteAheadLogLifecycleTest`
+>     `@After` resource cleanup robustness on test throws (TS10).
+>     Track 22 may absorb these in a single style/cleanup commit or
+>     leave them as-is; none affect correctness.
 
 > **How**:
 > - TX tests need a database session to verify begin/commit/rollback

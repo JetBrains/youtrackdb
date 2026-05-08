@@ -300,7 +300,7 @@ fall short of 85%/70% targets per Decision Record D4 in
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review (2/3 iterations — gate check pending)
+- [x] Track-level code review (2/3 iterations; iter-2 gate check PASS across all 4 dimensions; 2 minor suggestions forwarded to Track 22 absorption)
 
 ## Base commit
 `dc48664853`
