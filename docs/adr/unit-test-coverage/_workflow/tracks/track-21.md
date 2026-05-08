@@ -391,7 +391,7 @@
     
     ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (3/7 complete)
+- [ ] Step implementation (4/7 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -478,9 +478,25 @@
   >
   > **Commit:** `089417119b`
 
-- [ ] Step 4: `AbstractStorage` public-API slices — toward ~75% line / ~62% branch on `storage/impl/local`
+- [x] Step 4: `AbstractStorage` public-API slices — toward ~75% line / ~62% branch on `storage/impl/local`
+  - [x] Context: safe
   > **Risk:** medium — test-isolation discipline (per-test database-name UUID requirement; pattern is shared across Step 4 tests and serves as canonical example for Track 22 storage-test absorption).
   > Targeted slices of `AbstractStorage` reachable from surefire scope: constructor argument validation, exception-translation (`makeStorageDirty` family), atomic-operation lifecycle helpers, snapshot/cleanup helpers (mirroring existing `EdgeSnapshotIndexCleanupTest`/`IndexesSnapshotCleanupTest` pattern), public-getter shape pins. Use `DbTestBase` with **per-test database name** containing `UUID.randomUUID().toString()` to avoid `OEngine.getStorage(name)` collisions across parallel surefire forks. Avoid reimplementing IT scenarios — sanity-check `StorageTestIT`, `LocalPaginatedStorageRestoreFromWALIT`, `StorageBackupMTIT`, `StorageEncryptionTestIT` first to identify the surefire-reachable surface. Inline-fix any data-corruption / index-consistency / recovery-path bug surfaced (with regression test); forward lower-severity bugs to Track 22 as WHEN-FIXED pins. End-of-step: `storage.impl.local` ≈75% line / ≈62% branch, `core` unit suite green.
+  >
+  > **What was done:** Added three new standalone / `DbTestBase` test classes covering `AbstractStorage`'s surefire-scope public-API slices in `storage/impl/local`. (1) `AbstractStorageStaticHelpersTest` (standalone, 20 tests): static helpers `normalizeName`, `checkName`, `extractEngineAPIVersion`, `getRidsGroupedByCollection` — database-name validation, index-id top-5-bit/low-27-bit encoding (including the negative-id unsigned shift), per-cluster RID grouping with insertion-order preservation. (2) `AbstractStorageSnapshotIndexQueryTest` (`DbTestBase`, 9 tests): positive paths of the snapshot-query helpers used by the B-tree visibility filter — `hasActiveIndexSnapshotEntries` engine-name resolution and `$null`-suffix routing; `hasActiveIndexSnapshotEntriesById` lock-free with both `useNullSnapshot` flag values; the public sub-snapshot factories; snapshot / visibility map getters; instance-level `computeGlobalLowWaterMark` idle fallback. (3) `AbstractStorageGettersShapePinTest` (5 tests): configuration-passthrough getters, session-counter / last-close-time bookkeeping, `countRecords` roll-up. Total 34 tests, all green; full `core` unit suite via `package -P coverage` green; `coverage-gate.py` PASS at 100% line / 100% branch on changed lines; spotless clean. `storage.impl.local` package coverage advanced from 62.9% / 59.0% → **63.3% / 59.3%** (1156 → 1143 uncov on 3114 total).
+  >
+  > **What was discovered:** (a) `extractEngineAPIVersion` decodes the top **5 bits** with the internal id masked to **27 bits** (mask `0x07_FF_FF_FF`), reverse-engineered from `generateIndexId(internalId, engineV) = (engineV << 27) | internalId`. (b) `DirectMemoryStorage.getURL()` shadows `AbstractStorage.url` and returns `"memory:" + url`, so `toString()` (which returns the raw `url` field) ≠ `getURL()` for the in-memory engine — the assertion was relaxed to the engine-agnostic invariant (both non-blank, both contain the bare name, `toString() != "?"`). (c) `storage.impl.local` package coverage advanced only **+0.4 pp line / +0.3 pp branch**; the bulk of the remaining ~1 143 uncov lines are integration-test-shadowed paths (`StorageTestIT`, `LocalPaginatedStorageRestoreFromWALIT`, `StorageBackupMTIT`, `StorageEncryptionTestIT`) discoverable only by failsafe under the `ci-integration-tests` profile, exactly as D4 anticipated. **Step 7 verification will decide whether to top-up further or accept the package at the current ~63% line under D4 (IT-shadow caveat); the original ~75% line target is unlikely to be met from surefire scope alone, so D4 acceptance with explicit IT-shadow rationale is the expected outcome.** Recommendation: **Continue**.
+  >
+  > **What changed from the plan:** Step 4 over-delivered on the static-helper surface (pinned `getRidsGroupedByCollection` and the `extractEngineAPIVersion` negative-id path beyond the original prescription). The plan-stated `~75%` line target on `storage.impl.local` is unlikely to be reached from surefire alone — Step 7 verification carries the D4-acceptance decision; no future-step impact.
+  >
+  > **Key files:**
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorageStaticHelpersTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorageSnapshotIndexQueryTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorageGettersShapePinTest.java` (new)
+  >
+  > **Critical context:** `DirectMemoryStorage.getURL()` shadowing `AbstractStorage.url` (returns `"memory:" + url`) is a known asymmetry to remember in future shape-pin tests on either subclass — always go through the storage's own getter, not the protected `url` field, when asserting URL invariants. Steps 5 (BTree lifecycle on `singlevalue/v3`) and 7 (verification top-up) should keep this in mind.
+  >
+  > **Commit:** `c2a9e37c42`
 
 - [ ] Step 5: B-tree singlevalue/v3 (live engine) — `BTree` lifecycle + bucket round-trip
   > **Risk:** low — default (tests-only on the live engine; consumes `PageEntryFixture` from Step 1; no new shared infrastructure).
