@@ -1,13 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.chm.readbuffer;
 
-import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
-import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
-import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
-import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
-import java.util.ArrayList;
-import java.util.List;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.PageEntryFixture;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -18,10 +13,10 @@ import org.junit.Test;
  * when the ring is at capacity, and the {@code reads}/{@code writes}/{@code size} counters
  * exposed through the {@link Buffer} interface default and concrete implementations.
  *
- * <p>The entries stored in the ring are backed by page-level direct memory (
- * {@code ByteBufferPool.acquireDirect()} wrapped in {@link CachePointer} with
- * {@code incrementReadersReferrer()}). Every acquired page frame is released via
- * {@code decrementReadersReferrer()} in {@code @After} to keep the direct-memory tracker clean.
+ * <p>The entries stored in the ring are backed by page-level direct memory provided by
+ * {@link PageEntryFixture}, which encapsulates the {@code ByteBufferPool.acquireDirect()}
+ * → {@link CachePointer} → {@code incrementReadersReferrer()} sequence and runs the leak
+ * detector on close.
  *
  * <p><b>Note on {@code writes()} semantics.</b> The {@link BoundedBuffer} is a
  * {@link StripedBuffer} that lazily creates a {@code RingBuffer} on the first offer. The
@@ -46,38 +41,27 @@ public class BoundedBufferRingTest {
    */
   private static final int BUFFER_SIZE = 128;
 
-  /** Page size used for direct-memory allocations. */
-  private static final int PAGE_SIZE = 4 * 1024;
-
-  private DirectMemoryAllocator allocator;
-  private ByteBufferPool bufferPool;
-  private final List<CachePointer> acquiredPointers = new ArrayList<>();
+  private PageEntryFixture pages;
 
   @Before
   public void setUp() {
-    allocator = new DirectMemoryAllocator();
-    bufferPool = new ByteBufferPool(PAGE_SIZE, allocator, 0);
+    pages = new PageEntryFixture();
   }
 
   @After
   public void tearDown() {
-    for (var ptr : acquiredPointers) {
-      ptr.decrementReadersReferrer();
-    }
-    acquiredPointers.clear();
+    pages.close();
   }
 
   /**
-   * Creates a CacheEntry backed by a real direct-memory page frame. The page-level pattern
-   * ({@code acquireDirect} → {@code CachePointer} → {@code incrementReadersReferrer}) matches
-   * the Track 19 codification for cache-managed page tests.
+   * Creates a CacheEntry backed by a real direct-memory page frame via the shared
+   * {@link PageEntryFixture}. The page-level pattern ({@code acquireDirect} →
+   * {@link CachePointer} → {@code incrementReadersReferrer}) matches the Track 19 / 20
+   * codification for cache-managed page tests; the fixture also runs the direct-memory leak
+   * detector when {@link #tearDown()} closes it.
    */
   private CacheEntry makeEntry(final long fileId, final int pageIndex) {
-    final var pageFrame = bufferPool.acquireDirect(true, Intention.TEST);
-    final var pointer = new CachePointer(pageFrame, bufferPool, fileId, pageIndex);
-    pointer.incrementReadersReferrer();
-    acquiredPointers.add(pointer);
-    return new CacheEntryImpl(fileId, pageIndex, pointer, false, null);
+    return pages.acquireReader(fileId, pageIndex);
   }
 
   // ---- Buffer constants ----

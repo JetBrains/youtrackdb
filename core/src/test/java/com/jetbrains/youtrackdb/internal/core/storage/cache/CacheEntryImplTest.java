@@ -5,9 +5,6 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.common.collection.ConcurrentLongIntHashMap;
-import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
-import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
-import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import org.junit.After;
 import org.junit.Before;
@@ -20,21 +17,27 @@ import org.junit.Test;
  */
 public class CacheEntryImplTest {
 
-  private DirectMemoryAllocator allocator;
-  private ByteBufferPool pool;
+  /**
+   * Page size for the direct-memory backing pool. Used to be {@code 1} for these tests because
+   * none of the assertions read or write through the buffer; the smallest legal value is
+   * sufficient. The shared {@link PageEntryFixture} requires a positive page size, so we keep
+   * the same minimal allocation here.
+   */
+  private static final int PAGE_SIZE = 1;
+
+  private PageEntryFixture pages;
   private CachePointer pointer;
 
   @Before
   public void setUp() {
-    allocator = new DirectMemoryAllocator();
-    pool = new ByteBufferPool(1, allocator, 0);
-    pointer = new CachePointer(pool.acquireDirect(true, Intention.TEST), pool, 1, 0);
-    pointer.incrementReadersReferrer();
+    pages = new PageEntryFixture(PAGE_SIZE, 0);
+    final var entry = pages.acquireReader(1L, 0);
+    pointer = entry.getCachePointer();
   }
 
   @After
   public void tearDown() {
-    pointer.decrementReadersReferrer();
+    pages.close();
   }
 
   // ---- equals contract ----

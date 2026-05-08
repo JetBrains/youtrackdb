@@ -1,17 +1,12 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.chm;
 
 import com.jetbrains.youtrackdb.internal.common.collection.ConcurrentLongIntHashMap;
-import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
-import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
-import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
-import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.PageEntryFixture;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.readbuffer.BoundedBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.readbuffer.Buffer;
-import java.util.ArrayList;
 import java.util.Iterator;
-import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.After;
 import org.junit.Assert;
@@ -24,10 +19,10 @@ import org.mockito.Mockito;
  * {@code writes()} after drain. Lives in the {@code cache.chm} package to access the
  * package-private {@link WTinyLFUPolicy} and {@link FrequencySketch} constructors.
  *
- * <p>The entries stored in the ring are backed by page-level direct memory (
- * {@code ByteBufferPool.acquireDirect()} wrapped in {@link CachePointer} with
- * {@code incrementReadersReferrer()}). All acquired page frames are released via
- * {@code decrementReadersReferrer()} in {@code @After}.
+ * <p>The entries stored in the ring are backed by page-level direct memory provided by
+ * {@link PageEntryFixture}, which encapsulates the
+ * {@code ByteBufferPool.acquireDirect()} → {@link CachePointer} → {@code
+ * incrementReadersReferrer()} sequence and runs the leak detector on close.
  *
  * <p><b>Note on counter semantics.</b> The {@code RingBuffer} constructor stores the first
  * element at slot 0 without advancing {@code writeCounter}. After N offers,
@@ -36,12 +31,7 @@ import org.mockito.Mockito;
  */
 public class BoundedBufferDrainTest {
 
-  /** Page size used for direct-memory allocations. */
-  private static final int PAGE_SIZE = 4 * 1024;
-
-  private DirectMemoryAllocator allocator;
-  private ByteBufferPool bufferPool;
-  private final List<CachePointer> acquiredPointers = new ArrayList<>();
+  private PageEntryFixture pages;
 
   /** Per-test policy with a large max-size to avoid premature eviction during drain tests. */
   private WTinyLFUPolicy policy;
@@ -50,8 +40,7 @@ public class BoundedBufferDrainTest {
 
   @Before
   public void setUp() {
-    allocator = new DirectMemoryAllocator();
-    bufferPool = new ByteBufferPool(PAGE_SIZE, allocator, 0);
+    pages = new PageEntryFixture();
     policyData = new ConcurrentLongIntHashMap<>();
     policyCacheSize = new AtomicInteger(0);
     policy = new WTinyLFUPolicy(policyData, new FrequencySketch(), policyCacheSize);
@@ -60,25 +49,20 @@ public class BoundedBufferDrainTest {
 
   @After
   public void tearDown() {
-    // Visit (but do NOT release) policy lists — @After releases via acquiredPointers.
+    // Visit (but do NOT release) policy lists — pages.close() drives the actual page-frame
+    // cleanup and runs the leak detector.
     drainPolicyLists();
-    for (var ptr : acquiredPointers) {
-      ptr.decrementReadersReferrer();
-    }
-    acquiredPointers.clear();
+    pages.close();
   }
 
   /**
    * Creates a CacheEntry backed by real direct-memory and registers it in the policy's data map
-   * (required by onAccess). The page-level pattern (acquireDirect → CachePointer →
-   * incrementReadersReferrer) matches the Track 19 codification.
+   * (required by onAccess). The page-level acquisition runs through {@link PageEntryFixture},
+   * which the per-test {@link #tearDown()} closes to release every page frame and run the
+   * direct-memory leak detector.
    */
   private CacheEntry makeAndRegisterEntry(final long fileId, final int pageIndex) {
-    final var pageFrame = bufferPool.acquireDirect(true, Intention.TEST);
-    final var pointer = new CachePointer(pageFrame, bufferPool, fileId, pageIndex);
-    pointer.incrementReadersReferrer();
-    acquiredPointers.add(pointer);
-    final CacheEntry entry = new CacheEntryImpl(fileId, pageIndex, pointer, false, null);
+    final CacheEntry entry = pages.acquireReader(fileId, pageIndex);
     policyCacheSize.incrementAndGet();
     policyData.put(fileId, pageIndex, entry);
     policy.onAdd(entry);
