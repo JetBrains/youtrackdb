@@ -879,6 +879,147 @@ public class BTreeMVBucketV2BulkOpsTest {
     Assert.assertNotEquals(a, c);
   }
 
+  /**
+   * AddAllNonLeafEntriesOp equals/hashCode: equal instances compare equal; different list size
+   * returns false (covers the size-check branch); same size but different entry returns false
+   * (covers the entry-diff branch in the loop).
+   */
+  @Test
+  public void testAddAllNonLeafEntriesOpEquals() {
+    var lsn = new LogSequenceNumber(2, 200);
+    var entry1 = new BTreeMVBucketV2AddAllNonLeafEntriesOp.NonLeafEntryData(
+        new byte[] {1}, 1, 2);
+    var entry2 = new BTreeMVBucketV2AddAllNonLeafEntriesOp.NonLeafEntryData(
+        new byte[] {2}, 3, 4);
+
+    var a = new BTreeMVBucketV2AddAllNonLeafEntriesOp(10, 20, 30, lsn, List.of(entry1));
+    var b = new BTreeMVBucketV2AddAllNonLeafEntriesOp(10, 20, 30, lsn, List.of(entry1));
+    // Different size: 1 vs 2 — exercises the size-check early-exit branch
+    var diffSize = new BTreeMVBucketV2AddAllNonLeafEntriesOp(
+        10, 20, 30, lsn, List.of(entry1, entry2));
+    // Same size but different entry — exercises the loop-entry-diff branch
+    var diffEntry = new BTreeMVBucketV2AddAllNonLeafEntriesOp(
+        10, 20, 30, lsn, List.of(entry2));
+
+    Assert.assertEquals(a, b);
+    Assert.assertEquals(a.hashCode(), b.hashCode());
+    Assert.assertNotEquals(a, diffSize);
+    Assert.assertNotEquals(a, diffEntry);
+  }
+
+  /**
+   * AddAllNonLeafEntriesOp: empty-list serialization roundtrip via toStream/fromStream.
+   * Covers the "0 iterations" branch of both serialise and deserialise loops.
+   */
+  @Test
+  public void testAddAllNonLeafEntriesOpEmptyList() {
+    var initialLsn = new LogSequenceNumber(1, 10);
+    var original = new BTreeMVBucketV2AddAllNonLeafEntriesOp(1, 2, 3, initialLsn, List.of());
+
+    var content = new byte[original.serializedSize() + 1];
+    original.toStream(content, 1);
+
+    var deserialized = new BTreeMVBucketV2AddAllNonLeafEntriesOp();
+    deserialized.fromStream(content, 1);
+
+    Assert.assertEquals(original, deserialized);
+    Assert.assertEquals(0, deserialized.getEntries().size());
+  }
+
+  /**
+   * ShrinkLeafEntriesOp equals/hashCode: equal instances compare equal; different retained size
+   * returns false; same size but different entry returns false.
+   */
+  @Test
+  public void testShrinkLeafEntriesOpEquals() {
+    var lsn = new LogSequenceNumber(3, 300);
+    var leafEntry1 = new BTreeMVBucketV2AddAllLeafEntriesOp.LeafEntryData(
+        new byte[] {1}, 10L, 1,
+        List.of(new BTreeMVBucketV2AddAllLeafEntriesOp.RidData((short) 1, 1L)));
+    var leafEntry2 = new BTreeMVBucketV2AddAllLeafEntriesOp.LeafEntryData(
+        new byte[] {2}, 20L, 1,
+        List.of(new BTreeMVBucketV2AddAllLeafEntriesOp.RidData((short) 2, 2L)));
+
+    var a = new BTreeMVBucketV2ShrinkLeafEntriesOp(5, 10, 15, lsn, List.of(leafEntry1));
+    var b = new BTreeMVBucketV2ShrinkLeafEntriesOp(5, 10, 15, lsn, List.of(leafEntry1));
+    // Different size: 1 vs 2 — exercises the retained-size-check early-exit branch
+    var diffSize = new BTreeMVBucketV2ShrinkLeafEntriesOp(
+        5, 10, 15, lsn, List.of(leafEntry1, leafEntry2));
+    // Same size but different entry — exercises the loop-entry-diff branch
+    var diffEntry = new BTreeMVBucketV2ShrinkLeafEntriesOp(
+        5, 10, 15, lsn, List.of(leafEntry2));
+
+    Assert.assertEquals(a, b);
+    Assert.assertEquals(a.hashCode(), b.hashCode());
+    Assert.assertNotEquals(a, diffSize);
+    Assert.assertNotEquals(a, diffEntry);
+  }
+
+  /**
+   * ShrinkLeafEntriesOp: empty retained list serialization roundtrip. Covers the "0 iterations"
+   * loop branch of both serializeToByteBuffer and deserializeFromByteBuffer.
+   */
+  @Test
+  public void testShrinkLeafEntriesOpEmptyList() {
+    var initialLsn = new LogSequenceNumber(1, 10);
+    var original = new BTreeMVBucketV2ShrinkLeafEntriesOp(1, 2, 3, initialLsn, List.of());
+
+    var content = new byte[original.serializedSize() + 1];
+    original.toStream(content, 1);
+
+    var deserialized = new BTreeMVBucketV2ShrinkLeafEntriesOp();
+    deserialized.fromStream(content, 1);
+
+    Assert.assertEquals(original, deserialized);
+    Assert.assertEquals(0, deserialized.getRetainedEntries().size());
+  }
+
+  /**
+   * ShrinkNonLeafEntriesOp equals/hashCode: equal instances compare equal; different retained size
+   * returns false; same size but different entry returns false.
+   */
+  @Test
+  public void testShrinkNonLeafEntriesOpEquals() {
+    var lsn = new LogSequenceNumber(4, 400);
+    var nlEntry1 = new BTreeMVBucketV2AddAllNonLeafEntriesOp.NonLeafEntryData(
+        new byte[] {1, 2}, 10, 20);
+    var nlEntry2 = new BTreeMVBucketV2AddAllNonLeafEntriesOp.NonLeafEntryData(
+        new byte[] {3, 4}, 30, 40);
+
+    var a = new BTreeMVBucketV2ShrinkNonLeafEntriesOp(5, 10, 15, lsn, List.of(nlEntry1));
+    var b = new BTreeMVBucketV2ShrinkNonLeafEntriesOp(5, 10, 15, lsn, List.of(nlEntry1));
+    // Different size: 1 vs 2 — exercises the retained-size-check early-exit branch
+    var diffSize = new BTreeMVBucketV2ShrinkNonLeafEntriesOp(
+        5, 10, 15, lsn, List.of(nlEntry1, nlEntry2));
+    // Same size but different entry — exercises the loop-entry-diff branch
+    var diffEntry = new BTreeMVBucketV2ShrinkNonLeafEntriesOp(
+        5, 10, 15, lsn, List.of(nlEntry2));
+
+    Assert.assertEquals(a, b);
+    Assert.assertEquals(a.hashCode(), b.hashCode());
+    Assert.assertNotEquals(a, diffSize);
+    Assert.assertNotEquals(a, diffEntry);
+  }
+
+  /**
+   * ShrinkNonLeafEntriesOp: empty retained list serialization roundtrip. Covers the "0 iterations"
+   * loop branch of both serializeToByteBuffer and deserializeFromByteBuffer.
+   */
+  @Test
+  public void testShrinkNonLeafEntriesOpEmptyList() {
+    var initialLsn = new LogSequenceNumber(1, 10);
+    var original = new BTreeMVBucketV2ShrinkNonLeafEntriesOp(1, 2, 3, initialLsn, List.of());
+
+    var content = new byte[original.serializedSize() + 1];
+    original.toStream(content, 1);
+
+    var deserialized = new BTreeMVBucketV2ShrinkNonLeafEntriesOp();
+    deserialized.fromStream(content, 1);
+
+    Assert.assertEquals(original, deserialized);
+    Assert.assertEquals(0, deserialized.getRetainedEntries().size());
+  }
+
   // ---------- Multi-op redo sequence test ----------
 
   @Test

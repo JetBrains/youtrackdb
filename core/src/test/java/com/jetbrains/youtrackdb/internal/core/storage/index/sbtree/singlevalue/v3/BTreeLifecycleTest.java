@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.UTF8Serializer;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
@@ -22,6 +23,7 @@ import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Tests for {@link BTree} lifecycle and miscellaneous API methods that are not covered by the
@@ -42,7 +44,12 @@ import org.junit.Test;
  *   <li>{@link BTree#getApproximateEntriesCount} — the optimistic + pinned read paths for the
  *       approximate count.</li>
  * </ul>
+ *
+ * <p>This class mutates the process-wide {@code GlobalConfiguration.BTREE_MAX_KEY_SIZE} in one
+ * test and therefore carries {@link SequentialTest} to ensure it runs in the sequential surefire
+ * execution (never concurrently with other test classes that read the same global config).
  */
+@Category(SequentialTest.class)
 public class BTreeLifecycleTest {
 
   private static final String DIR_SUFFIX = "BTreeLifecycleTest";

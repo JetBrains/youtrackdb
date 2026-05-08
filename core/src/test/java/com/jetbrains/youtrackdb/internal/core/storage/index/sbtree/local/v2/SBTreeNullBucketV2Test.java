@@ -132,4 +132,67 @@ public class SBTreeNullBucketV2Test {
     cachePointer.decrementReferrer();
     bufferPool.clear();
   }
+
+  /**
+   * getRawValue returns null when the bucket is empty (no value set).
+   */
+  @Test
+  public void testGetRawValueEmptyBucket() {
+    var bufferPool = new ByteBufferPool(1024);
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
+
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    cachePointer.incrementReferrer();
+
+    CacheEntry cacheEntry = new CacheEntryImpl(0, 0, cachePointer, false, null);
+    cacheEntry.acquireExclusiveLock();
+
+    var serializerFactory = BinarySerializerFactory.create(
+        BinarySerializerFactory.currentBinaryFormatVersion());
+    var bucket = new SBTreeNullBucketV2<String>(cacheEntry);
+    bucket.init();
+
+    Assert.assertNull(bucket.getRawValue(StringSerializer.INSTANCE, serializerFactory));
+
+    cacheEntry.releaseExclusiveLock();
+    cachePointer.decrementReferrer();
+    bufferPool.clear();
+  }
+
+  /**
+   * getRawValue returns the raw serialized bytes that were stored via setValue, matching
+   * the bytes that StringSerializer would produce for the same value.
+   */
+  @Test
+  public void testGetRawValueMatchesSetValue() {
+    var bufferPool = new ByteBufferPool(1024);
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
+
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    cachePointer.incrementReferrer();
+
+    CacheEntry cacheEntry = new CacheEntryImpl(0, 0, cachePointer, false, null);
+    cacheEntry.acquireExclusiveLock();
+
+    var serializerFactory = BinarySerializerFactory.create(
+        BinarySerializerFactory.currentBinaryFormatVersion());
+    var bucket = new SBTreeNullBucketV2<String>(cacheEntry);
+    bucket.init();
+
+    byte[] serialized = StringSerializer.INSTANCE.serializeNativeAsWhole(
+        serializerFactory, "rawTest");
+    bucket.setValue(serialized, StringSerializer.INSTANCE);
+
+    byte[] raw = bucket.getRawValue(StringSerializer.INSTANCE, serializerFactory);
+    Assert.assertNotNull("getRawValue must return non-null after setValue", raw);
+
+    // Deserialize the raw bytes and verify they produce the original value
+    String deserialized = StringSerializer.INSTANCE.deserializeNativeObject(
+        serializerFactory, raw, 0);
+    Assert.assertEquals("deserialized raw value must match original", "rawTest", deserialized);
+
+    cacheEntry.releaseExclusiveLock();
+    cachePointer.decrementReferrer();
+    bufferPool.clear();
+  }
 }
