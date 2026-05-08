@@ -394,6 +394,9 @@
 - [ ] Step implementation
 - [ ] Track-level code review
 
+## Base commit
+`23164a8487`
+
 ## Reviews completed
 - [x] Technical: PASS at iteration 2 (6 findings — T1/T2/T3 should-fix accepted, T4/T5/T6 suggestions accepted). Iter-2 gate verified: `local/v1` row added with deletion-bound rationale; IT-shadow caveat reworded to cite the default `**/*IT.java` glob under `ci-integration-tests` profile (NOT failsafe `<includes>`); step count loosened to ~6–7; JaCoCo `100% branch` annotated as branchless-interface unmeasurable-sentinel; `AbstractStorage` LOC corrected to ~3 100 instr-lines; `coverage-gate.py` `assert`-strip pre-step probe added for engine `doClearTree` paths and `nkbtree.normalizers`. Zero new findings.
 - [x] Risk: PASS at iteration 2 (7 findings — R1/R2 high-severity accepted, R3/R4 medium accepted, R5/R6/R7 low accepted). Iter-2 gate verified: **R2 (CRITICAL)** the non-existent class names `CellBTreeSingleValueV3`/`CellBTreeMultiValueV2`/`SBTreeV2` now appear ONLY inside explicit "do NOT use" callouts (PSI re-confirmed `BTree` class in `sbtree/singlevalue/v3` is the live engine; the v2 lifecycle classes do not exist); `multivalue/v2` and `local/v2` reframed as WAL-replay-only D4 packages with direct-bucket/`*Op` round-trip strategy; `StaleTransactionMonitor` CyclicBarrier MT probe scoped; per-test database-name UUID rule added to Constraints (OEngine.getStorage(name) collision rationale); build-cost ceiling loosened to ~6–7 cycles; `PageEntryFixture` extraction committed as Step 1 (resolves Track 20 TS7); `nkbtree.normalizers` target deferred to Phase B Step 1 with `coverage-gate.py` assert-strip re-measure. Zero new findings.
