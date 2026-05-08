@@ -299,7 +299,7 @@ fall short of 85%/70% targets per Decision Record D4 in
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (5/6 complete)
+- [x] Step implementation
 - [ ] Track-level code review
 
 ## Base commit
@@ -734,7 +734,8 @@ fall short of 85%/70% targets per Decision Record D4 in
   > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/chm/readbuffer/BoundedBufferRingTest.java` (new)
   > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/chm/writequeue/MPSCLinkedQueueTest.java` (new)
 
-- [ ] Step: Verification + top-up + Track-20 baseline + track episode
+- [x] Step: Verification + top-up + Track-20 baseline + track episode
+  - [x] Context: safe
   > **Risk:** low — default (verification-only; coverage re-run,
   > opportunistic top-ups, baseline write, episode authoring).
   >
@@ -783,3 +784,101 @@ fall short of 85%/70% targets per Decision Record D4 in
   > drafted; all per-package gates met or D4-accepted with
   > documented rationale; Track 22 absorption block updated in
   > `implementation-backlog.md`.
+  >
+  > **What was done:** Ran the full coverage suite
+  > (`./mvnw -pl core -am clean package -P coverage`, ~10 min) on
+  > top of Steps 1–5 and parsed per-package numbers for all 11
+  > in-scope packages. Most packages met or exceeded targets;
+  > `cache.local.doublewritelog` blew past its D4 ceiling
+  > (**89.0% line / 57.4% branch** vs `~70%/~52%`). The cache
+  > top-level gap (83.7%/66.5% vs ≥85%/≥70%) was closeable —
+  > added **19 top-up tests** (11 to `CachePointerPageFrameTest`
+  > covering readers/writers referrer lifecycle and the
+  > `WritersListener` notification cycle, 8 to `CacheEntryImplTest`
+  > covering the `acquireEntry`/`releaseEntry`/`freeze`/`makeDead`
+  > state machine, `setInitialLSN` no-op, `getEndLSN`, `toString`).
+  > Two packages still miss their plan targets after top-up — both
+  > fundamentally IT-shadowed (see "What was discovered"). PSI
+  > confirmed `cache.local.aoc.FileSegment` has zero project-wide
+  > references. Wrote `track-20-baseline.md` (per-package lift
+  > table, residual-gap rationales, dead-code note, WHEN-FIXED
+  > pins). Updated `implementation-backlog.md` Track 22 absorption
+  > block with 8 items (FileSegment deletion, `WOWCacheTestIT`
+  > relocation, three WHEN-FIXED WOWCache concurrency pins,
+  > `composeFileId` informational, Mockito Void-stub convention,
+  > WAL `toString` chain reinforcement).
+  >
+  > **What was discovered:**
+  > 1. **`cache.local` lifted only +1.4 pp line (68.5% → 69.9%) vs
+  >    the ~78% target — an 8 pp miss.** Step 4 focused on helper
+  >    classes and concurrency shapes rather than WOWCache's main
+  >    operational paths. The dominant uncovered blocks
+  >    (`readNameIdMapV1` / `readNameIdMapV2`: 60+32 lines,
+  >    `checkFileStoredPages`: 58 lines) are strictly IT-shadowed
+  >    via `WOWCacheTestIT`. The aspirational target assumed more
+  >    operational coverage was achievable via direct construction;
+  >    the fresh-directory test pattern never triggers
+  >    migration / restore paths. **Cross-track impact (sub-step 5):
+  >    minor — Continue.** The plan / D4 wording for `cache.local`
+  >    needs updating from `~78%/~62%` to the surefire ceiling
+  >    `~70%/~57%` — Phase C plan-correction item.
+  > 2. **`paginated.wal.cas` lifted only +2.1 pp line
+  >    (76.5% → 78.6%) vs ≥85% target — 6 pp miss.** The dominant
+  >    uncovered clusters (`next`: 44, `log`: 30, `read`: 29 lines)
+  >    include encryption paths (AES key/IV required) and
+  >    write-worker internals exercised only by
+  >    `CASDiskWriteAheadLogIT`. **Cross-track impact: minor —
+  >    Continue.** Phase C plan-correction item: D4 acceptance for
+  >    this package should be noted explicitly alongside
+  >    `cache.local`.
+  > 3. `cache.local.doublewritelog` exceeded its D4 ceiling
+  >    significantly: **89.0% line / 57.4% branch** (target
+  >    `~70%/~52%`). Step 3 was highly effective.
+  > 4. `WOWCacheTestIT` package location confirmed:
+  >    `storage.index.hashindex.local.cache` (historical artifact —
+  >    should be `storage.cache.local`). Phase A adversarial F8
+  >    forwarded to Track 22.
+  > 5. `CachePointerPageFrameTest` previously had no tests for the
+  >    `WritersListener` notification paths
+  >    (`addOnlyWriters` / `removeOnlyWriters`) — these are the
+  >    notification callbacks that `WOWCache.addOnlyWriters` /
+  >    `removeOnlyWriters` implement, making the top-up directly
+  >    relevant to the Step 4 concurrency shapes documented in the
+  >    Track 22 absorption block.
+  >
+  > **What changed from the plan:**
+  > 1. `cache.local` target (`~78%/~62%`) NOT met; actual:
+  >    `69.9%/56.5%`. The ~10 pp line gap is fundamentally
+  >    IT-shadowed; closing it requires Track 22 IT expansion, not
+  >    surefire work. The plan's D4 acceptance ceiling should be
+  >    refined from the aspirational `~78%/~62%` to the actual
+  >    surefire ceiling `~70%/~57%` (Phase C plan correction).
+  > 2. `paginated.wal.cas` target (≥85%/≥70%) NOT met; actual:
+  >    `78.6%/62.4%`. IT-shadowed (encryption, write-worker). D4
+  >    acceptance should be noted explicitly alongside `cache.local`
+  >    (Phase C plan correction).
+  > 3. The per-step plan listed 6 in-scope packages; the actual
+  >    in-scope list verified at coverage time is 11 packages
+  >    (including `cache`, `cache.local.aoc`,
+  >    `cache.local.doublewritelog`, `cache.chm.readbuffer`,
+  >    `cache.chm.writequeue`, `wal.common.deque` as separate
+  >    sub-packages). No deliverable change — just a more precise
+  >    package list in `track-20-baseline.md`.
+  > 4. The track episode (the `## Track 20` summary destined for
+  >    `implementation-plan.md` after collapse) is NOT written by
+  >    this step per the step instructions — that is Phase C
+  >    track-completion work. The verification step's
+  >    `EPISODE_DRAFT` covers Step 6 only.
+  >
+  > **Critical context:** the `cache.local` and `paginated.wal.cas`
+  > coverage misses are structural (IT-shadowed paths), not a
+  > signal that additional top-up tests should be attempted in
+  > Phase C. Phase C should accept these as D4-documented misses
+  > and update the plan / design wording to match the actual
+  > surefire ceilings.
+  >
+  > **Key files:**
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/CachePointerPageFrameTest.java` (modified — top-up)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/CacheEntryImplTest.java` (modified — top-up)
+  > - `docs/adr/unit-test-coverage/_workflow/track-20-baseline.md` (new)
+  > - `docs/adr/unit-test-coverage/_workflow/implementation-backlog.md` (modified — Track 22 absorption block)
