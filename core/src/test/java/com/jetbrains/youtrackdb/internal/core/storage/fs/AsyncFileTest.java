@@ -2,15 +2,19 @@ package com.jetbrains.youtrackdb.internal.core.storage.fs;
 
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.util.RawPairLongObject;
+import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import java.io.File;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.Executors;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -35,6 +39,13 @@ public class AsyncFileTest {
 
   @Before
   public void before() {
+    FileUtils.deleteRecursively(buildDirectoryPath.toFile());
+  }
+
+  @After
+  public void after() {
+    // Ensure the test artifact file is removed after each test so it is not left
+    // untracked in the working tree after the last test in this class completes.
     FileUtils.deleteRecursively(buildDirectoryPath.toFile());
   }
 
@@ -566,5 +577,80 @@ public class AsyncFileTest {
     Assert.assertArrayEquals(data2, r2.array());
 
     file.close();
+  }
+
+  @Test
+  public void testDeleteWithLoggingEnabledLogsAndDeletesFile() throws Exception {
+    // Verifies that creating an AsyncFile with logFileDeletion=true and then deleting it
+    // successfully removes the file from disk (covers the logFileDeletion=true branch in delete()).
+    final AsyncFile file = new AsyncFile(
+        buildDirectoryPath, 1, true, Executors.newCachedThreadPool(), STORAGE_NAME);
+    file.create();
+    Assert.assertTrue(file.exists());
+
+    // delete() with logFileDeletion=true logs "File ... has been deleted." and removes the file
+    file.delete();
+    Assert.assertFalse(file.exists());
+  }
+
+  @Test
+  public void testCheckPositionWithNegativeOffsetThrowsStorageException() throws Exception {
+    // Verifies that write() at a negative offset triggers checkPosition()'s offset<0 guard
+    // and throws StorageException, covering the negative-offset branch of checkPosition().
+    final AsyncFile file = new AsyncFile(
+        buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+    file.create();
+    // Allocate some space so the file is non-empty; negative offsets should still be rejected.
+    file.allocateSpace(128);
+    try {
+      file.write(-1, ByteBuffer.allocate(1));
+      Assert.fail("Expected StorageException for negative offset write");
+    } catch (StorageException e) {
+      // expected — checkPosition() rejects offset < 0
+    } finally {
+      file.close();
+    }
+  }
+
+  @Test
+  public void testOpenReopensFileWithPartialPageTruncation() throws Exception {
+    // Verifies that opening an existing file whose physical content area is not aligned
+    // to the page size triggers the truncation path in initSize() (lines that truncate
+    // the file and log a warning about partially-written data pages).
+    //
+    // Setup: create a file with pageSize=512, allocate one full page, write data,
+    // close. Then append extra bytes directly to the raw file so the content area
+    // is no longer a multiple of 512. Reopening a new AsyncFile on the same path
+    // must exercise the truncation branch.
+    final int PAGE_SIZE = 512;
+    final AsyncFile file = new AsyncFile(
+        buildDirectoryPath, PAGE_SIZE, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+    file.create();
+
+    // Allocate and populate one full page so the file is non-trivial
+    final long pos = file.allocateSpace(PAGE_SIZE);
+    final var data = new byte[PAGE_SIZE];
+    new Random().nextBytes(data);
+    file.write(pos, ByteBuffer.wrap(data));
+    file.synch();
+    file.close();
+
+    // Append extra bytes directly to the underlying OS file so the content area
+    // (physical size - HEADER_SIZE) is no longer a multiple of PAGE_SIZE.
+    // HEADER_SIZE = 1024, so the file is currently 1024 + 512 = 1536 bytes.
+    // Appending 100 bytes makes it 1636; content area = 612, 612 % 512 != 0.
+    final var extraBytes = new byte[100];
+    Files.write(buildDirectoryPath.toFile().toPath(), extraBytes, StandardOpenOption.APPEND);
+
+    // Open a new AsyncFile on the same path — initSize() must detect the misalignment,
+    // truncate back to 1024 + 512 = 1536 bytes, and log a warning.
+    final AsyncFile reopened = new AsyncFile(
+        buildDirectoryPath, PAGE_SIZE, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+    reopened.open();
+
+    // After truncation the logical file size must equal exactly one page
+    Assert.assertEquals(PAGE_SIZE, reopened.getFileSize());
+
+    reopened.close();
   }
 }
