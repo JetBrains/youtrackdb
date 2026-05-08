@@ -391,7 +391,7 @@
     
     ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/7 complete)
+- [ ] Step implementation (2/7 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -426,9 +426,28 @@
   >
   > **Commit:** `0fd30cef43`
 
-- [ ] Step 2: Small-package quick-wins — `nkbtree.normalizers`, `sbtree` top-level, `index/engine`, `index/versionmap`
+- [x] Step 2: Small-package quick-wins — `nkbtree.normalizers`, `sbtree` top-level, `index/engine`, `index/versionmap`
+  - [x] Context: safe
   > **Risk:** low — default (tests-only on existing code; no shared fixture beyond what Step 1 already provides).
   > Add unit tests to lift the four small/interface-level packages. (a) Re-measure `nkbtree.normalizers` with `coverage-gate.py` to determine post-`assert`-exclusion branch% — if real branch% ≥70%, smoke-pin completion only; else commit to a lower D4 target with the `DecimalKeyNormalizer.java:43-101` dead-helper deletion forwarded to Track 22. (b) `sbtree/TreeInternal.java` (7 uncov / 7 total): direct standalone tests for the small interface/util slice. (c) `storage.index.engine` and `storage.index.versionmap` (interface-only, branchless): smoke-pin shape coverage — instantiate / hash / equals / toString as applicable. End-of-step: per-package gates met or D4-accepted with rationale; `./mvnw -pl core clean package -P coverage` confirms aggregate drift is bounded.
+  >
+  > **What was done:** Added 6 test files (5 new, 1 modified) covering four small/interface-level packages: (a) `DecimalKeyNormalizerTest` (5 tests for the package-private `unsigned()` helper) plus a `KeyNormalizationTest` extension pinning the unsupported-type `UnsupportedOperationException` branch; (b) `AccumulativeListenerTest` (5 tests) for `TreeInternal.AccumulativeListener`; (c) `CellBTreeSingleValueDefaultTest` (1 test) for the interface default `setEngineId()`; (d) `RemoteIndexEngineTest` (14 tests) smoke-pinning every `RemoteIndexEngine` method; (e) `PaginatedVersionStateV0Test` (7 tests) covering `PaginatedVersionStateV0` plus 2 appended `MapEntryPoint` tests. All 72 targeted tests pass; full 15583+1951+11 core suite green; spotless clean.
+  >
+  > **What was discovered:** `nkbtree.normalizers` branch coverage ceiling is **23.3%** (up from 20.0%), driven exclusively by three private dead helpers in `DecimalKeyNormalizer.java:43-101` (`scaleToDecimal128`, `clampAndRound`, `ensureExactRounding`) — unreachable from any production caller; `coverage-gate.py` `assert`-line stripping does **not** lift them since they are method-level dead code, not assert-line phantom branches. Closing the gap requires deletion, which is forwarded to Track 22 as planned (D4-accepted ceiling). The `unsigned()` helper is reachable and now fully covered. `RemoteIndexEngine.create` declares checked `IOException` — caught at the first targeted compile (test method required `throws Exception`). No upcoming-track assumption weakened — recommendation: **Continue**.
+  >
+  > **What changed from the plan:** Step 2 over-delivered on `MapEntryPoint` (planned smoke-pin → actual 100%/100%) and `PaginatedVersionStateV0` (planned smoke-pin → actual 100%/100%); both packages exceed the ≥85% line target. `nkbtree.normalizers` line% lifted to 74.7% (above the ≥70% target) but branch% accepted under D4 at 23.3% with Track 22 deletion as the documented resolution.
+  >
+  > **Key files:**
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/index/nkbtree/normalizers/DecimalKeyNormalizerTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/index/nkbtree/normalizers/KeyNormalizationTest.java` (modified)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/index/sbtree/AccumulativeListenerTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/index/sbtree/singlevalue/CellBTreeSingleValueDefaultTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/index/engine/RemoteIndexEngineTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/index/versionmap/PaginatedVersionStateV0Test.java` (new)
+  >
+  > **Critical context:** `DecimalKeyNormalizer` dead-helper deletion (Track 22 absorption) will lift `nkbtree.normalizers` branch% from 23.3% to ~70%+ once the three private dead methods are removed; Track 22 should prioritise this package in its deletion sweep.
+  >
+  > **Commit:** `e1fa5bc693`
 
 - [ ] Step 3: `storage/impl/local` helpers + `paginated` top-level (`StaleTransactionMonitor` MT probe inclusive)
   > **Risk:** medium — concurrency test infrastructure (CyclicBarrier MT probe pattern for `StaleTransactionMonitor.start()` idempotency is reusable test infra; helpers tests follow standard DbTestBase + standalone patterns).
