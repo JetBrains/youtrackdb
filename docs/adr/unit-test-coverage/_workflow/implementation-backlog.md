@@ -1404,6 +1404,108 @@ Natural cleanup happens when the branch is deleted after PR merge. -->
 >   a bug fix) Track 22 may consider rewriting the chain so each
 >   subclass appends, making debug log output more diagnostic. Out
 >   of scope for Track 19's coverage focus; pure suggestion tier.
+>   **Track 20 note:** Track 20 tests pin getter values rather than
+>   `toString()` content throughout to avoid this trap; the underlying
+>   production-code cleanup remains a Track 22 item (reinforced from
+>   Track 19's queue).
+
+> *From Track 20 (Storage Cache & WAL) Phase B:* Test-additive
+> coverage track with zero production-source changes. Track 22
+> inherits the following absorption items.
+>
+> *Dead-code deletion (PSI-confirmed zero project-wide references):*
+> 1. **`cache.local.aoc.FileSegment` dead-code deletion** (Phase A
+>    adversarial F1): The sole class in `cache.local.aoc`,
+>    `FileSegment`, has zero callers and zero implementers project-wide
+>    (PSI-confirmed at Phase A review and re-confirmed at Step 6
+>    baseline). Track 20 accepted 0% coverage on `cache.local.aoc`
+>    explicitly because adding tests for dead code would be
+>    counter-productive. Track 22 should delete `FileSegment` and the
+>    `cache.local.aoc` package. Phase A adversarial review F1 — safe
+>    to delete without test retrofit.
+>
+> *Package mislocation cleanup (non-bug, historical artifact):*
+> 2. **`WOWCacheTestIT` package mislocation** (Phase A adversarial F8):
+>    `WOWCacheTestIT` currently lives in package
+>    `storage.index.hashindex.local.cache` (historical artifact from
+>    OrientDB ancestry). It tests `WOWCache` behaviour and belongs in
+>    `storage.cache.local`. Track 22 should relocate via IDE
+>    refactor (move class in IntelliJ, update imports and
+>    `META-INF/services` if any) and verify all surefire tests still
+>    pass. Non-blocking for coverage; informational only.
+>
+> *Production bugs pinned with WHEN-FIXED markers (3 issues, fix the
+> pin lockstep with the production change):*
+> 3. **`addOnlyWriters` / `removeOnlyWriters` counter-set
+>    non-atomicity** (`WOWCache.java:1350-1358`): `exclusiveWritePages`
+>    and `exclusiveWriteCacheSize` are mutated in `addOnlyWriters` and
+>    `removeOnlyWriters` without the per-page `lockManager` exclusive
+>    lock; the author comment at :3975-3977 admits eventual consistency.
+>    A concurrent `store` + `addOnlyWriters` + `flush` sequence can
+>    produce counter drift or orphan `PageKey`. Pinned by
+>    `WOWCacheConcurrencyShapesTest.counterSetNonAtomicityProbe` with
+>    WHEN-FIXED marker. Fix: synchronize access to the two counters
+>    under the per-page `lockManager` exclusive lock, mirroring the
+>    pattern at the `store` entry point. Track 22 should apply the
+>    fix and flip the WHEN-FIXED pin to the correct-behaviour
+>    assertion.
+> 4. **`fileIdByName` visibility race** (`WOWCache.java:846-854` /
+>    `:831-832`): `addFile()` writes `nameIdMap.put(:831)` before
+>    `idNameMap.put(:832)`. A concurrent `fileIdByName()` call between
+>    the two `put` calls (`:846-854`, no `filesLock`) sees an external
+>    fileId in `nameIdMap` that is not yet in `idNameMap`. Pinned by
+>    `WOWCacheConcurrencyShapesTest.fileIdByNameRaceWindowProbe` with
+>    WHEN-FIXED marker. Fix: either reorder the `addFile` writes
+>    (`idNameMap.put` first, `nameIdMap.put` second) or protect
+>    `fileIdByName` with the `filesLock` read-lock that `addFile`
+>    holds. Track 22 should apply the fix and flip the WHEN-FIXED pin.
+> 5. **`store` re-entry silent swallow** (`WOWCache.java:1213-1239`):
+>    When a page is already in the store (existing `pagePointer`),
+>    `store()` contains `assert pagePointer.equals(dataPointer)`.
+>    Asserts run only with `-ea`; in production without `-ea`, a
+>    mismatching `dataPointer` is silently ignored and the existing
+>    mapping is kept. Pinned by
+>    `WOWCacheConcurrencyShapesTest.storeReentryMismatchProbe` with
+>    WHEN-FIXED marker. Fix: replace the `assert` with an explicit
+>    check and throw `IllegalStateException` unconditionally, making
+>    the mismatch detectable in production. Track 22 should apply the
+>    fix and flip the WHEN-FIXED pin.
+>
+> *Static helper informational pin (not a production bug, but
+> asymmetry worth noting):*
+> 6. **`AbstractWriteCache.composeFileId` negative-fileId
+>    sign-extension asymmetry**: `composeFileId` does NOT mask the
+>    long-promoted `fileId` before OR-ing with `storageId`. A negative
+>    `fileId` sign-extends and overwrites the upper 32 bits, so
+>    `extractStorageId` returns -1 for negative fileIds. WOWCache only
+>    uses negative fileIds as "booked but not yet added" sentinels with
+>    no live `storageId` paired — no production impact — but the
+>    asymmetry is now pinned in `AbstractWriteCacheStaticHelpersTest`.
+>    Track 22 may consider adding a `0xFFFFFFFFL` mask in
+>    `composeFileId` for defensive correctness. Informational only;
+>    not a bug pin. No WHEN-FIXED marker.
+>
+> *Test-convention note (codify if Track 22 adds shared test infra):*
+> 7. **Mockito Void-stub trap**: stubbing `void`-returning methods with
+>    `when(...).thenReturn(...)` throws `CannotStubVoidMethodWithReturnValue`
+>    in Mockito. Default-null return is sufficient for
+>    `FlushTillSegmentTask` and `FindMinDirtySegment` tests. Future
+>    Track 21 / Track 22 wrappers should use `doReturn(...)` or rely
+>    on the Mockito default for void methods. Worth codifying in test
+>    conventions if Track 22 introduces shared `cache.local` test
+>    infrastructure.
+>
+> *PageOperation toString chain (reinforcement from Track 19, Track 20
+> adds context):*
+> 8. **WAL record toString chain replace-vs-append** (Phase C iter-2
+>    Track 19, reinforced by Track 20): `AbstractPageWALRecord.toString()`
+>    and its chain beneath it replace parent fields rather than append.
+>    Track 20 tests pin getter values throughout (`assertEquals(42L,
+>    rec.getPageIndex())`) to avoid the trap. The underlying
+>    production-code cleanup (rewriting the chain so each subclass
+>    appends its own fields rather than replacing the whole string)
+>    remains a Track 22 suggestion-tier item. No test flipping needed;
+>    the existing Track 20 tests already avoid the trap.
 
 > **How**:
 > - TX tests need a database session to verify begin/commit/rollback

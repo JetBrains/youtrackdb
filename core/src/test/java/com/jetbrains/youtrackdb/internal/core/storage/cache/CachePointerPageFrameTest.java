@@ -1,9 +1,12 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
@@ -11,6 +14,7 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocat
 import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
 import com.jetbrains.youtrackdb.internal.common.directmemory.PageFramePool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.Pointer;
+import java.util.concurrent.atomic.AtomicReference;
 import org.assertj.core.api.Assertions;
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -380,6 +384,248 @@ public class CachePointerPageFrameTest {
     pool.release(frame);
     pool.clear();
     allocator.checkMemoryLeaks();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Readers / Writers referrer tracking
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Verifies that incrementReadersReferrer() increments both the reader sub-count and the
+   * overall referrer count. After decrementing back, the referrer reaches 0 and the frame
+   * is returned to the pool.
+   */
+  @Test
+  public void testIncrementAndDecrementReadersReferrer() {
+    var allocator = new DirectMemoryAllocator();
+    var pool = new PageFramePool(4096, allocator, 2);
+    var frame = pool.acquire(true, Intention.TEST);
+
+    var cp = new CachePointer(frame, pool, 5, 3);
+
+    // incrementReadersReferrer increments the hidden referrersCount by 1.
+    cp.incrementReadersReferrer();
+    assertEquals(0, pool.getPoolSize()); // Frame still in use.
+
+    // decrementReadersReferrer decrements by 1, reaching 0 → frame returned to pool.
+    cp.decrementReadersReferrer();
+    assertEquals(1, pool.getPoolSize());
+
+    pool.clear();
+    allocator.checkMemoryLeaks();
+  }
+
+  /**
+   * Verifies that incrementWritersReferrer() increments the writer sub-count and the overall
+   * referrer count, and decrementWritersReferrer() decrements both. Frame is returned to the
+   * pool when referrers reach 0.
+   */
+  @Test
+  public void testIncrementAndDecrementWritersReferrer() {
+    var allocator = new DirectMemoryAllocator();
+    var pool = new PageFramePool(4096, allocator, 2);
+    var frame = pool.acquire(true, Intention.TEST);
+
+    var cp = new CachePointer(frame, pool, 7, 2);
+
+    cp.incrementWritersReferrer();
+    assertEquals(0, pool.getPoolSize());
+
+    cp.decrementWritersReferrer();
+    assertEquals(1, pool.getPoolSize());
+
+    pool.clear();
+    allocator.checkMemoryLeaks();
+  }
+
+  /**
+   * Verifies the full reader/writer listener notification cycle:
+   * (1) Writer joins alone → no notification (not yet "only writers" state because we start from 0).
+   * (2) Reader joins while writer is present → removeOnlyWriters fires (page transitions from
+   *     "only writers" to "readers+writers").
+   * (3) Reader leaves while writer is still present → addOnlyWriters fires (page transitions
+   *     back to "only writers").
+   * (4) Writer leaves alone (readers==0, writers==0 after decrement) → removeOnlyWriters fires.
+   */
+  @Test
+  public void testWritersListenerFullCycle() {
+    var allocator = new DirectMemoryAllocator();
+    var pool = new PageFramePool(4096, allocator, 2);
+    var frame = pool.acquire(true, Intention.TEST);
+
+    var cp = new CachePointer(frame, pool, 9, 1);
+
+    var capturedEvent = new AtomicReference<String>();
+    cp.setWritersListener(new CachePointer.WritersListener() {
+      @Override
+      public void addOnlyWriters(long fileId, long pageIndex) {
+        capturedEvent.set("addOnly:" + fileId + ":" + pageIndex);
+      }
+
+      @Override
+      public void removeOnlyWriters(long fileId, long pageIndex) {
+        capturedEvent.set("removeOnly:" + fileId + ":" + pageIndex);
+      }
+    });
+
+    // Step 1: Writer joins alone → no notification (initial state, not "only writers" yet).
+    cp.incrementWritersReferrer();
+    assertNull("No notification on first writer join", capturedEvent.get());
+
+    // Step 2: Reader joins while writer present → removeOnlyWriters fires (no longer only writers).
+    cp.incrementReadersReferrer();
+    assertEquals("removeOnly:9:1", capturedEvent.get());
+
+    // Step 3: Reader leaves while writer still present → addOnlyWriters fires (only writers again).
+    capturedEvent.set(null);
+    cp.decrementReadersReferrer();
+    assertEquals("addOnly:9:1", capturedEvent.get());
+
+    // Step 4: Writer leaves alone (readers==0, writers==0 after) → removeOnlyWriters fires.
+    capturedEvent.set(null);
+    cp.decrementWritersReferrer();
+    assertEquals("removeOnly:9:1", capturedEvent.get());
+
+    pool.clear();
+    allocator.checkMemoryLeaks();
+  }
+
+  /**
+   * Verifies that the WritersListener.removeOnlyWriters() callback fires when a reader joins
+   * a page that currently has only writers (readers == 0, writers > 0). After incrementing
+   * a reader, the "only writers" state ends — removeOnlyWriters must fire.
+   */
+  @Test
+  public void testWritersListenerRemoveOnlyWritersCalledWhenReaderJoins() {
+    var allocator = new DirectMemoryAllocator();
+    var pool = new PageFramePool(4096, allocator, 2);
+    var frame = pool.acquire(true, Intention.TEST);
+
+    var cp = new CachePointer(frame, pool, 11, 4);
+
+    var capturedEvent = new AtomicReference<String>();
+    cp.setWritersListener(new CachePointer.WritersListener() {
+      @Override
+      public void addOnlyWriters(long fileId, long pageIndex) {
+        capturedEvent.set("addOnly:" + fileId + ":" + pageIndex);
+      }
+
+      @Override
+      public void removeOnlyWriters(long fileId, long pageIndex) {
+        capturedEvent.set("removeOnly:" + fileId + ":" + pageIndex);
+      }
+    });
+
+    // Writer is present, no readers → "only writers" state.
+    cp.incrementWritersReferrer();
+
+    assertNull("No notification yet — only writer joined, no reader", capturedEvent.get());
+
+    // Reader joins → no longer "only writers" → removeOnlyWriters must fire.
+    cp.incrementReadersReferrer();
+    assertEquals("removeOnly:11:4", capturedEvent.get());
+
+    // Clean up.
+    cp.decrementReadersReferrer();
+    cp.decrementWritersReferrer();
+
+    pool.clear();
+    allocator.checkMemoryLeaks();
+  }
+
+  /**
+   * Verifies that the WritersListener.removeOnlyWriters() callback fires when the last writer
+   * leaves and no readers are present (writers == 0, readers == 0 after decrement). This is
+   * the "only-writers state ends because the writer left" notification.
+   */
+  @Test
+  public void testWritersListenerRemoveOnlyWritersCalledWhenLastWriterLeaves() {
+    var allocator = new DirectMemoryAllocator();
+    var pool = new PageFramePool(4096, allocator, 2);
+    var frame = pool.acquire(true, Intention.TEST);
+
+    var cp = new CachePointer(frame, pool, 13, 5);
+
+    var capturedEvent = new AtomicReference<String>();
+    cp.setWritersListener(new CachePointer.WritersListener() {
+      @Override
+      public void addOnlyWriters(long fileId, long pageIndex) {
+        capturedEvent.set("addOnly:" + fileId + ":" + pageIndex);
+      }
+
+      @Override
+      public void removeOnlyWriters(long fileId, long pageIndex) {
+        capturedEvent.set("removeOnly:" + fileId + ":" + pageIndex);
+      }
+    });
+
+    // Start with one writer, no readers → only-writers state.
+    cp.incrementWritersReferrer();
+
+    // Writer leaves with no readers → removeOnlyWriters fires (writers+readers both 0).
+    cp.decrementWritersReferrer();
+    assertEquals("removeOnly:13:5", capturedEvent.get());
+
+    pool.clear();
+    allocator.checkMemoryLeaks();
+  }
+
+  // ---------------------------------------------------------------------------
+  // equals / hashCode / toString
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Verifies that equals() returns true for two CachePointers with identical (fileId, pageIndex)
+   * and false for different coordinates or incompatible types. Also verifies reflexivity (a == a)
+   * and null-safety (a.equals(null) == false).
+   */
+  @Test
+  public void testEqualsAndHashCode() {
+    var a = new CachePointer((PageFrame) null, null, 10, 5);
+    var b = new CachePointer((PageFrame) null, null, 10, 5);
+    var c = new CachePointer((PageFrame) null, null, 10, 6);
+    var d = new CachePointer((PageFrame) null, null, 11, 5);
+
+    // Reflexivity.
+    assertTrue("Reflexive equals failed", a.equals(a));
+
+    // Symmetry for equal pair.
+    assertTrue("Equal pair not equal", a.equals(b));
+    assertTrue("Equal pair not equal (b.equals(a))", b.equals(a));
+
+    // Hash code consistency.
+    assertEquals("Hash codes must be equal for equal objects", a.hashCode(), b.hashCode());
+
+    // Not equal for different pageIndex.
+    assertFalse("Different pageIndex must not be equal", a.equals(c));
+
+    // Not equal for different fileId.
+    assertFalse("Different fileId must not be equal", a.equals(d));
+
+    // Null safety.
+    assertFalse("equals(null) must return false", a.equals(null));
+
+    // Different type.
+    assertFalse("equals(String) must return false", a.equals("not a pointer"));
+
+    // hashCode is stable across calls (caching).
+    assertEquals("hashCode must be stable", a.hashCode(), a.hashCode());
+
+    // hashCode is non-zero for typical non-trivial coordinates (not guaranteed, but (10,5)
+    // produces non-zero by formula: (int)(10^0) * 31 + 5 = 36).
+    assertNotEquals("hashCode expected non-zero for (10,5)", 0, a.hashCode());
+  }
+
+  /**
+   * Verifies that toString() returns a non-null, non-empty string containing "CachePointer"
+   * for a sentinel CachePointer (null pointer). The exact format is not contractual.
+   */
+  @Test
+  public void testToStringNonNull() {
+    var cp = new CachePointer((PageFrame) null, null, 3, 7);
+    var str = cp.toString();
+    assertNotNull("toString() must not return null", str);
+    assertTrue("toString() must contain CachePointer", str.contains("CachePointer"));
   }
 
   @Test
