@@ -1833,6 +1833,8 @@ flowchart TD
   > (commit `609b47d2d9`).
   >
   > **Step file:** `tracks/track-20.md` (6 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — all Track 20 cross-track impact already absorbed into Track 22 backlog (commit 609b47d2d9). No Component Map shift, no Decision Record changes; D4 (storage-internal coverage allowance) reinforced by three accepted per-package gates. Track 21 inherits the Track 19/20 page-level direct-memory pattern (`ByteBufferPool.acquireDirect()` → `CachePointer` → `incrementReadersReferrer` → exclusive lock → ops → `decrementReferrer` in `finally` + `bufferPool.clear()` + `allocator.checkMemoryLeaks()` in `@After`) plus the Track 20 CyclicBarrier MT-race pattern for storage-cluster concurrency probes. Heads-ups for Track 21 Phase A: (1) backlog has no Track 21 section — reconstruct scope from the Component Map and the actual `core/storage/index/sbtree/{multivalue,singlevalue,local}/{v1,v2,v3}` + `nkbtree` + `versionmap` + `engine` + `impl/local*` package layout; (2) some `impl/local/paginated/{wal,base,atomicoperations}` lines may already be incidentally covered by Tracks 19/20 — cross-check at Phase A to avoid duplicate test files; (3) prefer Mockito `doReturn(...)` over `when(...).thenReturn(...)` for void-returning `WriteCache`/`CacheEntry` stubs (Track 20 Mockito void-stub trap codify-note).
 
 - [ ] Track 21: Storage B-tree & Impl
   > Write tests for B-tree index storage and storage implementation
