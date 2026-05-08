@@ -299,4 +299,272 @@ public class AsyncFileTest {
     file.close();
     Assert.assertFalse(file.isOpen());
   }
+
+  @Test
+  public void testExistsAndGetName() throws Exception {
+    // Verifies exists() returns true after create(), getName() returns the path's
+    // file name component, and exists() returns false after delete().
+    final AsyncFile file = new AsyncFile(
+        buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+    Assert.assertFalse(file.exists());
+
+    file.create();
+    Assert.assertTrue(file.exists());
+    Assert.assertFalse(file.getName().isEmpty());
+
+    file.close();
+    Assert.assertTrue(file.exists()); // file still on disk after close
+    file.open();
+    file.delete();
+    Assert.assertFalse(file.exists());
+  }
+
+  @Test
+  public void testGetFileSizeAndGetUnderlyingFileSize() throws Exception {
+    // Verifies that getFileSize() tracks logical allocations and
+    // getUnderlyingFileSize() matches the physical bytes written.
+    final AsyncFile file = new AsyncFile(
+        buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+    file.create();
+
+    Assert.assertEquals(0, file.getFileSize());
+
+    final var pos = file.allocateSpace(512);
+    Assert.assertEquals(512, file.getFileSize());
+
+    final var data = new byte[512];
+    new java.util.Random().nextBytes(data);
+    file.write(pos, ByteBuffer.wrap(data));
+    file.synch();
+
+    // Underlying file size == logical (no partial writes for this allocation)
+    Assert.assertEquals(512, file.getUnderlyingFileSize());
+
+    file.close();
+  }
+
+  @Test
+  public void testShrink() throws Exception {
+    // Verifies shrink() truncates the file so that getFileSize() reports 0
+    // and allocations after the shrink work from position 0.
+    final AsyncFile file = new AsyncFile(
+        buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+    file.create();
+
+    file.allocateSpace(1024);
+    Assert.assertEquals(1024, file.getFileSize());
+
+    file.shrink(0);
+    Assert.assertEquals(0, file.getFileSize());
+
+    file.close();
+  }
+
+  @Test
+  public void testRenameTo() throws Exception {
+    // Verifies renameTo() closes the original file, moves it to the new path,
+    // and reopens at the new location so subsequent reads succeed.
+    final AsyncFile file = new AsyncFile(
+        buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+    file.create();
+
+    final var pos = file.allocateSpace(128);
+    final var data = new byte[128];
+    new java.util.Random().nextBytes(data);
+    file.write(pos, ByteBuffer.wrap(data));
+    file.synch();
+
+    // Rename to a sibling path in the same build directory
+    final var newPath = buildDirectoryPath.resolveSibling(
+        buildDirectoryPath.getFileName().toString() + "_renamed");
+    file.renameTo(newPath);
+
+    Assert.assertEquals(newPath.getFileName().toString(), file.getName());
+    Assert.assertTrue(file.isOpen());
+
+    // Data must still be readable at the same offset via the renamed file
+    final var result = ByteBuffer.allocate(128);
+    file.read(pos, result, true);
+    Assert.assertArrayEquals(data, result.array());
+
+    file.close();
+    // Clean up renamed file
+    com.jetbrains.youtrackdb.internal.common.io.FileUtils.deleteRecursively(newPath.toFile());
+  }
+
+  @Test
+  public void testReplaceContentWith() throws Exception {
+    // Verifies replaceContentWith() replaces the file's data with the contents
+    // of a second file, so a subsequent read returns the new data.
+    final AsyncFile file = new AsyncFile(
+        buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+    file.create();
+
+    final var pos = file.allocateSpace(256);
+    final var oldData = new byte[256];
+    new java.util.Random().nextBytes(oldData);
+    file.write(pos, ByteBuffer.wrap(oldData));
+    file.synch();
+    file.close();
+
+    // Create a second file with different content of the same size
+    final var sourcePath = buildDirectoryPath.resolveSibling(
+        buildDirectoryPath.getFileName().toString() + "_source");
+    final AsyncFile source = new AsyncFile(
+        sourcePath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+    source.create();
+    final var posSource = source.allocateSpace(256);
+    final var newData = new byte[256];
+    new java.util.Random().nextBytes(newData);
+    source.write(posSource, ByteBuffer.wrap(newData));
+    source.synch();
+    source.close();
+
+    // Re-open the target file and replace its content
+    file.open();
+    file.replaceContentWith(sourcePath);
+
+    final var result = ByteBuffer.allocate(256);
+    file.read(posSource, result, true);
+    Assert.assertArrayEquals(newData, result.array());
+
+    file.close();
+    com.jetbrains.youtrackdb.internal.common.io.FileUtils.deleteRecursively(sourcePath.toFile());
+  }
+
+  @Test
+  public void testReadDoesNotThrowOnEof() throws Exception {
+    // Verifies that read() with throwOnEof=false stops silently at EOF rather
+    // than propagating an EOFException.
+    final AsyncFile file = new AsyncFile(
+        buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+    file.create();
+
+    // Allocate and write 128 bytes, but try to read 256: should not throw.
+    final var pos = file.allocateSpace(128);
+    final var data = new byte[128];
+    new java.util.Random().nextBytes(data);
+    file.write(pos, ByteBuffer.wrap(data));
+
+    // Extend the logical size so checkPosition passes for a 256-byte read
+    file.allocateSpace(128);
+    final var result = ByteBuffer.allocate(256).order(ByteOrder.nativeOrder());
+    // Should complete without EOFException
+    file.read(pos, result, false);
+
+    file.close();
+  }
+
+  @Test
+  public void testWriteToClosedFileThrowsStorageException() throws Exception {
+    // Verifies that write() on a closed AsyncFile throws StorageException (via checkForClose).
+    final AsyncFile file = new AsyncFile(
+        buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+    file.create();
+    final var pos = file.allocateSpace(128);
+    file.close();
+
+    try {
+      file.write(pos, ByteBuffer.allocate(128));
+      Assert.fail("Expected StorageException for write on closed file");
+    } catch (com.jetbrains.youtrackdb.internal.core.exception.StorageException e) {
+      // expected
+    }
+  }
+
+  @Test
+  public void testReadToClosedFileThrowsStorageException() throws Exception {
+    // Verifies that read() on a closed AsyncFile throws StorageException (via checkForClose).
+    final AsyncFile file = new AsyncFile(
+        buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+    file.create();
+    final var pos = file.allocateSpace(128);
+    final var data = new byte[128];
+    file.write(pos, ByteBuffer.wrap(data));
+    file.close();
+
+    try {
+      file.read(pos, ByteBuffer.allocate(128), true);
+      Assert.fail("Expected StorageException for read on closed file");
+    } catch (com.jetbrains.youtrackdb.internal.core.exception.StorageException e) {
+      // expected
+    }
+  }
+
+  @Test
+  public void testWriteOutOfBoundsThrowsStorageException() throws Exception {
+    // Verifies that write() at an offset beyond the allocated size throws
+    // StorageException (via checkPosition).
+    final AsyncFile file = new AsyncFile(
+        buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+    file.create();
+    // No space allocated; offset 0 is already out of bounds.
+    try {
+      file.write(0, ByteBuffer.allocate(128));
+      Assert.fail("Expected StorageException for out-of-bounds write");
+    } catch (com.jetbrains.youtrackdb.internal.core.exception.StorageException e) {
+      // expected
+    } finally {
+      file.close();
+    }
+  }
+
+  @Test
+  public void testCreateAlreadyOpenedThrowsStorageException() throws Exception {
+    // Verifies that calling create() on an already-open AsyncFile throws StorageException.
+    final AsyncFile file = new AsyncFile(
+        buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+    file.create();
+    try {
+      file.create();
+      Assert.fail("Expected StorageException for double create");
+    } catch (com.jetbrains.youtrackdb.internal.core.exception.StorageException e) {
+      // expected
+    } finally {
+      file.close();
+    }
+  }
+
+  @Test
+  public void testSynchOnCleanFileIsNoOp() throws Exception {
+    // Verifies that synch() can be called on a file with no dirty pages without error.
+    final AsyncFile file = new AsyncFile(
+        buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+    file.create();
+    // No writes — dirtyCounter is 0; synch should be a no-op
+    file.synch();
+    file.close();
+  }
+
+  @Test
+  public void testAsyncWriteListAndAwait() throws Exception {
+    // Verifies the async write(List<RawPairLongObject<ByteBuffer>>) path completes
+    // without error and the data is readable afterwards (covers WriteHandler.completed).
+    final AsyncFile file = new AsyncFile(
+        buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+    file.create();
+
+    final var pos1 = file.allocateSpace(64);
+    final var pos2 = file.allocateSpace(64);
+    final var data1 = new byte[64];
+    final var data2 = new byte[64];
+    new java.util.Random().nextBytes(data1);
+    new java.util.Random().nextBytes(data2);
+
+    final List<RawPairLongObject<ByteBuffer>> buffers = new ArrayList<>();
+    buffers.add(new RawPairLongObject<>(pos1, ByteBuffer.wrap(data1)));
+    buffers.add(new RawPairLongObject<>(pos2, ByteBuffer.wrap(data2)));
+
+    final var ioResult = file.write(buffers);
+    ioResult.await();
+
+    final var r1 = ByteBuffer.allocate(64);
+    final var r2 = ByteBuffer.allocate(64);
+    file.read(pos1, r1, true);
+    file.read(pos2, r2, true);
+    Assert.assertArrayEquals(data1, r1.array());
+    Assert.assertArrayEquals(data2, r2.array());
+
+    file.close();
+  }
 }
