@@ -299,7 +299,7 @@ fall short of 85%/70% targets per Decision Record D4 in
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [ ] Step implementation (1/6 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -312,7 +312,8 @@ fall short of 85%/70% targets per Decision Record D4 in
 
 ## Steps
 
-- [ ] Step: WAL records + LSN + small WAL packages + MPSC deque + test-record-ID constants
+- [x] Step: WAL records + LSN + small WAL packages + MPSC deque + test-record-ID constants
+  - [x] Context: safe
   > **Risk:** low — default (test-additive only; standalone JUnit 4
   > for pure POJO records + `ConcurrentTestHelper` smoke for the
   > MPSC deque; introduces `Track20WALTestRecordIds` constants class
@@ -335,6 +336,66 @@ fall short of 85%/70% targets per Decision Record D4 in
   > on `wal.common` and `wal.common.deque` matches or exceeds
   > targets; falsifiability rule respected (every round-trip
   > assertion pins at least one specific getter value).
+  >
+  > **What was done:** Added five test classes covering the
+  > `paginated.wal`, `wal.common`, and `wal.common.deque` packages —
+  > `LogSequenceNumberTest` (8 tests),
+  > `ActiveWALRecordsRoundTripTest` (16 tests for the active record
+  > types `AtomicUnitStartRecord`, `AtomicUnitStartMetadataRecord`,
+  > `UpdatePageRecord`, `FileCreated/Deleted/TruncatedWALRecord`,
+  > `HighLevelTransactionChangeRecord`, `MetaDataRecord`,
+  > `NonTxOperationPerformedWALRecord`, plus `AbstractWALRecord` and
+  > `AbstractPageWALRecord` equality / state plumbing),
+  > `common/CommonWALRecordsTest` (8 tests for `MilestoneWALRecord`,
+  > `StartWALRecord`, `CASWALPage` offsets), and
+  > `common/deque/MPSCFAAArrayDequeueTest` (11 tests including a
+  > 4-producer / 1-consumer `ConcurrentTestHelper`-style smoke with
+  > `CountDownLatch` synchronisation and a 5 s timeout). Also added
+  > `CoverageTestWALRecordIds` — an empty constants class documenting
+  > the WAL test-record-ID range constraint; the step itself does not
+  > register any new record types because the active types (IDs 0-18)
+  > are already in the factory's switch statement. All 43 new tests
+  > pass under surefire; spotless clean. Falsifiability rule respected
+  > everywhere — every round-trip pins at least one specific getter
+  > value, no `toString().contains(...)` assertions.
+  >
+  > **What was discovered:**
+  > - `WALRecordsFactory.registerNewRecord` enforces
+  >   `id < ID_TABLE_SIZE` (=512) — the plan's reserved range
+  >   `[600, 699]` is unreachable and would throw
+  >   `IllegalArgumentException` on registration. The constants class
+  >   instead documents an in-range sub-window `[460, 510]` (avoiding
+  >   the existing test-only ID 500 used by
+  >   `CASDiskWriteAheadLogCloseTest`). Step 1 itself needs no
+  >   allocations; the constraint matters when Step 2 / Step 4 (or any
+  >   future Track 21 / Track 22 work) registers a test-only WAL
+  >   record. **Cross-track impact (sub-step 5): minor — Continue.**
+  >   Plan/backlog wording referencing `[600, 699]` becomes a Phase C
+  >   plan-correction item.
+  > - `AbstractPageWALRecord.toString()` is the same "replace, not
+  >   append" chain Track 19 flagged. None of the new tests rely on
+  >   `toString`; every assertion pins a specific getter value, so the
+  >   trap is avoided.
+  >
+  > **What changed from the plan:**
+  > 1. The constants class is named `CoverageTestWALRecordIds`, not
+  >    `Track20WALTestRecordIds` — the latter would embed a
+  >    workflow-internal track identifier in durable test code,
+  >    violating the Ephemeral identifier rule. The plan's name was
+  >    illustrative ("e.g."), not contractual; the centralisation
+  >    intent is preserved.
+  > 2. Reserved ID range is `[460, 510]` rather than `[600, 699]` —
+  >    forced by `WALRecordsFactory.ID_TABLE_SIZE = 512`. Affects
+  >    Steps 2-4 only if those steps need to register a new test-only
+  >    record type; the cap was already implicitly in force (existing
+  >    test ID 500 is the largest pre-existing test registration).
+  >
+  > **Key files:**
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/wal/ActiveWALRecordsRoundTripTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/wal/CoverageTestWALRecordIds.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/wal/LogSequenceNumberTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/wal/common/CommonWALRecordsTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/wal/common/deque/MPSCFAAArrayDequeueTest.java` (new)
 
 - [ ] Step: CAS-WAL (`paginated.wal.cas`)
   > **Risk:** low — default (test-additive only; direct construction
