@@ -300,7 +300,7 @@ fall short of 85%/70% targets per Decision Record D4 in
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
+- [ ] Track-level code review (iteration 1 in progress — synthesized findings spawned to implementer)
 
 ## Base commit
 `dc48664853`
