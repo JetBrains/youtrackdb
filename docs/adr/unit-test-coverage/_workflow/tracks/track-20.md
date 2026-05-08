@@ -299,7 +299,7 @@ fall short of 85%/70% targets per Decision Record D4 in
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (3/6 complete)
+- [ ] Step implementation (4/6 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -536,7 +536,8 @@ fall short of 85%/70% targets per Decision Record D4 in
   > **Key files:**
   > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/local/doublewritelog/DoubleWriteLogGLTest.java` (new)
 
-- [ ] Step: WOWCache lifecycle + cache top-level + three named concurrency shapes
+- [x] Step: WOWCache lifecycle + cache top-level + three named concurrency shapes
+  - [x] Context: safe
   > **Risk:** low — default (test-additive only; direct construction
   > of WOWCache in temp directory; named concurrency probes use
   > `ConcurrentTestHelper` per design § Testing Concurrency
@@ -588,6 +589,78 @@ fall short of 85%/70% targets per Decision Record D4 in
   > to Track 22 absorption block; `WOWCacheNonDurableFileTrackingTest`
   > carries `@Category(SequentialTest.class)` and the
   > `@AfterClass` flag-restore.
+  >
+  > **What was done:** Added six new test classes covering the cache
+  > top-level + `cache.local` surface — `AbstractWriteCacheStaticHelpersTest`
+  > (10 tests), `PageDataVerificationErrorTest` (9), `PageKeyTest` (12),
+  > `NameFileIdEntryTest` (10), `CacheLocalTaskWrappersTest` (13 — covers
+  > all eight `Callable` / `Runnable` wrappers), and
+  > `WOWCacheConcurrencyShapesTest` (4 — three named shapes plus a
+  > counter-settle smoke). Updated `WOWCacheNonDurableFileTrackingTest`
+  > with `@Category(SequentialTest.class)` and a snapshot/restore
+  > `@BeforeClass` + `@AfterClass` pair for `STORAGE_EXCLUSIVE_FILE_ACCESS`
+  > and `FILE_LOCK` to plug the Phase A R5 leak. All 58 new-class tests
+  > + 60 modified-class tests pass under surefire; spotless clean.
+  > Falsifiability rule respected — round-trip pins on getter values, no
+  > `toString().contains` assertions. Three named WOWCache concurrency
+  > probes are WHEN-FIXED-pinned with explicit Track 22 forwarding
+  > instructions in Javadoc.
+  >
+  > **What was discovered:**
+  > 1. `AbstractWriteCache.composeFileId` does NOT mask the long-promoted
+  >    fileId before OR-ing with the storageId — a negative fileId
+  >    sign-extends and overwrites the upper 32 bits, so
+  >    `extractStorageId` returns -1 for negative fileIds. WOWCache uses
+  >    negative fileIds only as "booked but not yet added" sentinels with
+  >    no live storageId paired, so production is unaffected, but the
+  >    asymmetry is now pinned in `AbstractWriteCacheStaticHelpersTest`.
+  >    **Cross-track impact (sub-step 5): minor — informational.** Track
+  >    22 may consider adding the mask in `composeFileId` for consistency,
+  >    but this is not a bug pin.
+  > 2. Mockito treats `Void`-returning methods specially — stubbing them
+  >    with `when(...).thenReturn(...)` throws
+  >    `CannotStubVoidMethodWithReturnValue`. The default-null return is
+  >    sufficient for `FlushTillSegmentTask` and `FindMinDirtySegment`
+  >    tests. Future Track 21 / Track 22 wrappers should use `doReturn`
+  >    or rely on the default. Worth codifying as a test pattern.
+  > 3. The three WOWCache concurrency-shape line citations
+  >    (`1350-1358` for `addOnlyWriters` / `removeOnlyWriters`,
+  >    `846-854` for `fileIdByName`, `1213-1239` for `store`) are still
+  >    accurate against the current `WOWCache.java` (4488 LoC) — no
+  >    annotation drift.
+  > 4. The `fileIdByName` visibility race is structurally observable
+  >    without MT scheduling: writing only `nameIdMap` (and leaving
+  >    `idNameMap` empty) reproduces the `addFile` `:831`/`:832`
+  >    between-puts state, which `fileIdByName` resolves through. The
+  >    MT loop in the test is reinforcement, not the load-bearing pin.
+  >
+  > **What changed from the plan:** the step description called for
+  > extending both `WOWCacheNonDurableFileTrackingTest` and
+  > `WOWCacheFlushErrorTest` with the `SequentialTest` annotation —
+  > only the former needed the fix; the latter is a Mockito-mock unit
+  > test that does not mutate `GlobalConfiguration`, so the missing
+  > annotation there was not a leak. No coverage-target deviation.
+  >
+  > **Track 22 absorption candidates added:**
+  > - `addOnlyWriters` / `removeOnlyWriters` counter-set non-atomicity
+  >   (`WOWCache.java:1350-1358`) — `WOWCacheConcurrencyShapesTest`
+  >   pin.
+  > - `fileIdByName` non-locking read between `nameIdMap.put` and
+  >   `idNameMap.put` (`WOWCache.java:846-854` / `:831`-`:832`) —
+  >   `WOWCacheConcurrencyShapesTest` pin.
+  > - `store` re-entry: silent swallow of
+  >   `pagePointer.equals(dataPointer)` mismatch when `-ea` is off
+  >   (`WOWCache.java:1213-1239`) — `WOWCacheConcurrencyShapesTest`
+  >   pin.
+  >
+  > **Key files:**
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/AbstractWriteCacheStaticHelpersTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/PageDataVerificationErrorTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/local/CacheLocalTaskWrappersTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/local/NameFileIdEntryTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/local/PageKeyTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/local/WOWCacheConcurrencyShapesTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/local/WOWCacheNonDurableFileTrackingTest.java` (modified — `@Category(SequentialTest.class)` + `@BeforeClass` / `@AfterClass` flag snapshot/restore)
 
 - [ ] Step: CHM read cache + small CHM packages
   > **Risk:** low — default (test-additive only; standalone +
