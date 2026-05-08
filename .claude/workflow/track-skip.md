@@ -37,9 +37,7 @@ A track can be skipped (`[~]`) in two situations:
    removed in step 3 below.
 
    The authoritative retention rule for `[~]` entries lives in
-   [`track-review.md`](track-review.md) § Track Pre-Flight step 6
-   (Persist amendments + strategy-refresh line) — this process step
-   must not diverge from that rule.
+   step 5 below — this process step must not diverge from that rule.
 
    The skip record replaces both the track episode and step file
    reference. It must include enough context for the next session's
@@ -76,6 +74,18 @@ A track can be skipped (`[~]`) in two situations:
    block, just like for `[x]` tracks. The line is the audit record
    of the assessment and is preserved by the Pre-Flight gate's
    resume idempotency rule on subsequent re-entries.
+
+   **Retention rule for `[~]` entries.** The plan entry retains the
+   intro paragraph, the `**Skipped:**` line, and the
+   `**Strategy refresh:**` line indefinitely. It is **never trimmed
+   by the Phase C collapse pass** — Phase C collapse only runs against
+   `[x]` tracks at track completion (see
+   [`track-code-review.md`](track-code-review.md) § Track Completion
+   step 4); skipped tracks bypass that pass entirely. The
+   `**What/How/Constraints/Interactions**` subsections and any
+   track-level diagram lived in `implementation-backlog.md` and were
+   removed in step 3 above; they are not recoverable from the plan
+   entry once a track has been skipped.
 
 ---
 

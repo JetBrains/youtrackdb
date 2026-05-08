@@ -95,9 +95,14 @@ yet.
 
 If the assessment is `ESCALATE` (accumulated discoveries
 fundamentally changed the picture), present Panel 1 alone to the
-user. If they accept the escalation, route to
-[`inline-replanning.md`](inline-replanning.md) immediately — do
-NOT render Panel 2.
+user using `AskUserQuestion` with two options — **Accept
+escalation** and **Override**. On **Accept**, route to
+[`inline-replanning.md`](inline-replanning.md) immediately and do
+NOT render Panel 2. On **Override** (the user disagrees with the
+ESCALATE recommendation), fall through to step 2: build Panel 2
+and present the full 4-option gate in step 3, treating the
+overridden assessment as `CONTINUE` for the purpose of step 6's
+on-disk strategy-refresh line.
 
 **2. Build Panel 2 — track summary (look-forward).**
 
@@ -247,6 +252,17 @@ Plan/backlog edits committed in the previous session persist;
 clarifications captured in the previous session lived only in
 conversation context and are lost — the user must re-enter them
 if still relevant.
+
+**Partial-commit asymmetry.** A prior session may have committed
+step 4 plan/backlog edits but died before step 6 wrote the
+strategy-refresh line. On resume the line is missing, so the gate
+re-runs Panel 1; the committed edits are the new baseline (they
+do not appear as a diff against the original plan). The
+orchestrator and user are jointly responsible for noticing the
+prior amendments — typically by inspecting the recent commit log
+(`git log --oneline -5 -- docs/adr/<dir-name>/_workflow/`) before
+the loop starts — and not re-issuing them in this round's
+`Adjust` rounds.
 
 **8. Proceed.** Continue to §What You Do sub-step 1 below.
 
