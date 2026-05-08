@@ -339,9 +339,9 @@ finding ID prefixes, and gate format.
       Read the slim plan snapshot at:
         /tmp/claude-code-plan-slim-{PPID}.md
       Filtered view of the plan — completed tracks show title +
-      intro + track episode + strategy refresh only; the current
-      track and other not-started tracks are shown in full. If the
-      snapshot is missing, fall back to
+      intro + track episode + the on-disk `**Strategy refresh:**`
+      line only; the current track and other not-started tracks are
+      shown in full. If the snapshot is missing, fall back to
       docs/adr/{dir-name}/_workflow/implementation-plan.md.
 
       ## Track Steps (tactical context)
@@ -505,9 +505,9 @@ until sub-steps 1–8 above are done.
 
 After each step (sub-step 5 of the per-step workflow), do a
 lightweight assessment against the plan — this is a quick check, not
-a full strategy refresh. The orchestrator has the plan context
-in-session, so this is a natural self-check, fed by
-`result.CROSS_TRACK_HINTS`.
+a full Track Pre-Flight Panel 1 strategy assessment. The orchestrator
+has the plan context in-session, so this is a natural self-check,
+fed by `result.CROSS_TRACK_HINTS`.
 
 For each completed step, assess:
 

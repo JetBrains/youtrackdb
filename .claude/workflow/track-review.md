@@ -56,97 +56,199 @@ all default to grep unless their prompts explicitly route them to
 PSI. The canonical prompts under `prompts/` already include this
 instruction — keep it intact when customising.
 
-### Track Pre-Flight — Summary and Clarifications
+### Track Pre-Flight — Strategy Assessment + Track Summary
 
 Before Phase A's reviews and decomposition begin, the orchestrator
-presents a summary of the track to the user and offers a chance to
-amend the plan/backlog entry or attach clarifications that ride into
-Phase A. The gate fires once per fresh Phase A entry — State B fresh
-starts and State A → Phase A after strategy refresh. State C resume
-(the step file already has a populated `## Description`) **skips**
-the gate; the user saw the summary in the original session and the
-description is already authoritative.
+runs a single Pre-Flight gate that combines a backward-looking
+strategy assessment (when an earlier track has just completed or
+been skipped) with a forward-looking summary of the upcoming track.
+The gate is the user's chance to apply light edits to remaining
+tracks, attach clarifications to the upcoming track, or escalate to
+inline replanning before sub-agents start reading the plan.
 
-**1. Build the summary.** Read the plan-file Track N entry (title,
-intro paragraph, scope indicators, any inline notes) and the backlog's
-`## Track N:` section (`**What/How/Constraints/Interactions**` plus
-any `mermaid` diagram, per the "Backlog section body extraction rule"
-in [`conventions-execution.md`](conventions-execution.md) §2.1).
-Render the summary inline in the reply to the user; do not write to
-disk yet — the step file is created in §What You Do sub-step 2c
-after this gate clears.
+The gate fires once per fresh Phase A entry. State C resume (the
+step file already has a populated `## Description`) **skips** the
+gate; the user saw it in the original session and the description
+is already authoritative. The gate is also re-runnable on session
+resume (step file still missing) — the resume idempotency rule at
+the end of this section governs that case.
 
-**2. Ask the user.** Present the summary and use `AskUserQuestion`
-with three options:
+**1. Build Panel 1 — strategy assessment (look-back).**
 
-- **Proceed** — start Phase A with the track as summarised.
-- **Amend** — modify the plan-file entry and/or the backlog section
-  in place. Light edits only (see step 3 below for the boundary).
-- **Clarify** — attach guidance, must-/must-not- considerations, or
-  open questions to be carried into Phase A. Clarifications do not
-  modify the plan or backlog; they are appended to the step file's
-  `## Description` as a `### Clarifications` subsection in sub-step
-  2c.
+Skip Panel 1 if there is no completed or skipped track yet (the
+very first Phase A entry of the plan) — there is nothing to look
+back at.
 
-`AskUserQuestion` captures one option per round, so combining
-**Amend** and **Clarify** spans multiple rounds. Each round: the
-user picks one option; the orchestrator applies it (edit the
-plan/backlog for **Amend**, append to the clarifications buffer for
-**Clarify**); then re-render the summary from the (now-updated)
-files and re-ask. Loop until the user picks **Proceed**.
+Otherwise, read the just-completed (or just-skipped) track's
+episode plus the accumulated episodes of all earlier completed
+tracks, and assess the remaining tracks against discoveries:
 
-**3. Apply amendments — light only.** Light amendments edit the
-plan-file Track N entry and/or the backlog's `## Track N:` section
-directly via `Edit` (or `steroid_apply_patch` when more than two
-sites are touched). These are markdown edits — no IntelliJ PSI/VFS
-refresh concern applies, so the project CLAUDE.md "always route file
-edits through MCP Steroid" rule is satisfied with native `Edit` for
-single-site changes here. Acceptable scope:
+- Do any track episodes contradict assumptions in upcoming tracks?
+- Has the Component Map changed in ways affecting remaining tracks?
+- Are any Decision Records weakened by what was learned?
+- Are there new dependencies between tracks not in the original plan?
+
+Produce an assessment — `CONTINUE`, `ADJUST`, or `ESCALATE` —
+with a short rationale. The assessment is rendered inline in
+Panel 1 of the user-facing summary; nothing is persisted to disk
+yet.
+
+If the assessment is `ESCALATE` (accumulated discoveries
+fundamentally changed the picture), present Panel 1 alone to the
+user. If they accept the escalation, route to
+[`inline-replanning.md`](inline-replanning.md) immediately — do
+NOT render Panel 2.
+
+**2. Build Panel 2 — track summary (look-forward).**
+
+Read the plan-file Track N entry (title, intro paragraph, scope
+indicators, any inline notes) and the backlog's `## Track N:`
+section (`**What/How/Constraints/Interactions**` plus any `mermaid`
+diagram, per the "Backlog section body extraction rule" in
+[`conventions-execution.md`](conventions-execution.md) §2.1).
+Render the summary inline. The step file is created in §What You
+Do sub-step 2c after this gate clears — do not write it yet.
+
+**3. Ask the user.** Render Panel 1 (if active) followed by
+Panel 2, and use `AskUserQuestion` with four options:
+
+- **Proceed** — accept the assessment (CONTINUE) and start Phase A
+  with the upcoming track as summarised.
+- **Adjust** — modify any remaining track's plan-file entry and/or
+  backlog section. Light edits only (see step 4 below for the
+  boundary). Reordering remaining `[ ]` tracks is a light edit; if
+  the reorder changes which track is "next", re-render Panel 2
+  with the new upcoming track's summary before re-asking.
+- **Clarify** — attach guidance, must-/must-not- considerations,
+  or open questions to be carried into Phase A. Clarifications
+  target the **upcoming track only**; they do not modify the plan
+  or backlog and are appended to the step file's `## Description`
+  as a `### Clarifications` subsection in sub-step 2c.
+- **ESCALATE** — request "fundamental rework" → route to inline
+  replanning.
+
+`AskUserQuestion` captures one option per round, so a user who
+wants to combine **Adjust** and **Clarify** spans multiple rounds.
+Each round: the user picks one option; the orchestrator applies it
+(edit the plan/backlog for **Adjust**, append to the clarifications
+buffer for **Clarify**); then re-render Panel 1 (re-running the
+strategy assessment if Panel 1 is active and the adjustment touched
+a remaining track) and Panel 2 from the (now-updated) files; re-ask.
+Loop until the user picks **Proceed** or **ESCALATE**.
+
+**4. Apply amendments — light vs deep boundary.**
+
+Light amendments (apply directly via `Edit`, or `steroid_apply_patch`
+when more than two sites are touched — these are markdown edits, no
+IntelliJ PSI/VFS refresh concern applies, so the project CLAUDE.md
+"always route file edits through MCP Steroid" rule is satisfied with
+native `Edit` for single-site changes here):
 
 - Track title, intro paragraph
-- Scope indicators in the plan entry
+- Scope indicators in the plan-file checklist entries
 - `**What/How/Constraints/Interactions**` subsections in the backlog
-- The track's `mermaid` diagram in the backlog
+- Track-level `mermaid` diagrams in the backlog
+- Reordering of remaining `[ ]` tracks within the plan checklist
+  (only if dependencies still hold; re-render Panel 2 if the
+  reorder changes the upcoming track)
 
-If the user requests anything in the list below, do **NOT** apply it
-in this gate — route to inline replanning per
+Deep amendments — route to inline replanning per
 [`inline-replanning.md`](inline-replanning.md) (trigger: "user
-requests escalation during track review"):
+requests escalation during track pre-flight"):
 
-- Decision Records, Architecture Notes, Goals, or Constraints in the
-  plan file
-- Track ordering, dependencies, or new/removed tracks
+- Decision Records, Architecture Notes, Goals, or Constraints in
+  the plan file
+- Adding or removing tracks
 - Cross-track interaction surfaces (i.e., the change would affect
-  another track's scope)
+  another track's scope beyond pure reordering)
 - Anything the user describes as "fundamental rework"
+- A Panel 1 strategy assessment producing `ESCALATE` that the
+  user accepts (handled in step 1 above)
 
 When the gate ESCALATEs, inform the user, restate any captured
 clarifications so the user can fold them into the replan if still
 relevant, then load `inline-replanning.md` and proceed.
 
-After all amendments land in this round, run a single Workflow update
+**5. Capture clarifications.** Keep a clarifications buffer in the
+orchestrator's conversation context — a bullet list of the user's
+notes plus any orchestrator-stated interpretations the user
+confirmed. The buffer is non-empty only if the user picked
+**Clarify** at least once during the loop. When the user picks
+**Proceed**, the buffer flows verbatim into the step file's
+`## Description` in sub-step 2c (see §What You Do).
+
+**6. Persist amendments + strategy-refresh line.**
+
+After the user picks **Proceed**, write the on-disk artifacts of
+this round:
+
+- **Strategy-refresh line** (Panel 1 was active): append a
+  `**Strategy refresh:**` line to the plan file under the
+  just-completed (or just-skipped) track's block, recording the
+  assessment outcome — `CONTINUE` or `ADJUST` (with a brief
+  summary of what was adjusted). Example for CONTINUE:
+
+  ```markdown
+  - [x] Track 2: <title>
+    > <intro paragraph>
+    >
+    > **Track episode:**
+    > <strategic summary>
+    >
+    > **Step file:** `tracks/track-2.md` (4 steps, 0 failed)
+    >
+    > **Strategy refresh:** CONTINUE — no downstream impact detected.
+  ```
+
+  Example for ADJUST:
+
+  ```markdown
+    > **Strategy refresh:** ADJUST — Track 4 description updated to account
+    > for the new `IndexStatistics` API shape discovered during this track.
+  ```
+
+  For skipped tracks (`[~]`), the strategy-refresh line follows
+  the skip record (see [`track-skip.md`](track-skip.md) step 5).
+  The skip record's `**Skipped:**` line serves as the just-skipped
+  track's episode for the purpose of the assessment.
+
+  The line is **not written** when Panel 1 was skipped (very-first
+  track — there is no anchor block) or when the gate ESCALATEd
+  (inline replanning restructures the plan directly).
+
+- **Plan/backlog amendments** (any `Adjust` rounds in the loop):
+  the edits already landed in the working tree during step 4. They
+  are committed alongside the strategy-refresh line below.
+
+After all artifacts are in place, run a single Workflow update
 commit:
 
 ```bash
 git add docs/adr/<dir-name>/_workflow/implementation-plan.md \
         docs/adr/<dir-name>/_workflow/implementation-backlog.md
-git commit -m "Apply pre-Phase-A amendments to Track <N>"
+git commit -m "Apply pre-flight amendments before Track <N>"
 git push
 ```
 
 Stage only the files actually edited — drop the path that wasn't
-touched. If the round produced no amendments (the user only
-clarified), skip this commit entirely.
+touched. If the round produced no amendments and no strategy-refresh
+line (the user only clarified, and Panel 1 was skipped or its
+outcome already on disk from a prior interrupted session — see
+resume idempotency below), skip this commit entirely.
 
-**4. Capture clarifications.** Keep a clarifications buffer in the
-orchestrator's conversation context — a bullet list of the user's
-notes plus any orchestrator-stated interpretations the user
-confirmed. The buffer is non-empty only if the user picked **Clarify**
-at least once during the loop. When the user picks **Proceed**, the
-buffer flows verbatim into the step file's `## Description` in
-sub-step 2c (see §What You Do).
+**7. Resume idempotency.** If the merged gate is re-entered on a
+session resume (step file still missing — see the resume table at
+the end of this section), the gate checks for a `**Strategy
+refresh:**` line under the just-completed/skipped track's block
+before running Panel 1. If the line exists, Panel 1 is **skipped**
+on resume — the earlier session's assessment is the historical
+record and is preserved. The Pre-Flight loop runs on Panel 2 only.
+Plan/backlog edits committed in the previous session persist;
+clarifications captured in the previous session lived only in
+conversation context and are lost — the user must re-enter them
+if still relevant.
 
-**5. Proceed.** Continue to §What You Do sub-step 1 below.
+**8. Proceed.** Continue to §What You Do sub-step 1 below.
 
 ### What You Do
 
@@ -451,17 +553,21 @@ picks the resume action from the decision table below.
 
 The **Track Pre-Flight gate** does not re-fire on resume once the
 step file exists. The gate runs once per fresh Phase A entry and
-persists its outcome through
-the step file's `## Description` (which holds any `### Clarifications`
-captured during the gate) and through any plan/backlog edits already
-committed in the original session. The first row below — step file
-missing — is the only row that re-runs the gate, because the original
-session was interrupted before sub-step 2c wrote the step file.
-Clarifications captured in that prior session lived only in the
-orchestrator's conversation context and are lost; the re-fired gate
-sees the post-amendment plan/backlog (any committed amendments
-persist) but the user must re-enter any clarifications they had
-given previously.
+persists its outcome through the step file's `## Description`
+(which holds any `### Clarifications` captured during the gate),
+through any plan/backlog edits already committed in the original
+session, and (when Panel 1 was active) through the
+`**Strategy refresh:**` line on the just-completed/skipped track's
+block. The first row below — step file missing — is the only row
+that re-runs the gate, because the original session was interrupted
+before sub-step 2c wrote the step file. The re-fired gate honours
+the resume idempotency rule in §Track Pre-Flight step 7: if the
+strategy-refresh line is already on disk, Panel 1 is skipped and
+only Panel 2 is presented. Clarifications captured in that prior
+session lived only in the orchestrator's conversation context and
+are lost; the re-fired gate sees the post-amendment plan/backlog
+(any committed amendments persist) but the user must re-enter any
+clarifications they had given previously.
 
 The table is **idempotent**: running the indicated action produces the
 steady-state even if the table is re-entered multiple times. The

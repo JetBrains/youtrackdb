@@ -1,17 +1,23 @@
 # Inline Replanning (ESCALATE)
 
-When strategy refresh produces ESCALATE, you handle replanning directly —
-you have all the context: every track episode, the full plan file, and
-architecture notes.
+When the Track Pre-Flight gate (or any other ESCALATE trigger below)
+produces ESCALATE, you handle replanning directly — you have all the
+context: every track episode, the full plan file, and architecture
+notes.
 
 ## When ESCALATE triggers
 
-- Strategy refresh assessment is ESCALATE
-- An ADJUST would require modifying Decision Records (automatic ESCALATE)
+- Track Pre-Flight Panel 1 (strategy assessment) returns ESCALATE
+  and the user accepts (see [`track-review.md`](track-review.md)
+  § Track Pre-Flight step 1)
+- Track Pre-Flight `Adjust` would touch a deep amendment category
+  — Decision Records, Architecture Notes, Goals, Constraints,
+  adding/removing tracks, cross-track interaction surfaces, or
+  user-requested "fundamental rework" (see `track-review.md`
+  § Track Pre-Flight step 4)
 - Cross-track impact monitoring detects a fundamental assumption failure
 - A step failure affects the track's approach at a level additional commits
   cannot fix
-- User requests escalation during track review ("fundamental rework")
 
 ## Process
 

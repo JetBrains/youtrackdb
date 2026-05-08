@@ -173,9 +173,10 @@ Reviewing commit range: {base_commit}..HEAD
 Read the slim plan snapshot at:
   /tmp/claude-code-plan-slim-{PPID}.md
 Filtered view of the plan — completed tracks show title + intro +
-track episode + strategy refresh only; the current track and other
-not-started tracks are shown in full. If the snapshot is missing, fall
-back to docs/adr/{dir-name}/_workflow/implementation-plan.md.
+track episode + the on-disk `**Strategy refresh:**` line only; the
+current track and other not-started tracks are shown in full. If the
+snapshot is missing, fall back to
+docs/adr/{dir-name}/_workflow/implementation-plan.md.
 
 ## Track Steps (tactical context)
 Read the step file at:
@@ -783,8 +784,9 @@ proceed directly to track completion **in the same session**.
    subsection), the `**Track episode:**` block (written at collapse
    time), the `**Step file:**` pointer, and the `**Strategy refresh:**`
    line if present — though that line is never yet on disk at Phase C
-   collapse time; the next session's strategy refresh appends it (see
-   [`strategy-refresh.md`](strategy-refresh.md)).
+   collapse time; the next session's Track Pre-Flight gate appends it
+   when Panel 1 (strategy assessment) clears (see
+   [`track-review.md`](track-review.md) § Track Pre-Flight step 6).
 
    **Always drop**: the `**Scope:**` line and the `**Depends on:**`
    line.
@@ -802,8 +804,9 @@ proceed directly to track completion **in the same session**.
      deviations with cross-track impact. Length is proportional to
      cross-track impact — a routine track may need only a couple of
      sentences, while a track with architectural surprises should
-     include enough detail for the next session's strategy refresh to
-     assess downstream impact without reading the step file.
+     include enough detail for the next session's Track Pre-Flight
+     gate (Panel 1 strategy assessment) to assess downstream impact
+     without reading the step file.
    - Reference to the step file with step count and failure count.
    - This is what future track sessions read from the plan file — the
      step file is available for deeper investigation if needed.
@@ -822,7 +825,8 @@ proceed directly to track completion **in the same session**.
 
    This shrinks completed-track entries from 100+ lines to ~10–15
    lines and keeps the plan file lean as tracks land. The
-   strategy-refresh line is appended by the next session.
+   `**Strategy refresh:**` line is appended by the next session's
+   Track Pre-Flight gate when Panel 1 clears.
 
    **Why collapse:** Completed tracks accumulate in the plan file and
    are re-sent to every sub-agent as strategic context. Keeping the
@@ -861,15 +865,16 @@ proceed directly to track completion **in the same session**.
    episode template. If the user approves any proposed issues,
    write the chosen `workflow-issues/*.md` files, commit + push
    per the protocol §Commit format, then proceed to Step 7.
-7. **Session ends.** Strategy refresh happens next session.
+7. **Session ends.** The next session's Track Pre-Flight gate runs
+   the strategy assessment (Panel 1) against this track's episode.
 
 **Why deferred write:** Writing the track episode and marking `[x]` before
 user approval creates a state that cannot be reliably resumed — if the
 session ends between marking `[x]` and receiving approval, the next session
-detects the track as complete (State A: strategy refresh needed) and skips
-user review entirely. By deferring the write, an interrupted session simply
-re-enters track completion on resume (all phases `[x]` in the step file,
-track still `[ ]` in the plan file).
+detects the track as complete (State A: pre-Phase-A — Track Pre-Flight
+runs) and skips user review entirely. By deferring the write, an
+interrupted session simply re-enters track completion on resume (all
+phases `[x]` in the step file, track still `[ ]` in the plan file).
 
 **Why merge with code review:** Phase C's code review and track completion
 have no perspective conflict — unlike Phase B→C (where implementation

@@ -14,9 +14,9 @@ Read these workflow documents in order before starting:
    episode formats, commit format, code review, complexity tiers,
    checklist decomposition rules, step file content
 3. `.claude/workflow/workflow.md` — session lifecycle,
-   startup protocol (auto-resume), strategy refresh, cross-track impact
-   monitoring, session boundary rules, failure handling, inline replanning
-   (ESCALATE), track completion protocol
+   startup protocol (auto-resume), Track Pre-Flight gate, cross-track
+   impact monitoring, session boundary rules, failure handling, inline
+   replanning (ESCALATE), track completion protocol
 
 After determining which phase to execute, load the phase-specific document:
 - State 0 (autonomous plan review): `.claude/workflow/implementation-review.md`
@@ -34,7 +34,6 @@ because Phase 4 is main-agent work rather than a sub-agent spawn.
 State-0 sessions never read it.
 
 On-demand reference documents (load only when the situation arises):
-- `strategy-refresh.md` — load when entering State A (strategy refresh)
 - `inline-replanning.md` — load when ESCALATE triggers
 - `review-iteration.md` — load when running any review loop (Phase A reviews or Phase C code review)
 - `code-review-protocol.md` — load at the start of Phase B sub-step 4 or Phase C code review
@@ -65,10 +64,12 @@ Follow the startup protocol in `workflow.md`:
      `implementation-review.md` on-demand and run the autonomous plan
      review (consistency + structural). End session after the audit
      summary lands.
-   - **State A** (track just completed, needs strategy refresh): perform
-     strategy refresh, then proceed to Phase A of the next track.
-   - **State B** (fresh start): identify first uncompleted track, begin
-     Phase A (review + decomposition).
+   - **State A** (pre-Phase-A — next track is `[ ]`, no step file
+     exists): run the Track Pre-Flight gate per `track-review.md`
+     § Track Pre-Flight (Panel 1 strategy assessment when an earlier
+     track has just completed/skipped, plus Panel 2 upcoming-track
+     summary), then proceed to Phase A of the next track in the same
+     session.
    - **State C** (mid-track resume): read step file Progress section,
      resume the next incomplete phase:
      - `Review + decomposition` incomplete → resume Phase A
@@ -83,7 +84,7 @@ Follow the startup protocol in `workflow.md`:
      `[x]` when the commit lands. See workflow.md §Startup Protocol for
      the `[ ]` / `[>]` resume-action table.
 
-   State 0 is checked **before** State A/B/C — plan review must
+   State 0 is checked **before** State A/C/D — plan review must
    complete before any track-level work begins.
 4. Inform the user of the auto-resume decision. The user can override, but
    by default proceed without waiting for confirmation.
@@ -102,8 +103,7 @@ Each session handles exactly ONE PHASE of one track (or Phase 4 / State 0):
 User interaction happens at specific points:
 - Session start: auto-resume decision (confirm or override)
 - State 0 design-decision findings: resolve each escalated finding (only design-decision; mechanical fixes apply autonomously)
-- Strategy refresh: accept recommendation or override
-- Track pre-flight (start of fresh Phase A): proceed, amend the plan/backlog (light edits only), or capture clarifications for inclusion in the step file's Description (written at Phase A sub-step 2c); deep amendments ESCALATE to inline replanning. Skipped on State C resume.
+- Track Pre-Flight (State A — pre-Phase-A): two-panel gate. Panel 1 (strategy assessment, look-back) is shown when an earlier track has just completed/skipped — accept the CONTINUE/ADJUST recommendation or override; an ESCALATE recommendation routes to inline replanning. Panel 2 (upcoming track summary, look-forward) always renders. Options on the combined gate: Proceed; Adjust (light edits to any remaining track including reorder); Clarify (notes for the upcoming track's step-file Description); ESCALATE → inline replanning. Skipped on State C resume.
 - Phase complete: user clears session, re-runs `/execute-tracks`
 - Cross-track impact detected: continue, pause, or escalate
 - Track complete: approve, request fixes, or request rework

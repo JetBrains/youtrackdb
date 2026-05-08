@@ -28,8 +28,9 @@ sequence:
 
 After both steps pass, the orchestrator marks `## Plan Review` as `[x]` in the
 plan file (with a brief audit summary), commits the workflow update, and ends
-the session. The next `/execute-tracks` invocation enters State B (Phase A of
-Track 1).
+the session. The next `/execute-tracks` invocation enters State A (pre-Phase-A
+— the Track Pre-Flight gate runs against Track 1, with Panel 1 skipped because
+no track has completed yet).
 
 **Division of labor with the design mutation discipline.** Phase 2
 does **not** separately review the narrative quality of `design.md`
@@ -494,12 +495,11 @@ When both reviews pass:
    git push
    ```
 3. Inform the user that Phase 2 passed. The next `/execute-tracks`
-   session will resume per the startup protocol — typically State B
-   (Phase A of Track 1) for a fresh plan, or whichever state was
-   active before the manual re-validation (e.g., State A if a track
-   was just completed but not yet strategy-refreshed). Remind them
-   that technical/risk/adversarial reviews will happen per-track
-   during execution.
+   session will resume per the startup protocol — typically State A
+   (pre-Phase-A — Track Pre-Flight runs against the first incomplete
+   track) for a fresh plan, or whichever state was active before the
+   manual re-validation. Remind them that technical/risk/adversarial
+   reviews will happen per-track during execution.
 4. **Run self-improvement reflection.** Load
    `.claude/workflow/self-improvement-reflection.md` on-demand and
    follow it. Reflection runs even when Phase 2 passed cleanly —
