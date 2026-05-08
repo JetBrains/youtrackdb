@@ -204,7 +204,7 @@ storage, filesystem, disk, collections, ridbag).
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/5 complete)
+- [ ] Step implementation (3/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -265,13 +265,30 @@ storage, filesystem, disk, collections, ridbag).
   >
   > **Critical context:** Two cross-track signals to Track 20 (Storage Cache & WAL): (1) `fileIdByName()` returns the internal ID while every other ID-returning method on the disk-cache surface returns the composed external ID — any cache/WAL test that compares the two must extract `internalFileId()` first; (2) `MemoryFile.clear()` releases referrers itself — manual `decrementReferrer()` before `clear()` is a double-free trap. Recorded here for Track 20's Phase A to read.
 
-- [ ] Step: FS wrappers + disk storage
+- [x] Step: FS wrappers + disk storage
+  - [x] Context: safe
   > **Risk:** low — default (purely test-additive; standalone fs tests plus reflection-based static-helper tests and a disk-mode DbTestBase shell).
   >
-  > **Scope:** Two halves landed in one commit.
-  > - **(3a) `core.storage.fs.*`** (62 uncov) — standalone with temp directories. Extend `AsyncFileTest` (its `buildDirectory` system-property + `FileUtils.deleteRecursively` cleanup). Close files in `try/finally`.
-  > - **(3b) `core.storage.disk.*`** (159 uncov) — split target. (i) Static helpers / utility nested classes via reflection, extending `DiskStorageFileExtensionsTest` / `DiskStorageValidateFileAndFetchBackupMetadataTest` / `PeriodicRecordsGcTest`. (ii) Lifecycle branches that aren't reachable via static helpers (`validateStorageDirty`, `restoreFromIncrementalBackup`, ctor branches) via disk-mode `DbTestBase` (`-Dyoutrackdb.test.env=ci`). PSI: `DiskStorage` ctor has 1 prod caller and 8 parameters, so direct construction is not viable.
-  > - **Verification:** as Step 1, plus run with `-Dyoutrackdb.test.env=ci` for the disk-mode tests.
+  > **What was done:** Added 35 tests across three files (~609 LOC, commit `4bd95f57e1`) targeting the 62 uncov lines in `core.storage.fs` and the static-helper portion of the 159 uncov lines in `core.storage.disk`:
+  > - `AsyncFileTest` extended with 14 tests covering previously uncovered paths: `exists` / `getName` / `getFileSize` / `getUnderlyingFileSize`, `shrink`, `delete`, `renameTo`, `replaceContentWith`, `synch` on a clean file, `read(throwOnEof=false)`, both `checkForClose` error guards (closed-file write and read), the `checkPosition` out-of-bounds write guard, and the async `write(List)` path that exercises `WriteHandler.completed`.
+  > - `PeriodicFuzzyCheckpointTest` (3 tests) — mirrors `PeriodicRecordsGcTest`'s precedent: `run` delegation, exception swallowing, repeated calls.
+  > - `DiskStorageStaticHelpersTest` (13 tests) — `DiskStorage.exists(Path)` all five branch variants; `deleteFilesFromDisc` known/unknown extension discrimination + directory self-removal + absent-directory no-op; `IBUFileNamesComparator` ordering and invalid-name error; `XXHashOutputStream` three write overloads + `close` via reflection (the latter two are private static nested classes — same reflection pattern as the existing `DiskStorageFileExtensionsTest`).
+  >
+  > Targeted tests: 35/35 PASS. Diff is test-additive only — coverage gate not required (no changed production lines).
+  >
+  > **What was discovered:**
+  > - **`AsyncFile.WriteHandler.failed()`** (inner class, ~lines 475-482) remains uncovered after Step 3. Triggering it requires the async file channel to fail mid-write, which is not feasible from a unit test without intercepting kernel I/O (`AsynchronousFileChannel` API does not expose a hook for forcing a `failed` callback). Treated as fundamentally untestable from surefire and recorded for Step 5's per-package gate evaluation.
+  > - **`DiskStorage` lifecycle branches** (`validateStorageDirty`, `restoreFromIncrementalBackup`, the eight-parameter ctor) are not reachable via static-helper reflection — the plan deferred them to a disk-mode `DbTestBase`, and Step 3 honoured that decision. Step 4 (collections + ridbag round-trip via `DbTestBase`) may incidentally lift some of these as a side-effect of the round-trip pattern; if not, Step 5 evaluates whether to add a focused disk-mode shell test.
+  > - **Reflection pattern for private static nested classes** (`IBUFileNamesComparator`, `XXHashOutputStream`) reused from `DiskStorageFileExtensionsTest`. No new precedent — confirms the existing pattern scales to multi-method nested classes.
+  >
+  > **What changed from the plan:** No plan changes. Both halves delivered exactly as scoped — (3a) standalone fs extensions, (3b) reflection-based static-helper tests for disk. The deferred lifecycle branches remain deferred per plan.
+  >
+  > **Key files:**
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/fs/AsyncFileTest.java` (modified, +268 lines, +14 tests)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/disk/PeriodicFuzzyCheckpointTest.java` (new, 59 lines, 3 tests)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/disk/DiskStorageStaticHelpersTest.java` (new, 282 lines, 13 tests)
+  >
+  > **Critical context:** Two residuals carry into Step 5: (1) `AsyncFile.WriteHandler.failed()` is fundamentally untestable from unit tests — Step 5's verification should document this in the per-package gate prose if the `core.storage.fs` branch percentage still shows the gap; (2) `DiskStorage` ctor + lifecycle branches need either a disk-mode `DbTestBase` (added in Step 4 or Step 5) or are accepted as part of the D4 storage-internal lower-coverage allowance.
 
 - [ ] Step: Collections + ridbag (page-level + DbTestBase round-trip)
   > **Risk:** low — default (purely test-additive; extends well-established page-level / round-trip test hosts; no shared base-class modifications).
