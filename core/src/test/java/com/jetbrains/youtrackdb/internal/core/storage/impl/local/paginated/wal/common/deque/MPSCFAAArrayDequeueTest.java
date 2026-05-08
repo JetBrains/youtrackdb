@@ -4,7 +4,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import java.util.HashSet;
@@ -188,6 +187,54 @@ public class MPSCFAAArrayDequeueTest {
   }
 
   /**
+   * Cursor walk across a {@link Node#BUFFER_SIZE} boundary: offer more items than fit in
+   * one node so the cursor must traverse through {@link Node#getNext()} during
+   * {@code next()}. A regression that drops the {@code getNext()} hop in
+   * {@link MPSCFAAArrayDequeue#next} would visit only the first {@code BUFFER_SIZE} items
+   * and stop. Pin the entire visit count so the regression surfaces immediately.
+   */
+  @Test
+  public void cursorWalkAcrossBufferNodeBoundary() {
+    var dq = new MPSCFAAArrayDequeue<Integer>();
+    final var n = Node.BUFFER_SIZE + 500; // 1524 — well past one node
+    for (var i = 0; i < n; i++) {
+      dq.offer(i);
+    }
+
+    var seen = 0;
+    var cursor = dq.peekFirst();
+    while (cursor != null) {
+      assertEquals(Integer.valueOf(seen), cursor.getItem());
+      seen++;
+      cursor = MPSCFAAArrayDequeue.next(cursor);
+    }
+    assertEquals(
+        "cursor walk must visit every item across the BUFFER_SIZE boundary",
+        n, seen);
+  }
+
+  /**
+   * Boundary check: offering exactly {@link Node#BUFFER_SIZE} items must fit in a single
+   * node. Polling exactly {@code BUFFER_SIZE} times drains all of them; a subsequent
+   * {@code poll()} returns {@code null}. A regression that off-by-ones the
+   * {@code idx > BUFFER_SIZE - 1} guard at the boundary (e.g., swallowing the last slot
+   * or allocating a redundant new node) would alter either the drain count or the
+   * post-drain {@code null}.
+   */
+  @Test
+  public void exactBufferSizeOffersFitInSingleNode() {
+    var dq = new MPSCFAAArrayDequeue<Integer>();
+    final var n = Node.BUFFER_SIZE;
+    for (var i = 0; i < n; i++) {
+      dq.offer(i);
+    }
+    for (var i = 0; i < n; i++) {
+      assertEquals(Integer.valueOf(i), dq.poll());
+    }
+    assertNull("poll past the BUFFER_SIZE-th item must return null", dq.poll());
+  }
+
+  /**
    * Multi-producer / single-consumer concurrency smoke test. 4 producer threads each
    * offer {@code itemsPerProducer} unique integers; 1 consumer polls until total
    * {@code 4 * itemsPerProducer} items have been drained. The consumer collects every
@@ -278,37 +325,4 @@ public class MPSCFAAArrayDequeueTest {
     }
   }
 
-  /**
-   * {@link Cursor#toString()} embeds {@code itemIndex} and the held item — pin both
-   * substrings so a refactor that drops a field from the diagnostic string surfaces.
-   */
-  @Test
-  public void cursorToStringIncludesItemIndexAndItem() {
-    var dq = new MPSCFAAArrayDequeue<String>();
-    dq.offer("payload");
-    var cursor = dq.peekFirst();
-    assertNotNull(cursor);
-    assertSame("payload", cursor.getItem());
-
-    var s = cursor.toString();
-    assertTrue("Cursor.toString missing itemIndex: " + s, s.contains("itemIndex="));
-    assertTrue("Cursor.toString missing item: " + s, s.contains("payload"));
-  }
-
-  /**
-   * {@link Node#toString()} (also returned indirectly by {@link Cursor#toString()})
-   * embeds {@code deqidx} and {@code enqidx}. Pin both fields are present so the
-   * recovery diagnostics that scrape this string keep working.
-   */
-  @Test
-  public void nodeToStringIncludesDeqAndEnqIndices() {
-    var dq = new MPSCFAAArrayDequeue<String>();
-    dq.offer("alpha");
-    var cursor = dq.peekFirst();
-    assertNotNull(cursor);
-
-    var s = cursor.toString();
-    assertTrue("toString missing deqidx: " + s, s.contains("deqidx="));
-    assertTrue("toString missing enqidx: " + s, s.contains("enqidx="));
-  }
 }

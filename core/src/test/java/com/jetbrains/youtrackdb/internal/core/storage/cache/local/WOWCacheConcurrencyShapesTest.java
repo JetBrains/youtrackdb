@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
@@ -288,7 +289,7 @@ public class WOWCacheConcurrencyShapesTest {
     assertEquals(
         "Resolved internal id must match the one published in nameIdMap",
         internalId, observedInternalId);
-    org.junit.Assert.assertFalse(
+    assertFalse(
         "Current behaviour: idNameMap is empty even though fileIdByName already resolved"
             + " — proving the leaked-state window is structurally observable, not just a"
             + " scheduler artifact. WHEN-FIXED: flip to assertTrue once fileIdByName takes"

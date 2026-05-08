@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.storage.cache;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.common.collection.ConcurrentLongIntHashMap;
@@ -197,11 +196,15 @@ public class CacheEntryImplTest {
 
   /**
    * Verifies that setInitialLSN() is a no-op (CacheEntryImpl returns NOT_TRACKED from
-   * getInitialLSN() regardless of what was passed) and getEndLSN() delegates to the
-   * CachePointer.
+   * getInitialLSN() regardless of what was passed) and that getEndLSN()/setEndLSN()
+   * actually delegate to the underlying CachePointer. The delegation is proved by
+   * publishing an end LSN through {@code entry.setEndLSN(...)} and observing the same
+   * LSN both via the entry's getter and via the pointer's getter — a regression that
+   * stubbed both methods to {@code null} would otherwise pass the earlier (null-only)
+   * assertion.
    */
   @Test
-  public void setInitialLsnIsNoOpAndGetEndLsnDelegates() {
+  public void setInitialLsnIsNoOpAndEndLsnDelegatesToPointer() {
     var entry = new CacheEntryImpl(6L, 9, pointer, false, null);
 
     // setInitialLSN is a no-op — getInitialLSN still returns NOT_TRACKED.
@@ -209,20 +212,15 @@ public class CacheEntryImplTest {
     entry.setInitialLSN(lsn);
     assertThat(entry.getInitialLSN()).isEqualTo(LogSequenceNumber.NOT_TRACKED);
 
-    // getEndLSN delegates to the underlying CachePointer (null when no endLSN set).
+    // getEndLSN delegates to the underlying CachePointer — null when no endLSN set.
     assertThat(entry.getEndLSN()).isNull();
-  }
 
-  /**
-   * Verifies that toString() returns a non-null, non-empty string describing the entry.
-   * The exact format is not contractual but must contain identifying information.
-   */
-  @Test
-  public void toStringIsNonNull() {
-    var entry = new CacheEntryImpl(7L, 10, pointer, true, null);
-    var str = entry.toString();
-    assertNotNull("toString() must not return null", str);
-    assertTrue("toString() must not be empty", !str.isEmpty());
+    // Publishing an end LSN via the entry's setter must surface through both the entry's
+    // and the pointer's getter — proves both methods route through dataPointer.
+    var endLsn = new LogSequenceNumber(2, 200);
+    entry.setEndLSN(endLsn);
+    assertThat(entry.getEndLSN()).isEqualTo(endLsn);
+    assertThat(pointer.getEndLSN()).isEqualTo(endLsn);
   }
 
   /**

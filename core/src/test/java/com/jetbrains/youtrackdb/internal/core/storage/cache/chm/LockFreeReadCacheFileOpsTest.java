@@ -195,8 +195,10 @@ public class LockFreeReadCacheFileOpsTest {
         3L * PAGE_SIZE, readCache.getUsedMemory());
     Assert.assertEquals("writeCache.close(fileId, flush) must be called once",
         1, writeCache.closeFileCount.get());
-    Assert.assertTrue("closeFile must pass the fileId that was used",
-        writeCache.lastClosedFileId >= 0);
+    // Pin the exact fileId — a regression that passed any non-negative ID (e.g., always 0)
+    // would have slipped through the previous weak >= 0 check.
+    Assert.assertEquals("closeFile must pass the fileId that was used (10)",
+        10L, writeCache.lastClosedFileId);
 
     readCache.assertSize();
     readCache.assertConsistency();

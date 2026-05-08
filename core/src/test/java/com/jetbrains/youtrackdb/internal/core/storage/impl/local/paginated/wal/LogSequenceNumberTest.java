@@ -139,16 +139,15 @@ public class LogSequenceNumberTest {
   }
 
   /**
-   * Default {@code toString()} embeds segment and position values; the test pins both
-   * substrings (NOT only "contains-some-keyword") so a refactor that drops a field
-   * from the serialized debug form fails the assertion.
+   * Default {@code toString()} returns the canonical {@code LogSequenceNumber{segment=N,
+   * position=M}} form. Pinning the full output (rather than substring-contains) catches
+   * any refactor that reorders the fields, drops one, or renames the brace style — the
+   * full-string equality is the load-bearing falsifier here.
    */
   @Test
-  public void toStringContainsSegmentAndPositionValues() {
+  public void toStringHasCanonicalSegmentPositionFormat() {
     var lsn = new LogSequenceNumber(11L, 22);
-    var s = lsn.toString();
 
-    assertTrue("toString missing segment value: " + s, s.contains("segment=11"));
-    assertTrue("toString missing position value: " + s, s.contains("position=22"));
+    assertEquals("LogSequenceNumber{segment=11, position=22}", lsn.toString());
   }
 }

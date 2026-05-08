@@ -1,8 +1,13 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+import static org.mockito.ArgumentCaptor.forClass;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -65,7 +70,7 @@ public class CacheLocalTaskWrappersTest {
     var task = new DeleteFileTask(cache, 99L);
     try {
       task.call();
-      org.junit.Assert.fail("Expected exception to propagate");
+      fail("Expected exception to propagate");
     } catch (RuntimeException e) {
       assertSame(boom, e);
     }
@@ -116,13 +121,13 @@ public class CacheLocalTaskWrappersTest {
     var task = new FileFlushTask(cache, inputIds);
     task.call();
 
-    var captor = org.mockito.ArgumentCaptor.forClass(IntOpenHashSet.class);
+    var captor = forClass(IntOpenHashSet.class);
     verify(cache, times(1)).executeFileFlush(captor.capture());
     var captured = captor.getValue();
     assertEquals("Captured set must contain exactly the input IDs", 3, captured.size());
-    org.junit.Assert.assertTrue(captured.contains(5));
-    org.junit.Assert.assertTrue(captured.contains(10));
-    org.junit.Assert.assertTrue(captured.contains(15));
+    assertTrue(captured.contains(5));
+    assertTrue(captured.contains(10));
+    assertTrue(captured.contains(15));
   }
 
   /** Verifies that mutating the input collection AFTER constructing the task does NOT affect
@@ -141,11 +146,11 @@ public class CacheLocalTaskWrappersTest {
 
     task.call();
 
-    var captor = org.mockito.ArgumentCaptor.forClass(IntOpenHashSet.class);
+    var captor = forClass(IntOpenHashSet.class);
     verify(cache).executeFileFlush(captor.capture());
-    org.junit.Assert.assertTrue(
+    assertTrue(
         "Defensively copied set must still contain 5", captor.getValue().contains(5));
-    org.junit.Assert.assertFalse(
+    assertFalse(
         "Defensively copied set must NOT contain post-construction additions",
         captor.getValue().contains(99));
   }
@@ -216,7 +221,7 @@ public class CacheLocalTaskWrappersTest {
 
     task.run();
 
-    var captor = org.mockito.ArgumentCaptor.forClass(PeriodicFlushTask.class);
+    var captor = forClass(PeriodicFlushTask.class);
     verify(cache, times(1)).executePeriodicFlush(captor.capture());
     assertSame(
         "PeriodicFlushTask must forward itself (not a copy) so executePeriodicFlush can"
@@ -242,10 +247,10 @@ public class CacheLocalTaskWrappersTest {
     taskA.call();
     taskB.call();
 
-    var captor = org.mockito.ArgumentCaptor.forClass(IntOpenHashSet.class);
+    var captor = forClass(IntOpenHashSet.class);
     verify(cache, times(2)).executeFileFlush(captor.capture());
     var captures = captor.getAllValues();
-    org.junit.Assert.assertNotSame(
+    assertNotSame(
         "Each wrapper must own its IntOpenHashSet — they cannot share storage",
         captures.get(0), captures.get(1));
     assertEquals(captures.get(0), captures.get(1));

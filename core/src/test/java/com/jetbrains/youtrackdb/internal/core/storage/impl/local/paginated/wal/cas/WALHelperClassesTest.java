@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -16,6 +17,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -35,10 +37,13 @@ import org.junit.Test;
  */
 public class WALHelperClassesTest {
 
+  // Unique per JVM so concurrent test forks (or stale state from a crashed prior run) cannot
+  // collide — mandated by the user-global rule "every temporary file or directory must
+  // include a unique suffix".
   private static final Path TEST_DIR =
       Paths.get(
           System.getProperty("buildDirectory", "." + File.separator + "target"),
-          "walHelperClassesTest");
+          "walHelperClassesTest-" + UUID.randomUUID());
 
   @Before
   public void before() throws IOException {
@@ -175,7 +180,7 @@ public class WALHelperClassesTest {
 
     assertEquals(a, b);
     // c differs in position — must not be equal to a.
-    assertEquals(false, a.equals(c));
+    assertNotEquals(a, c);
   }
 
   // ---------- WALChannelFile / WALFile ----------

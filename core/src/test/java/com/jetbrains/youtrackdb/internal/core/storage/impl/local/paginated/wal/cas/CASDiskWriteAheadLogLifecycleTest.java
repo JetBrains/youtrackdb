@@ -12,6 +12,7 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSeria
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.CheckpointRequestListener;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AbstractWALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.CoverageTestWALRecordIds;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordsFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.CASWALPage;
@@ -24,6 +25,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Locale;
 import java.util.Random;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -48,20 +50,23 @@ import org.junit.Test;
 public class CASDiskWriteAheadLogLifecycleTest {
 
   /**
-   * Test-only WAL record ID from the coverage-suite reserved range {@code [460, 510]}
-   * (see {@code CoverageTestWALRecordIds}).  Kept clear of ID 500 ({@code SmallTestRecord}
-   * in {@code CASDiskWriteAheadLogCloseTest}) and ID 511 ({@code CASDiskWriteAheadLogIT}).
+   * Test-only WAL record ID. Centralised in {@link CoverageTestWALRecordIds} so the
+   * compile-time anti-collision invariant covers this site.
    */
-  private static final int LIFECYCLE_TEST_RECORD_ID = 460;
+  private static final int LIFECYCLE_TEST_RECORD_ID =
+      CoverageTestWALRecordIds.CAS_LIFECYCLE_TEST_RECORD_ID;
 
   private static Path testDirectory;
 
   @BeforeClass
   public static void beforeClass() {
+    // Append a UUID to the directory name so concurrent test forks (or stale on-disk state
+    // from a crashed prior run) cannot collide — mandated by the user-global rule
+    // "every temporary file or directory must include a unique suffix".
     testDirectory =
         Paths.get(
             System.getProperty("buildDirectory", "." + File.separator + "target"),
-            "casWALLifecycleTest");
+            "casWALLifecycleTest-" + UUID.randomUUID());
 
     // Register test-only WAL record type for round-trip deserialization.
     WALRecordsFactory.INSTANCE.registerNewRecord(
@@ -610,6 +615,7 @@ public class CASDiskWriteAheadLogLifecycleTest {
   @Test
   public void addEventAtFiresAfterFlush() throws IOException, InterruptedException {
     final var wal = createWAL("eventTest");
+    var closed = false;
     try {
       final var latch = new CountDownLatch(1);
       final var callCount = new AtomicInteger(0);
@@ -629,11 +635,19 @@ public class CASDiskWriteAheadLogLifecycleTest {
       // Allow up to 5 s for the executor to deliver the event asynchronously.
       final var fired = latch.await(5, TimeUnit.SECONDS);
       assertTrue("Event registered via addEventAt() was not fired within 5 s after flush", fired);
-      // Pin the exactly-once contract — countDown past zero is a no-op so a duplicate fire
-      // would otherwise be invisible to the latch.
+
+      // Quiesce the commit executor by closing the WAL before pinning the exactly-once
+      // contract — close() waits for the records-writer future to complete, so any duplicate
+      // delivery scheduled on the same executor must have run by the time close() returns.
+      // Without this the duplicate could land between latch.await() and the assertEquals
+      // below, silently passing the test (countDown past zero is a no-op).
+      wal.close();
+      closed = true;
       assertEquals("addEventAt must fire the runnable exactly once", 1, callCount.get());
     } finally {
-      wal.close();
+      if (!closed) {
+        wal.close();
+      }
     }
   }
 
@@ -648,6 +662,7 @@ public class CASDiskWriteAheadLogLifecycleTest {
   public void addEventAtFiresImmediatelyWhenLsnAlreadyFlushed()
       throws IOException, InterruptedException {
     final var wal = createWAL("eventFlushedTest");
+    var closed = false;
     try {
       final var lsn = wal.log(record(8, 12001L));
       // Flush before registering the event.
@@ -667,10 +682,17 @@ public class CASDiskWriteAheadLogLifecycleTest {
       assertTrue(
           "Event must fire within 2 s after addEventAt() for an already-flushed LSN",
           latch.await(2, TimeUnit.SECONDS));
-      // The event must have been fired exactly once.
+
+      // Quiesce the commit executor before checking exactly-once — see addEventAtFiresAfterFlush
+      // for the rationale (close() waits for the records-writer future, so any duplicate fire
+      // queued on the same executor must have run by the time close() returns).
+      wal.close();
+      closed = true;
       assertEquals(1, callCount.get());
     } finally {
-      wal.close();
+      if (!closed) {
+        wal.close();
+      }
     }
   }
 

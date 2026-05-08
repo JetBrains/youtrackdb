@@ -17,6 +17,7 @@ import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 /**
  * Tests for {@link BoundedBuffer#drainTo(WTinyLFUPolicy)}, {@code reads()}, and
@@ -103,15 +104,25 @@ public class BoundedBufferDrainTest {
    * {@code StripedBuffer.drainTo()} guards on {@code table == null} and returns immediately,
    * leaving the consumer's {@code onAccess} uncalled. A freshly constructed
    * {@link BoundedBuffer} has a null table; draining it must be a no-op.
+   *
+   * <p>The earlier shape (asserting that eden/probation are empty after drain) was vacuous
+   * because both lists were already empty before the drain. Here we wrap the policy in a
+   * Mockito spy and assert that {@code onAccess} is never invoked — a regression that
+   * dropped the {@code table == null} guard would call {@code onAccess} (likely with a
+   * null arg), which the spy would observe.
    */
   @Test
   public void testDrainToOnNullTableIsNoOp() {
+    final var spyPolicy = Mockito.spy(policy);
     final Buffer buf = new BoundedBuffer();
-    buf.drainTo(policy);
 
-    Assert.assertFalse("eden must be empty after drain of null-table buffer",
+    buf.drainTo(spyPolicy);
+
+    // Drained buffer with no table must NOT touch the consumer at all.
+    Mockito.verify(spyPolicy, Mockito.never()).onAccess(Mockito.any());
+    Assert.assertFalse("eden must remain empty after drain of null-table buffer",
         policy.eden().hasNext());
-    Assert.assertFalse("probation must be empty after drain of null-table buffer",
+    Assert.assertFalse("probation must remain empty after drain of null-table buffer",
         policy.probation().hasNext());
   }
 

@@ -34,12 +34,18 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal;
  * silent overwrites in surefire forks. The compile-time guarantee here prevents the
  * conflicting-class case.
  *
- * <p>This class is currently empty — the first round of additions only adds round-trip
- * tests for WAL record types that are already wired into the {@code WALRecordsFactory}
- * switch statement (IDs 0&ndash;18), so no new registration is needed. Subsequent
- * additions that need a test-only record type allocate a constant here.
+ * <p>Subsequent additions that need a test-only record type allocate a constant here so
+ * the compile-time check covers them.
  */
 public final class CoverageTestWALRecordIds {
+
+  /**
+   * Test-only record ID used by {@code CASDiskWriteAheadLogLifecycleTest}'s
+   * {@code LifecycleTestRecord}. Inside the {@code [460, 510]} reserved window; kept clear
+   * of ID 500 ({@code SmallTestRecord} in {@code CASDiskWriteAheadLogCloseTest}) and ID 511
+   * ({@code CASDiskWriteAheadLogIT}).
+   */
+  public static final int CAS_LIFECYCLE_TEST_RECORD_ID = 460;
 
   private CoverageTestWALRecordIds() {
     // constants only

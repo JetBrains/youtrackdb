@@ -2,7 +2,10 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
@@ -79,7 +82,7 @@ public class ActiveWALRecordsRoundTripTest {
     restored.fromStream(buffer, 1);
 
     assertEquals(1L, restored.getOperationUnitId());
-    assertEquals(false, restored.isRollbackSupported());
+    assertFalse(restored.isRollbackSupported());
   }
 
   /**
@@ -293,7 +296,7 @@ public class ActiveWALRecordsRoundTripTest {
     assertNull(rec.getLsn());
     assertNull(rec.getBinaryContent());
     assertEquals(-1, rec.getBinaryContentLen());
-    assertEquals(false, rec.isWritten());
+    assertFalse(rec.isWritten());
 
     var lsn = new LogSequenceNumber(2L, 3);
     rec.setLsn(lsn);
@@ -351,6 +354,92 @@ public class ActiveWALRecordsRoundTripTest {
     assertEquals(a, b);
     assertEquals(a.hashCode(), b.hashCode());
     assertNotEquals(a, c);
+  }
+
+  /**
+   * {@link AtomicUnitStartMetadataRecord} with an empty payload — the canonical edge of the
+   * length-prefixed serialization. A regression that uses {@code length > 0} instead of
+   * {@code length >= 0} as the put-content guard, or drops the length prefix when the
+   * array is empty, would silently pass the non-empty round-trip but fail this test.
+   */
+  @Test
+  public void atomicUnitStartMetadataRecordRoundTripWithEmptyPayload() {
+    var payload = new byte[0];
+    var original = new AtomicUnitStartMetadataRecord(true, 17L, payload);
+    var buffer = allocateBuffer(original.serializedSize());
+
+    var endOffset = original.toStream(buffer, 1);
+    assertEquals(buffer.length, endOffset);
+
+    var restored = new AtomicUnitStartMetadataRecord();
+    var dEnd = restored.fromStream(buffer, 1);
+    assertEquals(buffer.length, dEnd);
+
+    assertEquals(17L, restored.getOperationUnitId());
+    assertTrue(restored.isRollbackSupported());
+    assertNotNull("restored metadata must not be null on empty-payload round-trip",
+        restored.getMetadata());
+    assertArrayEquals(new byte[0], restored.getMetadata());
+    assertEquals(0, restored.getMetadata().length);
+    // Falsifiability: the restored array must be a fresh allocation, not the input
+    // reference. A regression that aliased the input would silently leak caller state.
+    assertNotSame("restored metadata must not be the same array reference as the input",
+        payload, restored.getMetadata());
+  }
+
+  /**
+   * {@link MetaDataRecord} with an empty payload — same rationale as the
+   * AtomicUnitStartMetadataRecord variant, but exercising the byte-array {@code toStream}/
+   * {@code fromStream} path that {@code MetaDataRecord} uses directly without the
+   * intermediate {@code OperationUnitRecord} layer.
+   */
+  @Test
+  public void metaDataRecordRoundTripWithEmptyPayload() {
+    var payload = new byte[0];
+    var original = new MetaDataRecord(payload);
+
+    var buffer = new byte[original.serializedSize()];
+    var endOffset = original.toStream(buffer, 0);
+
+    var restored = new MetaDataRecord();
+    restored.fromStream(buffer, 0);
+
+    assertNotNull("restored metadata must not be null on empty-payload round-trip",
+        restored.getMetadata());
+    assertArrayEquals(new byte[0], restored.getMetadata());
+    assertEquals(0, restored.getMetadata().length);
+    assertNotSame("restored metadata must not be the same array reference as the input",
+        payload, restored.getMetadata());
+    // Sanity: write returned a non-zero offset (the length prefix was still written).
+    assertTrue("toStream must advance offset for the length prefix even on empty payload",
+        endOffset > 0);
+  }
+
+  /**
+   * {@link HighLevelTransactionChangeRecord} with an empty payload — the canonical
+   * edge of its length-prefixed encoding. A regression that drops the length prefix when
+   * the byte array is empty, or uses a strict {@code > 0} guard, would silently pass.
+   */
+  @Test
+  public void highLevelTransactionChangeRecordRoundTripWithEmptyPayload() {
+    var payload = new byte[0];
+    var original = new HighLevelTransactionChangeRecord(11L, payload);
+    var buffer = allocateBuffer(original.serializedSize());
+
+    var endOffset = original.toStream(buffer, 1);
+    assertEquals(buffer.length, endOffset);
+
+    var restored = new HighLevelTransactionChangeRecord();
+    var dEnd = restored.fromStream(buffer, 1);
+    assertEquals(buffer.length, dEnd);
+
+    assertEquals(11L, restored.getOperationUnitId());
+    assertNotNull("restored data must not be null on empty-payload round-trip",
+        restored.getData());
+    assertArrayEquals(new byte[0], restored.getData());
+    assertEquals(0, restored.getData().length);
+    assertNotSame("restored data must not be the same array reference as the input",
+        payload, restored.getData());
   }
 
   /**

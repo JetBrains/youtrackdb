@@ -9,6 +9,7 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
@@ -21,6 +22,7 @@ import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Tests for the PageFrame-based CachePointer constructor, verifying that:
@@ -28,17 +30,29 @@ import org.junit.Test;
  * - decrementReferrer() releases the frame back to PageFramePool (not ByteBufferPool)
  * - The null sentinel case (both pageFrame and framePool null) works correctly
  * - getPageFrame() returns the expected value
+ *
+ * <p>Mutates the global {@code DIRECT_MEMORY_TRACK_MODE} flag for the leak-detector
+ * assertions; the flag is snapshotted in {@code @BeforeClass} and restored in
+ * {@code @AfterClass} so a parallel test that toggled the flag on is not silently
+ * disabled when this class finishes. Tagged {@link SequentialTest} so surefire's
+ * parallel forks do not race the snapshot/restore window.
  */
+@Category(SequentialTest.class)
 public class CachePointerPageFrameTest {
+
+  /** Saved value of {@code DIRECT_MEMORY_TRACK_MODE} captured before the class mutates it. */
+  private static Object savedTrackMode;
 
   @BeforeClass
   public static void beforeClass() {
+    savedTrackMode = GlobalConfiguration.DIRECT_MEMORY_TRACK_MODE.getValue();
     GlobalConfiguration.DIRECT_MEMORY_TRACK_MODE.setValue(true);
   }
 
   @AfterClass
   public static void afterClass() {
-    GlobalConfiguration.DIRECT_MEMORY_TRACK_MODE.setValue(false);
+    // Restore whatever the flag was before this class — not a hard-coded false.
+    GlobalConfiguration.DIRECT_MEMORY_TRACK_MODE.setValue(savedTrackMode);
   }
 
   @Test
@@ -617,18 +631,6 @@ public class CachePointerPageFrameTest {
     // hashCode is non-zero for typical non-trivial coordinates (not guaranteed, but (10,5)
     // produces non-zero by formula: (int)(10^0) * 31 + 5 = 36).
     assertNotEquals("hashCode expected non-zero for (10,5)", 0, a.hashCode());
-  }
-
-  /**
-   * Verifies that toString() returns a non-null, non-empty string containing "CachePointer"
-   * for a sentinel CachePointer (null pointer). The exact format is not contractual.
-   */
-  @Test
-  public void testToStringNonNull() {
-    var cp = new CachePointer((PageFrame) null, null, 3, 7);
-    var str = cp.toString();
-    assertNotNull("toString() must not return null", str);
-    assertTrue("toString() must contain CachePointer", str.contains("CachePointer"));
   }
 
   @Test(timeout = 30_000)

@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertSame;
-import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import org.junit.Test;
@@ -55,17 +54,19 @@ public class CommonWALRecordsTest {
   }
 
   /**
-   * {@link MilestoneWALRecord#toString()} embeds the LSN value in a way that recovery
-   * diagnostics rely on; the assertion pins the LSN substring rather than the whole
-   * string so a refactor that adds a new field to the debug output still passes.
+   * {@link MilestoneWALRecord#toString()} returns the canonical
+   * {@code MilestoneWALRecord{ operation_id_lsn = LogSequenceNumber{...}}} form. Recovery
+   * diagnostics scrape this string — pin the full output (not a substring) so any refactor
+   * that adds, removes, or reorders the field surfaces immediately.
    */
   @Test
-  public void milestoneWalRecordToStringIncludesLsn() {
+  public void milestoneWalRecordToStringHasCanonicalForm() {
     var rec = new MilestoneWALRecord();
     rec.setLsn(new LogSequenceNumber(9L, 13));
-    var s = rec.toString();
-    assertTrue("toString missing LSN: " + s, s.contains("segment=9"));
-    assertTrue("toString missing LSN: " + s, s.contains("position=13"));
+
+    assertEquals(
+        "MilestoneWALRecord{ operation_id_lsn = LogSequenceNumber{segment=9, position=13}}",
+        rec.toString());
   }
 
   /**
