@@ -416,4 +416,23 @@ public class RidbagBucketSimpleOpsTest {
     Assert.assertEquals(op1.hashCode(), op2.hashCode());
     Assert.assertNotEquals(op1, op3);
   }
+
+  // ---- toString coverage for all simple ops ----
+
+  /**
+   * toString() on all four simple bucket ops must return a non-null, non-empty string so
+   * that ops are identifiable in debug logs.
+   */
+  @Test
+  public void testAllSimpleOpsToString() {
+    var lsn = new LogSequenceNumber(1, 10);
+    Assert.assertFalse(
+        new RidbagBucketInitOp(1, 2, 3, lsn, true).toString().isEmpty());
+    Assert.assertFalse(
+        new RidbagBucketSwitchBucketTypeOp(1, 2, 3, lsn).toString().isEmpty());
+    Assert.assertFalse(
+        new RidbagBucketSetLeftSiblingOp(1, 2, 3, lsn, 42L).toString().isEmpty());
+    Assert.assertFalse(
+        new RidbagBucketSetRightSiblingOp(1, 2, 3, lsn, 99L).toString().isEmpty());
+  }
 }

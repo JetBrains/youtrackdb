@@ -10,6 +10,7 @@ import com.jetbrains.youtrackdb.internal.core.record.RecordVersionHelper;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordsFactory;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import it.unimi.dsi.fastutil.ints.IntSets;
@@ -1624,5 +1625,216 @@ public class CollectionPageTest {
       cacheEntry.releaseExclusiveLock();
       cachePointer.decrementReferrer();
     }
+  }
+
+  /**
+   * isEmpty() must return true on a freshly-initialised page and false after a record
+   * has been added.
+   */
+  @Test
+  public void testIsEmpty() {
+    var bufferPool = ByteBufferPool.instance(null);
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    cachePointer.incrementReferrer();
+    CacheEntry entry = new CacheEntryImpl(0, 0, cachePointer, false, null);
+    entry.acquireExclusiveLock();
+    try {
+      var page = new CollectionPage(entry);
+      page.init();
+
+      Assert.assertTrue("freshly-init page must be empty", page.isEmpty());
+
+      page.appendRecord(1L, new byte[] {1, 2, 3}, -1, IntSets.emptySet());
+      Assert.assertFalse("page with records must not be empty", page.isEmpty());
+    } finally {
+      entry.releaseExclusiveLock();
+      cachePointer.decrementReferrer();
+    }
+  }
+
+  /**
+   * findLastRecord(position) must walk backward from position (or the last slot, whichever
+   * is earlier) and skip deleted entries.  Here we add three records, delete the last one,
+   * and verify that findLastRecord returns the index of the surviving second record.
+   */
+  @Test
+  public void testFindLastRecordSkipsDeleted() {
+    var bufferPool = ByteBufferPool.instance(null);
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    cachePointer.incrementReferrer();
+    CacheEntry entry = new CacheEntryImpl(0, 0, cachePointer, false, null);
+    entry.acquireExclusiveLock();
+    try {
+      var page = new CollectionPage(entry);
+      page.init();
+
+      page.appendRecord(1L, new byte[] {10}, -1, IntSets.emptySet()); // idx 0
+      page.appendRecord(2L, new byte[] {20}, -1, IntSets.emptySet()); // idx 1
+      page.appendRecord(3L, new byte[] {30}, -1, IntSets.emptySet()); // idx 2
+
+      // Delete the last record (idx 2) without preserving the free-list pointer.
+      page.deleteRecord(2, false);
+
+      // findLastRecord(10) must skip the deleted slot at 2 and return 1.
+      Assert.assertEquals(1, page.findLastRecord(10));
+
+      // findLastRecord(0) must return 0 (only one slot in range, and it is live).
+      Assert.assertEquals(0, page.findLastRecord(0));
+
+      // findLastRecord on a page with all records deleted must return -1.
+      page.deleteRecord(1, true);
+      page.deleteRecord(0, true);
+      Assert.assertEquals(-1, page.findLastRecord(5));
+    } finally {
+      entry.releaseExclusiveLock();
+      cachePointer.decrementReferrer();
+    }
+  }
+
+  /**
+   * replaceRecord() must update the bytes stored at the given index, return the previous
+   * content, and (when recordVersion != -1) update the version.
+   */
+  @Test
+  public void testReplaceRecord() {
+    var bufferPool = ByteBufferPool.instance(null);
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    cachePointer.incrementReferrer();
+    CacheEntry entry = new CacheEntryImpl(0, 0, cachePointer, false, null);
+    entry.acquireExclusiveLock();
+    try {
+      var page = new CollectionPage(entry);
+      page.init();
+
+      byte[] original = {1, 2, 3, 4, 5};
+      page.appendRecord(7L, original, -1, IntSets.emptySet());
+
+      byte[] replacement = {10, 20, 30, 40, 50};
+      // Replace with a new version; replaceRecord returns the old bytes.
+      byte[] oldBytes = page.replaceRecord(0, replacement, 42);
+
+      assertThat(oldBytes).isEqualTo(original);
+
+      // Verify the new bytes are stored.
+      assertThat(page.getRecordBinaryValue(0, 0, 5)).isEqualTo(replacement);
+
+      // Verify the version was updated.
+      Assert.assertEquals(42L, page.getRecordVersion(0));
+    } finally {
+      entry.releaseExclusiveLock();
+      cachePointer.decrementReferrer();
+    }
+  }
+
+  /**
+   * getRecordBinaryValue() with a negative offset must read from the end of the record
+   * (reverse indexing).  This covers the negative-offset branch in getRecordBinaryValue().
+   */
+  @Test
+  public void testGetRecordBinaryValueNegativeOffset() {
+    var bufferPool = ByteBufferPool.instance(null);
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    cachePointer.incrementReferrer();
+    CacheEntry entry = new CacheEntryImpl(0, 0, cachePointer, false, null);
+    entry.acquireExclusiveLock();
+    try {
+      var page = new CollectionPage(entry);
+      page.init();
+
+      // Append a record whose last 8 bytes (next-page pointer area) are all zeros.
+      // The record must be at least 9 bytes to hold the metadata tail.
+      byte[] rec = new byte[20];
+      rec[11] = 7; // place a sentinel byte partway through
+      page.appendRecord(1L, rec, -1, IntSets.emptySet());
+
+      // Read 1 byte starting at offset -9 (9 bytes from the end).
+      byte[] tail = page.getRecordBinaryValue(0, -LongSerializer.LONG_SIZE - 1, 1);
+      Assert.assertNotNull(tail);
+      Assert.assertEquals(1, tail.length);
+    } finally {
+      entry.releaseExclusiveLock();
+      cachePointer.decrementReferrer();
+    }
+  }
+
+  /**
+   * appendRecord() with a non-negative requestedPosition must write the record into that
+   * specific slot — exercising the insertIntoRequestedSlot() path.
+   */
+  @Test
+  public void testAppendRecordWithRequestedPosition() {
+    var bufferPool = ByteBufferPool.instance(null);
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    cachePointer.incrementReferrer();
+    CacheEntry entry = new CacheEntryImpl(0, 0, cachePointer, false, null);
+    entry.acquireExclusiveLock();
+    try {
+      var page = new CollectionPage(entry);
+      page.init();
+
+      // Add a record at index 0, then delete it (preserving free-list pointer)
+      // to create a free slot.
+      page.appendRecord(1L, new byte[] {1, 2, 3, 4, 5}, -1, IntSets.emptySet()); // idx 0
+      page.appendRecord(2L, new byte[] {6, 7, 8, 9, 0}, -1, IntSets.emptySet()); // idx 1
+      page.deleteRecord(0, true); // frees slot 0
+
+      // Re-insert at the requested position 0 (occupied by freed slot).
+      int newIdx = page.appendRecord(3L, new byte[] {11, 12, 13, 14, 15}, 0, IntSets.emptySet());
+      Assert.assertEquals(0, newIdx);
+      assertThat(page.getRecordBinaryValue(0, 0, 5))
+          .isEqualTo(new byte[] {11, 12, 13, 14, 15});
+    } finally {
+      entry.releaseExclusiveLock();
+      cachePointer.decrementReferrer();
+    }
+  }
+
+  /**
+   * appendRecord() with a requestedPosition equal to the current indexesLength must
+   * extend the list — exercising the insertIntoRequestedSlot() "first free slot" branch.
+   */
+  @Test
+  public void testAppendRecordAtFirstFreeSlot() {
+    var bufferPool = ByteBufferPool.instance(null);
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    cachePointer.incrementReferrer();
+    CacheEntry entry = new CacheEntryImpl(0, 0, cachePointer, false, null);
+    entry.acquireExclusiveLock();
+    try {
+      var page = new CollectionPage(entry);
+      page.init();
+
+      // Insert at position 0 which equals indexesLength (0) — extends the list.
+      int idx = page.appendRecord(1L, new byte[] {9, 8, 7}, 0, IntSets.emptySet());
+      Assert.assertEquals(0, idx);
+      assertThat(page.getRecordBinaryValue(0, 0, 3)).isEqualTo(new byte[] {9, 8, 7});
+    } finally {
+      entry.releaseExclusiveLock();
+      cachePointer.decrementReferrer();
+    }
+  }
+
+  /**
+   * CollectionPageAppendRecordOp.toString() must return a non-null, non-empty string.
+   * This covers the toString() uncovered line in the op class.
+   */
+  @Test
+  public void testCollectionPageAppendRecordOpToString() {
+    WALRecordsFactory.INSTANCE.registerNewRecord(
+        CollectionPageAppendRecordOp.RECORD_ID, CollectionPageAppendRecordOp.class);
+    var op = new CollectionPageAppendRecordOp(
+        1, 2, 3,
+        new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber(
+            10, 20),
+        7L, new byte[] {1, 2, 3}, 0, 100, 0);
+    var s = op.toString();
+    Assert.assertNotNull(s);
+    Assert.assertFalse(s.isEmpty());
   }
 }

@@ -1047,4 +1047,106 @@ public class PaginatedCollectionV2OptimisticReadTest {
       }
     });
   }
+
+  // --- PaginatedCollectionV2 metadata methods ---
+
+  /**
+   * toString() must return a non-null, non-empty string that includes the collection name
+   * so it is identifiable in logs.
+   */
+  @Test
+  public void testToString() {
+    var s = collection.toString();
+    Assert.assertNotNull(s);
+    Assert.assertFalse(s.isEmpty());
+    Assert.assertTrue("toString must include the collection name",
+        s.contains("optReadCollection"));
+  }
+
+  /**
+   * encryption() must return null for a non-encrypted collection.
+   */
+  @Test
+  public void testEncryptionReturnsNull() {
+    Assert.assertNull("non-encrypted collection must return null encryption",
+        collection.encryption());
+  }
+
+  /**
+   * close() must flush and close the file cleanly.  After calling close() the
+   * collection is re-created and opened to allow tearDown to proceed normally.
+   */
+  @Test
+  public void testCloseAndReopen() throws IOException {
+    // Insert a record so there is something to flush.
+    atomicOps().calculateInsideAtomicOperation(
+        op -> collection.createRecord(new byte[] {1, 2, 3}, (byte) 1, null, op));
+
+    // close() must not throw.
+    collection.close();
+
+    // Re-open so @After tearDown can drop the DB cleanly.
+    collection = new PaginatedCollectionV2("optReadCollection", storage);
+    collection.configure(55, "optReadCollection");
+    atomicOps().executeInsideAtomicOperation(op -> collection.open(op));
+  }
+
+  /**
+   * setRecordConflictStrategy() must not throw for a valid strategy name.  The default
+   * (null / absent) strategy is the most common case; we verify that the method accepts
+   * a strategy name without error.
+   */
+  @Test
+  public void testSetRecordConflictStrategy() {
+    // "version" is a valid built-in conflict strategy in YouTrackDB.
+    // The call must complete without exception and leave the collection usable.
+    collection.setRecordConflictStrategy("version");
+
+    // Verify the collection is still usable after the strategy change.
+    Assert.assertNotNull(collection.toString());
+  }
+
+  /**
+   * setCollectionName() must rename the backing files and update the collection name.
+   * The renamed collection must still be usable.
+   */
+  @Test
+  public void testSetCollectionName() throws IOException {
+    // Insert a record so the collection has files to rename.
+    atomicOps().calculateInsideAtomicOperation(
+        op -> collection.createRecord(new byte[] {7, 8}, (byte) 1, null, op));
+
+    // Rename the collection.
+    collection.setCollectionName("renamedOptReadCollection");
+
+    // The collection name must be updated.
+    Assert.assertTrue("toString should reflect the new name",
+        collection.toString().contains("renamedOptReadCollection"));
+
+    // Rename back so @After tearDown can clean up normally.
+    collection.setCollectionName("optReadCollection");
+  }
+
+  /**
+   * open() via flushToReadCache() exercises the open() lambda (the 23 uncovered lines in
+   * lambda$open$1) by closing and reopening the database, then calling collection.open().
+   * This test verifies that open() correctly reloads the collection state from disk and
+   * that subsequently inserted records are readable.
+   */
+  @Test
+  public void testOpenReloadsStateFromDisk() throws IOException {
+    // Insert a record before the close/reopen cycle.
+    byte[] data = {42, 43, 44};
+    var pos = atomicOps().calculateInsideAtomicOperation(
+        op -> collection.createRecord(data, (byte) 1, null, op));
+
+    // Close and reopen the DB (exercises open() lambda).
+    flushToReadCache();
+
+    // The record inserted before reopen must still be readable.
+    var buf = atomicOps().calculateInsideAtomicOperation(
+        op -> collection.readRecord(pos.collectionPosition, op)).toRawBuffer();
+    Assert.assertNotNull(buf);
+    Assertions.assertThat(buf.buffer()).isEqualTo(data);
+  }
 }

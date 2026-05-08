@@ -307,4 +307,21 @@ public class RidbagEntryPointOpsTest {
     Assert.assertEquals(op1.hashCode(), op2.hashCode());
     Assert.assertNotEquals(op1, op3);
   }
+
+  // ---- toString coverage for all entry-point ops ----
+
+  /**
+   * toString() on all three entry-point ops must return a non-null, non-empty string so
+   * that ops are identifiable in debug logs.
+   */
+  @Test
+  public void testAllEntryPointOpsToString() {
+    var lsn = new LogSequenceNumber(1, 10);
+    Assert.assertFalse(
+        new RidbagEntryPointInitOp(1, 2, 3, lsn).toString().isEmpty());
+    Assert.assertFalse(
+        new RidbagEntryPointSetTreeSizeOp(1, 2, 3, lsn, 42L).toString().isEmpty());
+    Assert.assertFalse(
+        new RidbagEntryPointSetPagesSizeOp(1, 2, 3, lsn, 5).toString().isEmpty());
+  }
 }

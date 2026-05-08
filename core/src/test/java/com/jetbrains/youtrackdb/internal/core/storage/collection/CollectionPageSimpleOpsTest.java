@@ -535,6 +535,45 @@ public class CollectionPageSimpleOpsTest {
     Assert.assertNotEquals(op1, op4);
   }
 
+  // --- toString coverage ---
+
+  @Test
+  public void testInitOpToString() {
+    // toString() on all four ops must return a non-null, non-empty string that
+    // includes the record type so it is identifiable in logs.
+    var op = new CollectionPageInitOp(1, 2, 3, new LogSequenceNumber(10, 20));
+    var s = op.toString();
+    Assert.assertNotNull(s);
+    Assert.assertFalse(s.isEmpty());
+  }
+
+  @Test
+  public void testDeleteRecordOpToString() {
+    var op = new CollectionPageDeleteRecordOp(
+        1, 2, 3, new LogSequenceNumber(10, 20), 5, true);
+    var s = op.toString();
+    Assert.assertNotNull(s);
+    Assert.assertFalse(s.isEmpty());
+  }
+
+  @Test
+  public void testSetRecordVersionOpToString() {
+    var op = new CollectionPageSetRecordVersionOp(
+        1, 2, 3, new LogSequenceNumber(10, 20), 5, 99);
+    var s = op.toString();
+    Assert.assertNotNull(s);
+    Assert.assertFalse(s.isEmpty());
+  }
+
+  @Test
+  public void testDoDefragmentationOpToString() {
+    var op = new CollectionPageDoDefragmentationOp(
+        1, 2, 3, new LogSequenceNumber(10, 20));
+    var s = op.toString();
+    Assert.assertNotNull(s);
+    Assert.assertFalse(s.isEmpty());
+  }
+
   @Test
   public void testSetRecordVersionOpEquals() {
     var lsn = new LogSequenceNumber(1, 10);

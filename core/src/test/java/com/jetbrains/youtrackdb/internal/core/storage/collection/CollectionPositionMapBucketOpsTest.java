@@ -372,6 +372,195 @@ public class CollectionPositionMapBucketOpsTest {
     Assert.assertNotEquals(op1, op3);
   }
 
+  // --- toString coverage for all 5 ops ---
+
+  @Test
+  public void testInitOpToString() {
+    // toString() on all CollectionPositionMapBucket ops must return a non-null,
+    // non-empty string that is identifiable in logs.
+    var op = new CollectionPositionMapBucketInitOp(
+        1, 2, 3, new LogSequenceNumber(10, 20));
+    Assert.assertFalse(op.toString().isEmpty());
+  }
+
+  @Test
+  public void testAllocateOpToString() {
+    var op = new CollectionPositionMapBucketAllocateOp(
+        1, 2, 3, new LogSequenceNumber(10, 20));
+    Assert.assertFalse(op.toString().isEmpty());
+  }
+
+  @Test
+  public void testSetOpToString() {
+    var op = new CollectionPositionMapBucketSetOp(
+        1, 2, 3, new LogSequenceNumber(10, 20), 0, 42, 7, 99L);
+    Assert.assertFalse(op.toString().isEmpty());
+  }
+
+  @Test
+  public void testRemoveOpToString() {
+    var op = new CollectionPositionMapBucketRemoveOp(
+        1, 2, 3, new LogSequenceNumber(10, 20), 3, 77L);
+    Assert.assertFalse(op.toString().isEmpty());
+  }
+
+  @Test
+  public void testUpdateVersionOpToString() {
+    var op = new CollectionPositionMapBucketUpdateVersionOp(
+        1, 2, 3, new LogSequenceNumber(10, 20), 2, 42L);
+    Assert.assertFalse(op.toString().isEmpty());
+  }
+
+  // --- PositionEntry equals / hashCode / toString ---
+
+  @Test
+  public void testPositionEntryEqualsHashCodeToString() {
+    // Two PositionEntry instances with the same fields must be equal and have the same hashCode.
+    var e1 = new CollectionPositionMapBucket.PositionEntry(10L, 5, 99L);
+    var e2 = new CollectionPositionMapBucket.PositionEntry(10L, 5, 99L);
+    Assert.assertEquals(e1, e2);
+    Assert.assertEquals(e1.hashCode(), e2.hashCode());
+
+    // Different pageIndex makes them unequal.
+    var e3 = new CollectionPositionMapBucket.PositionEntry(11L, 5, 99L);
+    Assert.assertNotEquals(e1, e3);
+
+    // Different recordPosition makes them unequal.
+    var e4 = new CollectionPositionMapBucket.PositionEntry(10L, 6, 99L);
+    Assert.assertNotEquals(e1, e4);
+
+    // Different recordVersion makes them unequal.
+    var e5 = new CollectionPositionMapBucket.PositionEntry(10L, 5, 100L);
+    Assert.assertNotEquals(e1, e5);
+
+    // toString must contain the field values.
+    var str = e1.toString();
+    Assert.assertTrue(str.contains("10"));
+    Assert.assertTrue(str.contains("5"));
+    Assert.assertTrue(str.contains("99"));
+  }
+
+  // --- add() method ---
+
+  @Test
+  public void testAddMethodWritesEntryDirectly() {
+    // add() writes a raw entry (status, pageIndex, recordPosition, recordVersion)
+    // without registering a WAL op. The written entry should be readable via
+    // getEntryWithStatus() and getRecordVersionAt().
+    var entry = createRawCacheEntry();
+    try {
+      var bucket = new CollectionPositionMapBucket(entry);
+      bucket.init();
+
+      // Write two entries using add() with FILLED and REMOVED status.
+      var idx0 = bucket.add(42L, 7, 100L, CollectionPositionMapBucket.FILLED);
+      var idx1 = bucket.add(99L, 3, 200L, CollectionPositionMapBucket.REMOVED);
+
+      Assert.assertEquals(0, idx0);
+      Assert.assertEquals(1, idx1);
+      Assert.assertEquals(2, bucket.getSize());
+
+      // FILLED entry should be readable as a PositionEntry.
+      var e0 = bucket.getEntryWithStatus(idx0);
+      Assert.assertEquals(CollectionPositionMapBucket.FILLED, e0.status());
+      Assert.assertNotNull(e0.entry());
+      Assert.assertEquals(42L, e0.entry().getPageIndex());
+      Assert.assertEquals(7, e0.entry().getRecordPosition());
+      Assert.assertEquals(100L, e0.entry().getRecordVersion());
+
+      // REMOVED entry should carry the deletion version.
+      var e1 = bucket.getEntryWithStatus(idx1);
+      Assert.assertEquals(CollectionPositionMapBucket.REMOVED, e1.status());
+      Assert.assertNotNull(e1.entry());
+      Assert.assertEquals(99L, e1.entry().getPageIndex());
+
+      // Confirm getRecordVersionAt returns the stored version.
+      Assert.assertEquals(100L, bucket.getRecordVersionAt(idx0));
+      Assert.assertEquals(200L, bucket.getRecordVersionAt(idx1));
+    } finally {
+      releaseEntry(entry);
+    }
+  }
+
+  // --- getEntryWithStatus() edge cases ---
+
+  @Test
+  public void testGetEntryWithStatusOutOfBoundsReturnsNotExistent() {
+    // getEntryWithStatus() on an index past the bucket size must return NOT_EXISTENT
+    // and a null entry — this exercises the index-out-of-range branch.
+    var entry = createRawCacheEntry();
+    try {
+      var bucket = new CollectionPositionMapBucket(entry);
+      bucket.init();
+
+      // Bucket is empty; querying index 0 must return NOT_EXISTENT.
+      var status = bucket.getEntryWithStatus(0);
+      Assert.assertEquals(CollectionPositionMapBucket.NOT_EXISTENT, status.status());
+      Assert.assertNull(status.entry());
+    } finally {
+      releaseEntry(entry);
+    }
+  }
+
+  @Test
+  public void testGetEntryWithStatusAllocatedReturnsNullEntry() {
+    // An ALLOCATED slot should return ALLOCATED status and a null entry because
+    // the slot has not been filled yet — exercises the ALLOCATED branch in
+    // getEntryWithStatus().
+    var entry = createRawCacheEntry();
+    try {
+      var bucket = new CollectionPositionMapBucket(entry);
+      bucket.init();
+      bucket.allocate();
+
+      var status = bucket.getEntryWithStatus(0);
+      Assert.assertEquals(CollectionPositionMapBucket.ALLOCATED, status.status());
+      Assert.assertNull(status.entry());
+    } finally {
+      releaseEntry(entry);
+    }
+  }
+
+  // --- exists() method ---
+
+  @Test
+  public void testExistsReturnsTrueForFilledEntry() {
+    // exists() must return true for a FILLED slot and false for an index past
+    // the bucket size (the out-of-range branch).
+    var entry = createRawCacheEntry();
+    try {
+      var bucket = new CollectionPositionMapBucket(entry);
+      bucket.init();
+      bucket.allocate();
+      bucket.set(0, new CollectionPositionMapBucket.PositionEntry(42L, 7, 100L));
+
+      Assert.assertTrue(bucket.exists(0));
+
+      // Out-of-range index must return false.
+      Assert.assertFalse(bucket.exists(1));
+    } finally {
+      releaseEntry(entry);
+    }
+  }
+
+  @Test
+  public void testExistsReturnsFalseForRemovedEntry() {
+    // exists() must return false for an entry that has been removed — exercises
+    // the non-FILLED branch in exists().
+    var entry = createRawCacheEntry();
+    try {
+      var bucket = new CollectionPositionMapBucket(entry);
+      bucket.init();
+      bucket.allocate();
+      bucket.set(0, new CollectionPositionMapBucket.PositionEntry(42L, 7, 100L));
+      bucket.remove(0, 999L);
+
+      Assert.assertFalse(bucket.exists(0));
+    } finally {
+      releaseEntry(entry);
+    }
+  }
+
   @Test
   public void testRemoveOpEquals() {
     var lsn = new LogSequenceNumber(1, 10);

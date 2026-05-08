@@ -216,6 +216,35 @@ public class EdgeKeyTest {
   // --- toString test ---
 
   /**
+   * equals() must return false when only ridBagId differs, only targetCollection differs,
+   * or only targetPosition differs.  This covers the three remaining field-comparison
+   * branches in equals() that are not exercised by testEqualsDistinguishesByTs.
+   */
+  @Test
+  public void testEqualsFieldDiscrimination() {
+    var base = new EdgeKey(10, 20, 30, 100L);
+
+    // Different ridBagId — covers the ridBagId != check.
+    assertNotEquals("ridBagId differs", base, new EdgeKey(11, 20, 30, 100L));
+
+    // Different targetCollection — covers the targetCollection != check.
+    assertNotEquals("targetCollection differs", base, new EdgeKey(10, 21, 30, 100L));
+
+    // Different targetPosition — covers the targetPosition != check.
+    assertNotEquals("targetPosition differs", base, new EdgeKey(10, 20, 31, 100L));
+  }
+
+  /**
+   * equals() with this == other (same reference) must return true, exercising the
+   * identity short-circuit branch.
+   */
+  @Test
+  public void testEqualsSameReference() {
+    var key = new EdgeKey(10, 20, 30, 100L);
+    assertEquals("same reference must be equal to itself", key, key);
+  }
+
+  /**
    * toString should include the ts field for debugging.
    */
   @Test

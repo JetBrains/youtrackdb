@@ -570,6 +570,83 @@ public class SharedLinkBagBTreeOptimisticReadTest {
   // Helpers
   // ------------------------------------------------------------------
 
+  // ------------------------------------------------------------------
+  // remove() — exercises removeEntryByKey() and the lambda$remove$13 path
+  // ------------------------------------------------------------------
+
+  /**
+   * remove() on a key that was inserted in the same B-tree session must return the
+   * original value and make the key absent on subsequent get() calls.  This exercises
+   * the remove() body and the lambda$remove$13 path.
+   */
+  @Test
+  public void testRemoveExistingKeyReturnsOldValue() throws Exception {
+    var key = new EdgeKey(RID_BAG_ID, 0, 0, 0L); // key inserted in setUp()
+    var expectedValue = reference.get(key);
+
+    LinkBagValue removed = atomicOperationsManager.calculateInsideAtomicOperation(
+        atomicOperation -> bTree.remove(atomicOperation, key));
+
+    Assert.assertNotNull("remove() should return the old value", removed);
+    Assert.assertEquals(expectedValue.counter(), removed.counter());
+
+    // The key must now be absent.
+    LinkBagValue afterRemove = atomicOperationsManager.calculateInsideAtomicOperation(
+        atomicOperation -> bTree.get(key, atomicOperation));
+    Assert.assertNull("get() after remove() should return null", afterRemove);
+  }
+
+  /**
+   * remove() on a key that does not exist must return null without throwing.
+   */
+  @Test
+  public void testRemoveAbsentKeyReturnsNull() throws Exception {
+    var absentKey = new EdgeKey(RID_BAG_ID + 9999, 0, 0, 0L);
+
+    LinkBagValue result = atomicOperationsManager.calculateInsideAtomicOperation(
+        atomicOperation -> bTree.remove(atomicOperation, absentKey));
+    Assert.assertNull("remove() on absent key should return null", result);
+  }
+
+  // ------------------------------------------------------------------
+  // put() cross-transaction replacement path (lambda$put$8 lines)
+  // ------------------------------------------------------------------
+
+  /**
+   * Inserting a key with the same logical edge (ridBagId, targetCollection, targetPosition)
+   * but a different ts (cross-transaction update) must replace the old entry and
+   * preserve it in the snapshot index.  This exercises the cross-transaction branch
+   * inside the put() lambda.
+   */
+  @Test
+  public void testPutCrossTransactionReplacement() throws Exception {
+    // Use a unique ridBagId to avoid collisions with setUp() data.
+    long uniqueRidBagId = RID_BAG_ID + 1000;
+    var key1 = new EdgeKey(uniqueRidBagId, 5, 10L, 1L); // ts=1
+    var value1 = new LinkBagValue(100, 0, 0, false);
+
+    // First insert (ts=1).
+    atomicOperationsManager.executeInsideAtomicOperation(
+        atomicOperation -> bTree.put(atomicOperation, key1, value1));
+
+    // Cross-transaction update: same logical edge, higher ts.
+    var key2 = new EdgeKey(uniqueRidBagId, 5, 10L, 2L); // ts=2 (same edge, newer ts)
+    var value2 = new LinkBagValue(200, 0, 0, false);
+
+    atomicOperationsManager.executeInsideAtomicOperation(
+        atomicOperation -> bTree.put(atomicOperation, key2, value2));
+
+    // After cross-tx replacement the new key must be readable.
+    LinkBagValue result = atomicOperationsManager.calculateInsideAtomicOperation(
+        atomicOperation -> bTree.get(key2, atomicOperation));
+    Assert.assertNotNull("new key must be present after cross-tx replacement", result);
+    Assert.assertEquals(200, result.counter());
+
+    // Clean up the test entry.
+    atomicOperationsManager.executeInsideAtomicOperation(
+        atomicOperation -> bTree.remove(atomicOperation, key2));
+  }
+
   /**
    * Returns the key at approximately the given fraction (0.0–1.0) of the
    * sorted reference map.

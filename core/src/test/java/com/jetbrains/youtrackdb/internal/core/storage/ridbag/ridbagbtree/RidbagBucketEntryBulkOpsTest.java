@@ -542,4 +542,42 @@ public class RidbagBucketEntryBulkOpsTest {
       cp2.decrementReferrer();
     }
   }
+
+  // ---- toString coverage for all ops in this class ----
+
+  /**
+   * toString() on every entry/bulk op must return a non-null, non-empty string so that
+   * these ops are identifiable in debug logs.
+   */
+  @Test
+  public void testAllOpsToString() {
+    var lsn = new LogSequenceNumber(1, 10);
+    // AddLeafEntryOp: (pageIndex, fileId, operationUnitId, lsn, index, serializedKey, serializedValue)
+    Assert.assertFalse(
+        new RidbagBucketAddLeafEntryOp(1L, 2L, 3L, lsn, 0,
+            new byte[] {1, 2, 3}, new byte[] {4, 5, 6}).toString().isEmpty());
+    // AddNonLeafEntryOp: (pageIndex, fileId, operationUnitId, lsn, index, leftChild, rightChild, key, updateNeighbors)
+    Assert.assertFalse(
+        new RidbagBucketAddNonLeafEntryOp(1L, 2L, 3L, lsn, 0,
+            5, 10, new byte[] {1, 2}, false).toString().isEmpty());
+    // RemoveLeafEntryOp: (pageIndex, fileId, operationUnitId, lsn, entryIndex, keySize, valueSize)
+    Assert.assertFalse(
+        new RidbagBucketRemoveLeafEntryOp(1L, 2L, 3L, lsn, 2, 3, 4).toString().isEmpty());
+    // RemoveNonLeafEntryOp: (pageIndex, fileId, operationUnitId, lsn, entryIndex, key, prevChild)
+    Assert.assertFalse(
+        new RidbagBucketRemoveNonLeafEntryOp(1L, 2L, 3L, lsn, 1,
+            new byte[] {3, 4}, 7).toString().isEmpty());
+    // AddAllOp: (pageIndex, fileId, operationUnitId, lsn, rawEntries)
+    Assert.assertFalse(
+        new RidbagBucketAddAllOp(1L, 2L, 3L, lsn,
+            List.of(new byte[] {1})).toString().isEmpty());
+    // ShrinkOp: (pageIndex, fileId, operationUnitId, lsn, retainedEntries)
+    Assert.assertFalse(
+        new RidbagBucketShrinkOp(1L, 2L, 3L, lsn,
+            List.of(new byte[] {9})).toString().isEmpty());
+    // UpdateValueOp: (pageIndex, fileId, operationUnitId, lsn, index, value, keySize)
+    Assert.assertFalse(
+        new RidbagBucketUpdateValueOp(1L, 2L, 3L, lsn, 0,
+            new byte[] {1, 2, 3}, 3).toString().isEmpty());
+  }
 }
