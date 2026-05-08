@@ -391,7 +391,7 @@
     
     ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [ ] Step implementation (1/7 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -404,9 +404,27 @@
 
 ## Steps
 
-- [ ] Step 1: Extract `PageEntryFixture` shared test utility for direct-memory page-level tests
+- [x] Step 1: Extract `PageEntryFixture` shared test utility for direct-memory page-level tests
+  - [x] Context: safe
   > **Risk:** medium — test infrastructure (shared fixture; consumed by Steps 5/6 here and absorbed by Track 22 `cache.local` test cleanup TS7 backlog item).
   > Resolves Track 20's deferred TS7. Encapsulates the Track 19/20 page-level pattern: `ByteBufferPool.acquireDirect()` → `CachePointer` → `incrementReadersReferrer` → return an `AutoCloseable` page handle; `@After`-side `bufferPool.clear()` + `allocator.checkMemoryLeaks()`. Place under `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/PageEntryFixture.java` (or `test-commons` if cross-module reuse is anticipated; decide at implementation time). Spotless-clean. No production source changes. Verify Track 20 tests `LockFreeReadCacheFileOpsTest`, `BoundedBufferRingTest`, `BoundedBufferDrainTest`, `CacheEntryImplTest` either adopt the fixture (preferred) or are explicitly noted as Track 22 follow-ups. End-of-step: `./mvnw -pl core test -Dtest=PageEntryFixtureSmokeTest` plus the impacted Track 20 classes pass; full `core` unit suite remains green.
+  >
+  > **What was done:** Introduced `core/src/test/.../storage/cache/PageEntryFixture.java`, an `AutoCloseable` test utility that encapsulates the Track 19/20 direct-memory page-level pattern. The fixture exposes two acquisition modes — reader (`incrementReadersReferrer`) for cache-policy tests, exclusive (`incrementReferrer` + entry-level `acquireExclusiveLock`) for B-tree bucket round-trip tests — and tracks every acquisition so that `close()` releases each one symmetrically, calls `bufferPool.clear()`, and runs `allocator.checkMemoryLeaks()`. Idempotent close + use-after-close rejection + constructor-arg validation are pinned by `PageEntryFixtureSmokeTest` (5 tests). Three Track 19/20 cache tests (`CacheEntryImplTest`, `BoundedBufferDrainTest`, `BoundedBufferRingTest`) are adopted to consume the fixture; `LockFreeReadCacheFileOpsTest` is intentionally not adopted because its page-acquisition lifecycle is owned by the SUT (read cache + `TrackingWriteCache`) rather than the test class — the fixture would not match the structural pattern. The non-adoption is documented in the commit message as a Track 22 DRY-follow-up candidate. No production-source changes; full `core` unit suite green (15583 main + 1951 JUnit-5 + 11 MT; pre-existing 56 skipped retained).
+  >
+  > **What was discovered:** `LockFreeReadCacheFileOpsTest`'s direct-memory acquisitions happen inside an inner `TrackingWriteCache` fake (the SUT calls `byteBufferPool.acquireDirect` and `incrementReadersReferrer` from inside its own `load(...)` callback), so the test class never holds a list of pointers it needs to release — `readCache.clear()` drives the cleanup. The fixture's pattern (test owns the pointer's full lifecycle) does not fit; recording this as a non-adoption so a future refactor that extracts the cache's pointer lifecycle into a test-visible hook can reuse the fixture later (Track 22 DRY candidate). No upcoming-track assumption is weakened — recommendation: **Continue**.
+  >
+  > **What changed from the plan:** none. Step 1 lands the fixture exactly as scoped in the decomposition (`core/src/test/.../storage/cache/PageEntryFixture.java`, `PageEntryFixtureSmokeTest`, no production change, three of the four Track 20 cache tests adopted, fourth deferred with rationale).
+  >
+  > **Key files:**
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/PageEntryFixture.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/PageEntryFixtureSmokeTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/CacheEntryImplTest.java` (modified — adopt fixture)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/chm/BoundedBufferDrainTest.java` (modified — adopt fixture)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/chm/readbuffer/BoundedBufferRingTest.java` (modified — adopt fixture)
+  >
+  > **Critical context:** Steps 5/6 (B-tree singlevalue/v3 lifecycle + multivalue/v2 / local/v2 direct bucket tests) and Step 3 (`storage/impl/local` helpers + MT probe) should consume `PageEntryFixture` for any test that needs a real direct-memory page frame; the canonical use-case examples live in the fixture's class-level Javadoc. The exclusive-style API uses `incrementReferrer` (not `incrementReadersReferrer`) to match the existing `SBTreeLeafBucketV2Test` pattern that bucket round-trip tests will follow — do not switch B-tree bucket tests to the reader-style API.
+  >
+  > **Commit:** `0fd30cef43`
 
 - [ ] Step 2: Small-package quick-wins — `nkbtree.normalizers`, `sbtree` top-level, `index/engine`, `index/versionmap`
   > **Risk:** low — default (tests-only on existing code; no shared fixture beyond what Step 1 already provides).
