@@ -299,7 +299,7 @@ fall short of 85%/70% targets per Decision Record D4 in
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (4/6 complete)
+- [ ] Step implementation (5/6 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -662,7 +662,8 @@ fall short of 85%/70% targets per Decision Record D4 in
   > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/local/WOWCacheConcurrencyShapesTest.java` (new)
   > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/local/WOWCacheNonDurableFileTrackingTest.java` (modified — `@Category(SequentialTest.class)` + `@BeforeClass` / `@AfterClass` flag snapshot/restore)
 
-- [ ] Step: CHM read cache + small CHM packages
+- [x] Step: CHM read cache + small CHM packages
+  - [x] Context: safe
   > **Risk:** low — default (test-additive only; standalone +
   > page-level for read-buffer rings; absolute top-up for
   > already-near-target packages).
@@ -684,6 +685,54 @@ fall short of 85%/70% targets per Decision Record D4 in
   > and `cache.chm.readbuffer` ≥ 85% / ≥ 70%; `cache.chm.writequeue`
   > already at ≥ 85% / ≥ 70%; `cache.local.aoc` left untested
   > (slated for Track 22 deletion).
+  >
+  > **What was done:** Added five test classes (~1 363 LoC, 35 tests)
+  > across the CHM packages — `BoundedBufferRingTest` (7 tests:
+  > `Buffer` constants, null-table reads/writes/size, ring buffer
+  > off-by-one i.e. `writes() = N - 1` for `N` offers, `FULL` branch
+  > at the 130th offer), `BoundedBufferDrainTest` (4 tests in the
+  > `cache.chm` package for `WTinyLFUPolicy` access:
+  > `drainTo()` null-table no-op, `reads() == writes()` invariant
+  > after drain, single-element drain, reads/writes after drain +
+  > more offers), `FrequencySketchTest` (8 tests: capacity, increment
+  > saturation at 15, multi-key isolation, `reset()` aging),
+  > `MPSCLinkedQueueTest` (8 tests: `Node` initial state,
+  > `offer`/`poll` round-trip, `isEmpty`, ordered drain, null guard,
+  > 4-producer concurrency smoke covering the yield loop in `poll()`),
+  > and `LockFreeReadCacheFileOpsTest` (8 tests: `truncateFile` /
+  > `closeFile` / `deleteFile` eviction + delegation,
+  > `changeMaximumAmountOfMemory` reduce path — 2 pages preloaded →
+  > limit reduced to 2 → 20 more loads → eviction ≤ 2 — and increase
+  > path; `silentLoadForRead` hit/null paths). All 35 tests pass
+  > under surefire; spotless clean. Falsifiability rule respected.
+  >
+  > **What was discovered:**
+  > - `WTinyLFUPolicy.setMaxSize()` throws `IllegalStateException`
+  >   when the new limit is below the current entry count. The
+  >   reduce-path test was redesigned to preload exactly 2 pages
+  >   first, then reduce the limit to 2 (`2 ≤ 2` is permitted), then
+  >   drive eviction with 20 additional loads. Worth noting for any
+  >   future Track 21 / Track 22 capacity-shrink tests.
+  > - **Implementer protocol slip (sub-step 5: minor — Continue):**
+  >   the Step 5 implementer returned a non-canonical RESULT block
+  >   (free-form summary instead of the `RESULT: SUCCESS` /
+  >   `COMMIT:` / `FILES_TOUCHED:` / `TEST_SUMMARY:` /
+  >   `EPISODE_DRAFT:` structure mandated by
+  >   `implementer-rules.md` §Return contract). The orchestrator
+  >   verified the commit (`ceed36af93`) and re-ran all 35 tests
+  >   directly to confirm; no rework needed. Captured for
+  >   Phase B self-improvement reflection at session end.
+  >
+  > **What changed from the plan:** none. `cache.local.aoc.FileSegment`
+  > remains untested per the plan's exclusion (Step 6 forwards the
+  > deletion to Track 22).
+  >
+  > **Key files:**
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/chm/BoundedBufferDrainTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/chm/FrequencySketchTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/chm/LockFreeReadCacheFileOpsTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/chm/readbuffer/BoundedBufferRingTest.java` (new)
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/chm/writequeue/MPSCLinkedQueueTest.java` (new)
 
 - [ ] Step: Verification + top-up + Track-20 baseline + track episode
   > **Risk:** low — default (verification-only; coverage re-run,
