@@ -13,6 +13,7 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogNoOP;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
@@ -180,8 +181,8 @@ public class WOWCacheLoadOrAddTest {
   /**
    * Extend branch: a fresh file has {@code currentSize == 0}; calling
    * {@code loadOrAdd(fileId, 0)} must take the one-page extend path, advance
-   * {@code AsyncFile.size} to one page, and return a non-null {@link com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer}
-   * with a clean buffer at position 0.
+   * {@code AsyncFile.size} to one page, and return a non-null {@link CachePointer} with
+   * a clean buffer at position 0.
    */
   @Test
   public void extendBranchAllocatesAndReturnsEmptyPointer() throws IOException {
@@ -317,8 +318,8 @@ public class WOWCacheLoadOrAddTest {
   /**
    * Load branch: after extending pages 0 and 1 and flushing them to disk, calling
    * {@code loadOrAdd(fileId, 0, false)} must take the load path (pageIndex less than
-   * currentSize) and return a non-null {@link com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer}
-   * for an existing on-disk page. The returned pointer must be the dirty-write-cache
+   * currentSize) and return a non-null {@link CachePointer} for an existing on-disk
+   * page. The returned pointer must be the dirty-write-cache
    * pointer (priority over the on-disk image) when the page is still in
    * {@code writeCachePages}, and the disk-fallback pointer must be a fresh instance
    * (not the same one that's installed in {@code writeCachePages}). The flush call

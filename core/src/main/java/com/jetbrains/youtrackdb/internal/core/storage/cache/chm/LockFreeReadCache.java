@@ -152,7 +152,8 @@ public final class LockFreeReadCache implements ReadCache {
       final WriteCache writeCache,
       final boolean verifyChecksums,
       final LogSequenceNumber startLSN) {
-    final var cacheEntry = doLoad(fileId, (int) pageIndex, writeCache, verifyChecksums);
+    final var cacheEntry =
+        doLoad(fileId, (int) pageIndex, writeCache, verifyChecksums, /*forWrite=*/ true);
 
     // TODO: collapse this null branch once `addPage`/`allocateNewPage` are deleted.
     // doLoad now delegates to WriteCache#loadOrAdd, which is total — the returned
@@ -173,7 +174,7 @@ public final class LockFreeReadCache implements ReadCache {
       final long pageIndex,
       final WriteCache writeCache,
       final boolean verifyChecksums) {
-    return doLoad(fileId, (int) pageIndex, writeCache, verifyChecksums);
+    return doLoad(fileId, (int) pageIndex, writeCache, verifyChecksums, /*forWrite=*/ false);
   }
 
   @Nullable @Override
@@ -242,11 +243,12 @@ public final class LockFreeReadCache implements ReadCache {
     }
   }
 
-  @Nullable private CacheEntry doLoad(
+  private CacheEntry doLoad(
       final long extFileId,
       final int pageIndex,
       final WriteCache writeCache,
-      final boolean verifyChecksums) {
+      final boolean verifyChecksums,
+      final boolean forWrite) {
     final var fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), extFileId);
 
     var success = false;
@@ -284,24 +286,43 @@ public final class LockFreeReadCache implements ReadCache {
                         // CacheEntry must be flagged as freshly-allocated so that
                         // releaseFromWrite's isNewlyAllocatedPage() check publishes it on
                         // the dirty-page list. Reading filledUpTo is cheap (in-memory size
-                        // probe under filesLock.readLock) and racing with a concurrent
-                        // allocator is harmless: per-component locks (BTree mutex,
-                        // position-map mutex, etc.) serialize concurrent allocators on the
-                        // same fileId, so two transactions cannot concurrently target the
-                        // same (fileId, pageIndex). A worst-case stale snapshot only
-                        // mis-flags as new a page that was just freshly allocated by the
-                        // same transaction — which is still correct.
+                        // probe under filesLock.readLock).
+                        //
+                        // Staleness of the snapshot vs. loadOrAdd's own size read:
+                        // per-component locks (BTree mutex, position-map mutex, etc.)
+                        // serialize concurrent allocators on the same fileId, so two
+                        // transactions cannot concurrently target the same
+                        // (fileId, pageIndex). The cache primitive itself does not enforce
+                        // this — if a different component concurrently extends a
+                        // *different* pageIndex on the same fileId between this read and
+                        // loadOrAdd's own size read, the snapshot can become stale. The
+                        // benign worst case is a load-branch entry mis-flagged as
+                        // newly-allocated, which causes a single redundant clean-page
+                        // flush with no correctness impact (the page content came from
+                        // disk and is unmodified).
                         final var preCallFilledUpTo = writeCache.getFilledUpTo(fileId);
                         final var pointer =
                             writeCache.loadOrAdd(fileId, pageIndex, verifyChecksums);
-                        assert pointer != null
-                            : "WriteCache.loadOrAdd contract violation: null CachePointer for"
-                                + " fileId=" + fileId + " pageIndex=" + pageIndex;
+                        if (pointer == null) {
+                          // The disk engine's loadOrAdd is total. Fail-fast in production
+                          // builds with the same diagnostic content the prior assert had so
+                          // a regressing impl (or a future in-memory variant routed through
+                          // this path) cannot install a CacheEntry around a null pointer
+                          // and surface the breakage frames later as an opaque NPE.
+                          throw new IllegalStateException(
+                              "WriteCache.loadOrAdd contract violation: null CachePointer for"
+                                  + " fileId=" + fileId + " pageIndex=" + pageIndex);
+                        }
 
                         cacheSize.incrementAndGet();
                         final var newEntry =
                             new CacheEntryImpl(fileId, pageIndex, pointer, true, this);
-                        if (pageIndex >= preCallFilledUpTo) {
+                        // markAllocated is a write-only contract: only the write-load
+                        // primitive may flag the entry as freshly-allocated so that
+                        // releaseFromWrite publishes it on the dirty-page list. Bleeding
+                        // the flag onto the read path would publish a clean read load as
+                        // dirty when the read happens to hit a fresh-extend race window.
+                        if (forWrite && pageIndex >= preCallFilledUpTo) {
                           newEntry.markAllocated();
                         }
                         return newEntry;

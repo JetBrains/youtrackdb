@@ -851,10 +851,12 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
                 readCache.loadOrAddForWrite(
                     fileId, pageIndex, writeCache, filePageChanges.verifyCheckSum, fileStartLSN);
             // TODO: collapse this null branch once `addPage`/`allocateNewPage` are deleted.
-            // loadOrAddForWrite is now total (it returns a usable entry for the requested
-            // pageIndex on every call), so the do/while reconciliation loop below is
-            // unreachable. The block is kept here as a defensive belt during the migration
-            // window and removed alongside the addPage/allocateNewPage write-side API.
+            // On the disk engine `loadOrAddForWrite` is now total (delegates to
+            // `WriteCache.loadOrAdd`); the in-memory engine still returns null on miss but
+            // is reached only via `MemoryWriteAheadLog`, which is a no-op so this commit
+            // branch never fires there. The block is kept as a defensive belt during the
+            // migration window and will be removed alongside the addPage/allocateNewPage
+            // cleanup.
             if (cacheEntry == null) {
               if (!filePageChanges.isNew) {
                 throw new StorageException(writeCache.getStorageName(),

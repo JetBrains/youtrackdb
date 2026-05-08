@@ -57,9 +57,9 @@ public class LockFreeReadCacheConcurrentTestIT {
 
   /**
    * Concurrent reads + writes with eviction on a small cache. Multiple threads call
-   * loadForRead/loadOrAddForWrite on a 4MB cache (small enough to force frequent eviction). Verifies: no
-   * exceptions, no data corruption, cache internal consistency after all threads complete, and that
-   * memory usage stays within bounds.
+   * loadForRead/loadOrAddForWrite on a 4MB cache (small enough to force frequent
+   * eviction). Verifies: no exceptions, no data corruption, cache internal consistency
+   * after all threads complete, and that memory usage stays within bounds.
    */
   @Test
   public void concurrentReadsAndWritesWithEviction() throws Exception {
@@ -149,7 +149,8 @@ public class LockFreeReadCacheConcurrentTestIT {
    * concurrent loadForRead across multiple files to stress the cache under heavy contention, then
    * stops readers and deletes all files one by one, verifying cache consistency at each stage.
    *
-   * <p>deleteFile cannot be called while readers hold entries (StorageException: page is in use), so
+   * <p>deleteFile cannot be called while readers hold entries (StorageException: page is in
+   * use), so
    * readers are stopped before deletion. The test validates: (1) concurrent load/release does not
    * corrupt internal state, (2) deleteFile correctly clears each file's entries from the cache, (3)
    * final state is consistent and empty.

@@ -1582,9 +1582,7 @@ public final class WOWCache extends AbstractWriteCache
       }
       // Defensive totality fallback (dead code today; see method Javadoc): if
       // loadFileContent ever returns null on this path, return a magic-stamped empty
-      // buffer without bumping AsyncFile.size so the totality contract holds. The
-      // orthogonal on-disk-lag race (EnsurePageIsValidInFileTask vs torn-write) is
-      // tracked in ISSUE-ensurevalidpagetask-torn-write.md.
+      // buffer without bumping AsyncFile.size so the totality contract holds.
       return newEmptyCachePointer(composeFileId(id, intId), pageIndex);
     } finally {
       pageLock.unlock();

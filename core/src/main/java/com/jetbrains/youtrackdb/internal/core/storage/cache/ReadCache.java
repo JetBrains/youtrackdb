@@ -97,7 +97,8 @@ public interface ReadCache {
    * @deprecated Use {@link #loadOrAddForWrite(long, long, WriteCache, boolean, LogSequenceNumber)}
    *     instead. The {@code allocateNewPage} path exposes the new {@code pageIndex} before
    *     the cache entry is installed (the race documented in the read-cache concurrency fix
-   *     design). Final deletion is deferred until the write-side API collapse migrates all replay-loop callers.
+   *     design). Final deletion is deferred until the write-side API collapse migrates
+   *     all replay-loop callers.
    */
   @Deprecated
   CacheEntry allocateNewPage(long fileId, WriteCache writeCache, LogSequenceNumber startLSN)

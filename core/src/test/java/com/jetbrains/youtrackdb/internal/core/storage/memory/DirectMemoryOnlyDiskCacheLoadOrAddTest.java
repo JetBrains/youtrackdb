@@ -24,6 +24,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.After;
 import org.junit.Before;
@@ -388,24 +389,28 @@ public class DirectMemoryOnlyDiskCacheLoadOrAddTest {
     final var pool = Executors.newFixedThreadPool(threads);
     try {
       final var startGate = new CountDownLatch(1);
-      final List<Callable<CachePointer>> tasks = new ArrayList<>(threads);
+      // Submit tasks BEFORE releasing the latch so workers actually park on
+      // startGate.await() and the publish race is genuinely contended. A previous shape
+      // counted the latch down before invokeAll, which let workers ramp up sequentially
+      // and drained most of the contention the test claims to exercise.
+      final List<Future<CachePointer>> futures = new ArrayList<>(threads);
       for (int i = 0; i < threads; i++) {
-        tasks.add(
-            () -> {
-              startGate.await();
-              return cache.loadOrAdd(fileId, 0L, false);
-            });
+        futures.add(
+            pool.submit(
+                (Callable<CachePointer>) () -> {
+                  startGate.await();
+                  return cache.loadOrAdd(fileId, 0L, false);
+                }));
       }
       startGate.countDown();
-      final var futures = pool.invokeAll(tasks, 10, TimeUnit.SECONDS);
 
       final List<CachePointer> returned = new ArrayList<>(threads);
       try {
         for (final var f : futures) {
-          // Each Future is in-hand by virtue of invokeAll's contract — fetching the value
-          // here can throw if the worker raised, in which case fail explicitly so the
-          // executor's shutdownNow does not silently swallow the exception.
-          returned.add(f.get(1, TimeUnit.SECONDS));
+          // Each Future is in-hand by virtue of pool.submit's contract — fetching the
+          // value here can throw if the worker raised, in which case fail explicitly so
+          // the executor's shutdownNow does not silently swallow the exception.
+          returned.add(f.get(10, TimeUnit.SECONDS));
         }
         assertEquals("every thread must receive a non-null pointer", threads, returned.size());
         // Identity equality across all returned pointers proves only one entry was
@@ -469,20 +474,23 @@ public class DirectMemoryOnlyDiskCacheLoadOrAddTest {
         final long iterFileId = cache.addFile("concurrent-gapfill-" + it + ".dat");
         try {
           final var startGate = new CountDownLatch(1);
-          final List<Callable<CachePointer>> tasks = new ArrayList<>(targets.length);
+          // Submit tasks BEFORE releasing the latch so workers actually park on
+          // startGate.await() and the install race on overlapping indices is genuinely
+          // contended (see same-index test above for the rationale).
+          final List<Future<CachePointer>> futures = new ArrayList<>(targets.length);
           for (final long target : targets) {
-            tasks.add(
-                () -> {
-                  startGate.await();
-                  return cache.loadOrAdd(iterFileId, target, false);
-                });
+            futures.add(
+                pool.submit(
+                    (Callable<CachePointer>) () -> {
+                      startGate.await();
+                      return cache.loadOrAdd(iterFileId, target, false);
+                    }));
           }
           startGate.countDown();
-          final List<Future<CachePointer>> futures = pool.invokeAll(tasks, 10, TimeUnit.SECONDS);
           final List<CachePointer> workerPointers = new ArrayList<>(targets.length);
           try {
             for (final var f : futures) {
-              workerPointers.add(f.get(1, TimeUnit.SECONDS));
+              workerPointers.add(f.get(10, TimeUnit.SECONDS));
             }
             assertEquals(
                 "iteration " + it + ": watermark must converge to maxTarget + 1",
@@ -554,6 +562,10 @@ public class DirectMemoryOnlyDiskCacheLoadOrAddTest {
       final var unexpected = new ConcurrentLinkedQueue<Throwable>();
       final var startGate = new CountDownLatch(1);
       final var installerDone = new CountDownLatch(installerThreads);
+      // Counts every successful loadOrAdd by the installers. Without this counter, a
+      // destroyer that finishes before installers exit startGate.await() could let the
+      // test pass vacuously — the assertion below pins a realistic floor.
+      final var iterationCounter = new AtomicLong();
 
       // Installers: loop loadOrAdd / decrementReadersReferrer until the destroyer signals
       // stop. IAE on a deleted file is tolerated (the file may have been dropped between
@@ -566,6 +578,7 @@ public class DirectMemoryOnlyDiskCacheLoadOrAddTest {
                 while (!stop.get()) {
                   try {
                     final var p = cache.loadOrAdd(fileIdRef.get(), 0L, false);
+                    iterationCounter.incrementAndGet();
                     p.decrementReadersReferrer();
                   } catch (final IllegalArgumentException ignored) {
                     // Tolerated: file was deleted between fileIdRef read and the install.
@@ -602,6 +615,10 @@ public class DirectMemoryOnlyDiskCacheLoadOrAddTest {
       assertTrue(
           "installer threads must finish within the bounded wait window",
           installerDone.await(20, TimeUnit.SECONDS));
+      assertTrue(
+          "installers must execute the loadOrAdd loop body at least once per thread; "
+              + "vacuous pass detected (iterations=" + iterationCounter.get() + ")",
+          iterationCounter.get() >= installerThreads);
 
       if (!unexpected.isEmpty()) {
         final var first = unexpected.poll();
@@ -616,6 +633,101 @@ public class DirectMemoryOnlyDiskCacheLoadOrAddTest {
             "surviving file's high-watermark must reflect the final extend",
             1L,
             cache.getFilledUpTo(fileIdRef.get()));
+      } finally {
+        surviving.decrementReadersReferrer();
+      }
+    } finally {
+      pool.shutdownNow();
+      assertTrue(
+          "executor must terminate cleanly", pool.awaitTermination(5, TimeUnit.SECONDS));
+    }
+  }
+
+  /**
+   * Sibling of {@link #clearAndLoadOrAddRaceLeavesCacheConsistent} that uses
+   * {@link DirectMemoryOnlyDiskCache#truncateFile(long)} instead of
+   * {@code deleteFile + addFile}. {@code truncateFile} keeps the SAME {@code MemoryFile}
+   * instance across rotations, so the {@code clearLock} read/write discipline is the
+   * actual synchronization point being exercised — the {@code deleteFile + addFile}
+   * shape always trips the {@code IllegalArgumentException} guard at the outer
+   * {@code DirectMemoryOnlyDiskCache.loadOrAdd} entry on stale fileIds and never enters
+   * the per-{@link MemoryFile} install path under the readLock window.
+   *
+   * <p>The fileId stays valid throughout, so installers never see
+   * {@link IllegalArgumentException}; any exception fails the test. Like the sibling,
+   * the {@code iterationCounter} pin guards against a vacuous pass where the destroyer
+   * finishes before installers ramp up.
+   */
+  @Test
+  public void truncateAndLoadOrAddRaceLeavesCacheConsistent() throws Exception {
+    final int installerThreads = 4;
+    final int rotations = 100;
+    final var pool = Executors.newFixedThreadPool(installerThreads + 1);
+    try {
+      final var stop = new AtomicBoolean(false);
+      final var unexpected = new ConcurrentLinkedQueue<Throwable>();
+      final var startGate = new CountDownLatch(1);
+      final var installerDone = new CountDownLatch(installerThreads);
+      final var iterationCounter = new AtomicLong();
+
+      // Installers: loop loadOrAdd / decrementReadersReferrer until the destroyer signals
+      // stop. truncateFile keeps the SAME MemoryFile instance across rotations, so the
+      // fileId stays valid — any exception fails the test.
+      for (int t = 0; t < installerThreads; t++) {
+        pool.submit(
+            () -> {
+              try {
+                startGate.await();
+                while (!stop.get()) {
+                  final var p = cache.loadOrAdd(fileId, 0L, false);
+                  iterationCounter.incrementAndGet();
+                  p.decrementReadersReferrer();
+                }
+              } catch (final Throwable t1) {
+                unexpected.add(t1);
+              } finally {
+                installerDone.countDown();
+              }
+            });
+      }
+
+      // Destroyer: rotate truncateFile a fixed number of times against the same fileId.
+      pool.submit(
+          () -> {
+            try {
+              startGate.await();
+              for (int r = 0; r < rotations; r++) {
+                cache.truncateFile(fileId);
+              }
+            } catch (final Throwable t1) {
+              unexpected.add(t1);
+            } finally {
+              stop.set(true);
+            }
+          });
+
+      startGate.countDown();
+      assertTrue(
+          "installer threads must finish within the bounded wait window",
+          installerDone.await(30, TimeUnit.SECONDS));
+      assertTrue(
+          "installers must execute the loadOrAdd loop body at least once per thread; "
+              + "vacuous pass detected (iterations=" + iterationCounter.get() + ")",
+          iterationCounter.get() >= installerThreads);
+
+      if (!unexpected.isEmpty()) {
+        final var first = unexpected.poll();
+        fail("truncate/loadOrAdd race surfaced unexpected exception: " + first);
+      }
+
+      // Final consistency probe: the same fileId must still accept loadOrAdd cleanly.
+      final var surviving = cache.loadOrAdd(fileId, 0L, false);
+      try {
+        assertNotNull("surviving file must accept loadOrAdd after the race", surviving);
+        assertEquals(
+            "surviving file's high-watermark must reflect the final extend",
+            1L,
+            cache.getFilledUpTo(fileId));
       } finally {
         surviving.decrementReadersReferrer();
       }

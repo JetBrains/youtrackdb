@@ -426,7 +426,9 @@ public class LockFreeReadCacheBatchingTest {
    * On the write-load path, when {@code pageIndex < filledUpTo} (existing page on disk), the
    * returned CacheEntry must NOT be flagged as newly allocated. This is the test that
    * discriminates the markAllocated conditional — a regression that always set the flag would
-   * fire here.
+   * fire here. The {@code storeCount} no-op assertion is the symmetric companion of
+   * {@link #testWriteLoadFlagsExtendedPageAsNewlyAllocated}: when the flag is unset and
+   * {@code changed=false}, {@code releaseFromWrite} must skip the {@code store} call.
    */
   @Test
   public void testWriteLoadDoesNotFlagExistingPageAsNewlyAllocated() {
@@ -437,7 +439,12 @@ public class LockFreeReadCacheBatchingTest {
         "existing-page entry must NOT be flagged newly allocated",
         entry.isNewlyAllocatedPage());
 
+    int storesBefore = writeCache.storeCount.get();
     readCache.releaseFromWrite(entry, writeCache, /*changed=*/false);
+    Assert.assertEquals(
+        "releaseFromWrite must NOT publish when entry is not flagged newly allocated"
+            + " and changed=false",
+        storesBefore, writeCache.storeCount.get());
   }
 
   /**
@@ -460,17 +467,24 @@ public class LockFreeReadCacheBatchingTest {
 
   /**
    * Read-path contract: the read-load primitive must never flag the resulting CacheEntry as
-   * newly allocated, even when {@code pageIndex < filledUpTo}. The markAllocated logic lives
-   * solely on the write-load primitive; pinning this here prevents a future refactor from
-   * accidentally bleeding the flag-set into the read-only path.
+   * newly allocated, even on extend-branch parameters where the corresponding write-load
+   * companion DOES flag the entry. The markAllocated logic lives solely on the write-load
+   * primitive; pinning this here with {@code filledUpTo=0} and {@code pageIndex=5} forces
+   * the production guard {@code pageIndex >= filledUpTo} to be TRUE, so a regression that
+   * conditionally bled {@code markAllocated} to the read path under the same guard would
+   * fire here. (A {@code pageIndex < filledUpTo} configuration would pass vacuously
+   * because the guard is FALSE for both read and write paths.)
    */
   @Test
-  public void testReadLoadDoesNotFlagPageAsNewlyAllocatedUnderProperFilledUpTo() {
-    writeCache.setFilledUpTo(0L, 10L);
+  public void testReadLoadDoesNotFlagPageAsNewlyAllocatedOnExtendBranchParameters() {
+    // filledUpTo=0 + pageIndex=5 → pageIndex >= filledUpTo is TRUE.
+    // The read path must ignore this condition; only the write path may flag.
+    writeCache.setFilledUpTo(0L, 0L);
 
     var entry = readCache.loadForRead(0, 5, writeCache, false);
     Assert.assertFalse(
-        "read-load must never flag the entry as newly allocated",
+        "read-load must never flag the entry as newly allocated, "
+            + "even when pageIndex >= filledUpTo (write-only contract)",
         entry.isNewlyAllocatedPage());
 
     readCache.releaseFromRead(entry);
