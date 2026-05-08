@@ -1771,20 +1771,68 @@ flowchart TD
   >
   > **Strategy refresh:** CONTINUE — Track 19's discoveries are confined to the storage cluster and absorbed by Track 22's existing absorption block (4 production-bug pins + 3 suggestion-tier items). The page-level direct-memory test pattern (`ByteBufferPool` → `CachePointer` → exclusive lock → ops → `decrementReferrer` in `finally`) carries forward unchanged into Tracks 20–21. D4 (storage-internal coverage allowance) reinforced by three accepted per-package gates. No downstream impact on Tracks 20–22.
 
-- [ ] Track 20: Storage Cache & WAL
+- [x] Track 20: Storage Cache & WAL
   > Write tests for the write cache (WOWCache), read cache, double-write
   > log, and WAL components. These are complex concurrent subsystems —
   > expect to fall short of 85%/70% targets per D4.
   >
-  > **Scope:** ~6 steps covering WOWCache lifecycle, read cache,
-  > double-write log, WAL segments, cache eviction, and verification.
-  > **Depends on:** Track 1
+  > **Track episode:**
+  > Test-additive coverage track for the storage cache + WAL clusters
+  > (`cache.local`, `cache.local.doublewritelog`, `paginated.wal.cas`,
+  > `paginated.wal`, `wal.common`, `wal.common.deque`, `cache`,
+  > `cache.chm`, `cache.chm.readbuffer`, `cache.chm.writequeue`). Six
+  > steps landed the per-package coverage targets committed at
+  > decomposition (D4-allowed ceilings: `cache.local` ~78%/~62%,
+  > `doublewritelog` ~70%/~52%, the others ≥85%/≥70%). Phase C
+  > dimensional review fan-out (9 sub-agents) surfaced 1 blocker, 22
+  > should-fix, and 27 suggestion-tier findings. Two implementer
+  > iterations applied the in-scope subset:
+  > `Review fix: Track 20 Phase C iteration 1` (12 fixes — closed the
+  > blocker plus 11 falsifiability + concurrency-correctness items;
+  > notable: replaced a single-threaded WOWCache "double-add" probe
+  > with a true `CyclicBarrier` N-writer race, fixed bare `await()` /
+  > `join()` patterns in `CachePointerPageFrameTest`, eliminated a
+  > `Thread.sleep` polling loop in `CASDiskWriteAheadLogLifecycleTest`,
+  > added close-and-reopen durability proof for `logFlushAndReadRoundTrip`,
+  > and added a real cut-prevention test for `addCutTillLimit`); and
+  > `Review fix: Track 20 Phase C iteration 2` (13 fixes —
+  > empty-payload boundary tests for length-prefixed WAL records,
+  > `BUFFER_SIZE` boundary for `MPSCFAAArrayDequeue`, central
+  > `CoverageTestWALRecordIds` constant for the test-record-ID
+  > discipline, snapshot/restore for `DIRECT_MEMORY_TRACK_MODE`, UUID
+  > suffixes on static `TEST_DIR` paths per the project-global
+  > temp-path rule, and quiescence of the commit executor via
+  > `wal.close()` before exactly-once `callCount` checks). Both iter
+  > gate-checks PASS across all re-run dimensions. ~27 suggestion-tier
+  > items forwarded to Track 22 absorption (file splits, fixture
+  > extractions, magic-number cleanups, MT probe for `BoundedBuffer`,
+  > direct-memory-pool cleanup hygiene, reflection-fragility
+  > hardening, and a small diagnostic-toString re-pin for
+  > `Cursor`/`Node`). Key discoveries: (1) the original "end > begin"
+  > falsifiability hypothesis on the fresh-WAL test was incorrect —
+  > the constructor publishes `end` at the same `RECORDS_OFFSET` where
+  > it logged the StartWALRecord; pin tightened to
+  > `end.getPosition() == RECORDS_OFFSET`; (2)
+  > `CASDiskWriteAheadLog.close()` is **not** idempotent — the iter-2
+  > implementer adopted a local-boolean closed-flag pattern to avoid
+  > double-close in the existing finally block, and Track 22 may
+  > consider hardening `close()` itself; (3) `MPSCFAAArrayDequeue.Node.enqidx`
+  > initialises to 1 (not 0), so an offer of `BUFFER_SIZE = 1024`
+  > items fills slots 1..1023 in node 1 and the 1024th offer triggers
+  > a fresh node — the new boundary test passes for the right reason,
+  > the test name is flagged for clarification in Track 22; (4) the
+  > `CoverageTestWALRecordIds` compile-time anti-collision invariant
+  > was inactive at end of Phase B (lifecycle test hardcoded ID 460
+  > locally); the discipline is now live. Cross-track impact: Track 22's
+  > WHEN-FIXED pin in `WOWCacheConcurrencyShapesTest` is now
+  > significantly stronger — the new `CyclicBarrier`-based MT race on
+  > the same `(fileId, pageIndex)` will properly fail-over to the
+  > correct-behaviour assertion when the production `addOnlyWriters`
+  > fix lands. Track 22 absorption block extended in
+  > `implementation-backlog.md` with the deferred suggestions
+  > (commit `609b47d2d9`).
   >
-  > **Operational note:** Backlog section entirely in a gap —
-  > reconstruct at Phase A from the Scope indicator above + the
-  > design's Component Map cluster mapping for
-  > `core/storage/cache*` and `core/storage/impl/local/paginated/wal*`.
-  > See **Operational Notes**.
+  > **Step file:** `tracks/track-20.md` (6 steps, 0 failed)
 
 - [ ] Track 21: Storage B-tree & Impl
   > Write tests for B-tree index storage and storage implementation
