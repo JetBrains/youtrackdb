@@ -26,11 +26,49 @@ public class RidbagBucketSimpleOpsTest {
     PageOperationRegistry.registerAll(WALRecordsFactory.INSTANCE);
   }
 
-  // ---- Direct-memory-safe two-page helper ----
+  // ---- Direct-memory-safe one-page and two-page helpers ----
+
+  @FunctionalInterface
+  private interface SinglePageAction {
+    void run(CacheEntry entry, CachePointer cp);
+  }
 
   @FunctionalInterface
   private interface TwoPageAction {
     void run(CacheEntry entry1, CachePointer cp1, CacheEntry entry2, CachePointer cp2);
+  }
+
+  /**
+   * Allocates one raw cache entry (page) for a single-page test, runs the action, and
+   * releases deterministically — even if the {@link CacheEntryImpl} construction or
+   * the {@link CacheEntry#acquireExclusiveLock()} call throws.
+   *
+   * <p>The {@code try} block opens immediately after the {@code incrementReferrer()},
+   * so a throw between increment and lock-acquire still routes through the
+   * {@code finally} that calls {@code decrementReferrer()}. Without this scoping the
+   * referrer count would leak and the page tracker (enabled via
+   * {@code -Dyoutrackdb.memory.directMemory.trackMode=true} in {@code core/pom.xml})
+   * would call {@code System.exit(1)} at JVM shutdown.
+   *
+   * <p>This mirrors the safety contract pinned by the iter-1 {@link #withTwoPages}
+   * helper, applied to the single-page redo-suppression tests below.
+   */
+  private static void withSinglePage(SinglePageAction action) {
+    var bufferPool = ByteBufferPool.instance(null);
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var cp = new CachePointer(pointer, bufferPool, 0, 0);
+    cp.incrementReferrer();
+    try {
+      CacheEntry entry = new CacheEntryImpl(0, 0, cp, false, null);
+      entry.acquireExclusiveLock();
+      try {
+        action.run(entry, cp);
+      } finally {
+        entry.releaseExclusiveLock();
+      }
+    } finally {
+      cp.decrementReferrer();
+    }
   }
 
   /**
@@ -316,23 +354,19 @@ public class RidbagBucketSimpleOpsTest {
 
   @Test
   public void testRedoSuppression_initDoesNotRegister() {
-    var bufferPool = ByteBufferPool.instance(null);
-    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
-    var cp = new CachePointer(pointer, bufferPool, 0, 0);
-    cp.incrementReferrer();
-    CacheEntry entry = new CacheEntryImpl(0, 0, cp, false, null);
-    entry.acquireExclusiveLock();
-    try {
+    // Routed through withSinglePage so a throw between incrementReferrer and the
+    // lock acquire (e.g., out-of-direct-memory at CacheEntryImpl construction) still
+    // releases the referrer. The previous shape opened the try block AFTER the
+    // entry construction and lock-acquire, so a throw at either site would have
+    // leaked the referrer and aborted the surefire JVM via the page tracker.
+    withSinglePage((entry, cp) -> {
       var bucket = new Bucket(entry);
       bucket.init(true);
       Assert.assertTrue(bucket.isLeaf());
       Assert.assertTrue(bucket.isEmpty());
       Assert.assertEquals(-1L, bucket.getLeftSibling());
       Assert.assertEquals(-1L, bucket.getRightSibling());
-    } finally {
-      entry.releaseExclusiveLock();
-      cp.decrementReferrer();
-    }
+    });
   }
 
   // ---- Equals/hashCode ----
@@ -376,19 +410,45 @@ public class RidbagBucketSimpleOpsTest {
   // ---- toString coverage for all simple ops ----
 
   /**
-   * toString() on all four simple bucket ops must return a non-null, non-empty string so
-   * that ops are identifiable in debug logs.
+   * toString() on all four simple bucket ops must render the simple class name plus its
+   * op-specific fields. Each pin is op-specific so a regression that drops the @Override
+   * (or rewires it to a stale field) is detectable.
    */
   @Test
   public void testAllSimpleOpsToString() {
     var lsn = new LogSequenceNumber(1, 10);
-    Assert.assertFalse(
-        new RidbagBucketInitOp(1, 2, 3, lsn, true).toString().isEmpty());
-    Assert.assertFalse(
-        new RidbagBucketSwitchBucketTypeOp(1, 2, 3, lsn).toString().isEmpty());
-    Assert.assertFalse(
-        new RidbagBucketSetLeftSiblingOp(1, 2, 3, lsn, 42L).toString().isEmpty());
-    Assert.assertFalse(
-        new RidbagBucketSetRightSiblingOp(1, 2, 3, lsn, 99L).toString().isEmpty());
+
+    // InitOp.toString() appends isLeaf.
+    var init = new RidbagBucketInitOp(1, 2, 3, lsn, true).toString();
+    Assert.assertTrue("toString must name InitOp: " + init,
+        init.contains("RidbagBucketInitOp"));
+    Assert.assertTrue("InitOp.toString must include isLeaf=true: " + init,
+        init.contains("isLeaf=true"));
+
+    // SwitchBucketTypeOp has no op-specific fields and its own toString() passes an
+    // empty append string, so only the class name and "lsn =" header survive in the
+    // output. Pin both pieces so a regression that drops AbstractWALRecord.toString()
+    // (and falls back to Object.toString()) is detectable.
+    var switchOp = new RidbagBucketSwitchBucketTypeOp(17, 2, 3, lsn).toString();
+    Assert.assertTrue("toString must name SwitchBucketTypeOp: " + switchOp,
+        switchOp.contains("RidbagBucketSwitchBucketTypeOp"));
+    Assert.assertTrue(
+        "SwitchBucketTypeOp.toString must include the inherited 'lsn =' header: "
+            + switchOp,
+        switchOp.contains("lsn ="));
+
+    // SetLeftSiblingOp.toString() appends pageIdx (the new left sibling's page index).
+    var setLeft = new RidbagBucketSetLeftSiblingOp(1, 2, 3, lsn, 19L).toString();
+    Assert.assertTrue("toString must name SetLeftSiblingOp: " + setLeft,
+        setLeft.contains("RidbagBucketSetLeftSiblingOp"));
+    Assert.assertTrue("SetLeftSiblingOp.toString must include pageIdx=19: " + setLeft,
+        setLeft.contains("pageIdx=19"));
+
+    // SetRightSiblingOp.toString() appends pageIdx (the new right sibling's page index).
+    var setRight = new RidbagBucketSetRightSiblingOp(1, 2, 3, lsn, 23L).toString();
+    Assert.assertTrue("toString must name SetRightSiblingOp: " + setRight,
+        setRight.contains("RidbagBucketSetRightSiblingOp"));
+    Assert.assertTrue("SetRightSiblingOp.toString must include pageIdx=23: " + setRight,
+        setRight.contains("pageIdx=23"));
   }
 }

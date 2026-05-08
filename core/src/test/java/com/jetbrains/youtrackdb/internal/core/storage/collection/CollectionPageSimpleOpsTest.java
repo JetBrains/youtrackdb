@@ -555,39 +555,66 @@ public class CollectionPageSimpleOpsTest {
 
   @Test
   public void testInitOpToString() {
-    // toString() on all four ops must return a non-null, non-empty string that
-    // includes the record type so it is identifiable in logs.
-    var op = new CollectionPageInitOp(1, 2, 3, new LogSequenceNumber(10, 20));
+    // CollectionPageInitOp does not override toString(), so the call resolves to
+    // PageOperation.toString() which renders the simple class name and the
+    // initialLsn value (PageOperation's only op-level field). A regression that
+    // dropped PageOperation.toString() would fall back to AbstractWALRecord's
+    // null-LSN format and lose the initialLsn substring.
+    var op = new CollectionPageInitOp(7, 11, 13, new LogSequenceNumber(10, 20));
     var s = op.toString();
-    Assert.assertNotNull(s);
-    Assert.assertFalse(s.isEmpty());
+    Assert.assertTrue("toString must name the op class: " + s,
+        s.contains("CollectionPageInitOp"));
+    Assert.assertTrue("toString must include initialLsn segment value: " + s,
+        s.contains("segment=10"));
+    Assert.assertTrue("toString must include initialLsn position value: " + s,
+        s.contains("position=20"));
   }
 
   @Test
   public void testDeleteRecordOpToString() {
+    // DeleteRecordOp.toString() must render its op-specific fields position and
+    // preserveFreeListPointer (from CollectionPageDeleteRecordOp.toString()) so the op is
+    // identifiable in WAL logs.
     var op = new CollectionPageDeleteRecordOp(
-        1, 2, 3, new LogSequenceNumber(10, 20), 5, true);
+        1, 2, 3, new LogSequenceNumber(10, 20), 17, true);
     var s = op.toString();
-    Assert.assertNotNull(s);
-    Assert.assertFalse(s.isEmpty());
+    Assert.assertTrue("toString must name the op class: " + s,
+        s.contains("CollectionPageDeleteRecordOp"));
+    Assert.assertTrue("toString must include position value: " + s,
+        s.contains("position=17"));
+    Assert.assertTrue("toString must include preserveFreeListPointer: " + s,
+        s.contains("preserveFreeListPointer=true"));
   }
 
   @Test
   public void testSetRecordVersionOpToString() {
+    // SetRecordVersionOp.toString() must render position and version (the two op-specific
+    // fields appended by CollectionPageSetRecordVersionOp.toString()).
     var op = new CollectionPageSetRecordVersionOp(
-        1, 2, 3, new LogSequenceNumber(10, 20), 5, 99);
+        1, 2, 3, new LogSequenceNumber(10, 20), 19, 23);
     var s = op.toString();
-    Assert.assertNotNull(s);
-    Assert.assertFalse(s.isEmpty());
+    Assert.assertTrue("toString must name the op class: " + s,
+        s.contains("CollectionPageSetRecordVersionOp"));
+    Assert.assertTrue("toString must include position value: " + s,
+        s.contains("position=19"));
+    Assert.assertTrue("toString must include version value: " + s,
+        s.contains("version=23"));
   }
 
   @Test
   public void testDoDefragmentationOpToString() {
+    // DoDefragmentationOp also inherits PageOperation.toString() (no op-specific fields
+    // and no own override). Pin the class name and the initialLsn values — a regression
+    // that dropped PageOperation.toString() would lose the initialLsn segment substring.
     var op = new CollectionPageDoDefragmentationOp(
-        1, 2, 3, new LogSequenceNumber(10, 20));
+        29, 2, 3, new LogSequenceNumber(31, 37));
     var s = op.toString();
-    Assert.assertNotNull(s);
-    Assert.assertFalse(s.isEmpty());
+    Assert.assertTrue("toString must name the op class: " + s,
+        s.contains("CollectionPageDoDefragmentationOp"));
+    Assert.assertTrue("toString must include initialLsn segment value: " + s,
+        s.contains("segment=31"));
+    Assert.assertTrue("toString must include initialLsn position value: " + s,
+        s.contains("position=37"));
   }
 
   @Test

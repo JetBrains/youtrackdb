@@ -546,38 +546,94 @@ public class RidbagBucketEntryBulkOpsTest {
   // ---- toString coverage for all ops in this class ----
 
   /**
-   * toString() on every entry/bulk op must return a non-null, non-empty string so that
-   * these ops are identifiable in debug logs.
+   * toString() on every entry/bulk op must render the simple class name plus its
+   * op-specific fields so a regression that drops or renames the @Override is detectable.
+   * Each op is constructed with distinct values so the substring checks are unambiguous.
    */
   @Test
   public void testAllOpsToString() {
     var lsn = new LogSequenceNumber(1, 10);
-    // AddLeafEntryOp: (pageIndex, fileId, operationUnitId, lsn, index, serializedKey, serializedValue)
-    Assert.assertFalse(
-        new RidbagBucketAddLeafEntryOp(1L, 2L, 3L, lsn, 0,
-            new byte[] {1, 2, 3}, new byte[] {4, 5, 6}).toString().isEmpty());
-    // AddNonLeafEntryOp: (pageIndex, fileId, operationUnitId, lsn, index, leftChild, rightChild, key, updateNeighbors)
-    Assert.assertFalse(
-        new RidbagBucketAddNonLeafEntryOp(1L, 2L, 3L, lsn, 0,
-            5, 10, new byte[] {1, 2}, false).toString().isEmpty());
-    // RemoveLeafEntryOp: (pageIndex, fileId, operationUnitId, lsn, entryIndex, keySize, valueSize)
-    Assert.assertFalse(
-        new RidbagBucketRemoveLeafEntryOp(1L, 2L, 3L, lsn, 2, 3, 4).toString().isEmpty());
-    // RemoveNonLeafEntryOp: (pageIndex, fileId, operationUnitId, lsn, entryIndex, key, prevChild)
-    Assert.assertFalse(
-        new RidbagBucketRemoveNonLeafEntryOp(1L, 2L, 3L, lsn, 1,
-            new byte[] {3, 4}, 7).toString().isEmpty());
-    // AddAllOp: (pageIndex, fileId, operationUnitId, lsn, rawEntries)
-    Assert.assertFalse(
-        new RidbagBucketAddAllOp(1L, 2L, 3L, lsn,
-            List.of(new byte[] {1})).toString().isEmpty());
-    // ShrinkOp: (pageIndex, fileId, operationUnitId, lsn, retainedEntries)
-    Assert.assertFalse(
-        new RidbagBucketShrinkOp(1L, 2L, 3L, lsn,
-            List.of(new byte[] {9})).toString().isEmpty());
-    // UpdateValueOp: (pageIndex, fileId, operationUnitId, lsn, index, value, keySize)
-    Assert.assertFalse(
-        new RidbagBucketUpdateValueOp(1L, 2L, 3L, lsn, 0,
-            new byte[] {1, 2, 3}, 3).toString().isEmpty());
+
+    // AddLeafEntryOp.toString() appends index, keyLen, valLen.
+    var addLeaf = new RidbagBucketAddLeafEntryOp(1L, 2L, 3L, lsn, 17,
+        new byte[] {1, 2, 3}, new byte[] {4, 5, 6, 7, 8}).toString();
+    Assert.assertTrue("toString must name AddLeafEntryOp: " + addLeaf,
+        addLeaf.contains("RidbagBucketAddLeafEntryOp"));
+    Assert.assertTrue("AddLeafEntryOp.toString must include index=17: " + addLeaf,
+        addLeaf.contains("index=17"));
+    Assert.assertTrue("AddLeafEntryOp.toString must include keyLen=3: " + addLeaf,
+        addLeaf.contains("keyLen=3"));
+    Assert.assertTrue("AddLeafEntryOp.toString must include valLen=5: " + addLeaf,
+        addLeaf.contains("valLen=5"));
+
+    // AddNonLeafEntryOp.toString() appends index, left, right, keyLen, updateNeighbors.
+    var addNonLeaf = new RidbagBucketAddNonLeafEntryOp(1L, 2L, 3L, lsn, 19,
+        23, 29, new byte[] {1, 2, 3, 4}, false).toString();
+    Assert.assertTrue("toString must name AddNonLeafEntryOp: " + addNonLeaf,
+        addNonLeaf.contains("RidbagBucketAddNonLeafEntryOp"));
+    Assert.assertTrue("AddNonLeafEntryOp.toString must include index=19: " + addNonLeaf,
+        addNonLeaf.contains("index=19"));
+    Assert.assertTrue("AddNonLeafEntryOp.toString must include left=23: " + addNonLeaf,
+        addNonLeaf.contains("left=23"));
+    Assert.assertTrue("AddNonLeafEntryOp.toString must include right=29: " + addNonLeaf,
+        addNonLeaf.contains("right=29"));
+    Assert.assertTrue("AddNonLeafEntryOp.toString must include keyLen=4: " + addNonLeaf,
+        addNonLeaf.contains("keyLen=4"));
+    Assert.assertTrue("AddNonLeafEntryOp.toString must include updateNeighbors=false: "
+        + addNonLeaf, addNonLeaf.contains("updateNeighbors=false"));
+
+    // RemoveLeafEntryOp.toString() appends entryIndex, keySize, valueSize.
+    var removeLeaf = new RidbagBucketRemoveLeafEntryOp(1L, 2L, 3L, lsn, 31, 37, 41)
+        .toString();
+    Assert.assertTrue("toString must name RemoveLeafEntryOp: " + removeLeaf,
+        removeLeaf.contains("RidbagBucketRemoveLeafEntryOp"));
+    Assert.assertTrue("RemoveLeafEntryOp.toString must include entryIndex=31: " + removeLeaf,
+        removeLeaf.contains("entryIndex=31"));
+    Assert.assertTrue("RemoveLeafEntryOp.toString must include keySize=37: " + removeLeaf,
+        removeLeaf.contains("keySize=37"));
+    Assert.assertTrue("RemoveLeafEntryOp.toString must include valueSize=41: " + removeLeaf,
+        removeLeaf.contains("valueSize=41"));
+
+    // RemoveNonLeafEntryOp.toString() appends entryIndex, keyLen, prevChild.
+    var removeNonLeaf = new RidbagBucketRemoveNonLeafEntryOp(1L, 2L, 3L, lsn, 43,
+        new byte[] {3, 4, 5, 6, 7, 8, 9}, 47).toString();
+    Assert.assertTrue("toString must name RemoveNonLeafEntryOp: " + removeNonLeaf,
+        removeNonLeaf.contains("RidbagBucketRemoveNonLeafEntryOp"));
+    Assert.assertTrue(
+        "RemoveNonLeafEntryOp.toString must include entryIndex=43: " + removeNonLeaf,
+        removeNonLeaf.contains("entryIndex=43"));
+    Assert.assertTrue("RemoveNonLeafEntryOp.toString must include keyLen=7: " + removeNonLeaf,
+        removeNonLeaf.contains("keyLen=7"));
+    Assert.assertTrue("RemoveNonLeafEntryOp.toString must include prevChild=47: "
+        + removeNonLeaf, removeNonLeaf.contains("prevChild=47"));
+
+    // AddAllOp.toString() appends entries=<list-size>.
+    var addAll = new RidbagBucketAddAllOp(1L, 2L, 3L, lsn,
+        List.of(new byte[] {1}, new byte[] {2}, new byte[] {3})).toString();
+    Assert.assertTrue("toString must name AddAllOp: " + addAll,
+        addAll.contains("RidbagBucketAddAllOp"));
+    Assert.assertTrue("AddAllOp.toString must include entries=3: " + addAll,
+        addAll.contains("entries=3"));
+
+    // ShrinkOp.toString() appends entries=<retainedEntries.size()>.
+    var shrink = new RidbagBucketShrinkOp(1L, 2L, 3L, lsn,
+        List.of(new byte[] {9}, new byte[] {8}, new byte[] {7}, new byte[] {6}))
+        .toString();
+    Assert.assertTrue("toString must name ShrinkOp: " + shrink,
+        shrink.contains("RidbagBucketShrinkOp"));
+    Assert.assertTrue("ShrinkOp.toString must include entries=4: " + shrink,
+        shrink.contains("entries=4"));
+
+    // UpdateValueOp.toString() appends index, valLen, keySize.
+    var updateValue = new RidbagBucketUpdateValueOp(1L, 2L, 3L, lsn, 53,
+        new byte[] {1, 2, 3, 4, 5, 6}, 59).toString();
+    Assert.assertTrue("toString must name UpdateValueOp: " + updateValue,
+        updateValue.contains("RidbagBucketUpdateValueOp"));
+    Assert.assertTrue("UpdateValueOp.toString must include index=53: " + updateValue,
+        updateValue.contains("index=53"));
+    Assert.assertTrue("UpdateValueOp.toString must include valLen=6: " + updateValue,
+        updateValue.contains("valLen=6"));
+    Assert.assertTrue("UpdateValueOp.toString must include keySize=59: " + updateValue,
+        updateValue.contains("keySize=59"));
   }
 }

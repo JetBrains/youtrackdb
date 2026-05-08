@@ -391,39 +391,78 @@ public class CollectionPositionMapBucketOpsTest {
 
   @Test
   public void testInitOpToString() {
-    // toString() on all CollectionPositionMapBucket ops must return a non-null,
-    // non-empty string that is identifiable in logs.
+    // InitOp inherits PageOperation.toString() (no op-specific fields and no own
+    // override). Pin the class name and the initialLsn segment/position values —
+    // a regression that dropped PageOperation.toString() would lose the initialLsn
+    // substring and fall back to AbstractWALRecord's null-LSN format.
     var op = new CollectionPositionMapBucketInitOp(
-        1, 2, 3, new LogSequenceNumber(10, 20));
-    Assert.assertFalse(op.toString().isEmpty());
+        7, 11, 3, new LogSequenceNumber(31, 37));
+    var s = op.toString();
+    Assert.assertTrue("toString must name the op class: " + s,
+        s.contains("CollectionPositionMapBucketInitOp"));
+    Assert.assertTrue("toString must include initialLsn segment value: " + s,
+        s.contains("segment=31"));
+    Assert.assertTrue("toString must include initialLsn position value: " + s,
+        s.contains("position=37"));
   }
 
   @Test
   public void testAllocateOpToString() {
+    // AllocateOp also inherits PageOperation.toString(). Pin the class name plus the
+    // initialLsn values for the same reasoning as InitOp.
     var op = new CollectionPositionMapBucketAllocateOp(
-        1, 2, 3, new LogSequenceNumber(10, 20));
-    Assert.assertFalse(op.toString().isEmpty());
+        1, 13, 3, new LogSequenceNumber(41, 43));
+    var s = op.toString();
+    Assert.assertTrue("toString must name the op class: " + s,
+        s.contains("CollectionPositionMapBucketAllocateOp"));
+    Assert.assertTrue("toString must include initialLsn segment value: " + s,
+        s.contains("segment=41"));
+    Assert.assertTrue("toString must include initialLsn position value: " + s,
+        s.contains("position=43"));
   }
 
   @Test
   public void testSetOpToString() {
+    // SetOp.toString() appends index, entryPageIndex, recordPosition, recordVersion.
+    // Use distinct values so the substring checks are unambiguous.
     var op = new CollectionPositionMapBucketSetOp(
-        1, 2, 3, new LogSequenceNumber(10, 20), 0, 42, 7, 99L);
-    Assert.assertFalse(op.toString().isEmpty());
+        1, 2, 3, new LogSequenceNumber(10, 20), 17, 19, 23, 29L);
+    var s = op.toString();
+    Assert.assertTrue("toString must name the op class: " + s,
+        s.contains("CollectionPositionMapBucketSetOp"));
+    Assert.assertTrue("toString must include index=17: " + s, s.contains("index=17"));
+    Assert.assertTrue("toString must include entryPageIndex=19: " + s,
+        s.contains("entryPageIndex=19"));
+    Assert.assertTrue("toString must include recordPosition=23: " + s,
+        s.contains("recordPosition=23"));
+    Assert.assertTrue("toString must include recordVersion=29: " + s,
+        s.contains("recordVersion=29"));
   }
 
   @Test
   public void testRemoveOpToString() {
+    // RemoveOp.toString() appends index and deletionVersion.
     var op = new CollectionPositionMapBucketRemoveOp(
-        1, 2, 3, new LogSequenceNumber(10, 20), 3, 77L);
-    Assert.assertFalse(op.toString().isEmpty());
+        1, 2, 3, new LogSequenceNumber(10, 20), 17, 31L);
+    var s = op.toString();
+    Assert.assertTrue("toString must name the op class: " + s,
+        s.contains("CollectionPositionMapBucketRemoveOp"));
+    Assert.assertTrue("toString must include index=17: " + s, s.contains("index=17"));
+    Assert.assertTrue("toString must include deletionVersion=31: " + s,
+        s.contains("deletionVersion=31"));
   }
 
   @Test
   public void testUpdateVersionOpToString() {
+    // UpdateVersionOp.toString() appends index and recordVersion.
     var op = new CollectionPositionMapBucketUpdateVersionOp(
-        1, 2, 3, new LogSequenceNumber(10, 20), 2, 42L);
-    Assert.assertFalse(op.toString().isEmpty());
+        1, 2, 3, new LogSequenceNumber(10, 20), 17, 37L);
+    var s = op.toString();
+    Assert.assertTrue("toString must name the op class: " + s,
+        s.contains("CollectionPositionMapBucketUpdateVersionOp"));
+    Assert.assertTrue("toString must include index=17: " + s, s.contains("index=17"));
+    Assert.assertTrue("toString must include recordVersion=37: " + s,
+        s.contains("recordVersion=37"));
   }
 
   // --- PositionEntry equals / hashCode / toString ---
@@ -448,11 +487,22 @@ public class CollectionPositionMapBucketOpsTest {
     var e5 = new CollectionPositionMapBucket.PositionEntry(10L, 5, 100L);
     Assert.assertNotEquals(e1, e5);
 
-    // toString must contain the field values.
-    var str = e1.toString();
-    Assert.assertTrue(str.contains("10"));
-    Assert.assertTrue(str.contains("5"));
-    Assert.assertTrue(str.contains("99"));
+    // toString must render the labelled field values per the production override
+    // ("PositionEntry{pageIndex=…, recordPosition=…, recordVersion=…}"). Bare digit
+    // checks ("5", "10") would match accidentally (e.g., a "5" in the LSN); using the
+    // labelled form makes the pin specific to the override under test.
+    var labelled = new CollectionPositionMapBucket.PositionEntry(101L, 53, 997L);
+    var str = labelled.toString();
+    Assert.assertTrue("toString must include pageIndex=101: " + str,
+        str.contains("pageIndex=101"));
+    Assert.assertTrue("toString must include recordPosition=53: " + str,
+        str.contains("recordPosition=53"));
+    Assert.assertTrue("toString must include recordVersion=997: " + str,
+        str.contains("recordVersion=997"));
+    // The PositionEntry@<hash> default is also explicitly excluded — the prefix must be
+    // the named record format, not Object.toString().
+    Assert.assertTrue("toString must use the PositionEntry record prefix: " + str,
+        str.startsWith("PositionEntry{"));
   }
 
   // --- add() method ---

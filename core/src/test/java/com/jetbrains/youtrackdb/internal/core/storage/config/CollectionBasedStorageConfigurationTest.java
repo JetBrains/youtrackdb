@@ -30,6 +30,7 @@ import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfigurationUpdateListener;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
@@ -104,15 +105,24 @@ public class CollectionBasedStorageConfigurationTest {
     if (session != null && !session.isClosed()) {
       try {
         session.close();
-      } catch (Exception ignored) {
-        // Best-effort cleanup; failure here is non-fatal and ignored intentionally.
+      } catch (Exception e) {
+        // Best-effort cleanup. Log via LogManager so a future test mutation that
+        // makes session.close() throw for a new reason is visible in the test
+        // output instead of silently swallowed.
+        LogManager.instance().error(this,
+            "tearDown: session.close() failed (non-fatal, continuing cleanup)", e);
       }
     }
     if (youTrackDB != null) {
       try {
         youTrackDB.drop(DB_NAME);
-      } catch (Exception ignored) {
-        // Best-effort cleanup; failure here is non-fatal and ignored intentionally.
+      } catch (Exception e) {
+        // Best-effort cleanup. Same reasoning as for session.close above — log
+        // rather than silently swallow so a regression that makes drop() fail for
+        // a new reason is observable.
+        LogManager.instance().error(this,
+            "tearDown: youTrackDB.drop(%s) failed (non-fatal, continuing cleanup)", e,
+            DB_NAME);
       } finally {
         youTrackDB.close();
       }
@@ -399,17 +409,22 @@ public class CollectionBasedStorageConfigurationTest {
     // youTrackDB.drop() reopens the DB internally and fails with
     // "Persistent record serializer version is not support by the current
     // implementation". Restore the original version before tearDown so drop
-    // can complete cleanly.
+    // can complete cleanly — and crucially, restore even when the assertion
+    // below fires, otherwise the next test's @Before would inherit a broken
+    // serializer-version state through the shared on-disk database.
     final int originalVersion = config.getRecordSerializerVersion();
 
     atomicOps.executeInsideAtomicOperation(
         atomicOperation -> config.setRecordSerializerVersion(atomicOperation, 2));
 
-    assertEquals(2, config.getRecordSerializerVersion());
-
-    // Restore so tearDown's drop() can reopen the DB.
-    atomicOps.executeInsideAtomicOperation(
-        atomicOperation -> config.setRecordSerializerVersion(atomicOperation, originalVersion));
+    try {
+      assertEquals(2, config.getRecordSerializerVersion());
+    } finally {
+      // Restore in finally so a failed assertion above does not leak the
+      // unsupported version into subsequent tests' @Before / tearDown.
+      atomicOps.executeInsideAtomicOperation(
+          atomicOperation -> config.setRecordSerializerVersion(atomicOperation, originalVersion));
+    }
   }
 
   // --- getDateFormatInstance / getDateTimeFormatInstance ---

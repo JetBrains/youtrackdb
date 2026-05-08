@@ -615,8 +615,27 @@ public class SharedLinkBagBTreeOptimisticReadTest {
   /**
    * Inserting a key with the same logical edge (ridBagId, targetCollection, targetPosition)
    * but a different ts (cross-transaction update) must replace the old entry and
-   * preserve it in the snapshot index.  This exercises the cross-transaction branch
+   * preserve it in the snapshot index. This exercises the cross-transaction branch
    * inside the put() lambda.
+   *
+   * <p>The previous version of this test only asserted that {@code bTree.get(key2)}
+   * returned non-null after the second put — but EdgeKey includes ts in equality, so
+   * key1=(unique, 5, 10, 1) and key2=(unique, 5, 10, 2) are two distinct keys; an
+   * INSERT (rather than the documented REPLACE) would also have left key2 in the tree
+   * and the test would have passed.
+   *
+   * <p>Three falsifiable pins now distinguish replace from insert:
+   * <ol>
+   *   <li>{@code put(key2)} must return {@code false} — the production code
+   *       overrides the standard "fresh insert" {@code true} result to {@code false}
+   *       at the end of the lambda when {@code crossTxReplacement} fired. A pure
+   *       insert path would return {@code true}.</li>
+   *   <li>{@code get(key1)} must return {@code null} — the cross-tx branch calls
+   *       {@code removeEntryByKey(oldKey)}; if replacement degraded to insert, key1
+   *       would still be readable.</li>
+   *   <li>{@code get(key2)} must return the new value — pins the new entry's
+   *       presence.</li>
+   * </ol>
    */
   @Test
   public void testPutCrossTransactionReplacement() throws Exception {
@@ -625,22 +644,36 @@ public class SharedLinkBagBTreeOptimisticReadTest {
     var key1 = new EdgeKey(uniqueRidBagId, 5, 10L, 1L); // ts=1
     var value1 = new LinkBagValue(100, 0, 0, false);
 
-    // First insert (ts=1).
-    atomicOperationsManager.executeInsideAtomicOperation(
+    // First insert (ts=1) is a fresh insert and must return true.
+    boolean firstInsertResult = atomicOperationsManager.calculateInsideAtomicOperation(
         atomicOperation -> bTree.put(atomicOperation, key1, value1));
+    Assert.assertTrue("first put on a new logical edge must report a fresh insert",
+        firstInsertResult);
 
     // Cross-transaction update: same logical edge, higher ts.
     var key2 = new EdgeKey(uniqueRidBagId, 5, 10L, 2L); // ts=2 (same edge, newer ts)
     var value2 = new LinkBagValue(200, 0, 0, false);
 
-    atomicOperationsManager.executeInsideAtomicOperation(
+    // The cross-tx branch overrides result to false; a pure insert would return true.
+    boolean replaceResult = atomicOperationsManager.calculateInsideAtomicOperation(
         atomicOperation -> bTree.put(atomicOperation, key2, value2));
+    Assert.assertFalse(
+        "cross-tx put on the same logical edge must report replacement (false)",
+        replaceResult);
 
-    // After cross-tx replacement the new key must be readable.
-    LinkBagValue result = atomicOperationsManager.calculateInsideAtomicOperation(
+    // The OLD key (ts=1) must no longer be in the tree — the cross-tx branch
+    // calls removeEntryByKey(oldKey) before inserting the new key. If replacement
+    // degraded to insert, key1 would still be readable.
+    LinkBagValue oldEntryAfterReplace = atomicOperationsManager.calculateInsideAtomicOperation(
+        atomicOperation -> bTree.get(key1, atomicOperation));
+    Assert.assertNull("old key (ts=1) must be absent after cross-tx replacement",
+        oldEntryAfterReplace);
+
+    // The NEW key must be present with its new value.
+    LinkBagValue newEntry = atomicOperationsManager.calculateInsideAtomicOperation(
         atomicOperation -> bTree.get(key2, atomicOperation));
-    Assert.assertNotNull("new key must be present after cross-tx replacement", result);
-    Assert.assertEquals(200, result.counter());
+    Assert.assertNotNull("new key must be present after cross-tx replacement", newEntry);
+    Assert.assertEquals(200, newEntry.counter());
 
     // Clean up the test entry.
     atomicOperationsManager.executeInsideAtomicOperation(

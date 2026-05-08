@@ -53,14 +53,23 @@ public class RidbagBtreeHelpersTest {
   }
 
   /**
-   * toString() must return a non-empty string for diagnostic logging.
+   * toString() must render the labelled field values per the production override
+   * ("CellBTreeEntry{leftChild=…, rightChild=…, key=…, value=…}"). Pinning the prefix
+   * + labelled field values catches a regression that drops or replaces the @Override
+   * (the default Object.toString() would not contain the labels).
    */
   @Test
   public void testTreeEntryToString() {
-    var e = new TreeEntry(2, 3, new EdgeKey(1, 2, 3, 0L), new LinkBagValue(5, 0, 0, false));
+    var e = new TreeEntry(17, 19, new EdgeKey(1, 2, 3, 0L), new LinkBagValue(5, 0, 0, false));
     var s = e.toString();
-    Assert.assertNotNull(s);
-    Assert.assertFalse(s.isEmpty());
+    Assert.assertTrue("toString must use the CellBTreeEntry prefix: " + s,
+        s.startsWith("CellBTreeEntry{"));
+    Assert.assertTrue("toString must include leftChild=17: " + s,
+        s.contains("leftChild=17"));
+    Assert.assertTrue("toString must include rightChild=19: " + s,
+        s.contains("rightChild=19"));
+    Assert.assertTrue("toString must include key=: " + s, s.contains("key="));
+    Assert.assertTrue("toString must include value=: " + s, s.contains("value="));
   }
 
   /**

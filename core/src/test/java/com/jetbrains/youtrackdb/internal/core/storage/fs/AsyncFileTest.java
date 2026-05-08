@@ -13,6 +13,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.junit.After;
 import org.junit.Assert;
@@ -25,6 +26,15 @@ public class AsyncFileTest {
   private static Path buildDirectoryPath;
 
   private static final String STORAGE_NAME = AsyncFileTest.class.getSimpleName();
+
+  /**
+   * Shared executor used by every {@link AsyncFile} construction in the tests below.
+   * Allocated in {@link #before()} and shut down in {@link #after()} so the surefire
+   * JVM does not accumulate ~24 cached thread pools (with non-daemon worker threads)
+   * across the lifetime of this class. {@code testCopyToCopiesAllData} keeps its own
+   * second executor for the destination AsyncFile and shuts it down inline.
+   */
+  private ExecutorService executor;
 
   @BeforeClass
   public static void beforeClass() {
@@ -40,10 +50,19 @@ public class AsyncFileTest {
   @Before
   public void before() {
     FileUtils.deleteRecursively(buildDirectoryPath.toFile());
+    executor = Executors.newCachedThreadPool();
   }
 
   @After
   public void after() {
+    // Shut down the per-test executor FIRST so any AsyncFile worker threads release
+    // their file channels before the working directory is wiped — otherwise the
+    // deleteRecursively call below could race with an in-flight write on platforms
+    // that hold an OS-level lock until the channel actually closes.
+    if (executor != null) {
+      executor.shutdownNow();
+      executor = null;
+    }
     // Ensure the test artifact file is removed after each test so it is not left
     // untracked in the working tree after the last test in this class completes.
     FileUtils.deleteRecursively(buildDirectoryPath.toFile());
@@ -52,7 +71,7 @@ public class AsyncFileTest {
   @Test
   public void testWrite() throws Exception {
     final AsyncFile file =
-        new AsyncFile(buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+        new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME);
     file.create();
 
     file.allocateSpace(128);
@@ -77,7 +96,7 @@ public class AsyncFileTest {
 
   @Test
   public void testOpenWrite() throws Exception {
-    AsyncFile file = new AsyncFile(buildDirectoryPath, 1, false, Executors.newCachedThreadPool(),
+    AsyncFile file = new AsyncFile(buildDirectoryPath, 1, false, executor,
         STORAGE_NAME);
     file.create();
 
@@ -106,7 +125,7 @@ public class AsyncFileTest {
 
   @Test
   public void testWriteSeveralChunks() throws Exception {
-    AsyncFile file = new AsyncFile(buildDirectoryPath, 1, false, Executors.newCachedThreadPool(),
+    AsyncFile file = new AsyncFile(buildDirectoryPath, 1, false, executor,
         STORAGE_NAME);
     file.create();
 
@@ -154,7 +173,7 @@ public class AsyncFileTest {
 
   @Test
   public void testOpenWriteSeveralChunks() throws Exception {
-    AsyncFile file = new AsyncFile(buildDirectoryPath, 1, false, Executors.newCachedThreadPool(),
+    AsyncFile file = new AsyncFile(buildDirectoryPath, 1, false, executor,
         STORAGE_NAME);
     file.create();
 
@@ -200,7 +219,7 @@ public class AsyncFileTest {
 
   @Test
   public void testOpenWriteSeveralChunksTwo() throws Exception {
-    AsyncFile file = new AsyncFile(buildDirectoryPath, 1, false, Executors.newCachedThreadPool(),
+    AsyncFile file = new AsyncFile(buildDirectoryPath, 1, false, executor,
         STORAGE_NAME);
     file.create();
 
@@ -245,7 +264,7 @@ public class AsyncFileTest {
 
   @Test
   public void testOpenWriteSeveralChunksThree() throws Exception {
-    AsyncFile file = new AsyncFile(buildDirectoryPath, 1, false, Executors.newCachedThreadPool(),
+    AsyncFile file = new AsyncFile(buildDirectoryPath, 1, false, executor,
         STORAGE_NAME);
     file.create();
 
@@ -295,7 +314,7 @@ public class AsyncFileTest {
 
   @Test
   public void testOpenClose() throws Exception {
-    AsyncFile file = new AsyncFile(buildDirectoryPath, 1, false, Executors.newCachedThreadPool(),
+    AsyncFile file = new AsyncFile(buildDirectoryPath, 1, false, executor,
         STORAGE_NAME);
     Assert.assertFalse(file.isOpen());
 
@@ -316,7 +335,7 @@ public class AsyncFileTest {
     // Verifies exists() returns true after create(), getName() returns the path's
     // file name component, and exists() returns false after delete().
     final AsyncFile file = new AsyncFile(
-        buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+        buildDirectoryPath, 1, false, executor, STORAGE_NAME);
     Assert.assertFalse(file.exists());
 
     file.create();
@@ -335,7 +354,7 @@ public class AsyncFileTest {
     // Verifies that getFileSize() tracks logical allocations and
     // getUnderlyingFileSize() matches the physical bytes written.
     final AsyncFile file = new AsyncFile(
-        buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+        buildDirectoryPath, 1, false, executor, STORAGE_NAME);
     file.create();
 
     Assert.assertEquals(0, file.getFileSize());
@@ -359,7 +378,7 @@ public class AsyncFileTest {
     // Verifies shrink() truncates the file so that getFileSize() reports 0
     // and allocations after the shrink work from position 0.
     final AsyncFile file = new AsyncFile(
-        buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+        buildDirectoryPath, 1, false, executor, STORAGE_NAME);
     file.create();
 
     file.allocateSpace(1024);
@@ -376,7 +395,7 @@ public class AsyncFileTest {
     // Verifies renameTo() closes the original file, moves it to the new path,
     // and reopens at the new location so subsequent reads succeed.
     final AsyncFile file = new AsyncFile(
-        buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+        buildDirectoryPath, 1, false, executor, STORAGE_NAME);
     file.create();
 
     final var pos = file.allocateSpace(128);
@@ -408,7 +427,7 @@ public class AsyncFileTest {
     // Verifies replaceContentWith() replaces the file's data with the contents
     // of a second file, so a subsequent read returns the new data.
     final AsyncFile file = new AsyncFile(
-        buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+        buildDirectoryPath, 1, false, executor, STORAGE_NAME);
     file.create();
 
     final var pos = file.allocateSpace(256);
@@ -422,7 +441,7 @@ public class AsyncFileTest {
     final var sourcePath = buildDirectoryPath.resolveSibling(
         buildDirectoryPath.getFileName().toString() + "_source");
     final AsyncFile source = new AsyncFile(
-        sourcePath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+        sourcePath, 1, false, executor, STORAGE_NAME);
     source.create();
     final var posSource = source.allocateSpace(256);
     final var newData = new byte[256];
@@ -452,7 +471,7 @@ public class AsyncFileTest {
     // regression that turned the EOF branch into a hard failure but left the
     // assertion intact would still pass otherwise.
     final AsyncFile file = new AsyncFile(
-        buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+        buildDirectoryPath, 1, false, executor, STORAGE_NAME);
     file.create();
 
     // Allocate and write 128 bytes, but try to read 256: should not throw.
@@ -494,7 +513,7 @@ public class AsyncFileTest {
   @Test
   public void testReadThrowsOnEofWhenRequested() throws Exception {
     final AsyncFile file = new AsyncFile(
-        buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+        buildDirectoryPath, 1, false, executor, STORAGE_NAME);
     file.create();
 
     final var pos = file.allocateSpace(128);
@@ -529,7 +548,7 @@ public class AsyncFileTest {
     // a StorageException raised for an unrelated reason (e.g. an NPE wrapped at a
     // different site) would not satisfy the test.
     final AsyncFile file = new AsyncFile(
-        buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+        buildDirectoryPath, 1, false, executor, STORAGE_NAME);
     file.create();
     final var pos = file.allocateSpace(128);
     file.close();
@@ -551,7 +570,7 @@ public class AsyncFileTest {
     // checkForClose). The message-content assertion narrows the failure mode the
     // same way as testWriteToClosedFileThrowsStorageException.
     final AsyncFile file = new AsyncFile(
-        buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+        buildDirectoryPath, 1, false, executor, STORAGE_NAME);
     file.create();
     final var pos = file.allocateSpace(128);
     final var data = new byte[128];
@@ -576,7 +595,7 @@ public class AsyncFileTest {
     // StorageException is the position-validation exception rather than an unrelated
     // failure mode that also happens to wrap as StorageException.
     final AsyncFile file = new AsyncFile(
-        buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+        buildDirectoryPath, 1, false, executor, STORAGE_NAME);
     file.create();
     // No space allocated; offset 0 is already out of bounds.
     try {
@@ -599,7 +618,7 @@ public class AsyncFileTest {
     // by the underlying filesystem state. The message-content assertion narrows the
     // failure mode.
     final AsyncFile file = new AsyncFile(
-        buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+        buildDirectoryPath, 1, false, executor, STORAGE_NAME);
     file.create();
     try {
       file.create();
@@ -618,7 +637,7 @@ public class AsyncFileTest {
   public void testSynchOnCleanFileIsNoOp() throws Exception {
     // Verifies that synch() can be called on a file with no dirty pages without error.
     final AsyncFile file = new AsyncFile(
-        buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+        buildDirectoryPath, 1, false, executor, STORAGE_NAME);
     file.create();
     // No writes — dirtyCounter is 0; synch should be a no-op
     file.synch();
@@ -630,7 +649,7 @@ public class AsyncFileTest {
     // Verifies the async write(List<RawPairLongObject<ByteBuffer>>) path completes
     // without error and the data is readable afterwards (covers WriteHandler.completed).
     final AsyncFile file = new AsyncFile(
-        buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+        buildDirectoryPath, 1, false, executor, STORAGE_NAME);
     file.create();
 
     final var pos1 = file.allocateSpace(64);
@@ -662,7 +681,7 @@ public class AsyncFileTest {
     // Verifies that creating an AsyncFile with logFileDeletion=true and then deleting it
     // successfully removes the file from disk (covers the logFileDeletion=true branch in delete()).
     final AsyncFile file = new AsyncFile(
-        buildDirectoryPath, 1, true, Executors.newCachedThreadPool(), STORAGE_NAME);
+        buildDirectoryPath, 1, true, executor, STORAGE_NAME);
     file.create();
     Assert.assertTrue(file.exists());
 
@@ -676,7 +695,7 @@ public class AsyncFileTest {
     // Verifies that write() at a negative offset triggers checkPosition()'s offset<0 guard
     // and throws StorageException, covering the negative-offset branch of checkPosition().
     final AsyncFile file = new AsyncFile(
-        buildDirectoryPath, 1, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+        buildDirectoryPath, 1, false, executor, STORAGE_NAME);
     file.create();
     // Allocate some space so the file is non-empty; negative offsets should still be rejected.
     file.allocateSpace(128);
@@ -708,7 +727,7 @@ public class AsyncFileTest {
     // must exercise the truncation branch.
     final int PAGE_SIZE = 512;
     final AsyncFile file = new AsyncFile(
-        buildDirectoryPath, PAGE_SIZE, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+        buildDirectoryPath, PAGE_SIZE, false, executor, STORAGE_NAME);
     file.create();
 
     // Allocate and populate one full page so the file is non-trivial
@@ -729,7 +748,7 @@ public class AsyncFileTest {
     // Open a new AsyncFile on the same path — initSize() must detect the misalignment,
     // truncate back to 1024 + 512 = 1536 bytes, and log a warning.
     final AsyncFile reopened = new AsyncFile(
-        buildDirectoryPath, PAGE_SIZE, false, Executors.newCachedThreadPool(), STORAGE_NAME);
+        buildDirectoryPath, PAGE_SIZE, false, executor, STORAGE_NAME);
     reopened.open();
 
     // After truncation the logical file size must equal exactly one page

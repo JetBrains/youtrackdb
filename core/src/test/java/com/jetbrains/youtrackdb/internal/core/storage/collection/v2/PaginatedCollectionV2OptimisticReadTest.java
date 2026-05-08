@@ -1119,39 +1119,68 @@ public class PaginatedCollectionV2OptimisticReadTest {
   }
 
   /**
-   * setRecordConflictStrategy() must not throw for a valid strategy name.  The default
-   * (null / absent) strategy is the most common case; we verify that the method accepts
-   * a strategy name without error.
+   * setRecordConflictStrategy() must install the named strategy so a subsequent
+   * getRecordConflictStrategy() returns a strategy whose name matches what was set.
+   *
+   * <p>The previous version of this test only asserted that toString() did not throw
+   * after the call — that pin was satisfied even by an empty setRecordConflictStrategy
+   * body (and even by Object.toString()). The current shape pins the round-trip
+   * (set → get) so a regression that drops the assignment is detectable.
    */
   @Test
   public void testSetRecordConflictStrategy() {
     // "version" is a valid built-in conflict strategy in YouTrackDB.
-    // The call must complete without exception and leave the collection usable.
     collection.setRecordConflictStrategy("version");
 
-    // Verify the collection is still usable after the strategy change.
-    Assert.assertNotNull(collection.toString());
+    // The collection must now report "version" as its active strategy.
+    var strategy = collection.getRecordConflictStrategy();
+    Assert.assertNotNull("getRecordConflictStrategy must return a non-null strategy after set",
+        strategy);
+    Assert.assertEquals("strategy name must round-trip set -> get",
+        "version", strategy.getName());
   }
 
   /**
-   * setCollectionName() must rename the backing files and update the collection name.
-   * The renamed collection must still be usable.
+   * setCollectionName() must rename the backing files AND keep the collection usable
+   * for subsequent reads. The previous version of this test only asserted that
+   * toString() contained the new name — a no-op rename that updated the in-memory
+   * label but skipped writeCache.renameFile / collectionPositionMap.rename /
+   * freeSpaceMap.rename / dirtyPageBitSet.rename would still pass that pin.
+   *
+   * <p>The current shape exercises the full rename path by reading back a record
+   * inserted before the rename: if any of the file-system rename operations is
+   * dropped or mis-routed, readRecord either returns null/zero bytes (because the
+   * collection looks for files under the new name that were never moved) or throws.
    */
   @Test
   public void testSetCollectionName() throws IOException {
-    // Insert a record so the collection has files to rename.
-    atomicOps().calculateInsideAtomicOperation(
-        op -> collection.createRecord(new byte[] {7, 8}, (byte) 1, null, op));
+    // Insert a record so the collection has files to rename and a payload to read back.
+    final byte[] data = {7, 8, 9, 10, 11};
+    final var pos = atomicOps().calculateInsideAtomicOperation(
+        op -> collection.createRecord(data, (byte) 1, null, op));
 
-    // Rename the collection.
+    // Rename the collection — this must update writeCache, collectionPositionMap,
+    // freeSpaceMap, and dirtyPageBitSet.
     collection.setCollectionName("renamedOptReadCollection");
 
-    // The collection name must be updated.
-    Assert.assertTrue("toString should reflect the new name",
-        collection.toString().contains("renamedOptReadCollection"));
+    // The collection's reported name must be updated.
+    Assert.assertEquals("getName must reflect the new collection name",
+        "renamedOptReadCollection", collection.getName());
+
+    // Reading back the record after rename exercises the full file-system rename:
+    // the read path resolves files via the new name; if any rename was dropped,
+    // the read either fails or returns wrong bytes.
+    final var buf = atomicOps().calculateInsideAtomicOperation(
+        op -> collection.readRecord(pos.collectionPosition, op)).toRawBuffer();
+    Assert.assertNotNull("Record must be readable after rename", buf);
+    Assert.assertArrayEquals(
+        "Record bytes after rename must match what was inserted before rename",
+        data, buf.buffer());
 
     // Rename back so @After tearDown can clean up normally.
     collection.setCollectionName("optReadCollection");
+    Assert.assertEquals("getName must reflect the restored collection name",
+        "optReadCollection", collection.getName());
   }
 
   /**

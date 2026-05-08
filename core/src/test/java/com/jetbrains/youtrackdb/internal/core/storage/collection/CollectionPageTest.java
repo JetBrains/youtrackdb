@@ -1821,8 +1821,10 @@ public class CollectionPageTest {
   }
 
   /**
-   * CollectionPageAppendRecordOp.toString() must return a non-null, non-empty string.
-   * This covers the toString() uncovered line in the op class.
+   * CollectionPageAppendRecordOp.toString() must render every op-specific field
+   * (recordVersion, recordLen, allocatedIndex, entryPosition, holeSize) and the simple
+   * class name. Asserting on each value ensures a regression that drops or renames the
+   * @Override is detectable.
    */
   @Test
   public void testCollectionPageAppendRecordOpToString() {
@@ -1832,9 +1834,18 @@ public class CollectionPageTest {
         1, 2, 3,
         new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber(
             10, 20),
-        7L, new byte[] {1, 2, 3}, 0, 100, 0);
+        17L, new byte[] {1, 2, 3, 4, 5}, 19, 113, 23);
     var s = op.toString();
-    Assert.assertNotNull(s);
-    Assert.assertFalse(s.isEmpty());
+    Assert.assertTrue("toString must name the op class: " + s,
+        s.contains("CollectionPageAppendRecordOp"));
+    Assert.assertTrue("toString must include recordVersion=17: " + s,
+        s.contains("recordVersion=17"));
+    // record was 5 bytes -> recordLen=5
+    Assert.assertTrue("toString must include recordLen=5: " + s, s.contains("recordLen=5"));
+    Assert.assertTrue("toString must include allocatedIndex=19: " + s,
+        s.contains("allocatedIndex=19"));
+    Assert.assertTrue("toString must include entryPosition=113: " + s,
+        s.contains("entryPosition=113"));
+    Assert.assertTrue("toString must include holeSize=23: " + s, s.contains("holeSize=23"));
   }
 }

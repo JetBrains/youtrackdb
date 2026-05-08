@@ -67,7 +67,7 @@ public class DiskStorageStaticHelpersTest {
    * Verifies that exists(Path) returns false when the path does not exist.
    */
   @Test
-  public void exists_returnsFalse_whenPathDoesNotExist() {
+  public void testExistsReturnsFalseWhenPathDoesNotExist() {
     var absent = testDir.resolve("nonexistent");
     assertFalse(DiskStorage.exists(absent));
   }
@@ -77,7 +77,7 @@ public class DiskStorageStaticHelpersTest {
    * no recognised storage marker file is present.
    */
   @Test
-  public void exists_returnsFalse_whenDirectoryIsEmpty() {
+  public void testExistsReturnsFalseWhenDirectoryIsEmpty() {
     assertFalse(DiskStorage.exists(testDir));
   }
 
@@ -86,7 +86,7 @@ public class DiskStorageStaticHelpersTest {
    * in the directory — the canonical marker for an existing storage.
    */
   @Test
-  public void exists_returnsTrue_whenDatabaseOcfPresent() throws IOException {
+  public void testExistsReturnsTrueWhenDatabaseOcfPresent() throws IOException {
     Files.createFile(testDir.resolve("database.ocf"));
     assertTrue(DiskStorage.exists(testDir));
   }
@@ -96,7 +96,7 @@ public class DiskStorageStaticHelpersTest {
    * (alternative storage marker used by the configuration B-tree).
    */
   @Test
-  public void exists_returnsTrue_whenConfigBdFilePresent() throws IOException {
+  public void testExistsReturnsTrueWhenConfigBdFilePresent() throws IOException {
     Files.createFile(testDir.resolve("config0.bd"));
     assertTrue(DiskStorage.exists(testDir));
   }
@@ -106,7 +106,7 @@ public class DiskStorageStaticHelpersTest {
    * metadata file is present.
    */
   @Test
-  public void exists_returnsTrue_whenDirtyFlPresent() throws IOException {
+  public void testExistsReturnsTrueWhenDirtyFlPresent() throws IOException {
     Files.createFile(testDir.resolve("dirty.fl"));
     assertTrue(DiskStorage.exists(testDir));
   }
@@ -116,7 +116,7 @@ public class DiskStorageStaticHelpersTest {
    * startup metadata file is present.
    */
   @Test
-  public void exists_returnsTrue_whenDirtyFlbPresent() throws IOException {
+  public void testExistsReturnsTrueWhenDirtyFlbPresent() throws IOException {
     Files.createFile(testDir.resolve("dirty.flb"));
     assertTrue(DiskStorage.exists(testDir));
   }
@@ -126,7 +126,7 @@ public class DiskStorageStaticHelpersTest {
    * present — no storage marker is found even though the directory exists.
    */
   @Test
-  public void exists_returnsFalse_whenOnlyUnrecognisedFilesPresent() throws IOException {
+  public void testExistsReturnsFalseWhenOnlyUnrecognisedFilesPresent() throws IOException {
     Files.createFile(testDir.resolve("somefile.txt"));
     Files.createFile(testDir.resolve("data.bin"));
     assertFalse(DiskStorage.exists(testDir));
@@ -141,7 +141,7 @@ public class DiskStorageStaticHelpersTest {
    * ALL_FILE_EXTENSIONS array and leaves files with unrecognised extensions in place.
    */
   @Test
-  public void deleteFilesFromDisc_deletesKnownExtensions_leavesUnknownExtensions()
+  public void testDeleteFilesFromDiscDeletesKnownExtensionsAndLeavesUnknownExtensions()
       throws IOException {
     // Create a .cm file (known extension) and a .xyz file (unknown extension)
     var knownFile = testDir.resolve("storage.cm").toFile();
@@ -160,7 +160,7 @@ public class DiskStorageStaticHelpersTest {
    * No exception should be thrown.
    */
   @Test
-  public void deleteFilesFromDisc_isNoOp_whenDirectoryDoesNotExist() {
+  public void testDeleteFilesFromDiscIsNoOpWhenDirectoryDoesNotExist() {
     var absent = testDir.resolve("no-such-dir").toString();
     // Must not throw
     DiskStorage.deleteFilesFromDisc("test-storage", 3, 0, absent);
@@ -171,7 +171,7 @@ public class DiskStorageStaticHelpersTest {
    * storage files are successfully deleted.
    */
   @Test
-  public void deleteFilesFromDisc_removesDirectory_whenAllFilesDeleted() throws IOException {
+  public void testDeleteFilesFromDiscRemovesDirectoryWhenAllFilesDeleted() throws IOException {
     var knownFile = testDir.resolve("wal.otx").toFile();
     assertTrue(knownFile.createNewFile());
 
@@ -210,7 +210,7 @@ public class DiskStorageStaticHelpersTest {
    * last dash, which encodes the backup timestamp.
    */
   @Test
-  public void ibuFileNamesComparator_ordersByTimestampPortion() {
+  public void testIbuFileNamesComparatorOrdersByTimestampPortion() {
     var comparator = ibuFileNamesComparator();
     // Format: <uuid>-<timestamp>-<seq>-db
     var earlier = "aaa-2024-01-01-00-00-00-1-db";
@@ -222,17 +222,68 @@ public class DiskStorageStaticHelpersTest {
   }
 
   /**
-   * Verifies that IBUFileNamesComparator throws IllegalArgumentException when
-   * passed a name that contains no dash separator.
+   * Pins that the comparator strips on the LAST dash (timestamp+seq), not the FIRST
+   * dash (uuid). A regression that swapped {@code lastIndexOf('-')} for
+   * {@code indexOf('-')} would yield identical "alpha" prefixes for both inputs and
+   * therefore return 0; the timestamp-driven ordering would silently disappear.
+   *
+   * <p>Two names share the same single-char UUID prefix ("alpha") but differ in the
+   * timestamp segment. With {@code lastIndexOf}, the comparator strips only the
+   * trailing "-1-db" / "-2-db" and orders by the timestamp portion (alpha-2024-01-01
+   * &lt; alpha-2024-06-01). With {@code indexOf} the comparator would strip everything
+   * after the first dash, leaving just "alpha" for both inputs and returning 0.
    */
   @Test
-  public void ibuFileNamesComparator_throwsForInvalidName() {
+  public void testIbuFileNamesComparatorUsesLastDashNotFirstDash() {
+    var comparator = ibuFileNamesComparator();
+    var earlier = "alpha-2024-01-01-00-00-00-1-db";
+    var later = "alpha-2024-06-01-00-00-00-2-db";
+    // Both inputs share the same indexOf-prefix ("alpha"); only the lastIndexOf-prefix
+    // differs. A non-zero result here is only possible if the comparator uses
+    // lastIndexOf; indexOf would yield 0 and silently pass an isEmpty() smoke test.
+    var result = comparator.compare(earlier, later);
+    assertTrue("comparator must order by timestamp portion, got " + result, result < 0);
+    assertTrue("comparator must be antisymmetric on timestamp portion",
+        comparator.compare(later, earlier) > 0);
+  }
+
+  /**
+   * Verifies that IBUFileNamesComparator throws IllegalArgumentException when
+   * passed a FIRST name that contains no dash separator. The exception message must
+   * cite the offending name so the operator can locate the malformed file.
+   */
+  @Test
+  public void testIbuFileNamesComparatorThrowsForInvalidFirstName() {
     var comparator = ibuFileNamesComparator();
     try {
-      comparator.compare("noDash", "aaa-2024-01-01-00-00-00-1-db");
-      fail("Expected IllegalArgumentException for name without dash");
+      comparator.compare("noDashFirst", "aaa-2024-01-01-00-00-00-1-db");
+      fail("Expected IllegalArgumentException for first name without dash");
     } catch (IllegalArgumentException e) {
-      // expected
+      // The IAE message includes the offending name so an operator can locate it.
+      assertTrue("IAE message must cite the offending first name; got: " + e.getMessage(),
+          e.getMessage().contains("noDashFirst"));
+    }
+  }
+
+  /**
+   * Verifies that IBUFileNamesComparator throws IllegalArgumentException when
+   * passed a SECOND name that contains no dash separator. This pins the second
+   * validation branch (which the first-name-only test did not exercise) — a
+   * regression that drops the second-name validation would let the comparator
+   * proceed to {@code substring(0, -1)} and throw {@code StringIndexOutOfBoundsException}
+   * instead of the expected {@code IllegalArgumentException}.
+   */
+  @Test
+  public void testIbuFileNamesComparatorThrowsForInvalidSecondName() {
+    var comparator = ibuFileNamesComparator();
+    try {
+      comparator.compare("aaa-2024-01-01-00-00-00-1-db", "noDashSecond");
+      fail("Expected IllegalArgumentException for second name without dash");
+    } catch (IllegalArgumentException e) {
+      // The IAE message must cite the SECOND offending name (not the valid first one)
+      // so the operator can locate which file in the directory is malformed.
+      assertTrue("IAE message must cite the offending second name; got: " + e.getMessage(),
+          e.getMessage().contains("noDashSecond"));
     }
   }
 
@@ -250,10 +301,10 @@ public class DiskStorageStaticHelpersTest {
    * hash computation. Renamed from {@code xxHashOutputStream_writeDelegatesAndHashUpdates}
    * to reflect what is actually asserted: byte-stream delegation. The hash-update
    * contract is pinned by the companion test
-   * {@link #xxHashOutputStream_hashStateAdvancesAfterWrites}.
+   * {@link #testXxHashOutputStreamHashStateAdvancesAfterWrites}.
    */
   @Test
-  public void xxHashOutputStream_writeDelegatesToWrappedStream() throws Exception {
+  public void testXxHashOutputStreamWriteDelegatesToWrappedStream() throws Exception {
     var clazz = Class.forName(
         "com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage$XXHashOutputStream");
     Constructor<?> ctor = clazz.getDeclaredConstructor(java.io.OutputStream.class);
@@ -288,7 +339,7 @@ public class DiskStorageStaticHelpersTest {
    * Pins the hash-update contract of {@code XXHashOutputStream}: every {@code write}
    * overload must mutate the internal {@code xxHash64} state. Without this assertion,
    * removing every {@code xxHash64.update(...)} call from the three write overrides
-   * would still pass {@link #xxHashOutputStream_writeDelegatesToWrappedStream} —
+   * would still pass {@link #testXxHashOutputStreamWriteDelegatesToWrappedStream} —
    * yet the wrapper's whole purpose is to compute an incremental hash that production
    * reads back at {@link
    * com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage}'s
@@ -304,7 +355,7 @@ public class DiskStorageStaticHelpersTest {
    * complements (not duplicates) the companion delegation test.
    */
   @Test
-  public void xxHashOutputStream_hashStateAdvancesAfterWrites() throws Exception {
+  public void testXxHashOutputStreamHashStateAdvancesAfterWrites() throws Exception {
     var clazz = Class.forName(
         "com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage$XXHashOutputStream");
     Constructor<?> ctor = clazz.getDeclaredConstructor(java.io.OutputStream.class);
