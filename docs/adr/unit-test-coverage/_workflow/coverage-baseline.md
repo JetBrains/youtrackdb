@@ -460,3 +460,337 @@ Sorted by uncovered lines descending.
 | com.jetbrains.youtrackdb.internal.core.sql.functions.conversion | 100.0% | 100.0% | 0 | 61 |
 | com.jetbrains.youtrackdb.internal.core.sql.functions.geo | 100.0% | 100.0% | 0 | 27 |
 | com.jetbrains.youtrackdb.internal.core.sql.functions.result | 100.0% | 100.0% | 0 | 6 |
+
+---
+
+## Post-Track-22a Measurement
+
+**Measured at:** Track 22a Step 10 HEAD (2026-05-09)
+**Report:** `.coverage/reports/youtrackdb-core/jacoco.xml`
+
+> **Interim post-22a aggregate; final headline measured after 22b
+> denominator drop per plan §Goals** (recorded as an OBSERVATION per
+> Phase A finding A1 — coverage gaming is forbidden, this number is
+> not a gate, it is a checkpoint snapshot).
+
+### Aggregate Totals
+
+| Metric | Baseline | Post-Track-7 | Post-Track-22a | Delta vs Baseline |
+|---|---|---|---|---|
+| **Line coverage** | 63.6% (56,269 / 88,514) | 70.6% (66,555 / 94,278) | **80.3%** (75,910 / 94,504) | **+16.7 pp**, +19,641 covered |
+| **Branch coverage** | 53.3% (23,157 / 43,458) | 61.0% (27,977 / 45,869) | **69.9%** (32,326 / 46,223) | **+16.6 pp**, +9,169 covered |
+| **Packages** | 177 | 179 | 178 | +1 |
+
+The headline interim aggregate sits at **80.3% line / 69.9% branch**,
+~5 pp below the 85% line target and ~0.1 pp below the 70% branch
+target. The plan §Goals deliberately defers final headline measurement
+until after Track 22b drops the dead-code denominator (~250 LOC of
+vestigial scaffolding still pinned by `*DeadCodeTest` markers, plus
+the `core.command.script` / `core.query.live` 22c-deferred clusters);
+22a alone closes the test-side gap and leaves the denominator-side
+gap to 22b.
+
+### Track 22a Target Packages
+
+Baseline / Post-Track-7 → Post-Track-22a coverage for the packages
+Track 22a explicitly targeted (Steps 2–6 + Step 8 production-bug
+fixes):
+
+| Package | Baseline Line% / Branch% | Post-Track-7 Line% / Branch% | Post-Track-22a Line% / Branch% | Uncov Lines (base → post) |
+|---|---|---|---|---|
+| `core.tx` | 61.8% / 65.1% | 61.8% / 65.1% | **73.1% / 69.6%** | 572 → 403 |
+| `core.gremlin` | 53.5% / 68.8% | 53.9% / 69.4% | **56.3% / 72.1%** | 713 → 677 |
+| `core.engine` | 17.1% / 11.9% | 17.1% / 11.9% | **65.8% / 73.8%** | 121 → 50 |
+| `core.exception` | 40.9% / 43.5% | 46.5% / 56.5% | **99.0% / 87.1%** | 230 → 4 |
+| `core.cache` | 71.4% / 56.6% | 71.4% / 56.6% | **85.2% / 72.4%** | 60 → 31 |
+| `core.id` | 64.2% / 63.9% | 64.5% / 63.9% | **94.6% / 85.6%** | 125 → 19 |
+| `core.conflict` | 55.0% / 100.0% | 55.0% / 100.0% | **90.0% / 100.0%** | 9 → 2 |
+| `core.collate` | 95.1% / 91.7% | 97.6% / 91.7% | **100.0% / 100.0%** | 2 → 0 |
+| `core.type` | 76.2% / 0.0% | 76.2% / 0.0% | **100.0% / 100.0%** | 5 → 0 |
+| `core.replication` | 0.0% / 100.0% | 0.0% / 100.0% | **100.0% / 100.0%** | 3 → 0 |
+| `api.exception` | 53.3% / 11.5% | 61.3% / 19.2% | **100.0% / 96.2%** | 35 → 0 |
+| `api.config` | 88.8% / 48.1% | 89.0% / 48.1% | **95.4% / 71.2%** | 58 → 24 |
+| `core.servlet` | 0.0% / 0.0% | 0.0% / 0.0% | **35.7% / 33.3%** | 14 → 9 |
+
+The largest absolute gains (`core.exception` 230→4 uncovered,
+`core.id` 125→19, `core.tx` 572→403, `core.engine` 121→50) reflect
+Steps 2 / 4 / 5's PSI-throw-site-filtered exception fan, the live
+`core.id` cluster sweep, the transaction-path coverage, and the
+`core.engine` lifecycle tests. `core.servlet` deliberately remains at
+35.7% line because its single live no-op branch is its only
+coverable surface — finding A4 reframed it as `22a-coverage-only` and
+the rest is `22b-delete`. `core.gremlin` improves modestly because
+most of its package surface is covered through Cucumber feature tests
+in the `embedded` module rather than `core` unit tests; the 22a delta
+here reflects the focused Step 3 unit-test additions only.
+
+### Coverage-Gate on Changed Production Lines
+
+The cumulative Track 22a production-line footprint is the 6 lines and
+2 branches changed by Step 8's in-22a inherited production-bug fixes
+(`LRUCache.removeEldestEntry`, `EntityImpl.OPPOSITE_LINK_CONTAINER_PREFIX`,
+`BinarySerializerFactory.create`, `BasicCommandContext.copy`,
+`MemoryAndLocalPaginatedEnginesInitializer.warningInvalidMemoryLeftValue`).
+Each Step 8 fix paired with a falsifiable regression test (the
+flipped WHEN-FIXED pin, plus one transitive flip in
+`StringCacheTest`). Step 8's foreground coverage gate confirmed
+100% line / 100% branch on the changed production lines.
+
+### Post-Track-22a Per-Package Coverage
+
+Sorted by uncovered lines descending.
+
+| Package | Line% | Branch% | Uncovered Lines | Total Lines |
+|---------|-------|---------|-----------------|-------------|
+| com.jetbrains.youtrackdb.internal.core.record.impl | 66.1% | 57.2% | 1283 | 3780 |
+| com.jetbrains.youtrackdb.internal.core.storage.impl.local | 63.4% | 59.3% | 1141 | 3114 |
+| com.jetbrains.youtrackdb.internal.core.db | 72.8% | 58.4% | 1030 | 3788 |
+| com.jetbrains.youtrackdb.internal.core.sql.executor | 87.7% | 76.8% | 832 | 6749 |
+| com.jetbrains.youtrackdb.internal.core.db.tool | 63.5% | 52.6% | 831 | 2278 |
+| com.jetbrains.youtrackdb.internal.core.gremlin | 56.3% | 72.1% | 677 | 1550 |
+| com.jetbrains.youtrackdb.internal.core.metadata.schema | 84.8% | 69.9% | 660 | 4355 |
+| com.jetbrains.youtrackdb.internal.core.storage.cache.local | 69.4% | 56.4% | 616 | 2015 |
+| com.jetbrains.youtrackdb.internal.core.index | 80.7% | 70.3% | 615 | 3190 |
+| com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary | 82.8% | 80.3% | 582 | 3375 |
+| com.jetbrains.youtrackdb.internal.core.metadata.security | 74.6% | 57.9% | 542 | 2138 |
+| com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string | 64.1% | 59.5% | 519 | 1444 |
+| com.jetbrains.youtrackdb.internal.core.command.script | 53.9% | 37.8% | 465 | 1008 |
+| com.jetbrains.youtrackdb.internal.core.tx | 73.1% | 69.6% | 403 | 1498 |
+| com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3 | 86.0% | 72.9% | 359 | 2563 |
+| com.jetbrains.youtrackdb.internal.core.serialization.serializer | 66.6% | 60.4% | 358 | 1073 |
+| com.jetbrains.youtrackdb.internal.core.storage.config | 68.2% | 51.4% | 304 | 957 |
+| com.jetbrains.youtrackdb.internal.common.collection | 72.3% | 61.5% | 286 | 1034 |
+| com.jetbrains.youtrackdb.internal.core.sql.executor.match | 92.3% | 78.2% | 265 | 3453 |
+| com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas | 78.7% | 62.7% | 239 | 1123 |
+| com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2 | 87.2% | 69.4% | 235 | 1838 |
+| com.jetbrains.youtrackdb.internal.core.security.symmetrickey | 43.2% | 38.3% | 218 | 384 |
+| com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v1 | 12.4% | 7.7% | 212 | 242 |
+| com.jetbrains.youtrackdb.internal.common.console | 0.0% | 0.0% | 212 | 212 |
+| com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree | 90.8% | 79.9% | 210 | 2285 |
+| com.jetbrains.youtrackdb.internal.common.jnr | 24.1% | 21.4% | 208 | 274 |
+| com.jetbrains.youtrackdb.internal.core.sql.filter | 78.6% | 66.0% | 206 | 963 |
+| com.jetbrains.youtrackdb.internal.core.fetch | 57.8% | 48.2% | 196 | 464 |
+| com.jetbrains.youtrackdb.internal.core | 70.3% | 56.2% | 180 | 606 |
+| com.jetbrains.youtrackdb.internal.core.query | 53.5% | 40.0% | 180 | 387 |
+| com.jetbrains.youtrackdb.internal.core.sql.functions.graph | 82.3% | 67.5% | 170 | 963 |
+| com.jetbrains.youtrackdb.internal.core.sql.operator | 83.7% | 76.5% | 154 | 947 |
+| com.jetbrains.youtrackdb.api.gremlin.embedded | 3.8% | 1.8% | 152 | 158 |
+| com.jetbrains.youtrackdb.internal.core.schedule | 86.7% | 75.6% | 147 | 1102 |
+| com.jetbrains.youtrackdb.internal.core.security | 82.0% | 71.3% | 145 | 807 |
+| com.jetbrains.youtrackdb.internal.core.command | 77.8% | 70.2% | 141 | 635 |
+| com.jetbrains.youtrackdb.internal.core.storage.disk | 85.2% | 73.9% | 141 | 954 |
+| com.jetbrains.youtrackdb.api.gremlin.tokens.schema | 0.0% | 100.0% | 138 | 138 |
+| com.jetbrains.youtrackdb.internal.core.index.engine | 90.9% | 85.1% | 132 | 1451 |
+| com.jetbrains.youtrackdb.internal.core.db.record | 90.7% | 79.5% | 127 | 1371 |
+| com.jetbrains.youtrackdb.internal.core.storage.collection.v2 | 91.8% | 76.5% | 127 | 1557 |
+| com.jetbrains.youtrackdb.internal.common.directmemory | 71.1% | 61.1% | 123 | 425 |
+| com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal | 85.9% | 71.8% | 106 | 753 |
+| com.jetbrains.youtrackdb.internal.core.sql | 85.6% | 82.2% | 105 | 730 |
+| com.jetbrains.youtrackdb.internal.common.concur.lock | 87.0% | 71.7% | 96 | 737 |
+| com.jetbrains.youtrackdb.internal.common.serialization.types | 88.7% | 86.7% | 93 | 824 |
+| com.jetbrains.youtrackdb.internal.common.profiler | 48.8% | 55.3% | 84 | 164 |
+| com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations | 90.6% | 82.8% | 84 | 891 |
+| com.jetbrains.youtrackdb.internal.core.record | 66.1% | 50.7% | 83 | 245 |
+| com.jetbrains.youtrackdb.internal.core.security.kerberos | 28.1% | 25.0% | 82 | 114 |
+| com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2 | 90.8% | 75.6% | 82 | 896 |
+| com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v1 | 75.4% | 54.9% | 75 | 305 |
+| com.jetbrains.youtrackdb.internal.core.serialization | 77.7% | 71.8% | 72 | 323 |
+| com.jetbrains.youtrackdb.internal.core.index.engine.v1 | 87.1% | 85.4% | 68 | 526 |
+| com.jetbrains.youtrackdb.internal.core.query.live | 78.3% | 72.5% | 68 | 314 |
+| com.jetbrains.youtrackdb.internal.core.storage.ridbag | 90.0% | 67.9% | 67 | 668 |
+| com.jetbrains.youtrackdb.internal.core.sql.query | 79.1% | 57.9% | 64 | 306 |
+| com.jetbrains.youtrackdb.internal.core.config | 68.3% | 55.4% | 60 | 189 |
+| com.jetbrains.youtrackdb.api | 28.8% | 50.0% | 52 | 73 |
+| com.jetbrains.youtrackdb.internal.core.engine | 65.8% | 73.8% | 50 | 146 |
+| com.jetbrains.youtrackdb.internal.common.log | 78.6% | 58.0% | 49 | 229 |
+| com.jetbrains.youtrackdb.internal.common.util | 88.3% | 83.3% | 47 | 402 |
+| com.jetbrains.youtrackdb.internal.core.metadata.sequence | 90.6% | 75.5% | 45 | 478 |
+| com.jetbrains.youtrackdb.internal.common.collection.closabledictionary | 91.9% | 73.3% | 43 | 528 |
+| com.jetbrains.youtrackdb.internal.core.storage.cache.chm | 92.8% | 78.2% | 42 | 585 |
+| com.jetbrains.youtrackdb.internal.common.io | 88.0% | 79.6% | 42 | 351 |
+| com.jetbrains.youtrackdb.internal.core.security.authenticator | 78.7% | 64.0% | 40 | 188 |
+| com.jetbrains.youtrackdb.internal.core.storage.index.nkbtree.normalizers | 74.7% | 23.3% | 40 | 158 |
+| com.jetbrains.youtrackdb.internal.core.storage.fs | 83.4% | 84.1% | 38 | 229 |
+| com.jetbrains.youtrackdb.internal.common.serialization | 83.4% | 62.9% | 37 | 223 |
+| com.jetbrains.youtrackdb.internal.core.metadata.function | 86.1% | 77.8% | 37 | 266 |
+| com.jetbrains.youtrackdb.internal.core.gremlin.service | 85.1% | 78.8% | 34 | 228 |
+| com.jetbrains.youtrackdb.internal.common.concur.resource | 84.5% | 80.6% | 34 | 220 |
+| com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog | 89.0% | 57.4% | 33 | 301 |
+| com.jetbrains.youtrackdb.internal.core.storage.cache | 90.2% | 77.5% | 33 | 337 |
+| com.jetbrains.youtrackdb.internal.core.gremlin.io.graphson | 67.7% | 33.3% | 32 | 99 |
+| com.jetbrains.youtrackdb.internal.core.cache | 85.2% | 72.4% | 31 | 210 |
+| com.jetbrains.youtrackdb.internal.core.sql.method.misc | 92.2% | 88.0% | 28 | 360 |
+| com.jetbrains.youtrackdb.internal.core.iterator | 82.4% | 87.8% | 28 | 159 |
+| com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization | 84.1% | 71.3% | 27 | 170 |
+| com.jetbrains.youtrackdb.internal.core.compression.impl | 75.0% | 57.4% | 26 | 104 |
+| com.jetbrains.youtrackdb.internal.core.command.traverse | 92.4% | 82.3% | 26 | 342 |
+| com.jetbrains.youtrackdb.api.config | 95.4% | 71.2% | 24 | 526 |
+| com.jetbrains.youtrackdb.internal.core.util | 80.7% | 67.9% | 23 | 119 |
+| com.jetbrains.youtrackdb.internal.core.sql.functions | 90.4% | 78.9% | 23 | 240 |
+| com.jetbrains.youtrackdb.internal.common.parser | 95.6% | 90.8% | 22 | 504 |
+| com.jetbrains.youtrackdb.internal.core.sql.executor.metadata | 92.8% | 79.5% | 22 | 304 |
+| com.jetbrains.youtrackdb.internal.core.storage.collection | 97.4% | 81.7% | 22 | 847 |
+| com.jetbrains.youtrackdb.internal.core.index.iterator | 86.0% | 89.5% | 21 | 150 |
+| com.jetbrains.youtrackdb.internal.core.storage.memory | 93.5% | 83.3% | 20 | 306 |
+| com.jetbrains.youtrackdb.internal.core.db.record.ridbag | 87.3% | 78.3% | 19 | 150 |
+| com.jetbrains.youtrackdb.internal.core.id | 94.6% | 85.6% | 19 | 349 |
+| com.jetbrains.youtrackdb.internal.common.exception | 70.0% | 100.0% | 18 | 60 |
+| com.jetbrains.youtrackdb.internal.core.sql.method | 89.6% | 86.2% | 17 | 163 |
+| com.jetbrains.youtrackdb.internal.core.engine.local | 73.8% | 55.6% | 17 | 65 |
+| com.jetbrains.youtrackdb.internal.core.metadata.security.binary | 89.6% | 50.0% | 17 | 164 |
+| com.jetbrains.youtrackdb.internal.core.db.record.record | 90.4% | 79.2% | 16 | 166 |
+| com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.deque | 88.4% | 77.5% | 16 | 138 |
+| com.jetbrains.youtrackdb.api.gremlin.tokens | 30.4% | 0.0% | 16 | 23 |
+| com.jetbrains.youtrackdb.internal.core.sql.functions.misc | 96.2% | 87.5% | 16 | 417 |
+| com.jetbrains.youtrackdb.internal.core.sql.operator.math | 91.1% | 90.2% | 16 | 179 |
+| com.jetbrains.youtrackdb.internal.common.profiler.metrics | 95.5% | 75.8% | 16 | 352 |
+| com.jetbrains.youtrackdb.internal.core.sql.functions.coll | 96.4% | 89.8% | 14 | 385 |
+| com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect | 81.9% | 81.5% | 13 | 72 |
+| com.jetbrains.youtrackdb.internal.common.comparator | 90.2% | 83.3% | 12 | 123 |
+| com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base | 95.8% | 66.5% | 12 | 283 |
+| com.jetbrains.youtrackdb.internal.core.command.script.js | 47.8% | 66.7% | 12 | 23 |
+| com.jetbrains.youtrackdb.internal.core.command.script.transformer | 82.8% | 92.1% | 11 | 64 |
+| com.jetbrains.youtrackdb.internal.core.gql.parser | 95.5% | 89.7% | 11 | 245 |
+| com.jetbrains.youtrackdb.internal.core.gremlin.jsr223 | 0.0% | 100.0% | 11 | 11 |
+| com.jetbrains.youtrackdb.internal.core.fetch.remote | 67.7% | 0.0% | 10 | 31 |
+| com.jetbrains.youtrackdb.api.gremlin.embedded.schema | 0.0% | 100.0% | 10 | 10 |
+| com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.filter | 69.7% | 75.0% | 10 | 33 |
+| com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated | 96.0% | 73.6% | 9 | 224 |
+| com.jetbrains.youtrackdb.internal.core.servlet | 35.7% | 33.3% | 9 | 14 |
+| com.jetbrains.youtrackdb.internal.core.metadata | 82.7% | 75.0% | 9 | 52 |
+| com.jetbrains.youtrackdb.internal.common.thread | 96.1% | 92.5% | 8 | 203 |
+| com.jetbrains.youtrackdb.internal.common.stream | 90.8% | 91.7% | 8 | 87 |
+| com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.map | 81.1% | 75.0% | 7 | 37 |
+| com.jetbrains.youtrackdb.internal.common.profiler.monitoring | 94.4% | 90.6% | 7 | 124 |
+| com.jetbrains.youtrackdb.internal.core.db.tool.importer | 96.1% | 86.8% | 7 | 180 |
+| com.jetbrains.youtrackdb.internal.common.concur.collection | 88.1% | 66.7% | 7 | 59 |
+| com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.operationsfreezer | 93.8% | 85.7% | 6 | 97 |
+| com.jetbrains.youtrackdb.internal.common.concur | 62.5% | 100.0% | 6 | 16 |
+| com.jetbrains.youtrackdb.internal.core.sql.functions.math | 97.3% | 97.1% | 6 | 222 |
+| com.jetbrains.youtrackdb.internal.core.db.config | 95.4% | 100.0% | 6 | 130 |
+| com.jetbrains.youtrackdb.internal.core.gremlin.sqlcommand | 88.7% | 87.5% | 6 | 53 |
+| com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.index | 98.9% | 93.6% | 5 | 471 |
+| com.jetbrains.youtrackdb.internal.core.exception | 99.0% | 87.1% | 4 | 389 |
+| com.jetbrains.youtrackdb.internal.core.serialization.serializer.stream | 82.6% | 100.0% | 4 | 23 |
+| com.jetbrains.youtrackdb.internal.core.serialization.serializer.record | 78.6% | 0.0% | 3 | 14 |
+| com.jetbrains.youtrackdb.internal.core.sql.executor.resultset | 99.5% | 91.7% | 3 | 616 |
+| com.jetbrains.youtrackdb.internal.core.metadata.schema.clusterselection | 93.9% | 75.0% | 3 | 49 |
+| com.jetbrains.youtrackdb.internal.core.gremlin.executor.transformer | 0.0% | 100.0% | 2 | 2 |
+| com.jetbrains.youtrackdb.internal.core.storage | 98.1% | 87.5% | 2 | 108 |
+| com.jetbrains.youtrackdb.internal.common.types | 97.7% | 90.9% | 2 | 86 |
+| com.jetbrains.youtrackdb.internal.common.listener | 86.7% | 66.7% | 2 | 15 |
+| com.jetbrains.youtrackdb.internal.core.conflict | 90.0% | 100.0% | 2 | 20 |
+| com.jetbrains.youtrackdb.internal.core.storage.cache.local.aoc | 0.0% | 100.0% | 2 | 2 |
+| com.jetbrains.youtrackdb.internal.common.hash | 99.1% | 100.0% | 1 | 114 |
+| com.jetbrains.youtrackdb.internal.core.gql.executor | 98.8% | 96.9% | 1 | 86 |
+| com.jetbrains.youtrackdb.internal.core.metadata.schema.schema | 98.3% | 100.0% | 1 | 58 |
+| com.jetbrains.youtrackdb.internal.core.storage.cache.chm.readbuffer | 99.2% | 78.4% | 1 | 128 |
+| com.jetbrains.youtrackdb.internal.core.storage.cache.chm.writequeue | 96.8% | 87.5% | 1 | 31 |
+| com.jetbrains.youtrackdb.internal.core.gql.planner | 96.0% | 83.3% | 1 | 25 |
+| com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common | 97.1% | 100.0% | 1 | 34 |
+| com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl | 99.3% | 100.0% | 1 | 153 |
+| com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary | 98.4% | 100.0% | 1 | 61 |
+| com.jetbrains.youtrackdb.internal.core.dictionary | 100.0% | 100.0% | 0 | 9 |
+| com.jetbrains.youtrackdb.internal.common.factory | 100.0% | 100.0% | 0 | 44 |
+| com.jetbrains.youtrackdb.internal.core.gremlin.io.gryo | 100.0% | 100.0% | 0 | 20 |
+| com.jetbrains.youtrackdb.internal.core.collate | 100.0% | 100.0% | 0 | 41 |
+| com.jetbrains.youtrackdb.api.exception | 100.0% | 96.2% | 0 | 75 |
+| com.jetbrains.youtrackdb.internal.core.storage.index.versionmap | 100.0% | 100.0% | 0 | 20 |
+| com.jetbrains.youtrackdb.internal.core.sql.functions.stat | 100.0% | 100.0% | 0 | 108 |
+| com.jetbrains.youtrackdb.internal.core.metadata.schema.validation | 100.0% | 100.0% | 0 | 20 |
+| com.jetbrains.youtrackdb.internal.core.sql.method.sequence | 100.0% | 100.0% | 0 | 39 |
+| com.jetbrains.youtrackdb.internal.core.command.script.formatter | 100.0% | 97.4% | 0 | 89 |
+| com.jetbrains.youtrackdb.internal.core.command.script.transformer.result | 100.0% | 100.0% | 0 | 18 |
+| com.jetbrains.youtrackdb.internal.core.gql.executor.resultset | 100.0% | 96.7% | 0 | 72 |
+| com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy | 100.0% | 100.0% | 0 | 15 |
+| com.jetbrains.youtrackdb.internal.core.engine.memory | 100.0% | 100.0% | 0 | 12 |
+| com.jetbrains.youtrackdb.internal.core.gremlin.io.binary | 100.0% | 100.0% | 0 | 79 |
+| com.jetbrains.youtrackdb.internal.core.sql.functions.text | 100.0% | 100.0% | 0 | 109 |
+| com.jetbrains.youtrackdb.internal.core.sql.functions.sequence | 100.0% | 100.0% | 0 | 16 |
+| com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue | 100.0% | 100.0% | 0 | 1 |
+| com.jetbrains.youtrackdb.internal.core.storage.index.engine | 100.0% | 100.0% | 0 | 26 |
+| com.jetbrains.youtrackdb.internal.core.metadata.security.jwt | 100.0% | 100.0% | 0 | 10 |
+| com.jetbrains.youtrackdb.internal.core.index.multivalue | 100.0% | 100.0% | 0 | 3 |
+| com.jetbrains.youtrackdb.internal.core.replication | 100.0% | 100.0% | 0 | 3 |
+| com.jetbrains.youtrackdb.internal.core.sql.functions.conversion | 100.0% | 100.0% | 0 | 61 |
+| com.jetbrains.youtrackdb.internal.core.storage.index.sbtree | 100.0% | 100.0% | 0 | 7 |
+| com.jetbrains.youtrackdb.internal.core.index.comparator | 100.0% | 100.0% | 0 | 10 |
+| com.jetbrains.youtrackdb.internal.core.gremlin.io | 100.0% | 100.0% | 0 | 30 |
+| com.jetbrains.youtrackdb.internal.core.metadata.security.auth | 100.0% | 100.0% | 0 | 9 |
+| com.jetbrains.youtrackdb.internal.core.type | 100.0% | 100.0% | 0 | 21 |
+| com.jetbrains.youtrackdb.internal.core.sql.functions.geo | 100.0% | 100.0% | 0 | 27 |
+| com.jetbrains.youtrackdb.internal.core.sql.functions.result | 100.0% | 100.0% | 0 | 6 |
+
+### Recovery-Gap Residuals (Track 22c marker-rewrite filter input)
+
+WHEN-FIXED grep against `core/src/test/java` after Step 9 returns
+**116 markers** (down from 218 at Step 1). The drop reflects Step 8's
+production-bug fixes (LRUCache off-by-one, EntityImpl `final`,
+BinarySerializerFactory singleton, BasicCommandContext null guard,
+MemoryAndLocalPaginatedEnginesInitializer overload disambiguation
+— each removed its associated WHEN-FIXED pin lockstep with the fix)
+plus Step 9's DRY refactors that consolidated several
+`*DeadCodeTest` shape pins into single shared assertions.
+
+The markers below pin symbols **not present** in the cluster
+classification table — Track 22c's marker-rewrite filter must process
+these to either expand its YTDB-issue list or fold them into
+22c-defer entries. Production-bug pins are partitioned from
+deletion-candidate pins; the filter must skip the production-bug
+rows.
+
+*Production-bug pin markers (NOT deletion candidates — keep as
+pins for the inherited bug-fix backlog; 22c filter must skip):*
+
+- `core/command/script/ScriptManagerTest.java:824`
+  (`closeAll` vs `close(dbName)`)
+- `core/metadata/security/ImmutableUserTest.java:184`
+  (`populateSystemRoles` null guard)
+- `core/security/SecurityManagerTest.java:261, 268, 281`
+  (`SALT_CACHE` algorithm-key bug + `NumberFormatException`)
+- `core/security/TokenSignImplTest.java:292`
+  (`readKeyFromConfig` honoring configured key)
+- `core/sql/SQLHelperParseValueScalarTest.java:348`
+  (`"2000t"` DATETIME classification NFE)
+- `core/sql/executor/SelectExecutionPlannerBranchTest.java:172, 400, 672`
+  (`colleciton` typo + stream-exhaustion + assertion typo)
+- `core/sql/method/SQLMethodRuntimeTest.java:260`
+  (`SQLMethodRuntime.setParameters` cast behavior)
+- `core/sql/query/BasicLegacyResultSetTest.java:371, 495, 520, 639, 756`
+  (`iterator()`, `containsAll`, `retainAll`, `equals`, `add(T)` limit drop)
+
+*Deletion-candidate pin markers missing from the cluster table
+(22c filter input — expand the table, fold into 22c-defer issues,
+or stage as in-22b late-table additions):*
+
+- `core/sql/SqlRootDeadCodeTest.java:133, 159, 263`
+  (`CommandExecutorSQLAbstract`, `DefaultCommandExecutorSQLFactory`)
+- `core/sql/SQLEngineSpiCacheTest.java:351`
+  (`DefaultCommandExecutorSQLFactory` + `DynamicSQLElementFactory`
+  — same symbols as the SqlRootDeadCodeTest deletion candidates)
+- `core/sql/executor/SqlExecutorDeadCodeTest.java:78, 109, 126,
+  140, 160, 180, 199, 204, 213, 239, 269, 297, 334, 352`
+  (`InfoExecutionPlan.{setSteps, toResult}`, `TraverseResult.depth`,
+  `TraverseResult.copy()` — 13 markers + 1 javadoc anchor at line 67)
+- `core/sql/query/SqlQueryDeadCodeTest.java` (11 markers)
+  (`ConcurrentLegacyResultSet`, `LiveLegacyResultSet`,
+  `LiveResultListener`, `LocalLiveResultListener`)
+- `core/security/symmetrickey/UserSymmetricKeyConfigDeadCodeTest.java:243`
+  (`UserSymmetricKeyConfig` deletion-candidate)
+- `core/command/script/SQLScriptEngineTest.java:318`
+  (`CommandScript.execute returns List.of()` — Track 9 22c-defer cluster)
+- `core/command/script/DatabaseScriptManagerTest.java:208`
+  (`DatabaseScriptManager.pooledEngines` reflection chain — pinned
+  for replacement when a test-visible accessor exists)
+
+Markers covered by the cluster classification table (22b-delete or
+22c-defer) and therefore NOT residual:
+
+- `core/query/live/LiveQueryDeadCodeTest.java` (26 markers) — Track 10
+  `core/query/live` cluster, `22c-defer` (LiveQueryHook live surface
+  re-investigation).
+- `core/query/live/LiveQueryHookStaticApiTest.java` (24 markers) —
+  same cluster.
+- `core/command/script/CommandScriptDeadCodeTest.java` (19 markers) —
+  Track 9 `CommandScript` cluster, `22c-defer` (extended-sibling
+  YTDB-issue rationale).
