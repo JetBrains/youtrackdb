@@ -2120,7 +2120,7 @@ consumes these items begins.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (4/10 complete)
+- [ ] Step implementation (5/10 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -2502,7 +2502,8 @@ consumes these items begins.
   > - 9 bucket-(b) bespoke per-class tests under `core/exception/` (new)
   > - 4 bucket-(d) `*DeadCodeTest` pins under `core/exception/` (new)
 
-- [ ] Step: Smaller live-package coverage cluster (`core/cache`, `core/id`, `core/conflict`, `core/collate`, `core/type`)
+- [x] Step: Smaller live-package coverage cluster (`core/cache`, `core/id`, `core/conflict`, `core/collate`, `core/type`)
+  - [x] Context: info
   > **Risk:** low — additive tests on small testable utility surfaces;
   > no static-state mutation
   >
@@ -2513,6 +2514,53 @@ consumes these items begins.
   > `core/type` (`IdentityWrapper` abstract base + 8 subclasses).
   > Pre-existing test scan first; extend existing classes where
   > possible.
+  >
+  > **What was done:** Added 6 new test classes (140 tests total)
+  > covering the smaller live-package cluster: `core/cache`
+  > (`RecordCacheWeakRefs` + `AbstractMapCache` base), `core/id`
+  > (`RecordId` + `ChangeableRecordId` + `ContextualRecordId` pure
+  > surface), `core/conflict` (`RecordConflictStrategyFactory` + the
+  > three SPI-loaded strategies), `core/collate`
+  > (`DefaultCollateFactory` ServiceLoader path +
+  > `DefaultCollate` / `CaseInsensitiveCollate` pins), and
+  > `core/type` (`IdentityWrapper` abstract base via local concrete
+  > subclass). Existing `CollateEqualsTest` and `WeakValueHashMapTest`
+  > were left in place; the additions augment without overlap. SPI
+  > loader path exercised for `DefaultCollateFactory` via
+  > `java.util.ServiceLoader.load` to pin the `META-INF/services`
+  > entry against accidental rename/removal. 140 / 140 tests pass;
+  > coverage gate PASSED at 100% / 100% on cumulative diff; spotless
+  > applied.
+  >
+  > **What was discovered:**
+  > 1. `BinaryProtocol#short2bytes` returns `-1` for non-`MemoryStream`
+  >    `OutputStream` sinks (only `MemoryStream` tracks position
+  >    internally via `getPosition()`). The contract is pinned in
+  >    `recordIdRoundTripsThroughOutputStreamAndInputStream` as `-1`
+  >    and in `recordIdRoundTripsThroughMemoryStream` as `0` (fresh
+  >    stream). **Cross-track hint for Step 8**: this is deliberate
+  >    API design — do NOT "fix" it.
+  > 2. `ConfigurableStatelessFactory#getImplementation` has NO
+  >    default-fallback for unknown non-null keys — only null keys
+  >    take the default branch. The conflict-strategy factory tests
+  >    pin both halves of this contract. Documentation implying a
+  >    fallback would be misleading. **Cross-track hint for Step 8**:
+  >    deliberate; do not "fix".
+  > 3. The eight `IdentityWrapper` subclasses already have
+  >    subclass-specific tests (e.g., `ScheduledEventTest` is the
+  >    most thorough); the new `IdentityWrapperTest` covers only the
+  >    base contract directly via a local `Box` subclass — no
+  >    overlap with existing tests.
+  >
+  > **What changed from the plan:** none.
+  >
+  > **Key files:**
+  > - `core/src/test/java/.../core/cache/AbstractMapCacheTest.java` (new)
+  > - `core/src/test/java/.../core/cache/RecordCacheWeakRefsTest.java` (new)
+  > - `core/src/test/java/.../core/collate/DefaultCollateFactoryTest.java` (new)
+  > - `core/src/test/java/.../core/conflict/RecordConflictStrategyFactoryTest.java` (new)
+  > - `core/src/test/java/.../core/id/RecordIdTest.java` (new)
+  > - `core/src/test/java/.../core/type/IdentityWrapperTest.java` (new)
 
 - [ ] Step: Smaller live-package coverage cluster (`core/replication`, `core/api/exception`, `core/api/config`, `core/servlet` no-op branch)
   > **Risk:** medium — `api/config/GlobalConfiguration` mutators need
