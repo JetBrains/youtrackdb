@@ -2120,7 +2120,7 @@ consumes these items begins.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/10 complete)
+- [ ] Step implementation (3/10 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -2323,7 +2323,8 @@ consumes these items begins.
   > - `core/src/test/java/.../core/tx/FrontendTransactionImplCoverageTest.java` (new)
   > - `core/src/test/java/.../core/tx/TxFunctionalInterfacesTest.java` (new)
 
-- [ ] Step: `core/gremlin` coverage tests (excluding schema sub-packages)
+- [x] Step: `core/gremlin` coverage tests (excluding schema sub-packages)
+  - [x] Context: safe
   > **Risk:** medium — multi-file logic + new test infrastructure
   > (Gremlin GraphBaseTest extensions); no HIGH triggers
   >
@@ -2336,6 +2337,69 @@ consumes these items begins.
   > `io.youtrackdb.tinkerpop.*` shadowed types; non-shadowed upstream
   > types (Direction, T enum, process steps) keep `org.apache.tinkerpop.*`
   > imports per the rewritten R7 constraint.
+  >
+  > **What was done:** Added nine test classes (eight new, one
+  > extended) under `core/src/test/java/.../core/gremlin/` realising
+  > the `22a-keep` coverage targets for the `core/gremlin` core
+  > internals (`YTDBPropertyFactory`, `YTDBPropertyImpl` /
+  > `YTDBVertexPropertyImpl`, `YTDBEmptyVertexProperty`,
+  > `YTDBTransaction` listener/monitoring API, `StreamUtils`,
+  > `YTDBGraphUtils.mapDirection`) and the D4-tier targets for
+  > `gremlin/io/{binary,graphson,gryo}`:
+  > `YTDBBinarySerializersTest` drives every
+  > `YTDBAbstractCustomTypeSerializer` corner branch including
+  > non-zero `custom_type_info` / non-positive value length / value
+  > length > readable bytes / null-on-non-nullable, plus a local
+  > nullable subclass for the `writeValueFlagNull` branch;
+  > `YTDBGyroSerializersTest` round-trips both RID kinds via Kryo
+  > `Input`/`Output`; `YTDBGraphSONTest` registers the
+  > `YTDBIoRegistry` GraphSONIo modules into a Jackson `ObjectMapper`
+  > and covers each Jackson serializer/deserializer plus the
+  > `YTDBIoRegistry` static helpers `newYTdbId` / `isYTDBRecord`
+  > across every switch arm. 145 new tests pass; spotless applied;
+  > coverage gate PASSED at 100% line / 100% branch on the cumulative
+  > diff's 6 changed lines + 2 changed branches.
+  >
+  > **What was discovered:**
+  > 1. The interface `Transaction.tx()` declared on
+  >    `org.apache.tinkerpop.gremlin.structure.Graph` returns the
+  >    upstream `Transaction` type, so reaching the YouTrackDB-specific
+  >    monitoring API (`withTrackingId` / `withQueryListener` /
+  >    `withTransactionListener` / `isQueryMetricsEnabled` / etc.)
+  >    requires an explicit `(YTDBTransaction)` cast on `graph.tx()`.
+  >    Tests pin the cast pattern (private `ytdbTx()` helper).
+  > 2. `TransactionMetricsListener` has TWO default methods
+  >    (`writeTransactionCommitted` + `writeTransactionFailed`) so it
+  >    is NOT a single-abstract-method functional interface —
+  >    lambda-syntax instantiation fails to compile.
+  >    Anonymous-subclass-with-empty-body is the supported
+  >    instantiation idiom for tests; the `YTDBTransaction.NO_OP`
+  >    sentinel is constructed the same way. **Cross-step impact**:
+  >    upcoming step 4 (engine + exception fan) does not touch this
+  >    listener; no remaining steps are affected, but any future
+  >    Gremlin-listener tests should follow the anonymous-subclass
+  >    pattern.
+  > 3. The shipped YTDB binary serializers all use `nullable=false`
+  >    so the `writeValueFlagNull` / `writeValueFlagNone` branches in
+  >    `YTDBAbstractCustomTypeSerializer` are dead through the public
+  >    API. Reaching them required defining a local
+  >    `NullableMarkerSerializer` subclass inside the test (still in
+  >    the production package). Kept test-local rather than
+  >    promoting to test utilities — only the abstract base's own
+  >    test needs it.
+  >
+  > **What changed from the plan:** none.
+  >
+  > **Key files:**
+  > - `core/src/test/java/.../core/gremlin/GraphUtilsTest.java` (modified)
+  > - `core/src/test/java/.../core/gremlin/StreamUtilsTest.java` (new)
+  > - `core/src/test/java/.../core/gremlin/YTDBEmptyVertexPropertyTest.java` (new)
+  > - `core/src/test/java/.../core/gremlin/YTDBPropertyFactoryTest.java` (new)
+  > - `core/src/test/java/.../core/gremlin/YTDBPropertyImplCoverageTest.java` (new)
+  > - `core/src/test/java/.../core/gremlin/YTDBTransactionCoverageTest.java` (new)
+  > - `core/src/test/java/.../core/gremlin/io/binary/YTDBBinarySerializersTest.java` (new)
+  > - `core/src/test/java/.../core/gremlin/io/graphson/YTDBGraphSONTest.java` (new)
+  > - `core/src/test/java/.../core/gremlin/io/gryo/YTDBGyroSerializersTest.java` (new)
 
 - [ ] Step: `core/engine` lifecycle + `core/exception` PSI-throw-site-filtered parameterized fan
   > **Risk:** medium — engine lifecycle mutates process-wide
