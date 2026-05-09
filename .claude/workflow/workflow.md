@@ -136,7 +136,7 @@ cross-track impact.
    | Plan file state | Step file state | Session state |
    |---|---|---|
    | `## Plan Review` checklist entry is `[ ]` (or section missing entirely) | — | **State 0**: autonomous plan review (load `implementation-review.md` and follow it) |
-   | `## Plan Review` is `[x]`; next track is `[ ]` | No step file | **State A**: pre-Phase-A — runs the Track Pre-Flight gate (`track-review.md` § Track Pre-Flight), then Phase A in the same session |
+   | `## Plan Review` is `[x]`; next track is `[ ]` | No step file | **State A**: pre-Phase-A — runs the Track Pre-Flight gate (`track-review.md` § Track Pre-Flight), then Phase A in the same session. Within the gate, Panel 1 (strategy assessment) is conditionally skipped via the `**Strategy refresh:**` idempotency check — see *State A internal branching* below. |
    | `## Plan Review` is `[x]`; a track is `[ ]` | Step file exists | **State C**: mid-track resume |
    | All tracks `[x]` or `[~]`; Phase 4 is `[ ]` or `[>]` | — | **State D**: Phase 4 (final artifacts) |
    | All tracks `[x]` or `[~]`; Phase 4 is `[x]` | — | **Done** |

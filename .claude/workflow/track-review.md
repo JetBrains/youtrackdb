@@ -114,8 +114,15 @@ diagram, per the "Backlog section body extraction rule" in
 Render the summary inline. The step file is created in §What You
 Do sub-step 2c after this gate clears — do not write it yet.
 
-**3. Ask the user.** Render Panel 1 (if active) followed by
-Panel 2, and use `AskUserQuestion` with four options:
+**3. Ask the user.** This step runs only if step 1 did not exit
+the gate — i.e., Panel 1 was skipped (no anchor track), Panel 1's
+assessment was `CONTINUE` or `ADJUST`, or Panel 1's `ESCALATE` was
+overridden. If step 1 routed to inline replanning via `Accept
+escalation`, the gate has already exited and this step does not
+run.
+
+Render Panel 1 (if active) followed by Panel 2, and use
+`AskUserQuestion` with four options:
 
 - **Proceed** — accept the assessment (CONTINUE) and start Phase A
   with the upcoming track as summarised.
@@ -257,11 +264,23 @@ if still relevant.
 step 4 plan/backlog edits but died before step 6 wrote the
 strategy-refresh line. On resume the line is missing, so the gate
 re-runs Panel 1; the committed edits are the new baseline (they
-do not appear as a diff against the original plan). The
-orchestrator and user are jointly responsible for noticing the
-prior amendments — typically by inspecting the recent commit log
-(`git log --oneline -5 -- docs/adr/<dir-name>/_workflow/`) before
-the loop starts — and not re-issuing them in this round's
+do not appear as a diff against the original plan).
+
+To surface any such prior amendments, the orchestrator MUST run
+the following before Panel 1 starts on a resume entry (step file
+missing):
+
+```bash
+git log --oneline -10 -- docs/adr/<dir-name>/_workflow/implementation-plan.md \
+                          docs/adr/<dir-name>/_workflow/implementation-backlog.md
+```
+
+If the output contains a recent `Apply pre-flight amendments
+before Track <N>` commit but no corresponding `**Strategy
+refresh:**` line is present on disk under the
+just-completed/skipped track's block, the prior session's edits
+are the new baseline — surface this in Panel 1's user-facing
+output so the user does not re-issue them in this round's
 `Adjust` rounds.
 
 **8. Proceed.** Continue to §What You Do sub-step 1 below.

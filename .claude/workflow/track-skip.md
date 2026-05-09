@@ -8,9 +8,19 @@ A track can be skipped (`[~]`) in two situations:
 2. **User requests skip** — the user overrides at session start or during
    the Track Pre-Flight gate (e.g., "skip Track 4, we don't need it
    anymore"). When a skip is requested in the Pre-Flight gate's `Adjust`
-   loop and the request would shift which track is "next", re-render
-   Panel 2 against the new upcoming track per the gate's reordering
-   rule (see [`track-review.md`](track-review.md) § Track Pre-Flight).
+   loop:
+   - If the request would shift which track is "next", re-render
+     Panel 2 against the new upcoming track per the gate's
+     reordering rule.
+   - If the skipped track was the upcoming track summarised in
+     Panel 2 (the most common case), the just-skipped track now
+     becomes the new look-back anchor and Panel 1 must also re-run
+     its strategy assessment against the remaining tracks, treating
+     the in-progress skip's `**Skipped:**` reason as the just-
+     skipped-track signal. Re-render both panels before re-asking.
+
+   See [`track-review.md`](track-review.md) § Track Pre-Flight for
+   the full panel-rendering contract.
 
 ---
 
