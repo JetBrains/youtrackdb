@@ -7,20 +7,26 @@
 
 ### Goals
 
-Raise the `core` module's unit test coverage from the current baseline
-(63.6% line / 53.3% branch) to the project-wide target of **85% line /
-70% branch** coverage. This requires covering approximately **19,000
+Raise the `core` module's unit test coverage from the original baseline
+(63.6% line / 53.3% branch) to a realistic target of **~82–83% line /
+~70–71% branch** coverage (amended at Track 22 Phase A iter-1 — the
+original 85% / 70% headline proved mathematically unreachable in the
+final sweep track per adversarial-review finding A4; see Track 22 split
+into 22a/22b/22c below). This requires covering approximately **19,000
 additional lines** and **7,300 additional branches** across 177 packages.
 
 The work is a systematic sweep: identify the lowest-coverage packages,
 write focused unit tests for their uncovered code paths, and track
 progress using a per-package coverage analyzer.
 
-Tracks 2-22 are mutually independent — they can be reordered during
-execution based on priority without affecting correctness. The track
-ordering reflects a testability-tier strategy (D1) but is not a hard
-dependency chain. Their only shared dependency is Track 1 (coverage
-measurement infrastructure).
+Tracks 2-22a/22b/22c are mutually independent in the same testability-tier
+sense — they can be reordered during execution based on priority without
+affecting correctness, **except that 22b depends on 22a** (its dead-code
+deletion classification consumes 22a's PSI safe-delete confirmations) and
+**22c depends on 22b** (its marker rewrite filters out clusters deleted
+by 22b). The track ordering reflects a testability-tier strategy (D1)
+but is not a hard dependency chain. Their only shared dependency is
+Track 1 (coverage measurement infrastructure).
 
 ### Constraints
 
@@ -215,8 +221,10 @@ flowchart TD
   diminishing returns — some code paths (WAL replay, crash recovery) may
   require integration tests rather than unit tests.
 - **Implemented in**: Track ordering (Tracks 2-7 = high testability,
-  8-17 = medium, 18-21 = low (storage internals), 22 = mixed
-  (final sweep))
+  8-17 = medium, 18-21 = low (storage internals), 22a/22b/22c = mixed
+  (final sweep — Track 22 split during inline-replan after Phase A iter-1
+  per A3 BLOCKER; 22a main-coverage, 22b deletion lockstep, 22c WHEN-FIXED
+  issue creation))
 
 #### D2: Standalone tests over DbTestBase where possible
 - **Alternatives considered**: (a) All tests extend DbTestBase for
@@ -269,6 +277,14 @@ flowchart TD
   production code.
 - **Risks/Caveats**: 22 PRs is a lot. Tracks can be batched into larger
   PRs if the team prefers.
+- **Inline-replan note (after Track 22 Phase A iter-1)**: Track 22 was
+  split into 22a/22b/22c, producing three squashed merge-commits instead
+  of one. The split honours D5's intent (each sub-track is independently
+  reviewable). 22a (~6 steps) and 22c (~1–2 steps) sit within the 5-7
+  commit cap; 22b's `~8 steps — one per in-track-deletion cluster` is a
+  controlled exception — each cluster is one bisectable commit, and 22b
+  Phase A may pack two narrow clusters into one step if the final
+  inventory exceeds 7. No D5 amendment needed.
 - **Implemented in**: All tracks
 
 #### Integration Points
@@ -1923,41 +1939,91 @@ flowchart TD
   > ~8–10 deletion lockstep + ~1–2 marker-rewrite" steps; Phase A
   > may inline-pack deletion into the related coverage step.
 
-- [ ] Track 22: Transactions, Gremlin & Remaining Core
-  > Write tests for transaction management, Gremlin integration, and
-  > all remaining uncovered core packages. This is the final sweep
-  > track and absorbs the deferred-cleanup queue accumulated by earlier
-  > tracks (production-bug fixes pinned via WHEN-FIXED markers,
-  > dead-code deletions, DRY/refactor candidates, residual coverage
-  > gaps). See `implementation-backlog.md` for the full inherited
-  > queue.
+- [ ] Track 22a: Main Coverage Sweep — Transactions, Gremlin & Remaining Core
+  > Write tests for transaction management, Gremlin integration, engine
+  > lifecycle, exception/compression/config, and all remaining uncovered
+  > core packages (cache, id, conflict, dictionary, servlet, replication,
+  > type, collate, `api/exception`, `api/config`, etc.). Closes the
+  > test-additive subset of the deferred-cleanup queue accumulated by
+  > earlier tracks (coverage gaps, falsifiable-strengthening pins,
+  > non-deletion DRY refactors, `*DeadCodeTest` shape pins for clusters
+  > whose live deletion is deferred to 22b/22c). Production-bug pins
+  > inherited via WHEN-FIXED markers from Tracks 7–21 are addressed
+  > here when the fix is local and test-additive; SPI-deferred pins flow
+  > to 22c.
   >
-  > **Scope:** ~6 steps covering transaction management, Gremlin
-  > integration, engine lifecycle, exception/compression/config,
-  > remaining small packages, and verification; plus ~3-4 steps
-  > absorbing the inherited DRY / cleanup scope from Tracks 7–17
-  > (security adds 5 dead-code lockstep groups + 21 per-method
-  > `SymmetricKey` pins + 6 latent production issues, including the
-  > newly-discovered `TokenSignImpl.readKeyFromConfig` unreachable
-  > inner branch — tokens currently cannot be verified across server
-  > restarts because configured `NETWORK_TOKEN_SECRETKEY` is silently
-  > ignored).
+  > **Scope:** ~6 steps covering main-package coverage sweep, smaller
+  > packages, and a final coverage-build verification step (re-runs
+  > `coverage-analyzer.py` and updates `coverage-baseline.md` after
+  > 22a's test additions). Aggregate target after 22a: ~81–82% line /
+  > ~70% branch (pre-22b denominator drop).
+  >
   > **Depends on:** Track 1
   >
-  > **Operational note:** Backlog section's What/How/Constraints
-  > and a portion of the inherited-DRY-scope queue are recovered;
-  > two subsections of the inherited-DRY-scope queue (~150 lines)
-  > are in gaps. Stitch the gaps at Phase A by re-reading each of
-  > Tracks 7–14's `**Track episode:**` blocks above — every track
-  > episode names the items it forwarded to the deferred-cleanup
-  > queue. Track 15's lost Step 1 backlog edits also need
-  > absorbing here. See **Operational Notes**. Track 16 and Track 17
-  > absorption blocks are committed in the backlog under
-  > `## Track 22` (Track 17 is the most recent, including the new
-  > C6 latent issue raised during Phase C iter-1 review).
+  > **Operational note:** Backlog section carries the verbatim recovery
+  > of the inherited DRY queue (Tracks 10–13 stitched from track
+  > episodes after the 2026-05-04 `git clean -fd` incident, plus
+  > Tracks 14–21 absorption blocks committed inline in earlier
+  > sessions) and the iter-1 mechanical fixes T1/T2/T3/T5/T7/R2/R3/R4/
+  > R6/R7/A7/A8/A9 from the previous Track 22 Phase A run. Phase A
+  > of 22a re-validates each item against the per-track episodes
+  > before any consuming step begins; the suggestion-tier items lost
+  > in the recovery gap are de-scoped per A9.
+
+- [ ] Track 22b: In-Track Dead-Code Deletion Lockstep
+  > Atomic per-cluster commits removing dead production code together
+  > with its `*DeadCodeTest.java` shape pin. PSI find-usages classification
+  > via `mcp-steroid://ide/safe-delete` separates SPI-safe clusters
+  > (deleted in this track) from SPI-risky clusters (deferred to 22c
+  > as YTDB tracking issues). The 63 `*DeadCodeTest.java` files map to
+  > ~15–20 logical clusters; each in-track-deletion cluster is its own
+  > step, each commit independently bisectable. After every deletion
+  > commit, `coverage-analyzer.py` is re-run so the post-deletion
+  > denominator drop is reflected in `coverage-baseline.md`.
+  >
+  > **Scope:** ~8 steps — one per in-track-deletion cluster (Strong
+  > candidates: `sbtree/singlevalue/v1`, `sbtree/local/v1`,
+  > `DecimalKeyNormalizer` dead helpers, Binary Token / JWT cluster,
+  > Kerberos credential / Krb5 login module, `ZIPCompressionUtil`,
+  > narrow singletons like `IndexConfigPropertyDeadCodeTest` /
+  > `MockSerializerDeadCodeTest` / `RecordBytesTestOnlyOverloadTest` /
+  > `CronExpressionDeadCodeTest` / `IndexCursorClusterDeadCodeTest`,
+  > `EntityLinkSetImplTest` partial dead methods, plus the iter-1 T2
+  > reclassifications: `LiveQueryBatchResultListener`,
+  > `DatabaseLifecycleListenerAbstract`, `DatabaseRepair`,
+  > `BonsaiTreeRepair`, `HookReplacedRecordThreadLocal`). Final cluster
+  > inventory is locked by 22b Phase A's adversarial review per the
+  > hybrid policy. Aggregate target after 22b: ~82–83% line / ~70–71%
+  > branch (denominator drop from deletions).
+  >
+  > **Depends on:** Track 1, Track 22a (consumes 22a's PSI safe-delete
+  > confirmations and the post-22a coverage baseline).
+
+- [ ] Track 22c: WHEN-FIXED Issue Creation & Marker Rewrite
+  > Open YTDB tracking issues for production-fix WHEN-FIXED pins (the
+  > 101 non-dead-code markers across 164 test files, collapsed to
+  > one issue per logical fix) plus the SPI-risky dead-code clusters
+  > deferred from 22b (Hooks cluster, database-pool cluster,
+  > database-tool cluster, command-script SPI cluster, serializer-base
+  > cluster). For each created issue, rewrite the inline `// WHEN-FIXED:
+  > Track 22` (and `// WHEN-FIXED: deferred-cleanup track`) markers in
+  > the corresponding test sources to reference the new YTDB-NNNN ID.
+  > One commit per issue (per iter-1 finding R8) keeps the rewrite
+  > bisectable; clusters deleted by 22b are skipped (no-issue convention
+  > per Pre-Flight clarification).
+  >
+  > **Scope:** ~1–2 steps — one batched issue-creation + marker-rewrite
+  > step covering all surviving WHEN-FIXED markers, plus an optional
+  > verification step that greps for any unrewritten `Track 22` /
+  > `deferred-cleanup track` markers across `core/src/test/`. No
+  > coverage delta expected; this is tracker hygiene.
+  >
+  > **Depends on:** Track 1, Track 22a, Track 22b (consumes 22b's
+  > final cluster-disposition list as the filter — only markers in
+  > clusters NOT deleted by 22b need YTDB issues).
 
 ## Plan Review
-- [x] Plan review (consistency + structural) — implicit; this plan predates the State 0 marker added later to the workflow. Validated retroactively through 18 successfully completed tracks (Tracks 1–18, all `[x]` with passing track-level dimensional reviews). Marker added at start of Track 19 Phase A so future startup-protocol auto-resume reads cleanly.
+- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
