@@ -397,6 +397,187 @@
 ## Base commit
 `23164a8487`
 
+## Phase C iter-1 audit (committed in 19857464e5)
+
+Iter-1 dimensional fan-out spawned 8 sub-agents (CQ/BC/TB/TC/CS/TY/TX/TS).
+Synthesis: 0 blockers / ~25 should-fix / ~30 suggestions across all
+dimensions. Iter-1 in-scope (11 fixes applied in `19857464e5`):
+
+- **CQ1** ephemeral "Track 22" labels removed from 6 V1 dead-code test
+  files (`SBTreeBucketV1DeadCodeTest`, `SBTreeNullBucketV1DeadCodeTest`,
+  `SBTreeValueDeadCodeTest`, `CellBTreeBucketSingleValueV1DeadCodeTest`,
+  `CellBTreeSingleValueEntryPointV1DeadCodeTest`, `DecimalKeyNormalizerTest`).
+- **CQ2** ephemeral "Track 19/20" labels removed from
+  `PageEntryFixtureSmokeTest` + `BoundedBufferRingTest`.
+- **CQ4** deleted `KEEP_RECORD_ID_IMPORT` sentinel + RecordId import.
+- **CQ12 / BC2** rewrote vacuous `testRunDoesNotPropagateExceptions` to
+  inject a faulty `tsMins` whose `iterator()` throws.
+- **CQ14** deleted stale `@since 4/15/14` Javadoc.
+- **TS2 / TB2** renamed `testClearDirtyOnUninitialisedFails` →
+  `…IsSilentNoOp` with asymmetry-documenting Javadoc.
+- **TB1** tightened `testStartIdempotentUnderConcurrentRace` upper
+  bound from `<= racerCount` to `<= 2`. **REGRESSION — see iter-2
+  plan below.**
+- **TX1 / BC4** `FakeScheduledExecutor.scheduledCount` →
+  `final AtomicInteger`; `lastFuture` → `volatile`.
+- **BC1** strengthened `acquireAtomicExclusiveLock_completesWithoutException`
+  to assert `containsInLockedObjects(lockName)` post-condition.
+- **BC5 / TB8** strengthened `cellBTreeException*` ctor tests with
+  message-contains-seed + `getDbName()` propagation assertions.
+- **TB4** strengthened `createIndexEngine_remoteStorage_returnsRemoteIndexEngine`
+  to assert `getId()` / `getName()` propagate from `IndexEngineData`.
+
+Gate-check fan-out (5 dimensions: CQ/BC/TB/TS/TX) verdict:
+
+- **CQ — PASS**. All 5 CQ fixes VERIFIED. New suggestions: CQ18 inline FQNs
+  in BC2 test (`java.util.AbstractSet`/`Iterator` should be imported); CQ19
+  weak sibling-healthy assertion (`activeTxCount == 0` against an empty
+  `tsMins` Set is the trivial default — collapsing if `healthyMonitor.run()`
+  is removed entirely).
+- **TS — PASS**. TS2 VERIFIED. TS1/TS3/TS4/TS5 STILL OPEN (deferred). New:
+  TS13 (= CQ18, inline FQN cleanup).
+- **TX — PASS**. TX1 + TB1 paired check VERIFIED for the AtomicInteger
+  conversion. TX2/TX3 STILL OPEN. New suggestions: TX4 (make
+  `FakeScheduledFuture.cancelled` volatile for future-proofing); TX5
+  (clarifying comment on the BC2 test's relationship to the production
+  weakly-consistent iteration contract).
+- **BC — partial**. BC1/BC4/BC5 VERIFIED. **BC2 STILL OPEN** — partial fix.
+  The new test verifies `run()` does not throw, but does NOT observably
+  prove the catch block was entered. A future regression that early-returns
+  from `run()` before `try { doCheck() }` would still pass (healthy
+  sibling-monitor check would still hit `setValue(0)`). New: BC7 (Javadoc
+  on `testStartIdempotentUnderConcurrentRace` still says `<= N` while the
+  assertion is `<= 2` — stale contract); BC8 (= TB15, see below); BC9
+  (= TX4, `FakeScheduledFuture.cancelled` plain boolean).
+- **TB — FAIL**. TB1 is a **REGRESSION (BLOCKER TB15)**. The reviewer ran
+  the test 8 times and reproduced 6/8 failures with `actual: 8` (or 7) —
+  the `<= 2` bound is empirically flaky on multi-core hardware. Verified
+  by orchestrator on 2026-05-09: a single targeted run with
+  `./mvnw -pl core test -Dtest='StaleTransactionMonitorTest#testStartIdempotentUnderConcurrentRace'`
+  failed with `actual: 8`. This contradicts the deliberate Step-4 guidance
+  on this very file (see Step 3's "Critical context" — *"tightening to at-most-1 would
+  falsely fail until the production code is hardened to AtomicReference / compareAndSet"*).
+  TB2/TB4/TB8 VERIFIED. New: TB17 (copy-ctor `getMessage()` is double-appended
+  with two component-name suffixes — latent behaviour bug not caught by the
+  iter-1 strengthened assertion; defer to deferred-cleanup track).
+
+## Phase C iter-2 plan (to be executed in fresh session)
+
+**Carry-forward findings (in-scope for iter-2):**
+
+REGRESSION fix (must-do):
+1. **TB15 / BC8** — revert `assertThat(executor.scheduledCount.get()).isLessThanOrEqualTo(2)`
+   back to `isLessThanOrEqualTo(racerCount)` in
+   `StaleTransactionMonitorTest.testStartIdempotentUnderConcurrentRace`.
+   The redundant-schedule contract is already pinned by the
+   single-thread `testStartIsIdempotent` (asserts count == 1 after the
+   second `start()`). The MT probe verifies only crash-freedom and at-
+   least-1 progress under concurrent entry until the production guard
+   is hardened to `AtomicReference.compareAndSet`.
+2. **BC7** — sync the corresponding Javadoc on
+   `testStartIdempotentUnderConcurrentRace` to match the reverted bound.
+
+STILL OPEN from iter-1:
+3. **BC2 / CQ19** — strengthen `testRunDoesNotPropagateExceptions` so the
+   catch block is observably exercised. Options: (a) add a LogManager
+   appender hook + assert at least one warn line was recorded, OR (b)
+   pre-populate the shared `tsMins` field with one active holder before
+   `healthyMonitor.run()` and assert `activeTxCount.getValue() == 1`
+   (so the sibling-healthy claim is non-vacuous).
+
+Quick mechanical cleanups:
+4. **CQ18 / TS13** — add `import java.util.AbstractSet;` and
+   `import java.util.Iterator;` to `StaleTransactionMonitorTest`; replace
+   the inline FQNs in the new BC2 test.
+5. **BC9 / TX4** — change `boolean cancelled` to `volatile boolean cancelled`
+   in `FakeScheduledFuture` for symmetry with the `volatile lastFuture`.
+6. **TX5** — add a one-line clarifying comment on `testRunDoesNotPropagateExceptions`
+   explaining the test exercises the synthetic faulty-`Set` path, NOT
+   concurrent-iteration on the production `ConcurrentHashMap.KeySetView`.
+7. **CQ5** — replace inline FQNs in `BTreeMVBucketV2BulkOpsTest` with
+   regular imports (`DurablePage`, `RID`, `org.mockito.Mockito.reset`,
+   `org.mockito.ArgumentMatchers.eq`).
+
+Test completeness additions (deferred from original review):
+8. **TC1** — add `validatedPut_validatorReturnsSubstitutedRid_storesSubstitutedValue`
+   test in `BTreeLifecycleTest` (covers the `value = (RID) result;`
+   substitution branch at `BTree.java:705-712`).
+9. **TC3 / TX2** — add `testConcurrentStartAgainstStopRace` in
+   `StaleTransactionMonitorTest` exercising stop-during-start race
+   with two threads under a CyclicBarrier(2). Replaces the misleading
+   "Counter-probe paired with…" comment on the existing sequential
+   `testRepeatedStartStopCycles`.
+10. **TC4a / TY1 / CS2** — add `testOpenWithCorruptPrimaryAndIntactBackupRecoversFromBackup`
+    in `StorageStartupMetadataTest` (corruption-with-backup recovery branch
+    at `StorageStartupMetadata.java:213-225`). Surefire-reachable; not
+    IT-shadowed.
+11. **TC4b / TY2** — add `testOpenWithLegacy9ByteFileReadsLastTxId` and
+    `testOpenWithLegacyOneByteFileReadsDirtyFlag` in
+    `StorageStartupMetadataTest` covering legacy-format paths at
+    `StorageStartupMetadata.java:182-194`.
+12. **TC5** — extend `BTreeMVBucketV2BulkOpsTest` with one equals test
+    pinning that bulk ops with **same** entry list but **different**
+    fileId/pageIndex/operationUnitId must NOT be equal (the inherited
+    PageOperation.equals chain).
+13. **CS5** — extend
+    `BTreeLifecycleTest.put_keyExceedsMaxKeySize_throwsTooBigIndexKeyException`
+    to assert `tinyKeyTree.size(atomicOperation) == 0` after the rejection
+    (post-rejection page-state consistency).
+14. **TB3** — strengthen
+    `AbstractStorageSnapshotIndexQueryTest.hasActiveIndexSnapshotEntries_routesNullSuffixEngineToNullMap`
+    to actually populate a null-keyed value via
+    `entity.setProperty("name", null)` + commit, and assert `true` for
+    the `$null`-suffixed engine query (currently the test returns at
+    engine-name lookup before touching `sharedNullIndexesSnapshot`).
+15. **TB6** — extend `CellBTreeSingleValueEntryV3Test.compareTo`
+    assertions with reverse-direction (`assertTrue(e2.compareTo(e1) > 0)`)
+    and antisymmetry (`signum(e1.compareTo(e2)) == -signum(e2.compareTo(e1))`).
+16. **TB7** — add byte-level entry-count assertions to the four
+    `*OpEmptyList` tests in `BTreeMVBucketV2BulkOpsTest`
+    (`IntegerSerializer.deserializeNative(content, expectedCountOffset)`
+    must equal 0).
+17. **TS4** — replace literal `"test"` DB name with
+    `"test-" + UUID.randomUUID()` in `AbstractStorageSnapshotIndexQueryTest`
+    (line ~39) and `AbstractStorageGettersShapePinTest` (line ~33).
+
+**Deferred to deferred-cleanup-track absorption queue (NOT in iter-2):**
+
+- **CQ3 / BC3 / TY5 / TS1 / TS3 / TS5** — `PageEntryFixture` not adopted
+  by 5 V1 `*DeadCodeTest` files + Step-6 V2 multivalue tests. V1 tests
+  are scheduled for atomic deletion in Track 22 (lockstep with V1 source);
+  fixture adoption would add churn. V2 multivalue fixture adoption is the
+  actionable item — forwarded.
+- **CQ6 / CQ8 / CQ17** `StaleTransactionMonitorTest` size + internal-state
+  inspection coupling.
+- **CQ7 / CQ9 / CQ10 / CQ13 / CQ15 / CQ16** minor cosmetic / DRY items.
+- **BC6 / CS7 / TY4 / TY8** — `PageEntryFixture` close-time partial-release
+  + acquire-time exception leak windows (defensive hardening).
+- **TY3 / CS1** — WAL `*Op` redo-idempotency negative test (design-level).
+- **TY6** — production assert in `BTree.create` for `BTREE_MAX_KEY_SIZE > 0`.
+- **TY7 / CS3** — production `IllegalStateException` precondition for
+  `StorageStartupMetadata.makeDirty/clearDirty/setLastTxId`.
+- **TY9 / TY10** — `BTreeMVBucketV2BulkOpsTest` @Before scope + indirect
+  verification documentation.
+- **TS6 / TS7 / TB5** — V1 `*DeadCodeTest` reflective shape pins (V1 tests
+  deleted in Track 22).
+- **TS9 / TS10 / TS11 / TS12** — minor test-structure suggestions.
+- **TC2** — `BTree` empty-tree iteration + persistence-across-reopen
+  (durability test requires non-trivial setup; deferred).
+- **TC6 / TC7 / TC8 / TC9** — corner-case completeness items (minor).
+- **TB9 / TB10 / TB11 / TB12 / TB13 / TB14 / TB17** — minor test-behavior
+  + the latent component-name double-append bug in
+  `BaseException(BaseException)` / `CoreException`.
+- **CS4 / CS6** — V1 dead-code test fixture-bypass (deleted in Track 22)
+  + cross-type `*Op` assert invariants (design-level).
+
+**Cross-track plan correction (Track 22 absorption block addition):**
+The iter-1 implementer surfaced an out-of-scope finding: ~7 test files
+outside Track 21's diff (in `core/src/test/.../command/...` and
+`command/script/...`) still cite "Track 22" in durable Javadoc/comments,
+inherited from earlier tracks. These should be swept in Track 22's
+ephemeral-identifier cleanup pass — they are durable-content rule
+violations of the same shape as iter-1's CQ1/CQ2 fixes.
+
 ## Reviews completed
 - [x] Technical: PASS at iteration 2 (6 findings — T1/T2/T3 should-fix accepted, T4/T5/T6 suggestions accepted). Iter-2 gate verified: `local/v1` row added with deletion-bound rationale; IT-shadow caveat reworded to cite the default `**/*IT.java` glob under `ci-integration-tests` profile (NOT failsafe `<includes>`); step count loosened to ~6–7; JaCoCo `100% branch` annotated as branchless-interface unmeasurable-sentinel; `AbstractStorage` LOC corrected to ~3 100 instr-lines; `coverage-gate.py` `assert`-strip pre-step probe added for engine `doClearTree` paths and `nkbtree.normalizers`. Zero new findings.
 - [x] Risk: PASS at iteration 2 (7 findings — R1/R2 high-severity accepted, R3/R4 medium accepted, R5/R6/R7 low accepted). Iter-2 gate verified: **R2 (CRITICAL)** the non-existent class names `CellBTreeSingleValueV3`/`CellBTreeMultiValueV2`/`SBTreeV2` now appear ONLY inside explicit "do NOT use" callouts (PSI re-confirmed `BTree` class in `sbtree/singlevalue/v3` is the live engine; the v2 lifecycle classes do not exist); `multivalue/v2` and `local/v2` reframed as WAL-replay-only D4 packages with direct-bucket/`*Op` round-trip strategy; `StaleTransactionMonitor` CyclicBarrier MT probe scoped; per-test database-name UUID rule added to Constraints (OEngine.getStorage(name) collision rationale); build-cost ceiling loosened to ~6–7 cycles; `PageEntryFixture` extraction committed as Step 1 (resolves Track 20 TS7); `nkbtree.normalizers` target deferred to Phase B Step 1 with `coverage-gate.py` assert-strip re-measure. Zero new findings.
