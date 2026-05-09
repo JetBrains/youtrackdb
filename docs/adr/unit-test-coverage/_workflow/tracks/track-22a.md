@@ -258,7 +258,7 @@ Classifications:
 | `core/compression/impl` (`ZIPCompressionUtil`) + parent `Compression` | DEAD | main=1 self-decl, 0 implementors | **22b-delete** | Entire `core/compression` orphaned; 0/0 coverage; finding A3. |
 | `core/dictionary` (`Dictionary`) | DEAD | 0 main, 0 test | **22b-delete** | `@Deprecated` stub, every method `throws UnsupportedOperationException`; finding A4a. |
 | `core/servlet/ServletContextLifeCycleListener` | LIVE | 0 PSI refs but `@WebListener` | **22a-coverage-only** | Servlet-container annotation scan; cover false-branch only; finding A4b. |
-| `core/exception` `LiveQueryInterruptedException` / `ManualIndexesAreProhibited` / `RetryQueryException` / `InternalErrorException` | DEAD-OR-API | 0 throw sites despite imports | **22c-defer** | YTDB issue: "decide deletion vs intentional exception API surface"; finding A2. |
+| `core/exception` `LiveQueryInterruptedException` / `ManualIndexesAreProhibited` / `RetryQueryException` / `InternalErrorException` | DEAD-OR-API | 0 throw sites despite imports; `RetryQueryException` has 1 catch site at `Function.java:262` (multi-catch); `InternalErrorException` has 5 `instanceof` discriminators in `AbstractStorage.java` (lines 1608, 3465, 5619, 5663) | **22c-defer** | YTDB issue: "decide deletion vs intentional exception API surface"; finding A2. The catch and instanceof sites must be evaluated together with the deletion decision (either both dead or both API surface). |
 | `core/exception` live throw-bearing leaves (uniform ctor shape) | LIVE | varies (`AcquireTimeoutException` 11, `CommandScriptException` 49, `LinksConsistencyException` 13/9 throws) | **22a-keep** | `@Parameterized` fan eligible; finding A2 bucket (a). |
 | `core/exception` `BaseException` / `CoreException` / `RetryQueryException` (abstract) / `StorageComponentException` | LIVE (abstract roots) | 70 / 52 / N / N production subclasses | **22a-keep** | Cover via subclass parameterized fan + bespoke abstract-state pins. |
 | `core/exception` custom-shape leaves (`ConcurrentCreateException`, `CommandSQLParsingException`, `CollectionPositionMapException`, `PaginatedCollectionException`, `CommandScriptException`) | LIVE | varies | **22a-keep (bespoke)** | Custom ctor shapes outside parameterized fan; finding T4. |
@@ -280,13 +280,13 @@ Classifications:
 | Track 15 `core/record` chain-dead (RecordVersionHelper, RecordStringable, RecordListener) + 12 dead `EntityHelper` public methods + `EntityComparator` + `EntityImpl.hasSameContentOf(EntityImpl)` + `RecordBytes.fromInputStream(InputStream, int)` 2-arg overload | DEAD | 0 callers per pin | **22b-delete** | Per-method pinning enables partial deletion safety. |
 | Track 17 Kerberos cluster + binary-token quintet (BinaryToken, BinaryTokenSerializer, BinaryTokenPayloadImpl, BinaryTokenPayloadDeserializer, DistributedBinaryTokenPayload) + JWT trio (JsonWebToken, JwtPayload, YouTrackDBJwtHeader) + CI plug-in chain + symmetric-key trio | DEAD | PSI-confirmed Track 17 Phase A | **22b-delete** | 5 lockstep groups; per-group ordering documented. |
 | Track 17 21 per-method `SymmetricKey` deletions (3 phases) | DEAD methods on LIVE class | 0 callers per method | **22b-delete (per-phase)** | Per-method pins. |
-| Track 18 IndexCursor cluster (IndexCursor, IndexAbstractCursor, IndexCursorStream) + IndexKeyCursor | DEAD | 0 production refs | **22b-delete** | Two coordinated lockstep groups. |
-| Track 20 `cache.local.aoc.FileSegment` | DEAD | 0 callers | **22b-delete** | Per Track 20 finding. |
+| Track 18 IndexCursor cluster (`IndexCursor`, `IndexAbstractCursor`, `index.iterator.IndexCursorStream`) + `IndexKeyCursor` | DEAD | 0 production refs (intra-cluster lockstep refs only) | **22b-delete** | Two coordinated lockstep groups. (FQN correction: `IndexCursorStream` lives at `core.index.iterator.IndexCursorStream`.) |
+| Track 20 `storage.cache.local.aoc.FileSegment` | DEAD | 0 callers | **22b-delete** | Per Track 20 finding. (FQN correction: lives at `core.storage.cache.local.aoc.FileSegment`.) |
 | Track 21 `sbtree/singlevalue/v1` + `sbtree/local/v1` clusters + `DecimalKeyNormalizer` private helpers (`scaleToDecimal128`, `clampAndRound`, `ensureExactRounding`, `unsigned`) | DEAD | 0 main + 0 test refs | **22b-delete** | Two lockstep groups. |
 | Track 12 `RecordSerializerCSVAbstract` instance API + `RecordSerializerStringAbstract` abstract instance API (4 unused public statics) + `JSONWriter` + `Streamable`/`StreamableHelper` + `SerializationThreadLocal` listener path | DEAD | 0 cross-module callers | **22b-delete** | 5 dead surfaces. |
 | Track 13 `SerializableWrapper` + `RecordSerializationDebug` + `RecordSerializationDebugProperty` + `MockSerializer` | DEAD | 0 callers | **22b-delete** | `MockSerializer` deletion gated on `BinarySerializerFactory` unregister of `PropertyTypeInternal.EMBEDDED` id `-10`. |
-| Track 9 `CommandExecutorScript` + `CommandScript` + `CommandManager` legacy dispatch + `ScriptExecutorRegister` SPI + deprecated `ScriptManager.bind` + `SQLScriptEngine.eval(Reader, Bindings)` | DEAD | 0 callers per Track 9 episode | **22b-delete** | 7 dead surfaces; lockstep. |
-| Track 10 `core/query/live/` + `core/fetch/` packages | MOSTLY-DEAD (one helper live) | only `LiveQueryHookV2.unboxRidbags` from `CopyRecordContentBeforeUpdateStep:52` | **22b-delete (preserve `unboxRidbags`)** | One live surface to keep. |
+| Track 9 `CommandExecutorScript` + `CommandScript` + `CommandManager` legacy dispatch + `ScriptExecutorRegister` SPI + deprecated `ScriptManager.bind` + `SQLScriptEngine.eval(Reader, Bindings)` | DEAD inside Phase A's quintet, but PSI surfaces extra production refs to `CommandScript` from `DatabaseScriptManager`, `CommandExecutorUtility`, `ScriptManager`, `SQLScriptEngine` (none in Phase A's quintet). One chain reaches `YouTrackDBInternalEmbedded` (live class). | **22c-defer** (re-classified from 22b-delete during Phase B step 1 PSI re-validation) | Lockstep boundary is wider than Phase A claimed; deletion decision must investigate the four extended siblings before any safe-delete. Mark as 22c-defer with YTDB issue "Track 9 script-engine cluster — extended sibling resolution". |
+| Track 10 `core/query/live/` + `core/fetch/` packages | LIVE surface wider than Phase A claimed: `SharedContext.java` (live) holds a `LiveQueryHook.LiveQueryOps liveQueryOps` field instantiated at line 73 and exposed via `getLiveQueryOps()` at line 247; also imports `LiveQueryHookV2.LiveQueryOps`. So `LiveQueryHook` and `LiveQueryHookV2` are LIVE, not just `unboxRidbags`. | **22c-defer** (re-classified from 22b-delete during Phase B step 1 PSI re-validation) | Minimum live surface is `{LiveQueryHook + LiveQueryHook.LiveQueryOps + LiveQueryHookV2 + LiveQueryHookV2.LiveQueryOps + LiveQueryHookV2.LiveQueryOp + LiveQueryHookV2.unboxRidbags}` — possibly more after deeper analysis. Defer with YTDB issue "Track 10 live-query surface — re-investigate which subset of core/query/live/ is truly removable given SharedContext live coupling". |
 | Track 11 `CronExpression.getTimeZone()` lazy fallback + deprecated `Scheduler.{load, close, create}` + 3 `SchedulerProxy` overrides | DEAD method-level | 0 callers | **22b-delete** | Method-level lockstep. |
 | 14 inherited production bugs (Tracks 14–21) — non-storage subset (~9 bugs) | LIVE bugs in LIVE code | varies | **22a-keep (lockstep)** | Local + bisect-safe per finding A5; e.g., `LRUCache.removeEldestEntry` `>=`→`>`, `OPPOSITE_LINK_CONTAINER_PREFIX` `final`, `BinarySerializerFactory.create()` `INSTANCE` swap, etc. |
 | 14 inherited production bugs — storage-cluster subset (~5 bugs: WOWCache races, CollectionBasedStorageConfiguration deadlock + cache-staleness, StorageStartupMetadata precondition, AbstractLinkBag iterator, DiskStorage.XXHashOutputStream length/end-index) | LIVE bugs in LIVE code | varies | **22c-defer** | Bisect-safety dominates economy in storage code; finding A5. |
@@ -2120,7 +2120,7 @@ consumes these items begins.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [ ] Step implementation (1/10 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -2133,7 +2133,8 @@ consumes these items begins.
 
 ## Steps
 
-- [ ] Step: Per-package PSI reclassification + cluster-classification artifact validation
+- [x] Step: Per-package PSI reclassification + cluster-classification artifact validation
+  - [x] Context: safe
   > **Risk:** medium — multi-file logic in core (no HIGH triggers); test
   > infrastructure inputs to 22b/22c
   >
@@ -2147,6 +2148,107 @@ consumes these items begins.
   > in the step episode for 22c's filter. Output: validated cluster
   > table on disk (in this step file), plus a `recovery-gap-residuals`
   > list in the episode.
+  >
+  > **What was done:** Re-validated the Cluster classification table
+  > against current `unit-test-coverage` branch state via mcp-steroid
+  > PSI `ReferencesSearch` over project scope. Spot-checked 9
+  > `22b-delete` entries and the 4 `22c-defer` exception-leaf entries.
+  > Re-verified the `core/query/live/` "preserve `unboxRidbags`" claim
+  > with PSI find-usages on every class in the package. Ran
+  > `grep -rn '// WHEN-FIXED:.*Track 22' core/src/test/java` (218
+  > matches) and cross-referenced each against the cluster table.
+  > Applied 5 cluster-table corrections in-place (this step file)
+  > based on the findings.
+  >
+  > **What was discovered:** Phase A iter-1's PSI sweep had two
+  > load-bearing classification errors and several rationale gaps.
+  > (1) **Track 9 row** — `CommandScript` has live production
+  > references from `DatabaseScriptManager`, `CommandExecutorUtility`,
+  > `ScriptManager`, `SQLScriptEngine` — none of which are in
+  > Phase A's Track 9 quintet, and one chain reaches
+  > `YouTrackDBInternalEmbedded` (live). Reclassified row from
+  > `22b-delete` to `22c-defer` with extended-sibling YTDB-issue
+  > rationale. (2) **Track 10 row** — `core/query/live/` cannot be
+  > deleted with only `unboxRidbags` preserved: `SharedContext.java`
+  > (live) holds a `LiveQueryHook.LiveQueryOps` field, instantiates
+  > it at line 73, and exposes it via `getLiveQueryOps()` at line
+  > 247; also imports `LiveQueryHookV2.LiveQueryOps`. So
+  > `LiveQueryHook` and `LiveQueryHookV2` themselves are LIVE.
+  > Reclassified from `22b-delete (preserve unboxRidbags)` to
+  > `22c-defer` with YTDB-issue rationale to re-investigate the
+  > minimum live surface. (3) **22c-defer exception leaves rationale
+  > expanded** — `RetryQueryException` has a catch site at
+  > `Function.java:262` (multi-catch) and `InternalErrorException`
+  > has 5 `instanceof` discriminators in `AbstractStorage.java`
+  > (lines 1608, 3465, 5619, 5663) plus an import at line 62.
+  > Throw-site count remains 0 (Phase A claim holds), but the
+  > catch / instanceof callers must be evaluated together with any
+  > deletion decision. (4) **FQN corrections** —
+  > `core.cache.local.aoc.FileSegment` → `core.storage.cache.local.aoc.FileSegment`;
+  > `core.index.IndexCursorStream` → `core.index.iterator.IndexCursorStream`.
+  > Other rows (`ZIPCompressionUtil`, `Compression`, `Dictionary`,
+  > `FileSegment`, `DatabaseRepair`, `BonsaiTreeRepair`,
+  > `IndexCursor`/`IndexAbstractCursor`, `IndexKeyCursor`,
+  > `LiveQueryInterruptedException`, `ManualIndexesAreProhibited`)
+  > re-validate cleanly with zero external production callers.
+  >
+  > **Recovery-gap residuals (input for 22c marker rewrite filter):**
+  > 218 WHEN-FIXED markers reference Track 22; the following 30+ pin
+  > symbols **not present** in the cluster classification table:
+  >
+  > *Production-bug pin markers (not deletion candidates — these
+  > stay as production-bug pins, 22c rewrite filter must skip these):*
+  > - `core/command/BasicCommandContextStandaloneTest.java:652, 670`
+  >   (`BasicCommandContext.copy()` null-guard)
+  > - `core/command/script/ScriptManagerTest.java:824`
+  >   (`closeAll` vs `close(dbName)`)
+  > - `core/metadata/security/ImmutableUserTest.java:184`
+  >   (`populateSystemRoles` null guard)
+  > - `core/security/SecurityManagerTest.java:261, 268, 281`
+  >   (`SALT_CACHE` algorithm-key bug + `NumberFormatException`)
+  > - `core/security/TokenSignImplTest.java:292`
+  >   (`readKeyFromConfig` honoring configured key)
+  > - `core/sql/SQLHelperParseValueScalarTest.java:348`
+  >   (`"2000t"` DATETIME classification NFE)
+  > - `core/sql/executor/SelectExecutionPlannerBranchTest.java:172, 400, 672`
+  >   (`colleciton` typo + stream-exhaustion + assertion typo)
+  > - `core/sql/method/SQLMethodRuntimeTest.java:260`
+  >   (`SQLMethodRuntime.setParameters` cast behavior)
+  > - `core/sql/query/BasicLegacyResultSetTest.java:371, 495, 520, 639, 756`
+  >   (`iterator()`, `containsAll`, `retainAll`, `equals`, `add(T)` limit drop)
+  >
+  > *Deletion-candidate pins missing from the cluster table (22c
+  > should either expand the table to cover these or fold them into
+  > 22c-defer issues):*
+  > - `core/sql/SqlRootDeadCodeTest.java:133, 159, 263`
+  >   (`CommandExecutorSQLAbstract`, `DefaultCommandExecutorSQLFactory`)
+  > - `core/sql/executor/SqlExecutorDeadCodeTest.java`
+  >   (lines 109, 126, 160, 180, 199, 204, 213, 239, 269, 297, 334, 352 —
+  >   `InfoExecutionPlan.{setSteps, toResult}`, `TraverseResult.depth`,
+  >   `TraverseResult.copy()` etc.)
+  > - `core/sql/query/SqlQueryDeadCodeTest.java`
+  >   (lines 122, 152, 179, 272, 385, 418, 487, 650, 685, 726, 760 —
+  >   `ConcurrentLegacyResultSet`, `LiveLegacyResultSet`,
+  >   `LiveResultListener`, `LocalLiveResultListener`)
+  > - `core/security/symmetrickey/UserSymmetricKeyConfigDeadCodeTest.java:243`
+  >   (`UserSymmetricKeyConfig`)
+  > - `core/serialization/serializer/record/SerializationThreadLocalDeadCodeTest.java:65`
+  >   (`SerializationThreadLocal`)
+  > - `core/sql/functions/misc/SQLFunctionFormatMiscDeadTest.java:32`
+  >   (`SQLFunctionFormat`)
+  >
+  > **What changed from the plan:** Track 9 and Track 10 rows
+  > reclassified from `22b-delete` to `22c-defer`. This shrinks
+  > Track 22b's deletion scope by 2 lockstep groups and grows
+  > Track 22c's WHEN-FIXED-issue list by 2 entries. No change to
+  > Track 22a's coverage scope — the live surface (`LiveQueryHook`,
+  > `LiveQueryHookV2`, `CommandScript` cluster) remains in the
+  > coverage path of subsequent 22a steps that touch those classes
+  > if they fall in scope.
+  >
+  > **Key files:**
+  > - `docs/adr/unit-test-coverage/_workflow/tracks/track-22a.md`
+  >   (cluster classification table updated)
 
 - [ ] Step: `core/tx` coverage tests
   > **Risk:** medium — multi-file logic touching live transaction path
