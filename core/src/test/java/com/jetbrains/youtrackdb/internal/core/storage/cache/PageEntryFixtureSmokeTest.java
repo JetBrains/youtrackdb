@@ -47,8 +47,8 @@ public class PageEntryFixtureSmokeTest {
   /**
    * Acquires a single reader-style entry, asserts its coordinates and that the underlying
    * allocator is non-null, then closes the fixture and verifies idempotent close. Failing
-   * this test means the fixture cannot replace the inline boilerplate in Track-19 / Track-20
-   * cache tests.
+   * this test means the fixture cannot replace the inline boilerplate previously duplicated
+   * across cache-policy and read-buffer tests.
    */
   @Test
   public void readerAcquisitionMatchesCoordinatesAndCloseIsIdempotent() {

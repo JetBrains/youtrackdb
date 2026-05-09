@@ -10,7 +10,7 @@ import org.junit.Test;
  * {@link BigInteger} by reinterpreting the two's-complement bit pattern.
  * The private {@code scaleToDecimal128}, {@code clampAndRound}, and
  * {@code ensureExactRounding} methods have no production callers and are
- * forwarded to Track 22 for deletion (D4 dead-helper allowance).
+ * forwarded to the dead-code deletion sweep (D4 dead-helper allowance).
  */
 public class DecimalKeyNormalizerTest {
 

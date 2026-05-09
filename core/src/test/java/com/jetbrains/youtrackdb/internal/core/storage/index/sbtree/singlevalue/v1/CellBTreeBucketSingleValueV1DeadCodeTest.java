@@ -11,20 +11,19 @@ import org.junit.Test;
 /**
  * Dead-code shape pin for {@link CellBTreeBucketSingleValueV1}.
  *
- * <p>Phase A PSI {@code ReferencesSearch} confirmed <strong>zero production references</strong>
- * to this class across the entire module graph (0 main + 0 test refs). The v1 single-value
- * cell B-tree bucket has been superseded by the v3 implementation and is unreachable from
- * any production or test code.
+ * <p>PSI {@code ReferencesSearch} confirmed <strong>zero production references</strong> to this
+ * class across the entire module graph (0 main + 0 test refs). The v1 single-value cell B-tree
+ * bucket has been superseded by the v3 implementation and is unreachable from any production or
+ * test code.
  *
  * <p>These tests pin falsifiable behavioural observables — init flags leaf/non-leaf correctly,
- * switchBucketType works on an empty bucket, and the empty-bucket invariants hold — so that a
- * deletion commit in Track 22 either removes this file in lockstep or fails at compile time.
+ * switchBucketType works on an empty bucket, and the empty-bucket invariants hold — so that the
+ * eventual deletion commit either removes this file in lockstep or fails at compile time.
  *
- * <p>WHEN-FIXED: delete the entire {@code sbtree/singlevalue/v1} package
- * ({@code CellBTreeBucketSingleValueV1}, {@code CellBTreeSingleValueEntryPointV1}) together with
- * this dead-code test file in a single coordinated commit when the Track 22 deletion sweep runs.
- * No production callers exist, so the deletion needs only to remove this test file and the
- * {@code CellBTreeSingleValueEntryPointV1DeadCodeTest} file alongside the source.
+ * <p>WHEN-FIXED: delete this file in the same commit that deletes the v1 source classes
+ * ({@code CellBTreeBucketSingleValueV1}, {@code CellBTreeSingleValueEntryPointV1}) and the
+ * sibling {@code CellBTreeSingleValueEntryPointV1DeadCodeTest}. No production callers exist,
+ * so the deletion needs only to remove the two test files alongside the source.
  */
 public class CellBTreeBucketSingleValueV1DeadCodeTest {
 
@@ -84,7 +83,7 @@ public class CellBTreeBucketSingleValueV1DeadCodeTest {
    * <p>The non-empty guard path (throws {@link IllegalStateException}) requires adding
    * entries via the full serializer context (IT-scoped) and is not exercised here; the
    * shape pin covers the structural toggle invariant only.
-   * WHEN-FIXED: Track 22 deletes this test together with the source.
+   * WHEN-FIXED: this test is deleted together with the v1 source classes.
    */
   @Test
   public void switchBucketType_onEmptyLeaf_togglesCorrectlyBothDirections() {

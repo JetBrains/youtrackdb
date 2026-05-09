@@ -11,26 +11,26 @@ import org.junit.Test;
 /**
  * Dead-code shape pin for {@link CellBTreeSingleValueEntryPointV1}.
  *
- * <p>Phase A PSI {@code ReferencesSearch} confirmed <strong>zero production references</strong>
- * to this class across the entire module graph (0 main + 0 test refs). The v1 entry-point page
- * for single-value cell B-tree has been superseded by the v3 implementation and is unreachable
- * from any production or test code.
+ * <p>PSI {@code ReferencesSearch} confirmed <strong>zero production references</strong> to this
+ * class across the entire module graph (0 main + 0 test refs). The v1 entry-point page for
+ * single-value cell B-tree has been superseded by the v3 implementation and is unreachable from
+ * any production or test code.
  *
  * <p>These tests pin the falsifiable behavioural observables (init state, set/get treeSize,
- * set/get pagesSize) so that a deletion commit in Track 22 either removes this file in
- * lockstep or fails at compile time.
+ * set/get pagesSize) so that the eventual deletion commit either removes this file in lockstep
+ * or fails at compile time.
  *
- * <p>WHEN-FIXED: delete this file together with the entire {@code sbtree/singlevalue/v1} package
- * in a single coordinated commit when the Track 22 deletion sweep runs. No production callers
- * exist; the deletion needs only to remove this file, the
- * {@code CellBTreeBucketSingleValueV1DeadCodeTest}, and the two source classes atomically.
+ * <p>WHEN-FIXED: delete this file in the same commit that deletes the v1 source classes
+ * ({@code CellBTreeBucketSingleValueV1}, {@code CellBTreeSingleValueEntryPointV1}) along with
+ * the sibling {@code CellBTreeBucketSingleValueV1DeadCodeTest}. No production callers exist;
+ * the deletion needs only to remove the two test files alongside the source atomically.
  */
 public class CellBTreeSingleValueEntryPointV1DeadCodeTest {
 
   /**
    * After init(), treeSize is 0 and pagesSize is 1 — the historical defaults.
    * Pinning these ensures a silent change to the init defaults cannot sneak in before
-   * the Track 22 deletion lands.
+   * the dead-code deletion lands.
    */
   @Test
   public void init_setsTreeSizeZeroAndPagesSizeOne() {

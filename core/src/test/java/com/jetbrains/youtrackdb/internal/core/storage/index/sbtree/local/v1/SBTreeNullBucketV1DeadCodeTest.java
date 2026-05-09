@@ -13,19 +13,19 @@ import org.junit.Test;
 /**
  * Dead-code shape pin for {@link SBTreeNullBucketV1}.
  *
- * <p>Phase A PSI {@code ReferencesSearch} confirmed 0 main references and only 4 test
- * references (all in the legacy {@code SBTreeNullBucketV1Test}). The v1 SBTree null bucket
- * is unreachable from any production code path; it is transitively dead once
- * {@code SBTreeBucketV1} is deleted in Track 22.
+ * <p>PSI {@code ReferencesSearch} confirmed 0 main references and only 4 test references
+ * (all in the legacy {@code SBTreeNullBucketV1Test}). The v1 SBTree null bucket is unreachable
+ * from any production code path; it is transitively dead once {@code SBTreeBucketV1} and
+ * {@code SBTreeValue} are deleted.
  *
  * <p>These tests pin falsifiable behavioural observables (getRawValue null and non-null paths)
- * that are not yet covered by the legacy test file, so that a deletion commit in Track 22
- * either removes this file in lockstep or fails at compile time.
+ * that are not yet covered by the legacy test file, so that the eventual deletion commit either
+ * removes this file in lockstep or fails at compile time.
  *
- * <p>WHEN-FIXED: delete this file together with the entire {@code sbtree/local/v1} package
- * and the legacy test files ({@code SBTreeLeafBucketV1Test}, {@code SBTreeNonLeafBucketV1Test},
- * {@code SBTreeNullBucketV1Test}) in a single coordinated commit when the Track 22 deletion
- * sweep runs.
+ * <p>WHEN-FIXED: delete this file in the same commit that deletes the v1 source classes
+ * ({@code SBTreeBucketV1}, {@code SBTreeNullBucketV1}, {@code SBTreeValue}) along with the legacy
+ * test files ({@code SBTreeLeafBucketV1Test}, {@code SBTreeNonLeafBucketV1Test},
+ * {@code SBTreeNullBucketV1Test}).
  */
 public class SBTreeNullBucketV1DeadCodeTest {
 

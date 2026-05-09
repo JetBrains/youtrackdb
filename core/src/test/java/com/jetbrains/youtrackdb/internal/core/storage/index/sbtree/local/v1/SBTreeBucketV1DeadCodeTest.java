@@ -11,19 +11,18 @@ import org.junit.Test;
 /**
  * Dead-code shape pin for {@link SBTreeBucketV1}.
  *
- * <p>Phase A PSI {@code ReferencesSearch} confirmed 0 main references and 23 test references
+ * <p>PSI {@code ReferencesSearch} confirmed 0 main references and 23 test references
  * (all in the legacy {@code SBTreeLeafBucketV1Test} and {@code SBTreeNonLeafBucketV1Test}). The
  * v1 SBTree bucket is unreachable from any production code path.
  *
  * <p>These tests pin falsifiable behavioural observables — init flags, isEmpty, size, treeSize
  * set/get, and switchBucketType toggle — that are not all covered by the legacy test files, so
- * that a deletion commit in Track 22 either removes this file in lockstep or fails at compile time.
+ * that the eventual deletion commit either removes this file in lockstep or fails at compile time.
  *
- * <p>WHEN-FIXED: delete this file together with the entire {@code sbtree/local/v1} package
- * ({@code SBTreeBucketV1}, {@code SBTreeNullBucketV1}, {@code SBTreeValue}) plus the legacy test
- * files ({@code SBTreeLeafBucketV1Test}, {@code SBTreeNonLeafBucketV1Test},
- * {@code SBTreeNullBucketV1Test}) in a single coordinated commit when the Track 22 deletion
- * sweep runs.
+ * <p>WHEN-FIXED: delete this file in the same commit that deletes the v1 source classes
+ * ({@code SBTreeBucketV1}, {@code SBTreeNullBucketV1}, {@code SBTreeValue}) along with the legacy
+ * test files ({@code SBTreeLeafBucketV1Test}, {@code SBTreeNonLeafBucketV1Test},
+ * {@code SBTreeNullBucketV1Test}).
  */
 public class SBTreeBucketV1DeadCodeTest {
 
@@ -107,7 +106,7 @@ public class SBTreeBucketV1DeadCodeTest {
 
   /**
    * switchBucketType toggles isLeaf on an empty bucket in both directions.
-   * WHEN-FIXED: Track 22 deletes this test together with the source.
+   * WHEN-FIXED: this test is deleted together with the v1 source classes.
    */
   @Test
   public void switchBucketType_onEmptyBucket_togglesBothDirections() {

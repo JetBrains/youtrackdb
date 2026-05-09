@@ -1018,10 +1018,10 @@ public class StaleTransactionMonitorTest {
     var executor = new FakeScheduledExecutor();
 
     monitor.start(executor);
-    assertThat(executor.scheduledCount).isEqualTo(1);
+    assertThat(executor.scheduledCount.get()).isEqualTo(1);
 
     monitor.start(executor);
-    assertThat(executor.scheduledCount).isEqualTo(1); // should not schedule again
+    assertThat(executor.scheduledCount.get()).isEqualTo(1); // should not schedule again
   }
 
   /**
@@ -1052,12 +1052,12 @@ public class StaleTransactionMonitorTest {
     var executor = new FakeScheduledExecutor();
 
     monitor.start(executor);
-    assertThat(executor.scheduledCount).isEqualTo(1);
+    assertThat(executor.scheduledCount.get()).isEqualTo(1);
 
     monitor.stop();
 
     monitor.start(executor);
-    assertThat(executor.scheduledCount).isEqualTo(2);
+    assertThat(executor.scheduledCount.get()).isEqualTo(2);
   }
 
   /**
@@ -1112,22 +1112,28 @@ public class StaleTransactionMonitorTest {
     }
 
     // Production behaviour today: the read-then-set in start() permits a benign race so
-    // the schedule count may briefly exceed 1 if two threads both observe the field as
-    // null. We assert the looser invariant that some thread wins (>=1) and the count
-    // does not exceed the number of racers (sanity bound).
-    assertThat(executor.scheduledCount)
+    // the schedule count may briefly exceed 1 if two threads observe the field as null
+    // before the first writer's store becomes visible. We assert (a) at least one racer
+    // wins, and (b) a tight upper bound that fails when the production guard is
+    // genuinely weakened: with the existing volatile read+CyclicBarrier alignment, at
+    // most a small handful of racers can realistically slip past the read-then-set
+    // before the volatile store becomes visible. <= 2 is the empirically-safe ceiling
+    // for the known-good production guard; a regression that removes the null-check
+    // entirely would yield a count up to N=8 and fail this bound.
+    assertThat(executor.scheduledCount.get())
         .as("at least one racer must have scheduled")
         .isGreaterThanOrEqualTo(1);
-    assertThat(executor.scheduledCount)
-        .as("schedule count must not exceed racer count")
-        .isLessThanOrEqualTo(racerCount);
+    assertThat(executor.scheduledCount.get())
+        .as("at most a few racers can observe null before the first writer's "
+            + "store becomes visible")
+        .isLessThanOrEqualTo(2);
 
     // After the race, a subsequent start() must be a no-op because scheduledFuture
     // is now non-null on the racing thread that wrote last (visibility guaranteed by
     // the volatile field). Capture the current count and verify it does not change.
-    int afterRaceCount = executor.scheduledCount;
+    int afterRaceCount = executor.scheduledCount.get();
     monitor.start(executor);
-    assertThat(executor.scheduledCount)
+    assertThat(executor.scheduledCount.get())
         .as("post-race start() must be a no-op (volatile read sees non-null future)")
         .isEqualTo(afterRaceCount);
   }
@@ -1170,7 +1176,7 @@ public class StaleTransactionMonitorTest {
       throw new AssertionError(error.get());
     }
     assertThat(done.get()).isEqualTo(cycles);
-    assertThat(executor.scheduledCount).isEqualTo(cycles);
+    assertThat(executor.scheduledCount.get()).isEqualTo(cycles);
     // The last stop() must have left scheduledFuture cancelled.
     assertThat(executor.lastFuture.cancelled).isTrue();
   }
@@ -1178,13 +1184,45 @@ public class StaleTransactionMonitorTest {
   // --- run() wraps exceptions ---
 
   /**
-   * The run() method catches exceptions from doCheck() and logs them instead of propagating.
+   * The {@link StaleTransactionMonitor#run()} method catches all exceptions thrown from
+   * {@code doCheck()} and logs them instead of propagating, so the scheduler can keep firing.
+   * This test injects a faulty {@code tsMins} Set whose {@code iterator()} throws a
+   * RuntimeException; the production code reaches the iteration during its low-water-mark
+   * scan, and run() must swallow the exception. Without the production try/catch the
+   * exception would propagate out of run() and the test would fail. After the failed run, the
+   * monitor must still be usable: a subsequent run() against the original (well-behaved)
+   * {@code tsMins} updates metrics normally.
    */
   @Test
   public void testRunDoesNotPropagateExceptions() {
-    var monitor = createMonitor();
-    // run() should not throw even if tsMins iteration encounters issues
-    monitor.run();
+    // Build a faulty Set wrapper that throws on iterator(); reuse the rest of the
+    // collaborators from setUp() so the test mirrors the real construction path.
+    Set<TsMinHolder> faultyTsMins = new java.util.AbstractSet<>() {
+      @Override
+      public java.util.Iterator<TsMinHolder> iterator() {
+        throw new RuntimeException("boom from faulty tsMins.iterator()");
+      }
+
+      @Override
+      public int size() {
+        return 0;
+      }
+    };
+
+    var faultyMonitor = new StaleTransactionMonitor(
+        "test", faultyTsMins, snapshotIndexSize, idGen, ticker, config, registry);
+
+    // run() must NOT propagate the RuntimeException from iterator(). If it did, this call
+    // would throw and the test would fail.
+    faultyMonitor.run();
+
+    // After the failed run, the metrics registry is still functional: a healthy monitor
+    // built from the original (well-behaved) tsMins Set updates metrics on its next run().
+    var healthyMonitor = createMonitor();
+    healthyMonitor.run();
+    assertThat(activeTxCount.getValue())
+        .as("healthy monitor must still update metrics after sibling monitor's faulty run()")
+        .isEqualTo(0);
   }
 
   // --- Diagnostic fields on TsMinHolder ---
@@ -1435,17 +1473,21 @@ public class StaleTransactionMonitorTest {
 
   /**
    * A fake ScheduledExecutorService that records calls without actually scheduling.
+   * {@code scheduledCount} is an {@link AtomicInteger} so concurrent racers in
+   * {@link #testStartIdempotentUnderConcurrentRace} cannot drop increments via the
+   * non-atomic {@code i++} read-modify-write pattern; {@code lastFuture} is volatile so
+   * cross-thread reads see the latest write.
    */
   private static final class FakeScheduledExecutor
       implements ScheduledExecutorService {
 
-    int scheduledCount;
-    FakeScheduledFuture lastFuture;
+    final AtomicInteger scheduledCount = new AtomicInteger();
+    volatile FakeScheduledFuture lastFuture;
 
     @Override
     public ScheduledFuture<?> scheduleWithFixedDelay(
         Runnable command, long initialDelay, long delay, TimeUnit unit) {
-      scheduledCount++;
+      scheduledCount.incrementAndGet();
       lastFuture = new FakeScheduledFuture();
       return lastFuture;
     }

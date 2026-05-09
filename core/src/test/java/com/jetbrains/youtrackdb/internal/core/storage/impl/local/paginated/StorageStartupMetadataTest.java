@@ -288,16 +288,21 @@ public class StorageStartupMetadataTest {
   }
 
   /**
-   * Calling {@code clearDirty()} before any {@code create()} or {@code open()} fails because
-   * the channel is null. This pins the precondition that callers must initialise the
-   * metadata before flipping flags.
+   * Calling {@code clearDirty()} before any {@code create()} or {@code open()} is a silent
+   * no-op: the volatile {@code dirtyFlag} is false on a fresh instance, so the early-return
+   * path fires before any IO is attempted on the null channel.
+   *
+   * <p>This is asymmetric with {@code makeDirty()} (see
+   * {@link #testMakeDirtyOnUninitialisedThrows}): {@code makeDirty} on the same fresh instance
+   * falls through past the early-return guard (the flag is false, so the lock is acquired and
+   * the update tries to write to a null channel) and NPEs. The asymmetry is pinned here
+   * deliberately so a future refactor that unifies the two paths cannot silently change the
+   * uninitialised behaviour without updating both pins.
    */
   @Test
-  public void testClearDirtyOnUninitialisedFails() {
+  public void testClearDirtyOnUninitialisedIsSilentNoOp() {
     var meta = new StorageStartupMetadata(filePath, backupPath);
-    // Without create/open the volatile flag is false, so the early-return path actually
-    // makes this a no-op rather than failing. Pin the early-return contract: clearDirty
-    // on a fresh instance returns without IO.
+    // Pin the early-return contract: clearDirty on a fresh instance returns without IO.
     try {
       meta.clearDirty();
     } catch (IOException e) {

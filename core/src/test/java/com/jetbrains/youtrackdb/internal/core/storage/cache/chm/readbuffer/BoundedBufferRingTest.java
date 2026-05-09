@@ -56,9 +56,9 @@ public class BoundedBufferRingTest {
   /**
    * Creates a CacheEntry backed by a real direct-memory page frame via the shared
    * {@link PageEntryFixture}. The page-level pattern ({@code acquireDirect} →
-   * {@link CachePointer} → {@code incrementReadersReferrer}) matches the Track 19 / 20
-   * codification for cache-managed page tests; the fixture also runs the direct-memory leak
-   * detector when {@link #tearDown()} closes it.
+   * {@link CachePointer} → {@code incrementReadersReferrer}) matches the codified pattern for
+   * cache-managed page tests; the fixture also runs the direct-memory leak detector when
+   * {@link #tearDown()} closes it.
    */
   private CacheEntry makeEntry(final long fileId, final int pageIndex) {
     return pages.acquireReader(fileId, pageIndex);

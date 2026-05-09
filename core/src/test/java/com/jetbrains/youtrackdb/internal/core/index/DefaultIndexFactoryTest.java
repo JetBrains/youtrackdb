@@ -182,9 +182,14 @@ public class DefaultIndexFactoryTest extends DbTestBase {
    * return a {@link RemoteIndexEngine} regardless of the algorithm or multivalue flag.
    * The remote storage type is used by non-embedded (client/server) connections, where index
    * operations are forwarded to the server rather than executed locally.
+   *
+   * <p>The id and name from the {@code IndexEngineData} must be propagated to the returned
+   * engine — a regression that constructs the engine with hard-coded or swapped values
+   * (e.g., from the storage name instead of the data name) would not be caught by an
+   * instanceof-only check.
    */
   @Test
-  public void createIndexEngine_remoteStorage_returnsRemoteIndexEngine() {
+  public void createIndexEngine_remoteStorage_returnsRemoteIndexEngineWithDataIdAndName() {
     var remoteStorage = mock(Storage.class);
     when(remoteStorage.getType()).thenReturn("remote");
     when(remoteStorage.getName()).thenReturn("remote-db");
@@ -195,5 +200,10 @@ public class DefaultIndexFactoryTest extends DbTestBase {
     assertNotNull("createIndexEngine must not return null for remote storage", engine);
     assertTrue("Remote storage type must produce a RemoteIndexEngine",
         engine instanceof RemoteIndexEngine);
+    var remote = (RemoteIndexEngine) engine;
+    assertEquals("RemoteIndexEngine must carry the id from IndexEngineData",
+        99, remote.getId());
+    assertEquals("RemoteIndexEngine must carry the name from IndexEngineData",
+        "remote_engine_test", remote.getName());
   }
 }

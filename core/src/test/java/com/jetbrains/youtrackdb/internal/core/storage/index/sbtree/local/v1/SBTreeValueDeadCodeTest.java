@@ -6,19 +6,19 @@ import org.junit.Test;
 /**
  * Dead-code shape pin for {@link SBTreeValue}.
  *
- * <p>Phase A PSI analysis confirmed that {@code SBTreeValue} has 8 main references, but all are
+ * <p>PSI analysis confirmed that {@code SBTreeValue} has 8 main references, but all are
  * intra-package within {@code local/v1} itself (used by {@code SBTreeBucketV1} and
- * {@code SBTreeNullBucketV1}). Once the bucket classes are deleted in Track 22, {@code SBTreeValue}
- * becomes unreachable and is deleted in the same coordinated commit.
+ * {@code SBTreeNullBucketV1}). Once the bucket classes are deleted, {@code SBTreeValue} becomes
+ * unreachable and is deleted in the same coordinated commit.
  *
  * <p>These tests pin the {@code equals}/{@code hashCode}/{@code toString}/{@code isLink}/
- * {@code getLink}/{@code getValue} contracts so that a deletion commit in Track 22 either
- * removes this file in lockstep or fails at compile time.
+ * {@code getLink}/{@code getValue} contracts so that the eventual deletion commit either removes
+ * this file in lockstep or fails at compile time.
  *
- * <p>WHEN-FIXED: delete this file together with the entire {@code sbtree/local/v1} package
- * ({@code SBTreeBucketV1}, {@code SBTreeNullBucketV1}, {@code SBTreeValue}) plus the existing
- * {@code SBTreeLeafBucketV1Test}, {@code SBTreeNonLeafBucketV1Test}, {@code SBTreeNullBucketV1Test}
- * legacy tests in a single coordinated commit when the Track 22 deletion sweep runs.
+ * <p>WHEN-FIXED: delete this file in the same commit that deletes the v1 source classes
+ * ({@code SBTreeBucketV1}, {@code SBTreeNullBucketV1}, {@code SBTreeValue}) along with the
+ * legacy test files ({@code SBTreeLeafBucketV1Test}, {@code SBTreeNonLeafBucketV1Test},
+ * {@code SBTreeNullBucketV1Test}).
  */
 public class SBTreeValueDeadCodeTest {
 

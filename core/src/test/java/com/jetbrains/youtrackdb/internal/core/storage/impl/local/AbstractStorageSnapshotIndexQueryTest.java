@@ -7,7 +7,6 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdException;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.IndexAbstract;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -282,9 +281,4 @@ public class AbstractStorageSnapshotIndexQueryTest {
     return db.getStorage().getIndexEngine(index.getIndexId()).getId();
   }
 
-  // RecordId is referenced via the imports for documentation; suppress unused
-  // import linting if the file is touched in the future without the explicit
-  // RID-construction tests.
-  @SuppressWarnings("unused")
-  private static final Class<?> KEEP_RECORD_ID_IMPORT = RecordId.class;
 }

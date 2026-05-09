@@ -156,15 +156,35 @@ public class BTreeLifecycleTest {
   // ─────────────────────────────────────────────────────────────────────────
 
   /**
-   * {@code acquireAtomicExclusiveLock(atomicOperation)} must complete without throwing
-   * any exception. It delegates to the {@link AtomicOperationsManager} to register this
-   * component as an exclusive-lock holder for the duration of the operation.
+   * {@code acquireAtomicExclusiveLock(atomicOperation)} must register the BTree's lock name
+   * inside the atomic operation's locked-objects set. Asserting the registration is the
+   * observable side effect of the delegation; a regression that silently turns the method
+   * into a no-op (or fails to record the lock) would not be caught by a bare "does not
+   * throw" check.
+   *
+   * <p>The lock name is the BTree's {@code getLockName()} (inherited from
+   * {@code StorageComponent}) and is what {@code AtomicOperationsManager} stores in
+   * {@code AtomicOperation.lockedObjects()} via {@code addLockedObject}.
    */
   @Test
-  public void acquireAtomicExclusiveLock_completesWithoutException() throws Exception {
+  public void acquireAtomicExclusiveLock_registersLockNameInAtomicOperation() throws Exception {
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
-      // Should not throw
+      var lockName = tree.getLockName();
+
+      // Pre-condition: the lock name is not yet registered on a fresh atomic operation.
+      assertThat(atomicOperation.containsInLockedObjects(lockName))
+          .as("BTree lock name must not be registered before acquireAtomicExclusiveLock")
+          .isFalse();
+
       tree.acquireAtomicExclusiveLock(atomicOperation);
+
+      // Post-condition: the BTree is now recorded as an exclusive-lock holder for the
+      // duration of the operation. The lock will be released when the atomic operation
+      // commits or rolls back.
+      assertThat(atomicOperation.containsInLockedObjects(lockName))
+          .as("acquireAtomicExclusiveLock must register the BTree lock name in the "
+              + "atomic operation's locked-objects set")
+          .isTrue();
     });
   }
 
@@ -354,32 +374,53 @@ public class BTreeLifecycleTest {
   // ─────────────────────────────────────────────────────────────────────────
 
   /**
-   * The public copy constructor of {@link CellBTreeSingleValueV3Exception} must produce a
-   * non-null exception wrapping the original. This exercises the copy-constructor path, which
-   * is otherwise unreachable from production call sites (the constructor is marked
-   * {@code @SuppressWarnings("unused")} in the production code). Uses the real {@code tree}
-   * field (a concrete {@link BTree} instance) to satisfy the {@code component.getName()}
-   * call inside {@link com.jetbrains.youtrackdb.internal.core.exception.StorageComponentException}.
+   * The public copy constructor of {@link CellBTreeSingleValueV3Exception} must wrap the
+   * original exception so the seed message and cause survive the copy. This exercises the
+   * copy-constructor path, which is otherwise unreachable from production call sites (the
+   * constructor is marked {@code @SuppressWarnings("unused")} in the production code). The
+   * test uses the real {@code tree} field (a concrete {@link BTree} instance) to satisfy the
+   * {@code component.getName()} call inside
+   * {@link com.jetbrains.youtrackdb.internal.core.exception.StorageComponentException}.
+   *
+   * <p>The copy constructor at {@code BaseException(BaseException)} re-uses the seed's
+   * {@code getMessage()} and {@code getCause()}, so we assert both: the (assembled) message
+   * from the seed must appear in the copy's message, and the causes must match (both null on
+   * a freshly-constructed seed). The exact message format is built by
+   * {@link com.jetbrains.youtrackdb.internal.core.exception.CoreException#getMessage}: the
+   * seed string plus a Component Name suffix — we use {@code contains} so the test is robust
+   * to formatting tweaks.
    */
   @Test
-  public void cellBTreeExceptionCopyCtor_wrapsOriginalException() {
-    // Use the two-arg package-private constructor to create a seed exception.
+  public void cellBTreeExceptionCopyCtor_preservesSeedMessageAndCause() {
     var seed = new CellBTreeSingleValueV3Exception("seed message", tree);
 
-    // Exercise the copy constructor — must produce a non-null result.
     var copy = new CellBTreeSingleValueV3Exception(seed);
-    assertThat(copy).isNotNull();
+
+    assertThat(copy.getMessage())
+        .as("copy ctor must propagate the seed's assembled message text")
+        .contains("seed message");
+    assertThat(copy.getCause())
+        .as("copy ctor must mirror the seed's cause (null → null)")
+        .isEqualTo(seed.getCause());
   }
 
   /**
    * The three-arg package-private constructor {@code (dbName, message, component)} of
-   * {@link CellBTreeSingleValueV3Exception} must produce a non-null exception. This constructor
-   * is used by {@link BTree} when it wraps an {@link java.io.IOException} and needs to include
-   * the storage database name in the exception message.
+   * {@link CellBTreeSingleValueV3Exception} routes both the dbName and the message through
+   * the {@link com.jetbrains.youtrackdb.internal.core.exception.CoreException} chain, so the
+   * assembled {@code getMessage()} must contain the constructor's message string and
+   * {@code getDbName()} must return the dbName argument verbatim. {@link BTree} relies on
+   * exactly this path when it wraps an {@link java.io.IOException}.
    */
   @Test
-  public void cellBTreeExceptionThreeArgCtor_producesNonNullException() {
+  public void cellBTreeExceptionThreeArgCtor_propagatesMessageAndDbName() {
     var ex = new CellBTreeSingleValueV3Exception("dbName", "error message", tree);
-    assertThat(ex).isNotNull();
+
+    assertThat(ex.getMessage())
+        .as("three-arg ctor must propagate the message argument into the assembled message")
+        .contains("error message");
+    assertThat(ex.getDbName())
+        .as("three-arg ctor must store the dbName argument verbatim")
+        .isEqualTo("dbName");
   }
 }
