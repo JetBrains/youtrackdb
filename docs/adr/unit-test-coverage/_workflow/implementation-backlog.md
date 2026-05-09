@@ -1682,6 +1682,38 @@ Natural cleanup happens when the branch is deleted after PR merge. -->
 >    `GlobalConfiguration` values) must carry `@Category(SequentialTest.class)` to prevent
 >    parallel surefire thread pollution. `BTreeLifecycleTest` carries this; Track 22 should
 >    audit other B-tree test classes for similar mutations.
+>
+> *From Track 21 Phase C (track-level review fix iterations):*
+> 8. **`StorageStartupMetadata.open()` legacy-format reader BIG_ENDIAN dependency** —
+>    the legacy paths at `StorageStartupMetadata.java:182–194` (size ≤ 9) silently rely
+>    on `ByteBuffer`'s default `BIG_ENDIAN` order rather than `nativeOrder()`. The new
+>    Phase C iter-2 tests `testOpenWithLegacy9ByteFileReadsLastTxId` and
+>    `testOpenWithLegacyOneByteFileReadsDirtyFlag` hand-craft big-endian bytes to match.
+>    Two acceptable fixes: (a) add an explicit `.order(ByteOrder.BIG_ENDIAN)` call to
+>    the production reader so the dependency is self-documenting, OR (b) add a Javadoc
+>    note on `open()` pinning the legacy-format byte-order expectation. Either fix
+>    keeps the new tests green; pick (a) for clarity if the reader is otherwise
+>    untouched. No semantic change — the tests prove the production code already reads
+>    big-endian today.
+> 9. **Null-snapshot test-helper accessor on `AbstractStorage`** — populating
+>    `sharedNullIndexesSnapshot` from a high-level `db.begin / commit` sequence is
+>    fragile (depends on UNIQUE-vs-NOTUNIQUE index semantics + insert-with-null then
+>    update-to-non-null sequencing). The new Phase C iter-2 test
+>    `hasActiveIndexSnapshotEntries_routesNullSuffixEngineToNullMap` works around this
+>    by registering a real engine and cross-checking the sub-null-snapshot factory
+>    shape (a routing-only verification). For a positive-direction null-snapshot
+>    test in the future, consider adding a package-private helper to `AbstractStorage`
+>    that lets test code seed `sharedNullIndexesSnapshot` directly, mirroring how some
+>    tests already manipulate `sharedIndexesSnapshot` via setter-style helpers.
+>    Otherwise the routing-only verification is the durable test pattern.
+> 10. **Ephemeral-identifier sweep across earlier-track test files** — Track 21
+>    Phase C iter-1's adversarial review surfaced ~7 test files outside Track 21's
+>    diff (in `core/src/test/.../command/...` and `command/script/...`) still
+>    citing "Track 22" in durable Javadoc / comments, inherited from earlier
+>    tracks. These are durable-content rule violations of the same shape as
+>    Track 21 iter-1's CQ1/CQ2 fixes. Track 22 should run a single sweep across
+>    `core/src/test/` for `\bTrack [0-9]+\b` and `\bStep [0-9]+\b` patterns
+>    outside `_workflow/` and rewrite each match with a label-free phrasing.
 
 > **How**:
 > - TX tests need a database session to verify begin/commit/rollback

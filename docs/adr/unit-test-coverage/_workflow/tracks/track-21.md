@@ -392,7 +392,7 @@
     ## Progress
 - [x] Review + decomposition
 - [x] Step implementation (7/7 complete)
-- [ ] Track-level code review (1/3 iterations)
+- [x] Track-level code review (3/3 iterations)
 
 ## Base commit
 `23164a8487`
@@ -577,6 +577,106 @@ outside Track 21's diff (in `core/src/test/.../command/...` and
 inherited from earlier tracks. These should be swept in Track 22's
 ephemeral-identifier cleanup pass — they are durable-content rule
 violations of the same shape as iter-1's CQ1/CQ2 fixes.
+
+## Phase C iter-2 audit (committed in ff10bf63f5)
+
+Iter-2 implementer applied all 17 in-scope findings from the iter-1 plan
+in a single `Review fix:` commit (`ff10bf63f5`). 137 targeted tests pass
+across the 7 touched test classes; coverage gate `n/a (test-additive)`.
+Spotless clean.
+
+Per-finding outcomes:
+- **TB15/BC8** (REGRESSION fix): `testStartIdempotentUnderConcurrentRace`
+  upper bound reverted from `<= 2` to `<= racerCount` — empirical
+  flakiness eliminated.
+- **BC7**: Javadoc on the same test reframed as a crash-freedom probe;
+  bound-tightening note phrased without ephemeral identifiers.
+- **BC2/CQ19**: `testRunDoesNotPropagateExceptions` strengthened —
+  pre-populates `tsMins` with one active holder so the sibling-healthy
+  assertion (`activeTxCount == 1`) is now observably non-vacuous.
+- **CQ18/TS13**: `AbstractSet` / `Iterator` imports added; inline FQNs
+  removed from `testRunDoesNotPropagateExceptions`.
+- **BC9/TX4**: `FakeScheduledFuture.cancelled` is now `volatile`,
+  symmetric with `volatile lastFuture`.
+- **TX5**: One-line comment on `testRunDoesNotPropagateExceptions`
+  distinguishes the synthetic faulty-`Set` path from the production
+  `ConcurrentHashMap.KeySetView` weakly-consistent contract.
+- **CQ5** (partial — RID FQN closed in iter-3): `DurablePage`,
+  `Mockito.reset`, `Mockito.eq` imports added in
+  `BTreeMVBucketV2BulkOpsTest`; the residual `RID` inline FQN was
+  missed and closed in iter-3.
+- **TC1**: `validatedPut_validatorReturnsSubstitutedRid_storesSubstitutedValue`
+  added to `BTreeLifecycleTest`, covering the substitution branch
+  in the live B-tree engine.
+- **TC3/TX2**: `testConcurrentStartAgainstStopRace` added with
+  CyclicBarrier(2), 50 iterations, per-iteration 2 s timeout,
+  `AtomicReference.compareAndSet` for first-error capture.
+- **TC4a/TY1/CS2**: `testOpenWithCorruptPrimaryAndIntactBackupRecoversFromBackup`
+  added — corruption-with-intact-backup recovery branch covered by
+  surefire-reachable test.
+- **TC4b/TY2**: `testOpenWithLegacy9ByteFileReadsLastTxId` and
+  `testOpenWithLegacyOneByteFileReadsDirtyFlag` added covering
+  legacy startup-metadata formats.
+- **TC5**: `testAddAllNonLeafEntriesOpEqualsRespectsHeaderFields`
+  pins the `PageOperation.equals` chain on `fileId` / `pageIndex` /
+  `operationUnitId` differences.
+- **CS5**: `put_keyExceedsMaxKeySize_throwsTooBigIndexKeyException`
+  extended with post-rejection `tinyKeyTree.size(atomicOperation) == 0`
+  assertion.
+- **TB3**: `hasActiveIndexSnapshotEntries_routesNullSuffixEngineToNullMap`
+  pivoted from vertex-API population (fragile) to engine-registration
+  + sub-null-snapshot factory cross-check, which observably exercises
+  the `$null`-suffix routing path.
+- **TB6**: `compareTo` tests in `CellBTreeSingleValueEntryV3Test`
+  extended with reverse-direction + antisymmetry assertions.
+- **TB7**: Four `*OpEmptyList` tests carry byte-level
+  `IntegerSerializer.deserializeNative(content, 37) == 0`
+  entry-count assertions.
+- **TS4**: `"test"` literal database name replaced with
+  `"test-" + UUID.randomUUID()` in
+  `AbstractStorageSnapshotIndexQueryTest` and
+  `AbstractStorageGettersShapePinTest`; `import java.util.UUID;`
+  added to both.
+
+Discoveries (from iter-2 implementer's CROSS_TRACK_HINTS):
+1. `StorageStartupMetadata.open()` legacy-format reader (size ≤ 9 paths)
+   silently depends on `ByteBuffer`'s default BIG_ENDIAN order — NOT
+   `nativeOrder()`. Tests at `testOpenWithLegacy9ByteFileReadsLastTxId` /
+   `testOpenWithLegacyOneByteFileReadsDirtyFlag` now hard-code this
+   expectation. Track 22 absorption: either add an explicit `.order()`
+   call to the production reader for clarity, or add a Javadoc note
+   pinning the BIG_ENDIAN expectation.
+2. The null-snapshot population path through the public vertex API is
+   fragile to test from outside; if a future track wants a positive-
+   direction null-snapshot test, consider adding a package-private
+   helper to `AbstractStorage` that lets test code seed
+   `sharedNullIndexesSnapshot` directly. Otherwise the routing-only
+   verification (current TB3 approach) is the durable test pattern.
+
+Gate-check fan-out (6 dimensions: CQ/BC/TB/TC/TS/TX) verdict:
+
+- **BC — PASS**: BC2 / BC7 / BC8/TB15 / BC9/TX4 all VERIFIED. Zero new findings.
+- **TB — PASS**: TB3 / TB6 / TB7 / TB15 all VERIFIED. Zero new findings.
+- **TC — PASS**: TC1 / TC3/TX2 / TC4a / TC4b / TC5 / CS5 all VERIFIED. Zero new findings.
+- **TS — PASS**: TS4 / TS13 VERIFIED. Zero new findings.
+- **TX — PASS**: TX2/TC3 / TX4/BC9 / TX5 VERIFIED. Zero new findings.
+- **CQ — PARTIAL**: CQ18/TS13 + CQ19 VERIFIED. **CQ5 STILL OPEN** —
+  the implementer added imports for `DurablePage` / `Mockito.reset` /
+  `Mockito.eq` but missed `RID` (line 460 still carried inline FQN
+  `com.jetbrains.youtrackdb.internal.core.db.record.record.RID`).
+  Closed in iter-3.
+
+## Phase C iter-3 audit (committed in 42f45cbc90)
+
+Iter-3 closed the residual CQ5 finding in a single `Review fix:` commit
+(`42f45cbc90`). One file modified: `BTreeMVBucketV2BulkOpsTest.java`
+gained `import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;`
+at the alphabetically correct position; the inline FQN at line 460
+became `new ArrayList<RID>()`. 33 targeted tests pass; Spotless clean;
+coverage gate `n/a (test-additive)`.
+
+Final CQ gate-check verdict: **PASS** — CQ5 (residual) VERIFIED;
+zero new findings.
 
 ## Reviews completed
 - [x] Technical: PASS at iteration 2 (6 findings — T1/T2/T3 should-fix accepted, T4/T5/T6 suggestions accepted). Iter-2 gate verified: `local/v1` row added with deletion-bound rationale; IT-shadow caveat reworded to cite the default `**/*IT.java` glob under `ci-integration-tests` profile (NOT failsafe `<includes>`); step count loosened to ~6–7; JaCoCo `100% branch` annotated as branchless-interface unmeasurable-sentinel; `AbstractStorage` LOC corrected to ~3 100 instr-lines; `coverage-gate.py` `assert`-strip pre-step probe added for engine `doClearTree` paths and `nkbtree.normalizers`. Zero new findings.
