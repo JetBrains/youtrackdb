@@ -36,21 +36,29 @@ justified.
 |---|---|---|---|
 | `high` | `opus` | Full dimensional review (4 baseline + conditional, up to 3 iterations) | Focal point |
 | `medium` | `opus` | None | Focal point |
-| `low` | `sonnet` | None | Default coverage |
+| `low` | `opus` | None | Default coverage |
+
+**All implementer spawns use `opus` regardless of risk tag.** Sonnet's
+reliability on multi-step implementation work is below the threshold
+required for this workflow — even at `risk: low`, Sonnet implementers
+intermittently execute steps with errors (skipped sub-steps, incorrect
+test invocations, malformed return blocks) that Opus does not. The
+implementer model is therefore not allocated by risk tag; only the
+step-level dimensional review (sub-step 4) and the focal-point
+treatment in track-level review remain risk-tag-driven.
 
 The implementer-model column is read by the Phase B orchestrator when
 spawning the per-step implementer (see
 [`step-implementation.md`](step-implementation.md) §Implementer Prompt
-Template). The model is locked at spawn time and re-evaluated against
-the current risk tag on every respawn, so a `low → high` upgrade (see
-§"Phase B upgrade" below) automatically promotes the respawn from
-Sonnet to Opus. Downgrades mid-Phase B are not permitted, so the
-model never demotes once a step has run.
+Template). Because every row resolves to `opus`, the `low → high`
+upgrade path (see §"Phase B upgrade" below) does not change the model
+— it only enables sub-step 4's dimensional review and promotes the
+step to a focal point in track-level review.
 
 Phase A reviews, the dimensional-review fan-out agents (which fire only
 on `risk: high` steps), the Phase C track-level review, and the Phase
-B/C orchestrators themselves remain on Opus regardless of step risk —
-review and orchestration capacity is not allocated by step tag.
+B/C orchestrators themselves also run on Opus — review and
+orchestration capacity is not allocated by step tag.
 
 ## HIGH-risk triggers
 

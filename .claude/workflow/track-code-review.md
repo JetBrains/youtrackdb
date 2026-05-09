@@ -389,11 +389,11 @@ orchestrator never edits source files itself in Phase C.
 ## Implementer Spawns
 
 Each Phase C implementer spawn uses `subagent_type: "general-purpose"`
-and `model: "opus"`. (Track-level fix application operates on the
-cumulative track diff and may surface cross-step interactions; the
-risk tag, which would otherwise gate the model choice in Phase B, is
-locked per-step at end-of-Phase-B and does not inform the
-track-level model. Always spawn Opus.)
+and `model: "opus"` — the same as every Phase B implementer spawn (see
+[`risk-tagging.md`](risk-tagging.md) §"Risk levels — quick reference"
+for the rationale: Sonnet's reliability on multi-step implementation
+work is below the threshold this workflow requires, and the model is
+not allocated by risk tag).
 
 Use the **shared Implementer Prompt Template** in
 [`step-implementation.md`](step-implementation.md) §Implementer Prompt

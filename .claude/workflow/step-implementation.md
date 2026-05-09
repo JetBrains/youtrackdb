@@ -179,24 +179,26 @@ of those branches. The implementer prompt template is in
 
 ## Implementer Prompt Template
 
-Each spawn uses `subagent_type: "general-purpose"`. Pick `model` from
-the step's risk tag at spawn time: `risk: low` spawns with
-`model: "sonnet"`; `risk: medium` and `risk: high` spawn with
-`model: "opus"`. See [`risk-tagging.md`](risk-tagging.md) §"Risk
-levels — quick reference" for the full allocation table.
+Each spawn uses `subagent_type: "general-purpose"` and
+`model: "opus"` regardless of the step's risk tag. Sonnet's
+reliability on multi-step implementation work is below the threshold
+required for this workflow — implementer steps that complete cleanly
+on Opus surface intermittent execution errors on Sonnet even at
+`risk: low` (skipped sub-steps, incorrect test invocations, malformed
+return blocks). See [`risk-tagging.md`](risk-tagging.md) §"Risk
+levels — quick reference" for the rationale and for the risk-tag
+effects that DO still apply (sub-step 4 dimensional review, track-level
+focal-point treatment).
 
-Every spawn re-reads the current risk tag, so a `low → high` upgrade
-per [`risk-tagging.md`](risk-tagging.md) §"Phase B upgrade" promotes
-the next respawn from Sonnet to Opus, and `WITH_GUIDANCE` /
-`FIX_REVIEW_FINDINGS` respawns at the same tag stay on whichever
-model the tag selects. Downgrades mid-Phase B are not permitted (see
-`risk-tagging.md`), so the model never demotes once a step has run.
+Because the model is the same across all risk tags, `INITIAL`,
+`WITH_GUIDANCE`, and `FIX_REVIEW_FINDINGS` respawns all use Opus, and
+a `low → high` upgrade per
+[`risk-tagging.md`](risk-tagging.md) §"Phase B upgrade" does not
+change the model — it only changes what review pressure runs after
+the implementer returns.
 
 The same template is used by Phase C with `level=track` (see
-[`track-code-review.md`](track-code-review.md) §Implementer Spawns
-for the Phase C model selection — `model: "opus"` always, since
-Phase C fixes operate on the cumulative track diff and there is no
-per-step risk tag to consult).
+[`track-code-review.md`](track-code-review.md) §Implementer Spawns).
 
 The prompt body has a **stable static prefix** followed by the
 **per-spawn variable inputs**. The static block goes first for
