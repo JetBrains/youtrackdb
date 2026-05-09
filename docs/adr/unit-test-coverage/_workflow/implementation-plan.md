@@ -1904,6 +1904,24 @@ flowchart TD
   > test files) plus seven Phase B items (commit `6ea5492d4c`).
   >
   > **Step file:** `tracks/track-21.md` (7 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — Track 21 outcomes already absorbed
+  > by Track 22's existing absorption block (7 items pushed in
+  > `6ea5492d4c` and `350e642fd5`); no Component Map shifts; no
+  > Decision Record changes; no new inter-track dependencies. Two
+  > Pre-Flight clarifications captured for Track 22's step file:
+  > (1) WHEN-FIXED issue creation deferred to Track 22 itself with
+  > `// WHEN-FIXED: Track 22` → `// WHEN-FIXED: YTDB-NNNN` marker
+  > rewrite in lockstep, no-issue convention for clusters deleted
+  > in-track; (2) dead-code deletion policy is hybrid cluster-by-
+  > cluster — Phase A adversarial review classifies each cluster via
+  > PSI find-usages and the `mcp-steroid://ide/safe-delete` recipe,
+  > SPI-safe clusters deleted atomically with their `*DeadCodeTest`
+  > pins, SPI-risky clusters (abstract bases, public SPIs, exception
+  > types) issue-and-defer to follow-up PRs. Step decomposition
+  > guidance grows from "~6 + ~3–4" to roughly "~6 main coverage +
+  > ~8–10 deletion lockstep + ~1–2 marker-rewrite" steps; Phase A
+  > may inline-pack deletion into the related coverage step.
 
 - [ ] Track 22: Transactions, Gremlin & Remaining Core
   > Write tests for transaction management, Gremlin integration, and
