@@ -2120,7 +2120,7 @@ consumes these items begins.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (8/10 complete)
+- [ ] Step implementation (9/10 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -2819,7 +2819,8 @@ consumes these items begins.
   > - `core/src/test/java/.../core/record/impl/EntityImplTest.java`
   > - `core/src/test/java/.../core/serialization/serializer/binary/BinarySerializerFactoryTest.java`
 
-- [ ] Step: Inherited DRY / cleanup item sweep — coverage-additive subset
+- [x] Step: Inherited DRY / cleanup item sweep — coverage-additive subset
+  - [x] Context: info
   > **Risk:** medium — touches many test files across Tracks 7–21
   > test surfaces; no production code change in this step
   >
@@ -2833,6 +2834,72 @@ consumes these items begins.
   > Javadoc markers on idempotency tests). Per the reframing legend,
   > all "Track 22 deletes X" inherited text refers to 22b — no
   > deletion work happens in this step.
+  >
+  > **What was done:** Hoisted the per-test-class
+  > `private BasicCommandContext newContext()` helper into
+  > `TestUtilsFixture` as a single `protected` definition (one-line
+  > body delegating to `new BasicCommandContext(session)` — the
+  > pre-existing two-line form was semantically equivalent).
+  > Removed the duplicate from 34 executor-step test classes that
+  > already extended `TestUtilsFixture`. Migrated four
+  > `executor/resultset/*` test classes (`ExecutionResultSetTest`,
+  > `ExecutionStreamWrappersTest`, `ExpireTimeoutResultSetTest`,
+  > `InterruptResultSetTest`) from `extends DbTestBase` to
+  > `extends TestUtilsFixture` — none defined their own
+  > `@Before`/`@After`, so they pick up both the shared
+  > `newContext()` and the `@After rollbackIfLeftOpen` safety net
+  > for free. Spotless's `<removeUnusedImports/>` stripped the
+  > now-orphan `BasicCommandContext` imports across all 34
+  > deduplicated files.
+  >
+  > Falsifiable-strengthening fix in
+  > `AlterSecurityPolicyStatementExecutionTest`: the previous
+  > `Assert.assertNotNull("foo", policy.getName())` mis-used the
+  > `(String message, Object value)` JUnit overload — `"foo"` was
+  > the failure message, never compared to the policy name.
+  > Replaced with `Assert.assertEquals("foo", policy.getName())`
+  > plus an inline rationale comment.
+  >
+  > 517 / 517 tests pass across 40 test classes; spotless clean;
+  > net diff is +37/-267 lines (mostly the 230-line deduplication
+  > win). Test-additive only.
+  >
+  > **What was discovered:** Spotless's ratchet cache at
+  > `core/target/spotless-index` aggressively skips files whose
+  > hash matches the prior cached state —
+  > `mvnw -pl core spotless:apply` reported "1385 files clean - 0
+  > changed - 1385 skipped because caching" even when staged
+  > files were genuinely modified. Deleting the index file forced
+  > a real re-check, which confirmed the diff was already
+  > formatter-clean. Worth flagging for any future agent that
+  > suspects spotless silently missed their edits.
+  >
+  > **What changed from the plan:** none — pragmatically picked
+  > the highest-value coverage-additive items (the duplicated
+  > `newContext()` helper and one mis-used `assertNotNull`) per
+  > the step description's "3-5 items" guidance. Deferred items
+  > listed below for 22c YTDB-issue creation:
+  > - 7 remaining `DbTestBase` executor-step extenders that still
+  >   duplicate `newContext()` (`AggregateProjectionCalculationStepTest`,
+  >   `CartesianProductStepTest`, `ConvertToResultInternalStepTest`,
+  >   `ExpandStepTest`, `GuaranteeEmptyCountStepTest`,
+  >   `ProjectionCalculationStepTest`, `SubQueryStepTest`)
+  > - Extract `RecordingFunction` + `StubParser` helpers across
+  >   `RuntimeResultTest`, `SQLMethodRuntimeTest`,
+  >   `SQLFunctionRuntimeTest`, `SQLMethodFunctionDelegateTest`
+  > - License-banner normalization on `sql/*Test.java` /
+  >   `sql/query/*Test.java`
+  > - Split `SQLFunctionRuntimeTest` (997 lines) /
+  >   `SQLMethodRuntimeTest` (834 lines)
+  > - Drop duplicative try/commit/catch/rollback boilerplate where
+  >   `TestUtilsFixture`'s `@After rollbackIfLeftOpen` already
+  >   covers it
+  > - 25 executor corner-case pin tests
+  > - Dead `activeTx*` local variables in `TraverseTest.java:56-72`
+  >
+  > **Key files:** `TestUtilsFixture.java` (modified) plus 39 other
+  > test files in `core/src/test/java/.../core/sql/executor/`
+  > (modified). All net diff +37/-267.
 
 - [ ] Step: Coverage-build verification + WHEN-FIXED grep verification + baseline update
   > **Risk:** low — pure tooling step (run `coverage-analyzer.py`,
