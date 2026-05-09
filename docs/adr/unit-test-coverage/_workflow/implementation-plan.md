@@ -84,75 +84,6 @@ Track 1 (coverage measurement infrastructure).
     the rebase is auditable. If conflicts force non-trivial rework of
     already-committed steps, ESCALATE — the plan may need adjustment.
 
-### Operational Notes
-
-**`git clean -fd` incident (2026-05-04).** During Track 15 Step 4
-spawn the implementer escalated `RESULT: DESIGN_DECISION_NEEDED`
-and ran the rulebook's prescribed revert sequence
-`git reset --hard HEAD && git clean -fd`. The `git clean -fd`
-clause indiscriminately removes every untracked file in the
-worktree — by design, the workflow's working files (track step
-files, `reviews/`, `design.md`, `implementation-backlog.md`,
-baselines) live as **untracked-on-disk** so they're cleaned up
-alongside the branch on PR-merge. The revert wiped 50+ workflow
-files in one shot, plus rolled back the in-progress
-`implementation-plan.md` modifications (Track 13 + Track 14
-episodes and strategy-refresh lines) to the last committed state.
-
-**Recovery state (post-incident):**
-
-| File | Status | Recovery source |
-|---|---|---|
-| `implementation-plan.md` | Fully recovered | IntelliJ Local History (revision before the reset) |
-| `tracks/track-1.md` … `track-9.md`, `track-12.md`–`track-15.md` | Fully recovered | IntelliJ Local History |
-| `tracks/track-10.md`, `tracks/track-11.md` | Fully recovered | Agent transcripts (read-result history) |
-| `track-9-baseline.md`, `track-14-baseline.md` | Fully recovered | Local History / transcripts |
-| `design.md` | Fully recovered (336 lines, no gaps) | Agent transcripts |
-| `implementation-backlog.md` | 78% recovered (897 of 1149 lines; 252 lines in 3 gaps spanning Track 18 body, Tracks 19/20/21 entirely, two Track 22 inherited-DRY-scope subsections) | Agent transcripts (multi-read stitch) |
-| Track 15 Steps 2 + 3 episodes | Re-added from session context | Live orchestrator state |
-| `track-15-baseline.md` | **Lost** (no transcript ever read it) | Re-derive at Phase C from a fresh coverage run; aggregate values are preserved in Step 1's episode (76.0% line / 66.5% branch / 179 packages) |
-| 48 `reviews/` files | **Lost** (historical review reports for completed tracks) | Not reconstructable; track-level episodes in this plan preserve the strategic summary |
-| Track 15 Step 1's backlog absorption updates | **Lost** (added by Step 1 to the deferred-cleanup queue) | Re-derive at Phase C from Step 1's episode prose |
-
-**Reconstruct-on-demand tracks.** The 252 lost backlog lines fall in
-three gap regions covering Track 18's body, Tracks 19, 20, 21
-entirely, and two subsections of Track 22's inherited-DRY-scope
-queue. Each affected track entry below carries a
-`> **Operational note:**` pointer when its backlog section is gapped
-or its episode-state needs re-derivation. The reconstruction
-protocol:
-
-- When Phase A starts for an affected track, before reading the
-  backlog, the orchestrator regenerates the track's
-  `**What/How/Constraints/Interactions**` block from (a) the
-  track's `**Scope:**` indicator in this plan, (b) the design
-  document's Component Map cluster mapping for the target packages,
-  and (c) any cross-references from earlier track episodes (read
-  the `**Track episode:**` blocks of preceding tracks for context
-  on patterns and absorptions).
-- For Track 22's inherited-DRY-scope gaps: cross-reference the
-  `**Track episode:**` blocks for Tracks 7, 8, 9, 10, 11, 12, 13,
-  14 in this plan — each track's episode names the absorbed items
-  it forwarded to the deferred-cleanup queue. Stitching those
-  episode statements back into the backlog gives a faithful
-  reconstruction.
-- For Track 15 Step 1's missing backlog edits, re-derive at Track
-  15 Phase C using Step 1's episode prose (which lives in
-  `tracks/track-15.md` and names the per-class deletion contingency
-  for the test-only-reachable trio plus the lockstep deletion for
-  the fully-dead pair).
-
-**Rulebook fix in flight.** [PR #1022](https://github.com/JetBrains/youtrackdb/pull/1022)
-on `origin/develop` lands two corrections to
-`.claude/workflow/implementer-rules.md`: (1) forbid `ScheduleWakeup`
-inside the implementer (it yielded control without a `RESULT`
-block, which surfaced as a separate Phase B contract violation
-during the same session), and (2) replace `git clean -fd` with a
-snapshot-and-diff revert sequence that preserves the orchestrator's
-cross-spawn untracked state. Once the PR merges into `develop`,
-the next track's mandatory rebase pulls the fixed rulebook in;
-this Operational Notes section can be deleted at that point.
-
 ### Architecture Notes
 
 #### Component Map
@@ -275,8 +206,10 @@ flowchart TD
   (5-7 commits) and allows incremental merging. The `[no-test-number-check]`
   PR title tag can be used since we're adding tests without changing
   production code.
-- **Risks/Caveats**: 22 PRs is a lot. Tracks can be batched into larger
-  PRs if the team prefers.
+- **Risks/Caveats**: 24 PRs is a lot (the final-sweep track was split
+  into three sub-tracks during inline replanning — see the inline-
+  replan note below — which adds two PRs over the pre-split count).
+  Tracks can be batched into larger PRs if the team prefers.
 - **Inline-replan note (after Track 22 Phase A iter-1)**: Track 22 was
   split into 22a/22b/22c, producing three squashed merge-commits instead
   of one. The split honours D5's intent (each sub-track is independently
@@ -308,9 +241,12 @@ flowchart TD
   scope.
 - **Other modules** — Only the `core` module is in scope. `server`,
   `driver`, `embedded`, `tests`, and `docker-tests` are future work.
-- **100% coverage** — The target is 85% line / 70% branch overall. Some
-  packages will remain below this if the code is inherently hard to unit
-  test. The goal is to raise the aggregate.
+- **100% coverage** — The target is ~82–83% line / ~70–71% branch
+  overall (see §Goals — amended at the final-sweep track's Phase A
+  iter-1 because the original 85% / 70% headline proved mathematically
+  unreachable under the post-deletion denominator). Some packages will
+  remain below this if the code is inherently hard to unit test. The
+  goal is to raise the aggregate.
 - **Gremlin schema manipulation tests** — Classes in
   `api/gremlin/embedded/schema` and `api/gremlin/tokens/schema` are
   excluded — not ready for testing.
@@ -1941,16 +1877,11 @@ flowchart TD
 
 - [ ] Track 22a: Main Coverage Sweep — Transactions, Gremlin & Remaining Core
   > Write tests for transaction management, Gremlin integration, engine
-  > lifecycle, exception/compression/config, and all remaining uncovered
-  > core packages (cache, id, conflict, dictionary, servlet, replication,
-  > type, collate, `api/exception`, `api/config`, etc.). Closes the
-  > test-additive subset of the deferred-cleanup queue accumulated by
-  > earlier tracks (coverage gaps, falsifiable-strengthening pins,
-  > non-deletion DRY refactors, `*DeadCodeTest` shape pins for clusters
-  > whose live deletion is deferred to 22b/22c). Production-bug pins
-  > inherited via WHEN-FIXED markers from Tracks 7–21 are addressed
-  > here when the fix is local and test-additive; SPI-deferred pins flow
-  > to 22c.
+  > lifecycle, exception/compression/config, and remaining uncovered core
+  > packages (cache, id, conflict, dictionary, servlet, replication,
+  > type, collate, `api/exception`, `api/config`). Closes the test-additive
+  > subset of the deferred-cleanup queue accumulated by earlier tracks
+  > (full inventory in the backlog).
   >
   > **Scope:** ~6 steps covering main-package coverage sweep, smaller
   > packages, and a final coverage-build verification step (re-runs
@@ -1960,57 +1891,35 @@ flowchart TD
   >
   > **Depends on:** Track 1
   >
-  > **Operational note:** Backlog section carries the verbatim recovery
-  > of the inherited DRY queue (Tracks 10–13 stitched from track
-  > episodes after the 2026-05-04 `git clean -fd` incident, plus
-  > Tracks 14–21 absorption blocks committed inline in earlier
-  > sessions) and the iter-1 mechanical fixes T1/T2/T3/T5/T7/R2/R3/R4/
-  > R6/R7/A7/A8/A9 from the previous Track 22 Phase A run. Phase A
-  > of 22a re-validates each item against the per-track episodes
-  > before any consuming step begins; the suggestion-tier items lost
-  > in the recovery gap are de-scoped per A9.
+  > **Operational note:** see backlog § Inherited absorption queue for
+  > recovery context, the iter-1 mechanical-fix audit, and the Phase A
+  > re-validation protocol.
 
 - [ ] Track 22b: In-Track Dead-Code Deletion Lockstep
   > Atomic per-cluster commits removing dead production code together
-  > with its `*DeadCodeTest.java` shape pin. PSI find-usages classification
-  > via `mcp-steroid://ide/safe-delete` separates SPI-safe clusters
-  > (deleted in this track) from SPI-risky clusters (deferred to 22c
-  > as YTDB tracking issues). The 63 `*DeadCodeTest.java` files map to
-  > ~15–20 logical clusters; each in-track-deletion cluster is its own
-  > step, each commit independently bisectable. After every deletion
-  > commit, `coverage-analyzer.py` is re-run so the post-deletion
-  > denominator drop is reflected in `coverage-baseline.md`.
+  > with its `*DeadCodeTest.java` shape pin, classified via
+  > `mcp-steroid://ide/safe-delete` (SPI-safe clusters deleted in-track;
+  > SPI-risky clusters deferred to 22c). Each in-track-deletion cluster
+  > is one bisectable commit, with `coverage-analyzer.py` re-run after
+  > each so the post-deletion denominator drop is reflected in
+  > `coverage-baseline.md` (full cluster inventory in the backlog).
   >
-  > **Scope:** ~8 steps — one per in-track-deletion cluster (Strong
-  > candidates: `sbtree/singlevalue/v1`, `sbtree/local/v1`,
-  > `DecimalKeyNormalizer` dead helpers, Binary Token / JWT cluster,
-  > Kerberos credential / Krb5 login module, `ZIPCompressionUtil`,
-  > narrow singletons like `IndexConfigPropertyDeadCodeTest` /
-  > `MockSerializerDeadCodeTest` / `RecordBytesTestOnlyOverloadTest` /
-  > `CronExpressionDeadCodeTest` / `IndexCursorClusterDeadCodeTest`,
-  > `EntityLinkSetImplTest` partial dead methods, plus the iter-1 T2
-  > reclassifications: `LiveQueryBatchResultListener`,
-  > `DatabaseLifecycleListenerAbstract`, `DatabaseRepair`,
-  > `BonsaiTreeRepair`, `HookReplacedRecordThreadLocal`). Final cluster
-  > inventory is locked by 22b Phase A's adversarial review per the
-  > hybrid policy. Aggregate target after 22b: ~82–83% line / ~70–71%
-  > branch (denominator drop from deletions).
+  > **Scope:** ~8 steps — one per in-track-deletion cluster (controlled
+  > exception per D5; 22b Phase A may pack two narrow clusters into
+  > one step if final inventory exceeds 7). Aggregate target after 22b:
+  > ~82–83% line / ~70–71% branch (denominator drop from deletions).
   >
   > **Depends on:** Track 1, Track 22a (consumes 22a's PSI safe-delete
   > confirmations and the post-22a coverage baseline).
 
 - [ ] Track 22c: WHEN-FIXED Issue Creation & Marker Rewrite
   > Open YTDB tracking issues for production-fix WHEN-FIXED pins (the
-  > 101 non-dead-code markers across 164 test files, collapsed to
-  > one issue per logical fix) plus the SPI-risky dead-code clusters
-  > deferred from 22b (Hooks cluster, database-pool cluster,
-  > database-tool cluster, command-script SPI cluster, serializer-base
-  > cluster). For each created issue, rewrite the inline `// WHEN-FIXED:
-  > Track 22` (and `// WHEN-FIXED: deferred-cleanup track`) markers in
-  > the corresponding test sources to reference the new YTDB-NNNN ID.
-  > One commit per issue (per iter-1 finding R8) keeps the rewrite
-  > bisectable; clusters deleted by 22b are skipped (no-issue convention
-  > per Pre-Flight clarification).
+  > 101 non-dead-code markers across 164 test files, one issue per
+  > logical fix) plus the SPI-risky dead-code clusters deferred from
+  > 22b. Rewrite the inline `// WHEN-FIXED: Track 22` markers in the
+  > corresponding test sources to reference the new YTDB-NNNN IDs;
+  > clusters deleted by 22b are skipped (full deferred-cluster list
+  > and per-issue commit policy in the backlog).
   >
   > **Scope:** ~1–2 steps — one batched issue-creation + marker-rewrite
   > step covering all surviving WHEN-FIXED markers, plus an optional
@@ -2023,7 +1932,64 @@ flowchart TD
   > clusters NOT deleted by 22b need YTDB issues).
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+- [x] Plan review (consistency + structural) — passed at iteration 2
+
+**Auto-fixed (mechanical)**:
+- **CR1** (blocker): dropped phantom `OTokenHandlerImpl` reference from
+  the backlog Track 22b Binary Token / JWT cluster bullet; replaced with
+  a pointer to the Track 17 absorption block which already enumerates
+  the live binary-token quintet and JWT trio.
+- **CR2** (should-fix): synced the plan Non-Goals headline target from
+  `85% line / 70% branch` to `~82–83% line / ~70–71% branch`, matching
+  the amended §Goals.
+- **CR3** (should-fix): synced `design.md` Overview ¶1 + Workflow
+  mermaid loop predicate to the amended target; mermaid now delegates
+  the threshold to plan §Goals.
+- **CR4** (should-fix): updated `design.md` Overview ¶2 track count
+  from "22 tracks total" to "24 tracks total" reflecting the 22a/22b/22c
+  split.
+- **CR5** (should-fix): rewrote three Class Design "Used by" bullets in
+  `design.md` from `Track 22 (...)` to `Track 22a (...)` since 22a is
+  the only sub-track that authors test classes.
+- **CR6** (suggestion): updated the D5 risk caveat from "22 PRs" to
+  "24 PRs" with inline note about the split.
+- **S2** (should-fix): deleted the plan §Operational Notes block (69
+  lines) — its self-stated retirement criterion was met (PR #1022 merged
+  into `develop`); the recovery context was absorbed into the backlog
+  `### Inherited absorption queue` HTML comment.
+- **S3** (should-fix): trimmed Track 22a intro paragraph from 5
+  sentences to 2 with a backlog-pointer for the deferred-cleanup queue.
+- **S4** (should-fix): replaced Track 22a's 9-line `**Operational note:**`
+  block with a 3-line pointer to the backlog `### Inherited absorption
+  queue`; the iter-1 mechanical-fix audit list now lives in the backlog
+  HTML comment.
+- **S5** (suggestion): trimmed Track 22b intro paragraph and removed the
+  14-line "Strong candidates" enumeration from the scope-indicator (full
+  list preserved verbatim in the backlog `**What** (deletion clusters)`
+  block).
+- **S6** (suggestion): trimmed Track 22c intro paragraph from 4
+  sentences to 2 with a backlog-pointer for the deferred-cluster list and
+  per-issue commit policy.
+- **S7** (suggestion): replaced Track 22b's scope-indicator enumeration
+  with a discoverability cross-reference to D5's controlled-exception
+  clause.
+- **S8** (suggestion): rewrote a phantom past-tense reference in the
+  backlog reconstruction-protocol prose that pointed at the now-deleted
+  plan §Operational Notes section; the protocol description survives
+  intact.
+
+**Escalated (design decisions)**: none.
+
+**Acknowledged but deferred**:
+- **S1** (should-fix): plan-file total length is 1938 lines after the
+  S2/S3/S4 trims (down from 2034), still ~28% over the soft ~1500-line
+  budget. The remaining overage is dominated by user-approved
+  completed-track episode prose (Tracks 7–21). The structural-review
+  rule's proposed fix uses *recommend* language rather than prescribing
+  a single rendering, and there is no documented per-section budget for
+  episode prose, so an autonomous global trim would risk losing
+  strategic context that future tracks may need. Recorded here so the
+  user can authorize a dedicated trim pass if desired.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)

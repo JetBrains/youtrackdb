@@ -4,16 +4,21 @@
 
 This design covers the testing strategy and infrastructure needed to raise
 the `core` module's unit test coverage from 63.6% line / 53.3% branch to
-85% line / 70% branch. The solution has two parts:
+~82–83% line / ~70–71% branch (amended at the final-sweep track's Phase A
+iter-1 — the original 85% / 70% headline proved mathematically unreachable
+after the post-deletion denominator drop; see plan §Goals). The solution
+has two parts:
 
 1. **Coverage measurement infrastructure** — a Python script that parses
    JaCoCo XML reports and produces per-package overall coverage summaries,
    enabling progress tracking across tracks.
-2. **Systematic test addition** — 1 infrastructure track plus 21 tracks of
-   focused unit tests (22 tracks total), ordered
-   by testability tier (pure utilities first, storage internals last), each
-   following established test patterns (DbTestBase for DB-dependent tests,
-   standalone JUnit 4 for pure logic).
+2. **Systematic test addition** — 1 infrastructure track plus 20 tracks of
+   focused unit tests plus 3 final-sweep sub-tracks (24 tracks total — the
+   final-sweep track was split into 22a / 22b / 22c during inline replanning;
+   see plan §D5 inline-replan note), ordered by testability tier (pure
+   utilities first, storage internals last), each following established
+   test patterns (DbTestBase for DB-dependent tests, standalone JUnit 4
+   for pure logic).
 
 No production code is modified. The only new non-test artifact is the
 coverage analyzer script.
@@ -84,15 +89,15 @@ pattern based on its dependency profile:
 
 - **StandaloneTest** (no base class): For pure logic with no database
   dependency. Fastest, most isolated. Used by Tracks 2, 3, 5 (partial),
-  6 (partial), 7 (partial), 12, 13, 22 (partial — exceptions,
+  6 (partial), 7 (partial), 12, 13, 22a (partial — exceptions,
   compression, config).
 - **DbTestBase**: For code that requires a database session (SQL
   execution, schema manipulation, record CRUD). Provides per-test
   database lifecycle via `@Before`/`@After`. Used by Tracks 5 (partial),
   6 (partial), 7 (partial), 8, 9, 10, 11, 14, 15, 16, 17, 18,
-  19 (partial), 20, 21, 22 (partial — TX, engine).
+  19 (partial), 20, 21, 22a (partial — TX, engine).
 - **GraphBaseTest**: For code that requires a Gremlin graph context.
-  Extends DbTestBase with graph setup. Used by Track 22 (Gremlin tests).
+  Extends DbTestBase with graph setup. Used by Track 22a (Gremlin tests).
 - **ConcurrentTestHelper**: For multi-threaded correctness tests. Creates
   a thread pool, runs workers, and collects/reports failures. Used by
   Track 4 (concurrency) and Track 20 (storage cache).
@@ -111,7 +116,7 @@ flowchart TD
     F[".coverage/reports/youtrackdb-core/jacoco.xml"]
     G["coverage-analyzer.py\n(new — Track 1)"]
     H["Per-package coverage table\n(markdown output)"]
-    I{"Aggregate ≥ 85% / 70%?"}
+    I{"Aggregate coverage gate met?<br/>(see plan §Goals)"}
     J["Target met — done"]
     K["Identify next track's\ntarget packages"]
     L["Write tests for track"]

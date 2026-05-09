@@ -113,14 +113,18 @@ Natural cleanup happens when the branch is deleted after PR merge. -->
 
 <!-- This subsection preserves the full inherited absorption queue
 that was reconstructed during the previous Track 22 Phase A
-description-move (commit b4f859e76a). Phase A of 22a re-validates
-items against the per-track `**Track episode:**` blocks in
+description-move (commit b4f859e76a). The reconstruction stitched
+Tracks 10–13 episodes after the 2026-05-04 `git clean -fd` incident
+together with the Tracks 14–21 absorption blocks already committed
+inline in earlier sessions, plus the iter-1 mechanical-fix audit
+trail (findings T1/T2/T3/T5/T7/R2/R3/R4/R6/R7/A7/A8/A9) from the
+previous Track 22 Phase A run. Phase A of 22a re-validates each
+item against the per-track `**Track episode:**` blocks in
 `implementation-plan.md` before any consuming step begins. Items
 flagged as "deletion lockstep" or "WHEN-FIXED rewrite" are
 duplicated under 22b / 22c respectively but stay here too as
-context. Suggestion-tier items lost in the 2026-05-04 `git clean
--fd` recovery gap are de-scoped per A9 (mechanical fix from
-previous iter-1). -->
+context. Suggestion-tier items lost in the recovery gap are
+de-scoped per A9 (mechanical fix from previous iter-1). -->
 
 > **What — inherited DRY / cleanup scope from earlier tracks** (queued
 > work absorbed during Tracks 7–13; the agent applies the cleanup as a
@@ -1778,12 +1782,12 @@ previous iter-1). -->
 
 The 263 lines of backlog content lost in the 2026-05-04 `git clean -fd`
 incident covered the inherited cleanup absorptions from Tracks 10, 11,
-12, and 13. The Operational Notes section of `implementation-plan.md`
-prescribed a reconstruction protocol: re-read the `**Track episode:**`
-block of each affected track and stitch the items it forwarded back
-into Track 22's queue. The reconstructed inventory follows; Phase A
-reviews must validate this against the plan-file episodes before any
-step that consumes these items begins.
+12, and 13. The reconstruction protocol applied here was: re-read the
+`**Track episode:**` block of each affected track in
+`implementation-plan.md` and stitch the items it forwarded back into
+Track 22's queue. The reconstructed inventory follows; Phase A reviews
+must validate this against the plan-file episodes before any step that
+consumes these items begins.
 
 **Track 10 (Query & Fetch) — forwarded items:**
 
@@ -1937,8 +1941,12 @@ step that consumes these items begins.
 > - `sbtree/singlevalue/v1` (legacy V1 single-value B-tree)
 > - `sbtree/local/v1` (legacy V1 local B-tree)
 > - `DecimalKeyNormalizer` dead helpers
-> - Binary Token / JWT cluster (`BinaryToken`, `JwtPayload*`,
->   `OTokenHandlerImpl` legacy paths) — already inert historically
+> - Binary Token / JWT cluster — see the Track 17 absorption block
+>   for the full enumeration: the binary-token quintet (`BinaryToken`,
+>   `BinaryTokenSerializer`, `BinaryTokenPayloadImpl`,
+>   `BinaryTokenPayloadDeserializer`, `DistributedBinaryTokenPayload`)
+>   plus the JWT trio (`JsonWebToken`, `JwtPayload`,
+>   `YouTrackDBJwtHeader`) — already inert historically
 > - Kerberos credential / Krb5 login module dead code
 > - `ZIPCompressionUtil` (mechanical fix R2 from previous Phase A
 >   iter-1: reclassified from "coverage target" to "deletion candidate"
