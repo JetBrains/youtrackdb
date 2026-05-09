@@ -2123,6 +2123,9 @@ consumes these items begins.
 - [ ] Step implementation
 - [ ] Track-level code review
 
+## Base commit
+`296858a4772b1dbb60c4b678f1424568551842f8`
+
 ## Reviews completed
 - [x] Technical: iter-1 findings applied (10 findings: 1 blocker T3 [accepted, persisted as Cluster classification table], 5 should-fix T1/T2/T4/T5/T6 [accepted], 4 suggestions T7/T8/T9/T10 [folded into decomposition / dropped non-existent CLAUDE.md §10 reference]). Iter-2 gate-check deferred — fixes are markdown-only edits to the Description; verification rides on Phase B/C reading the corrected step file.
 - [x] Risk: iter-1 findings applied (8 findings: 2 blockers R1/R2 [accepted, factual constraint corrections in Description — TinkerPop fork-shadowing rewrite + DbTestBase per-method DB-name policy], 3 should-fix R3/R4/R5 [accepted], 3 suggestions R6/R7/R8 [folded into decomposition]). Iter-2 gate-check deferred per the same rationale.
