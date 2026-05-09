@@ -1,0 +1,64 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.jetbrains.youtrackdb.internal.core.exception;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMap;
+import org.junit.Test;
+
+/**
+ * Bespoke tests for {@link CollectionPositionMapException} — outside the parameterized fan
+ * because the only public non-copy ctor takes a {@link CollectionPositionMap} component reference
+ * rather than a flat (dbName, message) pair. The ctor delegates to {@link
+ * StorageComponentException} which forwards {@code component.getName()} as the {@code
+ * componentName} into {@link CoreException}.
+ */
+public class CollectionPositionMapExceptionTest {
+
+  /**
+   * The {@code (String dbName, String message, CollectionPositionMap component)} ctor must
+   * forward the component name into the underlying {@link CoreException} as {@code
+   * componentName}. Pin via the message decoration pattern: {@code CoreException.getMessage()}
+   * appends "Component Name=\"…\"" when non-null.
+   */
+  @Test
+  public void componentConstructorPropagatesComponentName() {
+    var component = mock(CollectionPositionMap.class);
+    when(component.getName()).thenReturn("collMap-x");
+
+    var ex = new CollectionPositionMapException("dbA", "boom", component);
+
+    assertThat(ex.getMessage()).contains("boom").contains("Component Name=\"collMap-x\"");
+    assertThat(ex.getDbName()).isEqualTo("dbA");
+  }
+
+  /**
+   * The copy ctor must propagate the message and dbName via {@code super(exception)}. Pin a
+   * round-trip from a built-component instance.
+   */
+  @Test
+  public void copyConstructorPreservesMessageAndDbName() {
+    var component = mock(CollectionPositionMap.class);
+    when(component.getName()).thenReturn("collMap-y");
+
+    var original = new CollectionPositionMapException("dbA", "boom", component);
+    var copy = new CollectionPositionMapException(original);
+
+    assertThat(copy.getMessage()).contains("boom");
+    assertThat(copy.getDbName()).isEqualTo("dbA");
+  }
+}
