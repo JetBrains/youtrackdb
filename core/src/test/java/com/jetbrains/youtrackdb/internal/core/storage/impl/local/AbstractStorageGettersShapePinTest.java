@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
+import java.util.UUID;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -24,14 +25,17 @@ import org.junit.Test;
  */
 public class AbstractStorageGettersShapePinTest {
 
+  // Per-test database name with a UUID suffix avoids OEngine.getStorage(name) collisions when
+  // these tests run in parallel under surefire fork-per-class.
+  private final String dbName = "test-" + UUID.randomUUID();
   private YouTrackDBImpl youTrackDB;
   private DatabaseSessionEmbedded db;
   private AbstractStorage storage;
 
   @Before
   public void before() {
-    youTrackDB = DbTestBase.createYTDBManagerAndDb("test", DatabaseType.MEMORY, getClass());
-    db = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+    youTrackDB = DbTestBase.createYTDBManagerAndDb(dbName, DatabaseType.MEMORY, getClass());
+    db = youTrackDB.open(dbName, "admin", DbTestBase.ADMIN_PASSWORD);
     storage = (AbstractStorage) db.getStorage();
   }
 
@@ -49,8 +53,8 @@ public class AbstractStorageGettersShapePinTest {
     // the raw private url field (no engine prefix). Both are non-blank, both
     // contain the bare name, and toString() returns either the raw url or
     // "?" if url is null.
-    assertThat(storage.getName()).isEqualTo("test");
-    assertThat(storage.getURL()).isNotBlank().contains("test");
+    assertThat(storage.getName()).isEqualTo(dbName);
+    assertThat(storage.getURL()).isNotBlank().contains(dbName);
     assertThat(storage.getUnderlying()).isSameAs(storage);
     assertThat(storage.getStatus()).isEqualTo(Storage.STATUS.OPEN);
     assertThat(storage.toString()).isNotBlank().isNotEqualTo("?");
@@ -106,7 +110,7 @@ public class AbstractStorageGettersShapePinTest {
         .isLessThan(before);
 
     // Re-open so @After's drop sequence still works correctly.
-    db = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+    db = youTrackDB.open(dbName, "admin", DbTestBase.ADMIN_PASSWORD);
     long afterReopen = storage.getSessionsCount();
     assertThat(afterReopen).isGreaterThanOrEqualTo(afterClose + 1);
   }

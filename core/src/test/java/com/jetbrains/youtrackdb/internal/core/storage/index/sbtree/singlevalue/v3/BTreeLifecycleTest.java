@@ -220,6 +220,48 @@ public class BTreeLifecycleTest {
   }
 
   /**
+   * When the validator returns a substituted (non-IGNORE) {@link RID} for a key, {@code
+   * validatedPut} must store the substituted value, NOT the input new-value. This pins the
+   * substitution branch where the validator's return is cast to {@code RID} and assigned
+   * back to the {@code value} local before serialization — the path that lets a custom
+   * validator transform the value being written.
+   */
+  @Test
+  public void validatedPut_validatorReturnsSubstitutedRid_storesSubstitutedValue()
+      throws Exception {
+    var inputRid = new RecordId(1, 100);
+    var substitutedRid = new RecordId(2, 200);
+
+    // Validator that ignores the input value and substitutes a different RID.
+    IndexEngineValidator<String, RID> substituteValidator =
+        (key, oldValue, newValue) -> substitutedRid;
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      int result = tree.validatedPut(
+          atomicOperation, "sub-key", inputRid, substituteValidator);
+      // 1 indicates a successful insert; the value stored is the validator's substituted RID.
+      assertThat(result)
+          .as("validatedPut must return 1 for a successful substituted insert")
+          .isEqualTo(1);
+    });
+
+    // The stored value must equal the substituted RID, NOT the inputRid passed to validatedPut.
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      var stored = tree.get("sub-key", atomicOperation);
+      assertThat(stored)
+          .as("validatedPut must persist the validator's substituted RID, not the input")
+          .isNotNull();
+      assertThat(stored.getCollectionId()).isEqualTo(substitutedRid.getCollectionId());
+      assertThat(stored.getCollectionPosition())
+          .isEqualTo(substitutedRid.getCollectionPosition());
+      // Sanity: the input RID was NOT used.
+      assertThat(stored.getCollectionPosition())
+          .as("input RID must NOT have been stored when the validator substitutes")
+          .isNotEqualTo(inputRid.getCollectionPosition());
+    });
+  }
+
+  /**
    * When the validator returns {@link IndexEngineValidator#IGNORE} for a key that already
    * exists in the tree, {@code validatedPut} must return {@code -1} and must NOT update the
    * existing value — the original value must be preserved.
@@ -286,6 +328,14 @@ public class BTreeLifecycleTest {
           () -> atomicOperationsManager.executeInsideAtomicOperation(
               atomicOperation -> tinyKeyTree.put(atomicOperation, "hello", new RecordId(0, 1))))
           .isInstanceOf(TooBigIndexKeyException.class);
+
+      // Post-rejection page-state consistency: the failed put must NOT leave a partial write
+      // behind. The tree size must remain 0.
+      atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+        assertThat(tinyKeyTree.size(atomicOperation))
+            .as("oversized-key rejection must not leave a partial entry behind")
+            .isEqualTo(0L);
+      });
     } finally {
       GlobalConfiguration.BTREE_MAX_KEY_SIZE.setValue(originalMaxKeySize);
       // Clean up: delete the temporary tree

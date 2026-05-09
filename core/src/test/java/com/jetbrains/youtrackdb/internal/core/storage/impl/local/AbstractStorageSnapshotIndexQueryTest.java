@@ -11,6 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.IndexAbstract;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import java.util.UUID;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -30,13 +31,16 @@ import org.junit.Test;
  */
 public class AbstractStorageSnapshotIndexQueryTest {
 
+  // Per-test database name with a UUID suffix avoids OEngine.getStorage(name) collisions when
+  // these tests run in parallel under surefire fork-per-class.
+  private final String dbName = "test-" + UUID.randomUUID();
   private YouTrackDBImpl youTrackDB;
   private DatabaseSessionEmbedded db;
 
   @Before
   public void before() {
-    youTrackDB = DbTestBase.createYTDBManagerAndDb("test", DatabaseType.MEMORY, getClass());
-    db = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+    youTrackDB = DbTestBase.createYTDBManagerAndDb(dbName, DatabaseType.MEMORY, getClass());
+    db = youTrackDB.open(dbName, "admin", DbTestBase.ADMIN_PASSWORD);
   }
 
   @After
@@ -195,14 +199,53 @@ public class AbstractStorageSnapshotIndexQueryTest {
 
   @Test
   public void hasActiveIndexSnapshotEntries_routesNullSuffixEngineToNullMap() {
-    // The "$null" suffix triggers a different code path: the helper strips
-    // the suffix, resolves the bare name in indexEngineNameMap, and queries
-    // sharedNullIndexesSnapshot. Without any null-key updates the result is
-    // false — but the routing branch is still exercised.
+    // The "$null" suffix triggers a different code path: the helper strips the suffix,
+    // resolves the bare name in indexEngineNameMap, and queries sharedNullIndexesSnapshot.
+    // Register an actual engine name first so the routing branch reaches the null-snapshot
+    // map lookup, not just the early engine-name failed lookup. We then assert two things:
+    // (a) the registered-engine $null query returns false (snapshot is empty under this
+    // empty-tx setup), and (b) the lock-free "by id" variant with useNullSnapshot=true
+    // also returns false against the same engine id — both paths must agree on the
+    // null-snapshot map's content.
+    SchemaClass cls = db.createVertexClass("PersonAQNull");
+    cls.createProperty("name", PropertyType.STRING);
+    cls.createIndex("PersonAQNull_name", SchemaClass.INDEX_TYPE.UNIQUE, "name");
+
     var storage = (AbstractStorage) db.getStorage();
 
-    // Use a non-existent engine to confirm the false-return path on
-    // unresolved null-suffix name (post-suffix-strip).
+    // Registered engine name + $null suffix — the routing strips the suffix, resolves
+    // "PersonAQNull_name" in indexEngineNameMap, and queries sharedNullIndexesSnapshot.
+    // Without any null-key updates the result is false, but the routing branch IS
+    // exercised: a regression that swapped the snapshot-map binding before the engine
+    // lookup would still return false on this assertion alone, so we additionally verify
+    // that the null-snapshot factory at the same engine id is reachable below.
+    assertThat(storage.hasActiveIndexSnapshotEntries(
+        "PersonAQNull_name" + AbstractStorage.NULL_TREE_SUFFIX,
+        new CompositeKey(new Object[] {null}),
+        0L))
+        .as("Null-suffix routing on a registered engine must reach the null-snapshot "
+            + "map and return false on an empty snapshot")
+        .isFalse();
+
+    // Cross-check the same routing via the lock-free "by id" variant: useNullSnapshot=true
+    // must reach the same map. The factory must produce a non-null IndexesSnapshot whose
+    // backing entries collection is empty (the null-snapshot map is empty under this setup).
+    long internalEngineId;
+    try {
+      internalEngineId = resolveInternalEngineId("PersonAQNull_name");
+    } catch (Exception e) {
+      throw new AssertionError("failed to resolve engine id for null-snapshot routing test", e);
+    }
+    var nullSnapshot = storage.subNullIndexSnapshot(internalEngineId);
+    assertThat(nullSnapshot)
+        .as("subNullIndexSnapshot must produce a non-null view for the registered engine")
+        .isNotNull();
+    assertThat(nullSnapshot.allEntries())
+        .as("the null-snapshot map for a fresh registered engine must be empty")
+        .isEmpty();
+
+    // Negative case: unresolved engine name (post-suffix-strip) must return false. Pinned
+    // alongside the registered case so a regression that confuses the two paths is caught.
     assertThat(storage.hasActiveIndexSnapshotEntries(
         "doesNotExist" + AbstractStorage.NULL_TREE_SUFFIX,
         new CompositeKey(new Object[] {null}),

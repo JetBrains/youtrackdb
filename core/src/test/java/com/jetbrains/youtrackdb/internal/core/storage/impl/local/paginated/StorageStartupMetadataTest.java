@@ -8,6 +8,7 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.Comparator;
 import java.util.UUID;
@@ -323,5 +324,118 @@ public class StorageStartupMetadataTest {
     // update() tries to write to a null channel — pin the resulting NullPointerException.
     assertThatThrownBy(() -> meta.makeDirty("v1"))
         .isInstanceOf(NullPointerException.class);
+  }
+
+  /**
+   * Corruption-with-intact-backup recovery: when the primary file fails the xxhash check but
+   * the backup file exists and is valid, {@code open()} deletes the corrupted primary,
+   * re-enters the open loop, atomically moves the backup into the primary's place, and reads
+   * the recovered metadata. The recovered values must match the pre-corruption state.
+   */
+  @Test
+  public void testOpenWithCorruptPrimaryAndIntactBackupRecoversFromBackup() throws IOException {
+    // Create a valid primary, then setLastTxId so a real value persists.
+    var meta = new StorageStartupMetadata(filePath, backupPath);
+    meta.create("backup-recover-version");
+    meta.setLastTxId(4242L);
+    meta.close();
+
+    // The production update() deletes the backup on success, so we must hand-create the
+    // backup ourselves: copy the valid primary contents into the backup path, then corrupt
+    // the primary. This simulates the rare crash window where the primary write was torn
+    // (or the file was tampered with) while the backup is still on disk.
+    Files.copy(filePath, backupPath, StandardCopyOption.REPLACE_EXISTING);
+    try (var ch =
+        FileChannel.open(filePath, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
+      var buf = ByteBuffer.allocate(8);
+      buf.putLong(0xDEADBEEFCAFEBABEL);
+      buf.flip();
+      ch.write(buf, 0);
+    }
+
+    var reopened = new StorageStartupMetadata(filePath, backupPath);
+    reopened.open("ignored-because-recovery-from-backup");
+    try {
+      // Recovery from backup: pre-corruption values must be recovered verbatim.
+      assertThat(reopened.isDirty())
+          .as("backup recovery must restore the pre-corruption dirty flag")
+          .isTrue();
+      assertThat(reopened.getLastTxId())
+          .as("backup recovery must restore the pre-corruption lastTxId")
+          .isEqualTo(4242L);
+      assertThat(reopened.getOpenedAtVersion())
+          .as("backup recovery must restore the pre-corruption openedAtVersion")
+          .isEqualTo("backup-recover-version");
+      // After successful recovery the backup file is consumed (atomic move into primary).
+      assertThat(Files.exists(backupPath))
+          .as("backup file must be consumed after the atomic move")
+          .isFalse();
+    } finally {
+      reopened.close();
+    }
+  }
+
+  /**
+   * Legacy 9-byte format: {@code [dirty:byte][lastTxId:long]}. The reader must populate
+   * {@code dirtyFlag} and {@code lastTxId} from the raw bytes (no xxhash, no version, no
+   * openedAtVersion). Pinned by the {@code size == 9} branch in {@code open()}.
+   */
+  @Test
+  public void testOpenWithLegacy9ByteFileReadsLastTxId() throws IOException {
+    // Hand-craft the legacy 9-byte file: byte 0 is the dirty flag (1 = dirty), bytes 1..8
+    // are the lastTxId in BIG_ENDIAN order (the production reader uses
+    // ByteBuffer.allocate(9) with no explicit order(), which defaults to BIG_ENDIAN, then
+    // calls buffer.getLong() at position 1).
+    var legacy = ByteBuffer.allocate(9); // default BIG_ENDIAN
+    legacy.put((byte) 1);
+    legacy.putLong(987654321L);
+    legacy.flip();
+    Files.write(filePath, legacy.array());
+
+    var meta = new StorageStartupMetadata(filePath, backupPath);
+    meta.open("createdAtVersion-ignored");
+    try {
+      assertThat(meta.isDirty())
+          .as("legacy 9-byte format must restore dirty flag from byte 0")
+          .isTrue();
+      assertThat(meta.getLastTxId())
+          .as("legacy 9-byte format must restore lastTxId from bytes 1..8")
+          .isEqualTo(987654321L);
+      // The legacy reader does not populate openedAtVersion; it remains the constructor default.
+      assertThat(meta.getOpenedAtVersion())
+          .as("legacy 9-byte format does not encode openedAtVersion")
+          .isNull();
+    } finally {
+      meta.close();
+    }
+  }
+
+  /**
+   * Legacy 1-byte format: {@code [dirty:byte]} only. The reader must populate {@code
+   * dirtyFlag} from the single byte and leave {@code lastTxId} at its default. Pinned by the
+   * {@code size < 9} branch in {@code open()}.
+   */
+  @Test
+  public void testOpenWithLegacyOneByteFileReadsDirtyFlag() throws IOException {
+    // Hand-craft the legacy 1-byte file: byte 0 is the dirty flag (1 = dirty).
+    Files.write(filePath, new byte[] {(byte) 1});
+
+    var meta = new StorageStartupMetadata(filePath, backupPath);
+    meta.open("createdAtVersion-ignored");
+    try {
+      assertThat(meta.isDirty())
+          .as("legacy 1-byte format must restore dirty flag from byte 0")
+          .isTrue();
+      // The 1-byte legacy format does not encode lastTxId; it remains the default-initialised
+      // value (0L for an instance freshly opened from a 1-byte file).
+      assertThat(meta.getLastTxId())
+          .as("legacy 1-byte format does not encode lastTxId; default-initialised value remains")
+          .isEqualTo(0L);
+      assertThat(meta.getOpenedAtVersion())
+          .as("legacy 1-byte format does not encode openedAtVersion")
+          .isNull();
+    } finally {
+      meta.close();
+    }
   }
 }

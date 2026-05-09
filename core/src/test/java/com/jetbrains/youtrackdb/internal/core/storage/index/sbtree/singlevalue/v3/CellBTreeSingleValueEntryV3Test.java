@@ -131,32 +131,49 @@ public class CellBTreeSingleValueEntryV3Test {
   // ─────────────────────────────────────────────────────────────────────────
 
   /**
-   * An entry with a lexicographically smaller key must compare as less-than.
+   * An entry with a lexicographically smaller key must compare as less-than. The reverse
+   * direction must be greater-than (asymmetric ordering), and the signed magnitudes must be
+   * negations of each other (antisymmetry contract of {@link Comparable}).
    */
   @Test
   public void compareTo_smallerKeyComparesLess() {
     var e1 = entry(0, 0, "apple", new RecordId(0, 0));
     var e2 = entry(0, 0, "banana", new RecordId(0, 0));
     assertTrue("'apple' entry must compare less than 'banana' entry", e1.compareTo(e2) < 0);
+    assertTrue("'banana' entry must compare greater than 'apple' entry (reverse)",
+        e2.compareTo(e1) > 0);
+    assertEquals(
+        "compareTo must satisfy antisymmetry: signum(a.compareTo(b)) == -signum(b.compareTo(a))",
+        Integer.signum(e1.compareTo(e2)), -Integer.signum(e2.compareTo(e1)));
   }
 
   /**
-   * An entry with a larger key must compare as greater-than.
+   * An entry with a larger key must compare as greater-than. The reverse direction must be
+   * less-than, and the signed magnitudes must be negations of each other.
    */
   @Test
   public void compareTo_largerKeyComparesGreater() {
     var e1 = entry(0, 0, "zebra", new RecordId(0, 0));
     var e2 = entry(0, 0, "ant", new RecordId(0, 0));
     assertTrue("'zebra' entry must compare greater than 'ant' entry", e1.compareTo(e2) > 0);
+    assertTrue("'ant' entry must compare less than 'zebra' entry (reverse)",
+        e2.compareTo(e1) < 0);
+    assertEquals(
+        "compareTo must satisfy antisymmetry: signum(a.compareTo(b)) == -signum(b.compareTo(a))",
+        Integer.signum(e1.compareTo(e2)), -Integer.signum(e2.compareTo(e1)));
   }
 
   /**
    * Two entries with equal keys must compare as zero, regardless of child pointers or values.
+   * Antisymmetry holds trivially when both compareTo results are 0.
    */
   @Test
   public void compareTo_equalKeyComparesZero() {
     var e1 = entry(1, 2, "sameKey", new RecordId(0, 10));
     var e2 = entry(5, 6, "sameKey", new RecordId(1, 20));
     assertEquals("Entries with the same key must compare as 0", 0, e1.compareTo(e2));
+    assertEquals("Reverse comparison of equal keys must also be 0", 0, e2.compareTo(e1));
+    assertEquals("compareTo must satisfy antisymmetry on equal keys",
+        Integer.signum(e1.compareTo(e2)), -Integer.signum(e2.compareTo(e1)));
   }
 }

@@ -1,6 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2;
 
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
@@ -13,6 +15,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.CacheEntryChanges;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
@@ -115,6 +118,12 @@ public class BTreeMVBucketV2BulkOpsTest {
 
     Assert.assertEquals(original, deserialized);
     Assert.assertEquals(0, deserialized.getEntries().size());
+    // Wire-format pin: byte-level entry-count must be 0. Layout: 1 (toStream offset) +
+    // 8 (operationUnitId) + 8 (pageIndex) + 8 (fileId) + 8 (initialLsn.segment) +
+    // 4 (initialLsn.position) = 37, where the entry-count int begins.
+    Assert.assertEquals(
+        "empty list must serialise entry-count == 0 at the wire-format offset",
+        0, IntegerSerializer.deserializeNative(content, 37));
   }
 
   @Test
@@ -306,9 +315,7 @@ public class BTreeMVBucketV2BulkOpsTest {
 
       var op = new BTreeMVBucketV2AddAllLeafEntriesOp(
           0, 0, 0, new LogSequenceNumber(0, 0), entryData);
-      op.redo(
-          new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage(
-              entry2));
+      op.redo(new DurablePage(entry2));
 
       Assert.assertEquals(2, page1.size());
       Assert.assertEquals(2, page2.size());
@@ -365,9 +372,7 @@ public class BTreeMVBucketV2BulkOpsTest {
 
       var op = new BTreeMVBucketV2AddAllNonLeafEntriesOp(
           0, 0, 0, new LogSequenceNumber(0, 0), entryData);
-      op.redo(
-          new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage(
-              entry2));
+      op.redo(new DurablePage(entry2));
 
       Assert.assertEquals(2, page1.size());
       Assert.assertEquals(2, page2.size());
@@ -418,9 +423,7 @@ public class BTreeMVBucketV2BulkOpsTest {
 
       new BTreeMVBucketV2AddAllLeafEntriesOp(
           0, 0, 0, new LogSequenceNumber(0, 0), entryData)
-          .redo(
-              new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage(
-                  entry2));
+          .redo(new DurablePage(entry2));
 
       Assert.assertEquals(1, page1.size());
       Assert.assertEquals(1, page2.size());
@@ -481,9 +484,7 @@ public class BTreeMVBucketV2BulkOpsTest {
 
       new BTreeMVBucketV2AddAllLeafEntriesOp(
           0, 0, 0, new LogSequenceNumber(0, 0), entryData)
-          .redo(
-              new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage(
-                  entry2));
+          .redo(new DurablePage(entry2));
 
       Assert.assertEquals(1, page1.size());
       Assert.assertEquals(1, page2.size());
@@ -546,9 +547,7 @@ public class BTreeMVBucketV2BulkOpsTest {
 
       new BTreeMVBucketV2ShrinkLeafEntriesOp(
           0, 0, 0, new LogSequenceNumber(0, 0), retained)
-          .redo(
-              new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage(
-                  entry2));
+          .redo(new DurablePage(entry2));
 
       Assert.assertEquals(1, page1.size());
       Assert.assertEquals(1, page2.size());
@@ -610,9 +609,7 @@ public class BTreeMVBucketV2BulkOpsTest {
 
       new BTreeMVBucketV2ShrinkNonLeafEntriesOp(
           0, 0, 0, new LogSequenceNumber(0, 0), retainedData)
-          .redo(
-              new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage(
-                  entry2));
+          .redo(new DurablePage(entry2));
 
       Assert.assertEquals(2, page1.size());
       Assert.assertEquals(2, page2.size());
@@ -645,7 +642,7 @@ public class BTreeMVBucketV2BulkOpsTest {
 
       var bucket = new CellBTreeMultiValueV2Bucket<>(changes);
       bucket.init(true);
-      org.mockito.Mockito.reset(atomicOp);
+      reset(atomicOp);
 
       bucket.addAll(List.of(
           new CellBTreeMultiValueV2Bucket.LeafEntry(
@@ -654,8 +651,8 @@ public class BTreeMVBucketV2BulkOpsTest {
 
       var captor = ArgumentCaptor.forClass(PageOperation.class);
       verify(atomicOp).registerPageOperation(
-          org.mockito.ArgumentMatchers.eq(42L),
-          org.mockito.ArgumentMatchers.eq(7L),
+          eq(42L),
+          eq(7L),
           captor.capture());
       Assert.assertTrue(captor.getValue() instanceof BTreeMVBucketV2AddAllLeafEntriesOp);
       var leafOp = (BTreeMVBucketV2AddAllLeafEntriesOp) captor.getValue();
@@ -687,7 +684,7 @@ public class BTreeMVBucketV2BulkOpsTest {
 
       var bucket = new CellBTreeMultiValueV2Bucket<>(changes);
       bucket.init(false);
-      org.mockito.Mockito.reset(atomicOp);
+      reset(atomicOp);
 
       bucket.addAll(List.of(
           new CellBTreeMultiValueV2Bucket.NonLeafEntry(
@@ -695,8 +692,8 @@ public class BTreeMVBucketV2BulkOpsTest {
 
       var captor = ArgumentCaptor.forClass(PageOperation.class);
       verify(atomicOp).registerPageOperation(
-          org.mockito.ArgumentMatchers.eq(42L),
-          org.mockito.ArgumentMatchers.eq(7L),
+          eq(42L),
+          eq(7L),
           captor.capture());
       Assert.assertTrue(captor.getValue() instanceof BTreeMVBucketV2AddAllNonLeafEntriesOp);
     } finally {
@@ -731,15 +728,15 @@ public class BTreeMVBucketV2BulkOpsTest {
           new CellBTreeMultiValueV2Bucket.LeafEntry(
               new byte[] {0, 0, 0, 2}, 20L,
               List.of(new RecordId(2, 2L)), 1)));
-      org.mockito.Mockito.reset(atomicOp);
+      reset(atomicOp);
 
       //noinspection unchecked,rawtypes
       bucket.shrink(1, (BinarySerializer) IntegerSerializer.INSTANCE, null);
 
       var captor = ArgumentCaptor.forClass(PageOperation.class);
       verify(atomicOp).registerPageOperation(
-          org.mockito.ArgumentMatchers.eq(42L),
-          org.mockito.ArgumentMatchers.eq(7L),
+          eq(42L),
+          eq(7L),
           captor.capture());
       Assert.assertTrue(captor.getValue() instanceof BTreeMVBucketV2ShrinkLeafEntriesOp);
       var shrinkOp = (BTreeMVBucketV2ShrinkLeafEntriesOp) captor.getValue();
@@ -773,15 +770,15 @@ public class BTreeMVBucketV2BulkOpsTest {
               new byte[] {0, 0, 0, 1}, 1, 2),
           new CellBTreeMultiValueV2Bucket.NonLeafEntry(
               new byte[] {0, 0, 0, 2}, 3, 4)));
-      org.mockito.Mockito.reset(atomicOp);
+      reset(atomicOp);
 
       //noinspection unchecked,rawtypes
       bucket.shrink(1, (BinarySerializer) IntegerSerializer.INSTANCE, null);
 
       var captor = ArgumentCaptor.forClass(PageOperation.class);
       verify(atomicOp).registerPageOperation(
-          org.mockito.ArgumentMatchers.eq(42L),
-          org.mockito.ArgumentMatchers.eq(7L),
+          eq(42L),
+          eq(7L),
           captor.capture());
       Assert.assertTrue(captor.getValue() instanceof BTreeMVBucketV2ShrinkNonLeafEntriesOp);
       var shrinkOp = (BTreeMVBucketV2ShrinkNonLeafEntriesOp) captor.getValue();
@@ -924,6 +921,11 @@ public class BTreeMVBucketV2BulkOpsTest {
 
     Assert.assertEquals(original, deserialized);
     Assert.assertEquals(0, deserialized.getEntries().size());
+    // Wire-format pin: byte-level entry-count must be 0 at offset 37 (1 toStream offset +
+    // 36 bytes of parent header).
+    Assert.assertEquals(
+        "empty list must serialise entry-count == 0 at the wire-format offset",
+        0, IntegerSerializer.deserializeNative(content, 37));
   }
 
   /**
@@ -972,6 +974,10 @@ public class BTreeMVBucketV2BulkOpsTest {
 
     Assert.assertEquals(original, deserialized);
     Assert.assertEquals(0, deserialized.getRetainedEntries().size());
+    // Wire-format pin: byte-level retained-count must be 0 at offset 37.
+    Assert.assertEquals(
+        "empty retained list must serialise count == 0 at the wire-format offset",
+        0, IntegerSerializer.deserializeNative(content, 37));
   }
 
   /**
@@ -1018,6 +1024,43 @@ public class BTreeMVBucketV2BulkOpsTest {
 
     Assert.assertEquals(original, deserialized);
     Assert.assertEquals(0, deserialized.getRetainedEntries().size());
+    // Wire-format pin: byte-level retained-count must be 0 at offset 37.
+    Assert.assertEquals(
+        "empty retained list must serialise count == 0 at the wire-format offset",
+        0, IntegerSerializer.deserializeNative(content, 37));
+  }
+
+  /**
+   * The inherited {@code PageOperation.equals} chain compares {@code fileId}, {@code
+   * pageIndex}, and {@code operationUnitId} as part of equality, in addition to the
+   * subclass-specific entry list. Two ops with the same entry list but differing in any one
+   * of those three header fields must NOT be equal. Pinned with one bulk-op class
+   * ({@code AddAllNonLeafEntriesOp}); the other three subclasses inherit the same equals
+   * chain via {@code super.equals(o)}.
+   */
+  @Test
+  public void testAddAllNonLeafEntriesOpEqualsRespectsHeaderFields() {
+    var lsn = new LogSequenceNumber(1, 100);
+    var entry = new BTreeMVBucketV2AddAllNonLeafEntriesOp.NonLeafEntryData(
+        new byte[] {1, 2}, 1, 2);
+    var entries = List.of(entry);
+
+    // Constructor signature: (pageIndex, fileId, operationUnitId, lsn, entries)
+    var base = new BTreeMVBucketV2AddAllNonLeafEntriesOp(10, 20, 30, lsn, entries);
+    var diffPageIndex = new BTreeMVBucketV2AddAllNonLeafEntriesOp(11, 20, 30, lsn, entries);
+    var diffFileId = new BTreeMVBucketV2AddAllNonLeafEntriesOp(10, 21, 30, lsn, entries);
+    var diffOperationUnitId =
+        new BTreeMVBucketV2AddAllNonLeafEntriesOp(10, 20, 31, lsn, entries);
+
+    Assert.assertNotEquals(
+        "ops with different pageIndex but same entries must NOT be equal",
+        base, diffPageIndex);
+    Assert.assertNotEquals(
+        "ops with different fileId but same entries must NOT be equal",
+        base, diffFileId);
+    Assert.assertNotEquals(
+        "ops with different operationUnitId but same entries must NOT be equal",
+        base, diffOperationUnitId);
   }
 
   // ---------- Multi-op redo sequence test ----------
@@ -1043,27 +1086,21 @@ public class BTreeMVBucketV2BulkOpsTest {
               List.of(new BTreeMVBucketV2AddAllLeafEntriesOp.RidData((short) 3, 3L))));
 
       var addAllOp = new BTreeMVBucketV2AddAllLeafEntriesOp(0, 0, 0, lsn, allEntries);
-      addAllOp.redo(
-          new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage(
-              originalCacheEntry));
+      addAllOp.redo(new DurablePage(originalCacheEntry));
       Assert.assertEquals(3, new CellBTreeMultiValueV2Bucket<>(originalCacheEntry).size());
 
       // Second: addAll 2 entries to the new bucket (simulating split target)
       var newBucketEntries = List.of(allEntries.get(1), allEntries.get(2));
       var addAllNewOp =
           new BTreeMVBucketV2AddAllLeafEntriesOp(0, 0, 0, lsn, newBucketEntries);
-      addAllNewOp.redo(
-          new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage(
-              newCacheEntry));
+      addAllNewOp.redo(new DurablePage(newCacheEntry));
       Assert.assertEquals(2, new CellBTreeMultiValueV2Bucket<>(newCacheEntry).size());
 
       // Third: shrink original to retain only the first entry
       var shrinkRetained = List.of(allEntries.get(0));
       var shrinkOp =
           new BTreeMVBucketV2ShrinkLeafEntriesOp(0, 0, 0, lsn, shrinkRetained);
-      shrinkOp.redo(
-          new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage(
-              originalCacheEntry));
+      shrinkOp.redo(new DurablePage(originalCacheEntry));
       Assert.assertEquals(1, new CellBTreeMultiValueV2Bucket<>(originalCacheEntry).size());
     } finally {
       releaseCacheEntry(newCacheEntry);
