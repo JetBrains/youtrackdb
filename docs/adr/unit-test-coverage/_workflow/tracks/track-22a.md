@@ -2120,7 +2120,7 @@ consumes these items begins.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (6/10 complete)
+- [ ] Step implementation (7/10 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -2647,7 +2647,8 @@ consumes these items begins.
   > - `core/src/test/java/.../core/replication/AsyncReplicationOkTest.java` (new)
   > - `core/src/test/java/.../core/servlet/ServletContextLifeCycleListenerTest.java` (new)
 
-- [ ] Step: `*DeadCodeTest` shape pins for 22b deletion lockstep
+- [x] Step: `*DeadCodeTest` shape pins for 22b deletion lockstep
+  - [x] Context: info
   > **Risk:** low — pure test additions pinning dead-code surfaces;
   > no production code touched in this step
   >
@@ -2663,6 +2664,67 @@ consumes these items begins.
   > `*DeadCodeTest` reflective-shape convention codified in Tracks
   > 14/15/17/18/21. 22b deletes the production classes + matching
   > pins in lockstep commits per its decomposition.
+  >
+  > **What was done:** Added three `*DeadCodeTest` reflective shape
+  > pins for the production-dead clusters reframed by Phase A
+  > findings A3 and A4a:
+  > - `ZIPCompressionUtilDeadCodeTest` (8 tests)
+  > - `CompressionInterfaceDeadCodeTest` (6 tests; covers entire
+  >   `core/compression` package)
+  > - `DictionaryDeadCodeTest` (5 tests; `@Deprecated` zero-ref class)
+  >
+  > Pins capture class modifiers, public-method-name set, exact ctor
+  > and method signatures, and behavioral observables (extension-skip
+  > filtering, full directory round-trip, path-traversal IOException,
+  > fileNames-map rename round-trip on `ZIPCompressionUtil`; full SPI
+  > round-trip on `Compression` via a local `IdentityCompression`
+  > implementer; `UnsupportedOperationException` on every `Dictionary`
+  > mutator plus ctor-passthrough `getIndex`). 22b deletes each
+  > production class and its matching pin in the same commit;
+  > reflective lookups force a compile-time failure on partial
+  > deletion. 19/19 tests pass; coverage gate PASSED at 100% / 100%
+  > on cumulative diff; spotless applied.
+  >
+  > **What changed from the plan:** Per upstream Step 4 cross-track
+  > hint, the four throw-site-zero exception leaves' `*DeadCodeTest`
+  > pins (`LiveQueryInterruptedExceptionDeadCodeTest`,
+  > `ManualIndexesAreProhibitedDeadCodeTest`,
+  > `RetryQueryExceptionDeadCodeTest`,
+  > `InternalErrorExceptionDeadCodeTest`) ALREADY exist under
+  > `core/src/test/java/.../core/exception/` from Step 4 and were
+  > NOT duplicated here. Per Step 1 reclassifications, no Step 7
+  > pins were written for the Track 9 script cluster (now 22c-defer
+  > due to extended sibling chain) or the `core/query/live/` package
+  > (now 22c-defer due to live `SharedContext.LiveQueryHook.LiveQueryOps`
+  > coupling).
+  >
+  > **What was discovered:**
+  > 1. PSI confirms `ZIPCompressionUtil` does NOT implement the
+  >    `Compression` interface (the prompt's suggested
+  >    `assertThat(clazz.getInterfaces()).contains(Compression.class)`
+  >    was inaccurate; the pin uses
+  >    `assertEquals(0, clazz.getInterfaces().length)` instead).
+  >    The two are independent dead artifacts in the same package.
+  > 2. The `Compression` interface has zero `ClassInheritorsSearch`
+  >    hits — the SPI hook its Javadoc gestures at
+  >    (`OCompressionFactory.INSTANCE.register(...)`) does not exist
+  >    anywhere in the source tree. The interface is structurally
+  >    orphaned, not just unused.
+  > 3. `Dictionary` has zero references project-wide (no production
+  >    callers, no tests) and is already `@Deprecated`.
+  >
+  > **Cross-track hints:** 22b's deletion of `core/compression`
+  > must remove all four files in a single commit: `Compression.java`,
+  > `impl/ZIPCompressionUtil.java`,
+  > `CompressionInterfaceDeadCodeTest.java`,
+  > `impl/ZIPCompressionUtilDeadCodeTest.java`. 22b's deletion of
+  > `core/dictionary` must remove `Dictionary.java` and
+  > `DictionaryDeadCodeTest.java` in a single commit.
+  >
+  > **Key files:**
+  > - `core/src/test/java/.../core/compression/CompressionInterfaceDeadCodeTest.java` (new)
+  > - `core/src/test/java/.../core/compression/impl/ZIPCompressionUtilDeadCodeTest.java` (new)
+  > - `core/src/test/java/.../core/dictionary/DictionaryDeadCodeTest.java` (new)
 
 - [ ] Step: Production-bug fix lockstep — non-storage / non-SPI subset only
   > **Risk:** medium — touches live production code with WHEN-FIXED
