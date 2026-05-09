@@ -2119,6 +2119,157 @@ step that consumes these items begins.
 
 ## Reviews completed
 
+- [ ] Technical: iteration 1 ran (3 sub-agents in parallel, ~1.5 h
+  total wall-clock). Verdict: **3 should-fix + 4 suggestions, 0
+  blockers**. Gate not yet passed; entry is `[ ]` per the iter-1-still-
+  open rule. Findings rode in the orchestrator's conversation
+  context only; the next session re-runs technical review from
+  iteration 1 (per `track-review.md` — findings are not persisted to
+  a separate file). Headline iter-1 findings: T1 (SPI services-file
+  edit must be in per-cluster checklist; rule wording inconsistent
+  with `BalancedCollectionSelectionStrategy` disposition), T2
+  (reclassify `LiveQueryBatchResultListener`,
+  `DatabaseLifecycleListenerAbstract`, `DatabaseRepair`,
+  `BonsaiTreeRepair`, `HookReplacedRecordThreadLocal` from "Defer"
+  to "In-track" per PSI re-confirmation), T3 (mixed-marker file
+  ordering — final cluster-disposition list must precede marker
+  rewrite). Suggestions: T4 (engine sub-package split clarity), T5
+  (per-test UUID DB name → Constraints), T6 (63 vs 64 `*DeadCodeTest`
+  off-by-one), T7 (`api.exception` + `api.config` not enumerated).
+- [ ] Risk: iteration 1 ran. Verdict: **5 should-fix + 5 suggestions,
+  0 blockers**. Gate not yet passed; entry `[ ]`. Headline iter-1
+  findings: R1 (aggregate coverage closure feasibility under-
+  quantified — closing +5.5 pp line target requires test additions
+  + denominator drop math the plan does not state); R2
+  (`ZIPCompressionUtil` is dead — deletion candidate, not coverage
+  target); R3 (production-bug-fix disposition unspecified for ~30
+  inherited WHEN-FIXED bugs — needs symmetric in-track-fix vs.
+  defer-and-issue policy); R4 (hybrid deletion policy lacks a
+  partial-class-trim tier for 5+ per-method deletion cases); R5
+  (step-count 15-18 exceeds D5 budget — concurs with adversarial
+  A3 BLOCKER). Suggestions: R6 (`gremlin/io/{binary,graphson,gryo}`
+  D4-accept), R7 (TinkerPop fork-shadowing forbid), R8 (per-issue
+  commit unit), R9 (single-PR coupling), R10 (Spotless ratchet
+  drift).
+- [ ] Adversarial: iteration 1 ran. Verdict: **1 BLOCKER + 5
+  should-fix + 4 suggestions**. Gate not yet passed; entry `[ ]`.
+  **A3 BLOCKER**: Track 22 at 15-18 steps is 2.5× recent track-size
+  precedent (Tracks 6-21 ran 6-8 steps each); D5 caps PR at "5-7
+  commits"; recommends splitting into Track 22a (main coverage),
+  Track 22b (deletion lockstep), Track 22c (issue creation +
+  marker rewrite). Should-fix: A1 (SPI rule wording inconsistent
+  with disposition list), A2 (issue creation = ~30-50 issues × 3-5
+  min each = pure tracker hygiene with zero coverage delta — split
+  into separate PR), A4 (85%/70% Goal mathematically unreachable
+  in Track 22 — formally amend or compensate by expanding
+  deletions), A5 (`BinaryToken` cluster external-binary-API risk
+  → CHANGELOG convention), A6 (production-fix disposition list
+  missing). Suggestions: A7 (`core/exception` decomposition via
+  Parameterized), A8 (Strong-Candidate IT-reference check), A9
+  (reconstruction lost suggestion-tier items), A10 (meta-
+  reflection — out of scope for Track 22).
+
+## Iteration 1 deferred resolution — ESCALATE / inline-replanning pending
+
+Two iter-1 findings touch deep-amendment categories (adding/
+removing tracks, modifying Goals) and were surfaced to the user at
+the end of iteration 1. The user's decisions, captured in the same
+session before the context-warning checkpoint forced a session end:
+
+- **A3 BLOCKER — track scope**: user picked **ESCALATE — split
+  Track 22 into 22a/22b/22c**. Each sub-track gets its own
+  Phase A→B→C cycle against the same `unit-test-coverage` branch;
+  three squashed merge-commits when each sub-track's PR lands. The
+  decomposition target:
+  - **Track 22a** (~6 steps): main coverage sweep — `tx`, `gremlin`,
+    `engine`, `exception`, `compression`, `id`, `config`, `cache`,
+    smaller packages, verification.
+  - **Track 22b** (~8 steps): in-track deletion lockstep, one step
+    per cluster (each commit independently bisectable).
+  - **Track 22c** (~1–2 steps): WHEN-FIXED issue creation +
+    marker rewrite for non-deleted clusters only.
+- **A4 should-fix — Goal feasibility**: user picked **Amend Goal
+  to ~82–83% line / ~70–71% branch**. The plan file's Goals
+  section is updated to reflect the realistic post-Track-22-cluster
+  number; the original 63.6% / 53.3% baseline is preserved as
+  historical context. No D6 Decision Record needed — the amendment
+  is documented inline in Goals.
+
+**Next session must run inline-replanning** per
+`.claude/workflow/inline-replanning.md`. The replan applies the
+user's two decisions to:
+
+1. `docs/adr/unit-test-coverage/_workflow/implementation-plan.md`:
+   - Goals section → amend the headline number from "85% line /
+     70% branch" to "~82–83% line / ~70–71% branch", with a brief
+     "amended at Track 22 Phase A iter-1" note.
+   - Checklist section → replace the single `- [ ] Track 22:
+     Transactions, Gremlin & Remaining Core` line with three
+     entries: Track 22a, Track 22b, Track 22c. Carry the
+     `**Depends on:**` and `**Operational note:**` fields forward
+     onto Track 22a; Tracks 22b and 22c depend on Track 22a (and
+     22b respectively).
+   - Decision Record D5 review: D5 caps PR at "5-7 commits"; the
+     split honours D5 — no amendment needed. Confirm in the
+     replanning summary.
+
+2. `docs/adr/unit-test-coverage/_workflow/implementation-backlog.md`:
+   - The Track 22 backlog section was already removed in this
+     session's description-move commit; the new Track 22a/22b/22c
+     entries get fresh backlog sections (split from the existing
+     Track 22 step file's `## Description`).
+
+3. `docs/adr/unit-test-coverage/_workflow/tracks/track-22.md`:
+   - This file is renamed to `tracks/track-22a.md` (or split into
+     three step files — `track-22a.md`, `track-22b.md`,
+     `track-22c.md` — depending on the inline-replanning
+     conventions). The reconstructed inherited DRY queue lives in
+     22a (or shared across the three; inline-replanning decides).
+   - The `### Clarifications` subsection's two existing
+     clarifications (WHEN-FIXED issue creation, hybrid dead-code
+     deletion policy) split: WHEN-FIXED clarification primarily
+     applies to 22c; hybrid deletion policy primarily applies to
+     22b; the in-track-deletion no-issue convention applies to 22b
+     (so 22c's marker-rewrite step uses 22b's final cluster-
+     disposition list as the filter).
+
+After inline-replanning's plan is committed, the next-next session
+auto-resumes into State A on the new Track 22a (no step file →
+Track Pre-Flight + Phase A).
+
+**Should-fix items applied autonomously after replan, in iter-2 of
+each sub-track's Phase A reviews** (the next session's reviewers
+should pick these up because they remain valid post-split):
+
+- T1 / A1 (SPI rule wording inconsistency + per-cluster services-
+  file edit checklist).
+- T2 (reclassify `LiveQueryBatchResultListener`,
+  `DatabaseLifecycleListenerAbstract`, `DatabaseRepair`,
+  `BonsaiTreeRepair`, `HookReplacedRecordThreadLocal` from
+  "Defer" to "In-track").
+- T3 (mixed-marker file ordering).
+- T5 (per-test UUID DB name → Constraints bullet).
+- T7 (`api.exception` + `api.config` → small-target list).
+- R2 (`ZIPCompressionUtil` → deletion candidate).
+- R3 / A6 (production-fix disposition list — symmetric to dead-
+  code policy; classify the ~30 inherited bugs from Tracks 7–21).
+- R4 (partial-class-trim tier in hybrid policy).
+- R6 (`gremlin/io/{binary,graphson,gryo}` → D4-accepted).
+- R7 (TinkerPop fork-shadowing forbid in new test files).
+- R8 (per-issue commit unit).
+- A5 (CHANGELOG / release-note convention for `internal/core`
+  deletions reachable via `api/`).
+- A7 (`core/exception` `@Parameterized` decomposition).
+- A8 (`*IT.java` reference check in Strong-Candidate criteria).
+- A9 (de-scope suggestion-tier items from Tracks 10–13 lost in
+  recovery gap).
+
+These are all autonomous mechanical fixes to the Pre-Flight
+clarification text; iteration 2 of each sub-track's Phase A
+reviews validates them.
+
 ## Steps
 
-(populated during Phase A decomposition — sub-step 4-5)
+(populated during Phase A decomposition — sub-step 4-5; not yet
+written because Phase A iteration 1 ended at the context-warning
+checkpoint with the BLOCKER A3 + should-fix A4 unresolved)
