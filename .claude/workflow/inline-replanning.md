@@ -235,12 +235,8 @@ revision and the file(s) that carry the new description:
 
 5. **Revising a skipped track** (status `[~]`). Update the plan entry.
    Skipped tracks never retain a step file after the skip (see
-   `track-skip.md` step 3), so the plan entry is always an
-   authoritative location. If the track was skipped **after** Phase A
-   began — the "Skipped after Phase A" sub-case in the Description
-   lifecycle table in `conventions-execution.md` §2.1, where the step
-   file is retained so the skip is traceable — also update the step
-   file's `## Description`. Per `track-skip.md`'s "Step-file deletion
+   `track-skip.md` step 3), so the plan entry is the only
+   authoritative location. Per `track-skip.md`'s "Step-file deletion
    is terminal" warning, a reader un-skipping a `[~]` track must
    re-author the description from scratch — the deleted step file is
    not a recovery source after skip, and the revision here is the
