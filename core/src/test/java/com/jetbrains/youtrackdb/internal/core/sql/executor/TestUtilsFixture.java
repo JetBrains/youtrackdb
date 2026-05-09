@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -39,6 +40,18 @@ public class TestUtilsFixture extends DbTestBase {
 
   protected SchemaClass createChildClassInstance(SchemaClass superclass) {
     return getDBSchema().createClass(generateClassName(), superclass);
+  }
+
+  /**
+   * Construct a fresh {@link BasicCommandContext} bound to the per-test {@link DbTestBase#session}.
+   *
+   * <p>Hoisted from per-test-class duplicates that all expanded to {@code new
+   * BasicCommandContext(session)} (or the equivalent {@code setDatabaseSession(session)}
+   * call). Subclasses must not override this factory unless they need a custom context type —
+   * the shared body keeps step tests aligned on the same construction pattern.
+   */
+  protected BasicCommandContext newContext() {
+    return new BasicCommandContext(session);
   }
 
   private Schema getDBSchema() {

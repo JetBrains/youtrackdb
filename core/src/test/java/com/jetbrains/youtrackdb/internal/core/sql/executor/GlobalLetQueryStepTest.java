@@ -17,7 +17,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.BasicResult;
@@ -271,12 +270,6 @@ public class GlobalLetQueryStepTest extends TestUtilsFixture {
   // =========================================================================
   // Helpers
   // =========================================================================
-
-  private BasicCommandContext newContext() {
-    var ctx = new BasicCommandContext();
-    ctx.setDatabaseSession(session);
-    return ctx;
-  }
 
   private static SQLStatement stubStatement(List<? extends Result> results) {
     return stubStatement(results, true);

@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.TestUtilsFixture;
 import java.util.ArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.Test;
@@ -26,11 +27,7 @@ import org.junit.Test;
  * complementary "not yet expired" path is driven by a large timeout (1 hour) that the test
  * cannot possibly exceed.
  */
-public class ExpireTimeoutResultSetTest extends DbTestBase {
-
-  private BasicCommandContext newContext() {
-    return new BasicCommandContext(session);
-  }
+public class ExpireTimeoutResultSetTest extends TestUtilsFixture {
 
   // =========================================================================
   // ExpireResultSet — measures wall-clock via System.currentTimeMillis

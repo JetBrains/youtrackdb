@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.resultset;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.id.ContextualRecordId;
@@ -39,10 +38,6 @@ import org.junit.Test;
  * mid-transaction failures in this test class.
  */
 public class LoaderExecutionStreamTest extends TestUtilsFixture {
-
-  private BasicCommandContext newContext() {
-    return new BasicCommandContext(session);
-  }
 
   /**
    * Creates and commits a new entity. Persistence happens at {@code commit()} — the helper

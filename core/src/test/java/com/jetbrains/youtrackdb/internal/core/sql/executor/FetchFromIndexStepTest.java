@@ -7,7 +7,6 @@ import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -998,12 +997,6 @@ public class FetchFromIndexStepTest extends TestUtilsFixture {
 
   private Index getIndex(String indexName) {
     return session.getSharedContext().getIndexManager().getIndex(indexName);
-  }
-
-  private BasicCommandContext newContext() {
-    var ctx = new BasicCommandContext();
-    ctx.setDatabaseSession(session);
-    return ctx;
   }
 
   /**

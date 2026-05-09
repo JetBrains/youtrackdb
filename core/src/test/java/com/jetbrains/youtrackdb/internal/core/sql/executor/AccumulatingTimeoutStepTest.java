@@ -21,7 +21,6 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
-import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
@@ -250,12 +249,6 @@ public class AccumulatingTimeoutStepTest extends TestUtilsFixture {
   // =========================================================================
   // Helpers
   // =========================================================================
-
-  private BasicCommandContext newContext() {
-    var ctx = new BasicCommandContext();
-    ctx.setDatabaseSession(session);
-    return ctx;
-  }
 
   private ExecutionStepInternal sourceStep(CommandContext ctx, List<? extends Result> rows) {
     return new AbstractExecutionStep(ctx, false) {

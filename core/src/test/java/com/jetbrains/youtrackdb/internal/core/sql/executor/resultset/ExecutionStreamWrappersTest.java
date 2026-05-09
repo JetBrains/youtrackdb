@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.TestUtilsFixture;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -33,11 +34,7 @@ import org.junit.Test;
  * <p>See {@link ExecutionResultSetTest} and {@link LoaderExecutionStreamTest} for the wrappers
  * that do more than propagate hasNext/next between layers.
  */
-public class ExecutionStreamWrappersTest extends DbTestBase {
-
-  private BasicCommandContext newContext() {
-    return new BasicCommandContext(session);
-  }
+public class ExecutionStreamWrappersTest extends TestUtilsFixture {
 
   // =========================================================================
   // EmptyExecutionStream

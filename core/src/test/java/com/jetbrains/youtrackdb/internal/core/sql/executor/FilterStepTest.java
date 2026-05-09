@@ -433,12 +433,6 @@ public class FilterStepTest extends TestUtilsFixture {
   // Helpers
   // =========================================================================
 
-  private BasicCommandContext newContext() {
-    var ctx = new BasicCommandContext();
-    ctx.setDatabaseSession(session);
-    return ctx;
-  }
-
   private static SQLWhereClause parseWhere(String selectSql) {
     try {
       var parser = new YouTrackDBSql(new ByteArrayInputStream(selectSql.getBytes()));

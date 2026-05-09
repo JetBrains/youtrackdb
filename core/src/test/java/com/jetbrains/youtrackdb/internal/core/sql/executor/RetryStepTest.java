@@ -471,12 +471,6 @@ public class RetryStepTest extends TestUtilsFixture {
   // Helpers
   // =========================================================================
 
-  private BasicCommandContext newContext() {
-    var ctx = new BasicCommandContext();
-    ctx.setDatabaseSession(session);
-    return ctx;
-  }
-
   private static StubStatement successStub(@SuppressWarnings("unused") int marker) {
     return new StubStatement(ExecutionStream::empty);
   }

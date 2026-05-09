@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.query.BasicResult;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
@@ -12,6 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.TestUtilsFixture;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -37,11 +37,7 @@ import org.junit.Test;
  * the command context on construction, and {@link CommandContext#getDatabaseSession()} throws
  * when no session is attached.
  */
-public class ExecutionResultSetTest extends DbTestBase {
-
-  private BasicCommandContext newContext() {
-    return new BasicCommandContext(session);
-  }
+public class ExecutionResultSetTest extends TestUtilsFixture {
 
   /**
    * hasNext/next delegate to the underlying stream. Each call to next returns the same

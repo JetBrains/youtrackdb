@@ -4,11 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.thread.SoftThread;
-import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandInterruptedException;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.TestUtilsFixture;
 import java.util.ArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -30,11 +30,7 @@ import org.junit.Test;
  * database session in its constructor; {@code ctx.getDatabaseSession()} would otherwise throw
  * before the exception can propagate.
  */
-public class InterruptResultSetTest extends DbTestBase {
-
-  private BasicCommandContext newContext() {
-    return new BasicCommandContext(session);
-  }
+public class InterruptResultSetTest extends TestUtilsFixture {
 
   private ExecutionStream streamOfInts(int... values) {
     var list = new ArrayList<Result>(values.length);

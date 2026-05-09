@@ -19,7 +19,12 @@ public class AlterSecurityPolicyStatementExecutionTest extends DbTestBase {
     var security = session.getSharedContext().getSecurity();
     SecurityPolicy policy = security.getSecurityPolicy(session, "foo");
     Assert.assertNotNull(policy);
-    Assert.assertNotNull("foo", policy.getName());
+    // Pin the policy name as an exact-equality check. The previous
+    // `assertNotNull("foo", policy.getName())` mis-used the JUnit (message, value) overload —
+    // "foo" was the failure message, never compared to the actual name. The assertion silently
+    // passed even if the name diverged; flipping to `assertEquals` makes the regression
+    // falsifiable.
+    Assert.assertEquals("foo", policy.getName());
     Assert.assertEquals("name = \"foo\"", policy.getReadRule());
     Assert.assertNull(policy.getCreateRule());
     Assert.assertNull(policy.getBeforeUpdateRule());

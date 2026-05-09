@@ -17,7 +17,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIfStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLReturnStatement;
@@ -388,12 +387,6 @@ public class IfStepTest extends TestUtilsFixture {
   // =========================================================================
   // Helpers
   // =========================================================================
-
-  private BasicCommandContext newContext() {
-    var ctx = new BasicCommandContext();
-    ctx.setDatabaseSession(session);
-    return ctx;
-  }
 
   /** Always-true condition via {@code WHERE 1=1}. */
   private static SQLBooleanExpression trueCondition() {
