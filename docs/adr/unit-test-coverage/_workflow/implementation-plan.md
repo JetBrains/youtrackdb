@@ -1836,21 +1836,74 @@ flowchart TD
   >
   > **Strategy refresh:** CONTINUE — all Track 20 cross-track impact already absorbed into Track 22 backlog (commit 609b47d2d9). No Component Map shift, no Decision Record changes; D4 (storage-internal coverage allowance) reinforced by three accepted per-package gates. Track 21 inherits the Track 19/20 page-level direct-memory pattern (`ByteBufferPool.acquireDirect()` → `CachePointer` → `incrementReadersReferrer` → exclusive lock → ops → `decrementReferrer` in `finally` + `bufferPool.clear()` + `allocator.checkMemoryLeaks()` in `@After`) plus the Track 20 CyclicBarrier MT-race pattern for storage-cluster concurrency probes. Heads-ups for Track 21 Phase A: (1) backlog has no Track 21 section — reconstruct scope from the Component Map and the actual `core/storage/index/sbtree/{multivalue,singlevalue,local}/{v1,v2,v3}` + `nkbtree` + `versionmap` + `engine` + `impl/local*` package layout; (2) some `impl/local/paginated/{wal,base,atomicoperations}` lines may already be incidentally covered by Tracks 19/20 — cross-check at Phase A to avoid duplicate test files; (3) prefer Mockito `doReturn(...)` over `when(...).thenReturn(...)` for void-returning `WriteCache`/`CacheEntry` stubs (Track 20 Mockito void-stub trap codify-note).
 
-- [ ] Track 21: Storage B-tree & Impl
+- [x] Track 21: Storage B-tree & Impl
   > Write tests for B-tree index storage and storage implementation
   > internals. These are the lowest-level storage components, tightly
   > coupled to page-based I/O and WAL operations — expect to fall short
   > of 85%/70% targets per D4.
   >
-  > **Scope:** ~5 steps covering B-tree multivalue, B-tree singlevalue,
-  > B-tree local, storage impl, and verification.
-  > **Depends on:** Track 1
+  > **Track episode:**
+  > Test-additive coverage track for the storage B-tree and impl/local
+  > clusters (`storage.index.sbtree.{multivalue/v2, singlevalue/v3,
+  > local/v2}` plus `nkbtree.normalizers`, `sbtree` top-level,
+  > `index/engine`, `index/versionmap`, and
+  > `storage.impl.local{,/paginated}`). Seven steps landed against the
+  > per-package targets committed at decomposition (D4 ceilings:
+  > `impl/local` ~63%/~59%, `paginated` top-level ~88%/~65%,
+  > `nkbtree.normalizers` ~75%/~23%; the rest ≥85%/≥70%). Aggregate
+  > post-track baseline: **79.5% line / 69.4% branch** (+0.5 pp /
+  > +0.4 pp from Track 20). Phase C dimensional review fan-out
+  > (8 sub-agents) surfaced 0 blockers, ~25 should-fix, ~30 suggestions;
+  > three implementer iterations applied the in-scope subset:
+  > `Review fix: Track 21 Phase C iteration 1 — falsifiability +
+  > ephemeral identifier sweep` (`19857464e5`, 11 fixes — durable-
+  > content "Track NN" sweep across 8 test sources, falsifiable
+  > strengthening of two `StaleTransactionMonitor` probes,
+  > atomicising `FakeScheduledExecutor.scheduledCount`,
+  > message-contains assertions on `CellBTreeSingleValueV3Exception`
+  > ctors, `RemoteIndexEngine` factory propagation pin);
+  > `Review fix: Track 21 Phase C iteration 2 — regression revert +
+  > test strengthening` (`ff10bf63f5`, 17 fixes — REGRESSION revert on
+  > `testStartIdempotentUnderConcurrentRace` upper bound back to
+  > `<= racerCount` after empirical 6/8 flake reproduction;
+  > non-vacuous strengthening of `testRunDoesNotPropagateExceptions`;
+  > `validatedPut` substitution-branch test in the live B-tree engine;
+  > stop-during-start race under `CyclicBarrier(2)`;
+  > corruption-with-backup recovery + legacy 9-byte / 1-byte format
+  > tests for `StorageStartupMetadata`; `PageOperation.equals` chain
+  > pin; antisymmetry assertions on `compareTo`; per-test UUID DB
+  > names; `volatile cancelled`); and
+  > `Review fix: Track 21 Phase C iteration 3 — close residual RID
+  > import` (`42f45cbc90`, 1 fix — `RID` inline FQN at
+  > `BTreeMVBucketV2BulkOpsTest:460` converted to import). All six
+  > re-run gate-check dimensions (CQ/BC/TB/TC/TS/TX) PASS at iter-3
+  > with zero new findings. Cumulative track diff is test-additive
+  > (no `core/src/main/**` changes vs `origin/develop`), so coverage
+  > gate is `n/a (test-additive)` per the rulebook short-circuit.
+  > Key discoveries: (1) the live B-tree engine class is
+  > `singlevalue/v3.BTree`, NOT the non-existent
+  > `CellBTreeSingleValueV3` / `CellBTreeMultiValueV2` / `SBTreeV2` —
+  > Phase A reviews caught and corrected this misreference;
+  > `multivalue/v2` and `local/v2` are WAL-replay-only D4 packages
+  > reachable via direct bucket / `*Op` round-trip, not the live
+  > engine. (2) `BTreeLifecycleTest` needs
+  > `@Category(SequentialTest.class)` because it mutates
+  > `GlobalConfiguration.BTREE_MAX_KEY_SIZE` and surefire's parallel
+  > execution races schema init in sibling test classes. (3) The
+  > `multivalue/v2` displayed branch% (69.2%) is gate-passing —
+  > `coverage-gate.py` strips ~6 phantom branches from `assert`
+  > statements; future top-up must use the gate as authoritative,
+  > not raw JaCoCo. (4) `StorageStartupMetadata.open()` legacy paths
+  > (size ≤ 9) silently rely on `ByteBuffer`'s default BIG_ENDIAN
+  > rather than `nativeOrder()` — surfaced when the iter-2 implementer
+  > initially wrote little-endian and the test failed. Cross-track
+  > impact: Track 22 absorption block extended with three new
+  > Phase-C-sourced items (`StorageStartupMetadata` BIG_ENDIAN
+  > documentation, `AbstractStorage` null-snapshot test-helper
+  > deferred, ephemeral-identifier sweep across ~7 earlier-track
+  > test files) plus seven Phase B items (commit `6ea5492d4c`).
   >
-  > **Operational note:** Backlog section entirely in a gap —
-  > reconstruct at Phase A from the Scope indicator above + the
-  > design's Component Map cluster mapping for
-  > `core/storage/index/sbtree*` and `core/storage/impl/local*`.
-  > See **Operational Notes**.
+  > **Step file:** `tracks/track-21.md` (7 steps, 0 failed)
 
 - [ ] Track 22: Transactions, Gremlin & Remaining Core
   > Write tests for transaction management, Gremlin integration, and
