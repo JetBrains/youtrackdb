@@ -2120,7 +2120,7 @@ consumes these items begins.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (9/10 complete)
+- [x] Step implementation
 - [ ] Track-level code review
 
 ## Base commit
@@ -2901,7 +2901,8 @@ consumes these items begins.
   > test files in `core/src/test/java/.../core/sql/executor/`
   > (modified). All net diff +37/-267.
 
-- [ ] Step: Coverage-build verification + WHEN-FIXED grep verification + baseline update
+- [x] Step: Coverage-build verification + WHEN-FIXED grep verification + baseline update
+  - [x] Context: info
   > **Risk:** low — pure tooling step (run `coverage-analyzer.py`,
   > update `coverage-baseline.md`, run grep verification); no
   > production or test code changes
@@ -2916,3 +2917,71 @@ consumes these items begins.
   > emit a `recovery-gap-residuals` list as part of the episode for
   > 22c's filter. Per finding A1, the post-22a number is recorded as
   > an observation, not as a gate — coverage gaming is forbidden.
+  >
+  > **What was done:** Ran the foreground coverage-profile build
+  > in two stages (compile 27s, package 10:08) per the rulebook's
+  > foreground-only constraint. All 18,318 core tests passed
+  > (0 failures, 0 errors, 56 skipped). Ran
+  > `coverage-analyzer.py` against `jacoco.xml` and captured the
+  > aggregate post-22a numbers: **80.3% line (75,910 / 94,504) and
+  > 69.9% branch (32,326 / 46,223) across 178 packages**. Re-ran
+  > `grep -rn '// WHEN-FIXED:.*Track 22' core/src/test/java` —
+  > 116 markers (down from 218 at Step 1), reflecting Step 8's
+  > production-bug fixes and Step 9's DRY consolidations.
+  > Appended a "Post-Track-22a Measurement" section to
+  > `docs/adr/unit-test-coverage/_workflow/coverage-baseline.md`
+  > with aggregate totals, target-package deltas, full per-package
+  > breakdown, and updated residuals list. Header gloss matches
+  > finding R6 verbatim; A1 observation-not-gate caveat included.
+  >
+  > **What was discovered:**
+  >
+  > Most-changed Track 22a target packages (Baseline → Post-22a):
+  > `core.exception` 40.9% → 99.0% line (Step 4 PSI-throw-site
+  > filtered fan); `core.id` 64.2% → 94.6% line (Step 5);
+  > `core.tx` 61.8% → 73.1% line (Step 2); `core.engine`
+  > 17.1% → 65.8% line (Step 4); `api.exception` 53.3% → 100%
+  > line (Step 6); `api.config` 88.8% → 95.4% line (Step 6);
+  > `core.collate`, `core.type`, `core.replication` all 100%/100%
+  > (Steps 5/6). `core.servlet` deliberately at 35.7% line — only
+  > the live no-op branch is coverable (finding A4b).
+  > `core.gremlin` modest gain (53.5% → 56.3% line) because most
+  > of its surface is covered through Cucumber feature tests in
+  > the `embedded` module rather than `core` unit tests; the 22a
+  > delta reflects focused Step 3 unit-test additions only.
+  >
+  > **Aggregate at 80.3% / 69.9% sits below the amended ~82-83%
+  > line / ~70-71% branch target.** Per finding A1, this is
+  > recorded as an OBSERVATION, not a gate — Track 22b's
+  > denominator drop is expected to close the gap (~250 LOC of
+  > vestigial scaffolding pinned by `*DeadCodeTest` markers).
+  > If 22b's removal does not close it, Phase 4 / final
+  > verification step must surface the residual gap to the user
+  > rather than silently absorb it.
+  >
+  > New residuals surfaced relative to Step 1's list:
+  > - `core/sql/SQLEngineSpiCacheTest.java:351`
+  >   (`DefaultCommandExecutorSQLFactory` + `DynamicSQLElementFactory`
+  >   — same symbol family as `SqlRootDeadCodeTest`)
+  > - `core/command/script/SQLScriptEngineTest.java:318`
+  >   (`CommandScript.execute` List.of() pin — Track 9 22c-defer cluster)
+  > - `core/command/script/DatabaseScriptManagerTest.java:208`
+  >   (`DatabaseScriptManager.pooledEngines` reflection pin)
+  >
+  > **What changed from the plan:** none. The 80.3% / 69.9%
+  > aggregate is below the amended ~82-83%/~70-71% target — per
+  > A1 this is observation-only; Track 22b's denominator drop is
+  > the gap-closing mechanism. **Cross-track hint for Track 22b**:
+  > post-22a denominator-drop targets concentrated in
+  > `core.command.script` (53.9% line, 465 uncov — Track 9 22c),
+  > `core.query.live` (78.3%, 68 uncov — Track 10 22c),
+  > `core.serialization.serializer.record.string` (64.1%, 519 uncov),
+  > `core.db.tool` (63.5%, 831 uncov), `core.metadata.security`
+  > (74.6%, 542 uncov), `core.storage.cache.local` (69.4%, 616
+  > uncov). **Cross-track hint for Track 22c**: marker-rewrite
+  > filter should fold the 3 new residuals (above) into 22c-defer
+  > YTDB issues or stage them as late additions to the cluster
+  > classification table.
+  >
+  > **Key files:**
+  > - `docs/adr/unit-test-coverage/_workflow/coverage-baseline.md` (modified)
