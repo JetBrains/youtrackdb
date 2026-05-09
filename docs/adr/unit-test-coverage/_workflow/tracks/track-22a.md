@@ -2120,7 +2120,7 @@ consumes these items begins.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (7/10 complete)
+- [ ] Step implementation (8/10 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -2726,7 +2726,8 @@ consumes these items begins.
   > - `core/src/test/java/.../core/compression/impl/ZIPCompressionUtilDeadCodeTest.java` (new)
   > - `core/src/test/java/.../core/dictionary/DictionaryDeadCodeTest.java` (new)
 
-- [ ] Step: Production-bug fix lockstep — non-storage / non-SPI subset only
+- [x] Step: Production-bug fix lockstep — non-storage / non-SPI subset only
+  - [x] Context: info
   > **Risk:** medium — touches live production code with WHEN-FIXED
   > pin flips; constrained per finding A5 (storage-cluster bugs
   > excluded — they go to 22c)
@@ -2746,6 +2747,77 @@ consumes these items begins.
   > deserialization gadget (security), `TokenSignImpl.readKeyFromConfig`
   > (security), `setCustom` NPE (DatabaseSessionEmbedded — public
   > API).
+  >
+  > **What was done:** Applied 5 in-22a inherited production-bug
+  > fixes in lockstep with their WHEN-FIXED pinning tests:
+  >
+  > 1. `LRUCache.removeEldestEntry`: `>=` → `>` (steady-state size
+  >    now equals `cacheSize`, was `cacheSize - 1`).
+  > 2. `EntityImpl.OPPOSITE_LINK_CONTAINER_PREFIX`: added `final`
+  >    (PSI confirmed zero writes anywhere).
+  > 3. `BinarySerializerFactory.create()`: swapped
+  >    `new NullSerializer()` to `NullSerializer.INSTANCE` for
+  >    singleton consistency.
+  > 4. `BasicCommandContext.copy()`: null-guarded the child
+  >    propagation block so freshly-constructed contexts survive
+  >    `copy()` instead of NPEing.
+  > 5. `MemoryAndLocalPaginatedEnginesInitializer.warningInvalidMemoryLeftValue`
+  >    (Step 4 cross-track candidate): cast both varargs args to
+  >    `Object` (disambiguates Java overload resolution so a null
+  >    `memoryLeft` cannot route to the
+  >    `(Object, String dbName, String message, …)` variant which
+  >    would NPE on `requireNonNull(message)`) and fixed the swapped
+  >    format-arg order.
+  >
+  > Each production fix paired with its pinning-test flip
+  > (asserting corrected behavior rather than the buggy contract).
+  > One incidental pin in
+  > `StringCacheTest.concurrentGetsForDistinctKeysStayWithinCapacityWithoutCorruption`
+  > also flipped because it transitively pinned the `LRUCache`
+  > off-by-one. Targeted re-runs: 111/111 across 6 test classes;
+  > full `core` coverage-profile build PASSED; coverage gate PASSED
+  > at 100% line / 100% branch on the 6 changed production lines /
+  > 2 changed branches; spotless applied.
+  >
+  > **What was discovered:** Confirmed during this step:
+  > `LogManager` has 3 `warn` overloads —
+  > `(Object, String message, Object... args)`,
+  > `(Object, String message, Throwable, Object... args)`,
+  > `(Object, String dbName, String message, Object... args)`. The
+  > third (dbName) overload silently captures `(this, fmt, null, x)`
+  > calls because Java overload resolution prefers `String null`
+  > over `Object[] {null}`. Object-cast on each arg is the minimal
+  > disambiguation; the alternative (`String.valueOf(memoryLeft)`)
+  > would also work but loses the "value was null" signal in the log.
+  >
+  > **What changed from the plan:** none — applied the 4 named
+  > candidates plus the Step-4-discovered initializer fix. Other
+  > WHEN-FIXED markers in non-`*DeadCodeTest` files were either
+  > out-of-scope (storage races, security, public API) per finding
+  > A5 or relate to 22b deletion-lockstep and were intentionally
+  > not touched. **Cross-track hint for 22c YTDB issue creation**:
+  > `ScriptManager.closeAll`, `BasicLegacyResultSet`
+  > iterator/equals/contains/retainAll/add observed-shape pins +
+  > add-cap, `SQLMethodRuntime.setParameters`,
+  > `SQLScriptEngine` return value, `SQLHelperParseValueScalar`
+  > `"2000t"` classification — each violates one or more
+  > in-22a cap criteria (public-API surface, generic-parsing
+  > semantics change, or > 1 class touch).
+  >
+  > **Key files (production):**
+  > - `core/src/main/java/.../common/collection/LRUCache.java`
+  > - `core/src/main/java/.../core/command/BasicCommandContext.java`
+  > - `core/src/main/java/.../core/engine/MemoryAndLocalPaginatedEnginesInitializer.java`
+  > - `core/src/main/java/.../core/record/impl/EntityImpl.java`
+  > - `core/src/main/java/.../core/serialization/serializer/binary/BinarySerializerFactory.java`
+  >
+  > **Key files (tests — pin flips):**
+  > - `core/src/test/java/.../common/collection/LRUCacheTest.java`
+  > - `core/src/test/java/.../core/command/BasicCommandContextStandaloneTest.java`
+  > - `core/src/test/java/.../core/db/StringCacheTest.java`
+  > - `core/src/test/java/.../core/engine/MemoryAndLocalPaginatedEnginesInitializerTest.java`
+  > - `core/src/test/java/.../core/record/impl/EntityImplTest.java`
+  > - `core/src/test/java/.../core/serialization/serializer/binary/BinarySerializerFactoryTest.java`
 
 - [ ] Step: Inherited DRY / cleanup item sweep — coverage-additive subset
   > **Risk:** medium — touches many test files across Tracks 7–21
