@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
@@ -457,7 +458,7 @@ public class BTreeMVBucketV2BulkOpsTest {
     entry2.acquireExclusiveLock();
 
     try {
-      var rids = new ArrayList<com.jetbrains.youtrackdb.internal.core.db.record.record.RID>();
+      var rids = new ArrayList<RID>();
       rids.add(new RecordId(5, 100L));
       rids.add(new RecordId(5, 200L));
       rids.add(new RecordId(5, 300L));
