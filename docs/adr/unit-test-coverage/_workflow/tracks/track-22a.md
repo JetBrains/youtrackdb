@@ -2120,7 +2120,7 @@ consumes these items begins.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/10 complete)
+- [ ] Step implementation (2/10 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -2250,7 +2250,8 @@ consumes these items begins.
   > - `docs/adr/unit-test-coverage/_workflow/tracks/track-22a.md`
   >   (cluster classification table updated)
 
-- [ ] Step: `core/tx` coverage tests
+- [x] Step: `core/tx` coverage tests
+  - [x] Context: safe
   > **Risk:** medium — multi-file logic touching live transaction path
   > via `DbTestBase`; no HIGH triggers (test-additive only)
   >
@@ -2263,6 +2264,64 @@ consumes these items begins.
   > (`TransactionTest.java` 3,516 LOC + 26 sibling tests) — extend
   > existing where possible. Apply `@After rollbackIfLeftOpen`
   > convention; honor `databaseName = name.getMethodName()`.
+  >
+  > **What was done:** Added five new test classes under
+  > `core/src/test/java/.../core/tx/` realising the load-bearing
+  > `22a-keep` coverage targets for the `core/tx` package:
+  > `FrontendTransactionIdTest` (5 tests), `FrontendTransactionSequenceStatusTest`
+  > (5 tests), `FrontendTransactionNoTxTest` (21 tests covering every
+  > no-tx branch — `UnsupportedOperationException` +
+  > `NoTxRecordReadException` paths + side-effect-free getters),
+  > `FrontendTransactionImplCoverageTest` (20 tests covering
+  > read-only-mode rejection, all 3 public constructors, nested
+  > begin/commit, over-commit `TransactionException`, rolled-back
+  > re-rollback rejection, `toString` format, `setStatus` / `setSession`,
+  > custom-data, `getInvolvedIndexes`-null-when-empty, deleted-in-tx
+  > `RecordNotFoundException`, idempotent `clearIndexEntries`,
+  > unstarted-tx rollback/commit branches), and
+  > `TxFunctionalInterfacesTest` (15 tests realising finding A7's
+  > "covered indirectly via tx-pattern tests" mandate for
+  > `TxBiConsumer` / `TxBiFunction` / `TxConsumer` / `TxFunction` by
+  > exercising every `executeInTx` / `computeInTx` /
+  > `executeInTxBatches` / `forEachInTx` overload through
+  > `DatabaseSessionEmbedded`). All 66 tests pass; spotless applied;
+  > coverage gate PASSED at 100% line / 100% branch on the cumulative
+  > diff's 6 changed lines and 2 changed branches.
+  >
+  > **What was discovered:** Two implementation observations surfaced
+  > during test authoring (pinned by the new tests rather than fixed
+  > here; in-22a fix cap evaluation belongs to step 8):
+  >
+  > 1. `DatabaseSessionEmbedded.forEachInTx(Iterator, TxBiFunction)`
+  >    captures the `FrontendTransactionImpl` reference once before the
+  >    iteration loop. After each commit the local `tx` reference
+  >    points to a COMPLETED instance even though the next iteration
+  >    begins a new inner tx via `begin()`. The `TxBiFunction` lambda
+  >    therefore sees a stale (status=COMPLETED) tx for every element
+  >    after the first. May be intentional (the in-loop commit is
+  >    what makes the per-element batch atomic, and consumers normally
+  >    use the tx purely as a token), but is surprising. Test
+  >    `forEachInTxIteratorVisitsEveryElement` is written
+  >    assert-non-null-only on the tx argument to avoid pinning the
+  >    surprise. Cross-track candidate: step 8 in-22a fix (if
+  >    eligible) or YTDB issue under 22c.
+  > 2. The `Iterable` / `Stream` overloads of `forEachInTx` are
+  >    method-overload-ambiguous between the `BiConsumer` and
+  >    `BiFunction` shapes when called with a bare lambda whose body
+  >    neither returns nor terminates with a statement that
+  >    disambiguates. Tests that use these overloads must declare
+  >    `TxBiConsumer` / `TxBiFunction` locals explicitly. Future
+  >    callers will hit the same compile-time ambiguity and need the
+  >    same workaround.
+  >
+  > **What changed from the plan:** none.
+  >
+  > **Key files:**
+  > - `core/src/test/java/.../core/tx/FrontendTransactionIdTest.java` (new)
+  > - `core/src/test/java/.../core/tx/FrontendTransactionSequenceStatusTest.java` (new)
+  > - `core/src/test/java/.../core/tx/FrontendTransactionNoTxTest.java` (new)
+  > - `core/src/test/java/.../core/tx/FrontendTransactionImplCoverageTest.java` (new)
+  > - `core/src/test/java/.../core/tx/TxFunctionalInterfacesTest.java` (new)
 
 - [ ] Step: `core/gremlin` coverage tests (excluding schema sub-packages)
   > **Risk:** medium — multi-file logic + new test infrastructure
