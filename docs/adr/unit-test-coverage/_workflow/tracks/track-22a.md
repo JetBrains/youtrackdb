@@ -2120,7 +2120,7 @@ consumes these items begins.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (5/10 complete)
+- [ ] Step implementation (6/10 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -2562,7 +2562,8 @@ consumes these items begins.
   > - `core/src/test/java/.../core/id/RecordIdTest.java` (new)
   > - `core/src/test/java/.../core/type/IdentityWrapperTest.java` (new)
 
-- [ ] Step: Smaller live-package coverage cluster (`core/replication`, `core/api/exception`, `core/api/config`, `core/servlet` no-op branch)
+- [x] Step: Smaller live-package coverage cluster (`core/replication`, `core/api/exception`, `core/api/config`, `core/servlet` no-op branch)
+  - [x] Context: info
   > **Risk:** medium — `api/config/GlobalConfiguration` mutators need
   > `@Category(SequentialTest)` (T5/R8); `core/servlet` annotation-driven
   > entry point requires careful narrow Javadoc justification (A4b)
@@ -2576,6 +2577,75 @@ consumes these items begins.
   > branches only (true-branch is D4 residual — explicit Javadoc
   > caveat that this class is `@WebListener`-annotated and MUST NOT
   > be deleted despite zero PSI refs).
+  >
+  > **What was done:** Added 8 unit-test classes (49 tests total)
+  > covering the smaller live-package cluster:
+  > `AsyncReplicationOkTest` / `AsyncReplicationErrorTest` pin the
+  > `@FunctionalInterface` contract via lambda dispatch (finding A7
+  > — indirect coverage because `mainNew=0`).
+  > `ConcurrentModificationExceptionTest` /
+  > `RecordDuplicatedExceptionTest` / `RecordNotFoundExceptionTest` /
+  > `HighLevelExceptionTest` cover the four `api/exception` classes
+  > including every ctor variant, the bespoke equals/hashCode
+  > contracts on `ConcurrentModificationException` and
+  > `RecordNotFoundException`, and the `HighLevelException` marker
+  > contract (load-bearing for `BaseException.wrapException`'s
+  > short-circuit). `GlobalConfigurationTest` carries
+  > `@Category(SequentialTest)` with snapshot/restore on six
+  > configurations and exercises every public method on the enum
+  > (`setValue` type-coercion branches, `getValueAs*` readers
+  > including size-suffix parsing, `isChanged`, `findByKey`
+  > case-insensitive, `getEnvKey`, `setConfiguration` via both key
+  > shapes, `dumpConfiguration` sectioning + `<hidden>` marker,
+  > `NumberFormatException` failure path).
+  > `ServletContextLifeCycleListenerTest` covers ONLY the no-op
+  > false-branch of both lifecycle methods and carries the mandated
+  > class-level Javadoc caveat that this `@WebListener`-annotated
+  > class MUST NOT be deleted in dead-code sweeps despite zero PSI
+  > refs (finding A4b). 49 / 49 tests pass; coverage gate PASSED at
+  > 100% / 100% on cumulative diff; spotless applied.
+  >
+  > **What was discovered:**
+  > 1. `dumpConfiguration` section grouping uses the prefix BEFORE
+  >    the FIRST dot, so every entry starts with `"youtrackdb."` and
+  >    the dump has a single `"YOUTRACKDB"` section — no
+  >    `"MEMORY"` subsection.
+  > 2. `DB_SYSTEM_DATABASE_ENABLED` is declared with the 5-arg ctor
+  >    (`iCanChange=true`, no `iHidden`) — its `iHidden` defaults to
+  >    false. Hidden entries in the current enum include
+  >    `STORAGE_ENCRYPTION_KEY`, `NETWORK_TOKEN_SECRETKEY`, the
+  >    `CLIENT_SSL_*` password configs, and the CI keystore password.
+  >    **Cross-track impact**: future tracks deleting/renaming
+  >    `STORAGE_ENCRYPTION_KEY` must update this test in lockstep
+  >    (canonical hidden example).
+  > 3. `FileUtils.getSizeAsNumber` recognises only
+  >    `{KB, MB, GB, TB, B, %}` suffixes (uppercase-normalised) —
+  >    bare `"g"` does not parse; the test must use `"gb"`.
+  > 4. `BaseException`'s copy chain stores the original's
+  >    already-decorated message, so `CoreException.getMessage()` on
+  >    the copy appends the DB Name decorator twice — exact-message
+  >    comparison on the copy is unreliable; substring assertions
+  >    are robust.
+  > 5. `RecordNotFoundException(null, rid)` is ambiguous between
+  >    `(String, RID)` and `(DatabaseSessionEmbedded, RID)`
+  >    overloads — requires an explicit cast.
+  >
+  > **What changed from the plan:** none. (Note: the implementer
+  > self-flagged a workflow rulebook deviation — the coverage-profile
+  > build was launched via Bash `run_in_background` contrary to
+  > §"foreground only". Build completed successfully with exit 0
+  > and gate ran; no functional impact, but logged for end-of-session
+  > self-improvement reflection.)
+  >
+  > **Key files:**
+  > - `core/src/test/java/.../api/config/GlobalConfigurationTest.java` (new)
+  > - `core/src/test/java/.../api/exception/ConcurrentModificationExceptionTest.java` (new)
+  > - `core/src/test/java/.../api/exception/HighLevelExceptionTest.java` (new)
+  > - `core/src/test/java/.../api/exception/RecordDuplicatedExceptionTest.java` (new)
+  > - `core/src/test/java/.../api/exception/RecordNotFoundExceptionTest.java` (new)
+  > - `core/src/test/java/.../core/replication/AsyncReplicationErrorTest.java` (new)
+  > - `core/src/test/java/.../core/replication/AsyncReplicationOkTest.java` (new)
+  > - `core/src/test/java/.../core/servlet/ServletContextLifeCycleListenerTest.java` (new)
 
 - [ ] Step: `*DeadCodeTest` shape pins for 22b deletion lockstep
   > **Risk:** low — pure test additions pinning dead-code surfaces;
