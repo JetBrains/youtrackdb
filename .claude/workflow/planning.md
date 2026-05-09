@@ -28,7 +28,7 @@ flowchart TD
     P0["/create-plan\nPhase 0: Research\nInteractive exploration\n+ code & internet research"]
     P1["Phase 1: Planning\nTracks + architecture notes\n+ design document"]
     P2["/execute-tracks State 0\n(or /review-plan)\nPhase 2: Implementation Review\n1. Consistency review (autonomous)\n2. Structural review (autonomous)\nDesign decisions → user escalation"]
-    P3["/execute-tracks State A/B/C\nPhase 3: Execution\n(see workflow.md)\nIncludes replanning via ESCALATE"]
+    P3["/execute-tracks State A/C\nPhase 3: Execution\n(see workflow.md)\nIncludes replanning via ESCALATE"]
     P4["Phase 4: Final Artifacts\ndesign-final.md + adr.md\n(only files that survive merge)"]
     DONE((Done))
 
@@ -309,7 +309,7 @@ scope creep during execution.
    find any specific decision in under 10 seconds.
 6. **Update diagrams with steps** — when a step modifies component interactions,
    updating the Component Map diagram is part of the episode capture or the
-   strategy refresh ADJUST step.
+   Track Pre-Flight gate's `Adjust` action (Panel 1 strategy assessment).
 7. **Mermaid diagrams** — required when there are 3+ components with
    non-trivial relationships; omit for simpler cases where a bullet list
    alone is clearer.

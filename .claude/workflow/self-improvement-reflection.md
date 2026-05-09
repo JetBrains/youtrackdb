@@ -34,13 +34,13 @@ before "End the session". Applies to:
 
 Reflection runs on every session that reached at least one phase
 step (State 0, A, B, C, or 4) or that invoked the auto-resume /
-strategy refresh logic. The friction that triggered an early exit
-(context-window warning, ESCALATE, two-failure rule, designed-in
-user gate at strategy refresh or State 0) is itself often the most
-valuable finding. On a designed-in user gate the agent should
-default to N=0 — unless the gate fired because the docs gave no
-rule for the situation, in which case the gap is exactly what
-reflection should record.
+Track Pre-Flight gate logic. The friction that triggered an early
+exit (context-window warning, ESCALATE, two-failure rule,
+designed-in user gate at Track Pre-Flight or State 0) is itself
+often the most valuable finding. On a designed-in user gate the
+agent should default to N=0 — unless the gate fired because the
+docs gave no rule for the situation, in which case the gap is
+exactly what reflection should record.
 
 Reflection is skipped only when the auto-resume protocol could not
 start any session work because of a missing prerequisite — e.g.,

@@ -19,9 +19,11 @@ documents — they are not loaded by every Phase 3 session:
   [`track-code-review.md`](track-code-review.md) § Track Completion
   step 4 — the "Always keep" / "Always drop" rule, the track-episode
   fields, and the final on-disk form.
-- **Strategy refresh line** (State A): see
-  [`strategy-refresh.md`](strategy-refresh.md) step 5 — the line
-  format for CONTINUE / ADJUST and the `[~]`-track variant.
+- **Strategy refresh line** (State A — written by the Track Pre-Flight
+  gate when Panel 1 is active): see
+  [`track-review.md`](track-review.md) § Track Pre-Flight step 6
+  (Persist amendments + strategy-refresh line) — the line format for
+  CONTINUE / ADJUST and the `[~]`-track variant.
 
 ### Session state detection
 
@@ -163,9 +165,11 @@ pending, active, and completed tracks. Phase A resume logic (see
 [`track-review.md`](track-review.md)) and inline replanning (see
 [`inline-replanning.md`](inline-replanning.md)) both read the same
 rules from here. Skipped tracks follow a separate retention rule —
-see [`strategy-refresh.md`](strategy-refresh.md) step 5 for the
-authoritative statement on the `[~]`-track plan entry (intro
-paragraph + `**Skipped:**` + `**Strategy refresh:**`; never collapsed).
+see [`track-skip.md`](track-skip.md) step 5 for the authoritative
+statement on the `[~]`-track plan entry (intro paragraph +
+`**Skipped:**` + `**Strategy refresh:**`; never collapsed). The
+`**Strategy refresh:**` line itself is written by the Track Pre-Flight
+gate per the rule above.
 
 | Phase | Authoritative location | Writer | Reader(s) |
 |---|---|---|---|
@@ -176,8 +180,8 @@ paragraph + `**Skipped:**` + `**Strategy refresh:**`; never collapsed).
 | Phase A end | step file | Phase A orchestration (backlog section already removed) | Phase A review sub-agents (Track 3 prompts) |
 | Phase B / Phase C | step file | (stable — only inline replan rewrites) | Phase B implementer + Phase B/C code-review sub-agents |
 | Phase C after collapse | step file + plan intro paragraph | Phase C collapse (writes intro + episode) | future-track sessions (as strategic context) |
-| Skipped at or before Phase A | plan file entry (retained under `[~]`) + (backlog entry removed; step file never created) | `track-skip` | strategy refresh / future sessions |
-| Skipped after Phase A (rare) | plan file entry (retained under `[~]`) + step file (retained so the skip is traceable) | `track-skip` | strategy refresh / future sessions |
+| Skipped at or before Phase A | plan file entry (retained under `[~]`) + (backlog entry removed; step file never created) | `track-skip` | next session's Track Pre-Flight Panel 1 / future sessions |
+| Skipped after Phase A (rare) | plan file entry (retained under `[~]`) + step file (retained so the skip is traceable) | `track-skip` | next session's Track Pre-Flight Panel 1 / future sessions |
 | Inline replan | per authoritative-location rule in [`inline-replanning.md`](inline-replanning.md) | inline-replanning orchestration | — |
 
 Track-level Mermaid diagrams follow the same trajectory as the

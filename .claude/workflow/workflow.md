@@ -3,8 +3,9 @@
 ## Overview
 
 This is the session entry point for Phase 3 execution. You are a single agent
-that reads the plan, determines where execution left off, and either performs
-a strategy refresh or begins/resumes track execution.
+that reads the plan, determines where execution left off, and either runs
+the Track Pre-Flight gate (strategy assessment + track summary) or
+resumes track execution.
 
 There are no agent teams or sub-teams. You execute tracks directly. Sub-agents
 are used for two distinct purposes:
@@ -74,18 +75,15 @@ flowchart TD
     START --> READ
 
     READ -->|"Plan review not yet done\n(## Plan Review is [ ])"| P2["State 0: Autonomous Plan Review\n(implementation-review.md)"]
-    READ -->|"Track just completed\n(no strategy refresh yet)"| SR["Strategy Refresh\n(CONTINUE / ADJUST / ESCALATE)"]
-    READ -->|"Fresh start"| PREFLIGHT["Track Pre-Flight\n(summary + amend / clarify / proceed)"]
+    READ -->|"Pre-Phase-A\n(next track is [ ], no step file)"| PREFLIGHT["Track Pre-Flight\nPanel 1: strategy assessment (look-back)\nPanel 2: track summary (look-forward)"]
     READ -->|"Phase A done,\nsteps incomplete"| PB["Phase B: Step\nImplementation"]
     READ -->|"All steps done,\ncode review incomplete\nor track not marked [x]"| PC["Phase C: Code Review\n+ Track Completion"]
     READ -->|"All tracks done,\nPhase 4 not complete"| P4["Phase 4: Final\nArtifacts"]
 
     P2 --> END_P2["Session ends\n(plan review complete)"]
-    SR -->|CONTINUE / ADJUST| PREFLIGHT
-    SR -->|ESCALATE| REPLAN["Inline Replanning"]
     PREFLIGHT -->|Proceed| PA["Phase A: Review +\nDecomposition"]
-    PREFLIGHT -->|"Amend / Clarify\n(re-render summary,\nre-ask)"| PREFLIGHT
-    PREFLIGHT -->|"ESCALATE\n(deep amendment)"| REPLAN
+    PREFLIGHT -->|"Adjust / Clarify\n(re-render panels,\nre-ask)"| PREFLIGHT
+    PREFLIGHT -->|"ESCALATE\n(Panel 1 ESCALATE\nor deep amendment)"| REPLAN["Inline Replanning"]
 
     REPLAN -->|"Revised plan"| END_S["Session ends"]
     REPLAN -->|"Plan fundamentally broken"| EXIT_P1["Advise: restart\nfrom /create-plan"]
@@ -114,9 +112,10 @@ mandatory session boundaries — the user clears context and re-runs
 focused: review context doesn't dilute implementation, and implementation
 context doesn't bias code review.
 
-Strategy refresh for a just-completed track happens at the **start of the
-next session**, not the end of the current one — this gives fresh
-perspective on cross-track impact.
+The Track Pre-Flight gate's Panel 1 strategy assessment for a
+just-completed track happens at the **start of the next session**,
+not the end of the current one — this gives fresh perspective on
+cross-track impact.
 
 ---
 
@@ -137,8 +136,7 @@ perspective on cross-track impact.
    | Plan file state | Step file state | Session state |
    |---|---|---|
    | `## Plan Review` checklist entry is `[ ]` (or section missing entirely) | — | **State 0**: autonomous plan review (load `implementation-review.md` and follow it) |
-   | `## Plan Review` is `[x]`; last completed/skipped track has no `**Strategy refresh:**` line | — | **State A**: strategy refresh first |
-   | `## Plan Review` is `[x]`; all `[x]`/`[~]` tracks have `**Strategy refresh:**`; next track is `[ ]` | No step file | **State B**: fresh start (Phase A) |
+   | `## Plan Review` is `[x]`; next track is `[ ]` | No step file | **State A**: pre-Phase-A — runs the Track Pre-Flight gate (`track-review.md` § Track Pre-Flight), then Phase A in the same session. Within the gate, Panel 1 (strategy assessment) is conditionally skipped via the `**Strategy refresh:**` idempotency check — see *State A internal branching* below. |
    | `## Plan Review` is `[x]`; a track is `[ ]` | Step file exists | **State C**: mid-track resume |
    | All tracks `[x]` or `[~]`; Phase 4 is `[ ]` or `[>]` | — | **State D**: Phase 4 (final artifacts) |
    | All tracks `[x]` or `[~]`; Phase 4 is `[x]` | — | **Done** |
@@ -147,6 +145,15 @@ perspective on cross-track impact.
    track-level work begins. After State 0 passes, the session ends and
    the next `/execute-tracks` invocation re-evaluates the table starting
    from State A.
+
+   **State A internal branching.** The Track Pre-Flight gate (see
+   `track-review.md` § Track Pre-Flight) auto-detects whether to run
+   Panel 1 (strategy assessment, look-back) based on whether a
+   completed or skipped track exists with no `**Strategy refresh:**`
+   line yet. The very first Phase A entry of the plan skips Panel 1
+   (no anchor track); subsequent entries run both panels. State A is
+   the same session state in either case — the panel skip is internal
+   to the gate.
 
    **State C sub-states** (from step file Progress section):
 
@@ -177,15 +184,15 @@ perspective on cross-track impact.
    - Which track you're working on and why (or that plan review is
      pending if State 0)
    - If resuming mid-track: which steps are done, which is next
-   - If strategy refresh is needed: do it and present results before
-     proceeding
    - If Phase 4: whether starting fresh or resuming an interrupted session
    - If State 0: that the autonomous plan review is about to run and
      only design-decision findings will be surfaced
-   - If the next phase is a fresh Phase A (State B, or State A → Phase A
-     after strategy refresh): note that the Track Pre-Flight gate will
-     run before reviews start — see `track-review.md` §Track Pre-Flight.
-     The gate is **skipped** on State C resume because the step file's
+   - If State A (fresh Phase A entry): note that the Track Pre-Flight
+     gate will run before reviews start — see `track-review.md`
+     §Track Pre-Flight. The gate combines a strategy assessment
+     (look-back, when an earlier track has just completed/skipped)
+     with the upcoming track's summary (look-forward). The gate is
+     **skipped** on State C resume because the step file's
      `## Description` is already authoritative.
 
    The user can override: reorder tracks, skip a track, or choose a different
@@ -193,12 +200,17 @@ perspective on cross-track impact.
 
 ---
 
-## Strategy Refresh
+## Track Pre-Flight (Strategy Assessment + Track Summary)
 
-Triggered at State A (track just completed). Produces a CONTINUE / ADJUST /
-ESCALATE assessment. Strategy refresh + Phase A share a single session.
+Triggered at State A (pre-Phase-A — fresh entry). Combines a
+backward-looking strategy assessment (when an earlier track has
+just completed or been skipped) with a forward-looking summary of
+the upcoming track. The user can apply light edits to remaining
+tracks, attach clarifications to the upcoming track, or escalate to
+inline replanning. The gate runs in the same session as Phase A —
+this is the only exception to mandatory phase boundaries.
 
-**Full protocol:** [`strategy-refresh.md`](strategy-refresh.md)
+**Full protocol:** [`track-review.md`](track-review.md) § Track Pre-Flight
 
 ---
 
@@ -240,8 +252,9 @@ exactly one phase:
 - **After Phase C (code review + track completion)** — review is complete,
   plan corrections saved (if any), user approved track results, track
   episode written and track marked `[x]` in the plan file on disk.
-  Session ends. Strategy refresh happens in the next session. If session
-  is interrupted before user approval, the next session re-enters Phase C
+  Session ends. The next session's Track Pre-Flight gate runs Panel 1
+  (strategy assessment) against this track's episode. If session is
+  interrupted before user approval, the next session re-enters Phase C
   at the track completion stage (all phases `[x]` in step file, track
   still `[ ]` in plan file).
 
@@ -332,8 +345,7 @@ User interaction points:
 |---|---|---|
 | **Session start** | Auto-resume decision (which track, which phase, or State 0 plan review) | Confirm or override |
 | **State 0 design-decision findings** | Batched list of CR/S findings the consistency and/or structural sub-agents classified as `design-decision`, with proposed alternatives and recommendation | Resolve each finding (choose alternative, provide guidance, defer) |
-| **Strategy refresh** | Assessment report (CONTINUE / ADJUST / ESCALATE) | Accept or override |
-| **Track pre-flight (start of fresh Phase A)** | Track summary built from the plan-file entry + backlog Track N section (intro, **What/How/Constraints/Interactions**, scope indicators, optional diagram) | Proceed; amend (light edits to plan/backlog applied directly); or clarify (notes captured for inclusion in the step file's `## Description`, written at Phase A sub-step 2c). Deep amendments ESCALATE to inline replanning. Skipped on State C resume. |
+| **Track pre-flight (State A — pre-Phase-A)** | Two-panel summary: Panel 1 — strategy assessment (look-back: CONTINUE / ADJUST / ESCALATE) when an earlier track has just completed/skipped; Panel 2 — upcoming track summary built from the plan-file entry + backlog Track N section (intro, **What/How/Constraints/Interactions**, scope indicators, optional diagram). Panel 1 is skipped on the very first Phase A entry (no anchor track) and on resume when the strategy-refresh line is already on disk. | Proceed; adjust (light edits to any remaining track's plan/backlog including reorder, applied directly); clarify (notes captured for inclusion in the upcoming track's step-file `## Description`, written at Phase A sub-step 2c); or ESCALATE (Panel 1 ESCALATE accepted, or deep amendment requested) → inline replanning. Skipped on State C resume. |
 | **Phase A/B complete (and State 0 complete)** | Phase summary, what was done, next phase | User clears session, re-runs `/execute-tracks` |
 | **Cross-track impact** | Which tracks affected, what broke, recommendation | Continue, pause, or escalate |
 | **Track complete (end of Phase C)** | Track episode, step episodes, git log of commits, plan corrections | Approve, request fixes, or rework |
@@ -356,9 +368,13 @@ inside Phase B.
 
 ## Inline Replanning (ESCALATE)
 
-Triggers when strategy refresh is ESCALATE, an ADJUST would modify Decision
-Records, cross-track impact detects fundamental assumption failure, or the
-user requests "fundamental rework." Stops all new steps and enters a
+Triggers when the Track Pre-Flight gate produces ESCALATE (Panel 1
+strategy assessment ESCALATE accepted by the user, or `Adjust` would
+touch a deep-amendment category — Decision Records, Architecture
+Notes, Goals, Constraints, adding/removing tracks, cross-track
+interaction surfaces), cross-track impact detects fundamental
+assumption failure, or a step failure cannot be recovered with
+additional commits. Stops all new steps and enters a
 propose → review → iterate cycle.
 
 **Full protocol:** [`inline-replanning.md`](inline-replanning.md)
@@ -444,7 +460,6 @@ For other workflow components, see:
 - **`prompts/create-final-design.md`** — Phase 4 (final artifacts: `design-final.md`, `adr.md`)
 
 On-demand reference documents (loaded only when their specific situation arises):
-- **`strategy-refresh.md`** — full strategy refresh protocol (State A)
 - **`inline-replanning.md`** — full ESCALATE replanning protocol
 - **`review-iteration.md`** — iteration limits, finding ID prefixes, gate format (loaded when running any review loop)
 - **`code-review-protocol.md`** — two-tier dimensional code review (loaded by step-implementation.md and track-code-review.md)

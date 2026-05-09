@@ -6,7 +6,21 @@ A track can be skipped (`[~]`) in two situations:
    severity finding (e.g., "functionality already exists," "prior track made
    this redundant"). The agent presents the finding to the user.
 2. **User requests skip** — the user overrides at session start or during
-   strategy refresh (e.g., "skip Track 4, we don't need it anymore").
+   the Track Pre-Flight gate (e.g., "skip Track 4, we don't need it
+   anymore"). When a skip is requested in the Pre-Flight gate's `Adjust`
+   loop:
+   - If the request would shift which track is "next", re-render
+     Panel 2 against the new upcoming track per the gate's
+     reordering rule.
+   - If the skipped track was the upcoming track summarised in
+     Panel 2 (the most common case), the just-skipped track now
+     becomes the new look-back anchor and Panel 1 must also re-run
+     its strategy assessment against the remaining tracks, treating
+     the in-progress skip's `**Skipped:**` reason as the just-
+     skipped-track signal. Re-render both panels before re-asking.
+
+   See [`track-review.md`](track-review.md) § Track Pre-Flight for
+   the full panel-rendering contract.
 
 ---
 
@@ -33,12 +47,12 @@ A track can be skipped (`[~]`) in two situations:
    removed in step 3 below.
 
    The authoritative retention rule for `[~]` entries lives in
-   [`strategy-refresh.md`](strategy-refresh.md) step 5 — this process
-   step must not diverge from that rule.
+   step 5 below — this process step must not diverge from that rule.
 
    The skip record replaces both the track episode and step file
-   reference. It must include enough context for strategy refresh to
-   assess downstream impact.
+   reference. It must include enough context for the next session's
+   Track Pre-Flight Panel 1 (strategy assessment) to assess
+   downstream impact.
 
 3. **Remove Track N's section from `implementation-backlog.md`**.
    Delete per the "Backlog section body extraction rule" in
@@ -61,14 +75,27 @@ A track can be skipped (`[~]`) in two situations:
 4. **Delete the step file** (`tracks/track-N.md`) from disk if one
    exists (e.g., Phase A created it before the skip was decided).
 
-5. **Strategy refresh** treats `[~]` tracks the same as `[x]` tracks
-   for State A detection (see workflow.md §Startup Protocol). A
-   skipped track's `**Skipped:**` line serves as its episode — the
-   next session's strategy refresh reads it to assess downstream
-   impact on remaining tracks. After strategy refresh, a
+5. **Track Pre-Flight (Panel 1 strategy assessment)** treats `[~]`
+   tracks the same as `[x]` tracks. A skipped track's `**Skipped:**`
+   line serves as its episode — the next session's Pre-Flight gate
+   reads it as the just-skipped-track signal in Panel 1 to assess
+   downstream impact on remaining tracks. After the gate clears, a
    `**Strategy refresh:**` line is written under the `[~]` track's
-   block, just like for `[x]` tracks. This is required for State B
-   detection to work correctly.
+   block, just like for `[x]` tracks. The line is the audit record
+   of the assessment and is preserved by the Pre-Flight gate's
+   resume idempotency rule on subsequent re-entries.
+
+   **Retention rule for `[~]` entries.** The plan entry retains the
+   intro paragraph, the `**Skipped:**` line, and the
+   `**Strategy refresh:**` line indefinitely. It is **never trimmed
+   by the Phase C collapse pass** — Phase C collapse only runs against
+   `[x]` tracks at track completion (see
+   [`track-code-review.md`](track-code-review.md) § Track Completion
+   step 4); skipped tracks bypass that pass entirely. The
+   `**What/How/Constraints/Interactions**` subsections and any
+   track-level diagram lived in `implementation-backlog.md` and were
+   removed in step 3 above; they are not recoverable from the plan
+   entry once a track has been skipped.
 
 ---
 
@@ -81,9 +108,11 @@ user confirms):
 - Remove Track N's section from `implementation-backlog.md` (no-op
   if the section is already gone)
 - Delete any partially-created step file from disk
-- The session continues: if strategy refresh was already done, proceed to
-  the next `[ ]` track's Phase A. If no more tracks remain, proceed to
-  Phase 4 detection.
+- The session continues: if Panel 1 of the Track Pre-Flight gate was
+  already cleared in this session, proceed to the next `[ ]` track's
+  Phase A. If the skip changed which track is "next", re-render
+  Panel 2 of the Pre-Flight gate against the new upcoming track. If
+  no more tracks remain, proceed to Phase 4 detection.
 
 ---
 

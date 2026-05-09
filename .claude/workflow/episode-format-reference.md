@@ -119,9 +119,10 @@ Proportional to cross-track impact. A track that went as planned and
 produced no surprises needs 1-2 sentences. A track that discovered
 architectural issues, changed assumptions, or deviated from the plan
 should include enough detail for downstream sessions (Phase B in
-later tracks, Phase C track review, strategy refresh) to assess
-impact on remaining tracks without reading the step file. There is no
-hard line limit — clarity and completeness for downstream decision-making
+later tracks, Phase C track review, the next session's Track
+Pre-Flight Panel 1 strategy assessment) to assess impact on
+remaining tracks without reading the step file. There is no hard
+line limit — clarity and completeness for downstream decision-making
 is the criterion.
 
 The same principle applies to step episodes: a trivial rename needs one

@@ -80,8 +80,9 @@ Read the slim plan snapshot at:
 
 This is a filtered view of the full plan — completed and skipped tracks
 appear as title + intro paragraph + track episode (or Skipped reason) +
-strategy refresh only; the current track and other not-started tracks
-keep their title, intro paragraph, `**Scope:**`, and `**Depends on:**`.
+the on-disk `**Strategy refresh:**` line only; the current track and
+other not-started tracks keep their title, intro paragraph,
+`**Scope:**`, and `**Depends on:**`.
 If this file is missing, fall back to
   docs/adr/{dir-name}/_workflow/implementation-plan.md
 (full plan).
