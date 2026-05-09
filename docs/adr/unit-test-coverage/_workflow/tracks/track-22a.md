@@ -2120,7 +2120,7 @@ consumes these items begins.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (3/10 complete)
+- [ ] Step implementation (4/10 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -2401,7 +2401,8 @@ consumes these items begins.
   > - `core/src/test/java/.../core/gremlin/io/graphson/YTDBGraphSONTest.java` (new)
   > - `core/src/test/java/.../core/gremlin/io/gryo/YTDBGyroSerializersTest.java` (new)
 
-- [ ] Step: `core/engine` lifecycle + `core/exception` PSI-throw-site-filtered parameterized fan
+- [x] Step: `core/engine` lifecycle + `core/exception` PSI-throw-site-filtered parameterized fan
+  - [x] Context: safe
   > **Risk:** medium — engine lifecycle mutates process-wide
   > `YouTrackDBEnginesManager` state; `@Category(SequentialTest)`
   > discipline mandatory; exception-class fan must respect
@@ -2424,6 +2425,82 @@ consumes these items begins.
   > `InternalErrorException`) → `*DeadCodeTest` shape pin in 22a +
   > YTDB issue list for 22c. Mechanical-fan without filter is
   > forbidden.
+  >
+  > **What was done:** Added 22 new test classes (266 tests total)
+  > covering `core/engine` lifecycle (`Engine` SPI, `EngineAbstract`,
+  > `EngineMemory`, `EngineLocalPaginated`,
+  > `MemoryAndLocalPaginatedEnginesInitializer`) and 22 exception
+  > classes under `core/exception`, organised by Phase A bucket:
+  >
+  > - **Engine SPI**: `EngineAbstractTest`, `EngineSpiTest`,
+  >   `EngineMemoryTest`, `EngineLocalPaginatedTest`,
+  >   `MemoryAndLocalPaginatedEnginesInitializerTest`. All carry
+  >   `@Category(SequentialTest)`; the initializer test reflectively
+  >   drives every branch of the private `calculateMemoryLeft`
+  >   parser. Existing `YouTrackDBEnginesManagerStartUpTest` covers
+  >   the more invasive lifecycle paths.
+  > - **Exception bucket (a) uniform-ctor**: `UniformCtorExceptionFanTest`
+  >   single `@Parameterized` class with 32 rows (155 sub-tests).
+  > - **Exception bucket (b) bespoke**: 9 per-class tests for ctor
+  >   shapes outside the uniform fan (RID args, `ParseException`,
+  >   `TokenMgrError`, component refs via Mockito, text+position
+  >   pointer rendering, single-dbName, 3-arg, etc.).
+  > - **Exception bucket (c) abstract bases**: `BaseExceptionTest`,
+  >   `CoreExceptionTest`, `StorageComponentExceptionTest` cover the
+  >   abstract-state delegation via local subclasses; `wrapException`
+  >   static helpers (incl. `HighLevelException` short-circuit,
+  >   null-dbName backfill, session overload) pinned.
+  > - **Exception bucket (d) throw-site-zero `*DeadCodeTest` pins**
+  >   (NOTE: these landed here, NOT in step 7):
+  >   `LiveQueryInterruptedExceptionDeadCodeTest`,
+  >   `ManualIndexesAreProhibitedDeadCodeTest`,
+  >   `RetryQueryExceptionDeadCodeTest` (abstract; uses local
+  >   concrete subclass), `InternalErrorExceptionDeadCodeTest`.
+  >
+  > 266 / 266 tests pass; coverage gate PASSED at 100% line / 100%
+  > branch on the cumulative diff; spotless applied.
+  >
+  > **What was discovered (production bug — Step 8 candidate):**
+  > `MemoryAndLocalPaginatedEnginesInitializer.calculateMemoryLeft`
+  > called with a null `memoryLeft` argument routes to
+  > `warningInvalidMemoryLeftValue(parameter, null)` which calls
+  > `LogManager.warn(this, "Invalid value of '%s' parameter ('%s') memory limit will not be decreased", null, parameter)`.
+  > Java overload resolution picks the
+  > `(Object, String dbName, String message, Object... args)`
+  > variant of `warn`, so the format string becomes the `dbName`
+  > parameter and the null `memoryLeft` becomes the `message` —
+  > `SLF4JLogManager.log`'s `requireNonNull(message)` NPEs. The
+  > null-input branch is reached only indirectly via
+  > `configureDefaultDiskCacheSize`, so the bug is latent in
+  > production today. Fix would be a 1-line null-guard in
+  > `warningInvalidMemoryLeftValue` or an explicit 2-arg overload
+  > disambiguation. **In-22a fix-cap eligible**: single
+  > non-storage class, < 5 LOC, no signature change. **Cross-track
+  > hint for Step 8**: consider this fix.
+  >
+  > Secondary observation: the "Error on formatting message" stderr
+  > noise observed during the test is the same overload-resolution
+  > mismatch — the `%s` format string becomes the `dbName` parameter
+  > so format args end up at the wrong slot.
+  >
+  > **What changed from the plan:** none — bucket (d) `*DeadCodeTest`
+  > pins for the four throw-site-zero leaves landed here per step
+  > description, NOT in step 7. **Cross-step hint for Step 7**:
+  > do not duplicate these four pins; step 7 covers the
+  > compression + dictionary clusters only (per finding A3 / A4a).
+  >
+  > **Key files:**
+  > - `core/src/test/java/.../core/engine/EngineAbstractTest.java` (new)
+  > - `core/src/test/java/.../core/engine/EngineSpiTest.java` (new)
+  > - `core/src/test/java/.../core/engine/MemoryAndLocalPaginatedEnginesInitializerTest.java` (new)
+  > - `core/src/test/java/.../core/engine/local/EngineLocalPaginatedTest.java` (new)
+  > - `core/src/test/java/.../core/engine/memory/EngineMemoryTest.java` (new)
+  > - `core/src/test/java/.../core/exception/UniformCtorExceptionFanTest.java` (new)
+  > - `core/src/test/java/.../core/exception/BaseExceptionTest.java` (new)
+  > - `core/src/test/java/.../core/exception/CoreExceptionTest.java` (new)
+  > - `core/src/test/java/.../core/exception/StorageComponentExceptionTest.java` (new)
+  > - 9 bucket-(b) bespoke per-class tests under `core/exception/` (new)
+  > - 4 bucket-(d) `*DeadCodeTest` pins under `core/exception/` (new)
 
 - [ ] Step: Smaller live-package coverage cluster (`core/cache`, `core/id`, `core/conflict`, `core/collate`, `core/type`)
   > **Risk:** low — additive tests on small testable utility surfaces;
