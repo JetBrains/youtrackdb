@@ -826,26 +826,17 @@ public class EntityImplTest extends DbTestBase {
   }
 
   // ---------------------------------------------------------------------------
-  // (e) OPPOSITE_LINK_CONTAINER_PREFIX should-be-final shape pin.
+  // (e) OPPOSITE_LINK_CONTAINER_PREFIX final-constant shape pin.
   //
-  // An mcp-steroid PSI all-scope ReferencesSearch shows 0 writes anywhere —
-  // the field is logically a constant but is declared mutable. Pin the
-  // OBSERVED shape (not-final) plus other invariants so that any change
-  // (final tightening OR a stray write) is caught and forwarded to the
-  // deferred-cleanup track.
+  // The field is logically a constant (PSI confirms zero writes anywhere) and is now
+  // declared final accordingly. Pin the public/static/final/char/'#' shape so that any
+  // future relaxation (e.g., dropping final to make it test-overridable) is caught.
   // ---------------------------------------------------------------------------
 
   /**
-   * {@link EntityImpl#OPPOSITE_LINK_CONTAINER_PREFIX} is documented as a constant prefix
-   * separator for opposite-link bag property names. PSI shows zero writes anywhere, so it is
-   * logically final but declared mutable. The pin records the observed-but-incorrect shape: the
-   * field must remain {@code public static}, must equal {@code '#'}, and currently is NOT
-   * final. When the deferred-cleanup track tightens the declaration to {@code public static
-   * final}, the {@code assertFalse} below will flip — that flip is the signal to update this
-   * pin and the call sites in lockstep.
-   *
-   * <p>WHEN-FIXED: tighten this field to {@code public static final char} in the
-   * deferred-cleanup track, then change the {@code assertFalse} below to {@code assertTrue}.
+   * {@link EntityImpl#OPPOSITE_LINK_CONTAINER_PREFIX} is the constant prefix separator for
+   * opposite-link bag property names. The field is {@code public static final char} and equals
+   * {@code '#'}; any relaxation of these invariants would silently change call-site behaviour.
    */
   @Test
   public void testOppositeLinkContainerPrefixShapePin() throws NoSuchFieldException {
@@ -854,10 +845,7 @@ public class EntityImplTest extends DbTestBase {
 
     assertTrue("must remain a public field", Modifier.isPublic(modifiers));
     assertTrue("must remain a static field", Modifier.isStatic(modifiers));
-    // WHEN-FIXED: tighten to final and flip this assertion to assertTrue.
-    assertFalse(
-        "OPPOSITE_LINK_CONTAINER_PREFIX is currently mutable; PSI shows 0 writes — when the "
-            + "deferred-cleanup track tightens this to final, flip this assertion.",
+    assertTrue("must remain a final field — PSI shows 0 writes anywhere",
         Modifier.isFinal(modifiers));
     assertEquals(char.class, field.getType());
     assertEquals('#', EntityImpl.OPPOSITE_LINK_CONTAINER_PREFIX);

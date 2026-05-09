@@ -31,17 +31,24 @@ public class LRUCacheTest {
 
   @Test
   public void testEvictionWhenExceedingCapacity() {
-    // When cache reaches capacity, the eldest entry is evicted on next put.
-    // Note: removeEldestEntry triggers when size() >= cacheSize, so a cache
-    // with capacity 3 will evict to stay at 2 entries after each put beyond 2.
+    // removeEldestEntry fires only AFTER size() exceeds cacheSize, so a cache with
+    // capacity 3 holds exactly 3 entries; eviction kicks in on the 4th put.
     var cache = new LRUCache<String, Integer>(3);
     cache.put("a", 1);
     cache.put("b", 2);
     cache.put("c", 3);
-    // Size is 3 (>= cacheSize=3), so "a" (eldest) was evicted when "c" was put.
+    // First three puts must all be retained — capacity equals 3.
+    assertEquals(3, cache.size());
+    assertTrue(cache.containsKey("a"));
+    assertTrue(cache.containsKey("b"));
+    assertTrue(cache.containsKey("c"));
+    // The fourth put pushes size past cacheSize, evicting the eldest (a).
+    cache.put("d", 4);
+    assertEquals(3, cache.size());
     assertFalse(cache.containsKey("a"));
     assertTrue(cache.containsKey("b"));
     assertTrue(cache.containsKey("c"));
+    assertTrue(cache.containsKey("d"));
   }
 
   @Test
@@ -51,13 +58,16 @@ public class LRUCacheTest {
     var cache = new LRUCache<String, Integer>(3);
     cache.put("a", 1);
     cache.put("b", 2);
-    // Access "a" to make it recently used.
-    cache.get("a");
-    // Now put "c" — "b" should be evicted since "a" was accessed more recently.
     cache.put("c", 3);
+    // Access "a" to make it the most-recently-used — it must survive the next eviction.
+    cache.get("a");
+    // The fourth put pushes size past capacity; eviction targets "b" (now eldest).
+    cache.put("d", 4);
+    assertEquals(3, cache.size());
     assertFalse(cache.containsKey("b"));
     assertTrue(cache.containsKey("a"));
     assertTrue(cache.containsKey("c"));
+    assertTrue(cache.containsKey("d"));
   }
 
   @Test
@@ -77,23 +87,31 @@ public class LRUCacheTest {
 
   @Test
   public void testCapacityOneAlwaysEvicts() {
-    // With cacheSize=1, removeEldestEntry fires when size() >= 1,
-    // so every entry is evicted immediately. Effective capacity is 0.
+    // With cacheSize=1 the cache holds exactly one entry; the second put evicts the first.
     var cache = new LRUCache<String, Integer>(1);
     cache.put("a", 1);
-    assertFalse(cache.containsKey("a"));
-    assertEquals(0, cache.size());
-  }
-
-  @Test
-  public void testSmallCapacityEviction() {
-    // With cacheSize=2, removeEldestEntry fires when size() >= 2,
-    // so the effective capacity is 1. The second put evicts the first.
-    var cache = new LRUCache<String, Integer>(2);
-    cache.put("a", 1);
+    assertTrue(cache.containsKey("a"));
+    assertEquals(1, cache.size());
     cache.put("b", 2);
     assertFalse(cache.containsKey("a"));
     assertTrue(cache.containsKey("b"));
     assertEquals(1, cache.size());
+  }
+
+  @Test
+  public void testSmallCapacityEviction() {
+    // With cacheSize=2 the steady-state holds exactly two entries; the third put evicts
+    // the eldest.
+    var cache = new LRUCache<String, Integer>(2);
+    cache.put("a", 1);
+    cache.put("b", 2);
+    assertTrue(cache.containsKey("a"));
+    assertTrue(cache.containsKey("b"));
+    assertEquals(2, cache.size());
+    cache.put("c", 3);
+    assertFalse(cache.containsKey("a"));
+    assertTrue(cache.containsKey("b"));
+    assertTrue(cache.containsKey("c"));
+    assertEquals(2, cache.size());
   }
 }

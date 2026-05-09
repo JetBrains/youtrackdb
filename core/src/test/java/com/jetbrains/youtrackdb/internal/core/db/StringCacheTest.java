@@ -104,20 +104,12 @@ public class StringCacheTest {
   // ---------------------------------------------------------------------------
 
   /**
-   * The underlying {@link com.jetbrains.youtrackdb.internal.common.collection.LRUCache} uses
-   * {@code removeEldestEntry: size() >= cacheSize}, which fires <em>after</em> the put has
-   * already grown the map by one. The net steady-state size is therefore {@code cacheSize - 1},
-   * not {@code cacheSize} as the field name suggests. Pinning this off-by-one keeps the
-   * current behaviour falsifiable; if a future fix lifts the cap to a true {@code cacheSize}
-   * entries, this test fails and serves as the WHEN-FIXED indicator.
-   *
-   * <p>WHEN-FIXED: deferred-cleanup track — once {@link
-   * com.jetbrains.youtrackdb.internal.common.collection.LRUCache} is fixed (the off-by-one
-   * was originally documented during the common-utilities track), update the assertion to
-   * {@code assertEquals(capacity, cache.size())} and drop the WHEN-FIXED note.
+   * The underlying {@link com.jetbrains.youtrackdb.internal.common.collection.LRUCache} caps the
+   * steady-state size at exactly {@code cacheSize}. Pin the corrected post-fix behaviour: after
+   * filling past the capacity, {@code size()} equals {@code capacity} (not {@code capacity - 1}).
    */
   @Test
-  public void capacityCapsCacheSizeAtOneBelowConstructorArgument() {
+  public void capacityCapsCacheSizeAtConstructorArgument() {
     int capacity = 4;
     var cache = new StringCache(capacity);
 
@@ -130,11 +122,9 @@ public class StringCacheTest {
     int size = cache.size();
     assertTrue("size must remain bounded — never exceed capacity",
         size <= capacity);
-    // The current LRUCache off-by-one keeps steady-state size at capacity - 1.
     assertEquals(
-        "current LRU implementation caps steady-state size at (capacity - 1) "
-            + "due to LRUCache off-by-one — see WHEN-FIXED note",
-        capacity - 1, size);
+        "steady-state size must equal capacity (off-by-one fix landed)",
+        capacity, size);
   }
 
   /**
@@ -149,11 +139,11 @@ public class StringCacheTest {
     int capacity = 4;
     var cache = new StringCache(capacity);
 
-    // Fill to (capacity - 1) so all 3 entries are present.
+    // Fill to capacity - 1 so all 3 entries fit comfortably below the cap.
     cache.getString("a".getBytes(StandardCharsets.UTF_8), 0, 1);
     cache.getString("b".getBytes(StandardCharsets.UTF_8), 0, 1);
     cache.getString("c".getBytes(StandardCharsets.UTF_8), 0, 1);
-    assertEquals("3 distinct entries below the off-by-one cap",
+    assertEquals("3 distinct entries fit under capacity 4",
         3, cache.size());
 
     // Touch 'a' so it becomes most-recently-used; then add d, e — eviction should drop
@@ -285,12 +275,10 @@ public class StringCacheTest {
     // dropped puts under contention that the previous "> 0" lower bound could not.
     assertEquals("every distinct key must be observed exactly once",
         threads * keysPerThread, distinct.size());
-    // LRUCache.removeEldestEntry uses size > capacity, so steady-state size caps at
-    // capacity-1 — see capacityCapsCacheSizeAtOneBelowCtorArg in this class for the
-    // canonical pin of the off-by-one. Pin the exact value here: a regression that
-    // drops puts would land below this bound; a regression that off-by-one-bumps the
-    // cap would land above it.
-    assertEquals("steady-state cache size caps at capacity-1 (LRU off-by-one)",
-        capacity - 1, cache.size());
+    // LRUCache.removeEldestEntry now uses size > cacheSize, so steady-state holds exactly
+    // capacity entries. Pin the exact value: a regression that drops puts would land below
+    // this bound; a regression that re-introduces the off-by-one would land at capacity-1.
+    assertEquals("steady-state cache size caps at capacity",
+        capacity, cache.size());
   }
 }

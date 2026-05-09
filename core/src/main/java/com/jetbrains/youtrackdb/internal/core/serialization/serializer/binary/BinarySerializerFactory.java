@@ -61,10 +61,11 @@ public class BinarySerializerFactory {
 
   public static final byte CURRENT_BINARY_FORMAT_VERSION = 14;
 
-  private final Byte2ObjectArrayMap<BinarySerializer<?>> serializerIdMap = new Byte2ObjectArrayMap<>();
-  private final EnumMap<PropertyTypeInternal, BinarySerializer<?>> serializerTypeMap = new EnumMap<>(
-      PropertyTypeInternal.class);
-
+  private final Byte2ObjectArrayMap<BinarySerializer<?>> serializerIdMap =
+      new Byte2ObjectArrayMap<>();
+  private final EnumMap<PropertyTypeInternal, BinarySerializer<?>> serializerTypeMap =
+      new EnumMap<>(
+          PropertyTypeInternal.class);
 
   private BinarySerializerFactory() {
   }
@@ -82,7 +83,7 @@ public class BinarySerializerFactory {
     final var factory = new BinarySerializerFactory();
 
     // STATELESS SERIALIER
-    factory.registerSerializer(new NullSerializer(), null);
+    factory.registerSerializer(NullSerializer.INSTANCE, null);
 
     factory.registerSerializer(BooleanSerializer.INSTANCE, PropertyTypeInternal.BOOLEAN);
     factory.registerSerializer(IntegerSerializer.INSTANCE, PropertyTypeInternal.INTEGER);

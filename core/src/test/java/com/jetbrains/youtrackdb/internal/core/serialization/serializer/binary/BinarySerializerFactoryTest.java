@@ -198,17 +198,14 @@ public class BinarySerializerFactoryTest {
     // NullSerializer.ID = 11. Note: BinarySerializerFactory.create() registers a
     // FRESH NullSerializer instance (`new NullSerializer()`) rather than the
     // singleton `NullSerializer.INSTANCE`. Pin both invariants — the lookup returns
-    // a NullSerializer, but it is NOT the singleton.
+    // a NullSerializer, and it MUST be the INSTANCE singleton (consistent with every other
+    // serializer registered by create()).
     var f = BinarySerializerFactory.create(BinarySerializerFactory.CURRENT_BINARY_FORMAT_VERSION);
     var resolved = f.getObjectSerializer(NullSerializer.ID);
     assertNotNull(resolved);
     assertEquals(NullSerializer.class, resolved.getClass());
-    // WHEN-FIXED: deferred-cleanup track — change the registration in
-    // BinarySerializerFactory.create() to use NullSerializer.INSTANCE for consistency
-    // with every other serializer in the factory; flip this assertion to assertSame.
-    assertNotSame(
-        "today create() registers a fresh NullSerializer rather than the INSTANCE singleton —"
-            + " WHEN-FIXED flip to assertSame against NullSerializer.INSTANCE",
+    assertSame(
+        "create() must register the NullSerializer.INSTANCE singleton, not a fresh instance",
         NullSerializer.INSTANCE,
         resolved);
   }

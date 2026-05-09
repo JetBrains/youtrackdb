@@ -112,16 +112,18 @@ public class MemoryAndLocalPaginatedEnginesInitializerTest {
   }
 
   /**
-   * A null {@code memoryLeft} input intentionally takes the early-return arm before any
-   * {@code .toLowerCase()} or character indexing. Production: the warn-log call inside
-   * {@code warningInvalidMemoryLeftValue(parameter, null)} happens to pick the
-   * {@code warn(Object, String dbName, String message, Object... args)} overload with the format
-   * string passed as {@code dbName} and {@code memoryLeft} as the {@code message}, which
-   * subsequently NPEs inside {@link com.jetbrains.youtrackdb.internal.common.log.SLF4JLogManager}.
-   * Skipped to avoid pinning that incidental log-overload NPE; the same null-input behaviour is
-   * exercised through the parser's other branches via the unknown-suffix and length-too-short
-   * arms.
+   * A null {@code memoryLeft} input must take the early-return arm and yield the original
+   * memory limit unchanged. The warning helper inside
+   * {@code warningInvalidMemoryLeftValue(parameter, null)} casts both args to {@link Object}
+   * so Java overload resolution picks the {@code (Object, String, Object...)} variant of
+   * {@code SLF4JLogManager.warn} — a regression that drops the casts would re-route the call
+   * to the {@code (Object, String dbName, String message, Object...)} variant and NPE on
+   * {@code requireNonNull(message)}.
    */
+  @Test
+  public void calculateMemoryLeftWithNullValueReturnsOriginalLimit() throws Exception {
+    assertThat(invokeCalculateMemoryLeft(1_000L, "param", null)).isEqualTo(1_000L);
+  }
 
   /** Inputs shorter than two characters cannot carry a unit suffix and must be rejected. */
   @Test

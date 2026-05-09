@@ -644,31 +644,33 @@ public class BasicCommandContextStandaloneTest {
   }
 
   // ---------------------------------------------------------------------------
-  // copy() — null-child NullPointerException pin (T4)
+  // copy() — null-child regression test
   //
-  // Falsifiable-regression: BasicCommandContext.copy() dereferences child at line 492
-  // without a null guard. A freshly-constructed context with no child must NPE.
-  //
-  // WHEN-FIXED: Track 22 — when copy() is null-guarded (e.g., `copy.child = child != null
-  //             ? child.copy() : null;`) this pin flips from "throws NPE" to "returns a
-  //             copy with a null child". Re-pin at that time rather than deleting: the
-  //             observed-shape assertion protects callers that rely on today's behavior.
+  // copy() must tolerate a null child: the helper is invoked on freshly-constructed
+  // contexts during script-execution setup, before any child is wired. Asserts that
+  // the produced copy is non-null, has the variable propagated, and carries no child.
   // ---------------------------------------------------------------------------
 
   /**
-   * Current observed behavior: {@link BasicCommandContext#copy()} NPEs when called on a context
-   * with no child. This pin locks in the present shape so any refactor to null-guard the copy path
-   * is detected and deliberately re-pinned via Track 22.
+   * {@link BasicCommandContext#copy()} on a context with no child must return a non-null copy
+   * carrying the variables and a null child. A regression that reverts the null-guard would
+   * NPE here. The {@code child} field is read reflectively because
+   * {@link BasicCommandContext} exposes no public accessor for it.
    */
   @Test
-  public void copyWithNullChildThrowsNpe_T4Pin() {
+  public void copyWithNullChildReturnsCopyWithoutChild() throws Exception {
     var ctx = new BasicCommandContext();
-    // Variables present → the copy path reaches the child.copy() dereference.
+    // Variables present → the copy path reaches the child propagation block.
     ctx.setVariable("k", "v");
 
-    // Today: copy() accesses child.copy() at line 492 without a null check.
-    // WHEN-FIXED: Track 22 — null-guard copy(), then flip this to assertNotNull(ctx.copy()).
-    assertThrows(NullPointerException.class, ctx::copy);
+    var copy = ctx.copy();
+    assertNotNull("copy() must tolerate a null child", copy);
+    // The variable must be propagated to the copy.
+    assertEquals("v", copy.getVariable("k"));
+    // The child remains null since the source had no child to clone.
+    var childField = BasicCommandContext.class.getDeclaredField("child");
+    childField.setAccessible(true);
+    assertNull("copy.child must remain null when source had no child", childField.get(copy));
   }
 
   // ---------------------------------------------------------------------------
