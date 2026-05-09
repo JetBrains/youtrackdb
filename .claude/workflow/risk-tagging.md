@@ -47,13 +47,16 @@ implementer model is therefore not allocated by risk tag; only the
 step-level dimensional review (sub-step 4) and the focal-point
 treatment in track-level review remain risk-tag-driven.
 
-The implementer-model column is read by the Phase B orchestrator when
-spawning the per-step implementer (see
-[`step-implementation.md`](step-implementation.md) §Implementer Prompt
-Template). Because every row resolves to `opus`, the `low → high`
-upgrade path (see §"Phase B upgrade" below) does not change the model
-— it only enables sub-step 4's dimensional review and promotes the
-step to a focal point in track-level review.
+The implementer-model column is informational — it documents the
+model used by the Phase B orchestrator's spawn template. The operative
+source is [`step-implementation.md`](step-implementation.md)
+§Implementer Prompt Template, which hard-codes `model: "opus"`
+regardless of the step's risk tag (the orchestrator does not look the
+model up from this column at spawn time). Because every row resolves
+to `opus`, the `low → high` upgrade path (see §"Phase B upgrade"
+below) does not change the model — it only enables sub-step 4's
+dimensional review and promotes the step to a focal point in
+track-level review.
 
 Phase A reviews, the dimensional-review fan-out agents (which fire only
 on `risk: high` steps), the Phase C track-level review, and the Phase
