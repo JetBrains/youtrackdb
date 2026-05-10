@@ -656,10 +656,11 @@ After writing the step file with all decomposed steps:
    `.claude/workflow/self-improvement-reflection.md` on-demand and
    follow it. Phase A friction worth recording typically lives in
    the review-iteration loop, the technical/risk/adversarial sub-agent
-   prompts, the decomposition rules, or the step-file template. If
-   the user approves any proposed issues, write the chosen
-   `workflow-issues/*.md` files, commit + push per the protocol
-   §Commit format, then proceed to Step 5.
+   prompts, the decomposition rules, or the step-file template. The
+   protocol creates approved proposals as YouTrack issues under
+   `YTDB` with the `dev-workflow` tag (or skips with a notice if
+   the YouTrack MCP server is unreachable); reflection produces no
+   commit. Then proceed to Step 5.
 5. **End the session.** Do not proceed to Phase B in the same session.
 
 **Why:** Phase A is exploratory (reading code, validating assumptions).

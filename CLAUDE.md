@@ -9,7 +9,7 @@ YouTrackDB is a general-purpose object-oriented graph database developed by JetB
 - **Build**: Maven with Maven Wrapper (`./mvnw`)
 - **Group ID**: `io.youtrackdb`
 - **Version**: `0.5.0-SNAPSHOT` (CI-friendly: `${revision}${sha1}${changelist}`)
-- **Issue tracker**: https://youtrack.jetbrains.com/issues/YTDB
+- **Issue tracker**: https://youtrack.jetbrains.com/issues/YTDB (YouTrack project code: `YTDB`)
 - **Repository**: https://github.com/JetBrains/youtrackdb
 
 ## Build Commands

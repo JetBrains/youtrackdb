@@ -599,9 +599,10 @@ code changes committed to git):
    execution. Reflection is **mandatory** even if Phase B ended on
    a context-window warning, the two-failure rule, or any other
    early-exit path — those exits are themselves the kind of
-   friction reflection is meant to capture. If the user approves
-   any proposed issues, write the chosen `workflow-issues/*.md`
-   files, commit + push per the protocol §Commit format, then
+   friction reflection is meant to capture. The protocol creates
+   approved proposals as YouTrack issues under `YTDB` with the
+   `dev-workflow` tag (or skips with a notice if the YouTrack MCP
+   server is unreachable); reflection produces no commit. Then
    proceed to Step 4.
 4. **End the session.** Do not proceed to Phase C in the same
    session.

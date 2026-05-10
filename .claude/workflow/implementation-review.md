@@ -505,10 +505,11 @@ When both reviews pass:
    follow it. Reflection runs even when Phase 2 passed cleanly —
    ambiguity in `implementation-review.md` itself, classifier
    misfires, or sub-agent prompt issues are exactly the kind of
-   workflow-process friction this step is meant to capture. If the
-   user approves any proposed issues, write the chosen
-   `workflow-issues/*.md` files, commit + push per the protocol
-   §Commit format, then proceed to Step 5.
+   workflow-process friction this step is meant to capture. The
+   protocol creates approved proposals as YouTrack issues under
+   `YTDB` with the `dev-workflow` tag (or skips with a notice if
+   the YouTrack MCP server is unreachable); reflection produces no
+   commit. Then proceed to Step 5.
 5. **End the session.** Do not proceed to Phase A of Track 1 in the
    same session — the session boundary is mandatory (see
    `workflow.md` §Session Boundary Rules).

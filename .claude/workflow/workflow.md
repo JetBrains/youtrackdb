@@ -351,7 +351,7 @@ User interaction points:
 | **Track complete (end of Phase C)** | Track episode, step episodes, git log of commits, plan corrections | Approve, request fixes, or rework |
 | **Step failure (2nd attempt)** | What failed twice, what was tried, options | Retry differently, adjust, or escalate |
 | **Design decision needed** | Alternatives with trade-offs, recommendation | Choose an alternative or provide guidance |
-| **Self-improvement reflection (every session end)** | 0..N proposed `workflow-issues/` files (capped at 3), each with title + one-line summary | Pick which proposals to write (numbers, "all", or "none") |
+| **Self-improvement reflection (every session end)** | 0..N proposed YouTrack issues (capped at 3, deduped against existing `project: YTDB tag: dev-workflow` issues), each with title + Bug/Feature type + one-line summary; skipped with a notice when the YouTrack MCP server is unreachable | Pick which proposals to create in YouTrack (numbers, "all", or "none") |
 
 ---
 
@@ -405,8 +405,8 @@ Completion.
 
 After all tracks are complete, a separate session produces
 `design-final.md` and `adr.md` — the two artifacts that survive
-merge into `develop`. Phase 4 lands two or three commits on the
-branch (the third is conditional on reflection output):
+merge into `develop`. Phase 4 lands exactly two commits on the
+branch:
 
 1. **Final-artifacts commit.** Stage `design-final.md`,
    `design-mechanics-final.md` (if applicable), and `adr.md`; commit
@@ -417,20 +417,19 @@ branch (the third is conditional on reflection output):
    (plan, backlog, design.md, design-mechanics.md, step files,
    design-mutations log). Commit with a message such
    as `Remove workflow scaffolding`. Push.
-3. **Self-improvement reflection commit (conditional).** If the
-   end-of-session reflection produces approved issues, stage the
-   new `workflow-issues/*.md` files and commit per
-   `self-improvement-reflection.md` §Commit format; push. Skipped
-   when reflection produces no approved issues.
 
-After all landed commits are pushed, **inform the user that Phase 4
-is complete and stop** — and, if `workflow-issues/` is non-empty,
-remind them to triage and remove the remaining files before
-flipping the PR to ready-for-review (the buffer is branch-local
-and should not land on `develop`; see `workflow-issues/README.md`).
-The user manually flips the draft PR to
-"ready for review" when satisfied — Claude does not run `gh pr
-ready`.
+The end-of-session self-improvement reflection runs after both
+commits land — it creates any approved proposals as YouTrack issues
+under `YTDB` with the `dev-workflow` tag and produces **no commit**
+on the branch (the YouTrack sink replaces the retired local
+`workflow-issues/` buffer). See
+[`self-improvement-reflection.md`](self-improvement-reflection.md).
+
+After both commits are pushed and reflection has run, **inform the
+user that Phase 4 is complete and stop**. If reflection created any
+YouTrack issues, list their ids in the completion message. The user
+manually flips the draft PR to "ready for review" when satisfied —
+Claude does not run `gh pr ready`.
 
 Tracked in the `## Final Artifacts` section of
 `implementation-plan.md` (see State D markers in the Startup
@@ -474,4 +473,4 @@ On-demand reference documents (loaded only when their specific situation arises)
 - **`implementer-rules.md`** — Phase B per-step implementer sub-agent rulebook (loaded only by the implementer; orchestrators do not load it)
 - **`step-implementation-recovery.md`** — Phase B Resume, non-`SUCCESS` orchestrator handlers, post-commit rollback handlers, Step Failure formats, Two-Failure Rule, Track-Level Failure (loaded by the Phase B orchestrator only when orphan commits are detected at startup or a non-`SUCCESS` implementer return arrives)
 - **`ephemeral-identifier-rule.md`** — full forbidden / allowed / rewrite rule for durable content (loaded only when about to author source code, tests, Javadoc, PR title/body, `design-final.md`, or `adr.md`; the §2.3 stub in `conventions-execution.md` plus the self-check grep are usually enough)
-- **`self-improvement-reflection.md`** — mandatory final step at the end of every `/execute-tracks` session (State 0, Phase A, Phase B, Phase C, Phase 4). Reflects on workflow-process friction encountered in the session and proposes durable issue files under `workflow-issues/` for future agents to fix. Loaded on-demand at end-of-session by every phase doc.
+- **`self-improvement-reflection.md`** — mandatory final step at the end of every `/execute-tracks` session (State 0, Phase A, Phase B, Phase C, Phase 4). Reflects on workflow-process friction encountered in the session and creates approved proposals as YouTrack issues under `YTDB` with the `dev-workflow` tag (or skips with a notice when the YouTrack MCP server is unreachable). Produces no commit. Loaded on-demand at end-of-session by every phase doc.
