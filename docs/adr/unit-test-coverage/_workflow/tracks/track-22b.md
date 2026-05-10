@@ -497,7 +497,7 @@ subset; the live subset stays covered by 22a's tests.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/14 complete)
+- [ ] Step implementation (2/14 complete)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -591,7 +591,8 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   >
   > **Implementer commit:** `dcf28e20c3`
 
-- [ ] Step 1: Delete Binary Token / JWT cluster (8 classes)
+- [x] Step 1: Delete Binary Token / JWT cluster (8 classes)
+  - [x] Context: safe
   > **Risk:** medium — override from HIGH-security category.
   > Justification: PSI iter-1 confirms zero cross-module refs and
   > zero `*IT.java` refs across `core/`, `server/`, `embedded/`,
@@ -603,6 +604,51 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   > `BinaryTokenPayloadDeserializer`, `DistributedBinaryTokenPayload`,
   > `JsonWebToken`, `JwtPayload`, `YouTrackDBJwtHeader`) plus their
   > 8 `*DeadCodeTest.java` shape pins.
+  >
+  > **What was done:** Deleted the 8-class Binary Token / JWT
+  > cluster (`BinaryToken`, `BinaryTokenSerializer`,
+  > `BinaryTokenPayloadImpl`, `BinaryTokenPayloadDeserializer`,
+  > `DistributedBinaryTokenPayload`, `JsonWebToken`, `JwtPayload`,
+  > `YouTrackDBJwtHeader`) plus the 8 matching `*DeadCodeTest.java`
+  > shape pins as a single bisectable cluster commit. Confirmed via
+  > PSI find-usages (all-scope) that every cluster class has only
+  > intra-cluster + dead-code-test references, and via repo-wide
+  > grep that no XML/services/properties resources name any cluster
+  > class. Updated stale Javadoc `{@code BinaryToken}` /
+  > `{@code JsonWebToken}` mentions in two surviving test files
+  > (`AuthenticatorChainDispatchTest`, `TokenSignImplTest`) to drop
+  > the dangling references. Marked cluster A as `deleted` in
+  > `cluster-disposition.md`. Tests pass: targeted suite 27/27,
+  > security suite 40+ pass; Spotless applied.
+  >
+  > **What was discovered:** The non-cluster jwt-package interfaces
+  > `BinaryTokenPayload` and `TokenPayloadDeserializer` are now
+  > orphaned (their only callers were the cluster classes just
+  > deleted). They are out of scope for Step 1 per the step file
+  > but are candidates for a future cleanup pass — either folded
+  > into Step 12 license-header housekeeping or queued for 22c.
+  > Step-0 disposition table named `TokenSecurityImpl` /
+  > `ServerSecurityImpl` as intra-cluster refs to `BinaryToken`;
+  > PSI confirms neither class exists in the current tree, so the
+  > table mention was stale (pre-22a snapshot) — no impact on this
+  > commit's safety. **Cross-track observation:** these are
+  > within-track follow-ups, not new inter-track dependencies; no
+  > impact on remaining Steps 2–13.
+  >
+  > **What changed from the plan:** none. Step deleted exactly the
+  > 8 production classes + 8 pin tests enumerated in the step
+  > file's Step 1 risk block.
+  >
+  > **Key files:**
+  > - 8 production deletions under
+  >   `core/src/main/java/.../metadata/security/{binary,jwt}/`
+  > - 8 `*DeadCodeTest.java` deletions under
+  >   `core/src/test/java/.../metadata/security/{binary,jwt}/`
+  > - Javadoc rewrites in `AuthenticatorChainDispatchTest`,
+  >   `TokenSignImplTest`
+  > - `cluster-disposition.md` cluster-A row updated to `deleted`
+  >
+  > **Implementer commit:** `5c89db6b1d`
 
 - [ ] Step 2: Delete `sbtree/singlevalue/v1` cluster
   > **Risk:** medium — override from HIGH-storage category.
