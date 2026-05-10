@@ -41,7 +41,7 @@ On-demand reference documents (load only when the situation arises):
 - `episode-format-reference.md` — load when writing your first episode
 - `design-document-rules.md` — load when entering State D (Phase 4); not needed for Phase A/B/C
 - `risk-tagging.md` — load during Phase A decomposition (to assign per-step risk tags) and on the rare Phase B upgrade path (when implementation reveals a step is more invasive than tagged); **not** loaded by Phase B normal execution or Phase C — those phases read the per-step `**Risk:**` tag from the step file directly
-- `self-improvement-reflection.md` — load at the **end** of every session (State 0, Phase A, Phase B, Phase C, Phase 4) before "End the session". Mandatory final step that captures workflow-process friction as durable issue files under `workflow-issues/` for future agents to fix. Each phase doc invokes it explicitly.
+- `self-improvement-reflection.md` — load at the **end** of every session (State 0, Phase A, Phase B, Phase C, Phase 4) before "End the session". Mandatory final step that captures workflow-process friction and creates approved proposals as YouTrack issues under `YTDB` with the `dev-workflow` tag (or skips with a notice when the YouTrack MCP server is unreachable). Each phase doc invokes it explicitly.
 
 Plan directory name: if "$ARGUMENTS" is non-empty, use it as the directory
 name. Otherwise, default to the current git branch name

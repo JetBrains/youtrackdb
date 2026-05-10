@@ -1,16 +1,10 @@
 # Self-Improvement Reflection
 
-A mandatory final step at the end of every `/execute-tracks` session. The
-session-running agent reflects on what it just did and proposes 0..N
-workflow-improvement issues. The user gates which proposals become files
-under `workflow-issues/`.
-
-`workflow-issues/` is a **branch-local pending-triage buffer**, not a
-durable backlog. The implementer triages each file into the project's
-real issue tracker (YouTrack), deletes the file as it is filed, and
-ensures the directory is empty before merging the PR — files are not
-intended to land on `develop`. See `workflow-issues/README.md` for the
-triage procedure.
+A mandatory final step at the end of every `/execute-tracks` session.
+The session-running agent reflects on what it just did and proposes
+0..N workflow-improvement issues, **created directly in YouTrack**
+under the `YTDB` project with the `dev-workflow` tag. The user gates
+which proposals become real issues.
 
 This is **process feedback**, not code review and not plan correction.
 Code findings belong to the dimensional review loop. Plan flaws belong
@@ -18,6 +12,34 @@ to inline replanning or the plan-review pass. Reflection only captures
 problems with the workflow itself: ambiguous instructions, missing
 recipes, brittle automation, recurring frictions, gaps where a future
 agent would have benefited from a rule that did not exist.
+
+---
+
+## YouTrack MCP requirement
+
+Reflection writes its output to YouTrack via the YouTrack MCP server
+(the `mcp__youtrack__*` tools). The protocol is gated on that server
+being reachable.
+
+- **MCP reachable** → run reflection as documented below.
+- **MCP NOT reachable** → print one notice line and skip reflection
+  entirely. There is no local fallback. The notice MUST appear in
+  the user-facing end-of-session message:
+
+  > YouTrack MCP unreachable — self-improvement reflection skipped
+  > for this session.
+
+  Then proceed to "End the session" per the phase's normal end-of-
+  session instructions. No proposals are presented to the user, no
+  files are written, no commits are made.
+
+The check is purely a tool-listing inspection: scan the session's
+available tools (including any deferred tools surfaced in the
+session-start system reminders) for an `mcp__youtrack__*` entry. If
+none appear, treat the server as unreachable and emit the skip
+notice immediately. The listing IS the test — do not call any
+`mcp__youtrack__*` tool to "probe" availability, and do not retry.
+Reflection is best-effort, not load-bearing.
 
 ---
 
@@ -42,11 +64,14 @@ agent should default to N=0 — unless the gate fired because the
 docs gave no rule for the situation, in which case the gap is
 exactly what reflection should record.
 
-Reflection is skipped only when the auto-resume protocol could not
-start any session work because of a missing prerequisite — e.g.,
-the plan file does not exist, MCP cwd does not match, or the user
-cancels at the startup prompt. In those cases there is no session
-content to reflect on.
+Reflection is skipped only when:
+
+- the auto-resume protocol could not start any session work because
+  of a missing prerequisite (plan file does not exist, MCP cwd does
+  not match, user cancels at the startup prompt) — there is no
+  session content to reflect on; or
+- YouTrack MCP is not reachable (see §YouTrack MCP requirement) —
+  there is no sink for the output.
 
 ---
 
@@ -83,65 +108,168 @@ Out of scope (do not record here):
 - General "I think the project should …" opinions unrelated to the
   workflow that produced them.
 
-The bar is: *the user, looking only at the issue file, should be able
-to file a tracker issue from it without re-deriving the context.* If
-the agent cannot describe the reproduction context, the finding is
-not yet ready to record — drop it or sharpen it.
+The bar is: *the user, looking only at the YouTrack issue, should be
+able to act on it without re-deriving the context.* If the agent
+cannot describe the reproduction context, the finding is not yet
+ready to record — drop it or sharpen it.
+
+---
+
+## Generality requirement for improvements
+
+Improvements (Feature-type proposals — missing rule, missing recipe,
+missing automation, or any other gap-fill) must be **generally
+applicable**: the proposed fix should help a recurring class of
+situations across different ADRs, tracks, or phases — not a single
+narrow use case from this session. Drop a candidate whose only
+justification reads "this would have helped on the one step I just
+did".
+
+Problems (Bug-type proposals — workflow producing wrong outputs,
+silent failures, blocked sessions) are exempt from this rule. A bug
+that bites once is still a bug worth fixing, because the next session
+hitting the same trigger will fail the same way. The asymmetry is
+deliberate: adding a new rule or recipe expands the workflow surface
+every future agent must read; fixing a broken rule does not.
+
+Quick tests for a Feature candidate before recording:
+
+- Would the proposed fix help on **at least 3** plausible future
+  sessions across different ADRs, tracks, or phases?
+- Is the trigger condition generic (any phase, any track, any
+  sub-agent) or specific to this ADR's domain (e.g., specific to one
+  refactor, one Maven module, or one sub-agent's prompt for one kind
+  of question)?
+- If the proposed fix is "add a recipe for X", is X a recurring
+  pattern across the workflow, or a one-off the agent rolled this
+  session?
+
+If any test fails, the friction is real but the fix is project- or
+ADR-shaped, not workflow-shaped — drop the candidate. Project-shaped
+findings can still be valuable; surface them to the user in the
+session's normal output, but do not file them under `dev-workflow`.
 
 ---
 
 ## Per-session cap
 
-At most **3** issues per session. If reflection turns up more than
-three, keep the three highest-impact ones (highest severity, most
-frequent, or blocking the most downstream work) and discard the rest.
-Quality of the buffer matters more than completeness.
+At most **3** issues per session — this is a ceiling, not a target.
+Zero or one real finding is the expected outcome on most sessions;
+two or three should feel exceptional. **Do not invent findings to
+hit the cap.** Padding the buffer with thin, manufactured frictions
+just to fill three slots is a worse failure mode than filing zero,
+because the triager has to spend turns rejecting them and the
+`dev-workflow` queue loses its signal.
 
-If reflection turns up zero, that is the expected outcome on a smooth
-session. Say so explicitly to the user and end the session.
+If reflection turns up more than three real frictions, keep the
+three highest-impact ones (highest severity, most frequent, or
+blocking the most downstream work) and discard the rest. Quality
+of the proposals matters more than completeness.
+
+If reflection turns up zero, say so explicitly to the user and end
+the session. A clean session that produces no findings is the
+correct outcome, not a failure to look hard enough.
 
 ---
 
 ## Reflection procedure
 
-1. **Scan the session.** Walk back through what was done in this
-   phase: which workflow doc steps were followed, what the sub-agents
-   returned, where the agent had to deviate, where automation
+1. **Verify YouTrack MCP availability.** Confirm the
+   `mcp__youtrack__*` tools are reachable (see §YouTrack MCP
+   requirement). If not, emit the skip notice and end the session
+   per the phase's normal end-of-session instructions.
+
+2. **Verify session work is committed.** Run
+   `git status --porcelain`; the working tree must be clean. The
+   phase docs invoke reflection *after* their own commit-and-push
+   step, so a non-empty working tree here means an earlier step
+   skipped a commit. Do not proceed — commit the pending work
+   first, then resume reflection from this step. Issue creation
+   relies on `git rev-parse HEAD` pointing at the session's final
+   commit.
+
+3. **Capture branch + commit SHA.** These are baked into every
+   issue's body so the triager can trace the issue back to the
+   exact session state that produced it.
+   ```bash
+   git rev-parse --abbrev-ref HEAD   # branch name
+   git rev-parse HEAD                # commit SHA (40-char hex)
+   ```
+
+4. **Scan the session.** Walk back through what was done in this
+   phase: which workflow doc steps were followed, what the sub-
+   agents returned, where the agent had to deviate, where automation
    misbehaved, where a decision had to be made without a rule. Two
    prompts to ask:
    - *"What was harder than it should have been?"*
    - *"What would I want a future agent in my exact position to know,
      that the current docs do not tell them?"*
 
-2. **Check filename collisions only.** List the `workflow-issues/`
-   directory to find existing filenames so the new file's date+slug
-   does not collide. Do **not** content-dedupe against existing files. If
-   the same friction has already been filed and is still pending
-   triage, file it again — the implementer dedupes at triage time.
-   Cheap text-match dedup is fragile and not worth the protocol
-   complexity.
+5. **Draft candidate proposals.** First, drop any friction whose
+   severity is below `medium` (see §Severity guide). Low-severity
+   annoyances are noise — do not file them, and do not promote them
+   to medium just to keep the proposal alive. If every friction in
+   the session falls below medium, that is a zero-finding session;
+   skip to step 7 with the empty-result template.
 
-3. **Draft proposals.** For each candidate issue (after capping at
-   3), draft the title and a one-line summary. Do not write the
-   file yet.
+   For each surviving candidate (after capping at 3), draft:
+   - Title (imperative summary, ≤80 chars)
+   - One-line summary
+   - Type: `Bug` if the friction is the workflow producing wrong
+     outputs, silent failures, blocked sessions, or other forms of
+     "broken behaviour"; `Feature` if the friction is a missing
+     rule, missing recipe, missing automation, or other enhancement
+     filling a gap (see §Type guide).
+   - Severity (medium/high — see §Severity guide). Severity is
+     rendered into the issue body for traceability **and** mapped to
+     the YouTrack `Priority` field at creation time. The agent sets
+     `Priority` on every issue from the severity mapping in
+     §Severity guide; the triager can re-calibrate later, but the
+     default is the agent's call.
+   - Body draft (Symptom, Reproduction context, Why it's a problem,
+     Proposed fix, Acceptance criteria — see §Issue body template)
 
-4. **Present to the user.** Single message, format:
+6. **Filter against existing dev-workflow issues.** Search YouTrack
+   for recent `project: YTDB tag: dev-workflow` issues:
+   ```
+   mcp__youtrack__search_issues(
+     query="project: YTDB tag: dev-workflow sort by: created desc",
+     limit=20
+   )
+   ```
+   For each candidate, compare its title + one-line summary against
+   the returned issue summaries (semantic match, not just substring
+   — "Phase A reviewer always re-flags X" and "X review-finding
+   loop" may be the same friction worded differently). Drop any
+   candidate that is clearly a duplicate of an open or recently-
+   closed dev-workflow issue. The 20-newest window already biases
+   toward live frictions, so no separate age cutoff is needed; if a
+   long-closed rule has regressed, the new candidate's reproduction
+   context will read differently enough from the closed one that it
+   should not match. Keep a list of which candidates were filtered
+   and which existing issue id matched — it surfaces in step 7.
+
+7. **Present surviving candidates to the user.** Single message:
 
    ```
    ## Self-improvement reflection
 
-   N proposed issues:
+   Branch: <branch> @ <short-SHA>
 
-   1. <title> — <one-line summary>
-   2. <title> — <one-line summary>
+   Filtered N candidate(s) as duplicates of: YTDB-NNNN, YTDB-MMMM, ...
+
+   M proposed for creation under YTDB (tag `dev-workflow`):
+
+   1. [<Type>] <title> — <one-line summary>
+   2. [<Type>] <title> — <one-line summary>
    ...
 
-   Reply with the issue numbers to write (e.g. "1,3"), "all", or
-   "none". I will write the chosen issue files, commit, and end
+   Reply with the issue numbers to create (e.g. "1,3"), "all", or
+   "none". I will create the chosen issues in YouTrack and end
    the session.
    ```
 
-   If N=0, present:
+   If no candidates surfaced at all (M=0 and N=0), present:
 
    ```
    ## Self-improvement reflection
@@ -151,34 +279,118 @@ session. Say so explicitly to the user and end the session.
 
    and end the session.
 
-5. **Write the chosen issues** as files under `workflow-issues/` (see
-   format below). Stage and commit them in a single Workflow update
-   commit — see "Commit format" below.
+   If everything was filtered as a duplicate (M=0, N>0), present:
 
-6. **End the session** per the phase's normal end-of-session
-   instructions.
+   ```
+   ## Self-improvement reflection
+
+   N candidate(s) all filtered as duplicates of: YTDB-NNNN, YTDB-MMMM, ...
+   No new issues proposed.
+   ```
+
+   and end the session.
+
+8. **Create the chosen issues in YouTrack.**
+
+   First, fetch the YTDB project's issue-fields schema **once for
+   the whole batch**:
+   ```
+   mcp__youtrack__get_issue_fields_schema(project="YTDB")
+   ```
+   Use the result to:
+
+   - **Validate the `Type` enum.** If the project's `Type` field
+     does not include `"Bug"` and/or `"Feature"` verbatim, map each
+     candidate to the closest accepted value: candidates the
+     reflection drafted as `Bug` map to the first
+     defect-/bug-flavoured value the schema accepts (`Bug`,
+     `Defect`, `Issue`, …); candidates drafted as `Feature` map to
+     the first enhancement-flavoured value (`Feature`, `Task`,
+     `Enhancement`, `Improvement`, …). Note any mapping in the
+     follow-up report (Step 9).
+   - **Cover required fields beyond `Type`.** If the schema marks
+     other custom fields as required at creation (e.g., `State`,
+     `Subsystem`), set each one to a safe default the project
+     documents — typically `State: Open` (or the equivalent
+     "new / unconfirmed" state the schema lists first). If a
+     required field has no value the agent can confidently pick,
+     abort that candidate, surface the gap to the user in Step 9,
+     and continue with the next.
+   - **Set `Priority` from severity.** Map the candidate's drafted
+     severity to the closest accepted value in the schema's
+     `Priority` enum using the table in §Severity guide. Set
+     `Priority` on every issue, regardless of whether the schema
+     marks it required — the triager re-calibrates as needed, but
+     the default is the agent's call. If the schema's `Priority`
+     enum is missing one of the canonical values, fall back to the
+     nearest accepted value and note the substitution in the
+     Step 9 follow-up report. If the schema does not expose a
+     `Priority` field at all, skip it and note that in Step 9.
+   - **Cache the result for this session.** Do not re-fetch per
+     candidate — the schema does not change mid-session.
+
+   If `get_issue_fields_schema` itself fails, abort the whole batch
+   (no `create_issue` calls). Report the failure to the user with
+   the candidate titles so they can file the issues manually, then
+   end the session.
+
+   Then for each approved candidate:
+
+   1. Call `mcp__youtrack__create_issue` with:
+      - `project`: `"YTDB"`
+      - `summary`: the title
+      - `description`: the rendered Markdown body (see §Issue body
+        template). The **Source: branch `<branch>`, commit `<SHA>`**
+        line at the top of the body is mandatory.
+      - `customFields`: include the mapped `Type` value, the
+        mapped `Priority` value, plus any required fields the
+        preflight identified (e.g.,
+        `{"Type": "Bug", "Priority": "Major", "State": "Open"}`).
+        Omit `Priority` only when the schema does not expose that
+        field at all.
+   2. Capture the returned issue id (e.g., `YTDB-1234`).
+   3. Call `mcp__youtrack__manage_issue_tags` with:
+      - `issueId`: the returned id
+      - `operation`: `"add"`
+      - `tag`: `"dev-workflow"`
+
+   If `create_issue` fails for a given candidate, log the failure
+   to the user and continue with the remaining approved candidates
+   — do not abort the whole batch.
+
+   If `create_issue` succeeds but `manage_issue_tags` fails (most
+   likely cause: the `dev-workflow` tag does not yet exist in
+   YouTrack and the calling user lacks permission to create it),
+   keep the issue but report it back to the user with a note:
+   "Created `<id>` but tagging failed — please add the
+   `dev-workflow` tag manually." Do not delete the issue.
+
+9. **Report created issues to the user.** Single follow-up message:
+
+   ```
+   Created N YouTrack issue(s):
+   - YTDB-1234 — <title>
+   - YTDB-1235 — <title>
+   ...
+   ```
+
+   Append any per-issue tagging failures noted in step 8.
+
+10. **End the session** per the phase's normal end-of-session
+    instructions. **No commit is produced by reflection** — the
+    issues live in YouTrack, nothing was added to the repo.
 
 ---
 
-## Issue file format
+## Issue body template
 
-Filename: `workflow-issues/<YYYY-MM-DD>-<short-slug>.md`. The date is
-the session date. The slug is 3–8 lowercase words separated by dashes
-that capture the friction (e.g.,
-`phase-c-review-fix-loop-stalls-on-spotless`,
-`risk-tagging-rule-misses-generated-code`). If the date+slug already
-exists, append `-2`, `-3`, … rather than overwriting.
-
-File contents:
+The Markdown body submitted to `create_issue.description`:
 
 ```markdown
----
-severity: low|medium|high
-phase: state-0|phase-a|phase-b|phase-c|phase-4
-source-session: <YYYY-MM-DD> /execute-tracks <adr-dir-name>
----
-
-# <Issue title>
+**Source:** branch `<branch-name>`, commit `<40-char-SHA>`
+**Severity:** medium | high
+**Phase:** state-0 | phase-a | phase-b | phase-c | phase-4
+**Source session:** <YYYY-MM-DD> /execute-tracks <adr-dir-name>
 
 ## Symptom
 
@@ -208,24 +420,67 @@ Or add a new recipe in `<file>` for <Y>. Or split <doc> into <A> and
 
 ## Acceptance criteria
 
-A bullet list the implementer (or whoever fixes the underlying
-workflow problem in a future branch) can use to verify the issue
-is closed:
-
 - <Workflow change visible at <path>>
 - <Reproduction context no longer triggers the symptom>
 - <If applicable: regression check — e.g., grep that the bad pattern
   is gone>
 ```
 
-Severity guide:
+The **Source** line is mandatory — it lets the triager check out
+the exact branch and commit that produced the friction.
 
-- `low` — annoyance, costs the agent a turn or two; workflow still
-  produces correct output.
-  - *Example*: an `mcp-steroid` recipe is referenced in two
-    different docs but neither links to the canonical
-    `.claude/docs/mcp-steroid/recipes.md` index, so the agent
-    looks it up twice in one phase.
+---
+
+## Type guide
+
+YouTrack `Type` field — pick one per issue:
+
+- **Bug**: the workflow rule actively produces wrong outputs, silent
+  failures, or blocks the session in an unrecoverable way. Examples:
+  - Startup-protocol resume table fails to cover a real intermediate
+    state, and the agent re-runs the step instead of routing to the
+    recovery procedure.
+  - A hook misfires and silently corrupts the step file.
+  - A sub-agent prompt produces output the orchestrator cannot parse,
+    causing the session to wedge.
+
+- **Feature**: missing rule, missing recipe, missing automation, or
+  any other gap-fill / enhancement. Examples:
+  - An `mcp-steroid` recipe is referenced in two different docs but
+    neither links to the canonical recipes index, so the agent looks
+    it up twice in one phase.
+  - A Phase A review sub-agent (technical, risk, or adversarial)
+    repeatedly returns the same low-value finding that the
+    orchestrator must override every iteration; no upstream filter
+    exists.
+  - The workflow has no recipe for a recurring pattern the agent had
+    to roll manually.
+
+When in doubt: content describes "broken" → `Bug`; content describes
+"missing" → `Feature`. YouTrack does not have an "Enhancement" type
+in this project — `Feature` is the closest match and is used for all
+gap-fill work surfaced by reflection.
+
+`Feature` candidates must additionally satisfy the §Generality
+requirement for improvements — the proposed fix has to apply to a
+recurring class of situations across ADRs, tracks, or phases, not a
+single narrow use case from this session. Bug candidates are not
+gated on generality; a one-time silent failure is still worth
+filing.
+
+---
+
+## Severity guide
+
+Reflection only records frictions whose severity is **medium or
+higher**. Low-severity annoyances — a one-off recipe lookup, a
+single ambiguous sentence, costing a turn or two without affecting
+output correctness — are noise and should be dropped at draft time
+(see Step 5). The two-level scale below is the full menu; there
+is no `low` tier in the issue body, the priority mapping, or the
+filter. If a friction does not clear the medium bar, do not file
+it and do not relabel it to medium to keep it alive.
+
 - `medium` — recurring friction or ambiguity that costs multiple
   turns per occurrence, or causes occasional wrong outputs that
   the user catches.
@@ -242,50 +497,67 @@ Severity guide:
     with no episode), and the agent re-runs the step instead of
     routing to the recovery procedure.
 
----
+### Severity → YouTrack `Priority` mapping
 
-## Commit format
+Set the YouTrack `Priority` custom field at creation time from the
+candidate's severity. Use the project's schema (fetched once in
+Step 8) to pick the closest accepted enum value:
 
-When the agent writes one or more issue files, stage and commit them
-in **one** Workflow update commit, then push. The commit message follows the
-imperative-summary form defined in `commit-conventions.md` § Commit
-type prefixes (Workflow update row) — no `[workflow]` prefix, no
-special tag:
+| Severity | Preferred `Priority`            | Fallback order if missing      |
+|----------|---------------------------------|--------------------------------|
+| `medium` | `Normal`                        | `Major` → `Minor`              |
+| `high`   | `Major`                         | `Critical` → `Show-stopper`    |
 
-```
-Self-improvement reflection from <phase> of <adr-dir>
-
-- workflow-issues/<file>.md (new)
-```
-
-Note that `commit-conventions.md` describes Workflow update commits
-as touching paths under `_workflow/`; the reflection commit is the
-only Workflow update commit that touches paths **outside**
-`_workflow/` (it touches `workflow-issues/` at the repo root). Treat
-it as a Workflow update commit for resume / orphan-detection
-purposes.
-
-Push the commit before ending the session so the draft PR carries
-the new buffer state.
+Reserve `Critical` / `Show-stopper` for `high` findings that
+actively blocked the session and have no documented recovery path
+— most `high` findings still map to `Major`. If the schema exposes
+only a subset of these names, fall back to the nearest accepted
+value and note the substitution in the Step 9 follow-up report so
+the triager can verify it.
 
 ---
 
 ## What the agent must not do
 
-- **Do not** auto-create or auto-edit issue files without user
-  confirmation. Every file written or modified by reflection passes
-  through the user gate in §step 4.
+- **Do not** auto-create YouTrack issues without user confirmation.
+  Every issue created by reflection passes through the user gate in
+  §step 7.
 - **Do not** spawn a sub-agent for reflection. It is a single
   main-agent step; sub-agent overhead is not justified.
 - **Do not** treat reflection as a place to dump code-review
   findings, plan corrections, or general project ideas. Stay on
   workflow-process problems.
-- **Do not** exceed the 3-issue cap. If more bubble up, pick the
-  top three and let the rest go — they will resurface naturally
-  if they really matter.
+- **Do not** exceed the 3-issue cap. If more bubble up, pick the top
+  three and let the rest go — they will resurface naturally if they
+  really matter.
+- **Do not** invent findings to fill the 3-issue cap. The cap is a
+  ceiling; zero or one real finding is the typical outcome.
+  Manufactured frictions waste triage turns and dilute the
+  `dev-workflow` queue's signal.
+- **Do not** record low-severity findings. Reflection's bar is
+  medium-and-above (see §Severity guide). Annoyances that cost a
+  turn or two without affecting workflow correctness are noise —
+  observe them mentally and move on, do not file them, and do not
+  relabel them as medium to slip them past the filter.
 - **Do not** skip reflection on early-exit sessions (context warning,
   ESCALATE, two-failure rule). The friction that caused the early
-  exit is usually the highest-value input.
-- **Do not** content-dedupe against existing `workflow-issues/`
-  files. Filename collisions are the only thing the agent checks
-  for; the implementer handles content dedup at triage time.
+  exit is usually the highest-value input. The only valid skip is
+  YouTrack MCP being unreachable — see §YouTrack MCP requirement.
+- **Do not** create issues in any project other than `YTDB`, or with
+  any tag other than `dev-workflow`. The triager filters by both.
+- **Do not** omit the YouTrack `Priority` custom field when the
+  schema exposes it. Map the candidate's drafted severity to the
+  nearest accepted enum value (see §Severity → YouTrack `Priority`
+  mapping) and set it at creation. The triager can re-calibrate,
+  but the default priority is the agent's responsibility.
+- **Do not** record Feature-type proposals whose proposed fix
+  targets a single narrow use case. Improvements must be generally
+  applicable (see §Generality requirement for improvements). Bugs
+  are exempt — a problem is a problem regardless of how often it
+  bites.
+- **Do not** write local `workflow-issues/*.md` files or any other
+  local issue buffer. The YouTrack sink is the only output channel;
+  local files are intentionally gone.
+- **Do not** omit the `Source: branch <…>, commit <…>` header from
+  the issue body. It is the only durable link from the YouTrack
+  issue back to the session that produced it.

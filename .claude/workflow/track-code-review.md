@@ -862,9 +862,10 @@ proceed directly to track completion **in the same session**.
    the track-level review-iteration loop, the dimensional review
    agent selection, the deferred-finding → plan-correction handoff,
    the implementer-driven review-fix application, or the track
-   episode template. If the user approves any proposed issues,
-   write the chosen `workflow-issues/*.md` files, commit + push
-   per the protocol §Commit format, then proceed to Step 7.
+   episode template. The protocol creates approved proposals as
+   YouTrack issues under `YTDB` with the `dev-workflow` tag (or
+   skips with a notice if the YouTrack MCP server is unreachable);
+   reflection produces no commit. Then proceed to Step 7.
 7. **Session ends.** The next session's Track Pre-Flight gate runs
    the strategy assessment (Panel 1) against this track's episode.
 
