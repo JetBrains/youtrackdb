@@ -34,9 +34,6 @@ public class Jsr223ScriptExecutor extends AbstractScriptExecutor {
 
   @Override
   public ResultSet execute(DatabaseSessionEmbedded database, String script, Object... params) {
-
-    preExecute(database, script, params);
-
     var par = new Int2ObjectOpenHashMap<Object>();
 
     for (var i = 0; i < params.length; i++) {
@@ -47,9 +44,6 @@ public class Jsr223ScriptExecutor extends AbstractScriptExecutor {
 
   @Override
   public ResultSet execute(DatabaseSessionEmbedded database, String script, Map params) {
-
-    preExecute(database, script, params);
-
     final var scriptManager =
         database.getSharedContext().getYouTrackDB().getScriptManager();
     CompiledScript compiledScript = null;
@@ -109,7 +103,7 @@ public class Jsr223ScriptExecutor extends AbstractScriptExecutor {
         scriptManager.acquireDatabaseEngine(db, f.getLanguage());
     try {
       final var binding =
-          scriptManager.bind(
+          scriptManager.bindContextVariables(
               scriptEngine,
               scriptEngine.getBindings(ScriptContext.ENGINE_SCOPE),
               db,
@@ -138,8 +132,7 @@ public class Jsr223ScriptExecutor extends AbstractScriptExecutor {
           final var args = iArgs == null ? null : iArgs.values().toArray();
           result = scriptEngine.eval(scriptManager.getFunctionInvoke(db, f, args), binding);
         }
-        return CommandExecutorUtility.transformResult(
-            scriptManager.handleResult(f.getLanguage(), result, scriptEngine, binding, db));
+        return scriptManager.handleResult(f.getLanguage(), result, scriptEngine, binding, db);
 
       } catch (ScriptException e) {
         throw BaseException.wrapException(
@@ -149,7 +142,8 @@ public class Jsr223ScriptExecutor extends AbstractScriptExecutor {
       } catch (NoSuchMethodException e) {
         throw BaseException.wrapException(
             new CommandScriptException(db.getDatabaseName(), "Error on execution of the script",
-                functionName, 0), e, db.getDatabaseName());
+                functionName, 0),
+            e, db.getDatabaseName());
       } catch (CommandScriptException e) {
         // PASS THROUGH
         throw e;

@@ -42,12 +42,11 @@ import javax.annotation.Nonnull;
 import org.junit.Test;
 
 /**
- * Standalone unit tests for {@link CommandRequestAbstract}. The only production subclass is
- * {@link com.jetbrains.youtrackdb.internal.core.command.script.CommandScript}, which is dead code
- * pinned for Track 22 deletion (see {@code command/script/CommandScriptDeadCodeTest}). So this
- * test uses a minimal {@link StubCommandRequest} to exercise the inherited getters, setters, and
- * the protected {@code setParameters} / {@code convertToParameters} branches without depending on
- * any live executor wiring.
+ * Standalone unit tests for {@link CommandRequestAbstract}. There is no production subclass of
+ * this abstract class today — the legacy {@code CommandScript} subclass was removed alongside its
+ * executor — so the suite uses a minimal {@link StubCommandRequest} to exercise the inherited
+ * getters, setters, and the protected {@code setParameters} / {@code convertToParameters} branches
+ * without depending on any live executor wiring.
  */
 public class CommandRequestAbstractTest {
 

@@ -22,11 +22,9 @@ package com.jetbrains.youtrackdb.internal.core.command.script;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.parser.StringParser;
-import com.jetbrains.youtrackdb.internal.common.util.ClassLoaderHelper;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandManager;
 import com.jetbrains.youtrackdb.internal.core.command.ScriptExecutor;
-import com.jetbrains.youtrackdb.internal.core.command.ScriptExecutorRegister;
 import com.jetbrains.youtrackdb.internal.core.command.script.formatter.GroovyScriptFormatter;
 import com.jetbrains.youtrackdb.internal.core.command.script.formatter.JSScriptFormatter;
 import com.jetbrains.youtrackdb.internal.core.command.script.formatter.RubyScriptFormatter;
@@ -38,13 +36,10 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandScriptException;
 import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
-import com.jetbrains.youtrackdb.internal.core.metadata.function.FunctionUtilWrapper;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLScriptEngine;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLScriptEngineFactory;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Scanner;
@@ -59,24 +54,22 @@ import javax.script.ScriptException;
 
 /**
  * Executes Script Commands.
- *
- * @see CommandScript
  */
 public class ScriptManager {
 
-  protected static final Object[] EMPTY_PARAMS = new Object[]{};
+  protected static final Object[] EMPTY_PARAMS = new Object[] {};
   protected static final int LINES_AROUND_ERROR = 5;
   protected static final String DEF_LANGUAGE = "javascript";
   protected String defaultLanguage = DEF_LANGUAGE;
   protected ScriptEngineManager scriptEngineManager;
   protected Map<String, ScriptEngineFactory> engines = new HashMap<String, ScriptEngineFactory>();
   protected Map<String, ScriptFormatter> formatters = new HashMap<String, ScriptFormatter>();
-  protected List<ScriptInjection> injections = new ArrayList<ScriptInjection>();
   protected ConcurrentHashMap<String, DatabaseScriptManager> dbManagers =
       new ConcurrentHashMap<String, DatabaseScriptManager>();
   protected Map<String, ScriptResultHandler> handlers =
       new HashMap<String, ScriptResultHandler>();
-  protected Map<String, java.util.function.Function<String, ScriptExecutor>> executorsFactories = new HashMap<>();
+  protected Map<String, java.util.function.Function<String, ScriptExecutor>> executorsFactories =
+      new HashMap<>();
   protected CommandManager commandManager = new CommandManager();
 
   public ScriptManager() {
@@ -85,16 +78,14 @@ public class ScriptManager {
     final var useGraal = GlobalConfiguration.SCRIPT_POLYGLOT_USE_GRAAL.getValueAsBoolean();
     executorsFactories.put(
         "javascript",
-        (lang) ->
-            useGraal
-                ? new PolyglotScriptExecutor(lang, new ScriptTransformerImpl())
-                : new Jsr223ScriptExecutor(lang, new ScriptTransformerImpl()));
+        (lang) -> useGraal
+            ? new PolyglotScriptExecutor(lang, new ScriptTransformerImpl())
+            : new Jsr223ScriptExecutor(lang, new ScriptTransformerImpl()));
     executorsFactories.put(
         "ecmascript",
-        (lang) ->
-            useGraal
-                ? new PolyglotScriptExecutor(lang, new ScriptTransformerImpl())
-                : new Jsr223ScriptExecutor(lang, new ScriptTransformerImpl()));
+        (lang) -> useGraal
+            ? new PolyglotScriptExecutor(lang, new ScriptTransformerImpl())
+            : new Jsr223ScriptExecutor(lang, new ScriptTransformerImpl()));
 
     for (var f : scriptEngineManager.getEngineFactories()) {
       registerEngine(f.getLanguageName().toLowerCase(Locale.ENGLISH), f);
@@ -140,11 +131,6 @@ public class ScriptManager {
 
     // Registring sql script engine after for not fight with the basic engine
     registerEngine(SQLScriptEngine.NAME, new SQLScriptEngineFactory());
-
-    var customExecutors =
-        ClassLoaderHelper.lookupProviderWithYouTrackDBClassLoader(ScriptExecutorRegister.class);
-
-    customExecutors.forEachRemaining(e -> e.registerExecutor(this, commandManager));
   }
 
   public String getFunctionDefinition(DatabaseSessionEmbedded session, final Function iFunction) {
@@ -177,8 +163,7 @@ public class ScriptManager {
    * @param iLanguage Language as filter
    * @return String containing all the functions
    */
-  @Nullable
-  public String getLibrary(final DatabaseSessionEmbedded session, final String iLanguage) {
+  @Nullable public String getLibrary(final DatabaseSessionEmbedded session, final String iLanguage) {
     if (session == null)
     // NO DB = NO LIBRARY
     {
@@ -295,41 +280,11 @@ public class ScriptManager {
 
     bindDatabase(binding, db);
 
-    bindInjectors(engine, binding, db);
-
     bindContext(binding, iContext);
 
     bindParameters(binding, iArgs);
 
     return binding;
-  }
-
-  @Deprecated
-  public Bindings bind(
-      ScriptEngine scriptEngine,
-      final Bindings binding,
-      final DatabaseSessionEmbedded db,
-      final CommandContext iContext,
-      final Map<Object, Object> iArgs) {
-
-    bindLegacyDatabaseAndUtil(binding, db);
-
-    bindDatabase(binding, db);
-
-    bindInjectors(scriptEngine, binding, db);
-
-    bindContext(binding, iContext);
-
-    bindParameters(binding, iArgs);
-
-    return binding;
-  }
-
-  private void bindInjectors(ScriptEngine engine, Bindings binding,
-      DatabaseSessionEmbedded database) {
-    for (var i : injections) {
-      i.bind(engine, binding, database);
-    }
   }
 
   private void bindContext(Bindings binding, CommandContext iContext) {
@@ -340,15 +295,6 @@ public class ScriptManager {
         binding.put(a.getKey(), a.getValue());
       }
     }
-  }
-
-  private void bindLegacyDatabaseAndUtil(Bindings binding, DatabaseSessionEmbedded db) {
-    if (db != null) {
-      // BIND FIXED VARIABLES
-      //      binding.put("db", new ScriptDocumentDatabaseWrapper(db));
-      binding.put("youtrackdb", new ScriptYouTrackDbWrapper(db));
-    }
-    binding.put("util", new FunctionUtilWrapper());
   }
 
   private void bindDatabase(Bindings binding, DatabaseSessionEmbedded db) {
@@ -444,14 +390,7 @@ public class ScriptManager {
       final Bindings binding,
       final CommandContext iContext,
       final Map<Object, Object> iArgs) {
-    for (var i : injections) {
-      i.unbind(scriptEngine, binding);
-    }
-
     binding.put("db", null);
-    binding.put("youtrackdb", null);
-
-    binding.put("util", null);
 
     binding.put("ctx", null);
     if (iContext != null) {
@@ -466,12 +405,6 @@ public class ScriptManager {
       }
     }
     binding.put("params", null);
-  }
-
-  public void registerInjection(final ScriptInjection iInj) {
-    if (!injections.contains(iInj)) {
-      injections.add(iInj);
-    }
   }
 
   public Set<String> getAllowedPackages() {
@@ -510,14 +443,6 @@ public class ScriptManager {
               }
             });
     closeAll();
-  }
-
-  public void unregisterInjection(final ScriptInjection iInj) {
-    injections.remove(iInj);
-  }
-
-  public List<ScriptInjection> getInjections() {
-    return injections;
   }
 
   public ScriptManager registerEngine(final String iLanguage, final ScriptEngineFactory iEngine) {

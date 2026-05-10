@@ -32,18 +32,18 @@ import javax.annotation.Nonnull;
 import org.junit.Test;
 
 /**
- * Standalone unit tests for {@link CommandRequestTextAbstract}. The only production subclass is
- * {@link com.jetbrains.youtrackdb.internal.core.command.script.CommandScript}, which is dead code
- * pinned for Track 22 deletion — so this suite uses a local {@link StubTextRequest} to cover the
- * text-handling contract without depending on the dead subclass.
+ * Standalone unit tests for {@link CommandRequestTextAbstract}. There is no production subclass of
+ * this abstract class today — the legacy {@code CommandScript} subclass was removed alongside
+ * its executor — so the suite uses a local {@link StubTextRequest} to cover the text-handling
+ * contract directly.
  *
  * <p>The {@code fromStream(session, ..., RecordSerializerNetwork)} / {@code toStream(session,
  * RecordSerializerNetwork)} public overloads take a {@link
  * com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.RecordSerializerNetwork}
- * which has zero concrete implementations in {@code core} (see Track 9 Step 1 episode). Round-trip
- * coverage is therefore not feasible today; pinned in the dead-code tests. This test still
- * exercises the internal protected {@code toStream(MemoryStream, session)} empty-parameters path,
- * which is the only stream path that does not require a serializer or session.
+ * which has zero concrete implementations in {@code core}, so a full round-trip is not feasible.
+ * This test still exercises the internal protected {@code toStream(MemoryStream, session)}
+ * empty-parameters path, which is the only stream path that does not require a serializer or
+ * session.
  */
 public class CommandRequestTextAbstractTest {
 

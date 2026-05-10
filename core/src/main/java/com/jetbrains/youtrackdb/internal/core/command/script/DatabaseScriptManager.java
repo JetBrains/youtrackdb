@@ -29,8 +29,6 @@ import javax.script.ScriptException;
 /**
  * Manages Script engines per database. Parsing of function library is done only the first time and
  * when changes.
- *
- * @see CommandScript
  */
 public class DatabaseScriptManager {
 

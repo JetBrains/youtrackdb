@@ -35,12 +35,7 @@ import org.junit.Test;
 
 /**
  * Standalone tests for the live-path surface of {@link CommandManager} — the script-executor
- * registry and its close-propagation contract. The legacy class-based dispatch surface (empty
- * {@code commandReqExecMap}, {@code registerExecutor(Class, Class)},
- * {@code getExecutor(CommandRequestInternal)} catch branch, callback dispatch) is pinned as dead
- * code by Step 1's
- * {@link com.jetbrains.youtrackdb.internal.core.command.script.CommandScriptDeadCodeTest} and is
- * not re-covered here.
+ * registry and its close-propagation contract.
  *
  * <p>Each test constructs a fresh {@link CommandManager} so the constructor-installed defaults
  * ({@code "sql"} and {@code "script"} executors) start in a known state.
@@ -288,8 +283,8 @@ public class CommandManagerTest {
   /**
    * Records which {@code close(dbName)} / {@code closeAll} calls it receives so tests can verify
    * propagation through {@link CommandManager#close(String)} and {@link CommandManager#closeAll}.
-   * All execute/executeFunction/interceptor methods throw {@link UnsupportedOperationException} —
-   * the tests in this suite never invoke them.
+   * All execute/executeFunction methods throw {@link UnsupportedOperationException} — the tests
+   * in this suite never invoke them.
    */
   private static final class RecordingScriptExecutor implements ScriptExecutor {
     final List<String> closeCalls = new ArrayList<>();
@@ -308,16 +303,6 @@ public class CommandManagerTest {
     @Override
     public Object executeFunction(CommandContext context, String functionName,
         Map<Object, Object> iArgs) {
-      throw new UnsupportedOperationException("not expected in CommandManagerTest");
-    }
-
-    @Override
-    public void registerInterceptor(ScriptInterceptor interceptor) {
-      throw new UnsupportedOperationException("not expected in CommandManagerTest");
-    }
-
-    @Override
-    public void unregisterInterceptor(ScriptInterceptor interceptor) {
       throw new UnsupportedOperationException("not expected in CommandManagerTest");
     }
 

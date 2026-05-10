@@ -14,10 +14,6 @@ public interface ScriptExecutor {
   Object executeFunction(
       CommandContext context, final String functionName, final Map<Object, Object> iArgs);
 
-  void registerInterceptor(ScriptInterceptor interceptor);
-
-  void unregisterInterceptor(ScriptInterceptor interceptor);
-
   default void close(String iDatabaseName) {
   }
 

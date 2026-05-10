@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.command;
 
 import com.jetbrains.youtrackdb.internal.common.util.CommonConst;
-import com.jetbrains.youtrackdb.internal.core.command.script.CommandExecutorUtility;
 import com.jetbrains.youtrackdb.internal.core.command.traverse.AbstractScriptExecutor;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
@@ -192,8 +191,7 @@ public class SqlScriptExecutor extends AbstractScriptExecutor {
           final var args = iArgs == null ? null : iArgs.values().toArray();
           result = scriptEngine.eval(scriptManager.getFunctionInvoke(session, f, args), binding);
         }
-        return CommandExecutorUtility.transformResult(
-            scriptManager.handleResult(f.getLanguage(), result, scriptEngine, binding, session));
+        return scriptManager.handleResult(f.getLanguage(), result, scriptEngine, binding, session);
 
       } catch (ScriptException e) {
         throw BaseException.wrapException(

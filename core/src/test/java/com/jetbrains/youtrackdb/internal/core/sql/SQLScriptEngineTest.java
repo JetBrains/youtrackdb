@@ -35,7 +35,6 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionExceptio
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.TestUtilsFixture;
-import java.io.Reader;
 import java.io.StringReader;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -59,14 +58,12 @@ import org.junit.Test;
  *   <li>Constructor + {@code getFactory()} round-trip
  *   <li>JSR-223 stub methods: {@code put / get / getContext / setBindings / setContext}
  *   <li>{@code getBindings / createBindings} — fresh {@link SimpleBindings} per call
- *   <li>{@code eval} missing-db guard (via all six overloads) — pins {@link
+ *   <li>{@code eval} missing-db guard for the String overloads — pins {@link
  *       CommandExecutionException} shape
  *   <li>{@code eval(String, Bindings)} live path — real SQL script through a
  *       {@link ScriptDatabaseWrapper} binding
- *   <li>{@code eval(Reader, Bindings)} live path — pins the observed
- *       {@link com.jetbrains.youtrackdb.internal.core.command.script.CommandScript#execute
- *       CommandScript.execute} return value (empty list, T2 dead-code pin — see
- *       {@code CommandScriptDeadCodeTest}).
+ *   <li>{@code eval(Reader, *)} contract — every Reader overload throws
+ *       {@link UnsupportedOperationException} because Reader-based evaluation has been retired.
  *   <li>{@code convertToParameters} — all six dispatch branches via a package-private probe
  *       subclass.
  * </ul>
@@ -183,29 +180,35 @@ public class SQLScriptEngineTest extends TestUtilsFixture {
     assertEquals("No database available in bindings", ex.getMessage());
   }
 
-  /** eval(Reader, ScriptContext) delegates to eval(Reader, null). */
+  /**
+   * eval(Reader, ScriptContext) routes to eval(Reader, Bindings), which is unsupported. Pin
+   * the explicit refusal so a regression that silently revives Reader evaluation is visible.
+   */
   @Test
-  public void evalReaderScriptContextThrowsWhenNoDbInBindings() {
+  public void evalReaderScriptContextThrowsUnsupportedOperation() {
     final var engine = new SQLScriptEngine(new SQLScriptEngineFactory());
-    final var ex =
-        assertThrows(
-            CommandExecutionException.class,
-            () -> engine.eval(new StringReader("SELECT 1"), new SimpleScriptContext()));
-    assertEquals("No database available in bindings", ex.getMessage());
+    assertThrows(
+        UnsupportedOperationException.class,
+        () -> engine.eval(new StringReader("SELECT 1"), new SimpleScriptContext()));
   }
 
-  /** eval(String) with no bindings path throws the same guard. */
+  /** eval(String) with no bindings path throws the missing-db guard. */
   @Test
   public void evalStringAloneThrowsWhenNoDbInBindings() {
     final var engine = new SQLScriptEngine(new SQLScriptEngineFactory());
     assertThrows(CommandExecutionException.class, () -> engine.eval("SELECT 1"));
   }
 
-  /** eval(Reader) with no bindings path throws the same guard. */
+  /**
+   * eval(Reader) routes to eval(Reader, Bindings), which is unsupported. Pin the explicit
+   * refusal so a regression that silently revives Reader evaluation is visible.
+   */
   @Test
-  public void evalReaderAloneThrowsWhenNoDbInBindings() {
+  public void evalReaderAloneThrowsUnsupportedOperation() {
     final var engine = new SQLScriptEngine(new SQLScriptEngineFactory());
-    assertThrows(CommandExecutionException.class, () -> engine.eval(new StringReader("SELECT 1")));
+    assertThrows(
+        UnsupportedOperationException.class,
+        () -> engine.eval(new StringReader("SELECT 1")));
   }
 
   /** eval(String, Bindings) with null bindings throws. */
@@ -228,12 +231,16 @@ public class SQLScriptEngineTest extends TestUtilsFixture {
     assertThrows(CommandExecutionException.class, () -> engine.eval("SELECT 1", n));
   }
 
-  /** eval(Reader, Bindings) with null bindings throws. */
+  /**
+   * eval(Reader, Bindings) is unsupported regardless of whether the bindings carry a db; the
+   * Reader path was retired alongside the legacy {@code CommandScript} executor. Pin the
+   * explicit refusal so a regression that silently revives Reader evaluation is visible.
+   */
   @Test
-  public void evalReaderNullBindingsThrowsMissingDb() {
+  public void evalReaderNullBindingsThrowsUnsupportedOperation() {
     final var engine = new SQLScriptEngine(new SQLScriptEngineFactory());
     assertThrows(
-        CommandExecutionException.class,
+        UnsupportedOperationException.class,
         () -> engine.eval(new StringReader("SELECT 1"), (Bindings) null));
   }
 
@@ -280,87 +287,6 @@ public class SQLScriptEngineTest extends TestUtilsFixture {
     final List<Result> rows = (List<Result>) out;
     assertFalse(rows.isEmpty());
     assertEquals(Integer.valueOf(7), rows.get(0).getProperty("v"));
-  }
-
-  /**
-   * eval(Reader, Bindings) live path is UNTESTABLE TODAY against a {@link StringReader}: the
-   * production code does
-   *
-   * <pre>
-   *   while (reader.ready()) {
-   *     buffer.append((char) reader.read());
-   *   }
-   * </pre>
-   *
-   * which infinite-loops on {@link StringReader} because {@code StringReader.ready()} always
-   * returns {@code true} once the reader is open — even after {@code read()} has returned
-   * {@code -1} (EOF). The cast {@code (char) -1} is 0xFFFF, and the loop keeps appending
-   * {@code ￿} forever → OOM. Pin this with a custom Reader that signals
-   * {@code ready() == false} AFTER the content is drained, so the loop terminates. Under this
-   * custom Reader the live path reaches {@code new CommandScript(buffer).execute(session, n)},
-   * and the stub returns {@code List.of()} — the dead-code pin from {@code
-   * CommandScriptDeadCodeTest} (Step 1) matches this observed shape.
-   *
-   * <p>WHEN-FIXED: Track 22 — replace the ready() loop with a proper EOF check
-   * ({@code int c; while ((c = reader.read()) != -1) buffer.append((char) c);}), OR delete
-   * the overload entirely alongside {@code CommandScript.execute}. Both (a) the Reader
-   * workaround and (b) the empty-list pin will break when Track 22 lands, forcing a
-   * re-pin.
-   */
-  @Test
-  public void evalReaderBindingsWithCustomReaderReturnsEmptyListFromDeadCommandScriptExecute()
-      throws ScriptException {
-    final var engine = new SQLScriptEngine(new SQLScriptEngineFactory());
-    final var n = new SimpleBindings();
-    n.put("db", session);
-
-    final var out = engine.eval(new EofAwareReader("SELECT 1"), n);
-    // WHEN-FIXED: Track 22 — CommandScript.execute returns List.of() unconditionally.
-    assertNotNull(out);
-    assertTrue("output must be an empty List (CommandScript.execute stub)", out instanceof List);
-    assertTrue(((List<?>) out).isEmpty());
-  }
-
-  /**
-   * Reader that returns {@code ready() == false} after the source string is drained, working
-   * around the {@code StringReader.ready()-always-true} production bug above. Only used to
-   * pin the eval(Reader, Bindings) live path — remove when Track 22 fixes the ready() loop.
-   */
-  private static final class EofAwareReader extends Reader {
-    private final String data;
-    private int pos;
-
-    EofAwareReader(final String data) {
-      this.data = data;
-    }
-
-    @Override
-    public int read(final char[] cbuf, final int off, final int len) {
-      if (pos >= data.length()) {
-        return -1;
-      }
-      final var toCopy = Math.min(len, data.length() - pos);
-      data.getChars(pos, pos + toCopy, cbuf, off);
-      pos += toCopy;
-      return toCopy;
-    }
-
-    @Override
-    public int read() {
-      if (pos >= data.length()) {
-        return -1;
-      }
-      return data.charAt(pos++);
-    }
-
-    @Override
-    public boolean ready() {
-      return pos < data.length();
-    }
-
-    @Override
-    public void close() {
-    }
   }
 
   // ===========================================================================

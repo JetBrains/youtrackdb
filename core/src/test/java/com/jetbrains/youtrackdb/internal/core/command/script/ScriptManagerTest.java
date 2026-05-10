@@ -38,7 +38,6 @@ import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandScriptException;
 import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
-import com.jetbrains.youtrackdb.internal.core.metadata.function.FunctionUtilWrapper;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLScriptEngine;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -64,10 +63,10 @@ import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
 /**
- * Tests for {@link ScriptManager} covering: engine/formatter/result-handler/injection registries,
- * binding helpers (bindContextVariables, bind, bindLegacyDatabaseAndUtil, unbind), library code
- * generation, allowed-packages security, the Rhino-fallback line-extraction branch of
- * {@code throwErrorMessage}, and per-database engine pool lifecycle.
+ * Tests for {@link ScriptManager} covering: engine/formatter/result-handler registries, binding
+ * helpers ({@code bindContextVariables}, {@code unbind}), library code generation, allowed-packages
+ * security, the Rhino-fallback line-extraction branch of {@code throwErrorMessage}, and per-database
+ * engine pool lifecycle.
  *
  * <p>{@link SequentialTest} because {@link ScriptManager#addAllowedPackages(Set)} and
  * {@link ScriptManager#closeAll()} mutate process-wide state on the shared {@link ScriptManager}
@@ -298,40 +297,6 @@ public class ScriptManagerTest extends DbTestBase {
   }
 
   // ==========================================================================
-  // Injection registry: registerInjection dedupe, unregister, getInjections,
-  // bind/unbind iterate injections.
-  // ==========================================================================
-
-  @Test
-  public void registerInjectionDedupesRepeatedRegistration() {
-    final var injection = new CountingInjection();
-    final var before = scriptManager.getInjections().size();
-    scriptManager.registerInjection(injection);
-    scriptManager.registerInjection(injection); // idempotent
-    try {
-      assertEquals(before + 1, scriptManager.getInjections().size());
-    } finally {
-      scriptManager.unregisterInjection(injection);
-    }
-    assertEquals(before, scriptManager.getInjections().size());
-  }
-
-  @Test
-  public void bindAndUnbindIterateInjections() {
-    final var injection = new CountingInjection();
-    scriptManager.registerInjection(injection);
-    try {
-      final Bindings bindings = new SimpleBindings();
-      scriptManager.bindContextVariables(null, bindings, session, null, null);
-      assertEquals("bind should be called once", 1, injection.binds);
-      scriptManager.unbind(null, bindings, null, null);
-      assertEquals("unbind should be called once", 1, injection.unbinds);
-    } finally {
-      scriptManager.unregisterInjection(injection);
-    }
-  }
-
-  // ==========================================================================
   // Library generation: null session, no-functions, null-language function,
   // matching-language function.
   // ==========================================================================
@@ -415,7 +380,7 @@ public class ScriptManagerTest extends DbTestBase {
   }
 
   // ==========================================================================
-  // Binding helpers: bindContextVariables, bind (deprecated), unbind.
+  // Binding helpers: bindContextVariables, unbind.
   // ==========================================================================
 
   @Test
@@ -467,28 +432,6 @@ public class ScriptManagerTest extends DbTestBase {
   }
 
   @Test
-  public void bindDeprecatedAlsoBindsYoutrackdbAndUtil() {
-    final Bindings bindings = new SimpleBindings();
-    scriptManager.bind(null, bindings, session, null, null);
-    assertTrue(bindings.get("youtrackdb") instanceof ScriptYouTrackDbWrapper);
-    assertNotNull("util must be bound by bindLegacyDatabaseAndUtil", bindings.get("util"));
-    assertTrue(bindings.get("db") instanceof ScriptDatabaseWrapper);
-  }
-
-  @Test
-  public void bindDeprecatedWithNullDbBindsUtilOnly() {
-    final Bindings bindings = new SimpleBindings();
-    scriptManager.bind(null, bindings, null, null, null);
-    // db null → bindLegacyDatabaseAndUtil skips "youtrackdb" but still binds "util".
-    assertNull(bindings.get("youtrackdb"));
-    // TB9: pin the concrete type rather than mere non-null — a regression that bound an
-    // arbitrary non-null object under "util" would pass assertNotNull silently.
-    assertTrue(
-        "util binding must be a FunctionUtilWrapper regardless of db nullness",
-        bindings.get("util") instanceof FunctionUtilWrapper);
-  }
-
-  @Test
   public void unbindClearsAllBoundKeysToNull() {
     final Bindings bindings = new SimpleBindings();
     final Map<Object, Object> args = new HashMap<>();
@@ -501,8 +444,6 @@ public class ScriptManagerTest extends DbTestBase {
 
     // unbind writes null to every key it wrote earlier — does NOT remove them.
     assertNull(bindings.get("db"));
-    assertNull(bindings.get("youtrackdb"));
-    assertNull(bindings.get("util"));
     assertNull(bindings.get("ctx"));
     assertNull(bindings.get("ctxKey"));
     assertNull(bindings.get("alpha"));
@@ -1049,19 +990,4 @@ public class ScriptManagerTest extends DbTestBase {
     }
   }
 
-  /** Counts bind/unbind calls so the integration test can assert iteration happened. */
-  private static class CountingInjection implements ScriptInjection {
-    int binds;
-    int unbinds;
-
-    @Override
-    public void bind(ScriptEngine engine, Bindings binding, DatabaseSessionEmbedded database) {
-      binds++;
-    }
-
-    @Override
-    public void unbind(ScriptEngine engine, Bindings binding) {
-      unbinds++;
-    }
-  }
 }

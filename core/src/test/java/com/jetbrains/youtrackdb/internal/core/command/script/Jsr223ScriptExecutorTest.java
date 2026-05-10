@@ -168,8 +168,8 @@ public class Jsr223ScriptExecutorTest extends TestUtilsFixture {
   /**
    * {@code executeFunction} must route through {@code Invocable.invokeFunction(name, args)} for
    * an Invocable JSR-223 engine. Create a stored JS function with no args, invoke it, and
-   * assert the returned value. Pins the Invocable-dispatch path plus the
-   * CommandExecutorUtility.transformResult + handleResult pipeline.
+   * assert the returned value. Pins the Invocable-dispatch path plus the {@code handleResult}
+   * pipeline.
    */
   @Test
   public void executeFunctionViaInvocablePathReturnsValue() {
@@ -238,8 +238,8 @@ public class Jsr223ScriptExecutorTest extends TestUtilsFixture {
   }
 
   /**
-   * A stored JS function that returns {@code null} exercises the null-return path of
-   * {@code CommandExecutorUtility.transformResult} — the executor returns Java null. Pin.
+   * A stored JS function that returns {@code null} causes the executor to return Java null
+   * straight through the {@code handleResult} pass-through. Pin.
    */
   @Test
   public void executeFunctionReturningNullReturnsJavaNull() {

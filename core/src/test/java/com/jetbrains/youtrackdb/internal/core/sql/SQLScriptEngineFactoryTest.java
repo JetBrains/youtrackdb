@@ -35,11 +35,10 @@ import org.junit.Test;
  * Behavioral tests for {@link SQLScriptEngineFactory}, the JSR-223 {@code ScriptEngineFactory}
  * that advertises YouTrackDB SQL as a scripting language.
  *
- * <p>The class is not discovered via {@code META-INF/services} (pinned as a dead-code gap in
- * {@code CommandScriptDeadCodeTest} — Step 1), so its only entry path is direct construction by
- * {@link SQLScriptEngine} which calls {@code new SQLScriptEngineFactory()} via reflection in
- * {@code SQLScriptEngine.getFactory()}. These tests pin every JSR-223 metadata accessor
- * individually so a change in the contract is visible at the test level.
+ * <p>The class is not discovered via {@code META-INF/services}, so its only entry path is direct
+ * construction by {@link SQLScriptEngine} which calls {@code new SQLScriptEngineFactory()} via
+ * reflection in {@code SQLScriptEngine.getFactory()}. These tests pin every JSR-223 metadata
+ * accessor individually so a change in the contract is visible at the test level.
  *
  * <p>Standalone (no database) — the factory is a pure metadata provider; its {@code
  * getScriptEngine()} constructs a {@link SQLScriptEngine} which is also DB-independent until
