@@ -497,7 +497,7 @@ subset; the live subset stays covered by 22a's tests.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (3/14 complete)
+- [ ] Step implementation (4/14 complete)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -698,7 +698,8 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   >
   > **Implementer commit:** `d081289b43`
 
-- [ ] Step 3: Delete misc small dead helpers (ZIPCompressionUtil + DecimalKeyNormalizer + Kerberos/Krb5)
+- [x] Step 3: Delete misc small dead helpers (ZIPCompressionUtil + DecimalKeyNormalizer + Kerberos/Krb5)
+  - [x] Context: safe
   > **Risk:** medium — override from HIGH-security category for
   > Kerberos; pack rationale: 3 narrow unrelated clusters
   > (controlled exception extension of "two narrow" packing rule
@@ -710,6 +711,63 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   > / Krb5 (`KerberosCredentialInterceptor`,
   > `Krb5ClientLoginModuleConfig`): zero live security path per PSI;
   > `META-INF/services` registrations (if any) included in commit.
+  >
+  > **What was done:** Deleted Track 22b Cluster C
+  > (misc-small-helpers) as a single bisectable cluster commit. PSI
+  > all-scope `ReferencesSearch` confirmed each production target had
+  > only intra-cluster + dead-test references (`ZIPCompressionUtil`:
+  > 1 self-ref + 14 dead-test refs;
+  > `KerberosCredentialInterceptor`: 1 self-ref + 20 dead-test refs;
+  > `Krb5ClientLoginModuleConfig`: 1 intra-cluster ref from
+  > `KerberosCredentialInterceptor.intercept` + 11 dead-test refs).
+  > The commit removed 3 production classes, 3 `*DeadCodeTest` pins,
+  > the `DecimalKeyNormalizer` dead helpers (`scaleToDecimal128`,
+  > `clampAndRound`, `ensureExactRounding` + `BIG_INT_TEN/ONE/ZERO`
+  > constants + the now-unused `MathContext` import), and trimmed
+  > two stale Javadoc references in surviving security tests.
+  > Cluster C row in `cluster-disposition.md` marked `deleted`.
+  > Targeted tests pass (84/84) and the full core test source still
+  > compiles; Spotless applied.
+  >
+  > **What was discovered:** `DecimalKeyNormalizer` the class is
+  > LIVE (`KeyNormalizer.java:26` instantiates it for the DECIMAL
+  > slot of the type→normalizer map), so this cluster member is a
+  > partial-class-trim per the D4 dead-helper allowance — only the
+  > dead private methods + their constants come out; the
+  > `unsigned()` and `execute()` entry points stay. Two non-cluster
+  > test files (`SecurityManagerTest`,
+  > `DefaultSecuritySystemReloadTest`) carried Javadoc blocks citing
+  > `KerberosCredentialInterceptorDeadCodeTest` as a "discipline
+  > already applied on" reference — those would have dangled after
+  > the pin deletion, so they were trimmed in lockstep per the step
+  > file's broadened cluster-commit-shape rule. The
+  > `CredentialInterceptor` SPI itself stays — it has two live
+  > inheritors (`DefaultCI`, `SymmetricKeyCI`) outside this
+  > cluster's scope. **Cross-track observation:** empty parent
+  > directories (`core/compression/impl/`, `core/security/kerberos/`
+  > on main+test) auto-removed by VFS cascade; the sibling
+  > `core/compression/Compression` SPI and
+  > `CompressionInterfaceDeadCodeTest` stay (out-of-cluster
+  > disposition).
+  >
+  > **What changed from the plan:** none. Step deleted exactly the
+  > targets enumerated in the step file's Step 3 risk block
+  > (ZIPCompressionUtil, Kerberos pair, DecimalKeyNormalizer dead
+  > helpers). The two Javadoc trims fit the broadened cluster-
+  > commit-shape rule and do not change downstream-step scope.
+  >
+  > **Key files:**
+  > - 3 production deletions:
+  >   `core/.../compression/impl/ZIPCompressionUtil.java`,
+  >   `core/.../security/kerberos/KerberosCredentialInterceptor.java`,
+  >   `core/.../security/kerberos/Krb5ClientLoginModuleConfig.java`
+  > - Partial-trim: `core/.../nkbtree/normalizers/DecimalKeyNormalizer.java`
+  > - 3 `*DeadCodeTest.java` deletions
+  > - Javadoc trims in `SecurityManagerTest`,
+  >   `DefaultSecuritySystemReloadTest`
+  > - `cluster-disposition.md` Cluster C row updated to `deleted`
+  >
+  > **Implementer commit:** `40519a757c`
 
 - [ ] Step 4: Delete narrow singletons batch (5 sub-targets)
   > **Risk:** medium — mixed nature: partial-method-body trim for
