@@ -1939,6 +1939,8 @@ flowchart TD
   > not 22b. No Component Map shifts; no Decision Record weakening; no
   > new inter-track dependencies. 22b's hybrid Delete-in-22b vs
   > Defer-to-22c policy stands as written.
+
+- [ ] Track 22b: In-Track Dead-Code Deletion Lockstep
   > Atomic per-cluster commits removing dead production code together
   > with its `*DeadCodeTest.java` shape pin, classified via
   > `mcp-steroid://ide/safe-delete` (SPI-safe clusters deleted in-track;
