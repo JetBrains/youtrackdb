@@ -497,7 +497,7 @@ subset; the live subset stays covered by 22a's tests.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/14 complete)
+- [ ] Step implementation (3/14 complete)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -650,7 +650,8 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   >
   > **Implementer commit:** `5c89db6b1d`
 
-- [ ] Step 2: Delete `sbtree/singlevalue/v1` cluster
+- [x] Step 2: Delete `sbtree/singlevalue/v1` cluster
+  - [x] Context: safe
   > **Risk:** medium — override from HIGH-storage category.
   > Justification: PSI iter-1 confirms only `*DeadCodeTest.java`
   > consumers; no live storage path touches `CellBTreeBucketSingleValueV1`
@@ -658,6 +659,44 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   > the 2 production classes plus their 2 shape pins
   > (`CellBTreeBucketSingleValueV1DeadCodeTest`,
   > `CellBTreeSingleValueEntryPointV1DeadCodeTest`).
+  >
+  > **What was done:** Deleted the `sbtree/singlevalue/v1` cluster —
+  > both production classes (`CellBTreeBucketSingleValueV1`,
+  > `CellBTreeSingleValueEntryPointV1`) and their two
+  > `*DeadCodeTest.java` shape pins — as a single bisectable cluster
+  > commit. PSI find-usages in `GlobalSearchScope.allScope` ran on
+  > both production targets before deletion; both showed only
+  > intra-cluster + dead-code-test references, with the inner
+  > `CellBTreeBucketSingleValueV1.SBTreeEntry` referenced only
+  > inside its own production file. Repo-wide grep cross-check
+  > confirmed no `META-INF/services`, XML, properties, or other
+  > resource registrations naming the classes. The surrounding
+  > `sbtree/singlevalue` suite — including the live v3 implementations
+  > now serving the runtime — passed 241/241; Spotless clean.
+  > Marked Cluster B as `deleted` in `cluster-disposition.md`.
+  >
+  > **What was discovered:** The deletion empties the
+  > `singlevalue/v1` source and test directories on both sides; git
+  > tracks files, so the empty parent dirs disappear naturally on
+  > commit. The sibling `singlevalue/v3` package remains the live
+  > implementation and its surrounding tests stay green.
+  > **Cross-track observation:** the `sbtree/local/v1` sibling
+  > package remains 22c-defer per iter-1 corrections (live
+  > `SBTree*V1Test` consumers); this commit does not change that
+  > classification — no impact on remaining steps or 22c.
+  >
+  > **What changed from the plan:** none. Step deleted exactly the
+  > 2 production classes + 2 pin tests enumerated in the step
+  > file's Step 2 risk block.
+  >
+  > **Key files:**
+  > - 2 production deletions under
+  >   `core/src/main/java/.../sbtree/singlevalue/v1/`
+  > - 2 `*DeadCodeTest.java` deletions under
+  >   `core/src/test/java/.../sbtree/singlevalue/v1/`
+  > - `cluster-disposition.md` cluster-B row updated to `deleted`
+  >
+  > **Implementer commit:** `d081289b43`
 
 - [ ] Step 3: Delete misc small dead helpers (ZIPCompressionUtil + DecimalKeyNormalizer + Kerberos/Krb5)
   > **Risk:** medium — override from HIGH-security category for
