@@ -33,11 +33,13 @@ being reachable.
   session instructions. No proposals are presented to the user, no
   files are written, no commits are made.
 
-The check is a single tool-availability probe: if the
-`mcp__youtrack__*` tools are not registered in the current session,
-or the first call fails with "tool unavailable" / a connection
-error, treat the server as unreachable. Do not retry — reflection
-is best-effort, not load-bearing.
+The check is purely a tool-listing inspection: scan the session's
+available tools (including any deferred tools surfaced in the
+session-start system reminders) for an `mcp__youtrack__*` entry. If
+none appear, treat the server as unreachable and emit the skip
+notice immediately. The listing IS the test — do not call any
+`mcp__youtrack__*` tool to "probe" availability, and do not retry.
+Reflection is best-effort, not load-bearing.
 
 ---
 
@@ -118,7 +120,7 @@ ready to record — drop it or sharpen it.
 At most **3** issues per session. If reflection turns up more than
 three, keep the three highest-impact ones (highest severity, most
 frequent, or blocking the most downstream work) and discard the rest.
-Quality of the buffer matters more than completeness.
+Quality of the proposals matters more than completeness.
 
 If reflection turns up zero, that is the expected outcome on a smooth
 session. Say so explicitly to the user and end the session.
@@ -168,8 +170,9 @@ session. Say so explicitly to the user and end the session.
      rule, missing recipe, missing automation, or other enhancement
      filling a gap (see §Type guide).
    - Severity (low/medium/high — see §Severity guide). Severity
-     lives in the body; do not set the YouTrack `Priority` field —
-     the triager calibrates priority during triage.
+     lives in the body; do not set the YouTrack `Priority` field
+     unless the Step 8 preflight reports it as required for the
+     YTDB project — the triager calibrates priority during triage.
    - Body draft (Symptom, Reproduction context, Why it's a problem,
      Proposed fix, Acceptance criteria — see §Issue body template)
 
@@ -186,11 +189,12 @@ session. Say so explicitly to the user and end the session.
    — "Phase A reviewer always re-flags X" and "X review-finding
    loop" may be the same friction worded differently). Drop any
    candidate that is clearly a duplicate of an open or recently-
-   closed dev-workflow issue. If the matching existing issue is
-   older than 6 months **and** was closed, treat it as not-a-
-   duplicate (the rule may have regressed). Keep a list of which
-   candidates were filtered and which existing issue id matched —
-   it surfaces in step 7.
+   closed dev-workflow issue. The 20-newest window already biases
+   toward live frictions, so no separate age cutoff is needed; if a
+   long-closed rule has regressed, the new candidate's reproduction
+   context will read differently enough from the closed one that it
+   should not match. Keep a list of which candidates were filtered
+   and which existing issue id matched — it surfaces in step 7.
 
 7. **Present surviving candidates to the user.** Single message:
 
@@ -199,7 +203,7 @@ session. Say so explicitly to the user and end the session.
 
    Branch: <branch> @ <short-SHA>
 
-   Filtered N candidate(s) as duplicates of: YT-NNNN, YT-MMMM, ...
+   Filtered N candidate(s) as duplicates of: YTDB-NNNN, YTDB-MMMM, ...
 
    M proposed for creation under YTDB (tag `dev-workflow`):
 
@@ -227,14 +231,48 @@ session. Say so explicitly to the user and end the session.
    ```
    ## Self-improvement reflection
 
-   N candidate(s) all filtered as duplicates of: YT-NNNN, YT-MMMM, ...
+   N candidate(s) all filtered as duplicates of: YTDB-NNNN, YTDB-MMMM, ...
    No new issues proposed.
    ```
 
    and end the session.
 
-8. **Create the chosen issues in YouTrack.** For each approved
-   candidate:
+8. **Create the chosen issues in YouTrack.**
+
+   First, fetch the YTDB project's issue-fields schema **once for
+   the whole batch**:
+   ```
+   mcp__youtrack__get_issue_fields_schema(project="YTDB")
+   ```
+   Use the result to:
+
+   - **Validate the `Type` enum.** If the project's `Type` field
+     does not include `"Bug"` and/or `"Feature"` verbatim, map each
+     candidate to the closest accepted value: candidates the
+     reflection drafted as `Bug` map to the first
+     defect-/bug-flavoured value the schema accepts (`Bug`,
+     `Defect`, `Issue`, …); candidates drafted as `Feature` map to
+     the first enhancement-flavoured value (`Feature`, `Task`,
+     `Enhancement`, `Improvement`, …). Note any mapping in the
+     follow-up report (Step 9).
+   - **Cover required fields beyond `Type`.** If the schema marks
+     other custom fields as required at creation (e.g., `State`,
+     `Subsystem`, `Priority`), set each one to a safe default the
+     project documents — typically `State: Open` (or the equivalent
+     "new / unconfirmed" state the schema lists first), and leave
+     `Priority` unset only if it is **not** marked required. If a
+     required field has no value the agent can confidently pick,
+     abort that candidate, surface the gap to the user in Step 9,
+     and continue with the next.
+   - **Cache the result for this session.** Do not re-fetch per
+     candidate — the schema does not change mid-session.
+
+   If `get_issue_fields_schema` itself fails, abort the whole batch
+   (no `create_issue` calls). Report the failure to the user with
+   the candidate titles so they can file the issues manually, then
+   end the session.
+
+   Then for each approved candidate:
 
    1. Call `mcp__youtrack__create_issue` with:
       - `project`: `"YTDB"`
@@ -242,8 +280,10 @@ session. Say so explicitly to the user and end the session.
       - `description`: the rendered Markdown body (see §Issue body
         template). The **Source: branch `<branch>`, commit `<SHA>`**
         line at the top of the body is mandatory.
-      - `customFields`: `{"Type": "Bug"}` or `{"Type": "Feature"}`
-        per the candidate's type. Do not set `Priority`.
+      - `customFields`: include the mapped `Type` value plus any
+        required fields the preflight identified (e.g.,
+        `{"Type": "Bug", "State": "Open"}`). Do **not** set
+        `Priority` unless the preflight marked it required.
    2. Capture the returned issue id (e.g., `YTDB-1234`).
    3. Call `mcp__youtrack__manage_issue_tags` with:
       - `issueId`: the returned id
@@ -404,8 +444,10 @@ gap-fill work surfaced by reflection.
   YouTrack MCP being unreachable — see §YouTrack MCP requirement.
 - **Do not** create issues in any project other than `YTDB`, or with
   any tag other than `dev-workflow`. The triager filters by both.
-- **Do not** set the YouTrack `Priority` custom field — the triager
-  calibrates it. Severity lives in the body.
+- **Do not** set the YouTrack `Priority` custom field unless the
+  Step 8 preflight (`get_issue_fields_schema`) reports it as
+  required for the YTDB project — the triager calibrates it.
+  Severity lives in the body.
 - **Do not** write local `workflow-issues/*.md` files or any other
   local issue buffer. The YouTrack sink is the only output channel;
   local files are intentionally gone.
