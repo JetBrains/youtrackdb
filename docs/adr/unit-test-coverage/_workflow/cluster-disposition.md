@@ -363,7 +363,7 @@ need YTDB issues and which were resolved in this branch.
 | Cluster A — BinaryToken-JWT | (recorded by commit) | deleted |
 | Cluster B — sbtree-singlevalue-v1 | (recorded by commit) | deleted |
 | Cluster C — misc-small-helpers | (recorded by commit) | deleted |
-| Cluster D — narrow-singletons | _pending_ | _pending_ |
+| Cluster D — narrow-singletons | (recorded by commit) | deleted (3-of-5 sub-targets; CronExpression branch trim and EntityLinkSetImpl partial-trim were re-classified as alive by the Phase B PSI pass — see "Cluster D PSI re-classification" note below) |
 | Cluster E — T2-reclassifications | _pending_ | _pending_ |
 | Cluster F — command-script | _pending_ | _pending_ |
 | Cluster G — query-live-partial | _pending_ | _pending_ |
@@ -371,6 +371,37 @@ need YTDB issues and which were resolved in this branch.
 | Cluster I — serialization-scheduler-hygiene | _pending_ | _pending_ |
 | Cluster J — sql-root-scaffold | _pending_ | _pending_ |
 | Cluster K — basic-command-context-copy | _pending_ | _pending_ |
+
+## Cluster D PSI re-classification (Phase B Step 4)
+
+Two of the five Cluster-D sub-targets were re-classified as **alive** during
+the Step 4 PSI safe-delete pass and dropped from the deletion commit:
+
+- **`EntityLinkSetImpl` partial-class-trim.** The disposition table flagged
+  "dead method subset only" without enumerating. Phase B PSI per-method
+  find-usages found that every direct receiver-typed reference count of zero
+  (`setOwner(RecordElement)`, `addInternal(Identifiable)`) sat behind a parent
+  interface method (`RecordElement#setOwner` with 5 + 1 polymorphic prod
+  callers via `EntityImpl` / `TrackedMultiValue` / `EntityEmbeddedMapImpl`;
+  `TrackedCollection#addInternal` with 4 polymorphic prod callers via
+  `HelperClasses`). The methods are reached polymorphically, so the
+  overrides are load-bearing. No dead method subset to trim.
+
+- **`CronExpression.getTimeZone()` lazy-fallback `if` branch trim.** The plan
+  said the lazy `TimeZone.getDefault()` fallback was dead. PSI showed
+  `ScheduledEvent.java:100` constructs `new CronExpression(rule)` and never
+  calls `setTimeZone(...)`, so the production caller relies on the lazy
+  fallback to populate `timeZone` before the `getInstance(getTimeZone())`
+  call sites at lines 301 / 335 / 1083 / 1192 / 1228. Trimming the branch
+  would NPE in `Calendar.getInstance(null)`. The branch is alive; no trim.
+
+Both sub-targets are noted here for the 22b → 22c handoff so the
+`CronExpressionDeadCodeTest` and `EntityLinkSetImplTest` shape pins remain
+intact across this branch (the dead-code test still pins other genuinely
+dead `CronExpression` methods — `getTimeBefore`, `getFinalFireTime`,
+`clone`, `isSatisfiedBy`, `getNextInvalidTimeAfter`, `getExpressionSummary`
+— which are out of Step 4's scope and would be candidates for a future
+deletion pass).
 
 ## Methodology / evidence
 

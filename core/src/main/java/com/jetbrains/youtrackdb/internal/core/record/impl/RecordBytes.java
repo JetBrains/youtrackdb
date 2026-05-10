@@ -32,7 +32,6 @@ import com.jetbrains.youtrackdb.internal.core.serialization.MemoryStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.util.Arrays;
 import java.util.Objects;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -44,8 +43,6 @@ import javax.annotation.Nullable;
  * re-use.
  */
 public class RecordBytes extends RecordAbstract implements Blob {
-
-  private static final byte[] EMPTY_SOURCE = new byte[] {};
 
   public RecordBytes(RecordIdInternal recordId, final DatabaseSessionEmbedded iDatabase,
       final byte[] iSource) {
@@ -107,44 +104,6 @@ public class RecordBytes extends RecordAbstract implements Blob {
       source = out.toByteArray();
     }
     size = source.length;
-    return size;
-  }
-
-  /**
-   * Reads the input stream in memory specifying the maximum bytes to read. This is more efficient
-   * than {@link Blob#fromInputStream(InputStream)} because allocation is made only once.
-   *
-   * @param in      Input Stream, use buffered input stream wrapper to speed up reading
-   * @param maxSize Maximum size to read
-   * @return Buffer count of bytes that are read from the stream. It's also the internal buffer size
-   * in bytes
-   * @throws IOException if an I/O error occurs.
-   */
-  @Override
-  public int fromInputStream(final @Nonnull InputStream in, final int maxSize) throws IOException {
-
-    final var buffer = new byte[maxSize];
-    var totalBytesCount = 0;
-    int readBytesCount;
-    while (totalBytesCount < maxSize) {
-      readBytesCount = in.read(buffer, totalBytesCount, buffer.length - totalBytesCount);
-      if (readBytesCount == -1) {
-        break;
-      }
-      totalBytesCount += readBytesCount;
-    }
-
-    if (totalBytesCount == 0) {
-      source = EMPTY_SOURCE;
-      size = 0;
-    } else if (totalBytesCount == maxSize) {
-      source = buffer;
-      size = maxSize;
-    } else {
-      source = Arrays.copyOf(buffer, totalBytesCount);
-      size = totalBytesCount;
-    }
-
     return size;
   }
 

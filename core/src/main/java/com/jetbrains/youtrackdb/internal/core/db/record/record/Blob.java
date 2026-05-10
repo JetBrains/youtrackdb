@@ -14,8 +14,6 @@ public interface Blob extends DBRecord {
 
   int fromInputStream(@Nonnull final InputStream in) throws IOException;
 
-  int fromInputStream(@Nonnull final InputStream in, final int maxSize) throws IOException;
-
   void toOutputStream(@Nonnull final OutputStream out) throws IOException;
 
   @Nonnull
