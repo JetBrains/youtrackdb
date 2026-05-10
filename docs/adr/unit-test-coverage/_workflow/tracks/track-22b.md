@@ -497,7 +497,7 @@ subset; the live subset stays covered by 22a's tests.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (5/14 complete)
+- [ ] Step implementation (6/14 complete)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -863,7 +863,8 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   >
   > **Implementer commit:** `be9e341192`
 
-- [ ] Step 5: Delete T2 reclassifications batch (5 small classes)
+- [x] Step 5: Delete T2 reclassifications batch (5 small classes)
+  - [x] Context: safe
   > **Risk:** low — 5 simple full-class deletions, each PSI-
   > confirmed zero non-test refs. Targets: `LiveQueryBatchResultListener`,
   > `DatabaseLifecycleListenerAbstract` (zero implementers per PSI;
@@ -874,6 +875,47 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   > `DatabaseLifecycleListenerAbstractDeadCodeTest`,
   > `DatabaseRepairDeadCodeTest`, `BonsaiTreeRepairDeadCodeTest`,
   > `HookReplacedRecordThreadLocalDeadCodeTest`).
+  >
+  > **What was done:** Deleted the five T2-reclassification
+  > production classes (`LiveQueryBatchResultListener`,
+  > `DatabaseLifecycleListenerAbstract`,
+  > `HookReplacedRecordThreadLocal`, `DatabaseRepair`,
+  > `BonsaiTreeRepair`) plus their five `*DeadCodeTest.java` shape
+  > pins, then trimmed two stale `{@link}` references from
+  > `DatabaseToolDeadCodeTest`'s class Javadoc so the surviving
+  > `DatabaseTool` shape pin no longer points at deleted classes.
+  > PSI `ReferencesSearch` + `ClassInheritorsSearch` on every target
+  > confirmed zero non-test, non-self references before the
+  > deletion landed. Coverage profile build over the full `core`
+  > module passed (18 103/18 201 tests, 98 skipped, 0 failures);
+  > the coverage gate reported 100% line / 100% branch on changed
+  > code; Spotless applied.
+  >
+  > **What was discovered:** `DatabaseToolDeadCodeTest` (the
+  > surviving abstract-base shape pin) held two Javadoc `{@link}`
+  > references to `DatabaseRepair` and `BonsaiTreeRepair` in its
+  > class-level comment listing concrete `DatabaseTool` subclasses.
+  > The Phase A scope was the five prod classes + matching pins;
+  > the lockstep Javadoc fix in `DatabaseToolDeadCodeTest` is a
+  > hygiene amendment, not a scope expansion — without it the
+  > `{@link}`s would resolve to nothing once the targets are gone.
+  > **Cross-track observation:** pattern note for upcoming deletion
+  > steps — when a surviving sibling shape pin lists deleted
+  > concrete tools in a class-level Javadoc, the safest approach
+  > is to trim the `{@link}`s in the same cluster commit
+  > (avoids a follow-up "stale Javadoc" finding in track-level
+  > dimensional review). Step 6's Track-9 cluster has similar
+  > surviving sibling pins (`CommandManager`, `ScriptManager`
+  > surfaces) that may need the same lockstep Javadoc trim.
+  >
+  > **What changed from the plan:** none.
+  >
+  > **Key files:**
+  > - 5 production deletions under `core/.../db/` and `core/.../db/tool/`
+  > - 5 `*DeadCodeTest.java` deletions
+  > - `DatabaseToolDeadCodeTest.java` Javadoc `{@link}` trim
+  >
+  > **Implementer commit:** `01d03e5470`
 
 - [ ] Step 6: Delete Track-9 forwarded command-script cluster
   > **Risk:** medium — override from HIGH-architecture category
