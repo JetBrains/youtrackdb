@@ -15,7 +15,6 @@ package com.jetbrains.youtrackdb.internal.core.replication;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
 
 import com.jetbrains.youtrackdb.internal.core.replication.AsyncReplicationError.ACTION;
@@ -80,7 +79,6 @@ public class AsyncReplicationErrorTest {
     var sam =
         AsyncReplicationError.class.getMethod(
             "onAsyncReplicationError", Throwable.class, int.class);
-    assertNotNull(sam);
     assertEquals("onAsyncReplicationError", sam.getName());
     assertEquals(ACTION.class, sam.getReturnType());
   }

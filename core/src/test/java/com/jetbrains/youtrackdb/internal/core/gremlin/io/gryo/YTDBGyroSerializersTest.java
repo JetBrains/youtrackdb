@@ -10,6 +10,7 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.lang.reflect.Modifier;
 import org.apache.tinkerpop.shaded.kryo.Kryo;
 import org.apache.tinkerpop.shaded.kryo.io.Input;
 import org.apache.tinkerpop.shaded.kryo.io.Output;
@@ -54,10 +55,20 @@ public class YTDBGyroSerializersTest {
     }
   }
 
-  /** {@code INSTANCE} is a singleton — pin to defend the IoRegistry-shared identity. */
+  /**
+   * {@code INSTANCE} is a singleton — pin the static-final field shape and that two
+   * separate reads return the same reference. A regression that converts INSTANCE
+   * into a getter allocating per-call would slip past a tautological self-comparison.
+   */
   @Test
-  public void recordIdGyroSerializerExposesSingleton() {
-    assertSame(RecordIdGyroSerializer.INSTANCE, RecordIdGyroSerializer.INSTANCE);
+  public void recordIdGyroSerializerExposesSingleton() throws NoSuchFieldException {
+    var f = RecordIdGyroSerializer.class.getDeclaredField("INSTANCE");
+    var mods = f.getModifiers();
+    assertTrue("INSTANCE must be static", Modifier.isStatic(mods));
+    assertTrue("INSTANCE must be final", Modifier.isFinal(mods));
+    var a = RecordIdGyroSerializer.INSTANCE;
+    var b = RecordIdGyroSerializer.INSTANCE;
+    assertSame(a, b);
   }
 
   /**
@@ -113,10 +124,18 @@ public class YTDBGyroSerializersTest {
     }
   }
 
+  /**
+   * Same singleton-pin rationale as {@link #recordIdGyroSerializerExposesSingleton()} —
+   * pin the static-final field shape and that two separate reads return the same reference.
+   */
   @Test
-  public void vertexPropertyIdGyroSerializerExposesSingleton() {
-    assertSame(
-        YTDBVertexPropertyIdGyroSerializer.INSTANCE,
-        YTDBVertexPropertyIdGyroSerializer.INSTANCE);
+  public void vertexPropertyIdGyroSerializerExposesSingleton() throws NoSuchFieldException {
+    var f = YTDBVertexPropertyIdGyroSerializer.class.getDeclaredField("INSTANCE");
+    var mods = f.getModifiers();
+    assertTrue("INSTANCE must be static", Modifier.isStatic(mods));
+    assertTrue("INSTANCE must be final", Modifier.isFinal(mods));
+    var a = YTDBVertexPropertyIdGyroSerializer.INSTANCE;
+    var b = YTDBVertexPropertyIdGyroSerializer.INSTANCE;
+    assertSame(a, b);
   }
 }

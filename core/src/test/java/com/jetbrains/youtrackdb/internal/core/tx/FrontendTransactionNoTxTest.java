@@ -238,8 +238,16 @@ public class FrontendTransactionNoTxTest extends DbTestBase {
     // RecordNotFoundException is the exception read methods may declare on
     // the FrontendTransaction interface; ensure the no-tx variant prefers
     // the more specific NoTxRecordReadException so callers can distinguish
-    // "no-tx misuse" from "record genuinely missing".
-    Assert.assertNotEquals(RecordNotFoundException.class, NoTxRecordReadException.class);
+    // "no-tx misuse" from "record genuinely missing". Pin distinct hierarchy
+    // via isAssignableFrom in both directions — comparing class literals
+    // alone is tautological, but checking neither side is a subtype of the
+    // other actually catches a regression that re-parented one onto the other.
+    Assert.assertFalse(
+        "RecordNotFoundException must not be assignable from NoTxRecordReadException",
+        RecordNotFoundException.class.isAssignableFrom(NoTxRecordReadException.class));
+    Assert.assertFalse(
+        "NoTxRecordReadException must not be assignable from RecordNotFoundException",
+        NoTxRecordReadException.class.isAssignableFrom(RecordNotFoundException.class));
     var rid = new RecordId(0, 1);
     var thrown = Assert.assertThrows(NoTxRecordReadException.class, () -> noTx.loadRecord(rid));
     Assert.assertNotNull(thrown.getMessage());

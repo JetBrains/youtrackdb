@@ -202,8 +202,8 @@ public class IdentityWrapperTest extends DbTestBase {
     try {
       session.computeInTx(tx -> session.loadEntity(rid));
     } catch (RecordNotFoundException expected) {
-      // Expected — the entity has been deleted.
-      assertNotNull(expected.getMessage());
+      // Expected — the entity has been deleted. The catch firing is the load-bearing
+      // signal; the return below short-circuits the trailing fail().
       return;
     }
     // If we reach here the delete didn't take — fail loudly.

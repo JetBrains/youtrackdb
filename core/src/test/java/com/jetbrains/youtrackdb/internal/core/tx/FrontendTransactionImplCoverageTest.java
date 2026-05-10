@@ -27,12 +27,6 @@ public class FrontendTransactionImplCoverageTest extends DbTestBase {
 
   /**
    * The read-only constructor variant rejects record additions so
-   * read-only sessions cannot accidentally mutate. We use the package-level
-   * variant `(session, readOnly)` which is the constructor used by
-   * {@code beginReadOnly()}'s factory.
-   */
-  /**
-   * The read-only constructor variant rejects record additions so
    * read-only sessions cannot accidentally mutate. The readOnly branch in
    * {@code addRecordOperation} fires before any record-state checks, so
    * we don't need a fully-constructed RecordAbstract — only the readOnly

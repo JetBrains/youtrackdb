@@ -900,7 +900,11 @@ public class EntityImplTest extends DbTestBase {
               + "reference but was not found: " + e.getMessage());
       return;
     }
-    assertNotNull(pageFrameTest);
+    // The successful Class.forName already pins existence; pin the canonical FQN so a
+    // package move surfaces here too rather than silently passing.
+    assertEquals(
+        "com.jetbrains.youtrackdb.internal.core.record.impl.EntityImplPageFrameTest",
+        pageFrameTest.getName());
   }
 
 }

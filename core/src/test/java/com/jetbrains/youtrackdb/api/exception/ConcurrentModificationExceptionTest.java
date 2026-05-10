@@ -15,7 +15,6 @@ package com.jetbrains.youtrackdb.api.exception;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -209,7 +208,12 @@ public class ConcurrentModificationExceptionTest {
     var b = new ConcurrentModificationException("dbX", rid, 99L, 1L, RecordOperation.UPDATED);
 
     assertEquals(a.hashCode(), b.hashCode());
-    // Sanity: not just zero/constant.
-    assertNotNull(Integer.valueOf(a.hashCode()));
+    // Sanity: hash function actually mixes inputs rather than collapsing to a
+    // constant zero. assertNotNull on Integer.valueOf(int) is tautological
+    // (the boxing result is never null) — assert non-zero instead.
+    assertNotEquals(
+        "hashCode must not collapse to a constant zero — sanity-check the hash mixes inputs",
+        0,
+        a.hashCode());
   }
 }

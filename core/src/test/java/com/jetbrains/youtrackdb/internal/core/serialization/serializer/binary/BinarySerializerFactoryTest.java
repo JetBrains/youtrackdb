@@ -195,11 +195,11 @@ public class BinarySerializerFactoryTest {
 
   @Test
   public void nullSerializerIsRegisteredButNotBoundToAType() {
-    // NullSerializer.ID = 11. Note: BinarySerializerFactory.create() registers a
-    // FRESH NullSerializer instance (`new NullSerializer()`) rather than the
-    // singleton `NullSerializer.INSTANCE`. Pin both invariants — the lookup returns
-    // a NullSerializer, and it MUST be the INSTANCE singleton (consistent with every other
-    // serializer registered by create()).
+    // NullSerializer.ID = 11. BinarySerializerFactory.create() registers the
+    // NullSerializer.INSTANCE singleton (the prior implementation allocated a
+    // fresh `new NullSerializer()` per factory). Pin both invariants — the
+    // lookup returns a NullSerializer, and it must be the INSTANCE singleton,
+    // so a regression that re-introduces fresh allocation breaks loudly.
     var f = BinarySerializerFactory.create(BinarySerializerFactory.CURRENT_BINARY_FORMAT_VERSION);
     var resolved = f.getObjectSerializer(NullSerializer.ID);
     assertNotNull(resolved);

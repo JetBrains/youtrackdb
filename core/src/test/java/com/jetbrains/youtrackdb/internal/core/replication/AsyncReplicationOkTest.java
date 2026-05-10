@@ -14,7 +14,6 @@
 package com.jetbrains.youtrackdb.internal.core.replication;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
 
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Test;
@@ -62,7 +61,6 @@ public class AsyncReplicationOkTest {
   @Test
   public void singleAbstractMethodIsNamedOnAsyncReplicationOk() throws NoSuchMethodException {
     var sam = AsyncReplicationOk.class.getMethod("onAsyncReplicationOk");
-    assertNotNull(sam);
     assertEquals("onAsyncReplicationOk", sam.getName());
     assertEquals(0, sam.getParameterCount());
     assertEquals(void.class, sam.getReturnType());

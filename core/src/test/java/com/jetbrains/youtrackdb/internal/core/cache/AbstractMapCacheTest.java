@@ -10,6 +10,7 @@ package com.jetbrains.youtrackdb.internal.core.cache;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -105,8 +106,11 @@ public class AbstractMapCacheTest {
     backingBefore.put(new RecordId(0, 0L), null);
     c.shutdown();
     assertEquals("shutdown() must empty the map", 0, c.backing().size());
-    assertEquals("shutdown() must keep the same map instance (no replace)",
-        System.identityHashCode(backingBefore), System.identityHashCode(c.backing()));
+    // Use assertSame for identity rather than identityHashCode — collisions are
+    // legal per the Object contract, so identityHashCode equality is too weak to
+    // pin the "same instance" claim.
+    assertSame("shutdown() must keep the same map instance (no replace)",
+        backingBefore, c.backing());
   }
 
   @Test

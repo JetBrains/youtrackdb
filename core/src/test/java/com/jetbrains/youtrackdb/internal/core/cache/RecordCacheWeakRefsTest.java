@@ -178,9 +178,10 @@ public class RecordCacheWeakRefsTest extends DbTestBase {
     cache.put(entities[0]);
     cache.put(entities[1]);
     cache.unloadNotModifiedRecords();
-    // forEach iterates without removing: backing map size remains as-was.
-    assertTrue("backing map keeps entries through unloadNotModifiedRecords",
-        backingMapSize(cache) >= 0);
+    // forEach iterates without removing: both put entries remain. A regression
+    // where unloadNotModifiedRecords started removing entries fails here.
+    assertEquals("backing map keeps both entries through unloadNotModifiedRecords",
+        2, backingMapSize(cache));
   }
 
   @Test
@@ -197,8 +198,10 @@ public class RecordCacheWeakRefsTest extends DbTestBase {
     cache.put(entities[0]);
     cache.put(entities[1]);
     cache.unloadRecords();
-    assertTrue("backing map keeps entries through unloadRecords",
-        backingMapSize(cache) >= 0);
+    // forEach iterates without removing: both put entries remain. A regression
+    // where unloadRecords started removing entries fails here.
+    assertEquals("backing map keeps both entries through unloadRecords",
+        2, backingMapSize(cache));
   }
 
   @Test
