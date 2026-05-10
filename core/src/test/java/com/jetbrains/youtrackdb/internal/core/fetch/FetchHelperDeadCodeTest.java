@@ -22,7 +22,6 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
-import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
@@ -37,17 +36,16 @@ import java.util.Map;
 import org.junit.Test;
 
 /**
- * Dead-code pin tests for the static entry points on {@link FetchHelper} that remain exercisable
- * without a database session. Cross-module grep (performed during this track's review phase)
- * confirmed that {@code core/fetch/} has zero production callers in {@code server/},
- * {@code driver/}, {@code embedded/}, {@code gremlin-annotations/}, and {@code tests/} — the only
- * in-repo driver is {@code DepthFetchPlanTest} in core's own test source.
+ * Dead-code pin tests for the static entry points on {@link FetchHelper} that survive after the
+ * dead-method trim of {@code core/fetch/}. The package itself is preserved; this file pins the
+ * surviving public surface ({@code buildFetchPlan}, {@code isEmbedded}, {@code processRecordRidMap},
+ * {@code removeParsedFromMap}, plus the {@code DEFAULT} / {@code DEFAULT_FETCHPLAN} constants),
+ * since the only in-repo driver outside this file is {@code DepthFetchPlanTest} in core's own test
+ * source — it covers the live {@link FetchHelper#fetch} entry path but does not cover the static
+ * helpers below without a database session.
  *
  * <p>Every test pins a falsifiable observable (return value, thrown exception, or identity of a
- * cached singleton) so that a mutation to the underlying branch is detectable. The class-level
- * tag below flags the package for removal in the final sweep.
- *
- * <p>WHEN-FIXED: Track 22 — delete core/fetch/ package (0 callers outside self + DepthFetchPlanTest).
+ * cached singleton) so that a mutation to the underlying branch is detectable.
  */
 public class FetchHelperDeadCodeTest {
 
@@ -88,114 +86,6 @@ public class FetchHelperDeadCodeTest {
     assertNotNull(fp);
     assertNotSame(FetchHelper.DEFAULT_FETCHPLAN, fp);
     assertEquals(0, fp.getDepthLevel("any", 0));
-  }
-
-  // ---------------------------------------------------------------------------
-  // checkFetchPlanValid — boundary inputs and error path
-  // ---------------------------------------------------------------------------
-
-  @Test
-  public void checkFetchPlanValidAcceptsNullAsNoOp() {
-    // A null plan is a "no fetch plan given" signal — must not throw.
-    FetchHelper.checkFetchPlanValid(null);
-  }
-
-  @Test
-  public void checkFetchPlanValidAcceptsEmptyStringAsNoOp() {
-    // Empty string shares the null-or-empty short-circuit branch.
-    FetchHelper.checkFetchPlanValid("");
-  }
-
-  @Test
-  public void checkFetchPlanValidAcceptsWellFormedSingleEntry() {
-    FetchHelper.checkFetchPlanValid("ref:1");
-  }
-
-  @Test
-  public void checkFetchPlanValidAcceptsMultipleEntries() {
-    FetchHelper.checkFetchPlanValid("ref:1 other:-1");
-  }
-
-  @Test
-  public void checkFetchPlanValidRejectsWhitespaceOnlyAsInvalid() {
-    // A single space is NOT empty, so the outer short-circuit does not fire. split(' ')
-    // on the blank produces an empty part list, taking the else-branch throw — documents
-    // the subtle boundary where " " is invalid but "" is a no-op.
-    var ex = assertThrows(IllegalArgumentException.class,
-        () -> FetchHelper.checkFetchPlanValid(" "));
-    assertTrue("error names the invalid plan",
-        ex.getMessage().contains("' '"));
-    assertTrue(ex.getMessage().toLowerCase().contains("invalid"));
-  }
-
-  @Test
-  public void checkFetchPlanValidRejectsMissingColonInSingleEntry() {
-    // One entry without a colon: split(':') yields one part, not two → IAE.
-    var ex = assertThrows(IllegalArgumentException.class,
-        () -> FetchHelper.checkFetchPlanValid("refnoColon"));
-    assertTrue("error mentions the original plan string",
-        ex.getMessage().contains("refnoColon"));
-    assertTrue(ex.getMessage().toLowerCase().contains("invalid"));
-  }
-
-  @Test
-  public void checkFetchPlanValidRejectsEntryWithTooManyColons() {
-    // "a:b:c" → split(':') yields 3 parts → IAE.
-    var ex = assertThrows(IllegalArgumentException.class,
-        () -> FetchHelper.checkFetchPlanValid("a:b:c"));
-    assertTrue(ex.getMessage().toLowerCase().contains("invalid"));
-  }
-
-  @Test
-  public void checkFetchPlanValidOnlyValidatesStructureNotNumericLevel() {
-    // "ref:notANumber" is structurally valid (two parts) and passes the check — the parse
-    // failure only shows up when the plan is actually constructed. Pinning this ensures the
-    // fast-path validator stays cheap; a future mutation that eagerly parses the level would
-    // be caught here.
-    FetchHelper.checkFetchPlanValid("ref:notANumber");
-  }
-
-  @Test
-  public void checkFetchPlanValidRejectsFirstGoodThenBadCompoundPlan() {
-    // Compound plan where the first part is structurally valid but the second is not — the
-    // validator iterates every part, not just the first, so the method throws on the bad part.
-    // A regression that bailed early after the first valid part would silently accept this.
-    var ex = assertThrows(IllegalArgumentException.class,
-        () -> FetchHelper.checkFetchPlanValid("ref:1 badPart"));
-    assertTrue("error echoes the whole plan string", ex.getMessage().contains("ref:1 badPart"));
-    assertTrue(ex.getMessage().toLowerCase().contains("invalid"));
-  }
-
-  @Test
-  public void checkFetchPlanValidRejectsGoodThenBadBoundaryPart() {
-    // Second part has too many colons (three parts after split(':')) — structurally invalid.
-    // Pairs with the first-good-then-bad pin to cover both "wrong part count = 1" and "wrong
-    // part count = 3" boundaries of the validator's same `parts.size() != 2` predicate.
-    var ex = assertThrows(IllegalArgumentException.class,
-        () -> FetchHelper.checkFetchPlanValid("ref:1 a:b:c"));
-    assertTrue(ex.getMessage().toLowerCase().contains("invalid"));
-  }
-
-  @Test
-  public void checkFetchPlanValidRejectsPlanWithLeadingWhitespace() {
-    // Leading single space: StringSerializerHelper.split(" ref:1", ' ') includes the empty
-    // leading token — but since split on ' ' preserves empty tokens, the first part "" hits
-    // the `parts.size() != 2` check with size 1 → IAE. Pins the "leading space breaks the
-    // validator" contract (a subtle caller-observable boundary).
-    var ex = assertThrows(IllegalArgumentException.class,
-        () -> FetchHelper.checkFetchPlanValid(" ref:1"));
-    assertTrue("error echoes the original offending plan",
-        ex.getMessage().contains(" ref:1"));
-    assertTrue(ex.getMessage().toLowerCase().contains("invalid"));
-  }
-
-  @Test
-  public void checkFetchPlanValidRejectsPlanWithTrailingWhitespace() {
-    // Trailing single space: split(' ') yields ["ref:1",""] — the second (empty) token has
-    // parts.size()==1 → IAE. Symmetric to the leading-whitespace boundary.
-    var ex = assertThrows(IllegalArgumentException.class,
-        () -> FetchHelper.checkFetchPlanValid("ref:1 "));
-    assertTrue(ex.getMessage().toLowerCase().contains("invalid"));
   }
 
   // ---------------------------------------------------------------------------
@@ -368,13 +258,13 @@ public class FetchHelperDeadCodeTest {
   }
 
   /**
-   * Integration-light pin: every non-null, non-"*:0" string that parses in FetchPlan must also
-   * pass checkFetchPlanValid — both rely on StringSerializerHelper.split(' ') + split(':')
-   * yielding size-2 parts. Each sample also has a semantic probe so a mutation that breaks
-   * the parser silently (while still returning non-null) is caught.
+   * Integration-light pin: every non-null, non-"*:0" string that {@link FetchHelper#buildFetchPlan}
+   * accepts must also yield a working {@link FetchPlan} where the semantic probe sees the
+   * declared depth. Pins the parser surface against silent regressions that return non-null but
+   * with broken depth maps.
    */
   @Test
-  public void checkFetchPlanValidAcceptsEveryStringThatBuildFetchPlanAccepts() {
+  public void buildFetchPlanProducesSemanticallyConsistentPlanForEveryAcceptedString() {
     Map<String, SemanticProbe> samples = new LinkedHashMap<>();
     samples.put("ref:1", p -> assertEquals(1, p.getDepthLevel("ref", 0)));
     samples.put("ref:-1", p -> assertEquals(-1, p.getDepthLevel("ref", 0)));
@@ -395,7 +285,6 @@ public class FetchHelperDeadCodeTest {
 
     for (var entry : samples.entrySet()) {
       var s = entry.getKey();
-      FetchHelper.checkFetchPlanValid(s);
       var fp = FetchHelper.buildFetchPlan(s);
       assertNotNull("buildFetchPlan(" + s + ")", fp);
       entry.getValue().probe(fp);

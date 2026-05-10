@@ -367,7 +367,7 @@ need YTDB issues and which were resolved in this branch.
 | Cluster E — T2-reclassifications | _pending_ | _pending_ |
 | Cluster F — command-script | _pending_ | _pending_ |
 | Cluster G — query-live-partial | (recorded by commit) | deleted (V1+V2 dead static dispatch entry points + 3 orphan listener interfaces in core/query/; LiveQueryHook.LiveQueryOps + LiveQueryHookV2.{LiveQueryOps,LiveQueryOp,unboxRidbags} preserved per SharedContext / CopyRecordContentBeforeUpdateStep) |
-| Cluster H — fetch-partial | _pending_ | _pending_ |
+| Cluster H — fetch-partial | (recorded by commit) | deleted (PSI dead-method subset = `FetchHelper.checkFetchPlanValid` only; the static-helpers pin file was renamed-in-place — kept on disk to cover the live `buildFetchPlan` / `isEmbedded` / `processRecordRidMap` / `removeParsedFromMap` / DEFAULT* surface — its 13 `checkFetchPlanValid` pin tests removed in lockstep) |
 | Cluster I — serialization-scheduler-hygiene | _pending_ | _pending_ |
 | Cluster J — sql-root-scaffold | _pending_ | _pending_ |
 | Cluster K — basic-command-context-copy | _pending_ | _pending_ |
