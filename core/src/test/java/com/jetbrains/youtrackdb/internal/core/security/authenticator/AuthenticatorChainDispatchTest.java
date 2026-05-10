@@ -30,8 +30,8 @@ import org.junit.Test;
  * {@link DbTestBase} supplies a live in-memory database so the
  * {@link DatabaseUserAuthenticator} leg can look up users in the security schema.
  *
- * <p>Token stubs use the anonymous pattern from {@code TokenSignImplTest}:
- * {@code BinaryToken} and {@code JsonWebToken} are not referenced here.
+ * <p>Token stubs use the anonymous pattern from {@code TokenSignImplTest}: no concrete
+ * {@link Token} implementation is referenced here.
  */
 public class AuthenticatorChainDispatchTest extends DbTestBase {
 
@@ -297,7 +297,7 @@ public class AuthenticatorChainDispatchTest extends DbTestBase {
    * Minimal anonymous Token stub.  Only {@code getHeader()}, {@code getIsValid()},
    * {@code getUserName()}, and {@code getDatabaseName()} are exercised by
    * {@link DatabaseUserAuthenticator}; all other methods return safe defaults.
-   * Neither {@code BinaryToken} nor {@code JsonWebToken} is referenced.
+   * No concrete {@link Token} implementation is referenced.
    */
   private static Token stubToken(
       TokenHeader header, boolean isValid, String userName, String dbName) {

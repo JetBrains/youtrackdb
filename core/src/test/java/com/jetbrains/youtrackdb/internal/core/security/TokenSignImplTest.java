@@ -15,8 +15,8 @@ import org.junit.Test;
 /**
  * Tests {@link TokenSignImpl} HMAC sign/verify round-trip with synthesized keys.
  *
- * <p>Construction strategy: instead of reaching for a real JWT or BinaryToken implementation
- * (which pulls in DatabaseSession plumbing), we build a minimal anonymous {@link Token}
+ * <p>Construction strategy: instead of reaching for a concrete {@link Token} implementation
+ * (which would pull in DatabaseSession plumbing), we build a minimal anonymous {@link Token}
  * stub — TokenSignImpl only needs the {@link Token#getHeader()} call site, and the default
  * {@link DefaultKeyProvider} ignores the header content entirely (it returns a single
  * SecretKeySpec regardless), so the stub may return any TokenHeader.
