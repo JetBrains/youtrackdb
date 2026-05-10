@@ -497,7 +497,7 @@ subset; the live subset stays covered by 22a's tests.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [ ] Step implementation (1/14 complete)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -519,7 +519,8 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
 
 ## Steps
 
-- [ ] Step 0: Pin-disposition table + 22a anchor pre-flight
+- [x] Step 0: Pin-disposition table + 22a anchor pre-flight
+  - [x] Context: safe
   > **Risk:** medium — multi-file PSI gating work (no production
   > code change, but downstream cluster commits depend on this
   > artifact's correctness). Phase B's first step. Enumerate all 71
@@ -537,6 +538,58 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   > the iter-1 escalation thresholds: if PSI surfaces &gt;2 additional
   > clusters needing 22c-defer beyond the iter-1 corrections, OR
   > the in-track cluster count exceeds 12, escalate to inline-replan.
+  >
+  > **What was done:** Produced the Track 22b pin-to-disposition
+  > table at `docs/adr/unit-test-coverage/_workflow/cluster-disposition.md`,
+  > mapping all 71 `*DeadCodeTest.java` pins in `core/src/test/java`
+  > to one of three dispositions (delete-in-22b cluster: 47 pins / 11
+  > logical clusters, defer-to-22c: 19 pins, pin-maintenance: 5 pins).
+  > PSI find-usages was run via `ReferencesSearch` in
+  > `GlobalSearchScope.allScope` on each pin's production target;
+  > reference counts were bucketed by filename suffix (prod /
+  > non-dead-test / `*IT.java` / dead-test) so the cluster
+  > classification matches the hybrid policy verbatim. The 22a anchor
+  > pre-flight per R11 was also captured: `BinarySerializerFactory.java:86`
+  > is intact at `NullSerializer.INSTANCE` and line 111 still
+  > registers `MockSerializer.INSTANCE` (the lucene-spatial-index
+  > slot).
+  >
+  > **What was discovered:** Five pins are pin-maintenance candidates
+  > (production target is alive despite the `DeadCode` suffix):
+  > `InternalErrorException` (5 prod refs in `AbstractStorage`),
+  > `EntityHelper` (112 prod refs), `RecordVersionHelper`,
+  > `EntityComparator`, and `SBTreeValue` (live across both v1 and
+  > v2). `SqlExecutorDeadCodeTest` is a likely sixth pin-maintenance
+  > candidate pending Step 10's implementer pass — its multi-target
+  > body pins live classes (`BasicCommandContext`: 137 prod refs;
+  > `ExecutionStep`: 211 prod refs; `SQLBatch`: 16 prod refs) and the
+  > test exercises live behaviour rather than asserting deletion. The
+  > iter-1 escalation rule (>2 additional 22c-defers beyond iter-1,
+  > OR >12 in-track cluster commits) was re-evaluated and NOT
+  > triggered — zero new defers, 11 in-track cluster commits +
+  > license-header normalization (Step 12) + final verification
+  > (Step 13) = 13 commits, matching the D5 controlled-exception
+  > widening. **Cross-track observation:** the 5–6 pin-maintenance
+  > renames may flow into a small follow-up cluster commit during
+  > Phase B (or be absorbed into the license-header normalization
+  > commit if size permits); 22c reads the cluster-disposition
+  > artefact's "Cluster commit log" section once the in-track cluster
+  > commits land to determine which `WHEN-FIXED` markers still need
+  > YouTrack issues. This is a within-track observation, not a new
+  > inter-track dependency.
+  >
+  > **What changed from the plan:** none. The 11-cluster decomposition
+  > matches the step file (Steps 1–11) exactly. The 13-commit total
+  > (11 cluster commits + license-header normalization + final
+  > verification) was already widened in the step file's Scope line
+  > per D5; this Step 0 confirmation simply re-validates the budget
+  > rather than changing it.
+  >
+  > **Key files:**
+  > - `docs/adr/unit-test-coverage/_workflow/cluster-disposition.md`
+  >   (new) — pin-to-disposition table covering all 71 pins.
+  >
+  > **Implementer commit:** `dcf28e20c3`
 
 - [ ] Step 1: Delete Binary Token / JWT cluster (8 classes)
   > **Risk:** medium — override from HIGH-security category.
