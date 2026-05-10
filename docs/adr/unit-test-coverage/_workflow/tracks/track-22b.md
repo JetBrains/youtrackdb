@@ -497,7 +497,7 @@ subset; the live subset stays covered by 22a's tests.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (9/14 complete)
+- [ ] Step implementation (10/14 complete — mid-phase checkpoint after Step 9 cross-track discovery; user decides Pause-and-ADJUST direction at next session)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -1147,7 +1147,7 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   >
   > **Implementer commit:** `38563169ed`
 
-- [ ] Step 9: Delete Tracks 11+12+13 packed serialization-and-scheduler hygiene (7 small surfaces)
+- [x] Step 9: Delete Tracks 11+12+13 packed serialization-and-scheduler hygiene (7 small surfaces)
   > **Risk:** medium — override from HIGH-public-API category for
   > `Scheduler.{load,close,create}` interface-method removal.
   > Justification: `Scheduler` is in `internal.core.schedule`, NOT
@@ -1170,8 +1170,81 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   > `RecordSerializationDebugDeadCodeTest`,
   > `RecordSerializationDebugPropertyDeadCodeTest`,
   > `SchedulerSurfaceDeadCodeTest` method subset.
-
-- [ ] Step 10: Delete SQL root scaffold cluster
+  >
+  > - [x] Context: info
+  >
+  > **What was done:** Deleted Cluster I — 7 production files in
+  > full (`JSONWriter`, `Streamable`, `StreamableHelper`,
+  > `SerializationThreadLocal`, `SerializableWrapper`,
+  > `RecordSerializationDebug`, `RecordSerializationDebugProperty`)
+  > plus partial-trim of `Scheduler.java` and `SchedulerProxy.java`
+  > (the `@Deprecated` 0-arg `load`/`close`/`create` trio + 3
+  > `SchedulerProxy` overrides). Removed 8 lockstep test pins;
+  > trimmed `SchedulerProxyTest`'s Javadoc. `cluster-disposition.md`
+  > Cluster I marked `deleted`. Targeted schedule tests 36/36; full
+  > coverage profile build green at 18 055/18 055 (98 skipped, 0
+  > failures); Spotless applied.
+  >
+  > **What was discovered:** (1) `SerializationThreadLocal` was
+  > **fully** dead, not just the listener-shutdown path the
+  > surviving `*DeadCodeTest` Javadoc claimed — PSI showed only 3
+  > self-refs (constructor, `onStartup`, `onShutdown`) and 8 pin
+  > refs. Removed in full (53 LOC, scope tightened from "partial-
+  > trim 54 LOC" to "full-class deletion").
+  > (2) The deprecated 0-arg `Scheduler.{load,close,create}`
+  > interface methods do NOT correspond to `SchedulerImpl`'s live
+  > methods despite name overlap: `SchedulerImpl.load(DatabaseSessionEmbedded)`,
+  > `close()`, static `create(session)` are parametric; `SchedulerImpl`
+  > does NOT implement `Scheduler`; the `SharedContext.scheduler`
+  > field is typed `SchedulerImpl` directly. So deleting the
+  > interface trio cannot affect any production dispatch.
+  >
+  > **(3) CROSS-TRACK IMPACT — coverage-gate regression:** the
+  > cumulative-vs-`origin/develop` coverage gate at this HEAD
+  > reports **68.5% line / 23.4% branch** — below the 85%/70%
+  > thresholds. The regression reproduces at the Step-8 HEAD
+  > (Step 9's own changes are 100%/100% covered), so the actual
+  > root cause is **Step 6 + Step 8 modifications** combined with
+  > Spotless ratchet pulling pre-existing under-covered lines into
+  > the changed-lines diff. Three under-covered files:
+  > - `core/fetch/FetchHelper.java` (Step 8 partial-trim + Spotless
+  >   reformat of L137–149 instanceof chain): 11 of 25 line misses,
+  >   7 of 54 branch misses.
+  > - `core/command/script/ScriptManager.java` (Step 6): L83 / L88
+  >   uncovered (script-engine fallback factories for
+  >   "javascript"/"ecmascript" when `useGraal=false`).
+  > - `core/command/script/Jsr223ScriptExecutor.java` (Step 6):
+  >   L146 uncovered (`CommandScriptException` pass-through arm of
+  >   `executeFunction`'s catch chain).
+  > Step 8's recorded 89.7%/80.0% gate result was apparently
+  > measured against stale or partial JaCoCo data; a stash-and-rerun
+  > at the unmodified Step-8 HEAD reproduces the same 68.5%/23.4%
+  > numbers.
+  >
+  > **What changed from the plan:** `SerializationThreadLocal`
+  > scope tightened from partial-trim to full deletion (within
+  > the cluster's "DeadCode pin re-classification" pattern; not a
+  > new cluster; iter-1 escalation thresholds NOT triggered). Step
+  > 13's scope needs to expand to include regression tests for the
+  > 3 under-covered files above OR the orchestrator must accept
+  > the post-22b coverage gate regression and document it in
+  > `coverage-baseline.md` as the new baseline (the latter is
+  > inconsistent with the broader track goal of raising
+  > coverage). **Recommendation:** Pause-and-ADJUST at the next
+  > session — the user should choose whether Step 13 adds the
+  > regression tests, or whether a new Step 12.5 is inserted
+  > before license-header normalization, or whether the gate
+  > regression is accepted.
+  >
+  > **Pattern note for Steps 10, 11:** when a partial-trim touches
+  > a class with poor pre-existing coverage on surviving lines,
+  > Spotless reformat of nearby lines can pull those lines into
+  > the cumulative-vs-develop diff via the ratchet, exposing
+  > pre-existing under-coverage at the gate. Steps 10 and 11
+  > should run the gate after their commits to catch any similar
+  > exposure early.
+  >
+  > **Implementer commit:** `41c8203f9e` Delete SQL root scaffold cluster
   > **Risk:** medium — multi-class partial+full mix; partial-trim
   > preserves load-bearing static constants/maps consumed by live
   > production code. Full delete: `CommandExecutorSQLFactory`,
