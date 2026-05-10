@@ -115,6 +115,42 @@ ready to record — drop it or sharpen it.
 
 ---
 
+## Generality requirement for improvements
+
+Improvements (Feature-type proposals — missing rule, missing recipe,
+missing automation, or any other gap-fill) must be **generally
+applicable**: the proposed fix should help a recurring class of
+situations across different ADRs, tracks, or phases — not a single
+narrow use case from this session. Drop a candidate whose only
+justification reads "this would have helped on the one step I just
+did".
+
+Problems (Bug-type proposals — workflow producing wrong outputs,
+silent failures, blocked sessions) are exempt from this rule. A bug
+that bites once is still a bug worth fixing, because the next session
+hitting the same trigger will fail the same way. The asymmetry is
+deliberate: adding a new rule or recipe expands the workflow surface
+every future agent must read; fixing a broken rule does not.
+
+Quick tests for a Feature candidate before recording:
+
+- Would the proposed fix help on **at least 3** plausible future
+  sessions across different ADRs, tracks, or phases?
+- Is the trigger condition generic (any phase, any track, any
+  sub-agent) or specific to this ADR's domain (e.g., specific to one
+  refactor, one Maven module, or one sub-agent's prompt for one kind
+  of question)?
+- If the proposed fix is "add a recipe for X", is X a recurring
+  pattern across the workflow, or a one-off the agent rolled this
+  session?
+
+If any test fails, the friction is real but the fix is project- or
+ADR-shaped, not workflow-shaped — drop the candidate. Project-shaped
+findings can still be valuable; surface them to the user in the
+session's normal output, but do not file them under `dev-workflow`.
+
+---
+
 ## Per-session cap
 
 At most **3** issues per session. If reflection turns up more than
@@ -169,10 +205,12 @@ session. Say so explicitly to the user and end the session.
      "broken behaviour"; `Feature` if the friction is a missing
      rule, missing recipe, missing automation, or other enhancement
      filling a gap (see §Type guide).
-   - Severity (low/medium/high — see §Severity guide). Severity
-     lives in the body; do not set the YouTrack `Priority` field
-     unless the Step 8 preflight reports it as required for the
-     YTDB project — the triager calibrates priority during triage.
+   - Severity (low/medium/high — see §Severity guide). Severity is
+     rendered into the issue body for traceability **and** mapped to
+     the YouTrack `Priority` field at creation time. The agent sets
+     `Priority` on every issue from the severity mapping in
+     §Severity guide; the triager can re-calibrate later, but the
+     default is the agent's call.
    - Body draft (Symptom, Reproduction context, Why it's a problem,
      Proposed fix, Acceptance criteria — see §Issue body template)
 
@@ -257,13 +295,22 @@ session. Say so explicitly to the user and end the session.
      follow-up report (Step 9).
    - **Cover required fields beyond `Type`.** If the schema marks
      other custom fields as required at creation (e.g., `State`,
-     `Subsystem`, `Priority`), set each one to a safe default the
-     project documents — typically `State: Open` (or the equivalent
-     "new / unconfirmed" state the schema lists first), and leave
-     `Priority` unset only if it is **not** marked required. If a
+     `Subsystem`), set each one to a safe default the project
+     documents — typically `State: Open` (or the equivalent
+     "new / unconfirmed" state the schema lists first). If a
      required field has no value the agent can confidently pick,
      abort that candidate, surface the gap to the user in Step 9,
      and continue with the next.
+   - **Set `Priority` from severity.** Map the candidate's drafted
+     severity to the closest accepted value in the schema's
+     `Priority` enum using the table in §Severity guide. Set
+     `Priority` on every issue, regardless of whether the schema
+     marks it required — the triager re-calibrates as needed, but
+     the default is the agent's call. If the schema's `Priority`
+     enum is missing one of the canonical values, fall back to the
+     nearest accepted value and note the substitution in the
+     Step 9 follow-up report. If the schema does not expose a
+     `Priority` field at all, skip it and note that in Step 9.
    - **Cache the result for this session.** Do not re-fetch per
      candidate — the schema does not change mid-session.
 
@@ -280,10 +327,12 @@ session. Say so explicitly to the user and end the session.
       - `description`: the rendered Markdown body (see §Issue body
         template). The **Source: branch `<branch>`, commit `<SHA>`**
         line at the top of the body is mandatory.
-      - `customFields`: include the mapped `Type` value plus any
-        required fields the preflight identified (e.g.,
-        `{"Type": "Bug", "State": "Open"}`). Do **not** set
-        `Priority` unless the preflight marked it required.
+      - `customFields`: include the mapped `Type` value, the
+        mapped `Priority` value, plus any required fields the
+        preflight identified (e.g.,
+        `{"Type": "Bug", "Priority": "Major", "State": "Open"}`).
+        Omit `Priority` only when the schema does not expose that
+        field at all.
    2. Capture the returned issue id (e.g., `YTDB-1234`).
    3. Call `mcp__youtrack__manage_issue_tags` with:
       - `issueId`: the returned id
@@ -397,6 +446,13 @@ When in doubt: content describes "broken" → `Bug`; content describes
 in this project — `Feature` is the closest match and is used for all
 gap-fill work surfaced by reflection.
 
+`Feature` candidates must additionally satisfy the §Generality
+requirement for improvements — the proposed fix has to apply to a
+recurring class of situations across ADRs, tracks, or phases, not a
+single narrow use case from this session. Bug candidates are not
+gated on generality; a one-time silent failure is still worth
+filing.
+
 ---
 
 ## Severity guide
@@ -423,6 +479,25 @@ gap-fill work surfaced by reflection.
     with no episode), and the agent re-runs the step instead of
     routing to the recovery procedure.
 
+### Severity → YouTrack `Priority` mapping
+
+Set the YouTrack `Priority` custom field at creation time from the
+candidate's severity. Use the project's schema (fetched once in
+Step 8) to pick the closest accepted enum value:
+
+| Severity | Preferred `Priority`            | Fallback order if missing      |
+|----------|---------------------------------|--------------------------------|
+| `low`    | `Minor`                         | `Normal` → lowest non-trivial  |
+| `medium` | `Normal`                        | `Major` → `Minor`              |
+| `high`   | `Major`                         | `Critical` → `Show-stopper`    |
+
+Reserve `Critical` / `Show-stopper` for `high` findings that
+actively blocked the session and have no documented recovery path
+— most `high` findings still map to `Major`. If the schema exposes
+only a subset of these names, fall back to the nearest accepted
+value and note the substitution in the Step 9 follow-up report so
+the triager can verify it.
+
 ---
 
 ## What the agent must not do
@@ -444,10 +519,16 @@ gap-fill work surfaced by reflection.
   YouTrack MCP being unreachable — see §YouTrack MCP requirement.
 - **Do not** create issues in any project other than `YTDB`, or with
   any tag other than `dev-workflow`. The triager filters by both.
-- **Do not** set the YouTrack `Priority` custom field unless the
-  Step 8 preflight (`get_issue_fields_schema`) reports it as
-  required for the YTDB project — the triager calibrates it.
-  Severity lives in the body.
+- **Do not** omit the YouTrack `Priority` custom field when the
+  schema exposes it. Map the candidate's drafted severity to the
+  nearest accepted enum value (see §Severity → YouTrack `Priority`
+  mapping) and set it at creation. The triager can re-calibrate,
+  but the default priority is the agent's responsibility.
+- **Do not** record Feature-type proposals whose proposed fix
+  targets a single narrow use case. Improvements must be generally
+  applicable (see §Generality requirement for improvements). Bugs
+  are exempt — a problem is a problem regardless of how often it
+  bites.
 - **Do not** write local `workflow-issues/*.md` files or any other
   local issue buffer. The YouTrack sink is the only output channel;
   local files are intentionally gone.
