@@ -497,7 +497,7 @@ subset; the live subset stays covered by 22a's tests.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (6/14 complete)
+- [ ] Step implementation (7/14 complete)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -917,7 +917,8 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   >
   > **Implementer commit:** `01d03e5470`
 
-- [ ] Step 6: Delete Track-9 forwarded command-script cluster
+- [x] Step 6: Delete Track-9 forwarded command-script cluster (DatabaseScriptManager retained after PSI re-classification)
+  - [x] Context: safe
   > **Risk:** medium — override from HIGH-architecture category
   > (modifies SPI loading via `ClassLoaderHelper.lookupProviderWithYouTrackDBClassLoader`
   > removal). Justification: the SPI being unloaded
@@ -951,6 +952,82 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   > the exact consumer-trim sites). All `*DeadCodeTest.java` pins
   > (`CommandScriptDeadCodeTest` and any siblings) deleted in
   > lockstep.
+  >
+  > **What was done:** Deleted 8 production classes
+  > (`CommandExecutorScript`, `CommandScript`, `ScriptExecutorRegister`,
+  > `CommandExecutorUtility`, `ScriptDocumentDatabaseWrapper`,
+  > `ScriptYouTrackDbWrapper`, `ScriptInterceptor`, `ScriptInjection`)
+  > plus 4 lockstep test files (`CommandScriptDeadCodeTest`,
+  > `CommandExecutorUtilityTest`, `ScriptLegacyWrappersTest`,
+  > `SPIWiringSmokeTest`). Trimmed the live-side consumers in
+  > lockstep: `CommandManager` lost the class-based dispatch
+  > (`commandReqExecMap`, `configCallbacks`,
+  > `registerExecutor(Class,...)`, `unregisterExecutor`,
+  > `getExecutor`); `ScriptExecutor` /
+  > `AbstractScriptExecutor` / `Jsr223ScriptExecutor` /
+  > `PolyglotScriptExecutor` lost the `ScriptInterceptor`
+  > register/unregister/`preExecute` plumbing; `ScriptManager`
+  > lost the `injections` / `bind` / `bindLegacyDatabaseAndUtil`
+  > surface and the `ScriptExecutorRegister` lookup loop;
+  > `SqlScriptExecutor` and `Jsr223ScriptExecutor` had their
+  > `CommandExecutorUtility.transformResult` calls inlined to
+  > pass-throughs (the Nashorn branch was unreachable under default
+  > Graal config); `SQLScriptEngine.eval(Reader, Bindings)` body
+  > became an explicit `UnsupportedOperationException` because the
+  > JSR-223 contract requires the override to remain. Surviving
+  > test pins (`ScriptManagerTest`, `CommandManagerTest`,
+  > `Jsr223ScriptExecutorTest`, `SQLScriptEngineTest`,
+  > `SQLScriptEngineFactoryTest`, `CommandRequestAbstractTest`,
+  > `CommandRequestTextAbstractTest`) were partially trimmed to
+  > drop deleted-surface assertions and stale Javadoc. Tests pass
+  > (18 161/18 259, 98 skipped, 0 failures); coverage gate 100%/100%
+  > on changed lines; Spotless applied.
+  >
+  > **What was discovered:** `DatabaseScriptManager` was
+  > misclassified by Phase A as a "dead intra-cluster consumer".
+  > PSI `ReferencesSearch` shows `Jsr223ScriptExecutor.executeFunction`
+  > and `Jsr223ScriptExecutor.execute(Map)` both call
+  > `scriptManager.acquireDatabaseEngine(...)`, which routes through
+  > `DatabaseScriptManager.acquireEngine` on every JS-function
+  > dispatch. Non-JavaScript scripting languages (ruby, groovy,
+  > etc.) also fall through to `Jsr223ScriptExecutor` per
+  > `ScriptManager`'s constructor wiring. Deleting the class would
+  > silently break those paths. The class plus its
+  > `DatabaseScriptManagerTest` pin were therefore retained; only
+  > the stale `@see CommandScript` Javadoc tag on
+  > `DatabaseScriptManager` was removed. **Cross-track observation
+  > / pattern note:** the Phase A "dead intra-cluster consumer"
+  > pattern misfired here because `DatabaseScriptManager` is
+  > reached through a public `ScriptManager.acquireDatabaseEngine`
+  > API, not only through deleted-cluster code. Future cluster
+  > classifications should add a PSI reachability gate on every
+  > "intra-cluster consumer" candidate before deletion (enumerate
+  > the consumer's callers and confirm every caller is itself in
+  > the deletion set). Track 22b remaining steps (7–13) do not
+  > touch this surface, so no mid-track replan is required.
+  >
+  > **What changed from the plan:** `DatabaseScriptManager` was
+  > kept (Phase A classification was falsified by PSI). The
+  > matching `DatabaseScriptManagerTest` was retained as the live
+  > coverage source for the survivor. The step description's
+  > deletion list line that currently includes `DatabaseScriptManager`
+  > under the deletion set is now inaccurate; the actual deletion
+  > footprint is the 8 production classes + 4 test files listed
+  > above. No downstream-step impact (Steps 7–13 do not touch
+  > `core/command/script/` or `DatabaseScriptManager`).
+  >
+  > **Key files:**
+  > - 8 production deletions in `core/.../command/` and
+  >   `core/.../command/script/`
+  > - 4 test deletions
+  > - Live-side trims in `CommandManager`, `ScriptManager`,
+  >   `ScriptExecutor`, `AbstractScriptExecutor`,
+  >   `Jsr223ScriptExecutor`, `PolyglotScriptExecutor`,
+  >   `SqlScriptExecutor`, `SQLScriptEngine`,
+  >   `DatabaseScriptManager`
+  > - Survivor test trims for the partial-trim contract changes
+  >
+  > **Implementer commit:** `6cf727db8d`
 
 - [ ] Step 7: Delete Track-10 forwarded `core/query/live/` partial cluster
   > **Risk:** medium — partial-scope deletion across a package with
