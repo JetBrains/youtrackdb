@@ -2,8 +2,8 @@ package com.jetbrains.youtrackdb.internal.core.gremlin;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 
 import java.util.Arrays;
 import java.util.Iterator;
@@ -88,12 +88,8 @@ public class StreamUtilsTest {
     // drain without closing
     assertEquals(List.of("a"), stream.collect(Collectors.toList()));
 
-    try {
-      stream.close();
-      fail("Expected IllegalStateException");
-    } catch (IllegalStateException expected) {
-      assertEquals("boom", expected.getCause().getMessage());
-    }
+    var thrown = assertThrows(IllegalStateException.class, stream::close);
+    assertEquals("boom", thrown.getCause().getMessage());
   }
 
   /**

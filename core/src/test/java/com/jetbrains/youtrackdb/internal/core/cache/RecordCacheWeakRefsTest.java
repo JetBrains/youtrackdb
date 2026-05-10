@@ -163,43 +163,115 @@ public class RecordCacheWeakRefsTest extends DbTestBase {
   @Test
   public void unloadNotModifiedRecordsRunsTheNotDirtyBiConsumerOverEveryEntry()
       throws Exception {
-    // The not-modified consumer iterates the cache map via forEach and skips
-    // dirty records. We populate the cache with clean committed entities
-    // (post-commit they have a persistent identity but the cache reference
-    // holds them past the surrounding tx), then call unloadNotModifiedRecords
-    // outside any tx so the inherited dirty-tracking interference is moot.
+    // Production behaviour (RecordCacheWeakRefs#UNLOAD_NOT_MODIFIED_RECORDS_CONSUMER):
+    //   if (!record.isDirty()) record.unload();
+    // → dirty records are skipped, clean records transition to STATUS.NOT_LOADED.
+    //
+    // We pin the per-entry effect (not just the map size): one dirty entity, one clean
+    // entity, in the same cache. After the call:
+    //   - the dirty entity must remain LOADED (skipped by the consumer);
+    //   - the clean entity must be unloaded (consumer's record.unload() ran).
+    //
+    // RecordAbstract starts every newly-constructed record with dirty=1, and the dirty
+    // flag survives commit, so we control the dirty/clean split outside the tx via the
+    // unguarded RecordAbstract#unsetDirty() helper. unloadNotModifiedRecords() runs
+    // outside the tx so the consumer's record.unload() does not interfere with active
+    // tx record-tracking.
     var cache = new RecordCacheWeakRefs();
     var entities = session.computeInTx(tx -> {
       var first = newEntityInTx();
       var second = newEntityInTx();
       return new EntityImpl[] {first, second};
     });
-    // Outside the tx now — both entities are persistent, neither is dirty.
-    cache.put(entities[0]);
-    cache.put(entities[1]);
+    var dirtyEntity = entities[0];
+    var cleanEntity = entities[1];
+    // Force one entity into the dirty state by setting the public {@code dirty} field
+    // directly, avoiding the session-bound checkForBinding() path on setDirty(long).
+    // After commit, entities are LOADED but no longer bound to the active session, so
+    // the protected accessors throw — but the field itself is publicly visible.
+    dirtyEntity.dirty = 1L;
+    // Also force the LOADED status — checkForBinding() (called inside isUnloaded()'s
+    // documented contract via record.unload()) treats NOT_LOADED + valid RID as an
+    // unbound-session error; we sidestep that by explicitly setting LOADED here.
+    forceStatusLoaded(dirtyEntity);
+    forceStatusLoaded(cleanEntity);
+
+    cache.put(dirtyEntity);
+    cache.put(cleanEntity);
+
+    // Preconditions: the dirty/clean split is what the consumer's branches predicate on.
+    assertTrue("precondition: dirtyEntity must be dirty before the call",
+        dirtyEntity.isDirty());
+    assertFalse("precondition: cleanEntity must not be dirty before the call",
+        cleanEntity.isDirty());
+    assertFalse("precondition: dirtyEntity must be loaded before the call",
+        dirtyEntity.isUnloaded());
+    assertFalse("precondition: cleanEntity must be loaded before the call",
+        cleanEntity.isUnloaded());
+
     cache.unloadNotModifiedRecords();
-    // forEach iterates without removing: both put entries remain. A regression
-    // where unloadNotModifiedRecords started removing entries fails here.
+
+    // Per-entry effect: clean entity unloaded; dirty entity still loaded (skipped).
+    // A regression that no-ops the per-entry effect (e.g., consumer becomes
+    // (rid, record) -> {}) leaves cleanEntity.isUnloaded()==false and fails this test.
+    assertFalse("dirty entity must NOT be unloaded — consumer must skip it",
+        dirtyEntity.isUnloaded());
+    assertTrue("clean entity must be unloaded — consumer's unload() must have run",
+        cleanEntity.isUnloaded());
+    // The forEach iteration does not remove map entries: both put entries remain.
+    // A regression where unloadNotModifiedRecords started removing entries fails here.
     assertEquals("backing map keeps both entries through unloadNotModifiedRecords",
         2, backingMapSize(cache));
   }
 
   @Test
   public void unloadRecordsForcesUnsetDirtyAndUnloadOnEveryEntry() throws Exception {
-    // The force consumer calls unsetDirty then unload on every record. We use
-    // committed entities outside a tx so the unload doesn't conflict with an
-    // active tx's record-tracking and the call exercises both biconsumer steps.
+    // Production behaviour (RecordCacheWeakRefs#UNLOAD_RECORDS_CONSUMER):
+    //   record.unsetDirty(); record.unload();
+    // → unconditional per-entry effect: every record transitions to NOT_LOADED and
+    // its dirty counter is cleared. We pin BOTH steps using two entities, one of which
+    // starts dirty (so we can verify unsetDirty fired and unload happened).
+    //
+    // Note: RecordAbstract#unload() itself calls unsetDirty(). The test still pins the
+    // per-entry effect because a regression that no-ops the consumer (e.g., becomes
+    // (rid, record) -> {}) leaves dirtyEntity.isDirty()==true AND isUnloaded()==false.
     var cache = new RecordCacheWeakRefs();
     var entities = session.computeInTx(tx -> {
       var first = newEntityInTx();
       var second = newEntityInTx();
       return new EntityImpl[] {first, second};
     });
-    cache.put(entities[0]);
-    cache.put(entities[1]);
+    var dirtyEntity = entities[0];
+    var cleanEntity = entities[1];
+    // Force one entity into the dirty state by setting the public {@code dirty} field
+    // directly (post-commit entities are not session-bound, so setDirty(long) would
+    // throw via checkForBinding). The other stays at its post-commit clean state.
+    dirtyEntity.dirty = 1L;
+    forceStatusLoaded(dirtyEntity);
+    forceStatusLoaded(cleanEntity);
+
+    cache.put(dirtyEntity);
+    cache.put(cleanEntity);
+
+    // Preconditions.
+    assertTrue("precondition: dirtyEntity must be dirty before the call",
+        dirtyEntity.isDirty());
+    assertFalse("precondition: dirtyEntity must be loaded before the call",
+        dirtyEntity.isUnloaded());
+    assertFalse("precondition: cleanEntity must be loaded before the call",
+        cleanEntity.isUnloaded());
+
     cache.unloadRecords();
-    // forEach iterates without removing: both put entries remain. A regression
-    // where unloadRecords started removing entries fails here.
+
+    // Per-entry effect on every record — both unsetDirty AND unload must have run.
+    assertFalse("dirtyEntity.isDirty() must be false after unsetDirty()",
+        dirtyEntity.isDirty());
+    assertTrue("dirtyEntity.isUnloaded() must be true after unload()",
+        dirtyEntity.isUnloaded());
+    assertTrue("cleanEntity.isUnloaded() must be true after unload()",
+        cleanEntity.isUnloaded());
+    // The forEach iteration does not remove map entries: both put entries remain.
+    // A regression where unloadRecords started removing entries fails here.
     assertEquals("backing map keeps both entries through unloadRecords",
         2, backingMapSize(cache));
   }
@@ -290,5 +362,24 @@ public class RecordCacheWeakRefsTest extends DbTestBase {
 
   private static int backingMapSize(RecordCacheWeakRefs cache) throws Exception {
     return ((java.util.Map<?, ?>) backingMap(cache)).size();
+  }
+
+  /**
+   * Force the entity's STATUS to LOADED via reflection on the protected {@code status} field on
+   * {@link com.jetbrains.youtrackdb.internal.core.record.RecordAbstract}. Required after a tx
+   * commit because committed entities may transition to NOT_LOADED, which would cause the
+   * production unload() path's checkForBinding() to throw "not bound to current session" — that
+   * is unrelated to the BiConsumer per-entry effect this test is pinning, so we sidestep it by
+   * pretending the entity is still loaded. The STATUS enum lives on
+   * {@link com.jetbrains.youtrackdb.internal.core.db.record.RecordElement}.
+   */
+  private static void forceStatusLoaded(EntityImpl entity) throws Exception {
+    Class<?> recordAbstractClass =
+        com.jetbrains.youtrackdb.internal.core.record.RecordAbstract.class;
+    Field statusField = recordAbstractClass.getDeclaredField("status");
+    statusField.setAccessible(true);
+    statusField.set(
+        entity,
+        com.jetbrains.youtrackdb.internal.core.db.record.RecordElement.STATUS.LOADED);
   }
 }

@@ -13,8 +13,11 @@
  */
 package com.jetbrains.youtrackdb.internal.core.servlet;
 
+import static org.junit.Assert.assertSame;
+
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
+import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import javax.servlet.ServletContextEvent;
 import org.junit.After;
 import org.junit.Before;
@@ -76,8 +79,19 @@ public class ServletContextLifeCycleListenerTest {
   @Test
   public void contextInitializedIsNoOpWhenFlagIsFalse() {
     var listener = new ServletContextLifeCycleListener();
+    // Capture the engines-manager singleton before the call. The guarded contextInitialized must
+    // not call YouTrackDBEnginesManager.startUp(true) when the flag is false; pinning the same
+    // instance reference before and after (using identity, including null==null) catches a
+    // regression that drops the guard or inverts the boolean — startUp(true) installs a NEW
+    // singleton, so the post-call reference would differ.
+    YouTrackDBEnginesManager before = YouTrackDBEnginesManager.instance();
     // The guard short-circuits before any reference to the event arg, so passing null is safe.
     listener.contextInitialized(null);
+    YouTrackDBEnginesManager after = YouTrackDBEnginesManager.instance();
+    assertSame(
+        "no-op false-branch must not allocate a new YouTrackDBEnginesManager singleton",
+        before,
+        after);
   }
 
   /**
@@ -89,6 +103,16 @@ public class ServletContextLifeCycleListenerTest {
   @Test
   public void contextDestroyedIsNoOpWhenFlagIsFalse() {
     var listener = new ServletContextLifeCycleListener();
+    // Capture the engines-manager singleton before the call. With the flag false, contextDestroyed
+    // must NOT touch the engines manager (it would otherwise call shutdown() and null-out the
+    // singleton). Pinning identity equality across the call catches a regression that drops the
+    // guard.
+    YouTrackDBEnginesManager before = YouTrackDBEnginesManager.instance();
     listener.contextDestroyed(null);
+    YouTrackDBEnginesManager after = YouTrackDBEnginesManager.instance();
+    assertSame(
+        "no-op false-branch must not shut down or replace the YouTrackDBEnginesManager singleton",
+        before,
+        after);
   }
 }

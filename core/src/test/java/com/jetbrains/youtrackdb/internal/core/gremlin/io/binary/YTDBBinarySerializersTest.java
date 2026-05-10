@@ -4,8 +4,8 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBVertexPropertyId;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
@@ -179,13 +179,12 @@ public class YTDBBinarySerializersTest {
     // type-info = 1 (would mean "extra info present"); reader should reject.
     buffer.writeInt(1);
 
-    try {
-      serializer.read(buffer, new GraphBinaryReader());
-      fail("Expected SerializationException for non-zero custom_type_info prefix");
-    } catch (IOException e) {
-      assertTrue(e instanceof SerializationException);
-      assertTrue(e.getMessage().contains("custom_type_info"));
-    }
+    var thrown = assertThrows(
+        IOException.class, () -> serializer.read(buffer, new GraphBinaryReader()));
+    assertTrue(thrown instanceof SerializationException);
+    assertTrue(
+        "expected message to mention custom_type_info but was: " + thrown.getMessage(),
+        thrown.getMessage().contains("custom_type_info"));
   }
 
   /**
@@ -203,13 +202,12 @@ public class YTDBBinarySerializersTest {
     buffer.writeInt(0); // type-info: ok
     buffer.writeInt(0); // value length: invalid (must be > 0)
 
-    try {
-      serializer.read(buffer, new GraphBinaryReader());
-      fail("Expected SerializationException for non-positive value length");
-    } catch (IOException e) {
-      assertTrue(e instanceof SerializationException);
-      assertTrue(e.getMessage().contains("value length"));
-    }
+    var thrown = assertThrows(
+        IOException.class, () -> serializer.read(buffer, new GraphBinaryReader()));
+    assertTrue(thrown instanceof SerializationException);
+    assertTrue(
+        "expected message to mention value length but was: " + thrown.getMessage(),
+        thrown.getMessage().contains("value length"));
   }
 
   /**
@@ -225,13 +223,12 @@ public class YTDBBinarySerializersTest {
     buffer.writeInt(0); // type-info: ok
     buffer.writeInt(1024); // declared value length larger than buffer's remaining content
 
-    try {
-      serializer.read(buffer, new GraphBinaryReader());
-      fail("Expected SerializationException for value length > readable bytes");
-    } catch (IOException e) {
-      assertTrue(e instanceof SerializationException);
-      assertTrue(e.getMessage().contains("readable bytes"));
-    }
+    var thrown = assertThrows(
+        IOException.class, () -> serializer.read(buffer, new GraphBinaryReader()));
+    assertTrue(thrown instanceof SerializationException);
+    assertTrue(
+        "expected message to mention readable bytes but was: " + thrown.getMessage(),
+        thrown.getMessage().contains("readable bytes"));
   }
 
   /**
@@ -244,12 +241,12 @@ public class YTDBBinarySerializersTest {
     var serializer = new YTDBRecordIdBinarySerializer();
     var buffer = fresh();
 
-    try {
-      serializer.write(null, buffer, new GraphBinaryWriter());
-      fail("Expected SerializationException for null on non-nullable serializer");
-    } catch (SerializationException expected) {
-      assertTrue(expected.getMessage().contains("nullable"));
-    }
+    var thrown = assertThrows(
+        SerializationException.class,
+        () -> serializer.write(null, buffer, new GraphBinaryWriter()));
+    assertTrue(
+        "expected message to mention nullable but was: " + thrown.getMessage(),
+        thrown.getMessage().contains("nullable"));
   }
 
   /**

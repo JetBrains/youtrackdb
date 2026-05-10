@@ -89,8 +89,9 @@ public class EngineMemoryTest {
   public void createStorageReturnsDirectMemoryStorage() {
     var engine = new EngineMemory();
     engine.startup();
+    com.jetbrains.youtrackdb.internal.core.storage.Storage storage = null;
     try {
-      var storage =
+      storage =
           engine.createStorage(
               "engineMemoryTestDb-" + java.util.UUID.randomUUID(),
               125 * 1024 * 1024,
@@ -101,6 +102,19 @@ public class EngineMemoryTest {
       // The storage's name is set from the URL.
       assertThat(storage.getName()).startsWith("engineMemoryTestDb-");
     } finally {
+      // Release the direct-memory storage's allocations BEFORE shutting the engine down. The
+      // engine.shutdown() path does not own this storage instance (createStorage returned it to
+      // us), so without an explicit storage.shutdown() the direct memory pages would leak until
+      // JVM exit. Wrap in its own try/catch so a cleanup failure does not mask the test's main
+      // assertion.
+      if (storage != null) {
+        try {
+          storage.shutdown();
+        } catch (RuntimeException cleanupFailure) {
+          // Ignored — primary assertion already passed/failed; log and continue.
+          cleanupFailure.printStackTrace();
+        }
+      }
       engine.shutdown();
     }
   }

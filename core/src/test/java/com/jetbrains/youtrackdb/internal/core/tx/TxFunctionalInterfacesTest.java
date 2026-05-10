@@ -163,6 +163,10 @@ public class TxFunctionalInterfacesTest extends DbTestBase {
     var elements = List.of("p", "q", "r");
     var visits = new java.util.ArrayList<String>();
     session.forEachInTx(elements.iterator(), (tx, element) -> {
+      // WHEN-FIXED: deferred-cleanup track (forEachInTx tx-staleness — production captures the
+      // tx reference once before the loop; second-and-later invocations see the already-committed
+      // instance). Once the production fix lands, replace the assertNotNull below with
+      // Assert.assertTrue("tx must be active for current iteration", tx.isActive()).
       Assert.assertNotNull(tx);
       visits.add(element);
     });

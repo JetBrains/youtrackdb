@@ -4,8 +4,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMetricsListener;
 import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMonitoringMode;
@@ -58,12 +58,7 @@ public class YTDBTransactionCoverageTest extends GraphBaseTest {
   @Test
   public void onReadWriteRejectsNull() {
     var tx = ytdbTx();
-    try {
-      tx.onReadWrite(null);
-      fail("Expected rejection of null read-write consumer");
-    } catch (IllegalArgumentException expected) {
-      // ok
-    }
+    assertThrows(IllegalArgumentException.class, () -> tx.onReadWrite(null));
   }
 
   /** {@code onClose} returns {@code this}. */
@@ -79,12 +74,7 @@ public class YTDBTransactionCoverageTest extends GraphBaseTest {
   @Test
   public void onCloseRejectsNull() {
     var tx = ytdbTx();
-    try {
-      tx.onClose(null);
-      fail("Expected rejection of null close consumer");
-    } catch (IllegalArgumentException expected) {
-      // ok
-    }
+    assertThrows(IllegalArgumentException.class, () -> tx.onClose(null));
   }
 
   /**
@@ -248,12 +238,10 @@ public class YTDBTransactionCoverageTest extends GraphBaseTest {
   @Test
   public void getDatabaseSessionOnClosedTxThrows() {
     var tx = ytdbTx();
-    try {
-      tx.getDatabaseSession();
-      fail("Expected IllegalStateException for getDatabaseSession on closed tx");
-    } catch (IllegalStateException expected) {
-      assertTrue(expected.getMessage().contains("not active"));
-    }
+    var thrown = assertThrows(IllegalStateException.class, tx::getDatabaseSession);
+    assertTrue(
+        "expected message to mention 'not active' but was: " + thrown.getMessage(),
+        thrown.getMessage().contains("not active"));
   }
 
   /**
@@ -272,11 +260,6 @@ public class YTDBTransactionCoverageTest extends GraphBaseTest {
    * test-utility import from elsewhere (kept local).
    */
   private static void assertThrowsNpe(Runnable thunk) {
-    try {
-      thunk.run();
-      fail("Expected NullPointerException");
-    } catch (NullPointerException expected) {
-      // ok
-    }
+    assertThrows(NullPointerException.class, thunk::run);
   }
 }

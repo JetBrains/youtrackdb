@@ -886,11 +886,14 @@ public class EntityImplTest extends DbTestBase {
    */
   @Test
   public void testStorageCoupledLazyPathsAreOutOfScopeForwardedToPageFrameSuite() {
-    // Forwarding pin — see the page-frame test suite (linked via the deferred-cleanup queue). The PageFrame integration test stays
-    // authoritative for storage-coupled lazy paths; we only assert it still exists.
-    Class<?> pageFrameTest;
+    // Forwarding pin — see the page-frame test suite (linked via the deferred-cleanup queue). The
+    // PageFrame integration test stays authoritative for storage-coupled lazy paths; we only
+    // assert it still exists. The Class.forName(FQN) call below pins the rename: if the class is
+    // renamed or moved without updating this string, ClassNotFoundException is caught and fail()
+    // surfaces the discrepancy. (We do NOT assert getName() equals the FQN — that would be
+    // tautological since Class.forName(X) always returns a class whose getName() is X per JLS.)
     try {
-      pageFrameTest = Class.forName(
+      Class.forName(
           "com.jetbrains.youtrackdb.internal.core.record.impl.EntityImplPageFrameTest");
     } catch (ClassNotFoundException e) {
       // If the storage-coupled test was renamed or moved, surface the rename loudly so this
@@ -898,13 +901,7 @@ public class EntityImplTest extends DbTestBase {
       fail(
           "EntityImplPageFrameTest was expected to exist as the storage-coupled lazy-path "
               + "reference but was not found: " + e.getMessage());
-      return;
     }
-    // The successful Class.forName already pins existence; pin the canonical FQN so a
-    // package move surfaces here too rather than silently passing.
-    assertEquals(
-        "com.jetbrains.youtrackdb.internal.core.record.impl.EntityImplPageFrameTest",
-        pageFrameTest.getName());
   }
 
 }

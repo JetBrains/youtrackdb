@@ -111,7 +111,13 @@ public class EngineLocalPaginatedTest {
   }
 
   /**
-   * {@code changeCacheSize} on a started engine forwards to {@code ReadCache.
+   * <b>COVERAGE-ONLY:</b> this test verifies the no-throw contract on {@code changeCacheSize}
+   * against a started engine; the resulting cache capacity is not directly observable through
+   * public API. A regression that silently no-ops the resize is not detected here. WHEN-FIXED:
+   * deferred-cleanup track — once {@code ReadCache} exposes a public size getter (or a probe
+   * helper is added), upgrade this test to assert the post-call capacity.
+   *
+   * <p>{@code changeCacheSize} on a started engine forwards to {@code ReadCache.
    * changeMaximumAmountOfMemory}. We don't assert the resulting size (it's an internal calculation
    * involving {@code GlobalConfiguration.DISK_WRITE_CACHE_PART}); we only verify that the call
    * does not throw.

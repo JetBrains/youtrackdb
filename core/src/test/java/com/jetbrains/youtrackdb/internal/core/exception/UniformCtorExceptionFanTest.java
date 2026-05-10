@@ -20,6 +20,8 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.EnumSet;
+import org.junit.Assume;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
@@ -61,76 +63,131 @@ import org.junit.runners.Parameterized.Parameters;
  * directly) so a future refactor that re-parents an exception breaks loudly instead of silently
  * cascading through unrelated catch sites.
  *
+ * <p>The fourth column — {@code declaredCtors} — names the ctor shapes that each row's leaf
+ * class explicitly declares, drawn from {@link Shape}. The per-shape tests use this set to
+ * decide whether to exercise the shape (by calling {@code getConstructor(...)}, which raises
+ * {@link NoSuchMethodException} loudly if the row's class no longer declares that ctor) or to
+ * skip via {@link Assume#assumeTrue}. Without the set, a row that loses an expected ctor would
+ * silently no-op the test instead of failing — exactly the regression mode finding TB-2 flagged.
+ *
  * <p>Pure unit-level — no {@code DbTestBase} required. Standalone parameterized run.
  */
 @RunWith(Parameterized.class)
 public class UniformCtorExceptionFanTest {
 
-  // Each row: (label, exception class, expected ancestor in the exception hierarchy).
+  /**
+   * Names the constructor shapes covered by the parameterized fan. Each row's
+   * {@code declaredCtors} EnumSet enumerates which shapes its class actually declares; per-shape
+   * tests skip rows that don't declare the shape and exercise (and fail loudly) rows that do.
+   */
+  private enum Shape {
+    /** {@code (String message)}. */
+    MESSAGE,
+    /** {@code (String dbName, String message)}. */
+    DBNAME_MESSAGE,
+    /** {@code (DatabaseSessionEmbedded session, String message)}. */
+    SESSION_MESSAGE,
+    /** {@code (LeafType exception)} — copy ctor used by remote-protocol deserialisation. */
+    COPY
+  }
+
+  // Each row: (label, exception class, expected ancestor in the exception hierarchy,
+  // EnumSet<Shape> of ctor shapes the leaf class declares).
   @Parameters(name = "{0}")
   public static Collection<Object[]> data() {
     return Arrays.asList(
         new Object[][] {
             // -- (String dbName, String message) + copy + maybe (String message) + maybe session --
-            {"AcquireTimeoutException", AcquireTimeoutException.class, BaseException.class},
-            {"BackupInProgressException", BackupInProgressException.class, BaseException.class},
+            {"AcquireTimeoutException", AcquireTimeoutException.class, BaseException.class,
+                EnumSet.of(Shape.MESSAGE, Shape.COPY)},
+            {"BackupInProgressException", BackupInProgressException.class, BaseException.class,
+                EnumSet.of(Shape.DBNAME_MESSAGE, Shape.COPY)},
             {
                 "CollectionDoesNotExistException",
                 CollectionDoesNotExistException.class,
-                BaseException.class
+                BaseException.class,
+                EnumSet.of(Shape.DBNAME_MESSAGE, Shape.COPY)
             },
-            {"CommandExecutionException", CommandExecutionException.class, BaseException.class},
-            {"CommandInterruptedException", CommandInterruptedException.class, BaseException.class},
+            {"CommandExecutionException", CommandExecutionException.class, BaseException.class,
+                EnumSet.allOf(Shape.class)},
+            {"CommandInterruptedException", CommandInterruptedException.class, BaseException.class,
+                EnumSet.of(Shape.DBNAME_MESSAGE, Shape.SESSION_MESSAGE, Shape.COPY)},
             {"CommitSerializationException",
-                CommitSerializationException.class, BaseException.class},
+                CommitSerializationException.class, BaseException.class,
+                EnumSet.of(Shape.DBNAME_MESSAGE, Shape.COPY)},
             // CommonStorageComponentException has bespoke (message, componentName, dbName) ctor
             // — covered separately in CommonStorageComponentExceptionTest.
-            {"ConfigurationException", ConfigurationException.class, BaseException.class},
-            {"DatabaseException", DatabaseException.class, BaseException.class},
+            {"ConfigurationException", ConfigurationException.class, BaseException.class,
+                EnumSet.allOf(Shape.class)},
+            {"DatabaseException", DatabaseException.class, BaseException.class,
+                EnumSet.allOf(Shape.class)},
             {"EncryptionKeyAbsentException",
-                EncryptionKeyAbsentException.class, BaseException.class},
-            {"FetchException", FetchException.class, BaseException.class},
+                EncryptionKeyAbsentException.class, BaseException.class,
+                EnumSet.of(Shape.DBNAME_MESSAGE, Shape.COPY)},
+            {"FetchException", FetchException.class, BaseException.class,
+                EnumSet.of(Shape.DBNAME_MESSAGE, Shape.COPY)},
             {"InvalidDatabaseNameException",
-                InvalidDatabaseNameException.class, BaseException.class},
-            {"InvalidInstanceIdException", InvalidInstanceIdException.class, BaseException.class},
+                InvalidDatabaseNameException.class, BaseException.class,
+                EnumSet.of(Shape.MESSAGE, Shape.COPY)},
+            {"InvalidInstanceIdException", InvalidInstanceIdException.class, BaseException.class,
+                EnumSet.of(Shape.DBNAME_MESSAGE)},
             {
                 "InvalidStorageEncryptionKeyException",
                 InvalidStorageEncryptionKeyException.class,
-                BaseException.class
+                BaseException.class,
+                EnumSet.of(Shape.MESSAGE, Shape.DBNAME_MESSAGE, Shape.COPY)
             },
             {
                 "ModificationOperationProhibitedException",
                 ModificationOperationProhibitedException.class,
-                BaseException.class
+                BaseException.class,
+                EnumSet.of(Shape.DBNAME_MESSAGE, Shape.COPY)
             },
-            {"NoTxRecordReadException", NoTxRecordReadException.class, BaseException.class},
-            {"SchemaException", SchemaException.class, BaseException.class},
-            {"SchemaNotCreatedException", SchemaNotCreatedException.class, BaseException.class},
-            {"SecurityAccessException", SecurityAccessException.class, BaseException.class},
-            {"SecurityException", SecurityException.class, BaseException.class},
-            {"SequenceException", SequenceException.class, BaseException.class},
+            {"NoTxRecordReadException", NoTxRecordReadException.class, BaseException.class,
+                EnumSet.of(Shape.MESSAGE, Shape.DBNAME_MESSAGE, Shape.COPY)},
+            {"SchemaException", SchemaException.class, BaseException.class,
+                EnumSet.allOf(Shape.class)},
+            {"SchemaNotCreatedException", SchemaNotCreatedException.class, BaseException.class,
+                EnumSet.of(Shape.DBNAME_MESSAGE, Shape.COPY)},
+            {"SecurityAccessException", SecurityAccessException.class, BaseException.class,
+                EnumSet.of(Shape.MESSAGE, Shape.DBNAME_MESSAGE, Shape.COPY)},
+            {"SecurityException", SecurityException.class, BaseException.class,
+                EnumSet.allOf(Shape.class)},
+            {"SequenceException", SequenceException.class, BaseException.class,
+                EnumSet.of(Shape.MESSAGE, Shape.DBNAME_MESSAGE, Shape.COPY)},
             {"SequenceLimitReachedException",
-                SequenceLimitReachedException.class, BaseException.class},
-            {"SerializationException", SerializationException.class, BaseException.class},
+                SequenceLimitReachedException.class, BaseException.class,
+                EnumSet.of(Shape.MESSAGE)},
+            {"SerializationException", SerializationException.class, BaseException.class,
+                EnumSet.allOf(Shape.class)},
             {"StorageDoesNotExistException",
-                StorageDoesNotExistException.class, BaseException.class},
-            {"StorageException", StorageException.class, BaseException.class},
-            {"StorageExistsException", StorageExistsException.class, BaseException.class},
-            {"TransactionBlockedException", TransactionBlockedException.class, BaseException.class},
-            {"TransactionException", TransactionException.class, BaseException.class},
-            {"ValidationException", ValidationException.class, BaseException.class},
-            {"WriteCacheException", WriteCacheException.class, BaseException.class},
+                StorageDoesNotExistException.class, BaseException.class,
+                EnumSet.of(Shape.DBNAME_MESSAGE, Shape.COPY)},
+            {"StorageException", StorageException.class, BaseException.class,
+                EnumSet.of(Shape.DBNAME_MESSAGE, Shape.COPY)},
+            {"StorageExistsException", StorageExistsException.class, BaseException.class,
+                EnumSet.of(Shape.DBNAME_MESSAGE, Shape.COPY)},
+            {"TransactionBlockedException", TransactionBlockedException.class, BaseException.class,
+                EnumSet.of(Shape.MESSAGE, Shape.DBNAME_MESSAGE, Shape.COPY)},
+            {"TransactionException", TransactionException.class, BaseException.class,
+                EnumSet.allOf(Shape.class)},
+            {"ValidationException", ValidationException.class, BaseException.class,
+                EnumSet.of(Shape.DBNAME_MESSAGE, Shape.SESSION_MESSAGE, Shape.COPY)},
+            {"WriteCacheException", WriteCacheException.class, BaseException.class,
+                EnumSet.of(Shape.MESSAGE, Shape.DBNAME_MESSAGE, Shape.COPY)},
             // -- Standalone "throws Exception" leaf (does not extend BaseException) --
             {
                 "InvalidIndexEngineIdException",
                 InvalidIndexEngineIdException.class,
-                Exception.class
+                Exception.class,
+                EnumSet.of(Shape.MESSAGE)
             },
             // QueryParsingException extends CommandSQLParsingException; the bucket-a path covers
             // its (String message), (String dbName, String message), and copy ctors. The extended
             // (String dbName, String iMessage, String iText, int iLine, int iColumn) ctor is
             // exercised by the bespoke CommandSQLParsingException test alongside its parent.
-            {"QueryParsingException", QueryParsingException.class, BaseException.class},
+            {"QueryParsingException", QueryParsingException.class, BaseException.class,
+                EnumSet.of(Shape.MESSAGE, Shape.DBNAME_MESSAGE, Shape.COPY)},
         // SessionNotActivatedException — bespoke (String dbName) ctor, NOT (String message);
         //   covered by SessionNotActivatedExceptionTest.
         // TooBigIndexKeyException — bespoke (dbName, message, componentName) ctor; covered
@@ -150,6 +207,9 @@ public class UniformCtorExceptionFanTest {
   @Parameter(2)
   public Class<?> expectedAncestor;
 
+  @Parameter(3)
+  public EnumSet<Shape> declaredCtors;
+
   /**
    * Each row's exception class must extend the documented ancestor — typically {@link
    * BaseException}, except {@link InvalidIndexEngineIdException} which extends {@link Exception}
@@ -165,34 +225,38 @@ public class UniformCtorExceptionFanTest {
   /**
    * The copy ctor — {@code (X exception)} where {@code X} is the leaf class — is part of the
    * documented "remote client deserialisation" shape on {@link BaseException}. Every bucket-(a)
-   * leaf must declare one (or inherit it through {@link BaseException}'s constructor).
-   * Round-trips both message and dbName. Skipped for {@link Exception}-derived leaves because
-   * they have no canonical copy ctor in this hierarchy.
+   * leaf flagged as declaring {@link Shape#COPY} must declare one. Round-trips both message and
+   * dbName. Skipped for {@link Exception}-derived leaves because they have no canonical copy ctor
+   * in this hierarchy and skipped for any row whose {@code declaredCtors} omits {@code COPY}.
+   *
+   * <p>If a row's class is later refactored to drop the COPY ctor, update the row's
+   * {@code declaredCtors} EnumSet in lockstep — otherwise the {@code getConstructor} call below
+   * raises {@link NoSuchMethodException} and fails this test loudly (the contract this finding
+   * was added to enforce).
    */
   @Test
   public void copyConstructorPreservesMessageAndDbNameWhenAvailable() throws Exception {
+    Assume.assumeTrue(
+        "row " + label + " does not declare COPY ctor — skipped by design",
+        declaredCtors.contains(Shape.COPY));
     if (!BaseException.class.isAssignableFrom(exceptionClass)) {
       return;
     }
-    Constructor<?> copy;
-    try {
-      copy = exceptionClass.getConstructor(exceptionClass);
-    } catch (NoSuchMethodException e) {
-      // BaseException superclass copy ctor is sufficient for some leaves — not every leaf has
-      // its own. The presence-check above already covered this case.
-      return;
-    }
+    // declaredCtors says this row HAS a COPY ctor; if the class no longer declares it, the
+    // getConstructor below raises NoSuchMethodException and the test fails loudly — this is the
+    // regression-detection contract.
+    Constructor<?> copy = exceptionClass.getConstructor(exceptionClass);
 
     // Try first to build the source via the (String dbName, String message) ctor so the dbName
     // is non-null. If that ctor doesn't exist, fall back to the message-only path — in which
     // case dbName remains null and we only assert message round-trip.
     Throwable original;
     boolean dbNameSet;
-    try {
+    if (declaredCtors.contains(Shape.DBNAME_MESSAGE)) {
       var ctor = exceptionClass.getConstructor(String.class, String.class);
       original = (Throwable) ctor.newInstance("originalDb", "original-msg");
       dbNameSet = true;
-    } catch (NoSuchMethodException e) {
+    } else {
       original = newInstanceWithMessageAndDbName(exceptionClass, "originalDb", "original-msg");
       dbNameSet = false;
     }
@@ -210,33 +274,32 @@ public class UniformCtorExceptionFanTest {
    * The {@code (String message)} ctor — when declared — must round-trip the message via {@link
    * Throwable#getMessage()}. {@link CoreException} subclasses decorate the message with {@code
    * dbName} / {@code componentName} / {@code errorCode}; for those we assert message
-   * containment rather than equality.
+   * containment rather than equality. Rows whose {@code declaredCtors} omits {@link Shape#MESSAGE}
+   * are skipped via {@link Assume}. Rows that declare the shape and lose it later see
+   * {@link NoSuchMethodException} surface from {@code getConstructor} and fail loudly.
    */
   @Test
   public void messageOnlyConstructorRoundTripsMessageWhenAvailable() throws Exception {
-    Constructor<?> ctor;
-    try {
-      ctor = exceptionClass.getConstructor(String.class);
-    } catch (NoSuchMethodException e) {
-      // Bucket (a) leaves with only (String dbName, String message) — skip.
-      return;
-    }
+    Assume.assumeTrue(
+        "row " + label + " does not declare MESSAGE ctor — skipped by design",
+        declaredCtors.contains(Shape.MESSAGE));
+    Constructor<?> ctor = exceptionClass.getConstructor(String.class);
     var inst = (Throwable) ctor.newInstance("uniqueMessage-" + label);
     assertThat(inst.getMessage()).contains("uniqueMessage-" + label);
   }
 
   /**
    * The {@code (String dbName, String message)} ctor — when declared — must round-trip both the
-   * message and the dbName.
+   * message and the dbName. Rows whose {@code declaredCtors} omits {@link Shape#DBNAME_MESSAGE}
+   * are skipped; rows that declare the shape and lose it later fail via the
+   * {@link NoSuchMethodException} that {@code getConstructor} raises.
    */
   @Test
   public void dbNameAndMessageConstructorRoundTripsBothFieldsWhenAvailable() throws Exception {
-    Constructor<?> ctor;
-    try {
-      ctor = exceptionClass.getConstructor(String.class, String.class);
-    } catch (NoSuchMethodException e) {
-      return;
-    }
+    Assume.assumeTrue(
+        "row " + label + " does not declare DBNAME_MESSAGE ctor — skipped by design",
+        declaredCtors.contains(Shape.DBNAME_MESSAGE));
+    Constructor<?> ctor = exceptionClass.getConstructor(String.class, String.class);
     var inst = (Throwable) ctor.newInstance("dbX-" + label, "messageY-" + label);
     assertThat(inst.getMessage()).contains("messageY-" + label);
     if (inst instanceof BaseException baseException) {
@@ -247,16 +310,17 @@ public class UniformCtorExceptionFanTest {
   /**
    * The {@code (DatabaseSessionEmbedded session, String message)} ctor — when declared — must NOT
    * NPE on a null session input. The implementation checks {@code session != null} before
-   * dereferencing {@code session.getDatabaseName()}.
+   * dereferencing {@code session.getDatabaseName()}. Rows whose {@code declaredCtors} omits
+   * {@link Shape#SESSION_MESSAGE} are skipped; rows that declare the shape and lose it later
+   * fail via the {@link NoSuchMethodException} that {@code getConstructor} raises.
    */
   @Test
   public void sessionAndMessageConstructorAcceptsNullSessionWhenAvailable() throws Exception {
-    Constructor<?> ctor;
-    try {
-      ctor = exceptionClass.getConstructor(DatabaseSessionEmbedded.class, String.class);
-    } catch (NoSuchMethodException e) {
-      return;
-    }
+    Assume.assumeTrue(
+        "row " + label + " does not declare SESSION_MESSAGE ctor — skipped by design",
+        declaredCtors.contains(Shape.SESSION_MESSAGE));
+    Constructor<?> ctor =
+        exceptionClass.getConstructor(DatabaseSessionEmbedded.class, String.class);
     var inst = (Throwable) ctor.newInstance(null, "sessMessage-" + label);
     assertThat(inst.getMessage()).contains("sessMessage-" + label);
   }

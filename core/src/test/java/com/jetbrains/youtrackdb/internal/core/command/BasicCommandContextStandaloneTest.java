@@ -22,6 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.command;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
@@ -348,12 +349,14 @@ public class BasicCommandContextStandaloneTest {
     var inner = new NamedStep("inner");
 
     ctx.startProfiling(outer);
-    // Spend real wall-clock so nanoTime is strictly positive.
-    Thread.sleep(1);
+    // Spend real wall-clock so nanoTime is strictly positive. Use 5ms (rather than 1ms) to
+    // tolerate Windows-resolution clocks and JVM early-wake-up: Thread.sleep(1) can return in
+    // < 1ms on some platforms, which would let the cost > 0 assertion flake.
+    Thread.sleep(5);
     ctx.startProfiling(inner);
-    Thread.sleep(1);
+    Thread.sleep(5);
     ctx.endProfiling(inner);
-    Thread.sleep(1);
+    Thread.sleep(5);
     ctx.endProfiling(outer);
 
     var outerStats = ctx.getStats(outer);
@@ -363,7 +366,8 @@ public class BasicCommandContextStandaloneTest {
     assertNotNull("inner stats must be recorded", innerStats);
     assertEquals("outer start count", 1, outerStats.getCount());
     assertEquals("inner start count", 1, innerStats.getCount());
-    // Total cost is measured in nanoseconds; Thread.sleep(1) ensures strictly > 0.
+    // Total cost is measured in nanoseconds; Thread.sleep(5) ensures strictly > 0 even under
+    // coarse clock resolution.
     assertTrue("outer total cost must cover pause + resume windows",
         outerStats.getCost() > 0);
     assertTrue("inner total cost must be > 0", innerStats.getCost() > 0);
@@ -671,6 +675,49 @@ public class BasicCommandContextStandaloneTest {
     var childField = BasicCommandContext.class.getDeclaredField("child");
     childField.setAccessible(true);
     assertNull("copy.child must remain null when source had no child", childField.get(copy));
+  }
+
+  /**
+   * The non-null-child branch of {@link BasicCommandContext#copy()} performs a deep copy of the
+   * child and rewires the child's parent linkage to the new copy (not the original). This is a
+   * load-bearing invariant: callers of {@code copy()} expect to receive a self-consistent
+   * parent/child tree where {@code copy.child.parent == copy}, not a hybrid that points back to
+   * the source. Pin both the deep-copy semantics (instance not shared) and the parent rewiring.
+   */
+  @Test
+  public void copyWithNonNullChildDeepCopiesChildAndRewritesParent() throws Exception {
+    var parent = new BasicCommandContext();
+    var child = new BasicCommandContext();
+    parent.setChild(child);
+    parent.setVariable("p", "parentValue");
+    child.setVariable("c", "childValue");
+
+    var copy = (BasicCommandContext) parent.copy();
+    assertNotNull("copy() must produce a non-null result when child is present", copy);
+    // Parent state survived the copy.
+    assertEquals("parentValue", copy.getVariable("p"));
+
+    // Read copy.child reflectively — same access pattern used in the null-child sibling test.
+    var childField = BasicCommandContext.class.getDeclaredField("child");
+    childField.setAccessible(true);
+    Object copyChildRaw = childField.get(copy);
+    assertNotNull("copy.child must be non-null when source had a child", copyChildRaw);
+
+    // Deep copy: the child instance must be a fresh instance, not the source-aliased one.
+    assertNotSame(
+        "copy.child must be a deep copy, not the same instance as the source's child",
+        child,
+        copyChildRaw);
+
+    // Parent linkage: the copied child's parent must be the copy itself, not the original parent.
+    var copyChild = (BasicCommandContext) copyChildRaw;
+    assertSame(
+        "copy.child.getParent() must point at the new copy, not the original source",
+        copy,
+        copyChild.getParent());
+
+    // Child state survived the deep copy — variables flow through the child's copy() method.
+    assertEquals("childValue", copyChild.getVariable("c"));
   }
 
   // ---------------------------------------------------------------------------

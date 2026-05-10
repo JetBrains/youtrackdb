@@ -4,7 +4,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
-import static org.junit.Assert.fail;
+import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBProperty;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertexProperty;
@@ -96,100 +97,82 @@ public class YTDBEmptyVertexPropertyTest {
     assertFalse(s.isEmpty());
   }
 
+  /**
+   * Asserts the thrown IllegalStateException carries the expected propertyDoesNotExist message.
+   * Production throws {@code Property.Exceptions.propertyDoesNotExist()} whose message contains
+   * the substring "does not exist" (case-insensitive); pinning the substring catches a regression
+   * to a different IllegalStateException (e.g., a wrong delegating method that throws
+   * {@code "wrong state"}).
+   */
+  private static void assertPropertyDoesNotExist(IllegalStateException thrown) {
+    assertNotNull("exception must carry a message", thrown.getMessage());
+    assertTrue(
+        "expected propertyDoesNotExist message but was: " + thrown.getMessage(),
+        thrown.getMessage().toLowerCase().contains("does not exist"));
+  }
+
   /** {@code key()} throws because the absent property carries no key. */
   @Test
   public void keyThrows() {
     YTDBVertexProperty<String> prop = YTDBEmptyVertexProperty.instance();
-    try {
-      prop.key();
-      fail("Expected propertyDoesNotExist");
-    } catch (IllegalStateException expected) {
-      // ok
-    }
+    var thrown = assertThrows(IllegalStateException.class, prop::key);
+    assertPropertyDoesNotExist(thrown);
   }
 
   /** {@code value()} throws because there is no value. */
   @Test
   public void valueThrows() {
     YTDBVertexProperty<String> prop = YTDBEmptyVertexProperty.instance();
-    try {
-      prop.value();
-      fail("Expected propertyDoesNotExist");
-    } catch (IllegalStateException expected) {
-      // ok
-    }
+    var thrown = assertThrows(IllegalStateException.class, prop::value);
+    assertPropertyDoesNotExist(thrown);
   }
 
   /** {@code element()} throws because the empty property is not bound to a vertex. */
   @Test
   public void elementThrows() {
     YTDBVertexProperty<String> prop = YTDBEmptyVertexProperty.instance();
-    try {
-      prop.element();
-      fail("Expected propertyDoesNotExist");
-    } catch (IllegalStateException expected) {
-      // ok
-    }
+    var thrown = assertThrows(IllegalStateException.class, prop::element);
+    assertPropertyDoesNotExist(thrown);
   }
 
   /** {@code id()} throws because no underlying record id exists. */
   @Test
   public void idThrows() {
     YTDBVertexProperty<String> prop = YTDBEmptyVertexProperty.instance();
-    try {
-      prop.id();
-      fail("Expected propertyDoesNotExist");
-    } catch (IllegalStateException expected) {
-      // ok
-    }
+    var thrown = assertThrows(IllegalStateException.class, prop::id);
+    assertPropertyDoesNotExist(thrown);
   }
 
   /** {@code graph()} throws because the property is not attached to a graph. */
   @Test
   public void graphThrows() {
     YTDBVertexProperty<String> prop = YTDBEmptyVertexProperty.instance();
-    try {
-      prop.graph();
-      fail("Expected propertyDoesNotExist");
-    } catch (IllegalStateException expected) {
-      // ok
-    }
+    var thrown = assertThrows(IllegalStateException.class, prop::graph);
+    assertPropertyDoesNotExist(thrown);
   }
 
   /** {@code hasProperty(key)} throws — there is no underlying entity to consult. */
   @Test
   public void hasPropertyThrows() {
     YTDBVertexProperty<String> prop = YTDBEmptyVertexProperty.instance();
-    try {
-      prop.hasProperty("any");
-      fail("Expected propertyDoesNotExist");
-    } catch (IllegalStateException expected) {
-      // ok
-    }
+    var thrown = assertThrows(IllegalStateException.class, () -> prop.hasProperty("any"));
+    assertPropertyDoesNotExist(thrown);
   }
 
   /** {@code removeProperty(key)} throws — symmetric to {@code hasProperty}. */
   @Test
   public void removePropertyThrows() {
     YTDBVertexProperty<String> prop = YTDBEmptyVertexProperty.instance();
-    try {
-      prop.removeProperty("any");
-      fail("Expected propertyDoesNotExist");
-    } catch (IllegalStateException expected) {
-      // ok
-    }
+    var thrown = assertThrows(IllegalStateException.class, () -> prop.removeProperty("any"));
+    assertPropertyDoesNotExist(thrown);
   }
 
   /** {@code type()} throws — the property carries no schema metadata. */
   @Test
   public void typeThrows() {
     YTDBVertexProperty<String> prop = YTDBEmptyVertexProperty.instance();
-    try {
-      prop.type();
-      fail("Expected propertyDoesNotExist");
-    } catch (IllegalStateException expected) {
-      // ok
-    }
+    var thrown = assertThrows(IllegalStateException.class, prop::type);
+    assertPropertyDoesNotExist(thrown);
   }
 
   /**
