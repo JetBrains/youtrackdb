@@ -153,13 +153,22 @@ session's normal output, but do not file them under `dev-workflow`.
 
 ## Per-session cap
 
-At most **3** issues per session. If reflection turns up more than
-three, keep the three highest-impact ones (highest severity, most
-frequent, or blocking the most downstream work) and discard the rest.
-Quality of the proposals matters more than completeness.
+At most **3** issues per session — this is a ceiling, not a target.
+Zero or one real finding is the expected outcome on most sessions;
+two or three should feel exceptional. **Do not invent findings to
+hit the cap.** Padding the buffer with thin, manufactured frictions
+just to fill three slots is a worse failure mode than filing zero,
+because the triager has to spend turns rejecting them and the
+`dev-workflow` queue loses its signal.
 
-If reflection turns up zero, that is the expected outcome on a smooth
-session. Say so explicitly to the user and end the session.
+If reflection turns up more than three real frictions, keep the
+three highest-impact ones (highest severity, most frequent, or
+blocking the most downstream work) and discard the rest. Quality
+of the proposals matters more than completeness.
+
+If reflection turns up zero, say so explicitly to the user and end
+the session. A clean session that produces no findings is the
+correct outcome, not a failure to look hard enough.
 
 ---
 
@@ -196,8 +205,14 @@ session. Say so explicitly to the user and end the session.
    - *"What would I want a future agent in my exact position to know,
      that the current docs do not tell them?"*
 
-5. **Draft candidate proposals.** For each candidate friction (after
-   capping at 3), draft:
+5. **Draft candidate proposals.** First, drop any friction whose
+   severity is below `medium` (see §Severity guide). Low-severity
+   annoyances are noise — do not file them, and do not promote them
+   to medium just to keep the proposal alive. If every friction in
+   the session falls below medium, that is a zero-finding session;
+   skip to step 7 with the empty-result template.
+
+   For each surviving candidate (after capping at 3), draft:
    - Title (imperative summary, ≤80 chars)
    - One-line summary
    - Type: `Bug` if the friction is the workflow producing wrong
@@ -205,7 +220,7 @@ session. Say so explicitly to the user and end the session.
      "broken behaviour"; `Feature` if the friction is a missing
      rule, missing recipe, missing automation, or other enhancement
      filling a gap (see §Type guide).
-   - Severity (low/medium/high — see §Severity guide). Severity is
+   - Severity (medium/high — see §Severity guide). Severity is
      rendered into the issue body for traceability **and** mapped to
      the YouTrack `Priority` field at creation time. The agent sets
      `Priority` on every issue from the severity mapping in
@@ -373,7 +388,7 @@ The Markdown body submitted to `create_issue.description`:
 
 ```markdown
 **Source:** branch `<branch-name>`, commit `<40-char-SHA>`
-**Severity:** low | medium | high
+**Severity:** medium | high
 **Phase:** state-0 | phase-a | phase-b | phase-c | phase-4
 **Source session:** <YYYY-MM-DD> /execute-tracks <adr-dir-name>
 
@@ -457,12 +472,15 @@ filing.
 
 ## Severity guide
 
-- `low` — annoyance, costs the agent a turn or two; workflow still
-  produces correct output.
-  - *Example*: an `mcp-steroid` recipe is referenced in two
-    different docs but neither links to the canonical
-    `.claude/docs/mcp-steroid/recipes.md` index, so the agent
-    looks it up twice in one phase.
+Reflection only records frictions whose severity is **medium or
+higher**. Low-severity annoyances — a one-off recipe lookup, a
+single ambiguous sentence, costing a turn or two without affecting
+output correctness — are noise and should be dropped at draft time
+(see Step 5). The two-level scale below is the full menu; there
+is no `low` tier in the issue body, the priority mapping, or the
+filter. If a friction does not clear the medium bar, do not file
+it and do not relabel it to medium to keep it alive.
+
 - `medium` — recurring friction or ambiguity that costs multiple
   turns per occurrence, or causes occasional wrong outputs that
   the user catches.
@@ -487,7 +505,6 @@ Step 8) to pick the closest accepted enum value:
 
 | Severity | Preferred `Priority`            | Fallback order if missing      |
 |----------|---------------------------------|--------------------------------|
-| `low`    | `Minor`                         | `Normal` → lowest non-trivial  |
 | `medium` | `Normal`                        | `Major` → `Minor`              |
 | `high`   | `Major`                         | `Critical` → `Show-stopper`    |
 
@@ -513,6 +530,15 @@ the triager can verify it.
 - **Do not** exceed the 3-issue cap. If more bubble up, pick the top
   three and let the rest go — they will resurface naturally if they
   really matter.
+- **Do not** invent findings to fill the 3-issue cap. The cap is a
+  ceiling; zero or one real finding is the typical outcome.
+  Manufactured frictions waste triage turns and dilute the
+  `dev-workflow` queue's signal.
+- **Do not** record low-severity findings. Reflection's bar is
+  medium-and-above (see §Severity guide). Annoyances that cost a
+  turn or two without affecting workflow correctness are noise —
+  observe them mentally and move on, do not file them, and do not
+  relabel them as medium to slip them past the filter.
 - **Do not** skip reflection on early-exit sessions (context warning,
   ESCALATE, two-failure rule). The friction that caused the early
   exit is usually the highest-value input. The only valid skip is
