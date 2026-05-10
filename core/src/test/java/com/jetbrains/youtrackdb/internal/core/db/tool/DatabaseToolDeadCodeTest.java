@@ -34,9 +34,8 @@ import org.junit.Test;
 /**
  * Shape pin for the abstract base {@link DatabaseTool}. The class is the parent of every
  * concrete tool in the package — {@link DatabaseImport}, {@link DatabaseExport},
- * {@link DatabaseRepair}, {@link BonsaiTreeRepair}, {@link DatabaseCompare},
- * {@link GraphRepair}, {@link CheckIndexTool} — and its public protocol is the
- * fluent-setter API plus the abstract {@code parseSetting} hook.
+ * {@link DatabaseCompare}, {@link GraphRepair}, {@link CheckIndexTool} — and its
+ * public protocol is the fluent-setter API plus the abstract {@code parseSetting} hook.
  *
  * <p>The pin is interface-level only (reflection only): the live behavioural coverage
  * sits in {@link DatabaseExportImportRoundTripTest} and the per-tool dead-code pins in
