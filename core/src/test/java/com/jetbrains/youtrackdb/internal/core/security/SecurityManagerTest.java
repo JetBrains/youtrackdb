@@ -25,8 +25,8 @@ import org.junit.experimental.categories.Category;
  * call {@link SecurityManager#createHashWithSalt} which reads the slot at runtime and
  * would observe the polluted iteration count during the parallel-class window without this
  * category. Matches the discipline already applied on
- * {@code SecurityManagerNewCredentialInterceptorDeadCodeTest} and
- * {@code KerberosCredentialInterceptorDeadCodeTest} for the same JVM-global-mutation reason.
+ * {@code SecurityManagerNewCredentialInterceptorDeadCodeTest} for the same JVM-global-mutation
+ * reason.
  */
 @Category(SequentialTest.class)
 public class SecurityManagerTest {

@@ -59,8 +59,7 @@ import org.junit.rules.TemporaryFolder;
  * in the same package that happen to read the slot during the parallel-class
  * window would observe the polluted value, so the category is the safe default
  * matching the discipline already applied on
- * {@code SecurityManagerNewCredentialInterceptorDeadCodeTest} and
- * {@code KerberosCredentialInterceptorDeadCodeTest}.
+ * {@code SecurityManagerNewCredentialInterceptorDeadCodeTest}.
  */
 @Category(SequentialTest.class)
 public class DefaultSecuritySystemReloadTest extends DbTestBase {
