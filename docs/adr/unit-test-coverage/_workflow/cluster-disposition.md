@@ -366,7 +366,7 @@ need YTDB issues and which were resolved in this branch.
 | Cluster D — narrow-singletons | (recorded by commit) | deleted (3-of-5 sub-targets; CronExpression branch trim and EntityLinkSetImpl partial-trim were re-classified as alive by the Phase B PSI pass — see "Cluster D PSI re-classification" note below) |
 | Cluster E — T2-reclassifications | _pending_ | _pending_ |
 | Cluster F — command-script | _pending_ | _pending_ |
-| Cluster G — query-live-partial | _pending_ | _pending_ |
+| Cluster G — query-live-partial | (recorded by commit) | deleted (V1+V2 dead static dispatch entry points + 3 orphan listener interfaces in core/query/; LiveQueryHook.LiveQueryOps + LiveQueryHookV2.{LiveQueryOps,LiveQueryOp,unboxRidbags} preserved per SharedContext / CopyRecordContentBeforeUpdateStep) |
 | Cluster H — fetch-partial | _pending_ | _pending_ |
 | Cluster I — serialization-scheduler-hygiene | _pending_ | _pending_ |
 | Cluster J — sql-root-scaffold | _pending_ | _pending_ |

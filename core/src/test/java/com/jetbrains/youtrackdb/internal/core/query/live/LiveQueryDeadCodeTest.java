@@ -28,14 +28,7 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
-import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
-import com.jetbrains.youtrackdb.internal.core.query.BasicLiveQueryResultListener;
-import com.jetbrains.youtrackdb.internal.core.query.BasicResult;
-import com.jetbrains.youtrackdb.internal.core.query.LiveQueryMonitor;
-import com.jetbrains.youtrackdb.internal.core.query.LiveQueryResultListener;
-import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.query.live.LiveQueryHookV2.LiveQueryOp;
 import java.util.ArrayList;
 import java.util.List;
@@ -48,32 +41,26 @@ import org.junit.Test;
 import org.junit.rules.Timeout;
 
 /**
- * Dead-code pin tests for the {@code core/query/live} package and the orphan listener interfaces
- * in {@code core/query}.
+ * Dead-code pin tests for the surviving residue of the {@code core/query/live} package after the
+ * dead public-static dispatch entry points and the three orphan listener interfaces in
+ * {@code core/query} were removed.
  *
- * <p>Cross-module grep (performed during this track's review + decomposition phase) confirmed that
- * the entire live-query subsystem is dead in the core module outside its own tests:
+ * <p>Cross-module grep + PSI find-usages confirmed that the live-query subsystem has only one
+ * production caller left: {@code CopyRecordContentBeforeUpdateStep} consumes
+ * {@code LiveQueryHookV2.unboxRidbags} (covered by {@link LiveQueryHookV2UnboxRidbagsTest}).
+ * Everything else in {@code core/query/live/} survives only as scaffolding wired through
+ * {@code SharedContext}'s ops singletons:
  *
  * <ul>
- *   <li>{@link LiveQueryHook} public-static surface ({@code subscribe} / {@code unsubscribe} /
- *       {@code addOp} / {@code notifyForTxChanges} / {@code removePendingDatabaseOps}) — zero
- *       production callers in {@code server/}, {@code driver/}, {@code embedded/},
- *       {@code gremlin-annotations/}, {@code tests/}.
- *   <li>{@link LiveQueryHookV2} same surface (minus {@code unboxRidbags} which is live via
- *       {@code CopyRecordContentBeforeUpdateStep}) — zero production callers.
- *   <li>{@link LiveQueryQueueThread} / {@link LiveQueryQueueThreadV2} — reached only from the
- *       dead hook {@code subscribe} entry points above.
- *   <li>{@link LiveQueryListener} / {@link LiveQueryListenerV2} — zero implementations in core.
- *   <li>{@link BasicLiveQueryResultListener} / {@link LiveQueryResultListener} /
- *       {@link LiveQueryMonitor} — zero production implementors.
+ *   <li>{@link LiveQueryQueueThread} / {@link LiveQueryQueueThreadV2} — dispatcher threads owned
+ *       by {@link LiveQueryHook.LiveQueryOps} and {@link LiveQueryHookV2.LiveQueryOps}.
+ *   <li>{@link LiveQueryListener} / {@link LiveQueryListenerV2} — zero production implementations.
  * </ul>
  *
- * <p>This suite pins the observable shape of that dead surface so JaCoCo reports coverage for it
- * and any future mutation (e.g. accidental re-wiring) is detected immediately. The companion
- * {@code LiveQueryHookStaticApiTest} covers the hook public-static API that requires a
- * {@code DatabaseSessionEmbedded} to exercise (the session-lookup / {@code QUERY_LIVE_SUPPORT}
- * gate paths). Each pin carries a {@code // WHEN-FIXED: Track 22 ...} marker naming the class that
- * the final sweep track should delete.
+ * <p>This suite pins the observable shape of that residual surface so JaCoCo reports coverage for
+ * it and any future mutation (e.g. accidental re-wiring) is detected immediately. Each pin carries
+ * a {@code // WHEN-FIXED: Track 22 ...} marker naming the class that the final sweep track should
+ * delete.
  *
  * <p><strong>Thread hygiene.</strong> Tests that do start a queue thread attach a class-level
  * {@link Timeout} rule (10 s) as a backstop and always stop + join the thread in a {@code finally}
@@ -880,121 +867,6 @@ public class LiveQueryDeadCodeTest {
     assertEquals(-1, anon.getToken());
     anon.onLiveResults(List.of());
     anon.onLiveResultEnd();
-  }
-
-  /**
-   * {@link BasicLiveQueryResultListener} — zero production implementors in core. Pin surface for
-   * Track 22 deletion along with the entire live-query subsystem. Exercising all five callbacks
-   * proves the abstract contract has not been eroded by default methods that would silently hide
-   * a production impl gap.
-   */
-  @Test
-  public void deadInterface_basicLiveQueryResultListenerHasZeroProductionImpls() {
-    // WHEN-FIXED: Track 22 — delete core/query/BasicLiveQueryResultListener
-    var calls = new AtomicInteger();
-    BasicLiveQueryResultListener<?, ?> anon =
-        new BasicLiveQueryResultListener<>() {
-          @Override
-          public void onCreate(DatabaseSessionEmbedded session, BasicResult data) {
-            calls.incrementAndGet();
-          }
-
-          @Override
-          public void onUpdate(
-              DatabaseSessionEmbedded session, BasicResult before, BasicResult after) {
-            calls.incrementAndGet();
-          }
-
-          @Override
-          public void onDelete(DatabaseSessionEmbedded session, BasicResult data) {
-            calls.incrementAndGet();
-          }
-
-          @Override
-          public void onError(DatabaseSessionEmbedded session, BaseException exception) {
-            calls.incrementAndGet();
-          }
-
-          @Override
-          public void onEnd(DatabaseSessionEmbedded session) {
-            calls.incrementAndGet();
-          }
-        };
-    anon.onCreate(null, null);
-    anon.onUpdate(null, null, null);
-    anon.onDelete(null, null);
-    anon.onError(null, null);
-    anon.onEnd(null);
-    assertEquals("all five callbacks must remain abstract (non-default) methods", 5, calls.get());
-  }
-
-  /**
-   * {@link LiveQueryResultListener} extends {@link BasicLiveQueryResultListener} with no added
-   * methods. Zero production implementors — pin surface for Track 22 deletion. Exercising all
-   * five callbacks pins the abstract contract.
-   */
-  @Test
-  public void deadInterface_liveQueryResultListenerHasZeroProductionImpls() {
-    // WHEN-FIXED: Track 22 — delete core/query/LiveQueryResultListener
-    var calls = new AtomicInteger();
-    LiveQueryResultListener anon =
-        new LiveQueryResultListener() {
-          @Override
-          public void onCreate(DatabaseSessionEmbedded session, Result data) {
-            calls.incrementAndGet();
-          }
-
-          @Override
-          public void onUpdate(
-              DatabaseSessionEmbedded session, Result before, Result after) {
-            calls.incrementAndGet();
-          }
-
-          @Override
-          public void onDelete(DatabaseSessionEmbedded session, Result data) {
-            calls.incrementAndGet();
-          }
-
-          @Override
-          public void onError(DatabaseSessionEmbedded session, BaseException exception) {
-            calls.incrementAndGet();
-          }
-
-          @Override
-          public void onEnd(DatabaseSessionEmbedded session) {
-            calls.incrementAndGet();
-          }
-        };
-    anon.onCreate(null, null);
-    anon.onUpdate(null, null, null);
-    anon.onDelete(null, null);
-    anon.onError(null, null);
-    anon.onEnd(null);
-    assertEquals("all five callbacks must remain abstract (non-default) methods", 5, calls.get());
-  }
-
-  /**
-   * {@link LiveQueryMonitor} — zero production implementors. Pin surface for Track 22 deletion.
-   */
-  @Test
-  public void deadInterface_liveQueryMonitorHasZeroProductionImpls() {
-    // WHEN-FIXED: Track 22 — delete core/query/LiveQueryMonitor
-    var unsubscribed = new AtomicInteger();
-    LiveQueryMonitor anon =
-        new LiveQueryMonitor() {
-          @Override
-          public void unSubscribe() {
-            unsubscribed.incrementAndGet();
-          }
-
-          @Override
-          public int getMonitorId() {
-            return 123;
-          }
-        };
-    assertEquals(123, anon.getMonitorId());
-    anon.unSubscribe();
-    assertEquals(1, unsubscribed.get());
   }
 
   // -------------------------------------------------------------------------

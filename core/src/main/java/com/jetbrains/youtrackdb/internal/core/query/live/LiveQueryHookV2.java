@@ -19,31 +19,31 @@
  */
 package com.jetbrains.youtrackdb.internal.core.query.live;
 
-import static com.jetbrains.youtrackdb.api.config.GlobalConfiguration.QUERY_LIVE_SUPPORT;
-
 import com.jetbrains.youtrackdb.internal.common.concur.resource.CloseableInStorage;
-import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
-import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.LinkedBlockingQueue;
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
+/**
+ * Holder for the V2 live-query dispatcher state and the surviving {@link #unboxRidbags} helper.
+ *
+ * <p>The public-static dispatch entry points (subscribe / unsubscribe / addOp /
+ * notifyForTxChanges / removePendingDatabaseOps) and their private snapshot helpers
+ * (calculateBefore / calculateAfter / calculateProjections / convert / prevousUpdate) had no
+ * production callers and were removed; only the {@link LiveQueryOps} + {@link LiveQueryOp}
+ * containers and the {@link #unboxRidbags} unwrap (called from
+ * {@code CopyRecordContentBeforeUpdateStep}) survive.
+ */
 public class LiveQueryHookV2 {
 
   public static class LiveQueryOp {
@@ -72,9 +72,9 @@ public class LiveQueryHookV2 {
 
   public static class LiveQueryOps implements CloseableInStorage {
 
-    protected final Map<DatabaseSessionEmbedded, List<LiveQueryOp>> pendingOps = new ConcurrentHashMap<>();
+    protected final Map<DatabaseSessionEmbedded, List<LiveQueryOp>> pendingOps =
+        new ConcurrentHashMap<>();
     private LiveQueryQueueThreadV2 queueThread = new LiveQueryQueueThreadV2(this);
-    private final Object threadLock = new Object();
 
     private final BlockingQueue<LiveQueryOp> queue = new LinkedBlockingQueue<LiveQueryOp>();
     private final ConcurrentMap<Integer, LiveQueryListenerV2> subscribers =
@@ -118,198 +118,6 @@ public class LiveQueryHookV2 {
     public boolean hasListeners() {
       return !subscribers.isEmpty();
     }
-  }
-
-  public static LiveQueryOps getOpsReference(DatabaseSessionEmbedded db) {
-    return db.getSharedContext().getLiveQueryOpsV2();
-  }
-
-  public static Integer subscribe(
-      Integer token, LiveQueryListenerV2 iListener, DatabaseSessionEmbedded session) {
-    if (Boolean.FALSE.equals(session.getConfiguration().getValue(QUERY_LIVE_SUPPORT))) {
-      LogManager.instance()
-          .warn(
-              session,
-              "Live query support is disabled impossible to subscribe a listener, set '%s' to true"
-                  + " for enable the live query support",
-              QUERY_LIVE_SUPPORT.getKey());
-      return -1;
-    }
-    var ops = getOpsReference(session);
-    synchronized (ops.threadLock) {
-      if (!ops.queueThread.isAlive()) {
-        ops.queueThread = ops.queueThread.clone();
-        ops.queueThread.start();
-      }
-    }
-
-    return ops.subscribe(token, iListener);
-  }
-
-  public static void unsubscribe(Integer id, DatabaseSessionEmbedded db) {
-    if (Boolean.FALSE.equals(db.getConfiguration().getValue(QUERY_LIVE_SUPPORT))) {
-      LogManager.instance()
-          .warn(
-              db,
-              "Live query support is disabled impossible to unsubscribe a listener, set '%s' to"
-                  + " true for enable the live query support",
-              QUERY_LIVE_SUPPORT.getKey());
-      return;
-    }
-    try {
-      var ops = getOpsReference(db);
-      synchronized (ops.threadLock) {
-        ops.unsubscribe(id);
-      }
-    } catch (Exception e) {
-      LogManager.instance().warn(LiveQueryHookV2.class, "Error on unsubscribing client", e);
-    }
-  }
-
-  public static void notifyForTxChanges(DatabaseSessionEmbedded database) {
-    var ops = getOpsReference(database);
-    if (ops.pendingOps.isEmpty()) {
-      return;
-    }
-    List<LiveQueryOp> list;
-    if (Boolean.FALSE.equals(database.getConfiguration().getValue(QUERY_LIVE_SUPPORT))) {
-      return;
-    }
-    synchronized (ops.pendingOps) {
-      list = ops.pendingOps.remove(database);
-    }
-    // TODO sync
-    if (list != null) {
-      for (var item : list) {
-        ops.enqueue(item);
-      }
-    }
-  }
-
-  public static void removePendingDatabaseOps(DatabaseSessionEmbedded database) {
-    try {
-      if (database.isClosed()
-          || Boolean.FALSE.equals(database.getConfiguration().getValue(QUERY_LIVE_SUPPORT))) {
-        return;
-      }
-      var ops = getOpsReference(database);
-      synchronized (ops.pendingOps) {
-        ops.pendingOps.remove(database);
-      }
-    } catch (DatabaseException ex) {
-      // This catch and log the exception because in some case is suppressing the real exception
-      LogManager.instance().error(database, "Error cleaning the live query resources", ex);
-    }
-  }
-
-  public static void addOp(DatabaseSessionEmbedded database, EntityImpl entity, byte iType) {
-    var ops = getOpsReference(database);
-    if (!ops.hasListeners()) {
-      return;
-    }
-    if (Boolean.FALSE.equals(database.getConfiguration().getValue(QUERY_LIVE_SUPPORT))) {
-      return;
-    }
-
-    var projectionsToLoad = calculateProjections(ops);
-
-    Result before =
-        iType == RecordOperation.CREATED ? null
-            : calculateBefore(database, entity, projectionsToLoad);
-    Result after =
-        iType == RecordOperation.DELETED ? null
-            : calculateAfter(database, entity, projectionsToLoad);
-
-    var result = new LiveQueryOp(entity, before, after, iType);
-    synchronized (ops.pendingOps) {
-      var list = ops.pendingOps.computeIfAbsent(database, k -> new ArrayList<>());
-      if (result.type == RecordOperation.UPDATED) {
-        var prev = prevousUpdate(list, result.originalEntity);
-        if (prev == null) {
-          list.add(result);
-        } else {
-          prev.after = result.after;
-        }
-      } else {
-        list.add(result);
-      }
-    }
-  }
-
-  /**
-   * get all the projections that are needed by the live queries. Null means all
-   *
-   * @param ops the live query operations containing subscriber projection requirements
-   * @return the set of needed projection names, or {@code null} if all projections are needed
-   */
-  @Nullable
-  private static Set<String> calculateProjections(LiveQueryOps ops) {
-    Set<String> result = new HashSet<>();
-    if (ops == null || ops.subscribers == null) {
-      return null;
-    }
-    return result;
-  }
-
-  @Nullable
-  @SuppressWarnings("ReferenceEquality") // Intentional identity check: same entity object instance
-  private static LiveQueryOp prevousUpdate(List<LiveQueryOp> list, EntityImpl entity) {
-    for (var liveQueryOp : list) {
-      if (liveQueryOp.originalEntity == entity) {
-        return liveQueryOp;
-      }
-    }
-    return null;
-  }
-
-  public static ResultInternal calculateBefore(
-      @Nonnull DatabaseSessionEmbedded db, EntityImpl entity,
-      Set<String> projectionsToLoad) {
-    var result = new ResultInternal(db);
-    for (var prop : entity.getPropertyNamesInternal(false, true)) {
-      if (projectionsToLoad == null || projectionsToLoad.contains(prop)) {
-        result.setProperty(prop, unboxRidbags(entity.getPropertyInternal(prop)));
-      }
-    }
-    result.setProperty("@rid", entity.getIdentity());
-    result.setProperty("@class", entity.getSchemaClassName());
-    result.setProperty("@version", entity.getVersion());
-    for (var rawEntry : entity.getRawEntries()) {
-      var entry = rawEntry.getValue();
-      if (entry.isChanged()) {
-        result.setProperty(
-            rawEntry.getKey(), convert(entity.getOriginalValue(rawEntry.getKey())));
-      } else if (entry.isTrackedModified()) {
-        if (entry.value instanceof EntityImpl && ((EntityImpl) entry.value).isEmbedded()) {
-          result.setProperty(rawEntry.getKey(),
-              calculateBefore(db, (EntityImpl) entry.value, null));
-        }
-      }
-    }
-    return result;
-  }
-
-  private static Object convert(Object originalValue) {
-    if (originalValue instanceof LinkBag linkBag) {
-      Set result = new LinkedHashSet<>();
-      linkBag.forEach(result::add);
-      return result;
-    }
-    return originalValue;
-  }
-
-  private static ResultInternal calculateAfter(
-      DatabaseSessionEmbedded db, EntityImpl entity, Set<String> projectionsToLoad) {
-    var result = new ResultInternal(db);
-    for (var prop : entity.getPropertyNamesInternal(false, true)) {
-      if (projectionsToLoad == null || projectionsToLoad.contains(prop)) {
-        result.setProperty(prop, unboxRidbags(entity.getPropertyInternal(prop)));
-      }
-    }
-    result.setProperty("@rid", entity.getIdentity());
-    result.setProperty("@class", entity.getSchemaClassName());
-    result.setProperty("@version", entity.getVersion() + 1);
-    return result;
   }
 
   public static Object unboxRidbags(Object value) {

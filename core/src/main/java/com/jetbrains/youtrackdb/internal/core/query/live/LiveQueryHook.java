@@ -19,27 +19,27 @@
  */
 package com.jetbrains.youtrackdb.internal.core.query.live;
 
-import static com.jetbrains.youtrackdb.api.config.GlobalConfiguration.QUERY_LIVE_SUPPORT;
-
 import com.jetbrains.youtrackdb.internal.common.concur.resource.CloseableInStorage;
-import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
-import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
-import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-/** Hook that intercepts record operations and dispatches them to registered live query listeners. */
+/**
+ * Holder for the V1 live-query dispatcher state. The public-static dispatch entry points
+ * (subscribe / unsubscribe / addOp / notifyForTxChanges / removePendingDatabaseOps) had no
+ * production callers and were removed; only the {@link LiveQueryOps} container survives because
+ * {@code SharedContext} still allocates and closes one per database to keep the dispatcher
+ * lifecycle wired through the existing close path.
+ */
 public class LiveQueryHook {
 
   public static class LiveQueryOps implements CloseableInStorage {
 
-    protected Map<DatabaseSessionEmbedded, List<RecordOperation>> pendingOps = new ConcurrentHashMap<>();
+    protected Map<DatabaseSessionEmbedded, List<RecordOperation>> pendingOps =
+        new ConcurrentHashMap<>();
     private LiveQueryQueueThread queueThread = new LiveQueryQueueThread();
-    private final Object threadLock = new Object();
 
     @Override
     public void close() {
@@ -54,111 +54,6 @@ public class LiveQueryHook {
 
     public LiveQueryQueueThread getQueueThread() {
       return queueThread;
-    }
-  }
-
-  public static LiveQueryOps getOpsReference(DatabaseSessionEmbedded db) {
-    return db.getSharedContext().getLiveQueryOps();
-  }
-
-  public static Integer subscribe(
-      Integer token, LiveQueryListener iListener, DatabaseSessionEmbedded db) {
-    if (Boolean.FALSE.equals(db.getConfiguration().getValue(QUERY_LIVE_SUPPORT))) {
-      LogManager.instance()
-          .warn(
-              db,
-              "Live query support is disabled impossible to subscribe a listener, set '%s' to true"
-                  + " for enable the live query support",
-              QUERY_LIVE_SUPPORT.getKey());
-      return -1;
-    }
-    var ops = getOpsReference(db);
-    synchronized (ops.threadLock) {
-      if (!ops.queueThread.isAlive()) {
-        ops.queueThread = ops.queueThread.clone();
-        ops.queueThread.start();
-      }
-    }
-
-    return ops.queueThread.subscribe(token, iListener);
-  }
-
-  public static void unsubscribe(Integer id, DatabaseSessionEmbedded db) {
-    if (Boolean.FALSE.equals(db.getConfiguration().getValue(QUERY_LIVE_SUPPORT))) {
-      LogManager.instance()
-          .warn(
-              db,
-              "Live query support is disabled impossible to unsubscribe a listener, set '%s' to"
-                  + " true for enable the live query support",
-              QUERY_LIVE_SUPPORT.getKey());
-      return;
-    }
-    try {
-      var ops = getOpsReference(db);
-      synchronized (ops.threadLock) {
-        ops.queueThread.unsubscribe(id);
-      }
-    } catch (Exception e) {
-      LogManager.instance().warn(LiveQueryHook.class, "Error on unsubscribing client", e);
-    }
-  }
-
-  public static void notifyForTxChanges(DatabaseSessionEmbedded iDatabase) {
-
-    var ops = getOpsReference(iDatabase);
-    if (ops.pendingOps.isEmpty()) {
-      return;
-    }
-    if (Boolean.FALSE.equals(iDatabase.getConfiguration().getValue(QUERY_LIVE_SUPPORT))) {
-      return;
-    }
-
-    List<RecordOperation> list;
-    synchronized (ops.pendingOps) {
-      list = ops.pendingOps.remove(iDatabase);
-    }
-    // TODO sync
-    if (list != null) {
-      for (var item : list) {
-        ops.queueThread.enqueue(item);
-      }
-    }
-  }
-
-  @SuppressWarnings("DuplicatedCode")
-  public static void removePendingDatabaseOps(DatabaseSessionEmbedded iDatabase) {
-    try {
-      if (iDatabase.isClosed()
-          || Boolean.FALSE.equals(iDatabase.getConfiguration().getValue(QUERY_LIVE_SUPPORT))) {
-        return;
-      }
-      var ops = getOpsReference(iDatabase);
-      synchronized (ops.pendingOps) {
-        ops.pendingOps.remove(iDatabase);
-      }
-    } catch (DatabaseException ex) {
-      // This catch and log the exception because in some case is suppressing the real exception
-      LogManager.instance().error(iDatabase, "Error cleaning the live query resources", ex);
-    }
-  }
-
-  public static void addOp(EntityImpl entity, byte iType, DatabaseSessionEmbedded database) {
-    var db = database;
-    var ops = getOpsReference(db);
-    if (!ops.queueThread.hasListeners()) {
-      return;
-    }
-    if (Boolean.FALSE.equals(database.getConfiguration().getValue(QUERY_LIVE_SUPPORT))) {
-      return;
-    }
-    var result = new RecordOperation(entity, iType);
-    synchronized (ops.pendingOps) {
-      var list = ops.pendingOps.get(db);
-      if (list == null) {
-        list = new ArrayList<RecordOperation>();
-        ops.pendingOps.put(db, list);
-      }
-      list.add(result);
     }
   }
 }
