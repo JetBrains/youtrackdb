@@ -1,5 +1,9 @@
 # Track 22b: In-Track Dead-Code Deletion Lockstep
 
+## Base commit
+
+`88b3526f40545cc6119c1dc03191c736d17fdb43` — recorded at Phase B startup.
+
 ## Description
 
 Atomic per-cluster commits removing dead production code together
