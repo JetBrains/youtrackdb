@@ -497,7 +497,7 @@ subset; the live subset stays covered by 22a's tests.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (7/14 complete)
+- [ ] Step implementation (8/14 complete)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -1029,7 +1029,7 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   >
   > **Implementer commit:** `6cf727db8d`
 
-- [ ] Step 7: Delete Track-10 forwarded `core/query/live/` partial cluster
+- [x] Step 7: Delete Track-10 forwarded `core/query/live/` partial cluster
   > **Risk:** medium — partial-scope deletion across a package with
   > preserved live consumers (`SharedContext.java`,
   > `LiveQueryListenerV2`, `LiveQueryQueueThreadV2`,
@@ -1046,6 +1046,52 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   > contents). Pin removals: `LiveQueryDeadCodeTest`'s method
   > subset corresponding to the deleted statics; `LiveQueryHookStaticApiTest`
   > if it pins solely the deleted statics.
+  >
+  > - [x] Context: info
+  >
+  > **What was done:** Deleted dead V1+V2 live-query public-static
+  > dispatch (`subscribe`, `unsubscribe`, `addOp`,
+  > `notifyForTxChanges`, `removePendingDatabaseOps`,
+  > `getOpsReference`) plus V2 snapshot helpers reachable only from
+  > the deleted `addOp` (`calculateBefore`, `calculateAfter`,
+  > `calculateProjections`, `convert`, `prevousUpdate`). Removed
+  > the three orphan listener interfaces in `core/query/`
+  > (`BasicLiveQueryResultListener`, `LiveQueryResultListener`,
+  > `LiveQueryMonitor`). Preserved `LiveQueryHook.LiveQueryOps`
+  > (SharedContext field/getter), `LiveQueryHookV2.{LiveQueryOps,
+  > LiveQueryOp}`, `LiveQueryHookV2.unboxRidbags`
+  > (`CopyRecordContentBeforeUpdateStep` caller), the
+  > `LiveQueryQueueThread` family, and `LiveQueryListener` /
+  > `LiveQueryListenerV2`. Deleted `LiveQueryHookStaticApiTest`
+  > in full and trimmed three zero-impl-interface pins from
+  > `LiveQueryDeadCodeTest`. `cluster-disposition.md` Cluster G
+  > marked `deleted`. Tests 18 158/18 158, gate 88.9%/80.0% on
+  > cumulative branch diff (above 85%/70% thresholds; uncovered
+  > changes are in Step 6's command/script surface, not this
+  > step's). Spotless applied.
+  >
+  > **What was discovered:** PSI confirmed two preservations not
+  > explicit in the step text — `LiveQueryHook.LiveQueryOps` is
+  > referenced by `SharedContext` (field/getter/close), and
+  > `LiveQueryHookV2.calculateBefore` had two main-scope refs
+  > (recursive case + `addOp` site) so it died with `addOp`. The
+  > V1 hook static-method surface was equally dead and pinned by
+  > `LiveQueryHookStaticApiTest`'s V1 half — treated as part of
+  > the same cluster, consistent with the disposition table's
+  > "Preserved" list (V1 inner class + queue thread). **Cross-track
+  > observation:** `SharedContext.getLiveQueryOps()` /
+  > `getLiveQueryOpsV2()` now have zero production callers; the
+  > getters + fields stay because `SharedContext.close()` invokes
+  > `liveQueryOps.close()` to drain dispatcher threads on db
+  > close. Could be tightened in a future post-22b cleanup. No
+  > impact on Steps 8–13 (none touch `core/query/`).
+  >
+  > **What changed from the plan:** V1 hook statics treated as
+  > part of the same cluster (not explicitly listed in the step
+  > text but consistent with the disposition table's "Preserved"
+  > list). No downstream-step impact.
+  >
+  > **Implementer commit:** `c4d6a6d6a4`
 
 - [ ] Step 8: Delete Track-10 forwarded `core/fetch/` partial cluster
   > **Risk:** medium — partial-scope deletion across a package with
