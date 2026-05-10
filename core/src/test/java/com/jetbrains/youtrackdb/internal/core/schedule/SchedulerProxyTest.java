@@ -40,8 +40,7 @@ import org.junit.experimental.categories.Category;
  * methods — {@code scheduleEvent} / {@code removeEvent} / {@code updateEvent} — are
  * referenced explicitly here so a regression that turned any of them into a no-op (or a
  * deletion that broke the {@code Scheduler} interface contract) would flip these tests
- * red. The deprecated {@code load} / {@code close} / {@code create} variants are pinned
- * separately in {@link SchedulerSurfaceDeadCodeTest}.
+ * red.
  *
  * <p>This class is tagged {@link SequentialTest} because each test touches the JVM-wide
  * scheduled pool through {@link SchedulerImpl} (auto-schedule hooks, queued
