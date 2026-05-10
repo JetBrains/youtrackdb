@@ -361,7 +361,7 @@ need YTDB issues and which were resolved in this branch.
 | Cluster | Commit SHA | Status |
 |---|---|---|
 | Cluster A — BinaryToken-JWT | (recorded by commit) | deleted |
-| Cluster B — sbtree-singlevalue-v1 | _pending_ | _pending_ |
+| Cluster B — sbtree-singlevalue-v1 | (recorded by commit) | deleted |
 | Cluster C — misc-small-helpers | _pending_ | _pending_ |
 | Cluster D — narrow-singletons | _pending_ | _pending_ |
 | Cluster E — T2-reclassifications | _pending_ | _pending_ |
