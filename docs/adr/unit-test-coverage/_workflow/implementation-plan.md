@@ -1926,8 +1926,19 @@ flowchart TD
   > backlog as one cluster.
   >
   > **Step file:** `tracks/track-22a.md` (10 steps, 0 failed)
-
-- [ ] Track 22b: In-Track Dead-Code Deletion Lockstep
+  >
+  > **Strategy refresh:** CONTINUE — Track 22a outcomes feed cleanly into
+  > Track 22b's existing absorption block: 5 new `*DeadCodeTest` shape
+  > pins from 22a Step 7 are now on disk (total pin count = 71); the
+  > `BasicCommandContext.copy()` partial-class-trim discovery is already
+  > captured in the backlog (lines 74-87) with a safe-delete
+  > re-confirmation guard for the public `CommandContext.copy` interface;
+  > license-header normalization (CQ7/TS6) is already folded into 22b's
+  > per-cluster commit policy; the non-volatile race on
+  > `MemoryAndLocalPaginatedEnginesInitializer.initialized` flows to 22c,
+  > not 22b. No Component Map shifts; no Decision Record weakening; no
+  > new inter-track dependencies. 22b's hybrid Delete-in-22b vs
+  > Defer-to-22c policy stands as written.
   > Atomic per-cluster commits removing dead production code together
   > with its `*DeadCodeTest.java` shape pin, classified via
   > `mcp-steroid://ide/safe-delete` (SPI-safe clusters deleted in-track;
