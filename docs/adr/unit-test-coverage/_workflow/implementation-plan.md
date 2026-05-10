@@ -1904,13 +1904,18 @@ flowchart TD
   > each so the post-deletion denominator drop is reflected in
   > `coverage-baseline.md` (full cluster inventory in the backlog).
   >
-  > **Scope:** ~8 steps — one per in-track-deletion cluster (controlled
+  > **Scope:** ~9 steps — one per in-track-deletion cluster (controlled
   > exception per D5; 22b Phase A may pack two narrow clusters into
-  > one step if final inventory exceeds 7). Aggregate target after 22b:
-  > ~82–83% line / ~70–71% branch (denominator drop from deletions).
+  > one step if final inventory exceeds 7). Inventory grew by one
+  > Track-22a-Phase-C forwarded cluster (`BasicCommandContext.copy()`
+  > partial-class-trim — see backlog); license-header normalization
+  > is folded into per-cluster commits, no separate step. Aggregate
+  > target after 22b: ~82–83% line / ~70–71% branch (denominator drop
+  > from deletions).
   >
   > **Depends on:** Track 1, Track 22a (consumes 22a's PSI safe-delete
-  > confirmations and the post-22a coverage baseline).
+  > confirmations, the post-22a coverage baseline, and the Phase C
+  > forwarded items in the backlog).
 
 - [ ] Track 22c: WHEN-FIXED Issue Creation & Marker Rewrite
   > Open YTDB tracking issues for production-fix WHEN-FIXED pins (the

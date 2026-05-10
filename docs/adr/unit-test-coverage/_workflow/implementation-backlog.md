@@ -71,6 +71,39 @@ Natural cleanup happens when the branch is deleted after PR merge. -->
 > - Track-13 forwarded deletion clusters (4 surfaces): `SerializableWrapper`,
 >   `RecordSerializationDebug`, `RecordSerializationDebugProperty`,
 >   `MockSerializer` (sentinel — already in narrow-singleton list above).
+> - Track-22a-Phase-C forwarded deletion candidate:
+>   `BasicCommandContext.copy()` — Track 22a's track-level review
+>   (PF-2 / BC-22a-2) confirmed via PSI find-usages that the only
+>   production caller is the recursive self-call at line 496; no
+>   external production caller exists. The new
+>   `BasicCommandContextStandaloneTest.copyWithNonNullChildDeepCopiesChildAndRewritesParent`
+>   pin (F9) becomes obsolete when the method is deleted — the
+>   atomic per-cluster commit deletes both. Partial-class-trim case
+>   (keep `BasicCommandContext`, delete `copy()` + `setChild` /
+>   `getChild` and the two pin tests). 22b Phase A re-confirms PSI
+>   safe-delete classification before deletion (the method is on the
+>   public `CommandContext` interface, so an external implementer
+>   could still call it — verify with `mcp-steroid://ide/safe-delete`
+>   against `CommandContext.copy`).
+> - Track-22a-Phase-C forwarded license-header normalization (folded
+>   into per-cluster commits, no separate step): when a 22b cluster's
+>   atomic commit touches a directory containing files with the
+>   inconsistent license headers surfaced by 22a's CQ7 / TS6 (the
+>   7-line truncated stub, the malformed nested-asterisk shape, or
+>   no-header) and the file is not deleted by the cluster, normalize
+>   the header to the canonical 13-line form during the same commit.
+>   Affected files inventory carried in 22a Phase C synthesis (CQ7):
+>   `core/src/test/.../cache/AbstractMapCacheTest.java`,
+>   `core/src/test/.../cache/RecordCacheWeakRefsTest.java`,
+>   `core/src/test/.../collate/DefaultCollateFactoryTest.java`,
+>   `core/src/test/.../conflict/RecordConflictStrategyFactoryTest.java`,
+>   `core/src/test/.../id/RecordIdTest.java`,
+>   `core/src/test/.../type/IdentityWrapperTest.java`,
+>   `core/src/test/.../dictionary/DictionaryDeadCodeTest.java`,
+>   `core/src/test/.../compression/CompressionInterfaceDeadCodeTest.java`,
+>   plus tx/Gremlin tests with no header. Files deleted by 22b skip
+>   normalization; the surviving subset is what gets the canonical
+>   header.
 >
 > **What** (Defer to 22c — likely SPI / external-consumer risk per
 > hybrid policy; YTDB issue created and marker rewritten, production
@@ -248,7 +281,30 @@ Natural cleanup happens when the branch is deleted after PR merge. -->
 >   truncation; the seven Track-17 latent issues (the most recent
 >   addition: `TokenSignImpl.readKeyFromConfig` unreachable inner
 >   branch — tokens cannot be verified across server restarts because
->   configured `NETWORK_TOKEN_SECRETKEY` is silently ignored).
+>   configured `NETWORK_TOKEN_SECRETKEY` is silently ignored);
+>   **MemoryAndLocalPaginatedEnginesInitializer.initialize() non-volatile
+>   flag race** (surfaced via Track 22a Phase C BC-22a-3) — the
+>   `private boolean initialized` field is read+written without volatile
+>   or synchronization; two threads racing on `initialize()` can both
+>   pass the `if (!initialized)` check and run `configureDefaults()`
+>   twice, re-mutating shared `GlobalConfiguration.DISK_CACHE_SIZE` /
+>   `WAL_RESTORE_BATCH_SIZE`. Pre-existing race; not introduced by 22a;
+>   the 22a `MemoryAndLocalPaginatedEnginesInitializerTest` is marked
+>   `@Category(SequentialTest)` to avoid surfacing it. Fix: declare
+>   the field `volatile`, or convert to `AtomicBoolean`, or wrap the
+>   init in `synchronized`. Issue body should pin the WHEN-FIXED
+>   marker location once the test gains a regression-stress assertion.
+>   **`RecordAbstract.dirty` public-field encapsulation** (surfaced
+>   via Track 22a Phase C CQ19 — RecordCacheWeakRefsTest's F19 fix
+>   needed direct field-write because `setDirty(long)` is gated by
+>   `checkForBinding` and post-commit unbound entities cannot mutate
+>   dirty via the public setter). The field is `public long` — a
+>   leaked-implementation seam. Refactor options: (a) demote to
+>   package-private + provide a package-internal `markDirty()` test
+>   helper; (b) provide an unguarded `RecordAbstract#testOnlyForceDirty()`
+>   package-private helper. Either closes the public-field smell
+>   without losing the seam. Issue body must reference the
+>   RecordCacheWeakRefsTest sites that need the helper migration.
 >
 > **WHEN-FIXED inventory at start of 22c** (from previous Pre-Flight):
 > 164 distinct test files contain WHEN-FIXED markers (440 markers
