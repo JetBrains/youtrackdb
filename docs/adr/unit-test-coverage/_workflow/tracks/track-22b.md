@@ -497,7 +497,7 @@ subset; the live subset stays covered by 22a's tests.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (4/14 complete)
+- [ ] Step implementation (5/14 complete)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -769,7 +769,8 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   >
   > **Implementer commit:** `40519a757c`
 
-- [ ] Step 4: Delete narrow singletons batch (5 sub-targets)
+- [x] Step 4: Delete narrow singletons batch (3 of 5 sub-targets after PSI re-classification)
+  - [x] Context: safe
   > **Risk:** medium — mixed nature: partial-method-body trim for
   > `CronExpression.getTimeZone()` lazy-fallback `if` BRANCH
   > requires PSI per-line precision (Phase B implementer enumerates
@@ -791,6 +792,76 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   > affects the method signature per T9). The
   > `CronExpressionDeadCodeTest` pin's branch-asserting test methods
   > are removed in lockstep.
+  >
+  > **What was done:** Deleted Cluster D (narrow-singletons) as a
+  > single bisectable cluster commit covering the 3 still-actionable
+  > sub-targets after Phase B's PSI safe-delete pass: full delete of
+  > `IndexConfigProperty` + its pin, full delete of the
+  > `IndexCursor` 4-class family
+  > (`IndexCursor`/`IndexAbstractCursor`/`IndexKeyCursor`/`IndexCursorStream`)
+  > + `IndexCursorClusterDeadCodeTest` pin, and removal of the
+  > test-only `Blob.fromInputStream(InputStream, int)` overload + its
+  > `RecordBytes` implementation + `EMPTY_SOURCE` constant +
+  > `RecordBytesTestOnlyOverloadTest` pin. Per the broadened
+  > cluster-commit-shape rule, 7 `DBRecordBytesTest` methods that
+  > directly called the deleted overload were removed in lockstep
+  > (along with `SMALL`/`BIG`/`FULL_ARRAY` constants, `inputStream`/
+  > `emptyStream` fields, `setUp()` initializer, and unused imports).
+  > `cluster-disposition.md` Cluster D row marked `deleted` with a
+  > "Cluster D PSI re-classification" note recording the two dropped
+  > sub-targets. Targeted tests pass (131/131); Spotless clean;
+  > coverage gate PASSED 100%/100% on changed lines.
+  >
+  > **What was discovered:** Two of the five plan-listed sub-targets
+  > re-classified as alive by Phase B's PSI safe-delete pass and
+  > dropped from the deletion commit:
+  > 1. `EntityLinkSetImpl` partial-class-trim — PSI shows the only
+  >    methods with zero direct receiver-typed refs are
+  >    `setOwner(RecordElement)` and `addInternal(Identifiable)`,
+  >    both interface overrides (`RecordElement`,
+  >    `StorageBackedMultiValue`, `TrackedCollection`) reached
+  >    polymorphically by 10 production callers via `EntityImpl`,
+  >    `TrackedMultiValue`, `HelperClasses`. The overrides are
+  >    load-bearing for compile + runtime dispatch; cannot be
+  >    removed.
+  > 2. `CronExpression.getTimeZone()` lazy-fallback `if` branch —
+  >    PSI shows `ScheduledEvent.java:100` constructs
+  >    `new CronExpression(rule)` and never calls
+  >    `setTimeZone(...)`, so production hits the fallback first.
+  >    Trimming the branch would NPE inside `Calendar.getInstance(null)`
+  >    at five downstream call sites. The branch is alive.
+  >
+  > Iter-1 escalation thresholds (>2 additional 22c-defers OR >12
+  > cluster commits) were re-evaluated and NOT triggered; this is
+  > within-step refinement of one cluster's scope, not a cluster
+  > reclassification. **Cross-track observation:**
+  > `CronExpressionDeadCodeTest` remains retained — it pins other
+  > genuinely-dead `CronExpression` methods (`getTimeBefore`,
+  > `getFinalFireTime`, `clone`, `isSatisfiedBy`,
+  > `getNextInvalidTimeAfter`, `getExpressionSummary`) outside this
+  > step's scope, candidates for a future dead-code track. No
+  > 22b-scope concern. `EntityLinkSetImplTest` retained (covers
+  > live behaviour). The hand-off detail is captured in the
+  > `cluster-disposition.md` "Cluster D PSI re-classification"
+  > note for 22c filtering.
+  >
+  > **What changed from the plan:** Cluster D's footprint reduced
+  > from 5 to 3 sub-targets after PSI re-classification. The
+  > overall step count and downstream Steps 5–13 are unchanged;
+  > no inline-replan triggered.
+  >
+  > **Key files:**
+  > - 5 production deletions:
+  >   `IndexConfigProperty.java`, `IndexCursor.java`,
+  >   `IndexAbstractCursor.java`, `IndexKeyCursor.java`,
+  >   `IndexCursorStream.java`
+  > - Partial-trims: `Blob.java` (interface method),
+  >   `RecordBytes.java` (impl + constant)
+  > - 3 `*DeadCodeTest` deletions
+  > - `DBRecordBytesTest.java` 7-method drop + import cleanup
+  > - `cluster-disposition.md` Cluster D row + re-classification note
+  >
+  > **Implementer commit:** `be9e341192`
 
 - [ ] Step 5: Delete T2 reclassifications batch (5 small classes)
   > **Risk:** low — 5 simple full-class deletions, each PSI-
