@@ -1293,9 +1293,15 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   > 1-11 cluster commits are skipped automatically. Run
   > `./mvnw -pl core spotless:apply` after edits.
 
-- [ ] Step 13: Final verification + cluster-disposition.md commit
-  > **Risk:** low — mechanical end-of-track housekeeping. Runs
-  > `./mvnw -pl core -am clean package -P coverage`, then
+- [ ] Step 13: Final verification + cluster-disposition.md commit + coverage-gate regression tests
+  > **Risk:** medium — scope expanded mid-track per the Step 9
+  > cross-track discovery (cumulative gate failure on Steps 6 + 8
+  > modifications). Step now combines: (a) the original mechanical
+  > end-of-track housekeeping AND (b) targeted regression tests for
+  > the three under-covered surfaces surfaced at Step 9.
+  >
+  > **(a) End-of-track housekeeping** (unchanged):
+  > Runs `./mvnw -pl core -am clean package -P coverage`, then
   > `python3 .github/scripts/coverage-analyzer.py` (or the equivalent
   > flow used by Track 1) to refresh per-package baselines. Update
   > `docs/adr/unit-test-coverage/_workflow/coverage-baseline.md`
@@ -1308,3 +1314,40 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   > `./mvnw -pl core clean verify -P ci-integration-tests` if any
   > deletion touches integration-test-covered surfaces — Phase B
   > judges per the affected packages) to confirm the suite is green.
+  >
+  > **(b) Coverage-gate regression tests** (added at user direction
+  > after Step 9 mid-phase checkpoint): add targeted unit tests
+  > raising the cumulative-vs-`origin/develop` coverage gate above
+  > the 85% line / 70% branch thresholds. Three under-covered
+  > surfaces to cover (per the Step 9 episode's cross-track impact
+  > block):
+  > - `core/fetch/FetchHelper.java` — L137–149 instanceof chain
+  >   (the `buildFetchPlan` parser branch that handles
+  >   `EntityImpl`/`Identifiable`/embedded fetch plans); 11 of 25
+  >   line misses, 7 of 54 branch misses against the cumulative
+  >   diff.
+  > - `core/command/script/ScriptManager.java` — L83 / L88 fallback
+  >   factory branches for `"javascript"` / `"ecmascript"` when
+  >   `useGraal=false` on the test classpath.
+  > - `core/command/script/Jsr223ScriptExecutor.java` — L146
+  >   (the `CommandScriptException` pass-through arm of
+  >   `executeFunction`'s catch chain).
+  >
+  > Re-run the coverage gate after adding tests:
+  > ```
+  > python3 .github/scripts/coverage-gate.py \
+  >   --line-threshold 85 \
+  >   --branch-threshold 70 \
+  >   --compare-branch origin/develop \
+  >   --coverage-dir .coverage/reports
+  > ```
+  > Iterate (add more targeted tests) until the gate PASSES. If the
+  > regression set turns out to require disproportionate test work
+  > (e.g. > 200 LOC of new tests for a single instanceof chain),
+  > ESCALATE to inline-replan — the alternative path (accept the
+  > gate regression as new baseline) needs explicit user approval.
+  >
+  > Commit shape: prefer separate commits for the regression test
+  > additions (one per under-covered surface) vs the housekeeping
+  > commit. Bisectability is preserved (each test-only commit is
+  > independently revertable).
