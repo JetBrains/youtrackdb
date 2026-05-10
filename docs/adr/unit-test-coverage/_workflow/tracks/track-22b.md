@@ -497,7 +497,7 @@ subset; the live subset stays covered by 22a's tests.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (8/14 complete)
+- [ ] Step implementation (9/14 complete)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -1093,7 +1093,7 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   >
   > **Implementer commit:** `c4d6a6d6a4`
 
-- [ ] Step 8: Delete Track-10 forwarded `core/fetch/` partial cluster
+- [x] Step 8: Delete Track-10 forwarded `core/fetch/` partial cluster
   > **Risk:** medium — partial-scope deletion across a package with
   > preserved live consumer (`DepthFetchPlanTest` exercises live
   > branches of `FetchHelper.fetch(7-param)`,
@@ -1108,6 +1108,44 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   > any `core/fetch/` helper classes with zero callers. Pin
   > removal: `FetchHelperDeadCodeTest`'s method subset corresponding
   > to deleted methods.
+  >
+  > - [x] Context: info
+  >
+  > **What was done:** Trimmed Cluster H by deleting the single
+  > PSI-confirmed-dead method `FetchHelper.checkFetchPlanValid(String)`
+  > and its now-unused `StringSerializerHelper` import, then dropped
+  > the 13 `FetchHelperDeadCodeTest` pin methods that exclusively
+  > exercised it. Updated the test class Javadoc to reflect the
+  > partial-trim outcome (replacing the stale "WHEN-FIXED: delete
+  > core/fetch/ package" tag) and renamed the combined
+  > `buildFetchPlan`/`checkFetchPlanValid` pin test to drop the
+  > deleted-method invocation while preserving `buildFetchPlan`
+  > semantic probe coverage. `cluster-disposition.md` Cluster H
+  > marked `deleted`. Targeted tests 60/60; full coverage profile
+  > build green; gate 89.7% line / 80.0% branch on cumulative track
+  > diff (above thresholds); Spotless applied.
+  >
+  > **What was discovered:** PSI all-scope find-usages over every
+  > public/protected method on `FetchHelper`, `FetchPlan`,
+  > `FetchContext`, `FetchListener`, `RemoteFetchContext`,
+  > `RemoteFetchListener` showed only one method qualified for
+  > deletion (`checkFetchPlanValid`). The other methods the
+  > `*DeadCodeTest` filename suggests are dead are actually live:
+  > `isEmbedded`/`removeParsedFromMap`/`processRecordRidMap` have
+  > intra-`FetchHelper` self-refs; `buildFetchPlan`/`fetch`/`DEFAULT`/
+  > `DEFAULT_FETCHPLAN` are exercised by the live
+  > `DepthFetchPlanTest`. `FetchHelperDeadCodeTest` therefore became
+  > a partial pin (16 surviving tests over the live static surface).
+  > **Cross-track observation:** `FetchHelperDeadCodeTest` and
+  > `RemoteFetchContextTest` carry stale "WHEN-FIXED: delete
+  > core/fetch/ package" Javadoc tags — content is now valid
+  > live-surface pinning, so the markers are misleading but
+  > harmless. Pin-maintenance rename candidates for Step 12 or 22c;
+  > out of scope here. No impact on Steps 9–13.
+  >
+  > **What changed from the plan:** none.
+  >
+  > **Implementer commit:** `38563169ed`
 
 - [ ] Step 9: Delete Tracks 11+12+13 packed serialization-and-scheduler hygiene (7 small surfaces)
   > **Risk:** medium — override from HIGH-public-API category for
