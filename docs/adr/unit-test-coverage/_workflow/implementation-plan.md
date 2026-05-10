@@ -1875,7 +1875,7 @@ flowchart TD
   > ~8–10 deletion lockstep + ~1–2 marker-rewrite" steps; Phase A
   > may inline-pack deletion into the related coverage step.
 
-- [ ] Track 22a: Main Coverage Sweep — Transactions, Gremlin & Remaining Core
+- [x] Track 22a: Main Coverage Sweep — Transactions, Gremlin & Remaining Core
   > Write tests for transaction management, Gremlin integration, engine
   > lifecycle, exception/compression/config, and remaining uncovered core
   > packages (cache, id, conflict, dictionary, servlet, replication,
@@ -1883,17 +1883,49 @@ flowchart TD
   > subset of the deferred-cleanup queue accumulated by earlier tracks
   > (full inventory in the backlog).
   >
-  > **Scope:** ~6 steps covering main-package coverage sweep, smaller
-  > packages, and a final coverage-build verification step (re-runs
-  > `coverage-analyzer.py` and updates `coverage-baseline.md` after
-  > 22a's test additions). Aggregate target after 22a: ~81–82% line /
-  > ~70% branch (pre-22b denominator drop).
+  > **Track episode:**
+  > Built ~95 net-new JUnit 4 test classes covering `core/tx`,
+  > `core/gremlin`, `core/engine` lifecycle, the exception fan
+  > (parameterized PSI throw-site filter), and the smaller live-package
+  > cluster (cache, id, conflict, collate, type, replication,
+  > api/exception, api/config, servlet no-op). Step 7 added 5
+  > `*DeadCodeTest` shape pins for the deletion-lockstep follow-up.
+  > Step 8 fixed five inherited production bugs in lockstep with
+  > regression tests (LRUCache off-by-one, BasicCommandContext.copy()
+  > null-child NPE, MemoryAndLocalPaginatedEnginesInitializer
+  > arg-swap + Object cast varargs disambiguation, EntityImpl
+  > `OPPOSITE_LINK_CONTAINER_PREFIX` final, BinarySerializerFactory
+  > NullSerializer.INSTANCE swap). Step 9 hoisted a `newContext()`
+  > helper into `TestUtilsFixture` and swept tautological
+  > `assertNotNull` calls. Step 10 re-ran `coverage-analyzer.py` and
+  > recorded the post-track baseline (80.3% line / 69.9% branch —
+  > below the ~82–83% target by design; the deletion-lockstep
+  > follow-up's denominator drop closes the gap).
   >
-  > **Depends on:** Track 1
+  > Phase C track-level review ran 3 iterations against a 12.8K-line
+  > cumulative diff with 6 dimensional reviewers: iter-1 applied 8
+  > mechanical assertion-strength fixes; iter-2 applied 11 logic
+  > improvements + the missing coverage-gap test for the
+  > BasicCommandContext.copy non-null-child arm; iter-3 gate cleared
+  > with PASS across all four re-run dimensions (19 should-fix
+  > findings applied across ~22 test files; 0 blockers persisted; 26
+  > suggestions deferred). Three discoveries surfaced: (1)
+  > `RecordAbstract.dirty` is a `public long` field — needed direct
+  > field write + reflective `STATUS.LOADED` to set up the BiConsumer-
+  > effect observation in `RecordCacheWeakRefsTest` because
+  > `setDirty(long)` is gated by `checkForBinding()` and post-commit
+  > unbound entities cannot mutate dirty via the public setter; (2)
+  > PSI find-usages confirmed `BasicCommandContext.copy()` has zero
+  > non-recursive production callers — partial-class-trim deletion
+  > candidate forwarded to the deletion-lockstep follow-up; (3) the
+  > pre-existing non-volatile race on
+  > `MemoryAndLocalPaginatedEnginesInitializer.initialized` is real
+  > but masked in the test surface by the `@Category(SequentialTest)`
+  > guard. (1) and (3) flagged as YTDB issues for the marker-rewrite
+  > follow-up; (2) folded into the deletion-lockstep follow-up's
+  > backlog as one cluster.
   >
-  > **Operational note:** see backlog § Inherited absorption queue for
-  > recovery context, the iter-1 mechanical-fix audit, and the Phase A
-  > re-validation protocol.
+  > **Step file:** `tracks/track-22a.md` (10 steps, 0 failed)
 
 - [ ] Track 22b: In-Track Dead-Code Deletion Lockstep
   > Atomic per-cluster commits removing dead production code together
