@@ -8,6 +8,8 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
+import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
@@ -340,6 +342,133 @@ public class DirectMemoryOnlyDiskCacheLoadOrAddTest {
   }
 
   /**
+   * verifyChecksums parity on the load branch: after an extend with
+   * {@code verifyChecksums=true}, a second {@code loadOrAdd} on the same index with
+   * {@code verifyChecksums=true} must take the load branch — observe the already-installed
+   * entry by identity and return without re-extending. The in-memory engine has no on-disk
+   * checksum to verify, so honouring the flag on this branch would be a regression
+   * (silent corruption or unexpected throw); pin the documented "flag is ignored" semantics
+   * on the load branch the existing {@code verifyChecksumsTrueIsIgnoredOnInMemoryEngine}
+   * test only covers on the extend branch.
+   */
+  @Test
+  public void verifyChecksumsTrueIsIgnoredOnLoadBranch() {
+    final var first = cache.loadOrAdd(fileId, 0L, /* verifyChecksums= */ true);
+    final CachePointer second;
+    try {
+      assertEquals(
+          "verifyChecksums=true on extend must still advance the watermark to 1",
+          1L,
+          cache.getFilledUpTo(fileId));
+      second = cache.loadOrAdd(fileId, 0L, /* verifyChecksums= */ true);
+    } finally {
+      first.decrementReadersReferrer();
+    }
+    try {
+      assertSame(
+          "load branch with verifyChecksums=true must observe the previously-installed "
+              + "page; identity equality guarantees the flag did not trigger a re-extend "
+              + "or a silent install",
+          first,
+          second);
+      assertEquals(
+          "load branch must not flip the LSN on a verifyChecksums=true probe",
+          new LogSequenceNumber(-1, -1),
+          DurablePage.getLogSequenceNumberFromPage(second.getBuffer()));
+    } finally {
+      second.decrementReadersReferrer();
+    }
+    assertEquals(
+        "verifyChecksums=true on the load branch must not advance the watermark further",
+        1L,
+        cache.getFilledUpTo(fileId));
+  }
+
+  /**
+   * verifyChecksums parity on the gap-fill branch: calling {@code loadOrAdd(fileId, 5,
+   * true)} on a fresh file must take the gap-fill branch identically to the
+   * {@code verifyChecksums=false} sibling test ({@link
+   * #gapFillBranchAllocatesEntireGapAndReturnsTargetPointer}). Same watermark advance,
+   * same magic-stamped LSN on every gap page, no exception. A regression that started
+   * honouring the flag on the gap-fill branch — for example by throwing on the
+   * intermediate pages or by short-circuiting the loop — would surface here.
+   */
+  @Test
+  public void verifyChecksumsTrueIsIgnoredOnGapFillBranch() {
+    assertEquals("fresh file must start at 0 pages", 0L, cache.getFilledUpTo(fileId));
+
+    final var target = cache.loadOrAdd(fileId, 5L, /* verifyChecksums= */ true);
+    try {
+      assertNotNull(
+          "verifyChecksums=true must not change the gap-fill totality contract", target);
+      assertEquals(
+          "gap-fill with verifyChecksums=true must return the target index",
+          5,
+          target.getPageIndex());
+      assertEquals(
+          "gap-fill must stamp the target with LSN(-1,-1) regardless of the flag",
+          new LogSequenceNumber(-1, -1),
+          DurablePage.getLogSequenceNumberFromPage(target.getBuffer()));
+    } finally {
+      target.decrementReadersReferrer();
+    }
+    assertEquals(
+        "verifyChecksums=true on gap-fill must advance the watermark to pageIndex + 1",
+        6L,
+        cache.getFilledUpTo(fileId));
+
+    // Each gap page must be subsequently observable: a load-branch probe with
+    // verifyChecksums=true must return a non-null pointer for every index in [0, 4] with
+    // the magic-stamped LSN intact. A regression that wrote a non-magic LSN on
+    // intermediate gap pages under verifyChecksums=true would surface here.
+    for (int i = 0; i < 5; i++) {
+      final var gapPointer = cache.loadOrAdd(fileId, i, /* verifyChecksums= */ true);
+      try {
+        assertNotNull(
+            "verifyChecksums=true gap page " + i + " must be installed and observable",
+            gapPointer);
+        assertEquals(
+            "verifyChecksums=true gap page " + i + " must carry LSN(-1,-1)",
+            new LogSequenceNumber(-1, -1),
+            DurablePage.getLogSequenceNumberFromPage(gapPointer.getBuffer()));
+      } finally {
+        gapPointer.decrementReadersReferrer();
+      }
+    }
+    assertEquals(
+        "verifyChecksums=true load-branch probes on gap pages must not advance the watermark",
+        6L,
+        cache.getFilledUpTo(fileId));
+  }
+
+  /**
+   * {@code loadIfPresent} smoke contract: the in-memory engine deliberately does NOT
+   * implement {@code loadIfPresent} — the read-cache surface ({@link
+   * DirectMemoryOnlyDiskCache#loadForRead}) probes the {@link MemoryFile} map directly and
+   * never delegates to a {@code WriteCache.loadIfPresent} call. Any future caller that
+   * wires the in-memory engine into a code path that expects the silent-probe primitive
+   * must surface the unwired call site as an {@link UnsupportedOperationException} rather
+   * than silently returning {@code null} (which would mis-classify "page absent" as
+   * "page absent on disk but already cached"). This test pins the documented contract so a
+   * regression that returned {@code null} (or threw a different exception type) would fail
+   * loudly here; the disk-engine parallel lives in {@code WOWCacheLoadIfPresentTest}.
+   */
+  @Test
+  public void loadIfPresentThrowsUnsupportedOperationException() {
+    assertThrows(
+        "loadIfPresent on the in-memory engine must surface UnsupportedOperationException "
+            + "as a fail-fast signal for an unwired caller",
+        UnsupportedOperationException.class,
+        () -> cache.loadIfPresent(fileId, 0L, /* verifyChecksums= */ false));
+    // verifyChecksums=true must surface the same contract — the throw is unconditional and
+    // happens before the flag is read.
+    assertThrows(
+        "loadIfPresent with verifyChecksums=true must surface UOE identically",
+        UnsupportedOperationException.class,
+        () -> cache.loadIfPresent(fileId, 0L, /* verifyChecksums= */ true));
+  }
+
+  /**
    * Cross-file isolation: a {@code loadOrAdd} against fileA must not install pages in fileB.
    * A regression that stored the per-file map at the cache level (instead of per
    * {@code MemoryFile}) would silently bleed pages between files and corrupt every caller
@@ -443,6 +572,148 @@ public class DirectMemoryOnlyDiskCacheLoadOrAddTest {
       assertTrue(
           "executor must terminate cleanly", pool.awaitTermination(5, TimeUnit.SECONDS));
     }
+  }
+
+  /**
+   * {@code framePool} leak accounting on the install-race loser side: under N-thread
+   * contention on the same {@code (fileId, pageIndex)}, exactly one installer wins the
+   * {@code putIfAbsent} race and (N-1) installers lose. Every loser MUST release its
+   * freshly-acquired pageFrame back to the
+   * {@link com.jetbrains.youtrackdb.internal.common.directmemory.PageFramePool} via
+   * {@code cachePointer.decrementReferrer()} inside {@link MemoryFile#installEmptyPage}.
+   * A regression that dropped the loser-side {@code decrementReferrer} would leak (N-1)
+   * frames per call: the frames stay live, never return to the pool, and the
+   * process-wide pool would slowly drain over time.
+   *
+   * <p><b>Why {@code getPoolSize()} alone is not enough.</b> The page-frame pool is a
+   * JVM-singleton shared across every cache test in the same fork, so other tests in
+   * this class (and tests run before this one in the same Surefire fork) may have left
+   * the pool partially populated. Each call to {@code framePool.acquire} pops a frame
+   * from the pool when available and only allocates fresh memory when the pool is empty.
+   * A naive {@code poolSize-after-race vs poolSize-before-race} delta therefore depends
+   * on how many of the {@code threads} acquires hit the pool vs allocated fresh — which
+   * is non-deterministic and gives a moving target.
+   *
+   * <p><b>The right invariant.</b> Decompose every acquire into {@code freshAllocation}
+   * (allocator hit, increments {@code memoryConsumption}) or {@code pooledAcquire}
+   * (pool hit, no allocator change). Then:
+   * <pre>
+   *   totalAcquires      = threads
+   *   freshAllocations   = (memAfter - memBefore) / pageSize     // from allocator delta
+   *   pooledAcquires     = totalAcquires - freshAllocations
+   *   poolNetDelta       = poolAfter - poolBefore                // observed
+   *   releasesToPool     = poolNetDelta + pooledAcquires         // every pool pop must
+   *                                                              // be matched by a push
+   *                                                              // for the size to net out
+   * </pre>
+   * After the race (before the test releases the cache's referrer): every loser must
+   * have released its frame, so {@code releasesToPool >= threads - 1}. After
+   * {@code cache.deleteFile(fileId)}: the winner's frame is also released, so
+   * {@code releasesToPool >= threads}.
+   *
+   * <p>The {@code >=} accommodates concurrent test infrastructure that may release
+   * unrelated frames during the test, but the floor is exact and falsifiable: a
+   * regression that drops the loser-side decrement would fail the first assertion
+   * because {@code releasesToPool} would be 0 instead of {@code threads - 1}.
+   */
+  @Test
+  public void framePoolLeakAccountingOnConcurrentInstallers() throws Exception {
+    final int threads = 16;
+    final var framePool = ByteBufferPool.instance(null).pageFramePool();
+    final var allocator = DirectMemoryAllocator.instance();
+    final int poolBefore = framePool.getPoolSize();
+    final long memBefore = allocator.getMemoryConsumption();
+    final var pool = Executors.newFixedThreadPool(threads);
+    try {
+      final var startGate = new CountDownLatch(1);
+      final List<Future<CachePointer>> futures = new ArrayList<>(threads);
+      for (int i = 0; i < threads; i++) {
+        futures.add(
+            pool.submit(
+                (Callable<CachePointer>) () -> {
+                  startGate.await();
+                  return cache.loadOrAdd(fileId, 0L, false);
+                }));
+      }
+      startGate.countDown();
+
+      // Drain every Future before measuring pool state — Future.get is a happens-after
+      // of the worker's loadOrAdd return, which is itself a happens-after of the
+      // loser-side decrementReferrer call (the decrementReferrer happens inside
+      // installEmptyPage, which is on the worker's call stack).
+      final List<CachePointer> returned = new ArrayList<>(threads);
+      try {
+        for (final var f : futures) {
+          returned.add(f.get(10, TimeUnit.SECONDS));
+        }
+        // Decompose the 16 acquires into "from pool" vs "fresh allocation" via the
+        // allocator's memoryConsumption delta. PAGE_SIZE-aligned because every
+        // acquire allocates exactly one page; a regression breaking this alignment
+        // would surface as a divide-with-remainder, which the assertions below catch.
+        final long memAfterRace = allocator.getMemoryConsumption();
+        final long memDelta = memAfterRace - memBefore;
+        assertEquals(
+            "allocator delta must be a whole number of PAGE_SIZE allocations; got "
+                + memDelta + " for pageSize=" + PAGE_SIZE,
+            0L,
+            memDelta % PAGE_SIZE);
+        final long freshAllocations = memDelta / PAGE_SIZE;
+        assertTrue(
+            "fresh allocations cannot exceed total acquires (" + threads + "); got "
+                + freshAllocations,
+            freshAllocations >= 0 && freshAllocations <= threads);
+        final long pooledAcquires = threads - freshAllocations;
+
+        // (threads - 1) loser frames must have been released by now: the cache still
+        // holds the winner's frame via the per-MemoryFile content map, but every
+        // loser released its freshly-acquired frame back to the pool. A regression
+        // dropping the loser-side decrementReferrer would leave releasesToPool == 0
+        // here (the loser holds a live CachePointer that never enters the pool).
+        final int poolAfterRace = framePool.getPoolSize();
+        final long releasesToPoolAfterRace = poolAfterRace - poolBefore + pooledAcquires;
+        assertTrue(
+            "loser-side decrementReferrer must return (threads - 1) frames to the "
+                + "pool; poolBefore=" + poolBefore + " poolAfterRace=" + poolAfterRace
+                + " pooledAcquires=" + pooledAcquires + " freshAllocations="
+                + freshAllocations + " releasesToPool=" + releasesToPoolAfterRace
+                + " expected releasesToPool >= " + (threads - 1),
+            releasesToPoolAfterRace >= threads - 1);
+      } finally {
+        for (final var p : returned) {
+          p.decrementReadersReferrer();
+        }
+      }
+    } finally {
+      pool.shutdownNow();
+      assertTrue(
+          "executor must terminate cleanly", pool.awaitTermination(5, TimeUnit.SECONDS));
+    }
+
+    // After dropping the cache's reference via deleteFile, the winner's frame must
+    // also return to the pool: total releasesToPool >= threads. deleteFile calls
+    // MemoryFile.clear, which decrements every entry's referrer, which routes the
+    // winner's frame back to the pool via CachePointer.decrementReferrer.
+    cache.deleteFile(fileId);
+    final long memAfterDelete = allocator.getMemoryConsumption();
+    final long memDeltaDelete = memAfterDelete - memBefore;
+    assertEquals(
+        "post-delete allocator delta must remain PAGE_SIZE-aligned",
+        0L,
+        memDeltaDelete % PAGE_SIZE);
+    final long freshAllocationsDelete = memDeltaDelete / PAGE_SIZE;
+    // Note: the deleteFile path does not free direct memory (the pool retains the
+    // frames), so freshAllocationsDelete may equal freshAllocations from earlier or
+    // be larger if an excess-frame deallocation fired during release. Either way the
+    // identity below holds: every pop must be matched by a push.
+    final long pooledAcquiresDelete = threads - freshAllocationsDelete;
+    final int poolAfterDelete = framePool.getPoolSize();
+    final long releasesToPoolAfterDelete = poolAfterDelete - poolBefore + pooledAcquiresDelete;
+    assertTrue(
+        "cache.deleteFile must release the winner's frame; releasesToPool="
+            + releasesToPoolAfterDelete + " (poolBefore=" + poolBefore
+            + " poolAfterDelete=" + poolAfterDelete + " pooledAcquires="
+            + pooledAcquiresDelete + ") expected >= " + threads,
+        releasesToPoolAfterDelete >= threads);
   }
 
   /**
