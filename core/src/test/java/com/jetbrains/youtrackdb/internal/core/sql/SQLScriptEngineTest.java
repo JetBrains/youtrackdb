@@ -189,14 +189,7 @@ public class SQLScriptEngineTest extends TestUtilsFixture {
   @Test
   public void evalReaderScriptContextThrowsUnsupportedOperation() {
     final var engine = new SQLScriptEngine(new SQLScriptEngineFactory());
-    final var ex =
-        assertThrows(
-            UnsupportedOperationException.class,
-            () -> engine.eval(new StringReader("SELECT 1"), new SimpleScriptContext()));
-    assertNotNull("UOE must carry a message describing the migration hint", ex.getMessage());
-    assertTrue(
-        "message must surface the migration hint: " + ex.getMessage(),
-        ex.getMessage().contains("use eval(String, Bindings) instead"));
+    assertReaderPathUoe(() -> engine.eval(new StringReader("SELECT 1"), new SimpleScriptContext()));
   }
 
   /** eval(String) with no bindings path throws the missing-db guard. */
@@ -215,14 +208,7 @@ public class SQLScriptEngineTest extends TestUtilsFixture {
   @Test
   public void evalReaderAloneThrowsUnsupportedOperation() {
     final var engine = new SQLScriptEngine(new SQLScriptEngineFactory());
-    final var ex =
-        assertThrows(
-            UnsupportedOperationException.class,
-            () -> engine.eval(new StringReader("SELECT 1")));
-    assertNotNull("UOE must carry a message describing the migration hint", ex.getMessage());
-    assertTrue(
-        "message must surface the migration hint: " + ex.getMessage(),
-        ex.getMessage().contains("use eval(String, Bindings) instead"));
+    assertReaderPathUoe(() -> engine.eval(new StringReader("SELECT 1")));
   }
 
   /** eval(String, Bindings) with null bindings throws. */
@@ -255,10 +241,18 @@ public class SQLScriptEngineTest extends TestUtilsFixture {
   @Test
   public void evalReaderNullBindingsThrowsUnsupportedOperation() {
     final var engine = new SQLScriptEngine(new SQLScriptEngineFactory());
-    final var ex =
-        assertThrows(
-            UnsupportedOperationException.class,
-            () -> engine.eval(new StringReader("SELECT 1"), (Bindings) null));
+    assertReaderPathUoe(() -> engine.eval(new StringReader("SELECT 1"), (Bindings) null));
+  }
+
+  /**
+   * Helper that consolidates the three reader-path UOE assertion sites. Pins both the
+   * exception type and the load-bearing migration-hint fragment so a regression that
+   * silently revived Reader evaluation, or stripped the {@code use eval(String, Bindings)
+   * instead} guidance from the message, would surface as an assertion failure at every
+   * call site.
+   */
+  private static void assertReaderPathUoe(final org.junit.function.ThrowingRunnable r) {
+    final var ex = assertThrows(UnsupportedOperationException.class, r);
     assertNotNull("UOE must carry a message describing the migration hint", ex.getMessage());
     assertTrue(
         "message must surface the migration hint: " + ex.getMessage(),

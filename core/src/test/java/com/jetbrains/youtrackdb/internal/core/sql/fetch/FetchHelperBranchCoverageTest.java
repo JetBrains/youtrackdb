@@ -28,6 +28,10 @@ import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.TestUtilsFixture;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Test;
 
 /**
@@ -58,11 +62,29 @@ public class FetchHelperBranchCoverageTest extends TestUtilsFixture {
    *
    * <p>The arms use <em>disjoint</em> single-element targets so the
    * {@code parsedRecords}-keyed dedup cannot collapse the per-arm fan-out into a single
-   * sendRecord call. With four disjoint single-element arms (one Identifiable singleton,
-   * one LinkList member, one LinkSet member, one LinkMap entry), the expected count of
-   * distinct sendRecord invocations is exactly 4 — one per arm. Asserting that exact
-   * count is the falsifiable pin: a regression that drops any one of the four populated
-   * arms would reduce the count to ≤3.
+   * sendRecord call. The expected per-arm routing — verified empirically against the live
+   * production code in {@link FetchHelper} — is:
+   * <ul>
+   *   <li>{@code linkSingleton} → {@link FetchHelper}'s {@code fetchEntity} →
+   *       {@code RemoteFetchListener.fetchLinked} → {@code sendRecord}.
+   *   <li>{@code linkList} member → {@code fetchCollection} →
+   *       {@code RemoteFetchListener.fetchLinkedCollectionValue} → {@code sendRecord}.
+   *   <li>{@code linkSet} member → {@code fetchCollection} →
+   *       {@code RemoteFetchListener.fetchLinkedCollectionValue} → {@code sendRecord}.
+   *   <li>{@code linkMap} entry → {@code fetchMap} → {@code parseLinked}; does NOT call
+   *       {@code sendRecord}. (See FetchHelper.fetchMap line ~752: the else-branch of the
+   *       {@code !validPosition || fieldDepthLevel == iLevelFromRoot} guard.)
+   * </ul>
+   *
+   * <p>So three of the four populated multi-value arms route a distinct RID through
+   * {@code sendRecord}, and the fourth (linkMap) is observable only by its <em>absence</em>
+   * from {@code observed}. The falsifiable per-arm pin captured below combines (a) a size
+   * pin (exactly 3 distinct sendRecord invocations) and (b) explicit
+   * {@code observed.contains(armRid)} / {@code !observed.contains(armRid)} assertions for
+   * each of the four arms. A regression that drops any of linkSingleton / linkList /
+   * linkSet would flip the contains() pin for that arm; a regression that re-routed
+   * fetchMap's else-branch through {@code sendRecord} would flip the linkMap doesNotContain
+   * pin.
    */
   @Test
   public void fetchExercisesEveryInstanceofArmInProcessRecordRidMap() {
@@ -75,37 +97,53 @@ public class FetchHelperBranchCoverageTest extends TestUtilsFixture {
     final var rootId = session.computeInTx(
         tx -> ((EntityImpl) session.newEntity("BranchCovRoot")).getIdentity());
 
-    // Expected distinct sendRecord invocations is 3: the linkList, linkSet, and linkMap
-    // arms each fan out exactly one element via the recursive
-    // fetchCollection/fetchMap path that calls sendRecord. The linkSingleton arm, by
-    // contrast, drives the recursive fetchEntity path which detects the target as already
-    // visited at level 1 (it was enqueued by processRecordRidMap) and routes through
-    // parseLinked instead of sendRecord. Asserting exactly 3 falsifies (a) any arm-drop
-    // regression that would reduce the count below 3, and (b) any regression that flipped
-    // fetchEntity's singleton path into sendRecord — which would push the count to 4.
+    // Carriers for the per-arm wired RIDs, populated inside executeInTx so the membership
+    // assertions below can pin per-arm routing (not just the aggregate count).
+    final AtomicReference<RID> singletonRid = new AtomicReference<>();
+    final AtomicReference<RID> listMemberRid = new AtomicReference<>();
+    final AtomicReference<RID> setMemberRid = new AtomicReference<>();
+    final AtomicReference<RID> mapMemberRid = new AtomicReference<>();
+
+    // Verified per-arm sendRecord routing (see Javadoc above): linkSingleton, linkList,
+    // and linkSet each contribute one distinct RID to observed; linkMap routes through
+    // parseLinked and contributes nothing. So the size pin is 3 — drop any of the first
+    // three and size ≤ 2; flip the linkMap arm to sendRecord and size = 4.
     final int expectedDistinctSendRecord = 3;
 
     session.executeInTx(tx -> {
       EntityImpl root = tx.load(rootId);
 
-      // Arm 1: Identifiable singleton — short-circuits the multi-value cascade.
-      root.setProperty("linkSingleton",
-          (EntityImpl) session.newEntity("BranchCovTarget"));
+      // Arm 1: Identifiable singleton — short-circuits the multi-value cascade. Verified
+      // to drive fetchEntity → fetchLinked → sendRecord.
+      final var singleton = (EntityImpl) session.newEntity("BranchCovTarget");
+      root.setProperty("linkSingleton", singleton);
+      singletonRid.set(singleton.getIdentity());
 
       // Arm 2: populated LinkList (Iterable + Collection of Identifiable). The
       // newLinkList/setProperty pathway wraps the target into EntityLinkListImpl so the
-      // runtime type passed to processRecordRidMap is Iterable<Identifiable>.
+      // runtime type passed to processRecordRidMap is Iterable<Identifiable>. Verified to
+      // drive fetchCollection → fetchLinkedCollectionValue → sendRecord.
+      final var listMember = (EntityImpl) session.newEntity("BranchCovTarget");
       final var linkList = root.newLinkList("linkList");
-      linkList.add(session.newEntity("BranchCovTarget"));
+      linkList.add(listMember);
+      listMemberRid.set(listMember.getIdentity());
 
       // Arm 3: populated LinkSet — a different Iterable<Identifiable> implementation.
+      // Verified to drive fetchCollection → fetchLinkedCollectionValue → sendRecord.
+      final var setMember = (EntityImpl) session.newEntity("BranchCovTarget");
       final var linkSet = root.newLinkSet("linkSet");
-      linkSet.add(session.newEntity("BranchCovTarget"));
+      linkSet.add(setMember);
+      setMemberRid.set(setMember.getIdentity());
 
       // Arm 4: populated LinkMap — Map<String, Identifiable>. Drives the Map arm
-      // including the values().iterator().next() instanceof Identifiable check.
+      // including the values().iterator().next() instanceof Identifiable check at the
+      // processRecordRidMap pre-walk, but downstream fetchMap routes through parseLinked
+      // (else branch of the fieldDepthLevel guard at FetchHelper.fetchMap ~line 752), so
+      // this arm does NOT contribute to sendRecord.
+      final var mapMember = (EntityImpl) session.newEntity("BranchCovTarget");
       final var linkMap = root.newLinkMap("linkMap");
-      linkMap.put("k0", session.newEntity("BranchCovTarget"));
+      linkMap.put("k0", mapMember);
+      mapMemberRid.set(mapMember.getIdentity());
 
       // Arm 5: empty LinkList — the isEmpty / hasNext branches of the Iterable + Collection
       // arms evaluate true, exercising the short-circuit paths.
@@ -115,15 +153,21 @@ public class FetchHelperBranchCoverageTest extends TestUtilsFixture {
       root.newLinkMap("emptyLinkMap");
 
       // Arm 7: non-Identifiable EmbeddedMap. The first value is a String — the
-      // Map.values().iterator().next() instanceof Identifiable check evaluates FALSE, so the
-      // skip branch is taken for this field. Pinned to drive the "false" leg of that branch.
+      // Map.values().iterator().next() instanceof Identifiable check evaluates FALSE, so
+      // the AND-cascade in processRecordRidMap's filter (FetchHelper.java line ~131–157)
+      // proceeds to the trailing !containsIdentifiers(fieldValue) clause; containsIdentifiers
+      // walks the Map values and finds no Identifiable, so the field is skipped (continue
+      // branch). Pinned to drive the trailing-safety-net leg on a Map-of-strings.
       final var stringMap = root.newEmbeddedMap("stringMap");
       stringMap.put("k", "v");
 
-      // Arm 8: populated EmbeddedList of strings — drives the
-      // Collection.iterator().next() instanceof Identifiable=false branch in
-      // processRecordRidMap's Collection arm. LinkList of Identifiable covered the same arm
-      // with =true; both branches are required for branch coverage.
+      // Arm 8: populated EmbeddedList of strings — exercises the trailing
+      // !containsIdentifiers(fieldValue) clause for an Iterable+Collection of non-
+      // Identifiables (the Iterable arm's first-element check sees a String, so the cascade
+      // continues; the Collection arm's first-element check also sees a String; finally
+      // containsIdentifiers returns false and the field is skipped). The LinkList of
+      // Identifiable (Arm 2) covered the recurse-on-match leg of the same surface — Arm 8
+      // exercises its complement.
       final var stringList = root.newEmbeddedList("stringList");
       stringList.add("a");
       stringList.add("b");
@@ -135,10 +179,9 @@ public class FetchHelperBranchCoverageTest extends TestUtilsFixture {
       stringSet.add("x");
 
       // Arm 10: EmbeddedList of 32-bit integer wrappers — a Collection of non-Identifiable
-      // wrappers, complementary to the String EmbeddedList of Arm 8. Drives the same
-      // Collection-of-non-Identifiable arm of the instanceof cascade with a different
-      // element type so the false-leg evaluation is exercised through more than one
-      // runtime element class.
+      // wrappers, complementary to the String EmbeddedList of Arm 8. Exercises the same
+      // trailing-safety-net leg with a non-String element type so the false-leg evaluation
+      // is exercised through more than one runtime element class.
       final var intList = root.newEmbeddedList("intList");
       intList.add(1);
       intList.add(2);
@@ -185,17 +228,54 @@ public class FetchHelperBranchCoverageTest extends TestUtilsFixture {
       return listener;
     });
 
-    // Falsifiable post-condition: each populated multi-value arm (list, set, map) must
-    // fan out exactly one element via sendRecord. The linkSingleton arm goes through
-    // parseLinked rather than sendRecord (the target is already at level 1 via
-    // processRecordRidMap), so the observed sendRecord count is 3 for both non-shallow
-    // formats — drop any arm and the count is ≤2, flip any non-sendRecord path to
-    // sendRecord and the count is ≥4. See expectedDistinctSendRecord above.
+    // Per-arm RID-membership pins for the non-shallow empty-format fetch. See the method
+    // Javadoc for the verified routing — these contains/doesNotContain assertions falsify
+    // (a) any arm-drop regression on linkSingleton / linkList / linkSet (their RID would
+    // disappear from observed) and (b) any regression that re-routed fetchMap's else
+    // branch through sendRecord (mapMember's RID would appear in observed). The size pin
+    // below is retained as defence-in-depth — any new arm landing in sendRecord that was
+    // not anticipated here would push size above expectedDistinctSendRecord.
+    assertTrue(
+        "linkSingleton must drive fetchEntity → fetchLinked → sendRecord: observed="
+            + emptyFormatListener.observed,
+        emptyFormatListener.observed.contains(singletonRid.get()));
+    assertTrue(
+        "linkList member must drive fetchCollection → fetchLinkedCollectionValue → "
+            + "sendRecord: observed=" + emptyFormatListener.observed,
+        emptyFormatListener.observed.contains(listMemberRid.get()));
+    assertTrue(
+        "linkSet member must drive fetchCollection → fetchLinkedCollectionValue → "
+            + "sendRecord: observed=" + emptyFormatListener.observed,
+        emptyFormatListener.observed.contains(setMemberRid.get()));
+    assertFalse(
+        "linkMap member must route through fetchMap → parseLinked, NOT sendRecord: "
+            + "observed=" + emptyFormatListener.observed,
+        emptyFormatListener.observed.contains(mapMemberRid.get()));
     assertEquals(
-        "non-shallow empty-format fetch must dispatch sendRecord for each multi-value "
-            + "arm: observed=" + emptyFormatListener.observed,
+        "non-shallow empty-format fetch must dispatch sendRecord exactly once per "
+            + "sendRecord-bound arm (linkSingleton/linkList/linkSet): observed="
+            + emptyFormatListener.observed,
         (long) expectedDistinctSendRecord,
         (long) emptyFormatListener.observed.size());
+
+    // Same per-arm pin under keepTypes — processFieldTypes runs but does not fan out
+    // additional records, so the membership pattern is identical.
+    assertTrue(
+        "linkSingleton must drive sendRecord under keepTypes: observed="
+            + keepTypesFormatListener.observed,
+        keepTypesFormatListener.observed.contains(singletonRid.get()));
+    assertTrue(
+        "linkList member must drive sendRecord under keepTypes: observed="
+            + keepTypesFormatListener.observed,
+        keepTypesFormatListener.observed.contains(listMemberRid.get()));
+    assertTrue(
+        "linkSet member must drive sendRecord under keepTypes: observed="
+            + keepTypesFormatListener.observed,
+        keepTypesFormatListener.observed.contains(setMemberRid.get()));
+    assertFalse(
+        "linkMap member must route through parseLinked under keepTypes: observed="
+            + keepTypesFormatListener.observed,
+        keepTypesFormatListener.observed.contains(mapMemberRid.get()));
     assertEquals(
         "non-shallow keepTypes-format fetch must dispatch the same per-arm fan-out "
             + "(processFieldTypes runs but does not fan out additional records): observed="
@@ -264,7 +344,7 @@ public class FetchHelperBranchCoverageTest extends TestUtilsFixture {
   public void isEmbeddedReturnsTrueForListContainingEmbeddedEntity() {
     final var observed = session.computeInTx(tx -> {
       final var embedded = (EntityImpl) session.newEmbeddedEntity();
-      final var list = new java.util.ArrayList<EntityImpl>();
+      final var list = new ArrayList<EntityImpl>();
       list.add(embedded);
       return FetchHelper.isEmbedded(list);
     });
@@ -394,18 +474,15 @@ public class FetchHelperBranchCoverageTest extends TestUtilsFixture {
   // ---------------------------------------------------------------------------
 
   /**
-   * Recording listener that captures the RID of every record dispatched through
-   * {@code sendRecord} as well as the total invocation count. The recording form lets
-   * tests pin per-arm fan-out by RID membership (robust to changes in dispatcher cadence)
-   * as well as total-count tests. Required to flip
-   * {@link RemoteFetchListener#requireFieldProcessing()} to true so the fast-path in
-   * {@code processRecord} does NOT skip the whole fetch when the plan singleton matches
-   * the default.
+   * Recording listener that captures the set of distinct RIDs dispatched through
+   * {@code sendRecord} so per-arm fan-out can be pinned by RID-set membership. Required
+   * to flip {@link RemoteFetchListener#requireFieldProcessing()} to true so the fast-path
+   * in {@code processRecord} does NOT skip the whole fetch when the plan singleton
+   * matches the default.
    */
   private static final class RecordingFetchListener extends RemoteFetchListener {
 
-    int count;
-    final java.util.Set<RID> observed = new java.util.HashSet<>();
+    final Set<RID> observed = new HashSet<>();
 
     @Override
     public boolean requireFieldProcessing() {
@@ -414,7 +491,6 @@ public class FetchHelperBranchCoverageTest extends TestUtilsFixture {
 
     @Override
     protected void sendRecord(RecordAbstract iLinked) {
-      count++;
       if (iLinked != null) {
         observed.add(iLinked.getIdentity());
       }

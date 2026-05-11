@@ -94,7 +94,12 @@ public class FetchHelperDeadCodeTest {
    * trim removed the explicit {@code checkFetchPlanValid} validation surface; now the
    * FetchPlan constructor itself is the only filter. This test enumerates a handful of
    * malformed shapes and pins the current observable: every non-empty malformed input
-   * surfaces as {@link IllegalArgumentException} from the parser.
+   * surfaces as a parser exception — {@link IllegalArgumentException} for shape-rejection
+   * cases (whitespace-only / multi-colon / no-colon) and {@link NumberFormatException} for
+   * trailing-colon (where the depth token fails to parse). Both are {@code RuntimeException}
+   * subclasses, but the trailing-colon assertion narrows from {@code RuntimeException} to
+   * the {@code NumberFormatException | IllegalArgumentException} pair so an unrelated
+   * regression (e.g., a parser NPE) does not silently pass.
    *
    * <p>The pin's value is that any future tightening or loosening of the parser surface
    * surfaces here: a regression that started accepting "key:1:2" silently, or that
@@ -112,11 +117,19 @@ public class FetchHelperDeadCodeTest {
     // Trailing colon: "ref:" splits to ["ref", ""], parseInt fails on the empty depth
     // token, surfacing as NumberFormatException (a RuntimeException subclass). A
     // regression that returned a default plan on parse failure would silently change the
-    // surface; pin via assertThrows on the supertype to tolerate either NFE or IAE.
-    assertThrows(
-        "trailing colon must surface a parse failure",
-        RuntimeException.class,
-        () -> FetchHelper.buildFetchPlan("ref:"));
+    // surface; pin via assertThrows on RuntimeException but immediately narrow to the
+    // NumberFormatException | IllegalArgumentException pair so unrelated unchecked-throw
+    // regressions (e.g. NullPointerException from a future dereference) cannot pass.
+    final var trailingColonEx =
+        assertThrows(
+            "trailing colon must surface a parse failure",
+            RuntimeException.class,
+            () -> FetchHelper.buildFetchPlan("ref:"));
+    assertTrue(
+        "expected NumberFormatException or IllegalArgumentException, got "
+            + trailingColonEx.getClass(),
+        trailingColonEx instanceof NumberFormatException
+            || trailingColonEx instanceof IllegalArgumentException);
 
     // Multi-colon: "key:1:2" has size 3 after splitting on ':' — the parser rejects with
     // IllegalArgumentException ("Wrong fetch plan: ...").
