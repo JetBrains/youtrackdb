@@ -20,10 +20,12 @@
 package com.jetbrains.youtrackdb.internal.core.sql;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandExecutorAbstract;
-import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
 
 /**
- * SQL abstract Command Executor implementation.
+ * SQL abstract Command Executor implementation. Only used as the namespace for the prefix
+ * constants below; {@link com.jetbrains.youtrackdb.internal.core.sql.SQLTarget} reads them when
+ * decoding SQL target literals (COLLECTION:, CLASS:, INDEX:, INDEXVALUES:, METADATA:, …). No
+ * production class currently extends this abstract scaffold.
  */
 public abstract class CommandExecutorSQLAbstract extends CommandExecutorAbstract {
 
@@ -39,15 +41,4 @@ public abstract class CommandExecutorSQLAbstract extends CommandExecutorAbstract
   public static final String METADATA_PREFIX = "METADATA:";
   public static final String METADATA_SCHEMA = "SCHEMA";
   public static final String METADATA_INDEXMGR = "INDEXMANAGER";
-
-  @Override
-  public boolean isIdempotent() {
-    return false;
-  }
-
-  @Override
-  protected void throwSyntaxErrorException(String dbName, final String iText) {
-    throw new CommandSQLParsingException(dbName,
-        iText + ". Use " + getSyntax(), parserText, parserGetPreviousPosition());
-  }
 }

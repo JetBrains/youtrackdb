@@ -27,7 +27,6 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.Collections;
 import com.jetbrains.youtrackdb.internal.core.collate.CollateFactory;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.command.CommandExecutor;
 import com.jetbrains.youtrackdb.internal.core.command.CommandExecutorAbstract;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternal;
@@ -36,7 +35,6 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingExcepti
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.filter.SQLFilter;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunction;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunctionFactory;
@@ -62,7 +60,6 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
-import java.util.regex.Pattern;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -70,10 +67,8 @@ public class SQLEngine {
 
   protected static final ReentrantLock LOCK = new ReentrantLock();
 
-  private static final Pattern REPLACE_PATTERN = Pattern.compile(" +");
   private static volatile List<SQLFunctionFactory> FUNCTION_FACTORIES = null;
   private static volatile List<SQLMethodFactory> METHOD_FACTORIES = null;
-  private static volatile List<CommandExecutorSQLFactory> EXECUTOR_FACTORIES = null;
   private static volatile List<QueryOperatorFactory> OPERATOR_FACTORIES = null;
   private static volatile List<CollateFactory> COLLATE_FACTORIES = null;
   private static volatile QueryOperator[] SORTED_OPERATORS = null;
@@ -268,43 +263,6 @@ public class SQLEngine {
   }
 
   /**
-   * Returns an iterator over all registered command executor factories.
-   *
-   * @return Iterator of all command factories
-   */
-  public static Iterator<CommandExecutorSQLFactory> getCommandFactories() {
-    if (EXECUTOR_FACTORIES == null) {
-      LOCK.lock();
-      try {
-        if (EXECUTOR_FACTORIES == null) {
-
-          final var ite =
-              lookupProviderWithYouTrackDBClassLoader(
-                  CommandExecutorSQLFactory.class, youTrackDbClassLoader);
-          final List<CommandExecutorSQLFactory> factories =
-              new ArrayList<>();
-          while (ite.hasNext()) {
-            try {
-              factories.add(ite.next());
-            } catch (Exception e) {
-              LogManager.instance()
-                  .warn(
-                      SQLEngine.class,
-                      "Cannot load CommandExecutorSQLFactory instance from service registry",
-                      e);
-            }
-          }
-
-          EXECUTOR_FACTORIES = java.util.Collections.unmodifiableList(factories);
-        }
-      } finally {
-        LOCK.unlock();
-      }
-    }
-    return EXECUTOR_FACTORIES.iterator();
-  }
-
-  /**
    * Iterates on all factories and append all function names.
    *
    * @return Set of all function names.
@@ -337,20 +295,6 @@ public class SQLEngine {
     final var ite = getCollateFactories();
     while (ite.hasNext()) {
       types.addAll(ite.next().getNames());
-    }
-    return types;
-  }
-
-  /**
-   * Iterates on all factories and append all command names.
-   *
-   * @return Set of all command names.
-   */
-  public static Set<String> getCommandNames() {
-    final Set<String> types = new HashSet<>();
-    final var ite = getCommandFactories();
-    while (ite.hasNext()) {
-      types.addAll(ite.next().getCommandNames());
     }
     return types;
   }
@@ -536,39 +480,6 @@ public class SQLEngine {
   public static void unregisterFunction(String iName) {
     iName = iName.toLowerCase(Locale.ENGLISH);
     DynamicSQLElementFactory.FUNCTIONS.remove(iName);
-  }
-
-  @Nullable public static CommandExecutor getCommand(String candidate) {
-    candidate = candidate.trim();
-    final var names = getCommandNames();
-    var commandName = candidate;
-    var found = names.contains(commandName);
-    var pos = -1;
-    while (!found) {
-      pos =
-          StringSerializerHelper.getLowerIndexOf(
-              candidate, pos + 1, " ", "\n", "\r", "\t", "(", "[");
-      if (pos > -1) {
-        commandName = candidate.substring(0, pos);
-        // remove double spaces
-        commandName = REPLACE_PATTERN.matcher(commandName).replaceAll(" ");
-        found = names.contains(commandName);
-      } else {
-        break;
-      }
-    }
-
-    if (found) {
-      final var ite = getCommandFactories();
-      while (ite.hasNext()) {
-        final var factory = ite.next();
-        if (factory.getCommandNames().contains(commandName)) {
-          return factory.createCommand(commandName);
-        }
-      }
-    }
-
-    return null;
   }
 
   public static SQLFilter parseCondition(

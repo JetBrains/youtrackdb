@@ -58,24 +58,22 @@ import org.junit.runners.MethodSorters;
 
 /**
  * Tests for {@link SQLEngine}'s SPI factory caches, the register/unregister mutation paths, and the
- * derived helpers (getFunction, getMethod, getCollate, getCommand) that consume them.
+ * derived helpers (getFunction, getMethod, getCollate) that consume them.
  *
  * <p>Covered contracts:
  *
  * <ul>
  *   <li>{@link SQLEngine#getFunctionFactories}, {@link SQLEngine#getMethodFactories},
- *       {@link SQLEngine#getOperatorFactories}, {@link SQLEngine#getCollateFactories},
- *       {@link SQLEngine#getCommandFactories} — lazy init + cache hit (the underlying list must be
- *       shared between calls, proven by verifying that both iterators surface the same factory
- *       instances in the same order).</li>
+ *       {@link SQLEngine#getOperatorFactories}, {@link SQLEngine#getCollateFactories} — lazy init +
+ *       cache hit (the underlying list must be shared between calls, proven by verifying that both
+ *       iterators surface the same factory instances in the same order).</li>
  *   <li>{@link SQLEngine#getRecordOperators} — {@code SORTED_OPERATORS} is cached after the first
  *       call (identity-equal array on subsequent reads) and invalidated by
  *       {@link SQLEngine#registerOperator}.</li>
  *   <li>{@link SQLEngine#scanForPlugins} only clears the {@code FUNCTION_FACTORIES} cache —
- *       {@code METHOD_FACTORIES}, {@code OPERATOR_FACTORIES}, {@code COLLATE_FACTORIES},
- *       {@code EXECUTOR_FACTORIES}, and {@code SORTED_OPERATORS} are NOT cleared. PIN this as a
- *       WHEN-FIXED regression for Track 22 (see
- *       {@link #zzzScanForPluginsOnlyClearsFunctionFactoriesCacheBugPin}).</li>
+ *       {@code METHOD_FACTORIES}, {@code OPERATOR_FACTORIES}, and {@code COLLATE_FACTORIES} are NOT
+ *       cleared. The asymmetry is pinned in
+ *       {@link #zzzScanForPluginsOnlyClearsFunctionFactoriesCacheBugPin}.</li>
  *   <li>{@link SQLEngine#registerFunction} / {@link SQLEngine#unregisterFunction} — dynamic
  *       registration via the shared {@code DynamicSQLElementFactory.FUNCTIONS} map, with
  *       case-insensitive lowercasing on both paths.</li>
@@ -83,19 +81,14 @@ import org.junit.runners.MethodSorters;
  *       built-in), unknown name (throws vs null), and the {@code "any"/"all"} special-function
  *       short-circuit.</li>
  *   <li>{@link SQLEngine#getMethod} — case-insensitive lookup. Pin that SQLEngine's lowercasing
- *       masks the {@link DefaultSQLMethodFactory#createMethod} case-sensitivity bug (T6 in Track 7
- *       review).</li>
+ *       masks the {@link DefaultSQLMethodFactory#createMethod} case-sensitivity bug.</li>
  *   <li>{@link SQLEngine#getCollate} — known name returns a non-null Collate, unknown returns
  *       null.</li>
- *   <li>{@link SQLEngine#getCommand} — known multi-word command returns a non-null executor,
- *       unknown returns null, trailing whitespace is trimmed.</li>
  * </ul>
  *
  * <p>This test is {@link SequentialTest} because it mutates process-wide static state — the
- * {@code DynamicSQLElementFactory.FUNCTIONS} and {@code DynamicSQLElementFactory.COMMANDS} maps
- * and the {@code DynamicSQLElementFactory.OPERATORS} set that back
- * {@link SQLEngine#registerFunction} and {@link SQLEngine#registerOperator} plus the dynamic
- * command registration path.
+ * {@code DynamicSQLElementFactory.FUNCTIONS} map and the {@code DynamicSQLElementFactory.OPERATORS}
+ * set that back {@link SQLEngine#registerFunction} and {@link SQLEngine#registerOperator}.
  *
  * <p><b>Ordering guarantee — intra-class only.</b>
  * {@link FixMethodOrder}{@code (NAME_ASCENDING)} orders methods within this one class; it does
@@ -115,7 +108,6 @@ import org.junit.runners.MethodSorters;
 public class SQLEngineSpiCacheTest extends DbTestBase {
 
   private Map<String, Object> functionsBefore;
-  private Map<String, Class<? extends CommandExecutorSQLAbstract>> commandsBefore;
   private Set<QueryOperator> operatorsBefore;
   private String uuidPrefix;
 
@@ -124,7 +116,6 @@ public class SQLEngineSpiCacheTest extends DbTestBase {
     // Full key+value snapshot — a test that overwrites an existing key with a different SQLFunction
     // would be missed by a key-only snapshot, which is precisely the regression we want to catch.
     functionsBefore = Map.copyOf(DynamicSQLElementFactory.FUNCTIONS);
-    commandsBefore = Map.copyOf(DynamicSQLElementFactory.COMMANDS);
     // Snapshot the OPERATORS set (NOT a live view — tests may remove the operator they added).
     // The HashSet constructor iterates the synchronized set; we must hold the monitor to
     // avoid a CME if any other fork mutates OPERATORS concurrently. (SequentialTest protects
@@ -144,7 +135,6 @@ public class SQLEngineSpiCacheTest extends DbTestBase {
     // Explicit teardown: remove anything we added. Tests that already cleaned up leave these no-ops
     // idempotent (removeIf is non-throwing).
     DynamicSQLElementFactory.FUNCTIONS.keySet().removeIf(k -> k.startsWith(uuidPrefix));
-    DynamicSQLElementFactory.COMMANDS.keySet().removeIf(k -> k.startsWith(uuidPrefix));
     DynamicSQLElementFactory.OPERATORS.removeIf(op -> op.keyword.startsWith(uuidPrefix));
 
     // Snapshot assertion: the FUNCTIONS map and OPERATORS set must be byte-for-byte the same as
@@ -154,9 +144,6 @@ public class SQLEngineSpiCacheTest extends DbTestBase {
     assertEquals(
         "FUNCTIONS map leaked static state between tests",
         functionsBefore, Map.copyOf(DynamicSQLElementFactory.FUNCTIONS));
-    assertEquals(
-        "COMMANDS map leaked static state between tests",
-        commandsBefore, Map.copyOf(DynamicSQLElementFactory.COMMANDS));
     // Hold the monitor on iteration to match the setup-time snapshot's contract.
     Set<QueryOperator> operatorsNow;
     synchronized (DynamicSQLElementFactory.OPERATORS) {
@@ -290,35 +277,8 @@ public class SQLEngineSpiCacheTest extends DbTestBase {
     }
   }
 
-  @Test
-  public void getCommandFactoriesIteratorContainsDefaultCommandExecutorSQLFactory() {
-    var classes = new ArrayList<>();
-    var ite = SQLEngine.getCommandFactories();
-    while (ite.hasNext()) {
-      classes.add(ite.next().getClass());
-    }
-    assertTrue(
-        "DefaultCommandExecutorSQLFactory must be in the command factory list: " + classes,
-        classes.contains(DefaultCommandExecutorSQLFactory.class));
-    assertTrue(
-        "DynamicSQLElementFactory must be in the command factory list: " + classes,
-        classes.contains(DynamicSQLElementFactory.class));
-  }
-
-  @Test
-  public void getCommandFactoriesReturnsCachedListOnSecondCall() {
-    var first = collect(SQLEngine.getCommandFactories());
-    var second = collect(SQLEngine.getCommandFactories());
-    assertEquals(first.size(), second.size());
-    for (var i = 0; i < first.size(); i++) {
-      assertSame("command factory instance must be shared; index=" + i,
-          first.get(i), second.get(i));
-    }
-  }
-
   // ===========================================================================
-  // Aggregated name queries — getFunctionNames / getMethodNames / getCollateNames /
-  // getCommandNames
+  // Aggregated name queries — getFunctionNames / getMethodNames / getCollateNames
   // ===========================================================================
 
   @Test
@@ -344,25 +304,6 @@ public class SQLEngineSpiCacheTest extends DbTestBase {
     var names = SQLEngine.getCollateNames();
     assertFalse("collate names must not be empty", names.isEmpty());
     assertTrue("default collate must be registered: " + names, names.contains("default"));
-  }
-
-  @Test
-  public void getCommandNamesMatchesSetupSnapshotBecauseProductionFactoriesRegisterNothingBugPin() {
-    // WHEN-FIXED: Track 22 — DefaultCommandExecutorSQLFactory (hardcoded emptyMap) and
-    // DynamicSQLElementFactory (never-populated COMMANDS, no production writers) contribute zero
-    // commands. SQLEngine.getCommandNames therefore aggregates only whatever
-    // DynamicSQLElementFactory.COMMANDS contained at setup time — which Step 5's SqlRootDeadCodeTest
-    // pins as empty in production. Assert equality against the setup-time snapshot rather than
-    // hard-coded isEmpty() so a prior test class in the same JVM fork that injected (and
-    // correctly cleaned up) its own COMMANDS entries does not invalidate this pin: leftover
-    // state from a failed prior test would still surface as non-empty BEFORE this test starts,
-    // not as an inequality here. Conversely, if a production fix ever adds a default command,
-    // the commandsBefore snapshot includes it and this test still passes — the pin catches
-    // production-side additions via the "Step 5 SqlRootDeadCodeTest" dead-code assertions, not
-    // via this aggregate.
-    assertEquals(
-        "getCommandNames must match setup-time snapshot (both default + dynamic register nothing)",
-        commandsBefore.keySet(), SQLEngine.getCommandNames());
   }
 
   // ===========================================================================
@@ -478,14 +419,13 @@ public class SQLEngineSpiCacheTest extends DbTestBase {
 
   @Test
   public void getMethodUppercaseNameResolvesMaskingFactoryBug() {
-    // WHEN-FIXED: SQLEngine.getMethod lowercases via Locale.ENGLISH at entry; this masks the
-    // DefaultSQLMethodFactory.createMethod case-sensitivity bug (Track 7 T6). Both "SIZE" and
-    // "size" resolve successfully HERE because SQLEngine did the lowercasing itself. If Track 22
-    // fixes DefaultSQLMethodFactory.createMethod to lowercase internally, this test should still
-    // pass — but if the SQLEngine-level lowercasing is ever removed on the theory that "factories
-    // handle case", the bug in DefaultSQLMethodFactory will surface downstream. Pin the
-    // SQLEngine-level contract: case-insensitivity is GUARANTEED at this API regardless of what
-    // happens below.
+    // SQLEngine.getMethod lowercases via Locale.ENGLISH at entry; this masks the
+    // DefaultSQLMethodFactory.createMethod case-sensitivity bug. Both "SIZE" and "size" resolve
+    // successfully HERE because SQLEngine did the lowercasing itself. If DefaultSQLMethodFactory
+    // is ever fixed to lowercase internally, this test should still pass — but if the
+    // SQLEngine-level lowercasing is ever removed on the theory that "factories handle case", the
+    // bug in DefaultSQLMethodFactory will surface downstream. Pin the SQLEngine-level contract:
+    // case-insensitivity is GUARANTEED at this API regardless of what happens below.
     var m = SQLEngine.getMethod("SIZE");
     assertNotNull("SIZE must resolve because SQLEngine lowercases before dispatch", m);
   }
@@ -514,59 +454,6 @@ public class SQLEngineSpiCacheTest extends DbTestBase {
   @Test
   public void getCollateUnknownNameReturnsNull() {
     assertNull(SQLEngine.getCollate(uuidPrefix + "no_such_collate"));
-  }
-
-  // ===========================================================================
-  // getCommand — dispatch paths via injected DynamicSQLElementFactory.COMMANDS entry
-  // ===========================================================================
-
-  @Test
-  public void getCommandUnknownNameReturnsNullOnEmptyRegistry() {
-    // With an empty command registry (see getCommandNamesIsEmpty... above), every input returns
-    // null regardless of content. Pin this so a regression that accidentally pre-populates the
-    // map surfaces.
-    assertNull(SQLEngine.getCommand(uuidPrefix + " not a command"));
-  }
-
-  @Test
-  public void zzzGetCommandDispatchesToDynamicallyRegisteredCommand() {
-    // Inject a test fixture directly into DynamicSQLElementFactory.COMMANDS (package-private
-    // access — same package). The entry is removed in the @After cleanup via a prefix match so
-    // the snapshot-equality assertion still passes. Verifies:
-    //   (a) getCommand finds names registered via the dynamic factory path
-    //   (b) trim() on leading/trailing whitespace
-    //   (c) prefix-matching behaviour — "FIXTURE_NAME <arg>" finds the command by short-circuit
-    var cmdName = (uuidPrefix + "testcmd").toLowerCase(Locale.ROOT);
-    DynamicSQLElementFactory.COMMANDS.put(cmdName, TestDynamicCommand.class);
-    try {
-      // Exact name — direct hit.
-      var cmd = SQLEngine.getCommand(cmdName);
-      assertNotNull("dynamically registered command must resolve: " + cmdName, cmd);
-      assertTrue(cmd instanceof TestDynamicCommand);
-
-      // Leading+trailing whitespace — trim() at entry.
-      var trimmed = SQLEngine.getCommand("  " + cmdName + "  ");
-      assertNotNull("getCommand must trim whitespace before dispatch", trimmed);
-      assertTrue(
-          "trim path must dispatch to TestDynamicCommand, got "
-              + (trimmed == null ? "null" : trimmed.getClass()),
-          trimmed instanceof TestDynamicCommand);
-
-      // Prefix-match — name + trailing arg, split on space until prefix matches.
-      var prefixed = SQLEngine.getCommand(cmdName + " arg0 arg1");
-      assertNotNull("getCommand must prefix-match cmd+arg", prefixed);
-      assertTrue(
-          "prefix-match path must dispatch to TestDynamicCommand, got "
-              + (prefixed == null ? "null" : prefixed.getClass()),
-          prefixed instanceof TestDynamicCommand);
-
-      // Negative: still-unknown prefix returns null even with args.
-      assertNull(
-          "unknown command prefix must return null",
-          SQLEngine.getCommand(uuidPrefix + "unknown_prefix and some args"));
-    } finally {
-      DynamicSQLElementFactory.COMMANDS.remove(cmdName);
-    }
   }
 
   // ===========================================================================
@@ -663,20 +550,19 @@ public class SQLEngineSpiCacheTest extends DbTestBase {
 
   @Test
   public void zzzScanForPluginsOnlyClearsFunctionFactoriesCacheBugPin() throws Exception {
-    // WHEN-FIXED: SQLEngine.scanForPlugins() should clear ALL factory caches (FUNCTION_FACTORIES,
-    // METHOD_FACTORIES, OPERATOR_FACTORIES, COLLATE_FACTORIES, EXECUTOR_FACTORIES) AND
-    // SORTED_OPERATORS. Currently it only clears FUNCTION_FACTORIES — so a classloader reload that
-    // adds a new QueryOperatorFactory (for example) will not be visible on the next call. This
-    // test PINS the observable asymmetry: after scanForPlugins, only FUNCTION_FACTORIES is null,
-    // and a subsequent getFunctionFactories call rebuilds it.
+    // SQLEngine.scanForPlugins() should clear ALL factory caches (FUNCTION_FACTORIES,
+    // METHOD_FACTORIES, OPERATOR_FACTORIES, COLLATE_FACTORIES) AND SORTED_OPERATORS. Currently it
+    // only clears FUNCTION_FACTORIES — so a classloader reload that adds a new
+    // QueryOperatorFactory (for example) will not be visible on the next call. This test PINS the
+    // observable asymmetry: after scanForPlugins, only FUNCTION_FACTORIES is null, and a
+    // subsequent getFunctionFactories call rebuilds it.
     //
     // When the bug is fixed: flip the METHOD_FACTORIES/OPERATOR_FACTORIES/COLLATE_FACTORIES/
-    // EXECUTOR_FACTORIES/SORTED_OPERATORS assertions from assertNotNull to assertNull.
+    // SORTED_OPERATORS assertions from assertNotNull to assertNull.
     SQLEngine.getFunctionFactories(session); // warm
     SQLEngine.getMethodFactories();
     SQLEngine.getOperatorFactories();
     SQLEngine.getCollateFactories();
-    SQLEngine.getCommandFactories();
     SQLEngine.getRecordOperators();
 
     SQLEngine.scanForPlugins();
@@ -691,8 +577,6 @@ public class SQLEngineSpiCacheTest extends DbTestBase {
         readStaticField("OPERATOR_FACTORIES"));
     assertNotNull("WHEN-FIXED: COLLATE_FACTORIES still cached — should be cleared",
         readStaticField("COLLATE_FACTORIES"));
-    assertNotNull("WHEN-FIXED: EXECUTOR_FACTORIES still cached — should be cleared",
-        readStaticField("EXECUTOR_FACTORIES"));
     assertNotNull("WHEN-FIXED: SORTED_OPERATORS still cached — should be cleared",
         readStaticField("SORTED_OPERATORS"));
 
@@ -725,7 +609,7 @@ public class SQLEngineSpiCacheTest extends DbTestBase {
     //
     // RACE — not pinned here. The hazardous interleaving (Thread B reading SORTED_OPERATORS
     // between steps 1 and 2 and observing a stale array) requires a multi-threaded exerciser.
-    // Pinning that race is deferred to Track 22's twin-fix with CustomSQLFunctionFactory +
+    // Pinning that race is deferred to a follow-up twin-fix with CustomSQLFunctionFactory +
     // DefaultSQLMethodFactory, which will convert OPERATORS to a concurrent collection AND wrap
     // the add+clear in LOCK.lock()/.unlock().
     var op = new MarkerQueryOperator(uuidPrefix + "ordering_marker");
@@ -824,36 +708,6 @@ public class SQLEngineSpiCacheTest extends DbTestBase {
     public String getSyntax(
         com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session) {
       return getName(session) + "()";
-    }
-  }
-
-  /**
-   * Minimal CommandExecutorSQLAbstract for dynamic command registration tests. Must be a public
-   * static class with a public no-arg ctor so {@code clazz.newInstance()} inside
-   * {@link DynamicSQLElementFactory#createCommand} succeeds.
-   */
-  public static final class TestDynamicCommand extends CommandExecutorSQLAbstract {
-
-    public TestDynamicCommand() {
-      // Public no-arg constructor required by DynamicSQLElementFactory.createCommand's reflective
-      // instantiation.
-    }
-
-    @Override
-    public Object execute(
-        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session,
-        java.util.Map<Object, Object> iArgs) {
-      return null;
-    }
-
-    @SuppressWarnings("unchecked")
-    @Override
-    public <RET extends com.jetbrains.youtrackdb.internal.core.command.CommandExecutor> RET parse(
-        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session,
-        com.jetbrains.youtrackdb.internal.core.command.CommandRequest iRequest) {
-      // No-op; tests invoke SQLEngine.getCommand which only exercises factory construction, not
-      // parse/execute.
-      return (RET) this;
     }
   }
 
