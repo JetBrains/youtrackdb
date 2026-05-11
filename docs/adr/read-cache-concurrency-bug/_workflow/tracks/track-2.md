@@ -157,7 +157,7 @@ Run the cache-classes coverage gate before closing the track.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/6 complete)
+- [ ] Step implementation (3/6 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -445,53 +445,125 @@ Run the cache-classes coverage gate before closing the track.
   > **Key files:** `WOWCacheLoadOrAddTest.java` (modified — seven new
   > tests appended).
 
-- [ ] Step: `DirectMemoryOnlyDiskCacheLoadOrAddTest` gap fill — `verifyChecksums=true` parity, truncate-vs-loadOrAdd same-instance race, target-publish stress, framePool leak accounting, iteration-counter assertion, and `DirectMemoryOnlyDiskCache.loadIfPresent` UOE smoke test *(parallel with Step 2)*
+- [x] Step: `DirectMemoryOnlyDiskCacheLoadOrAddTest` gap fill — `verifyChecksums=true` parity, truncate-vs-loadOrAdd same-instance race, target-publish stress, framePool leak accounting, iteration-counter assertion, and `DirectMemoryOnlyDiskCache.loadIfPresent` UOE smoke test *(parallel with Step 2)*
+  - [x] Context: safe
   > **Risk:** low — tests-only, single test class
   > (`DirectMemoryOnlyDiskCacheLoadOrAddTest`), not shared
   > infrastructure.
   >
-  > **Goal.** Close the in-memory engine functional + MT gaps Track 1's
-  > Step 3 deferred to this track.
+  > **What was done:** Added four tests to
+  > `DirectMemoryOnlyDiskCacheLoadOrAddTest` (14 → 18 tests), closing
+  > the in-memory engine functional + MT gaps Track 1 Step 3
+  > deferred: (1)
+  > `verifyChecksumsTrueIsIgnoredOnLoadBranch` — pins the documented
+  > "flag is ignored" contract on the load branch (the existing test
+  > covered only the extend branch); a second `loadOrAdd` on the same
+  > index with `verifyChecksums=true` must return the same instance.
+  > (2) `verifyChecksumsTrueIsIgnoredOnGapFillBranch` — gap-fill
+  > parity: `loadOrAdd(fileId, 5, true)` must advance the watermark
+  > to 6 and stamp every intermediate page LSN(-1,-1). (3)
+  > `framePoolLeakAccountingOnConcurrentInstallers` — 16-thread
+  > same-pageIndex contention falsifying a drop of the loser-side
+  > `decrementReferrer`; decomposes acquires into pool hits vs fresh
+  > allocations via `DirectMemoryAllocator.getMemoryConsumption()`
+  > delta, then asserts `(threads - 1)` frames released to pool
+  > after the race and all 16 after `deleteFile`. (4)
+  > `loadIfPresentThrowsUnsupportedOperationException` — smoke test
+  > pinning the documented UOE for both `verifyChecksums` values.
+  > All 18 tests pass on 3 sequential runs; Spotless clean; coverage
+  > gate 93.4% line / 85.4% branch on the cumulative branch diff.
+  > Commit `5cf5c90f1d5eed8296bf4c0de99e536fd0caf6a5`.
   >
-  > **Tests to add or refactor (all in
-  > `DirectMemoryOnlyDiskCacheLoadOrAddTest`, plus the UOE smoke test
-  > which may go into a sibling location):**
-  > - `verifyChecksums=true` parity on the load branch.
-  > - `verifyChecksums=true` parity on the gap-fill branch. (The
-  >   existing test pins only the extend branch.)
-  > - Truncate-vs-loadOrAdd **same-instance** race: replace the
-  >   existing `deleteFile + addFile` rotation in
-  >   `clearAndLoadOrAddRaceLeavesCacheConsistent` (or add a sibling
-  >   test) with a `truncateFile`-only rotation so the
-  >   `clearLock` discipline is actually exercised against
-  >   `loadOrAdd` on the **same** `MemoryFile` instance.
-  > - Target-publish stress: take the existing 16-thread
-  >   `pool.invokeAll` install test and re-tune so all 16 threads
-  >   target the **same** pageIndex (rather than distinct indices)
-  >   — this stresses the `putIfAbsent` race and the
-  >   `decrementReferrer`-on-loss path in `MemoryFile.installEmptyPage`.
-  > - framePool leak accounting: snapshot the `framePool`'s
-  >   acquired-frame count before and after the target-publish
-  >   stress; assert no net growth. Falsifiable: deleting the
-  >   loser-side `decrementReferrer` call surfaces here.
-  > - Iteration-counter assertion on the existing
-  >   `clear()`-vs-`loadOrAdd` race test: increment a counter
-  >   inside the installer loop; assert the counter ≥ a minimum
-  >   threshold so the test cannot silently no-op under scheduler
-  >   drift (Track 1 Step 3 iter-2 item TB-9).
-  > - `DirectMemoryOnlyDiskCache.loadIfPresent` UOE-throw smoke
-  >   test (single assertion; may go into a new
-  >   `DirectMemoryOnlyDiskCacheLoadIfPresentTest` class or into
-  >   the existing test class — implementer chooses based on what
-  >   fits the local style).
+  > **What was discovered:**
   >
-  > **Test infrastructure.** Use `CountDownLatch` / `CyclicBarrier`
-  > + `pool.invokeAll` per Track 1's pattern. 8 threads per MT
-  > scenario; 100-1000 iterations per worker; `@Test(timeout =
-  > 60_000)`; progress log per 100 iterations.
+  > **Refinement of Step 1's audit.** Items 6, 7, and 8 of the Step 1
+  > delta checklist (target-publish stress on same target pageIndex,
+  > truncate-vs-loadOrAdd same-instance race, clear-race iteration
+  > counter assertion) were already absorbed by Track 1 Phase C
+  > iteration-1 commit `6e83d3fa0f3` and were no-ops here:
+  > - Item 6 (target-publish stress, Track 1 Step 3 episode iter-2
+  >   finding 7(c)): the existing
+  >   `concurrentLoadOrAddOnSameIndexInstallsExactlyOneEntry` test
+  >   already targets pageIndex=0 with 16 threads — the
+  >   same-pageIndex shape the finding asked for.
+  > - Item 7 (truncate-vs-loadOrAdd same-instance race, finding
+  >   7(b)): the existing
+  >   `truncateAndLoadOrAddRaceLeavesCacheConsistent` (added at line
+  >   661 by `6e83d3fa0f3`) uses `truncateFile` rotation against the
+  >   same fileId, keeping the same `MemoryFile` instance across
+  >   rotations and exercising the `clearLock` discipline directly.
+  > - Item 8 (clear-race iteration counter, finding TB-9): the
+  >   existing `clearAndLoadOrAddRaceLeavesCacheConsistent` already
+  >   has the `iterationCounter` `AtomicLong` with the
+  >   `≥ installerThreads` assertion (lines 568, 581, 616-621 of the
+  >   pre-edit file).
   >
-  > **Key files:** `DirectMemoryOnlyDiskCacheLoadOrAddTest.java`,
-  > possibly new `DirectMemoryOnlyDiskCacheLoadIfPresentTest.java`.
+  > **Implementation discoveries during this step:**
+  > 1. The framePool leak test cannot use a naive
+  >    `poolSize`-delta because `PageFramePool` is a JVM-singleton
+  >    and each acquire pops from the pool when available — so the
+  >    post-race `poolSize` depends on how many of the 16 acquires
+  >    hit the pool vs allocated fresh. The first attempt
+  >    (`poolAfterRace − poolBefore ≥ threads − 1`) failed with
+  >    `poolBefore=14, poolAfterRace=13` (pool shrunk because all 16
+  >    acquires came from the pool's existing 14 frames + 2 fresh
+  >    allocations; 15 releases then yielded net delta = −1).
+  >    Decomposing acquires via
+  >    `DirectMemoryAllocator.getMemoryConsumption()` delta gives a
+  >    deterministic arithmetic identity
+  >    (`releasesToPool = poolNetDelta + pooledAcquires`) that is
+  >    both `PAGE_SIZE`-aligned (asserted) and bounded by threads.
+  > 2. The `DirectMemoryOnlyDiskCache.loadIfPresent` throw is
+  >    unconditional on both `verifyChecksums` values — both
+  >    assertions in the UOE test exercise the same line because the
+  >    throw happens before the flag is read. Two calls add cheap
+  >    defense-in-depth: a future implementation that
+  >    short-circuited on one flag value would surface.
+  > 3. The framePool leak test deliberately calls
+  >    `cache.deleteFile(fileId)` at the end of the test body (not
+  >    in the `@After` `tearDown`) so the second assertion
+  >    (winner-frame release) is observable inside the test body.
+  >    `tearDown`'s `cache.delete()` then runs on an empty file
+  >    table — safe no-op.
+  >
+  > **Cross-track impact (minor, no escalation).** Track 4
+  > (write-side API collapse) inherits the framePool leak accounting
+  > test as a regression net — any future `MemoryFile` refactor that
+  > introduces a new install path (or modifies
+  > `installEmptyPage`'s `putIfAbsent` shape) would need to preserve
+  > the loser-side `decrementReferrer` or this test surfaces the
+  > regression immediately. The
+  > `DirectMemoryOnlyDiskCache.loadIfPresent` UOE smoke test pins the
+  > documented "in-memory engine has no silent-probe primitive"
+  > contract; if a future track wires the in-memory engine into a
+  > `WriteCache.loadIfPresent`-expecting code path, the implementer
+  > must add an implementation rather than expect the smoke test to
+  > be relaxed. No upstream-track assumption weakened.
+  >
+  > **What changed from the plan:** none of the four sub-items
+  > missing from the existing test file required deviation from the
+  > step description. The Refinement-of-Step-1's-audit section above
+  > documents that three of the six "Tests to add or refactor"
+  > bullets (target-publish stress, truncate-vs-loadOrAdd
+  > same-instance race, iteration-counter assertion) were already
+  > present and were absorbed as no-ops; the remaining four tests
+  > landed as specified.
+  >
+  > **Critical context:** The framePool leak accounting test reads
+  > `DirectMemoryAllocator.getMemoryConsumption()` from the
+  > JVM-singleton allocator. This is a thread-safe counter
+  > (`LongAdder`) that increases on acquire and decreases on
+  > deallocate (pool overflow). Within the test there is no
+  > concurrent allocator pressure because the test runs sequentially
+  > in its Surefire fork. If a future test runner adds parallel test
+  > execution within the same fork, this test would need to retake
+  > the lock or be moved to a quiescent class. The test asserts
+  > `PAGE_SIZE`-alignment on the memory delta to catch a
+  > partial-allocation regression that would invalidate the
+  > arithmetic.
+  >
+  > **Key files:** `DirectMemoryOnlyDiskCacheLoadOrAddTest.java`
+  > (modified — four new tests appended, two imports added).
 
 - [ ] Step: `LockFreeReadCache` wrapper functional test build-out — eviction-with-dirty/clean, pinned entries, write-back on eviction, two-tier transitions
   > **Risk:** medium — shared test infrastructure: extends
