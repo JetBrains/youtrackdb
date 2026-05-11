@@ -490,6 +490,54 @@ public class LockFreeReadCacheBatchingTest {
     readCache.releaseFromRead(entry);
   }
 
+  // --- WriteCache totality contract: fail-fast on null loadOrAdd ---
+
+  /**
+   * Totality-contract regression test: {@code LockFreeReadCache.doLoad}'s segment-lock
+   * lambda must throw {@link IllegalStateException} when {@code WriteCache.loadOrAdd}
+   * violates its totality contract by returning {@code null}. The throw is the production
+   * fail-fast wired into {@code doLoad} so a regressing {@code WriteCache} implementation
+   * cannot install a {@link CacheEntry} around a null {@link CachePointer} and surface
+   * the breakage as an opaque NPE several frames downstream.
+   *
+   * <p>The mock's {@link MockedWriteCache#setLoadOrAddReturnsNull} toggle drives the
+   * primitive into the contract-violating state in isolation; a regression that
+   * re-introduced the legacy {@code addNewPagePointerToTheCache} fallback (or otherwise
+   * silently masked the null) would let {@code loadOrAddForWrite} return a non-null
+   * {@code CacheEntry}, failing this test.
+   *
+   * <p>The exception message must name both {@code fileId} and {@code pageIndex} so an
+   * operator can identify the offending key when the throw surfaces in production logs;
+   * a loose contains-only check would pass a buggy format such as
+   * {@code "... for fileId=null ..."}.
+   */
+  @Test
+  public void testLoadOrAddForWriteThrowsWhenLoadOrAddReturnsNull() {
+    writeCache.setLoadOrAddReturnsNull(true);
+    try {
+      readCache.loadOrAddForWrite(0L, 7L, writeCache, false, null);
+      Assert.fail(
+          "loadOrAddForWrite must throw IllegalStateException when WriteCache.loadOrAdd"
+              + " returns null (totality-contract violation)");
+    } catch (IllegalStateException expected) {
+      Assert.assertNotNull(
+          "exception message must not be null", expected.getMessage());
+      Assert.assertTrue(
+          "exception must name the offending fileId and pageIndex: " + expected.getMessage(),
+          expected.getMessage().contains("fileId=0")
+              && expected.getMessage().contains("pageIndex=7"));
+    } finally {
+      writeCache.setLoadOrAddReturnsNull(false);
+    }
+
+    // Defensive: after the throw the cache must have skipped the markAllocated step and
+    // cacheSize must remain at zero — if a regression mis-ordered the increment ahead of
+    // the null check, the counter would drift and a subsequent clear() could be wedged.
+    Assert.assertEquals(
+        "cacheSize must remain zero after a failed loadOrAddForWrite",
+        0L, readCache.getUsedMemory());
+  }
+
   // --- silentLoadForRead non-extending-probe migration tests ---
 
   /**
@@ -1363,12 +1411,36 @@ public class LockFreeReadCacheBatchingTest {
      */
     final AtomicInteger loadIfPresentCount = new AtomicInteger();
     /**
+     * Counts {@link #loadOrAdd} invocations so write-cache routing tests can pin which
+     * primitive a given read-cache wrapper actually consumes. Tracked separately from
+     * {@link #loadCount} because the default {@code loadOrAdd} stub no longer delegates to
+     * {@code load} — that delegation would silently couple the two counters and hide
+     * routing regressions.
+     */
+    final AtomicInteger loadOrAddCount = new AtomicInteger();
+    /**
      * When set, {@link #loadIfPresent} returns {@code null} instead of allocating a fresh
      * pointer. Lets {@code silentLoadForRead} regression tests exercise the "page not present"
      * code path the migration newly enables, without poisoning unrelated tests that still
      * rely on the always-allocate {@link #load} default.
      */
     private volatile boolean loadIfPresentReturnsNull;
+    /**
+     * When set, {@link #loadOrAdd} returns {@code null} instead of allocating a fresh pointer.
+     * Used to force a totality-contract violation so the fail-fast {@link IllegalStateException}
+     * thrown by {@code LockFreeReadCache.doLoad} can be exercised in isolation — a future
+     * regression that silently masked the null (for example, by re-introducing the legacy
+     * {@code addNewPagePointerToTheCache} fallback) would surface a passing test here.
+     */
+    private volatile boolean loadOrAddReturnsNull;
+    /**
+     * Latch that {@link #store} awaits before returning. {@code null} (the default) means
+     * the store call completes synchronously; a non-null latch holds the flush thread inside
+     * {@code store} until a test thread invokes {@link CountDownLatch#countDown()} on it.
+     * Wired here so flush-worker / eviction MT scenarios can deterministically suspend a
+     * concurrent store without {@code Thread.sleep}.
+     */
+    private volatile CountDownLatch storeBlockLatch;
     /**
      * Per-fileId logical page count returned from {@link #getFilledUpTo}. Tests use
      * {@link #setFilledUpTo} to simulate a non-empty file so the loadOrAddForWrite
@@ -1411,6 +1483,27 @@ public class LockFreeReadCacheBatchingTest {
      */
     void setLoadIfPresentReturnsNull(final boolean value) {
       this.loadIfPresentReturnsNull = value;
+    }
+
+    /**
+     * Switches {@link #loadOrAdd} to return {@code null} instead of an allocated
+     * {@link CachePointer}. Used to drive the fail-fast regression test that pins the
+     * {@link IllegalStateException} thrown by {@code LockFreeReadCache.doLoad} when a write
+     * cache violates the totality contract.
+     */
+    void setLoadOrAddReturnsNull(final boolean value) {
+      this.loadOrAddReturnsNull = value;
+    }
+
+    /**
+     * Installs (or removes) a latch that {@link #store} will await before returning. Pass a
+     * non-null latch to suspend store invocations until the test releases the latch via
+     * {@link CountDownLatch#countDown()}; pass {@code null} to restore the default
+     * non-blocking behaviour. Intended for flush-worker concurrency scenarios where a test
+     * needs deterministic interleaving without {@code Thread.sleep}.
+     */
+    void setStoreBlockLatch(final CountDownLatch latch) {
+      this.storeBlockLatch = latch;
     }
 
     @Override
@@ -1481,6 +1574,22 @@ public class LockFreeReadCacheBatchingTest {
     public void store(
         final long fileId, final long pageIndex, final CachePointer dataPointer) {
       storeCount.incrementAndGet();
+      final var latch = storeBlockLatch;
+      if (latch != null) {
+        try {
+          // Bounded wait: the latch must be released within 60 seconds — matching the
+          // @Test timeout used by MT scenarios — so a test bug that forgets to release
+          // the latch fails as a timeout instead of hanging Surefire indefinitely.
+          if (!latch.await(60, TimeUnit.SECONDS)) {
+            throw new IllegalStateException(
+                "MockedWriteCache.store: storeBlockLatch was not released within 60s");
+          }
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+          throw new IllegalStateException(
+              "MockedWriteCache.store interrupted while awaiting storeBlockLatch", e);
+        }
+      }
     }
 
     @Override
@@ -1507,13 +1616,25 @@ public class LockFreeReadCacheBatchingTest {
     }
 
     /**
-     * Stub for the new total primitive introduced in Track 1: delegates to the existing mock
-     * {@link #load} so this test class compiles while still exercising its original load path.
+     * Stub for the total {@code loadOrAdd} primitive. Counts invocations independently of
+     * {@link #load} so routing tests can discriminate the two primitives; the default body
+     * allocates a fresh {@link CachePointer} (mirroring the always-extend behaviour of the
+     * production disk engine on a miss). {@link #setLoadOrAddReturnsNull} flips it to a
+     * contract-violating null-return so the fail-fast {@link IllegalStateException} site in
+     * {@code LockFreeReadCache.doLoad} can be exercised in isolation.
      */
     @Override
     public CachePointer loadOrAdd(
         final long fileId, final long pageIndex, final boolean verifyChecksums) {
-      return load(fileId, pageIndex, new ModifiableBoolean(), verifyChecksums);
+      loadOrAddCount.incrementAndGet();
+      if (loadOrAddReturnsNull) {
+        return null;
+      }
+      final var pointer = byteBufferPool.acquireDirect(true, Intention.TEST);
+      final var cachePointer =
+          new CachePointer(pointer, byteBufferPool, fileId, (int) pageIndex);
+      cachePointer.incrementReadersReferrer();
+      return cachePointer;
     }
 
     /**
