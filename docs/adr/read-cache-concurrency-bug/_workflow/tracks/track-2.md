@@ -157,7 +157,7 @@ Run the cache-classes coverage gate before closing the track.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (0/6 complete)
+- [ ] Step implementation (1/6 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -169,95 +169,179 @@ Run the cache-classes coverage gate before closing the track.
 
 ## Steps
 
-- [ ] Step: Coverage delta audit, Track 1 hygiene fixes, MockedWriteCache extensions, and fail-fast `IllegalStateException` regression test
+- [x] Step: Coverage delta audit, Track 1 hygiene fixes, MockedWriteCache extensions, and fail-fast `IllegalStateException` regression test
+  - [x] Context: safe
   > **Risk:** medium — shared test infrastructure: extends
   > `LockFreeReadCacheBatchingTest.MockedWriteCache` (used by multiple
   > tests) and touches `LockFreeReadCacheConcurrentTestIT`. Tests-only,
   > no production-source changes.
   >
-  > **Goal.** Build the test-infrastructure foundation the later steps
-  > rely on, and absorb the trivial Track 1 deferred hygiene items so
-  > they aren't sprinkled across subsequent steps.
+  > **What was done:** Extended the shared `MockedWriteCache` fixture
+  > in `LockFreeReadCacheBatchingTest` with the three test seams the
+  > later steps need: `loadOrAddCount` (`AtomicInteger`),
+  > `setLoadOrAddReturnsNull(boolean)`, and
+  > `setStoreBlockLatch(CountDownLatch)`. The default `loadOrAdd` stub
+  > was rewritten to allocate a fresh `CachePointer` directly rather
+  > than delegating to `load`, so `loadCount` and `loadOrAddCount`
+  > track distinct primitives; the always-allocate-on-miss behaviour
+  > the existing tests rely on is preserved. The `store(...)` body now
+  > performs a bounded 60 s `await` on `storeBlockLatch` when set, so a
+  > test that forgets to release the latch fails as a `@Test(timeout =
+  > 60_000)` timeout rather than hanging the Surefire JVM. Added one
+  > regression test —
+  > `testLoadOrAddForWriteThrowsWhenLoadOrAddReturnsNull` — flipping
+  > the new toggle and asserting that `loadOrAddForWrite(...)`
+  > surfaces `IllegalStateException` with a message containing both
+  > `fileId=0` and `pageIndex=7`, plus a defense-in-depth
+  > `getUsedMemory() == 0` assertion to catch a regression that
+  > mis-orders the `cacheSize` increment ahead of the null check.
+  > Verified 35/35 in `LockFreeReadCacheBatchingTest`; spotless clean;
+  > coverage gate 91.9% line / 83.3% branch on the cumulative branch
+  > diff vs `origin/develop`. Commit
+  > `e9d12252f5c4f65edd8a5401e472673994876549`.
   >
-  > **Audit (episode deliverable only — no code).** Before writing
-  > code, walk the six Track 1 step episodes in
-  > `tracks/track-1.md` and produce in the step's
-  > `**What was discovered**` field a **delta checklist** of every
-  > Track 1 deferred test-hardening item, each mapped to (a) target
-  > test file, (b) target Step in this track (1-6), (c) the Track 1
-  > step episode that flagged it. Items to cover at minimum:
-  > `verifyChecksums=true` parity on disk-engine load + extend +
-  > gap-fill (→ Step 2); `verifyChecksums=true` parity on in-memory
-  > load + gap-fill (only extend has partial coverage today; → Step
-  > 3); in-memory `DirectMemoryOnlyDiskCache.loadIfPresent` UOE-throw
-  > smoke test (→ Step 3); gap-fill intermediate-page accessibility
-  > (→ Step 2); framePool leak accounting (→ Step 3); target-publish
-  > stress on same target index (→ Step 3); truncate-vs-loadOrAdd
-  > same-instance race on in-memory engine (→ Step 3); clear-race
-  > iteration counter assertion (→ Step 3); fail-fast
-  > `IllegalStateException` regression test requiring
-  > `setLoadOrAddReturnsNull` mock toggle (→ this step); read-path
-  > markAllocated boundary parity test fix (→ this step); the iter-2
-  > documentation tweaks from Track 1 Step 4 episode item 7(a)(b)(c)
-  > (→ this step); `WOWCache.loadOrAdd` MT defense-in-depth against I4
-  > violations (→ Step 5); `WOWCacheLoadIfPresentTest` MT coverage
-  > (→ Step 5). The audit also names the engine-bifurcation map:
-  > MT scenarios 1-3 land on the **disk engine** only (in-memory
-  > parallels already shipped in `DirectMemoryOnlyDiskCacheLoadOrAddTest`'s
-  > 16-thread `pool.invokeAll` test, 60-iteration overlapping-gap-fill,
-  > and `clear()`-race tests).
+  > **What was discovered:**
   >
-  > **Track 1 hygiene fixes (code).**
-  > - Hand-wrap `LockFreeReadCacheConcurrentTestIT.java:60`'s javadoc
-  >   line to ≤100 chars after the Track 1 rename (Track 1 Step 4
-  >   episode iter-2 item (a)).
-  > - Drop the "matching the previous mock behavior" framing from
-  >   `MockedWriteCache.filledUpToByFile`'s javadoc — replace with a
-  >   self-contained description (Track 1 Step 4 iter-2 item (b)).
-  > - Add a symmetric `storeCount == storesBefore` assertion to
-  >   `testWriteLoadDoesNotFlagExistingPageAsNewlyAllocated` to pin
-  >   that `releaseFromWrite(_, _, false)` is a no-op when the
-  >   markAllocated flag is unset (Track 1 Step 4 iter-2 item (c)).
-  > - Fix `testReadLoadDoesNotFlagPageAsNewlyAllocatedUnderProperFilledUpTo`
-  >   to use extend-branch parameters (e.g., `filledUpTo=0,
-  >   pageIndex=5`) so the test discriminates the read-vs-write
-  >   contract rather than landing in the load-existing branch where
-  >   no path sets the flag (Track 1 Step 4 iter-2 item (d)).
+  > **Track 1 hygiene-fix delta audit.** Items (a)–(d) of the step's
+  > hygiene block were already absorbed by Track 1's Phase C iter-1
+  > commit `6e83d3fa0f` ("Review fix: gate markAllocated to write-load
+  > + tighten doLoad semantics") and were no-ops here:
+  > - (a) `LockFreeReadCacheConcurrentTestIT.java:60` Javadoc — already
+  >   at 81 chars (≤ 100 limit).
+  > - (b) `MockedWriteCache.filledUpToByFile` Javadoc — already
+  >   self-contained; the "matching the previous mock behavior"
+  >   framing was already gone.
+  > - (c) Symmetric `storeCount == storesBefore` assertion in
+  >   `testWriteLoadDoesNotFlagExistingPageAsNewlyAllocated` — already
+  >   present.
+  > - (d) `testReadLoadDoesNotFlagPageAsNewlyAllocatedOnExtendBranchParameters`
+  >   — already uses extend-branch params (`filledUpTo=0,
+  >   pageIndex=5`).
   >
-  > **MockedWriteCache extensions.**
-  > - Add `AtomicInteger loadOrAddCount` (counter for `loadOrAdd`
-  >   invocations).
-  > - Add `volatile boolean loadOrAddReturnsNull` + a
-  >   `setLoadOrAddReturnsNull(boolean)` setter so a test can force
-  >   the totality contract violation that Track 1's
-  >   `LockFreeReadCache.doLoad` is supposed to surface as
-  >   `IllegalStateException` (see assertion at the `loadOrAdd` call
-  >   site).
-  > - Add `volatile boolean storeBlocks` + a `setStoreBlocks(boolean)`
-  >   setter on the `store(...)` method so Step 6's flush-worker
-  >   concurrency scenarios can hold a store until the test releases
-  >   it. The toggle is wired here so Step 4 and Step 6 can both
-  >   consume it.
+  > **Delta checklist of Track 1 deferred test-hardening items**
+  > (test file → target Step → Track 1 episode that flagged it):
+  > 1. `verifyChecksums=true` parity on disk-engine load + extend +
+  >    gap-fill — `WOWCacheLoadOrAddTest.java`, **Step 2**, Track 1
+  >    Step 2 episode + Step 6 episode.
+  > 2. `verifyChecksums=true` parity on in-memory load + gap-fill
+  >    (only extend has partial coverage today) —
+  >    `DirectMemoryOnlyDiskCacheLoadOrAddTest.java`, **Step 3**,
+  >    Track 1 Step 3 episode iter-2 finding 7(a).
+  > 3. In-memory `DirectMemoryOnlyDiskCache.loadIfPresent` UOE-throw
+  >    smoke test —
+  >    `DirectMemoryOnlyDiskCacheLoadOrAddTest.java` (or new
+  >    `DirectMemoryOnlyDiskCacheLoadIfPresentTest.java`), **Step 3**,
+  >    Track 1 Step 5 episode.
+  > 4. Gap-fill intermediate-page accessibility (today gap-fill
+  >    returns only the target's pointer; intermediates are untested)
+  >    — `WOWCacheLoadOrAddTest.java`, **Step 2**, Track 1 Step 2
+  >    episode.
+  > 5. `framePool` leak accounting on the target-publish stress —
+  >    `DirectMemoryOnlyDiskCacheLoadOrAddTest.java`, **Step 3**,
+  >    Track 1 Step 3 episode iter-2 finding TXN-7.
+  > 6. Target-publish stress on the **same** target pageIndex
+  >    (16-thread same-pageIndex contention; today's test uses
+  >    distinct indices) —
+  >    `DirectMemoryOnlyDiskCacheLoadOrAddTest.java`, **Step 3**,
+  >    Track 1 Step 3 episode iter-2 finding 7(c).
+  > 7. `truncateFile`-vs-`loadOrAdd` **same-instance** race on the
+  >    in-memory engine (today's test rotates via
+  >    `deleteFile + addFile`) —
+  >    `DirectMemoryOnlyDiskCacheLoadOrAddTest.java`, **Step 3**,
+  >    Track 1 Step 3 episode iter-2 finding 7(b).
+  > 8. Clear-race iteration counter assertion (guard against silent
+  >    no-op under scheduler drift) —
+  >    `DirectMemoryOnlyDiskCacheLoadOrAddTest.java`, **Step 3**,
+  >    Track 1 Step 3 episode iter-2 finding TB-9.
+  > 9. Fail-fast `IllegalStateException` regression test requiring
+  >    `setLoadOrAddReturnsNull` mock toggle —
+  >    `LockFreeReadCacheBatchingTest.java`, **this step** — DONE.
+  > 10. Read-path `markAllocated` boundary parity test fix (use
+  >     extend-branch params) — `LockFreeReadCacheBatchingTest.java`,
+  >     **this step** — already absorbed by Track 1 Phase C iter-1
+  >     commit `6e83d3fa0f`; no residual.
+  > 11. iter-2 documentation tweaks from Track 1 Step 4 episode item
+  >     7(a)(b)(c) — **this step** — already absorbed by Track 1
+  >     Phase C iter-1 commit `6e83d3fa0f`; no residual.
+  > 12. `WOWCache.loadOrAdd` MT defense-in-depth against I4 violations
+  >     (assert at least one of two contending threads sees
+  >     `IllegalStateException("allocated pageIndex … does not
+  >     match")`) — new test class (e.g.,
+  >     `WOWCacheLoadOrAddConcurrentTest.java`), **Step 5**, Track 1
+  >     Step 2 episode discovery 2 (hard-throw conversion).
+  > 13. `WOWCacheLoadIfPresentTest` MT coverage (concurrent
+  >     `loadIfPresent` vs eviction; vs `loadOrAddForWrite` on the
+  >     same key) — `WOWCacheLoadIfPresentTest.java`, **Step 5**,
+  >     Track 1 Step 5 episode cross-track impact bullet.
   >
-  > **Fail-fast regression test.** Add a JUnit 4 test that flips
-  > `setLoadOrAddReturnsNull(true)`, calls
-  > `cache.loadOrAddForWrite(...)` for a fresh
-  > `(fileId, pageIndex)`, and asserts that the read-cache layer
-  > surfaces `IllegalStateException` (via Hamcrest's
-  > `assertThrows`-style or JUnit 4 `expected =` annotation;
-  > examine Track 1's existing tests for the local idiom).
+  > **Engine-bifurcation map.** MT scenarios 1-3
+  > (different-key / same-key / reader-vs-writer contention) land on
+  > the **disk engine** only in Step 5. In-memory parallels already
+  > exist in Track 1's `DirectMemoryOnlyDiskCacheLoadOrAddTest`:
+  > 16-thread `pool.invokeAll` install test; 60-iteration overlapping
+  > gap-fill stress with 6 threads on targets {3,5,7,9,11,4}; and the
+  > `clear()`-vs-`loadOrAdd` race test.
   >
-  > **Coverage gate smoke check.** Run
-  > `./mvnw -pl core clean package -P coverage` plus
-  > `python3 .github/scripts/coverage-gate.py
-  > --line-threshold 85 --branch-threshold 70
-  > --compare-branch origin/develop
-  > --coverage-dir .coverage/reports` and verify the gate reports
-  > "No changed Java files found. Skipping coverage gate." (or
-  > equivalent skip verdict) — confirming this step stays tests-only.
+  > **Implementation discoveries during this step:**
+  > 1. The previous default `loadOrAdd` stub delegated to `load`,
+  >    silently coupling `loadCount` and any future `loadOrAddCount`
+  >    assertion. Rewriting the stub to allocate a fresh
+  >    `CachePointer` directly is necessary so routing tests can
+  >    discriminate the two primitives; doing it now (rather than
+  >    deferring to Step 5) keeps the change in the same commit as the
+  >    new counter and avoids a follow-up adjustment of every existing
+  >    test that exercises `loadOrAdd`.
+  > 2. The store-block latch await is bounded at 60 s, matching the
+  >    `@Test(timeout = 60_000)` ceiling the Step 6 MT scenarios will
+  >    use, so a test bug that forgets to release the latch fails as a
+  >    timeout rather than hanging the Surefire JVM. This was a
+  >    deliberate choice over an unbounded `await()` (which would mask
+  >    a test-side defect) and over a `Thread.sleep`-style poll (which
+  >    the step's "No flaky tests" constraint forbids).
+  > 3. The defense-in-depth `getUsedMemory() == 0` assertion on the
+  >    fail-fast test catches a mis-ordering regression that the
+  >    `IllegalStateException` message check alone would miss: if a
+  >    future `LockFreeReadCache.doLoad` refactor moved the
+  >    `cacheSize.incrementAndGet()` call ahead of the null check, the
+  >    counter would drift on every contract violation and eventually
+  >    wedge `clear()` via `ArrayList(negative-capacity)`.
   >
-  > **Key files:** `LockFreeReadCacheBatchingTest.java`,
-  > `LockFreeReadCacheConcurrentTestIT.java`.
+  > **Cross-track impact (minor, no escalation).** Track 4 (write-side
+  > API collapse) inherits the new `loadOrAdd` mock contract: when
+  > migrating callers off `WriteCache.allocateNewPage` /
+  > `WriteCache.load`, the test mocks in
+  > `LockFreeReadCacheBatchingTest` (and only this file —
+  > `AsyncReadCacheTestIT`, `LockFreeReadCacheConcurrentTestIT`,
+  > `LockFreeReadCacheOptimisticTest` define their own mocks) now
+  > track `loadOrAddCount` directly, and the fail-fast regression test
+  > pins that any future `addNewPagePointerToTheCache`-style fallback
+  > re-introduction would fail loudly — a useful safety net for the
+  > recovery-loop collapse in Track 4. No assumption in Tracks 3-6 is
+  > weakened.
+  >
+  > **What changed from the plan:** none. The four Track 1 hygiene
+  > fixes listed under the step's hygiene block (items a–d) were
+  > already absorbed by Track 1 Phase C iter-1 commit `6e83d3fa0f`;
+  > the audit deliverable surfaces this no-op so a later reviewer is
+  > not confused by the missing diff. The mock extensions and the
+  > regression test land as specified.
+  >
+  > **Critical context:** The default `loadOrAdd` stub no longer
+  > delegates to `load` — it allocates a fresh `CachePointer` directly
+  > and bumps `loadOrAddCount`. This is a deliberate change so the two
+  > counters track distinct primitives; every previously-passing test
+  > in `LockFreeReadCacheBatchingTest` still passes because the
+  > always-allocate-on-miss behaviour is preserved. Subsequent steps
+  > that add `loadOrAdd`-routing assertions (Steps 4-6) can rely on
+  > `loadOrAddCount` to discriminate the wrapper's call path. The
+  > `storeBlockLatch` seam is ready for Step 6's flush-worker
+  > concurrency scenarios; the `loadOrAddReturnsNull` toggle is
+  > exclusive to this step's regression test but is exposed for future
+  > reuse if a Track 4 caller regression needs the same fail-fast
+  > surface.
+  >
+  > **Key files:** `LockFreeReadCacheBatchingTest.java` (modified —
+  > `MockedWriteCache` extensions + new regression test).
 
 - [ ] Step: `WOWCacheLoadOrAddTest` gap fill — `verifyChecksums=true` parity, intermediate gap-page accessibility, very-high pageIndex boundary, scenario 6 idempotency *(parallel with Step 3)*
   > **Risk:** low — tests-only, single test class
