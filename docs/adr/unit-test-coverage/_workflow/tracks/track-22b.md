@@ -497,7 +497,7 @@ subset; the live subset stays covered by 22a's tests.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (12/14 complete — Step 11 (CommandContext.copy() interface-impl atomic deletion) landed cleanly; medium risk, no dim review fan-out)
+- [ ] Step implementation (13/14 complete — Step 12 license-header normalization across 8 named files; one cross-track observation about wider header drift recorded for 22c)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -1568,7 +1568,8 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   >
   > **Implementer commit:** `24e89238b9`
 
-- [ ] Step 12: License-header normalization end-of-track commit
+- [x] Step 12: License-header normalization end-of-track commit
+  - [x] Context: info
   > **Risk:** low — mechanical formatting only; no production code
   > change. Normalize the canonical 13-line license header across
   > the surviving CQ7/TS6 inventory: `core/src/test/.../cache/AbstractMapCacheTest.java`,
@@ -1582,6 +1583,62 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   > plus tx/Gremlin tests with no header. Files deleted by Steps
   > 1-11 cluster commits are skipped automatically. Run
   > `./mvnw -pl core spotless:apply` after edits.
+  >
+  > **What was done:** Normalized the license header across the
+  > eight named CQ7/TS6 inventory test files to the canonical
+  > 13-line Apache 2.0 shape used by other `core/src/test/`
+  > classes (e.g. `GlobalConfigurationTest`,
+  > `HighLevelExceptionTest`). Six files
+  > (`AbstractMapCacheTest`, `RecordCacheWeakRefsTest`,
+  > `DefaultCollateFactoryTest`,
+  > `RecordConflictStrategyFactoryTest`, `RecordIdTest`,
+  > `IdentityWrapperTest`) carried an abbreviated 7-line variant
+  > that omitted the warranty disclaimer; two dead-code tests
+  > (`DictionaryDeadCodeTest`, `CompressionInterfaceDeadCodeTest`)
+  > inherited an 18-line indented OrientDB-era header. All eight
+  > now share the canonical shape. Applied via
+  > `steroid_apply_patch` (atomic multi-file edit, no native
+  > `Edit` chain). `./mvnw -pl core spotless:apply` clean.
+  > Targeted re-run of the eight classes (151 tests) passes
+  > 151/151.
+  >
+  > **What was discovered:** The "canonical 13-line license
+  > header" is genuinely project-canonical only in the `api/` and
+  > a handful of `internal/` subtrees — large parts of
+  > `core/src/test/` still carry the abbreviated 7-line variant or
+  > a malformed indented 18-line OrientDB-era variant. The step's
+  > "plus tx/Gremlin tests with no header" aside is accurate: an
+  > out-of-scope sweep of the broader test tree would find more
+  > drift (e.g. `WeakValueHashMapTest` in the same `cache/`
+  > package has no header at all). This spawn deliberately
+  > stayed within the eight pinned files per the step's named
+  > scope. The broader project-wide license-header normalization
+  > is a follow-up concern (candidate: Track 22c, or a dedicated
+  > Spotless-license-header-rule track) — not a within-track
+  > 22b adjustment.
+  >
+  > **What changed from the plan:** none. The step scope was
+  > literal-mechanical and the implementer stayed within it.
+  >
+  > **Key files:** eight modified test files under
+  > `core/src/test/java/com/jetbrains/youtrackdb/internal/core/`:
+  > `cache/AbstractMapCacheTest.java`,
+  > `cache/RecordCacheWeakRefsTest.java`,
+  > `collate/DefaultCollateFactoryTest.java`,
+  > `compression/CompressionInterfaceDeadCodeTest.java`,
+  > `conflict/RecordConflictStrategyFactoryTest.java`,
+  > `dictionary/DictionaryDeadCodeTest.java`,
+  > `id/RecordIdTest.java`,
+  > `type/IdentityWrapperTest.java`.
+  >
+  > **Cross-track observation:** license-header drift extends
+  > well beyond Track 22b's named scope. A project-wide Spotless
+  > license-header rule would be the cleanest long-term fix; the
+  > orchestrator considers this a 22c (or later) candidate, not a
+  > Step 13 absorption — Step 13's scope is already widened for
+  > coverage-gate regression tests.
+  >
+  > **Implementer commit:** `b7a66cdd3a`
 
 - [ ] Step 13: Final verification + cluster-disposition.md commit + coverage-gate regression tests
   > **Risk:** medium — scope expanded mid-track per the Step 9
