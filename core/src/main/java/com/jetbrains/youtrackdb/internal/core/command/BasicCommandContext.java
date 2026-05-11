@@ -476,33 +476,6 @@ public class BasicCommandContext implements CommandContext {
   }
 
   @Override
-  public CommandContext copy() {
-    final var copy = new BasicCommandContext();
-    copy.init();
-
-    if (variables != null && !variables.isEmpty()) {
-      copy.variables.putAll(variables);
-    }
-    if (!systemVariables.isEmpty()) {
-      copy.systemVariables.putAll(systemVariables);
-    }
-
-    copy.recordMetrics = recordMetrics;
-
-    // Null-guard child propagation: a freshly-constructed BasicCommandContext has no child,
-    // so dereferencing child.copy() unconditionally NPEs. Preserve the parent linkage only
-    // when there is a child to copy.
-    if (child != null) {
-      copy.child = child.copy();
-      copy.child.setParent(copy);
-    }
-
-    copy.setDatabaseSession(null);
-
-    return copy;
-  }
-
-  @Override
   public void merge(final CommandContext iContext) {
     // TODO: SOME VALUES NEED TO BE MERGED
   }

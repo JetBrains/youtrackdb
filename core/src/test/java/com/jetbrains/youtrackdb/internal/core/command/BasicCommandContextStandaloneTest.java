@@ -22,7 +22,6 @@ package com.jetbrains.youtrackdb.internal.core.command;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
@@ -44,8 +43,7 @@ import org.junit.Test;
  * <ul>
  *   <li>This class — standalone: variable-set/-get non-DB branches, {@code incrementVariable}
  *       type-mismatch, {@code getParentWhereExpressions} merge, {@code setChild(null)} removal,
- *       profiling LIFO, system-variable parent fallbacks, and the {@code copy()} null-child NPE
- *       pin (T4).
+ *       profiling LIFO, and system-variable parent fallbacks.
  *   <li>{@link BasicCommandContextTest} — DbTestBase: branches that dereference a session (name
  *       resolution through {@code EntityHelper.getFieldValue}).
  * </ul>
@@ -645,79 +643,6 @@ public class BasicCommandContextStandaloneTest {
 
     assertFalse("child must see expired parent timeout via the fallback",
         child.checkTimeout());
-  }
-
-  // ---------------------------------------------------------------------------
-  // copy() — null-child regression test
-  //
-  // copy() must tolerate a null child: the helper is invoked on freshly-constructed
-  // contexts during script-execution setup, before any child is wired. Asserts that
-  // the produced copy is non-null, has the variable propagated, and carries no child.
-  // ---------------------------------------------------------------------------
-
-  /**
-   * {@link BasicCommandContext#copy()} on a context with no child must return a non-null copy
-   * carrying the variables and a null child. A regression that reverts the null-guard would
-   * NPE here. The {@code child} field is read reflectively because
-   * {@link BasicCommandContext} exposes no public accessor for it.
-   */
-  @Test
-  public void copyWithNullChildReturnsCopyWithoutChild() throws Exception {
-    var ctx = new BasicCommandContext();
-    // Variables present → the copy path reaches the child propagation block.
-    ctx.setVariable("k", "v");
-
-    var copy = ctx.copy();
-    assertNotNull("copy() must tolerate a null child", copy);
-    // The variable must be propagated to the copy.
-    assertEquals("v", copy.getVariable("k"));
-    // The child remains null since the source had no child to clone.
-    var childField = BasicCommandContext.class.getDeclaredField("child");
-    childField.setAccessible(true);
-    assertNull("copy.child must remain null when source had no child", childField.get(copy));
-  }
-
-  /**
-   * The non-null-child branch of {@link BasicCommandContext#copy()} performs a deep copy of the
-   * child and rewires the child's parent linkage to the new copy (not the original). This is a
-   * load-bearing invariant: callers of {@code copy()} expect to receive a self-consistent
-   * parent/child tree where {@code copy.child.parent == copy}, not a hybrid that points back to
-   * the source. Pin both the deep-copy semantics (instance not shared) and the parent rewiring.
-   */
-  @Test
-  public void copyWithNonNullChildDeepCopiesChildAndRewritesParent() throws Exception {
-    var parent = new BasicCommandContext();
-    var child = new BasicCommandContext();
-    parent.setChild(child);
-    parent.setVariable("p", "parentValue");
-    child.setVariable("c", "childValue");
-
-    var copy = (BasicCommandContext) parent.copy();
-    assertNotNull("copy() must produce a non-null result when child is present", copy);
-    // Parent state survived the copy.
-    assertEquals("parentValue", copy.getVariable("p"));
-
-    // Read copy.child reflectively — same access pattern used in the null-child sibling test.
-    var childField = BasicCommandContext.class.getDeclaredField("child");
-    childField.setAccessible(true);
-    Object copyChildRaw = childField.get(copy);
-    assertNotNull("copy.child must be non-null when source had a child", copyChildRaw);
-
-    // Deep copy: the child instance must be a fresh instance, not the source-aliased one.
-    assertNotSame(
-        "copy.child must be a deep copy, not the same instance as the source's child",
-        child,
-        copyChildRaw);
-
-    // Parent linkage: the copied child's parent must be the copy itself, not the original parent.
-    var copyChild = (BasicCommandContext) copyChildRaw;
-    assertSame(
-        "copy.child.getParent() must point at the new copy, not the original source",
-        copy,
-        copyChild.getParent());
-
-    // Child state survived the deep copy — variables flow through the child's copy() method.
-    assertEquals("childValue", copyChild.getVariable("c"));
   }
 
   // ---------------------------------------------------------------------------
