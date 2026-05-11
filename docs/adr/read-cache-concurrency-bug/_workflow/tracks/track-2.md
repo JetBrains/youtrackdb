@@ -157,8 +157,11 @@ Run the cache-classes coverage gate before closing the track.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [ ] Step implementation (0/6 complete)
 - [ ] Track-level code review
+
+## Base commit
+`7b509f8aecede310707331404e141fe532ff5595`
 
 ## Reviews completed
 - [x] Technical: PASS at iteration 2 (10 findings + 1 iter-2 wording nit; 5 should-fix folded into the description (scenarios 6/7 rewrite, `MockedWriteCache` extensions signaled, `ConcurrentTestHelper` wording, coverage-gate rephrase, `loadIfPresent` MT bullet), 4 should-fix carried as decomposition guidance for the steps below, 4 suggestions accepted; iter-2 wording nit on the `EnsurePageIsValidInFileTask` guard location applied)
