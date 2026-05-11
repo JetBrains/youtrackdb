@@ -122,6 +122,29 @@ public class FetchHelperBranchCoverageTest extends TestUtilsFixture {
       // skip branch is taken for this field. Pinned to drive the "false" leg of that branch.
       final var stringMap = root.newEmbeddedMap("stringMap");
       stringMap.put("k", "v");
+
+      // Arm 8: populated EmbeddedList of strings — drives the
+      // Collection.iterator().next() instanceof Identifiable=false branch (line 141 of
+      // processRecordRidMap). LinkList of Identifiable covered the same arm with =true;
+      // both branches are required for branch coverage.
+      final var stringList = root.newEmbeddedList("stringList");
+      stringList.add("a");
+      stringList.add("b");
+
+      // Arm 9: populated EmbeddedSet of strings — same coverage as Arm 8 but through
+      // the EmbeddedSet collection type so the dispatcher sees a different runtime class
+      // along the same chain.
+      final var stringSet = root.newEmbeddedSet("stringSet");
+      stringSet.add("x");
+
+      // Arm 10: EmbeddedList of 32-bit integer wrappers — non-Collection, non-Map,
+      // non-array runtime shape that still iterates. Pinned to drive the
+      // !(fieldValue instanceof Collection) = false arm at line 139 with a populated
+      // first element that is not Identifiable.
+      final var intList = root.newEmbeddedList("intList");
+      intList.add(1);
+      intList.add(2);
+      intList.add(3);
     });
 
     // Drive the entry point with a plan that follows everything at depth 1. Each fetch
