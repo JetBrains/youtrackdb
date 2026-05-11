@@ -22,6 +22,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
@@ -86,6 +87,50 @@ public class FetchHelperDeadCodeTest {
     assertNotNull(fp);
     assertNotSame(FetchHelper.DEFAULT_FETCHPLAN, fp);
     assertEquals(0, fp.getDepthLevel("any", 0));
+  }
+
+  /**
+   * Behavioural contract pin for malformed buildFetchPlan inputs. The cluster-disposition
+   * trim removed the explicit {@code checkFetchPlanValid} validation surface; now the
+   * FetchPlan constructor itself is the only filter. This test enumerates a handful of
+   * malformed shapes and pins the current observable: every non-empty malformed input
+   * surfaces as {@link IllegalArgumentException} from the parser.
+   *
+   * <p>The pin's value is that any future tightening or loosening of the parser surface
+   * surfaces here: a regression that started accepting "key:1:2" silently, or that
+   * started silently swallowing parse errors, would flip one of the asserts.
+   */
+  @Test
+  public void buildFetchPlanBehaviorForMalformedStrings() {
+    // Whitespace-only: the FetchPlan parser splits on space, sees a single empty token
+    // after stripping, and rejects with IllegalArgumentException ("Wrong fetch plan: ").
+    assertThrows(
+        "whitespace-only must be rejected with IllegalArgumentException",
+        IllegalArgumentException.class,
+        () -> FetchHelper.buildFetchPlan("   "));
+
+    // Trailing colon: "ref:" splits to ["ref", ""], parseInt fails on the empty depth
+    // token, surfacing as NumberFormatException (a RuntimeException subclass). A
+    // regression that returned a default plan on parse failure would silently change the
+    // surface; pin via assertThrows on the supertype to tolerate either NFE or IAE.
+    assertThrows(
+        "trailing colon must surface a parse failure",
+        RuntimeException.class,
+        () -> FetchHelper.buildFetchPlan("ref:"));
+
+    // Multi-colon: "key:1:2" has size 3 after splitting on ':' — the parser rejects with
+    // IllegalArgumentException ("Wrong fetch plan: ...").
+    assertThrows(
+        "multi-colon token must be rejected with IllegalArgumentException",
+        IllegalArgumentException.class,
+        () -> FetchHelper.buildFetchPlan("key:1:2"));
+
+    // No-colon: "ref" has size 1 after splitting on ':' — the parser rejects with
+    // IllegalArgumentException.
+    assertThrows(
+        "no-colon token must be rejected with IllegalArgumentException",
+        IllegalArgumentException.class,
+        () -> FetchHelper.buildFetchPlan("ref"));
   }
 
   // ---------------------------------------------------------------------------

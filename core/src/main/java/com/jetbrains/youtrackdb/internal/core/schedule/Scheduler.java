@@ -20,7 +20,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import java.util.Map;
 
 /**
- * Scheduler interface. <<<<<<< HEAD
+ * Scheduler interface.
  *
  * @since Mar 28, 2013
  */

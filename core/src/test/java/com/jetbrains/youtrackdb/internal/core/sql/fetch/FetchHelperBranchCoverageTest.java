@@ -1,7 +1,4 @@
 /*
- *
- *
- *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -24,6 +21,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.fetch.FetchContext;
 import com.jetbrains.youtrackdb.internal.core.fetch.FetchHelper;
+import com.jetbrains.youtrackdb.internal.core.fetch.FetchHelperDeadCodeTest;
 import com.jetbrains.youtrackdb.internal.core.fetch.remote.RemoteFetchContext;
 import com.jetbrains.youtrackdb.internal.core.fetch.remote.RemoteFetchListener;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
@@ -36,15 +34,15 @@ import org.junit.Test;
  * Falsifiable branch-coverage pins for the live {@link FetchHelper} surface against the
  * cumulative-vs-{@code origin/develop} coverage gate.
  *
- * <p>The cumulative diff against {@code origin/develop} for the surviving Track 22b production
- * lines reformats the multi-line instanceof chains in {@code processRecordRidMap} (and the
- * sibling {@code process}/{@code processFieldDocument}/{@code isEmbedded} methods) — JaCoCo
- * measures coverage on the new line positions, so the unindented vs reindented chain is
- * treated as "changed" production code and the gate flags any chain branch that lacks a
- * covering field type. This test class drives those branches with a {@link EntityImpl}
- * root carrying a fan of property values across the supported multi-value types
- * (LinkList, LinkSet, LinkMap, embedded EntityImpl, populated and empty), so JaCoCo's branch
- * counters advance across the full width of the conditional.
+ * <p>The cumulative diff against {@code origin/develop} for the surviving production lines
+ * reformats the multi-line instanceof chains in {@code processRecordRidMap} (and the sibling
+ * {@code process}/{@code processFieldDocument}/{@code isEmbedded} methods) — JaCoCo measures
+ * coverage on the new line positions, so the unindented vs reindented chain is treated as
+ * "changed" production code and the gate flags any chain branch that lacks a covering field
+ * type. This test class drives those branches with a {@link EntityImpl} root carrying a fan
+ * of property values across the supported multi-value types (LinkList, LinkSet, LinkMap,
+ * embedded EntityImpl, populated and empty), so JaCoCo's branch counters advance across the
+ * full width of the conditional.
  *
  * <p>The class extends {@link TestUtilsFixture} to inherit the rollback-on-failure safety net
  * (matches {@link DepthFetchPlanTest}'s pattern) — failing test bodies do not leak open
@@ -54,61 +52,60 @@ public class FetchHelperBranchCoverageTest extends TestUtilsFixture {
 
   /**
    * Drive {@link FetchHelper#fetch} against a root entity that carries link-singleton +
-   * link-list + link-set + link-map properties. Each property exercises a distinct arm of the
-   * {@code processRecordRidMap} {@code instanceof} chain — Identifiable, Iterable
-   * (LinkList / LinkSet), and Map (LinkMap whose values are Identifiable). The falsifiable
-   * post-condition is that {@code sendRecord} fires at least once: a regression that mis-
-   * routed the multi-value field types into the skip branch would drop the count to zero
-   * because the linked entities would never be enqueued into {@code parsedRecords}.
+   * link-list + link-set + link-map properties. Each property exercises a distinct arm of
+   * the {@code processRecordRidMap} {@code instanceof} chain — Identifiable, Iterable
+   * (LinkList / LinkSet), and Map (LinkMap whose values are Identifiable).
+   *
+   * <p>The arms use <em>disjoint</em> single-element targets so the
+   * {@code parsedRecords}-keyed dedup cannot collapse the per-arm fan-out into a single
+   * sendRecord call. With four disjoint single-element arms (one Identifiable singleton,
+   * one LinkList member, one LinkSet member, one LinkMap entry), the expected count of
+   * distinct sendRecord invocations is exactly 4 — one per arm. Asserting that exact
+   * count is the falsifiable pin: a regression that drops any one of the four populated
+   * arms would reduce the count to ≤3.
    */
   @Test
   public void fetchExercisesEveryInstanceofArmInProcessRecordRidMap() {
     session.getMetadata().getSchema().createClass("BranchCovRoot");
     session.getMetadata().getSchema().createClass("BranchCovTarget");
 
-    // Pre-create 3 target entities so the link-list / link-set / link-map fields each carry
-    // at least one populated Identifiable member to traverse.
-    final var targetIds = new RID[3];
-    for (var i = 0; i < targetIds.length; i++) {
-      final var idx = i;
-      targetIds[i] = session.computeInTx(
-          tx -> ((EntityImpl) session.newEntity("BranchCovTarget")).getIdentity());
-      session.executeInTx(tx -> {
-        EntityImpl t = tx.load(targetIds[idx]);
-        t.setProperty("idx", idx);
-      });
-    }
-
+    // Allocate one DISJOINT target per multi-value arm. Targets are created inside the
+    // same executeInTx that wires them into the root so the runtime entity references are
+    // stable through to commit; we count distinct persistent RIDs reached by sendRecord.
     final var rootId = session.computeInTx(
         tx -> ((EntityImpl) session.newEntity("BranchCovRoot")).getIdentity());
 
+    // Expected distinct sendRecord invocations is 3: the linkList, linkSet, and linkMap
+    // arms each fan out exactly one element via the recursive
+    // fetchCollection/fetchMap path that calls sendRecord. The linkSingleton arm, by
+    // contrast, drives the recursive fetchEntity path which detects the target as already
+    // visited at level 1 (it was enqueued by processRecordRidMap) and routes through
+    // parseLinked instead of sendRecord. Asserting exactly 3 falsifies (a) any arm-drop
+    // regression that would reduce the count below 3, and (b) any regression that flipped
+    // fetchEntity's singleton path into sendRecord — which would push the count to 4.
+    final int expectedDistinctSendRecord = 3;
+
     session.executeInTx(tx -> {
       EntityImpl root = tx.load(rootId);
-      EntityImpl singleton = tx.load(targetIds[0]);
 
       // Arm 1: Identifiable singleton — short-circuits the multi-value cascade.
-      root.setProperty("linkSingleton", singleton);
+      root.setProperty("linkSingleton",
+          (EntityImpl) session.newEntity("BranchCovTarget"));
 
       // Arm 2: populated LinkList (Iterable + Collection of Identifiable). The
-      // newLinkList/setProperty pathway wraps the targets into EntityLinkListImpl so the
+      // newLinkList/setProperty pathway wraps the target into EntityLinkListImpl so the
       // runtime type passed to processRecordRidMap is Iterable<Identifiable>.
       final var linkList = root.newLinkList("linkList");
-      for (var id : targetIds) {
-        linkList.add(tx.load(id));
-      }
+      linkList.add(session.newEntity("BranchCovTarget"));
 
       // Arm 3: populated LinkSet — a different Iterable<Identifiable> implementation.
       final var linkSet = root.newLinkSet("linkSet");
-      for (var id : targetIds) {
-        linkSet.add(tx.load(id));
-      }
+      linkSet.add(session.newEntity("BranchCovTarget"));
 
-      // Arm 4: populated LinkMap — Map<String, Identifiable>. Drives the Map arm including
-      // the values().iterator().next() instanceof Identifiable check.
+      // Arm 4: populated LinkMap — Map<String, Identifiable>. Drives the Map arm
+      // including the values().iterator().next() instanceof Identifiable check.
       final var linkMap = root.newLinkMap("linkMap");
-      for (var i = 0; i < targetIds.length; i++) {
-        linkMap.put("k" + i, tx.load(targetIds[i]));
-      }
+      linkMap.put("k0", session.newEntity("BranchCovTarget"));
 
       // Arm 5: empty LinkList — the isEmpty / hasNext branches of the Iterable + Collection
       // arms evaluate true, exercising the short-circuit paths.
@@ -124,9 +121,9 @@ public class FetchHelperBranchCoverageTest extends TestUtilsFixture {
       stringMap.put("k", "v");
 
       // Arm 8: populated EmbeddedList of strings — drives the
-      // Collection.iterator().next() instanceof Identifiable=false branch (line 141 of
-      // processRecordRidMap). LinkList of Identifiable covered the same arm with =true;
-      // both branches are required for branch coverage.
+      // Collection.iterator().next() instanceof Identifiable=false branch in
+      // processRecordRidMap's Collection arm. LinkList of Identifiable covered the same arm
+      // with =true; both branches are required for branch coverage.
       final var stringList = root.newEmbeddedList("stringList");
       stringList.add("a");
       stringList.add("b");
@@ -137,10 +134,11 @@ public class FetchHelperBranchCoverageTest extends TestUtilsFixture {
       final var stringSet = root.newEmbeddedSet("stringSet");
       stringSet.add("x");
 
-      // Arm 10: EmbeddedList of 32-bit integer wrappers — non-Collection, non-Map,
-      // non-array runtime shape that still iterates. Pinned to drive the
-      // !(fieldValue instanceof Collection) = false arm at line 139 with a populated
-      // first element that is not Identifiable.
+      // Arm 10: EmbeddedList of 32-bit integer wrappers — a Collection of non-Identifiable
+      // wrappers, complementary to the String EmbeddedList of Arm 8. Drives the same
+      // Collection-of-non-Identifiable arm of the instanceof cascade with a different
+      // element type so the false-leg evaluation is exercised through more than one
+      // runtime element class.
       final var intList = root.newEmbeddedList("intList");
       intList.add(1);
       intList.add(2);
@@ -150,68 +148,80 @@ public class FetchHelperBranchCoverageTest extends TestUtilsFixture {
     // Drive the entry point with a plan that follows everything at depth 1. Each fetch
     // call below targets a DIFFERENT format-driven code path in the dispatcher:
     //   - format="" → FormatSettings.keepTypes=false, so processFieldTypes is skipped;
-    //     drives the process() branch chain at lines 537/551-554 only.
-    //   - format=null → FormatSettings.keepTypes=true, so processFieldTypes runs and the
-    //     branch chain at lines 476/488-491 is driven too.
+    //     drives only the process() instanceof chain.
+    //   - format="keepTypes" → FormatSettings.keepTypes=true, so processFieldTypes runs and
+    //     the sibling instanceof chain in processFieldTypes is also driven.
     //   - format="shallow" → exercises the early-return arms in process() that the
     //     non-shallow path skips.
-    final var emptyFormatCount = session.computeInTx(tx -> {
+    final var emptyFormatListener = session.computeInTx(tx -> {
       EntityImpl root = tx.load(rootId);
-      final var listener = new CountFetchListener();
+      final var listener = new RecordingFetchListener();
       final FetchContext context = new RemoteFetchContext();
       FetchHelper.fetch(session,
           root, root, FetchHelper.buildFetchPlan("[*]*:1"), listener, context, "");
-      return listener.count;
+      return listener;
     });
 
-    final var keepTypesFormatCount = session.computeInTx(tx -> {
+    final var keepTypesFormatListener = session.computeInTx(tx -> {
       EntityImpl root = tx.load(rootId);
-      final var listener = new CountFetchListener();
+      final var listener = new RecordingFetchListener();
       final FetchContext context = new RemoteFetchContext();
       // format="keepTypes" routes through FormatSettings(stringFormat) which sets
-      // keepTypes=true (FormatSettings:1360). The pre-process loop in processRecord
-      // then drives processFieldTypes for every field, covering the chain at
-      // FetchHelper:472-491. Null format would have the same effect via the
-      // FormatSettings(null) initializer, but null also tripped on the outer fetch()
-      // entry's format.contains("shallow") guard, so we use the explicit token.
+      // keepTypes=true. The pre-process loop in processRecord then drives processFieldTypes
+      // for every field, covering its instanceof cascade. Null format would have the same
+      // effect via the FormatSettings(null) initializer, but null also tripped on the outer
+      // fetch() entry's format.contains("shallow") guard, so we use the explicit token.
       FetchHelper.fetch(session,
           root, root, FetchHelper.buildFetchPlan("[*]*:1"), listener, context, "keepTypes");
-      return listener.count;
+      return listener;
     });
 
-    final var shallowFormatCount = session.computeInTx(tx -> {
+    final var shallowFormatListener = session.computeInTx(tx -> {
       EntityImpl root = tx.load(rootId);
-      final var listener = new CountFetchListener();
+      final var listener = new RecordingFetchListener();
       final FetchContext context = new RemoteFetchContext();
       FetchHelper.fetch(session,
           root, root, FetchHelper.buildFetchPlan("[*]*:1"), listener, context, "shallow");
-      return listener.count;
+      return listener;
     });
 
-    // Falsifiable post-conditions: every Identifiable-bearing field fans out at least
-    // once into sendRecord under the non-shallow plans, and shallow plans suppress the
-    // fan-out entirely.
-    assertTrue(
-        "non-shallow fetch must dispatch sendRecord at least once for empty-format: "
-            + emptyFormatCount,
-        emptyFormatCount >= 1);
-    assertTrue(
-        "non-shallow fetch with keepTypes format must also dispatch: "
-            + keepTypesFormatCount,
-        keepTypesFormatCount >= 1);
+    // Falsifiable post-condition: each populated multi-value arm (list, set, map) must
+    // fan out exactly one element via sendRecord. The linkSingleton arm goes through
+    // parseLinked rather than sendRecord (the target is already at level 1 via
+    // processRecordRidMap), so the observed sendRecord count is 3 for both non-shallow
+    // formats — drop any arm and the count is ≤2, flip any non-sendRecord path to
+    // sendRecord and the count is ≥4. See expectedDistinctSendRecord above.
     assertEquals(
-        "shallow format must suppress all link traversal: " + shallowFormatCount,
-        0L,
-        (long) shallowFormatCount);
+        "non-shallow empty-format fetch must dispatch sendRecord for each multi-value "
+            + "arm: observed=" + emptyFormatListener.observed,
+        (long) expectedDistinctSendRecord,
+        (long) emptyFormatListener.observed.size());
+    assertEquals(
+        "non-shallow keepTypes-format fetch must dispatch the same per-arm fan-out "
+            + "(processFieldTypes runs but does not fan out additional records): observed="
+            + keepTypesFormatListener.observed,
+        (long) expectedDistinctSendRecord,
+        (long) keepTypesFormatListener.observed.size());
+
+    // Shallow must suppress every traversal — the observed set is empty.
+    assertTrue(
+        "shallow format must suppress all link traversal: observed="
+            + shallowFormatListener.observed,
+        shallowFormatListener.observed.isEmpty());
   }
 
   /**
-   * Pin the explicit {@link LinkBag} short-circuit inside {@link FetchHelper#isEmbedded}
-   * (production line 610-612: a LinkBag is never embedded because it can only carry edge
-   * references, never embedded documents). The guard short-circuits before the
-   * {@code MultiValue.getFirstValue} probe fires, so a regression that dropped the guard
-   * would still observably differ from the current shape under a LinkBag whose first edge
-   * was a non-EntityImpl (the fallback probe would NPE on Iterator.next() being null).
+   * Shape pin for the explicit {@link LinkBag} short-circuit inside
+   * {@link FetchHelper#isEmbedded}: a LinkBag is never embedded because it can only carry
+   * edge references, never embedded documents.
+   *
+   * <p>This is a contract pin rather than a strictly falsifiable guard. With an empty
+   * LinkBag, {@link com.jetbrains.youtrackdb.internal.common.collection.MultiValue#getFirstValue}
+   * returns {@code null}, so the post-LinkBag fallback probe ({@code f != null && f
+   * instanceof EntityImpl ...}) would still keep {@code isEmbedded == false} even without
+   * the explicit LinkBag guard. The pin guards against a future refactor that flips the
+   * scalar-fallback default to {@code true}, or that drops the LinkBag short-circuit and
+   * lets a non-empty LinkBag whose first edge is a non-EntityImpl flow through the probe.
    */
   @Test
   public void isEmbeddedReturnsFalseForLinkBag() {
@@ -222,8 +232,8 @@ public class FetchHelperBranchCoverageTest extends TestUtilsFixture {
   }
 
   /**
-   * Pin the embedded-document detection arm of {@link FetchHelper#isEmbedded} (production
-   * line 605-607: {@code fieldValue instanceof EntityImpl entityImpl && entityImpl.isEmbedded()}).
+   * Pin the embedded-document detection arm of {@link FetchHelper#isEmbedded}: the
+   * {@code fieldValue instanceof EntityImpl entityImpl && entityImpl.isEmbedded()} clause.
    * An EmbeddedEntityImpl (returned by {@link
    * com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded#newEmbeddedEntity()})
    * has {@code isEmbedded()==true}, so the first half of the OR fires and the helper
@@ -240,14 +250,15 @@ public class FetchHelperBranchCoverageTest extends TestUtilsFixture {
   }
 
   /**
-   * Pin the {@link FetchHelper#isEmbedded} multi-value-of-embedded fallback branch
-   * (production line 615-620: when the field is a non-EntityImpl multi-value whose first
-   * element is an embedded EntityImpl, {@code MultiValue.getFirstValue} returns the inner
-   * EntityImpl and the {@code isEmbedded() || !isPersistent()} probe evaluates true). The
-   * cumulative-vs-{@code origin/develop} coverage gate flagged lines 619-620 as uncovered
-   * because the existing {@link FetchHelperDeadCodeTest} {@code isEmbeddedReturns*} pins
-   * only exercise the non-Identifiable / scalar arms; this one drives the
-   * {@code fallback-on-multi-value} arm that walks the embedded probe.
+   * Pin the {@link FetchHelper#isEmbedded} multi-value-of-embedded fallback branch: when the
+   * field is a non-EntityImpl multi-value whose first element is an embedded EntityImpl,
+   * {@code MultiValue.getFirstValue} returns the inner EntityImpl and the
+   * {@code isEmbedded() || !isPersistent()} probe evaluates true. The
+   * cumulative-vs-{@code origin/develop} coverage gate flagged the fallback probe lines as
+   * uncovered because the existing
+   * {@link com.jetbrains.youtrackdb.internal.core.fetch.FetchHelperDeadCodeTest}
+   * {@code isEmbeddedReturns*} pins only exercise the non-Identifiable / scalar arms; this
+   * one drives the {@code fallback-on-multi-value} arm that walks the embedded probe.
    */
   @Test
   public void isEmbeddedReturnsTrueForListContainingEmbeddedEntity() {
@@ -264,20 +275,21 @@ public class FetchHelperBranchCoverageTest extends TestUtilsFixture {
   }
 
   /**
-   * Pin the {@link FetchHelper#isEmbedded} swallow-exception arm (production line
-   * 614-624: the {@code try / catch (Exception e)} around {@code MultiValue.getFirstValue}).
-   * If MultiValue handling throws (e.g. for an unsupported field-value shape), the helper
-   * logs and returns the {@code isEmbedded} flag computed before the try — which stays
-   * false because the field is neither an EntityImpl nor a LinkBag. The pin is best-effort:
-   * MultiValue is conservative, so most non-multi-value shapes return false from
-   * getFirstValue without throwing. Drives the fall-through case for completeness.
+   * Type-coverage pin for the scalar fall-through arm of {@link FetchHelper#isEmbedded}.
+   *
+   * <p>The {@link FetchHelperDeadCodeTest#isEmbeddedReturnsFalseForNonEntityScalar} pin
+   * already covers {@code Integer} and {@code String}; this test extends the type coverage
+   * to {@code Long} so the scalar fall-through is exercised against a wider runtime-type
+   * surface. This is a redundant pin in the sense that {@code Long}, {@code Integer}, and
+   * {@code String} all take the same code path — kept here so a future refactor that
+   * narrows the scalar fall-through to specific types is caught by both test files.
    */
   @Test
   public void isEmbeddedReturnsFalseForScalarWithoutMultiValueSupport() {
     // A plain Long value: not an EntityImpl, not a LinkBag, MultiValue.getFirstValue
-    // returns the value itself (or null for a non-multi-value scalar). The helper's
-    // post-probe isEmbedded check evaluates the scalar against EntityImpl, sees no match,
-    // and returns false. Pins the fall-through arm.
+    // returns null for a non-multi-value scalar. The helper's post-probe isEmbedded check
+    // evaluates the scalar against EntityImpl, sees no match, and returns false. Pins the
+    // fall-through arm for the Long runtime type.
     assertFalse(
         "Long scalar must not be detected as embedded — fall-through pin",
         FetchHelper.isEmbedded(Long.valueOf(42L)));
@@ -331,9 +343,15 @@ public class FetchHelperBranchCoverageTest extends TestUtilsFixture {
 
   /**
    * Drive {@link FetchHelper#processRecordRidMap} with the empty-collections sentinel set
-   * (empty LinkList, empty LinkMap, empty EmbeddedMap). Every "is empty" / "first element
-   * is null" arm of the instanceof cascade evaluates without enqueueing anything — the
-   * falsifiable observable is that {@code parsedRecords} stays untouched.
+   * (empty LinkList, empty LinkMap, empty EmbeddedMap). The falsifiable observable is that
+   * {@code parsedRecords} stays untouched.
+   *
+   * <p>Arm coverage: only the empty-Iterable and empty-Map short-circuit arms of the
+   * instanceof cascade are exercised. An empty LinkList is also a Collection, but the
+   * preceding Iterable arm short-circuits the OR chain on
+   * {@code !((Iterable<?>) fieldValue).iterator().hasNext()}, so the Collection arm is
+   * never reached — the LinkList short-circuit happens at the Iterable level. Likewise the
+   * Map arm is short-circuited via {@code ((Map<?, ?>) fieldValue).isEmpty()}.
    */
   @Test
   public void processRecordRidMapSkipsEmptyContainerArms() {
@@ -376,15 +394,18 @@ public class FetchHelperBranchCoverageTest extends TestUtilsFixture {
   // ---------------------------------------------------------------------------
 
   /**
-   * Counter listener identical in shape to {@code DepthFetchPlanTest.CountFetchListener} —
-   * duplicated here so this test class does not depend on a private fixture in a sibling
-   * test file. Required to flip {@link RemoteFetchListener#requireFieldProcessing()} to
-   * true so the fast-path in {@code processRecord} does NOT skip the whole fetch when the
-   * plan singleton matches the default.
+   * Recording listener that captures the RID of every record dispatched through
+   * {@code sendRecord} as well as the total invocation count. The recording form lets
+   * tests pin per-arm fan-out by RID membership (robust to changes in dispatcher cadence)
+   * as well as total-count tests. Required to flip
+   * {@link RemoteFetchListener#requireFieldProcessing()} to true so the fast-path in
+   * {@code processRecord} does NOT skip the whole fetch when the plan singleton matches
+   * the default.
    */
-  private static final class CountFetchListener extends RemoteFetchListener {
+  private static final class RecordingFetchListener extends RemoteFetchListener {
 
     int count;
+    final java.util.Set<RID> observed = new java.util.HashSet<>();
 
     @Override
     public boolean requireFieldProcessing() {
@@ -394,6 +415,9 @@ public class FetchHelperBranchCoverageTest extends TestUtilsFixture {
     @Override
     protected void sendRecord(RecordAbstract iLinked) {
       count++;
+      if (iLinked != null) {
+        observed.add(iLinked.getIdentity());
+      }
     }
   }
 }

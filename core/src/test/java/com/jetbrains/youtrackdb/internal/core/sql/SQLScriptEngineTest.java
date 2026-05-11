@@ -183,13 +183,20 @@ public class SQLScriptEngineTest extends TestUtilsFixture {
   /**
    * eval(Reader, ScriptContext) routes to eval(Reader, Bindings), which is unsupported. Pin
    * the explicit refusal so a regression that silently revives Reader evaluation is visible.
+   * Asserts on the load-bearing migration hint embedded in the message so a regression that
+   * strips the {@code use eval(String, Bindings) instead} guidance is also caught.
    */
   @Test
   public void evalReaderScriptContextThrowsUnsupportedOperation() {
     final var engine = new SQLScriptEngine(new SQLScriptEngineFactory());
-    assertThrows(
-        UnsupportedOperationException.class,
-        () -> engine.eval(new StringReader("SELECT 1"), new SimpleScriptContext()));
+    final var ex =
+        assertThrows(
+            UnsupportedOperationException.class,
+            () -> engine.eval(new StringReader("SELECT 1"), new SimpleScriptContext()));
+    assertNotNull("UOE must carry a message describing the migration hint", ex.getMessage());
+    assertTrue(
+        "message must surface the migration hint: " + ex.getMessage(),
+        ex.getMessage().contains("use eval(String, Bindings) instead"));
   }
 
   /** eval(String) with no bindings path throws the missing-db guard. */
@@ -201,14 +208,21 @@ public class SQLScriptEngineTest extends TestUtilsFixture {
 
   /**
    * eval(Reader) routes to eval(Reader, Bindings), which is unsupported. Pin the explicit
-   * refusal so a regression that silently revives Reader evaluation is visible.
+   * refusal so a regression that silently revives Reader evaluation is visible. Asserts on
+   * the migration-hint message fragment so a regression that strips the explicit guidance
+   * to switch to the {@code eval(String, Bindings)} overload is also caught.
    */
   @Test
   public void evalReaderAloneThrowsUnsupportedOperation() {
     final var engine = new SQLScriptEngine(new SQLScriptEngineFactory());
-    assertThrows(
-        UnsupportedOperationException.class,
-        () -> engine.eval(new StringReader("SELECT 1")));
+    final var ex =
+        assertThrows(
+            UnsupportedOperationException.class,
+            () -> engine.eval(new StringReader("SELECT 1")));
+    assertNotNull("UOE must carry a message describing the migration hint", ex.getMessage());
+    assertTrue(
+        "message must surface the migration hint: " + ex.getMessage(),
+        ex.getMessage().contains("use eval(String, Bindings) instead"));
   }
 
   /** eval(String, Bindings) with null bindings throws. */
@@ -235,13 +249,20 @@ public class SQLScriptEngineTest extends TestUtilsFixture {
    * eval(Reader, Bindings) is unsupported regardless of whether the bindings carry a db; the
    * Reader path was retired alongside the legacy {@code CommandScript} executor. Pin the
    * explicit refusal so a regression that silently revives Reader evaluation is visible.
+   * Asserts on the migration-hint message fragment so a regression that strips the
+   * {@code use eval(String, Bindings) instead} guidance is also caught.
    */
   @Test
   public void evalReaderNullBindingsThrowsUnsupportedOperation() {
     final var engine = new SQLScriptEngine(new SQLScriptEngineFactory());
-    assertThrows(
-        UnsupportedOperationException.class,
-        () -> engine.eval(new StringReader("SELECT 1"), (Bindings) null));
+    final var ex =
+        assertThrows(
+            UnsupportedOperationException.class,
+            () -> engine.eval(new StringReader("SELECT 1"), (Bindings) null));
+    assertNotNull("UOE must carry a message describing the migration hint", ex.getMessage());
+    assertTrue(
+        "message must surface the migration hint: " + ex.getMessage(),
+        ex.getMessage().contains("use eval(String, Bindings) instead"));
   }
 
   // ===========================================================================

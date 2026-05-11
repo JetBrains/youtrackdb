@@ -137,17 +137,24 @@ public class FetchHelper {
               && (!(fieldValue instanceof Collection<?>)
                   || ((Collection<?>) fieldValue).isEmpty()
                   || !(((Collection<?>) fieldValue).iterator().next() instanceof Identifiable))
-              // Raw Java arrays and MultiCollectionIterator are unreachable here:
-              // EntityImpl.setProperty routes through PropertyTypeInternal.getTypeByValue,
-              // which maps raw arrays to EMBEDDEDLIST and MultiCollectionIterator to
-              // EMBEDDEDLIST/EMBEDDEDMAP, then EMBEDDEDLIST.convert / EMBEDDEDMAP.convert
-              // wrap the value into a typed Collection or Map before storage. The binary
-              // deserializer follows the same path, so a value reaching the fetcher is
-              // always Identifiable / Iterable / Collection / Map.
+              // The structural invariant guarantees no raw Java arrays or
+              // MultiCollectionIterator reach this filter: EntityImpl.setProperty routes
+              // through PropertyTypeInternal.getTypeByValue, which maps raw arrays to
+              // EMBEDDEDLIST and MultiCollectionIterator to EMBEDDEDLIST/EMBEDDEDMAP, then
+              // EMBEDDEDLIST.convert / EMBEDDEDMAP.convert wrap the value into a typed
+              // Collection or Map before storage. The binary deserializer follows the same
+              // path, so a value reaching the fetcher is always Identifiable / Iterable /
+              // Collection / Map. The trailing !containsIdentifiers(fieldValue) clause is
+              // a unified safety net consistent with the symmetric filters in process()
+              // and processFieldTypes(): a future write path that bypasses
+              // EntityImpl.setProperty and stores an identifier-bearing container that
+              // does not match the structural arms above is still recursed into rather
+              // than mis-classified as a scalar.
               && (!(fieldValue instanceof Map<?, ?>)
                   || ((Map<?, ?>) fieldValue).isEmpty()
                   || !(((Map<?, ?>) fieldValue).values().iterator()
-                      .next() instanceof Identifiable)))) {
+                      .next() instanceof Identifiable))
+              && !containsIdentifiers(fieldValue))) {
         //noinspection UnnecessaryContinue
         continue;
       } else {

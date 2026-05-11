@@ -379,6 +379,16 @@ public class Jsr223ScriptExecutorTest extends TestUtilsFixture {
       // FunctionLibraryImpl renamed the field; falsifiable preflight failure rather than a
       // silent skip. WHEN-FIXED: rename in FunctionLibraryImpl will require updating this
       // reflective handle.
+      //
+      // Test contract: this test pins the NoSuchMethodException catch arm in
+      // Jsr223ScriptExecutor.executeFunction. The reflection anchor (the
+      // FunctionLibraryImpl `functions` map field) is used to fabricate a "ghost" entry
+      // whose name disagrees with the registered Function entity's getName(), simulating
+      // a stale compiled-function cache. If that field is renamed or replaced with an
+      // accessor-only API, reimplement the pin by constructing an Engine with a stale
+      // compiled-function cache via a public API path (e.g., by exercising the same
+      // "function declared in library but absent from the JS engine" scenario through
+      // session.getMetadata().getFunctionLibrary() mutations only).
       throw new AssertionError(
           "FunctionLibraryImpl.functions field rename detected — pin needs adjustment");
     }
