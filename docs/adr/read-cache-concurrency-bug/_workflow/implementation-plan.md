@@ -106,24 +106,46 @@ flowchart LR
 - **Implemented in**: Track 1 (step references added during execution).
 - **Full design**: design.md §"Cache primitive: loadOrAdd"
 
-#### D2: `entryPoint.pagesSize` / `fileSize` as the sole cross-TX discovery surface
+#### D2: `entryPoint.pagesSize` / `fileSize` as the cross-TX discovery surface where one exists (revised after Track 3 Phase A audit)
 
+- **Revision history**: original D2 framed the logical surface as the
+  *sole* cross-TX discovery channel. Phase A audit of the original
+  Track 3 found that three storage components — `FreeSpaceMap`,
+  `CollectionDirtyPageBitSet`, `IndexHistogramManager` — have no
+  EntryPoint metadata page at all (PSI-confirmed: no `pagesSize` /
+  `fileSize` field, no `setPagesSize` WAL op), and that four sites in
+  components that DO have an EntryPoint legitimately read physical
+  size (chicken-and-egg bootstrap checks, post-loss FSM recovery
+  rebuild, defensive partial-write probes). Track 3 was removed and
+  its surviving work folded into Tracks 4 and 5; D2 was rewritten to
+  match the codebase reality.
+- **Decision**: where a component has an EntryPoint with a
+  WAL-persisted logical-size field, cross-TX readers route through
+  that field; where it does not, cross-TX readers retain access to
+  physical size through Track 5's package-private gated helpers, with
+  the per-component lock plus Track 1's `loadOrAdd` totality providing
+  the race-freedom that I1 requires.
 - **Alternatives considered**: keep `WriteCache.getFilledUpTo` public
-  (today's race vector); introduce a marker-bit + adopt-on-existing
-  protocol at the cache layer (the prior design iteration).
-- **Rationale**: every storage component already maintains a logical
-  page count on its `EntryPoint` metadata page, persisted via dedicated
-  WAL ops (`SetPagesSizeOp` / `SetFileSizeOp`), advanced only on
-  commit. Routing all cross-TX readers through it removes the discovery
-  channel that lets a reader learn about an in-flight pageIndex; the
-  race attack surface disappears.
-- **Risks/Caveats**: 16 production call sites of
-  `StorageComponent.getFilledUpTo` migrate to `entryPoint.pagesSize` /
-  `fileSize` (9 pure-sizing in Track 3, 7 reuse-or-extend probes
-  collapsed by Track 4). One survivor
-  (`DiskStorage.backupPagesWithChanges`) is storage-quiesced and routes
-  through a gated path (D4).
-- **Implemented in**: Track 3.
+  (today's race vector); marker-bit + adopt-on-existing protocol at
+  the cache layer (D5); add new EntryPoint + WAL op to every EP-less
+  component (rejected — large scope expansion, on-disk format change,
+  not rollback-safe via `git revert`).
+- **Rationale**: I1 (cross-TX readers cannot learn an in-flight
+  pageIndex via a public cache method) is upheld by **removing public
+  access** to `WriteCache.getFilledUpTo` (D4), not by universally
+  routing through logical state. For the 4 EP-equipped components,
+  the logical surface is the cleanest read; for the 3 EP-less
+  components and the 4 physical-by-design sites, a rationale-bearing
+  gated helper is sufficient because the race vector (concurrent
+  reader observing an in-flight allocator's pageIndex) is foreclosed
+  by per-component-lock serialisation (I4) plus Track 1's totality.
+- **Risks/Caveats**: D4's gated-helper surface is broader than
+  originally planned (≥ 5 surviving consumers, not 1). The audit-grep
+  target ("who calls a physical-size read?") shifts from
+  `WriteCache.getFilledUpTo` to the helper set. Tracked in D4's
+  revision.
+- **Implemented in**: Track 4 (expanded — migrations + cleanups);
+  Track 5 (expanded — gated helpers + access tightening).
 - **Full design**: design.md §"Allocation discovery surface"
 
 #### D3: Delete `addPage`; collapse do/while reconciliation
@@ -146,17 +168,47 @@ flowchart LR
 - **Implemented in**: Track 4.
 - **Full design**: design.md §"Allocation discovery surface"
 
-#### D4: `getFilledUpTo` becomes WriteCache-internal
+#### D4: `getFilledUpTo` becomes non-public, accessed via gated rationale-bearing helpers (revised after Track 3 Phase A audit)
 
-- **Alternatives considered**: keep public; `@Deprecated` but accessible.
-- **Rationale**: after D2/D3 land, the only legitimate external consumer
-  is `DiskStorage.backupPagesWithChanges`, and its access is
-  storage-quiesced. Tightening the access modifier prevents
-  reintroduction of the race vector by future callers; the backup site
-  uses a narrowly-scoped iteration helper.
-- **Risks/Caveats**: minor — backup path needs a small gated entry
-  point on `WriteCache`.
-- **Implemented in**: Track 5.
+- **Revision history**: original D4 named
+  `DiskStorage.backupPagesWithChanges` as the *only* legitimate
+  external consumer post-Tracks-3-and-4. The Phase A audit of Track 3
+  found ≥ 5 additional legitimate consumers: 4 physical-by-design
+  sites in components that DO have an EntryPoint (bootstrap emptiness
+  checks at `CollectionPositionMapV2.create:136` and
+  `PaginatedCollectionV2.initCollectionState:2256`, FSM-rebuild
+  recovery scan at `PaginatedCollectionV2.open:391`, defensive
+  physical-presence probe at
+  `IndexHistogramManager.readSnapshotFromPage:1833`), plus 2 EP-less
+  pure-sizing reads in `CollectionDirtyPageBitSet.{clear:141,
+  nextSetBit:168}`. (Two further sites previously labelled "pure
+  sizing" — `FreeSpaceMap.updatePageFreeSpace:227` and
+  `CollectionDirtyPageBitSet.ensureCapacity:194` — were
+  reclassified as probe sites and collapse via Track 4's `loadOrAdd`
+  primitive rather than surviving as readers.) The helper surface
+  grows from 1 helper to 2-3 (or one helper with an `intent` enum);
+  Phase A of Track 5 picks the final shape.
+- **Decision**: tighten `WriteCache.getFilledUpTo` to package-private
+  (or otherwise non-public). Surviving external consumers route
+  through narrowly-scoped helpers on `WriteCache` and/or
+  `StorageComponent`, each carrying a rationale-bearing name and
+  contract-stating javadoc. The audit-grep target for "who reads
+  physical size?" becomes the helper set.
+- **Alternatives considered**: keep public; `@Deprecated` but
+  accessible; per-consumer marker-bit (D5); fold each surviving site
+  into the gated package path with a free-form method instead of
+  named helpers.
+- **Rationale**: removing public access eliminates the discovery
+  channel for code paths that don't have a legitimate physical-size
+  need. Each surviving consumer reaches a rationale-bearing helper, so
+  future readers see the contract at the call site rather than
+  inferring it from a generic accessor.
+- **Risks/Caveats**: more helpers than originally planned, and the
+  helper-set choice (single helper + enum vs 2-3 named helpers) is
+  itself a small design decision deferred to Track 5 Phase A. Either
+  shape upholds the audit-grep contract.
+- **Implemented in**: Track 5 (expanded).
+- **Full design**: design.md §"Allocation discovery surface"
 
 #### D5: Reject the marker-bit + adopt-on-existing fix
 
@@ -357,46 +409,49 @@ flowchart LR
   > logical-size getter; `PaginatedCollectionV2.open:391` and
   > `CollectionPositionMapV2.create:136` semantics) is resolved inside Phase A.
 
-- [ ] Track 3: Read-side discovery migration
-  > Migrate the pure-sizing production callers of
-  > `StorageComponent.getFilledUpTo` (≈9 sites across BTree,
-  > CollectionPositionMapV2, PaginatedCollectionV2, FreeSpaceMap,
-  > IndexHistogramManager, CollectionDirtyPageBitSet) to read each
-  > component's logical `entryPoint.pagesSize` / `fileSize`. The 7
-  > reuse-or-extend probe sites and the lone storage-quiesced
-  > `DiskStorage.backupPagesWithChanges` consumer stay until
-  > Tracks 4 / 5.
-  > **Scope:** ~4-5 steps covering BTree, CollectionPositionMapV2 +
-  > PaginatedCollectionV2, FreeSpaceMap + IndexHistogramManager +
-  > CollectionDirtyPageBitSet, and the residual sizing-iteration sites.
-
-- [ ] Track 4: Write-side API collapse
+- [ ] Track 4: Write-side API collapse + residual read-side migration
   > Delete the `addPage` API surface (`StorageComponent.addPage` +
-  > `AtomicOperation.addPage` + their 19 external production call
-  > sites) and migrate to `loadOrAddPageForWrite(fileId, knownIndex)`
-  > on top of Track 1's primitive. Collapse the `commitChanges` /
-  > `restoreAtomicUnit` / `restoreFromIncrementalBackup` reconciliation
-  > loops, drop the `internalFilledUpTo` prediction wrapper, and delete
-  > the per-component reuse-or-extend probes. Final `allocateNewPage`
+  > `AtomicOperation.addPage` + ≈21 external production call sites —
+  > 19 originally enumerated plus 2 growth-loop probes previously
+  > misclassified as Track 3 pure-sizing reads) and migrate to
+  > `loadOrAddPageForWrite(fileId, knownIndex)` on top of Track 1's
+  > primitive. Collapse the `commitChanges` / `restoreAtomicUnit` /
+  > `restoreFromIncrementalBackup` reconciliation loops, drop the
+  > `internalFilledUpTo` prediction wrapper, and delete the
+  > per-component reuse-or-extend probes. Final `allocateNewPage`
   > deletions on `WriteCache` / `LockFreeReadCache` /
-  > `DirectMemoryOnlyDiskCache` land here, alongside the `addPage`
-  > deletion.
-  > **Scope:** ~5-6 steps covering AtomicOperationBinaryTracking
-  > cleanup, replay-loop collapse (`restoreAtomicUnit` +
-  > `restoreFromIncrementalBackup`), and per-component `addPage`
-  > migration in three batches.
+  > `DirectMemoryOnlyDiskCache` land here. Also absorbs the surviving
+  > read-side work after the Phase A audit that retired the original
+  > Track 3: 1 clean BTree migration to `entryPoint.getPagesSize() + 1`,
+  > rationale-bearing inline comments at the 4 stay-on-physical sites
+  > documented in D4's revision, and an inline rationale comment on
+  > the 2 EP-less pure-sizing reads in `CollectionDirtyPageBitSet`.
+  > **Scope:** ~6-7 steps covering `AtomicOperationBinaryTracking`
+  > cleanup, replay-loop collapse, per-component probe + `addPage`
+  > migration in three batches, the BTree pure-sizing migration, and
+  > rationale comments at the stay-on-physical sites.
   > **Depends on:** Track 1
 
-- [ ] Track 5: Tighten `getFilledUpTo` access
-  > Make `WriteCache.getFilledUpTo` package-private. Introduce a
-  > narrowly-scoped iteration helper for
-  > `DiskStorage.backupPagesWithChanges` that names its
-  > storage-quiesced contract. Add javadoc to `WriteCache` documenting
-  > that page-existence discovery happens via
-  > `entryPoint.pagesSize` / `fileSize`, not via this method.
-  > **Scope:** ~2-3 steps covering the gated backup path, the access
-  > downgrade, and the javadoc + verification pass.
-  > **Depends on:** Track 3, Track 4
+- [ ] Track 5: Tighten `getFilledUpTo` access via gated helpers
+  > Make `WriteCache.getFilledUpTo` package-private (or otherwise
+  > non-public) and route the surviving external consumers through
+  > narrowly-scoped helpers with rationale-bearing names. Surviving
+  > consumer set (≥ 5, per D4 revision): `DiskStorage.backupPagesWithChanges`
+  > (storage-quiesced backup); bootstrap-time emptiness checks at
+  > `CollectionPositionMapV2.create:136` and
+  > `PaginatedCollectionV2.initCollectionState:2256`; FSM-rebuild
+  > recovery scan at `PaginatedCollectionV2.open:391`; defensive
+  > physical-presence probe at
+  > `IndexHistogramManager.readSnapshotFromPage:1833`; and the EP-less
+  > pure-sizing reads in `CollectionDirtyPageBitSet.{clear:141,
+  > nextSetBit:168}`. Phase A picks the helper shape (one helper +
+  > intent enum vs 2-3 named helpers). Add javadoc to `WriteCache`
+  > and `StorageComponent` documenting the discovery contract.
+  > **Scope:** ~3-4 steps covering the helper-shape decision and
+  > introduction, per-consumer migration to the helpers, the
+  > access downgrade on `WriteCache.getFilledUpTo`, and the
+  > javadoc + PSI-find-usages verification pass.
+  > **Depends on:** Track 4
 
 - [ ] Track 6: Integration regression test
   > End-to-end concurrent-insert workload that reproduces the original
@@ -412,13 +467,11 @@ flowchart LR
   > **Depends on:** Track 1, Track 4
 
 ## Plan Review
-- [x] Plan review (consistency + structural) — passed at iteration 2
+- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
 
-**Auto-fixed (mechanical)**: CR1 (corrected in-scope file paths for `LockFreeReadCache`, `WOWCache`, `DirectMemoryOnlyDiskCache`, `StorageComponent`, `AbstractStorage`); CR2 [blocker] (off-by-one fix: 17→16 `StorageComponent.getFilledUpTo` callers, 10→9 pure-sizing); CR3 (`StorageComponent.addPage` count clarified as 19 external + 1 internal; flagged `loadOrAddPageForWrite` already exists); CR4 (backlog Track 4 §What now lists adding `AtomicOperation.loadOrAddPageForWrite`); CR5 (backlog Track 1 §What surfaces the explicit `loadForWrite` → `loadOrAddForWrite` rename + adds `ReadCache.java` to in-scope files); CR6 (`DirectMemoryOnlyDiskCache` dual `ReadCache`/`WriteCache` role made explicit); CR7 (design.md `EnsureValidPageInFileTask` → `EnsurePageIsValidInFileTask`); CR8 (`backupPagesWithChanges` line annotation: method @ :1387, call @ :1404); CR9 (class diagram: `SegmentedMap<PageKey,CacheEntry>` → `ConcurrentLongIntHashMap~CacheEntry~`); CR10 (Phase A audit note for concrete lock-field names per component); CR11 [should-fix iter-2] (added `paginated/` segment to atomicoperations paths); CR12 [iter-2] (removed `SharedLinkBagBTree` from Track 3 — its 3 sites are probe sites in Track 4); S1 (cross-file `allocateNewPage`-deletion-timing contradiction reconciled — Track 1 deprecates, Track 4 deletes); S2–S5 (Track 1/2/3/4 plan-file intros trimmed to ≤3 sentences); S6 (`StorageComponent` Component-Map bullet trimmed to ≤5 lines, links to design §"Allocation discovery surface").
+**Reset after inline replan.** Phase A audit of the original Track 3 found that 3 of 7 in-scope components have no EntryPoint (PSI-confirmed) and 4 sites are physical-by-design. The plan was rewritten: Track 3 was removed (step file deleted, backlog section already removed at Phase A start), Tracks 4 and 5 expanded to absorb the surviving work, and D2 + D4 revised. The next `/execute-tracks` session re-enters State 0 to validate the revision against consistency + structural rules.
 
-**Escalated (design decisions)**: none — all findings classified mechanical and auto-applied; S7 (suggestion to reshape D5 rejected-alternative DR) rejected with sound rationale.
-
-**Audit-trail backfill note:** the consistency + structural reviews ran during plan creation (committed in `02cd718e0d` alongside `_workflow/reviews/consistency.md` and `_workflow/reviews/structural.md`) but the `## Plan Review` checklist entry was missing from the plan file. This entry was backfilled retroactively after the reviews' PASS verdicts were re-confirmed; no fresh autonomous Phase 2 work was needed.
+**Previous PASS (preserved for traceability):** the consistency + structural reviews passed at iteration 2 during plan creation (committed in `02cd718e0d` alongside `_workflow/reviews/consistency.md` / `_workflow/reviews/structural.md`). Iteration-2 auto-fixes covered CR1–CR12 (path corrections, off-by-one counts, intra-plan contradiction reconciliation, intro trimming) and S1–S6 (structural cleanups). S7 (suggestion to reshape D5) was rejected with rationale. The reset above does not invalidate that audit trail; the post-replan State 0 re-run will produce its own audit summary that overwrites this section.
 
 ## Final Artifacts
 

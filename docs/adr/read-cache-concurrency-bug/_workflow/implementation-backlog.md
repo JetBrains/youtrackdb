@@ -1,90 +1,6 @@
 # Read-cache concurrency bug — Track Details
 
-## Track 3: Read-side discovery migration
-
-> **What**:
-> - Migrate the **pure-sizing** production callers of
->   `StorageComponent.getFilledUpTo` to use the owning component's
->   logical page count from its `EntryPoint` metadata page. The
->   reuse-or-extend probe sites stay until Track 4 deletes the probes
->   wholesale.
-> - **Pure-sizing call sites in scope** (9 sites across 7
->   components):
->   - `BTree.doAssertFreePages:1389` → use the BTree's
->     `EntryPoint.getPagesSize()`.
->   - `IndexHistogramManager.readSnapshotFromPage:1833` → use the
->     component's logical page count (verify field name in Phase A).
->   - `FreeSpaceMap.updatePageFreeSpace:227` → ditto.
->   - `CollectionDirtyPageBitSet.{clear:141, nextSetBit:168,
->     ensureCapacity:194}` → ditto.
->   - `CollectionPositionMapV2.create:136` (freshness check) → confirm
->     in Phase A whether physical or logical is correct; if logical,
->     migrate to `mapEntryPoint.getFileSize()`. (See **Open audit**
->     below.)
->   - `PaginatedCollectionV2.open:391` → confirm in Phase A whether
->     this is a "physical truncation detected" check (stays on
->     physical) or a logical iteration sizing read (migrates).
->   - `PaginatedCollectionV2.initCollectionState:2256` → use the
->     component's `EntryPoint.getPagesSize()` (or equivalent — verify
->     in Phase A).
-> - **Probe call sites NOT in scope here** (Track 4 deletes them with
->   the surrounding probe):
->   - `BTree.allocateNewPage:2156, :2161`
->   - `SharedLinkBagBTree.splitNonRootBucket:922, :927`
->   - `SharedLinkBagBTree.splitRootBucket:1050`
->   - `CollectionPositionMapV2.allocate:208`
->   - `PaginatedCollectionV2.allocateNewPage:2233`
-> - **Stays on `getFilledUpTo`** (legitimate physical-size consumer):
->   - `DiskStorage.backupPagesWithChanges` (method @ :1387,
->     `getFilledUpTo` call @ :1404; storage-quiesced; gated in Track 5).
->
-> **How**:
-> - Step ordering (provisional):
->   1. BTree + IndexHistogramManager + FreeSpaceMap (3-4 sites).
->   2. CollectionDirtyPageBitSet (3 sites in one file).
->   3. CollectionPositionMapV2 + PaginatedCollectionV2 (Phase A
->      audits the open + create freshness checks first).
->   4. Sweep + verification — `grep`/PSI for any residual
->      `getFilledUpTo` call from a `StorageComponent` subclass.
-> - Each migration is a 1:1 replacement of `getFilledUpTo(...)` with
->   the component's existing logical-size getter on the EntryPoint.
->   No new WAL ops or schema changes are required for components that
->   already track logical page count.
-> - **Open audit**: components like `CollectionDirtyPageBitSet`,
->   `FreeSpaceMap`, and `IndexHistogramManager` may not have a
->   documented `EntryPoint.pagesSize` field (the handoff's table lists
->   six components, not all seven). Phase A confirms the logical-size
->   field per component and either:
->   - migrates to the existing field if one is present, or
->   - escalates with the recommendation to add a logical-size field +
->     WAL op (which would expand Track 3's scope and may need a separate
->     decision record).
->   The same audit applies to `PaginatedCollectionV2.open:391` and
->   `CollectionPositionMapV2.create:136`.
->
-> **Constraints**:
-> - **In-scope files**: the storage component classes named above and
->   their EntryPoint classes.
-> - **Out of scope**: `WriteCache` / `LockFreeReadCache` (Track 1),
->   `addPage` deletion / probe deletion (Track 4),
->   `DiskStorage.backupPagesWithChanges` (Track 5).
-> - Migrations must not change observable behavior beyond replacing
->   the read source. If logical-vs-physical semantics differ at a
->   site, that's a Phase A escalation point, not a unilateral fix.
-> - WAL format and existing `SetPagesSizeOp` / `SetFileSizeOp` records
->   are unchanged.
->
-> **Interactions**:
-> - Independent of Tracks 1, 2 (no cache code is touched).
-> - Enables Track 5 (after both Tracks 3 and 4 land, the only external
->   `getFilledUpTo` caller is `DiskStorage.backupPagesWithChanges`).
-> - Verifies invariant **I1** (cross-TX readers learn page existence
->   only via the logical surface) at the source-code level, with
->   complete enforcement once Track 5 tightens the access modifier.
-
----
-
-## Track 4: Write-side API collapse
+## Track 4: Write-side API collapse + residual read-side migration
 
 > **What**:
 > - Add `loadOrAddPageForWrite(long fileId, long pageIndex) → CacheEntry`
@@ -99,16 +15,20 @@
 >   delegate to `atomicOperation.loadOrAddPageForWrite(fileId,
 >   pageIndex)` instead of falling back to `addPage`.
 > - Delete `StorageComponent.addPage` and `AtomicOperation.addPage`.
-> - Migrate the 19 external `addPage` call sites to
+> - Migrate the ≈21 external `addPage` call sites to
 >   `loadOrAddPageForWrite(fileId, knownIndex)`. (PSI shows 20 total
 >   references on `StorageComponent.addPage`; one is the recursive call
 >   from inside `StorageComponent.loadOrAddPageForWrite` itself, which
->   the rewire above removes.) Approximate split — Phase A confirms the
->   exact partition:
+>   the rewire above removes. Add 2 more sites previously misclassified
+>   as Track 3 pure-sizing reads — see growth-loop bullet below.)
+>   Approximate split — Phase A confirms the exact partition:
 >   - ~9 sites inside `create()` / `init()` / `createEmptyStatsPage()` —
 >     fresh-file sequential allocation at pageIndex 0 or 1.
 >   - ~10 sites inside reuse-or-extend probes — `entryPoint.pagesSize + 1`
 >     is the target.
+>   - 2 sites inside growth-loops (`for (i = filledUpTo; i ≤ required;
+>     i++) addPage(...)`) absorbed from the retired Track 3 — see
+>     growth-loop bullet below.
 > - Delete the reuse-or-extend probe blocks themselves at every site
 >   (the cache absorbs orphans uniformly via Track 1's `loadOrAdd`):
 >   `BTree.allocateNewPage`, `SharedLinkBagBTree.{splitNonRootBucket,
@@ -116,6 +36,49 @@
 >   `PaginatedCollectionV2.allocateNewPage`. Replace each
 >   `if (pageSize < filledUpTo - 1) { reuse } else { extend }` block
 >   with a single `loadOrAddPageForWrite(fileId, pagesSize + 1)` call.
+> - Collapse growth-loops at `FreeSpaceMap.updatePageFreeSpace:227` and
+>   `CollectionDirtyPageBitSet.ensureCapacity:194` — both read
+>   `getFilledUpTo` and call `addPage` repeatedly to extend the file.
+>   These sites were previously listed under Track 3 as pure-sizing
+>   reads; the retired-Track-3 Phase A audit reclassified them as
+>   probe-shaped (the `filledUpTo` value is the loop-start index, not
+>   a sizing read). Replace the loop body with a single
+>   `loadOrAddPageForWrite(fileId, knownIndex)` per required page, using
+>   the same primitive as the other probe sites. Since both components
+>   are EP-less, there is no `entryPoint.setPagesSize` follow-up — the
+>   `loadOrAdd` totality is sufficient.
+> - Migrate the lone pure-sizing read at `BTree.doAssertFreePages:1389`
+>   to `entryPoint.getPagesSize() + 1` (post-Track-1 the BTree probe
+>   sites already load the EP page; `doAssertFreePages` loads a fresh
+>   entry-point page once at method entry, wraps it in
+>   `CellBTreeSingleValueEntryPointV3`, and uses the getter). This is
+>   a test-only assertion path (`-ea` only via
+>   `BTree.assertFreePages:1373`), so the added page-pin cost is
+>   inconsequential in production builds.
+> - Add rationale-bearing inline comments at the 4 stay-on-physical
+>   sites (no code change beyond the comment + javadoc): name the
+>   contract that justifies physical-size access in each location.
+>   These sites read `getFilledUpTo` via the gated helper Track 5
+>   introduces.
+>   - `CollectionPositionMapV2.create:136` — fresh-file emptiness check;
+>     EntryPoint lives on the page being checked (chicken-and-egg).
+>   - `PaginatedCollectionV2.initCollectionState:2256` — same fresh-file
+>     pattern.
+>   - `PaginatedCollectionV2.open:391` — FSM-rebuild recovery scan;
+>     logical bookkeeping was lost, physical-by-design.
+>   - `IndexHistogramManager.readSnapshotFromPage:1833` — defensive
+>     physical-presence probe for the optional HLL page (guards against
+>     partial crash between page-0 and page-1 writes in the same atomic
+>     op). Phase A of Track 4 picks between "stay on `getFilledUpTo`
+>     with comment + Track 5 gated helper" and "migrate to
+>     `WriteCache.loadIfPresent(fileId, 1)` + null check" — both
+>     preserve the defensive intent.
+> - Add a rationale-bearing inline comment at
+>   `CollectionDirtyPageBitSet.{clear:141, nextSetBit:168}` — pure-sizing
+>   bounds checks with no logical surface available (CDPB has no
+>   EntryPoint per PSI). Stay on `getFilledUpTo` via Track 5's gated
+>   helper; per-component lock + Track 1 totality is what upholds I1
+>   for these reads.
 > - Collapse the do/while reconciliation loops:
 >   - `AtomicOperationBinaryTracking.commitChanges` — single
 >     `loadOrAddForWrite` per allocated pageIndex.
@@ -150,12 +113,26 @@
 >   3. `AbstractStorage.restoreAtomicUnit` collapse —
 >      `PageOperation` branch + `DiskStorage.restoreFromIncrementalBackup`.
 >   4. BTree + SharedLinkBagBTree probe deletion + addPage migration
->      (~5 sites + 4 fresh-file).
+>      (~5 sites + 4 fresh-file) plus the
+>      `BTree.doAssertFreePages:1389` pure-sizing migration in the
+>      same component (sharing the EntryPoint-load pattern with the
+>      neighbouring probe sites).
 >   5. CollectionPositionMapV2 + PaginatedCollectionV2 + remaining
 >      components (FreeSpaceMap, IndexHistogramManager,
 >      CollectionDirtyPageBitSet) — probe deletion + addPage migration
->      (~10 sites including init).
->   6. Delete `addPage` from `StorageComponent` and `AtomicOperation`.
+>      (~10 sites including init) plus the 2 growth-loop collapses
+>      (`FreeSpaceMap.updatePageFreeSpace:227`,
+>      `CollectionDirtyPageBitSet.ensureCapacity:194`).
+>   6. Inline rationale comments at the 4 stay-on-physical sites
+>      (`CollectionPositionMapV2.create:136`,
+>      `PaginatedCollectionV2.{open:391, initCollectionState:2256}`,
+>      `IndexHistogramManager.readSnapshotFromPage:1833`) and the 2
+>      EP-less CDPB pure-sizing reads (`clear:141`, `nextSetBit:168`).
+>      These callers stay on `getFilledUpTo` and become consumers of
+>      Track 5's gated helper. Phase A picks between "comment-only" and
+>      "comment + `loadIfPresent` migration" for the IHM defensive
+>      probe.
+>   7. Delete `addPage` from `StorageComponent` and `AtomicOperation`.
 >      Delete `allocateNewPage` from `WriteCache`, `LockFreeReadCache`,
 >      and both concrete cache implementations.
 > - Each per-component step replaces the probe block with:
@@ -194,10 +171,13 @@
 >     Track 1)
 >   - `core/.../storage/cache/WriteCache.java` (interface
 >     `allocateNewPage` deletion)
->   - All concrete component classes named in the call-site table.
+>   - All concrete component classes named in the call-site table
+>     (BTree singlevalue v3, SharedLinkBagBTree, CollectionPositionMapV2,
+>     PaginatedCollectionV2, FreeSpaceMap, IndexHistogramManager,
+>     CollectionDirtyPageBitSet).
 > - **Out of scope**: cache classes (Track 1 already shipped them);
->   pure-sizing callers (Track 3); `getFilledUpTo` access (Track 5);
->   WAL classes; DoubleWriteLog.
+>   `getFilledUpTo` access modifier and gated helpers (Track 5); WAL
+>   classes; DoubleWriteLog.
 > - WAL format unchanged — page extension stays implicit. The
 >   `SetPagesSizeOp` / `SetFileSizeOp` records continue to carry the
 >   logical-size bump; no `AddPage*` record is introduced.
@@ -216,62 +196,105 @@
 > **Interactions**:
 > - Depends on Track 1 (the cache primitive must exist before
 >   migration starts).
-> - Independent of Tracks 2, 3 (parallel — though Track 2 tests catch
->   regressions in real time).
-> - Enables Track 5 (final getFilledUpTo lockdown) and Track 6
+> - Independent of Track 2 (parallel — Track 2 tests catch regressions
+>   in real time).
+> - Enables Track 5 (final `getFilledUpTo` lockdown — Track 5's helper
+>   set is shaped by Track 4's per-site rationale comments) and Track 6
 >   (regression test must run against the post-migration code path).
+> - Verifies invariants **I1** + **I4** at the source-code level for
+>   the EP-equipped components after the BTree pure-sizing migration
+>   and the probe collapses land; the EP-less stay-on-physical sites
+>   are pinned by D4's gated-helper surface (Track 5).
 
 ---
 
-## Track 5: Tighten `getFilledUpTo` access
+## Track 5: Tighten `getFilledUpTo` access via gated helpers
 
 > **What**:
-> - After Tracks 3 and 4 land, downgrade `WriteCache.getFilledUpTo`
->   from `public` to package-private (or otherwise restricted).
-> - Introduce a narrowly-scoped iteration helper on `WriteCache` that
->   `DiskStorage.backupPagesWithChanges` uses for storage-quiesced
->   full-file iteration. Name and javadoc must make the
->   storage-quiesced contract explicit.
-> - Add javadoc to `WriteCache` documenting that page-existence
->   discovery for cross-TX readers happens via
->   `entryPoint.pagesSize` / `entryPoint.fileSize`, not via
->   `getFilledUpTo`. Anyone who reaches for `getFilledUpTo` should
->   either (a) hold storage quiesce, or (b) revisit the design.
+> - After Track 4 lands, downgrade `WriteCache.getFilledUpTo` from
+>   `public` to package-private (or otherwise non-public).
+> - Surviving external consumer set (≥ 5, per D4 revision):
+>   - `DiskStorage.backupPagesWithChanges` — storage-quiesced backup
+>     iteration (method @ :1387, `getFilledUpTo` call @ :1404).
+>   - `CollectionPositionMapV2.create:136` — bootstrap-time emptiness
+>     check; EntryPoint lives on the page being checked.
+>   - `PaginatedCollectionV2.initCollectionState:2256` — same
+>     bootstrap pattern.
+>   - `PaginatedCollectionV2.open:391` — FSM-rebuild recovery scan;
+>     logical bookkeeping was lost.
+>   - `IndexHistogramManager.readSnapshotFromPage:1833` — defensive
+>     physical-presence probe for the optional HLL page 1. If Track 4
+>     Phase A switched this to `WriteCache.loadIfPresent(fileId, 1)`,
+>     skip this entry; otherwise route through the gated helper.
+>   - `CollectionDirtyPageBitSet.{clear:141, nextSetBit:168}` —
+>     EP-less pure-sizing reads under per-component lock.
+> - Phase A picks the helper shape — Phase 1 candidates:
+>   - **One helper + intent enum**: `WriteCache.physicalSize(long
+>     fileId, PhysicalReadIntent intent)` where the enum lists the
+>     surviving intents (`BACKUP_QUIESCED`,
+>     `BOOTSTRAP_EMPTINESS_CHECK`, `RECOVERY_REBUILD`,
+>     `DEFENSIVE_PRESENCE`, `EP_LESS_PURE_SIZING`). Lowest API surface;
+>     enum constant carries the audit-grep signature.
+>   - **2-3 named helpers**: e.g.,
+>     `forEachPageDuringQuiesce(fileId, visitor)`,
+>     `physicalSizeUnderComponentLock(fileId)`,
+>     `physicalSizeForBootstrap(fileId)`. More explicit names; smaller
+>     enum-coupling.
+>   Phase A picks one and adapts the consumer migrations accordingly.
+> - Add javadoc to `WriteCache` and `StorageComponent` documenting the
+>   discovery contract: cross-TX readers route through the logical
+>   surface when one exists; physical-size reads route through the
+>   gated helper(s) above, each with a contract-stating javadoc on
+>   the helper or enum constant.
 >
 > **How**:
-> - Step 1: introduce the gated iteration helper. Approximate shape:
->   `WriteCache.forEachPageDuringQuiesce(long fileId,
->   PageVisitor visitor)` — package-private; the visitor is called
->   under the existing backup ordering. This isolates the only
->   external need for physical file size from the general API surface.
-> - Step 2: migrate `DiskStorage.backupPagesWithChanges:1404` to use
->   the new helper. Verify backup tests pass.
-> - Step 3: change `WriteCache.getFilledUpTo` access to package-private.
->   Add javadoc per spec above. Build + tests green.
+> - Step 1 (Phase A decision): pick the helper shape (one-helper-with-
+>   enum vs 2-3 named helpers). Confirm with the user if the decision
+>   is non-obvious from the surviving consumer set.
+> - Step 2: introduce the helper(s) on `WriteCache` (or
+>   `StorageComponent`, depending on which class exposes the
+>   audit-grep target). Implementation re-routes to the existing
+>   in-memory size read (`AsyncFile.size` / `AsyncFile.allocateSpace`
+>   bookkeeping).
+> - Step 3: migrate each surviving consumer to the new helper(s).
+>   Verify backup tests, FSM-rebuild recovery tests, and the
+>   IndexHistogramManager defensive path still behave correctly.
+> - Step 4: change `WriteCache.getFilledUpTo` access to package-private.
+>   Build + tests green.
 > - **Verification**: PSI find-usages on `WriteCache.getFilledUpTo`
 >   should show no production callers outside the cache package after
->   this track. Test mocks (per the handoff's earlier audit) are
->   acceptable callers since they live in the same package context.
+>   this track. Test mocks that live in the same package context are
+>   acceptable. PSI find-usages on each new helper should match the
+>   D4-revision surviving consumer set exactly — extra or missing
+>   callers are findings.
 >
 > **Constraints**:
 > - **In-scope files**:
 >   - `core/.../internal/core/storage/cache/WriteCache.java`
 >   - `core/.../internal/core/storage/cache/local/WOWCache.java`
 >   - `core/.../internal/core/storage/memory/DirectMemoryOnlyDiskCache.java`
->   - `core/.../internal/core/storage/disk/DiskStorage.java`
->     (the one consumer; method @ :1387, `getFilledUpTo` call @ :1404)
+>   - `core/.../internal/core/storage/disk/DiskStorage.java` (the
+>     backup consumer; method @ :1387, call @ :1404)
+>   - `core/.../storage/impl/local/paginated/base/StorageComponent.java`
+>     (if the audit-grep helper surface lives there)
+>   - The surviving consumer call sites (CollectionPositionMapV2,
+>     PaginatedCollectionV2, IndexHistogramManager,
+>     CollectionDirtyPageBitSet).
 >   - Any cache test class still using the old public method.
-> - **Out of scope**: any change that's not a strict access-tightening
->   or javadoc edit; Track 5 is a no-functional-change track.
+> - **Out of scope**: functional behavior changes; new WAL records;
+>   widening the surviving-consumer set beyond what D4's revision
+>   names.
 >
 > **Interactions**:
-> - Depends on Track 3 (read-side discovery migration done).
 > - Depends on Track 4 (write-side API collapse done — replay loops
->   no longer call `getFilledUpTo` via `internalFilledUpTo`).
+>   no longer call `getFilledUpTo` via `internalFilledUpTo`, and the
+>   rationale-comment locations are pinned by Track 4's per-site
+>   commits).
 > - Enables nothing downstream (this is the final cache-API hygiene
 >   pass).
 > - Verifies invariant **I1** is enforceable at compile time —
->   external code cannot regress to `getFilledUpTo`-based discovery.
+>   external code cannot regress to a non-gated
+>   `getFilledUpTo`-based discovery channel.
 
 ---
 
@@ -337,7 +360,8 @@
 > - Depends on Track 4 (the discovery-surface change must be in
 >   place — verifying just Track 1's cache-level fix doesn't prove the
 >   end-to-end race is gone, because the race vector lives in the
->   discovery surface, not just the cache install).
+>   discovery surface, not just the cache install. Track 4 absorbed
+>   the read-side migration that was originally Track 3.).
 > - Independent of Track 5 (which is API hygiene only).
 > - Verifies invariants **I1** and **I4** end-to-end and confirms the
 >   bug-as-reported (the symptom that motivated this work) is resolved.
