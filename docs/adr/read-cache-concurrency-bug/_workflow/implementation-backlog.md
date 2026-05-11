@@ -15,16 +15,19 @@
 >   delegate to `atomicOperation.loadOrAddPageForWrite(fileId,
 >   pageIndex)` instead of falling back to `addPage`.
 > - Delete `StorageComponent.addPage` and `AtomicOperation.addPage`.
-> - Migrate the ≈21 external `addPage` call sites to
+> - Migrate the 19 external `addPage` call sites to
 >   `loadOrAddPageForWrite(fileId, knownIndex)`. (PSI shows 20 total
 >   references on `StorageComponent.addPage`; one is the recursive call
 >   from inside `StorageComponent.loadOrAddPageForWrite` itself, which
->   the rewire above removes. Add 2 more sites previously misclassified
->   as Track 3 pure-sizing reads — see growth-loop bullet below.)
+>   the rewire above removes. Two of the 19 are growth-loop probes
+>   previously labelled as Track 3 pure-sizing reads — counted within
+>   the 19 here, with the additional `getFilledUpTo` read at
+>   `FSM:227` / `CDPB:194` collapsing alongside the `addPage` deletion;
+>   see growth-loop bullet below.)
 >   Approximate split — Phase A confirms the exact partition:
 >   - ~9 sites inside `create()` / `init()` / `createEmptyStatsPage()` —
 >     fresh-file sequential allocation at pageIndex 0 or 1.
->   - ~10 sites inside reuse-or-extend probes — `entryPoint.pagesSize + 1`
+>   - ~8 sites inside reuse-or-extend probes — `entryPoint.pagesSize + 1`
 >     is the target.
 >   - 2 sites inside growth-loops (`for (i = filledUpTo; i ≤ required;
 >     i++) addPage(...)`) absorbed from the retired Track 3 — see

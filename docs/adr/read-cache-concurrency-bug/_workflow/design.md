@@ -19,22 +19,21 @@ it doesn't, and gap-fills on recovery. It always returns a usable
 `CachePointer`.
 
 The enabling primitive on the read side is a pre-existing structural
-fact: every storage component already maintains a logical page count
-(`entryPoint.pagesSize` / `fileSize`) on a metadata page, persisted via
-existing WAL ops. Routing all cross-TX readers through that
-committed-only logical surface eliminates the only path by which a
-reader could learn about an in-flight pageIndex.
+fact: most storage components maintain a logical page count
+(`entryPoint.pagesSize` / `fileSize`) on a metadata page. Three
+components without an EntryPoint plus a handful of chicken-and-egg /
+recovery-rebuild sites route through Track 5's package-private gated
+helpers instead (see §"Allocation discovery surface" for the per-site
+breakdown). Together these two surfaces eliminate the only path by
+which a reader could learn about an in-flight pageIndex.
 
 The change cascades into the storage components: `addPage` and its 19
 external call sites are replaced by
-`loadOrAddPageForWrite(fileId, pagesSize + 1)` (a 20th PSI hit on
-`addPage` is the recursive call inside today's
-`StorageComponent.loadOrAddPageForWrite` fallback, which the fix
-rewires to delegate to the new cache primitive instead of `addPage`);
-the reuse-or-extend probes disappear (the cache absorbs orphans
-uniformly); the do/while reconciliation loops in `commitChanges`,
-`restoreAtomicUnit`, and `restoreFromIncrementalBackup` collapse into
-single calls; the `internalFilledUpTo` prediction wrapper goes away.
+`loadOrAddPageForWrite(fileId, pagesSize + 1)`; the reuse-or-extend
+probes disappear (the cache absorbs orphans uniformly); the do/while
+reconciliation loops in `commitChanges`, `restoreAtomicUnit`, and
+`restoreFromIncrementalBackup` collapse into single calls; the
+`internalFilledUpTo` prediction wrapper goes away.
 
 The rest of this document covers Class Design, Workflow, and four
 dedicated sections on the cache primitive, the allocation discovery
@@ -105,11 +104,14 @@ The diagram shows the post-fix shape. Three changes are non-obvious:
   `SegmentedMap<PageKey, ...>`; there is no `PageKey` class — the key
   is the long+int pair.
 
-`EntryPoint` is the abstract shape every storage component already has:
-each concrete component carries a metadata page on pageIndex 0 with a
-`pagesSize` (or `fileSize`) field and dedicated WAL ops to persist
-changes. The §"Allocation discovery surface" section enumerates the
-concrete classes per component.
+`EntryPoint` is the abstract shape most storage components already
+carry: each EP-equipped component has a metadata page on pageIndex 0
+with a `pagesSize` (or `fileSize`) field and dedicated WAL ops to
+persist changes. The §"Allocation discovery surface" section
+enumerates the concrete classes per component and names the three
+EP-less components (`FreeSpaceMap`, `CollectionDirtyPageBitSet`,
+`IndexHistogramManager`) that route through Track 5's gated helpers
+instead.
 
 ## Workflow
 
@@ -383,17 +385,18 @@ Track 3:
   have the shape `for (i = filledUpTo; i ≤ required; i++) addPage(...)`
   and collapse to `loadOrAddPageForWrite(fileId, knownIndex)` per the
   same pattern. All collapse work lands in Track 4.
-- **Stay-on-physical via Track 5 gated helpers (4 EP-equipped sites +
-  2 EP-less sites = 6 sites).** Bootstrap emptiness checks at
-  `CollectionPositionMapV2.create:136` and
+- **Stay-on-physical via Track 5 gated helpers (3 EP-equipped sites +
+  3 EP-less sites = 6 sites).** EP-equipped: bootstrap emptiness checks
+  at `CollectionPositionMapV2.create:136` and
   `PaginatedCollectionV2.initCollectionState:2256` (the EntryPoint
   lives on the page being checked — chicken-and-egg); FSM-rebuild
   recovery scan at `PaginatedCollectionV2.open:391` (logical
-  bookkeeping was lost — physical-by-design); defensive
+  bookkeeping was lost — physical-by-design). EP-less: defensive
   physical-presence probe at
   `IndexHistogramManager.readSnapshotFromPage:1833` (guards against
   partial crash between page-0 and page-1 writes in the same atomic
-  op); and the 2 EP-less pure-sizing reads in
+  op; IHM has no EntryPoint per the §"Logical-size surface per
+  component" footer); and the 2 pure-sizing reads in
   `CollectionDirtyPageBitSet.{clear:141, nextSetBit:168}`. Each site
   gets a rationale-bearing inline comment in Track 4; the access path
   moves to Track 5's gated helper(s).
@@ -428,13 +431,14 @@ Once allocators state the target pageIndex up front — derived from the
 component's `entryPoint.pagesSize + 1` — neither prediction nor
 reconciliation has anything to do. The 19 external `addPage` call
 sites all already know their target from local state (~9 fresh-file
-sequential allocations at index 0 or 1; ~10 reuse-or-extend branches
-that compute `pagesSize + 1`; Phase A confirms the exact split) — plus
-2 sites previously labelled as pure-sizing reads
-(`FreeSpaceMap.updatePageFreeSpace:227` and
-`CollectionDirtyPageBitSet.ensureCapacity:194`), now confirmed as
-growth-loop probes that collapse to
-`loadOrAddPageForWrite(fileId, knownIndex)`. The 20th PSI reference
+sequential allocations at index 0 or 1; ~8 reuse-or-extend branches
+that compute `pagesSize + 1`; 2 sites at
+`FreeSpaceMap.updatePageFreeSpace:229` and
+`CollectionDirtyPageBitSet.ensureCapacity:197` sit inside growth-loops
+absorbed from the retired Track 3, whose `getFilledUpTo` reads at
+`FSM:227` / `CDPB:194` collapse alongside the `addPage` deletion under
+the same `loadOrAddPageForWrite` migration; Phase A confirms the
+exact split). The 20th PSI reference
 to `addPage` is the recursive call inside
 `StorageComponent.loadOrAddPageForWrite` (today a `loadPageForWrite`-
 then-`addPage` fallback) — Track 4 rewires that body to delegate to
