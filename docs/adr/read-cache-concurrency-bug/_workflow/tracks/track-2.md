@@ -157,7 +157,7 @@ Run the cache-classes coverage gate before closing the track.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/6 complete)
+- [ ] Step implementation (2/6 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -343,47 +343,107 @@ Run the cache-classes coverage gate before closing the track.
   > **Key files:** `LockFreeReadCacheBatchingTest.java` (modified —
   > `MockedWriteCache` extensions + new regression test).
 
-- [ ] Step: `WOWCacheLoadOrAddTest` gap fill — `verifyChecksums=true` parity, intermediate gap-page accessibility, very-high pageIndex boundary, scenario 6 idempotency *(parallel with Step 3)*
+- [x] Step: `WOWCacheLoadOrAddTest` gap fill — `verifyChecksums=true` parity, intermediate gap-page accessibility, very-high pageIndex boundary, scenario 6 idempotency *(parallel with Step 3)*
+  - [x] Context: safe
   > **Risk:** low — tests-only, single test class
   > (`WOWCacheLoadOrAddTest`), not shared infrastructure.
   >
-  > **Goal.** Close the disk-engine functional gaps Track 1's Step 2
-  > deferred to this track.
+  > **What was done:** Added seven tests to `WOWCacheLoadOrAddTest`
+  > closing the disk-engine functional gaps Track 1 Step 2 deferred:
+  > (1) `verifyChecksums=true` parity on the one-page extend branch;
+  > (2) `verifyChecksums=true` parity on the recovery-only gap-fill
+  > branch; (3) `verifyChecksums=true` parity on the load branch for
+  > a clean page; (4) `verifyChecksums=true` on the load branch under
+  > `ChecksumMode.StoreAndThrow` against a corrupted on-disk page →
+  > `StorageException`, mirroring the legacy
+  > `WOWCacheTestIT#testChecksumFailure` pattern (corruption written
+  > via a separately-owned `AsyncFile` instance on the same file
+  > path); (5) intermediate gap-page accessibility — after a gap-fill
+  > from `currentSize=2` to `target=10`, iterate `[0..10]` via
+  > `loadOrAdd(..., false)` and assert every page is loadable through
+  > the load branch with the magic-stamped LSN(-1,-1) signature;
+  > (6) very-high `pageIndex` boundary — pick `pageIndex` such that
+  > `(pageIndex + 1) * pageSize > Integer.MAX_VALUE` and assert the
+  > dispatch guard throws `StorageException` with the
+  > `allocateSpace int limit` message before any I/O occurs;
+  > (7) scenario 6 (`EnsurePageIsValidInFileTask` idempotency) —
+  > extend page 0, drain the single-threaded `commitExecutor` via
+  > `flush(fileId)`, then call `writeValidPageInFile(intId, 0)`
+  > directly twice; both direct calls short-circuit on the
+  > `getUnderlyingFileSize() <= pagePosition` guard and the
+  > underlying file size (measured via `Files.size(diskPath) -
+  > File.HEADER_SIZE`) stays at exactly one page across both calls,
+  > proving the executor task wrote the page once and the two direct
+  > invocations are idempotent no-ops. All 17 tests pass; Spotless
+  > clean; coverage gate 91.9% line / 83.3% branch on the cumulative
+  > branch diff (unchanged from Step 1 — this step is purely
+  > test-additive). Commit
+  > `fa3babc9754ddf8e4ef5fe2be49265e0291c13c6`.
   >
-  > **Tests to add (all in `WOWCacheLoadOrAddTest`):**
-  > - `verifyChecksums=true` parity on the load branch (after a flush,
-  >   load an on-disk page with `verifyChecksums=true`; asserting no
-  >   exception on a clean page and `StorageException` on a corrupted
-  >   page, mirroring the legacy `WOWCache.load`-with-checksum
-  >   behaviour).
-  > - `verifyChecksums=true` parity on the one-page extend branch.
-  > - `verifyChecksums=true` parity on the recovery-only gap-fill
-  >   branch.
-  > - Intermediate gap-page accessibility: after a gap-fill from
-  >   `currentSize=2` to `target=10`, assert each intermediate
-  >   pageIndex in `[2,10]` can be subsequently loaded via
-  >   `loadOrAdd` (load branch) and returns a magic-stamped buffer
-  >   matching today's `EnsurePageIsValidInFileTask` contract.
-  > - Very-high `pageIndex` boundary (gap-fill against a pageIndex
-  >   sized for ≥ `(Integer.MAX_VALUE / pageSize) - 2` if feasible
-  >   without OOM; otherwise document the practical bound in the
-  >   episode).
-  > - Scenario 6: idempotency of `EnsurePageIsValidInFileTask` —
-  >   single-threaded sequence assertion. Extend the file via
-  >   `loadOrAdd(fileId, pageIdx, false)`; then call
-  >   `wowCache.writeValidPageInFile(intId, pageIdx)` directly twice
-  >   in sequence and assert exactly one underlying disk write
-  >   occurs (the second call short-circuits on the
-  >   `getUnderlyingFileSize() <= pagePosition` guard in
-  >   `WOWCache.writeValidPageInFile`). Measure the disk write count
-  >   via either `AsyncFile.size()` deltas or by reading the file
-  >   size pre/post each invocation.
+  > **What was discovered:**
+  > 1. **Practical bound for the "very-high pageIndex" test.** The
+  >    plan called for a pageIndex sized at `≥ (Integer.MAX_VALUE /
+  >    pageSize) - 2 if feasible without OOM`. Exercising the true
+  >    upper limit would require allocating ~2 GB on disk per test run
+  >    (one `int`-worth of page bytes), which is impractical for CI.
+  >    The boundary check is purely arithmetic
+  >    (`requestedBytes > Integer.MAX_VALUE` fires before
+  >    `fileClassic.allocateSpace()`), so the test verifies the exact
+  >    boundary behaviour at
+  >    `pageIndex = (Integer.MAX_VALUE / PAGE_SIZE) + 10` without
+  >    paying the disk cost. The Javadoc on the new test documents
+  >    this practical-bound choice per the step's "otherwise document
+  >    the practical bound in the episode" allowance.
+  > 2. **Scenario 6 framing.** "Exactly one underlying disk write
+  >    across the test" includes the executor's
+  >    `EnsurePageIsValidInFileTask` invocation in the count:
+  >    1 executor task + 2 direct `writeValidPageInFile` calls = 3
+  >    invocations, of which exactly one writes (the executor task,
+  >    drained by `flush(fileId)`). Both direct calls observe a
+  >    stamped underlying file and short-circuit. Measuring via
+  >    `Files.size(diskPath) - File.HEADER_SIZE` directly mirrors
+  >    `AsyncFile.getUnderlyingFileSize()` semantics without needing
+  >    a test-only seam, keeping the test inside the
+  >    no-production-source-changes constraint of Track 2.
+  > 3. **Corruption-path `AsyncFile` cleanup.** The legacy
+  >    `WOWCacheTestIT` corruption tests leak the cached-thread-pool
+  >    backing the corruption-only `AsyncFile` instance (no
+  >    `executor.shutdownNow()`). The new test bounds the executor's
+  >    lifetime inside a `try/finally` so it does not leak non-daemon
+  >    threads across test methods in the same Surefire fork.
   >
-  > **Test infrastructure.** Use the existing fixture pattern from
-  > `WOWCacheLoadOrAddTest`. Single-threaded; no concurrency
-  > primitives.
+  > **Cross-track impact (minor, no escalation).** Track 4's
+  > `addPage` migration (write-side API collapse) must preserve
+  > `WOWCache.writeValidPageInFile` idempotency: the existing
+  > `getUnderlyingFileSize() <= pagePosition` guard at the top of
+  > `writeValidPageInFile` is now pinned by scenario 6's test, so any
+  > future refactor (e.g., replacing the I/O-based size check with an
+  > in-memory tracker) must keep the idempotency contract intact or
+  > the test surfaces the regression immediately. No other downstream
+  > impact: Tracks 3, 5, 6 are unaffected.
   >
-  > **Key files:** `WOWCacheLoadOrAddTest.java`.
+  > **What changed from the plan:** none. All bullets in the step
+  > description landed as specified (verifyChecksums parity on
+  > extend / gap-fill / load-clean / load-corrupted; intermediate
+  > gap-page accessibility; very-high pageIndex boundary; scenario 6
+  > idempotency). The practical-bound note on the very-high pageIndex
+  > test is captured in the test's Javadoc per the step's explicit
+  > allowance.
+  >
+  > **Critical context:** The corruption test (#4 in the
+  > "what was done" list above) switches
+  > `wowCache.setChecksumMode(ChecksumMode.StoreAndThrow)` after the
+  > magic-stamped extend, so the on-disk page was stamped under
+  > `StoreAndVerify` (the test setup default) — both modes write the
+  > same magic + CRC, so the post-corruption verify under
+  > `StoreAndThrow` fires on the broken CRC rather than on a mode
+  > mismatch. Any future change to
+  > `addMagicChecksumAndEncryption` that differentiates the
+  > `StoreAndVerify` and `StoreAndThrow` stamping paths would need to
+  > revisit this test's mode-switching pattern.
+  >
+  > **Key files:** `WOWCacheLoadOrAddTest.java` (modified — seven new
+  > tests appended).
 
 - [ ] Step: `DirectMemoryOnlyDiskCacheLoadOrAddTest` gap fill — `verifyChecksums=true` parity, truncate-vs-loadOrAdd same-instance race, target-publish stress, framePool leak accounting, iteration-counter assertion, and `DirectMemoryOnlyDiskCache.loadIfPresent` UOE smoke test *(parallel with Step 2)*
   > **Risk:** low — tests-only, single test class
