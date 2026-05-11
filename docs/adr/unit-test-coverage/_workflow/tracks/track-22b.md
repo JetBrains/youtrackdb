@@ -497,7 +497,7 @@ subset; the live subset stays covered by 22a's tests.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (13/16 complete — Step 13 escalated to inline-replan: 5 test-additive commits PASS the line gate at 94.2% but the branch gate stalls at 54.8% due to structurally-dead FetchHelper instanceof arms. User selected alternative B at the escalation prompt; new Step 14 (FetchHelper dead-arm cleanup + absorbed housekeeping) inserted, Step 13 marked [!]. Step 14 first attempt [!] — pacing failure (full coverage build auto-backgrounded; no commit landed). Step 14 retry [ ] inserted with staged coverage build per implementer feedback)
+- [ ] Step implementation (13/16 complete — Step 13 escalated to inline-replan: 5 test-additive commits PASS the line gate at 94.2% but the branch gate stalls at 54.8% due to structurally-dead FetchHelper instanceof arms. User selected alternative B at the escalation prompt; new Step 14 (FetchHelper dead-arm cleanup + absorbed housekeeping) inserted, Step 13 marked [!]. Step 14 first attempt [!] — pacing failure (full coverage build auto-backgrounded; no commit landed). Step 14 retry [!] — second pacing failure (staged coverage invocation also auto-backgrounded; trim itself validated by PSI + 124/124 targeted-test pass but coverage gate not evaluated). TWO-FAILURE RULE FIRES — orchestrator paused for user direction)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -1966,7 +1966,7 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   > arms aggressively — Step 14's own scope-indicator paragraph
   > already covers that fallback).
 
-- [ ] Step 14: FetchHelper dead-arm cleanup + housekeeping (retry: re-apply trim from PSI evidence in the [!] episode above; run coverage profile build in STAGED foreground invocations to honour the 10-minute Bash budget)
+- [!] Step 14: FetchHelper dead-arm cleanup + housekeeping (retry: re-apply trim from PSI evidence in the [!] episode above; run coverage profile build in STAGED foreground invocations to honour the 10-minute Bash budget)
   > **Risk:** medium — same risk profile as the original Step 14
   > entry above (production code change on the live fetch-plan
   > parser path). The retry's *technical* approach is unchanged
@@ -2060,3 +2060,86 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   > production dead-arm trim); the orchestrator owns the
   > workflow-update commit that follows. Identical to the original
   > Step 14's commit shape.
+  >
+  > **What was attempted:** Quick PSI spot-check confirmed the [!]
+  > episode's audit was still valid (`MultiCollectionIterator`
+  > references unchanged at 53; `PropertyTypeInternal.getTypeByValue`
+  > and the three `EntityImpl.setProperty` overloads unchanged).
+  > Applied the 5-hunk dead-arm trim plus 2 unused-import drops
+  > atomically via `steroid_apply_patch` (+23 / -14 LOC net,
+  > dominated by 6–9 line why-comments at each deletion site).
+  > `./mvnw -pl core spotless:apply` confirmed Spotless-clean.
+  > Then ran all 6 Step-13 regression-test classes in ONE foreground
+  > invocation
+  > (`./mvnw -pl core test
+  > -Dtest='FetchHelperBranchCoverageTest,FetchHelperDeadCodeTest,DepthFetchPlanTest,FetchPlanParserTest,ScriptManagerTest,Jsr223ScriptExecutorTest'`).
+  > **All 124 targeted tests passed in ~30s** — the trim does not
+  > regress any Step 13 pin, including the previously-untested
+  > `ScriptManagerTest` and `Jsr223ScriptExecutorTest` extensions.
+  > Then launched the FIRST staged coverage-profile invocation
+  > (`./mvnw -pl core test -P coverage -DskipITs`) in foreground
+  > with the Bash `timeout` parameter set to 600000 ms.
+  >
+  > **Why it failed:** The harness auto-backgrounded the foreground
+  > coverage-profile invocation within seconds of launch — well
+  > before the 10-minute timeout, before any meaningful surefire
+  > output had streamed, and despite the staged split designed to
+  > fit the foreground budget (the standard `./mvnw -pl core test`
+  > runs ~9 min foreground on this host). Per guardrail #1 in the
+  > retry spawn prompt ("If the FIRST staged invocation gets
+  > auto-backgrounded by the harness anyway, do NOT chain a wait
+  > loop. Treat it as a contract violation and emit `RESULT:
+  > FAILED` with `recommended_action: escalate` immediately"), this
+  > is an immediate escalate trigger. The retry implementer killed
+  > the orphan Maven processes before they could continue running
+  > detached past the spawn boundary, ran `git reset --hard HEAD`,
+  > and verified the snapshot-and-diff sequence left no
+  > implementer-created untracked files. Trim correctness is
+  > independently validated by the PSI audit + 124/124 targeted-
+  > test pass; only the coverage gate could not be evaluated inside
+  > the spawn.
+  >
+  > **Impact on remaining steps:** This is the **second consecutive
+  > Step 14 pacing failure**. The Two-Failure Rule fires per
+  > `step-implementation-recovery.md` §"Two-Failure Rule" — the
+  > orchestrator stops and surfaces both `[!]` episodes to the user
+  > along with an assessment of whether this is a step-level or
+  > track-level issue. The orchestrator's assessment (recorded in
+  > the user prompt at presentation time): the trim *approach* is
+  > sound (PSI evidence + 124/124 targeted-test pass survive both
+  > attempts unchanged); the failure is environmental — the Claude
+  > Code harness auto-backgrounds Maven coverage-profile invocations
+  > regardless of staging, blocking any per-commit coverage-gate
+  > verification inside an implementer spawn. The user must choose
+  > between (a) accepting the trim test-only and deferring the gate
+  > re-evaluation, (b) restructuring Step 14 via inline-replan into
+  > a test-only commit + a separate gate-verification step, (c)
+  > skipping Step 14 entirely (mark `[~]`) and letting Track 22c or
+  > the track's final-verification step pick up the residual gap,
+  > or (d) reconfiguring the harness's auto-background behavior
+  > before retrying. Track 22b's Phase C is unaffected by the
+  > choice — track-level review still runs over the cumulative
+  > diff (which includes the 5 Step-13 test-additive commits but
+  > NOT the trim, since both Step 14 attempts ended with revert).
+  >
+  > **Key files:** No files were committed. The trim diff itself —
+  > FetchHelper.java +23/-14 — is reproducible from the PSI evidence
+  > in the FIRST `[!]` episode above; the retry's PSI spot-check
+  > confirms nothing has shifted since.
+  >
+  > **Critical context:** This is the SECOND consecutive Step 14
+  > failure, but the underlying class of failure is **environmental
+  > pacing**, not a structural issue with the trim approach or the
+  > step's scope. The trim is mechanically correct: 124/124 of the
+  > Step 13 regression tests pass against it (the first attempt
+  > confirmed 64/64; the retry extended the confirmation to all 6
+  > classes including the two that the first attempt never re-ran).
+  > The branch-gate question — does the trim alone close the
+  > coverage gate to ≥70%? — remains empirically open and may, per
+  > the FIRST `[!]` episode's pre-trim analysis (54.8% with 28
+  > uncovered branches; trim removes ~5–7 dead branches reducing
+  > denominator without changing the numerator → expected post-trim
+  > branch coverage ~58–62%, still below 70%), require additional
+  > pinning of the `requires-deeper-analysis` arms before the gate
+  > can pass. That additional work was anticipated by both `[!]`
+  > episodes as an escalate-on-gate-fail fallback.
