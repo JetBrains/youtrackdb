@@ -294,16 +294,60 @@ flowchart LR
   > into Track 2's existing MT-stress + functional-branch scope; no
   > backlog amendment required. Tracks 3-6 unaffected.
 
-- [ ] Track 2: Cache test coverage (functional + MT)
+- [x] Track 2: Cache test coverage (functional + MT)
   > Add functional unit tests covering every branch of
   > `WOWCache.loadOrAdd` and the `LockFreeReadCache` wrappers, plus MT
   > stress harnesses for contention, eviction, and
   > `EnsurePageIsValidInFileTask` idempotency. Run the cache-classes
   > coverage gate before closing the track.
-  > **Scope:** ~4-5 steps covering coverage audit, `loadOrAdd` branch
-  > tests, ReadCache wrapper tests, contention stress, and
-  > eviction/flush stress.
-  > **Depends on:** Track 1
+  >
+  > **Track episode:**
+  > Built a comprehensive cache-layer test suite: functional branch
+  > coverage on `WOWCache.loadOrAdd` and `DirectMemoryOnlyDiskCache.loadOrAdd`,
+  > wrapper-level functional contracts on `LockFreeReadCache` (cache
+  > hits/misses, eviction, pin retention, WTinyLFU two-tier transitions
+  > via reflection helpers), and MT-stress harnesses covering
+  > distinct-key contention, same-key serialisation, reader-vs-writer
+  > extension, eviction-vs-load churn, flush-worker concurrency under
+  > `StampedLock` fallback, `EnsurePageIsValidInFileTask` idempotency,
+  > delete/truncate-vs-loadOrAdd races, and an I4 negative-defence on
+  > the bare cache surface. `WOWCacheLoadIfPresentTest` gained MT
+  > coverage and a corrupted-page checksum-verify test. Cache-layer
+  > invariants **I2** (extension under segment lock), **I3**
+  > (`loadOrAdd` is total), and **I4** (segment lock serialises
+  > contending allocators) are now pinned; **I1** is deferred to
+  > Track 6 (above the cache layer). Phase C track-level review
+  > surfaced 30+ findings across 7 dimensions; iteration 1 applied 10
+  > in-scope fixes in commit `30de936927`, the 4-agent gate-check
+  > passed with 2 minor new findings (M1 — shallow exception
+  > identifier mirroring a pre-existing sibling pattern; TC-N1 —
+  > gap-fill byte-content compare misses a perf-only regression class)
+  > acknowledged as low-value, and the review closed at iteration 1/3
+  > with PASS. **Cross-track impact for Track 4** (write-side API
+  > collapse): inherits the new `MockedWriteCache.loadOrAddCount` /
+  > `storeBlockLatch` mock seams; the `@Category(SequentialTest.class)`
+  > usage pattern for any future JVM-singleton-allocator-sensitive MT
+  > test; the canonical `frameBytes = DISK_CACHE_PAGE_SIZE * 1024`
+  > derivation (Iteration-1 implementer discovered + fixed a
+  > pre-existing latent bug in the framePool leak accounting test
+  > that divided by the test-local `PAGE_SIZE` constant rather than
+  > the JVM-singleton framePool's page size); I4 sentinel
+  > falsifiability for **both** extend (`"allocated pageIndex"`) and
+  > gap-fill (`"allocated start index"`) branches; the wrapper-level
+  > same-key `loadOrAddForWrite` segment-lock pin; and a one-line
+  > backlog bullet (defensive `assert false` in
+  > `WOWCache.loadOrAddLoadBranch`'s dead-code fallback, plan
+  > correction commit `475d6469d3`). **Tracks 5 / 6 unaffected.**
+  > **Deferred un-addressed should-fix** items from iter-1 synthesis
+  > (test-hardening only, not correctness, CI-stable today):
+  > race-window asymmetry in two `WOWCacheLoadIfPresentTest` MT
+  > tests, `testFlushWorkerConcurrencyReaderObservesConsistentState`
+  > lacks positive evidence of the readLock fallback path,
+  > per-attempt thread pool re-creation + file-leak +
+  > `cleanUp`-IOException-swallow in `WOWCacheLoadOrAddConcurrentTest` —
+  > surfaced here for future-track awareness.
+  >
+  > **Step file:** `tracks/track-2.md` (6 steps, 0 failed)
 
 - [ ] Track 3: Read-side discovery migration
   > Migrate the pure-sizing production callers of
