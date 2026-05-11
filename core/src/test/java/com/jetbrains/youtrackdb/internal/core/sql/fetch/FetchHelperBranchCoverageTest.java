@@ -124,8 +124,15 @@ public class FetchHelperBranchCoverageTest extends TestUtilsFixture {
       stringMap.put("k", "v");
     });
 
-    // Drive the entry point with a plan that follows everything at depth 1.
-    final var count = session.computeInTx(tx -> {
+    // Drive the entry point with a plan that follows everything at depth 1. Each fetch
+    // call below targets a DIFFERENT format-driven code path in the dispatcher:
+    //   - format="" → FormatSettings.keepTypes=false, so processFieldTypes is skipped;
+    //     drives the process() branch chain at lines 537/551-554 only.
+    //   - format=null → FormatSettings.keepTypes=true, so processFieldTypes runs and the
+    //     branch chain at lines 476/488-491 is driven too.
+    //   - format="shallow" → exercises the early-return arms in process() that the
+    //     non-shallow path skips.
+    final var emptyFormatCount = session.computeInTx(tx -> {
       EntityImpl root = tx.load(rootId);
       final var listener = new CountFetchListener();
       final FetchContext context = new RemoteFetchContext();
@@ -134,12 +141,45 @@ public class FetchHelperBranchCoverageTest extends TestUtilsFixture {
       return listener.count;
     });
 
-    // Falsifiable post-condition: every Identifiable-bearing field fans out at least once
-    // into sendRecord; a regression that mis-classified the multi-value types as skip
-    // candidates would drop the total to zero.
+    final var keepTypesFormatCount = session.computeInTx(tx -> {
+      EntityImpl root = tx.load(rootId);
+      final var listener = new CountFetchListener();
+      final FetchContext context = new RemoteFetchContext();
+      // format="keepTypes" routes through FormatSettings(stringFormat) which sets
+      // keepTypes=true (FormatSettings:1360). The pre-process loop in processRecord
+      // then drives processFieldTypes for every field, covering the chain at
+      // FetchHelper:472-491. Null format would have the same effect via the
+      // FormatSettings(null) initializer, but null also tripped on the outer fetch()
+      // entry's format.contains("shallow") guard, so we use the explicit token.
+      FetchHelper.fetch(session,
+          root, root, FetchHelper.buildFetchPlan("[*]*:1"), listener, context, "keepTypes");
+      return listener.count;
+    });
+
+    final var shallowFormatCount = session.computeInTx(tx -> {
+      EntityImpl root = tx.load(rootId);
+      final var listener = new CountFetchListener();
+      final FetchContext context = new RemoteFetchContext();
+      FetchHelper.fetch(session,
+          root, root, FetchHelper.buildFetchPlan("[*]*:1"), listener, context, "shallow");
+      return listener.count;
+    });
+
+    // Falsifiable post-conditions: every Identifiable-bearing field fans out at least
+    // once into sendRecord under the non-shallow plans, and shallow plans suppress the
+    // fan-out entirely.
     assertTrue(
-        "fetch must dispatch sendRecord at least once across the populated link fields",
-        count >= 1);
+        "non-shallow fetch must dispatch sendRecord at least once for empty-format: "
+            + emptyFormatCount,
+        emptyFormatCount >= 1);
+    assertTrue(
+        "non-shallow fetch with keepTypes format must also dispatch: "
+            + keepTypesFormatCount,
+        keepTypesFormatCount >= 1);
+    assertEquals(
+        "shallow format must suppress all link traversal: " + shallowFormatCount,
+        0L,
+        (long) shallowFormatCount);
   }
 
   /**
