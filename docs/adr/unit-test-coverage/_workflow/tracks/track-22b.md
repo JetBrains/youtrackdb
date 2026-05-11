@@ -498,7 +498,7 @@ subset; the live subset stays covered by 22a's tests.
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation (16/18 effective — 13 successful steps + 2 `[!]` failed Step 14 attempts + 2 inline-replan substitutes (Step 15 production trim, Step 16 orchestrator-owned coverage gate); 18-step nominal count is preserved by keeping the failed `[!]` rows in-file per Two-Failure Rule audit trail. Step 16 PASSED both axes of the coverage gate (100.0 % line on 43/43 changed lines, 71.4 % branch on 30/42 changed branches; cumulative diff vs `origin/develop`); aggregate end-of-22b coverage 81.4 % line / 71.1 % branch across 173 packages — branch axis exceeds the plan's amended `~70-71 %` target; line axis lands 0.6 pp under the lower bound of the `~82-83 %` target, within the documented limitation per Step 16's outcome decision tree.)
-- [ ] Track-level code review
+- [ ] Track-level code review (1/3 iterations — iter-1 applied 13/18 findings in commit `5658b20bf9`; 5 deferred with production-constraint rationale [TC1/TC2/TC3 unconstructible fixtures, TC6 contract is swallow-and-log not throw, TC8 superseded by TB1 rewrite] + 9 suggestion-tier findings deferred upstream as Track-22c handoff candidates; gate-check fan-out next)
 
 ## Reviews completed
 
