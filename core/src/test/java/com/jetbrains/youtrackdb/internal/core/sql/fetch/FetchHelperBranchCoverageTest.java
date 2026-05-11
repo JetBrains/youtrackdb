@@ -217,6 +217,50 @@ public class FetchHelperBranchCoverageTest extends TestUtilsFixture {
   }
 
   /**
+   * Pin the {@link FetchHelper#isEmbedded} multi-value-of-embedded fallback branch
+   * (production line 615-620: when the field is a non-EntityImpl multi-value whose first
+   * element is an embedded EntityImpl, {@code MultiValue.getFirstValue} returns the inner
+   * EntityImpl and the {@code isEmbedded() || !isPersistent()} probe evaluates true). The
+   * cumulative-vs-{@code origin/develop} coverage gate flagged lines 619-620 as uncovered
+   * because the existing {@link FetchHelperDeadCodeTest} {@code isEmbeddedReturns*} pins
+   * only exercise the non-Identifiable / scalar arms; this one drives the
+   * {@code fallback-on-multi-value} arm that walks the embedded probe.
+   */
+  @Test
+  public void isEmbeddedReturnsTrueForListContainingEmbeddedEntity() {
+    final var observed = session.computeInTx(tx -> {
+      final var embedded = (EntityImpl) session.newEmbeddedEntity();
+      final var list = new java.util.ArrayList<EntityImpl>();
+      list.add(embedded);
+      return FetchHelper.isEmbedded(list);
+    });
+
+    assertTrue(
+        "list whose first element is an embedded EntityImpl must surface as embedded",
+        observed);
+  }
+
+  /**
+   * Pin the {@link FetchHelper#isEmbedded} swallow-exception arm (production line
+   * 614-624: the {@code try / catch (Exception e)} around {@code MultiValue.getFirstValue}).
+   * If MultiValue handling throws (e.g. for an unsupported field-value shape), the helper
+   * logs and returns the {@code isEmbedded} flag computed before the try — which stays
+   * false because the field is neither an EntityImpl nor a LinkBag. The pin is best-effort:
+   * MultiValue is conservative, so most non-multi-value shapes return false from
+   * getFirstValue without throwing. Drives the fall-through case for completeness.
+   */
+  @Test
+  public void isEmbeddedReturnsFalseForScalarWithoutMultiValueSupport() {
+    // A plain Long value: not an EntityImpl, not a LinkBag, MultiValue.getFirstValue
+    // returns the value itself (or null for a non-multi-value scalar). The helper's
+    // post-probe isEmbedded check evaluates the scalar against EntityImpl, sees no match,
+    // and returns false. Pins the fall-through arm.
+    assertFalse(
+        "Long scalar must not be detected as embedded — fall-through pin",
+        FetchHelper.isEmbedded(Long.valueOf(42L)));
+  }
+
+  /**
    * Direct unit-level driver for {@link FetchHelper#processRecordRidMap} that pins the
    * Identifiable-singleton arm of the {@code processRecord} chain. Independently of the
    * full-fan-out test above, this narrow probe drives only the Identifiable branch — the
