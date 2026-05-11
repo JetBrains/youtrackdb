@@ -497,7 +497,7 @@ subset; the live subset stays covered by 22a's tests.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (13/14 complete — Step 12 license-header normalization across 8 named files; one cross-track observation about wider header drift recorded for 22c)
+- [ ] Step implementation (13/15 complete — Step 13 escalated to inline-replan: 5 test-additive commits PASS the line gate at 94.2% but the branch gate stalls at 54.8% due to structurally-dead FetchHelper instanceof arms. User selected alternative B at the escalation prompt; new Step 14 (FetchHelper dead-arm cleanup + absorbed housekeeping) inserted, Step 13 marked [!])
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -1640,7 +1640,7 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   >
   > **Implementer commit:** `b7a66cdd3a`
 
-- [ ] Step 13: Final verification + cluster-disposition.md commit + coverage-gate regression tests
+- [!] Step 13: Final verification + cluster-disposition.md commit + coverage-gate regression tests
   > **Risk:** medium — scope expanded mid-track per the Step 9
   > cross-track discovery (cumulative gate failure on Steps 6 + 8
   > modifications). Step now combines: (a) the original mechanical
@@ -1698,3 +1698,191 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   > additions (one per under-covered surface) vs the housekeeping
   > commit. Bisectability is preserved (each test-only commit is
   > independently revertable).
+  >
+  > **What was attempted:** Added 614 LOC of falsifiable regression
+  > tests across 3 files (5 bisectable commits — `da683b27d6`,
+  > `6dbae29d66`, `ad47272483`, `aed18e18f4`, `d9231f56f9`,
+  > `08799fb449`) targeting all three under-covered surfaces flagged
+  > by the coverage gate at Step 9: `FetchHelper.processRecordRidMap`
+  > / `process` / `processFieldDocument` / `isEmbedded` instanceof
+  > chains, `ScriptManager` `useGraal=false` executor lambdas, and
+  > `Jsr223ScriptExecutor`'s `CommandScriptException` pass-through
+  > catch arm. Iterated twice on `FetchHelper` to widen branch
+  > coverage with additional EmbeddedList/Set/Map of non-Identifiable
+  > value types and `isEmbedded` multi-value pins. Ran the full
+  > coverage profile build three times to verify gate progression.
+  >
+  > **Why it failed:** Line coverage reached 94.2% (49/52, PASS
+  > against the 85% threshold) but branch coverage stalled at
+  > 54.8% (34/62, FAIL against the 70% threshold). The remaining
+  > 28 uncovered branches are concentrated in `FetchHelper.java`'s
+  > multi-instanceof chains (lines 138, 140–144, 476, 488–490, 537,
+  > 552–554, 607, 619–620). These sub-arms test runtime field-value
+  > types (raw Java arrays, `MultiCollectionIterator`, populated
+  > `Iterable` with first element `null`) that
+  > `EntityImpl.setProperty` either wraps into typed
+  > `Link*` / `Embedded*` containers or rejects outright with
+  > "Data containers have to be created using appropriate
+  > getOrCreateXxx methods". The array arm is structurally
+  > unreachable via the public `EntityImpl` property API.
+  > Reaching the remaining branches via synthetic property-bypass
+  > test infrastructure would push the regression set well beyond
+  > the step's 200 LOC ESCALATE threshold (already exceeded at
+  > 614 LOC). Sub-step (a) end-of-track housekeeping
+  > (`coverage-baseline.md` refresh + `cluster-disposition.md`
+  > commit-log fill) was deliberately deferred by the implementer
+  > because Step 13's "iterate until gate PASSES" precondition
+  > never triggered.
+  >
+  > **Impact on remaining steps:** Step 13's scope splits cleanly
+  > into two halves: (1) the regression-test additions (durable;
+  > already landed across 5 bisectable commits, line gate PASS) and
+  > (2) the dead-arm cleanup + housekeeping that would close the
+  > branch gate. The user at the escalation prompt selected
+  > alternative B (inline-replan with a dead-arm cleanup step in
+  > production code), so the unfinished half is being absorbed by
+  > the new Step 14 below. No impact on Phase C — track-level
+  > review can run normally over the cumulative track diff once
+  > Step 14 lands.
+  >
+  > **Key files (test-additive commits — all surviving):**
+  > - `core/src/test/.../fetch/FetchHelperBranchCoverageTest.java`
+  >   (new, 399 LOC) — six fetch-format-and-property test methods
+  >   covering Identifiable / Iterable / Collection / Map arms.
+  > - `core/src/test/.../command/script/ScriptManagerTest.java`
+  >   (+66 LOC) — two `useGraal=false` executor-lambda pins
+  >   (`javascript`, `ecmascript`). 100% line + 100% branch.
+  > - `core/src/test/.../command/script/Jsr223ScriptExecutorTest.java`
+  >   (+149 LOC) — one synthetic-key-mismatch pin exercising
+  >   `Invocable.invokeFunction`'s `NoSuchMethodException` →
+  >   `CommandScriptException` wrap at line 146. 100% line.
+  >
+  > **Critical context:** The escalation here is a scope deviation,
+  > not a contract failure — the line-gate PASSED at 94.2% (the
+  > headline coverage goal for the changed surface). The unmet
+  > criterion is branch coverage, and the failing arms are dead
+  > code the Track 22b sweep left in place because they sit
+  > inside a chain whose outer arms are alive. The right resolution
+  > is a production dead-arm trim, not more synthetic tests
+  > (alternative B at the escalation prompt; user confirmed).
+  >
+  > **Implementer commits (5 surviving, all on HEAD):**
+  > `da683b27d6`, `6dbae29d66`, `ad47272483`, `aed18e18f4`,
+  > `d9231f56f9`, `08799fb449`.
+
+- [ ] Step 14: FetchHelper dead-arm cleanup + housekeeping (inline-replan after Step 13 escalate)
+  > **Risk:** medium — production code change touching a long,
+  > complex multi-instanceof chain in `FetchHelper.java` that is
+  > on the live fetch-plan parser path. PSI safe-delete required
+  > on each arm before removal; the dimensional review fan-out
+  > does NOT fire (medium risk) but Phase C's track-level review
+  > will treat this step as a focal point per `risk-tagging.md`
+  > § "Focal points for Phase C". Inserted via inline-replan after
+  > Step 13 [!] escalated; the user selected alternative B (dead-
+  > arm cleanup in production code) at the escalation prompt.
+  >
+  > **Scope:**
+  >
+  > 1. **PSI dead-arm audit on the four affected methods.**
+  >    Read `FetchHelper.java` at the post-Step-13 HEAD. For each
+  >    of the 28 currently-uncovered branches in
+  >    `processRecordRidMap`, `process`, `processFieldDocument`,
+  >    and `isEmbedded`, run mcp-steroid PSI
+  >    `find-usages`/`find-implementations` on the type the
+  >    instanceof arm is testing (e.g. `MultiCollectionIterator`)
+  >    and `find-usages` on `EntityImpl.setProperty`'s production
+  >    call sites to confirm whether the arm's input value can
+  >    ever flow in via the public property API. Catalogue each
+  >    arm as `unreachable-via-EntityImpl` (safe to delete),
+  >    `reachable-via-legacy-serialization` (must remain), or
+  >    `requires-deeper-analysis` (postpone to a separate step or
+  >    track). The audit produces a small disposition table; commit
+  >    it inline in this step's episode (no separate doc).
+  >
+  > 2. **Conservative dead-arm trim.** For each arm classified as
+  >    `unreachable-via-EntityImpl`, delete the arm body and adjust
+  >    the surrounding chain so the deletion does not change
+  >    semantics for the surviving arms. Common cases expected
+  >    (per the Step 13 episode):
+  >    - L138 `Iterable.next() == null` fast-path — the `next()`
+  >      branch is structurally unreachable when the outer
+  >      `Iterable` is non-empty and produces typed elements.
+  >    - L140-144 raw-array detection (`value.getClass().isArray()`
+  >      + `Array.get` calls) — `EntityImpl.setProperty` rejects
+  >      raw Java arrays.
+  >    - L488-490 `MultiCollectionIterator` handling — confirm no
+  >      production setter produces this type as a field value;
+  >      delete if confirmed.
+  >    - L607, L619-620 `isEmbedded` chain tails — re-survey after
+  >      the L488-490 changes; the chain may shrink transitively.
+  >    Apply each arm deletion as an atomic `steroid_apply_patch`
+  >    edit; the cluster commit is a single bisectable production-
+  >    code commit (PR convention: 1 step = 1 commit).
+  >
+  > 3. **Run the existing regression tests** added in Step 13's
+  >    test-additive commits (`FetchHelperBranchCoverageTest`,
+  >    `ScriptManagerTest` extensions, `Jsr223ScriptExecutorTest`
+  >    extensions). They must all still pass — they pin the
+  >    surviving arms, not the deleted ones. If any test fails,
+  >    the corresponding arm was misclassified as
+  >    `unreachable-via-EntityImpl` — revert that arm's deletion
+  >    and re-classify.
+  >
+  > 4. **Re-run the coverage gate.** Expect line ≥ 95% on changed
+  >    lines (trim shrinks the denominator) and branch ≥ 70%
+  >    (the structurally-dead arms no longer hold the gate
+  >    hostage). If branch is still below 70%, inspect the next
+  >    set of uncovered arms — they may be additional dead arms
+  >    in adjacent methods, or genuine coverage gaps in tests
+  >    that warrant more pinning. Iterate until gate PASSES, or
+  >    re-escalate at the same threshold (200 LOC of additional
+  >    test work for a single surface).
+  >
+  > 5. **End-of-track housekeeping (absorbed from Step 13's
+  >    deferred sub-step a):**
+  >    - Update
+  >      `docs/adr/unit-test-coverage/_workflow/coverage-baseline.md`
+  >      with the post-22b numbers. Note both observed (from
+  >      `coverage-analyzer.py`) and target (~82–83% line /
+  >      ~70–71% branch); do not fabricate.
+  >    - Update
+  >      `docs/adr/unit-test-coverage/_workflow/cluster-disposition.md`
+  >      with each cluster's commit SHA and final disposition:
+  >        Cluster A (Binary Token / JWT): `5c89db6b1d` (deleted)
+  >        Cluster B (sbtree/singlevalue/v1): `d081289b43` (deleted)
+  >        Cluster C (misc small dead helpers): `40519a757c` (deleted)
+  >        Cluster D (narrow singletons batch): `be9e341192` (deleted)
+  >        Cluster E (T2 reclassifications): `01d03e5470` (deleted)
+  >        Cluster F (command-script cluster): `6cf727db8d` (deleted)
+  >        Cluster G (core/query/live partial): `c4d6a6d6a4` (deleted)
+  >        Cluster H (core/fetch partial): `38563169ed` (deleted)
+  >        Cluster I (serialization-and-scheduler hygiene): `41c8203f9e` (deleted)
+  >        Cluster J (SQL root scaffold — widened to full SPI collapse):
+  >          `325974bf24` (cluster) + `db585e756a` (review-fix:
+  >          ReturnHandler + constants pin + Javadoc trim) — deleted
+  >        Cluster K (`BasicCommandContext.copy` interface trim):
+  >          `24e89238b9` (deleted)
+  >        License-header normalization (Step 12): `b7a66cdd3a`
+  >        Step 13 regression tests (5 surviving commits):
+  >          `da683b27d6`, `6dbae29d66`, `ad47272483`, `aed18e18f4`,
+  >          `d9231f56f9`, `08799fb449` (test-additive; durable)
+  >        Step 14 dead-arm cleanup: <SHA after this step's
+  >          implementer commit lands>
+  >    - Flag pin-maintenance candidates from Step 0's disposition
+  >      table (`InternalErrorException`, `EntityHelper`,
+  >      `RecordVersionHelper`, `EntityComparator`, `SBTreeValue`,
+  >      `SqlExecutorDeadCodeTest`) with one-line pointers to
+  >      Track 22c.
+  >    - The housekeeping lands as a separate workflow-update
+  >      commit (one commit for the dead-arm trim + one commit
+  >      for housekeeping; bisectability preserved).
+  >
+  > **Commit shape:** two commits — one for the production dead-
+  > arm trim, one for the workflow housekeeping.
+  >
+  > **Cross-track flag for Track 22c (independent of how Step 14
+  > resolves):** the test-completeness reviewer in Step 10's
+  > iteration-2 sweep noted `IterableRecordSource` and
+  > `TemporaryRidGenerator` at `core/sql/` root have zero
+  > references in `allScope` and predate `develop`; out of scope
+  > for Step 14, candidates for the 22c deferred-cluster list.
