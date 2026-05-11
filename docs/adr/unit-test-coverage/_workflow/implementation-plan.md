@@ -1997,6 +1997,16 @@ flowchart TD
   > steps: 13 successful + 2 failed `[!]` Step 14 attempts + 2
   > inline-replan substitutes [Step 15 production trim, Step 16
   > orchestrator-owned coverage gate])
+  >
+  > **Strategy refresh:** CONTINUE — Track 22c scope and assumptions
+  > unchanged. 22b's `cluster-disposition.md` is final (47 deleted,
+  > 19 defer-to-22c, 5 pin-maintenance + 1 conditional); 22a-forwarded
+  > items (`MemoryAndLocalPaginatedEnginesInitializer` race,
+  > `RecordAbstract.dirty` encapsulation) flow into 22c as YTDB issues
+  > as planned, while `BasicCommandContext.copy()` is resolved by 22b
+  > Cluster K and drops off the 22c issue list. Post-22b WHEN-FIXED
+  > marker inventory: 58 files / 149 markers / 68 needing rewrite —
+  > Phase A re-validates the arithmetic before issue creation.
 
 - [ ] Track 22c: WHEN-FIXED Issue Creation & Marker Rewrite
   > Open YTDB tracking issues for production-fix WHEN-FIXED pins (the
