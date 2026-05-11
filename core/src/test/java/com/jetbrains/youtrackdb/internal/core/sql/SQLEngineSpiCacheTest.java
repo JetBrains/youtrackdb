@@ -641,6 +641,30 @@ public class SQLEngineSpiCacheTest extends DbTestBase {
   }
 
   // ===========================================================================
+  // CommandExecutorSQLAbstract prefix-constant pins
+  // ===========================================================================
+
+  @Test
+  public void commandExecutorSqlAbstractPrefixConstantsArePinned() {
+    // The ten static constants on CommandExecutorSQLAbstract are part of the SQL grammar surface
+    // (nine consumed by SQLTarget when decoding target literals, and KEYWORD_TIMEOUT — a documented
+    // SQL keyword referenced from CommandRequest Javadoc). Behavioural coverage via SQLTarget pins
+    // most of these implicitly, but a silent rename or literal-value drift would still slip past
+    // behavioural tests when the same drift happens on both producer and consumer sides. Pin each
+    // value explicitly so any mutation is caught at this test level.
+    assertEquals("TIMEOUT", CommandExecutorSQLAbstract.KEYWORD_TIMEOUT);
+    assertEquals("COLLECTION:", CommandExecutorSQLAbstract.COLLECTION_PREFIX);
+    assertEquals("CLASS:", CommandExecutorSQLAbstract.CLASS_PREFIX);
+    assertEquals("INDEX:", CommandExecutorSQLAbstract.INDEX_PREFIX);
+    assertEquals("INDEXVALUES:", CommandExecutorSQLAbstract.INDEX_VALUES_PREFIX);
+    assertEquals("INDEXVALUESASC:", CommandExecutorSQLAbstract.INDEX_VALUES_ASC_PREFIX);
+    assertEquals("INDEXVALUESDESC:", CommandExecutorSQLAbstract.INDEX_VALUES_DESC_PREFIX);
+    assertEquals("METADATA:", CommandExecutorSQLAbstract.METADATA_PREFIX);
+    assertEquals("SCHEMA", CommandExecutorSQLAbstract.METADATA_SCHEMA);
+    assertEquals("INDEXMANAGER", CommandExecutorSQLAbstract.METADATA_INDEXMGR);
+  }
+
+  // ===========================================================================
   // Unused distinct registration — belt-and-braces sanity
   // ===========================================================================
 

@@ -154,8 +154,7 @@ public class SQLHelperMiscTest extends DbTestBase {
   @Test
   public void getValueThreeArgFilterItemWithNonEntityThrows() {
     // When the object IS an SQLFilterItem but iRecord is NOT an Entity, SQLHelper throws
-    // DatabaseExportException with the exact contract message. Callers (e.g. RecordsReturnHandler)
-    // depend on this contract.
+    // DatabaseExportException with the exact contract message. Callers depend on this contract.
     var filterItem = new NonEntityTriggeringFilterItem();
     try {
       SQLHelper.getValue(filterItem, null, ctx);
