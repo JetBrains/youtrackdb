@@ -82,7 +82,7 @@ Bias toward **less text**. A 200-word ADR Summary that's correct beats an 800-wo
 
 Before handing the output back, scan it for:
 
-1. Any Tier-1 banned word: replace.
+1. Any Hard-ban word: replace.
 2. Em-dashes: count them; if more than one per paragraph, rewrite.
 3. The "It's not X, it's Y" pattern: rewrite.
 4. Paragraphs that don't add information beyond the previous one: delete.

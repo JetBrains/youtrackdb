@@ -108,7 +108,7 @@ Test: if the sentence still works without the opener phrase, delete the phrase. 
 
 **Active right now:**
 
-- Goblin, gremlin, raccoon, troll, ogre, pigeon. OpenAI hard-banned these in May 2025; if they appear, they leaked through.
+- Goblin, gremlin (except when referring to the Apache TinkerPop Gremlin query language), raccoon, troll, ogre, pigeon. OpenAI hard-banned these in May 2025; if they appear, they leaked through.
 - "It's not X, it's Y." Still rampant.
 - Markdown-bullet-everything. Still rampant.
 - "I'd be happy to help" openers. Still rampant.
