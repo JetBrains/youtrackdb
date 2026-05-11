@@ -131,6 +131,14 @@
 >   `DirectMemoryOnlyDiskCache.allocateNewPage`, and
 >   `WriteCache.allocateNewPage` from the interface — these are
 >   reachable only through callers Track 4 just removed.
+> - Add a Java `assert false` (with a descriptive message) to the
+>   defensive totality fallback in `WOWCache.loadOrAddLoadBranch`
+>   where `loadFileContent` returns null. Per the method's existing
+>   Javadoc the path is dead code today (dispatch prelude routes any
+>   pageIndex past `currentSize` to extend or gap-fill), so the
+>   assertion surfaces a regression in test runs (`-ea`) without
+>   runtime cost in production. Surfaced by Track 2 Phase C
+>   track-level code review (test-crash-safety dimension).
 >
 > **How**:
 > - Step ordering (provisional):
