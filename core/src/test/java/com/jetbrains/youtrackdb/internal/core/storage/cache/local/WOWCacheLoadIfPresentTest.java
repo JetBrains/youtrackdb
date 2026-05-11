@@ -5,6 +5,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -13,12 +14,17 @@ import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.Cl
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
+import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogNoOP;
+import com.jetbrains.youtrackdb.internal.core.storage.fs.AsyncFile;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas.CASDiskWriteAheadLog;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -324,6 +330,72 @@ public class WOWCacheLoadIfPresentTest {
   }
 
   /**
+   * verifyChecksums=true on a corrupted disk page (load branch) under
+   * {@link ChecksumMode#StoreAndThrow}: mirrors the
+   * {@code WOWCacheLoadOrAddTest.loadBranchWithVerifyChecksumsTrueOnCorruptedPageThrowsStorageException}
+   * test on the {@code loadIfPresent} surface. The probe's load branch forwards the
+   * {@code verifyChecksums} flag to {@code loadFileContent(intId, pageIndex,
+   * verifyChecksums)} in the cache miss path, so the same fail-fast checksum
+   * semantics that {@code loadOrAdd} obeys must also surface on {@code loadIfPresent}
+   * when the on-disk page CRC has been broken.
+   *
+   * <p>The corruption is written via a separately-owned {@link AsyncFile} so the
+   * in-process cache's read path is unaffected (a fresh cached-thread-pool backs the
+   * corruption write so it does not deadlock against the wowCache's own AsyncFile
+   * executor). After the corruption lands, {@code loadIfPresent(fileId, 0L, true)}
+   * must surface a {@link StorageException} from the broken-page detection rather
+   * than silently returning a torn pointer (which would mis-classify the page as
+   * usable on the silent-read path).
+   */
+  @Test
+  public void loadIfPresentWithVerifyChecksumsTrueOnCorruptedPageThrowsStorageException()
+      throws IOException {
+    final var fileId = wowCache.addFile(FILE_NAME);
+    // Extend page 0 and drain the executor so the on-disk magic stamp is in place.
+    wowCache.loadOrAdd(fileId, 0L, false).decrementReadersReferrer();
+    wowCache.flush(fileId);
+
+    // Switch to StoreAndThrow so a checksum mismatch surfaces as a StorageException
+    // (under StoreAndVerify the broken-page detection logs but returns the page anyway).
+    wowCache.setChecksumMode(ChecksumMode.StoreAndThrow);
+
+    // Corrupt the on-disk page: open the underlying file via a separately-owned
+    // AsyncFile and write garbage into the data area (offset > NEXT_FREE_POSITION
+    // invalidates the CRC). A separate cached-thread-pool executor backs this
+    // AsyncFile so the corruption write does not deadlock against the wowCache's own
+    // async-file executor.
+    final var nativeName = wowCache.nativeFileNameById(fileId);
+    assertNotNull("file must have a registered native name", nativeName);
+    final var diskPath = storagePath.resolve(nativeName);
+    final var corruptionExecutor = java.util.concurrent.Executors.newCachedThreadPool();
+    try {
+      final File file =
+          new AsyncFile(diskPath, PAGE_SIZE, false, corruptionExecutor, storageName);
+      file.open();
+      try {
+        file.write(
+            DurablePage.NEXT_FREE_POSITION,
+            ByteBuffer.wrap(new byte[] {(byte) 0xAB}).order(ByteOrder.nativeOrder()));
+      } finally {
+        file.close();
+      }
+    } finally {
+      corruptionExecutor.shutdownNow();
+      try {
+        corruptionExecutor.awaitTermination(SHUTDOWN_TIMEOUT, TimeUnit.MILLISECONDS);
+      } catch (final InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+    }
+
+    // loadIfPresent with verifyChecksums=true must now throw StorageException on the
+    // corrupted page — the broken-page detection must surface identically to the
+    // loadOrAdd load-branch path.
+    assertThrows(
+        StorageException.class, () -> wowCache.loadIfPresent(fileId, 0L, true));
+  }
+
+  /**
    * MT (a) — concurrent {@code loadIfPresent} on an out-of-range pageIndex while a
    * second thread continuously flushes the cache.
    *
@@ -439,9 +511,19 @@ public class WOWCacheLoadIfPresentTest {
    *
    * <ul>
    *   <li>No exception of any kind on either thread.
-   *   <li>If the prober ever observes a non-null pointer, the buffer is positioned
-   *       at 0 (clean pointer state; a torn read would surface as a stale buffer
-   *       position).
+   *   <li>If the prober ever observes a non-null pointer, the page's LSN is one
+   *       of two legitimate values: {@code LSN(-1, -1)} (the magic-stamped fresh
+   *       page returned from the installer's extend branch, or from the
+   *       {@link EnsurePageIsValidInFileTask}-stamped on-disk image) or
+   *       {@code LSN(0, 0)} (a zero-filled disk read on a page whose magic stamp
+   *       has not yet landed — the in-memory file size is advanced by
+   *       {@code allocateSpace} synchronously, but the on-disk stamp is written
+   *       asynchronously by the single-threaded commitExecutor, so a probe that
+   *       races into this window observes a zero-filled disk image via
+   *       {@link WOWCache#loadFileContent}). Any other LSN value would indicate
+   *       a torn read or a stale pointer published mid-construction — the
+   *       buffer-position check the original assertion used is tautological
+   *       (the cache loader always rewinds the returned buffer to 0).
    *   <li>Post-run: the file's high-watermark is exactly one page (the installer
    *       extended exactly once; the prober never extended).
    * </ul>
@@ -492,12 +574,26 @@ public class WOWCacheLoadIfPresentTest {
                   for (int j = 0; j < proberInnerIterations; j++) {
                     final var probe = wowCache.loadIfPresent(fileId, 0L, false);
                     if (probe != null) {
-                      // Pin clean buffer state — a torn read would surface here.
+                      // Pin the LSN to one of the two legitimate race outcomes:
+                      //   - LSN(-1,-1): the magic-stamped fresh page (extend
+                      //     branch's in-memory pointer, or the on-disk image
+                      //     after EnsurePageIsValidInFileTask runs).
+                      //   - LSN(0,0): a zero-filled disk read in the window
+                      //     between allocateSpace bumping the in-memory file
+                      //     size and the stamp landing on disk.
+                      // A torn read or a stale pointer published mid-construction
+                      // would surface any other LSN (framePool.acquire(true, ...)
+                      // zero-fills every page it issues, so this set covers every
+                      // legitimate buffer-content shape under this race).
                       try {
-                        assertEquals(
-                            "loadIfPresent must return a pointer with buffer position 0",
-                            0,
-                            probe.getBuffer().position());
+                        final var lsn =
+                            DurablePage.getLogSequenceNumberFromPage(probe.getBuffer());
+                        assertTrue(
+                            "loadIfPresent must return a pointer whose page header"
+                                + " carries either the magic-stamped LSN(-1,-1) or the"
+                                + " pre-stamp zero-filled LSN(0,0); observed " + lsn,
+                            lsn.equals(new LogSequenceNumber(-1, -1))
+                                || lsn.equals(new LogSequenceNumber(0, 0)));
                       } finally {
                         probe.decrementReadersReferrer();
                       }

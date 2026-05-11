@@ -8,6 +8,7 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
@@ -31,6 +32,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Smoke and concurrency coverage for {@link DirectMemoryOnlyDiskCache#loadOrAdd}, the
@@ -615,12 +617,43 @@ public class DirectMemoryOnlyDiskCacheLoadOrAddTest {
    * unrelated frames during the test, but the floor is exact and falsifiable: a
    * regression that drops the loser-side decrement would fail the first assertion
    * because {@code releasesToPool} would be 0 instead of {@code threads - 1}.
+   *
+   * <p><b>Why the JVM-singleton framePool pageSize is used, not the test's
+   * PAGE_SIZE.</b> The {@code DirectMemoryOnlyDiskCache} stores its own
+   * {@code pageSize} field but the {@link MemoryFile#installEmptyPage} call routes
+   * through {@code ByteBufferPool.instance(null).pageFramePool()} — the
+   * <em>JVM-singleton</em> framePool — whose page size is derived from
+   * {@link GlobalConfiguration#DISK_CACHE_PAGE_SIZE} (8 KB by default), NOT from
+   * the test's {@code PAGE_SIZE = 1024}. Every {@code framePool.acquire} therefore
+   * allocates 8192 bytes regardless of the cache's nominal page size, so the
+   * allocator-delta math below uses {@code frameBytes} (the actual framePool page
+   * size) rather than {@code PAGE_SIZE}.
+   *
+   * <p><b>Serial execution required.</b> This test reads the JVM-singleton
+   * {@link ByteBufferPool#pageFramePool()} size and
+   * {@link DirectMemoryAllocator#getMemoryConsumption()}, both of which are shared
+   * across every test in the Surefire fork. Under the project's parallel-class
+   * surefire configuration ({@code parallel=classes, threadCountClasses=4}), a
+   * concurrent unrelated test running in a sibling class can pop a frame from the
+   * pool or allocate memory between this test's {@code poolBefore}/{@code memBefore}
+   * snapshot and the post-race snapshot, driving the computed
+   * {@code releasesToPool} below the {@code threads - 1} floor and producing a
+   * flake. Tagging the method with {@link SequentialTest} routes it through the
+   * core module's serial-only surefire execution, which is the structural fix for
+   * the recurring flake observed across multiple step episodes.
    */
   @Test
+  @Category(SequentialTest.class)
   public void framePoolLeakAccountingOnConcurrentInstallers() throws Exception {
     final int threads = 16;
     final var framePool = ByteBufferPool.instance(null).pageFramePool();
     final var allocator = DirectMemoryAllocator.instance();
+    // The framePool's actual page size: derived from DISK_CACHE_PAGE_SIZE (in KB).
+    // This is what every framePool.acquire allocator call uses — NOT the test's
+    // PAGE_SIZE constant, which only controls the cache's logical page accounting.
+    final int frameBytes =
+        com.jetbrains.youtrackdb.api.config.GlobalConfiguration.DISK_CACHE_PAGE_SIZE
+            .getValueAsInteger() * 1024;
     final int poolBefore = framePool.getPoolSize();
     final long memBefore = allocator.getMemoryConsumption();
     final var pool = Executors.newFixedThreadPool(threads);
@@ -647,17 +680,18 @@ public class DirectMemoryOnlyDiskCacheLoadOrAddTest {
           returned.add(f.get(10, TimeUnit.SECONDS));
         }
         // Decompose the 16 acquires into "from pool" vs "fresh allocation" via the
-        // allocator's memoryConsumption delta. PAGE_SIZE-aligned because every
-        // acquire allocates exactly one page; a regression breaking this alignment
-        // would surface as a divide-with-remainder, which the assertions below catch.
+        // allocator's memoryConsumption delta. The delta is divided by frameBytes
+        // (the framePool's actual page size, derived above), not the test's PAGE_SIZE
+        // constant. A regression breaking the per-frame allocation alignment would
+        // surface as a divide-with-remainder, which the assertions below catch.
         final long memAfterRace = allocator.getMemoryConsumption();
         final long memDelta = memAfterRace - memBefore;
         assertEquals(
-            "allocator delta must be a whole number of PAGE_SIZE allocations; got "
-                + memDelta + " for pageSize=" + PAGE_SIZE,
+            "allocator delta must be a whole number of frameBytes allocations; got "
+                + memDelta + " for frameBytes=" + frameBytes,
             0L,
-            memDelta % PAGE_SIZE);
-        final long freshAllocations = memDelta / PAGE_SIZE;
+            memDelta % frameBytes);
+        final long freshAllocations = memDelta / frameBytes;
         assertTrue(
             "fresh allocations cannot exceed total acquires (" + threads + "); got "
                 + freshAllocations,
@@ -697,10 +731,10 @@ public class DirectMemoryOnlyDiskCacheLoadOrAddTest {
     final long memAfterDelete = allocator.getMemoryConsumption();
     final long memDeltaDelete = memAfterDelete - memBefore;
     assertEquals(
-        "post-delete allocator delta must remain PAGE_SIZE-aligned",
+        "post-delete allocator delta must remain frameBytes-aligned",
         0L,
-        memDeltaDelete % PAGE_SIZE);
-    final long freshAllocationsDelete = memDeltaDelete / PAGE_SIZE;
+        memDeltaDelete % frameBytes);
+    final long freshAllocationsDelete = memDeltaDelete / frameBytes;
     // Note: the deleteFile path does not free direct memory (the pool retains the
     // frames), so freshAllocationsDelete may equal freshAllocations from earlier or
     // be larger if an excess-frame deallocation fired during release. Either way the

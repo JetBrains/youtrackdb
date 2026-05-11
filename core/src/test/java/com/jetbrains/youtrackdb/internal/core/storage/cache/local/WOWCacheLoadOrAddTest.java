@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
@@ -819,17 +820,28 @@ public class WOWCacheLoadOrAddTest {
    * <p>Extend page 0 via {@code loadOrAdd(fileId, 0, false)} (which submits one
    * {@link EnsurePageIsValidInFileTask} to the single-threaded commitExecutor), drain via
    * {@link WOWCache#flush(long)} so the submitted task runs and stamps the on-disk page,
-   * then directly call {@link WOWCache#writeValidPageInFile(int, int)} twice in sequence
-   * and assert that across both invocations the underlying file size does not change
-   * — both direct calls must short-circuit on the
+   * then deliberately overwrite the page contents with distinctive marker bytes via the
+   * normal write path ({@code wowCache.load} + buffer mutation + {@code wowCache.store}
+   * + {@code wowCache.flush}). The page on disk now carries the marker bytes instead of
+   * the freshly-stamped magic bytes. Reading the full file byte content as a baseline
+   * after the marker write, this test then directly calls
+   * {@link WOWCache#writeValidPageInFile(int, int)} twice in sequence and asserts that
+   * across both invocations both the underlying file size AND the file's byte content
+   * stay identical to the baseline — both direct calls must short-circuit on the
    * {@code getUnderlyingFileSize() &lt;= pagePosition} guard at the top of
-   * {@code writeValidPageInFile}. Combined with the executor-task stamp landing during
-   * the drain (which advances the underlying file size to {@code HEADER_SIZE + pageSize}),
-   * this proves that exactly one underlying disk write occurred across the three calls
-   * (one executor task + two direct invocations).
+   * {@code writeValidPageInFile}.
    *
-   * <p>The disk-write count is measured via {@link Files#size(Path)} on the underlying
-   * file, subtracting {@link File#HEADER_SIZE} per {@link AsyncFile#getUnderlyingFileSize()}.
+   * <p>The byte-content compare is the load-bearing assertion: a regression that
+   * removed the short-circuit guard would re-stamp the page with the magic-stamped
+   * empty buffer ({@code LSN(-1,-1)} + magic bytes), wiping the {@code 0xC3} marker
+   * bytes from the data area, and the {@code assertArrayEquals} below would fail.
+   * The file-size assertion is kept as belt-and-braces — a positional write to the
+   * same offset would not change the file size, so a size-only check would silently
+   * pass even if the page contents were trampled.
+   *
+   * <p>The disk-write count is also tracked via {@link Files#size(Path)} on the
+   * underlying file, subtracting {@link File#HEADER_SIZE} per
+   * {@link AsyncFile#getUnderlyingFileSize()}.
    */
   @Test
   public void writeValidPageInFileIsIdempotentAcrossRepeatedDirectInvocations()
@@ -843,38 +855,154 @@ public class WOWCacheLoadOrAddTest {
 
     // Drain the commitExecutor (FileFlushTask runs after the prior
     // EnsurePageIsValidInFileTask, since the executor is single-threaded) so the on-disk
-    // page is stamped before we measure the file size baseline.
+    // page is stamped before we deliberately overwrite the data area below.
     wowCache.flush(fileId);
 
     final var nativeName = wowCache.nativeFileNameById(fileId);
     assertNotNull("file must have a registered native name", nativeName);
     final var diskPath = storagePath.resolve(nativeName);
 
-    // Baseline: after the drain, the executor task has written one page to disk. The
-    // underlying file size (excluding the 1024-byte AsyncFile header) is therefore exactly
-    // pageSize bytes — proof that exactly one underlying disk write has occurred so far.
+    // Deliberately overwrite the page's data area with distinctive marker bytes (0xC3) via
+    // the normal write path: load the page from cache, mutate the buffer in the data
+    // region (past NEXT_FREE_POSITION so the magic + CRC stay valid and the LSN stays
+    // distinct from (-1,-1)), store it back to install in writeCachePages, and flush so
+    // the marker bytes land on disk. After this, the on-disk page no longer carries the
+    // magic-stamped empty buffer that writeValidPageInFile would have written; any
+    // accidental re-stamping by a regression would visibly trample the marker bytes.
+    final var dirty = wowCache.load(fileId, 0L, new ModifiableBoolean(), false);
+    try {
+      final var buffer = dirty.getBuffer();
+      buffer.position(DurablePage.NEXT_FREE_POSITION);
+      for (int i = DurablePage.NEXT_FREE_POSITION; i < PAGE_SIZE; i++) {
+        buffer.put((byte) 0xC3);
+      }
+      // Set a distinguishable LSN so a re-stamp to LSN(-1,-1) would also be detectable on
+      // the bytes around the LSN field.
+      DurablePage.setLogSequenceNumberForPage(buffer, new LogSequenceNumber(42L, 42));
+      // The flush path asserts buffer.position() == 0 before copying — rewind here so the
+      // store + subsequent flush observes the contract.
+      buffer.position(0);
+      wowCache.store(fileId, 0L, dirty);
+    } finally {
+      dirty.decrementReadersReferrer();
+    }
+    wowCache.flush(fileId);
+
+    // Baseline: after the marker write + flush, the underlying file size is exactly one
+    // page (HEADER_SIZE + pageSize on disk) and the byte content reflects the marker.
     final long sizeAfterDrain = Files.size(diskPath) - File.HEADER_SIZE;
     assertEquals(
-        "after the executor task drains, the underlying file size must be one page",
+        "after the marker-bytes flush, the underlying file size must be one page",
         (long) PAGE_SIZE,
         sizeAfterDrain);
+    final byte[] bytesBefore = Files.readAllBytes(diskPath);
 
     // First direct call: writeValidPageInFile must observe
     // getUnderlyingFileSize() (= pageSize) > pagePosition (= 0), short-circuit at the
-    // top-of-method guard, and write nothing.
+    // top-of-method guard, and write nothing. Both the file size and the byte content
+    // are unchanged. A regression that removed the short-circuit guard would write a
+    // fresh magic-stamped empty buffer to the same offset, trampling the 0xC3 marker
+    // bytes — the byte-content assertion below catches this case; the file-size
+    // assertion alone would not, because a positional write to the same offset leaves
+    // the file size unchanged.
     wowCache.writeValidPageInFile(intId, 0);
     final long sizeAfterFirstDirect = Files.size(diskPath) - File.HEADER_SIZE;
     assertEquals(
         "first direct writeValidPageInFile call must short-circuit (no new disk write)",
         sizeAfterDrain,
         sizeAfterFirstDirect);
+    assertArrayEquals(
+        "first direct writeValidPageInFile call must short-circuit; on-disk bytes must"
+            + " match the marker-bytes baseline",
+        bytesBefore,
+        Files.readAllBytes(diskPath));
 
-    // Second direct call: same short-circuit guard fires again; the file size is unchanged.
+    // Second direct call: same short-circuit guard fires again; the file size and byte
+    // content remain identical to the baseline.
     wowCache.writeValidPageInFile(intId, 0);
     final long sizeAfterSecondDirect = Files.size(diskPath) - File.HEADER_SIZE;
     assertEquals(
         "second direct writeValidPageInFile call must short-circuit (no new disk write)",
         sizeAfterDrain,
         sizeAfterSecondDirect);
+    assertArrayEquals(
+        "second direct writeValidPageInFile call must short-circuit; on-disk bytes must"
+            + " still match the marker-bytes baseline",
+        bytesBefore,
+        Files.readAllBytes(diskPath));
+  }
+
+  /**
+   * Gap-fill branch counterpart of
+   * {@link #writeValidPageInFileIsIdempotentAcrossRepeatedDirectInvocations} — pins the
+   * idempotency of the per-page {@link EnsurePageIsValidInFileTask} submissions that the
+   * gap-fill branch issues for every intermediate page in {@code [currentSize, target]}.
+   *
+   * <p>The production Javadoc on {@code loadOrAddGapFillBranch} explicitly claims those
+   * per-page tasks are idempotent, and recovery / WAL replay is the only normal caller
+   * of the gap-fill branch — so this is the path that most needs the idempotency
+   * guarantee to be falsifiable. Using a gap-fill from {@code currentSize == 0} to
+   * {@code target == 5} produces six per-page task submissions. After the
+   * {@link WOWCache#flush(long)} drains them, the on-disk file holds six magic-stamped
+   * empty pages. Reading the full byte content as a baseline, the test then directly
+   * calls {@link WOWCache#writeValidPageInFile(int, int)} for every page index in
+   * {@code [0, 5]} and asserts that both the underlying file size AND the byte content
+   * stay identical to the baseline. A regression that re-stamped intermediate pages
+   * (e.g., wrote a different magic or trampled header bytes) would surface as a
+   * byte-array mismatch.
+   *
+   * <p>Note: the intermediate pages already carry {@code LSN(-1,-1)} after the executor
+   * tasks run, so the byte-content compare catches a re-stamp that wrote a different
+   * stamp shape — not a re-stamp that wrote the same stamp shape, since the bytes
+   * would coincidentally still match. The file-size delta covers the second case (a
+   * second positional write to the same offset never changes file size; the test
+   * therefore relies on the byte compare for the same-stamp case being implausible —
+   * any regression that re-entered the magic-stamp write path would also re-acquire
+   * a fresh allocator pointer, which would not coincidentally produce identical
+   * bytes because the per-page CRC depends on the page's content and offset).
+   */
+  @Test
+  public void writeValidPageInFileIsIdempotentAcrossRepeatedDirectInvocationsOnGapFillPages()
+      throws IOException {
+    final var fileId = wowCache.addFile(FILE_NAME);
+    final var intId = AbstractWriteCache.extractFileId(fileId);
+
+    // Trigger the gap-fill branch: target index 5 on a fresh file submits six
+    // EnsurePageIsValidInFileTask instances to the single-threaded commitExecutor (one
+    // per page in [0, 5]).
+    wowCache.loadOrAdd(fileId, 5L, false).decrementReadersReferrer();
+
+    // Drain so all six on-disk magic stamps land before the byte-content baseline.
+    wowCache.flush(fileId);
+
+    final var nativeName = wowCache.nativeFileNameById(fileId);
+    assertNotNull("file must have a registered native name", nativeName);
+    final var diskPath = storagePath.resolve(nativeName);
+
+    // Baseline: file size must reflect six pages worth of data.
+    final long sizeAfterDrain = Files.size(diskPath) - File.HEADER_SIZE;
+    assertEquals(
+        "after the gap-fill executor tasks drain, the underlying file size must be six pages",
+        6L * PAGE_SIZE,
+        sizeAfterDrain);
+    final byte[] bytesBefore = Files.readAllBytes(diskPath);
+
+    // Direct calls for every gap page: each must short-circuit on the
+    // getUnderlyingFileSize() guard (pagePosition < currentSize * pageSize), leaving
+    // both the file size and the on-disk bytes unchanged.
+    for (int p = 0; p <= 5; p++) {
+      wowCache.writeValidPageInFile(intId, p);
+      final long sizeAfter = Files.size(diskPath) - File.HEADER_SIZE;
+      assertEquals(
+          "direct writeValidPageInFile call on gap page " + p + " must short-circuit"
+              + " (no new disk write)",
+          sizeAfterDrain,
+          sizeAfter);
+      assertArrayEquals(
+          "direct writeValidPageInFile call on gap page " + p + " must short-circuit;"
+              + " on-disk bytes must match the post-drain baseline",
+          bytesBefore,
+          Files.readAllBytes(diskPath));
+    }
   }
 }

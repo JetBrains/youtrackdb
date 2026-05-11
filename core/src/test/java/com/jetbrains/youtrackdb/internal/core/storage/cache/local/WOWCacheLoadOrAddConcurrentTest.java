@@ -36,6 +36,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicLongArray;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.After;
 import org.junit.AfterClass;
@@ -108,6 +109,12 @@ public class WOWCacheLoadOrAddConcurrentTest {
   // hold all of the test's working set comfortably (no eviction pressure inside the
   // scenarios — eviction is exercised by the wrapper-MT step's separate scenarios).
   private static final long READ_CACHE_MAX_MEMORY = 4L * 1024 * 1024;
+  // Retry cap for the gap-fill I4-sentinel test. The currentSize-vs-allocator race
+  // is tighter on the gap-fill branch than on the single-page extend branch, so a
+  // slightly higher cap is needed to keep the test deterministic within the 60s
+  // per-test timeout on the slowest CI runner. Empirically converges inside 5-10
+  // attempts.
+  private static final int I4_GAPFILL_MAX_ATTEMPTS = 50;
 
   private static Path storagePath;
   private static String storageName;
@@ -540,19 +547,27 @@ public class WOWCacheLoadOrAddConcurrentTest {
    *
    * <p>Mirrors the in-memory engine's
    * {@code DirectMemoryOnlyDiskCacheLoadOrAddTest.clearAndLoadOrAddRaceLeavesCacheConsistent}
-   * but exercises the disk-engine {@code filesLock} discipline. The
-   * {@code iterationCounter} pin guards against a vacuous pass where the destroyer
-   * finishes before installers ramp up.
+   * but exercises the disk-engine {@code filesLock} discipline. The per-thread
+   * iteration counter ({@code perThreadIterations}) pins a strict per-thread floor
+   * (every installer must run the body at least once) so a regression that broke
+   * filesLock readLock fairness — letting one thread monopolise the lock while the
+   * other N-1 starved — would surface as a per-thread zero rather than being hidden
+   * behind a single-counter total that one greedy thread can satisfy alone.
    *
-   * <p><b>Cache eviction caveat.</b> Each {@code deleteFile + addFile} cycle does
-   * NOT remove the stale {@link CacheEntry} from the wrapper's map by itself — the
-   * wrapper's stale entries become unreachable when the installer's
-   * {@code data.get(staleFileId, …)} misses (the installer threads always query
-   * the latest fileId from {@code fileIdRef}). To avoid accumulating stale entries
-   * across rotations the destroyer calls {@code readCache.deleteFile} on the dying
-   * fileId before issuing the {@code addFile}; the wrapper's evict-by-fileId logic
-   * cleans up. Without this the test would gradually pin every page from every
-   * rotation in the cache and eventually trip the cache's overflow check.
+   * <p><b>Wrapper-level eviction is bypassed by design.</b> The destroyer drives
+   * {@code wowCache.deleteFile + wowCache.addFile} directly — it does NOT call
+   * {@code readCache.deleteFile}. {@link LockFreeReadCache#deleteFile} cannot run
+   * concurrently with pinned entries (the wrapper's {@code clearFile} aborts with
+   * "Page X is used"), so wiring the wrapper-level cleanup into a contention test
+   * where installers pin entries on the dying fileId would either deadlock or
+   * surface a spurious abort. Instead, the test exercises the disk-engine
+   * {@link WOWCache#filesLock} discipline directly: every installer's
+   * {@code loadOrAdd} holds {@code filesLock.readLock}; the destroyer's
+   * {@code deleteFile} holds {@code filesLock.writeLock} and waits for in-flight
+   * readers. Wrapper-level stale entries on rotated-away fileIds become unreachable
+   * because the installers always query the latest fileId from {@code fileIdRef};
+   * the cache map's overflow check is the eventual cleanup trigger, but it does
+   * not run inside this test's bounded window.
    */
   @Test(timeout = PER_TEST_TIMEOUT_MS)
   public void deleteFileAndLoadOrAddRaceLeavesCacheConsistent() throws Exception {
@@ -573,18 +588,35 @@ public class WOWCacheLoadOrAddConcurrentTest {
       final var unexpected = new ConcurrentLinkedQueue<Throwable>();
       final var startGate = new CountDownLatch(1);
       final var installerDone = new CountDownLatch(installerThreads);
-      final var iterationCounter = new AtomicLong();
+      // Per-thread iteration counter — a single shared counter would let one thread
+      // run the full body N times while N-1 threads run 0 times still satisfy
+      // total >= N. A regression that starved N-1 threads of the filesLock readLock
+      // would pass the single-counter guard; the per-thread floor catches it.
+      final var perThreadIterations = new AtomicLongArray(installerThreads);
+      // Coordination latch: each installer counts down after it completes its first
+      // successful iteration. The destroyer waits on this latch before starting its
+      // rotations. Without this gate, the destroyer's 50 rotations can finish
+      // before later installer threads even get past startGate.await() under heavy
+      // CPU contention (the per-thread floor would surface a spurious vacuous-pass
+      // failure on slow CI runners).
+      final var allInstallersStarted = new CountDownLatch(installerThreads);
 
       for (int t = 0; t < installerThreads; t++) {
+        final int workerId = t;
         pool.submit(
             () -> {
               try {
                 startGate.await();
-                while (!stop.get()) {
+                boolean firstIterationCompleted = false;
+                while (!stop.get() || !firstIterationCompleted) {
                   try {
                     final var pointer = wowCache.loadOrAdd(fileIdRef.get(), 0L, false);
-                    iterationCounter.incrementAndGet();
+                    perThreadIterations.incrementAndGet(workerId);
                     pointer.decrementReadersReferrer();
+                    if (!firstIterationCompleted) {
+                      firstIterationCompleted = true;
+                      allInstallersStarted.countDown();
+                    }
                   } catch (final IllegalArgumentException ignored) {
                     // Tolerated: file was deleted between our fileIdRef read and
                     // the dispatch prelude's files.acquire().
@@ -620,6 +652,18 @@ public class WOWCacheLoadOrAddConcurrentTest {
           () -> {
             try {
               startGate.await();
+              // Wait for every installer to record at least one successful iteration
+              // BEFORE starting the rotations — otherwise the destroyer can outrun
+              // the installer ramp-up on slow CI runners and the per-thread floor
+              // below would fail spuriously. The 30s timeout matches the
+              // BARRIER_WAIT_SECONDS budget used elsewhere in this file.
+              if (!allInstallersStarted.await(BARRIER_WAIT_SECONDS, TimeUnit.SECONDS)) {
+                unexpected.add(
+                    new AssertionError(
+                        "installer threads did not all reach first iteration inside "
+                            + BARRIER_WAIT_SECONDS + "s; aborting destroyer"));
+                return;
+              }
               for (int r = 0; r < rotations; r++) {
                 final var existing = fileIdRef.get();
                 wowCache.deleteFile(existing);
@@ -642,12 +686,19 @@ public class WOWCacheLoadOrAddConcurrentTest {
         final var first = unexpected.poll();
         fail("deleteFile/loadOrAdd race surfaced unexpected exception: " + first);
       }
-      assertTrue(
-          "installers must execute the loadOrAdd loop body at least once per thread; "
-              + "vacuous pass detected (iterations="
-              + iterationCounter.get()
-              + ")",
-          iterationCounter.get() >= installerThreads);
+      // Per-thread floor: every installer must run the body at least once.
+      // A regression that starved N-1 threads (e.g., broke filesLock readLock
+      // fairness) would surface here as a per-thread zero, even if the total
+      // iteration count satisfies the old single-counter guard.
+      for (int i = 0; i < installerThreads; i++) {
+        assertTrue(
+            "installer thread "
+                + i
+                + " did not enter the race loop (iterations="
+                + perThreadIterations.get(i)
+                + "); vacuous pass detected — per-thread floor must be >= 1",
+            perThreadIterations.get(i) >= 1);
+      }
 
       // Final consistency probe.
       final var surviving = wowCache.loadOrAdd(fileIdRef.get(), 0L, false);
@@ -680,14 +731,22 @@ public class WOWCacheLoadOrAddConcurrentTest {
    * the file and may extend it back to size 1 via the extend branch on its next
    * loop iteration.
    *
-   * <p><b>truncateFile invalidates cached entries.</b> {@link WOWCache#truncateFile}
-   * calls {@code removeCachedPages(intId)} inside the writeLock, but that only
-   * touches the {@link WOWCache#writeCachePages} dirty map — the wrapper's
-   * {@link LockFreeReadCache#data} entries for the same {@code fileId} are not
-   * removed. After a {@code truncateFile + extend}, an in-flight wrapper hit on the
-   * stale entry would return a pointer whose underlying disk page is gone. The
-   * destroyer also calls {@code readCache.truncateFile} so the wrapper's stale
-   * entries are evicted before the next {@code truncateFile + extend} cycle.
+   * <p><b>Wrapper-level eviction is bypassed by design.</b> The destroyer drives
+   * {@code wowCache.truncateFile} directly — it does NOT call
+   * {@code readCache.truncateFile}. The wrapper's truncate path cannot run
+   * concurrently with pinned entries for the same reason
+   * {@link LockFreeReadCache#deleteFile} cannot
+   * ({@code clearFile} aborts on pinned pages), so wiring it into a contention
+   * test with installers pinning entries on the same fileId would either deadlock
+   * or surface a spurious abort. The test instead exercises the disk-engine's
+   * {@code filesLock} discipline directly: {@link WOWCache#truncateFile} calls
+   * {@code removeCachedPages(intId)} inside {@code filesLock.writeLock} (touching
+   * only the {@code writeCachePages} dirty map). The wrapper's {@code data}
+   * entries for the same {@code fileId} are not removed, but the installer
+   * threads' subsequent {@code loadOrAdd} calls on a freshly-truncated file route
+   * back into the disk engine's extend branch and re-populate everything
+   * correctly. Wrapper-level stale-entry cleanup is deferred to the eventual
+   * overflow / shutdown path; it does not run inside this test's bounded window.
    */
   @Test(timeout = PER_TEST_TIMEOUT_MS)
   public void truncateFileAndLoadOrAddRaceLeavesCacheConsistent() throws Exception {
@@ -700,18 +759,29 @@ public class WOWCacheLoadOrAddConcurrentTest {
       final var unexpected = new ConcurrentLinkedQueue<Throwable>();
       final var startGate = new CountDownLatch(1);
       final var installerDone = new CountDownLatch(installerThreads);
-      final var iterationCounter = new AtomicLong();
+      // Per-thread iteration counter — see the deleteFile sibling above for the
+      // rationale. A regression that starved N-1 threads of the filesLock read
+      // lock would pass a total-count guard but fail the per-thread floor below.
+      final var perThreadIterations = new AtomicLongArray(installerThreads);
+      // Coordination latch — see the deleteFile sibling above for rationale.
+      final var allInstallersStarted = new CountDownLatch(installerThreads);
 
       for (int t = 0; t < installerThreads; t++) {
+        final int workerId = t;
         pool.submit(
             () -> {
               try {
                 startGate.await();
-                while (!stop.get()) {
+                boolean firstIterationCompleted = false;
+                while (!stop.get() || !firstIterationCompleted) {
                   try {
                     final var pointer = wowCache.loadOrAdd(fileId, 0L, false);
-                    iterationCounter.incrementAndGet();
+                    perThreadIterations.incrementAndGet(workerId);
                     pointer.decrementReadersReferrer();
+                    if (!firstIterationCompleted) {
+                      firstIterationCompleted = true;
+                      allInstallersStarted.countDown();
+                    }
                   } catch (final IllegalStateException e) {
                     // Tolerated: I4 sentinel from the bare-WOWCache same-pageIndex
                     // race after a {@link WOWCache#truncateFile} shrunk the file.
@@ -736,6 +806,16 @@ public class WOWCacheLoadOrAddConcurrentTest {
           () -> {
             try {
               startGate.await();
+              // Wait for every installer to record at least one successful iteration
+              // before starting truncate rotations — see the deleteFile sibling above
+              // for the rationale on slow CI runners.
+              if (!allInstallersStarted.await(BARRIER_WAIT_SECONDS, TimeUnit.SECONDS)) {
+                unexpected.add(
+                    new AssertionError(
+                        "installer threads did not all reach first iteration inside "
+                            + BARRIER_WAIT_SECONDS + "s; aborting destroyer"));
+                return;
+              }
               for (int r = 0; r < rotations; r++) {
                 wowCache.truncateFile(fileId);
               }
@@ -756,12 +836,18 @@ public class WOWCacheLoadOrAddConcurrentTest {
         fail(
             "truncateFile/loadOrAdd race surfaced unexpected exception: " + first);
       }
-      assertTrue(
-          "installers must execute the loadOrAdd loop body at least once per thread; "
-              + "vacuous pass detected (iterations="
-              + iterationCounter.get()
-              + ")",
-          iterationCounter.get() >= installerThreads);
+      // Per-thread floor: every installer must run the body at least once. See the
+      // deleteFile sibling above for the rationale (a starved N-1 threads would
+      // pass the old total-count guard but fail the per-thread floor here).
+      for (int i = 0; i < installerThreads; i++) {
+        assertTrue(
+            "installer thread "
+                + i
+                + " did not enter the race loop (iterations="
+                + perThreadIterations.get(i)
+                + "); vacuous pass detected — per-thread floor must be >= 1",
+            perThreadIterations.get(i) >= 1);
+      }
 
       // Final consistency probe.
       final var surviving = wowCache.loadOrAdd(fileId, 0L, false);
@@ -853,11 +939,19 @@ public class WOWCacheLoadOrAddConcurrentTest {
         int i4SentinelObservations = 0;
         final List<CachePointer> winnerPointers = new ArrayList<>();
         final List<Throwable> unexpected = new ArrayList<>();
+        // Drain every future before classifying — never break out of this loop on
+        // a non-ExecutionException so the finally below releases every winner's
+        // CachePointer. A TimeoutException on a slow CI runner or an
+        // InterruptedException on shutdown were previously propagated out of the
+        // loop, which left the rest of the futures undrained and leaked the
+        // workers' returned CachePointer refs.
         for (final var future : futures) {
           try {
             final var pointer = future.get(BARRIER_WAIT_SECONDS, TimeUnit.SECONDS);
-            successes++;
-            winnerPointers.add(pointer);
+            if (pointer != null) {
+              successes++;
+              winnerPointers.add(pointer);
+            }
           } catch (final java.util.concurrent.ExecutionException e) {
             final var cause = e.getCause();
             if (cause instanceof IllegalStateException
@@ -867,6 +961,12 @@ public class WOWCacheLoadOrAddConcurrentTest {
               i4SentinelObservations++;
             } else {
               unexpected.add(cause);
+            }
+          } catch (final java.util.concurrent.TimeoutException
+              | InterruptedException te) {
+            unexpected.add(te);
+            if (te instanceof InterruptedException) {
+              Thread.currentThread().interrupt();
             }
           }
         }
@@ -904,6 +1004,227 @@ public class WOWCacheLoadOrAddConcurrentTest {
             + maxAttempts
             + " attempts; cache-layer fast-fail must stay falsifiable",
         sentinelObserved);
+  }
+
+  /**
+   * Gap-fill I4 negative defence — drive two threads directly into bare
+   * {@link WOWCache#loadOrAdd} on a pageIndex that routes into the gap-fill branch
+   * (pageIndex past the file's current high-watermark) on the same fresh file.
+   *
+   * <p>Counterpart of {@link #bareLoadOrAddOnSameKeySurfacesI4Sentinel}: that test
+   * exercises the I4 sentinel on the single-page extend branch
+   * ({@code pageIndex == currentSize}); this test exercises the symmetric sentinel
+   * on the gap-fill branch ({@code pageIndex &gt; currentSize}). The gap-fill branch
+   * sentinel — the {@code "allocated start index ... does not match currentSize"}
+   * {@link IllegalStateException} added by Track 1's review fix — is reachable in
+   * production but is only tolerated as one of several possible outcomes in the
+   * delete/truncate sibling tests above ({@code bareLoadOrAddOnSameGapFillKey ... }).
+   * No test deterministically pins this sentinel, so a regression that silently
+   * dropped the gap-fill branch's equality check would be tolerated everywhere.
+   *
+   * <p>Race shape: pre-extend the file to {@code currentSize == 2}, then spawn N
+   * workers all targeting {@code pageIndex == 10} (well past currentSize), so every
+   * worker's dispatch routes into the gap-fill branch. {@code AsyncFile.allocateSpace}
+   * serialises the allocator — exactly one worker gets {@code allocatedStartIndex
+   * == 2 == currentSize} and proceeds; the others get higher start indices and the
+   * gap-fill I4 sentinel fires.
+   *
+   * <p>Retry up to {@link #I4_GAPFILL_MAX_ATTEMPTS} times; the per-attempt fileId is
+   * rotated so each round starts with a fresh currentSize=2. A regression that
+   * relaxed the gap-fill equality check to a warning log would let every worker
+   * "succeed" on every attempt and the assertion below would fail loudly.
+   */
+  @Test(timeout = PER_TEST_TIMEOUT_MS)
+  public void bareLoadOrAddOnSameGapFillKeySurfacesI4GapFillSentinel() throws Exception {
+    final int threads = 16;
+    boolean sentinelObserved = false;
+    int attempt = 0;
+    while (!sentinelObserved && attempt < I4_GAPFILL_MAX_ATTEMPTS) {
+      attempt++;
+      // Per-attempt fileId: every round starts from currentSize == 0, then is
+      // pre-extended to currentSize == 2 so every worker targeting pageIndex == 10
+      // routes into the gap-fill branch (10 > 2).
+      final var fileId = wowCache.addFile(FILE_NAME + "-gapfill-attempt-" + attempt);
+      wowCache.loadOrAdd(fileId, 0L, false).decrementReadersReferrer();
+      wowCache.loadOrAdd(fileId, 1L, false).decrementReadersReferrer();
+      assertEquals(
+          "attempt " + attempt + ": pre-extend must seed currentSize == 2",
+          2L,
+          wowCache.getFilledUpTo(fileId));
+
+      final var pool = Executors.newFixedThreadPool(threads);
+      try {
+        final var startBarrier = new CyclicBarrier(threads);
+        final List<Callable<CachePointer>> workers = new ArrayList<>(threads);
+        for (int i = 0; i < threads; i++) {
+          workers.add(
+              () -> {
+                startBarrier.await(BARRIER_WAIT_SECONDS, TimeUnit.SECONDS);
+                return wowCache.loadOrAdd(fileId, 10L, false);
+              });
+        }
+        final var futures = pool.invokeAll(workers);
+        int successes = 0;
+        int gapFillSentinelObservations = 0;
+        final List<CachePointer> winnerPointers = new ArrayList<>();
+        final List<Throwable> unexpected = new ArrayList<>();
+        // Drain every future before classifying — mirror the BC2-hardened loop in
+        // bareLoadOrAddOnSameKeySurfacesI4Sentinel so a TimeoutException or
+        // InterruptedException on one future does not leak the rest's pointers.
+        for (final var future : futures) {
+          try {
+            final var pointer =
+                future.get(BARRIER_WAIT_SECONDS, TimeUnit.SECONDS);
+            if (pointer != null) {
+              successes++;
+              winnerPointers.add(pointer);
+            }
+          } catch (final java.util.concurrent.ExecutionException e) {
+            final var cause = e.getCause();
+            if (cause instanceof IllegalStateException
+                && cause.getMessage() != null
+                && cause.getMessage().contains("allocated start index")
+                && cause.getMessage().contains("does not match")) {
+              gapFillSentinelObservations++;
+            } else {
+              unexpected.add(cause);
+            }
+          } catch (final java.util.concurrent.TimeoutException
+              | InterruptedException te) {
+            unexpected.add(te);
+            if (te instanceof InterruptedException) {
+              Thread.currentThread().interrupt();
+            }
+          }
+        }
+        try {
+          if (!unexpected.isEmpty()) {
+            fail(
+                "gap-fill I4 sentinel scenario surfaced unexpected exception type: "
+                    + unexpected.get(0));
+          }
+          assertTrue(
+              "at least one worker must succeed (the allocateSpace winner)",
+              successes >= 1);
+          assertEquals(
+              "every worker accounted for (successes + gap-fill I4 throws == threads)",
+              threads,
+              successes + gapFillSentinelObservations);
+          if (gapFillSentinelObservations >= 1) {
+            sentinelObserved = true;
+          }
+        } finally {
+          for (final var winner : winnerPointers) {
+            winner.decrementReadersReferrer();
+          }
+        }
+      } finally {
+        pool.shutdownNow();
+        assertTrue(
+            "executor must terminate cleanly",
+            pool.awaitTermination(5, TimeUnit.SECONDS));
+        // Per-attempt file cleanup so successive rotations do not retain pinned
+        // pages from prior attempts.
+        wowCache.deleteFile(fileId);
+      }
+    }
+    assertTrue(
+        "at least one worker must observe the gap-fill I4 sentinel "
+            + "(\"allocated start index does not match\") inside "
+            + I4_GAPFILL_MAX_ATTEMPTS
+            + " attempts; gap-fill branch fast-fail must stay falsifiable",
+        sentinelObserved);
+  }
+
+  /**
+   * Companion to {@link #concurrentLoadOnSameKeyAllObserveSamePointer} that drives the
+   * actual production write surface — {@link LockFreeReadCache#loadOrAddForWrite} —
+   * with same-key contention. The existing sibling test routes through
+   * {@link LockFreeReadCache#loadForRead} to avoid the same-key cross-worker deadlock
+   * on the entry's exclusive lock, but the wrapper's segment-lock serialisation
+   * contract that the test claims to defend is what {@code loadOrAddForWrite} relies
+   * on for invariant I2 ("all cache page-extension occurs inside {@code data.compute}").
+   * Pinning the contract on the read surface alone would silently miss a regression
+   * that broke the write-side segment-lock path.
+   *
+   * <p>Race shape: two workers (N=2, the minimum that avoids the same-key
+   * cross-worker deadlock on the entry's exclusive lock) both call
+   * {@code readCache.loadOrAddForWrite(fileId, 0L, …)} on a fresh file. The
+   * wrapper's {@code data.compute} lambda serialises them: exactly one worker enters
+   * the lambda first, takes the extend branch on {@link WOWCache#loadOrAdd}, and
+   * installs the cache entry; the second worker hits the cache-hit fast path
+   * (entry already in the map) and acquires the same entry. Each worker immediately
+   * releases the entry (via {@code releaseFromWrite}) so neither holds the entry's
+   * exclusive lock long enough to block the other indefinitely.
+   *
+   * <p>Pins:
+   *
+   * <ul>
+   *   <li>Both workers succeed; no exception of any kind on either thread.
+   *   <li>Both returned {@link CacheEntry} instances share the same
+   *       {@link CachePointer} instance (verified via {@code IdentityHashMap} with
+   *       {@code size == 1}).
+   *   <li>Exactly one extend happened: {@code wowCache.getFilledUpTo(fileId) == 1L}.
+   * </ul>
+   *
+   * <p>A regression that broke the wrapper's segment-lock contract on the write
+   * surface — e.g., a refactor that bypassed {@code data.compute} for
+   * {@code loadOrAddForWrite} — would surface here as either two distinct
+   * {@link CachePointer}s (each worker extended independently) or
+   * {@code getFilledUpTo == 2L} (two extends).
+   */
+  @Test(timeout = PER_TEST_TIMEOUT_MS)
+  public void concurrentLoadOrAddForWriteOnSameKeyObservesSegmentLockSerialisation()
+      throws Exception {
+    final int threads = 2;
+    final var fileId = wowCache.addFile(FILE_NAME);
+    final var pool = Executors.newFixedThreadPool(threads);
+    try {
+      final var startBarrier = new CyclicBarrier(threads);
+      final List<Callable<CacheEntry>> workers = new ArrayList<>(threads);
+      for (int i = 0; i < threads; i++) {
+        workers.add(
+            () -> {
+              startBarrier.await(BARRIER_WAIT_SECONDS, TimeUnit.SECONDS);
+              final var entry =
+                  readCache.loadOrAddForWrite(fileId, 0L, wowCache, false, null);
+              // Immediate release: with N=2 and prompt release neither worker
+              // holds the entry's exclusive lock long enough to deadlock the
+              // other. The race window pinned is the wrapper's segment-lock
+              // serialisation inside data.compute, not the entry-level lock.
+              readCache.releaseFromWrite(entry, wowCache, /* changed = */ false);
+              return entry;
+            });
+      }
+      final var futures = pool.invokeAll(workers);
+      final List<CacheEntry> entries = new ArrayList<>(threads);
+      for (final var future : futures) {
+        final var entry = future.get(BARRIER_WAIT_SECONDS, TimeUnit.SECONDS);
+        assertNotNull(
+            "loadOrAddForWrite on a same-key race must return a non-null entry", entry);
+        entries.add(entry);
+      }
+      // Identity-based set: both workers must share the same CachePointer instance —
+      // exactly one extend, exactly one pointer published, both workers observed it.
+      final Set<CachePointer> distinct =
+          Collections.newSetFromMap(new IdentityHashMap<>());
+      for (final var entry : entries) {
+        distinct.add(entry.getCachePointer());
+      }
+      assertEquals(
+          "two writers on the same key must observe one CachePointer instance",
+          1,
+          distinct.size());
+      assertEquals(
+          "exactly one extend must have happened — AsyncFile.size == 1 page",
+          1L,
+          wowCache.getFilledUpTo(fileId));
+    } finally {
+      pool.shutdownNow();
+      assertTrue(
+          "executor must terminate cleanly",
+          pool.awaitTermination(5, TimeUnit.SECONDS));
+    }
   }
 
   /**
