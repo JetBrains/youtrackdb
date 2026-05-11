@@ -285,6 +285,14 @@ flowchart LR
   > and the Phase C performance reviewer's PF1.
   >
   > **Step file:** `tracks/track-1.md` (6 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — Track 1's ~10 deferred test-hardening
+  > items (verifyChecksums parity, framePool leak accounting, target-publish
+  > stress, truncate-vs-loadOrAdd race, fail-fast IllegalStateException
+  > regression, read-path markAllocated boundary parity, in-memory
+  > loadIfPresent UOE-throw, loadIfPresent MT/eviction, etc.) map cleanly
+  > into Track 2's existing MT-stress + functional-branch scope; no
+  > backlog amendment required. Tracks 3-6 unaffected.
 
 - [ ] Track 2: Cache test coverage (functional + MT)
   > Add functional unit tests covering every branch of
