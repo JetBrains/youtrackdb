@@ -497,7 +497,7 @@ subset; the live subset stays covered by 22a's tests.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (10/14 complete — mid-phase checkpoint after Step 9 cross-track discovery; user decides Pause-and-ADJUST direction at next session)
+- [ ] Step implementation (10/14 complete — ADJUST direction resolved: Step 13 scope expanded in commit `56472adbe7` to absorb coverage-gate regression tests; resuming at Step 10)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -1244,7 +1244,9 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   > should run the gate after their commits to catch any similar
   > exposure early.
   >
-  > **Implementer commit:** `41c8203f9e` Delete SQL root scaffold cluster
+  > **Implementer commit:** `41c8203f9e`
+
+- [ ] Step 10: Delete SQL root scaffold cluster (CommandExecutorSQLFactory family)
   > **Risk:** medium — multi-class partial+full mix; partial-trim
   > preserves load-bearing static constants/maps consumed by live
   > production code. Full delete: `CommandExecutorSQLFactory`,
