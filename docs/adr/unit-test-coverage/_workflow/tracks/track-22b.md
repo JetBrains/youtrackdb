@@ -497,7 +497,7 @@ subset; the live subset stays covered by 22a's tests.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (10/14 complete — ADJUST direction resolved: Step 13 scope expanded in commit `56472adbe7` to absorb coverage-gate regression tests; resuming at Step 10)
+- [ ] Step implementation (11/14 complete — Step 10 widened to full SPI collapse + risk pre-upgraded medium→high after user A1 selection at design-decision escalation; iteration-2 dimensional review PASS)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -1246,7 +1246,8 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   >
   > **Implementer commit:** `41c8203f9e`
 
-- [ ] Step 10: Delete SQL root scaffold cluster (full SPI collapse)
+- [x] Step 10: Delete SQL root scaffold cluster (full SPI collapse)
+  - [x] Context: info
   > **Risk:** high — override: pre-upgraded medium→high after the
   > user selected alternative A1 (full SPI collapse) at the
   > design-decision escalation that ran before the
@@ -1320,6 +1321,165 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   > because the new risk is `high`. The four baseline review agents
   > plus conditional agents (per `review-agent-selection.md`) will
   > evaluate the cumulative step diff before the episode is recorded.
+  >
+  > **What was done:** Executed the full SPI-collapse cluster
+  > deletion (alternative A1, selected by the user at the design-
+  > decision escalation). Deleted `CommandExecutorSQLFactory` (the
+  > SPI interface) + its hardcoded-empty
+  > `DefaultCommandExecutorSQLFactory` implementation + the four
+  > `ReturnHandler` classes (`OriginalRecordsReturnHandler`,
+  > `UpdatedRecordsReturnHandler`, `RecordCountHandler`, abstract
+  > base `RecordsReturnHandler`) + the
+  > `META-INF/services/...CommandExecutorSQLFactory` resource.
+  > Trimmed the `SQLEngine` dispatch chain: dropped
+  > `EXECUTOR_FACTORIES`, `getCommandFactories`, `getCommand`,
+  > `getCommandNames`, plus the `REPLACE_PATTERN` constant + import
+  > that only supported `getCommand`. Trimmed
+  > `DynamicSQLElementFactory`: removed the `implements
+  > CommandExecutorSQLFactory` clause, the `COMMANDS` map, and the
+  > `createCommand(String)` / `getCommandNames` overrides; kept the
+  > `FUNCTIONS` map, `OPERATORS` set, and the live SPI implementations
+  > of `SQLFunctionFactory` / `QueryOperatorFactory`. Trimmed
+  > `CommandExecutorSQLAbstract`: dropped the now-orphan
+  > `isIdempotent` and `throwSyntaxErrorException` overrides; kept
+  > the ten static prefix constants since `SQLTarget` reads them.
+  > Reworked `SQLEngineSpiCacheTest` (~200 LOC net): removed three
+  > command-factory pin methods, the `TestDynamicCommand` nested
+  > fixture, the `getCommand` dispatch test, and the
+  > `@Before`/`@After` `COMMANDS` snapshot machinery; the surviving
+  > 32 tests still exercise function/method/operator/collate
+  > factory dispatch, caching, register/unregister, scanForPlugins,
+  > and `SORTED_OPERATORS` rebuild semantics. Deleted
+  > `SqlRootDeadCodeTest` entirely (every pin targeted a deleted
+  > class). Commit `325974bf24`.
+  >
+  > Ran one iteration of the step-level dimensional review (5
+  > agents: 4 baseline + `review-test-structure`). Reviews surfaced
+  > 3 convergent should-fix findings, which landed as a single
+  > `Review fix:` commit `db585e756a`:
+  > (a) **CQ1 / BC1 / TC2** — `ReturnHandler` interface deleted.
+  > PSI re-confirmed 0 inheritors / 0 references after the cluster
+  > collapse; the interface was transitively dead.
+  > (b) **CQ2** — stale `(e.g. RecordsReturnHandler)` Javadoc
+  > parenthetical removed from
+  > `SQLHelperMiscTest.getValueThreeArgFilterItemWithNonEntityThrows`.
+  > (c) **TC1** — new
+  > `commandExecutorSqlAbstractPrefixConstantsArePinned` test added
+  > to `SQLEngineSpiCacheTest` pinning all ten constants
+  > (`KEYWORD_TIMEOUT` + nine `*_PREFIX` / `METADATA_*` literals) —
+  > replacing the literal-value pin that `SqlRootDeadCodeTest`
+  > provided before deletion.
+  > Iteration-2 gate check PASSED on all three reviewed dimensions
+  > (CQ, BC, TC). Two iteration-1 findings deferred by orchestrator:
+  > **CQ3** (extracting `CommandExecutorSQLAbstract` constants to a
+  > final class — out-of-step scope; flagged for follow-up cluster)
+  > and **TC3** (container-identity cache-hit pin asymmetry across
+  > the four factory caches — pre-existing gap, not introduced by
+  > Step 10).
+  >
+  > Tests: `./mvnw -pl core test` 18 050/18 050 pass (98 skipped, 0
+  > failures, 0 errors). Targeted re-run of `SQLEngineSpiCacheTest`
+  > + `SQLHelperMiscTest` after the Review-fix commit: 60/60 pass.
+  > Coverage: Step 10's own changed production lines are 100%/100%
+  > covered. Cumulative-vs-`origin/develop` line coverage improved
+  > slightly from Step 9's 68.5% to 69.1% (deletion reduces the
+  > under-covered denominator); branch coverage unchanged at 23.4%.
+  > Spotless applied.
+  >
+  > **What was discovered:** (1) The cluster as written in the step
+  > file's original `medium`-risk envelope could not be implemented
+  > coherently: PSI revealed that three of the "delete" targets
+  > (`CommandExecutorSQLFactory`, `DefaultCommandExecutorSQLFactory`,
+  > `DynamicSQLElementFactory` SPI surface) are pinned by the LIVE
+  > 900-LOC `SQLEngineSpiCacheTest`, not just by the dead
+  > `SqlRootDeadCodeTest`, AND that the `SQLEngine` SPI dispatch
+  > chain (`EXECUTOR_FACTORIES`, `getCommandFactories`,
+  > `getCommand`, `getCommandNames`) is itself test-only-live and
+  > must be deleted in lockstep with the factories. The design-
+  > decision escalation surfaced three alternatives (A1 full SPI
+  > collapse, A2 incoherent, A3 narrowed ReturnHandler-only); the
+  > user selected A1; the orchestrator pre-upgraded the step's risk
+  > medium→high in commit `6a50fe7bb5` before respawning the
+  > implementer with `mode=WITH_GUIDANCE` and the prior PSI
+  > `exploration_notes`.
+  > (2) `DynamicSQLElementFactory`'s "instance methods" classified
+  > as dead in the Step 0 disposition table (`getOperators`,
+  > `registerDefaultFunctions`, `getFunctionNames`, `hasFunction`,
+  > `createFunction`) are actually live SPI implementations
+  > consumed by `SQLEngine` via polymorphic dispatch through
+  > `SQLFunctionFactory` / `QueryOperatorFactory`; only
+  > `getCommandNames` + `createCommand(String)` were dead. The
+  > Step 0 table needs a correction in Step 13's cluster-
+  > disposition pass.
+  > (3) The `KEYWORD_TIMEOUT` constant on
+  > `CommandExecutorSQLAbstract` is part of the documented SQL
+  > grammar surface (referenced from `CommandRequest.java` Javadoc)
+  > but has zero code references anywhere; the new pin test
+  > replaces the literal-value enforcement that `SqlRootDeadCodeTest`
+  > provided.
+  > (4) `SqlExecutorDeadCodeTest` — flagged in the Step 0
+  > disposition table as a likely pin-maintenance candidate pending
+  > Step 10's pass — was not touched by this step's cluster.
+  > Re-classification of that pin should fold into Step 12
+  > (license-header normalization) or be carried into Track 22c.
+  > (5) Pre-existing dead surfaces noted by the test-completeness
+  > reviewer during the iteration-2 sweep: `IterableRecordSource`
+  > and `TemporaryRidGenerator` at `core/sql/` root have zero
+  > references in `allScope` but predate `develop`; out of scope
+  > for Step 10, candidates for Step 13 or a follow-up cluster.
+  >
+  > **What changed from the plan:** Step 10 was widened mid-track
+  > from the original medium-risk multi-class partial+full mix into
+  > a high-risk full-SPI-collapse cluster after PSI iter-1 surfaced
+  > the test-pinning constraint (see "What was discovered" above).
+  > The user authorized the widening at the design-decision
+  > escalation prompt; the orchestrator pre-upgraded the step's
+  > Risk line to `high` in commit `6a50fe7bb5` before respawning
+  > with `mode=WITH_GUIDANCE` (preserving the prior implementer's
+  > PSI exploration_notes that the standard RISK_UPGRADE-via-INITIAL
+  > path would have discarded). The new scope is enumerated
+  > authoritatively in the step's Risk block. No impact on remaining
+  > Steps 11–13.
+  >
+  > **Key files:**
+  > - Production deletions (7 .java + 1 SPI resource):
+  >   `core/.../sql/CommandExecutorSQLFactory.java`,
+  >   `.../DefaultCommandExecutorSQLFactory.java`,
+  >   `.../OriginalRecordsReturnHandler.java`,
+  >   `.../UpdatedRecordsReturnHandler.java`,
+  >   `.../RecordCountHandler.java`,
+  >   `.../RecordsReturnHandler.java`,
+  >   `.../ReturnHandler.java` (deleted in the Review-fix commit),
+  >   `core/src/main/resources/META-INF/services/com.jetbrains.youtrackdb.internal.core.sql.CommandExecutorSQLFactory`.
+  > - Production modifications (3 files):
+  >   `core/.../sql/SQLEngine.java` (dispatch chain trim),
+  >   `.../DynamicSQLElementFactory.java` (SPI surface trim),
+  >   `.../CommandExecutorSQLAbstract.java` (override trim).
+  > - Test deletions:
+  >   `core/src/test/.../sql/SqlRootDeadCodeTest.java`.
+  > - Test modifications:
+  >   `core/src/test/.../sql/SQLEngineSpiCacheTest.java` (200-LOC
+  >   rework in the cluster commit + new
+  >   `commandExecutorSqlAbstractPrefixConstantsArePinned` test in
+  >   the Review-fix commit),
+  >   `core/src/test/.../sql/SQLHelperMiscTest.java` (Javadoc only,
+  >   Review-fix commit).
+  >
+  > **Critical context:** The pre-emptive risk upgrade was an
+  > orchestrator-initiated deviation from the standard
+  > RISK_UPGRADE_REQUESTED → `mode=INITIAL` flow. It is justified
+  > here because the user's A1 selection at the escalation prompt
+  > explicitly acknowledged the risk shift (the option description
+  > stated "would auto-upgrade medium → high" verbatim). Preserving
+  > the prior implementer's PSI exploration_notes via
+  > `mode=WITH_GUIDANCE` avoided a wasted PSI re-survey of the full
+  > SPI graph. See commit `6a50fe7bb5` for the full rationale.
+  >
+  > **Implementer commits:**
+  > - `325974bf24` Track 22b Step 10: delete SQL root scaffold cluster
+  >   (full SPI collapse)
+  > - `db585e756a` Review fix: delete ReturnHandler interface +
+  >   constants-pin test + stale Javadoc fix
 
 - [ ] Step 11: Delete `BasicCommandContext.copy()` partial-class-trim with `CommandContext.copy()` interface declaration
   > **Risk:** medium — interface-implementation atomicity required
