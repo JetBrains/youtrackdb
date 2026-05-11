@@ -497,7 +497,7 @@ subset; the live subset stays covered by 22a's tests.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (13/15 complete — Step 13 escalated to inline-replan: 5 test-additive commits PASS the line gate at 94.2% but the branch gate stalls at 54.8% due to structurally-dead FetchHelper instanceof arms. User selected alternative B at the escalation prompt; new Step 14 (FetchHelper dead-arm cleanup + absorbed housekeeping) inserted, Step 13 marked [!])
+- [ ] Step implementation (13/16 complete — Step 13 escalated to inline-replan: 5 test-additive commits PASS the line gate at 94.2% but the branch gate stalls at 54.8% due to structurally-dead FetchHelper instanceof arms. User selected alternative B at the escalation prompt; new Step 14 (FetchHelper dead-arm cleanup + absorbed housekeeping) inserted, Step 13 marked [!]. Step 14 first attempt [!] — pacing failure (full coverage build auto-backgrounded; no commit landed). Step 14 retry [ ] inserted with staged coverage build per implementer feedback)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -1770,7 +1770,7 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   > `da683b27d6`, `6dbae29d66`, `ad47272483`, `aed18e18f4`,
   > `d9231f56f9`, `08799fb449`.
 
-- [ ] Step 14: FetchHelper dead-arm cleanup + housekeeping (inline-replan after Step 13 escalate)
+- [!] Step 14: FetchHelper dead-arm cleanup + housekeeping (inline-replan after Step 13 escalate)
   > **Risk:** medium — production code change touching a long,
   > complex multi-instanceof chain in `FetchHelper.java` that is
   > on the live fetch-plan parser path. PSI safe-delete required
@@ -1886,3 +1886,177 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   > `TemporaryRidGenerator` at `core/sql/` root have zero
   > references in `allScope` and predate `develop`; out of scope
   > for Step 14, candidates for the 22c deferred-cluster list.
+  >
+  > **What was attempted:** Conservative 3-hunk dead-arm trim of
+  > `FetchHelper.java` (net +5 LOC = 17 insertions / 12 deletions,
+  > the explanatory comments are denser than the deleted code),
+  > backed by a thorough mcp-steroid PSI audit across three subjects:
+  > (1) caller graph for `FetchHelper.{processRecordRidMap, process,
+  > processFieldTypes, isEmbedded}`; (2) all references to
+  > `MultiCollectionIterator` (53 refs — every one inside SQL function
+  > expansion code, never an `EntityImpl` property value); (3) the
+  > full `EntityImpl.setProperty`/`setPropertyInternal`/
+  > `setDeserializedPropertyInternal` chain, including
+  > `PropertyTypeInternal.getTypeByValue` (line 1471 maps raw arrays
+  > → `EMBEDDEDLIST`; lines 1498-1501 map `MultiCollectionIterator`
+  > → `EMBEDDEDLIST`/`EMBEDDEDMAP`) and the corresponding
+  > `EMBEDDEDLIST.convert`/`EMBEDDEDMAP.convert` wrap-into-typed-
+  > container calls. Trim sites: `processRecordRidMap` L142-145 (raw
+  > array + `MultiCollectionIterator` probes), `processFieldTypes`
+  > L488-490 (raw array probe), `process` L552-554 (raw array probe).
+  > Unused imports `java.lang.reflect.Array` and
+  > `com.jetbrains.youtrackdb.internal.common.collection.MultiCollectionIterator`
+  > dropped. Spotless ran clean. Targeted-fetch test suite (64 tests
+  > across `FetchHelperBranchCoverageTest`, `FetchHelperDeadCodeTest`,
+  > `DepthFetchPlanTest`, `FetchPlanParserTest`) — **all 64 passed
+  > against the trim**.
+  >
+  > **Why it failed:** Pacing violation. The implementer ran
+  > `./mvnw -pl core clean package -P coverage -DskipITs
+  > -Dyoutrackdb.test.env=ci` in a single foreground invocation; the
+  > harness auto-backgrounded it when the 10-minute Bash tool
+  > `timeout` budget was hit. The implementer then armed a `Monitor`
+  > on the Maven PID and exited without waiting and without emitting
+  > the mandatory `RESULT` block — a contract violation per
+  > `implementer-rules.md` § "Pacing long-running tasks — foreground
+  > only" and § "Mandatory RESULT block on every exit". On
+  > orchestrator-side recovery the implementer was prompted to emit
+  > the late `RESULT: FAILED` block (which carried the PSI audit
+  > details and the suggested resume drill); the dirty tree was then
+  > discarded by the orchestrator per the standard `handle_failure`
+  > recovery (the implementer's own snapshot-and-revert sequence had
+  > also been skipped — a second contract violation). Net residual
+  > work: the trim itself is mechanically sound and well-evidenced,
+  > but the `ScriptManagerTest` / `Jsr223ScriptExecutorTest`
+  > extensions from Step 13 were never re-run against the trim, the
+  > coverage gate was never re-evaluated, and no commit landed.
+  >
+  > **Impact on remaining steps:** No structural impact. The retry
+  > redoes the same 3-hunk trim (~5 min of mechanical re-application
+  > from the PSI evidence captured above) and completes sub-steps 2
+  > and 3 (tests + coverage gate + commit). The retry's pacing fix
+  > is to split the coverage-profile build into staged invocations
+  > (`./mvnw -pl core test -P coverage -DskipITs` then
+  > `./mvnw -pl core jacoco:report -P coverage`) so each foreground
+  > Bash invocation fits inside the 10-minute budget. Step 14's
+  > housekeeping commit (sub-task 5: `coverage-baseline.md` and
+  > `cluster-disposition.md` refresh) is unaffected — it remains the
+  > orchestrator's post-spawn responsibility regardless of how the
+  > implementer's commit lands.
+  >
+  > **Key files:** PSI audit results, suggested commit message, and
+  > the requires-deeper-analysis classification of the 5 surviving
+  > uncovered branches (L138 `Iterable.next()==null`, L607/619-620
+  > `isEmbedded` `!isPersistent` legs) live in the implementer's late
+  > RESULT block — already part of git's transcript record for the
+  > spawn. The trim diff itself was applied to but not committed from
+  > `core/src/main/java/com/jetbrains/youtrackdb/internal/core/fetch/FetchHelper.java`;
+  > orchestrator discarded the working-tree change via
+  > `git checkout --` before writing this episode.
+  >
+  > **Critical context:** This is a **pacing** failure, not a
+  > correctness failure. The trim approach is validated by PSI and
+  > by 64/64 targeted-test pass. The retry implementer can re-apply
+  > the trim with high confidence; the only open empirical question
+  > is whether the conservative trim alone closes the branch gate to
+  > ≥70% (per the prior implementer's analysis the residual
+  > `requires-deeper-analysis` arms may keep it short, in which case
+  > the retry implementer should emit `RESULT: FAILED` with
+  > `recommended_action: escalate` rather than chase the remaining
+  > arms aggressively — Step 14's own scope-indicator paragraph
+  > already covers that fallback).
+
+- [ ] Step 14: FetchHelper dead-arm cleanup + housekeeping (retry: re-apply trim from PSI evidence in the [!] episode above; run coverage profile build in STAGED foreground invocations to honour the 10-minute Bash budget)
+  > **Risk:** medium — same risk profile as the original Step 14
+  > entry above (production code change on the live fetch-plan
+  > parser path). The retry's *technical* approach is unchanged
+  > (3-hunk conservative trim per the PSI audit in the [!] episode);
+  > the only difference is the *operational* pacing fix that this
+  > retry exists to apply.
+  >
+  > **Scope (delta from the original Step 14 description):**
+  >
+  > 1. **Re-apply the 3-hunk dead-arm trim.** The PSI evidence and
+  >    classification table are in the [!] episode immediately
+  >    above — do not re-derive them from scratch unless something
+  >    in `FetchHelper.java` has changed since the audit (PSI
+  >    re-confirmation on `MultiCollectionIterator` and on
+  >    `EntityImpl.setProperty` is cheap; spot-check before trimming).
+  >    The three hunks to delete are: `processRecordRidMap` L142-145
+  >    (raw array + `MultiCollectionIterator` probes),
+  >    `processFieldTypes` L488-490 (raw array probe), `process`
+  >    L552-554 (raw array probe). Drop the now-unused
+  >    `java.lang.reflect.Array` and
+  >    `com.jetbrains.youtrackdb.internal.common.collection.MultiCollectionIterator`
+  >    imports. Preserve the explanatory why-comments at each
+  >    deletion site (6–9 lines each citing the
+  >    `EntityImpl.setProperty` conversion + binary deserializer +
+  >    `containsIdentifiers` fallback as the safety net).
+  >
+  > 2. **Run targeted tests in ONE foreground invocation.** Single
+  >    command, no chained loops:
+  >    `./mvnw -pl core test
+  >    -Dtest='FetchHelperBranchCoverageTest,FetchHelperDeadCodeTest,DepthFetchPlanTest,FetchPlanParserTest,ScriptManagerTest,Jsr223ScriptExecutorTest'`.
+  >    Expected wall time ~1–2 min, well inside the 10-minute Bash
+  >    budget. All 6 classes MUST pass.
+  >
+  > 3. **Run the coverage profile build in STAGED foreground
+  >    invocations.** This is the pacing fix that the first attempt
+  >    missed. Run as two separate foreground commands (NOT a single
+  >    `clean package -P coverage`):
+  >
+  >    ```bash
+  >    ./mvnw -pl core test -P coverage -DskipITs
+  >    ./mvnw -pl core jacoco:report -P coverage
+  >    ```
+  >
+  >    The first command takes ~9 min (well inside the 10-minute
+  >    foreground Bash budget); the second is seconds. Do NOT use
+  >    `run_in_background: true`. Do NOT use `Monitor` or
+  >    `ScheduleWakeup`. If either invocation gets auto-backgrounded
+  >    by the harness anyway (unlikely given the staged split),
+  >    treat it as a contract violation and emit `RESULT: FAILED`
+  >    immediately with `recommended_action: escalate` — do NOT chain
+  >    a poll loop.
+  >
+  > 4. **Re-run the coverage gate.**
+  >    `python3 .github/scripts/coverage-gate.py --line-threshold 85
+  >    --branch-threshold 70 --compare-branch origin/develop
+  >    --coverage-dir .coverage/reports`. Acceptance criterion:
+  >    branch ≥ 70% on the cumulative diff. If line is already at
+  >    94.2% (Step 13 baseline) the trim shrinks the denominator
+  >    further so line stays well above 85%.
+  >
+  > 5. **Commit** the trim as a single bisectable commit using the
+  >    implementer's suggested message (in the [!] episode's
+  >    embedded commit-message draft) or a close paraphrase. PR
+  >    convention: 1 step = 1 commit; cite `Track 22b Step 14` in
+  >    the branch-only subject per `commit-conventions.md`.
+  >
+  > 6. **If the branch gate is still red after the trim**, do NOT
+  >    iterate further on dead-arm deletion — the residual uncovered
+  >    arms (L138 `Iterable.next()==null`, L607/619-620 `isEmbedded`
+  >    `!isPersistent` legs) are classified `requires-deeper-analysis`
+  >    in the [!] episode's audit and pinning them would push test
+  >    LOC well past the 200-LOC-per-surface re-escalation threshold
+  >    Step 14 already inherited. Emit `RESULT: FAILED` with
+  >    `recommended_action: escalate`, citing the persistent branch
+  >    gate failure and the [!] episode's audit for the residual
+  >    arms; the orchestrator will route to inline-replanning so the
+  >    user can choose between accepting a relaxed gate, deferring
+  >    the residual arms to Track 22c, or pinning them via new
+  >    tests.
+  >
+  > **End-of-track housekeeping** (sub-task 5 of the original Step
+  > 14 above) remains the **orchestrator's** post-spawn
+  > responsibility — do NOT touch
+  > `coverage-baseline.md` or `cluster-disposition.md` from inside
+  > the implementer; the orchestrator will fold those into the
+  > workflow-update commit alongside the episode write per the
+  > original Step 14's "two commits — one production, one workflow"
+  > shape.
+  >
+  > **Commit shape:** one commit owned by the implementer (the
+  > production dead-arm trim); the orchestrator owns the
+  > workflow-update commit that follows. Identical to the original
+  > Step 14's commit shape.
