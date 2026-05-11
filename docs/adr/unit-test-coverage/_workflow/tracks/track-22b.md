@@ -497,7 +497,7 @@ subset; the live subset stays covered by 22a's tests.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (13/18 complete — Step 13 escalated to inline-replan: 5 test-additive commits PASS the line gate at 94.2% but the branch gate stalls at 54.8% due to structurally-dead FetchHelper instanceof arms. User selected alternative B at the escalation prompt; new Step 14 (FetchHelper dead-arm cleanup + absorbed housekeeping) inserted, Step 13 marked [!]. Step 14 first attempt [!] — pacing failure (full coverage build auto-backgrounded; no commit landed). Step 14 retry [!] — second pacing failure (staged coverage invocation also auto-backgrounded; trim itself validated by PSI + 124/124 targeted-test pass but coverage gate not evaluated). Two-Failure Rule fired; user selected ESCALATE → inline-replan. Step 14 work re-decomposed into Step 15 (implementer-owned production trim + targeted-test confirmation; per-step coverage-gate exempted) and Step 16 (orchestrator-owned coverage gate + housekeeping with background-friendly pacing). Resumes on the next /execute-tracks session after the plan-review re-run.)
+- [ ] Step implementation (14/18 complete — Step 13 escalated to inline-replan: 5 test-additive commits PASS the line gate at 94.2% but the branch gate stalls at 54.8% due to structurally-dead FetchHelper instanceof arms. User selected alternative B at the escalation prompt; new Step 14 (FetchHelper dead-arm cleanup + absorbed housekeeping) inserted, Step 13 marked [!]. Step 14 first attempt [!] — pacing failure (full coverage build auto-backgrounded; no commit landed). Step 14 retry [!] — second pacing failure (staged coverage invocation also auto-backgrounded; trim itself validated by PSI + 124/124 targeted-test pass but coverage gate not evaluated). Two-Failure Rule fired; user selected ESCALATE → inline-replan. Step 14 work re-decomposed into Step 15 (implementer-owned production trim + targeted-test confirmation; per-step coverage-gate exempted) and Step 16 (orchestrator-owned coverage gate + housekeeping with background-friendly pacing). Step 15 landed commit `75dc2bc46f` (124/124 targeted-test pass; coverage gate deferred to Step 16 per inline-replan exemption). Step 16 next — orchestrator-owned coverage gate + cluster-disposition / coverage-baseline finalization.)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -2144,7 +2144,8 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   > can pass. That additional work was anticipated by both `[!]`
   > episodes as an escalate-on-gate-fail fallback.
 
-- [ ] Step 15: Production dead-arm trim — re-apply the 5-hunk FetchHelper trim from the PSI evidence captured in both Step 14 [!] episodes; targeted-test confirmation only; per-step coverage-gate eval explicitly EXEMPTED by this inline-replan
+- [x] Step 15: Production dead-arm trim — re-apply the 5-hunk FetchHelper trim from the PSI evidence captured in both Step 14 [!] episodes; targeted-test confirmation only; per-step coverage-gate eval explicitly EXEMPTED by this inline-replan
+  - [x] Context: safe
   > **Risk:** medium — same risk profile as the failed Step 14
   > attempts (production code change on the live fetch-plan parser
   > path; PSI safe-delete already done across two prior attempts).
@@ -2226,6 +2227,79 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   > (`coverage-baseline.md`, `cluster-disposition.md`, the step file
   > itself, the plan file, the backlog) — those remain orchestrator
   > territory.
+  >
+  > **What was done:** Re-applied the 5-hunk FetchHelper dead-arm
+  > trim per the PSI evidence captured in both Step 14 `[!]`
+  > episodes. Hunks: (1) drop `MultiCollectionIterator` import;
+  > (2) drop `java.lang.reflect.Array` import; (3) `processRecordRidMap`
+  > instanceof chain — drop the raw-array probe (3 lines) and the
+  > `MultiCollectionIterator` probe (1 line), replace with a 7-line
+  > why-comment documenting the `EntityImpl.setProperty →
+  > PropertyTypeInternal.getTypeByValue → EMBEDDEDLIST.convert /
+  > EMBEDDEDMAP.convert` routing chain;
+  > (4) `processFieldTypes` instanceof chain — drop the raw-array
+  > probe (3 lines), replace with a 5-line why-comment; (5) `process`
+  > instanceof chain — drop the raw-array probe (3 lines), replace
+  > with a 5-line why-comment. Net **+17/-12 LOC** (the explanatory
+  > comments are denser than the deleted code, as the original `[!]`
+  > episode predicted). Pre-trim PSI spot-check confirmed nothing had
+  > shifted since attempt 2: `MultiCollectionIterator` has 53
+  > project-wide refs (unchanged), `EntityImpl.setProperty` has 3
+  > overloads (unchanged). Spotless ran clean (all 1369 files cached
+  > as clean). Targeted-test confirmation across all 6 Step-13
+  > regression-test classes passed **124/124** in ~85 s wall-clock
+  > (bare surefire ~30 s plus Maven cold-start overhead). One commit
+  > landed (`75dc2bc46f`) with subject *"Drop dead FetchHelper
+  > raw-array / MultiCollectionIterator arms"*; body cites the
+  > routing-chain rationale and the targeted-test pass count. Per
+  > Step 15's inline-replan exemption, the per-step coverage-gate
+  > evaluation was explicitly skipped — no `-P coverage` invocation,
+  > no `coverage-gate.py` run; recorded in the implementer's
+  > `TEST_SUMMARY` as `n/a (inline-replan-exempted; see Step 16)`.
+  >
+  > **What was discovered:** PSI evidence is fully reproducible
+  > across both Step 14 `[!]` attempts and this Step 15 spawn — no
+  > drift in `MultiCollectionIterator` ref count (53), in
+  > `EntityImpl.setProperty` overload set (3), or in the routing
+  > chain. The `steroid_apply_patch` atomic-patch tool handled the
+  > 5-hunk multi-site edit cleanly in one call, materially faster
+  > than the chained native `Edit` calls plus per-call VFS / PSI
+  > refreshes the original 2-hunk attempts would have paid for.
+  > Cross-track hint forwarded to Track 22c: the why-comments at
+  > the deletion sites document the
+  > `EntityImpl.setProperty → PropertyTypeInternal.getTypeByValue →
+  > EMBEDDED*.convert` routing argument; any future track that
+  > touches `PropertyTypeInternal.getTypeByValue` or the
+  > `EMBEDDED*.convert` wrap-into-typed-container methods should
+  > re-validate those comments — the dead-arm reasoning is correct
+  > today but is structural, not enforced by a test. The residual
+  > `requires-deeper-analysis` arms (L138 `Iterable.next()==null`,
+  > the `isEmbedded` `!isPersistent` legs around L607/619-620) remain
+  > Track 22c candidates per the first `[!]` episode + Step 16's
+  > decision tree; their pinning strategy (synthetic property tests
+  > vs new dead-arm trim) is unchanged.
+  >
+  > **What changed from the plan:** No structural change. The trim
+  > landed exactly as the Step 15 scope section described (5 hunks,
+  > single-file edit, single commit, no workflow files touched). The
+  > coverage-gate evaluation moves to Step 16 per the inline-replan,
+  > with its outcome decision tree already covering "Gate FAILS on
+  > branch only" as an accepted documented limitation (predicted
+  > post-trim branch coverage 58–62 % per the first `[!]` episode's
+  > pre-trim analysis).
+  >
+  > **Key files:**
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/fetch/FetchHelper.java` (modified, +17/-12 LOC)
+  >
+  > **Critical context:** The trim does not by itself guarantee the
+  > branch gate closes — the first `[!]` episode's pre-trim analysis
+  > predicted 58–62 % branch coverage post-trim (still below 70 %)
+  > because the residual `requires-deeper-analysis` arms were
+  > classified as out-of-scope for this step. Step 16's outcome
+  > decision tree explicitly handles the predicted "Gate FAILS on
+  > branch only" path as an accepted documented limitation via
+  > `coverage-baseline.md` + `cluster-disposition.md` Track 22c
+  > handoff, not as a Step 16 failure.
 
 - [ ] Step 16: Coverage gate verification + Track 22b end-of-track housekeeping (orchestrator-owned, NO implementer spawn)
   > **Risk:** low — no production code change. Workflow-only step
