@@ -27,9 +27,11 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrackdb.internal.core.command.ScriptExecutor;
 import com.jetbrains.youtrackdb.internal.core.command.script.formatter.JSScriptFormatter;
 import com.jetbrains.youtrackdb.internal.core.command.script.formatter.SQLScriptFormatter;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -871,6 +873,70 @@ public class ScriptManagerTest extends DbTestBase {
   public void getCommandManagerReturnsNonNull() {
     // Sanity pin — constructor must wire a non-null CommandManager.
     assertNotNull(scriptManager.getCommandManager());
+  }
+
+  // ==========================================================================
+  // Executor-factory wiring: pin the Jsr223 fallback arm of the javascript /
+  // ecmascript executor lambdas registered in the ScriptManager constructor
+  // (ScriptManager.java:81 / :83 and :86 / :88). The constructor's "useGraal"
+  // boolean is captured at construction time, so the only way to drive the
+  // false-branch of the lambda is to flip SCRIPT_POLYGLOT_USE_GRAAL to false,
+  // construct a fresh ScriptManager, then invoke the registered lambda via
+  // reflection on the protected executorsFactories field.
+  // ==========================================================================
+
+  /**
+   * Pin the {@code "javascript"} executor-factory lambda's fallback arm
+   * (ScriptManager:81-83): with {@code SCRIPT_POLYGLOT_USE_GRAAL=false} the lambda body
+   * routes the {@code lang} parameter through {@link Jsr223ScriptExecutor}, not the
+   * GraalVM-backed {@link PolyglotScriptExecutor}. Falsifiable: a regression that swapped
+   * the branches (or that captured the wrong boolean) would yield a
+   * {@code PolyglotScriptExecutor} instance and fail the {@code instanceof} assertion.
+   */
+  @Test
+  public void javascriptExecutorFactoryReturnsJsr223WhenGraalDisabled() {
+    invokeExecutorFactoryWithGraalDisabled("javascript");
+  }
+
+  /**
+   * Pin the {@code "ecmascript"} executor-factory lambda's fallback arm
+   * (ScriptManager:86-88). Same coverage as the {@code "javascript"} pin above — the
+   * constructor registers the same conditional shape for the {@code "ecmascript"} key, and
+   * a regression that diverged the two lambdas would slip past the javascript-only pin.
+   */
+  @Test
+  public void ecmascriptExecutorFactoryReturnsJsr223WhenGraalDisabled() {
+    invokeExecutorFactoryWithGraalDisabled("ecmascript");
+  }
+
+  /**
+   * Driver: temporarily flip {@code SCRIPT_POLYGLOT_USE_GRAAL} to {@code false}, build a
+   * fresh {@link ScriptManager} (its constructor captures the boolean into the lambda),
+   * reflectively read the registered factory for {@code lang}, and assert the lambda
+   * produces a {@link Jsr223ScriptExecutor}. The original config value is restored in the
+   * finally block so sibling script tests in this {@link SequentialTest} class see the
+   * production-default {@code true}.
+   */
+  private void invokeExecutorFactoryWithGraalDisabled(String lang) {
+    final var graal = GlobalConfiguration.SCRIPT_POLYGLOT_USE_GRAAL;
+    final var previous = graal.getValueAsBoolean();
+    graal.setValue(false);
+    try {
+      final var localManager = new ScriptManager();
+
+      // Reach into the protected executorsFactories map (same package — direct access).
+      final var factory = localManager.executorsFactories.get(lang);
+      assertNotNull("constructor must register an executor factory for " + lang, factory);
+
+      final ScriptExecutor executor = factory.apply(lang);
+      assertNotNull(executor);
+      assertTrue(
+          "useGraal=false branch must yield Jsr223ScriptExecutor for " + lang
+              + ", got " + executor.getClass().getName(),
+          executor instanceof Jsr223ScriptExecutor);
+    } finally {
+      graal.setValue(previous);
+    }
   }
 
   @Test
