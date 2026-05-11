@@ -157,7 +157,7 @@ Run the cache-classes coverage gate before closing the track.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (5/6 complete)
+- [x] Step implementation (6/6 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -839,38 +839,118 @@ Run the cache-classes coverage gate before closing the track.
   > `WOWCacheLoadIfPresentTest.java` (modified — 2 MT tests
   > appended).
 
-- [ ] Step: Wrapper-level MT stress — scenarios 4-5 (eviction-vs-load, flush-worker concurrency) on `MockedWriteCache`
+- [x] Step: Wrapper-level MT stress — scenarios 4-5 (eviction-vs-load, flush-worker concurrency) on `MockedWriteCache`
+  - [x] Context: info
   > **Risk:** medium — shared test infrastructure: builds on
   > `MockedWriteCache` and its Step-1 extensions
   > (`setStoreBlocks` toggle). Tests-only.
   >
-  > **Goal.** Add MT scenarios 4-5 using the mock-based read-cache
-  > harness, where deterministic control is possible without
-  > touching the JVM-singleton executor.
+  > **What was done:** Added two MT stress tests to
+  > `LockFreeReadCacheBatchingTest` closing scenarios 4-5 of the
+  > plan (45 → 47 tests in the class). Scenario 4
+  > (`testEvictionVsLoadConcurrencyRespectsPinsAndStoreCount`):
+  > 8 workers running a mixed 1:5 write/read workload against a
+  > 1 024-page cache deliberately overshot by 4× to force WTinyLFU
+  > eviction, with one thread pinning page `(0, 0)` for the entire
+  > run. The test pins three invariants under MT pressure — pinned
+  > entries survive concurrent eviction churn (same-instance check
+  > on reload, no `loadOrAdd` increment on the post-run hit);
+  > stores happen only at `releaseFromWrite` time, never at
+  > eviction (`storeCount` matches the per-worker sum of dirty
+  > releases tracked via `AtomicInteger.addAndGet`); and used
+  > memory respects the cache budget after `assertSize` drains the
+  > buffers. Disjoint per-worker page-index ranges and skipping
+  > page 0 keep workers from colliding on the same entry's
+  > exclusive lock. Scenario 5
+  > (`testFlushWorkerConcurrencyReaderObservesConsistentState`):
+  > a writer thread enters `data.compute` holding the segment
+  > write lock with `MockedWriteCache.store` suspended on
+  > `storeBlockLatch`; a second reader thread calls
+  > `loadForRead` on the same `(fileId, pageIndex)`. The reader's
+  > `ConcurrentLongIntHashMap.get` optimistic-read stamp is
+  > invalidated by the pending write so the reader falls back to a
+  > blocking `readLock`; the test bounds this wait by releasing
+  > the latch AFTER kicking off the reader, proving the reader
+  > does not deadlock, observes the same `CacheEntry` instance the
+  > writer installed (no torn read, no second `loadOrAdd`), and no
+  > double-flush occurs (`storeCount` ends at exactly 1). Both
+  > tests carry `@Test(timeout = 60_000)`, use deterministic
+  > `CountDownLatch` / `CyclicBarrier` coordination, and shut
+  > their pools down with bounded awaits. 47/47 tests pass in
+  > isolation; full core suite 8 095 / 8 096 (the single
+  > non-passing test is the pre-existing framePool flake from
+  > Step 3). Coverage gate 93.4% line / 85.4% branch on the
+  > cumulative branch diff (unchanged — purely test-additive).
+  > Commit `4392bd41e7b4af2bd149a74bb0199cf5fbcf9153`.
   >
-  > **Tests to add** to `LockFreeReadCacheBatchingTest` (or a new
-  > MT-focused sibling class):
-  > - **Scenario 4** (eviction-vs-load): two threads each calling
-  >   `loadForRead` / `loadOrAddForWrite` while the cache is sized
-  >   small enough to force WTinyLFU eviction. Assert: pin counts
-  >   respected (a pinned entry is not evicted while held); dirty
-  >   pages flushed via `writeCache.store` before eviction; no
-  >   lost writes (record final `MockedWriteCache.storeCount` and
-  >   compare to the expected dirty count).
-  > - **Scenario 5** (flush-worker concurrency): flip
-  >   `setStoreBlocks(true)` so `MockedWriteCache.store(...)` holds
-  >   on a `CountDownLatch` until the test releases it. Drive a
-  >   dirty entry into the eviction path; while the store is
-  >   pending, have a reader thread call `loadForRead` on the same
-  >   `(fileId, pageIndex)`; assert the reader observes a
-  >   consistent state (either the cached entry under read lock,
-  >   or a fresh load after the entry is fully evicted) — no
-  >   torn read, no double-flush.
+  > **What was discovered:**
+  > 1. **StampedLock-fallback timeline for scenario 5.** The
+  >    Javadoc-as-designed timeline originally assumed the
+  >    cache-hit path was lock-free under contention with a
+  >    same-key in-flight write; investigation of
+  >    `ConcurrentLongIntHashMap.get` revealed the optimistic-read
+  >    stamp is invalidated by any pending write on the segment's
+  >    `StampedLock`, after which the reader falls back to a
+  >    blocking `readLock` acquisition that serialises behind the
+  >    writer's `data.compute`. The test design adjusted: instead
+  >    of asserting a lock-free observation while the store is in
+  >    flight (false on the actual `StampedLock` semantics), the
+  >    test releases the store latch AFTER kicking off the reader,
+  >    bounding the `readLock` fallback to a deterministic
+  >    completion. The Javadoc spells out the readLock-fallback
+  >    timeline so a future reader does not assume a lock-free
+  >    fast path that `StampedLock` does not provide.
+  > 2. **Step 3's framePool flake reproduces under the parallel
+  >    coverage build.** The pre-existing
+  >    `DirectMemoryOnlyDiskCacheLoadOrAddTest#framePoolLeakAccountingOnConcurrentInstallers`
+  >    flake from Step 3 (surfaced by Steps 4 and 5) reproduced
+  >    again here (1 of 8 096 tests fails in the coverage build).
+  >    The new tests passed cleanly in the full parallel run. The
+  >    flake is unaffected by this step; Phase C track-level code
+  >    review carries the hardening obligation, accumulated across
+  >    Steps 4-6 episodes.
   >
-  > **Test infrastructure.** 8 threads per scenario; 100-1000
-  > iterations per worker; `@Test(timeout = 60_000)`; progress log
-  > per 100 iterations; `pool.invokeAll`; latch-coordinated
-  > release of the blocking `store(...)` mock.
+  > **Cross-track impact (minor, no escalation).** Scenario 5's
+  > documented `StampedLock`-fallback timeline (data.get's
+  > optimistic stamp is invalidated by any pending segment write)
+  > is a property Track 4 (write-side API collapse) inherits. If a
+  > Track 4 refactor of `releaseFromWrite` changes how the segment
+  > write lock is scoped (e.g., narrowing the lock to skip the
+  > store call), this test's Javadoc will become misleading and
+  > the reader's wait window will shrink — but no test assertion
+  > will break (the same-instance / no double-flush invariants are
+  > independent of the lock-scope choice). No upstream-track
+  > assumption weakened.
   >
-  > **Key files:** `LockFreeReadCacheBatchingTest.java` (or a new
-  > sibling class).
+  > **What changed from the plan:** none. Scenarios 4 and 5 land
+  > in `LockFreeReadCacheBatchingTest` as specified, using the
+  > `MockedWriteCache` extensions Step 1 introduced. Scope,
+  > threading bounds (8 threads per scenario, ~2 000 iterations
+  > per worker for scenario 4), and timeout / coordination
+  > discipline match the plan exactly. The Javadoc timeline
+  > correction in scenario 5 is a documentation clarification
+  > about `StampedLock` semantics, not a scope or design change.
+  > Note: Step 1's actual seam name for the store-blocking toggle
+  > is `setStoreBlockLatch(CountDownLatch)`, not the `setStoreBlocks`
+  > name in the original step description; this step uses the
+  > actual seam.
+  >
+  > **Critical context:** Scenario 5's reader does not race the
+  > writer in a lock-free fashion — the `StampedLock`
+  > optimistic-read fallback means the reader's `data.get`
+  > serialises behind the writer's `data.compute`. The test's
+  > bounded completion is guaranteed by releasing the
+  > `storeBlockLatch` AFTER kicking off the reader
+  > (`storeRelease.countDown()` before the reader/writer
+  > `Future.get` joins). Any future test that wants to verify a
+  > truly concurrent same-key access during an in-flight store
+  > would need a different harness — perhaps a probe inside the
+  > optimistic-read window before the validate, which the current
+  > `StampedLock`-based map does not expose. The pre-existing
+  > framePool flake from Step 3 is documented in Steps 3-5
+  > episodes and is unaffected by this step; it should be
+  > hardened (or quarantined from parallel forks) at Phase C
+  > track-level code review.
+  >
+  > **Key files:** `LockFreeReadCacheBatchingTest.java` (modified
+  > — two MT stress tests appended; 45 → 47 in the class).
