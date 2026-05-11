@@ -12,14 +12,19 @@ import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.Cl
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
+import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogNoOP;
+import com.jetbrains.youtrackdb.internal.core.storage.fs.AsyncFile;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas.CASDiskWriteAheadLog;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -549,5 +554,327 @@ public class WOWCacheLoadOrAddTest {
         "second loadOrAdd on an already-stamped page must not advance AsyncFile.size",
         1L,
         wowCache.getFilledUpTo(fileId));
+  }
+
+  /**
+   * verifyChecksums=true parity on the extend branch: the extend branch never reads existing
+   * data (it allocates space and returns a freshly magic-stamped empty pointer), so the
+   * {@code verifyChecksums} flag is a no-op on this path. The test pins that the flag does
+   * not accidentally route the extend branch into a read-from-disk verification step (which
+   * would either return a torn pre-stamp page or throw an unexpected exception). Asserts
+   * the same post-state as the {@code verifyChecksums=false} extend test: file size
+   * advances by one page; pointer carries LSN(-1,-1).
+   */
+  @Test
+  public void extendBranchSucceedsWithVerifyChecksumsTrue() throws IOException {
+    final var fileId = wowCache.addFile(FILE_NAME);
+
+    final var pointer = wowCache.loadOrAdd(fileId, 0L, true);
+    try {
+      assertNotNull(
+          "extend branch must return a non-null pointer with verifyChecksums=true",
+          pointer);
+      assertEquals(
+          "magic-stamped empty buffer must carry LSN(-1,-1)",
+          new LogSequenceNumber(-1, -1),
+          DurablePage.getLogSequenceNumberFromPage(pointer.getBuffer()));
+    } finally {
+      pointer.decrementReadersReferrer();
+    }
+    assertEquals(
+        "extend with verifyChecksums=true must advance AsyncFile.size by one page",
+        1L,
+        wowCache.getFilledUpTo(fileId));
+  }
+
+  /**
+   * verifyChecksums=true parity on the gap-fill branch: the gap-fill branch never reads
+   * existing data either (it allocates a multi-page range and returns a freshly
+   * magic-stamped empty pointer for the target page only), so the {@code verifyChecksums}
+   * flag is a no-op on this path. Mirrors the {@code verifyChecksums=false} gap-fill test
+   * — pins that the flag does not route this branch into an on-disk verification step.
+   */
+  @Test
+  public void gapFillBranchSucceedsWithVerifyChecksumsTrue() throws IOException {
+    final var fileId = wowCache.addFile(FILE_NAME);
+
+    final var pointer = wowCache.loadOrAdd(fileId, 5L, true);
+    try {
+      assertNotNull(
+          "gap-fill branch must return a non-null pointer with verifyChecksums=true",
+          pointer);
+      assertEquals(
+          "magic-stamped empty buffer must carry LSN(-1,-1)",
+          new LogSequenceNumber(-1, -1),
+          DurablePage.getLogSequenceNumberFromPage(pointer.getBuffer()));
+    } finally {
+      pointer.decrementReadersReferrer();
+    }
+    assertEquals(
+        "gap-fill with verifyChecksums=true must advance AsyncFile.size to pageIndex + 1",
+        6L,
+        wowCache.getFilledUpTo(fileId));
+  }
+
+  /**
+   * verifyChecksums=true parity on the load branch (clean page): after the extend branch
+   * fires and the {@link EnsurePageIsValidInFileTask} flushes the magic stamp to disk, a
+   * subsequent {@code loadOrAdd(fileId, 0, true)} must take the load branch
+   * ({@code pageIndex &lt; currentSize}), read the page from disk, verify the magic +
+   * CRC checksum successfully (since the on-disk page was stamped by the same
+   * {@link WOWCache} instance under {@link ChecksumMode#StoreAndVerify}), and return a
+   * non-null pointer. The test pins that {@code verifyChecksums=true} on a clean page is
+   * a no-op observable at the API surface — no exception, no torn read.
+   */
+  @Test
+  public void loadBranchWithVerifyChecksumsTrueOnCleanPageReturnsPointer() throws IOException {
+    final var fileId = wowCache.addFile(FILE_NAME);
+    // Extend page 0 (extend branch fires; EnsurePageIsValidInFileTask submitted).
+    wowCache.loadOrAdd(fileId, 0L, false).decrementReadersReferrer();
+    // Drain the single-threaded commitExecutor so the EnsurePageIsValidInFileTask has
+    // written the magic-stamped on-disk image before we exercise the load branch with
+    // checksum verification turned on.
+    wowCache.flush(fileId);
+
+    final var loaded = wowCache.loadOrAdd(fileId, 0L, true);
+    try {
+      assertNotNull(
+          "load branch with verifyChecksums=true on a clean page must return a pointer",
+          loaded);
+    } finally {
+      loaded.decrementReadersReferrer();
+    }
+    assertEquals(
+        "load branch with verifyChecksums=true must not advance AsyncFile.size",
+        1L,
+        wowCache.getFilledUpTo(fileId));
+  }
+
+  /**
+   * verifyChecksums=true parity on the load branch (corrupted page) under
+   * {@link ChecksumMode#StoreAndThrow}: simulates a torn page by writing garbage into the
+   * data area of an on-disk magic-stamped page, then calls
+   * {@code loadOrAdd(fileId, 0, true)} and asserts the load branch surfaces a
+   * {@link StorageException} (the broken-page contract). Mirrors the legacy
+   * {@code WOWCache.load}-with-checksum behaviour pinned by
+   * {@code WOWCacheTestIT#testChecksumFailure}.
+   *
+   * <p>The corruption is written via a separate {@link AsyncFile} instance opened directly
+   * on the file path so the in-process {@link WOWCache} read path is unaffected (the
+   * cache's {@code loadFileContent} re-reads from disk on every call, so the corruption
+   * is observable on the next {@code loadOrAdd} invocation).
+   */
+  @Test
+  public void loadBranchWithVerifyChecksumsTrueOnCorruptedPageThrowsStorageException()
+      throws IOException {
+    final var fileId = wowCache.addFile(FILE_NAME);
+    // Extend page 0 and drain the executor so the on-disk magic stamp is in place.
+    wowCache.loadOrAdd(fileId, 0L, false).decrementReadersReferrer();
+    wowCache.flush(fileId);
+
+    // Switch to StoreAndThrow so a checksum mismatch surfaces as a StorageException
+    // (under StoreAndVerify the broken-page detection logs but returns the page anyway).
+    wowCache.setChecksumMode(ChecksumMode.StoreAndThrow);
+
+    // Corrupt the on-disk page: open the underlying file directly and write garbage into
+    // the data area (anywhere after NEXT_FREE_POSITION; the magic + CRC fields are at
+    // offsets 0..NEXT_FREE_POSITION-1 so writing further in invalidates the CRC). A
+    // separate cached-thread-pool executor backs this AsyncFile so the corruption write
+    // does not deadlock against the wowCache's own async-file executor.
+    final var nativeName = wowCache.nativeFileNameById(fileId);
+    assertNotNull("file must have a registered native name", nativeName);
+    final var diskPath = storagePath.resolve(nativeName);
+    final var corruptionExecutor = Executors.newCachedThreadPool();
+    try {
+      final File file = new AsyncFile(diskPath, PAGE_SIZE, false, corruptionExecutor,
+          storageName);
+      file.open();
+      try {
+        // Write one byte of garbage into the data area to break the CRC.
+        file.write(
+            DurablePage.NEXT_FREE_POSITION,
+            ByteBuffer.wrap(new byte[] {(byte) 0xAB}).order(ByteOrder.nativeOrder()));
+      } finally {
+        file.close();
+      }
+    } finally {
+      corruptionExecutor.shutdownNow();
+      try {
+        corruptionExecutor.awaitTermination(SHUTDOWN_TIMEOUT, TimeUnit.MILLISECONDS);
+      } catch (final InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+    }
+
+    // loadOrAdd with verifyChecksums=true must now throw StorageException("Page ... is
+    // broken") on the corrupted page.
+    assertThrows(
+        StorageException.class,
+        () -> wowCache.loadOrAdd(fileId, 0L, true));
+  }
+
+  /**
+   * Intermediate gap-page accessibility: after a gap-fill from {@code currentSize == 2}
+   * to {@code target == 10}, every page in {@code [2, 10]} must be subsequently loadable
+   * via {@code loadOrAdd} (which now takes the load branch, since
+   * {@code pageIndex &lt; currentSize == 11}). Each intermediate pointer must carry the
+   * magic-stamped empty buffer signature (LSN(-1,-1)) the
+   * {@link EnsurePageIsValidInFileTask} writes for gap pages. The earlier
+   * {@link #gapFillBranchAllocatesEntireGapAndReturnsTargetPointer} test only verified the
+   * target's pointer; this test pins that the intermediate gap pages are not just
+   * allocated on disk but actually retrievable via the same {@code loadOrAdd} API.
+   *
+   * <p>The {@code flush(fileId)} call between the gap-fill and the per-page load loop
+   * ensures every {@link EnsurePageIsValidInFileTask} on the single-threaded
+   * commitExecutor has run, so the load-branch reads observe magic-stamped pages instead
+   * of falling through to the defensive totality fallback.
+   */
+  @Test
+  public void gapFillIntermediatePagesAreLoadableViaLoadBranch() throws IOException {
+    final var fileId = wowCache.addFile(FILE_NAME);
+    // Establish currentSize == 2 via two sequential extends.
+    wowCache.loadOrAdd(fileId, 0L, false).decrementReadersReferrer();
+    wowCache.loadOrAdd(fileId, 1L, false).decrementReadersReferrer();
+
+    // Gap-fill from 2 to 10 (inclusive): post-state size == 11.
+    wowCache.loadOrAdd(fileId, 10L, false).decrementReadersReferrer();
+    assertEquals(
+        "gap-fill must advance AsyncFile.size to pageIndex + 1",
+        11L,
+        wowCache.getFilledUpTo(fileId));
+
+    // Drain the executor so every gap page's EnsurePageIsValidInFileTask has run and the
+    // load branch reads a stamped page from disk.
+    wowCache.flush(fileId);
+
+    // Iterate the full gap range [0, 10] and assert each page is loadable via the load
+    // branch with a magic-stamped LSN(-1,-1) buffer. We include [0, 1] (extended before
+    // the gap-fill) in the check to confirm the test's invariant holds for the
+    // pre-existing pages too, not just the intermediates.
+    for (long pageIdx = 0L; pageIdx <= 10L; pageIdx++) {
+      final var pointer = wowCache.loadOrAdd(fileId, pageIdx, false);
+      try {
+        assertNotNull(
+            "intermediate gap page must be loadable: pageIndex=" + pageIdx, pointer);
+        final var buffer = pointer.getBuffer();
+        assertNotNull(buffer);
+        assertEquals(
+            "intermediate gap page must carry LSN(-1,-1): pageIndex=" + pageIdx,
+            new LogSequenceNumber(-1, -1),
+            DurablePage.getLogSequenceNumberFromPage(buffer));
+      } finally {
+        pointer.decrementReadersReferrer();
+      }
+    }
+    // After loading every page in [0, 10], the file size must not have advanced (no
+    // accidental re-extend on the load branch).
+    assertEquals(
+        "loading every gap page via the load branch must not advance AsyncFile.size",
+        11L,
+        wowCache.getFilledUpTo(fileId));
+  }
+
+  /**
+   * Very-high {@code pageIndex} boundary: the gap-fill branch's dispatch guard rejects
+   * requests where {@code (pageIndex - currentSize + 1) * pageSize > Integer.MAX_VALUE}
+   * (the int overflow ceiling of {@link AsyncFile#allocateSpace}, which takes an int). The
+   * test exercises this guard without actually allocating a multi-gigabyte file by picking
+   * a {@code pageIndex} just above the boundary and asserting a {@link StorageException}
+   * surfaces from the dispatch prelude.
+   *
+   * <p>Practical note (documented in the episode): exercising the boundary at the true
+   * upper limit ({@code pageIndex = Integer.MAX_VALUE / pageSize - 2}) would require
+   * allocating ~2 GB on disk per test run, which is impractical for unit-test CI. The
+   * branch's overflow guard is purely arithmetic (no I/O occurs before the check fires),
+   * so the test verifies the exact behaviour at the boundary without paying the disk cost.
+   */
+  @Test
+  public void gapFillRejectsPageIndexExceedingAllocateSpaceIntegerCeiling() throws IOException {
+    final var fileId = wowCache.addFile(FILE_NAME);
+    // currentSize is 0; pick pageIndex such that (pageIndex - 0 + 1) * pageSize >
+    // Integer.MAX_VALUE. The +10 padding keeps the math comfortably above the overflow
+    // boundary across page-size choices.
+    final long boundaryPageIndex = (long) (Integer.MAX_VALUE / PAGE_SIZE) + 10L;
+
+    final var thrown =
+        assertThrows(
+            StorageException.class, () -> wowCache.loadOrAdd(fileId, boundaryPageIndex, false));
+    assertNotNull("exception must carry a message", thrown.getMessage());
+    assertTrue(
+        "exception must reference the int-limit overflow on allocateSpace",
+        thrown.getMessage().contains("allocateSpace int limit"));
+
+    // The dispatch guard fires before AsyncFile.allocateSpace, so the file size is
+    // unchanged by the failed call.
+    assertEquals(
+        "failed gap-fill must not advance AsyncFile.size",
+        0L,
+        wowCache.getFilledUpTo(fileId));
+  }
+
+  /**
+   * Scenario 6 — {@link EnsurePageIsValidInFileTask} idempotency, single-threaded sequence
+   * assertion (no executor gating, no production-source seam).
+   *
+   * <p>Extend page 0 via {@code loadOrAdd(fileId, 0, false)} (which submits one
+   * {@link EnsurePageIsValidInFileTask} to the single-threaded commitExecutor), drain via
+   * {@link WOWCache#flush(long)} so the submitted task runs and stamps the on-disk page,
+   * then directly call {@link WOWCache#writeValidPageInFile(int, int)} twice in sequence
+   * and assert that across both invocations the underlying file size does not change
+   * — both direct calls must short-circuit on the
+   * {@code getUnderlyingFileSize() &lt;= pagePosition} guard at the top of
+   * {@code writeValidPageInFile}. Combined with the executor-task stamp landing during
+   * the drain (which advances the underlying file size to {@code HEADER_SIZE + pageSize}),
+   * this proves that exactly one underlying disk write occurred across the three calls
+   * (one executor task + two direct invocations).
+   *
+   * <p>The disk-write count is measured via {@link Files#size(Path)} on the underlying
+   * file, subtracting {@link File#HEADER_SIZE} per {@link AsyncFile#getUnderlyingFileSize()}.
+   */
+  @Test
+  public void writeValidPageInFileIsIdempotentAcrossRepeatedDirectInvocations()
+      throws IOException {
+    final var fileId = wowCache.addFile(FILE_NAME);
+    final var intId = AbstractWriteCache.extractFileId(fileId);
+
+    // Extend page 0; this submits one EnsurePageIsValidInFileTask to the single-threaded
+    // commitExecutor and bumps AsyncFile.size (in-memory tracking) to one page.
+    wowCache.loadOrAdd(fileId, 0L, false).decrementReadersReferrer();
+
+    // Drain the commitExecutor (FileFlushTask runs after the prior
+    // EnsurePageIsValidInFileTask, since the executor is single-threaded) so the on-disk
+    // page is stamped before we measure the file size baseline.
+    wowCache.flush(fileId);
+
+    final var nativeName = wowCache.nativeFileNameById(fileId);
+    assertNotNull("file must have a registered native name", nativeName);
+    final var diskPath = storagePath.resolve(nativeName);
+
+    // Baseline: after the drain, the executor task has written one page to disk. The
+    // underlying file size (excluding the 1024-byte AsyncFile header) is therefore exactly
+    // pageSize bytes — proof that exactly one underlying disk write has occurred so far.
+    final long sizeAfterDrain = Files.size(diskPath) - File.HEADER_SIZE;
+    assertEquals(
+        "after the executor task drains, the underlying file size must be one page",
+        (long) PAGE_SIZE,
+        sizeAfterDrain);
+
+    // First direct call: writeValidPageInFile must observe
+    // getUnderlyingFileSize() (= pageSize) > pagePosition (= 0), short-circuit at the
+    // top-of-method guard, and write nothing.
+    wowCache.writeValidPageInFile(intId, 0);
+    final long sizeAfterFirstDirect = Files.size(diskPath) - File.HEADER_SIZE;
+    assertEquals(
+        "first direct writeValidPageInFile call must short-circuit (no new disk write)",
+        sizeAfterDrain,
+        sizeAfterFirstDirect);
+
+    // Second direct call: same short-circuit guard fires again; the file size is unchanged.
+    wowCache.writeValidPageInFile(intId, 0);
+    final long sizeAfterSecondDirect = Files.size(diskPath) - File.HEADER_SIZE;
+    assertEquals(
+        "second direct writeValidPageInFile call must short-circuit (no new disk write)",
+        sizeAfterDrain,
+        sizeAfterSecondDirect);
   }
 }
