@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadLocalRandom;
@@ -1160,6 +1161,359 @@ public class LockFreeReadCacheBatchingTest {
       }
     }
     return null;
+  }
+
+  // --- Wrapper-level MT stress: eviction-vs-load and flush-worker concurrency ---
+  //
+  // Scenarios 4-5 from the cache test coverage plan. Scenario 4 covers wrapper-level
+  // eviction-vs-load behaviour: pin counts respected (a pinned entry is not evicted while
+  // held), dirty pages flushed via writeCache.store at releaseFromWrite (not at eviction
+  // time), and no lost writes (every dirty release must produce exactly one store call,
+  // even under concurrent eviction pressure that races with new loads). Scenario 5
+  // covers flush-worker concurrency: a reader thread calling loadForRead on the same
+  // (fileId, pageIndex) where a store is in flight inside a releaseFromWrite call must
+  // observe a consistent state and must not deadlock — the hit path is lock-free
+  // (data.get) and does not block on the segment write lock that the in-flight store
+  // holds. Both scenarios use deterministic CountDownLatch / CyclicBarrier coordination
+  // (no Thread.sleep) and are bounded by @Test(timeout = 60_000) so a coordination bug
+  // fails fast instead of hanging Surefire.
+
+  /**
+   * Eviction-vs-load under concurrency (scenario 4). Eight worker threads execute a mixed
+   * read/write workload while the cache is sized at 1024 pages; we deliberately load 2048
+   * distinct pages per worker to force WTinyLFU eviction throughout the run. One thread
+   * additionally pins page (0, 0) for the duration of the run by calling
+   * {@code loadForRead} without releasing the entry.
+   *
+   * <p>The test pins three invariants the wrapper contract requires:
+   * <ul>
+   *   <li><b>Pin retention under concurrent eviction pressure.</b> The pinned entry must
+   *   survive — after every worker finishes, reloading (0, 0) must be a cache hit and
+   *   return the same {@link CacheEntry} instance. Eviction in the policy refuses to drop
+   *   an entry whose {@code usagesCount > 0} (the {@code freeze()} state-machine check),
+   *   and the strengthened MT context here is the only thing that distinguishes this from
+   *   the single-threaded {@code testPinnedEntryIsRetainedUnderEvictionPressure} above —
+   *   a regression that introduced a non-atomic check-then-evict path would flake here.
+   *   <li><b>Stores happen at releaseFromWrite, never at eviction.</b> Every worker tracks
+   *   the dirty releases it performs (every Nth load is via {@code loadOrAddForWrite}
+   *   with {@code changed=true}); the global expected store count is the sum of those
+   *   counters. After every worker finishes, {@code MockedWriteCache.storeCount} must
+   *   equal this expected sum — no more (no flush-on-eviction), no less (no lost write).
+   *   <li><b>Used memory bounded post-run.</b> After all workers complete and assertSize
+   *   drains the buffers, used memory must respect the {@code 1024 * PAGE_SIZE} cache
+   *   budget.
+   * </ul>
+   *
+   * <p>Pages are partitioned into a [0, 4096) range; the pinned page (0, 0) is excluded
+   * from worker page-index selection so the worker's own releaseFromWrite never collides
+   * with the pinned entry's read-load (a same-key collision would block the worker on the
+   * entry's exclusive lock, not a wrapper-level invariant the test cares about). The
+   * file's logical filledUpTo is set to {@link Long#MAX_VALUE} so {@code loadOrAddForWrite}
+   * takes the existing-page branch (no markAllocated flag) — the only way {@code store}
+   * runs is via {@code changed=true}, isolating this test from the markAllocated branch
+   * already covered by Step 1's regression.
+   */
+  @Test(timeout = 60_000)
+  public void testEvictionVsLoadConcurrencyRespectsPinsAndStoreCount() throws Exception {
+    final int workerCount = 8;
+    final int loadsPerWorker = 2048;
+    // pageIndex ranges per worker are disjoint and skip page 0 (pinned), so write-load
+    // releases from different workers never collide on the same key.
+    final int pagesPerWorker = 512;
+
+    // Make every page appear "existing" so loadOrAddForWrite never flags markAllocated;
+    // the only path to store() is via changed=true on releaseFromWrite.
+    writeCache.setFilledUpTo(0L, Long.MAX_VALUE);
+
+    // Pin (0, 0) for the duration of the run; never released until after assertions.
+    final var pinned = readCache.loadForRead(0, 0, writeCache, false);
+
+    final var pool = Executors.newFixedThreadPool(workerCount);
+    final var startBarrier = new CyclicBarrier(workerCount);
+    final var expectedStores = new AtomicInteger(0);
+
+    final var loadOrAddBefore = writeCache.loadOrAddCount.get();
+
+    try {
+      final List<Future<Integer>> futures = new ArrayList<>();
+      for (int w = 0; w < workerCount; w++) {
+        final int workerId = w;
+        futures.add(pool.submit(() -> {
+          startBarrier.await(30, TimeUnit.SECONDS);
+          int localDirtyReleases = 0;
+          for (int i = 0; i < loadsPerWorker; i++) {
+            // page-index space: each worker writes into a disjoint range starting after
+            // page 0 to avoid colliding with the pinned entry.
+            final int pageOffset = 1 + workerId * pagesPerWorker + (i % pagesPerWorker);
+            // Every 5th access is a dirty write-load; the rest are read-loads. The 1:5
+            // ratio gives ~409 dirty releases per worker (loadsPerWorker / 5) — enough
+            // store invocations that a flush-on-eviction regression would balloon
+            // storeCount noticeably, but not so many that the test runtime grows.
+            if (i % 5 == 0) {
+              final var e = readCache.loadOrAddForWrite(0, pageOffset, writeCache, false, null);
+              readCache.releaseFromWrite(e, writeCache, /*changed=*/ true);
+              localDirtyReleases++;
+            } else {
+              final var e = readCache.loadForRead(0, pageOffset, writeCache, false);
+              readCache.releaseFromRead(e);
+            }
+            // Progress log every 500 iterations keeps youtrackdb.test.inactivity.timeout
+            // happy during the long run; printed only by worker 0 so the log isn't
+            // 8x duplicated.
+            if (workerId == 0 && i > 0 && i % 500 == 0) {
+              System.out.println("eviction-vs-load worker 0 progressed to i=" + i);
+            }
+          }
+          expectedStores.addAndGet(localDirtyReleases);
+          return localDirtyReleases;
+        }));
+      }
+
+      // Wait for every worker before any assertion. pool.invokeAll-equivalent: we built
+      // futures manually so the Futures are in-hand before shutdown; this prevents a
+      // racing future from completing after shutdownNow() and leaking a thread.
+      for (final var f : futures) {
+        f.get(30, TimeUnit.SECONDS);
+      }
+
+      // Drain the read batch + striped buffers so the policy state is observable.
+      readCache.assertConsistency();
+      readCache.assertSize();
+
+      // Invariant 1: pinned entry survived eviction pressure. Reload (0, 0); must be a
+      // cache hit (no loadOrAdd invocation increment beyond what the workers did).
+      final var loadOrAddBeforeReload = writeCache.loadOrAddCount.get();
+      final var hit = readCache.loadForRead(0, 0, writeCache, false);
+      try {
+        Assert.assertSame(
+            "pinned entry (0, 0) must still be the live cache entry — concurrent eviction"
+                + " pressure must not drop a pinned entry",
+            pinned, hit);
+        Assert.assertEquals(
+            "reloading the pinned entry after concurrent eviction pressure must be a"
+                + " cache hit (no new writeCache.loadOrAdd invocation)",
+            loadOrAddBeforeReload, writeCache.loadOrAddCount.get());
+      } finally {
+        readCache.releaseFromRead(hit);
+      }
+
+      // Invariant 2: stores happen at releaseFromWrite, not eviction. Every worker
+      // counted its dirty releases; the global storeCount must match exactly. A
+      // flush-on-eviction regression would inflate storeCount above the expected sum;
+      // a dropped write would deflate it.
+      Assert.assertEquals(
+          "global storeCount must equal the total dirty releases performed by workers —"
+              + " concurrent eviction must NOT invoke store, and every dirty release must"
+              + " produce exactly one store call",
+          expectedStores.get(), writeCache.storeCount.get());
+
+      // Invariant 3: used memory bounded post-run.
+      Assert.assertTrue(
+          "used memory (" + readCache.getUsedMemory() + ") must not exceed the cache"
+              + " budget (" + 1024L * PAGE_SIZE + ") after concurrent eviction pressure",
+          readCache.getUsedMemory() <= 1024L * PAGE_SIZE);
+
+      // Sanity: workers issued meaningful eviction pressure — loadOrAdd was invoked at
+      // least once for every distinct miss (8 workers × 512 pages/worker = 4096 distinct
+      // pages, plus the read-only loads that go through the same loadOrAdd primitive on
+      // first sight). The cache holds at most 1024 pages, so most loads were misses.
+      Assert.assertTrue(
+          "sanity: workers must have triggered substantial loadOrAdd traffic to"
+              + " meaningfully stress eviction (got " + (writeCache.loadOrAddCount.get()
+                  - loadOrAddBefore)
+              + ")",
+          writeCache.loadOrAddCount.get() - loadOrAddBefore >= 1024);
+    } finally {
+      // Always release the pin so tearDown's clear() does not throw on a stuck entry.
+      readCache.releaseFromRead(pinned);
+      pool.shutdown();
+      if (!pool.awaitTermination(10, TimeUnit.SECONDS)) {
+        pool.shutdownNow();
+      }
+    }
+  }
+
+  /**
+   * Flush-worker concurrency on the same key (scenario 5). One worker thread completes a
+   * {@code loadOrAddForWrite} and releases with {@code changed=true}; the
+   * {@code MockedWriteCache.store(...)} call inside that {@code releaseFromWrite}
+   * suspends on a {@link CountDownLatch} until the test releases it. While the store is
+   * suspended (and the segment write lock for that key is held by the
+   * {@code data.compute} that wraps the store call inside {@code releaseFromWrite}), a
+   * second reader thread issues {@code loadForRead} on the SAME
+   * {@code (fileId, pageIndex)}.
+   *
+   * <p><b>Wrapper contract under same-key contention.</b> The reader's
+   * {@code loadForRead} reads through {@code ConcurrentLongIntHashMap.get}, which begins
+   * with a {@link java.util.concurrent.locks.StampedLock#tryOptimisticRead optimistic
+   * read}. When the writer's {@code data.compute} holds the segment write lock, the
+   * optimistic stamp is invalidated and the reader falls back to a blocking
+   * {@code readLock()} call — i.e., the reader waits for the writer's
+   * {@code releaseFromWrite} to complete before observing the entry. The test releases
+   * the store latch AFTER kicking off the reader, so the reader's wait is bounded: it
+   * proceeds the moment the writer's {@code data.compute} returns and the segment write
+   * lock is released. This timeline pins three invariants without depending on whether
+   * the reader's serialisation against the segment write lock is internal to the map or
+   * exposed at the wrapper level:
+   * <ul>
+   *   <li><b>No deadlock.</b> The reader's {@code loadForRead} eventually completes
+   *   without hanging — after the latch release the writer's {@code data.compute}
+   *   returns and the reader's blocked {@code readLock} acquisition proceeds. A
+   *   regression that introduced a true deadlock (e.g., a reader holding a per-entry
+   *   lock the writer also needs) would fail the test as a {@code @Test(timeout)}
+   *   miss.
+   *   <li><b>No torn read.</b> The reader's returned entry is the SAME instance as the
+   *   writer's entry — no second {@code loadOrAdd} invocation, no fresh
+   *   {@code CacheEntryImpl}.
+   *   <li><b>No double-flush.</b> After the writer's {@code releaseFromWrite}
+   *   completes, {@code storeCount} ends at exactly 1 — the reader's
+   *   {@code loadForRead} must not have routed through any store path. A regression
+   *   that introduced a synchronous flush-on-load fallback would fail this assertion.
+   * </ul>
+   *
+   * <p>Timeline:
+   * <pre>
+   *   writer thread:                                reader thread:
+   *   - loadOrAddForWrite (cache miss, install)
+   *   - releaseFromWrite(changed=true)
+   *     -> data.compute starts (segment write lock held)
+   *     -> store() awaits on latch ----------------> loadForRead
+   *                                                  -> data.get: optimistic read
+   *                                                     invalidated; falls back to
+   *                                                     readLock(), blocked until
+   *                                                     writer releases segment lock
+   *   - latch.countDown() (released by test)
+   *     -> store() returns
+   *     -> data.compute returns, segment lock released
+   *   - releaseFromWrite returns                     - readLock acquired, get returns
+   *                                                  - releaseFromRead, return
+   * </pre>
+   *
+   * <p>The reader runs on a separate thread because the writer is blocked inside
+   * {@code store()}, so a single-threaded test cannot drive both halves of the timeline.
+   */
+  @Test(timeout = 60_000)
+  public void testFlushWorkerConcurrencyReaderObservesConsistentState() throws Exception {
+    final long fileId = 0;
+    final int pageIndex = 7;
+    // Existing-page branch so the store path is gated on changed=true (not markAllocated).
+    writeCache.setFilledUpTo(fileId, Long.MAX_VALUE);
+
+    // storeRelease unblocks the MockedWriteCache.store() body when the test releases it.
+    // setStoreBlockLatch installs it; on cleanup we null it back so any tearDown-time
+    // store invocation completes synchronously.
+    final var storeRelease = new CountDownLatch(1);
+    writeCache.setStoreBlockLatch(storeRelease);
+
+    final var pool = Executors.newFixedThreadPool(2);
+    final var storesBefore = writeCache.storeCount.get();
+    final var loadOrAddBefore = writeCache.loadOrAddCount.get();
+
+    final var writerEntryRef = new AtomicReference<CacheEntry>();
+    final var readerEntryRef = new AtomicReference<CacheEntry>();
+    final var readerException = new AtomicReference<Throwable>();
+
+    try {
+      // Writer thread: load-or-add and release with changed=true; blocks inside store().
+      final var writerFuture = pool.submit(() -> {
+        final var e = readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, false, null);
+        writerEntryRef.set(e);
+        // store() will await storeRelease before returning. This call blocks until the
+        // test releases the latch below.
+        readCache.releaseFromWrite(e, writeCache, /*changed=*/ true);
+        return null;
+      });
+
+      // Wait until the writer is suspended inside store(): MockedWriteCache.store()
+      // increments storeCount BEFORE awaiting the latch, so a storeCount delta confirms
+      // the writer has entered the store() body and is at-or-past the segment
+      // write-lock acquisition inside data.compute. Using yield-loop polling (no
+      // Thread.sleep for correctness — the latch / counter is the source of truth; the
+      // yield only avoids a busy-spin CPU burn).
+      final long storeDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+      while (System.nanoTime() < storeDeadline
+          && writeCache.storeCount.get() == storesBefore) {
+        Thread.yield();
+      }
+      Assert.assertEquals(
+          "writer thread must have entered the store() body and be awaiting the latch"
+              + " before the reader fires",
+          storesBefore + 1, writeCache.storeCount.get());
+
+      // Reader thread: loadForRead on the SAME (fileId, pageIndex) while the writer is
+      // suspended inside store() (with the segment write lock held inside data.compute).
+      // ConcurrentLongIntHashMap.get's optimistic-read stamp will be invalidated by the
+      // writer's pending write, so the reader falls back to a blocking readLock — but
+      // the readLock proceeds the moment we release the store latch below, so the
+      // reader's wait is bounded.
+      final var readerFuture = pool.submit(() -> {
+        try {
+          final var e = readCache.loadForRead(fileId, pageIndex, writeCache, false);
+          readerEntryRef.set(e);
+          readCache.releaseFromRead(e);
+        } catch (Throwable t) {
+          readerException.set(t);
+        }
+        return null;
+      });
+
+      // Give the reader a brief moment to enter its blocked readLock so we exercise the
+      // serialise-on-segment-write-lock path (not the post-release fast path). This is
+      // a yield-loop with a 1s deadline — we do not depend on it for correctness; the
+      // assertions below pass whether the reader is mid-readLock or has not yet
+      // started. We just want the test to actually exercise the contention window most
+      // of the time, so a regression introducing a true deadlock is more likely to
+      // surface as a hang rather than slipping through the post-release fast path.
+      final long readerStartDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
+      while (System.nanoTime() < readerStartDeadline && !readerFuture.isDone()) {
+        Thread.yield();
+      }
+
+      // Release the store: the writer's data.compute returns, the segment write lock is
+      // released, and the reader's blocked readLock proceeds (or the reader's
+      // optimistic read succeeds on a re-stamped retry). Either way, the reader
+      // observes the same CacheEntry instance the writer installed.
+      storeRelease.countDown();
+
+      // Both threads must complete promptly. If the hit path deadlocked (e.g., a
+      // regression that introduced a per-entry lock the writer also holds), this
+      // would time out.
+      readerFuture.get(20, TimeUnit.SECONDS);
+      writerFuture.get(20, TimeUnit.SECONDS);
+
+      Assert.assertNull(
+          "reader thread must not throw on a same-key load while a store is in flight: "
+              + readerException.get(),
+          readerException.get());
+      Assert.assertSame(
+          "reader thread must observe the same CacheEntry instance the writer installed —"
+              + " no torn read, no second loadOrAdd, no fresh CacheEntryImpl",
+          writerEntryRef.get(), readerEntryRef.get());
+      Assert.assertEquals(
+          "reader's loadForRead must not have routed through writeCache.loadOrAdd — it"
+              + " must have hit the data.get fast path",
+          loadOrAddBefore + 1, writeCache.loadOrAddCount.get());
+
+      // Final invariant: exactly one store call across the full test — no double-flush
+      // from the reader's path, no second store from any retry / fallback path.
+      Assert.assertEquals(
+          "exactly one store call must have happened across the writer + reader run —"
+              + " a double-flush would indicate the reader incorrectly routed through a"
+              + " store-on-load path",
+          storesBefore + 1, writeCache.storeCount.get());
+    } finally {
+      // Always release the latch even on assertion failure, otherwise the writer thread
+      // hangs and Surefire fork holds open until pool.awaitTermination times out below.
+      storeRelease.countDown();
+      // Clear the latch so any subsequent store call from tearDown (e.g., evictions of
+      // surviving dirty pages — not expected here, but defensive) completes
+      // synchronously.
+      writeCache.setStoreBlockLatch(null);
+      pool.shutdown();
+      if (!pool.awaitTermination(10, TimeUnit.SECONDS)) {
+        pool.shutdownNow();
+      }
+    }
   }
 
   // --- allocateNewPage cacheSize tracking tests ---
