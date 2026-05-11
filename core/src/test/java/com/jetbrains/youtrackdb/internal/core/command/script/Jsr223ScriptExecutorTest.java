@@ -33,6 +33,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.TestUtilsFixture;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.junit.Test;
 
 /**
@@ -300,6 +301,154 @@ public class Jsr223ScriptExecutorTest extends TestUtilsFixture {
   // ==========================================================================
   // Test fixture helpers — stored function creation scoped to the current DB.
   // ==========================================================================
+
+  /**
+   * Pin the {@link NoSuchMethodException} catch arm of {@code executeFunction}
+   * (Jsr223ScriptExecutor:142-146). The arm fires when {@code Invocable.invokeFunction(name,
+   * args)} is called for a function the engine's currently-loaded library code does not
+   * declare — the JSR-223 contract is that the engine throws {@link NoSuchMethodException}
+   * and the executor wraps it as a {@link CommandScriptException} tagged with the function
+   * name and the database name.
+   *
+   * <p>Reproduction technique. The executor's lookup-vs-invocation seam allows a
+   * fabricated mismatch between the {@code FunctionLibrary} key under which the
+   * {@link Function} entity is registered and the {@link Function#getName()} the entity
+   * itself reports. The {@code JSScriptFormatter.getFunctionDefinition} wraps the body in
+   * {@code function <f.getName()>(...) { ... }} when generating the per-engine library,
+   * so the JS engine ends up with a declaration named after the entity's INTERNAL
+   * {@code getName()}. The executor's downstream
+   * {@code Invocable.invokeFunction(functionName, ...)} call (executeFunction:128) uses
+   * the PARAMETER {@code functionName} — which is the library lookup key, not the
+   * entity name — so when the two diverge, the engine has no declaration matching the
+   * invocation name and {@link NoSuchMethodException} fires.
+   *
+   * <p>The test fabricates the mismatch by reaching into the {@code FunctionLibraryImpl}
+   * {@code functions} map via reflection (the map is the source-of-truth for
+   * {@code getFunction(name)}) and inserting a {@link Function} entity under one key
+   * whose persisted {@code name} property is different. This produces the
+   * {@link NoSuchMethodException} branch without any racy timing assumption — the
+   * mismatch is structural.
+   *
+   * <p>Falsifiable: a regression that re-routed this catch into the
+   * {@code ScriptException} arm above would still throw {@link CommandScriptException}
+   * but with a non-{@link NoSuchMethodException} cause; the cause-chain walk below
+   * catches that regression. A regression that dropped the catch arm entirely would
+   * surface the raw {@link NoSuchMethodException} past the executor.
+   */
+  @Test
+  public void executeFunctionWrapsNoSuchMethodExceptionFromStaleEngineLibrary() throws Exception {
+    executor = new Jsr223ScriptExecutor("javascript", new ScriptTransformerImpl());
+
+    // Step 1: register a real Function entity with internal name "declared" — the library
+    // generator emits "function declared() { return 1; }" so the engine has a function
+    // named "declared".
+    final var declared = "declared" + uniqueAlnumSuffix();
+    createStoredFunction(declared, List.of(), "return 1;");
+
+    // Step 2: now reach into FunctionLibraryImpl's internal map and ALSO register the
+    // SAME Function entity under a SECOND key — "ghost". The map is keyed by
+    // uppercase(name), so {@code getFunction("ghost")} resolves to the same Function
+    // entity whose .getName() returns "declared". When the executor's executeFunction
+    // path is called with "ghost":
+    //   - line 96 lookup succeeds (returns the entity).
+    //   - line 103 acquireDatabaseEngine returns an engine whose library code defines
+    //     "declared" (the entity's getName()), NOT "ghost".
+    //   - line 128 invokeFunction("ghost", args) → NoSuchMethodException, caught at 142.
+    final var ghost = "ghost" + uniqueAlnumSuffix();
+    final var lib = session.getMetadata().getFunctionLibrary();
+    final var declaredFn = lib.getFunction(session, declared);
+    assertNotNull("preflight: declared function must be reachable via FunctionLibrary",
+        declaredFn);
+
+    // FunctionLibraryImpl declares `private Map<String, Function> functions` (with various
+    // names across history — accessor or field). Reflectively access the field.
+    // session.getMetadata().getFunctionLibrary() returns a FunctionLibraryProxy whose
+    // `delegate` field (declared on ProxedResource) is the real FunctionLibraryImpl. The
+    // FunctionLibraryImpl carries the {@code protected final ConcurrentHashMap<String,
+    // Function> functions} map that is the source-of-truth for getFunction(name). Reach
+    // through the proxy to the delegate, then into the map.
+    final var proxyDelegateField =
+        com.jetbrains.youtrackdb.internal.core.db.record.ProxedResource.class.getDeclaredField(
+            "delegate");
+    proxyDelegateField.setAccessible(true);
+    final var impl = proxyDelegateField.get(lib);
+    final java.lang.reflect.Field functionsField;
+    try {
+      functionsField = impl.getClass().getDeclaredField("functions");
+    } catch (NoSuchFieldException nsfe) {
+      // FunctionLibraryImpl renamed the field; falsifiable preflight failure rather than a
+      // silent skip. WHEN-FIXED: rename in FunctionLibraryImpl will require updating this
+      // reflective handle.
+      throw new AssertionError(
+          "FunctionLibraryImpl.functions field rename detected — pin needs adjustment");
+    }
+    functionsField.setAccessible(true);
+    @SuppressWarnings("unchecked")
+    final var functionsMap = (Map<String, Function>) functionsField.get(impl);
+    // Insert the SAME Function entity under the new "ghost" key (uppercased per the
+    // FunctionLibraryImpl convention). The library code generator iterates
+    // getFunctionNames() — which is functionsMap.keySet() — so "ghost" appears in the
+    // iteration, but getFunctionDefinition emits the entity's getName(), i.e. "declared",
+    // for BOTH iteration steps (the same entity is emitted twice with the same JS
+    // declaration). The engine never gains a JS function named "ghost".
+    functionsMap.put(ghost.toUpperCase(java.util.Locale.ENGLISH), declaredFn);
+
+    final var ctx = new BasicCommandContext();
+    ctx.setDatabaseSession(session);
+
+    final CommandScriptException ex;
+    try {
+      ex = assertThrows(
+          "invokeFunction(ghost) on engine that only declared 'declared' must wrap "
+              + "NoSuchMethodException as CommandScriptException",
+          CommandScriptException.class,
+          () -> executor.executeFunction(ctx, ghost, new HashMap<>()));
+    } finally {
+      // Cleanup: remove the fabricated key so sibling tests in this class see a clean
+      // FunctionLibrary state. The "declared" function remains in the library for
+      // subsequent DbTestBase teardown to clean up.
+      functionsMap.remove(ghost.toUpperCase(java.util.Locale.ENGLISH));
+    }
+
+    // Wrap-contract pin: the BaseException.wrapException chain preserves the original
+    // NoSuchMethodException somewhere in the cause chain. Walk the chain to find it.
+    Throwable cause = ex.getCause();
+    var foundNoSuchMethod = false;
+    while (cause != null && !foundNoSuchMethod) {
+      if (cause instanceof NoSuchMethodException) {
+        foundNoSuchMethod = true;
+      } else {
+        cause = cause.getCause();
+      }
+    }
+    assertTrue(
+        "wrap-contract: the cause chain must surface a NoSuchMethodException — "
+            + "a regression that routed the catch through the ScriptException arm "
+            + "would produce a ScriptException cause instead",
+        foundNoSuchMethod);
+
+    // Wrap-context pins: both the function name and the database name must appear in
+    // the wrapped exception message (matches the existing
+    // executeFunctionRuntimeFailureWrapsAsCommandScriptException contract). Assert both
+    // halves independently so a regression dropping ONE half is not masked by the other.
+    final var msg = ex.getMessage() == null ? "" : ex.getMessage();
+    assertTrue(
+        "wrapped exception message must include the missing function name: " + msg,
+        msg.contains(ghost));
+    assertTrue(
+        "wrapped exception message must include the dbName: " + msg,
+        msg.contains(session.getDatabaseName()));
+  }
+
+  /**
+   * Per-test alphanumeric-only suffix. The {@code FunctionLibrary.validateFunctionRecord}
+   * gate accepts only {@code [A-Za-z][A-Za-z0-9_]*} for the persisted entity name, so
+   * dashes and special characters from a method-name + nanoTime concatenation must be
+   * stripped before the name is passed to {@code createFunction}.
+   */
+  private String uniqueAlnumSuffix() {
+    return (name.getMethodName().replaceAll("[^a-zA-Z0-9]", "_") + "_" + System.nanoTime());
+  }
 
   /**
    * Create a stored JavaScript function in the current database. Parameter names are passed
