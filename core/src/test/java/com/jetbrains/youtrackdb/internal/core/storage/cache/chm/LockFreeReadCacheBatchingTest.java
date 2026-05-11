@@ -19,6 +19,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.L
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -672,6 +673,493 @@ public class LockFreeReadCacheBatchingTest {
 
     readCache.assertSize();
     readCache.assertConsistency();
+  }
+
+  // --- LockFreeReadCache wrapper functional contract tests ---
+  //
+  // The tests in this section pin wrapper-level invariants that the read-cache primitive
+  // contract requires: cache hit / miss routing through the write-cache layer, the
+  // markAllocated short-circuit on a write-load cache hit, eviction of clean vs. dirty
+  // entries, pin retention under eviction pressure, and the WTinyLFU two-tier transitions
+  // (probation -> protection on access; protection -> probation on overflow). They
+  // complement the batching tests above (which exercise the read-batch state machine) and
+  // the markAllocated branch tests above (which exercise the dispatcher's miss-side
+  // flagging logic).
+
+  /**
+   * Cache-miss routing: {@code loadForRead} on an absent page must drive
+   * {@code WriteCache.loadOrAdd} exactly once (the data.compute lambda routes through this
+   * primitive in production) and must NOT invoke the legacy {@code load} or
+   * non-extending probe {@code loadIfPresent}. A regression that re-introduced the legacy
+   * {@code load} call (or routed through {@code loadIfPresent} for an extending read) would
+   * fail the per-primitive counter assertions below. The cache must hold exactly one entry
+   * after the call.
+   */
+  @Test
+  public void testLoadForReadCacheMissRoutesThroughLoadOrAddExactlyOnce() {
+    final var loadBefore = writeCache.loadCount.get();
+    final var loadOrAddBefore = writeCache.loadOrAddCount.get();
+    final var loadIfPresentBefore = writeCache.loadIfPresentCount.get();
+
+    final var entry = readCache.loadForRead(0, 0, writeCache, false);
+    try {
+      Assert.assertNotNull("loadForRead on a fresh page must return a non-null entry", entry);
+      Assert.assertEquals(
+          "cache-miss read must invoke writeCache.loadOrAdd exactly once",
+          loadOrAddBefore + 1, writeCache.loadOrAddCount.get());
+      Assert.assertEquals(
+          "cache-miss read must NOT invoke the legacy extending load primitive",
+          loadBefore, writeCache.loadCount.get());
+      Assert.assertEquals(
+          "cache-miss read must NOT invoke the non-extending loadIfPresent probe",
+          loadIfPresentBefore, writeCache.loadIfPresentCount.get());
+      Assert.assertEquals(
+          "cache-miss read must install exactly one entry (one page of memory)",
+          PAGE_SIZE, readCache.getUsedMemory());
+    } finally {
+      readCache.releaseFromRead(entry);
+    }
+  }
+
+  /**
+   * Cache-hit fast path: {@code loadForRead} on a page already in the cache must NOT invoke
+   * any write-cache load primitive (the data.get fast path short-circuits before the
+   * data.compute lambda). The hit is still recorded via {@code afterRead} so the
+   * thread-local read batch grows; this pins both halves of the hit contract — no
+   * write-cache I/O AND policy updates still happen.
+   */
+  @Test
+  public void testLoadForReadCacheHitDoesNotInvokeWriteCacheButRecordsAccess() throws Exception {
+    // Prime the cache.
+    final var primer = readCache.loadForRead(0, 0, writeCache, false);
+    readCache.releaseFromRead(primer);
+
+    final var loadBefore = writeCache.loadCount.get();
+    final var loadOrAddBefore = writeCache.loadOrAddCount.get();
+    final var loadIfPresentBefore = writeCache.loadIfPresentCount.get();
+    final var batchBefore = getThreadLocalBatchSize();
+
+    final var entry = readCache.loadForRead(0, 0, writeCache, false);
+    try {
+      Assert.assertNotNull("cache hit must return the cached entry", entry);
+      Assert.assertEquals(
+          "cache hit must NOT invoke writeCache.loadOrAdd",
+          loadOrAddBefore, writeCache.loadOrAddCount.get());
+      Assert.assertEquals(
+          "cache hit must NOT invoke writeCache.load",
+          loadBefore, writeCache.loadCount.get());
+      Assert.assertEquals(
+          "cache hit must NOT invoke writeCache.loadIfPresent",
+          loadIfPresentBefore, writeCache.loadIfPresentCount.get());
+      Assert.assertEquals(
+          "cache hit must record one afterRead event in the thread-local batch",
+          batchBefore + 1, getThreadLocalBatchSize());
+    } finally {
+      readCache.releaseFromRead(entry);
+    }
+  }
+
+  /**
+   * Cache-hit fast path on the write-load primitive: {@code loadOrAddForWrite} on an
+   * already-cached page must NOT invoke any write-cache load primitive, exactly mirroring
+   * the read-side fast path. This is the symmetric companion of the read-side test above —
+   * a regression that bled the write-load primitive into the cache-miss compute lambda on a
+   * hit would fail the {@code loadOrAddCount} assertion below.
+   */
+  @Test
+  public void testLoadOrAddForWriteCacheHitDoesNotInvokeWriteCache() {
+    // Prime the cache via the read primitive so the entry is installed without a
+    // markAllocated flag.
+    final var primer = readCache.loadForRead(0, 0, writeCache, false);
+    readCache.releaseFromRead(primer);
+
+    final var loadOrAddBefore = writeCache.loadOrAddCount.get();
+    final var loadBefore = writeCache.loadCount.get();
+
+    final var entry = readCache.loadOrAddForWrite(0, 0, writeCache, false, null);
+    try {
+      Assert.assertNotNull("cache hit on write-load must return the cached entry", entry);
+      Assert.assertEquals(
+          "cache hit on write-load must NOT invoke writeCache.loadOrAdd",
+          loadOrAddBefore, writeCache.loadOrAddCount.get());
+      Assert.assertEquals(
+          "cache hit on write-load must NOT invoke the legacy writeCache.load",
+          loadBefore, writeCache.loadCount.get());
+    } finally {
+      readCache.releaseFromWrite(entry, writeCache, /*changed=*/false);
+    }
+  }
+
+  /**
+   * Cache-hit short-circuit on the markAllocated flag: when {@code loadOrAddForWrite} hits
+   * the cache, the entry's existing {@code isNewlyAllocatedPage} state must be preserved as
+   * the hit branch does not re-evaluate {@code pageIndex >= filledUpTo}. Here we prime the
+   * cache via the read primitive (so the entry is NOT flagged), then call
+   * {@code loadOrAddForWrite} with extend-branch parameters ({@code pageIndex >= filledUpTo})
+   * — the hit must keep the flag false. A regression that bled the markAllocated logic into
+   * the hit path would set the flag and cause a spurious dirty-page publish on
+   * {@code releaseFromWrite(_, _, false)}.
+   */
+  @Test
+  public void testLoadOrAddForWriteCacheHitDoesNotFlagAsNewlyAllocated() {
+    // filledUpTo defaults to 0 — pageIndex=5 is in the extend branch for a fresh miss.
+    // Prime via loadForRead so the entry is installed WITHOUT the markAllocated flag.
+    final var primer = readCache.loadForRead(0, 5, writeCache, false);
+    readCache.releaseFromRead(primer);
+    Assert.assertFalse(
+        "sanity: primer entry must not be flagged newly allocated",
+        primer.isNewlyAllocatedPage());
+
+    final var storesBefore = writeCache.storeCount.get();
+    final var entry = readCache.loadOrAddForWrite(0, 5, writeCache, false, null);
+    try {
+      Assert.assertFalse(
+          "cache hit on write-load must preserve the entry's existing markAllocated state"
+              + " (not flagged) even when pageIndex >= filledUpTo",
+          entry.isNewlyAllocatedPage());
+    } finally {
+      readCache.releaseFromWrite(entry, writeCache, /*changed=*/false);
+    }
+    Assert.assertEquals(
+        "releaseFromWrite on an unflagged cache-hit entry must NOT invoke store",
+        storesBefore, writeCache.storeCount.get());
+  }
+
+  /**
+   * Cache-hit identity: the {@code CacheEntry} returned by {@code loadOrAddForWrite} on a
+   * page previously installed via {@code loadForRead} must be the same instance — the cache
+   * does not allocate a fresh {@code CacheEntryImpl} for a hit. This pins the data.get fast
+   * path's identity contract.
+   */
+  @Test
+  public void testLoadOrAddForWriteOnExistingCachedPageReturnsSameInstance() {
+    final var primer = readCache.loadForRead(0, 3, writeCache, false);
+    readCache.releaseFromRead(primer);
+
+    final var entry = readCache.loadOrAddForWrite(0, 3, writeCache, false, null);
+    try {
+      Assert.assertSame(
+          "write-load cache hit must return the same CacheEntry instance installed by the prior"
+              + " read-load",
+          primer, entry);
+    } finally {
+      readCache.releaseFromWrite(entry, writeCache, /*changed=*/false);
+    }
+  }
+
+  /**
+   * Eviction of clean entries: loading more distinct pages than the cache capacity forces
+   * WTinyLFU eviction. None of the read-only loads ever invoked
+   * {@code releaseFromWrite(_, _, true)} or a markAllocated write-load, so
+   * {@code writeCache.store} must NEVER be called — eviction itself does not flush. A
+   * regression that introduced a synchronous flush-on-evict path would fail this assertion.
+   */
+  @Test
+  public void testEvictionOfCleanEntriesDoesNotInvokeStore() {
+    // Cache holds 1024 pages; load 2000 distinct read-only pages to force eviction.
+    for (int i = 0; i < 2000; i++) {
+      final var entry = readCache.loadForRead(0, i, writeCache, false);
+      readCache.releaseFromRead(entry);
+    }
+
+    readCache.assertSize();
+    readCache.assertConsistency();
+
+    Assert.assertEquals(
+        "eviction of clean read-only entries must never invoke writeCache.store",
+        0, writeCache.storeCount.get());
+    Assert.assertTrue(
+        "used memory must not exceed the cache budget after eviction",
+        readCache.getUsedMemory() <= 1024L * PAGE_SIZE);
+  }
+
+  /**
+   * Eviction of dirty entries: stores happen at {@code releaseFromWrite} time (when the
+   * caller flips {@code changed=true} or the entry was markAllocated on miss), NOT at
+   * eviction time. Once a dirty entry has been released, its content is already persisted
+   * via {@code writeCache.store} and a subsequent eviction is a silent removal. This pins
+   * the "no data lost on eviction" invariant: even if every dirty entry installed below is
+   * later evicted, the final {@code storeCount} equals the number of dirty releases — no
+   * fewer (no lost write), no more (no duplicate flush-on-evict).
+   */
+  @Test
+  public void testEvictionOfDirtyEntriesPreservesEveryStoreExactlyOnce() {
+    final int dirtyPages = 100;
+
+    // Make every page existing on disk so markAllocated stays unset; the only way store()
+    // can run is via changed=true on releaseFromWrite. This isolates the test from the
+    // markAllocated branch's store path, which is already covered by Step 1's regression.
+    writeCache.setFilledUpTo(0L, Long.MAX_VALUE);
+
+    for (int i = 0; i < dirtyPages; i++) {
+      final var entry = readCache.loadOrAddForWrite(0, i, writeCache, false, null);
+      readCache.releaseFromWrite(entry, writeCache, /*changed=*/true);
+    }
+
+    Assert.assertEquals(
+        "each dirty release must invoke store exactly once",
+        dirtyPages, writeCache.storeCount.get());
+
+    // Force eviction by loading enough additional read-only pages to overflow the 1024-page
+    // cache. The original dirty pages are now eviction candidates (they have been released).
+    for (int i = dirtyPages; i < dirtyPages + 2000; i++) {
+      final var entry = readCache.loadForRead(0, i, writeCache, false);
+      readCache.releaseFromRead(entry);
+    }
+
+    readCache.assertSize();
+    readCache.assertConsistency();
+
+    Assert.assertEquals(
+        "eviction must not invoke store again — every dirty page was already persisted at"
+            + " releaseFromWrite time",
+        dirtyPages, writeCache.storeCount.get());
+    Assert.assertTrue(
+        "used memory must respect the cache budget post-eviction",
+        readCache.getUsedMemory() <= 1024L * PAGE_SIZE);
+  }
+
+  /**
+   * Pin retention under eviction pressure: an entry whose {@code acquireEntry} reference
+   * has not been released ({@code usagesCount > 0}) cannot be evicted, because
+   * {@code WTinyLFUPolicy.purgeEden}'s eviction path requires {@code freeze()} which only
+   * succeeds when state == 0. Verified by pinning one page (loadForRead without releasing),
+   * generating eviction pressure that would otherwise drop random entries, and asserting the
+   * pinned entry is still loadable as a cache hit afterwards. This pins the "pinned pages
+   * survive eviction" invariant — the foundation that lets read locks be held across long
+   * operations without losing the underlying page.
+   */
+  @Test
+  public void testPinnedEntryIsRetainedUnderEvictionPressure() {
+    final var pinned = readCache.loadForRead(0, 0, writeCache, false);
+    // Do NOT release — usagesCount stays at 1; freeze() will return false on this entry.
+
+    final var loadOrAddBeforePressure = writeCache.loadOrAddCount.get();
+    try {
+      // Load 3000 distinct read-only pages on a DIFFERENT page-index range so the pinned
+      // (0, 0) entry is a candidate for eviction (it is the LRU-oldest entry by the end).
+      for (int i = 1; i < 3001; i++) {
+        final var entry = readCache.loadForRead(0, i, writeCache, false);
+        readCache.releaseFromRead(entry);
+      }
+
+      readCache.assertSize();
+      readCache.assertConsistency();
+
+      // Reload (0, 0). If the pinned entry was evicted, this would be a cache miss and
+      // loadOrAddCount would increment again — the assertion below catches that. If the
+      // pinned entry survived, this is a cache hit and the count is unchanged.
+      final var hit = readCache.loadForRead(0, 0, writeCache, false);
+      try {
+        Assert.assertSame(
+            "pinned entry must still be the live cache entry — eviction must not have"
+                + " dropped it under churn",
+            pinned, hit);
+      } finally {
+        readCache.releaseFromRead(hit);
+      }
+      Assert.assertEquals(
+          "reloading the pinned entry after eviction pressure must be a cache hit"
+              + " (no new writeCache.loadOrAdd invocation)",
+          loadOrAddBeforePressure + 3000, writeCache.loadOrAddCount.get());
+    } finally {
+      // Release the original pin so tearDown's clear() does not throw on a stuck entry.
+      readCache.releaseFromRead(pinned);
+    }
+  }
+
+  /**
+   * Two-tier transition — promotion: an access on an entry sitting in WTinyLFU's
+   * probation tier must promote it to the protection tier on the next
+   * {@code policy.onAccess} drain. The transition is the core mechanism that lets
+   * frequently-touched pages outlast a cache churn — without it, a probation entry that
+   * keeps getting accessed would still be evicted at the head of probation. Verified by
+   * pre-filling the cache (eden=204, probation=820 entries with maxEdenSize=204 and
+   * maxSecondLevelSize=820), forcing a buffer drain, re-accessing a probation entry, and
+   * checking the tier membership before vs. after.
+   */
+  @Test
+  public void testProbationHitPromotesToProtection() throws Exception {
+    // Pre-fill: load 1024 distinct pages. Eden overflows past maxEdenSize and the surplus
+    // is admitted to probation (the policy admits to probation while
+    // probation.size + protection.size < maxSecondLevelSize).
+    final int totalPages = 1024;
+    for (int i = 0; i < totalPages; i++) {
+      final var entry = readCache.loadForRead(0, i, writeCache, false);
+      readCache.releaseFromRead(entry);
+    }
+    // assertConsistency drains both buffers so the policy state is observable.
+    readCache.assertConsistency();
+
+    // Prime the striped read buffer: the BoundedBuffer's table is null until the first
+    // offer arrives, and that first offer is consumed by table init (it lands in slot 0 of
+    // a fresh RingBuffer without bumping writeCounter, so the subsequent drainTo skips it).
+    // A throwaway access on the last-loaded page (currently in eden — its onAccess would be
+    // a within-tier move that does not affect the probation entries we care about) absorbs
+    // this initialisation cost so the page (0,0) access below routes through the normal
+    // offer path and is actually delivered to {@code policy.onAccess}.
+    final var primer = readCache.loadForRead(0, totalPages - 1, writeCache, false);
+    readCache.releaseFromRead(primer);
+    readCache.assertConsistency();
+
+    // Pick a page that should be in probation (an early-loaded page — page 0 is the head
+    // of probation, having been the first to overflow eden).
+    final long fileId = 0;
+    final int pageIndex = 0;
+    final var policy = getPolicy();
+    final var probationBefore = collect(policy.probation());
+    final var protectionBefore = collect(policy.protection());
+
+    final var targetEntry = findEntry(fileId, pageIndex);
+    Assert.assertNotNull("sanity: page (0,0) must still be in the cache", targetEntry);
+    Assert.assertTrue(
+        "sanity: page (0,0) must start in the probation tier",
+        containsByIdentity(probationBefore, targetEntry));
+    Assert.assertFalse(
+        "sanity: page (0,0) must NOT start in the protection tier",
+        containsByIdentity(protectionBefore, targetEntry));
+
+    // Re-read page (0,0); this records an afterRead event. assertConsistency forces the
+    // batch + striped buffer to drain into the policy so onAccess runs.
+    final var hit = readCache.loadForRead(fileId, pageIndex, writeCache, false);
+    readCache.releaseFromRead(hit);
+    readCache.assertConsistency();
+
+    final var probationAfter = collect(policy.probation());
+    final var protectionAfter = collect(policy.protection());
+    Assert.assertTrue(
+        "page (0,0) must have been promoted to the protection tier after the cache hit",
+        containsByIdentity(protectionAfter, targetEntry));
+    Assert.assertFalse(
+        "page (0,0) must have been removed from the probation tier",
+        containsByIdentity(probationAfter, targetEntry));
+  }
+
+  /**
+   * Two-tier transition — demotion under protection overflow: when the protection tier
+   * grows past {@code maxProtectedSize}, the head (oldest) entry demotes back to probation.
+   * For the 1024-page cache configuration here, {@code maxProtectedSize == 656}. Promoting
+   * 657 distinct probation entries must trigger exactly one head-demotion of the first
+   * promoted entry on the 657th promotion. Verified by pre-filling, promoting 657 distinct
+   * pages one at a time (with a drain between each so the policy observes each access in
+   * order), and asserting the first-promoted entry is back in probation while the last
+   * batch of promoted entries sits in protection. This pins the bidirectional tier
+   * discipline — promotion and demotion both work without requiring an explicit eviction.
+   */
+  @Test
+  public void testProtectionOverflowDemotesOldestEntryToProbation() throws Exception {
+    final int totalPages = 1024;
+    for (int i = 0; i < totalPages; i++) {
+      final var entry = readCache.loadForRead(0, i, writeCache, false);
+      readCache.releaseFromRead(entry);
+    }
+    readCache.assertConsistency();
+
+    // Prime the striped read buffer: see testProbationHitPromotesToProtection for the
+    // rationale — the very first offer to a fresh BoundedBuffer is consumed by table init
+    // and dropped before drainTo can deliver it to policy.onAccess. Without this prime,
+    // the first promotion below would silently no-op and we would only see 656 promotions
+    // instead of 657, missing the overflow that this test exists to verify.
+    final var primer = readCache.loadForRead(0, totalPages - 1, writeCache, false);
+    readCache.releaseFromRead(primer);
+    readCache.assertConsistency();
+
+    // maxProtectedSize for 1024 cache = 1024 - 204 - (1024 - 204) * 20 / 100 = 656.
+    // Promote 657 distinct probation entries; the 657th promotion overflows protection and
+    // the head (the first promoted, page 0) must demote back to probation.
+    final int promotions = 657;
+    for (int i = 0; i < promotions; i++) {
+      final var entry = readCache.loadForRead(0, i, writeCache, false);
+      readCache.releaseFromRead(entry);
+      // Drain after every access so the policy sees them in promotion order — this
+      // guarantees page 0 sits at the head of protection when the overflow fires.
+      readCache.assertConsistency();
+    }
+
+    final var policy = getPolicy();
+    final var probationAfter = collect(policy.probation());
+    final var protectionAfter = collect(policy.protection());
+
+    final var firstPromoted = findEntry(0L, 0);
+    final var lastPromoted = findEntry(0L, promotions - 1);
+    Assert.assertNotNull("sanity: page (0,0) must still be in the cache", firstPromoted);
+    Assert.assertNotNull(
+        "sanity: page (0," + (promotions - 1) + ") must still be in the cache", lastPromoted);
+
+    Assert.assertTrue(
+        "the first promoted entry must have been demoted to probation when protection"
+            + " overflowed its " + 656 + "-entry budget",
+        containsByIdentity(probationAfter, firstPromoted));
+    Assert.assertFalse(
+        "the first promoted entry must no longer be in protection after the overflow demotion",
+        containsByIdentity(protectionAfter, firstPromoted));
+    Assert.assertTrue(
+        "the last promoted entry must remain in protection (it was the most recent"
+            + " admission and is at the tail)",
+        containsByIdentity(protectionAfter, lastPromoted));
+  }
+
+  // --- helpers for WTinyLFUPolicy tier inspection ---
+
+  /**
+   * Returns the {@link WTinyLFUPolicy} backing this read-cache via reflection so tier-
+   * inspection helpers can call its package-private {@code eden()}, {@code probation()},
+   * {@code protection()} iterators directly. The policy field is otherwise inaccessible
+   * from outside the {@code LockFreeReadCache} class.
+   */
+  private WTinyLFUPolicy getPolicy() throws Exception {
+    final var policyField = LockFreeReadCache.class.getDeclaredField("policy");
+    policyField.setAccessible(true);
+    return (WTinyLFUPolicy) policyField.get(readCache);
+  }
+
+  /**
+   * Collects the entries an iterator yields into an {@link ArrayList}, preserving the
+   * iteration order. Used to snapshot a WTinyLFU tier before re-accessing entries that
+   * change tier membership.
+   */
+  private static List<CacheEntry> collect(final Iterator<CacheEntry> it) {
+    final var list = new ArrayList<CacheEntry>();
+    while (it.hasNext()) {
+      list.add(it.next());
+    }
+    return list;
+  }
+
+  /**
+   * Membership check by reference identity (not {@link Object#equals}) — the tier
+   * assertions need to confirm the SAME {@link CacheEntry} instance is in a given tier,
+   * not just an instance with the same {@code fileId} / {@code pageIndex}. A regression
+   * that re-installed a fresh entry under the same key would pass an equals-based check
+   * and incorrectly look like the original was promoted/demoted in place.
+   */
+  private static boolean containsByIdentity(
+      final List<CacheEntry> list, final CacheEntry target) {
+    for (final var e : list) {
+      if (e == target) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Looks up the live {@link CacheEntry} for {@code (fileId, pageIndex)} via the data map
+   * the read-cache exposes for testing through {@link #getDataMap()}. Returns {@code null}
+   * if the entry is no longer in the cache (e.g., evicted by churn). Used by tier-
+   * transition tests to obtain a stable identity reference for the entry whose tier
+   * membership is being checked.
+   */
+  private CacheEntry findEntry(final long fileId, final int pageIndex) throws Exception {
+    final var map = getDataMap();
+    final var collected = new ArrayList<CacheEntry>();
+    map.forEachValue(collected::add);
+    for (final var entry : collected) {
+      if (entry.getFileId() == fileId && entry.getPageIndex() == pageIndex) {
+        return entry;
+      }
+    }
+    return null;
   }
 
   // --- allocateNewPage cacheSize tracking tests ---
