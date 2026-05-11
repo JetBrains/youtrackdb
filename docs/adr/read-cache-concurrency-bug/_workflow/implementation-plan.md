@@ -226,7 +226,7 @@ flowchart LR
 
 ## Checklist
 
-- [ ] Track 1: Cache primitive — `WriteCache.loadOrAdd`
+- [x] Track 1: Cache primitive — `WriteCache.loadOrAdd`
   > Rewrite the write-cache around a single total `loadOrAdd(fileId,
   > pageIndex, verifyChecksums)` primitive covering load /
   > one-page extend / multi-page gap-fill (recovery only), with
@@ -235,8 +235,56 @@ flowchart LR
   > `data.compute` lambda that delegates to `loadOrAdd`. Legacy
   > `allocateNewPage` methods are deprecated here; final deletion lands
   > in Track 4 once replay-loop callers migrate.
-  > **Scope:** ~5-6 steps covering the primitive shape, the ReadCache
-  > delegation, the in-memory engine parallel, and the deletions.
+  >
+  > **Track episode:**
+  > Built the structural fix: a single total `WriteCache.loadOrAdd`
+  > primitive serving load / one-page extend / multi-page gap-fill
+  > (recovery-only), with `DirectMemoryOnlyDiskCache.loadOrAdd` +
+  > `MemoryFile.loadOrAddPage` as the in-memory parallel.
+  > `LockFreeReadCache.loadForRead` and `loadOrAddForWrite` now both
+  > bottom out on a `data.compute` lambda that delegates to `loadOrAdd`;
+  > the wrappers diverge only in `CacheEntry` lock semantics.
+  > `silentLoadForRead` migrated to a new non-extending `loadIfPresent`
+  > probe so all production callers of the legacy `WriteCache.load` are
+  > now retired. Legacy `allocateNewPage` / `load` are `@Deprecated`
+  > with deletion deferred to Track 4 (once replay-loop callers
+  > migrate). Three production-code surprises landed during the track:
+  > (1) Step 2's review fix converted two extend / gap-fill
+  > `allocatedIndex == pageIndex` checks into hard
+  > `IllegalStateException` throws so I4 violations fail fast in
+  > production builds; (2) Step 3 discovered the original
+  > `ConcurrentSkipListMap.computeIfAbsent` dispatch in
+  > `MemoryFile.loadOrAddPage` was unsafe under contention and replaced
+  > it with the eager-construct + `putIfAbsent` +
+  > `decrementReferrer`-on-loss pattern; (3) Phase C surfaced a real
+  > production regression — `LockFreeReadCache.doLoad` was bleeding
+  > `markAllocated` into the read path. Phase C iteration 1's fix
+  > added a `forWrite` parameter to `doLoad` so only the write-load
+  > path flags entries; the rewritten read-path test pins the new
+  > contract and an empirical mutation (deleting `forWrite &&`) was
+  > confirmed to reproduce the regression. Cross-track impact:
+  > **Track 4** inherits four reconciliation TODO sites whose comments
+  > now correctly distinguish disk-engine totality from in-memory
+  > engine null-on-miss (the `IllegalStateException` in `doLoad`'s
+  > lambda makes the Track 4 migration safer — any totality-contract
+  > violation surfaces immediately instead of silently activating the
+  > racy `addNewPagePointerToTheCache` fallback). **Track 2**
+  > inherits ~10 deferred test-hardening items: `verifyChecksums=true`
+  > parity on disk-engine load + gap-fill, in-memory `loadIfPresent`
+  > UOE-throw test, gap-fill intermediate-page accessibility test,
+  > framePool leak accounting, target-publish stress, fail-fast
+  > `IllegalStateException` regression test (requires a
+  > `setLoadOrAddReturnsNull` mock toggle), read-path markAllocated
+  > boundary parity test, and a `WOWCache.loadOrAdd` MT
+  > defense-in-depth test against I4 violations. **Track 5 / Track 6**
+  > are unaffected. Known follow-up not yet on the plan: widening
+  > `loadOrAdd`'s return value to `{CachePointer, freshlyAllocated}`
+  > eliminates one `filesLock` cycle plus one `files.get` per
+  > cache miss (~1-3% potential throughput on cold-cache benchmark
+  > workloads under high concurrency) — captured in the Step 4 episode
+  > and the Phase C performance reviewer's PF1.
+  >
+  > **Step file:** `tracks/track-1.md` (6 steps, 0 failed)
 
 - [ ] Track 2: Cache test coverage (functional + MT)
   > Add functional unit tests covering every branch of
