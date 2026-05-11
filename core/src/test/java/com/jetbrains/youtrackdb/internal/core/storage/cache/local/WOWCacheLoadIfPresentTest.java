@@ -5,6 +5,8 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
@@ -21,9 +23,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Locale;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -315,5 +321,230 @@ public class WOWCacheLoadIfPresentTest {
         "loadIfPresent must never mutate AsyncFile.size",
         sizeBefore,
         wowCache.getFilledUpTo(fileId));
+  }
+
+  /**
+   * MT (a) — concurrent {@code loadIfPresent} on an out-of-range pageIndex while a
+   * second thread continuously flushes the cache.
+   *
+   * <p>The flusher repeatedly calls {@link WOWCache#flush(long)}, which drains the
+   * single-threaded {@code commitExecutor} and removes pages from
+   * {@code writeCachePages} as they land on disk — the closest analog to "eviction"
+   * available on the disk engine's cache surface (the wrapper-level WTinyLFU
+   * eviction lives at {@code LockFreeReadCache} and is exercised by the wrapper
+   * suite). The prober calls {@code loadIfPresent(fileId, 5, false)} on a fresh file
+   * that has never been extended past pageIndex {@code 0}; the probe must always
+   * return {@code null} (page absent) and must never advance {@code AsyncFile.size}
+   * past the single pre-extended page. A regression that re-introduced the
+   * extending-probe shape (e.g., a future refactor that delegated
+   * {@code loadIfPresent} to {@code loadOrAdd} in the miss branch) would surface
+   * here as a non-null return or as a file-size advance.
+   *
+   * <p>The {@code iterationCounter} pin guards against a vacuous pass where the
+   * flusher returned early and the prober never observed contention.
+   */
+  @Test(timeout = 60_000L)
+  public void concurrentLoadIfPresentMissAndFlushDoesNotExtendFile() throws Exception {
+    final var fileId = wowCache.addFile(FILE_NAME);
+    // Pre-extend exactly one page so the dirty-write cache has something to flush;
+    // the prober targets pageIndex=5 which is well beyond the file's high-watermark.
+    wowCache.loadOrAdd(fileId, 0L, false).decrementReadersReferrer();
+    assertEquals(
+        "single extend must advance AsyncFile.size to one page",
+        1L,
+        wowCache.getFilledUpTo(fileId));
+
+    final int probeIterations = 200;
+    final int flusherIterations = 50;
+    final var pool = Executors.newFixedThreadPool(2);
+    try {
+      final var stop = new AtomicBoolean(false);
+      final var unexpected = new ConcurrentLinkedQueue<Throwable>();
+      final var startGate = new CountDownLatch(1);
+      final var probeIterationCounter = new AtomicLong();
+
+      pool.submit(
+          () -> {
+            try {
+              startGate.await();
+              for (int i = 0; i < probeIterations; i++) {
+                final var probe = wowCache.loadIfPresent(fileId, 5L, false);
+                // probe MUST be null on a never-extended pageIndex, even under
+                // concurrent flush pressure. A regression that re-introduced an
+                // extending-probe shape would surface here.
+                if (probe != null) {
+                  unexpected.add(
+                      new AssertionError(
+                          "loadIfPresent on never-extended pageIndex must return null"));
+                  probe.decrementReadersReferrer();
+                  break;
+                }
+                probeIterationCounter.incrementAndGet();
+              }
+            } catch (final Throwable t) {
+              unexpected.add(t);
+            } finally {
+              stop.set(true);
+            }
+          });
+
+      pool.submit(
+          () -> {
+            try {
+              startGate.await();
+              for (int i = 0; i < flusherIterations && !stop.get(); i++) {
+                wowCache.flush(fileId);
+              }
+            } catch (final Throwable t) {
+              unexpected.add(t);
+            }
+          });
+
+      startGate.countDown();
+      pool.shutdown();
+      assertTrue(
+          "probe + flusher must finish within the bounded window",
+          pool.awaitTermination(45, TimeUnit.SECONDS));
+
+      if (!unexpected.isEmpty()) {
+        fail(
+            "loadIfPresent/flush race surfaced unexpected exception: "
+                + unexpected.peek());
+      }
+      assertEquals(
+          "prober must have executed the loop body the full iteration count",
+          (long) probeIterations,
+          probeIterationCounter.get());
+      assertEquals(
+          "loadIfPresent must never advance AsyncFile.size under flush pressure",
+          1L,
+          wowCache.getFilledUpTo(fileId));
+    } finally {
+      if (!pool.isTerminated()) {
+        pool.shutdownNow();
+        pool.awaitTermination(5, TimeUnit.SECONDS);
+      }
+    }
+  }
+
+  /**
+   * MT (b) — concurrent {@code loadIfPresent} vs {@code loadOrAdd} on the same key.
+   *
+   * <p>One installer thread extends pageIndex {@code 0} via {@code loadOrAdd}; one
+   * prober thread loops {@code loadIfPresent(fileId, 0, false)}. Depending on the
+   * race outcome the prober observes either {@code null} (probe ran before the
+   * installer's allocateSpace completed) or a non-null {@link CachePointer} (probe
+   * ran after the installer's extend committed). Both outcomes are valid; the
+   * invariants pinned are:
+   *
+   * <ul>
+   *   <li>No exception of any kind on either thread.
+   *   <li>If the prober ever observes a non-null pointer, the buffer is positioned
+   *       at 0 (clean pointer state; a torn read would surface as a stale buffer
+   *       position).
+   *   <li>Post-run: the file's high-watermark is exactly one page (the installer
+   *       extended exactly once; the prober never extended).
+   * </ul>
+   *
+   * <p>The installer runs only once per test iteration to bound the contention to a
+   * single race window per outer iteration; the prober probes the same key
+   * repeatedly within the window. The outer loop ({@code outerIterations}) drives
+   * enough race-window opens to surface a regression where {@code loadIfPresent}
+   * incorrectly extended the file or returned a stale pointer.
+   */
+  @Test(timeout = 60_000L)
+  public void concurrentLoadIfPresentAndLoadOrAddOnSameKeyAreConsistent()
+      throws Exception {
+    final int outerIterations = 50;
+    final int proberInnerIterations = 100;
+    final var pool = Executors.newFixedThreadPool(2);
+    try {
+      for (int outer = 0; outer < outerIterations; outer++) {
+        final var fileId = wowCache.addFile(FILE_NAME + "-iter-" + outer);
+        final var unexpected = new ConcurrentLinkedQueue<Throwable>();
+        final var startGate = new CountDownLatch(1);
+        final var installerDone = new CountDownLatch(1);
+        final var bothDone = new CountDownLatch(2);
+
+        pool.submit(
+            () -> {
+              try {
+                startGate.await();
+                final var pointer = wowCache.loadOrAdd(fileId, 0L, false);
+                pointer.decrementReadersReferrer();
+              } catch (final Throwable t) {
+                unexpected.add(t);
+              } finally {
+                installerDone.countDown();
+                bothDone.countDown();
+              }
+            });
+
+        pool.submit(
+            () -> {
+              try {
+                startGate.await();
+                // Probe the same key repeatedly until the installer signals done;
+                // run one additional sweep AFTER the installer completes so the
+                // post-extend "definitely cached" branch is also exercised.
+                boolean afterInstaller = false;
+                while (true) {
+                  for (int j = 0; j < proberInnerIterations; j++) {
+                    final var probe = wowCache.loadIfPresent(fileId, 0L, false);
+                    if (probe != null) {
+                      // Pin clean buffer state — a torn read would surface here.
+                      try {
+                        assertEquals(
+                            "loadIfPresent must return a pointer with buffer position 0",
+                            0,
+                            probe.getBuffer().position());
+                      } finally {
+                        probe.decrementReadersReferrer();
+                      }
+                    }
+                  }
+                  if (afterInstaller) {
+                    break;
+                  }
+                  if (installerDone.getCount() == 0) {
+                    afterInstaller = true;
+                  }
+                }
+              } catch (final Throwable t) {
+                unexpected.add(t);
+              } finally {
+                bothDone.countDown();
+              }
+            });
+
+        startGate.countDown();
+        assertTrue(
+            "both workers must complete within the bounded window",
+            bothDone.await(10, TimeUnit.SECONDS));
+
+        if (!unexpected.isEmpty()) {
+          fail(
+              "iteration "
+                  + outer
+                  + ": loadIfPresent/loadOrAdd race surfaced unexpected exception: "
+                  + unexpected.peek());
+        }
+        assertEquals(
+            "iteration "
+                + outer
+                + ": post-run file size must be exactly one page",
+            1L,
+            wowCache.getFilledUpTo(fileId));
+
+        // Clean up the per-iteration file so the storage path does not accumulate
+        // 50 leftover files across the outer loop.
+        wowCache.deleteFile(fileId);
+      }
+    } finally {
+      pool.shutdownNow();
+      assertTrue(
+          "executor must terminate cleanly",
+          pool.awaitTermination(5, TimeUnit.SECONDS));
+    }
   }
 }
