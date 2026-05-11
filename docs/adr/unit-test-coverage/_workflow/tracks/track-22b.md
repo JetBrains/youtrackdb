@@ -1246,21 +1246,80 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   >
   > **Implementer commit:** `41c8203f9e`
 
-- [ ] Step 10: Delete SQL root scaffold cluster (CommandExecutorSQLFactory family)
-  > **Risk:** medium — multi-class partial+full mix; partial-trim
-  > preserves load-bearing static constants/maps consumed by live
-  > production code. Full delete: `CommandExecutorSQLFactory`,
-  > `DefaultCommandExecutorSQLFactory` (factory pair with hardcoded-
-  > empty map), and the `ReturnHandler` family
-  > (`OriginalRecordsReturnHandler`, `UpdatedRecordsReturnHandler`,
-  > `RecordCountHandler`, `RecordsReturnHandler`). Partial-trim:
-  > `CommandExecutorSQLAbstract` (preserve the static prefix
-  > constants consumed by `SQLTarget`, drop the dead scaffold
-  > methods); `DynamicSQLElementFactory` (drop instance methods,
-  > keep the static maps wired into `SQLEngine`). Phase B
-  > implementer runs PSI safe-delete on each member to confirm the
-  > preserved subset is genuinely live. Pin removal:
-  > `SqlRootDeadCodeTest`.
+- [ ] Step 10: Delete SQL root scaffold cluster (full SPI collapse)
+  > **Risk:** high — override: pre-upgraded medium→high after the
+  > user selected alternative A1 (full SPI collapse) at the
+  > design-decision escalation that ran before the
+  > `mode=WITH_GUIDANCE` respawn. Original decomposer tag: medium,
+  > category `architecture`. Upgrade evidence: PSI iter-1 (captured
+  > in the prior implementer's `exploration_notes` echoed into the
+  > respawn) confirmed three "delete" cluster members
+  > (`CommandExecutorSQLFactory`, `DefaultCommandExecutorSQLFactory`,
+  > `DynamicSQLElementFactory` SPI surface) are pinned by the LIVE
+  > 900-LOC `SQLEngineSpiCacheTest`, not just `SqlRootDeadCodeTest`,
+  > and `SQLEngine`'s SPI dispatch chain
+  > (`EXECUTOR_FACTORIES`, `getCommandFactories`, `getCommand`,
+  > `getCommandNames`) is itself test-only-live and must be deleted
+  > together with the factories for the cluster to be coherent.
+  >
+  > **Updated scope under A1 (full SPI collapse):**
+  > - **Full delete (6 classes + 1 SPI surface):**
+  >   `CommandExecutorSQLFactory` (interface, `internal.core.command`),
+  >   `DefaultCommandExecutorSQLFactory`, and the `ReturnHandler`
+  >   family (`OriginalRecordsReturnHandler`,
+  >   `UpdatedRecordsReturnHandler`, `RecordCountHandler`,
+  >   `RecordsReturnHandler` abstract base). Also delete the
+  >   `META-INF/services/...CommandExecutorSQLFactory` resource.
+  > - **SQLEngine dispatch chain trim:** delete
+  >   `EXECUTOR_FACTORIES`, `getCommandFactories()`, `getCommand()`,
+  >   `getCommandNames()` (PSI: zero production callers; only
+  >   intra-`SQLEngine` and `SQLEngineSpiCacheTest` refs).
+  > - **DynamicSQLElementFactory partial-trim:** drop the
+  >   `implements CommandExecutorSQLFactory` clause and remove the
+  >   resulting orphan overrides (`getCommandNames`,
+  >   `createCommand(String)`). KEEP its
+  >   `SQLFunctionFactory` and `QueryOperatorFactory` implementations
+  >   plus the static `FUNCTIONS`/`COMMANDS`/`OPERATORS` maps — they
+  >   are live via SPI polymorphic dispatch (PSI confirmed). The
+  >   `COMMANDS` map itself is dead in production but its public
+  >   shape is currently pinned by `SQLEngineSpiCacheTest`'s
+  >   command-name assertions; delete `COMMANDS` together with the
+  >   corresponding test pin methods, OR keep both — implementer
+  >   judges based on transitively-dead state.
+  > - **CommandExecutorSQLAbstract:** keep the full surface (the
+  >   static prefix constants are live in `SQLTarget`, and
+  >   `SQLEngineSpiCacheTest.TestDynamicCommand` extends the class —
+  >   under A1 we delete `TestDynamicCommand`, so re-confirm post-
+  >   deletion whether `isIdempotent` and `throwSyntaxErrorException`
+  >   are still structurally required; trim only what PSI confirms
+  >   has no remaining references).
+  > - **Rework `SQLEngineSpiCacheTest`:** drop the three command-
+  >   factory pin methods
+  >   (`getCommandFactoriesIteratorContainsDefaultCommandExecutorSQLFactory`,
+  >   `getCommandFactoriesReturnsCachedListOnSecondCall`,
+  >   `getCommandNamesMatchesSetupSnapshotBecauseProductionFactoriesRegisterNothingBugPin`)
+  >   + the `TestDynamicCommand` nested fixture + the `getCommand`
+  >   dispatch tests that depend on it + the `commandsBefore` /
+  >   `COMMANDS` snapshot machinery in `@Before`/`@After`. The
+  >   function-factory and operator-factory pin tests stay (those
+  >   SPI surfaces survive A1).
+  > - **Pin removal:** `SqlRootDeadCodeTest` (entire file — pins all
+  >   target the cluster classes being deleted, modulo any classes
+  >   not in scope; implementer prunes per the post-delete surface).
+  >
+  > **PSI safety re-check (mandatory):** the prior implementer's
+  > PSI audits used `GlobalSearchScope.allScope` and surveyed the
+  > SPI chain, the live `SQLEngineSpiCacheTest`, and all 3
+  > META-INF services files. Re-run safe-delete in dry-run mode on
+  > each deletion target to confirm no `*IT.java` /
+  > `embedded/`/`server/`/`tests/` consumer was missed. Confirm via
+  > grep that the META-INF/services file is the only resource
+  > naming `CommandExecutorSQLFactory`.
+  >
+  > **Dimensional review will fire** post-`SUCCESS` (Sub-step 4)
+  > because the new risk is `high`. The four baseline review agents
+  > plus conditional agents (per `review-agent-selection.md`) will
+  > evaluate the cumulative step diff before the episode is recorded.
 
 - [ ] Step 11: Delete `BasicCommandContext.copy()` partial-class-trim with `CommandContext.copy()` interface declaration
   > **Risk:** medium — interface-implementation atomicity required
