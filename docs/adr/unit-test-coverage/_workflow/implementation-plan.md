@@ -1947,20 +1947,24 @@ flowchart TD
   > SPI-risky clusters deferred to 22c). Each in-track-deletion cluster
   > is one bisectable commit, with `coverage-analyzer.py` re-run after
   > each so the post-deletion denominator drop is reflected in
-  > `coverage-baseline.md` (full cluster inventory in the backlog).
+  > `coverage-baseline.md` (full cluster inventory in the step file `tracks/track-22b.md`).
   >
-  > **Scope:** ~9 steps — one per in-track-deletion cluster (controlled
-  > exception per D5; 22b Phase A may pack two narrow clusters into
-  > one step if final inventory exceeds 7). Inventory grew by one
+  > **Scope:** ~16–18 steps — roughly one per in-track-deletion cluster
+  > plus inline-replanned production-trim / coverage-gate sub-steps
+  > (controlled exception per D5; the inline-replan after the failed
+  > Step 14 split that cluster's work into a production-trim step
+  > (Step 15) and an orchestrator-owned coverage-gate / housekeeping
+  > step (Step 16); 22b Phase A originally allowed packing two narrow
+  > clusters into one step). Inventory grew by one
   > Track-22a-Phase-C forwarded cluster (`BasicCommandContext.copy()`
-  > partial-class-trim — see backlog); license-header normalization
+  > partial-class-trim — see step file `tracks/track-22b.md`); license-header normalization
   > is folded into per-cluster commits, no separate step. Aggregate
   > target after 22b: ~82–83% line / ~70–71% branch (denominator drop
   > from deletions).
   >
   > **Depends on:** Track 1, Track 22a (consumes 22a's PSI safe-delete
-  > confirmations, the post-22a coverage baseline, and the Phase C
-  > forwarded items in the backlog).
+  > confirmations, the post-22a coverage baseline, and the Track 22a
+  > Phase C forwarded items in the backlog's Track 22c section).
 
 - [ ] Track 22c: WHEN-FIXED Issue Creation & Marker Rewrite
   > Open YTDB tracking issues for production-fix WHEN-FIXED pins (the
@@ -1982,76 +1986,69 @@ flowchart TD
   > clusters NOT deleted by 22b need YTDB issues).
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of /execute-tracks
+- [x] Plan review (consistency + structural) — passed at iteration 2 (re-run after Track 22b Step 14 inline-replan)
 
-**Re-trigger note (2026-05-11):** Reset to `[ ]` after the Track 22b
-inline-replan that split the failed Step 14 into Step 15 (production
-trim, implementer-owned, per-step coverage-gate exempted) + Step 16
-(coverage gate + housekeeping, orchestrator-owned with background-
-friendly pacing). The next `/execute-tracks` session re-enters State
-0 to validate the revision against the rest of the plan. The
-*previous* audit log immediately below remains for traceability —
-the new State 0 run will append or overwrite its own findings once
-it completes.
+**Context.** This is a re-run of the autonomous Phase 2 review triggered
+by the previous session's inline-replan of Track 22b's failed Step 14
+(now split into Step 15 = production trim, implementer-owned,
+per-step coverage-gate exempted; Step 16 = coverage gate +
+end-of-track housekeeping, orchestrator-owned with background-
+friendly pacing). The substantive content of the plan is unchanged
+from the prior audit; this re-run validates that the inline-replan
+introduced no new consistency or structural drift and refreshes the
+audit summary in place.
 
-**Previous audit (passed at iteration 2)**:
+**Auto-fixed (mechanical) — this re-run**:
+- **CR1** (should-fix): updated three plan-file cross-references in
+  Track 22b's scope-indicator (lines 1950, 1955-1956, 1961-1963)
+  from "the backlog" to "the step file `tracks/track-22b.md`" (and
+  the third to "the Track 22a Phase C forwarded items in the
+  backlog's Track 22c section"). The Track 22b backlog section was
+  deleted by Track 22b's Phase A decomposition commit
+  (`88b3526f405`); the cluster inventory now lives in the step
+  file. Consistency-gate VERIFIED at iter-2.
+- **S1** (suggestion): updated Track 22b scope-indicator step count
+  from "~9 steps — one per in-track-deletion cluster" to "~16–18
+  steps — roughly one per in-track-deletion cluster plus
+  inline-replanned production-trim / coverage-gate sub-steps",
+  naming the Step 14 → Step 15 / Step 16 split explicitly while
+  preserving the D5 controlled-exception clause. Structural-gate
+  VERIFIED at iter-2.
 
-**Auto-fixed (mechanical)**:
-- **CR1** (blocker): dropped phantom `OTokenHandlerImpl` reference from
-  the backlog Track 22b Binary Token / JWT cluster bullet; replaced with
-  a pointer to the Track 17 absorption block which already enumerates
-  the live binary-token quintet and JWT trio.
-- **CR2** (should-fix): synced the plan Non-Goals headline target from
-  `85% line / 70% branch` to `~82–83% line / ~70–71% branch`, matching
-  the amended §Goals.
-- **CR3** (should-fix): synced `design.md` Overview ¶1 + Workflow
-  mermaid loop predicate to the amended target; mermaid now delegates
-  the threshold to plan §Goals.
-- **CR4** (should-fix): updated `design.md` Overview ¶2 track count
-  from "22 tracks total" to "24 tracks total" reflecting the 22a/22b/22c
-  split.
-- **CR5** (should-fix): rewrote three Class Design "Used by" bullets in
-  `design.md` from `Track 22 (...)` to `Track 22a (...)` since 22a is
-  the only sub-track that authors test classes.
-- **CR6** (suggestion): updated the D5 risk caveat from "22 PRs" to
-  "24 PRs" with inline note about the split.
-- **S2** (should-fix): deleted the plan §Operational Notes block (69
-  lines) — its self-stated retirement criterion was met (PR #1022 merged
-  into `develop`); the recovery context was absorbed into the backlog
-  `### Inherited absorption queue` HTML comment.
-- **S3** (should-fix): trimmed Track 22a intro paragraph from 5
-  sentences to 2 with a backlog-pointer for the deferred-cleanup queue.
-- **S4** (should-fix): replaced Track 22a's 9-line `**Operational note:**`
-  block with a 3-line pointer to the backlog `### Inherited absorption
-  queue`; the iter-1 mechanical-fix audit list now lives in the backlog
-  HTML comment.
-- **S5** (suggestion): trimmed Track 22b intro paragraph and removed the
-  14-line "Strong candidates" enumeration from the scope-indicator (full
-  list preserved verbatim in the backlog `**What** (deletion clusters)`
-  block).
-- **S6** (suggestion): trimmed Track 22c intro paragraph from 4
-  sentences to 2 with a backlog-pointer for the deferred-cluster list and
-  per-issue commit policy.
-- **S7** (suggestion): replaced Track 22b's scope-indicator enumeration
-  with a discoverability cross-reference to D5's controlled-exception
-  clause.
-- **S8** (suggestion): rewrote a phantom past-tense reference in the
-  backlog reconstruction-protocol prose that pointed at the now-deleted
-  plan §Operational Notes section; the protocol description survives
-  intact.
+**Escalated (design decisions) — this re-run**: none.
 
-**Escalated (design decisions)**: none.
+**Acknowledged but deferred — this re-run**:
+- **S2** (suggestion-tier rendering of the inherited plan-length
+  finding): plan-file total length is now 2057 lines, up from 1938
+  at the previous audit — ~37% over the soft ~1,500-line budget.
+  Growth is dominated by user-approved completed-track episode
+  prose (Tracks 5–22a). Same rationale as before: no autonomous
+  trim path that wouldn't lose strategic context. Surface to the
+  user for a dedicated trim pass after Tracks 22b/22c land (further
+  episodes will still be appended in the meantime).
+- **S3** (suggestion): the plan Track 22a strategy-refresh trailer
+  says `total pin count = 71` and the backlog WHEN-FIXED inventory
+  says `~63 *DeadCodeTest.java lockstep deletion pins`. The numbers
+  describe **different snapshots in time** — the plan's "71" is end-
+  of-22a / start-of-22b; the backlog's "~63" is start-of-22c (post-
+  22b deletions). Not strictly inconsistent, but the relationship
+  is opaque without a paired annotation. Marking deferred for a
+  future audit pass; not auto-applied this iteration because the
+  reviewer's proposed fix (renumber one of the two values to match)
+  would lose the snapshot distinction.
 
-**Acknowledged but deferred**:
-- **S1** (should-fix): plan-file total length is 1938 lines after the
-  S2/S3/S4 trims (down from 2034), still ~28% over the soft ~1500-line
-  budget. The remaining overage is dominated by user-approved
-  completed-track episode prose (Tracks 7–21). The structural-review
-  rule's proposed fix uses *recommend* language rather than prescribing
-  a single rendering, and there is no documented per-section budget for
-  episode prose, so an autonomous global trim would risk losing
-  strategic context that future tracks may need. Recorded here so the
-  user can authorize a dedicated trim pass if desired.
+**Previous audit (passed at iteration 2; pre-inline-replan state — git history at commits prior to `b2a1d6a077` is the durable trace for these)**:
+
+- Auto-fixed (mechanical): CR1 (phantom `OTokenHandlerImpl` →
+  pointer to Track 17 binary-token quintet), CR2/CR3 (sync amended
+  82-83% line / 70-71% branch target across plan + design), CR4
+  (track count 22 → 24), CR5 (Used-by bullets → Track 22a), CR6
+  (D5 risk caveat 22 → 24 PRs), S2/S3/S4 (Operational Notes block
+  deletion + Track 22a intro/operational-note trims), S5/S6
+  (Track 22b/22c intro trims), S7 (Track 22b enumeration → D5
+  cross-reference), S8 (phantom past-tense backlog reference).
+- Escalated (design decisions): none.
+- Acknowledged but deferred: S1 (plan-file length).
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
