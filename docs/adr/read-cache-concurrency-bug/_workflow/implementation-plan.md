@@ -348,6 +348,14 @@ flowchart LR
   > surfaced here for future-track awareness.
   >
   > **Step file:** `tracks/track-2.md` (6 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — Track 3 (read-side discovery migration)
+  > operates on storage-component code, independent of the cache-layer changes
+  > Tracks 1 and 2 delivered. No plan/backlog edits required for any remaining
+  > track. The pre-existing "Open audit" item in the Track 3 backlog
+  > (`CollectionDirtyPageBitSet` / `FreeSpaceMap` / `IndexHistogramManager`
+  > logical-size getter; `PaginatedCollectionV2.open:391` and
+  > `CollectionPositionMapV2.create:136` semantics) is resolved inside Phase A.
 
 - [ ] Track 3: Read-side discovery migration
   > Migrate the pure-sizing production callers of
