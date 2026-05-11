@@ -497,7 +497,7 @@ subset; the live subset stays covered by 22a's tests.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (13/16 complete — Step 13 escalated to inline-replan: 5 test-additive commits PASS the line gate at 94.2% but the branch gate stalls at 54.8% due to structurally-dead FetchHelper instanceof arms. User selected alternative B at the escalation prompt; new Step 14 (FetchHelper dead-arm cleanup + absorbed housekeeping) inserted, Step 13 marked [!]. Step 14 first attempt [!] — pacing failure (full coverage build auto-backgrounded; no commit landed). Step 14 retry [!] — second pacing failure (staged coverage invocation also auto-backgrounded; trim itself validated by PSI + 124/124 targeted-test pass but coverage gate not evaluated). TWO-FAILURE RULE FIRES — orchestrator paused for user direction)
+- [ ] Step implementation (13/18 complete — Step 13 escalated to inline-replan: 5 test-additive commits PASS the line gate at 94.2% but the branch gate stalls at 54.8% due to structurally-dead FetchHelper instanceof arms. User selected alternative B at the escalation prompt; new Step 14 (FetchHelper dead-arm cleanup + absorbed housekeeping) inserted, Step 13 marked [!]. Step 14 first attempt [!] — pacing failure (full coverage build auto-backgrounded; no commit landed). Step 14 retry [!] — second pacing failure (staged coverage invocation also auto-backgrounded; trim itself validated by PSI + 124/124 targeted-test pass but coverage gate not evaluated). Two-Failure Rule fired; user selected ESCALATE → inline-replan. Step 14 work re-decomposed into Step 15 (implementer-owned production trim + targeted-test confirmation; per-step coverage-gate exempted) and Step 16 (orchestrator-owned coverage gate + housekeeping with background-friendly pacing). Resumes on the next /execute-tracks session after the plan-review re-run.)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -2143,3 +2143,198 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   > pinning of the `requires-deeper-analysis` arms before the gate
   > can pass. That additional work was anticipated by both `[!]`
   > episodes as an escalate-on-gate-fail fallback.
+
+- [ ] Step 15: Production dead-arm trim — re-apply the 5-hunk FetchHelper trim from the PSI evidence captured in both Step 14 [!] episodes; targeted-test confirmation only; per-step coverage-gate eval explicitly EXEMPTED by this inline-replan
+  > **Risk:** medium — same risk profile as the failed Step 14
+  > attempts (production code change on the live fetch-plan parser
+  > path; PSI safe-delete already done across two prior attempts).
+  >
+  > **Inline-replan rationale.** Two consecutive Step 14 attempts
+  > failed at coverage-gate evaluation because the Claude Code
+  > harness auto-backgrounds any `-P coverage` Maven invocation
+  > regardless of staging, blocking per-implementer-spawn gate
+  > verification. The trim itself is mechanically validated:
+  > attempt 1 ran 64/64 targeted tests; attempt 2 extended to all
+  > 124/124 targeted tests (6 classes covering all surfaces the
+  > trim could conceivably regress). PSI evidence is captured in
+  > both `[!]` episodes above and is unchanged across attempts.
+  > Splitting Step 14 into Step 15 (production trim, targeted-test
+  > confirmation only) and Step 16 (coverage gate + housekeeping,
+  > orchestrator-owned with background-friendly pacing) carves out
+  > the gate evaluation from the per-implementer spawn — the only
+  > activity blocked by the harness — while preserving everything
+  > else the original Step 14 was supposed to do. The exemption is
+  > **scoped to Step 15 only**; it does not generalize.
+  >
+  > **Scope:**
+  >
+  > 1. **Quick PSI re-confirmation.** The audit in the FIRST `[!]`
+  >    episode is authoritative; spot-check
+  >    `MultiCollectionIterator` references and
+  >    `EntityImpl.setProperty` overloads via mcp-steroid PSI to
+  >    confirm nothing has shifted on HEAD since attempt 2. If
+  >    anything has changed, escalate (the trim becomes a deeper
+  >    audit problem, not a Step 15 problem).
+  >
+  > 2. **Re-apply the 5-hunk trim** via `steroid_apply_patch`
+  >    (atomic, single-file edit). Sites: `processRecordRidMap`
+  >    L142-145 (raw array probe + `MultiCollectionIterator`
+  >    probe), `processFieldTypes` L488-490 (raw array probe),
+  >    `process` L552-554 (raw array probe), plus drops of the
+  >    `java.lang.reflect.Array` and `MultiCollectionIterator`
+  >    imports. Preserve the 6–9 line why-comments at each
+  >    deletion site (cite the `EntityImpl.setProperty` ->
+  >    `PropertyTypeInternal.getTypeByValue` -> `EMBEDDEDLIST.convert`
+  >    / `EMBEDDEDMAP.convert` chain + binary-deserializer path +
+  >    `containsIdentifiers` safety net).
+  >
+  > 3. **Spotless.** `./mvnw -pl core spotless:apply` to confirm
+  >    formatting. Expected no-op (both prior attempts confirmed
+  >    Spotless-clean).
+  >
+  > 4. **Targeted-test confirmation in ONE foreground invocation.**
+  >    Same 6-class command attempt 2 ran successfully:
+  >    `./mvnw -pl core test
+  >    -Dtest='FetchHelperBranchCoverageTest,FetchHelperDeadCodeTest,DepthFetchPlanTest,FetchPlanParserTest,ScriptManagerTest,Jsr223ScriptExecutorTest'`.
+  >    Expected wall time ~30s, well inside the 10-minute budget.
+  >    **All 124 tests MUST pass.** This is the binding correctness
+  >    gate for this step (substitutes for the per-spawn coverage
+  >    gate that the harness blocks).
+  >
+  > 5. **Coverage-gate exemption.** **DO NOT** run
+  >    `./mvnw -pl core test -P coverage` or any variant inside this
+  >    spawn. **DO NOT** run `python3 .github/scripts/coverage-gate.py`.
+  >    The cumulative-diff coverage gate is deferred entirely to
+  >    Step 16, which has background-friendly orchestrator pacing.
+  >    Record the gate as `n/a (inline-replan-exempted; see Step 16)`
+  >    in `TEST_SUMMARY`.
+  >
+  > 6. **Commit.** ONE commit, explicit `git add` of
+  >    `core/src/main/java/com/jetbrains/youtrackdb/internal/core/fetch/FetchHelper.java`.
+  >    Use the first `[!]` episode's suggested commit-message draft
+  >    as a starting point (imperative subject, body explains the
+  >    `EntityImpl.setProperty` chain rationale; branch-only subject
+  >    MAY cite `Track 22b Step 15` per `commit-conventions.md`).
+  >
+  > **Commit shape:** one commit, production code only.
+  > Workflow housekeeping (`coverage-baseline.md`,
+  > `cluster-disposition.md`, step-file episode) is the orchestrator's
+  > sub-step 8 responsibility per usual. The coverage-gate evaluation
+  > moves to Step 16's orchestrator-owned commit.
+  >
+  > **DO NOT touch** the workflow files
+  > (`coverage-baseline.md`, `cluster-disposition.md`, the step file
+  > itself, the plan file, the backlog) — those remain orchestrator
+  > territory.
+
+- [ ] Step 16: Coverage gate verification + Track 22b end-of-track housekeeping (orchestrator-owned, NO implementer spawn)
+  > **Risk:** low — no production code change. Workflow-only step
+  > running the staged coverage build with background-friendly
+  > pacing and recording outcomes.
+  >
+  > **Inline-replan rationale.** The implementer rulebook's pacing
+  > rule (`run_in_background: true` is FORBIDDEN, `Monitor` poll
+  > loops are FORBIDDEN) applies to implementer sub-agents. The
+  > orchestrator's pacing rules are different per
+  > `implementer-rules.md` § "Pacing long-running tasks — foreground
+  > only" ("Pacing is the orchestrator's job, not the implementer's").
+  > Step 16 therefore has NO implementer spawn — the orchestrator
+  > runs the staged coverage build directly, using
+  > `run_in_background: true` on the long phase plus a foreground
+  > `wait` (or natural-completion notification) to bridge the gap
+  > the harness's auto-background heuristic creates for implementer
+  > spawns. Step 0 of this same track is the precedent for an
+  > orchestrator-owned workflow step (workflow-file-only commit with
+  > full episode); Step 16 follows the same shape.
+  >
+  > **Scope:**
+  >
+  > 1. **Staged coverage profile build** (orchestrator runs in
+  >    background; no `Monitor` poll loop is needed because the
+  >    Bash tool's `run_in_background: true` returns a notification
+  >    on completion):
+  >
+  >    a. `./mvnw -pl core test -P coverage -DskipITs` with
+  >       `run_in_background: true`. ~9 min wall time on this host.
+  >       Wait for the completion notification before proceeding.
+  >       If the background run fails, fall back to a per-package
+  >       coverage profile (`./mvnw -pl core test -P coverage
+  >       -Dtest='com.jetbrains.youtrackdb.internal.core.fetch.**'`)
+  >       to at least cover the FetchHelper diff; the gate command
+  >       operates on whatever JaCoCo XML exists in
+  >       `.coverage/reports`.
+  >
+  >    b. `./mvnw -pl core jacoco:report -P coverage` (seconds,
+  >       foreground). Confirms `.coverage/reports/youtrackdb-core/jacoco.xml`
+  >       is fresh.
+  >
+  > 2. **Coverage gate run.**
+  >    `python3 .github/scripts/coverage-gate.py
+  >    --line-threshold 85 --branch-threshold 70
+  >    --compare-branch origin/develop --coverage-dir .coverage/reports`.
+  >    Capture both line% and branch% on the cumulative diff into
+  >    the Step 16 episode.
+  >
+  > 3. **Outcome decision tree:**
+  >
+  >    - **Gate PASSES** (branch ≥ 70% AND line ≥ 85% on cumulative
+  >      diff): record the pass in the episode. Track 22b proceeds
+  >      to Phase C with the trim in place and the gate green.
+  >    - **Gate FAILS on branch only** (line ≥ 85%, branch < 70%):
+  >      the conservative trim alone did not close the gate (the
+  >      first `[!]` episode's pre-trim analysis predicted ~58–62%).
+  >      This is an **accepted documented limitation** of Track 22b,
+  >      not a Step 16 failure. Record the post-trim branch
+  >      coverage in `coverage-baseline.md`. Add the residual
+  >      `requires-deeper-analysis` arms (L138 `Iterable.next()==null`,
+  >      L607/619-620 `isEmbedded` `!isPersistent` legs) to
+  >      `cluster-disposition.md` as a Track 22c handoff item with
+  >      a brief description and the test-pin strategy options
+  >      (synthetic property tests vs new dead-arm trim). Track 22b
+  >      proceeds to Phase C with the documented limitation; Phase C
+  >      track-level review acknowledges the limitation in the track
+  >      episode.
+  >    - **Gate FAILS on line** (line < 85%): unexpected — this
+  >      should not happen because Step 13 baseline was 94.2% line.
+  >      Investigate (the trim may have removed a covered branch
+  >      that was the only path through a wrapped surface; or
+  >      `coverage-analyzer.py`'s assert-exclusion logic changed).
+  >      Pause and present findings to the user.
+  >    - **Gate command fails** (script error, missing JaCoCo XML,
+  >      etc.): re-run the staged build per (1); if the failure
+  >      persists, surface to the user.
+  >
+  > 4. **`coverage-baseline.md` refresh.** Overwrite with the
+  >    post-Step-15 numbers from
+  >    `coverage-analyzer.py`'s output (run
+  >    `python3 .github/scripts/coverage-analyzer.py
+  >    --coverage-xml .coverage/reports/youtrackdb-core/jacoco.xml`
+  >    or the equivalent flow from Track 1). Note both observed
+  >    and the original target (~82–83% line / ~70–71% branch);
+  >    do not fabricate.
+  >
+  > 5. **`cluster-disposition.md` finalization.** Fill in every
+  >    cluster's final commit SHA per the table in the original
+  >    Step 14 description (Clusters A–K + license-header + Step 13
+  >    regression tests + Step 15 dead-arm trim). Flag pin-
+  >    maintenance candidates from Step 0's disposition table
+  >    (`InternalErrorException`, `EntityHelper`,
+  >    `RecordVersionHelper`, `EntityComparator`, `SBTreeValue`,
+  >    `SqlExecutorDeadCodeTest`) with one-line Track 22c pointers.
+  >    If gate failed on branch, also flag the
+  >    `requires-deeper-analysis` arms as Track 22c handoff items
+  >    per the decision tree above.
+  >
+  > 6. **Commit shape:** one workflow-update commit covering
+  >    `coverage-baseline.md`, `cluster-disposition.md`, and Step 15's
+  >    episode (folded in to keep the workflow commit count down).
+  >    Subject: `Record episode for Step 15 trim + Step 16 housekeeping`
+  >    or similar. Branch-only subject MAY cite Track/Step IDs per
+  >    `commit-conventions.md`.
+  >
+  > **Step 16 itself produces its own episode** at orchestrator-level
+  > sub-step 7 timing (recorded in this step file under the Step 16
+  > entry). The episode captures the staged-build duration, the gate
+  > line%/branch% numbers, and the outcome-branch decision. No
+  > separate implementer-handoff structure — the orchestrator IS the
+  > implementer for this step.

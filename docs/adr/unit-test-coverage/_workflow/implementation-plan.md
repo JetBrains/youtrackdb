@@ -1982,7 +1982,19 @@ flowchart TD
   > clusters NOT deleted by 22b need YTDB issues).
 
 ## Plan Review
-- [x] Plan review (consistency + structural) — passed at iteration 2
+- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of /execute-tracks
+
+**Re-trigger note (2026-05-11):** Reset to `[ ]` after the Track 22b
+inline-replan that split the failed Step 14 into Step 15 (production
+trim, implementer-owned, per-step coverage-gate exempted) + Step 16
+(coverage gate + housekeeping, orchestrator-owned with background-
+friendly pacing). The next `/execute-tracks` session re-enters State
+0 to validate the revision against the rest of the plan. The
+*previous* audit log immediately below remains for traceability —
+the new State 0 run will append or overwrite its own findings once
+it completes.
+
+**Previous audit (passed at iteration 2)**:
 
 **Auto-fixed (mechanical)**:
 - **CR1** (blocker): dropped phantom `OTokenHandlerImpl` reference from
