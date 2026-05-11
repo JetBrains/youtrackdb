@@ -1940,7 +1940,7 @@ flowchart TD
   > new inter-track dependencies. 22b's hybrid Delete-in-22b vs
   > Defer-to-22c policy stands as written.
 
-- [ ] Track 22b: In-Track Dead-Code Deletion Lockstep
+- [x] Track 22b: In-Track Dead-Code Deletion Lockstep
   > Atomic per-cluster commits removing dead production code together
   > with its `*DeadCodeTest.java` shape pin, classified via
   > `mcp-steroid://ide/safe-delete` (SPI-safe clusters deleted in-track;
@@ -1949,22 +1949,54 @@ flowchart TD
   > each so the post-deletion denominator drop is reflected in
   > `coverage-baseline.md` (full cluster inventory in the step file `tracks/track-22b.md`).
   >
-  > **Scope:** ~16–18 steps — roughly one per in-track-deletion cluster
-  > plus inline-replanned production-trim / coverage-gate sub-steps
-  > (controlled exception per D5; the inline-replan after the failed
-  > Step 14 split that cluster's work into a production-trim step
-  > (Step 15) and an orchestrator-owned coverage-gate / housekeeping
-  > step (Step 16); 22b Phase A originally allowed packing two narrow
-  > clusters into one step). Inventory grew by one
-  > Track-22a-Phase-C forwarded cluster (`BasicCommandContext.copy()`
-  > partial-class-trim — see step file `tracks/track-22b.md`); license-header normalization
-  > is folded into per-cluster commits, no separate step. Aggregate
-  > target after 22b: ~82–83% line / ~70–71% branch (denominator drop
-  > from deletions).
+  > **Track episode:**
+  > Deleted 9 in-track dead-code clusters from `core/` (binary-token /
+  > JWT, sbtree/singlevalue/v1, misc helpers, narrow singletons, T2
+  > reclassifications, command-script, query/live partial, fetch
+  > partial, SQL-root scaffold + Track-9..13 forwarded items, plus
+  > `BasicCommandContext.copy()` partial-class-trim with
+  > `CommandContext.copy()` interface declaration), normalized
+  > license headers across added pin tests, and absorbed an
+  > inline-replanned Step 14 that split via the Two-Failure Rule into
+  > Step 15 (production trim) + Step 16 (orchestrator-owned
+  > coverage-gate / housekeeping). Step 10 was pre-upgraded
+  > medium → high after A1 escalation during Phase A. Step 13
+  > absorbed coverage-gate regression tests after a separate
+  > escalation. Step 16 coverage gate PASS on both axes (100.0 %
+  > line on 43/43 changed lines, 71.4 % branch on 30/42 changed
+  > branches); aggregate end-of-22b 81.4 % line / 71.1 % branch
+  > across 173 packages — branch axis exceeds the amended `~70-71 %`
+  > target, line axis lands 0.6 pp under the lower bound of
+  > `~82-83 %` within the Step 16 outcome decision-tree's
+  > documented limitation.
   >
-  > **Depends on:** Track 1, Track 22a (consumes 22a's PSI safe-delete
-  > confirmations, the post-22a coverage baseline, and the Track 22a
-  > Phase C forwarded items in the backlog's Track 22c section).
+  > Phase C converged in 3 iterations. iter-1 fan-out on 6 dimensions
+  > surfaced 32 findings; iter-2 gate-check uncovered a critical
+  > falsifiability inversion — the iter-1 inline rationale claim
+  > "linkSingleton routes through parseLinked" was empirically WRONG.
+  > The in-tree probe established the verified routing:
+  > linkSingleton/linkList/linkSet → `sendRecord`; linkMap →
+  > `parseLinked` else-branch. iter-2 applied 8 fixes (commit
+  > `54d6494052`) including a per-arm RID-membership pin that
+  > falsifies any per-arm routing regression. iter-3 reconfirmed
+  > PASS across CQ/TB/TS. **Cross-track hint for Track 22c:** future
+  > work touching FetchHelper routing should anchor any per-arm
+  > `sendRecord` membership claim to an empirical probe rather than
+  > re-deriving from the dispatcher signature — count-only
+  > branch-coverage pins masked the inversion in iter-1 and only
+  > per-arm membership assertions surfaced it. The unified
+  > `!containsIdentifiers(fieldValue)` safety-net invariant is now
+  > symmetric across the three FetchHelper filter sites (`process`,
+  > `processFieldTypes`, `processRecordRidMap`) and must be preserved.
+  > Deferred suggestion-tier polish items (TB11 line-number
+  > imprecision, AtomicReference vs RID[] idiom, helper placement,
+  > plus iter-1 deferrals TC1/TC2/TC3/TC6/TC4/TC7/TS1/TS2/TS3/CQ6/SE1/SE2/TB7)
+  > are captured as future test-quality follow-ups; none merge-blocking.
+  >
+  > **Step file:** `tracks/track-22b.md` (18 nominal / 16 effective
+  > steps: 13 successful + 2 failed `[!]` Step 14 attempts + 2
+  > inline-replan substitutes [Step 15 production trim, Step 16
+  > orchestrator-owned coverage gate])
 
 - [ ] Track 22c: WHEN-FIXED Issue Creation & Marker Rewrite
   > Open YTDB tracking issues for production-fix WHEN-FIXED pins (the
