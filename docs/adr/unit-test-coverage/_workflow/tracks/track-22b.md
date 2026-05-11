@@ -497,7 +497,7 @@ subset; the live subset stays covered by 22a's tests.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (11/14 complete — Step 10 widened to full SPI collapse + risk pre-upgraded medium→high after user A1 selection at design-decision escalation; iteration-2 dimensional review PASS)
+- [ ] Step implementation (12/14 complete — Step 11 (CommandContext.copy() interface-impl atomic deletion) landed cleanly; medium risk, no dim review fan-out)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -1481,7 +1481,8 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   > - `db585e756a` Review fix: delete ReturnHandler interface +
   >   constants-pin test + stale Javadoc fix
 
-- [ ] Step 11: Delete `BasicCommandContext.copy()` partial-class-trim with `CommandContext.copy()` interface declaration
+- [x] Step 11: Delete `BasicCommandContext.copy()` partial-class-trim with `CommandContext.copy()` interface declaration
+  - [x] Context: info
   > **Risk:** medium — interface-implementation atomicity required
   > across 4 files: `BasicCommandContext.java` (delete
   > `copy()` body), `CommandContext.java` (delete the interface-
@@ -1498,6 +1499,74 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   > `BasicCommandContextStandaloneTest.java` (the F9 pin from 22a
   > Step 7) — NOT the whole file (its `setChild`/`getChild`
   > assertions remain live).
+  >
+  > **What was done:** Deleted `CommandContext.copy()` (the
+  > interface declaration in
+  > `internal.core.command.CommandContext`) together with its
+  > only production implementation, `BasicCommandContext.copy()`,
+  > in a single atomic cluster commit. PSI safe-delete preflight
+  > confirmed: the interface method had exactly one override
+  > (`BasicCommandContext.copy()`); its only production reference
+  > was the recursive `child.copy()` self-call inside the method
+  > being deleted; the impl method's only four references were the
+  > four `copy*` test methods in
+  > `BasicCommandContextStandaloneTest` (lines 659/670/681/695:
+  > `copy*RetainsParentReference`, `copy*CarriesScalarVariablesAndChildEntries`,
+  > `copyHandlesNullChildWithoutNpe`, plus one PrimitiveContext-
+  > based regression assertion). Subclass impact (per the step's
+  > Risk block): PSI confirmed `BasicServerCommandContext`,
+  > `TraverseContext`, and the `FilterStepTest.CapturingContext`
+  > test fixture all extend `BasicCommandContext` but declare no
+  > own `copy()` — inherited method removal is safe. Trimmed the
+  > class-level Javadoc reference to the "copy() null-child NPE
+  > pin" on `BasicCommandContextStandaloneTest` and dropped the
+  > now-unused `assertNotSame` static import. Applied via
+  > `steroid_apply_patch` (5 hunks across 3 files, atomic).
+  > Targeted tests: `BasicCommandContextStandaloneTest` 31/31,
+  > `BasicCommandContextTest` 11/11, `FilterStepTest` 15/15 — all
+  > pass. Spotless applied.
+  >
+  > Coverage: cumulative-vs-`origin/develop` gate reports
+  > 68.5% line / 23.4% branch — essentially flat against Step
+  > 10's 69.1%/23.4% (the small line-coverage tick down reflects
+  > a recomputation of the cumulative-changed-line denominator
+  > as the dirty-set re-stabilises; Step 13's regression-test
+  > scope still owns the FetchHelper / ScriptManager /
+  > Jsr223ScriptExecutor lift).
+  >
+  > **What was discovered:** The implementer noted a useful
+  > methodology observation: PSI `ReferencesSearch` on
+  > `CommandContext.copy()` returned one hit at
+  > `BasicCommandContext.java:496`, but inspection revealed that
+  > the hit was the deleted method's own recursive self-call
+  > (`copy.child = child.copy()`), not an external caller. The
+  > "zero call sites" framing in the original step description
+  > was true at cross-symbol scope but not at the literal
+  > reference-count scope. For future delete-only steps with
+  > self-referential methods: a non-zero
+  > `ReferencesSearch` count is not automatically a blocker —
+  > the safe-delete recipe must inspect whether the references
+  > live inside the body being deleted. No impact on remaining
+  > steps; observation captured here for posterity.
+  >
+  > **What changed from the plan:** none. The cluster commit
+  > matched the step file's risk block exactly — same 4-file
+  > scope (CommandContext + BasicCommandContext + the two
+  > subclasses for inherited-method removal verification + the
+  > pin-removal target StandaloneTest), same atomic policy, same
+  > pin-removal limited to the `copy*` test methods within the
+  > StandaloneTest (not the whole file).
+  >
+  > **Key files:**
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/command/CommandContext.java`
+  >   (modified — interface-method declaration removed),
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/command/BasicCommandContext.java`
+  >   (modified — `copy()` body removed),
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/command/BasicCommandContextStandaloneTest.java`
+  >   (modified — four `copy*` test methods removed, class
+  >   Javadoc trimmed, `assertNotSame` static import dropped).
+  >
+  > **Implementer commit:** `24e89238b9`
 
 - [ ] Step 12: License-header normalization end-of-track commit
   > **Risk:** low — mechanical formatting only; no production code
