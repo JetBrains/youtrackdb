@@ -497,7 +497,7 @@ subset; the live subset stays covered by 22a's tests.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (14/18 complete — Step 13 escalated to inline-replan: 5 test-additive commits PASS the line gate at 94.2% but the branch gate stalls at 54.8% due to structurally-dead FetchHelper instanceof arms. User selected alternative B at the escalation prompt; new Step 14 (FetchHelper dead-arm cleanup + absorbed housekeeping) inserted, Step 13 marked [!]. Step 14 first attempt [!] — pacing failure (full coverage build auto-backgrounded; no commit landed). Step 14 retry [!] — second pacing failure (staged coverage invocation also auto-backgrounded; trim itself validated by PSI + 124/124 targeted-test pass but coverage gate not evaluated). Two-Failure Rule fired; user selected ESCALATE → inline-replan. Step 14 work re-decomposed into Step 15 (implementer-owned production trim + targeted-test confirmation; per-step coverage-gate exempted) and Step 16 (orchestrator-owned coverage gate + housekeeping with background-friendly pacing). Step 15 landed commit `75dc2bc46f` (124/124 targeted-test pass; coverage gate deferred to Step 16 per inline-replan exemption). Step 16 next — orchestrator-owned coverage gate + cluster-disposition / coverage-baseline finalization.)
+- [x] Step implementation (16/18 effective — 13 successful steps + 2 `[!]` failed Step 14 attempts + 2 inline-replan substitutes (Step 15 production trim, Step 16 orchestrator-owned coverage gate); 18-step nominal count is preserved by keeping the failed `[!]` rows in-file per Two-Failure Rule audit trail. Step 16 PASSED both axes of the coverage gate (100.0 % line on 43/43 changed lines, 71.4 % branch on 30/42 changed branches; cumulative diff vs `origin/develop`); aggregate end-of-22b coverage 81.4 % line / 71.1 % branch across 173 packages — branch axis exceeds the plan's amended `~70-71 %` target; line axis lands 0.6 pp under the lower bound of the `~82-83 %` target, within the documented limitation per Step 16's outcome decision tree.)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -2301,7 +2301,8 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   > `coverage-baseline.md` + `cluster-disposition.md` Track 22c
   > handoff, not as a Step 16 failure.
 
-- [ ] Step 16: Coverage gate verification + Track 22b end-of-track housekeeping (orchestrator-owned, NO implementer spawn)
+- [x] Step 16: Coverage gate verification + Track 22b end-of-track housekeeping (orchestrator-owned, NO implementer spawn)
+  - [x] Context: safe
   > **Risk:** low — no production code change. Workflow-only step
   > running the staged coverage build with background-friendly
   > pacing and recording outcomes.
@@ -2412,3 +2413,111 @@ new findings (NF1, NF2) absorbed in the iter-2 fix pass.
   > line%/branch% numbers, and the outcome-branch decision. No
   > separate implementer-handoff structure — the orchestrator IS the
   > implementer for this step.
+  >
+  > **What was done:** Orchestrator-owned run with NO implementer
+  > spawn. (1) Staged coverage build:
+  > `./mvnw -pl core test -P coverage -DskipITs` launched with
+  > `run_in_background: true`; ran 11 min 05 s wall, finished
+  > BUILD SUCCESS with **1975 unit tests passed, 0 failed, 13
+  > skipped** plus 11 MT tests passed in the sequential surefire
+  > execution. (2) `./mvnw -pl core jacoco:report@jacoco-report
+  > -P coverage` (1.0 s, foreground) — bound to the configured
+  > `jacoco-report` execution so the `sql/parser/*.class`,
+  > `gql/parser/gen/*.class`, and `api/gremlin/*.class` exclusions
+  > defined in `pom.xml` are applied (a plain `jacoco:report`
+  > invocation as written in the original Step 16 plan §1.b would
+  > NOT apply the exclusions because the plugin-level configuration
+  > and the execution-level configuration are separate — see
+  > "What was discovered" below). Report landed at
+  > `.coverage/reports/youtrackdb-core/jacoco.xml` (10.4 MB,
+  > 1708 classes analysed). (3) Coverage gate:
+  > `python3 .github/scripts/coverage-gate.py --line-threshold 85
+  > --branch-threshold 70 --compare-branch origin/develop
+  > --coverage-dir .coverage/reports/youtrackdb-core` — **PASSED**
+  > at **100.0 % line (43/43) / 71.4 % branch (30/42)** on 625
+  > changed files (the 43 production lines / 42 branches are all
+  > in the single `FetchHelper.java` modified by Step 15; the
+  > other 624 changed files are test-additive and don't carry
+  > production line/branch deltas). (4) Coverage analyzer:
+  > `python3 .github/scripts/coverage-analyzer.py --coverage-dir
+  > .coverage/reports/youtrackdb-core` produced the end-of-22b
+  > per-package table; aggregate **81.4 % line / 71.1 % branch**
+  > across 173 packages (75,176 / 92,385 lines; 32,182 / 45,279
+  > branches). (5) Refreshed `coverage-baseline.md` with a new
+  > "Post-Step-15 Measurement" section (Aggregate Totals tracking
+  > Baseline → Post-Track-7 → Post-Track-22a → Post-Step-15;
+  > denominator note; deletion-lockstep impact narrative; gate
+  > snippet; top-12 remaining uncovered surfaces; full per-package
+  > coverage table). (6) Finalized `cluster-disposition.md` —
+  > filled in commit SHAs for Clusters A–K (11 deletion-lockstep
+  > commits) plus the License-header normalization step
+  > (`b7a66cdd3a`), Step 13 test-additive series
+  > (`da683b27d6` + 4 follow-ups), and Step 15 dead-arm trim
+  > (`75dc2bc46f`); added a "Track 22c handoff items" section
+  > flagging the `pin-maintenance` cluster (5 pins), the
+  > `defer-to-22c` cluster (19 pins), the FetchHelper residual
+  > `requires-deeper-analysis` arms, and the three Track-22a
+  > Phase-C forwarded items. (7) Updated this step file's
+  > Progress section (Step implementation 14/18 → 16/18, all
+  > planned Steps now `[x]` or `[!]`).
+  >
+  > **Outcome:** Gate PASSES on both axes (Step 16 outcome decision
+  > tree branch (a)). The first `[!]` episode's pre-trim
+  > prediction was **58–62 %** post-trim branch coverage; actual
+  > **71.4 %** comfortably clears the 70 % threshold. Track 22b
+  > can proceed to Phase C with no documented limitation needed —
+  > the residual `requires-deeper-analysis` FetchHelper arms
+  > remain as Track 22c handoff candidates per the
+  > `cluster-disposition.md` handoff section, but they are NOT a
+  > gate failure.
+  >
+  > **What was discovered:** A subtle Maven mechanic that the
+  > original Step 16 plan §1.b missed — invoking
+  > `./mvnw -pl core jacoco:report -P coverage` runs the JaCoCo
+  > plugin in **default mode**, using only the `<plugin>`-level
+  > `<configuration>` block. The exclusions for `sql/parser/*`,
+  > `gql/parser/gen/*`, and `api/gremlin/*` live inside the
+  > `<execution id="jacoco-report">` block, which is bound to the
+  > `prepare-package` phase. When the goal is invoked directly,
+  > only the plugin-level config applies; the execution-level
+  > config is NOT picked up unless the goal is invoked with an
+  > execution-id suffix (`jacoco:report@jacoco-report`) or the
+  > full `prepare-package` phase is run. The fallout: the first
+  > attempt at Step 16 §1.b ran a default `jacoco:report` and
+  > produced a report at `core/target/site/jacoco/jacoco.xml`
+  > (Maven plugin default location) containing 2,048 analysed
+  > classes including 340 parser classes; the analyzer reported
+  > 74.1 % line / 63.3 % branch which would have failed the
+  > coverage line target. The corrected invocation
+  > (`jacoco:report@jacoco-report`) wrote the proper report to
+  > `.coverage/reports/youtrackdb-core/jacoco.xml` with 1,708
+  > classes (parser exclusions applied) and produced the correct
+  > 81.4 % / 71.1 % aggregate. Cross-track impact: future tracks
+  > running `jacoco:report` standalone must use the execution-id
+  > suffix to get exclusion-applied measurements.
+  >
+  > **What changed from the plan:** No structural change. Step 16
+  > §1.b ran with the corrected `jacoco:report@jacoco-report` form
+  > rather than the plain `jacoco:report` form the plan called
+  > for — this is a parameter correction, not a scope change.
+  > The Step 15 episode was committed in its own workflow-update
+  > commit during Step 15's sub-step 8 rather than being folded
+  > into Step 16's commit per the original Step 16 §6 instruction;
+  > Step 16's commit therefore covers only Step 16's housekeeping
+  > (`coverage-baseline.md` refresh + `cluster-disposition.md`
+  > finalization + this Step 16 episode + Progress counter
+  > advance). The change is purely commit-organization — the
+  > workflow-commit count is the same (one per step, sub-step 8
+  > timing).
+  >
+  > **Key files:**
+  > - `docs/adr/unit-test-coverage/_workflow/coverage-baseline.md` (appended Post-Step-15 measurement section; +270 lines)
+  > - `docs/adr/unit-test-coverage/_workflow/cluster-disposition.md` (filled cluster commit log + Track 22c handoff items; ~+50 lines)
+  > - `docs/adr/unit-test-coverage/_workflow/tracks/track-22b.md` (Step 16 marked `[x]` + episode + Progress counter advance)
+  >
+  > **Critical context:** The corrected `jacoco:report@jacoco-report`
+  > invocation pattern should be promoted to the project-level
+  > recipe catalogue or to the plan-level constraint #5 — every
+  > track touching coverage should use the execution-id-bound form
+  > to avoid the silent default-config trap. Self-improvement
+  > reflection candidate.

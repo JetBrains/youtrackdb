@@ -352,7 +352,7 @@ Net inventory after the cross-check above:
 
 Final tallies match the inventory totals at the top of this document.
 
-## Cluster commit log (filled in as Steps 1-11 land)
+## Cluster commit log (filled in as Steps 1-15 land)
 
 This section is updated by each cluster commit to mark its disposition as
 `deleted`. 22c reads the updated table to determine which WHEN-FIXED markers
@@ -360,17 +360,61 @@ need YTDB issues and which were resolved in this branch.
 
 | Cluster | Commit SHA | Status |
 |---|---|---|
-| Cluster A — BinaryToken-JWT | (recorded by commit) | deleted |
-| Cluster B — sbtree-singlevalue-v1 | (recorded by commit) | deleted |
-| Cluster C — misc-small-helpers | (recorded by commit) | deleted |
-| Cluster D — narrow-singletons | (recorded by commit) | deleted (3-of-5 sub-targets; CronExpression branch trim and EntityLinkSetImpl partial-trim were re-classified as alive by the Phase B PSI pass — see "Cluster D PSI re-classification" note below) |
-| Cluster E — T2-reclassifications | _pending_ | _pending_ |
-| Cluster F — command-script | _pending_ | _pending_ |
-| Cluster G — query-live-partial | (recorded by commit) | deleted (V1+V2 dead static dispatch entry points + 3 orphan listener interfaces in core/query/; LiveQueryHook.LiveQueryOps + LiveQueryHookV2.{LiveQueryOps,LiveQueryOp,unboxRidbags} preserved per SharedContext / CopyRecordContentBeforeUpdateStep) |
-| Cluster H — fetch-partial | (recorded by commit) | deleted (PSI dead-method subset = `FetchHelper.checkFetchPlanValid` only; the static-helpers pin file was renamed-in-place — kept on disk to cover the live `buildFetchPlan` / `isEmbedded` / `processRecordRidMap` / `removeParsedFromMap` / DEFAULT* surface — its 13 `checkFetchPlanValid` pin tests removed in lockstep) |
-| Cluster I — serialization-scheduler-hygiene | (recorded by commit) | deleted |
-| Cluster J — sql-root-scaffold | _pending_ | _pending_ |
-| Cluster K — basic-command-context-copy | _pending_ | _pending_ |
+| Cluster A — BinaryToken-JWT | `5c89db6b1d` | deleted |
+| Cluster B — sbtree-singlevalue-v1 | `d081289b43` | deleted |
+| Cluster C — misc-small-helpers | `40519a757c` | deleted |
+| Cluster D — narrow-singletons | `be9e341192` | deleted (3-of-5 sub-targets; CronExpression branch trim and EntityLinkSetImpl partial-trim were re-classified as alive by the Phase B PSI pass — see "Cluster D PSI re-classification" note below) |
+| Cluster E — T2-reclassifications | `01d03e5470` | deleted |
+| Cluster F — command-script | `6cf727db8d` | deleted (DatabaseScriptManager retained after PSI re-classification — bind() chain has live ScriptEngineManager callers; see Step 6 episode) |
+| Cluster G — query-live-partial | `c4d6a6d6a4` | deleted (V1+V2 dead static dispatch entry points + 3 orphan listener interfaces in core/query/; LiveQueryHook.LiveQueryOps + LiveQueryHookV2.{LiveQueryOps,LiveQueryOp,unboxRidbags} preserved per SharedContext / CopyRecordContentBeforeUpdateStep) |
+| Cluster H — fetch-partial | `38563169ed` | deleted (PSI dead-method subset = `FetchHelper.checkFetchPlanValid` only; the static-helpers pin file was renamed-in-place — kept on disk to cover the live `buildFetchPlan` / `isEmbedded` / `processRecordRidMap` / `removeParsedFromMap` / DEFAULT* surface — its 13 `checkFetchPlanValid` pin tests removed in lockstep) |
+| Cluster I — serialization-scheduler-hygiene | `41c8203f9e` | deleted |
+| Cluster J — sql-root-scaffold | `325974bf24` (+ `db585e756a` review fix) | deleted (Step 10 pre-upgraded medium→high after A1 escalation; iter-1 review-fix commit `db585e756a` cleaned residual references) |
+| Cluster K — basic-command-context-copy | `24e89238b9` | deleted (interface declaration `CommandContext.copy()` + impl in lockstep with 22b-forwarded shape pin) |
+| License-header normalization (Step 12) | `b7a66cdd3a` | applied (CQ7/TS6 sweep across test files touched in Steps 1–11) |
+| Step 13 — FetchHelper coverage-gate regression tests | `da683b27d6` (+ `d9231f56f9`, `aed18e18f4`, `ad47272483`, `6dbae29d66`, `08799fb449`) | landed test-additive (5 commits; closed line gate at 94.2 % but branch gate stalled at 54.8 % — triggered inline-replan into Step 14) |
+| Step 15 — FetchHelper dead-arm trim | `75dc2bc46f` | applied (5-hunk trim across `processRecordRidMap` / `processFieldTypes` / `process`; drops `MultiCollectionIterator` + `java.lang.reflect.Array` imports; replaces deleted probes with 5–7 line why-comments citing the `EntityImpl.setProperty → PropertyTypeInternal.getTypeByValue → EMBEDDED*.convert` routing chain; 124/124 targeted-test pass; per-step coverage-gate exempted by inline-replan, evaluated at Step 16 instead) |
+
+### Track 22c handoff items
+
+The following items were not deleted in 22b and remain candidates
+for Track 22c (`pin-maintenance` + `defer-to-22c` rows in the
+disposition table above, plus per-step Track-22a Phase-C-forwarded
+items):
+
+- **`pin-maintenance` cluster (5 pins)** — `InternalErrorException`,
+  `EntityHelper`, `RecordVersionHelper`, `EntityComparator`,
+  `SBTreeValue`, `SqlExecutorDeadCodeTest`: pin assertions retuned
+  in 22b without touching production code; 22c may rename the
+  `DeadCode` suffix and either issue a YTDB ticket for live-symbol
+  rewrites or fold the pins into broader coverage tests.
+- **`defer-to-22c` cluster (19 pins)** — production target alive
+  but referenced only by hybrid-policy-blocked consumers (abstract
+  bases with subclasses, SPI services, exception types catchable by
+  external code, etc.). Each pin becomes one YTDB issue + WHEN-FIXED
+  marker rewrite in 22c.
+- **FetchHelper residual `requires-deeper-analysis` arms** —
+  (a) L138 `Iterable.next()==null` after the trim left a hot-path
+  iteration whose null short-circuit only triggers under
+  synthetically-constructed iterator inputs (real database iterators
+  do not return null from `next()`); (b) the `isEmbedded`
+  `!isPersistent` legs around L607 / L619–L620 require either
+  synthetic-property tests or a deeper trim to make the legs
+  reachable. The first `[!]` episode of Step 14 catalogued these
+  arms as `requires-deeper-analysis`; Step 16's outcome decision
+  tree handles them as a documented limitation — the gate passed
+  without needing them (71.4 % branch on the cumulative diff,
+  comfortably above the 70 % threshold).
+- **Track-22a Phase-C forwarded items** —
+  (a) `BasicCommandContext.copy()` partial-class-trim (already
+  consumed by 22b Step 11 / Cluster K commit `24e89238b9`);
+  (b) non-volatile race on
+  `MemoryAndLocalPaginatedEnginesInitializer.initialized` — still
+  defers to 22c as a YTDB issue rather than an in-22b production
+  fix; (c) the `RecordAbstract.dirty` public-field find-by-test
+  workaround documented in the 22a Step 9 episode — Track 22c may
+  consider a pre-issue audit on whether the public `long dirty`
+  field is itself a deletion candidate or needs a guarded setter.
 
 ## Cluster D PSI re-classification (Phase B Step 4)
 
