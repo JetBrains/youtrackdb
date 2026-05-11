@@ -20,7 +20,6 @@
 package com.jetbrains.youtrackdb.internal.core.fetch;
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrackdb.internal.common.collection.MultiCollectionIterator;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -34,7 +33,6 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.JSONSerializerJackson.FormatSettings;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import java.io.IOException;
-import java.lang.reflect.Array;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Map;
@@ -139,10 +137,13 @@ public class FetchHelper {
               && (!(fieldValue instanceof Collection<?>)
                   || ((Collection<?>) fieldValue).isEmpty()
                   || !(((Collection<?>) fieldValue).iterator().next() instanceof Identifiable))
-              && (!fieldValue.getClass().isArray()
-                  || Array.getLength(fieldValue) == 0
-                  || !(Array.get(fieldValue, 0) instanceof Identifiable))
-              && !(fieldValue instanceof MultiCollectionIterator<?>)
+              // Raw Java arrays and MultiCollectionIterator are unreachable here:
+              // EntityImpl.setProperty routes through PropertyTypeInternal.getTypeByValue,
+              // which maps raw arrays to EMBEDDEDLIST and MultiCollectionIterator to
+              // EMBEDDEDLIST/EMBEDDEDMAP, then EMBEDDEDLIST.convert / EMBEDDEDMAP.convert
+              // wrap the value into a typed Collection or Map before storage. The binary
+              // deserializer follows the same path, so a value reaching the fetcher is
+              // always Identifiable / Iterable / Collection / Map.
               && (!(fieldValue instanceof Map<?, ?>)
                   || ((Map<?, ?>) fieldValue).isEmpty()
                   || !(((Map<?, ?>) fieldValue).values().iterator()
@@ -485,9 +486,11 @@ public class FetchHelper {
         || fieldValue == null
         || (!fetch && fieldValue instanceof Identifiable)
         || (!(fieldValue instanceof Identifiable)
-            && (!fieldValue.getClass().isArray()
-                || Array.getLength(fieldValue) == 0
-                || !(Array.get(fieldValue, 0) instanceof Identifiable))
+            // Raw Java arrays are unreachable here: EntityImpl.setProperty routes raw
+            // arrays through PropertyTypeInternal.getTypeByValue -> EMBEDDEDLIST.convert,
+            // which wraps them as typed Collections before storage. The binary
+            // deserializer follows the same path. containsIdentifiers below covers the
+            // remaining identifier-bearing container shapes.
             && !containsIdentifiers(fieldValue))) {
       fetchContext.onBeforeStandardField(fieldValue, fieldName, userObject, fieldType);
     }
@@ -549,9 +552,11 @@ public class FetchHelper {
             && (!(fieldValue instanceof Iterable<?>)
                 || !((Iterable<?>) fieldValue).iterator().hasNext()
                 || !(((Iterable<?>) fieldValue).iterator().next() instanceof Identifiable))
-            && (!fieldValue.getClass().isArray()
-                || Array.getLength(fieldValue) == 0
-                || !(Array.get(fieldValue, 0) instanceof Identifiable))
+            // Raw Java arrays are unreachable here: EntityImpl.setProperty routes raw
+            // arrays through PropertyTypeInternal.getTypeByValue -> EMBEDDEDLIST.convert,
+            // which wraps them as typed Collections before storage. The binary
+            // deserializer follows the same path. containsIdentifiers below covers the
+            // remaining identifier-bearing container shapes.
             && !containsIdentifiers(fieldValue))) {
       fetchContext.onBeforeStandardField(fieldValue, fieldName, userObject,
           PropertyTypeInternal.convertFromPublicType(fieldType));
