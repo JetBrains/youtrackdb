@@ -955,6 +955,67 @@ public class EdgeTraversalCacheTest {
   }
 
   // =========================================================================
+  // anyChildPassesExcluding — Composite fallback helper
+  // =========================================================================
+
+  /**
+   * Excluded type is skipped: an IndexLookup child whose
+   * passesSelectivityCheck would otherwise return true is not consulted,
+   * and the result reflects only the non-excluded children.
+   */
+  @Test
+  public void composite_anyChildPassesExcluding_skipsExcludedType() {
+    var indexLookup = mock(RidFilterDescriptor.IndexLookup.class);
+    when(indexLookup.passesSelectivityCheck(anyInt(), anyInt(), any()))
+        .thenReturn(true); // would pass if consulted
+    var edgeLookup = mock(RidFilterDescriptor.EdgeRidLookup.class);
+    when(edgeLookup.passesSelectivityCheck(anyInt(), anyInt(), any()))
+        .thenReturn(false); // the only non-excluded child fails
+
+    var composite = new RidFilterDescriptor.Composite(
+        List.of(indexLookup, edgeLookup));
+    var ctx = new BasicCommandContext();
+
+    assertThat(composite.anyChildPassesExcluding(
+        RidFilterDescriptor.IndexLookup.class, 100, 1000, ctx)).isFalse();
+    verify(indexLookup, never()).passesSelectivityCheck(
+        anyInt(), anyInt(), any());
+  }
+
+  /**
+   * Non-excluded child that passes its own check makes the composite pass:
+   * the excluded type is skipped, but the remaining child is queried and
+   * its result is honoured.
+   */
+  @Test
+  public void composite_anyChildPassesExcluding_nonExcludedChildPasses() {
+    var indexLookup = mock(RidFilterDescriptor.IndexLookup.class);
+    var edgeLookup = mock(RidFilterDescriptor.EdgeRidLookup.class);
+    when(edgeLookup.passesSelectivityCheck(anyInt(), anyInt(), any()))
+        .thenReturn(true);
+
+    var composite = new RidFilterDescriptor.Composite(
+        List.of(indexLookup, edgeLookup));
+    var ctx = new BasicCommandContext();
+
+    assertThat(composite.anyChildPassesExcluding(
+        RidFilterDescriptor.IndexLookup.class, 100, 1000, ctx)).isTrue();
+  }
+
+  /**
+   * Empty composite returns false regardless of the excluded type — there
+   * are no children to query.
+   */
+  @Test
+  public void composite_anyChildPassesExcluding_empty_returnsFalse() {
+    var composite = new RidFilterDescriptor.Composite(List.of());
+    var ctx = new BasicCommandContext();
+
+    assertThat(composite.anyChildPassesExcluding(
+        RidFilterDescriptor.IndexLookup.class, 100, 1000, ctx)).isFalse();
+  }
+
+  // =========================================================================
   // passesSelectivityCheck — boundary values (ratio=1.0, selectivity=1.0)
   // =========================================================================
 
@@ -2381,6 +2442,46 @@ public class EdgeTraversalCacheTest {
     // The Composite must NOT be rejected — EdgeRidLookup saves it.
     var result = et.resolveWithCache(ctx, LARGE_LINKBAG);
     assertThat(result).isNotNull();
+  }
+
+  /**
+   * Composite fallback after IndexLookup REJECT must NOT consult the
+   * IndexLookup child's own {@code passesSelectivityCheck}. Today the two
+   * thresholds happen to agree, so an implicit any-match over all children
+   * would still give the right answer — but only by coincidence. This
+   * test pathologically forces {@code IndexLookup.passesSelectivityCheck}
+   * to return {@code true} while amortization REJECTs, and the
+   * EdgeRidLookup child to FAIL. The expectation is that the Composite is
+   * skipped, because the only decision that matters at this point is the
+   * non-IndexLookup children's verdicts.
+   */
+  @Test
+  public void resolveWithCache_composite_indexRejectedButPassesCheck_edgeRidFails_skipped() {
+    var et = createEdgeTraversal();
+    var ridSet = singletonRidSet(10, 1);
+
+    // IndexLookup: selectivity 0.98 → amortization REJECT, but force
+    // passesSelectivityCheck to return true (contradicting the threshold).
+    var indexLookup = stubIndexLookup(0.98, 500, "Post.date", ridSet);
+    when(indexLookup.passesSelectivityCheck(anyInt(), anyInt(), any()))
+        .thenReturn(true);
+
+    // EdgeRidLookup: ratio check fails.
+    var edgeLookup = mock(RidFilterDescriptor.EdgeRidLookup.class);
+    when(edgeLookup.estimatedSize(any(), any())).thenReturn(500);
+    when(edgeLookup.cacheKey(any())).thenReturn(new RecordId(10, 1));
+    when(edgeLookup.passesSelectivityCheck(anyInt(), anyInt(), any()))
+        .thenReturn(false);
+
+    var composite = new RidFilterDescriptor.Composite(
+        List.of(indexLookup, edgeLookup));
+    et.setIntersectionDescriptor(composite);
+    var ctx = new BasicCommandContext();
+
+    // Skip: EdgeRidLookup is the only valid non-excluded voter, and it
+    // says no. The IndexLookup's stubbed-true passesSelectivityCheck
+    // must not save the composite.
+    assertThat(et.resolveWithCache(ctx, LARGE_LINKBAG)).isNull();
   }
 
   /**

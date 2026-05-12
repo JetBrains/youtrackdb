@@ -502,10 +502,12 @@ public class EdgeTraversal {
    *       materialization until the total justifies the build cost.
    *       Returns {@code null} without caching when deferred.
    *       For Composites, if the IndexLookup child is REJECTED (high
-   *       selectivity), falls back to {@code passesSelectivityCheck()}
+   *       selectivity), falls back to
+   *       {@code Composite.anyChildPassesExcluding(IndexLookup.class, …)}
    *       to let other children (e.g. EdgeRidLookup) justify the
-   *       pre-filter. DEFER still applies to Composites (build cost
-   *       is shared).</li>
+   *       pre-filter — the just-rejected IndexLookup is deliberately
+   *       excluded from this re-check. DEFER still applies to
+   *       Composites (build cost is shared).</li>
    *   <li><b>First big-enough hit</b> — resolve (materialize) and
    *       cache. The cached RidSet is a pure function of descriptor
    *       parameters.</li>
@@ -562,9 +564,13 @@ public class EdgeTraversal {
     // 4. Descriptor-specific selectivity check against estimate.
     //    Standalone IndexLookup: use checkIndexLookupAmortization().
     //    Composite containing IndexLookup: run the amortization check.
-    //      - On REJECT (selectivity too high): fall back to the Composite's
-    //        passesSelectivityCheck() — other children (e.g. EdgeRidLookup
-    //        for a back-reference) may still make the pre-filter effective.
+    //      - On REJECT (selectivity too high): ask the Composite whether
+    //        any non-IndexLookup child (e.g. EdgeRidLookup for a
+    //        back-reference) still justifies the pre-filter, via
+    //        anyChildPassesExcluding(IndexLookup.class, …). The
+    //        just-rejected IndexLookup is excluded explicitly from this
+    //        re-check, to avoid implicitly relying on its threshold
+    //        agreeing with the amortization threshold.
     //      - On DEFER (amortization not met): respect it — the build cost
     //        applies to the entire Composite.
     //    EdgeRidLookup / DirectRid: delegate to passesSelectivityCheck().
@@ -583,10 +589,16 @@ public class EdgeTraversal {
       if (decision == AmortizationDecision.REJECT && isComposite) {
         // Composite: the IndexLookup child's selectivity is too high,
         // but other children (e.g. EdgeRidLookup for a back-reference)
-        // may still justify the pre-filter. Fall through to the
-        // Composite's passesSelectivityCheck ("any child passes").
+        // may still justify the pre-filter. Ask the Composite whether
+        // any NON-IndexLookup child passes — using the regular
+        // passesSelectivityCheck (any-child anyMatch) would re-include
+        // the just-rejected IndexLookup, which is at best redundant and
+        // at worst incorrect if its threshold ever diverges from the
+        // amortization threshold.
+        var composite = (RidFilterDescriptor.Composite) desc;
         if (estimatedSize >= 0
-            && !desc.passesSelectivityCheck(
+            && !composite.anyChildPassesExcluding(
+                RidFilterDescriptor.IndexLookup.class,
                 estimatedSize, linkBagSize, ctx)) {
           lastSkipReason = PreFilterSkipReason.OVERLAP_RATIO_TOO_HIGH;
           preFilterSkippedCount++;

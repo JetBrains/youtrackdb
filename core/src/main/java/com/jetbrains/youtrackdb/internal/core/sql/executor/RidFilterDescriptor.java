@@ -393,5 +393,38 @@ public sealed interface RidFilterDescriptor {
       }
       return null;
     }
+
+    /**
+     * Returns {@code true} if any child whose type is NOT {@code excludeType}
+     * passes its selectivity check. Used by {@code EdgeTraversal} after the
+     * IndexLookup child was rejected by the amortization guard: at that
+     * point we want to know whether any OTHER child (e.g.
+     * {@link EdgeRidLookup} for a back-reference) still justifies
+     * materialisation. Falling back to {@link #passesSelectivityCheck}
+     * would re-include the just-rejected IndexLookup in the {@code anyMatch}
+     * iteration, which is at best redundant and at worst incorrect if
+     * {@code IndexLookup.passesSelectivityCheck} and the amortization
+     * threshold ever diverge.
+     *
+     * @param excludeType  descriptor type to skip when checking
+     * @param resolvedSize estimated/resolved RidSet size (same value
+     *                     passed to {@link #passesSelectivityCheck})
+     * @param linkBagSize  current vertex's link bag size
+     * @param ctx          command context
+     * @return {@code true} if any non-excluded child passes its check
+     */
+    public boolean anyChildPassesExcluding(
+        Class<? extends RidFilterDescriptor> excludeType,
+        int resolvedSize, int linkBagSize, CommandContext ctx) {
+      for (var d : descriptors) {
+        if (excludeType.isInstance(d)) {
+          continue;
+        }
+        if (d.passesSelectivityCheck(resolvedSize, linkBagSize, ctx)) {
+          return true;
+        }
+      }
+      return false;
+    }
   }
 }
