@@ -693,12 +693,21 @@ public class EdgeTraversal {
   }
 
   /**
-   * Checks IndexLookup selectivity threshold and build amortization guard.
-   * Returns {@link AmortizationDecision#REJECT} when selectivity is too
-   * high (cache null permanently), {@link AmortizationDecision#DEFER}
-   * when the build is not yet amortized (return null without caching),
-   * or {@link AmortizationDecision#PROCEED} when the caller should
-   * fall through to materialize.
+   * Checks IndexLookup selectivity threshold and build amortization guard
+   * with mode-aware trigger.
+   *
+   * <p>On the first vertex this method decides between
+   * {@link Mode#BUILD_EAGER} (materialise from neighbor 1) and
+   * {@link Mode#DEFERRED_WITH_NET} (keep an accumulator with safety-net
+   * trigger {@code T = max(2·forecastN, m)}). The mode is memoized on the
+   * {@link EdgeTraversal} instance for the rest of the execution.
+   *
+   * <p>Returns {@link AmortizationDecision#REJECT} when selectivity is too
+   * high (cache null permanently), {@link AmortizationDecision#DEFER} when
+   * {@link Mode#DEFERRED_WITH_NET} accumulator has not yet crossed
+   * {@code T} (return null without caching), or
+   * {@link AmortizationDecision#PROCEED} when the caller should fall through
+   * to materialise.
    */
   private AmortizationDecision checkIndexLookupAmortization(
       RidFilterDescriptor.IndexLookup indexLookup,
@@ -709,34 +718,61 @@ public class EdgeTraversal {
       indexLookupSelectivity =
           indexLookup.indexDescriptor().estimateSelectivity(ctx);
     }
-    // Accumulate link bag size before evaluating the pure guard — the
-    // stateless helper reads the total and decides based on it.
-    accumulatedLinkBagTotal += linkBagSize;
-    var decision = evaluateIndexLookupAmortization(
-        estimatedSize, indexLookupSelectivity,
-        accumulatedLinkBagTotal, currentLoadToScanRatio());
-    switch (decision) {
-      case REJECT -> {
-        // Class-level selectivity too high — cache null permanently.
-        lastSkipReason = PreFilterSkipReason.SELECTIVITY_TOO_LOW;
-        preFilterSkippedCount++;
-        if (key != null && cache != null && cache.size() < CACHE_CAPACITY) {
-          cache.put(key, null);
-        }
-      }
-      case DEFER -> {
-        // Threshold not yet met — return null WITHOUT caching.
-        // A later vertex may push the accumulated total over.
-        lastSkipReason = PreFilterSkipReason.BUILD_NOT_AMORTIZED;
-        preFilterSkippedCount++;
-        assert key == null || cache == null || !cache.containsKey(key)
-            : "deferred build must not cache null";
-      }
-      case PROCEED -> {
-        /* fall through to caller's materialization step */
-      }
+
+    // Unknown selectivity → PROCEED optimistically (existing behavior,
+    // no mode decision; other guards bound the worst case).
+    if (indexLookupSelectivity < 0) {
+      return AmortizationDecision.PROCEED;
     }
-    return decision;
+
+    // Class-level selectivity too high → REJECT permanently, cache null.
+    if (estimatedSize >= 0
+        && indexLookupSelectivity
+            > TraversalPreFilterHelper.indexLookupMaxSelectivity()) {
+      lastSkipReason = PreFilterSkipReason.SELECTIVITY_TOO_LOW;
+      preFilterSkippedCount++;
+      if (key != null && cache != null && cache.size() < CACHE_CAPACITY) {
+        cache.put(key, null);
+      }
+      return AmortizationDecision.REJECT;
+    }
+
+    // Compute the break-even m for both the mode decision and the
+    // DEFERRED_WITH_NET trigger. Cheap — depends on estimatedSize and the
+    // cached selectivity.
+    double loadToScanRatio = currentLoadToScanRatio();
+    double m = computeMinNeighborsForBuild(
+        estimatedSize, loadToScanRatio, indexLookupSelectivity);
+
+    // Decide mode on first call. forecastN > ceil(m) → BUILD_EAGER, else
+    // DEFERRED_WITH_NET. Absent forecast (-1) falls through to DEFERRED_WITH_NET.
+    if (mode == Mode.UNDETERMINED) {
+      mode = forecastN > (long) Math.ceil(m)
+          ? Mode.BUILD_EAGER
+          : Mode.DEFERRED_WITH_NET;
+    }
+
+    // BUILD_EAGER: materialise on first vertex, no accumulator. Worst-case
+    // loss from a forecast over-estimate is bounded by the one-time build B.
+    if (mode == Mode.BUILD_EAGER) {
+      return AmortizationDecision.PROCEED;
+    }
+
+    // DEFERRED_WITH_NET: accumulate and check the adaptive safety-net
+    // trigger T = max(2·forecastN, m). Absent forecast collapses to f = 0,
+    // so T = m (floor). Triggering near T bounds the excess vs no-prefilter
+    // at ~B per edge.
+    accumulatedLinkBagTotal += linkBagSize;
+    long f = forecastN < 0 ? 0L : forecastN;
+    double trigger = Math.max(2.0 * f, m);
+    if (accumulatedLinkBagTotal < (long) Math.ceil(trigger)) {
+      lastSkipReason = PreFilterSkipReason.BUILD_NOT_AMORTIZED;
+      preFilterSkippedCount++;
+      assert key == null || cache == null || !cache.containsKey(key)
+          : "deferred build must not cache null";
+      return AmortizationDecision.DEFER;
+    }
+    return AmortizationDecision.PROCEED;
   }
 
   /**
