@@ -47,7 +47,7 @@ import org.junit.Test;
  * deferred-cleanup track should harmonise the two paths — the recommended fix is
  * to validate in both overloads and throw the same {@link IllegalArgumentException}.
  *
- * <p>WHEN-FIXED: deferred-cleanup track — once the {@code byte[]} overload is
+ * <p>WHEN-FIXED: YTDB-724 — once the {@code byte[]} overload is
  * updated to validate the version byte and throw a typed exception with a message,
  * remove the {@link ArrayIndexOutOfBoundsException} expectation below and replace
  * it with the {@link IllegalArgumentException} expectation that matches the other

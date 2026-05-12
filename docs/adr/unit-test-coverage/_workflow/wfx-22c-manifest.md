@@ -111,7 +111,7 @@ Security-Type override rule.
   - Multi-line Javadoc, file `TokenSignImplTest.java`, lines **220–267** (entire `/** … */` block above `readKeyFromConfigIgnoresConfiguredSecretKeyLatentBugPin`).
   - Multi-line `//` block, file `TokenSignImplTest.java`, lines **292–294**.
 - **What to flip when fixed:** `assertThat(crossVerified).isFalse();` at line 295 must flip to `.isTrue()`.
-- **YTDB-ID:** _(filled by Step 2)_
+- **YTDB-ID:** YTDB-723
 
 #### S2. `RecordSerializerBinaryV1.deserializeEmbeddedAsDocument` insecure deserialization
 
@@ -120,7 +120,7 @@ Security-Type override rule.
 - **Test file + lines:** `core/src/test/java/com/jetbrains/youtrackdb/internal/core/serialization/serializer/record/binary/RecordSerializerBinaryVersionByteAsymmetryTest.java:50` (Javadoc block surrounding L50). Block locators: lines **30–60** (Javadoc above test).
 - **Anchor quote (L50):** ` * <p>WHEN-FIXED: deferred-cleanup track — once the {@code byte[]} overload is`
 - **What to flip when fixed:** the test's asymmetry pin (around the V1 vs V0 byte path) flips to a parity assertion. Step 4 implementer extracts the exact line at issue-creation time.
-- **YTDB-ID:** _(filled by Step 2)_
+- **YTDB-ID:** YTDB-724
 
 > Note: the `RecordSerializerBinaryVersionByteAsymmetryTest:50` block is
 > security-typed because the underlying bug class is **insecure
@@ -136,7 +136,7 @@ Security-Type override rule.
 - **Test file + lines:** none currently in `core/src/test/` (the pin's existing markers were absorbed into S2's anchor file). Step 2 implementer **confirms via PSI** before opening the issue; if no test currently pins the bug, the issue body cites the production-code locations on `EntitySerializerDelta` directly + a regression-test placeholder note.
 - **Anchor quote:** n/a (no current marker; production-code-referenced issue).
 - **What to flip when fixed:** add a length-prefix validation + bounded-loop regression test alongside the production fix.
-- **YTDB-ID:** _(filled by Step 2)_
+- **YTDB-ID:** YTDB-725 — no markers; production-code-referenced (confirmed at Step 2 re-grep: `EntitySerializerDeltaRoundTripTest.java:109` carries a bare `WHEN-FIXED —` Javadoc reference WITHOUT a Track 22 / deferred-cleanup-track token, so it is not a rewrite target).
 
 > Note: Step 2 implementer **must verify** via a targeted grep before
 > opening this issue. If markers do exist (e.g., embedded in
@@ -150,7 +150,7 @@ Security-Type override rule.
 - **Test file + lines:** none directly pinned in `core/src/test/`; issue body cites the production AIOOBE + log-Base64 sites on `RecordSerializerBinary.fromStream(byte[])`.
 - **Anchor quote:** n/a.
 - **What to flip when fixed:** regression test for malformed-input handling + bounded log-message length.
-- **YTDB-ID:** _(filled by Step 2)_
+- **YTDB-ID:** YTDB-726 — no markers; production-code-referenced (confirmed at Step 2 re-grep: no `WHEN-FIXED` markers in any test file reference `RecordSerializerBinary.fromStream(byte[])` directly; the asymmetry is pinned by YTDB-724's test).
 
 #### S5. `MapTransformer` null-handling NPE asymmetry (defensive-deserialization)
 
@@ -164,7 +164,7 @@ Security-Type override rule.
 - **Anchor quote (L103):** `   * <p>WHEN-FIXED: Track 22 — add null-guard in`
 - **Block locators:** lines **95–113** (Javadoc above `transformMapWithNullValueThrowsNpe`); single-line at L115; lines **120–135** (Javadoc above `transformIterableContainingNullThrowsNpe`); single-line at L138.
 - **What to flip when fixed:** the test's NPE assertions flip to defensive-null pass-through.
-- **YTDB-ID:** _(filled by Step 2)_
+- **YTDB-ID:** YTDB-727 — **downgraded at Step 2 from `Type=Security Problem` to `Type=Bug, Priority=Normal`.** Re-reading the test source, the bug is a straightforward defensive-NPE fix in a Polyglot script-result transformer running against admin-context script output, with no realistic untrusted-input path or CWE mapping. Per the Step 2 brief's hedge ("If on re-reading the manifest entry and the test source the MapTransformer pin reads more like a defensive-NPE Bug than a security issue, downgrade to `Type: Bug, Priority: Normal`"), downgraded.
 
 > Reclassification rationale (Step 1): user-controlled null values
 > reaching `MapTransformer.doesHandleResult` constitute a defensive-

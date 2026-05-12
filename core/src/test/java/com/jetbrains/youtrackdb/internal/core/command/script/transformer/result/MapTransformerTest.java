@@ -100,7 +100,7 @@ public class MapTransformerTest extends TestUtilsFixture {
    * so Track 22's hardening (either a null guard before {@code doesHandleResult} or a
    * null-guard inside {@code doesHandleResult} itself) is a deliberate, visible change.
    *
-   * <p>WHEN-FIXED: Track 22 — add null-guard in
+   * <p>WHEN-FIXED: YTDB-727 — add null-guard in
    * {@code ScriptTransformerImpl.doesHandleResult} OR guard the lambda before calling it.
    * Once fixed, this test should be re-pinned to assert the new null-passthrough contract
    * (the null value is set verbatim, {@code result.hasProperty("maybe") && getProperty ==
@@ -112,7 +112,7 @@ public class MapTransformerTest extends TestUtilsFixture {
     input.put("maybe", null);
 
     assertThrows(
-        "null value currently NPEs via doesHandleResult(null).getClass() — WHEN-FIXED: Track 22",
+        "null value currently NPEs via doesHandleResult(null).getClass() — WHEN-FIXED: YTDB-727",
         NullPointerException.class,
         () -> mapTransformer.transform(session, input));
   }
@@ -126,7 +126,7 @@ public class MapTransformerTest extends TestUtilsFixture {
    * test and {@link #transformMapWithNullValueThrowsNpe} consistently. If only one is fixed,
    * the asymmetry is caught.
    *
-   * <p>WHEN-FIXED: Track 22 — same fix as {@link #transformMapWithNullValueThrowsNpe} (null
+   * <p>WHEN-FIXED: YTDB-727 — same fix as {@link #transformMapWithNullValueThrowsNpe} (null
    * guard in {@code toResult} or {@code doesHandleResult}).
    */
   @Test
@@ -135,7 +135,7 @@ public class MapTransformerTest extends TestUtilsFixture {
     input.put("items", Arrays.asList("a", null, "c"));
 
     assertThrows(
-        "null element in iterable NPEs via toResult(db, null).getClass() — WHEN-FIXED: Track 22",
+        "null element in iterable NPEs via toResult(db, null).getClass() — WHEN-FIXED: YTDB-727",
         NullPointerException.class,
         () -> mapTransformer.transform(session, input));
   }

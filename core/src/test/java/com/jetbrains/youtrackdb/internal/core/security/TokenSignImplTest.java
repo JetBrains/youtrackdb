@@ -259,7 +259,7 @@ public class TokenSignImplTest {
    * Tokens cannot be verified across server restarts or across servers in a cluster
    * regardless of operator configuration.
    *
-   * <p>WHEN-FIXED: Track 22 — fix the readKeyFromConfig nesting so the configured
+   * <p>WHEN-FIXED: YTDB-723 — fix the readKeyFromConfig nesting so the configured
    * secret key is honoured (e.g., flatten to a single conditional that decodes when
    * {@code configKey} is non-null and non-empty). Once fixed, this test’s
    * cross-instance verification must succeed; flip the .isFalse() assertion below
@@ -289,7 +289,7 @@ public class TokenSignImplTest {
     final var crossVerified = signB.verifyTokenSign(
         new ParsedToken(stubToken(header), payload, signatureFromA));
 
-    // WHEN-FIXED: Track 22 — once readKeyFromConfig honours the configured
+    // WHEN-FIXED: YTDB-723 — once readKeyFromConfig honours the configured
     // secret key, this assertion must flip from .isFalse() to .isTrue() because
     // signA and signB will share the same underlying HMAC key.
     assertThat(crossVerified).isFalse();
