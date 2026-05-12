@@ -51,7 +51,7 @@ import org.junit.Test;
  * {@code DatabaseSessionEmbedded} with vertex/edge classes, and exercising them here would
  * duplicate {@code GraphRecoveringTest}; pin them via reflection only.
  *
- * <p>WHEN-FIXED: deferred-cleanup track — delete {@link GraphRepair} together with this
+ * <p>WHEN-FIXED: YTDB-770 — delete {@link GraphRepair} together with this
  * test file and {@code GraphRecoveringTest} (or retarget {@code GraphRecoveringTest} at
  * the storage-IT layer where the equivalent recovery is already exercised).
  *

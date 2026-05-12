@@ -71,7 +71,7 @@ import org.junit.Test;
  *       the membership invariant rather than line ordering).</li>
  * </ul>
  *
- * <p>WHEN-FIXED: Track 22 — delete {@link CollectionSelectionFactory#getStrategy(String)} and
+ * <p>WHEN-FIXED: YTDB-771 — delete {@link CollectionSelectionFactory#getStrategy(String)} and
  * the {@code registerStrategy()} SPI loop together with the {@code "balanced"} and
  * {@code "default"} entries in the SPI service file. The factory class itself stays only if a
  * future caller of {@code getCollectionSelectionFactory()} needs it; otherwise, the whole class

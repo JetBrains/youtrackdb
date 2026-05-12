@@ -46,7 +46,7 @@ import org.junit.Test;
  * <p>Each {@code @Test} below is its own atomic pin so that Track 22 can delete one method at a
  * time without breaking unrelated assertions.
  *
- * <p>WHEN-FIXED: Track 22 — delete each method below from {@link SymmetricKey} after the
+ * <p>WHEN-FIXED: YTDB-772 — delete each method below from {@link SymmetricKey} after the
  * associated dead consumer is removed. Deletion order:
  * <ul>
  *   <li>Drop {@link SymmetricKeyCI} → delete {@code setDefaultCipherTransform},

@@ -30,7 +30,7 @@ import org.junit.Test;
  * {@link SqlExecutorDeadCodeTest}) because those dead-code pins run standalone and we want the
  * live-session exercise in a {@link com.jetbrains.youtrackdb.internal.DbTestBase}-backed suite.
  *
- * <p>WHEN-FIXED: Track 22 — delete {@link TraverseResult}. These tests will be deleted alongside
+ * <p>WHEN-FIXED: YTDB-765 — delete {@link TraverseResult}. These tests will be deleted alongside
  * the class; the dead-code pins in {@link SqlExecutorDeadCodeTest} are the primary markers for
  * the removal.
  */

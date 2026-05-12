@@ -25,7 +25,7 @@ import org.mockito.Mockito;
  * but accumulates a stale listener per test method; serialising the test class avoids
  * racing the engines-manager listener iteration with parallel surefire workers.
  *
- * <p>WHEN-FIXED: deferred-cleanup track — either delete the entire {@link DatabasePoolAbstract}
+ * <p>WHEN-FIXED: YTDB-769 — either delete the entire {@link DatabasePoolAbstract}
  * surface (one dead subclass + one test subclass, the cheaper option) or unregister the
  * listener inside {@code close()} so this annotation can be removed.
  */

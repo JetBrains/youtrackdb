@@ -42,7 +42,7 @@ import org.junit.Test;
  * exercises the constructor's three-branch dispatch ({@code key}, {@code keyFile},
  * {@code keyStore}) plus the missing-required-field guards.
  *
- * <p>WHEN-FIXED: Track 22 — delete {@link UserSymmetricKeyConfig}.
+ * <p>WHEN-FIXED: YTDB-772 — delete {@link UserSymmetricKeyConfig}.
  */
 public class UserSymmetricKeyConfigDeadCodeTest {
 
@@ -240,7 +240,7 @@ public class UserSymmetricKeyConfigDeadCodeTest {
   // an unrecognised properties map should be SecurityException with a
   // diagnostic message.
   //
-  // WHEN-FIXED: Track 22 — either delete UserSymmetricKeyConfig outright (the
+  // WHEN-FIXED: YTDB-772 — either delete UserSymmetricKeyConfig outright (the
   // class is dead-pinned in this test) or, if the production fix lands first,
   // replace this test's assertThrows(NullPointerException.class, ...) with
   // assertThrows(SecurityException.class, ...) and assert the message mentions
@@ -258,7 +258,7 @@ public class UserSymmetricKeyConfigDeadCodeTest {
       new UserSymmetricKeyConfig(config);
       fail("unrecognised properties keys must currently NPE on the dead-code path");
     } catch (NullPointerException expected) {
-      // Pin the current observable. WHEN-FIXED: Track 22 — flip to
+      // Pin the current observable. WHEN-FIXED: YTDB-772 — flip to
       // SecurityException once the constructor either rejects the unrecognised
       // input cleanly or the class is deleted outright.
       // No message assertion: NPE diagnostic depends on the JVM.

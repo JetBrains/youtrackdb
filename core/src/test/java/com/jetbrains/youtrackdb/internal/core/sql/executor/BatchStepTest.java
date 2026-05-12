@@ -232,7 +232,7 @@ public class BatchStepTest extends TestUtilsFixture {
    * future hardening (reject 0 in the constructor, or treat 0 as "no commit") forces updating
    * this test.
    *
-   * <p>WHEN-FIXED: Track 22 — either reject {@code batchSize == 0} at constructor time with a
+   * <p>WHEN-FIXED: YTDB-753 — either reject {@code batchSize == 0} at constructor time with a
    * descriptive {@link IllegalArgumentException}, or re-interpret 0 as "never commit" (matching
    * the dead-code "no batch" semantics in {@code SQLBatch.evaluate}).
    */

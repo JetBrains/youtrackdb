@@ -54,7 +54,7 @@ import org.junit.experimental.categories.Category;
  * <p>The configuration slot value is restored in {@code @After} so the JVM-global state goes
  * back to the surefire-fork baseline.
  *
- * <p>WHEN-FIXED: Track 22 — delete {@link SecurityManager#newCredentialInterceptor()} together
+ * <p>WHEN-FIXED: YTDB-772 — delete {@link SecurityManager#newCredentialInterceptor()} together
  * with {@link GlobalConfiguration#CLIENT_CREDENTIAL_INTERCEPTOR}, {@link CredentialInterceptor}
  * (the SPI), {@link DefaultCI} (the no-op default), and the dead Kerberos / SymmetricKey CI
  * implementations.

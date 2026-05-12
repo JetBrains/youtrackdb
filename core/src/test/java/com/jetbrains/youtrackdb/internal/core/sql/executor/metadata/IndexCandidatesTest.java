@@ -262,7 +262,7 @@ public class IndexCandidatesTest {
   @Test
   public void multipleGetNameConcatenatesLastCandidateWithPipe() {
     // Pinning the current behavior: only the LAST candidate's name is used because the loop
-    // overwrites `name` on every iteration. WHEN-FIXED: Track 22 may replace the loop with a
+    // overwrites `name` on every iteration. WHEN-FIXED: YTDB-767 may replace the loop with a
     // proper join and strip the trailing "|". Flipping the assertion to `.equals("idx|idx2|")`
     // would be the fix-target contract.
     var m = new MultipleIndexCanditate();

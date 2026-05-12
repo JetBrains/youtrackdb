@@ -50,7 +50,7 @@ import org.junit.Test;
  * constructor signatures, and the inherited type vector via {@link Class}-level reflection
  * catches deletion / rename / signature drift without touching engines-manager state.
  *
- * <p>WHEN-FIXED: deferred-cleanup track — delete this abstract class together with this
+ * <p>WHEN-FIXED: YTDB-769 — delete this abstract class together with this
  * test file once {@link DatabasePoolBase} is deleted. The eviction logic in this base
  * (the inner {@code Evictor} class) is duplicated by {@link DatabasePoolImpl}'s eviction
  * path; the deferred-cleanup track may either (a) consolidate both into one impl, or

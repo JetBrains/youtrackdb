@@ -258,14 +258,14 @@ public class SecurityManagerTest {
     // verifyUnderSha256 must become false because the cache miss forces a real
     // PBKDF2-SHA256 computation that does not match the SHA1-derived hash.
     //
-    // WHEN-FIXED: Track 22 — once the cache key includes the algorithm, this
+    // WHEN-FIXED: YTDB-776 — once the cache key includes the algorithm, this
     // assertion must be flipped from .isTrue() to .isFalse().
     final var pwd = "shared-pwd-" + System.nanoTime();
     final var sha1Hash =
         SecurityManager.createHashWithSalt(pwd, 100, SecurityManager.PBKDF2_ALGORITHM);
     final boolean verifyUnderSha256 = SecurityManager.checkPasswordWithSalt(
         pwd, sha1Hash, SecurityManager.PBKDF2_SHA256_ALGORITHM);
-    // WHEN-FIXED: Track 22 — flip to .isFalse() once SALT_CACHE keys include the algorithm.
+    // WHEN-FIXED: YTDB-776 — flip to .isFalse() once SALT_CACHE keys include the algorithm.
     assertThat(verifyUnderSha256).isTrue();
   }
 
@@ -278,7 +278,7 @@ public class SecurityManagerTest {
     // observable so a future production fix that wraps NumberFormatException into
     // IllegalArgumentException flips the assertion type and signals the change.
     //
-    // WHEN-FIXED: Track 22 — wrap NumberFormatException as IllegalArgumentException;
+    // WHEN-FIXED: YTDB-776 — wrap NumberFormatException as IllegalArgumentException;
     // change the .isInstanceOf(NumberFormatException.class) below to
     // .isInstanceOf(IllegalArgumentException.class).
     assertThatThrownBy(

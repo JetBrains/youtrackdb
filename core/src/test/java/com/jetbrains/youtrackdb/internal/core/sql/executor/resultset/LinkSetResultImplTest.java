@@ -233,7 +233,7 @@ public class LinkSetResultImplTest {
   }
 
   /**
-   * WHEN-FIXED: Track 22 — {@code LinkSetResultImpl.equals(Object)} delegates to {@code
+   * WHEN-FIXED: YTDB-756 — {@code LinkSetResultImpl.equals(Object)} delegates to {@code
    * super.equals(obj)} ({@code Object.equals}) instead of {@code set.equals(obj)}. As a result,
    * two distinct instances with identical contents are never equal, even though both pass the
    * {@code instanceof Set} check. Flip the final-line delegation to {@code set.equals(obj)}.
@@ -253,7 +253,7 @@ public class LinkSetResultImplTest {
   }
 
   /**
-   * WHEN-FIXED: Track 22 — same defect as above; equality against a plain {@link Set} (here an
+   * WHEN-FIXED: YTDB-756 — same defect as above; equality against a plain {@link Set} (here an
    * immutable {@code Set.of(...)}) with identical contents also returns false. A fixed
    * implementation would return true (Set equality is order-independent).
    */

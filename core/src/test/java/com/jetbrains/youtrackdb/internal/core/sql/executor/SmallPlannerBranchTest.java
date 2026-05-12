@@ -75,7 +75,7 @@ public class SmallPlannerBranchTest extends TestUtilsFixture {
    * {@code handleResultForReturnBefore}, {@code CopyRecordContentBeforeUpdateStep},
    * {@code UnwrapPreviousValueStep}) are therefore unreachable via valid SQL.
    *
-   * <p>WHEN-FIXED: Track 22 — remove the {@code returnBefore} field and its dependent branches
+   * <p>WHEN-FIXED: YTDB-758 — remove the {@code returnBefore} field and its dependent branches
    * from {@link UpdateExecutionPlanner} (plus the now-dead {@code UnwrapPreviousValueStep} and
    * {@code CopyRecordContentBeforeUpdateStep}) once the parser reject is preserved as the only
    * contract.
@@ -208,7 +208,7 @@ public class SmallPlannerBranchTest extends TestUtilsFixture {
    * to overwrite earlier ones. A single CONTENT block is the supported form; multi-CONTENT is
    * effectively "use the last one".
    *
-   * <p>WHEN-FIXED: Track 22 — decide whether multi-CONTENT should produce N records (matching
+   * <p>WHEN-FIXED: YTDB-758 — decide whether multi-CONTENT should produce N records (matching
    * the {@code tot} record-count that {@code handleCreateRecord} already computes) or be
    * rejected at parse time.
    */

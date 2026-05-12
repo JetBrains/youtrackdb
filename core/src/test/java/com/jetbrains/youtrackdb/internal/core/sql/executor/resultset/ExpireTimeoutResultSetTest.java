@@ -89,7 +89,7 @@ public class ExpireTimeoutResultSetTest extends TestUtilsFixture {
   }
 
   /**
-   * WHEN-FIXED: Track 22 — {@link ExpireResultSet#fail} is reachable repeatedly while the
+   * WHEN-FIXED: YTDB-755 — {@link ExpireResultSet#fail} is reachable repeatedly while the
    * timeout remains in the past, so the callback fires multiple times (once per hasNext /
    * next call). The sticky {@code timedOut} flag only guards the return path, not the
    * callback. Tests should observe idempotent timeout reporting (callback fires at most
@@ -190,7 +190,7 @@ public class ExpireTimeoutResultSetTest extends TestUtilsFixture {
   }
 
   /**
-   * WHEN-FIXED: Track 22 — {@link TimeoutResultSet#next} re-fires the timeout callback
+   * WHEN-FIXED: YTDB-755 — {@link TimeoutResultSet#next} re-fires the timeout callback
    * on every next() call after the threshold, because the totalTime check runs before the
    * timedOut guard. If a caller ignores hasNext and invokes next repeatedly, the callback
    * is called once per call. Mirrors the ExpireResultSet repeat-fire WHEN-FIXED pin. The

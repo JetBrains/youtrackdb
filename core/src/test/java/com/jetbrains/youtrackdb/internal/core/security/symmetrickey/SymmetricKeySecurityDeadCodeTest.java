@@ -48,7 +48,7 @@ import org.junit.Test;
  * {@code authenticate(session, name, pwd)}, and the deletion-time invariants on the constructor
  * delegate field — all without requiring a database session.
  *
- * <p>WHEN-FIXED: Track 22 — delete {@link SymmetricKeySecurity}.
+ * <p>WHEN-FIXED: YTDB-772 — delete {@link SymmetricKeySecurity}.
  */
 public class SymmetricKeySecurityDeadCodeTest {
 

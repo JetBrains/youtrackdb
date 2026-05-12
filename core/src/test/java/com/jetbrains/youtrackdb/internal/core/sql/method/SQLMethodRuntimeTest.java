@@ -257,7 +257,7 @@ public class SQLMethodRuntimeTest extends DbTestBase {
 
   @Test
   public void setParametersEvaluateFalseIsDeadFlagBugPin() {
-    // WHEN-FIXED: Track 22 — SQLMethodRuntime.setParameters (production lines 193–230) accepts
+    // WHEN-FIXED: YTDB-763 — SQLMethodRuntime.setParameters (production lines 193–230) accepts
     // an `iEvaluate` boolean but NEVER consults it — the body has no `if (iEvaluate)` guard,
     // unlike the sibling SQLFunctionRuntime.setParameters (which DOES guard). Two valid fixes:
     // (a) wire the flag so `iEvaluate=false` skips the SQLHelper.parseValue conversion,

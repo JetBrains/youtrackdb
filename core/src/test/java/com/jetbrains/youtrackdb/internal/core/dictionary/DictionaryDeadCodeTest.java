@@ -45,7 +45,7 @@ import org.junit.Test;
  *       {@code getIndex()} returns the wrapped index and is the only non-throwing method).
  * </ul>
  *
- * <p>WHEN-FIXED: deferred-cleanup track — delete this test file in the same commit that
+ * <p>WHEN-FIXED: YTDB-774 — delete this test file in the same commit that
  * removes the {@code core/dictionary} package per the cluster-classification table row
  * "core/dictionary" in {@code track-22a.md}.
  */

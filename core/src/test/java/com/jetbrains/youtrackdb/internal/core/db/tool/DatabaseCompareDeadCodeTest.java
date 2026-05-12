@@ -53,7 +53,7 @@ import org.junit.Test;
  * structural shape (modifiers, signatures, declared field set). A behavioral pin would
  * require two live databases and would duplicate work the existing tests already do.
  *
- * <p>WHEN-FIXED: deferred-cleanup track — delete {@link DatabaseCompare} together with this
+ * <p>WHEN-FIXED: YTDB-770 — delete {@link DatabaseCompare} together with this
  * test file. Retargeting contingency: the 11 test files listed below either get deleted
  * outright (if the equivalence check is no longer needed) or migrate to a test-commons
  * helper modeled on {@link com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper#hasSameContentOf}

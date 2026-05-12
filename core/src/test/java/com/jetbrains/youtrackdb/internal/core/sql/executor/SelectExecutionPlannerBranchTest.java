@@ -169,7 +169,7 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
       session.query("select from :target", params).close();
       Assert.fail("Expected CommandExecutionException for non-Identifiable in iterable");
     } catch (CommandExecutionException e) {
-      // WHEN-FIXED: Track 22 — fix typo "colleciton" → "collection" in
+      // WHEN-FIXED: YTDB-759 — fix typo "colleciton" → "collection" in
       // SelectExecutionPlanner.handleInputParamAsTarget error message. This assertion
       // must fail once the production message is corrected, so the Track 22 fix forces
       // updating this test to assert the correctly spelled "collection" (and to drop
@@ -397,7 +397,7 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
       // every row), (b) duplicated the stream per row (all cnt==3), or (c) lost the
       // first-row materialization (all cnt==0) would be caught.
       //
-      // WHEN-FIXED: Track 22 — evaluate whether the stream-exhaustion behavior is a bug
+      // WHEN-FIXED: YTDB-759 — evaluate whether the stream-exhaustion behavior is a bug
       // (semantically, a global-LET reference should see the same size() across rows) or
       // an accepted quirk. If fixed to return 3 per row, delete this pin and replace with
       // `assertEquals(3L, cnt)` per row.
@@ -669,7 +669,7 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
       session.query("select from :target", params).close();
       Assert.fail("Expected CommandExecutionException when mid-iteration element is bad");
     } catch (CommandExecutionException e) {
-      // WHEN-FIXED: Track 22 — fix typo "colleciton" → "collection". This assertion
+      // WHEN-FIXED: YTDB-759 — fix typo "colleciton" → "collection". This assertion
       // must fail once production is corrected, forcing the Track 22 fix to update the
       // test to assert the correctly spelled "collection".
       Assert.assertTrue(

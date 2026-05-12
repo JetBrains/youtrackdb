@@ -55,7 +55,7 @@ import org.mockito.Mockito;
  *       — pinning the delegation prevents a silent rewrite that loses formatting parity.
  * </ul>
  *
- * <p>WHEN-FIXED: deferred-cleanup track — delete this class together with this test file.
+ * <p>WHEN-FIXED: YTDB-775 — delete this class together with this test file.
  * The replacement homogeneity-tracking logic now lives inside the typed-collection wrappers
  * in {@code db/record/} and does not need a top-level helper.
  *

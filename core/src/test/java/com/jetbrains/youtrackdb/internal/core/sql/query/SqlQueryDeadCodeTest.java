@@ -119,7 +119,7 @@ public class SqlQueryDeadCodeTest {
 
   @Test
   public void concurrentLegacyResultSetIsUnusedOutsideTestsAndCanBeConstructedEmpty() {
-    // WHEN-FIXED: Track 22 — delete ConcurrentLegacyResultSet entirely. No remaining call sites
+    // WHEN-FIXED: YTDB-766 — delete ConcurrentLegacyResultSet entirely. No remaining call sites
     // in core/src/main. Pin construction + setCompleted unblocks the waitForCompletion gate so
     // a future reader can confirm the contract before removal.
     var rs = new ConcurrentLegacyResultSet<String>();
@@ -149,7 +149,7 @@ public class SqlQueryDeadCodeTest {
 
   @Test
   public void concurrentLegacyResultSetIteratorNextAfterExhaustionThrowsIndexOutOfBounds() {
-    // WHEN-FIXED: Track 22 — ConcurrentLegacyResultSet's anonymous iterator has the same
+    // WHEN-FIXED: YTDB-766 — ConcurrentLegacyResultSet's anonymous iterator has the same
     // strict-`>` guard bug as BasicLegacyResultSet.iterator (see
     // BasicLegacyResultSetTest#iteratorNextOnExhaustedIteratorThrowsIndexOutOfBoundsNotNoSuchElement).
     // The guard at production line 225 is `if (index > size || size == 0)` but after a single
@@ -176,7 +176,7 @@ public class SqlQueryDeadCodeTest {
 
   @Test
   public void concurrentLegacyResultSetCopyIsCompletedAndIndependent() {
-    // WHEN-FIXED: Track 22 — the copy() path wraps the inner BasicLegacyResultSet.copy() in a
+    // WHEN-FIXED: YTDB-766 — the copy() path wraps the inner BasicLegacyResultSet.copy() in a
     // fresh ConcurrentLegacyResultSet and forces completed=true. Pin independence: mutating
     // the source after copy must not affect the copy's size().
     var rs = new ConcurrentLegacyResultSet<Integer>();
@@ -269,7 +269,7 @@ public class SqlQueryDeadCodeTest {
 
   @Test
   public void concurrentLegacyResultSetLastIndexOfAlwaysReturnsZero() {
-    // WHEN-FIXED: Track 22 — ConcurrentLegacyResultSet.lastIndexOf always returns 0,
+    // WHEN-FIXED: YTDB-766 — ConcurrentLegacyResultSet.lastIndexOf always returns 0,
     // regardless of contents or argument. This is almost certainly a stub (the sibling
     // indexOf throws UOE). Pin the stub so deletion is explicit rather than a silent
     // contract change.
@@ -382,7 +382,7 @@ public class SqlQueryDeadCodeTest {
 
   @Test
   public void liveLegacyResultSetSizeThrowsUnsupported() {
-    // WHEN-FIXED: Track 22 — delete LiveLegacyResultSet. Its size() throws UOE, making it an
+    // WHEN-FIXED: YTDB-766 — delete LiveLegacyResultSet. Its size() throws UOE, making it an
     // intentionally-crippled queue wrapper. Pin the UOE.
     var rs = new LiveLegacyResultSet<String>();
     assertUoe("size()", rs::size);
@@ -415,7 +415,7 @@ public class SqlQueryDeadCodeTest {
 
   @Test
   public void liveLegacyResultSetIteratorNextPropagatesInterrupt() throws Exception {
-    // WHEN-FIXED: Track 22 — LiveLegacyResultSet.iterator().next() catches
+    // WHEN-FIXED: YTDB-766 — LiveLegacyResultSet.iterator().next() catches
     // InterruptedException, calls setCompleted(), re-interrupts the thread, and returns null.
     // Without this test the `catch (InterruptedException)` branch at production lines 83–87 is
     // entirely unexercised. Pin the branch on a helper thread so the main test thread keeps
@@ -484,7 +484,7 @@ public class SqlQueryDeadCodeTest {
   @Test
   public void liveLegacyResultSetSetCompletedDoesNotFlipCompletedFlagButCompleteDoes()
       throws Exception {
-    // WHEN-FIXED: Track 22 — the override setCompleted() on LiveLegacyResultSet has its
+    // WHEN-FIXED: YTDB-766 — the override setCompleted() on LiveLegacyResultSet has its
     // `completed = true;` line commented out. The public complete() method is the one that
     // actually sets the flag. The `completed` field is declared protected volatile on the
     // parent, and LiveLegacyResultSet is in the same package as this test — BUT `completed`
@@ -647,7 +647,7 @@ public class SqlQueryDeadCodeTest {
 
   @Test
   public void liveLegacyResultSetSetLimitReturnsNull() {
-    // WHEN-FIXED: Track 22 — LiveLegacyResultSet.setLimit returns null (annotated @Nullable).
+    // WHEN-FIXED: YTDB-766 — LiveLegacyResultSet.setLimit returns null (annotated @Nullable).
     // This breaks the LegacyResultSet fluent contract (every other impl returns `this`). Pin
     // the divergence so removal is explicit.
     var rs = new LiveLegacyResultSet<String>();
@@ -682,7 +682,7 @@ public class SqlQueryDeadCodeTest {
 
   @Test
   public void liveResultListenerInterfaceCanBeImplementedWithAllThreeCallbacks() {
-    // WHEN-FIXED: Track 22 — delete LiveResultListener interface + LocalLiveResultListener.
+    // WHEN-FIXED: YTDB-766 — delete LiveResultListener interface + LocalLiveResultListener.
     // No production implementor remains; the old LiveQuery flow that consumed this listener
     // was removed earlier in the codebase's evolution. Pin that the interface still has the
     // expected three methods by implementing it and exercising all callbacks.
@@ -723,7 +723,7 @@ public class SqlQueryDeadCodeTest {
 
   @Test
   public void localLiveResultListenerForwardsListenerCallbacksToUnderlying() {
-    // WHEN-FIXED: Track 22 — delete LocalLiveResultListener. Pin that its three listener
+    // WHEN-FIXED: YTDB-766 — delete LocalLiveResultListener. Pin that its three listener
     // callbacks forward to the underlying LiveResultListener.
     var delegateLive = new AtomicInteger();
     var delegateErr = new AtomicInteger();
@@ -757,7 +757,7 @@ public class SqlQueryDeadCodeTest {
 
   @Test
   public void localLiveResultListenerCommandResultListenerStubsReturnEmpty() {
-    // WHEN-FIXED: Track 22 — the CommandResultListener half of LocalLiveResultListener is
+    // WHEN-FIXED: YTDB-766 — the CommandResultListener half of LocalLiveResultListener is
     // stubbed: result() returns false, end() is a no-op, getResult() returns null. Pin all
     // three so deletion is an explicit contract change. The delegate counts every
     // LiveResultListener callback — result() and end() must NOT forward to any of them.

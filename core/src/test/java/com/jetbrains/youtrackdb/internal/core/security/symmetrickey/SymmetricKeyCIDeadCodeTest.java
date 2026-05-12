@@ -49,7 +49,7 @@ import org.junit.Test;
  * line 60 of the production class before any JCE invocation, so the safe path proves the
  * guard is wired without exercising the live JCE round-trip.
  *
- * <p>WHEN-FIXED: Track 22 — delete {@link SymmetricKeyCI}.
+ * <p>WHEN-FIXED: YTDB-772 — delete {@link SymmetricKeyCI}.
  */
 public class SymmetricKeyCIDeadCodeTest {
 

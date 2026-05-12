@@ -163,7 +163,7 @@ public class ImmutableUserTest extends DbTestBase {
    * production fix (null guard before iteration), the constructor must succeed
    * silently and the assertion type below must change.
    *
-   * <p>WHEN-FIXED: Track 22 — add a null check before the for-each on
+   * <p>WHEN-FIXED: YTDB-777 — add a null check before the for-each on
    * {@code dbNames} in the {@code databaseName}-non-empty branch; replace this
    * test's assertThrows with a successful construction + role-set inspection.
    */
@@ -181,7 +181,7 @@ public class ImmutableUserTest extends DbTestBase {
     // regular database have no DB_FILTER property, so the for-each on null NPEs.
     final var entityForLambda = userEntity;
     try {
-      // WHEN-FIXED: Track 22 — once populateSystemRoles guards against null
+      // WHEN-FIXED: YTDB-777 — once populateSystemRoles guards against null
       // dbNames in the non-empty-dbName branch, this constructor will succeed
       // and the assertThrows must be replaced by a positive assertion on the
       // resulting roles set.

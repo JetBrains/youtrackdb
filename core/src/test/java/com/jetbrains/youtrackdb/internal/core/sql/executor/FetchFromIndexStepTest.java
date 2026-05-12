@@ -798,7 +798,7 @@ public class FetchFromIndexStepTest extends TestUtilsFixture {
    * any FetchFromIndexStep whose key condition includes a wrapping AND block. This test fails
    * the day the bug is fixed in production, prompting tightening to a round-trip-success check.
    *
-   * <p>WHEN-FIXED: Track 22 — change {@code SQLBooleanExpression.deserializeFromOResult} to use
+   * <p>WHEN-FIXED: YTDB-754 — change {@code SQLBooleanExpression.deserializeFromOResult} to use
    * {@code int.class} (primitive) in {@code getConstructor}, or provide an {@code
    * Integer}-parameter constructor on the affected AST classes.
    */

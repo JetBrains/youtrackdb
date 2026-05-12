@@ -305,7 +305,7 @@ public class FilterStepTest extends TestUtilsFixture {
    * FetchFromIndexStep} pin — a second pin through {@code FilterStep} demonstrates the bug's
    * generality to every step that serializes a {@code SQLBooleanExpression}.
    *
-   * <p>WHEN-FIXED: Track 22 — change {@code deserializeFromOResult} to use {@code int.class}
+   * <p>WHEN-FIXED: YTDB-754 — change {@code deserializeFromOResult} to use {@code int.class}
    * (primitive). Then delete this test and replace with a positive round-trip assertion.
    */
   @Test

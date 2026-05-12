@@ -40,7 +40,7 @@ import org.junit.Test;
  * trivially-implemented {@code intercept(...)} body that just stores the username + password
  * fields.
  *
- * <p>WHEN-FIXED: Track 22 — delete {@link DefaultCI} together with the
+ * <p>WHEN-FIXED: YTDB-772 — delete {@link DefaultCI} together with the
  * {@link CredentialInterceptor} SPI and {@code SecurityManager.newCredentialInterceptor()}.
  */
 public class DefaultCIDeadCodeTest {

@@ -43,7 +43,7 @@ import org.junit.Test;
  *       silently change the wire format.
  * </ul>
  *
- * <p>WHEN-FIXED: Track 22 — delete core/fetch/ package (0 callers outside self + DepthFetchPlanTest).
+ * <p>WHEN-FIXED: YTDB-764 — delete core/fetch/ package (0 callers outside self + DepthFetchPlanTest).
  */
 public class RemoteFetchContextTest {
 

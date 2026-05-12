@@ -51,7 +51,7 @@ import org.junit.Test;
  * at 0); driving {@code run()} requires a live session with indexes, which
  * {@code CheckIndexToolTest} already exercises.
  *
- * <p>WHEN-FIXED: deferred-cleanup track — delete {@link CheckIndexTool} together with this
+ * <p>WHEN-FIXED: YTDB-770 — delete {@link CheckIndexTool} together with this
  * test file and {@code CheckIndexToolTest} (or retarget {@code CheckIndexToolTest} at the
  * generic index-validation helper if such a helper is introduced).
  *

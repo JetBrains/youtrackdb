@@ -368,7 +368,7 @@ public class BasicLegacyResultSetTest {
 
   @Test
   public void iteratorNextOnExhaustedIteratorThrowsIndexOutOfBoundsNotNoSuchElement() {
-    // WHEN-FIXED: Track 22 — BasicLegacyResultSet's iterator() returns an anonymous Iterator
+    // WHEN-FIXED: YTDB-760 — BasicLegacyResultSet's iterator() returns an anonymous Iterator
     // whose next() uses the guard `if (index > size() || size() == 0)` — strict greater-than,
     // not greater-or-equal. After a single add + next(), index == size() == 1; the guard is
     // FALSE (1 > 1 is false, 1 == 0 is false), so the method falls through to
@@ -492,7 +492,7 @@ public class BasicLegacyResultSetTest {
 
   @Test
   public void containsAllThrowsUnsupportedWithRemoveMessage() {
-    // WHEN-FIXED: Track 22 — containsAll uses the literal "remove" as its exception message
+    // WHEN-FIXED: YTDB-761 — containsAll uses the literal "remove" as its exception message
     // (copy-paste of the remove(Object) impl). Pin so any harmonization is explicit.
     var rs = new BasicLegacyResultSet<String>();
     try {
@@ -517,7 +517,7 @@ public class BasicLegacyResultSetTest {
 
   @Test
   public void retainAllThrowsUnsupportedWithRemoveMessage() {
-    // WHEN-FIXED: Track 22 — retainAll also carries the copy-paste "remove" message rather
+    // WHEN-FIXED: YTDB-761 — retainAll also carries the copy-paste "remove" message rather
     // than its own method name. Pin explicitly.
     var rs = new BasicLegacyResultSet<String>();
     try {
@@ -636,7 +636,7 @@ public class BasicLegacyResultSetTest {
 
   @Test
   public void equalsDelegatesToUnderlyingListContract() {
-    // WHEN-FIXED: Track 22 — BasicLegacyResultSet.equals forwards to `underlying.equals(o)`.
+    // WHEN-FIXED: YTDB-762 — BasicLegacyResultSet.equals forwards to `underlying.equals(o)`.
     // The underlying is a Collections.synchronizedList wrapping an ArrayList, so the
     // effective equality follows the standard List.equals contract: reflexive across
     // resultset instances, and symmetric against any other List (including
@@ -753,7 +753,7 @@ public class BasicLegacyResultSetTest {
 
   @Test
   public void addAllBypassesLimitCheckAndGrowsPastLimit() {
-    // WHEN-FIXED: Track 22 — BasicLegacyResultSet.add(T) enforces `size >= limit` and drops
+    // WHEN-FIXED: YTDB-762 — BasicLegacyResultSet.add(T) enforces `size >= limit` and drops
     // over-limit elements, but addAll(Collection) delegates directly to underlying.addAll
     // without consulting the limit. This is a contract asymmetry worth pinning:
     // setLimit(2) + addAll([1,2,3,4]) ends with size==4, not 2.

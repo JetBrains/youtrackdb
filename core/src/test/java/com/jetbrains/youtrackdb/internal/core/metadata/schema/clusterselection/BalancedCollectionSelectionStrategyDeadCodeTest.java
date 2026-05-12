@@ -61,7 +61,7 @@ import org.mockito.Mockito;
  *       the array has length &gt;1 — pin via Mockito on a stub session.</li>
  * </ul>
  *
- * <p>WHEN-FIXED: Track 22 — delete this class and this test together, lockstep with
+ * <p>WHEN-FIXED: YTDB-771 — delete this class and this test together, lockstep with
  * {@code DefaultCollectionSelectionStrategy}, the {@code CollectionSelectionFactory.
  * getStrategy(String)} method (and the SPI-registry plumbing reachable only through it),
  * and the {@code "balanced"} + {@code "default"} entries in the

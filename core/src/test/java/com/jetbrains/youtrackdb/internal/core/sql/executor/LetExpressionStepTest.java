@@ -193,7 +193,7 @@ public class LetExpressionStepTest extends TestUtilsFixture {
    * {@code LetExpressionStep} reinforces that the bug affects every step whose serialized form
    * nests an AST expression.
    *
-   * <p>WHEN-FIXED: Track 22 — change {@code deserializeFromOResult} to use {@code int.class}
+   * <p>WHEN-FIXED: YTDB-754 — change {@code deserializeFromOResult} to use {@code int.class}
    * (primitive). Then delete this test and replace with a positive round-trip assertion.
    */
   @Test

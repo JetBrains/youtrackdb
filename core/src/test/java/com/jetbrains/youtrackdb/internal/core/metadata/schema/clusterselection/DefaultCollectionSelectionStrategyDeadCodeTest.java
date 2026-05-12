@@ -59,7 +59,7 @@ import org.mockito.Mockito;
  *       {@code selection} parameter is caught and explicitly decided on.</li>
  * </ul>
  *
- * <p>WHEN-FIXED: Track 22 — delete this class and this test together with the rest of the
+ * <p>WHEN-FIXED: YTDB-771 — delete this class and this test together with the rest of the
  * cluster-selection lockstep group.
  *
  * <p>Standalone: no database session is needed; the production methods do not consult the

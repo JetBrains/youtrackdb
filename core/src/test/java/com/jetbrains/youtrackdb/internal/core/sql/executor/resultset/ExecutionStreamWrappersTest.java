@@ -231,7 +231,7 @@ public class ExecutionStreamWrappersTest extends TestUtilsFixture {
   }
 
   /**
-   * WHEN-FIXED: Track 22 — When the filter predicate throws, the exception propagates but
+   * WHEN-FIXED: YTDB-757 — When the filter predicate throws, the exception propagates but
    * the internal {@code nextItem} is left holding the unfiltered upstream value (because
    * {@code fetchNextItem} assigns to {@code nextItem} BEFORE calling the mapper, and the
    * re-assignment from the mapper never happens on throw). Consequently the next

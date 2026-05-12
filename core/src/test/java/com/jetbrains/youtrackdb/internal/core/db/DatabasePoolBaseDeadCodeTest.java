@@ -51,7 +51,7 @@ import org.junit.Test;
  * {@link Class#getDeclaredMethods()} catches deletion / rename / signature drift without
  * touching engines-manager state.
  *
- * <p>WHEN-FIXED: deferred-cleanup track — delete {@code DatabasePoolBase} together with
+ * <p>WHEN-FIXED: YTDB-769 — delete {@code DatabasePoolBase} together with
  * this test file once the {@code DatabasePoolAbstract} consolidation lands. The
  * "extends Thread" inheritance is itself a legacy pattern (run() just calls close()) that
  * a modern caller would replace with a JVM shutdown hook if pool teardown were ever

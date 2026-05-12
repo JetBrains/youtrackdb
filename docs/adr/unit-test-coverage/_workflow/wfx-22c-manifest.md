@@ -348,7 +348,7 @@ Security-Type override rule.
 - **Test file + lines:** `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/executor/BatchStepTest.java:235`.
 - **Anchor quote (L235):** `   * <p>WHEN-FIXED: Track 22 — either reject {@code batchSize == 0} at constructor time with a`
 - **Block locators:** L225–L245.
-- **YTDB-ID:** _(filled by Step 5)_
+- **YTDB-ID:** YTDB-753
 
 #### Sq2. `SQLBooleanExpression.deserializeFromOResult` int-class deserialization bug
 
@@ -363,7 +363,7 @@ Security-Type override rule.
   - `FilterStepTest.java`: L295–L320.
   - `LetExpressionStepTest.java`: L185–L210.
 - **What to flip:** all three pins flip to non-Integer-narrowing assertions once the serializer uses `int.class`.
-- **YTDB-ID:** _(filled by Step 5)_
+- **YTDB-ID:** YTDB-754
 
 #### Sq3. `ExpireTimeoutResultSet` re-firing timeout callback
 
@@ -372,7 +372,7 @@ Security-Type override rule.
   - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/executor/resultset/ExpireTimeoutResultSetTest.java:92,193`.
 - **Anchor quote (L92):** `   * WHEN-FIXED: Track 22 — {@link ExpireResultSet#fail} is reachable repeatedly while the`
 - **Block locators:** L80–L100; L185–L205.
-- **YTDB-ID:** _(filled by Step 5)_
+- **YTDB-ID:** YTDB-755
 
 #### Sq4. `LinkMapResultImpl` / `LinkSetResultImpl` / `EmbeddedSetResultImpl` `.equals` reflexivity / cross-type defect
 
@@ -383,7 +383,7 @@ Security-Type override rule.
   - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/executor/resultset/LinkSetResultImplTest.java:236,256`.
 - **Anchor quote (`EmbeddedSetResultImplTest.java:191`):** `   * WHEN-FIXED: Track 22 — {@code EmbeddedSetResultImpl.equals(Object)} delegates to {@code`
 - **Block locators:** each marker has a ~12-line surrounding Javadoc block; ranges drafted at issue-creation time.
-- **YTDB-ID:** _(filled by Step 5)_
+- **YTDB-ID:** YTDB-756
 
 #### Sq5. `ExecutionStreamWrappers` filter-predicate exception propagation
 
@@ -391,7 +391,7 @@ Security-Type override rule.
 - **Test file + lines:** `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/executor/resultset/ExecutionStreamWrappersTest.java:234`.
 - **Anchor quote (L234):** `   * WHEN-FIXED: Track 22 — When the filter predicate throws, the exception propagates but`
 - **Block locators:** L225–L245.
-- **YTDB-ID:** _(filled by Step 5)_
+- **YTDB-ID:** YTDB-757
 
 #### Sq6. `SmallPlannerBranch` `returnBefore` / multi-CONTENT branch removal
 
@@ -399,7 +399,7 @@ Security-Type override rule.
 - **Test file + lines:** `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/executor/SmallPlannerBranchTest.java:78,211`.
 - **Anchor quote (L78):** `   * <p>WHEN-FIXED: Track 22 — remove the {@code returnBefore} field and its dependent branches`
 - **Block locators:** L65–L90; L200–L220.
-- **YTDB-ID:** _(filled by Step 5)_
+- **YTDB-ID:** YTDB-758
 
 #### Sq7. `SelectExecutionPlanner` "colleciton" typo + stream-exhaustion behaviour
 
@@ -407,7 +407,7 @@ Security-Type override rule.
 - **Test file + lines:** `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/executor/SelectExecutionPlannerBranchTest.java:172,400,672`.
 - **Anchor quote (L172):** `      // WHEN-FIXED: Track 22 — fix typo "colleciton" → "collection" in`
 - **Block locators:** L168–L180; L395–L410; L668–L680.
-- **YTDB-ID:** _(filled by Step 5)_
+- **YTDB-ID:** YTDB-759
 
 #### Sq8. `BasicLegacyResultSet` iterator + exception-message + add(T)/contains/equals defects
 
@@ -415,11 +415,14 @@ Security-Type override rule.
 - **Test file + lines:** `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/query/BasicLegacyResultSetTest.java:371,495,520,639,756`.
 - **Anchor quote (L371):** `    // WHEN-FIXED: Track 22 — BasicLegacyResultSet's iterator() returns an anonymous Iterator`
 - **Block locators:** L365–L380; L490–L505; L515–L530; L630–L645; L750–L765.
-- **YTDB-ID:** _(filled by Step 5)_
+- **YTDB-ID:** **Split into 3 issues at Step 5** — distinct production fixes:
+  - YTDB-760 (iterator-shape: L371) — strict-`>` guard in `iterator().next()` throws IOOBE instead of NSEE.
+  - YTDB-761 (exception-message: L495, L520) — `containsAll`/`retainAll` carry copy-paste `"remove"` exception message.
+  - YTDB-762 (add/limit + equals contract: L639, L756) — `addAll(Collection)` and `addAll(int, Collection)` bypass `setLimit`; `equals` delegates to `underlying.equals` (List contract, pinned).
 
-> Sq8 may split into 2–3 logical issues at Step 5 (iterator-shape vs
-> exception-message vs add/limit/equals). The pins all sit in the same
-> file but reflect distinct production fixes.
+> Sq8 split decision: the 5 markers pin 3 distinct production fixes
+> (iterator-shape vs exception-message vs add/limit + equals contract),
+> so the manifest's "may split into 2–3" hedge was applied with 3 issues.
 
 #### Sq9. `SQLMethodRuntime.setParameters` over-permissive handling
 
@@ -427,7 +430,7 @@ Security-Type override rule.
 - **Test file + lines:** `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/method/SQLMethodRuntimeTest.java:260`.
 - **Anchor quote (L260):** `    // WHEN-FIXED: Track 22 — SQLMethodRuntime.setParameters (production lines 193–230) accepts`
 - **Block locators:** L255–L275.
-- **YTDB-ID:** _(filled by Step 5)_
+- **YTDB-ID:** YTDB-763
 
 #### Sq10. `core/fetch/` package deletion (delete entire package)
 
@@ -437,7 +440,7 @@ Security-Type override rule.
   - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/fetch/remote/RemoteFetchContextTest.java:46`.
 - **Anchor quote (`FetchPlanParserTest.java:36`):** ` * <p>WHEN-FIXED: Track 22 — delete core/fetch/ package (0 callers outside self + DepthFetchPlanTest).`
 - **Block locators:** L25–L50 (each file).
-- **YTDB-ID:** _(filled by Step 5)_
+- **YTDB-ID:** YTDB-764
 
 #### Sq11. `SqlExecutorDeadCodeTest` cluster — `InfoExecutionPlan` / `InfoExecutionStep` / `TraverseResult` / `BatchStep` / `BasicCommandContext` / `SQLBatch` dead-code surface (live targets per cluster-disposition)
 
@@ -446,7 +449,7 @@ Security-Type override rule.
   - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/executor/SqlExecutorDeadCodeTest.java:78,109,126,140,160,180,199,204,213,239,269,297,334,352`.
 - **Anchor quote (L78):** `  // toResult() that returns null. WHEN-FIXED: Track 22 — delete InfoExecutionPlan.`
 - **Block locators:** each `//` block is 5–12 lines; ranges drafted at issue-creation time.
-- **YTDB-ID:** _(filled by Step 5)_
+- **YTDB-ID:** **Deferred to Step 6 (pin-maintenance candidate).** Per the manifest's hedge, this entry's production targets (BasicCommandContext 137 prod refs, ExecutionStep 211 prod refs, SQLBatch 16 prod refs) are alive, so the test class is mis-named (`*DeadCodeTest` → should be `*Test`). Step 6 will rename the file and rewrite the 14 markers in a single batched commit. No marker rewrite performed in Step 5.
 
 > Per cluster-disposition.md "Pins not classified above" section: this
 > pin is a candidate for **pin-maintenance rename** (live targets:
@@ -462,7 +465,7 @@ Security-Type override rule.
 - **Test file + lines:** `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/executor/TraverseResultLiveSessionTest.java:33`.
 - **Anchor quote (L33):** ` * <p>WHEN-FIXED: Track 22 — delete {@link TraverseResult}. These tests will be deleted alongside`
 - **Block locators:** L25–L45.
-- **YTDB-ID:** _(filled by Step 5)_
+- **YTDB-ID:** YTDB-765 — Step 5 PSI find-usages on `TraverseResult` confirmed **0 production callers** (10 total refs: 5 in `SqlExecutorDeadCodeTest`, 5 in `TraverseResultLiveSessionTest`). Class is dead in production; routed to Step 5 as `Type: Task` (dead-code delete), not Step 6 (pin-maintenance). Marker at L33 rewritten to YTDB-765.
 
 #### Sq13. `SqlQueryDeadCodeTest` cluster — `ConcurrentLegacyResultSet` / `LiveLegacyResultSet` / `LiveResultListener` / `LocalLiveResultListener` delete
 
@@ -470,7 +473,7 @@ Security-Type override rule.
 - **Test file + lines:** `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/query/SqlQueryDeadCodeTest.java:122,152,179,272,385,418,487,650,685,726,760`.
 - **Anchor quote (L122):** `    // WHEN-FIXED: Track 22 — delete ConcurrentLegacyResultSet entirely. No remaining call sites`
 - **Block locators:** each `//` block is 5–10 lines.
-- **YTDB-ID:** _(filled by Step 5)_
+- **YTDB-ID:** YTDB-766 (covers all 11 markers in `SqlQueryDeadCodeTest.java`)
 
 #### Sq14. `IndexCandidates` loop-overwrite bug
 
@@ -478,7 +481,7 @@ Security-Type override rule.
 - **Test file + lines:** `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/executor/metadata/IndexCandidatesTest.java:265`.
 - **Anchor quote (L265):** `    // overwrites `name` on every iteration. WHEN-FIXED: Track 22 may replace the loop with a`
 - **Block locators:** L260–L275.
-- **YTDB-ID:** _(filled by Step 5)_
+- **YTDB-ID:** YTDB-767
 
 #### Sq15. `TxFunctionalInterfaces.forEachInTx` tx-staleness
 
@@ -486,7 +489,7 @@ Security-Type override rule.
 - **Test file + lines:** `core/src/test/java/com/jetbrains/youtrackdb/internal/core/tx/TxFunctionalInterfacesTest.java:166`.
 - **Anchor quote (L166):** `      // WHEN-FIXED: deferred-cleanup track (forEachInTx tx-staleness — production captures the`
 - **Block locators:** L160–L180.
-- **YTDB-ID:** _(filled by Step 5)_
+- **YTDB-ID:** YTDB-768
 
 ---
 
@@ -505,7 +508,7 @@ hooks-SPI / Step 4 serializer-SPI / Step 2 security-typed):
   - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/db/DatabasePoolAbstractEvictionTest.java:28` (sibling marker; same logical cluster).
 - **Anchor quote (`DatabasePoolAbstractDeadCodeTest.java:53`):** ` * <p>WHEN-FIXED: deferred-cleanup track — delete this abstract class together with this`
 - **Block locators:** L40–L60 (each file).
-- **YTDB-ID:** _(filled by Step 5)_
+- **YTDB-ID:** YTDB-769
 
 #### D2. Database-tool surface — `CheckIndexTool`, `DatabaseCompare`, `GraphRepair`, `DatabaseTool`
 
@@ -517,13 +520,17 @@ hooks-SPI / Step 4 serializer-SPI / Step 2 security-typed):
   - `DatabaseToolDeadCodeTest.java` — not in inventory; Step 5 confirms via grep before opening.
 - **Anchor quote (`CheckIndexToolDeadCodeTest.java:54`):** ` * <p>WHEN-FIXED: deferred-cleanup track — delete {@link CheckIndexTool} together with this`
 - **Block locators:** L40–L60 (each file).
-- **YTDB-ID:** _(filled by Step 5)_
+- **YTDB-ID:** YTDB-770 (covers `CheckIndexTool`, `DatabaseCompare`, `GraphRepair`; `DatabaseToolDeadCodeTest.java` re-grep confirmed NO `WHEN-FIXED` marker — abstract base survives separately and is folded into the same issue body for context).
 
 #### D3. Exception types — `LiveQueryInterruptedException`, `ManualIndexesAreProhibited`, `RetryQueryException`
 
 - **Type:** Task; **Subsystem:** Database (Exceptions).
 - **Test files + lines:** none of the three named `*DeadCodeTest` files appear in the rewrite-target inventory (they may have already been rewritten in earlier tracks). Step 5 implementer **re-greps each filename** and opens the issue only if confirmed.
-- **YTDB-ID:** _(filled by Step 5 if confirmed)_
+- **YTDB-ID:** **SKIPPED — no rewrite-target markers.** Step 5 re-grep confirmed:
+  - `LiveQueryInterruptedExceptionDeadCodeTest.java` carries only a non-anchored `deferred-cleanup track` text reference inside a paragraph (no `WHEN-FIXED:\s+(Track 22|deferred-cleanup track)` match — `WHEN-FIXED:` and the token are on different lines).
+  - `ManualIndexesAreProhibitedDeadCodeTest.java` and `RetryQueryExceptionDeadCodeTest.java` carry zero `WHEN-FIXED` markers.
+
+  Per the manifest's "no markers, no issue" convention for dead-code-SPI, D3 is skipped. The exception classes still exist in production but have no rewrite-target marker tied to them; if a future track wants to delete them it should mint its own issue.
 
 #### D4. Collection-selection-strategy SPI — `BalancedCollectionSelectionStrategy`, `DefaultCollectionSelectionStrategy`, `CollectionSelectionFactory`
 
@@ -534,7 +541,7 @@ hooks-SPI / Step 4 serializer-SPI / Step 2 security-typed):
   - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/clusterselection/DefaultCollectionSelectionStrategyDeadCodeTest.java:62`.
 - **Anchor quote (`BalancedCollectionSelectionStrategyDeadCodeTest.java:64`):** ` * <p>WHEN-FIXED: Track 22 — delete this class and this test together, lockstep with`
 - **Block locators:** L50–L75 (each file).
-- **YTDB-ID:** _(filled by Step 5)_
+- **YTDB-ID:** YTDB-771 (covers all three strategy + factory classes)
 
 #### D5. Symmetric-key / credential-interceptor security SPI — `DefaultCI`, `SymmetricKeyCI`, `SymmetricKeySecurity`, `UserSymmetricKeyConfig`, `SymmetricKeyDeadMethods`
 
@@ -548,7 +555,7 @@ hooks-SPI / Step 4 serializer-SPI / Step 2 security-typed):
   - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/security/symmetrickey/UserSymmetricKeyConfigDeadCodeTest.java:45,243,261`.
 - **Anchor quote (`SymmetricKeyCIDeadCodeTest.java:52`):** ` * <p>WHEN-FIXED: Track 22 — delete {@link SymmetricKeyCI}.`
 - **Block locators:** L40–L60 (each file); `UserSymmetricKeyConfigDeadCodeTest:243,261` carry inline-fragment locators L240–L275.
-- **YTDB-ID:** _(filled by Step 5)_
+- **YTDB-ID:** YTDB-772 (covers all 6 files, 8 markers, in a single deletion cluster)
 
 > Step 5 implementer note: the security-SPI cluster sits at the
 > boundary of Step 2 (security-typed individual issues) and Step 5
@@ -564,7 +571,7 @@ hooks-SPI / Step 4 serializer-SPI / Step 2 security-typed):
 
 - **Type:** Task; **Subsystem:** Distributed (DB config).
 - **Test files + lines:** no `DBConfigDeadCodeTest.java` appears in the rewrite-target inventory. Step 5 implementer **re-greps** and opens the issue only if confirmed.
-- **YTDB-ID:** _(filled by Step 5 if confirmed)_
+- **YTDB-ID:** YTDB-773 — Step 5 re-grep confirmed `DBConfigDeadCodeTest.java:54` carries a `WHEN-FIXED:` marker but the token text immediately after `WHEN-FIXED:` is `"delete the entire ..."`, not `Track 22 |` or `deferred-cleanup track`. The token *does* appear two lines below in the surrounding paragraph. This is **NOT a rewrite-target marker** per the anchored Form A/B regex. Production classes (`MulticastConfguration`, `UDPUnicastConfiguration`, `Address` + 3 builders) still exist; issue opened as production-code-referenced. **No marker rewrite performed.**
 
 #### D7. SqlQuery legacy ResultSet — `ConcurrentLegacyResultSet` (covered by Sq13)
 
@@ -576,7 +583,7 @@ Covered by Sq13. Not a separate manifest entry.
 - **Test file + lines:** `core/src/test/java/com/jetbrains/youtrackdb/internal/core/dictionary/DictionaryDeadCodeTest.java:48`.
 - **Anchor quote (L48):** ` * <p>WHEN-FIXED: deferred-cleanup track — delete this test file in the same commit that`
 - **Block locators:** L40–L55.
-- **YTDB-ID:** _(filled by Step 5)_
+- **YTDB-ID:** YTDB-774 — Step 5 confirmed production class `core/dictionary/Dictionary.java` still exists. 22b deletion did NOT happen; issue opened as a dead-code-delete Task. Marker rewritten.
 
 > Cluster-disposition.md routes `Dictionary` to 22b Cluster C
 > (misc-small-helpers) — Step 1 inventory shows the marker is still
@@ -592,7 +599,7 @@ Covered by Sq13. Not a separate manifest entry.
 - **Test file + lines:** `core/src/test/java/com/jetbrains/youtrackdb/internal/core/db/record/RecordMultiValueHelperDeadCodeTest.java:58`.
 - **Anchor quote (L58):** ` * <p>WHEN-FIXED: deferred-cleanup track — delete this class together with this test file.`
 - **Block locators:** L48–L65.
-- **YTDB-ID:** _(filled by Step 5)_
+- **YTDB-ID:** YTDB-775 — Step 5 confirmed production class `core/db/record/RecordMultiValueHelper.java` still exists. 22b deletion did NOT happen; issue opened as a dead-code-delete Task. Marker rewritten.
 
 > Cluster-disposition.md routes `RecordMultiValueHelper` to 22b
 > Cluster C — same caveat as D8.
@@ -604,7 +611,7 @@ Covered by Sq13. Not a separate manifest entry.
 - **Anchor quote (L261):** `    // WHEN-FIXED: Track 22 — once the cache key includes the algorithm, this`
 - **Block locators:** L255–L290.
 - **What to flip:** SALT_CACHE keys include algorithm; NumberFormatException wrapping.
-- **YTDB-ID:** _(filled by Step 5)_
+- **YTDB-ID:** YTDB-776 — kept as `Type: Bug` per the manifest (cache-key + exception-wrapping issues with no direct CWE mapping). All 3 markers rewritten.
 
 > D10 is **production-fix Bug**, not Security Problem — it sits in the
 > SecurityManager file but the defects are cache-key and exception-
@@ -617,6 +624,7 @@ Covered by Sq13. Not a separate manifest entry.
 - **Test file + lines:** `core/src/test/java/com/jetbrains/youtrackdb/internal/core/metadata/security/ImmutableUserTest.java:166,184`.
 - **Anchor quote (L166):** `   * <p>WHEN-FIXED: Track 22 — add a null check before the for-each on`
 - **Block locators:** L160–L190.
+- **YTDB-ID:** YTDB-777 — both markers (L166, L184) rewritten.
 - **YTDB-ID:** _(filled by Step 5)_
 
 ---

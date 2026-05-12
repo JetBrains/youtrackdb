@@ -33,7 +33,7 @@ public class LinkMapResultImplTest {
   }
 
   /**
-   * WHEN-FIXED: Track 22 — the int-capacity constructor backs the map with a {@link
+   * WHEN-FIXED: YTDB-756 — the int-capacity constructor backs the map with a {@link
    * LinkedHashMap} while the other two constructors use {@link HashMap}. Observable difference:
    * iteration is insertion-ordered only for the int-capacity instance. If the inconsistency is
    * unified (both to HashMap), this test will fail and should be rewritten to assert
@@ -343,7 +343,7 @@ public class LinkMapResultImplTest {
   }
 
   /**
-   * WHEN-FIXED: Track 22 — {@code LinkMapResultImpl.equals(Object)} delegates to {@code
+   * WHEN-FIXED: YTDB-756 — {@code LinkMapResultImpl.equals(Object)} delegates to {@code
    * super.equals(obj)} ({@code Object.equals}) instead of {@code map.equals(obj)}. Two distinct
    * instances with identical entries are reported as unequal even though both pass the
    * {@code instanceof Map} check. Flip the final-line delegation to {@code map.equals(obj)}. This
@@ -360,7 +360,7 @@ public class LinkMapResultImplTest {
   }
 
   /**
-   * WHEN-FIXED: Track 22 — same defect; equality vs a plain {@link LinkedHashMap} with identical
+   * WHEN-FIXED: YTDB-756 — same defect; equality vs a plain {@link LinkedHashMap} with identical
    * entries also fails.
    */
   @Test

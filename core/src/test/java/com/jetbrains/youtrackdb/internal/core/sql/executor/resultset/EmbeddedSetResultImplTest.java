@@ -188,7 +188,7 @@ public class EmbeddedSetResultImplTest {
   }
 
   /**
-   * WHEN-FIXED: Track 22 — {@code EmbeddedSetResultImpl.equals(Object)} delegates to {@code
+   * WHEN-FIXED: YTDB-756 — {@code EmbeddedSetResultImpl.equals(Object)} delegates to {@code
    * super.equals(obj)} ({@code Object.equals}) instead of {@code set.equals(obj)}. Two distinct
    * instances with identical contents are reported as unequal even though both pass the {@code
    * instanceof Set} check. Flip the final-line delegation to {@code set.equals(obj)} — that line
@@ -206,7 +206,7 @@ public class EmbeddedSetResultImplTest {
   }
 
   /**
-   * WHEN-FIXED: Track 22 — same defect; comparison against a foreign {@link Set} (immutable
+   * WHEN-FIXED: YTDB-756 — same defect; comparison against a foreign {@link Set} (immutable
    * {@code Set.of(...)} or a plain {@code HashSet}) also returns false.
    */
   @Test
