@@ -358,6 +358,9 @@ clusters NOT deleted by 22b need YTDB issues).
 - [ ] Step implementation
 - [ ] Track-level code review
 
+## Base commit
+`c9528a91e608c213a40972cd02065ebc115fec53`
+
 ## Reviews completed
 - [x] Technical: PASS at iteration 3 (11 findings — 0 blockers, 4 should-fix [T1–T4], 7 suggestions [T5–T11]; 11 accepted, 0 rejected, 0 deferred. Iter-1 surfaced T1–T8; iter-2 gate VERIFIED T2–T8 and re-opened T1 with new findings T9/T10; iter-3 gate VERIFIED T1/T9/T10 with new suggestion-tier T11 auto-applied as a mechanical filter tightening. User-chosen disposition on T2: cluster-into-~6 commit policy in place of the inherited R8 "one commit per issue" rule.)
 
