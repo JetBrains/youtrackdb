@@ -355,7 +355,7 @@ clusters NOT deleted by 22b need YTDB issues).
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [ ] Step implementation (1/7 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -366,14 +366,59 @@ clusters NOT deleted by 22b need YTDB issues).
 
 ## Steps
 
-- [ ] Step 1: Pre-flight manifest — re-run inventory greps, classify rewrite-target markers by logical fix, draft the per-issue manifest
+- [x] Step 1: Pre-flight manifest — re-run inventory greps, classify rewrite-target markers by logical fix, draft the per-issue manifest
+  - [x] Context: safe
   > **Risk:** low — default (no production code changes; no test source edits beyond a `_workflow/`-scoped manifest markdown file).
   >
-  > **What:** Phase B Step 0 work. Re-run the two inventory greps from the **Post-22b reality check** table (Form A anchored line-comment; Form B any-form with `{@code //` carve-out) and confirm the counts match the table exactly (66 Form-A lines / 15 files; 151 total `(Track 22|deferred-cleanup track)` lines / 65 files; 130 broad `WHEN-FIXED` files / 329 lines). Read `cluster-disposition.md`'s defer-to-22c table + sanity-check entries and classify each surviving marker into one of three buckets: (a) production-fix logical fix (≈30 issues), (b) dead-code-SPI logical cluster (13 clusters per **Defer-to-22c cluster grouping**), (c) pin-maintenance rename (5 + conditional 6th). Draft a manifest file at `_workflow/wfx-22c-manifest.md` that lists each logical fix / cluster / rename with: (i) chosen YouTrack `Type` (Bug / Task / Security Problem), (ii) target Subsystem, (iii) the test files + line numbers carrying the marker(s), (iv) the verbatim comment-block content destined for the issue body, (v) the planned category (security / scheduler / serializer / sql / dead-code-SPI / pin-maintenance) for commit-grouping.
+  > **What was done:** Re-ran the Form A (line-comment, anchored) and
+  > Form B (any non-`{@code //` occurrence) inventory greps across
+  > `core/src/test/`. Form A returned 15 files / 66 lines exactly per
+  > the step-file table; A+B union returned 63 files / 149 lines (line
+  > count matches; file count is 63 not 65 — see discovery below);
+  > broad `WHEN-FIXED` grep returned 130 files / 329 lines exactly.
+  > Read `cluster-disposition.md` to enumerate defer-to-22c clusters
+  > and pin-maintenance entries. Drafted `_workflow/wfx-22c-manifest.md`
+  > (798 lines) organising surviving markers into six commit-clustering
+  > categories — security, scheduler, serializer, sql, dead-code-SPI,
+  > pin-maintenance — with ~55 logical issues enumerated for
+  > Steps 2–6 lockstep issue creation + marker rewrite. Single
+  > workflow-only commit (`a85c0bf558`); no test source touched; no
+  > YTDB issues created yet.
   >
-  > Commit message: `Track 22c Step 1: Draft WHEN-FIXED manifest`. The commit modifies only the workflow scaffolding under `_workflow/`; no test source touched. No YTDB issues created yet.
+  > **What was discovered:** (1) A+B union file count is 63 not 65
+  > as anticipated in the step-file table — the 2 `{@code //`
+  > meta-reference sites (`SqlExecutorDeadCodeTest`,
+  > `LiveQueryDeadCodeTest`) carry BOTH meta-references AND real
+  > rewrite-target line comments, so they stay in the post-filter
+  > set. Line counts (149) match exactly. Step 7's verification grep
+  > is the load-bearing gate regardless. (2) Total logical-issue
+  > count widens from the step-file's ~48 estimate to ~55 once each
+  > bucket is fully enumerated. (3) Several listed defer-to-22c
+  > pins (DBConfig multi-target, RecordSerializerCsvAbstract /
+  > RecordSerializerStringAbstract, SBTree-v1 pair, exception types
+  > `LiveQueryInterruptedException` / `ManualIndexesAreProhibited` /
+  > `RetryQueryException`, `DatabaseToolDeadCodeTest`) do NOT appear
+  > in the surviving rewrite-target inventory — their markers may
+  > have been rewritten by earlier tracks or never matched the
+  > Form-A/B regex. The manifest flags each as "open issue only if
+  > the Step 5 implementer re-greps and confirms a surviving marker".
   >
-  > **Files touched:** `_workflow/wfx-22c-manifest.md` (new).
+  > **What changed from the plan:** No plan changes. The manifest's
+  > commit-clustering envelope (Step 2: 5; Step 3: 16; Step 4: 8;
+  > Step 5: 21; Step 6: 5–6 logical issues) sits inside the step
+  > file's "~6 batched commits" expectation. The
+  > `SqlExecutorDeadCodeTest` routing question (Step 5 dead-code-SPI
+  > vs Step 6 pin-maintenance) is parked for Step 5's manifest
+  > re-read to resolve.
+  >
+  > **Key files:** `docs/adr/unit-test-coverage/_workflow/wfx-22c-manifest.md` (new, 798 lines).
+  >
+  > **Critical context:** Step 7's verification filter must be
+  > `grep -v '{@code //'` (not bare `{@code`) per the step file's
+  > Phase A iter-3 Finding T11 — otherwise legitimate-rewrite-target
+  > lines in `PolyglotScriptExecutorTest` containing `{@code null}`
+  > substrings would be falsely skipped. Manifest §4 lists the 2
+  > meta-reference sites for the Step 7 audit.
 
 - [ ] Step 2: Security category — create Type=Security Problem issues, rewrite markers
   > **Risk:** low — default (test-source comment edits only; no production code, no test-logic change).
