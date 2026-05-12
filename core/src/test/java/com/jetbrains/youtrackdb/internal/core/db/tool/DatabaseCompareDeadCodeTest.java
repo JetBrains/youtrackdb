@@ -45,7 +45,7 @@ import org.junit.Test;
  * {@code DatabaseCompareReadRetryTest}, the {@code StorageBackup*} family, the
  * {@code LocalPaginatedStorageRestore*} family, and the {@code DbImport*Test} family in the
  * {@code tests} module). The class is therefore <strong>test-only-reachable</strong> — its
- * deletion in the deferred-cleanup track is contingent on either deleting those tests
+ * deletion in YTDB-770 is contingent on either deleting those tests
  * outright or migrating the comparison logic into a test helper.
  *
  * <p>Until the retargeting decision lands, the class still has to compile and the existing

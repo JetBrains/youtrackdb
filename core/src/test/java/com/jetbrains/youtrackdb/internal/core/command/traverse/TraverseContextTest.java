@@ -180,7 +180,7 @@ public class TraverseContextTest extends DbTestBase {
    * {@code pop(record)} where the record's RID is NOT in {@code history} must still drop the top
    * frame (observable: memory shrinks by one). The missing-from-history branch emits a
    * {@code LogManager.warn} whose content this test does NOT verify — capturing the log
-   * appender is a Track 22 follow-up (WHEN-FIXED: YTDB-741 — add LogManager appender capture to
+   * appender is a YTDB-741 follow-up (WHEN-FIXED: YTDB-741 — add LogManager appender capture to
    * pin the exact warn message). Today the assertion is that pop proceeds non-destructively.
    */
   @Test

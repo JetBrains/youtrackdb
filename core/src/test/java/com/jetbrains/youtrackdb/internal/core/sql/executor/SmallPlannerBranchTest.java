@@ -95,7 +95,7 @@ public class SmallPlannerBranchTest extends TestUtilsFixture {
       Assert.fail("Expected RETURN BEFORE to be rejected at parse/plan time");
     } catch (DatabaseException e) {
       Assert.assertEquals(
-          "Production pins this exact message; a change here signals Track 22 may have removed "
+          "Production pins this exact message; a change here signals YTDB-758 may have removed "
               + "the parser reject",
           "BEFORE is not supported", e.getMessage());
     } finally {

@@ -30,7 +30,7 @@ import org.mockito.Mockito;
  *
  * <p>Each test is <b>WHEN-FIXED-pinned</b>: the assertion captures what the code does today,
  * with a comment naming the specific change to flip the assertion when the corresponding
- * production fix lands. The fix is forwarded to Track 22 — Track 20 is test-additive only.
+ * production fix lands. The fix is forwarded to YTDB-793 — the surfacing track was test-additive only.
  *
  * <p>Three shapes (line citations against the current {@code WOWCache.java}; ±1-line offset
  * is acceptable for annotation drift):
@@ -102,7 +102,7 @@ public class WOWCacheConcurrencyShapesTest {
    * atomic across the two field updates (e.g., guarded by {@code lockManager.acquireExclusiveLock(pageKey)}
    * around both lines), the counter and set will be observed in lock-step. This test pins
    * the <i>final</i> values only — flipping the assertion to also pin a transient observer
-   * is the WHEN-FIXED change. Forward the fix to Track 22.
+   * is the WHEN-FIXED change. Forward the fix to YTDB-793.
    */
   @Test(timeout = 5_000)
   public void testAddRemoveOnlyWritersCounterAndSetSettleToZero() throws Exception {
@@ -163,7 +163,7 @@ public class WOWCacheConcurrencyShapesTest {
    * the same {@code PageKey}: N writer threads call {@code addOnlyWriters(fileId, pageIndex)}
    * with identical arguments. The {@code ConcurrentSkipListSet} de-duplicates the key so its
    * cardinality stays at 1, but the {@code AtomicLong} counter is incremented once per call,
-   * so it ends at exactly N — the orphan-PageKey shape that the production fix in Track 22
+   * so it ends at exactly N — the orphan-PageKey shape that the production fix in YTDB-793
    * is meant to close.
    *
    * <p>The probe uses a {@link CyclicBarrier} to synchronise the offer point so all writers
@@ -175,7 +175,7 @@ public class WOWCacheConcurrencyShapesTest {
    * {@code incrementAndGet} when the key already exists) — e.g., by guarding both updates
    * under {@code lockManager.acquireExclusiveLock(pageKey)} and re-checking {@code add()}'s
    * boolean return — the counter will end at exactly 1. Flip the {@code counter == writers}
-   * assertion to {@code counter == 1} when the fix lands. Forward to Track 22.
+   * assertion to {@code counter == 1} when the fix lands. Forward to YTDB-793.
    */
   @Test(timeout = 5_000)
   public void testAddOnlyWritersDoubleAddCounterDriftPinsCurrentBehaviour() throws Exception {
@@ -255,7 +255,7 @@ public class WOWCacheConcurrencyShapesTest {
    * below should be flipped: {@code idNameMap.containsKey(intId)} will be {@code
    * true} when {@code fileIdByName} returns a non-negative external ID. Update
    * the {@code assertFalse} to {@code assertTrue} and remove the
-   * "intermediate-state" framing. Forward to Track 22.
+   * "intermediate-state" framing. Forward to YTDB-793.
    */
   @Test(timeout = 5_000)
   public void testFileIdByNameLeakedStatePinsCurrentBehaviour() throws Exception {
@@ -293,7 +293,7 @@ public class WOWCacheConcurrencyShapesTest {
         "Current behaviour: idNameMap is empty even though fileIdByName already resolved"
             + " — proving the leaked-state window is structurally observable, not just a"
             + " scheduler artifact. WHEN-FIXED: flip to assertTrue once fileIdByName takes"
-            + " filesLock (Track 22).",
+            + " filesLock (YTDB-793).",
         idNameMap.containsKey(observedInternalId));
 
     // Concurrency probe: spin a writer thread that toggles the gap while a reader observes
@@ -375,7 +375,7 @@ public class WOWCacheConcurrencyShapesTest {
    * IllegalStateException} (or an idempotent overwrite policy), the second call will either
    * throw or replace the pointer regardless of {@code -ea}. Either fix flips the assertion
    * — change to {@code assertSame(secondPointer, ...)} for an overwrite policy or remove the
-   * try-catch and assert the exception class for a hard-fail policy. Forward to Track 22.
+   * try-catch and assert the exception class for a hard-fail policy. Forward to YTDB-793.
    */
   @Test(timeout = 5_000)
   public void testStoreReentryWithDistinctPointerKeepsOriginalPinsCurrentBehaviour()
@@ -426,7 +426,7 @@ public class WOWCacheConcurrencyShapesTest {
         "Current behaviour: writeCachePages still holds the first CachePointer after a"
             + " mismatched second store — the assert path does not replace the pointer."
             + " WHEN-FIXED: replace assert with hard-fail or atomic overwrite policy and"
-            + " update this assertion accordingly (Track 22).",
+            + " update this assertion accordingly (YTDB-793).",
         firstPointer, writeCachePages.get(key));
 
     // Note: both JVM modes (-ea on / -ea off) preserve firstPointer in writeCachePages.

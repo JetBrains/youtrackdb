@@ -57,7 +57,7 @@ import org.junit.Test;
  * <ul>
  *   <li>{@code sort(List, List, CommandContext)} — chain-dead; only ref is via the live
  *       SQL surface tests, none in production. The chain {@code sort} -> {@link EntityComparator}
- *       both die together when the deferred-cleanup track lands.</li>
+ *       both die together when YTDB-779 lands.</li>
  *   <li>{@code getMapEntry(DatabaseSessionEmbedded, Map, Object)} — only intra-class refs.</li>
  *   <li>{@code getResultEntry(DatabaseSessionEmbedded, Result, Object)} — only intra-class.</li>
  *   <li>{@code evaluateFunction(Object, String, CommandContext)} — only intra-class.</li>
@@ -327,7 +327,7 @@ public class EntityHelperUnusedMethodsTest {
   @Test
   public void liveSurfaceRetainsItsFiveExpectedMethods() throws Exception {
     // Each live method has direct production callers verified by mcp-steroid PSI all-scope
-    // ReferencesSearch. The deferred-cleanup track must NOT touch any of these — they stay
+    // ReferencesSearch. YTDB-779 must NOT touch any of these — they stay
     // covered by the existing live-surface tests.
     EntityHelper.class.getDeclaredMethod("getReservedAttributes");
     EntityHelper.class.getDeclaredMethod(
@@ -370,7 +370,7 @@ public class EntityHelperUnusedMethodsTest {
   // -------------------------------------------------------------------
   @Test
   public void sortChainTargetEntityComparatorIsObservedInTheClasspath() throws Exception {
-    // Smoke test — load the chain target. If the deferred-cleanup track lands a deletion
+    // Smoke test — load the chain target. If YTDB-779 lands a deletion
     // of EntityComparator without dropping sort, the static initialiser of this test class
     // would still load fine but the deletion would be incomplete; the per-method sort pin
     // above would still hold on the now-orphaned method. The reflective signature lookup

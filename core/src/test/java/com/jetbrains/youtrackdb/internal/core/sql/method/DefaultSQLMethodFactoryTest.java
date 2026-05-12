@@ -102,7 +102,7 @@ import org.junit.runners.MethodSorters;
  *   <li>{@code getMethodNames} is the live key-view of the underlying map (keys are lowercase).</li>
  *   <li>{@code register} overwrites existing entries — pins map-put semantics.</li>
  *   <li>{@link #methodsBackingMapIsPlainHashMapWhenFixedConvertToConcurrent} pins that the
- *       backing map is a plain {@link HashMap} — a WHEN-FIXED regression for Track 22's
+ *       backing map is a plain {@link HashMap} — a WHEN-FIXED regression for YTDB-792's
  *       conversion to {@link java.util.concurrent.ConcurrentHashMap} (paired with the equivalent
  *       race in {@code CustomSQLFunctionFactory}).</li>
  * </ul>

@@ -176,7 +176,7 @@ public class SQLScriptEngineTest extends TestUtilsFixture {
         assertThrows(
             CommandExecutionException.class,
             () -> engine.eval("SELECT 1", new SimpleScriptContext()));
-    // Pin the exact message so a Track 22 rewrap into a different wording is a visible event.
+    // Pin the exact message so a future rewrap into a different wording is a visible event.
     assertEquals("No database available in bindings", ex.getMessage());
   }
 

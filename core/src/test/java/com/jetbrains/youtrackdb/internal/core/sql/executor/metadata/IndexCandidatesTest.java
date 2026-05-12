@@ -110,7 +110,7 @@ public class IndexCandidatesTest {
   // ------------------------------------------------------------------------- IndexCandidateChain
 
   /**
-   * Pins the current trailing-arrow concatenation. If a future refactor (candidate for Track 22)
+   * Pins the current trailing-arrow concatenation. If a future refactor (candidate for YTDB-767)
    * joins with {@code ->} as a proper separator (no trailing arrow, e.g., {@code
    * first->second->third}), this assertion flips.
    */

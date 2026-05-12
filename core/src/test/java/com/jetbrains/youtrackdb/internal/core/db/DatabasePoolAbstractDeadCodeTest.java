@@ -40,7 +40,7 @@ import org.junit.Test;
  * remaining reachers are tests: {@code DatabasePoolAbstractEvictionTest$TestPool} (an
  * eviction-focused subclass) and the anonymous subclass inside {@link DatabasePoolBase}
  * itself. The class is therefore production-dead but test-reachable; deletion in the
- * deferred-cleanup track must drop {@link DatabasePoolBase} and either delete or relocate
+ * YTDB-769 must drop {@link DatabasePoolBase} and either delete or relocate
  * {@link DatabasePoolAbstract}'s eviction logic to {@link DatabasePoolImpl} in lockstep.
  *
  * <p>Reflection-only on purpose: the constructors register a {@link YouTrackDBListener}
@@ -53,7 +53,7 @@ import org.junit.Test;
  * <p>WHEN-FIXED: YTDB-769 — delete this abstract class together with this
  * test file once {@link DatabasePoolBase} is deleted. The eviction logic in this base
  * (the inner {@code Evictor} class) is duplicated by {@link DatabasePoolImpl}'s eviction
- * path; the deferred-cleanup track may either (a) consolidate both into one impl, or
+ * path; YTDB-769 may either (a) consolidate both into one impl, or
  * (b) drop this base entirely if the eviction-focused test no longer needs a separate
  * implementation hierarchy.
  */

@@ -108,7 +108,7 @@ import org.junit.Test;
  * {@code @After rollbackIfLeftOpen} is required.
  *
  * <p>Latent-bug pin: the {@code // WHEN-FIXED:} marker on
- * {@link #executeSQLPredicateBranchTypePunsResultAndEntityImplArgs()} is deferred to Track 22
+ * {@link #executeSQLPredicateBranchTypePunsResultAndEntityImplArgs()} is deferred to a future tracker
  * (SQLFunctionRuntime.execute line 104 — the instanceof check tests {@code iCurrentRecord} but
  * casts {@code iCurrentResult}, a type-punning bug that throws {@code ClassCastException} when
  * {@code iCurrentRecord} IS an EntityImpl and {@code iCurrentResult} is a non-null non-EntityImpl).
@@ -466,7 +466,7 @@ public class SQLFunctionRuntimeTest extends DbTestBase {
     // ClassCastException. Author likely meant a self-consistent cast on the checked variable:
     //   (iCurrentResult instanceof EntityImpl ? (EntityImpl) iCurrentResult : null)
     //
-    // Track 22 fix: change the instanceof check to inspect iCurrentResult (same as the cast).
+    // Tracker fix: change the instanceof check to inspect iCurrentResult (same as the cast).
     //
     // This test is falsifiable: it pins the current (buggy) ClassCastException by passing an
     // EntityImpl as iCurrentRecord and a non-EntityImpl String as iCurrentResult. After the
@@ -603,7 +603,7 @@ public class SQLFunctionRuntimeTest extends DbTestBase {
     //
     // WHEN-FIXED: if a future refactor adds a SQLMethodRuntime branch symmetric with the
     // SQLMethodRuntime.execute resolver loop (which DOES recurse into nested SQLFunctionRuntime
-    // AND nested SQLMethodRuntime), flip this assertion to match the resolved value. Track 22
+    // AND nested SQLMethodRuntime), flip this assertion to match the resolved value. Tracker
     // is the candidate fix location because the two resolver loops should be consistent.
     var methodRuntime = new SQLMethodRuntime(new SQLMethodSize());
 

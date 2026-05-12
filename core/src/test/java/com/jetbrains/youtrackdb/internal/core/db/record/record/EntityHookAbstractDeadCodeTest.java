@@ -37,7 +37,7 @@ import org.mockito.Mockito;
  * {@code core/src/test/} and {@code tests/src/test/} (CheckHookCallCountTest$TestHook,
  * HookChangeValidationTest's anonymous subclasses, DbListenerTest's anonymous subclass).
  * The class is therefore production-dead but test-reachable — a slightly weaker form of the
- * pure dead-code pattern. Deletion in the deferred-cleanup track must update those test
+ * pure dead-code pattern. Deletion in YTDB-733 must update those test
  * files in lockstep (either delete them, retarget them at {@link RecordHookAbstract}, or
  * inline the entity-specific dispatch into each test subclass).
  *

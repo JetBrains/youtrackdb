@@ -48,7 +48,7 @@ import org.mockito.Mockito;
  * file's "balanced" + "default" entries}.
  *
  * <p>This pin exercises the constructor and the three interface methods so the class is
- * concretely covered for the deferred-cleanup track:
+ * concretely covered for YTDB-771:
  *
  * <ul>
  *   <li>{@link #getName()} must return the literal {@code "balanced"} — pinned because the
@@ -74,7 +74,7 @@ import org.mockito.Mockito;
  * isolation. The strategy holds package-protected mutable state ({@code lastCount},
  * {@code smallerCollectionId}) — the tests exercise the public surface only and rely on
  * Mockito stubs for the session interaction; private-field probes would be brittle across
- * a Track 22 deletion and add no falsifiability.
+ * a YTDB-771 deletion and add no falsifiability.
  */
 public class BalancedCollectionSelectionStrategyDeadCodeTest {
 

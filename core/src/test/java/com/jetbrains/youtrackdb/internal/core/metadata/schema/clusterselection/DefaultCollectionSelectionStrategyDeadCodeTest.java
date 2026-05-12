@@ -124,7 +124,7 @@ public class DefaultCollectionSelectionStrategyDeadCodeTest {
   @Test
   public void getCollectionFourArgFormIgnoresSelectionAndReturnsFirstClusterIdFromSchemaClass() {
     // Surprising-but-true contract: the 4-arg overload reads from iClass.getCollectionIds()
-    // and ignores the supplied selection array. Pin this so a Track 22 deletion that
+    // and ignores the supplied selection array. Pin this so a YTDB-771 deletion that
     // "harmonises" with the documented behaviour ("Returns always the first collection
     // configured") is caught and explicitly migrated. Use distinct values so the test
     // cannot pass coincidentally if both arrays were consulted.

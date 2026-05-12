@@ -49,7 +49,7 @@ import org.junit.Test;
  * </ul>
  *
  * <p>The sibling {@link LiveQueryDeadCodeTest} covers the rest of the file as dead code; this
- * class is <em>not</em> a dead-code pin. Track 22 will delete the dead surface around
+ * class is <em>not</em> a dead-code pin. YTDB-728 will delete the dead surface around
  * {@code unboxRidbags} but {@code unboxRidbags} itself must survive (possibly relocated to a
  * helper, per the TODO comment in the source).
  *

@@ -59,7 +59,7 @@ import org.junit.Test;
  * {@code getDeclaredMethod} lookup; a refactor that changes a parameter type will fail
  * compilation here when the pinned parameter class disappears.
  *
- * <p>WHEN-FIXED: delete the abstract instance API of {@link RecordSerializerStringAbstract}
+ * <p>WHEN-FIXED: YTDB-748 — delete the abstract instance API of {@link RecordSerializerStringAbstract}
  * ({@code fromString}, {@code toString} both arities, {@code fromStream}, {@code toStream},
  * {@code getSupportBinaryEvaluate}). The static helpers stay.
  */

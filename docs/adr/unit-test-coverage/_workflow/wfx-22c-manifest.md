@@ -818,3 +818,77 @@ excludes them.
 
 Track 22c is complete pending the Phase C track-level code review
 and track-completion summary.
+
+## 7. Phase C review iteration — broader-regex sweep
+
+The Step 7 verification grep was anchored on `WHEN-FIXED:\s+(Track 22|deferred-cleanup track)`
+and missed alternative marker variants — `WHEN-FIXED (Track 22):` (parens form),
+trailing `Track 22.` inside `// WHEN-FIXED:` lines, `WHEN-FIXED` Javadoc-prose
+continuations naming `Track 22`, and bare forward-looking prose mentions
+(`Track 22 should…`, `Track 22 fix…`) in test class Javadocs and assertion-message
+string literals. The Phase C review broadened the audit to the regexes below and
+this iteration rewrote every residual to canonical YTDB-NNN form (or dropped the
+ephemeral identifier in narrative prose where no specific issue mapping existed).
+
+### Corrected verification regexes (load-bearing)
+
+The closure-section regexes are widened to cover all four forms:
+
+| # | Regex | Scope | Expected |
+|---|---|---|---|
+| 1 | `\bTrack 22\b` | every `core/src/test/**.java` | 0 hits |
+| 2 | `\bdeferred-cleanup track\b` | every `core/src/test/**.java` | 0 hits |
+| 3 | `WHEN-FIXED \(Track` | every `core/src/test/**.java` | 0 hits |
+| 4 | `^[[:space:]]*//[[:space:]]*WHEN-FIXED:[[:space:]]+(Track 22\|deferred-cleanup track)` | every `core/src/test/**.java` (original Step 7 anchor) | 0 hits |
+
+All four regexes return 0 hits after this iteration's rewrite.
+
+### New YTDB issues opened in this iteration
+
+Eight issues opened for production bugs pinned by markers the original Step 7
+regex missed:
+
+| YTDB-ID | Title | Pin file(s) |
+|---|---|---|
+| YTDB-786 | Fix RuntimeResult.getResult overwrite of canExcludeResult | `RuntimeResultTest.java:279` |
+| YTDB-787 | Delete RuntimeResult.entriesPersistent(Collection) dead method | `RuntimeResultTest.java:306, 314` |
+| YTDB-788 | Fix IndexSearchResult.mergeFields drops right-side containsNullValues flag | `IndexSearchResultTest.java:301, 316` |
+| YTDB-789 | Fix IndexSearchResult.equals NPE on null lastValue and missing fieldValuePairs key | `IndexSearchResultTest.java:436, 454` |
+| YTDB-790 | Fix SQLHelper.parseStringNumber sign/decimal/suffix-strip quirks | `SQLHelperParseValueScalarTest.java:228, 250, 262, 278, 289, 314, 336, 348, 456` |
+| YTDB-791 | Fix SQLHelper.getValue eager-AND (`&`) short-circuit on null record | `SQLHelperMiscTest.java:135` |
+| YTDB-792 | Replace DefaultSQLMethodFactory backing HashMap with ConcurrentHashMap to eliminate registration race | `DefaultSQLMethodFactoryTest.java:105` |
+| YTDB-793 | Fix WOWCache pin-migration races: non-atomic counter + file-set updates and silent CachePointer overwrite | `WOWCacheConcurrencyShapesTest.java:33, 105, 166, 178, 258, 296, 378, 429` |
+
+The umbrella WOWCache issue (YTDB-793) groups three distinct concurrency invariants
+(non-atomic counter + set update, fileIdByName visibility race, store re-entry
+silently swallows mismatched CachePointer) into a single ticket per the manifest's
+"one logical fix = one issue" granularity guidance — each shape is documented as a
+separate sub-section with its own pin lines and post-fix assertion flip.
+
+Final YTDB-NNNN range after this iteration: **YTDB-723..YTDB-793** (69 issues total
+across Phase B Steps 2–6 plus this Phase C iteration's 8 additional issues).
+
+### TC3 missing-anchor sites — append YTDB-NNN to existing markers
+
+The three pin-maintenance hedge sites where the manifest left the in-source
+`WHEN-FIXED:` marker untouched because the marker did NOT carry the `Track 22`
+or `deferred-cleanup track` anchor token are now annotated with the matching
+manifest YTDB-NNN so the linkage is bidirectional:
+
+| File | Marker line | YTDB-NNN appended |
+|---|---|---|
+| `RecordSerializerCsvAbstractDeadCodeTest.java` | L62 (Javadoc) | YTDB-748 |
+| `RecordSerializerStringAbstractDeadCodeTest.java` | L62 (Javadoc) | YTDB-748 |
+| `SBTreeBucketV1DeadCodeTest.java` | L22 (Javadoc) | YTDB-749 |
+| `SBTreeNullBucketV1DeadCodeTest.java` | L25 (Javadoc) | YTDB-749 |
+| `SBTreeValueTest.java` | L18 (Javadoc) | YTDB-782 |
+
+### Forward-looking-mention rewrite policy
+
+Forward-looking forward-looking mentions of `Track 22` in test Javadoc class
+headers, assertion-message string literals, and inline prose were rewritten
+to either the matching manifest YTDB-NNN (when a specific issue maps cleanly
+to the surrounding pin) or to a generic "future tracker issue" phrasing
+(when the mention is broadly narrative and no specific bug fix maps).
+Purely-historical squash-commit narrative was not present in `core/src/test/`
+after the rewrite.

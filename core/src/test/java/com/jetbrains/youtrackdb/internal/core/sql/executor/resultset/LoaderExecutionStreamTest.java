@@ -161,7 +161,7 @@ public class LoaderExecutionStreamTest extends TestUtilsFixture {
    * A mid-stream missing record aborts the scan — the loader does NOT skip the bad record
    * and continue; it terminates on the first {@code RecordNotFoundException}. This pins the
    * observable contract, because both "abort" and "skip-and-continue" would satisfy the
-   * simpler single-element test above. If Track 22 ever adopts skip-and-continue semantics,
+   * simpler single-element test above. If a future tracker ever adopts skip-and-continue semantics,
    * this assertion flips (and should be re-pinned as a {@code WHEN-FIXED} marker).
    */
   @Test

@@ -237,7 +237,7 @@ public class ExecutionStreamWrappersTest extends TestUtilsFixture {
    * re-assignment from the mapper never happens on throw). Consequently the next
    * {@code next()} call leaks the unfiltered Result downstream — a latent bug. A fix would
    * either reset nextItem before the mapper call or wrap the mapper in a try-reset. Pinned
-   * here so Track 22 can flip the assertion after the fix.
+   * here so YTDB-757 can flip the assertion after the fix.
    */
   @Test
   public void filterExceptionLeaksUnfilteredItemOnNextCall() {

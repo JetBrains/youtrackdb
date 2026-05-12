@@ -59,7 +59,7 @@ import org.junit.rules.Timeout;
  *
  * <p>This suite pins the observable shape of that residual surface so JaCoCo reports coverage for
  * it and any future mutation (e.g. accidental re-wiring) is detected immediately. Each pin carries
- * a {@code // WHEN-FIXED: Track 22 ...} marker naming the class that the final sweep track should
+ * a {@code // WHEN-FIXED: YTDB-NNN ...} marker naming the class that the final sweep track should
  * delete.
  *
  * <p><strong>Thread hygiene.</strong> Tests that do start a queue thread attach a class-level
@@ -815,7 +815,7 @@ public class LiveQueryDeadCodeTest {
 
   // -------------------------------------------------------------------------
   // Zero-impl interface pins — the interfaces compile and can be instantiated anonymously;
-  // production ships zero implementations, so these pins flag the surface for Track 22 deletion.
+  // production ships zero implementations, so these pins flag the surface for YTDB-729 deletion.
   // -------------------------------------------------------------------------
 
   /**
@@ -843,7 +843,7 @@ public class LiveQueryDeadCodeTest {
   }
 
   /**
-   * {@link LiveQueryListenerV2} — zero production implementors. Pin surface for Track 22
+   * {@link LiveQueryListenerV2} — zero production implementors. Pin surface for YTDB-729
    * deletion.
    */
   @Test

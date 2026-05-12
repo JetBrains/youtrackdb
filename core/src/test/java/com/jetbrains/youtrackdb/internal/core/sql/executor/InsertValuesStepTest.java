@@ -144,7 +144,7 @@ public class InsertValuesStepTest extends TestUtilsFixture {
    * The {@code !(result instanceof ResultInternal) && !result.isEntity()} rejection branch is
    * not reachable from the production planner (all upstream results for INSERT are
    * UpdatableResult) but is defensive against stream corruption. Exercising it would need a
-   * custom Result implementation — out of scope for this direct-step test; left to Track 22 if a
+   * custom Result implementation — out of scope for this direct-step test; left to a future tracker issue if a
    * stub is introduced.
    */
 

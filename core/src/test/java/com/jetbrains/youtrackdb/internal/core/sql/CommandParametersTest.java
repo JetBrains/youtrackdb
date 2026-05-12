@@ -84,7 +84,7 @@ public class CommandParametersTest {
     // the original map are visible through CommandParameters. This is a pre-existing behaviour
     // pinned here so accidental defensive-copy would surface as a regression.
     // WHEN-FIXED: if CommandParameters switches to a defensive copy, this test will start to
-    // fail and the pin should be removed with an updated assertion. Track 22 may revisit.
+    // fail and the pin should be removed with an updated assertion.
     Map<Object, Object> seed = new HashMap<>();
     var p = new CommandParameters(seed);
     assertEquals(0, p.size());
@@ -234,7 +234,7 @@ public class CommandParametersTest {
     // will see null silently instead of a well-formed IndexOutOfBoundsException.
     // WHEN-FIXED: the size guard should count only Integer keys (or the class should separate
     // named vs positional storage). When fixed, this test will start returning OOB and the pin
-    // should be updated. Track 22 candidate.
+    // should be updated.
     var p = new CommandParameters();
     p.set("name", "alice");
     assertNull(p.getNext());

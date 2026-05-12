@@ -58,13 +58,13 @@ import org.junit.Test;
  * <ul>
  *   <li>Exercise each class's reachable surface so JaCoCo reports coverage and the executor
  *       package aggregate is not artificially depressed by never-loaded classes.
- *   <li>Flag the exact deletion targets Track 22 should pursue via {@code // WHEN-FIXED:}
- *       markers under each class's tests.
+ *   <li>Flag the exact deletion targets the final-sweep tracker issue should pursue via
+ *       {@code // WHEN-FIXED:} markers under each class's tests.
  * </ul>
  *
  * <p>If any production caller appears later, these tests still pass — but the package's overall
  * coverage will naturally rise via the new caller, removing the rationale for the pin. Search
- * for the {@code // WHEN-FIXED: Track 22 — delete} markers in this file before deleting any
+ * for the {@code // WHEN-FIXED: YTDB-783 — delete} markers in this file before deleting any
  * class so you don't accidentally remove a reachable one.
  *
  * <p>All tests are standalone (no {@code DbTestBase}); the four classes either ignore their
@@ -239,7 +239,7 @@ public class SqlExecutorTest {
     // WHEN-FIXED: YTDB-783 — pin Number.intValue() narrowing for non-Integer/Long inputs
     // a future caller might pass (double from SQL arithmetic, BigDecimal from aggregation,
     // Long.MAX_VALUE that truncates to -1). This is a silent-data-loss surface a restored
-    // caller would inherit unless Track 22 either deletes the class or validates the input.
+    // caller would inherit unless YTDB-783 either deletes the class or validates the input.
     var tr = new TraverseResult(null);
     // Double: fractional part is dropped.
     tr.setProperty("$depth", 3.9);
@@ -255,7 +255,7 @@ public class SqlExecutorTest {
         tr.getProperty("$depth"));
     // Long.MAX_VALUE overflow: intValue returns the low-order int bits (-1 in two's
     // complement). Pin this so the overflow-silent behavior is explicit — a restored caller
-    // that assumed clamping rather than truncation would surface a logic bug Track 22
+    // that assumed clamping rather than truncation would surface a logic bug YTDB-783
     // should fix (or the class simply deleted).
     tr.setProperty("$depth", Long.MAX_VALUE);
     assertEquals(

@@ -367,7 +367,7 @@ public class LinkBagConversionTest extends DbTestBase {
    * <p>The iterating-loop path that walks {@code entity.getLinkBagsToDelete()} cannot be
    * driven from the unit-test layer — populating that collection requires the storage
    * delete pipeline which only fires inside an active commit. The non-empty path is
-   * forwarded to the deferred-cleanup track for storage-IT-level coverage.
+   * forwarded to a future YTDB tracker issue for storage-IT-level coverage.
    */
   @Test
   public void deleteAllRidBagsOnEntityWithNoPendingBagsIsNoOp() {

@@ -33,7 +33,7 @@ import org.junit.Test;
  * <p>PSI all-scope {@code ReferencesSearch} reports zero references anywhere in the project —
  * no production callers, no tests, no instantiation, no {@code instanceof} sites. The class
  * is also marked {@code @Deprecated} on the production side. It is fully production-dead and
- * a candidate for outright deletion in the deferred-cleanup track.
+ * a candidate for outright deletion via YTDB-774.
  *
  * <p>This pin captures:
  * <ul>

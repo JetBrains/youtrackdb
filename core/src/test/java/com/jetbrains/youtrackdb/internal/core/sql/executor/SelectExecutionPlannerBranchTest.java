@@ -171,7 +171,7 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
     } catch (CommandExecutionException e) {
       // WHEN-FIXED: YTDB-759 — fix typo "colleciton" → "collection" in
       // SelectExecutionPlanner.handleInputParamAsTarget error message. This assertion
-      // must fail once the production message is corrected, so the Track 22 fix forces
+      // must fail once the production message is corrected, so the YTDB-759 fix forces
       // updating this test to assert the correctly spelled "collection" (and to drop
       // this WHEN-FIXED marker).
       Assert.assertTrue(
@@ -670,7 +670,7 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
       Assert.fail("Expected CommandExecutionException when mid-iteration element is bad");
     } catch (CommandExecutionException e) {
       // WHEN-FIXED: YTDB-759 — fix typo "colleciton" → "collection". This assertion
-      // must fail once production is corrected, forcing the Track 22 fix to update the
+      // must fail once production is corrected, forcing the YTDB-759 fix to update the
       // test to assert the correctly spelled "collection".
       Assert.assertTrue(
           "message must flag the bad element with the pinned 'colleciton' typo, got: "

@@ -43,7 +43,7 @@ import org.junit.Test;
  * is exclusively about the dead surface so a partial deletion (drop one method, keep the rest)
  * leaves the pin set valid (Track 15 {@code EntityHelper} precedent).
  *
- * <p>Each {@code @Test} below is its own atomic pin so that Track 22 can delete one method at a
+ * <p>Each {@code @Test} below is its own atomic pin so that YTDB-772 can delete one method at a
  * time without breaking unrelated assertions.
  *
  * <p>WHEN-FIXED: YTDB-772 — delete each method below from {@link SymmetricKey} after the

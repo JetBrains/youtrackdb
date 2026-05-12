@@ -516,7 +516,7 @@ public class DefaultSecuritySystemReloadTest extends DbTestBase {
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  // reloadImportLDAP — error paths only (happy path forwarded to Track 22)
+  // reloadImportLDAP — error paths only (happy path forwarded to a future tracker issue)
   // ──────────────────────────────────────────────────────────────────────────
 
   @Test

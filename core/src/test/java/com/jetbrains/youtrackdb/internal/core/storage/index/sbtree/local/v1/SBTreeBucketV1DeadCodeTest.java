@@ -19,7 +19,7 @@ import org.junit.Test;
  * set/get, and switchBucketType toggle — that are not all covered by the legacy test files, so
  * that the eventual deletion commit either removes this file in lockstep or fails at compile time.
  *
- * <p>WHEN-FIXED: delete this file in the same commit that deletes the v1 source classes
+ * <p>WHEN-FIXED: YTDB-749 — delete this file in the same commit that deletes the v1 source classes
  * ({@code SBTreeBucketV1}, {@code SBTreeNullBucketV1}, {@code SBTreeValue}) along with the legacy
  * test files ({@code SBTreeLeafBucketV1Test}, {@code SBTreeNonLeafBucketV1Test},
  * {@code SBTreeNullBucketV1Test}).

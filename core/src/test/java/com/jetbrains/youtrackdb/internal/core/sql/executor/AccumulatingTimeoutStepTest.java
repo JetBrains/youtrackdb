@@ -58,7 +58,7 @@ import org.junit.Test;
  * (see {@code slowSendTimeoutPredecessor}). The 5 ms sleep is comfortably above the threshold
  * on every realistic scheduler (sleep truncation cannot reduce a 5 ms sleep below 1 ms in
  * accumulated nanos), so these tests are deterministic in practice. They are nevertheless
- * technically wall-clock-sensitive; the fix of record is Track 22's plan item to inject a
+ * technically wall-clock-sensitive; the fix of record is the deferred-cleanup plan item to inject a
  * {@code LongSupplier nanoTime} into {@code TimeoutResultSet} so the tests can use a fake clock.
  * Until that lands, keep the sleep-based predecessor rather than reducing the sleep — a tighter
  * budget would re-introduce the flake surface this notice is meant to prevent.

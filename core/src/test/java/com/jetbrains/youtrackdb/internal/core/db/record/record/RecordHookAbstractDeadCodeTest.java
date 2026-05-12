@@ -32,7 +32,7 @@ import org.mockito.Mockito;
  * the only production-source reference is a Javadoc {@code @see} tag in
  * {@link RecordHook}.java; every concrete subclass lives in {@code tests/src/test/}
  * (BrokenMapHook, HookTxTest$RecordHook). The class is therefore production-dead but
- * test-reachable. Deletion in the deferred-cleanup track must update those test files in
+ * test-reachable. Deletion in YTDB-733 must update those test files in
  * lockstep — either delete them, or retarget them at the {@link RecordHook} interface
  * directly (which already provides a {@code default} no-op for {@code onUnregister} and
  * abstract {@code onTrigger}).

@@ -298,7 +298,7 @@ public class IndexSearchResultTest extends DbTestBase {
     // `left.containsNullValues || left.containsNullValues` — right.containsNullValues is
     // silently dropped.
     //
-    // WHEN-FIXED (Track 22): mergeFields should compute containsNullValues from BOTH inputs,
+    // WHEN-FIXED: YTDB-788 — mergeFields should compute containsNullValues from BOTH inputs,
     // not `this` (the outer caller). With the bug, this test passes because we pin null on the
     // LEFT side; a fix that correctly OR's `mainSearchResult.containsNullValues` with
     // `searchResult.containsNullValues` preserves the same result for this input (both
@@ -313,7 +313,7 @@ public class IndexSearchResultTest extends DbTestBase {
 
   @Test
   public void mergeDropsRightNullInBranch2BugPin() {
-    // WHEN-FIXED (Track 22): mergeFields uses `this.containsNullValues` (the outer caller =
+    // WHEN-FIXED: YTDB-788 — mergeFields uses `this.containsNullValues` (the outer caller =
     // left) instead of `mainSearchResult.containsNullValues`. Branch 2 puts RIGHT as main, but
     // the OR reads left.containsNullValues || left.containsNullValues — right's null flag is
     // lost. Pin this by constructing left=non-null + right=null (range), expect false result
@@ -433,7 +433,7 @@ public class IndexSearchResultTest extends DbTestBase {
 
   @Test
   public void equalsNpesWhenLastValueIsNullBugPin() {
-    // WHEN-FIXED (Track 22): IndexSearchResult.equals dereferences lastValue at line 161
+    // WHEN-FIXED: YTDB-789 — IndexSearchResult.equals dereferences lastValue at line 161
     // (`lastValue.equals(that.lastValue)`) without a null guard. When lastValue was constructed
     // as null, the comparison NPEs instead of returning true/false. Pin the NPE so that a
     // future null-safety fix (e.g. Objects.equals) makes this test flip red.
@@ -451,7 +451,7 @@ public class IndexSearchResultTest extends DbTestBase {
 
   @Test
   public void equalsNpesWhenOtherSideMissingFieldValuePairBugPin() {
-    // WHEN-FIXED (Track 22): equals at line 150 does `that.fieldValuePairs.get(entry.getKey())
+    // WHEN-FIXED: YTDB-789 — equals at line 150 does `that.fieldValuePairs.get(entry.getKey())
     // .equals(entry.getValue())` without guarding against a missing key on `that`. If `this`
     // has a key in fieldValuePairs that `that` does not, `that.fieldValuePairs.get(key)` returns
     // null and `.equals(value)` NPEs. Pin so Objects.equals or a proper missing-key branch

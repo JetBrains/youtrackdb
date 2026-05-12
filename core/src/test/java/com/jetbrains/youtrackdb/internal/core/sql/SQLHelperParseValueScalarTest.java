@@ -225,7 +225,7 @@ public class SQLHelperParseValueScalarTest extends DbTestBase {
     // length check counts characters (not digits), so a leading minus pushes it over the
     // 10-digit threshold and it's classified LONG. The value still fits in a 32-bit int, so
     // callers that need strict Integer typing must special-case negative boundaries.
-    // WHEN-FIXED (Track 22): the sign-inclusive length comparison is a minor quirk; if the
+    // WHEN-FIXED: YTDB-790 — the sign-inclusive length comparison is a minor quirk; if the
     // classifier is refined to exclude the sign, this test should assert Integer instead.
     var out = SQLHelper.parseValue(Integer.toString(Integer.MIN_VALUE), ctx, null);
     assertTrue("expected Long classification, got " + out.getClass(), out instanceof Long);
@@ -247,7 +247,7 @@ public class SQLHelperParseValueScalarTest extends DbTestBase {
     // integer-length check which caps at MAX_INTEGER_DIGITS=10 → LONG promotion, but 20 digits
     // overflows Long.parseLong, surfacing a NumberFormatException. Pin this boundary so a future
     // classifier that promotes such values to DECIMAL (a more forgiving choice) can be detected.
-    // WHEN-FIXED (Track 22): promote to DECIMAL for >19-digit integer inputs to preserve the
+    // WHEN-FIXED: YTDB-790 — promote to DECIMAL for >19-digit integer inputs to preserve the
     // value; current behaviour is NFE.
     try {
       SQLHelper.parseValue("99999999999999999999", ctx, null);
@@ -259,12 +259,12 @@ public class SQLHelperParseValueScalarTest extends DbTestBase {
 
   @Test
   public void parseLongSuffixLiteralThrowsNumberFormatBugPin() {
-    // WHEN-FIXED: `SQLHelper.parseStringNumber` classifies "99l" as LONG via
+    // WHEN-FIXED: YTDB-790 — `SQLHelper.parseStringNumber` classifies "99l" as LONG via
     // RecordSerializerStringAbstract.getType's 'l' suffix branch, but then passes the raw string
     // (including the suffix) to Long.parseLong — which throws NumberFormatException. Callers of
     // parseValue that rely on suffix notation would see a crash instead of a typed value. Fix
     // by stripping the suffix before parseLong, or by routing through a suffix-aware parser.
-    // Track 22: harmonise parseStringNumber with getType's suffix classification.
+    // Harmonise parseStringNumber with getType's suffix classification.
     try {
       SQLHelper.parseValue("99l", ctx, null);
       fail("expected NumberFormatException pinning the suffix-strip bug");
@@ -311,8 +311,8 @@ public class SQLHelperParseValueScalarTest extends DbTestBase {
 
   @Test
   public void parseDecimalSuffixLiteralThrowsNumberFormatBugPin() {
-    // WHEN-FIXED: "100.50c" reaches new BigDecimal("100.50c") which throws NumberFormatException.
-    // Same suffix-strip bug. Track 22.
+    // WHEN-FIXED: YTDB-790 — "100.50c" reaches new BigDecimal("100.50c") which throws NumberFormatException.
+    // Same suffix-strip bug.
     try {
       SQLHelper.parseValue("100.50c", ctx, null);
       fail("expected NumberFormatException pinning the suffix-strip bug");
@@ -333,8 +333,8 @@ public class SQLHelperParseValueScalarTest extends DbTestBase {
 
   @Test
   public void parseDateSuffixLiteralThrowsNumberFormatBugPin() {
-    // WHEN-FIXED: "1000a" → DATE classification → new Date(Long.parseLong("1000a")) → NFE.
-    // Same suffix-strip bug. Track 22.
+    // WHEN-FIXED: YTDB-790 — "1000a" → DATE classification → new Date(Long.parseLong("1000a")) → NFE.
+    // Same suffix-strip bug.
     try {
       SQLHelper.parseValue("1000a", ctx, null);
       fail("expected NumberFormatException pinning the suffix-strip bug");
@@ -345,7 +345,7 @@ public class SQLHelperParseValueScalarTest extends DbTestBase {
 
   @Test
   public void parseDateTimeSuffixLiteralThrowsNumberFormatBugPin() {
-    // WHEN-FIXED: "2000t" → DATETIME classification → Long.parseLong("2000t") → NFE. Track 22.
+    // WHEN-FIXED: YTDB-790 — "2000t" → DATETIME classification → Long.parseLong("2000t") → NFE.
     try {
       SQLHelper.parseValue("2000t", ctx, null);
       fail("expected NumberFormatException pinning the suffix-strip bug");
@@ -453,7 +453,7 @@ public class SQLHelperParseValueScalarTest extends DbTestBase {
 
   @Test
   public void parseStringNumberSuffixedIntegralLiteralsThrowBugPin() {
-    // WHEN-FIXED (Track 22): the other integer-family suffixes (l, s, b) and decimal (c),
+    // WHEN-FIXED: YTDB-790 — the other integer-family suffixes (l, s, b) and decimal (c),
     // date (a, t) ALL reach their respective parse methods with the suffix still attached → NFE.
     // Pin BOTH: (a) the classifier correctly types the suffix (non-null, expected type) AND
     // (b) the parse step crashes. This locks the classifier so a future refactor that

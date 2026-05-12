@@ -276,7 +276,7 @@ public class RuntimeResultTest extends DbTestBase {
 
   @Test
   public void staticGetResultCanExcludeResultOverwriteBugPin() {
-    // WHEN-FIXED (Track 22): RuntimeResult.getResult line 73 uses `canExcludeResult =
+    // WHEN-FIXED: YTDB-786 — RuntimeResult.getResult line 73 uses `canExcludeResult =
     // f.filterResult()` (assignment) instead of `canExcludeResult |= f.filterResult()`. With two
     // projections where the FIRST has filterResult=true and the SECOND has filterResult=false,
     // the flag is overwritten to false and the empty-result short-circuit never fires.
@@ -303,15 +303,15 @@ public class RuntimeResultTest extends DbTestBase {
 
   @Test
   public void entriesPersistentIsDeadCodeBugPin() {
-    // WHEN-FIXED (Track 22): `RuntimeResult.entriesPersistent(Collection<Identifiable>)` (line
-    // 51) has zero callers in core/src/main. Pin via reflection so that if Track 22 deletes the
-    // method, this test flips red and the marker is removed. Keeps the dead method on Track
-    // 22's radar without inflating RuntimeResult's JaCoCo uncovered-line count surreptitiously.
+    // WHEN-FIXED: YTDB-787 — `RuntimeResult.entriesPersistent(Collection<Identifiable>)` (line
+    // 51) has zero callers in core/src/main. Pin via reflection so that if YTDB-787 deletes the
+    // method, this test flips red and the marker is removed. Keeps the dead method on the
+    // tracker's radar without inflating RuntimeResult's JaCoCo uncovered-line count surreptitiously.
     var declared = java.util.Arrays.stream(RuntimeResult.class.getDeclaredMethods())
         .filter(m -> m.getName().equals("entriesPersistent"))
         .findFirst();
     assertTrue(
-        "entriesPersistent still exists — Track 22 has not yet removed it",
+        "entriesPersistent still exists — YTDB-787 has not yet removed it",
         declared.isPresent());
   }
 

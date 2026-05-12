@@ -53,7 +53,7 @@ import org.junit.Test;
  *
  * <p>WHEN-FIXED: delete the entire {@code core/db/config} package
  * (six classes plus the inner {@link UDPUnicastConfiguration.Address} record) once the
- * deferred-cleanup track absorbs the deletion item. No production callers exist anywhere
+ * YTDB-773 absorbs the deletion item. No production callers exist anywhere
  * in the codebase, so the deletion needs only to update or remove this test file.
  *
  * <p>This class is standalone — no database session is needed. The classes under test are

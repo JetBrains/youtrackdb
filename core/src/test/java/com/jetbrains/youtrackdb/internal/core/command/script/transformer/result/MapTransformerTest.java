@@ -97,7 +97,7 @@ public class MapTransformerTest extends TestUtilsFixture {
    * A null value in the input Map currently triggers a {@link NullPointerException} inside
    * the forEach lambda because {@link com.jetbrains.youtrackdb.internal.core.command.script.transformer.ScriptTransformerImpl#doesHandleResult(Object)}
    * dereferences {@code value.getClass()} without a null guard. Pins the observed NPE shape
-   * so Track 22's hardening (either a null guard before {@code doesHandleResult} or a
+   * so YTDB-727's hardening (either a null guard before {@code doesHandleResult} or a
    * null-guard inside {@code doesHandleResult} itself) is a deliberate, visible change.
    *
    * <p>WHEN-FIXED: YTDB-727 — add null-guard in
@@ -122,7 +122,7 @@ public class MapTransformerTest extends TestUtilsFixture {
    * value, but via a different call site: the stream lambda at {@code MapTransformer.java:33}
    * invokes {@code transformer.toResult(db, e)} for each element, and
    * {@code ScriptTransformerImpl.toResult(db, null)} dereferences {@code value.getClass()}
-   * without a null guard. Pins the observed NPE shape so Track 22's hardening flips BOTH this
+   * without a null guard. Pins the observed NPE shape so YTDB-727's hardening flips BOTH this
    * test and {@link #transformMapWithNullValueThrowsNpe} consistently. If only one is fixed,
    * the asymmetry is caught.
    *

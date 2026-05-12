@@ -275,7 +275,7 @@ public class ScriptFormatterTest extends TestUtilsFixture {
   // Tests below pin:
   //  (1) The happy path with a "\r"-prefixed body (current observable shape).
   //  (2) The NoSuchElementException for a body WITHOUT a "\r" prefix — a WHEN-FIXED pin so
-  //      Track 22's {@code skip("\r")}-removal (or {@code if hasNext("\r")} guard) is a
+  //      YTDB-736's {@code skip("\r")}-removal (or {@code if hasNext("\r")} guard) is a
   //      deliberate visible change. Without this pin, a behavior flip would go unnoticed by
   //      tests.
   //  (3) The invoke path, which has no Scanner-related bug — same template as JS/Groovy.
@@ -316,7 +316,7 @@ public class ScriptFormatterTest extends TestUtilsFixture {
   /**
    * Ruby definition with a code body that does NOT start with "\r" throws {@link
    * NoSuchElementException} at the {@code scanner.skip("\r")} call. Pins this latent
-   * production bug so Track 22's hardening (either remove skip or guard with hasNext("\r"))
+   * production bug so YTDB-736's hardening (either remove skip or guard with hasNext("\r"))
    * is a visible change — this test will start to PASS where it currently asserts-throws,
    * forcing a conscious re-pin.
    *

@@ -26,7 +26,7 @@ import org.junit.Test;
  * <p>PSI find-usages over the project scope confirms <strong>zero production throw / catch /
  * instanceof / new sites</strong> for this exception type. The class persists for binary
  * compatibility on the remote-protocol exception-deserialisation surface but is unreachable from
- * any live execution path. Until the deferred-cleanup track absorbs the deletion item (or
+ * any live execution path. Until a future tracker issue absorbs the deletion item (or
  * declares the type intentionally part of the exception API surface), this pin guarantees the
  * shape stays observable so a deletion commit either removes this file in lockstep or fails at
  * compile time.

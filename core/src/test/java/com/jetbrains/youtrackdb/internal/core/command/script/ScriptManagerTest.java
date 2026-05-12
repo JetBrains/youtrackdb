@@ -555,7 +555,7 @@ public class ScriptManagerTest extends DbTestBase {
 
   // ==========================================================================
   // throwErrorMessage — TC1/TC6 falsifiable regression pins for boundary and
-  // malformed input behaviors. These pin the CURRENT observed shape; if Track 22
+  // malformed input behaviors. These pin the CURRENT observed shape; if YTDB-738
   // hardens the error handler to throw CommandScriptException uniformly instead
   // of surfacing NumberFormatException/StringIndexOutOfBoundsException, these
   // tests will flip — rewrite them to pin the new wrap shape.
@@ -565,7 +565,7 @@ public class ScriptManagerTest extends DbTestBase {
    * TC1 pin (malformed Rhino pattern, non-numeric line): when the Rhino-fallback regex
    * extracts a non-numeric segment between {@code "<Unknown Source>#"} and {@code ")"},
    * {@code Integer.parseInt(...)} throws {@link NumberFormatException}. This pins the
-   * current observable — a Track 22 hardening that wraps the parse failure into a
+   * current observable — a YTDB-738 hardening that wraps the parse failure into a
    * {@link CommandScriptException} would flip this test; rewrite at that time.
    *
    * <p>WHEN-FIXED: YTDB-738 — add guard around Integer.parseInt in

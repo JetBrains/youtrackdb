@@ -50,7 +50,7 @@ import org.junit.rules.Timeout;
  * <ul>
  *   <li>Exercise the class once so JaCoCo reports coverage for the dead surface area and the
  *       package aggregate is not dominated by never-loaded classes.</li>
- *   <li>Flag the exact branches Track 22 should delete via {@code // WHEN-FIXED:} markers.</li>
+ *   <li>Flag the exact branches YTDB-766 should delete via {@code // WHEN-FIXED:} markers.</li>
  * </ul>
  *
  * <p>The companion {@link BasicLegacyResultSetTest} covers the live slice of the package —
@@ -73,7 +73,7 @@ import org.junit.rules.Timeout;
  *       callers outside this test.</li>
  * </ul>
  *
- * <p>Package aggregate coverage will stay well below the 85% target until Track 22 deletes
+ * <p>Package aggregate coverage will stay well below the 85% target until YTDB-766 deletes
  * these classes — accepted per Track 7 plan (scope line 1126–1128).
  *
  * <p><strong>Single-thread by design.</strong> These tests do NOT exercise the producer-
@@ -156,7 +156,7 @@ public class SqlQueryDeadCodeTest {
     // next() returning the only element, `index == size == 1`, so the guard is false and the
     // method falls through to `wrapped.get(index++)` — yielding IOOBE from the underlying
     // ArrayList rather than the intended NoSuchElementException. Pin this here explicitly
-    // so Track 22 knows the fix has to land in BOTH classes' iterator guards (strict > → >=).
+    // so YTDB-766 knows the fix has to land in BOTH classes' iterator guards (strict > → >=).
     var rs = new ConcurrentLegacyResultSet<String>();
     rs.add("only");
     rs.setCompleted();
@@ -497,7 +497,7 @@ public class SqlQueryDeadCodeTest {
     rs.setCompleted();
     assertFalse(
         "setCompleted override has its assignment commented out — completed stays false."
-            + " Track 22 fix (uncomment the assignment) must flip this assertion to true.",
+            + " YTDB-766 fix (uncomment the assignment) must flip this assertion to true.",
         field.getBoolean(rs));
     rs.complete();
     assertTrue("complete() actually sets completed=true", field.getBoolean(rs));
@@ -533,7 +533,7 @@ public class SqlQueryDeadCodeTest {
   // ---------------------------------------------------------------------------
   // LiveLegacyResultSet — one-test-per-method UOE coverage for the many
   // UnsupportedOperationException branches. Splitting them (vs. the previous single
-  // "unsupportedMethods" ladder) lets surefire pinpoint the exact regression if Track 22
+  // "unsupportedMethods" ladder) lets surefire pinpoint the exact regression if YTDB-766
   // accidentally lifts a UOE while refactoring.
   // ---------------------------------------------------------------------------
 

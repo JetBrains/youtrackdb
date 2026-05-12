@@ -80,7 +80,7 @@ import org.junit.rules.Timeout;
  * {@link ConcurrentLegacyResultSet}'s wait-for-items path. The idiom is a no-op and cannot
  * be made falsifiable from outside the class without a Mockito-style spy on {@code underlying},
  * so no dedicated test pins it; the regular {@link #isEmptyReturnsTrueWhenNothingAdded()} /
- * {@link #isEmptyReturnsFalseAfterAdd()} coverage suffices and Track 22's cleanup can
+ * {@link #isEmptyReturnsFalseAfterAdd()} coverage suffices and a future tracker issue can
  * collapse the idiom freely.
  */
 public class BasicLegacyResultSetTest {
@@ -376,7 +376,7 @@ public class BasicLegacyResultSetTest {
     // underlying ArrayList rather than the intended NoSuchElementException. The correct guard
     // is `index >= size() || size() == 0`.
     //
-    // Pin the current buggy behaviour (IOOBE at length 1) so Track 22's fix must explicitly
+    // Pin the current buggy behaviour (IOOBE at length 1) so YTDB-760's fix must explicitly
     // flip this test to expect NoSuchElementException.
     var rs = new BasicLegacyResultSet<String>();
     rs.add("only");
@@ -462,7 +462,7 @@ public class BasicLegacyResultSetTest {
   // Production uses inconsistent exception messages: remove(Object), remove(int),
   // containsAll, removeAll, retainAll ALL throw UOE("remove") (copy-paste drift — the
   // container/search methods carry the mutator's message). indexOf/lastIndexOf get their
-  // own method name. Pin the exact messages so a Track 22 cleanup that "harmonizes" them
+  // own method name. Pin the exact messages so a YTDB-761 cleanup that "harmonizes" them
   // is an explicit, reviewed contract change.
   // ---------------------------------------------------------------------------
 
@@ -767,7 +767,7 @@ public class BasicLegacyResultSetTest {
   @Test
   public void addAllAtIndexBypassesLimitCheckToo() {
     // Same asymmetry for the indexed addAll overload — pin it independently so a partial
-    // Track 22 fix that only touches one of the two addAll overloads leaves a test red.
+    // YTDB-762 fix that only touches one of the two addAll overloads leaves a test red.
     var rs = new BasicLegacyResultSet<Integer>();
     rs.add(0);
     rs.setLimit(1);
@@ -778,7 +778,7 @@ public class BasicLegacyResultSetTest {
   @Test
   public void loweringLimitBelowCurrentSizeDoesNotEvictExistingElements() {
     // setLimit only gates future add() calls; it never truncates existing elements. Pin
-    // this so Track 22 knows a proposed "evict on lower" refactor is a real contract break.
+    // this so YTDB-762 knows a proposed "evict on lower" refactor is a real contract break.
     var rs = new BasicLegacyResultSet<Integer>();
     rs.add(1);
     rs.add(2);

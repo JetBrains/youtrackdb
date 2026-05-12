@@ -105,7 +105,7 @@ public class ExpireTimeoutResultSetTest extends TestUtilsFixture {
     assertThat(stream.hasNext(ctx)).isFalse();
     assertThat(stream.hasNext(ctx)).isFalse();
     assertThat(stream.hasNext(ctx)).isFalse();
-    // Falsifiable: when Track 22 fixes the double-fire by guarding with
+    // Falsifiable: when YTDB-755 fixes the double-fire by guarding with
     // if (!timedOut) fail(); this will drop to 1.
     assertThat(calls[0]).isEqualTo(3);
   }
@@ -205,7 +205,7 @@ public class ExpireTimeoutResultSetTest extends TestUtilsFixture {
 
     stream.hasNext(ctx); // accumulate some nanos so the ratio can be computed
     stream.next(ctx); // first fire
-    stream.next(ctx); // still-past-threshold — fires again (Track 22 fix would stop this)
+    stream.next(ctx); // still-past-threshold — fires again (YTDB-755 fix would stop this)
     assertThat(calls[0]).isEqualTo(2);
   }
 

@@ -59,7 +59,7 @@ import org.junit.Test;
  * method will fail the {@code getDeclaredMethod} lookup; a refactor that changes a parameter
  * type will fail compilation here when the pinned parameter class disappears.
  *
- * <p>WHEN-FIXED: delete the instance API of {@link RecordSerializerCSVAbstract}
+ * <p>WHEN-FIXED: YTDB-748 — delete the instance API of {@link RecordSerializerCSVAbstract}
  * ({@code fieldFromStream}, {@code fieldToStream}, {@code embeddedMapToStream},
  * {@code embeddedCollectionFromStream}, {@code embeddedCollectionToStream}). The class's only
  * live surface is the static {@code embeddedMapFromStream}, which can move to

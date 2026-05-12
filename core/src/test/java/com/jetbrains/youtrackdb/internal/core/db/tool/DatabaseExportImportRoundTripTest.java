@@ -39,7 +39,7 @@ import org.junit.experimental.categories.Category;
  * {@code JSONSerializerJackson.IMPORT_BACKWARDS_COMPAT_INSTANCE} path triggered at
  * {@code DatabaseImport.java:416} (the {@code exporterVersion < 14} branch) are
  * intentionally excluded — that branch is only reachable via old-format JSON dumps and
- * its deletion / migration is owned by the deferred-cleanup track, not by this round-trip
+ * its deletion / migration is owned by a future YTDB tracker issue, not by this round-trip
  * fixture.
  *
  * <p>Marked {@code @Category(SequentialTest)} because the round-trip touches

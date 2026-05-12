@@ -83,7 +83,7 @@ import org.junit.Test;
  */
 public class CollectionSelectionFactoryDeadCodeTest {
 
-  /** Resource path of the SPI service file; pinned so a Track 22 rename is surfaced. */
+  /** Resource path of the SPI service file; pinned so a YTDB-771 rename is surfaced. */
   private static final String SPI_RESOURCE_PATH =
       "META-INF/services/com.jetbrains.youtrackdb.internal.core.metadata.schema."
           + "CollectionSelectionStrategy";
@@ -93,7 +93,7 @@ public class CollectionSelectionFactoryDeadCodeTest {
     // SchemaClassImpl hardcodes `new RoundRobinCollectionSelectionStrategy()` for every class,
     // but the factory's default-class registration is still a meaningful pin: any future caller
     // that uses `newInstance(null)` MUST get RoundRobin. Pin the default-class identity so a
-    // Track 22 deletion that drops the round-robin wiring is caught.
+    // YTDB-771 deletion that drops the round-robin wiring is caught.
     var f = new CollectionSelectionFactory();
     assertSame("default class must be RoundRobinCollectionSelectionStrategy",
         RoundRobinCollectionSelectionStrategy.class, f.getDefaultClass());
@@ -118,7 +118,7 @@ public class CollectionSelectionFactoryDeadCodeTest {
 
   @Test
   public void registryMapsEachKeyToTheCorrectConcreteClass() {
-    // Pin the key->Class mapping so that a Track 22 deletion that fans out to "rename one
+    // Pin the key->Class mapping so that a YTDB-771 deletion that fans out to "rename one
     // SPI key but leave another" is caught. assertSame on the Class objects is byte-for-byte
     // identity — strictly more falsifiable than name-string equality.
     var f = new CollectionSelectionFactory();
@@ -202,7 +202,7 @@ public class CollectionSelectionFactoryDeadCodeTest {
     // Balanced third — this contradicts the plan-file's prescription ("Balanced first, Default
     // second, RoundRobin third"). The on-disk order is the source of truth; pinning a specific
     // order would either lock the wrong order in or require changing the file. Membership
-    // pinning catches every deletion the lockstep group cares about (a Track 22 fix that
+    // pinning catches every deletion the lockstep group cares about (a YTDB-771 fix that
     // removes "balanced"/"default" while leaving "round-robin" must update this membership
     // assertion explicitly).
     var lines = readSpiResource();
@@ -227,7 +227,7 @@ public class CollectionSelectionFactoryDeadCodeTest {
   @Test
   public void spiResourceLoadsViaTheStrategyInterfaceClassLoader() {
     // Pin that the SPI resource is reachable via the same classloader the production code uses
-    // (CollectionSelectionFactory.class.getClassLoader()). A Track 22 deletion that moves the
+    // (CollectionSelectionFactory.class.getClassLoader()). A YTDB-771 deletion that moves the
     // resource to a different module would still leave the file on a separate classloader and
     // this assertion would catch it.
     var url = CollectionSelectionStrategy.class.getClassLoader().getResource(SPI_RESOURCE_PATH);

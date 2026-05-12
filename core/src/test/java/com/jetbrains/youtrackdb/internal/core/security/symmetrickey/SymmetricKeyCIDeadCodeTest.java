@@ -42,7 +42,7 @@ import org.junit.Test;
  *
  * <p>The class is also the only on-tree caller of several dead {@link SymmetricKey} static
  * factories ({@code fromString}, {@code fromFile}, {@code fromKeystore},
- * {@code setDefaultCipherTransform}, {@code separateAlgorithm}). Track 22 must drop
+ * {@code setDefaultCipherTransform}, {@code separateAlgorithm}). YTDB-772 must drop
  * {@link SymmetricKeyCI} together with those methods.
  *
  * <p>The pin stops at parameter-null guards — {@code intercept(null, null, null)} throws at

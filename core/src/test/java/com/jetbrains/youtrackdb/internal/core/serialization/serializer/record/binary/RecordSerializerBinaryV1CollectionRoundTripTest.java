@@ -1103,7 +1103,7 @@ public class RecordSerializerBinaryV1CollectionRoundTripTest extends DbTestBase 
    * (cluster {@code -2}, position {@code -1} per {@code HelperClasses.NULL_RECORD_ID})
    * always throws — the null-conversion branch is dead-on-arrival. Pin today's behavior
    * so a future fix that either reaches the null-branch or drops it produces a loud
-   * failure; the production contradiction is forwarded to the deferred-cleanup track.
+   * failure; the production contradiction is forwarded to a future tracker issue.
    *
    * <p>Forged bytes: {@code 00 02 03 01} — leading config byte, varint(zigzag(1))=0x02 size,
    * then varint(zigzag(-2))=0x03 for the cluster id and varint(zigzag(-1))=0x01 for the

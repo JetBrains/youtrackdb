@@ -218,7 +218,7 @@ public class ScriptTransformerImplTest extends TestUtilsFixture {
    *
    * <p>Net: the outer ResultSet is a singleton (one element), but the inner Result has per-entry
    * properties rather than the Map as a single {@code "value"} property. Pins this two-step
-   * dispatch so a Track 22 refactor that (a) mirrors MapTransformer into {@code
+   * dispatch so a YTDB-737 refactor that (a) mirrors MapTransformer into {@code
    * resultSetTransformers} to produce an N-entry stream, or (b) drops the transformers-map
    * consultation from {@code ScriptResultSet.next}, is a deliberate, visible event.
    */
@@ -320,7 +320,7 @@ public class ScriptTransformerImplTest extends TestUtilsFixture {
    * v.getArrayElement(i).asHostObject()} unconditionally — for a pure JS array like
    * {@code [1,2,3]} (primitive-coerced elements), this throws {@link ClassCastException}
    * because {@code Value.asHostObject()} requires an actual host-Object value, not a polyglot
-   * number/string. Pins the observed crash shape so Track 22's hardening (probe via
+   * number/string. Pins the observed crash shape so YTDB-737's hardening (probe via
    * {@code isHostObject() ?} before unwrap) is a visible change.
    *
    * <p>WHEN-FIXED: YTDB-737 — guard with {@code isHostObject()} check before
@@ -351,7 +351,7 @@ public class ScriptTransformerImplTest extends TestUtilsFixture {
    * Callers therefore see a one-element ResultSet, not an N-element ResultSet.
    *
    * <p>This is the intended-use case shape produced by {@code PolyglotScriptExecutor}; a
-   * Track 22 refactor that streams the inner array elements as top-level Results would break
+   * YTDB-737 refactor that streams the inner array elements as top-level Results would break
    * this test and force a re-pin.
    */
   @Test
@@ -382,7 +382,7 @@ public class ScriptTransformerImplTest extends TestUtilsFixture {
    * which then calls {@code toResult(db, value)} on {@code next()}. Since Value is not a
    * {@code PropertyTypeInternal.isSingleValueType}, {@code ResultInternal.setProperty("value",
    * fnVal)} throws a {@link CommandExecutionException}. Pins the observed "Invalid property
-   * value for Result" error so Track 22's hardening (e.g., coerce Value via toString, or add
+   * value for Result" error so YTDB-737's hardening (e.g., coerce Value via toString, or add
    * Value.class transformer) is a visible change.
    *
    * <p>WHEN-FIXED: YTDB-737 — either register a transformer for {@code org.graalvm.polyglot.Value}

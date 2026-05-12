@@ -114,7 +114,7 @@ public class EngineLocalPaginatedTest {
    * <b>COVERAGE-ONLY:</b> this test verifies the no-throw contract on {@code changeCacheSize}
    * against a started engine; the resulting cache capacity is not directly observable through
    * public API. A regression that silently no-ops the resize is not detected here. WHEN-FIXED:
-   * deferred-cleanup track — once {@code ReadCache} exposes a public size getter (or a probe
+   * future tracker issue — once {@code ReadCache} exposes a public size getter (or a probe
    * helper is added), upgrade this test to assert the post-call capacity.
    *
    * <p>{@code changeCacheSize} on a started engine forwards to {@code ReadCache.

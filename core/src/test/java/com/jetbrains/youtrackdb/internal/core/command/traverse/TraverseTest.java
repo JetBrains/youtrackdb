@@ -32,7 +32,7 @@ public class TraverseTest extends DbTestBase {
    * safety net runs ahead of the database teardown.
    *
    * <p>WHEN-FIXED: YTDB-741 — hoist this idiom into {@code TestUtilsFixture} and switch this
-   * class to extend it directly (plan §Track 22 absorption list). Extends {@code DbTestBase}
+   * class to extend it directly (plan absorption list). Extends {@code DbTestBase}
    * today to preserve existing test infrastructure.
    */
   @After
@@ -630,7 +630,7 @@ public class TraverseTest extends DbTestBase {
    * unreachable through normal traversal flow: {@link Traverse#next} loops while memory is
    * non-empty, so it only returns null when memory drains. This test forces the precondition by
    * overriding {@code next()} to always return null while leaving an RSP frame in the context —
-   * locking in the observable message and exception type. Track 22 should either delete the
+   * locking in the observable message and exception type. YTDB-741 should either delete the
    * branch or introduce a call path that reaches it naturally.
    */
   @Test

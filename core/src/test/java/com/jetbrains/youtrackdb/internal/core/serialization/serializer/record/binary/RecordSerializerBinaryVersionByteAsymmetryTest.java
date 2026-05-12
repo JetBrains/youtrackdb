@@ -44,7 +44,7 @@ import org.junit.Test;
  * </ul>
  *
  * <p>This is a regression-pinning test, not an endorsement of the asymmetry. The
- * deferred-cleanup track should harmonise the two paths — the recommended fix is
+ * a future YTDB tracker issue should harmonise the two paths — the recommended fix is
  * to validate in both overloads and throw the same {@link IllegalArgumentException}.
  *
  * <p>WHEN-FIXED: YTDB-724 — once the {@code byte[]} overload is
@@ -67,7 +67,7 @@ import org.junit.Test;
  * Blob}, non-null {@link RecordAbstract} with a valid {@link RecordIdInternal} (the
  * catch path calls {@code iRecord.getIdentity().toString()} for the WARN-log message)
  * and a real {@link DatabaseSessionEmbedded}. This restructures the file from
- * standalone into a {@code DbTestBase}-extending test. The deferred-cleanup track
+ * standalone into a {@code DbTestBase}-extending test. The future YTDB tracker issue
  * that performs the actual harmonisation should add the pin at the same time it
  * flips the {@code IllegalArgumentException} expectation, since both ends of the
  * harmonisation land in lockstep.

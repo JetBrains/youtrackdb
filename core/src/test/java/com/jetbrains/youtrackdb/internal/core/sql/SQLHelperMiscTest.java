@@ -132,8 +132,8 @@ public class SQLHelperMiscTest extends DbTestBase {
   public void getValueThreeArgEmptyStringWithNullRecordFallsThrough() {
     // Empty string likewise skips the body (no iRecord). Pin with assertSame — the empty String
     // literal must be returned identity-preserving.
-    // WHEN-FIXED (Track 22): replace `iRecord != null & !s.isEmpty()` with `&&` for clarity.
-    // Track 22: SQLHelper.getValue three-arg String branch short-circuit.
+    // WHEN-FIXED: YTDB-791 — replace `iRecord != null & !s.isEmpty()` with `&&` for clarity.
+    // SQLHelper.getValue three-arg String branch short-circuit.
     var empty = "";
     assertSame(empty, SQLHelper.getValue(empty, null, ctx));
   }

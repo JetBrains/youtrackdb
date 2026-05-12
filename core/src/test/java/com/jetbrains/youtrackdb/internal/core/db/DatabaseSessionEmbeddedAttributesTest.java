@@ -372,7 +372,7 @@ public class DatabaseSessionEmbeddedAttributesTest extends DbTestBase {
   // (name == null || customValue.isEmpty()) does NOT short-circuit because
   // name is non-null, so customValue.isEmpty() runs on null and throws NPE.
   // This is a latent dispatcher bug.
-  // WHEN-FIXED: forwards-to deferred-cleanup track — guard customValue==null
+  // WHEN-FIXED: YTDB-742 — guard customValue==null
   // before the .isEmpty() call, or treat null as empty (route to remove).
   @Test
   public void setCustomNonClearNameNullValueThrowsNpePinningLatentBug() {
