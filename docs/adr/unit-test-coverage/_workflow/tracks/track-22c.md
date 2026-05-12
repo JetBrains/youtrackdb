@@ -355,7 +355,7 @@ clusters NOT deleted by 22b need YTDB issues).
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/7 complete)
+- [ ] Step implementation (2/7 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -420,14 +420,63 @@ clusters NOT deleted by 22b need YTDB issues).
   > substrings would be falsely skipped. Manifest §4 lists the 2
   > meta-reference sites for the Step 7 audit.
 
-- [ ] Step 2: Security category — create Type=Security Problem issues, rewrite markers
+- [x] Step 2: Security category — create Type=Security Problem issues, rewrite markers
+  - [x] Context: safe
   > **Risk:** low — default (test-source comment edits only; no production code, no test-logic change).
   >
-  > **What:** For each manifest entry tagged `category=security`: call `mcp__youtrack__create_issue` with `Type=Security Problem`, the appropriate `Security Severity` (High for insecure deserialization / token-bypass; Medium for log-injection), and the issue body shape (test path + method names, verbatim comment block, "what to flip" line, originating-track reference). Then rewrite every marker (both Form A and Form B) for that issue to `// WHEN-FIXED: YTDB-NNNN` / `<p>WHEN-FIXED: YTDB-NNNN — …` / `… — WHEN-FIXED: YTDB-NNNN`. Expected affected items: `RecordSerializerBinaryV1.deserializeEmbeddedAsDocument`; `EntitySerializerDelta.deserializeValue` + unbounded item-count loops; `RecordSerializerBinary.fromStream(byte[])` AIOOBE + Base64-of-input log-injection; `TokenSignImpl.readKeyFromConfig` cross-restart token-verification failure; any remaining symmetric-key SPI items that surface as security-typed during manifest classification.
+  > **What was done:** Created 5 YouTrack tracking issues for the
+  > security-bucket pins: YTDB-723 (TokenSignImpl cross-restart
+  > token-verification bypass — Security Problem / High /
+  > Vulnerability), YTDB-724 (RecordSerializerBinary fromStream
+  > insecure-deserialization asymmetry — Security Problem / High /
+  > Insecure Code), YTDB-725 (EntitySerializerDelta insecure
+  > deserialization + unbounded item-count loops — Security Problem /
+  > High / Insecure Code), YTDB-726 (RecordSerializerBinary.fromStream
+  > AIOOBE + Base64-of-input log injection — Security Problem /
+  > Medium / Sensitive Data Exposure), YTDB-727 (MapTransformer
+  > null-handling NPE — downgraded to `Type=Bug, Priority=Normal`
+  > per the Step 2 judgement-call hedge — defensive-NPE fix in a
+  > transformer that runs against admin-context Polyglot script
+  > output with no realistic untrusted-input path). Rewrote 7
+  > WHEN-FIXED markers (both Form A and Form B) across 3 test
+  > sources — `TokenSignImplTest`, `RecordSerializerBinaryVersionByteAsymmetryTest`,
+  > `MapTransformerTest` — to reference the minted YTDB-NNNN IDs.
+  > Updated `wfx-22c-manifest.md` to record the IDs and S5 downgrade
+  > rationale. Single batched commit `08de53bb90`; pushed.
   >
-  > Commit message: `Track 22c Step 2: Create YTDB-NNNN..NNNN security issues + rewrite markers`. Single batched commit.
+  > **What was discovered:** (1) The YTDB project's `Subsystem`
+  > custom field rejects free-string values (e.g., "Security",
+  > "Serializer", "Scripting") despite `get_issue_fields_schema`
+  > declaring it as a free `string` type — the field is
+  > server-side curated. All 5 Step 2 issues were created without
+  > Subsystem after the first attempt failed; tracker maintainers
+  > can classify post-hoc. **Steps 3–6 implementers MUST omit
+  > `Subsystem` from `customFields` to avoid retry failures**, or
+  > test-and-discover the curated enum values if Subsystem coverage
+  > is desired. (2) S3 (`EntitySerializerDelta`) and S4
+  > (`RecordSerializerBinary.fromStream`) have no rewrite-target
+  > markers in `core/src/test/` today — issues YTDB-725 / YTDB-726
+  > were opened as production-code-referenced with a regression-
+  > test placeholder note in the body. The closest neighbour,
+  > `EntitySerializerDeltaRoundTripTest:109`, carries a bare
+  > `WHEN-FIXED —` Javadoc note **without** the `Track 22` /
+  > `deferred-cleanup track` token, so it is not a rewrite target
+  > and was left untouched. (3) Manifest line numbers matched
+  > current file content exactly for all 3 rewritten files (no
+  > drift). (4) S5 downgrade is an explicit option in the Step 2
+  > brief (manifest §3.1 reclassification rationale).
   >
-  > **Files touched:** the test source files carrying security-bucket markers; manifest file gets the YTDB-NNNN IDs written back.
+  > **What changed from the plan:** None. S5's downgrade from
+  > Security Problem to Bug was pre-authorized by the Step 2
+  > brief; S3/S4's no-marker handling was pre-authorized too.
+  >
+  > **Key files:** `MapTransformerTest.java`, `TokenSignImplTest.java`,
+  > `RecordSerializerBinaryVersionByteAsymmetryTest.java`,
+  > `wfx-22c-manifest.md`.
+  >
+  > **Critical context:** Minted YTDB-723..727. Subsystem omitted
+  > on all 5. **Cross-step:** subsequent Step 3–6 implementers
+  > must omit `Subsystem` from `mcp__youtrack__create_issue` calls.
 
 - [ ] Step 3: Scheduler / cron / live-query / hooks category — create issues, rewrite markers
   > **Risk:** low — default (test-source comment edits only).
