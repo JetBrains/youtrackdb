@@ -392,7 +392,7 @@ the stay-on-physical sites).
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/7 complete)
+- [ ] Step implementation (3/7 complete)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -721,37 +721,156 @@ the stay-on-physical sites).
   >   cross-reference comment linking the twin IHM HLL-spill
   >   sites). None blocker-grade; pick up opportunistically.
 
-- [ ] Step 3: Migrate Collection v2 + PaginatedCollection v2 + FSM + IHM + CDPB call sites
+- [x] Step 3: Migrate Collection v2 + PaginatedCollection v2 + FSM + IHM + CDPB call sites
+  - [x] Context: safe
   > **Risk:** high — crash-safety/durability (modifies durable
   > storage components; growth-loop body change touches the durable
   > size-tracking semantics).
   >
-  > **Scope:**
-  > - `CollectionPositionMapV2`: migrate `create:138` (fresh-file)
-  >   and `allocate:216, :243` (two probes; target =
-  >   `mapEntryPoint.getFileSize() + 1`; setter =
-  >   `setFileSize`).
-  > - `PaginatedCollectionV2`: migrate
-  >   `initCollectionState:2257` (fresh-file) and
-  >   `allocateNewPage:2237` (probe; target =
-  >   `collectionState.getFileSize() + 1`; setter =
-  >   `setFileSize`).
-  > - `FreeSpaceMap`: migrate `create:112` (fresh-file) and the
-  >   growth-loop body at `updatePageFreeSpace:229` (loop persists;
-  >   body migrates from `addPage` to
-  >   `loadOrAddPageForWrite(fileId, i)`; no setter — EP-less).
-  > - `IndexHistogramManager`: migrate `createEmptyStatsPage:1800`
-  >   (fresh-file at pageIndex 0).
-  > - `CollectionDirtyPageBitSet`: migrate `create:60` (fresh-file)
-  >   and the growth-loop body at `ensureCapacity:197` (same
-  >   shape as FSM; EP-less).
-  > - Tests: existing component unit tests
-  >   (`CollectionPositionMapV2Test`, `PaginatedCollectionV2Test`
-  >   if present, `FreeSpaceMapTest`,
-  >   `IndexHistogramManagerTest` if present,
-  >   `CollectionDirtyPageBitSetTest`). Verify coverage with the
-  >   coverage gate.
-  > - Spotless apply on `core`.
+  > **What was done:**
+  > Migrated 9 production `addPage` call sites + 2 growth-loop iterators
+  > onto the allocator-only `loadOrAddPageForWrite(fileId, knownIndex)` SPI
+  > from Step 1: `CollectionPositionMapV2.create` (fresh-file pageIndex 0)
+  > + `allocate` two probes (target `mapEntryPoint.getFileSize() + 1`),
+  > `PaginatedCollectionV2.initCollectionState` (statically-known
+  > `STATE_ENTRY_INDEX`) + `allocateNewPage` (target
+  > `collectionState.getFileSize() + 1`), `FreeSpaceMap.init` (fresh-file
+  > pageIndex 0) + `updatePageFreeSpace` growth-loop (iterator
+  > `i = filledUpTo .. requiredPageIndex`),
+  > `IndexHistogramManager.createEmptyStatsPage` (statically-known fresh
+  > pageIndex 0 immediately after `addFile`), and
+  > `CollectionDirtyPageBitSet.create` (fresh-file) +
+  > `ensureCapacity` growth-loop (same shape as FSM). The step landed
+  > across two commits: implementer `850aaba00d` and review fix
+  > `fd2d463a5b`. Iteration-1 dimensional review (8 dimensions: CQ, BC,
+  > TB, TC, CS, TY, PF, TX) surfaced 4 should-fix items (F1/F2/F3/F4) —
+  > all documentation/comment-sync issues stemming from Step 2's narrowing
+  > of `AtomicOperation.loadOrAddPageForWrite` to allocator-only. The
+  > review-fix commit rewrote 5 inline comments at 4 production sites,
+  > the `PCV2.allocateNewPage` method Javadoc, and 2 test-fixture
+  > comments to align with the AOBT allocator-only contract; the CPMV2
+  > and PCV2 rewrites also embed an explicit "BC4 deferred to Step 5"
+  > marker so a future maintainer can grep for the open hazard thread.
+  > Iteration-2 gate-check (5 re-run dimensions: CQ, BC, CS, TB, TC) all
+  > returned PASS. One iter-2 suggestion (CQ F5 — a single 103-char
+  > Javadoc line) is non-actionable: `./mvnw -pl core spotless:check`
+  > passes, so the formatter accepts the line. Full core unit suite at
+  > 850aaba00d: 9643/9643 pass; targeted re-run on CPMV2Test +
+  > CDPBTest at fd2d463a5b: 101/101 pass. Coverage gate PASS at
+  > Step 3 base (92.5% line / 81.1% branch on cumulative branch diff);
+  > the iter-2 fix is comment-only, no new executable lines added.
+  >
+  > **What was discovered:**
+  > - **Scope expansion (natural-home rule)**: Production migrations to
+  >   `CollectionPositionMapV2.create` + `allocate` and
+  >   `CollectionDirtyPageBitSet.create` + `ensureCapacity` broke the
+  >   Mockito stubs in the corresponding unit tests
+  >   (`CollectionPositionMapV2Test:1204`, `CollectionDirtyPageBitSetTest:375`)
+  >   — both pre-stub `op.addPage(FILE_ID)` but not the new SPI; Mockito
+  >   returns null for unstubbed calls and DurablePage's
+  >   `assert cacheEntry != null` then fires. The plan's Step 4 lists
+  >   these two test sites as future fixture-migration work, but the
+  >   natural-home rule placed the fix in Step 3 (production change is
+  >   what forces the stubs to migrate). Step 4's scope shrinks by these
+  >   2 sites; the remaining Step 4 list (AOBT*-tests,
+  >   FlushPendingOperationsTest, PageOperationAccumulationLifecycleTest,
+  >   RegisterPageOperationTest, AtomicOperationSnapshotProxyTest,
+  >   AtomicOperationBinaryTrackingWALSkipTest, cache-test files) is
+  >   intact.
+  > - **BC4 hazard surface expands**: The Step 2 episode's "Step 5
+  >   inherits BC4" bullet documented the partial-replay-orphan hazard
+  >   for BTree + SLBB only. Step 3's iter-1 reviewers (BC + CS) flagged
+  >   that `CollectionPositionMapV2.allocate` (both probe branches) and
+  >   `PaginatedCollectionV2.allocateNewPage` also inherit the hazard:
+  >   the legacy `if (lastPage < filledUpTo - 1) reuse else extend`
+  >   probe handled a recovery scenario (logical fileSize lagging
+  >   physical extent after a partial-flush crash) that the new
+  >   allocator-only contract throws on (`IllegalStateException` when
+  >   `pageIndex < allocationFloor`). **The hazard does NOT extend to
+  >   FreeSpaceMap.updatePageFreeSpace or
+  >   CollectionDirtyPageBitSet.ensureCapacity** — those two EP-less
+  >   components have no logical-fileSize counter separate from
+  >   `filledUpTo`, so physical orphans past `filledUpTo` are
+  >   impossible by definition. The iter-1 fix pass embedded
+  >   "BC4 deferred to Step 5" markers in the CPMV2 + PCV2 comments to
+  >   make the expanded surface greppable. Step 5 must now cover 3
+  >   production code sites (4 call-site branches): BTree.allocateNewPage,
+  >   SLBB.splitNonRootBucket + SLBB.splitRootBucket (two-page), plus
+  >   CPMV2.allocate (×2) and PCV2.allocateNewPage.
+  > - **Comment-sync trap from Step 2's contract narrowing**: All
+  >   inline-comment claims of "load branch / orphan reuse /
+  >   cache-load branch / total loadOrAdd semantics" at the AO layer
+  >   are stale after Step 2's Option D collapse. The AOBT-layer
+  >   wrapper is allocator-only; the cache-layer `WriteCache.loadOrAdd`
+  >   is total. Mixing the two is the failure mode iter-1 reviewers
+  >   caught at 5 production-comment sites and 2 test-fixture comments.
+  >   Worth carrying forward: any future contract narrowing must audit
+  >   ALL downstream comments that describe the narrowed surface, not
+  >   just the comments at the renamed/refactored sites.
+  > - **`PaginatedCollectionV2.allocateNewPage` method-level Javadoc**
+  >   was pre-existing (predating Track 4) but described the
+  >   reuse-or-extend legacy semantics. The iter-1 fix rewrote it
+  >   alongside the new inline comments. Similar audits should look
+  >   for class-level / method-level Javadoc that predates a contract
+  >   narrowing — the line-level reviewers were less likely to flag a
+  >   block several lines above the changed code.
+  >
+  > **What changed from the plan:**
+  > - **Step 4 scope shrinks by 2 test-fixture sites**: Step 3's
+  >   `CollectionPositionMapV2Test:1204` and
+  >   `CollectionDirtyPageBitSetTest:375` Mockito-stub migrations
+  >   landed in Step 3 per the natural-home rule. Step 4 still owns
+  >   ~9 remaining test-fixture sites (AOBT* tests + cache tests).
+  > - **Step 5 scope grows by 3 BC4-affected production sites**:
+  >   beyond BTree + SLBB (Step 2 carry-forward), Step 5's BC4
+  >   resolution must also cover `CollectionPositionMapV2.allocate`
+  >   (×2 probe branches) and `PaginatedCollectionV2.allocateNewPage`.
+  >   The rewritten comments at those sites contain greppable
+  >   `BC4 deferred to Step 5` markers as an anchor.
+  > - **Step 7 inherits 2 legacy Mockito-stub cleanups**: both
+  >   `CollectionPositionMapV2Test` and `CollectionDirtyPageBitSetTest`
+  >   retain their legacy `op.addPage(FILE_ID)` stubs alongside the new
+  >   `op.loadOrAddPageForWrite(...)` stubs. Step 7's `addPage` SPI
+  >   deletion must also remove those two legacy stubs.
+  > - **Track 6 regression-test constraint** (additive): the
+  >   integration test workload should exercise partial-replay-orphan
+  >   recovery on a v2 collection so BC4's eventual fix has a
+  >   load-bearing regression test.
+  >
+  > **Key files:**
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/collection/v2/CollectionPositionMapV2.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/collection/v2/PaginatedCollectionV2.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/collection/v2/FreeSpaceMap.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/collection/v2/CollectionDirtyPageBitSet.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/engine/IndexHistogramManager.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/collection/v2/CollectionPositionMapV2Test.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/collection/v2/CollectionDirtyPageBitSetTest.java`
+  >
+  > **Critical context:**
+  > - **Step 5 BC4 anchor strings**: grep
+  >   `BC4 deferred to Step 5` across `core/src/main/java/.../collection/v2/`
+  >   + `core/src/main/java/.../storage/index/sbtree/singlevalue/v3/`
+  >   + `core/src/main/java/.../ridbag/ridbagbtree/` to enumerate the
+  >   affected allocator sites when Step 5 implements the BC4
+  >   resolution. The markers are intentionally identical across all
+  >   sites for greppability.
+  > - **EP-less vs EP-equipped distinction**: FSM + CDPB growth-loops
+  >   do NOT carry BC4 because `filledUpTo` IS the physical extent.
+  >   The rewritten F1c/F1d comments make this distinction explicit
+  >   and cross-reference each other for DRY (CQ10 carry-over pattern
+  >   from the Step 2 episode).
+  > - **PCV2.allocateNewPage Javadoc** now embeds the BC4 thread —
+  >   a future maintainer hitting `IllegalStateException` from this
+  >   method has a starting point for the open recovery issue.
+  > - **Two orphan-reuse unit tests** (`CollectionPositionMapV2Test`'s
+  >   `allocationReusesExistingPageAfterBucketOverflow` +
+  >   `firstAllocationReusesExistingPageWhenFilledUpToIsAhead`)
+  >   still pass today because the Mockito stub doesn't enforce the
+  >   AOBT allocator-only floor — they exercise a scenario the
+  >   production AO layer now rejects. Step 4 / Step 5 will decide
+  >   whether to retain those tests; comment at
+  >   `CollectionPositionMapV2Test.java:1217-1222` names the decision
+  >   thread.
 
 - [ ] Step 4: Migrate AtomicOperation* and cache test fixture sites
   > **Risk:** medium — test infrastructure (touches shared test
