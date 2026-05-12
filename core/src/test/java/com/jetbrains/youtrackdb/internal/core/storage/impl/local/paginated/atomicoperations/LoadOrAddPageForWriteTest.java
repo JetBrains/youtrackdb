@@ -168,11 +168,14 @@ public class LoadOrAddPageForWriteTest {
   public void inMemoryEngineFallsBackToWriteCacheLoadOrAddOnNullReturn()
       throws IOException {
     long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
-    long pageIndex = 0;
+    long pageIndex = 3; // existing pageIndex below committed filledUpTo
 
-    // In-memory semantics: a fresh file (no committed pages); the read-cache
-    // wrapper returns null because the page is not in MemoryFile yet.
-    when(writeCache.getFilledUpTo(fileId)).thenReturn(0L);
+    // In-memory semantics on an existing committed file: getFilledUpTo > pageIndex
+    // keeps the isNew classification false, so the new method takes the cache-install
+    // branch (not the legacy null-Pointer stub branch). The read-cache wrapper
+    // returns null because the page is not in MemoryFile yet — the in-memory engine
+    // only stages pages on writeCache.loadOrAdd.
+    when(writeCache.getFilledUpTo(fileId)).thenReturn(10L);
     when(readCache.loadOrAddForWrite(
         eq(fileId), eq(pageIndex), eq(writeCache), eq(false), any()))
         .thenReturn(null);
@@ -183,8 +186,8 @@ public class LoadOrAddPageForWriteTest {
 
     // Wrap delegate exists and exposes the installed CachePointer.
     assertThat(entry.getDelegate().getCachePointer()).isSameAs(pointer);
-    // isNew=true because pageIndex (0) >= committed filledUpTo (0).
-    assertThat(entry.isNew).isTrue();
+    // isNew=false because pageIndex (3) < committed filledUpTo (10).
+    assertThat(entry.isNew).isFalse();
     // Fallback fired exactly once.
     verify(writeCache, times(1)).loadOrAdd(fileId, pageIndex, false);
     // The readers-referrer bump from WriteCache.loadOrAdd must be balanced by a
@@ -209,9 +212,11 @@ public class LoadOrAddPageForWriteTest {
     long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
     int allocations = 8;
 
-    when(writeCache.bookFileId("fresh.dat")).thenReturn(fileId);
-    op.addFile("fresh.dat");
-
+    // Existing file (committed to the storage): getFilledUpTo > 0 so the
+    // changesContainer.isNew sentinel stays false and the in-memory fallback
+    // path is exercised. Fresh-booked files take a different branch (no read
+    // cache interaction — see freshBookedFileSkipsReadCacheUntilCommit below).
+    when(writeCache.getFilledUpTo(fileId)).thenReturn((long) allocations);
     when(readCache.loadOrAddForWrite(
         anyLong(), anyLong(), any(), anyBoolean(), any()))
         .thenReturn(null);
@@ -231,6 +236,41 @@ public class LoadOrAddPageForWriteTest {
     verify(pointer, times(allocations)).decrementReadersReferrer();
   }
 
+  /**
+   * Fresh-booked files (just allocated via {@link AtomicOperation#addFile})
+   * cannot install pages in the read cache because the underlying file is not
+   * yet registered — {@code readCache.addFile} runs in {@code commitChanges}
+   * only. The new method must therefore mirror legacy {@code addPage}'s shape
+   * for fresh files: a {@link CacheEntryImpl} wrapping a {@link CachePointer}
+   * with a {@code null} native pointer, queued in {@code pageChangesMap} so the
+   * commit-time loop installs the real page after {@code readCache.addFile}
+   * fires. This test pins that branch — no {@code readCache.loadOrAddForWrite}
+   * call and no {@code writeCache.loadOrAdd} fallback fire, but the
+   * bookkeeping (overlay, {@code isNew}, {@code maxNewPageIndex}) still updates.
+   */
+  @Test
+  public void freshBookedFileSkipsReadCacheUntilCommit() throws IOException {
+    long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
+
+    when(writeCache.bookFileId("fresh.dat")).thenReturn(fileId);
+    op.addFile("fresh.dat");
+
+    var entry = (CacheEntryChanges) op.loadOrAddPageForWrite(fileId, 0);
+
+    // Stub-shape delegate: pageIndex matches, CachePointer has no native Pointer
+    // (the commit loop fills it in once readCache.addFile registers the file).
+    assertThat(entry.getPageIndex()).isEqualTo(0);
+    assertThat(entry.getDelegate().getCachePointer().getPointer()).isNull();
+    // Fresh-file allocations are always isNew=true regardless of pageIndex.
+    assertThat(entry.isNew).isTrue();
+    // Bookkeeping: maxNewPageIndex bumped, filledUpTo follows.
+    assertThat(op.filledUpTo(fileId)).isEqualTo(1L);
+    // Neither cache primitive should have been touched on the fresh-booked path.
+    verify(readCache, never())
+        .loadOrAddForWrite(anyLong(), anyLong(), any(), anyBoolean(), any());
+    verify(writeCache, never()).loadOrAdd(anyLong(), anyLong(), anyBoolean());
+  }
+
   // ---------------------------------------------------------------------------
   // Bookkeeping: maxNewPageIndex must track the highest freshly-allocated
   // pageIndex so loadPageForWrite/loadPageForRead/hasChangesForPage see the
@@ -248,16 +288,12 @@ public class LoadOrAddPageForWriteTest {
     long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
 
     // Fresh file (created in this TX): isNew=true sentinel is set by addFile.
+    // Fresh-booked files take the legacy stub branch (no read/write cache
+    // interaction until commitChanges) — the bookkeeping under test is the
+    // pageChangesMap insert + maxNewPageIndex bump, both of which happen on
+    // that branch regardless of the engine.
     when(writeCache.bookFileId("fresh.dat")).thenReturn(fileId);
     op.addFile("fresh.dat");
-
-    // Mock the in-memory path so we exercise allocation without a real cache.
-    when(readCache.loadOrAddForWrite(
-        anyLong(), anyLong(), any(), anyBoolean(), any()))
-        .thenReturn(null);
-    var pointer = mock(CachePointer.class);
-    when(writeCache.loadOrAdd(eq(fileId), anyLong(), eq(false)))
-        .thenReturn(pointer);
 
     op.loadOrAddPageForWrite(fileId, 0);
     op.loadOrAddPageForWrite(fileId, 1);

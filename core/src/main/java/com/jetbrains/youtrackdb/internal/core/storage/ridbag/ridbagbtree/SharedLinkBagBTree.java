@@ -56,12 +56,17 @@ public final class SharedLinkBagBTree extends StorageComponent {
           try {
             fileId = addFile(atomicOperation, getFullName());
 
-            try (final var entryPointCacheEntry = addPage(atomicOperation, fileId)) {
+            // Fresh file: entry point lives at the well-known ENTRY_POINT_INDEX (0).
+            try (final var entryPointCacheEntry =
+                loadOrAddPageForWrite(atomicOperation, fileId, ENTRY_POINT_INDEX)) {
               final var entryPoint = new EntryPoint(entryPointCacheEntry);
               entryPoint.init();
             }
 
-            try (final var rootCacheEntry = addPage(atomicOperation, fileId)) {
+            // Fresh file: root bucket lives at pageIndex 1, immediately after the
+            // entry point page.
+            try (final var rootCacheEntry =
+                loadOrAddPageForWrite(atomicOperation, fileId, 1)) {
               final var rootBucket = new Bucket(rootCacheEntry);
               rootBucket.init(true);
             }
@@ -917,18 +922,14 @@ public final class SharedLinkBagBTree extends StorageComponent {
     try (final var entryPointCacheEntry =
         loadPageForWrite(atomicOperation, fileId, ENTRY_POINT_INDEX, true)) {
       final var entryPoint = new EntryPoint(entryPointCacheEntry);
-      var pageSize = entryPoint.getPagesSize();
-
-      if (pageSize < getFilledUpTo(atomicOperation, fileId) - 1) {
-        pageSize++;
-        rightBucketEntry = loadPageForWrite(atomicOperation, fileId, pageSize, false);
-        entryPoint.setPagesSize(pageSize);
-      } else {
-        assert pageSize == getFilledUpTo(atomicOperation, fileId) - 1;
-
-        rightBucketEntry = addPage(atomicOperation, fileId);
-        entryPoint.setPagesSize(rightBucketEntry.getPageIndex());
-      }
+      // Probe collapse: loadOrAddPageForWrite is total (Track 1's
+      // WriteCache.loadOrAdd handles load-or-install uniformly), so the
+      // pre-Track-1 "reuse pre-allocated pageIndex vs extend via addPage"
+      // discriminator is no longer needed.
+      final var newPageIndex = entryPoint.getPagesSize() + 1;
+      rightBucketEntry =
+          loadOrAddPageForWrite(atomicOperation, fileId, newPageIndex);
+      entryPoint.setPagesSize(newPageIndex);
     }
 
     try {
@@ -1045,29 +1046,21 @@ public final class SharedLinkBagBTree extends StorageComponent {
     try (final var entryPointCacheEntry =
         loadPageForWrite(atomicOperation, fileId, ENTRY_POINT_INDEX, true)) {
       final var entryPoint = new EntryPoint(entryPointCacheEntry);
-      var pageSize = entryPoint.getPagesSize();
+      // Two-page allocation back-to-back. Each call must re-read
+      // entryPoint.getPagesSize() + 1 to target a fresh pageIndex; reusing one
+      // "pagesSize + 1" value would target the same pageIndex twice within a
+      // single transaction, tripping the fail-fast IllegalStateException
+      // Track 1 added to WOWCache.loadOrAdd (I4 invariant). A single
+      // setPagesSize at the end publishes the post-allocation horizon.
+      final var leftPageIndex = entryPoint.getPagesSize() + 1;
+      leftBucketEntry =
+          loadOrAddPageForWrite(atomicOperation, fileId, leftPageIndex);
 
-      final var filledUpTo = (int) getFilledUpTo(atomicOperation, fileId);
+      final var rightPageIndex = leftPageIndex + 1;
+      rightBucketEntry =
+          loadOrAddPageForWrite(atomicOperation, fileId, rightPageIndex);
 
-      if (pageSize < filledUpTo - 1) {
-        pageSize++;
-        leftBucketEntry = loadPageForWrite(atomicOperation, fileId, pageSize, false);
-      } else {
-        assert pageSize == filledUpTo - 1;
-        leftBucketEntry = addPage(atomicOperation, fileId);
-        pageSize = leftBucketEntry.getPageIndex();
-      }
-
-      if (pageSize < filledUpTo) {
-        pageSize++;
-        rightBucketEntry = loadPageForWrite(atomicOperation, fileId, pageSize, false);
-      } else {
-        assert pageSize == filledUpTo;
-        rightBucketEntry = addPage(atomicOperation, fileId);
-        pageSize = rightBucketEntry.getPageIndex();
-      }
-
-      entryPoint.setPagesSize(pageSize);
+      entryPoint.setPagesSize(rightPageIndex);
     }
 
     try {

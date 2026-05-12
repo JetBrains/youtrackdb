@@ -411,50 +411,98 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     final var changes = new CacheEntryChanges(false, this);
     changes.isNew = isNew;
 
-    // Engine dispatch:
-    // - Disk engine (LockFreeReadCache): loadOrAddForWrite is total after Track 1
-    //   (data.compute -> WriteCache.loadOrAdd). The returned entry comes back
-    //   write-locked. We release the exclusive lock immediately so the delegate's
-    //   lifecycle matches loadPageForWrite (usages-incremented overlay reference,
-    //   no caller-visible write lock); the real write lock is re-acquired by
-    //   commitChanges at apply time. The dirty-pages-table entry that
-    //   loadOrAddForWrite installs (with null startLSN -> writeAheadLog.end())
-    //   is harmless and idempotent via putIfAbsent.
-    // - In-memory engine (DirectMemoryOnlyDiskCache): loadOrAddForWrite returns
-    //   null on miss (the read-cache wrapper is deliberately non-total there to
-    //   preserve "page does not exist" semantics for diagnostic callers). We
-    //   fall back to the WriteCache.loadOrAdd primitive which IS total on this
-    //   engine and installs the page in MemoryFile. After install, the commit-time
-    //   loadOrAddForWrite call (in commitChanges) will find the page via
-    //   MemoryFile.loadPage, so the legacy allocateNewPage reconciliation
-    //   fallback becomes structurally dead.
-    CacheEntry delegate =
-        readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, false, null);
-    if (delegate != null) {
-      delegate.releaseExclusiveLock();
+    final CacheEntry delegate;
+    if (isNew) {
+      // Newly-allocated page (either on a fresh-booked file or extending an
+      // existing file past its committed horizon). The legacy addPage shape
+      // wraps a null-Pointer CachePointer so the overlay accumulates writes
+      // through CacheEntryChanges.changes; the actual cache install happens
+      // at commit time when commitChanges replays the pageChangesMap (the
+      // loop at AOBT:957 calls readCache.loadOrAddForWrite for each entry,
+      // which is total after Track 1, so a real cache slot is provisioned).
+      //
+      // Three reasons this shape is required (and matches today's addPage):
+      //
+      // 1. **Fresh-booked file**: addFile() above only allocated a fileId via
+      //    writeCache.bookFileId. The actual readCache.addFile + writeCache
+      //    file registration happens in commitChanges (AOBT:927-931), so the
+      //    read cache does not yet know about this fileId — calling
+      //    loadOrAddForWrite here would trip WOWCache's "file not found"
+      //    guard.
+      //
+      // 2. **Multi-access lifecycle**: in-TX callers reach the same
+      //    new-page overlay through `loadPageForWrite` (AOBT:251-252 returns
+      //    the existing CacheEntryChanges without re-loading the delegate
+      //    when `pageChangesContainer.isNew` is true). Each subsequent
+      //    `close()` invokes `releasePageFromWrite` which gates the
+      //    underlying cache release on a non-null CachePointer buffer
+      //    (AOBT:531-535). A null-Pointer stub keeps all in-TX releases as
+      //    no-ops on the cache's usage counter; a real cache-installed
+      //    delegate would underflow as soon as the second close fires.
+      //
+      // 3. **Step 5 prerequisite**: commitChanges' do/while reconciliation
+      //    loop becomes dead once Track 1's loadOrAddForWrite is total —
+      //    every new-page pageChangesMap entry resolves to a real slot at
+      //    commit time without gap-filling. The stub shape preserves that
+      //    invariant; the alternative (cache install at allocation time)
+      //    would require manual usage-count bookkeeping per in-TX
+      //    re-access, which the legacy stub elegantly sidesteps.
+      delegate =
+          new CacheEntryImpl(
+              fileId,
+              (int) pageIndex,
+              new CachePointer((Pointer) null, null, fileId, (int) pageIndex),
+              false,
+              readCache);
     } else {
-      // In-memory engine fallback. Use the WriteCache primitive to install
-      // the page; wrap the returned CachePointer in a CacheEntryImpl with the
-      // same shape as a loadForRead-acquired entry (no exclusive lock held).
-      final var pointer = writeCache.loadOrAdd(fileId, pageIndex, false);
-      assert pointer != null
-          : "WriteCache.loadOrAdd returned null for fileId=" + fileId
-              + " pageIndex=" + pageIndex + " (totality contract violated)";
-      // DirectMemoryOnlyDiskCache.loadOrAdd bumps the pointer's readers-referrer
-      // count by 1 for the caller (per MemoryFile.loadOrAddPage's contract). Our
-      // CacheEntryImpl(insideCache=false) wrapper is released through
-      // ReadCache.releaseFromRead -> DirectMemoryOnlyDiskCache.doRelease, which only
-      // manipulates usagesCount and never decrements readers-referrer (in contrast
-      // to LockFreeReadCache.releaseFromRead, whose !insideCache branch DOES). If we
-      // kept the bump, every page allocated through this fallback would leak a
-      // readers-referrer reference, and MemoryFile.clear (on deleteFile / truncate /
-      // storage drop) would observe referrer > 1, preventing the page frame from
-      // returning to the pool. Decrement immediately to balance: the page stays
-      // resident because MemoryFile.installEmptyPage already holds the in-cache
-      // referrer (count = 1 after this decrement), so subsequent commit-time
-      // loadOrAddForWrite still finds the page via MemoryFile.loadPage.
-      pointer.decrementReadersReferrer();
-      delegate = new CacheEntryImpl(fileId, (int) pageIndex, pointer, false, readCache);
+      // Load-of-existing pageIndex on a committed file. The page is already
+      // visible to the cache, so we install the per-page write lock the same
+      // way loadPageForWrite would.
+      // - Disk engine (LockFreeReadCache): loadOrAddForWrite is total after Track 1
+      //   (data.compute -> WriteCache.loadOrAdd). The returned entry comes back
+      //   write-locked. We release the exclusive lock immediately so the delegate's
+      //   lifecycle matches loadPageForWrite (usages-incremented overlay reference,
+      //   no caller-visible write lock); the real write lock is re-acquired by
+      //   commitChanges at apply time. The dirty-pages-table entry that
+      //   loadOrAddForWrite installs (with null startLSN -> writeAheadLog.end())
+      //   is harmless and idempotent via putIfAbsent.
+      // - In-memory engine (DirectMemoryOnlyDiskCache): loadOrAddForWrite returns
+      //   null on miss (the read-cache wrapper is deliberately non-total there to
+      //   preserve "page does not exist" semantics for diagnostic callers). We
+      //   fall back to the WriteCache.loadOrAdd primitive which IS total on this
+      //   engine and installs the page in MemoryFile. After install, the commit-time
+      //   loadOrAddForWrite call (in commitChanges) will find the page via
+      //   MemoryFile.loadPage, so the legacy allocateNewPage reconciliation
+      //   fallback becomes structurally dead.
+      CacheEntry resolved =
+          readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, false, null);
+      if (resolved != null) {
+        resolved.releaseExclusiveLock();
+      } else {
+        // In-memory engine fallback. Use the WriteCache primitive to install
+        // the page; wrap the returned CachePointer in a CacheEntryImpl with the
+        // same shape as a loadForRead-acquired entry (no exclusive lock held).
+        final var pointer = writeCache.loadOrAdd(fileId, pageIndex, false);
+        assert pointer != null
+            : "WriteCache.loadOrAdd returned null for fileId=" + fileId
+                + " pageIndex=" + pageIndex + " (totality contract violated)";
+        // DirectMemoryOnlyDiskCache.loadOrAdd bumps the pointer's readers-referrer
+        // count by 1 for the caller (per MemoryFile.loadOrAddPage's contract). Our
+        // CacheEntryImpl(insideCache=false) wrapper is released through
+        // ReadCache.releaseFromRead -> DirectMemoryOnlyDiskCache.doRelease, which only
+        // manipulates usagesCount and never decrements readers-referrer (in contrast
+        // to LockFreeReadCache.releaseFromRead, whose !insideCache branch DOES). If we
+        // kept the bump, every page allocated through this fallback would leak a
+        // readers-referrer reference, and MemoryFile.clear (on deleteFile / truncate /
+        // storage drop) would observe referrer > 1, preventing the page frame from
+        // returning to the pool. Decrement immediately to balance: the page stays
+        // resident because MemoryFile.installEmptyPage already holds the in-cache
+        // referrer (count = 1 after this decrement), so subsequent commit-time
+        // loadOrAddForWrite still finds the page via MemoryFile.loadPage.
+        pointer.decrementReadersReferrer();
+        resolved = new CacheEntryImpl(fileId, (int) pageIndex, pointer, false, readCache);
+      }
+      delegate = resolved;
     }
     changes.delegate = delegate;
 
