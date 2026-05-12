@@ -392,7 +392,7 @@ the stay-on-physical sites).
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [ ] Step implementation (1/7 complete)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -402,11 +402,96 @@ the stay-on-physical sites).
 
 ## Steps
 
-- [ ] Step 1: Add `op.loadOrAddPageForWrite` + Phase A audits + IHM flushSnapshot wrap
+- [x] Step 1: Add `op.loadOrAddPageForWrite` + Phase A audits + IHM flushSnapshot wrap
+  - [x] Context: info
   > **Risk:** high — concurrency (new AtomicOperation method must handle
   > both engines' totality contracts; per-component lock interaction);
   > public API (new method on the `AtomicOperation` interface affects
   > every implementer).
+  >
+  > **What was done:** Added `AtomicOperation#loadOrAddPageForWrite(long, long)`
+  > to the SPI and implemented it in `AtomicOperationBinaryTracking` with
+  > the dual-engine dispatch the plan specifies — disk engine delegates to
+  > `ReadCache#loadOrAddForWrite` (total after Track 1) and immediately
+  > releases the exclusive lock so the delegate's lifecycle matches
+  > `loadPageForWrite`; in-memory engine falls back to
+  > `WriteCache#loadOrAdd` when the read-cache wrapper returns null and
+  > balances the bumped `CachePointer` readers-referrer with a single
+  > `decrementReadersReferrer()` after the wrap (fixed during review
+  > iteration 1 — the original commit leaked one referrer per in-memory
+  > allocation). Bookkeeping preserves today's `addPage` side effects:
+  > `maxNewPageIndex` bump, `pageChangesMap` insert keyed by the actual
+  > returned `pageIndex`, `isNew=true` when `pageIndex >= committedFilledUpTo`,
+  > and a new pre-insert `assert` mirroring legacy `addPage`'s
+  > `pageChangesMap == null` invariant. `StorageComponent#loadOrAddPageForWrite`
+  > rewired to delegate to the new SPI method (drops the legacy
+  > `loadPageForWrite`-then-`addPage` fallback). Phase A audit 1
+  > (per-component lock): all 19 production `addPage` call sites enter
+  > under `executeInsideComponentOperation` /
+  > `calculateInsideComponentOperation` (BTree, SLBB, PCV2, CPMV2 directly;
+  > FSM and CDPB transitively via PaginatedCollectionV2's lock); IHM's
+  > `flushSnapshotToPage` was the lone unlocked caller. Phase A audit 2
+  > (IHM concurrency): `flushSnapshotToPage` is reachable from
+  > `applyDelta`/`flushIfDirty`/`closeStatsFile`/`doRebalance` while
+  > `writeSnapshotToPage` runs from `buildHistogram`/`createStatsFileWithCounters`/
+  > `flushIfDirty(AtomicOperation)` — neither side serialized naturally.
+  > Resolved by acquiring the per-component exclusive lock on **both**
+  > sides: `flushSnapshotToPage` wraps in
+  > `executeInsideAtomicOperation -> executeInsideComponentOperation`
+  > (creates a standalone atomic op when called without one);
+  > `writeSnapshotToPage` calls
+  > `AtomicOperationsManager#acquireExclusiveLockTillOperationComplete`
+  > directly inside its existing atomic-op context.
+  >
+  > **What was discovered:** (1) Two production-code surprises landed
+  > during the Phase C-equivalent review loop: the in-memory
+  > `WriteCache.loadOrAdd` Javadoc explicitly states callers must
+  > `decrementReadersReferrer()` to release, but the original implementation
+  > wrapped the bumped pointer in a fresh
+  > `CacheEntryImpl(insideCache=false)` whose release path never touches
+  > readers-referrer — a permanent native-memory leak on the in-memory
+  > engine. Caught by three reviewers independently (BC1). (2) The
+  > initial IHM lock wrap was one-sided — only `flushSnapshotToPage`
+  > took the IHM component lock, while `writeSnapshotToPage` ran
+  > lock-free. The audit's stated objective ("close the race") was not
+  > met; Step 3's `createEmptyStatsPage` migration would have hard-crashed
+  > on Track 1's fail-fast `IllegalStateException`. Caught by two
+  > reviewers (BC2). (3) `AtomicOperationsManager.executeInsideComponentOperation`
+  > rewraps `IOException` to the unchecked `CommonStorageComponentException`,
+  > which would have broken `IHM.flushIfDirty(AtomicOperation)`'s
+  > `catch(IOException)` dirty-mutation-counter restoration. The fix
+  > calls `acquireExclusiveLockTillOperationComplete` directly to
+  > preserve the checked exception transparency. The pattern (direct
+  > acquire vs `executeInsideComponentOperation` when the wrapped method
+  > already throws `IOException` and callers catch it specifically) is a
+  > recipe future Track 4 migrations should follow if they encounter
+  > the same shape.
+  >
+  > **What changed from the plan:** Plan unchanged — Step 1 lands as
+  > planned. The in-memory referrer-balancing call and the
+  > `writeSnapshotToPage` lock acquisition are corrections inside
+  > Step 1's scope, not plan deviations. The audit 2 resolution still
+  > matches the plan's intent ("wrap `flushSnapshotToPage` in
+  > `executeInsideComponentOperation`") — Step 1 just extended the
+  > resolution to both sides of the race.
+  >
+  > **Key files:**
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/AtomicOperation.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/AtomicOperationBinaryTracking.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/base/StorageComponent.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/engine/IndexHistogramManager.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/LoadOrAddPageForWriteTest.java`
+  >
+  > **Critical context:** The new method's disk-engine delegate is
+  > intentionally NOT write-locked on return (lock released immediately
+  > after `loadOrAddForWrite`'s install). Future call-site migrations
+  > (Step 2-3) must NOT add extra `acquireExclusiveLock` calls — the
+  > overlay model (`CacheEntryChanges.changes` buffer) handles
+  > concurrency at the AOBT layer, not the cache layer. Track 5 must
+  > keep `WriteCache.getFilledUpTo` callable from
+  > `AtomicOperationBinaryTracking#loadOrAddPageForWrite` (used to read
+  > the committed cross-TX horizon for the `isNew` classification) —
+  > a private downgrade would break Step 1.
   >
   > **Scope:**
   > - Add `CacheEntry loadOrAddPageForWrite(long fileId, long pageIndex)
