@@ -40,7 +40,7 @@ import org.junit.Test;
  * keep the other) still leaves the pin set valid. A rename or signature drift on either
  * surviving method fails loudly.
  *
- * <p>WHEN-FIXED: deferred-cleanup track — delete {@link RecordStringable} together with this
+ * <p>WHEN-FIXED: YTDB-751 — delete {@link RecordStringable} together with this
  * test file. No retargeting needed: zero implementers means no class will fail to compile when
  * the interface goes away.
  *

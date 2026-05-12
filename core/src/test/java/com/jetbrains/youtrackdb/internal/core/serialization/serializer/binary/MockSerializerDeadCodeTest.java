@@ -45,7 +45,7 @@ import org.junit.Test;
  * any error path; tests on consumers that depend on EMBEDDED dispatch must therefore
  * not silently catch the misroute by re-implementing this stub.
  *
- * <p>WHEN-FIXED: deferred-cleanup track — replace with a real {@code EMBEDDED}
+ * <p>WHEN-FIXED: YTDB-750 — replace with a real {@code EMBEDDED}
  * serializer or remove the registration in
  * {@link BinarySerializerFactory#create(int)} (its registration loop today) once it is confirmed
  * the EMBEDDED slot is never reached through the factory dispatch path. Note that

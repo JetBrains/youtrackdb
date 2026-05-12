@@ -42,7 +42,7 @@ import org.junit.Test;
  * test-only implementation that asserts no production class can satisfy the abstract surface
  * silently.
  *
- * <p>WHEN-FIXED: deferred-cleanup track — delete this test file in the same commit that
+ * <p>WHEN-FIXED: YTDB-752 — delete this test file in the same commit that
  * removes the entire {@code core/compression} package per the cluster-classification table
  * row "core/compression" in {@code track-22a.md}.
  */

@@ -45,7 +45,7 @@ import org.junit.Test;
  * either re-uses the listener (re-introducing implementers) or shifts the enum constants
  * silently would trip these reflective checks.
  *
- * <p>WHEN-FIXED: deferred-cleanup track — delete {@link RecordListener} (and its nested
+ * <p>WHEN-FIXED: YTDB-751 — delete {@link RecordListener} (and its nested
  * {@link RecordListener.EVENT} enum) together with this test file. No retargeting needed:
  * zero implementers means no class will fail to compile when the interface goes away.
  *

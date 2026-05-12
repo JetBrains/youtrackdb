@@ -275,34 +275,29 @@ Security-Type override rule.
 - **Block locators:**
   - L189–L201 (assertion + surrounding context); L195–L201 (assertion-message); L423–L431; L432–L440; L455–L463.
 - **What to flip:** flip the "NFE-tolerated" assertions to comparator-result assertions once `BinaryComparatorV0` normalizes DATE × STRING.
-- **YTDB-ID:** _(filled by Step 4)_
-
-> Note: `BinaryComparatorV0DateSourceTest` only matched the grep at
-> lines 193, 197, 427 in the targets file — lines 436/459 may not
-> actually carry `(Track 22|deferred-cleanup track)` markers and may
-> instead be already-YTDB-rewritten or non-matching context. Step 4
-> implementer **re-greps the file** before drafting the issue and
-> commit.
+- **YTDB-ID:** YTDB-744 — Step 4 re-grep confirmed exactly 3 rewrite-target markers (lines 193, 197, 427). Lines 436/459 contain non-token `WHEN-FIXED:` text (no `Track 22` / `deferred-cleanup track`) and are NOT rewrite targets. All 3 markers rewritten to `YTDB-744`.
 
 #### Se2. `BytesContainer` zero-capacity infinite-loop hang + length-prefix validation gap
 
 - **Type:** Bug; **Subsystem:** Serializer (Binary).
 - **Test file + lines:** no current markers in `core/src/test/` after the previous tracks' refactoring. Step 4 implementer **re-greps for `BytesContainer`** to confirm; if zero markers remain, the issue is opened as production-code-referenced.
 - **Anchor quote:** n/a.
-- **YTDB-ID:** _(filled by Step 4)_
+- **YTDB-ID:** YTDB-745 — Step 4 re-grep confirmed zero `WHEN-FIXED` markers referencing `BytesContainer`; issue opened as production-code-referenced. Production class confirmed at `core/src/main/java/.../BytesContainer.java:79` (resize() infinite loop on zero-length backing array).
 
 #### Se3. `HelperClasses.readLinkCollection` NULL_RECORD_ID dead branch + `RecordSerializationDebug*` `faildToRead` typo + `CompactedLinkSerializer` / `LinkSerializer` `(short)` cluster-id truncation
 
 - **Type:** Bug; **Subsystem:** Serializer (Binary).
 - **Test file + lines:** no current markers in `core/src/test/` after 22b's serializer-hygiene cluster I deletions removed adjacent test files. Step 4 implementer **re-greps for HelperClasses / CompactedLinkSerializer / LinkSerializer** before opening; if zero markers remain, the issue is opened as production-code-referenced + regression-test-pending.
 - **Anchor quote:** n/a.
-- **YTDB-ID:** _(filled by Step 4)_
+- **YTDB-ID:** **Split decision (Step 4)** — the original trio was decomposed because the three production fixes target unrelated surfaces. The `RecordSerializationDebug*` typo entry was dropped: a code search across `core/src` for `class RecordSerializationDebug` and the `faildToRead` typo returned zero hits, so the class no longer exists in the tree. Remaining two issues:
+  - **YTDB-746** — `HelperClasses.readLinkCollection` NULL_RECORD_ID dead branch (production-code-referenced; production class at `core/src/main/java/.../HelperClasses.java` lines 233/397 with NULL_RECORD_ID arms at 249/279/408/456).
+  - **YTDB-747** — `CompactedLinkSerializer` / `LinkSerializer` `(short)` cluster-id truncation (production-code-referenced; 3 `(short) r.getCollectionId()` sites in each file confirmed at the cited line numbers).
 
 #### Se4. Serializer abstract bases — `RecordSerializerCSVAbstract`, `RecordSerializerStringAbstract`
 
 - **Type:** Task; **Subsystem:** Serializer (Abstract base).
 - **Test files + lines:** none directly pinned with the rewrite-target marker in the union grep (the pins live in `RecordSerializerCsvAbstractDeadCodeTest.java` and `RecordSerializerStringAbstractDeadCodeTest.java`, neither of which appears in the inventory list — they may have already been rewritten or absorbed). Step 4 implementer **re-greps both filenames** and only opens the issue if markers are confirmed.
-- **YTDB-ID:** _(filled by Step 4 if confirmed)_
+- **YTDB-ID:** YTDB-748 — Step 4 re-grep confirmed both test files exist with un-tracked `WHEN-FIXED:` markers (no `Track 22` / `deferred-cleanup track` token). Both production classes still live at `core/src/main/java/.../RecordSerializerCSVAbstract.java` and `.../RecordSerializerStringAbstract.java`; issue opened as dead-code deletion plan per the manifest's "production class exists" rule. No marker rewrite (the existing markers were not Track-22-tagged).
 
 #### Se5. Spatial-index slot — `MockSerializer` + `BinarySerializerFactory` id `-10`
 
@@ -312,13 +307,13 @@ Security-Type override rule.
 - **Anchor quote (L48):** ` * <p>WHEN-FIXED: deferred-cleanup track — replace with a real {@code EMBEDDED}`
 - **Block locators:** L40–L60.
 - **What to flip:** delete `MockSerializer` and reclaim id `-10` once a real spatial-index serializer is registered.
-- **YTDB-ID:** _(filled by Step 4)_
+- **YTDB-ID:** YTDB-750 — marker at L48 rewritten to `YTDB-750`.
 
 #### Se6. sbtree-local-v1 pair — `SBTreeBucketV1`, `SBTreeNullBucketV1`
 
 - **Type:** Task; **Subsystem:** Storage (sbtree-v1).
 - **Test files + lines:** the pins (`SBTreeBucketV1DeadCodeTest.java`, `SBTreeNullBucketV1DeadCodeTest.java`) do not appear in the rewrite-target inventory — markers may already have been rewritten in earlier tracks. Step 4 implementer **re-greps both filenames** and opens the issue only if confirmed.
-- **YTDB-ID:** _(filled by Step 4 if confirmed)_
+- **YTDB-ID:** YTDB-749 — Step 4 re-grep confirmed both test files exist with un-tracked `WHEN-FIXED:` markers (no `Track 22` / `deferred-cleanup track` token). Both production classes still live at `core/src/main/java/.../SBTreeBucketV1.java` and `.../SBTreeNullBucketV1.java`; issue opened as dead-code deletion plan per the manifest's "production class exists" rule. No marker rewrite (the existing markers were not Track-22-tagged).
 
 #### Se7. Listener / marker SPI — `RecordListener`, `RecordStringable`
 
@@ -330,7 +325,7 @@ Security-Type override rule.
   - `RecordListenerDeadCodeTest.java:48`: ` * <p>WHEN-FIXED: deferred-cleanup track — delete {@link RecordListener} (and its nested`
   - `RecordStringableDeadCodeTest.java:43`: ` * <p>WHEN-FIXED: deferred-cleanup track — delete {@link RecordStringable} together with this`
 - **Block locators:** L30–L55 (each file); L25–L48.
-- **YTDB-ID:** _(filled by Step 4)_
+- **YTDB-ID:** YTDB-751 — both markers (`RecordListenerDeadCodeTest.java:48` and `RecordStringableDeadCodeTest.java:43`) rewritten to `YTDB-751` (single issue covers both interfaces per manifest's "Listener / marker SPI" cluster grouping).
 
 #### Se8. Compression SPI — `Compression` interface
 
@@ -339,7 +334,7 @@ Security-Type override rule.
   - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/compression/CompressionInterfaceDeadCodeTest.java:45`.
 - **Anchor quote (L45):** ` * <p>WHEN-FIXED: deferred-cleanup track — delete this test file in the same commit that`
 - **Block locators:** L30–L55.
-- **YTDB-ID:** _(filled by Step 4)_
+- **YTDB-ID:** YTDB-752 — marker at L45 rewritten to `YTDB-752`.
 
 ---
 

@@ -190,11 +190,11 @@ public class BinaryComparatorV0DateSourceTest extends DbTestBase {
     // erroneously equals LONG 1 ms. NEGATIVE intra-day values floor to the previous day's
     // start (-86_400_000), so they do NOT spuriously match. This asymmetry pins the latent
     // semantics — pinning current behavior so a future fix that drops the flooring fails
-    // these assertions loudly. WHEN-FIXED: deferred-cleanup track.
+    // these assertions loudly. WHEN-FIXED: YTDB-744.
     assertTrue(
         "isEqual(DATE 0, LONG 1) returns TRUE due to day-flooring of LONG side in"
             + " BinaryComparatorV0.isEqualSwitch DATE×LONG arm — positive intra-day flooring"
-            + " rounds to 0. WHEN-FIXED: deferred-cleanup track.",
+            + " rounds to 0. WHEN-FIXED: YTDB-744.",
         comparator.isEqual(session, date0, field(PropertyTypeInternal.LONG, 1L)));
     assertFalse(
         "isEqual(DATE 0, LONG -1) returns FALSE because the day-flooring of -1 ms yields"
@@ -424,7 +424,7 @@ public class BinaryComparatorV0DateSourceTest extends DbTestBase {
    * <p>This is a DoS / crash-on-bad-input risk: a server fed an attacker-controlled STRING
    * field value would crash the comparator inside any DATE-vs-STRING isEqual check. Pinned
    * here so the future fix (separating the STRING arm to use {@code Long.parseLong(readString)})
-   * fails this assertion loudly. WHEN-FIXED: deferred-cleanup track.
+   * fails this assertion loudly. WHEN-FIXED: YTDB-744.
    */
   @Test
   public void dateIsEqualStringThrowsBecauseOfDecimalDeserializerMisuse() {
