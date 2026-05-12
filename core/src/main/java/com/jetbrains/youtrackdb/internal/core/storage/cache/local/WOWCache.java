@@ -1428,7 +1428,7 @@ public final class WOWCache extends AbstractWriteCache
       throw BaseException.wrapException(
           new ThreadInterruptedException("Pausing background flush was interrupted"),
           e, storageName);
-    } catch (final Exception e) {
+    } catch (final ExecutionException e) {
       throw BaseException.wrapException(
           new WriteCacheException(storageName, "Pause barrier failed"), e, storageName);
     }
