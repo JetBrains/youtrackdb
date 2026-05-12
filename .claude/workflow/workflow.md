@@ -198,6 +198,16 @@ cross-track impact.
    The user can override: reorder tracks, skip a track, or choose a different
    resume point. But by default, you proceed without waiting for confirmation.
 
+5. **Run the Branch Divergence Check.** Load
+   [`branch-divergence-check.md`](branch-divergence-check.md) and
+   follow it. This must happen in turn 1, before any per-commit
+   push work. A diverged branch left undetected makes every
+   `git push` across the session reject silently and defeats the
+   "push every commit" safety net (see `commit-conventions.md`
+   § Push every commit). The protocol detects divergence and asks
+   the user to pick one of three resolutions (local-authoritative,
+   remote-authoritative, defer); no default is picked.
+
 ---
 
 ## Track Pre-Flight (Strategy Assessment + Track Summary)
@@ -326,7 +336,21 @@ work when context consumption is at `warning` level or above.
   step before "End the session".
 - Run `git push` so the branch's draft PR reflects the final state
   of the session (every commit is pushed; this is the safety net
-  for unexpected session-end interruptions)
+  for unexpected session-end interruptions). If this push is
+  rejected, follow `commit-conventions.md` § Push failure handling
+  — a non-fast-forward rejection at session-end is the same
+  divergence case as during phase work and routes to
+  `branch-divergence-check.md` on first occurrence.
+- **Report unpushed commits.** Run
+  `git rev-list --count @{u}..HEAD` to count commits not yet pushed
+  to the tracked remote. If the count is non-zero, the session-end
+  summary MUST list both the count and the commits
+  (`git log --oneline @{u}..HEAD`) so the user can act before the
+  next session. A silent unpushed list defeats the "push every
+  commit" safety net (see `commit-conventions.md` § Push every
+  commit). If the branch has no upstream, substitute
+  `origin/<branch>` and warn the user that upstream tracking is not
+  configured.
 - Inform the user of the session state so the next `/execute-tracks`
   auto-resumes correctly
 
@@ -468,6 +492,7 @@ On-demand reference documents (loaded only when their specific situation arises)
 - **`design-decision-escalation.md`** — when/how to escalate design decisions to the user
 - **`structural-review.md`** — structural review details (loaded by implementation-review.md)
 - **`track-skip.md`** — full track skip protocol (when `[~]` is triggered)
+- **`branch-divergence-check.md`** — turn-1 divergence detection and three-resolution gate (loaded by the Startup Protocol step 5; also re-routed to from `commit-conventions.md` § Push failure handling on the first non-fast-forward rejection in the session)
 - **`review-agent-selection.md`** — characteristic-based review agent selection (loaded by step-implementation.md and track-code-review.md)
 - **`risk-tagging.md`** — per-step risk criteria and lifecycle (loaded by `track-review.md` during Phase A decomposition; loaded by `step-implementation-recovery.md` only on the rare Phase B upgrade path; **not** loaded by Phase B normal execution or by Phase C — those phases consume the per-step `**Risk:**` tag from the step file directly)
 - **`implementer-rules.md`** — Phase B per-step implementer sub-agent rulebook (loaded only by the implementer; orchestrators do not load it)
