@@ -392,7 +392,7 @@ the stay-on-physical sites).
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/7 complete)
+- [ ] Step implementation (2/7 complete)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -528,69 +528,74 @@ the stay-on-physical sites).
   >   and extend cases.
   > - Spotless apply on `core` after the change.
 
-- [ ] Step 2: Migrate BTree + SharedLinkBagBTree call sites + BTree.doAssertFreePages pure-sizing
+- [x] Step 2: Migrate BTree + SharedLinkBagBTree call sites + BTree.doAssertFreePages pure-sizing
+  - [x] Context: info
   > **Risk:** high — crash-safety/durability (modifies storage
   > components on the BTree-insert hot path; probe collapse changes
   > allocation semantics).
   >
-  > **Status (in-flight — iteration-2 gate-check pending):** Step 2's
-  > implementation landed in commit `a4d49bf4bd` and the iteration-1
-  > review fixes (Option D for BC2 plus 7 other should-fix items)
-  > landed in `Review fix:` commit `48a83793cb`. The iteration-2
-  > gate-check was deferred because Phase B's context-window check hit
-  > **warning** (31%) before the gate-check could be spawned. The
-  > step is intentionally left `[ ]` in this file so the next session
-  > can resume via the Phase B Resume protocol (orphan `Review fix:`
-  > commit at HEAD past `base_commit`). Step 1's `[x]` is unchanged.
-  >
-  > **What was done so far:**
-  > - Migrated 10 production `addPage` call sites in `BTree`
-  >   (singlevalue v3) and `SharedLinkBagBTree` to the new
-  >   `loadOrAddPageForWrite(fileId, knownIndex)` SPI: 3 fresh-file
-  >   sites in `BTree.create`, 2 fresh-file sites in `SLBB.create`,
-  >   the single probe at `BTree.allocateNewPage` (free-list reuse
-  >   branch preserved), the probe at `SLBB.splitNonRootBucket`, and
-  >   the two-page probe at `SLBB.splitRootBucket` (using
-  >   `leftPageIndex + 1` for the second target to advance without
-  >   re-reading `getPagesSize()`).
-  > - Migrated `BTree.doAssertFreePages` away from `getFilledUpTo` to
-  >   `entryPoint.getPagesSize() + 1` via a `loadPageForRead`
-  >   on `ENTRY_POINT_INDEX` — test-only `-ea` path.
-  > - **Reshaped Step 1's API contract under Option D** (resolution
-  >   of BC Finding 2 from the iteration-1 review): the new
-  >   `loadOrAddPageForWrite` is now **allocator-only**. The
-  >   previously-defensive cache-install branch (`isNew=false`,
-  >   `pageIndex < committedFilledUpTo`) is deleted as dead code —
-  >   no production caller (Step 2 migrations OR Step 3-7 planned
-  >   migrations) ever targets a pageIndex below the committed
-  >   horizon. Calling the method with a non-new pageIndex now
-  >   throws `IllegalStateException` with a descriptive message. The
-  >   method becomes a clean atomic-op-aware page allocator;
-  >   commit-time materialization is unchanged.
-  > - **BC1 from Step 1 becomes vestigial**: the in-memory engine
-  >   referrer-balancing call lived only in the deleted cache-install
-  >   branch. The corresponding regression test was removed.
-  > - **Other applied fixes**: stale source-line refs in AOBT
-  >   comments replaced with method-name refs (CQ1); SLBB.create
-  >   literal `1` replaced with the existing `ROOT_INDEX` constant
-  >   (CQ2); SLBB.splitRootBucket comment corrected to name AOBT's
-  >   idempotency early-return as the failure mode (BC1 in the
-  >   iteration-1 review, distinct from Step 1's BC1); branch
-  >   invariant assert at the stub `CacheEntryImpl` construction
-  >   site (TY2); `freshBookedFileSkipsReadCacheUntilCommit` test
-  >   asserts `getBuffer() == null` not `getPointer() == null` (TB1)
-  >   and probes `pageChangesMap` registration via the SPI (TB2);
-  >   new `secondCallReturnsExistingOverlayOnFreshBookedFile` test
-  >   pins stub-branch idempotency (TB3); PF fast-path on
-  >   `committedFilledUpTo` (avoid `filesLock` read when
-  >   `maxNewPageIndex > -2`).
+  > **What was done:**
+  > Migrated 10 production `addPage` call sites in `BTree`
+  > (singlevalue v3) and `SharedLinkBagBTree` to the new
+  > `loadOrAddPageForWrite(fileId, knownIndex)` SPI: 3 fresh-file
+  > sites in `BTree.create`, 2 fresh-file sites in `SLBB.create`,
+  > the single probe at `BTree.allocateNewPage` (free-list reuse
+  > branch preserved), the probe at `SLBB.splitNonRootBucket`, and
+  > the two-page probe at `SLBB.splitRootBucket` (using
+  > `leftPageIndex + 1` for the second target to advance without
+  > re-reading `getPagesSize()`). Migrated `BTree.doAssertFreePages`
+  > away from `getFilledUpTo` to `entryPoint.getPagesSize() + 1` via
+  > a `loadPageForRead` on `ENTRY_POINT_INDEX` (test-only `-ea`
+  > path). The step landed across three commits: implementer
+  > `a4d49bf4bd`, iteration-1 review fix `48a83793cb`, iteration-2
+  > review fix `a44171e632`. The iteration-1 fix resolved a
+  > DESIGN_DECISION_NEEDED escalation (BC2) by reshaping the AO API
+  > contract: `loadOrAddPageForWrite` is now **allocator-only**, the
+  > previously-defensive cache-install branch is deleted as dead
+  > code, calling the method with a non-new pageIndex throws
+  > `IllegalStateException` with a descriptive message (Option D).
+  > The iteration-2 fix closed the BC3/CQ3 blocker the gate-check
+  > surfaced (IHM HLL-spill cross-TX regression) by migrating the
+  > two pre-existing IHM call sites at `writeSnapshotToPage:1912`
+  > and `flushSnapshotToPage:1967` to discriminate at the caller via
+  > `op.filledUpTo(fileId)`: load existing page 1 via
+  > `loadPageForWrite` on the second-and-later flush, allocate via
+  > `loadOrAddPageForWrite` on the first spill. The per-component
+  > exclusive lock acquired upstream keeps the read consistent with
+  > the subsequent load/allocate call. The same iteration-2 commit
+  > applied six should-fix items: CQ4 strengthened the
+  > `loadOrAddPageForWrite` javadoc on the interface and impl to
+  > make the allocator-only contract unmistakable; CQ5 renamed the
+  > AOBT local `committedFilledUpTo` to `allocationFloor` and fixed
+  > the comment + throw-message accordingly; TB4 tightened the
+  > `loadOrAddPageForWriteThrowsForExistingPage` assertion to pin
+  > fileId and the actionable `loadPageForWrite` hint; TC1 added a
+  > fast-path coverage test
+  > (`secondAllocationOnExistingFileUsesMaxNewPageIndexFastPath`)
+  > that pins the `maxNewPageIndex + 1` floor flowing into the
+  > throw branch; TC2 added a boundary off-by-one throw test
+  > (`loadOrAddPageForWriteThrowsAtBoundaryPageIndex`); TC3 added an
+  > AOBT-level unit pin for the SLBB.splitRootBucket two-page recipe
+  > (`twoConsecutiveAllocationsProduceDistinctOverlays`). The
+  > iteration-1 commit also applied: CQ1 (stale source-line refs in
+  > AOBT comments replaced with method-name refs), CQ2 (SLBB.create
+  > literal `1` → `ROOT_INDEX` constant), TY2 (branch-invariant
+  > assert at the stub-shape `CacheEntryImpl` construction site),
+  > TB1/TB2 (`freshBookedFileSkipsReadCacheUntilCommit` asserts
+  > `getBuffer() == null` and probes `pageChangesMap` via the SPI),
+  > TB3 (new `secondCallReturnsExistingOverlayOnFreshBookedFile`
+  > test), PF fast-path on `committedFilledUpTo` (avoid `filesLock`
+  > read when `maxNewPageIndex > -2`), BC1 (SLBB.splitRootBucket
+  > comment names AOBT idempotency early-return as the failure
+  > mode). Iteration-3 gate-check on the four dimensions with
+  > applied iter-2 fixes (BC, TB, TC, CQ) all returned PASS.
   >
   > **What was discovered:**
   > - The Step 1 implementer made two unsafe assumptions that
   >   surfaced when the first BTree caller migrated in Step 2: (a)
-  >   `readCache.loadOrAddForWrite` cannot be called for a fresh-booked
-  >   fileId because the file isn't registered with WOWCache until
-  >   commit time; (b) for non-fresh files, calling
+  >   `readCache.loadOrAddForWrite` cannot be called for a
+  >   fresh-booked fileId because the file isn't registered with
+  >   WOWCache until commit time; (b) for non-fresh files, calling
   >   `readCache.loadOrAddForWrite` and then re-accessing via
   >   `loadPageForWrite` causes a usage-counter underflow because
   >   `loadPageForWrite` returns the existing `CacheEntryChanges`
@@ -599,79 +604,122 @@ the stay-on-physical sites).
   >   The subsequent Option D collapse formalises this: the entire
   >   cache-install branch was always dead code, and the stub-shape
   >   path is the ONLY path the method now takes.
+  > - **The iteration-1 implementer's trace claim ("every production
+  >   allocator targets either a fresh-booked file or a pageIndex
+  >   strictly past the committed horizon") was wrong for two
+  >   pre-existing IHM call sites at `writeSnapshotToPage:1912` and
+  >   `flushSnapshotToPage:1967`.** Those callers — added before
+  >   Step 1 — relied on the original "loadPageForWrite-then-addPage
+  >   fallback" semantics of `StorageComponent.loadOrAddPageForWrite`
+  >   that Step 1 rewired and Step 2 then narrowed. Caught by the
+  >   iteration-2 gate-check's bugs-concurrency and code-quality
+  >   reviewers (BC3/CQ3) and confirmed by direct inspection of the
+  >   IHM comment at line 1909-1910 that documented the load-or-add
+  >   intent. The fix discriminates at the caller. Lesson worth
+  >   carrying forward: when narrowing an API's contract, audit ALL
+  >   reachable callers (including pre-existing ones), not just the
+  >   ones explicitly migrated in the current step.
+  > - A test-completeness trap surfaced inside the iter-2 fix
+  >   itself: a draft of the TC1 fast-path test probed the throw
+  >   branch by re-asking for an already-allocated pageIndex; that
+  >   pattern hits the idempotency early-return (pageChangesMap
+  >   lookup) before the allocator-only guard, so the test silently
+  >   passed without exercising the throw. Fixed by probing a
+  >   different pageIndex absent from `pageChangesMap`. Worth
+  >   documenting for future allocator-only tests: any "below-floor"
+  >   assertion must use a pageIndex never previously registered in
+  >   this operation. Capture lives in the test file's inline
+  >   comments and in the TC3 javadoc.
   > - The iteration-1 review surfaced 30+ findings across 8
-  >   dimensions; 8 should-fix items applied (1 via Option D
-  >   resolution after a DESIGN_DECISION_NEEDED user escalation);
-  >   ~10 items deferred to Step 3-4 / Track 6 by natural-home rule.
+  >   dimensions; 8 should-fix items applied. The iteration-2
+  >   gate-check surfaced one blocker (BC3/CQ3) plus six should-fix
+  >   items, all applied in `a44171e632`. The iteration-3 gate-check
+  >   verified all applied fixes and surfaced one cumulative
+  >   should-fix (TB8/CQ9 — five stale `committedFilledUpTo`
+  >   references in `LoadOrAddPageForWriteTest.java` javadocs and
+  >   inline comments that the CQ5 rename missed; the tests
+  >   themselves are correct, only surrounding prose is out of
+  >   sync) plus three suggestion-level items (TB9 javadoc
+  >   correctness on `twoConsecutiveAllocationsProduceDistinctOverlays`,
+  >   TB10 defense-in-depth pin on TC1, TC6 cross-track hint for
+  >   Track 6, CQ10 DRY cross-reference between twin IHM sites).
+  >   The iteration-3 cap was reached with these items open; they
+  >   are recorded here for natural-home pickup in Step 3 (test-file
+  >   touches), Track 5 / Track 6 (cross-track items), or a
+  >   subsequent cleanup pass.
   >
   > **What changed from the plan:**
-  > - Step 1's API contract is narrower than planned:
+  > - **Step 1's API contract is narrower than planned**:
   >   `loadOrAddPageForWrite` is now allocator-only (callers must
   >   target a new pageIndex). The "or Add" semantics for existing
   >   pages is removed. This narrowing strengthens the design — every
   >   migrated site has a known-new target, so the contract matches
-  >   reality. Step 3-7 migrations are unaffected (none would target
-  >   existing pages); Step 5's replay-loop collapse must continue to
-  >   go through `readCache.loadOrAddForWrite` directly (the cache
+  >   reality. Step 5's replay-loop collapse must continue to go
+  >   through `readCache.loadOrAddForWrite` directly (the cache
   >   primitive remains "load or add" — only the AO-layer wrapper is
   >   narrowed).
-  >
-  > **Pending work (next session must run):**
-  > 1. **Iteration-2 gate-check** on the dimensions with prior
-  >    findings: bugs-concurrency, test-behavior, test-completeness,
-  >    test-crash-safety, code-quality, performance. Spawn per
-  >    `code-review-protocol.md` against fix commit `48a83793cb`
-  >    (the cumulative diff of the iteration-1 fix on top of
-  >    implementation commit `a4d49bf4bd`). The gate-check verifies
-  >    that the 8 applied fixes don't introduce regressions.
-  > 2. Cross-track impact check (sub-step 5 of the per-step loop).
-  > 3. Episode finalisation: convert this "Status (in-flight)" block
-  >    into the standard episode fields and mark the step `[x]`.
-  > 4. Update Progress section to `(2/7 complete)`.
+  > - **Scope expansion**: this step touches
+  >   `IndexHistogramManager.writeSnapshotToPage` and
+  >   `flushSnapshotToPage` (HLL page-1 call sites at lines 1912 and
+  >   1967), which the plan lists as Step 3 / Step 7 territory. The
+  >   natural-home rule placed the BC3/CQ3 blocker fix here because
+  >   Step 2's iter-1 Option D collapse introduced the regression
+  >   at those pre-existing call sites. **Step 3 is unaffected** —
+  >   the only IHM site Step 3 migrates is `createEmptyStatsPage:1800`
+  >   (fresh-file at pageIndex 0), a statically-known-new target
+  >   that the allocator-only contract handles correctly. **Step 7
+  >   may inherit small test-comment hygiene** (TB8/CQ9 — the five
+  >   stale `committedFilledUpTo` references) along with the
+  >   suggestion-level defensive asserts TY3 (SLBB.splitRootBucket
+  >   adjacency) and TY4 (fast-path consistency).
+  > - **Step 5 inherits BC4** (deferred should-fix on the
+  >   BTree/SLBB defensive reuse path): the iter-1 reviewer flagged
+  >   that the OLD `if (pagesSize < filledUpTo - 1) { reuse } else
+  >   { extend }` probe handled a partial-replay residue that the
+  >   new allocator-only contract throws on. The natural home is
+  >   Step 5's replay-loop collapse audit of the partial-replay
+  >   invariants in `commitChanges` / `restoreAtomicUnit` /
+  >   `restoreFromIncrementalBackup`.
   >
   > **Key files:**
   > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/AtomicOperationBinaryTracking.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/AtomicOperation.java`
   > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/index/sbtree/singlevalue/v3/BTree.java`
   > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/ridbag/ridbagbtree/SharedLinkBagBTree.java`
+  > - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/engine/IndexHistogramManager.java`
   > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/LoadOrAddPageForWriteTest.java`
   >
-  > **Critical context for the next session:**
-  > Phase B base commit for Track 4 is `62fc621c83`. Step 1 ended at
-  > commit `1528730eb9` (episode commit). Step 2's implementer commit
-  > is `a4d49bf4bd`; the iteration-1 review-fix commit is
-  > `48a83793cb`. The next session's startup will see these two
-  > commits as "orphans" past `base_commit` — that's expected. Resume
-  > by reading this "Status (in-flight)" block, spawning the
-  > iteration-2 gate-check reviewers against `48a83793cb`, and then
-  > closing Step 2 cleanly. **Track 5 inherits a discovery hint** —
-  > the `writeCache.getFilledUpTo(fileId)` read at the AOBT level is
-  > now used only for the in-method `isNew` validation when
-  > `!fileIsNew && maxNewPageIndex == -2` (no in-TX growth yet);
-  > Track 5's helper-set must keep that read path callable.
-  >
-  > **Scope:**
-  > - BTree (singlevalue v3): migrate fresh-file sites at `create:195,
-  >   :201, :208` and the single probe at `allocateNewPage:2163`
-  >   (preserve the outer `if (freeListHead > -1) { reuse freelist
-  >   page }` branch; collapse only the `else` extend branch to
-  >   `loadOrAddPageForWrite(fileId, entryPoint.getPagesSize() + 1)`
-  >   + `entryPoint.setPagesSize(...)`).
-  > - SharedLinkBagBTree: migrate fresh-file sites at `create:59, :64`,
-  >   the single probe at `splitNonRootBucket:929`, and the **two
-  >   consecutive probes at `splitRootBucket:1057, :1066`** per the
-  >   two-page recipe (re-read `entryPoint.getPagesSize() + 1`
-  >   between calls; single `setPagesSize(newSecondPageIndex)` at
-  >   the end).
-  > - `BTree.doAssertFreePages:1389` pure-sizing migration: add
-  >   `loadPageForRead(ENTRY_POINT_INDEX)` at method entry, wrap in
-  >   `CellBTreeSingleValueEntryPointV3`, replace
-  >   `getFilledUpTo(...)` with `entryPoint.getPagesSize() + 1` as
-  >   the upper iteration bound. Test-only assertion path (`-ea`).
-  > - Tests: existing BTree unit tests (`BTreeReadMethodsTest`,
-  >   `BTreeTestIT`) plus any SharedLinkBagBTree tests under
-  >   `core/src/test/java/.../ridbag/`. Verify coverage with the
-  >   coverage gate.
-  > - Spotless apply on `core`.
+  > **Critical context:**
+  > - **Track 5 helper-set constraint**: the Track 5 lockdown must
+  >   keep both surfaces accessible from production code:
+  >   `WriteCache.getFilledUpTo(fileId)` is called by AOBT for the
+  >   in-method `isNew` classification on the slow path
+  >   (`!fileIsNew && maxNewPageIndex == -2`); `AtomicOperation.filledUpTo(fileId)`
+  >   is called from the new IHM HLL-spill discriminator at IHM:1919
+  >   and IHM:1984. Both reads happen inside the per-component
+  >   exclusive lock, so the gated-helper design from Track 5 Phase A
+  >   must not block either path.
+  > - **Track 6 regression-test constraint**: the integration test
+  >   workload should exercise an HLL-spill pattern that triggers
+  >   page-1 writes more than once in the same lifecycle — i.e., a
+  >   sequence that flushes the HLL snapshot, mutates the index,
+  >   flushes again, and verifies both branches of the new IHM
+  >   discriminator. The iter-1 narrowing would have surfaced as a
+  >   hard crash on the second spill, so this scenario is now a
+  >   load-bearing test target.
+  > - **Open should-fix carried forward** (iter-3 cap reached):
+  >   TB8/CQ9 — five stale `committedFilledUpTo` references in
+  >   `LoadOrAddPageForWriteTest.java` (lines 289, 318, 323, 335,
+  >   339, 347). The CQ5 rename caught the production code path
+  >   but missed the test-file documentation prose. Comment-only
+  >   fix, safe to land alongside any future test-file touch in
+  >   Step 3 or Step 7.
+  > - **Open suggestions carried forward**: TB9 (javadoc on TC3
+  >   misdescribes which hazard the test catches), TB10 (TC1
+  >   defense-in-depth on `hasChangesForPage`), TC6 (Track 6 should
+  >   pin both branches of the IHM discriminator), CQ10 (one-line
+  >   cross-reference comment linking the twin IHM HLL-spill
+  >   sites). None blocker-grade; pick up opportunistically.
 
 - [ ] Step 3: Migrate Collection v2 + PaginatedCollection v2 + FSM + IHM + CDPB call sites
   > **Risk:** high — crash-safety/durability (modifies durable
