@@ -1,10 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
-import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.MetricsRegistry;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Ratio;
-import com.jetbrains.youtrackdb.internal.common.profiler.metrics.TimeRate;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilterDescriptor;
@@ -85,75 +83,13 @@ public class EdgeTraversal {
   @Nullable private SemiJoinDescriptor semiJoinDescriptor;
 
   /**
-   * Default load-to-scan cost ratio used in the build amortization formula.
+   * Load-to-scan cost ratio used in the build amortization formula.
    * Represents how many times more expensive a random record load is compared
    * to scanning one entry in a pre-built RidSet. The value 100 is a reasonable
-   * default for cold SSD storage. Live metrics from {@code MetricsRegistry}
-   * replace this when available.
+   * default for cold SSD storage; operators can override via
+   * {@code youtrackdb.query.prefilter.loadToScanRatio}.
    */
   static final double DEFAULT_LOAD_TO_SCAN_RATIO = 100.0;
-
-  /**
-   * Returns the estimated nanoseconds for a random record load from cold
-   * SSD storage, reading from {@link GlobalConfiguration}. Override via
-   * {@code youtrackdb.query.prefilter.coldLoadNanos} to match actual
-   * hardware.
-   */
-  static double coldLoadNanos() {
-    return GlobalConfiguration.QUERY_PREFILTER_COLD_LOAD_NANOS
-        .getValueAsDouble();
-  }
-
-  /**
-   * Returns the estimated nanoseconds for a record load from warm page
-   * cache, reading from {@link GlobalConfiguration}. Override via
-   * {@code youtrackdb.query.prefilter.warmLoadNanos} to match actual
-   * hardware.
-   */
-  static double warmLoadNanos() {
-    return GlobalConfiguration.QUERY_PREFILTER_WARM_LOAD_NANOS
-        .getValueAsDouble();
-  }
-
-  /** Minimum clamp for live cost ratio — prevents unreasonably low values. */
-  static final double MIN_LOAD_TO_SCAN_RATIO = 5.0;
-
-  /** Maximum clamp for live cost ratio — prevents unreasonably high values. */
-  static final double MAX_LOAD_TO_SCAN_RATIO = 1000.0;
-
-  // =========================================================================
-  // Live metric references — lazily resolved, NOT copied by copy().
-  // =========================================================================
-
-  /**
-   * Cached reference to the {@link CoreMetrics#PREFILTER_SCAN_NANOS} metric.
-   * Lazily resolved on first IndexLookup encounter. Falls back to
-   * {@link TimeRate#NOOP} if the MetricsRegistry is unavailable.
-   * Not copied by {@link #copy()} — each query execution re-resolves.
-   */
-  @Nullable private TimeRate cachedScanNanos;
-
-  /**
-   * Cached reference to the {@link CoreMetrics#PREFILTER_SCAN_ENTRIES} metric.
-   * Same lifecycle as {@link #cachedScanNanos}.
-   */
-  @Nullable private TimeRate cachedScanEntries;
-
-  /**
-   * Cached reference to the {@link CoreMetrics#CACHE_HIT_RATIO} metric.
-   * Same lifecycle as {@link #cachedScanNanos}.
-   */
-  @Nullable private Ratio cachedCacheHitRatio;
-
-  /**
-   * Cached live cost ratio computed once per query from the metric
-   * references above. {@code NaN} means not yet computed. Since metrics
-   * flush at ~1 Hz and EdgeTraversal is per-query (sub-second lifetime),
-   * reading the rates once is sufficient — avoids per-vertex
-   * {@code ReentrantLock} acquisitions inside {@code Meter.getRate()}.
-   * Not copied by {@link #copy()}.
-   */
-  private double cachedLiveRatio = Double.NaN;
 
   /**
    * Cached reference to the {@link CoreMetrics#PREFILTER_EFFECTIVENESS}
@@ -405,50 +341,12 @@ public class EdgeTraversal {
   // copy() resets without reflection)
   // =========================================================================
 
-  /** Returns the cached scan nanos metric reference, or {@code null} if not yet resolved. */
-  @Nullable TimeRate getCachedScanNanos() {
-    return cachedScanNanos;
-  }
-
-  /** Returns the cached scan entries metric reference, or {@code null} if not yet resolved. */
-  @Nullable TimeRate getCachedScanEntries() {
-    return cachedScanEntries;
-  }
-
-  /** Returns the cached cache hit ratio metric reference, or {@code null} if not yet resolved. */
-  @Nullable Ratio getCachedCacheHitRatio() {
-    return cachedCacheHitRatio;
-  }
-
-  /** Returns the cached live cost ratio, or {@code NaN} if not yet computed. */
-  double getCachedLiveRatio() {
-    return cachedLiveRatio;
-  }
-
   /** Returns the cached effectiveness metric reference, or {@code null} if not yet resolved. */
   @Nullable Ratio getCachedEffectiveness() {
     return cachedEffectiveness;
   }
 
-  // Package-private setters for test setup — allow tests to inject
-  // non-default metric references without reflection.
-
-  void setCachedScanNanos(@Nullable TimeRate value) {
-    cachedScanNanos = value;
-  }
-
-  void setCachedScanEntries(@Nullable TimeRate value) {
-    cachedScanEntries = value;
-  }
-
-  void setCachedCacheHitRatio(@Nullable Ratio value) {
-    cachedCacheHitRatio = value;
-  }
-
-  void setCachedLiveRatio(double value) {
-    cachedLiveRatio = value;
-  }
-
+  /** Package-private setter for test setup — inject without reflection. */
   void setCachedEffectiveness(@Nullable Ratio value) {
     cachedEffectiveness = value;
   }
@@ -716,36 +614,14 @@ public class EdgeTraversal {
   }
 
   /**
-   * Stateless variant of {@link #resolveLoadToScanRatio} for callers that
-   * don't need per-query caching. Resolves the configured override first,
-   * then live metrics from the global registry, falling back to
-   * {@link #DEFAULT_LOAD_TO_SCAN_RATIO} on cold start.
-   *
-   * <p>Each call acquires metric rates fresh — appropriate for callers
-   * that invoke only once per query (e.g., {@code BackRefHashJoinStep}
-   * caches the RidSet after the first successful build, so the ratio is
-   * read at most once per query anyway).
+   * Returns the load-to-scan ratio for the build amortization formula.
+   * Honors the {@code youtrackdb.query.prefilter.loadToScanRatio} override
+   * when set to a positive value, otherwise returns
+   * {@link #DEFAULT_LOAD_TO_SCAN_RATIO}.
    */
   static double currentLoadToScanRatio() {
     double configured = TraversalPreFilterHelper.configuredLoadToScanRatio();
-    if (configured > 0) {
-      return configured;
-    }
-    MetricsRegistry registry =
-        YouTrackDBEnginesManager.instance().getMetricsRegistry();
-    if (registry == null) {
-      return DEFAULT_LOAD_TO_SCAN_RATIO;
-    }
-    TimeRate scanNanos =
-        registry.globalMetric(CoreMetrics.PREFILTER_SCAN_NANOS);
-    TimeRate scanEntries =
-        registry.globalMetric(CoreMetrics.PREFILTER_SCAN_ENTRIES);
-    Ratio cacheHitRatio =
-        registry.globalMetric(CoreMetrics.CACHE_HIT_RATIO);
-    return computeLiveCostRatio(
-        scanNanos.getRate(), scanEntries.getRate(),
-        cacheHitRatio.getRatio(),
-        coldLoadNanos(), warmLoadNanos());
+    return configured > 0 ? configured : DEFAULT_LOAD_TO_SCAN_RATIO;
   }
 
   /**
@@ -770,7 +646,7 @@ public class EdgeTraversal {
     accumulatedLinkBagTotal += linkBagSize;
     var decision = evaluateIndexLookupAmortization(
         estimatedSize, indexLookupSelectivity,
-        accumulatedLinkBagTotal, resolveLoadToScanRatio());
+        accumulatedLinkBagTotal, currentLoadToScanRatio());
     switch (decision) {
       case REJECT -> {
         // Class-level selectivity too high — cache null permanently.
@@ -840,104 +716,6 @@ public class EdgeTraversal {
       return Double.MAX_VALUE;
     }
     return estimatedSize / (loadToScanRatio * (1.0 - selectivity));
-  }
-
-  /**
-   * Computes the live cost ratio of random record load vs. RidSet scan
-   * entry from observed metrics. Used to replace the hardcoded
-   * {@link #DEFAULT_LOAD_TO_SCAN_RATIO} with an adaptive value that
-   * reflects actual hardware and cache state.
-   *
-   * <p>Formula:
-   * <ol>
-   *   <li>Average scan cost per entry:
-   *       {@code avgScanNanosPerEntry = scanNanosRate / scanEntriesRate}</li>
-   *   <li>Estimated load cost (weighted by cache hit rate):
-   *       {@code (1 - cacheHitPct/100) * coldLoadNanos
-   *              + (cacheHitPct/100) * warmLoadNanos}</li>
-   *   <li>Ratio: {@code estimatedLoadNanos / avgScanNanosPerEntry},
-   *       clamped to [{@link #MIN_LOAD_TO_SCAN_RATIO},
-   *       {@link #MAX_LOAD_TO_SCAN_RATIO}]</li>
-   * </ol>
-   *
-   * <p>Falls back to {@link #DEFAULT_LOAD_TO_SCAN_RATIO} when:
-   * <ul>
-   *   <li>Either rate is &le; 0 (cold start — no data yet)</li>
-   *   <li>Result is NaN or Infinity (degenerate input)</li>
-   * </ul>
-   *
-   * @param scanNanosRate    cumulative scan nanoseconds per second
-   * @param scanEntriesRate  cumulative entries scanned per second
-   * @param cacheHitPct      disk cache hit ratio in percents (0–100)
-   * @param coldLoadNanos    estimated nanos per cold SSD load
-   * @param warmLoadNanos    estimated nanos per warm cache load
-   * @return the cost ratio, clamped to [MIN, MAX], or the default
-   *     fallback if data is insufficient
-   */
-  static double computeLiveCostRatio(
-      double scanNanosRate, double scanEntriesRate, double cacheHitPct,
-      double coldLoadNanos, double warmLoadNanos) {
-    // NaN inputs bypass the <= 0 guard (NaN comparisons are always false)
-    // but are caught by the !isFinite guards below.
-    if (scanNanosRate <= 0 || scanEntriesRate <= 0) {
-      return DEFAULT_LOAD_TO_SCAN_RATIO;
-    }
-    double avgScanNanosPerEntry = scanNanosRate / scanEntriesRate;
-    if (avgScanNanosPerEntry <= 0 || !Double.isFinite(avgScanNanosPerEntry)) {
-      return DEFAULT_LOAD_TO_SCAN_RATIO;
-    }
-    // Guard NaN/Infinity cacheHitPct explicitly — Math.max/min propagates
-    // NaN (IEEE 754), which would silently corrupt the ratio downstream.
-    // Infinity would clamp to 100% cache hit, underestimating load cost.
-    if (!Double.isFinite(cacheHitPct)) {
-      return DEFAULT_LOAD_TO_SCAN_RATIO;
-    }
-    double hitFraction = Math.max(0, Math.min(1.0, cacheHitPct / 100.0));
-    double estimatedLoadNanos =
-        (1.0 - hitFraction) * coldLoadNanos + hitFraction * warmLoadNanos;
-    double ratio = estimatedLoadNanos / avgScanNanosPerEntry;
-    if (!Double.isFinite(ratio)) {
-      return DEFAULT_LOAD_TO_SCAN_RATIO;
-    }
-    return Math.max(MIN_LOAD_TO_SCAN_RATIO,
-        Math.min(MAX_LOAD_TO_SCAN_RATIO, ratio));
-  }
-
-  /**
-   * Lazily resolves the metric references needed for live cost ratio
-   * computation and returns the current live cost ratio. If an explicit
-   * config override is set, returns that directly without resolving metrics.
-   *
-   * @return the effective load-to-scan ratio for the amortization formula
-   */
-  private double resolveLoadToScanRatio() {
-    double configured = TraversalPreFilterHelper.configuredLoadToScanRatio();
-    if (configured > 0) {
-      return configured;
-    }
-    // Return cached ratio if already computed (once per query lifetime).
-    if (!Double.isNaN(cachedLiveRatio)) {
-      return cachedLiveRatio;
-    }
-    // Lazy resolution — only on first IndexLookup encounter.
-    MetricsRegistry registry =
-        YouTrackDBEnginesManager.instance().getMetricsRegistry();
-    if (registry != null) {
-      cachedScanNanos = registry.globalMetric(CoreMetrics.PREFILTER_SCAN_NANOS);
-      cachedScanEntries =
-          registry.globalMetric(CoreMetrics.PREFILTER_SCAN_ENTRIES);
-      cachedCacheHitRatio = registry.globalMetric(CoreMetrics.CACHE_HIT_RATIO);
-    } else {
-      cachedScanNanos = TimeRate.NOOP;
-      cachedScanEntries = TimeRate.NOOP;
-      cachedCacheHitRatio = Ratio.NOOP;
-    }
-    cachedLiveRatio = computeLiveCostRatio(
-        cachedScanNanos.getRate(),
-        cachedScanEntries.getRate(),
-        cachedCacheHitRatio.getRatio(),
-        coldLoadNanos(), warmLoadNanos());
-    return cachedLiveRatio;
   }
 
   /**

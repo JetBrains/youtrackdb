@@ -8,9 +8,9 @@ import org.junit.After;
 import org.junit.Test;
 
 /**
- * Verifies the CoreMetrics definitions added for pre-filter live cost
- * calibration: metric types, GLOBAL_METRICS registration,
- * and the config entry for explicit load-to-scan ratio override.
+ * Verifies the CoreMetrics definitions used by pre-filter observability:
+ * metric type, GLOBAL_METRICS registration, and the optional config entry
+ * for explicit load-to-scan ratio override.
  */
 public class PrefilterMetricsDefinitionTest {
 
@@ -20,28 +20,6 @@ public class PrefilterMetricsDefinitionTest {
   }
 
   // ---- Metric type assertions ----
-
-  /**
-   * PREFILTER_SCAN_NANOS must resolve to a live (non-NOOP) TimeRate
-   * metric instance from the registry.
-   */
-  @Test
-  public void scanNanosIsLiveTimeRate() {
-    var registry = new MetricsRegistry(new StubTicker(1));
-    TimeRate metric = registry.globalMetric(CoreMetrics.PREFILTER_SCAN_NANOS);
-    assertThat(metric).isInstanceOf(TimeRate.Impl.class);
-  }
-
-  /**
-   * PREFILTER_SCAN_ENTRIES must resolve to a live (non-NOOP) TimeRate
-   * metric instance from the registry.
-   */
-  @Test
-  public void scanEntriesIsLiveTimeRate() {
-    var registry = new MetricsRegistry(new StubTicker(1));
-    TimeRate metric = registry.globalMetric(CoreMetrics.PREFILTER_SCAN_ENTRIES);
-    assertThat(metric).isInstanceOf(TimeRate.Impl.class);
-  }
 
   /**
    * PREFILTER_EFFECTIVENESS must resolve to a live (non-NOOP) Ratio
@@ -57,23 +35,21 @@ public class PrefilterMetricsDefinitionTest {
   // ---- GLOBAL_METRICS registration ----
 
   /**
-   * GLOBAL_METRICS must contain exactly the 5 expected metrics —
-   * the 2 originals plus the 3 new pre-filter metrics. This catches
-   * both accidental additions and accidental removals.
+   * GLOBAL_METRICS must contain exactly the 2 originals plus
+   * PREFILTER_EFFECTIVENESS. This catches both accidental additions and
+   * accidental removals.
    */
   @Test
   public void globalMetricsContainsExactlyExpectedMetrics() {
     assertThat(CoreMetrics.GLOBAL_METRICS).containsExactlyInAnyOrder(
         CoreMetrics.FILE_EVICTION_RATE,
         CoreMetrics.CACHE_HIT_RATIO,
-        CoreMetrics.PREFILTER_SCAN_NANOS,
-        CoreMetrics.PREFILTER_SCAN_ENTRIES,
         CoreMetrics.PREFILTER_EFFECTIVENESS);
   }
 
   // ---- Config entry assertions ----
 
-  /** Default value of LOAD_TO_SCAN_RATIO is -1.0 (sentinel for auto-compute). */
+  /** Default value of LOAD_TO_SCAN_RATIO is -1.0 (sentinel for "not set"). */
   @Test
   public void loadToScanRatioDefaultIsSentinel() {
     assertThat(GlobalConfiguration.QUERY_PREFILTER_LOAD_TO_SCAN_RATIO
@@ -82,7 +58,7 @@ public class PrefilterMetricsDefinitionTest {
 
   /**
    * When not explicitly set, {@code configuredLoadToScanRatio()} returns
-   * -1.0 (meaning auto-compute from live metrics).
+   * -1.0 (callers fall back to {@code DEFAULT_LOAD_TO_SCAN_RATIO}).
    */
   @Test
   public void configuredLoadToScanRatioDefaultReturnsNegative() {
@@ -115,7 +91,7 @@ public class PrefilterMetricsDefinitionTest {
 
   /**
    * When explicitly set to zero or negative, the accessor treats it
-   * as auto-compute and returns -1.0.
+   * as "not set" and returns -1.0.
    */
   @Test
   public void configuredLoadToScanRatioIgnoresNonPositive() {
@@ -130,7 +106,7 @@ public class PrefilterMetricsDefinitionTest {
 
   /**
    * When explicitly set to the sentinel value -1.0 itself, the accessor
-   * must still return -1.0 (auto-compute), not treat it as an override.
+   * must still return -1.0, not treat it as an override.
    */
   @Test
   public void configuredLoadToScanRatioExplicitSentinelValue() {
@@ -140,11 +116,11 @@ public class PrefilterMetricsDefinitionTest {
   }
 
   /**
-   * Infinity must be treated as auto-compute to prevent assertion
-   * failures in computeMinNeighborsForBuild (which requires finite input).
+   * Infinity must be treated as "not set" to prevent assertion failures
+   * in computeMinNeighborsForBuild (which requires finite input).
    */
   @Test
-  public void configuredLoadToScanRatioInfinityTreatedAsAutoCompute() {
+  public void configuredLoadToScanRatioInfinityTreatedAsUnset() {
     GlobalConfiguration.QUERY_PREFILTER_LOAD_TO_SCAN_RATIO
         .setValue(Double.POSITIVE_INFINITY);
     assertThat(TraversalPreFilterHelper.configuredLoadToScanRatio())
@@ -152,10 +128,10 @@ public class PrefilterMetricsDefinitionTest {
   }
 
   /**
-   * NaN must be treated as auto-compute.
+   * NaN must be treated as "not set".
    */
   @Test
-  public void configuredLoadToScanRatioNaNTreatedAsAutoCompute() {
+  public void configuredLoadToScanRatioNaNTreatedAsUnset() {
     GlobalConfiguration.QUERY_PREFILTER_LOAD_TO_SCAN_RATIO
         .setValue(Double.NaN);
     assertThat(TraversalPreFilterHelper.configuredLoadToScanRatio())
@@ -163,17 +139,6 @@ public class PrefilterMetricsDefinitionTest {
   }
 
   // ---- NOOP fallback assertions ----
-
-  /**
-   * TimeRate.NOOP must silently accept recordings without crashing.
-   * This verifies the scan metric fallback path is safe when the
-   * engine's MetricsRegistry is unavailable.
-   */
-  @Test
-  public void timeRateNoopSilentlyDiscards() {
-    TimeRate.NOOP.record(12345);
-    assertThat(TimeRate.NOOP.getRate()).isEqualTo(0.0);
-  }
 
   /**
    * Ratio.NOOP must silently accept recordings without crashing.

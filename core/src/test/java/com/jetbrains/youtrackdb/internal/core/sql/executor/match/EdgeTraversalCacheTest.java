@@ -12,7 +12,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Ratio;
-import com.jetbrains.youtrackdb.internal.common.profiler.metrics.TimeRate;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
@@ -2173,228 +2172,6 @@ public class EdgeTraversalCacheTest {
     assertThat(et.resolveEffectivenessMetric()).isSameAs(metric);
   }
 
-  // ---- computeLiveCostRatio tests ----
-
-  /** Default cold/warm nanos for test formulas (matches GlobalConfiguration defaults). */
-  private static final double COLD = 100_000.0;
-  private static final double WARM = 500.0;
-
-  /** Convenience wrapper using default cold/warm nanos. */
-  private static double liveCostRatio(
-      double scanNanosRate, double scanEntriesRate, double cacheHitPct) {
-    return EdgeTraversal.computeLiveCostRatio(
-        scanNanosRate, scanEntriesRate, cacheHitPct, COLD, WARM);
-  }
-
-  /**
-   * Cold start: both rates are 0 → falls back to DEFAULT_LOAD_TO_SCAN_RATIO.
-   */
-  @Test
-  public void liveCostRatio_coldStart_fallsBackToDefault() {
-    assertThat(liveCostRatio(0, 0, 0))
-        .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
-  }
-
-  /**
-   * Warm cache (cacheHitPct=95, moderate scan speed): the ratio should
-   * be lower than the default because loads are mostly from cache.
-   * estimatedLoadNanos = 0.05 * 100000 + 0.95 * 500 = 5475
-   * avgScanNanosPerEntry = 1000000 / 10000 = 100
-   * ratio = 5475 / 100 = 54.75
-   */
-  @Test
-  public void liveCostRatio_warmCache_lowRatio() {
-    double ratio = liveCostRatio(
-        1_000_000, 10_000, 95);
-    assertThat(ratio).isCloseTo(54.75, Offset.offset(0.01));
-  }
-
-  /**
-   * Cold storage (cacheHitPct=10, fast scans): the ratio should be
-   * higher because most loads are cold SSD reads.
-   * estimatedLoadNanos = 0.9 * 100000 + 0.1 * 500 = 90050
-   * avgScanNanosPerEntry = 1000000 / 10000 = 100
-   * ratio = 90050 / 100 = 900.5
-   */
-  @Test
-  public void liveCostRatio_coldStorage_highRatio() {
-    double ratio = liveCostRatio(
-        1_000_000, 10_000, 10);
-    assertThat(ratio).isCloseTo(900.5, Offset.offset(0.01));
-  }
-
-  /**
-   * Asymmetric zero: scanNanos > 0 but scanEntries == 0 → fallback.
-   */
-  @Test
-  public void liveCostRatio_scanNanosOnlyZeroEntries_fallback() {
-    assertThat(liveCostRatio(1000, 0, 50))
-        .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
-  }
-
-  /**
-   * Asymmetric zero: scanEntries > 0 but scanNanos == 0 → fallback.
-   */
-  @Test
-  public void liveCostRatio_zeroNanosPositiveEntries_fallback() {
-    assertThat(liveCostRatio(0, 1000, 50))
-        .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
-  }
-
-  /**
-   * NaN input for scanNanosRate → fallback.
-   */
-  @Test
-  public void liveCostRatio_nanInput_fallback() {
-    assertThat(liveCostRatio(
-        Double.NaN, 1000, 50))
-        .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
-  }
-
-  /**
-   * Infinity input for scanEntriesRate → fallback.
-   */
-  @Test
-  public void liveCostRatio_infinityInput_fallback() {
-    assertThat(liveCostRatio(
-        1000, Double.POSITIVE_INFINITY, 50))
-        .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
-  }
-
-  /**
-   * Negative inputs → fallback (negative rates are nonsensical).
-   */
-  @Test
-  public void liveCostRatio_negativeRates_fallback() {
-    assertThat(liveCostRatio(-100, 1000, 50))
-        .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
-    assertThat(liveCostRatio(100, -1000, 50))
-        .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
-  }
-
-  /**
-   * Very fast scans with cold storage → ratio would exceed MAX,
-   * so it gets clamped to MAX_LOAD_TO_SCAN_RATIO.
-   * estimatedLoadNanos = 1.0 * 100000 = 100000 (0% cache hit)
-   * avgScanNanosPerEntry = 10 / 10 = 1
-   * raw ratio = 100000 → clamped to MAX (1000)
-   */
-  @Test
-  public void liveCostRatio_clampedToMax() {
-    double ratio = liveCostRatio(10, 10, 0);
-    assertThat(ratio).isEqualTo(EdgeTraversal.MAX_LOAD_TO_SCAN_RATIO);
-  }
-
-  /**
-   * Very slow scans with warm cache → ratio would be below MIN,
-   * so it gets clamped to MIN_LOAD_TO_SCAN_RATIO.
-   * estimatedLoadNanos = 0.0 * 100000 + 1.0 * 500 = 500 (100% cache hit)
-   * avgScanNanosPerEntry = 100000000 / 1000 = 100000
-   * raw ratio = 500 / 100000 = 0.005 → clamped to MIN (5)
-   */
-  @Test
-  public void liveCostRatio_clampedToMin() {
-    double ratio = liveCostRatio(
-        100_000_000, 1000, 100);
-    assertThat(ratio).isEqualTo(EdgeTraversal.MIN_LOAD_TO_SCAN_RATIO);
-  }
-
-  /**
-   * cacheHitPct beyond [0, 100] is clamped before use.
-   * cacheHitPct=100 → hitFraction=1.0 → estimatedLoad = 500
-   * avgScanNanosPerEntry = 1_000_000/10_000 = 100
-   * ratio = 500/100 = 5.0 → clamped to MIN (5.0)
-   * A value of 200% should produce the same result as 100%.
-   */
-  @Test
-  public void liveCostRatio_cacheHitPctClampedAbove100() {
-    double ratioAt100 = liveCostRatio(
-        1_000_000, 10_000, 100);
-    assertThat(ratioAt100).isEqualTo(EdgeTraversal.MIN_LOAD_TO_SCAN_RATIO);
-
-    double ratioAt200 = liveCostRatio(
-        1_000_000, 10_000, 200);
-    assertThat(ratioAt200).isEqualTo(EdgeTraversal.MIN_LOAD_TO_SCAN_RATIO);
-  }
-
-  /**
-   * NaN cacheHitPct should fall back to the default, not silently
-   * treat the cache as 0% hit (cold-storage assumption).
-   */
-  @Test
-  public void liveCostRatio_nanCacheHitPct_fallback() {
-    assertThat(liveCostRatio(1_000_000, 10_000, Double.NaN))
-        .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
-  }
-
-  /**
-   * Negative cacheHitPct should be treated as 0%.
-   * cacheHitPct=0 → hitFraction=0 → estimatedLoad = 100000
-   * avgScanNanosPerEntry = 1_000_000/10_000 = 100
-   * ratio = 100000/100 = 1000 → clamped to MAX (1000)
-   */
-  @Test
-  public void liveCostRatio_negativeCacheHitPctClampedToZero() {
-    double ratioAt0 = liveCostRatio(
-        1_000_000, 10_000, 0);
-    assertThat(ratioAt0).isEqualTo(EdgeTraversal.MAX_LOAD_TO_SCAN_RATIO);
-
-    double ratioAtNeg = liveCostRatio(
-        1_000_000, 10_000, -50);
-    assertThat(ratioAtNeg).isEqualTo(EdgeTraversal.MAX_LOAD_TO_SCAN_RATIO);
-  }
-
-  // ---- Infinity/NaN symmetric coverage for all parameters (TC3, TB3) ----
-
-  /**
-   * Infinity cacheHitPct should fall back to default, not silently
-   * treat the cache as 100% hit (which would underestimate load cost).
-   */
-  @Test
-  public void liveCostRatio_infinityCacheHitPct_fallback() {
-    assertThat(liveCostRatio(
-        1_000_000, 10_000, Double.POSITIVE_INFINITY))
-        .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
-    assertThat(liveCostRatio(
-        1_000_000, 10_000, Double.NEGATIVE_INFINITY))
-        .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
-  }
-
-  /** NaN in scanEntriesRate also falls back to default. */
-  @Test
-  public void liveCostRatio_nanScanEntries_fallback() {
-    assertThat(liveCostRatio(1000, Double.NaN, 50))
-        .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
-  }
-
-  /** POSITIVE_INFINITY in scanNanosRate also falls back to default. */
-  @Test
-  public void liveCostRatio_infinityScanNanos_fallback() {
-    assertThat(liveCostRatio(
-        Double.POSITIVE_INFINITY, 1000, 50))
-        .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
-  }
-
-  /** NEGATIVE_INFINITY in either rate parameter → fallback. */
-  @Test
-  public void liveCostRatio_negativeInfinityRates_fallback() {
-    assertThat(liveCostRatio(
-        Double.NEGATIVE_INFINITY, 1000, 50))
-        .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
-    assertThat(liveCostRatio(
-        1000, Double.NEGATIVE_INFINITY, 50))
-        .isEqualTo(EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO);
-  }
-
-  // ---- copy() resets metric references and cached live ratio (TC1) ----
-
-  /**
-   * copy() must reset all metric reference fields and the cached live
-   * ratio — stale metric data from a previous execution must not leak
-   * into a new plan instance. If cachedLiveRatio leaked, the new query
-   * would skip live ratio recomputation (NaN sentinel check at
-   * resolveLoadToScanRatio).
-   */
   // =========================================================================
   // Composite with high-selectivity IndexLookup — regression test for
   // IC5 benchmark timeout (YTDB-651). A Composite(IndexLookup, EdgeRidLookup)
@@ -2500,24 +2277,18 @@ public class EdgeTraversalCacheTest {
     verify(desc, never()).resolve(any(), any());
   }
 
+  /**
+   * copy() must reset the cached effectiveness metric reference — stale
+   * metric data from a previous execution must not leak into a new plan
+   * instance.
+   */
   @Test
-  public void copy_resetsMetricReferencesAndCachedLiveRatio() {
+  public void copy_resetsCachedEffectiveness() {
     var et = createEdgeTraversal();
-
-    // Set non-default values via package-private setters.
-    et.setCachedScanNanos(TimeRate.NOOP);
-    et.setCachedScanEntries(TimeRate.NOOP);
-    et.setCachedCacheHitRatio(Ratio.NOOP);
-    et.setCachedLiveRatio(42.0);
     et.setCachedEffectiveness(Ratio.NOOP);
 
     var copy = et.copy();
 
-    // All metric fields must be at their initial defaults.
-    assertThat(copy.getCachedScanNanos()).isNull();
-    assertThat(copy.getCachedScanEntries()).isNull();
-    assertThat(copy.getCachedCacheHitRatio()).isNull();
-    assertThat(copy.getCachedLiveRatio()).isNaN();
     assertThat(copy.getCachedEffectiveness()).isNull();
   }
 

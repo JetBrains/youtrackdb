@@ -2,11 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics;
-import com.jetbrains.youtrackdb.internal.common.profiler.metrics.MetricsRegistry;
-import com.jetbrains.youtrackdb.internal.common.profiler.metrics.TimeRate;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
-import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -69,10 +65,9 @@ public final class TraversalPreFilterHelper {
 
   /**
    * Returns the explicitly configured load-to-scan cost ratio, or
-   * {@code -1.0} if not explicitly set (auto-compute from live metrics).
-   * A positive return value overrides live metric computation.
-   * Non-positive values (including the sentinel default {@code -1.0})
-   * are treated as "auto-compute".
+   * {@code -1.0} if not set (callers fall back to
+   * {@code EdgeTraversal.DEFAULT_LOAD_TO_SCAN_RATIO}). Non-positive and
+   * non-finite values are treated as "not set".
    */
   public static double configuredLoadToScanRatio() {
     double value =
@@ -131,16 +126,9 @@ public final class TraversalPreFilterHelper {
       return null;
     }
 
-    // Resolve scan metrics once per invocation. Metrics capture scans
-    // from all engines (MATCH, SELECT, hash join) — hardware I/O cost
-    // is engine-independent.
-    TimeRate scanNanos = resolveScanNanos();
-    TimeRate scanEntries = resolveScanEntries();
-
     var ridSet = new RidSet();
     var count = 0;
     var aborted = false;
-    long startNanos = System.nanoTime();
     try {
       for (var stream : streams) {
         var iter = stream.iterator();
@@ -161,41 +149,11 @@ public final class TraversalPreFilterHelper {
       for (var stream : streams) {
         stream.close();
       }
-      // Record scan metrics once per invocation (not per-entry).
-      long elapsedNanos = System.nanoTime() - startNanos;
-      scanNanos.record(elapsedNanos);
-      scanEntries.record(count);
     }
     if (aborted) {
       return null;
     }
     return ridSet;
-  }
-
-  /**
-   * Resolves the {@link CoreMetrics#PREFILTER_SCAN_NANOS} metric from
-   * the global registry, falling back to {@link TimeRate#NOOP} when
-   * the registry is unavailable (early startup, tests without engine).
-   */
-  static TimeRate resolveScanNanos() {
-    MetricsRegistry registry =
-        YouTrackDBEnginesManager.instance().getMetricsRegistry();
-    return registry != null
-        ? registry.globalMetric(CoreMetrics.PREFILTER_SCAN_NANOS)
-        : TimeRate.NOOP;
-  }
-
-  /**
-   * Resolves the {@link CoreMetrics#PREFILTER_SCAN_ENTRIES} metric from
-   * the global registry, falling back to {@link TimeRate#NOOP} when
-   * the registry is unavailable.
-   */
-  static TimeRate resolveScanEntries() {
-    MetricsRegistry registry =
-        YouTrackDBEnginesManager.instance().getMetricsRegistry();
-    return registry != null
-        ? registry.globalMetric(CoreMetrics.PREFILTER_SCAN_ENTRIES)
-        : TimeRate.NOOP;
   }
 
   /**

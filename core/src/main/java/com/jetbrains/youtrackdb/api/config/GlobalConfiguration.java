@@ -1327,30 +1327,12 @@ public enum GlobalConfiguration {
 
   QUERY_PREFILTER_LOAD_TO_SCAN_RATIO(
       "youtrackdb.query.prefilter.loadToScanRatio",
-      "Cost ratio of random record load vs. RidSet scan entry."
-          + " When set to a positive value, overrides the live-computed"
-          + " ratio from MetricsRegistry. Default -1 means auto-compute"
-          + " from live metrics (falling back to 100 on cold start)",
+      "Cost ratio of random record load vs. RidSet scan entry, used in"
+          + " the IndexLookup build amortization formula. Default -1 falls"
+          + " back to the static 100x estimate; override with a positive"
+          + " value to tune for specific hardware",
       Double.class,
       -1.0,
-      true),
-
-  QUERY_PREFILTER_COLD_LOAD_NANOS(
-      "youtrackdb.query.prefilter.coldLoadNanos",
-      "Estimated nanoseconds for a random record load from cold SSD"
-          + " storage. Used in the live cost ratio formula for build"
-          + " amortization. Override to match actual hardware",
-      Double.class,
-      100_000.0,
-      true),
-
-  QUERY_PREFILTER_WARM_LOAD_NANOS(
-      "youtrackdb.query.prefilter.warmLoadNanos",
-      "Estimated nanoseconds for a record load from warm page cache."
-          + " Used in the live cost ratio formula for build amortization."
-          + " Override to match actual hardware",
-      Double.class,
-      500.0,
       true),
       ;
 
