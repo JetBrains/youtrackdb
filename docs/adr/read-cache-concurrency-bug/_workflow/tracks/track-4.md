@@ -392,7 +392,7 @@ the stay-on-physical sites).
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (3/7 complete)
+- [ ] Step implementation (4/7 complete)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -872,33 +872,107 @@ the stay-on-physical sites).
   >   `CollectionPositionMapV2Test.java:1217-1222` names the decision
   >   thread.
 
-- [ ] Step 4: Migrate AtomicOperation* and cache test fixture sites
+- [x] Step 4: Migrate AtomicOperation* and cache test fixture sites
+  - [x] Context: info
   > **Risk:** medium — test infrastructure (touches shared test
   > fixtures; no production code change in this step but the migrations
   > enable safe deletion in step 7).
   >
-  > **Scope:**
-  > - Migrate `op.addPage(fileId)` callers:
-  >   `FlushPendingOperationsTest` (4), `PageOperationAccumulationLifecycleTest`
-  >   (4), `RegisterPageOperationTest` (1), `AtomicOperationSnapshotProxyTest`
-  >   (3), `AtomicOperationBinaryTrackingWALSkipTest` (1
-  >   `verify(readCache).allocateNewPage(...)`),
-  >   `CollectionDirtyPageBitSetTest:375` (Mockito stub),
-  >   `CollectionPositionMapV2Test:1204`. Each becomes
-  >   `op.loadOrAddPageForWrite(fileId, expectedIndex)` where
-  >   `expectedIndex` is computed from surrounding test setup.
-  >   Mockito stubs change signature accordingly.
-  > - Migrate cache `allocateNewPage` callers:
-  >   `LockFreeReadCacheBatchingTest`, `WOWCacheTestIT` (~10 sites),
-  >   `WOWCacheNonDurableFileTrackingTest`. Each becomes
-  >   `loadOrAdd(...)` or `loadOrAddForWrite(...)` depending on the
-  >   tested contract.
-  > - PSI ReferencesSearch confirms zero remaining callers of
-  >   `AtomicOperation.addPage`, `AtomicOperationBinaryTracking.addPage`,
-  >   `StorageComponent.addPage`, and all four `allocateNewPage`
-  >   declarations after this step lands.
-  > - Tests: build all touched test classes; run them; confirm pass.
-  > - Spotless apply on `core`.
+  > **What was done:**
+  > Migrated 8 test files off the deprecated `addPage` /
+  > `allocateNewPage` API surface so Step 7's SPI deletion can land
+  > without breaking compilation. All `op.addPage(fileId)` callers
+  > across `FlushPendingOperationsTest` (3 sites),
+  > `PageOperationAccumulationLifecycleTest` (4 sites),
+  > `RegisterPageOperationTest` (1 loop site),
+  > `AtomicOperationSnapshotProxyTest` (3 sites), and
+  > `AtomicOperationBinaryTrackingWALSkipTest` (1 helper site) now use
+  > `op.loadOrAddPageForWrite(fileId, knownIndex)` with the statically
+  > known target pageIndex. Mockito stubs migrate accordingly
+  > (`when(readCache.allocateNewPage(...))` /
+  > `verify(readCache).allocateNewPage(...)` →
+  > `loadOrAddForWrite(...)`, the primitive AOBT.commitChanges uses
+  > after Track 1 made it total). The helper method
+  > `mockAllocateNewPage` renames to `mockLoadOrAddForWrite`.
+  > Cache-test allocators migrate to the matching surface:
+  > `LockFreeReadCacheBatchingTest`'s two cacheSize-tracking tests
+  > rename to `testLoadOrAddForWriteIncrementsCacheSize` +
+  > `testMultipleLoadOrAddForWriteCallsTrackMemoryCorrectly`;
+  > `WOWCacheTestIT`'s 10 `wowCache.allocateNewPage(fileId)` calls
+  > become `wowCache.loadOrAdd(fileId, knownIndex, false).decrementReadersReferrer()`
+  > (the `Assert.assertEquals(i, pageIndex)` post-checks fold into
+  > the explicit pageIndex argument); `WOWCacheNonDurableFileTrackingTest`'s
+  > `writeAndStorePage` helper migrates with the same pattern.
+  > Targeted re-run on the 7 affected test classes: 213/213 pass;
+  > `WOWCacheTestIT`: 12/12 pass. Full `-P coverage` core build:
+  > 1527/1527 pass; coverage gate against origin/develop: 92.9% line /
+  > 81.6% branch. Single implementer commit `92fe9618df`; no
+  > step-level dimensional review (risk-tag medium skips it per
+  > workflow); always-on track-level review will exercise this diff
+  > at Phase C.
+  >
+  > **What was discovered:**
+  > - **Dual-stub collision on AOBTWALSkipTest**: the
+  >   `existingNonDurableFileLoadedViaLoadFile...` test previously
+  >   stubbed BOTH `allocateNewPage` (for the durable file) AND
+  >   `loadOrAddForWrite` (for the existing non-durable file) — two
+  >   different methods, no collision pre-migration. After migration
+  >   both routes funnel through `loadOrAddForWrite`, so the two
+  >   stubs would clash (Mockito last-wins). The fix consolidates
+  >   them into one `when(readCache.loadOrAddForWrite(...)).
+  >   thenAnswer(fId -> ...)` that dispatches by fileId, returning a
+  >   real buffer-backed cache entry for both files. Worth carrying
+  >   forward: any future migration that **unifies** two methods onto
+  >   the same SPI must audit every test that stubs both — the
+  >   pre-migration split-method shape silently survives until a
+  >   downstream call exercises the now-unified Mockito layer. The
+  >   bug would only surface as a test-time failure on a path that
+  >   touched both stubs in the same `@Test`.
+  >
+  > **What changed from the plan:**
+  > Plan unchanged. The two `CollectionPositionMapV2Test:1204` +
+  > `CollectionDirtyPageBitSetTest:375` Mockito-stub migrations
+  > landed in Step 3 per the natural-home rule (already documented
+  > in the Step 3 episode); both files still carry dual stubs
+  > (`op.addPage(FILE_ID)` + `op.loadOrAddPageForWrite(...)`) and
+  > Step 4 deliberately did not touch them — Step 7 owns the
+  > legacy-half cleanup alongside the SPI deletion.
+  >
+  > **Key files:**
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/chm/LockFreeReadCacheBatchingTest.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/cache/local/WOWCacheNonDurableFileTrackingTest.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/AtomicOperationBinaryTrackingWALSkipTest.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/AtomicOperationSnapshotProxyTest.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/FlushPendingOperationsTest.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/PageOperationAccumulationLifecycleTest.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/paginated/atomicoperations/RegisterPageOperationTest.java`
+  > - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/index/hashindex/local/cache/WOWCacheTestIT.java`
+  >
+  > **Critical context:**
+  > Step 7 deletion preconditions are now met for
+  > `AtomicOperation.addPage` (no remaining production callers —
+  > only the SPI declaration in `AtomicOperation.java` + impl in
+  > `AtomicOperationBinaryTracking.java` +
+  > `StorageComponent.addPage` helper + the two dual-stub test
+  > fixtures `CollectionPositionMapV2Test:1204` and
+  > `CollectionDirtyPageBitSetTest:375`) and for
+  > `ReadCache.allocateNewPage` (the AOBT `commitChanges` fallback
+  > path + deprecated-stub impls in the cache classes +
+  > `MockedWriteCache.allocateNewPage` mock-impls in four cache-test
+  > files — these last four are `WriteCache.allocateNewPage`
+  > interface implementations that go away with the interface
+  > deletion). PSI safe-delete on `AtomicOperation.addPage` /
+  > `ReadCache.allocateNewPage` in Step 7 should confirm an empty
+  > external caller set; the only surviving references are the SPI
+  > declarations themselves, the two dual-stub fixtures, and the
+  > four `MockedWriteCache` stubs (`LFRCBatchingTest` line 2445,
+  > `LFRCOptimisticTest` line 338, `AsyncReadCacheTestIT` line 359,
+  > `LFRCConcurrentTestIT` line 347), all of which delete naturally
+  > when Step 7 removes the interface methods. Track 5 lockdown:
+  > no new constraints from Step 4 — `WriteCache.getFilledUpTo`
+  > consumer set unchanged (AOBTWALSkipTest fixtures still stub it
+  > defensively as test scaffolding). Track 6 regression test:
+  > no new constraints from Step 4.
 
 - [ ] Step 5: Collapse replay-loop reconciliation + add WOWCache `assert false`
   > **Risk:** high — crash-safety/durability (modifies WAL replay
