@@ -38,13 +38,15 @@ After every per-commit `git push`, inspect the exit code and stderr.
 Distinguish two failure shapes; do not silently treat them the same.
 
 - **Non-fast-forward rejection** (`! [rejected] ... (non-fast-forward)`).
-  The branch has diverged from `origin`. This is the case that
-  motivated the §Branch Divergence Check in `workflow.md`. On the
-  first occurrence in the session, route once to that check and
-  apply the user's chosen resolution; do not silently retry across
-  subsequent commits. The harness git-safety protocol forbids
-  unauthorised `--force-with-lease`, so the resolution must come
-  from the user.
+  The branch has diverged from `origin`. On the first occurrence
+  in the session, load
+  [`branch-divergence-check.md`](branch-divergence-check.md) and
+  follow it; apply the user's chosen resolution and do not silently
+  retry across subsequent commits. The harness git-safety protocol
+  forbids unauthorised `--force-with-lease`, so the resolution must
+  come from the user. If the session has already routed through the
+  gate once (e.g., the user chose **Defer**), subsequent rejections
+  are expected — record and continue.
 - **Any other push failure** (network, auth, pre-receive hook,
   large-file rejection). Record the failure and continue with the
   next phase action; do not block phase progress on a transient

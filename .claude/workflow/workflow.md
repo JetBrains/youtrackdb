@@ -198,62 +198,15 @@ cross-track impact.
    The user can override: reorder tracks, skip a track, or choose a different
    resume point. But by default, you proceed without waiting for confirmation.
 
-5. **Run the Branch Divergence Check** (see §Branch Divergence Check
-   below). This must happen in turn 1, before any per-commit push
-   work. A diverged branch left undetected makes every `git push`
-   across the session reject silently and defeats the "push every
-   commit" safety net (see `commit-conventions.md` § Push every
-   commit).
-
----
-
-## Branch Divergence Check
-
-Runs in turn 1 of every session, immediately after the auto-resume
-decision and before any phase work begins. A diverged branch left
-undetected makes every per-commit push fail non-fast-forward, and
-the workflow's "push every commit" safety net silently lapses — the
-draft PR drifts behind local, and a mid-session crash destroys work
-that was supposed to be backed up.
-
-**Check.** Run:
-
-```bash
-git fetch origin
-git status -sb | grep -q 'diverged' && \
-    git rev-list --left-right --count HEAD...@{u}
-```
-
-If `git status -sb` does not contain `diverged`, continue normally.
-Otherwise surface the ahead/behind counts from `git rev-list` to the
-user and ask which of three resolutions to apply. Do **not** pick a
-default — force-pushing or resetting without explicit consent
-violates the harness git-safety protocol (see user-global
-`~/.claude/CLAUDE.md`).
-
-**Resolution options.**
-
-- **Local-authoritative.** The local rewrite (rebase, squash, amend)
-  is intended and the remote is stale. Run
-  `git push --force-with-lease` once. Per-commit push operates
-  normally for the rest of the session.
-- **Remote-authoritative.** Discard the local rewrites. Run
-  `git reset --hard origin/<branch>` after explicit confirmation.
-  Local-only commits are unrecoverable; warn the user before
-  running.
-- **Defer.** Resolve manually after the session. Per-commit pushes
-  will continue to fail throughout the session but do not block
-  phase progress. The session-end summary reports the unpushed-commit
-  count (see §What to do before ending a session below).
-
-The user's choice applies for the remainder of the session; no
-re-check is required after the chosen action.
-
-**Skip the check** when `git fetch` fails (offline, no remote
-configured) or the branch has no upstream (`@{u}` does not resolve).
-The first per-commit push will surface any later issue, and the
-session-end unpushed-commit report still covers the silent-failure
-case.
+5. **Run the Branch Divergence Check.** Load
+   [`branch-divergence-check.md`](branch-divergence-check.md) and
+   follow it. This must happen in turn 1, before any per-commit
+   push work. A diverged branch left undetected makes every
+   `git push` across the session reject silently and defeats the
+   "push every commit" safety net (see `commit-conventions.md`
+   § Push every commit). The protocol detects divergence and asks
+   the user to pick one of three resolutions (local-authoritative,
+   remote-authoritative, defer); no default is picked.
 
 ---
 
@@ -535,6 +488,7 @@ On-demand reference documents (loaded only when their specific situation arises)
 - **`design-decision-escalation.md`** — when/how to escalate design decisions to the user
 - **`structural-review.md`** — structural review details (loaded by implementation-review.md)
 - **`track-skip.md`** — full track skip protocol (when `[~]` is triggered)
+- **`branch-divergence-check.md`** — turn-1 divergence detection and three-resolution gate (loaded by the Startup Protocol step 5; also re-routed to from `commit-conventions.md` § Push failure handling on the first non-fast-forward rejection in the session)
 - **`review-agent-selection.md`** — characteristic-based review agent selection (loaded by step-implementation.md and track-code-review.md)
 - **`risk-tagging.md`** — per-step risk criteria and lifecycle (loaded by `track-review.md` during Phase A decomposition; loaded by `step-implementation-recovery.md` only on the rare Phase B upgrade path; **not** loaded by Phase B normal execution or by Phase C — those phases consume the per-step `**Risk:**` tag from the step file directly)
 - **`implementer-rules.md`** — Phase B per-step implementer sub-agent rulebook (loaded only by the implementer; orchestrators do not load it)

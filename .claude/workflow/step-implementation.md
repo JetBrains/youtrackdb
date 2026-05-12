@@ -494,12 +494,13 @@ See `commit-conventions.md` § Push every commit, and the
 message form.
 
 **Push failure handling.** Inspect the `git push` exit code and
-stderr. If the rejection is `non-fast-forward` (branch divergence),
-route once to `workflow.md` § Branch Divergence Check and apply the
-user's chosen resolution; do not silently keep pushing per-step.
-For any other push failure (network, auth, pre-receive hook),
-record the failure and continue — the session-end summary reports
-the unpushed-commit count. The full rule lives in
+stderr. If the rejection is `non-fast-forward` (branch divergence)
+and this is the first such rejection in the session, load
+[`branch-divergence-check.md`](branch-divergence-check.md) and
+apply the user's chosen resolution; do not silently keep pushing
+per-step. For any other push failure (network, auth, pre-receive
+hook), record the failure and continue — the session-end summary
+reports the unpushed-commit count. The full rule lives in
 `commit-conventions.md` § Push failure handling.
 
 **Session-end gate.** After committing the episode: if the context
