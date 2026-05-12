@@ -1516,25 +1516,27 @@ public class LockFreeReadCacheBatchingTest {
     }
   }
 
-  // --- allocateNewPage cacheSize tracking tests ---
+  // --- loadOrAddForWrite cacheSize tracking tests ---
 
   /**
-   * allocateNewPage() must increment cacheSize so that getUsedMemory() reflects the newly
-   * allocated page. This is the root-cause fix for cacheSize counter drift — without the
-   * increment in addNewPagePointerToTheCache(), eviction decrements for allocated pages
-   * would drive cacheSize negative, eventually crashing clear() with
-   * IllegalArgumentException from ArrayList(negativeCapacity).
+   * The write-load primitive {@code loadOrAddForWrite} must increment cacheSize on the
+   * extend branch so that getUsedMemory() reflects the newly allocated page. This is the
+   * root-cause fix for cacheSize counter drift — without the increment in {@code doLoad},
+   * eviction decrements for freshly allocated pages would drive cacheSize negative,
+   * eventually crashing {@code clear()} with IllegalArgumentException from
+   * ArrayList(negativeCapacity).
    */
   @Test
-  public void testAllocateNewPageIncrementsCacheSize() throws Exception {
+  public void testLoadOrAddForWriteIncrementsCacheSize() throws Exception {
     long initialMemory = readCache.getUsedMemory();
 
-    var entry = readCache.allocateNewPage(0, writeCache, new LogSequenceNumber(-1, -1));
+    var entry = readCache.loadOrAddForWrite(0, 0, writeCache, false,
+        new LogSequenceNumber(-1, -1));
     readCache.releaseFromWrite(entry, writeCache, false);
 
     // cacheSize must have been incremented: memory should increase by exactly one page.
     Assert.assertEquals(
-        "allocateNewPage must increment cacheSize",
+        "loadOrAddForWrite must increment cacheSize",
         initialMemory + PAGE_SIZE, readCache.getUsedMemory());
 
     readCache.assertSize();
@@ -1542,22 +1544,23 @@ public class LockFreeReadCacheBatchingTest {
   }
 
   /**
-   * Multiple allocateNewPage() calls across different file IDs must each increment
-   * cacheSize correctly, keeping memory tracking accurate. Uses different fileIds
-   * because MockedWriteCache.allocateNewPage() always returns pageIndex 0.
+   * Multiple {@code loadOrAddForWrite} calls across different file IDs must each increment
+   * cacheSize correctly, keeping memory tracking accurate. Uses different fileIds with the
+   * same pageIndex 0 to mirror the MockedWriteCache stub semantics (loadOrAdd always
+   * returns a freshly-allocated pointer for the requested pageIndex).
    */
   @Test
-  public void testMultipleAllocateNewPagesTrackMemoryCorrectly() throws Exception {
+  public void testMultipleLoadOrAddForWriteCallsTrackMemoryCorrectly() throws Exception {
     int allocCount = 5;
     var entries = new ArrayList<CacheEntry>();
     for (int fileId = 0; fileId < allocCount; fileId++) {
-      var entry = readCache.allocateNewPage(fileId, writeCache,
+      var entry = readCache.loadOrAddForWrite(fileId, 0, writeCache, false,
           new LogSequenceNumber(-1, -1));
       entries.add(entry);
     }
 
     Assert.assertEquals(
-        "Each allocateNewPage must increment cacheSize",
+        "Each loadOrAddForWrite must increment cacheSize",
         (long) allocCount * PAGE_SIZE, readCache.getUsedMemory());
 
     for (var entry : entries) {

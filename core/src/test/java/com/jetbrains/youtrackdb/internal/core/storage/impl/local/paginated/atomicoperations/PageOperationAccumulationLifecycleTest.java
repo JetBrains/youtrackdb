@@ -106,13 +106,14 @@ public class PageOperationAccumulationLifecycleTest {
     when(writeCache.bookFileId(fileName)).thenReturn(fullFileId);
 
     long fileId = op.addFile(fileName);
-    var page = op.addPage(fileId);
+    // Fresh file: first allocation always targets pageIndex 0.
+    var page = op.loadOrAddPageForWrite(fileId, 0);
     page.getChanges().setByteValue(null, (byte) 1, 100);
     page.setInitialLSN(new LogSequenceNumber(-1, -1));
     return fileId;
   }
 
-  private void mockAllocateNewPage(long fileId, int pageIndex) throws IOException {
+  private void mockLoadOrAddForWrite(long fileId, int pageIndex) throws IOException {
     var buffer = ByteBuffer.allocateDirect(PAGE_SIZE).order(ByteOrder.nativeOrder());
     var cachePointer =
         mock(com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer.class);
@@ -123,7 +124,11 @@ public class PageOperationAccumulationLifecycleTest {
     when(cacheEntry.getFileId()).thenReturn(fileId);
     when(cacheEntry.getCachePointer()).thenReturn(cachePointer);
 
-    when(readCache.allocateNewPage(anyLong(), any(), any()))
+    // AOBT.commitChanges now applies new-page entries via readCache.loadOrAddForWrite
+    // (Track 1 made the disk-engine primitive total); the legacy allocateNewPage path
+    // survives only as a deprecated null-branch fallback for the in-memory engine
+    // (deleted in Step 7).
+    when(readCache.loadOrAddForWrite(anyLong(), anyLong(), any(), anyBoolean(), any()))
         .thenReturn(cacheEntry);
   }
 
@@ -176,11 +181,11 @@ public class PageOperationAccumulationLifecycleTest {
     when(writeCache.bookFileId("test.dat")).thenReturn(fullFileId);
     long fileId = op.addFile("test.dat");
 
-    // Add two pages
-    var page0 = op.addPage(fileId);
+    // Add two pages on a fresh file: pageIndex 0, then pageIndex 1.
+    var page0 = op.loadOrAddPageForWrite(fileId, 0);
     page0.getChanges().setByteValue(null, (byte) 1, 100);
     page0.setInitialLSN(new LogSequenceNumber(-1, -1));
-    var page1 = op.addPage(fileId);
+    var page1 = op.loadOrAddPageForWrite(fileId, 1);
     page1.getChanges().setByteValue(null, (byte) 1, 100);
     page1.setInitialLSN(new LogSequenceNumber(-1, -1));
 
@@ -230,7 +235,8 @@ public class PageOperationAccumulationLifecycleTest {
     long fullFileId = composeFileId(nextInternalId, STORAGE_ID);
     when(writeCache.bookFileId("test.dat")).thenReturn(fullFileId);
     long fileId = op.addFile("test.dat");
-    var page = (CacheEntryChanges) op.addPage(fileId);
+    // Fresh file: first allocation always targets pageIndex 0.
+    var page = (CacheEntryChanges) op.loadOrAddPageForWrite(fileId, 0);
     page.getChanges().setByteValue(null, (byte) 1, 100);
     page.setInitialLSN(new LogSequenceNumber(-1, -1));
 
@@ -293,7 +299,7 @@ public class PageOperationAccumulationLifecycleTest {
     op.flushPendingOperations();
 
     // Commit — should skip UpdatePageRecord for the converted page (changeLSN != null)
-    mockAllocateNewPage(fileId, 0);
+    mockLoadOrAddForWrite(fileId, 0);
     var txEndLsn = op.commitChanges(42L, wal);
     Assert.assertNotNull(txEndLsn);
 

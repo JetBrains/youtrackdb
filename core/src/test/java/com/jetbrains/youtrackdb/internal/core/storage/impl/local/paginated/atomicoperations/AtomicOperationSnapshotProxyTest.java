@@ -1303,9 +1303,12 @@ public class AtomicOperationSnapshotProxyTest {
 
     long fid = op.addFile("test-new.dat");
 
-    // Add a page to the new file
+    // Add page 0 to the new file. For fresh files the allocator-only contract
+    // uses allocationFloor=0; getFilledUpTo is not probed (fileIsNew short-circuit),
+    // but we keep the stub here as defensive scaffolding in case the AOBT internals
+    // ever fall back to it.
     when(writeCache.getFilledUpTo(fid)).thenReturn(0L);
-    op.addPage(fid);
+    op.loadOrAddPageForWrite(fid, 0);
 
     // Page 0 exists in the new file
     assertThat(op.hasChangesForPage(fid, 0)).isTrue();
@@ -1389,11 +1392,13 @@ public class AtomicOperationSnapshotProxyTest {
 
     long fid = op.addFile("test-multi.dat");
 
-    // Add two pages
+    // Add pages 0 and 1 to the new file. For fresh files the allocator-only
+    // contract uses allocationFloor=0 (and maxNewPageIndex+1 after the first
+    // allocation); the getFilledUpTo stubs remain as defensive scaffolding only.
     when(writeCache.getFilledUpTo(fid)).thenReturn(0L);
-    op.addPage(fid);
+    op.loadOrAddPageForWrite(fid, 0);
     when(writeCache.getFilledUpTo(fid)).thenReturn(1L);
-    op.addPage(fid);
+    op.loadOrAddPageForWrite(fid, 1);
 
     // Pages 0 and 1 have changes
     assertThat(op.hasChangesForPage(fid, 0)).isTrue();

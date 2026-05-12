@@ -101,7 +101,8 @@ public class FlushPendingOperationsTest {
 
     long fileId = op.addFile(fileName);
 
-    var page = op.addPage(fileId);
+    // Fresh file: first allocation always targets pageIndex 0.
+    var page = op.loadOrAddPageForWrite(fileId, 0);
     page.getChanges().setByteValue(null, (byte) 1, 100);
     page.setInitialLSN(new LogSequenceNumber(-1, -1));
     return fileId;
@@ -202,11 +203,11 @@ public class FlushPendingOperationsTest {
     when(writeCache.bookFileId("test.dat")).thenReturn(fullFileId);
     long fileId = op.addFile("test.dat");
 
-    // Add two pages
-    var page0 = op.addPage(fileId);
+    // Add two pages on a fresh file: pageIndex 0, then pageIndex 1.
+    var page0 = op.loadOrAddPageForWrite(fileId, 0);
     page0.getChanges().setByteValue(null, (byte) 1, 100);
     page0.setInitialLSN(new LogSequenceNumber(-1, -1));
-    var page1 = op.addPage(fileId);
+    var page1 = op.loadOrAddPageForWrite(fileId, 1);
     page1.getChanges().setByteValue(null, (byte) 1, 100);
     page1.setInitialLSN(new LogSequenceNumber(-1, -1));
 
@@ -254,7 +255,11 @@ public class FlushPendingOperationsTest {
     when(mockCacheEntry.getCachePointer()).thenReturn(mockPointer);
     when(mockCacheEntry.getPageIndex()).thenReturn(0);
     when(mockCacheEntry.getFileId()).thenReturn(fileId);
-    when(readCache.allocateNewPage(anyLong(), any(), any()))
+    // AOBT.commitChanges now applies new-page entries via readCache.loadOrAddForWrite
+    // (Track 1 made the disk-engine primitive total); the legacy allocateNewPage path
+    // survives only as a deprecated null-branch fallback for the in-memory engine
+    // (deleted in Step 7).
+    when(readCache.loadOrAddForWrite(anyLong(), anyLong(), any(), anyBoolean(), any()))
         .thenReturn(mockCacheEntry);
 
     var txEndLsn = op.commitChanges(42L, wal);
@@ -283,7 +288,8 @@ public class FlushPendingOperationsTest {
     when(writeCache.bookFileId("nd-file.dat")).thenReturn(fullFileId);
     long fileId = op.addFile("nd-file.dat", true);
 
-    var page = op.addPage(fileId);
+    // Fresh file: first allocation always targets pageIndex 0.
+    var page = op.loadOrAddPageForWrite(fileId, 0);
     page.getChanges().setByteValue(null, (byte) 1, 100);
     page.setInitialLSN(new LogSequenceNumber(-1, -1));
 

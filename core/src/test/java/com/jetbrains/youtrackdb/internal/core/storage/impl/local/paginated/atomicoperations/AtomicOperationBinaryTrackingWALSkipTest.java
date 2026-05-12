@@ -132,7 +132,7 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     long fileId = setupNewFileWithPage(op, "nd-file.dat", true);
 
     var ndCacheEntry = createCacheEntryWithBuffer(fileId, 0);
-    when(readCache.allocateNewPage(eq(fileId), any(), any()))
+    when(readCache.loadOrAddForWrite(eq(fileId), anyLong(), any(), anyBoolean(), any()))
         .thenReturn(ndCacheEntry);
 
     var result = op.commitChanges(42L, wal);
@@ -144,7 +144,7 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     verify(wal, never()).log(any());
 
     // Cache application still happens for non-durable pages
-    verify(readCache).allocateNewPage(eq(fileId), any(), isNull());
+    verify(readCache).loadOrAddForWrite(eq(fileId), anyLong(), any(), anyBoolean(), isNull());
     // endLSN must NOT be set on non-durable cache entries
     verify(ndCacheEntry, never()).setEndLSN(any());
   }
@@ -177,7 +177,7 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     var op = createOperationWithWAL();
     long fileId = setupNewDurableFileWithFlushedOps(op, "durable-file.dat");
 
-    mockAllocateNewPage(fileId, 0);
+    mockLoadOrAddForWrite(fileId, 0);
 
     var result = op.commitChanges(42L, wal);
 
@@ -219,7 +219,7 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     // Set commitTs (normally done by startToApplyOperations)
     op.startToApplyOperations(42L);
 
-    mockAllocateNewPage(fileId, 0);
+    mockLoadOrAddForWrite(fileId, 0);
 
     // commitChanges must succeed — the internal flushPendingOperations
     // should flush the pending op and set changeLSN
@@ -249,8 +249,8 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
         setupNewDurableFileWithFlushedOps(op, "durable-file.dat");
     long ndFileId = setupNewFileWithPage(op, "nd-file.dat", true);
 
-    mockAllocateNewPage(durableFileId, 0);
-    mockAllocateNewPage(ndFileId, 0);
+    mockLoadOrAddForWrite(durableFileId, 0);
+    mockLoadOrAddForWrite(ndFileId, 0);
 
     var result = op.commitChanges(42L, wal);
 
@@ -291,7 +291,7 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     // Delete the non-durable file
     op.deleteFile(existingFileId);
 
-    mockAllocateNewPage(durableFileId, 0);
+    mockLoadOrAddForWrite(durableFileId, 0);
 
     var result = op.commitChanges(42L, wal);
 
@@ -367,9 +367,13 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     // Also add a durable file so the operation isn't empty
     long durableFileId =
         setupNewDurableFileWithFlushedOps(op, "durable-file.dat");
-    mockAllocateNewPage(durableFileId, 0);
 
-    // Mock cache application for the existing non-durable file's page
+    // After Step 4 both the durable file and the existing non-durable file route their
+    // cache application through readCache.loadOrAddForWrite (the AOBT.commitChanges
+    // primitive). Consolidate the per-file stubs into a single answer so the durable
+    // and non-durable paths each get a real-buffer-backed CacheEntry without one stub
+    // overriding the other.
+    var durableCacheEntry = createCacheEntryWithBuffer(durableFileId, 0);
     var ndCacheEntry = createCacheEntryWithBuffer(fullFileId, 0);
     when(readCache.loadOrAddForWrite(
         anyLong(), anyLong(), any(), anyBoolean(), any()))
@@ -377,6 +381,9 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
           long fId = invocation.getArgument(0);
           if (fId == fullFileId) {
             return ndCacheEntry;
+          }
+          if (fId == durableFileId) {
+            return durableCacheEntry;
           }
           return null;
         });
@@ -408,16 +415,16 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     long fileId1 = setupNewFileWithPage(op, "nd-file1.dat", true);
     long fileId2 = setupNewFileWithPage(op, "nd-file2.dat", true);
 
-    mockAllocateNewPage(fileId1, 0);
-    mockAllocateNewPage(fileId2, 0);
+    mockLoadOrAddForWrite(fileId1, 0);
+    mockLoadOrAddForWrite(fileId2, 0);
 
     var result = op.commitChanges(42L, wal);
 
     assertThat(loggedRecords).isEmpty();
     assertThat(result).isNull();
     // Cache application still happens for both non-durable files
-    verify(readCache).allocateNewPage(eq(fileId1), any(), isNull());
-    verify(readCache).allocateNewPage(eq(fileId2), any(), isNull());
+    verify(readCache).loadOrAddForWrite(eq(fileId1), anyLong(), any(), anyBoolean(), isNull());
+    verify(readCache).loadOrAddForWrite(eq(fileId2), anyLong(), any(), anyBoolean(), isNull());
   }
 
   /**
@@ -455,13 +462,13 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     long ndFileId = setupNewFileWithPage(op, "nd-file.dat", true);
 
     var ndCacheEntry = createCacheEntryWithBuffer(ndFileId, 0);
-    when(readCache.allocateNewPage(eq(ndFileId), any(), any()))
+    when(readCache.loadOrAddForWrite(eq(ndFileId), anyLong(), any(), anyBoolean(), any()))
         .thenReturn(ndCacheEntry);
 
     op.commitChanges(42L, wal);
 
-    // allocateNewPage for non-durable file must receive null startLSN
-    verify(readCache).allocateNewPage(eq(ndFileId), any(), isNull());
+    // loadOrAddForWrite for non-durable file must receive null startLSN
+    verify(readCache).loadOrAddForWrite(eq(ndFileId), anyLong(), any(), anyBoolean(), isNull());
     // setEndLSN must NOT be called on non-durable cache entries
     verify(ndCacheEntry, never()).setEndLSN(any());
   }
@@ -483,12 +490,12 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
 
     // Durable cache entry — needs a real buffer for DurablePage.restoreChanges
     var durableCacheEntry = createCacheEntryWithBuffer(durableFileId, 0);
-    when(readCache.allocateNewPage(eq(durableFileId), any(), any()))
+    when(readCache.loadOrAddForWrite(eq(durableFileId), anyLong(), any(), anyBoolean(), any()))
         .thenReturn(durableCacheEntry);
 
     // Non-durable cache entry — also needs a real buffer
     var ndCacheEntry = createCacheEntryWithBuffer(ndFileId, 0);
-    when(readCache.allocateNewPage(eq(ndFileId), any(), any()))
+    when(readCache.loadOrAddForWrite(eq(ndFileId), anyLong(), any(), anyBoolean(), any()))
         .thenReturn(ndCacheEntry);
 
     var txEndLsn = op.commitChanges(42L, wal);
@@ -524,7 +531,7 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     // Also add a durable change so the operation has something to commit
     long durableFileId =
         setupNewDurableFileWithFlushedOps(op, "durable-file.dat");
-    mockAllocateNewPage(durableFileId, 0);
+    mockLoadOrAddForWrite(durableFileId, 0);
 
     op.commitChanges(42L, wal);
 
@@ -572,8 +579,8 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
         setupNewDurableFileWithFlushedOps(op, "durable-file.dat");
     long ndFileId = setupNewFileWithPage(op, "nd-file.dat", true);
 
-    mockAllocateNewPage(durableFileId, 0);
-    mockAllocateNewPage(ndFileId, 0);
+    mockLoadOrAddForWrite(durableFileId, 0);
+    mockLoadOrAddForWrite(ndFileId, 0);
 
     op.commitChanges(42L, wal);
 
@@ -803,8 +810,9 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
 
     long fileId = op.addFile(fileName, nonDurable);
 
-    // Add a page to the new file
-    var page = op.addPage(fileId);
+    // Add page 0 to the new file (fresh-file: allocator-only contract uses
+    // allocationFloor=0).
+    var page = op.loadOrAddPageForWrite(fileId, 0);
 
     // Make a change so hasChanges() returns true
     page.getChanges().setByteValue(null, (byte) 1, 100);
@@ -817,14 +825,18 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
   }
 
   /**
-   * Mocks readCache.allocateNewPage() to return a CacheEntry with a real
-   * direct ByteBuffer at the expected page index. Uses eq(fileId) to avoid
-   * overwriting stubs when called for multiple files.
+   * Mocks {@code readCache.loadOrAddForWrite()} (the primitive AOBT.commitChanges now uses
+   * to apply new-page entries to the cache) to return a CacheEntry with a real direct
+   * ByteBuffer at the expected page index. Uses {@code eq(fileId)} to avoid overwriting
+   * stubs when called for multiple files. The legacy {@code allocateNewPage} fallback in
+   * commitChanges fires only on the in-memory engine's null return; on the disk engine
+   * it is dead code (Track 1 made {@code loadOrAddForWrite} total) and will be deleted in
+   * Step 7 alongside the SPI removal.
    */
-  private void mockAllocateNewPage(long fileId, int pageIndex)
+  private void mockLoadOrAddForWrite(long fileId, int pageIndex)
       throws IOException {
     var cacheEntry = createCacheEntryWithBuffer(fileId, pageIndex);
-    when(readCache.allocateNewPage(eq(fileId), any(), any()))
+    when(readCache.loadOrAddForWrite(eq(fileId), anyLong(), any(), anyBoolean(), any()))
         .thenReturn(cacheEntry);
   }
 
