@@ -30,6 +30,7 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.ShortSeriali
 import com.jetbrains.youtrackdb.internal.common.serialization.types.UTF8Serializer;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
@@ -1906,10 +1907,20 @@ public class IndexHistogramManager extends StorageComponent {
       releasePageFromWrite(op, cacheEntry);
     }
 
-    // Write HLL to page 1 when spilled. loadOrAddPageForWrite creates
-    // page 1 on first use (the .ixs file starts with only page 0).
+    // Write HLL to page 1 when spilled. The .ixs file starts with only
+    // page 0; the first spill allocates page 1, subsequent flushes
+    // re-write the existing page 1. Discriminate at the caller because
+    // loadOrAddPageForWrite is allocator-only and would throw if asked
+    // to load an already-committed page 1. The per-component exclusive
+    // lock acquired above keeps the filledUpTo read consistent with the
+    // subsequent allocate/load call.
     if (snapshot.hllOnPage1() && snapshot.hllSketch() != null) {
-      var page1Entry = loadOrAddPageForWrite(op, fileId, 1);
+      CacheEntry page1Entry;
+      if (op.filledUpTo(fileId) > 1) {
+        page1Entry = loadPageForWrite(op, fileId, 1, true);
+      } else {
+        page1Entry = loadOrAddPageForWrite(op, fileId, 1);
+      }
       try {
         HistogramStatsPage.writeHllToPage1(page1Entry, snapshot.hllSketch());
       } finally {
@@ -1962,9 +1973,19 @@ public class IndexHistogramManager extends StorageComponent {
             releasePageFromWrite(op2, cacheEntry);
           }
 
-          // Write HLL to page 1 when spilled
+          // Write HLL to page 1 when spilled. Same allocator-only
+          // discrimination as writeSnapshotToPage: first spill allocates
+          // page 1, subsequent flushes re-write it. The per-component
+          // exclusive lock acquired by the surrounding
+          // executeInsideComponentOperation keeps filledUpTo consistent
+          // with the subsequent allocate/load call.
           if (snapshot.hllOnPage1() && snapshot.hllSketch() != null) {
-            var page1Entry = loadOrAddPageForWrite(op2, fileId, 1);
+            CacheEntry page1Entry;
+            if (op2.filledUpTo(fileId) > 1) {
+              page1Entry = loadPageForWrite(op2, fileId, 1, true);
+            } else {
+              page1Entry = loadOrAddPageForWrite(op2, fileId, 1);
+            }
             try {
               HistogramStatsPage.writeHllToPage1(
                   page1Entry, snapshot.hllSketch());

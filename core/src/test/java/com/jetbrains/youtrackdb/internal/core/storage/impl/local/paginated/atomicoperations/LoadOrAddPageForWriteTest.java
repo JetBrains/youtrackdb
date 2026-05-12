@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -77,10 +78,10 @@ public class LoadOrAddPageForWriteTest {
   /**
    * The method is allocator-only — asking for a pageIndex that already exists in the
    * committed file must throw {@link IllegalStateException}. The error message must name
-   * the offending pageIndex, the committed filledUpTo, and the fileId so a regression
-   * (e.g., an unrelated guard firing) is distinguishable from this contract violation,
-   * and so the message points the caller at the right alternative ({@code loadPageForWrite}
-   * for existing pages). The guard rules out a class of bugs where a stale
+   * the offending pageIndex, the allocation floor, the fileId, and the actionable
+   * {@code loadPageForWrite} alternative so a regression (e.g., an unrelated guard
+   * firing, or a refactor that drops fileId / the actionable hint) is distinguishable
+   * from this contract violation. The guard rules out a class of bugs where a stale
    * {@code entryPoint.pagesSize} read would point at a page that is already on disk.
    */
   @Test
@@ -91,8 +92,85 @@ public class LoadOrAddPageForWriteTest {
     assertThatThrownBy(() -> op.loadOrAddPageForWrite(fileId, 5L))
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("allocation-only")
-        .hasMessageContaining("5")
-        .hasMessageContaining("10");
+        .hasMessageContaining("pageIndex 5")
+        .hasMessageContaining("allocationFloor 10")
+        .hasMessageContaining("file with id " + fileId)
+        .hasMessageContaining("loadPageForWrite");
+  }
+
+  /**
+   * Boundary off-by-one for the allocator-only guard: pageIndex one below the committed
+   * filledUpTo must still throw. Pins the strict {@code <} comparison in the guard so a
+   * {@code <=} regression (which would let callers silently re-allocate the last committed
+   * page) is caught. The existing {@code loadOrAddPageForWriteThrowsForExistingPage} test
+   * uses a 4-slot gap (pageIndex=5 vs filledUpTo=10) which would survive a {@code <} →
+   * {@code <=} flip.
+   */
+  @Test
+  public void loadOrAddPageForWriteThrowsAtBoundaryPageIndex() {
+    long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
+    when(writeCache.getFilledUpTo(fileId)).thenReturn(10L);
+
+    assertThatThrownBy(() -> op.loadOrAddPageForWrite(fileId, 9L))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("pageIndex 9");
+  }
+
+  /**
+   * After the first allocation on an existing (non-fresh) file, the second allocation
+   * must skip the {@code writeCache.getFilledUpTo} probe and derive the allocation floor
+   * from {@code maxNewPageIndex + 1} (the per-component lock keeps the committed horizon
+   * immutable across this TX, so the in-progress horizon is an equally valid floor). Pins
+   * three things at once: (1) the second call exercises the fast-path branch
+   * ({@code maxNewPageIndex > -2}), (2) the fast-path-derived floor is the correct value
+   * (proven by feeding it back into the throw branch), and (3) {@code writeCache} is
+   * touched only once across the two allocations.
+   */
+  @Test
+  public void secondAllocationOnExistingFileUsesMaxNewPageIndexFastPath() throws IOException {
+    long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
+    when(writeCache.getFilledUpTo(fileId)).thenReturn(10L);
+
+    op.loadOrAddPageForWrite(fileId, 10L); // slow path: probes writeCache, bumps maxNewPageIndex
+    verify(writeCache).getFilledUpTo(fileId);
+
+    var second = (CacheEntryChanges) op.loadOrAddPageForWrite(fileId, 11L);
+    assertThat(second.isNew).isTrue();
+    assertThat(op.filledUpTo(fileId)).isEqualTo(12L);
+    // Fast-path skipped the second probe (still exactly one invocation).
+    verify(writeCache, times(1)).getFilledUpTo(fileId);
+
+    // Fast-path-derived floor (12 = maxNewPageIndex + 1 after the second allocation)
+    // flows into the throw branch. pageIndex=9 is below that floor and has no overlay
+    // entry (so the idempotency early-return does NOT short-circuit the guard); it
+    // must raise IllegalStateException naming the fast-path-derived floor.
+    assertThatThrownBy(() -> op.loadOrAddPageForWrite(fileId, 9L))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("allocationFloor 12");
+  }
+
+  /**
+   * The SLBB.splitRootBucket recipe allocates two pages back-to-back in a single method
+   * body; the AOBT layer must produce two distinct overlays for the two sequential
+   * {@code (fileId, pageIndex)} pairs. Pins the hazard that the SLBB.splitRootBucket
+   * comment names: same-pageIndex reuse via the idempotency early-return would silently
+   * merge the leftBucketEntry and rightBucketEntry writes into one overlay. This is the
+   * AOBT-level unit pin for that recipe, complementing the SLBB-level recipe test.
+   */
+  @Test
+  public void twoConsecutiveAllocationsProduceDistinctOverlays() throws IOException {
+    long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
+    when(writeCache.getFilledUpTo(fileId)).thenReturn(5L);
+
+    var leftEntry = op.loadOrAddPageForWrite(fileId, 5L);
+    var rightEntry = op.loadOrAddPageForWrite(fileId, 6L);
+
+    assertThat(rightEntry).isNotSameAs(leftEntry);
+    assertThat(leftEntry.getPageIndex()).isEqualTo(5);
+    assertThat(rightEntry.getPageIndex()).isEqualTo(6);
+    assertThat(op.filledUpTo(fileId)).isEqualTo(7L);
+    assertThat(op.hasChangesForPage(fileId, 5L)).isTrue();
+    assertThat(op.hasChangesForPage(fileId, 6L)).isTrue();
   }
 
   /**
@@ -230,7 +308,7 @@ public class LoadOrAddPageForWriteTest {
 
     assertThat(second).isSameAs(first);
     // The early-return short-circuits the allocator-only guard; if it did not, the
-    // pageIndex (7) being below committed filledUpTo (20) would have raised
+    // pageIndex (7) being below the allocation floor (20) would have raised
     // IllegalStateException. Cache primitive must never fire on the second call.
     verify(readCache, never()).loadOrAddForWrite(
         anyLong(), anyLong(), any(), anyBoolean(), any());

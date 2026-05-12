@@ -373,11 +373,13 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   }
 
   /**
-   * Allocation-only write-side primitive. Returns a stub-shaped {@link CacheEntryChanges}
-   * overlay that the caller accumulates writes into via {@code CacheEntryChanges.changes};
-   * the real cache slot is materialized at commit time inside {@link #commitChanges},
-   * when the pageChangesMap replay loop calls {@code readCache.loadOrAddForWrite} for
-   * each new-page entry.
+   * Allocation-only write-side primitive. <b>Despite the historical name, this method does
+   * NOT load existing pages</b> — callers targeting a {@code pageIndex} below the committed
+   * file size raise {@link IllegalStateException}. Use {@link #loadPageForWrite} for existing
+   * pages. Returns a stub-shaped {@link CacheEntryChanges} overlay that the caller
+   * accumulates writes into via {@code CacheEntryChanges.changes}; the real cache slot is
+   * materialized at commit time inside {@link #commitChanges}, when the pageChangesMap
+   * replay loop calls {@code readCache.loadOrAddForWrite} for each new-page entry.
    *
    * <p>The caller must supply a target {@code pageIndex} that is genuinely new — either
    * the file was booked in this TX (everything past page -1 is new) or
@@ -432,23 +434,22 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       return existing;
     }
 
-    // Compute the committed (cross-TX) horizon. Fresh-booked files report 0 by
-    // definition; otherwise we read the write cache directly. The maxNewPageIndex
-    // fast-path lets us skip the I/O probe whenever a prior allocation in this TX
-    // already established the in-progress horizon — the committed horizon is
-    // immutable across the TX, so maxNewPageIndex + 1 is a safe substitute for any
-    // value previously returned by getFilledUpTo (which would be <= that bound).
+    // Lower bound on legal fresh-page indices. For new files this is 0. For existing files
+    // with at least one prior in-TX allocation, this is maxNewPageIndex + 1 — by the
+    // per-component lock, no cross-TX writer can have extended past maxNewPageIndex, so the
+    // in-progress horizon is an equally valid floor (and is immutable across this TX).
+    // Otherwise we probe the write cache once for the committed cross-TX horizon.
     final boolean fileIsNew = changesContainer.isNew;
-    final long committedFilledUpTo;
+    final long allocationFloor;
     if (fileIsNew) {
-      committedFilledUpTo = 0;
+      allocationFloor = 0;
     } else if (changesContainer.maxNewPageIndex > -2) {
-      committedFilledUpTo = changesContainer.maxNewPageIndex + 1;
+      allocationFloor = changesContainer.maxNewPageIndex + 1;
     } else {
-      committedFilledUpTo = writeCache.getFilledUpTo(fileId);
+      allocationFloor = writeCache.getFilledUpTo(fileId);
     }
 
-    final boolean isNew = fileIsNew || pageIndex >= committedFilledUpTo;
+    final boolean isNew = fileIsNew || pageIndex >= allocationFloor;
 
     // Allocator-only contract: the caller must target a genuinely new pageIndex.
     // Existing pages must go through loadPageForWrite, which preserves the WAL change
@@ -458,8 +459,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     if (!isNew) {
       throw new IllegalStateException(
           "loadOrAddPageForWrite is allocation-only; pageIndex " + pageIndex
-              + " is below committed filledUpTo " + committedFilledUpTo
-              + " on fileId " + fileId
+              + " is below allocationFloor " + allocationFloor
+              + " on file with id " + fileId
               + ". Use loadPageForWrite for existing pages.");
     }
 
