@@ -372,6 +372,42 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     return pageChangesContainer;
   }
 
+  /**
+   * Allocation-only write-side primitive. Returns a stub-shaped {@link CacheEntryChanges}
+   * overlay that the caller accumulates writes into via {@code CacheEntryChanges.changes};
+   * the real cache slot is materialized at commit time inside {@link #commitChanges},
+   * when the pageChangesMap replay loop calls {@code readCache.loadOrAddForWrite} for
+   * each new-page entry.
+   *
+   * <p>The caller must supply a target {@code pageIndex} that is genuinely new — either
+   * the file was booked in this TX (everything past page -1 is new) or
+   * {@code pageIndex >= writeCache.getFilledUpTo(fileId)}. Asking for an existing page
+   * raises {@link IllegalStateException}; use {@link #loadPageForWrite} to mutate an
+   * existing page.
+   *
+   * <p>Idempotency: a second call for the same {@code (fileId, pageIndex)} within the
+   * same TX returns the previously-registered overlay. The early-return is what makes
+   * the SLBB.splitRootBucket two-page recipe safe — two consecutive calls with the
+   * same {@code entryPoint.pagesSize + 1} value would return the same overlay to both
+   * bucket entries and silently merge their writes.
+   *
+   * <p>Bookkeeping mirrors legacy {@code addPage}: the overlay is registered in
+   * {@code pageChangesMap} keyed by the actual {@code pageIndex}, and
+   * {@code maxNewPageIndex} is bumped so the in-progress visibility horizon consulted
+   * by {@link #loadPageForWrite}, {@link #loadPageForRead}, and {@link #hasChangesForPage}
+   * stays consistent.
+   *
+   * <p>Stub shape rationale: the overlay's delegate wraps a {@link CachePointer} with a
+   * null native pointer. {@link #releasePageFromWrite} gates the underlying cache
+   * release on a non-null buffer, so multi-access in the same TX (via repeated
+   * {@code loadPageForWrite} on the same pageIndex returning the existing overlay)
+   * stays a no-op on the cache's usage counter. A real cache-installed delegate would
+   * underflow as soon as the second close fires.
+   */
+  // The IOException on the signature comes from the AtomicOperation interface, which
+  // covers implementations that perform I/O (today's body does not, but the contract
+  // must remain compatible). ErrorProne otherwise flags the unused throws clause.
+  @SuppressWarnings("CheckedExceptionNotThrown")
   @Override
   public CacheEntry loadOrAddPageForWrite(long fileId, final long pageIndex)
       throws IOException {
@@ -396,130 +432,66 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       return existing;
     }
 
-    // Determine whether this pageIndex extends beyond the committed logical file size.
-    // The new flag must be set BEFORE the eager cache install so commitChanges can
-    // distinguish freshly-allocated pages from pre-existing pages whose only change
-    // is an in-TX write. We probe the write cache rather than this AO's
-    // internalFilledUpTo because we need the committed (cross-TX) horizon, not the
-    // in-progress visibility horizon — the latter would mis-classify legitimate new
-    // pages as load-of-existing whenever an earlier call in the same TX already
-    // bumped maxNewPageIndex.
+    // Compute the committed (cross-TX) horizon. Fresh-booked files report 0 by
+    // definition; otherwise we read the write cache directly. The maxNewPageIndex
+    // fast-path lets us skip the I/O probe whenever a prior allocation in this TX
+    // already established the in-progress horizon — the committed horizon is
+    // immutable across the TX, so maxNewPageIndex + 1 is a safe substitute for any
+    // value previously returned by getFilledUpTo (which would be <= that bound).
     final boolean fileIsNew = changesContainer.isNew;
-    final long committedFilledUpTo = fileIsNew ? 0 : writeCache.getFilledUpTo(fileId);
+    final long committedFilledUpTo;
+    if (fileIsNew) {
+      committedFilledUpTo = 0;
+    } else if (changesContainer.maxNewPageIndex > -2) {
+      committedFilledUpTo = changesContainer.maxNewPageIndex + 1;
+    } else {
+      committedFilledUpTo = writeCache.getFilledUpTo(fileId);
+    }
+
     final boolean isNew = fileIsNew || pageIndex >= committedFilledUpTo;
 
-    final var changes = new CacheEntryChanges(false, this);
-    changes.isNew = isNew;
-
-    final CacheEntry delegate;
-    if (isNew) {
-      // Newly-allocated page (either on a fresh-booked file or extending an
-      // existing file past its committed horizon). The legacy addPage shape
-      // wraps a null-Pointer CachePointer so the overlay accumulates writes
-      // through CacheEntryChanges.changes; the actual cache install happens
-      // at commit time when commitChanges replays the pageChangesMap (the
-      // loop at AOBT:957 calls readCache.loadOrAddForWrite for each entry,
-      // which is total after Track 1, so a real cache slot is provisioned).
-      //
-      // Three reasons this shape is required (and matches today's addPage):
-      //
-      // 1. **Fresh-booked file**: addFile() above only allocated a fileId via
-      //    writeCache.bookFileId. The actual readCache.addFile + writeCache
-      //    file registration happens in commitChanges (AOBT:927-931), so the
-      //    read cache does not yet know about this fileId — calling
-      //    loadOrAddForWrite here would trip WOWCache's "file not found"
-      //    guard.
-      //
-      // 2. **Multi-access lifecycle**: in-TX callers reach the same
-      //    new-page overlay through `loadPageForWrite` (AOBT:251-252 returns
-      //    the existing CacheEntryChanges without re-loading the delegate
-      //    when `pageChangesContainer.isNew` is true). Each subsequent
-      //    `close()` invokes `releasePageFromWrite` which gates the
-      //    underlying cache release on a non-null CachePointer buffer
-      //    (AOBT:531-535). A null-Pointer stub keeps all in-TX releases as
-      //    no-ops on the cache's usage counter; a real cache-installed
-      //    delegate would underflow as soon as the second close fires.
-      //
-      // 3. **Step 5 prerequisite**: commitChanges' do/while reconciliation
-      //    loop becomes dead once Track 1's loadOrAddForWrite is total —
-      //    every new-page pageChangesMap entry resolves to a real slot at
-      //    commit time without gap-filling. The stub shape preserves that
-      //    invariant; the alternative (cache install at allocation time)
-      //    would require manual usage-count bookkeeping per in-TX
-      //    re-access, which the legacy stub elegantly sidesteps.
-      delegate =
-          new CacheEntryImpl(
-              fileId,
-              (int) pageIndex,
-              new CachePointer((Pointer) null, null, fileId, (int) pageIndex),
-              false,
-              readCache);
-    } else {
-      // Load-of-existing pageIndex on a committed file. The page is already
-      // visible to the cache, so we install the per-page write lock the same
-      // way loadPageForWrite would.
-      // - Disk engine (LockFreeReadCache): loadOrAddForWrite is total after Track 1
-      //   (data.compute -> WriteCache.loadOrAdd). The returned entry comes back
-      //   write-locked. We release the exclusive lock immediately so the delegate's
-      //   lifecycle matches loadPageForWrite (usages-incremented overlay reference,
-      //   no caller-visible write lock); the real write lock is re-acquired by
-      //   commitChanges at apply time. The dirty-pages-table entry that
-      //   loadOrAddForWrite installs (with null startLSN -> writeAheadLog.end())
-      //   is harmless and idempotent via putIfAbsent.
-      // - In-memory engine (DirectMemoryOnlyDiskCache): loadOrAddForWrite returns
-      //   null on miss (the read-cache wrapper is deliberately non-total there to
-      //   preserve "page does not exist" semantics for diagnostic callers). We
-      //   fall back to the WriteCache.loadOrAdd primitive which IS total on this
-      //   engine and installs the page in MemoryFile. After install, the commit-time
-      //   loadOrAddForWrite call (in commitChanges) will find the page via
-      //   MemoryFile.loadPage, so the legacy allocateNewPage reconciliation
-      //   fallback becomes structurally dead.
-      CacheEntry resolved =
-          readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, false, null);
-      if (resolved != null) {
-        resolved.releaseExclusiveLock();
-      } else {
-        // In-memory engine fallback. Use the WriteCache primitive to install
-        // the page; wrap the returned CachePointer in a CacheEntryImpl with the
-        // same shape as a loadForRead-acquired entry (no exclusive lock held).
-        final var pointer = writeCache.loadOrAdd(fileId, pageIndex, false);
-        assert pointer != null
-            : "WriteCache.loadOrAdd returned null for fileId=" + fileId
-                + " pageIndex=" + pageIndex + " (totality contract violated)";
-        // DirectMemoryOnlyDiskCache.loadOrAdd bumps the pointer's readers-referrer
-        // count by 1 for the caller (per MemoryFile.loadOrAddPage's contract). Our
-        // CacheEntryImpl(insideCache=false) wrapper is released through
-        // ReadCache.releaseFromRead -> DirectMemoryOnlyDiskCache.doRelease, which only
-        // manipulates usagesCount and never decrements readers-referrer (in contrast
-        // to LockFreeReadCache.releaseFromRead, whose !insideCache branch DOES). If we
-        // kept the bump, every page allocated through this fallback would leak a
-        // readers-referrer reference, and MemoryFile.clear (on deleteFile / truncate /
-        // storage drop) would observe referrer > 1, preventing the page frame from
-        // returning to the pool. Decrement immediately to balance: the page stays
-        // resident because MemoryFile.installEmptyPage already holds the in-cache
-        // referrer (count = 1 after this decrement), so subsequent commit-time
-        // loadOrAddForWrite still finds the page via MemoryFile.loadPage.
-        pointer.decrementReadersReferrer();
-        resolved = new CacheEntryImpl(fileId, (int) pageIndex, pointer, false, readCache);
-      }
-      delegate = resolved;
+    // Allocator-only contract: the caller must target a genuinely new pageIndex.
+    // Existing pages must go through loadPageForWrite, which preserves the WAL change
+    // buffer's single-accumulator invariant. We let the early-return above absorb
+    // idempotent repeat calls so the per-component allocator can re-enter without
+    // tripping this guard — anything that reaches here is a fresh slot.
+    if (!isNew) {
+      throw new IllegalStateException(
+          "loadOrAddPageForWrite is allocation-only; pageIndex " + pageIndex
+              + " is below committed filledUpTo " + committedFilledUpTo
+              + " on fileId " + fileId
+              + ". Use loadPageForWrite for existing pages.");
     }
+
+    // Stub-shape delegate: null native pointer so multi-access in the same TX stays a
+    // no-op on the cache's usage counter (releasePageFromWrite gates the release on
+    // a non-null buffer; commitChanges installs the real CachePointer at apply time).
+    final var delegate =
+        new CacheEntryImpl(
+            fileId,
+            (int) pageIndex,
+            new CachePointer((Pointer) null, null, fileId, (int) pageIndex),
+            false,
+            readCache);
+    assert delegate.getCachePointer().getBuffer() == null
+        : "stub-shape delegate must carry a null buffer for fresh allocations";
+
+    final var changes = new CacheEntryChanges(false, this);
+    changes.isNew = true;
     changes.delegate = delegate;
 
     // Bookkeeping: place the overlay entry in the page-changes map keyed by the
     // actual pageIndex (no prediction), and bump maxNewPageIndex so the in-progress
-    // visibility horizon consulted by loadPageForWrite / loadPageForRead /
-    // hasChangesForPage at AOBT:233/:282/:428 stays consistent for fresh allocations.
-    // Mirror addPage's pre-insert invariant (AOBT:358): per-component lock contract
-    // promises a single in-TX allocator for each (fileId, pageIndex), so the slot must
-    // be empty at this point — the early-return for existing entries above already
-    // covers the idempotent-call shape.
+    // visibility horizon stays consistent with the new allocation. The pre-insert
+    // assert mirrors legacy addPage's invariant — the per-component lock contract
+    // promises a single in-TX allocator for each (fileId, pageIndex), and the
+    // idempotent-call shape is already covered by the early-return above.
     assert changesContainer.pageChangesMap.get(pageIndex) == null
         : "pageChangesMap already contains pageIndex=" + pageIndex
             + " — concurrent loadOrAddPageForWrite for the same (fileId, pageIndex)"
             + " inside a single AtomicOperation; per-component lock contract violated";
     changesContainer.pageChangesMap.put(pageIndex, changes);
-    if (isNew && pageIndex > changesContainer.maxNewPageIndex) {
+    if (pageIndex > changesContainer.maxNewPageIndex) {
       changesContainer.maxNewPageIndex = pageIndex;
     }
 

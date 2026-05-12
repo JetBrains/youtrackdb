@@ -8,7 +8,6 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -29,21 +28,19 @@ import org.junit.Test;
 
 /**
  * Verifies the new {@link AtomicOperation#loadOrAddPageForWrite(long, long)} method on
- * {@link AtomicOperationBinaryTracking}: dual-engine dispatch, bookkeeping, and idempotency.
+ * {@link AtomicOperationBinaryTracking}: allocator contract, bookkeeping, and idempotency.
  *
  * <p>The method is the write-side allocator that replaces today's {@code addPage(long)} —
  * callers state the target {@code pageIndex} up front (typically derived from
- * {@code entryPoint.pagesSize + 1}) instead of letting the cache pick the index. The
- * tests below exercise both engine paths via the {@link ReadCache} mock seam:
- * <ul>
- *   <li>Disk engine ({@code LockFreeReadCache}) — {@code loadOrAddForWrite} returns a
- *       non-null write-locked entry; the new method must release the exclusive lock so
- *       the delegate matches {@code loadPageForWrite}'s overlay lifecycle.</li>
- *   <li>In-memory engine ({@code DirectMemoryOnlyDiskCache}) — {@code loadOrAddForWrite}
- *       returns {@code null}; the new method falls back to {@code WriteCache.loadOrAdd}
- *       which is total on the in-memory engine and installs the page in {@code MemoryFile}
- *       so the commit-time {@code loadOrAddForWrite} finds it.</li>
- * </ul>
+ * {@code entryPoint.pagesSize + 1}) instead of letting the cache pick the index. It is
+ * allocator-only: the caller must target a genuinely new pageIndex (fresh-booked file,
+ * or {@code pageIndex >= writeCache.getFilledUpTo}), and asking for an existing page
+ * raises {@link IllegalStateException}. Use {@link AtomicOperation#loadPageForWrite}
+ * to mutate an existing page.
+ *
+ * <p>The returned overlay is always stub-shaped on both engines: the delegate wraps a
+ * {@link CachePointer} with a null native pointer, and the real cache slot is
+ * materialized at commit time inside {@code commitChanges}'s pageChangesMap replay loop.
  */
 public class LoadOrAddPageForWriteTest {
 
@@ -74,179 +71,42 @@ public class LoadOrAddPageForWriteTest {
   }
 
   // ---------------------------------------------------------------------------
-  // Disk-engine path: loadOrAddForWrite is total and returns a write-locked
-  // entry; loadOrAddPageForWrite must release the exclusive lock and wrap.
+  // Allocator contract: callers must target a genuinely new pageIndex.
   // ---------------------------------------------------------------------------
 
   /**
-   * On the disk engine, {@code loadOrAddForWrite} returns a non-null write-locked entry.
-   * The new method must release the exclusive lock on the delegate (so subsequent
-   * AOBT lifecycle code, which expects a usages-incremented overlay reference rather
-   * than a write-locked one, can run without double-release surprises) and wrap the
-   * delegate in a {@link CacheEntryChanges}.
+   * The method is allocator-only — asking for a pageIndex that already exists in the
+   * committed file must throw {@link IllegalStateException}. The error message must name
+   * the offending pageIndex, the committed filledUpTo, and the fileId so a regression
+   * (e.g., an unrelated guard firing) is distinguishable from this contract violation,
+   * and so the message points the caller at the right alternative ({@code loadPageForWrite}
+   * for existing pages). The guard rules out a class of bugs where a stale
+   * {@code entryPoint.pagesSize} read would point at a page that is already on disk.
    */
   @Test
-  public void diskEngineDelegatesToLoadOrAddForWriteAndReleasesExclusiveLock()
-      throws IOException {
+  public void loadOrAddPageForWriteThrowsForExistingPage() {
     long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
-    long pageIndex = 5;
+    when(writeCache.getFilledUpTo(fileId)).thenReturn(10L); // 10 pages on disk
 
-    // Disk-engine semantics: existing file, getFilledUpTo returns the
-    // committed logical size; loadOrAddForWrite returns a real entry.
-    when(writeCache.getFilledUpTo(fileId)).thenReturn(10L);
-    var delegate = mockCacheEntry(fileId, (int) pageIndex);
-    when(readCache.loadOrAddForWrite(
-        eq(fileId), eq(pageIndex), eq(writeCache), eq(false), any()))
-        .thenReturn(delegate);
-
-    var entry = op.loadOrAddPageForWrite(fileId, pageIndex);
-
-    assertThat(entry).isInstanceOf(CacheEntryChanges.class);
-    var changes = (CacheEntryChanges) entry;
-    assertThat(changes.getDelegate()).isSameAs(delegate);
-    // isNew=false because pageIndex (5) is below committed filledUpTo (10).
-    assertThat(changes.isNew).isFalse();
-    // Exclusive lock acquired by loadOrAddForWrite must be released so the
-    // delegate's lifecycle matches loadPageForWrite (overlay reference, no
-    // caller-visible write lock).
-    verify(delegate).releaseExclusiveLock();
-    // The in-memory fallback (writeCache.loadOrAdd) must NOT fire on the
-    // disk-engine path.
-    verify(writeCache, never()).loadOrAdd(anyLong(), anyLong(), anyBoolean());
-  }
-
-  /**
-   * On the disk engine, allocating a page beyond the committed file size sets the
-   * {@code isNew} flag on the returned overlay so commitChanges can classify the
-   * page as freshly allocated (and the read-cache layer flags it for the dirty-pages
-   * publication).
-   */
-  @Test
-  public void diskEngineMarksIsNewWhenPageIndexExtendsBeyondFilledUpTo()
-      throws IOException {
-    long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
-    long pageIndex = 10; // == filledUpTo, i.e. the one-page-extend target
-
-    when(writeCache.getFilledUpTo(fileId)).thenReturn(10L);
-    var delegate = mockCacheEntry(fileId, (int) pageIndex);
-    when(readCache.loadOrAddForWrite(
-        eq(fileId), eq(pageIndex), eq(writeCache), eq(false), any()))
-        .thenReturn(delegate);
-
-    var entry = (CacheEntryChanges) op.loadOrAddPageForWrite(fileId, pageIndex);
-
-    assertThat(entry.isNew).isTrue();
-  }
-
-  // ---------------------------------------------------------------------------
-  // In-memory-engine path: loadOrAddForWrite is non-total (null on miss); the
-  // new method falls back to writeCache.loadOrAdd and wraps the CachePointer.
-  // ---------------------------------------------------------------------------
-
-  /**
-   * On the in-memory engine, {@code ReadCache.loadOrAddForWrite} returns {@code null}
-   * on miss (the read-cache wrapper is deliberately non-total there). The new method
-   * must fall back to {@code WriteCache.loadOrAdd} (total on the in-memory engine),
-   * wrap the returned {@link CachePointer} in a fresh {@link CacheEntry}, and return
-   * the {@link CacheEntryChanges} overlay. The fallback installs the page in
-   * MemoryFile so the commit-time {@code loadOrAddForWrite} finds it via
-   * {@code MemoryFile.loadPage}.
-   *
-   * <p>Crucially, {@code WriteCache.loadOrAdd} bumps the pointer's readers-referrer
-   * count by 1 for the caller (per
-   * {@code DirectMemoryOnlyDiskCache.loadOrAdd}'s Javadoc), and our
-   * {@code CacheEntryImpl(insideCache=false)} wrapper is released through
-   * {@code DirectMemoryOnlyDiskCache.releaseFromRead} which only manipulates
-   * {@code usagesCount} and never touches readers-referrer. The fallback must
-   * therefore call {@code pointer.decrementReadersReferrer()} once before returning
-   * to balance the bump — otherwise every page allocated through this path leaks a
-   * readers-referrer reference and {@code MemoryFile.clear} (on deleteFile / drop)
-   * cannot return the underlying page frame to the pool. This test pins both the
-   * fallback firing once and the balancing decrement firing once.
-   */
-  @Test
-  public void inMemoryEngineFallsBackToWriteCacheLoadOrAddOnNullReturn()
-      throws IOException {
-    long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
-    long pageIndex = 3; // existing pageIndex below committed filledUpTo
-
-    // In-memory semantics on an existing committed file: getFilledUpTo > pageIndex
-    // keeps the isNew classification false, so the new method takes the cache-install
-    // branch (not the legacy null-Pointer stub branch). The read-cache wrapper
-    // returns null because the page is not in MemoryFile yet — the in-memory engine
-    // only stages pages on writeCache.loadOrAdd.
-    when(writeCache.getFilledUpTo(fileId)).thenReturn(10L);
-    when(readCache.loadOrAddForWrite(
-        eq(fileId), eq(pageIndex), eq(writeCache), eq(false), any()))
-        .thenReturn(null);
-    var pointer = mock(CachePointer.class);
-    when(writeCache.loadOrAdd(fileId, pageIndex, false)).thenReturn(pointer);
-
-    var entry = (CacheEntryChanges) op.loadOrAddPageForWrite(fileId, pageIndex);
-
-    // Wrap delegate exists and exposes the installed CachePointer.
-    assertThat(entry.getDelegate().getCachePointer()).isSameAs(pointer);
-    // isNew=false because pageIndex (3) < committed filledUpTo (10).
-    assertThat(entry.isNew).isFalse();
-    // Fallback fired exactly once.
-    verify(writeCache, times(1)).loadOrAdd(fileId, pageIndex, false);
-    // The readers-referrer bump from WriteCache.loadOrAdd must be balanced by a
-    // single decrement on the returned pointer; without this, every fallback
-    // allocation leaks a readers reference and MemoryFile.clear cannot return
-    // the underlying page frame to the pool.
-    verify(pointer, times(1)).decrementReadersReferrer();
-  }
-
-  /**
-   * BC1 regression: multiple fallback allocations in the same TX must each balance
-   * their readers-referrer bump. A net-zero invariant on N allocations is the
-   * arithmetic the page-frame pool depends on: {@code WriteCache.loadOrAdd} bumps
-   * once per call, the wrapper's {@code releaseFromRead} never touches readers,
-   * so the only path back to a balanced count is the explicit decrement inside
-   * {@code loadOrAddPageForWrite}'s in-memory fallback. Loop-style allocation
-   * (e.g., {@code FreeSpaceMap.updatePageFreeSpace}'s growth loop) is the most
-   * likely real-world amplifier of the original leak.
-   */
-  @Test
-  public void inMemoryFallbackBalancesReferrerOnEveryCall() throws IOException {
-    long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
-    int allocations = 8;
-
-    // Existing file (committed to the storage): getFilledUpTo > 0 so the
-    // changesContainer.isNew sentinel stays false and the in-memory fallback
-    // path is exercised. Fresh-booked files take a different branch (no read
-    // cache interaction — see freshBookedFileSkipsReadCacheUntilCommit below).
-    when(writeCache.getFilledUpTo(fileId)).thenReturn((long) allocations);
-    when(readCache.loadOrAddForWrite(
-        anyLong(), anyLong(), any(), anyBoolean(), any()))
-        .thenReturn(null);
-    var pointer = mock(CachePointer.class);
-    when(writeCache.loadOrAdd(eq(fileId), anyLong(), eq(false)))
-        .thenReturn(pointer);
-
-    for (int i = 0; i < allocations; i++) {
-      op.loadOrAddPageForWrite(fileId, i);
-    }
-
-    // Bump-and-decrement parity: N calls to writeCache.loadOrAdd produce exactly
-    // N decrements on the returned pointer. The shared mock pointer collapses
-    // the count to a single invocation total, which is the load-bearing
-    // arithmetic — the production fix is a single decrement per fallback hit.
-    verify(writeCache, times(allocations)).loadOrAdd(eq(fileId), anyLong(), eq(false));
-    verify(pointer, times(allocations)).decrementReadersReferrer();
+    assertThatThrownBy(() -> op.loadOrAddPageForWrite(fileId, 5L))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("allocation-only")
+        .hasMessageContaining("5")
+        .hasMessageContaining("10");
   }
 
   /**
    * Fresh-booked files (just allocated via {@link AtomicOperation#addFile})
    * cannot install pages in the read cache because the underlying file is not
    * yet registered — {@code readCache.addFile} runs in {@code commitChanges}
-   * only. The new method must therefore mirror legacy {@code addPage}'s shape
-   * for fresh files: a {@link CacheEntryImpl} wrapping a {@link CachePointer}
-   * with a {@code null} native pointer, queued in {@code pageChangesMap} so the
+   * only. The new method must therefore use a stub-shape delegate for every
+   * allocation: a {@link CacheEntryImpl} wrapping a {@code CachePointer} with a
+   * {@code null} native pointer, queued in {@code pageChangesMap} so the
    * commit-time loop installs the real page after {@code readCache.addFile}
    * fires. This test pins that branch — no {@code readCache.loadOrAddForWrite}
    * call and no {@code writeCache.loadOrAdd} fallback fire, but the
-   * bookkeeping (overlay, {@code isNew}, {@code maxNewPageIndex}) still updates.
+   * bookkeeping (overlay, {@code isNew}, {@code maxNewPageIndex},
+   * {@code pageChangesMap}) still updates.
    */
   @Test
   public void freshBookedFileSkipsReadCacheUntilCommit() throws IOException {
@@ -257,18 +117,49 @@ public class LoadOrAddPageForWriteTest {
 
     var entry = (CacheEntryChanges) op.loadOrAddPageForWrite(fileId, 0);
 
-    // Stub-shape delegate: pageIndex matches, CachePointer has no native Pointer
-    // (the commit loop fills it in once readCache.addFile registers the file).
+    // Stub-shape delegate: pageIndex matches, the CachePointer's ByteBuffer is null
+    // (the commit loop fills the real page in once readCache.addFile registers the
+    // file). releasePageFromWrite at AOBT:551 gates the cache release on this exact
+    // accessor — pinning getBuffer() here is the load-bearing contract.
     assertThat(entry.getPageIndex()).isEqualTo(0);
-    assertThat(entry.getDelegate().getCachePointer().getPointer()).isNull();
+    assertThat(entry.getDelegate().getCachePointer().getBuffer()).isNull();
     // Fresh-file allocations are always isNew=true regardless of pageIndex.
     assertThat(entry.isNew).isTrue();
+    // pageChangesMap registration is what commitChanges iterates; cover via the
+    // visible SPI (hasChangesForPage queries the same map on the new-file path).
+    assertThat(op.hasChangesForPage(fileId, 0)).isTrue();
+    assertThat(op.loadOrAddPageForWrite(fileId, 0)).isSameAs(entry);
     // Bookkeeping: maxNewPageIndex bumped, filledUpTo follows.
     assertThat(op.filledUpTo(fileId)).isEqualTo(1L);
     // Neither cache primitive should have been touched on the fresh-booked path.
     verify(readCache, never())
         .loadOrAddForWrite(anyLong(), anyLong(), any(), anyBoolean(), any());
     verify(writeCache, never()).loadOrAdd(anyLong(), anyLong(), anyBoolean());
+  }
+
+  /**
+   * Idempotency on the fresh-booked file path: a second call for the same
+   * {@code (fileId, pageIndex)} must return the previously-registered overlay,
+   * and must not double-bump {@code maxNewPageIndex} or overwrite the
+   * {@code pageChangesMap} entry. The early-return in
+   * {@link AtomicOperation#loadOrAddPageForWrite} is what makes the SLBB
+   * two-page recipe safe — re-entering with the same pagesSize-derived
+   * pageIndex must produce the same overlay, not a fresh one that would
+   * silently merge writes from two distinct allocations.
+   */
+  @Test
+  public void secondCallReturnsExistingOverlayOnFreshBookedFile() throws IOException {
+    long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
+    when(writeCache.bookFileId("fresh.dat")).thenReturn(fileId);
+    op.addFile("fresh.dat");
+
+    var first = op.loadOrAddPageForWrite(fileId, 0);
+    long filledAfterFirst = op.filledUpTo(fileId);
+    var second = op.loadOrAddPageForWrite(fileId, 0);
+
+    assertThat(second).isSameAs(first);
+    // No second maxNewPageIndex bump and no pageChangesMap overwrite.
+    assertThat(op.filledUpTo(fileId)).isEqualTo(filledAfterFirst);
   }
 
   // ---------------------------------------------------------------------------
@@ -307,55 +198,18 @@ public class LoadOrAddPageForWriteTest {
   }
 
   // ---------------------------------------------------------------------------
-  // Idempotency: a second call for the same (fileId, pageIndex) inside the same
-  // TX must return the same overlay so WAL change accumulation stays single-rooted.
+  // Cross-API idempotency: loadPageForWrite then loadOrAddPageForWrite for the
+  // same (fileId, pageIndex) must collapse to a single overlay.
   // ---------------------------------------------------------------------------
-
-  /**
-   * A second call to {@code loadOrAddPageForWrite} for the same {@code (fileId,
-   * pageIndex)} inside the same TX must return the same {@link CacheEntryChanges}
-   * overlay so WAL change accumulation in {@code changes} stays single-rooted —
-   * if two overlays existed, half of the writes would go to one and half to the
-   * other, and only one would be applied at commit time. The second call must also
-   * not re-trigger the side effects of the first allocation: the delegate's
-   * exclusive lock must not be released a second time (which would underflow the
-   * lock counter), and the in-progress visibility horizon (filledUpTo) must not
-   * advance because no new pageIndex was allocated.
-   */
-  @Test
-  public void secondCallReturnsExistingOverlay() throws IOException {
-    long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
-    long pageIndex = 3;
-
-    when(writeCache.getFilledUpTo(fileId)).thenReturn(10L);
-    var delegate = mockCacheEntry(fileId, (int) pageIndex);
-    when(readCache.loadOrAddForWrite(
-        eq(fileId), eq(pageIndex), eq(writeCache), eq(false), any()))
-        .thenReturn(delegate);
-
-    var first = op.loadOrAddPageForWrite(fileId, pageIndex);
-    var filledUpToAfterFirst = op.filledUpTo(fileId);
-    var second = op.loadOrAddPageForWrite(fileId, pageIndex);
-
-    assertThat(second).isSameAs(first);
-    // Cache primitive consulted only on the first call; the second hits the
-    // pageChangesMap idempotency check.
-    verify(readCache, times(1)).loadOrAddForWrite(
-        eq(fileId), eq(pageIndex), eq(writeCache), eq(false), any());
-    // The delegate's exclusive lock is released exactly once (during the first
-    // call's allocation); the second call's early-return must not re-release it.
-    verify(delegate, times(1)).releaseExclusiveLock();
-    // filledUpTo unchanged across the second call — no extra bookkeeping fired.
-    assertThat(op.filledUpTo(fileId)).isEqualTo(filledUpToAfterFirst);
-  }
 
   /**
    * Cross-API idempotency: a {@code loadPageForWrite} that registers a
    * {@link CacheEntryChanges} in {@code pageChangesMap} must be observed by a
    * subsequent {@code loadOrAddPageForWrite} for the same {@code (fileId,
    * pageIndex)}. The new method's early-return short-circuits engine dispatch
-   * entirely so the underlying read-cache primitive
-   * ({@code readCache.loadOrAddForWrite}) is never consulted on the second call.
+   * entirely, so the allocator-only contract never fires on the second call
+   * even though the pageIndex is below {@code committedFilledUpTo} — the
+   * existing overlay placed by {@code loadPageForWrite} takes precedence.
    * This is the most likely real-world ordering once Step 2-3 component
    * migrations land: a component first loads a known page for write, then later
    * in the same TX needs to ensure a page exists (re-entering the same overlay).
@@ -375,10 +229,9 @@ public class LoadOrAddPageForWriteTest {
     var second = op.loadOrAddPageForWrite(fileId, pageIndex);
 
     assertThat(second).isSameAs(first);
-    // The shared early-return inside loadOrAddPageForWrite short-circuits engine
-    // dispatch — the read-cache write-side primitive must never fire on the
-    // second call because the pageChangesMap already holds an overlay placed
-    // there by loadPageForWrite.
+    // The early-return short-circuits the allocator-only guard; if it did not, the
+    // pageIndex (7) being below committed filledUpTo (20) would have raised
+    // IllegalStateException. Cache primitive must never fire on the second call.
     verify(readCache, never()).loadOrAddForWrite(
         anyLong(), anyLong(), any(), anyBoolean(), any());
   }
@@ -394,9 +247,9 @@ public class LoadOrAddPageForWriteTest {
    * (extends beyond the committed horizon), {@code filledUpTo} must advance to
    * {@code 11} (the new in-progress horizon), and {@code hasChangesForPage} must
    * become {@code true} at the allocated index and {@code false} at the next
-   * index (the boundary). The disk-engine path is exercised here so this test
-   * sits next to the existing fresh-file bookkeeping coverage and pins the
-   * extend case the {@code addPage} replacement is most likely to fail on.
+   * index (the boundary). The stub-shape delegate carries a null
+   * {@code CachePointer} buffer, same as the fresh-file path — the real cache slot
+   * is materialized at commit time.
    */
   @Test
   public void extendsExistingFileBumpsFilledUpToAndFlagsIsNew() throws IOException {
@@ -408,13 +261,11 @@ public class LoadOrAddPageForWriteTest {
     // committedFilledUpTo from the write cache is 10 → allocating pageIndex=10
     // is the extend case.
     when(writeCache.getFilledUpTo(fileId)).thenReturn(10L);
-    var delegate = mockCacheEntry(fileId, (int) pageIndex);
-    when(readCache.loadOrAddForWrite(
-        eq(fileId), eq(pageIndex), eq(writeCache), eq(false), any()))
-        .thenReturn(delegate);
 
     var entry = (CacheEntryChanges) op.loadOrAddPageForWrite(fileId, pageIndex);
 
+    // Stub-shape delegate: null buffer (commit-time install handles the cache slot).
+    assertThat(entry.getDelegate().getCachePointer().getBuffer()).isNull();
     // isNew=true because pageIndex (10) >= committedFilledUpTo (10).
     assertThat(entry.isNew).isTrue();
     // filledUpTo advanced to maxNewPageIndex + 1 = 11.
@@ -422,6 +273,10 @@ public class LoadOrAddPageForWriteTest {
     // The allocated index has changes; the next one (the boundary) does not.
     assertThat(op.hasChangesForPage(fileId, pageIndex)).isTrue();
     assertThat(op.hasChangesForPage(fileId, pageIndex + 1)).isFalse();
+    // The read-cache write primitive must not fire under the allocator-only contract.
+    verify(readCache, never()).loadOrAddForWrite(
+        anyLong(), anyLong(), any(), anyBoolean(), any());
+    verify(writeCache, never()).loadOrAdd(anyLong(), anyLong(), anyBoolean());
   }
 
   // ---------------------------------------------------------------------------

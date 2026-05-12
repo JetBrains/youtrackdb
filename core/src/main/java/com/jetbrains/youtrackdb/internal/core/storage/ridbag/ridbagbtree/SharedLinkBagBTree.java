@@ -63,10 +63,10 @@ public final class SharedLinkBagBTree extends StorageComponent {
               entryPoint.init();
             }
 
-            // Fresh file: root bucket lives at pageIndex 1, immediately after the
-            // entry point page.
+            // Fresh file: root bucket lives at pageIndex ROOT_INDEX, immediately
+            // after the entry point page.
             try (final var rootCacheEntry =
-                loadOrAddPageForWrite(atomicOperation, fileId, 1)) {
+                loadOrAddPageForWrite(atomicOperation, fileId, ROOT_INDEX)) {
               final var rootBucket = new Bucket(rootCacheEntry);
               rootBucket.init(true);
             }
@@ -1046,11 +1046,12 @@ public final class SharedLinkBagBTree extends StorageComponent {
     try (final var entryPointCacheEntry =
         loadPageForWrite(atomicOperation, fileId, ENTRY_POINT_INDEX, true)) {
       final var entryPoint = new EntryPoint(entryPointCacheEntry);
-      // Two-page allocation back-to-back. Each call must re-read
-      // entryPoint.getPagesSize() + 1 to target a fresh pageIndex; reusing one
-      // "pagesSize + 1" value would target the same pageIndex twice within a
-      // single transaction, tripping the fail-fast IllegalStateException
-      // Track 1 added to WOWCache.loadOrAdd (I4 invariant). A single
+      // Two-page allocation back-to-back. Each call must target a fresh
+      // pageIndex; reusing one "pagesSize + 1" value would hit the
+      // same-pageIndex early-return in
+      // AtomicOperationBinaryTracking#loadOrAddPageForWrite, returning the
+      // SAME overlay to both bucket entries and silently corrupting the
+      // left-bucket writes once the right-bucket init() ran. A single
       // setPagesSize at the end publishes the post-allocation horizon.
       final var leftPageIndex = entryPoint.getPagesSize() + 1;
       leftBucketEntry =
